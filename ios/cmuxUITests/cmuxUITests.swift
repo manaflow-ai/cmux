@@ -850,6 +850,12 @@ final class cmuxUITests: XCTestCase {
                             break
                         }
                         viewportProbe.swipeUp()
+                        _ = try XCTUnwrap(
+                            waitForFrame(of: finalButton, timeout: 2) { frame in
+                                abs(frame.minY - finalButtonFrame.minY) > 2
+                            },
+                            "The migration content did not move while revealing its bottom padding."
+                        )
                     }
                 }
 
@@ -879,8 +885,7 @@ final class cmuxUITests: XCTestCase {
                 )
                     .insetBy(dx: -1, dy: -1)
                 for (_, element) in localizedElements {
-                    guard element.isHittable,
-                          let frame = waitForUsableFrame(of: element, timeout: 2),
+                    guard let frame = waitForUsableFrame(of: element, timeout: 2),
                           viewportFrame.contains(frame)
                     else {
                         return false
@@ -903,10 +908,6 @@ final class cmuxUITests: XCTestCase {
                 var verticalPositions: [CGFloat] = []
 
                 for (name, element) in localizedElements {
-                    XCTAssertTrue(
-                        element.isHittable,
-                        "The \(localization.name) \(name) must be visible in \(orientation)."
-                    )
                     let frame = try XCTUnwrap(waitForUsableFrame(of: element, timeout: 2))
                     XCTAssertTrue(
                         visibleFrame.contains(frame),
@@ -946,14 +947,24 @@ final class cmuxUITests: XCTestCase {
                 XCTAssertTrue(windowFrame.insetBy(dx: -1, dy: -1).contains(viewportFrame))
 
                 for (name, element) in localizedElements {
-                    for _ in 0..<8 where !element.isHittable {
+                    var frame = try XCTUnwrap(waitForUsableFrame(of: element, timeout: 2))
+                    for _ in 0..<8 {
+                        if visibleFrame.contains(frame) {
+                            break
+                        }
+                        let frameBeforeSwipe = frame
                         viewportProbe.swipeUp()
+                        frame = try XCTUnwrap(
+                            waitForFrame(of: element, timeout: 2) { updatedFrame in
+                                abs(updatedFrame.minY - frameBeforeSwipe.minY) > 2
+                            },
+                            "The \(localization.name) content did not move while revealing \(name) in landscape."
+                        )
                     }
                     XCTAssertTrue(
-                        element.isHittable,
+                        visibleFrame.contains(frame),
                         "The \(localization.name) \(name) was not reachable in landscape."
                     )
-                    let frame = try XCTUnwrap(waitForUsableFrame(of: element, timeout: 2))
                     XCTAssertTrue(
                         visibleFrame.contains(frame),
                         "The visible \(localization.name) \(name) escaped the landscape viewport."
@@ -1039,23 +1050,36 @@ final class cmuxUITests: XCTestCase {
                     element.waitForExistence(timeout: 2),
                     "Expected \(elementName) in the \(name) accessibility hierarchy."
                 )
-                for _ in 0..<8 where !element.isHittable {
-                    viewportProbe.swipeUp()
-                }
-                XCTAssertTrue(
-                    element.isHittable,
-                    "Expected \(elementName) to become visibly reachable by scrolling in \(name)."
-                )
-                let viewportFrame = try XCTUnwrap(
+                var viewportFrame = try XCTUnwrap(
                     waitForUsableFrame(of: viewportProbe, timeout: 2)
                 ).insetBy(dx: -1, dy: -1)
-                let elementFrame = try XCTUnwrap(waitForUsableFrame(of: element, timeout: 2))
+                var elementFrame = try XCTUnwrap(waitForUsableFrame(of: element, timeout: 2))
+                for _ in 0..<8 {
+                    if viewportFrame.contains(elementFrame) {
+                        break
+                    }
+                    let frameBeforeSwipe = elementFrame
+                    viewportProbe.swipeUp()
+                    elementFrame = try XCTUnwrap(
+                        waitForFrame(of: element, timeout: 2) { updatedFrame in
+                            abs(updatedFrame.minY - frameBeforeSwipe.minY) > 2
+                        },
+                        "The migration content did not move while revealing \(elementName) in \(name)."
+                    )
+                    viewportFrame = try XCTUnwrap(
+                        waitForUsableFrame(of: viewportProbe, timeout: 2)
+                    ).insetBy(dx: -1, dy: -1)
+                }
                 XCTAssertTrue(
                     viewportFrame.contains(elementFrame),
-                    "Expected \(elementName) to remain inside the \(name) viewport."
+                    "Expected \(elementName) to become visibly reachable inside the \(name) viewport."
                 )
             }
 
+            try reveal(
+                title,
+                named: "the migration title"
+            )
             try reveal(
                 app.staticTexts["MobileAutoConnectMigrationBody"],
                 named: "the Auto-Connect explanation"
@@ -1085,6 +1109,12 @@ final class cmuxUITests: XCTestCase {
                     break
                 }
                 viewportProbe.swipeUp()
+                _ = try XCTUnwrap(
+                    waitForFrame(of: finalButton, timeout: 2) { frame in
+                        abs(frame.minY - finalButtonFrame.minY) > 2
+                    },
+                    "The accessibility content did not move while revealing bottom padding in \(name)."
+                )
             }
             let viewportFrame = try XCTUnwrap(
                 waitForUsableFrame(of: viewportProbe, timeout: 4)
