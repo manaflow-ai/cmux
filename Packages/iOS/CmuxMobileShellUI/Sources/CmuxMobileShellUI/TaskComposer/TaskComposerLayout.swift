@@ -51,6 +51,8 @@ struct TaskComposerLayout: View {
         // recreating the prompt editor or its focus state.
         .ignoresSafeArea(.container, edges: .bottom)
         .ignoresSafeArea(.keyboard, edges: .bottom)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("MobileTaskComposerKeyboardDock")
         .navigationTitle(navigationTitle)
         .mobileInlineNavigationTitle()
         .toolbar {

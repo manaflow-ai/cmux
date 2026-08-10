@@ -2478,14 +2478,16 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(keyboard.waitForExistence(timeout: 3))
         let options = app.buttons["MobileTaskComposerOptionsButton"]
         let submit = app.buttons["MobileTaskComposerSubmitButton"]
+        let keyboardDock = app.otherElements["MobileTaskComposerKeyboardDock"]
         let accessoryBar = app.otherElements["MobileTaskComposerAccessoryBar"]
         XCTAssertTrue(options.waitForExistence(timeout: 3))
         XCTAssertTrue(submit.waitForExistence(timeout: 3))
+        XCTAssertTrue(keyboardDock.waitForExistence(timeout: 3))
         XCTAssertTrue(accessoryBar.waitForExistence(timeout: 3))
 
         let controlToKeyboardGap = keyboard.frame.minY - submit.frame.maxY
         print(
-            "MPILL_DOCK_XCUI accessory=\(accessoryBar.frame) "
+            "MPILL_DOCK_XCUI dock=\(keyboardDock.frame) accessory=\(accessoryBar.frame) "
                 + "submit=\(submit.frame) keyboard=\(keyboard.frame)"
         )
         XCTAssertGreaterThanOrEqual(
