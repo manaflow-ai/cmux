@@ -24086,6 +24086,50 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn exited_terminal_receipt_survives_later_terminal_projection() {
+        const EXITED_TERMINAL: &str = "0000000000004000800000000000004c";
+        const EXITED_INCARNATION: &str = "1000000000004000800000000000004c";
+        const LATER_TERMINAL: &str = "0000000000004000800000000000004d";
+        const LATER_INCARNATION: &str = "1000000000004000800000000000004d";
+        let mux = test_mux();
+        let workspace = mux
+            .create_empty_workspace(
+                Some("retained-exit".into()),
+                Some("018f6e21-7b70-7e70-8000-00000000104c".into()),
+                None,
+            )
+            .unwrap();
+        mux.seed_running_terminal_for_test(EXITED_TERMINAL, EXITED_INCARNATION, &workspace.key)
+            .unwrap();
+        let exited_id = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .terminal_resource_id(EXITED_TERMINAL)
+            .unwrap()
+            .unwrap();
+        let exit = TerminalExit {
+            outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 17 },
+            exited_at_ms: 9_876_543,
+        };
+        assert!(mux.persist_terminal_exit_for_test(&exited_id, &exit).unwrap());
+        let expected = mux.wait_for_terminal_exit(&exited_id, Some(Duration::ZERO)).unwrap();
+
+        mux.seed_running_terminal_for_test(LATER_TERMINAL, LATER_INCARNATION, &workspace.key)
+            .unwrap();
+
+        assert_eq!(
+            mux.wait_for_terminal_exit(&exited_id, Some(Duration::ZERO)).unwrap(),
+            expected,
+            "a later terminal projection deleted an unrelated exit receipt"
+        );
+        let retained = mux.resolve_terminal(EXITED_TERMINAL).unwrap().unwrap();
+        assert_eq!(retained.surface, None);
+        assert_eq!(retained.terminal.lifecycle, TerminalLifecycle::Exited);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn hosted_terminal_exit_selects_live_tab_and_duplicate_exit_is_idempotent() {
         const TERMINAL: &str = "0000000000004000800000000000003d";
         const INCARNATION: &str = "1000000000004000800000000000003d";
