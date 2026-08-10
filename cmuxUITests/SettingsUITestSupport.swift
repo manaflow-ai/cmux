@@ -143,3 +143,49 @@ class SettingsUITestCase: XCTestCase {
         )
     }
 }
+
+/// User-visible regression coverage for Settings window presentation. This
+/// deliberately drives native full screen before opening Settings: a plain
+/// `window.exists` assertion can pass for a window stranded on another Space,
+/// so the test also requires both windows to remain hittable and proves that
+/// Cmd+W is delivered to Settings rather than the full-screen main window.
+final class SettingsWindowPresentationUITests: SettingsUITestCase {
+    func testCmdCommaPresentsKeySettingsOverFullScreenMainWindow() {
+        let app = makeLaunchedApp()
+        let mainWindow = app.windows.firstMatch
+        let initialFrame = mainWindow.frame
+
+        app.typeKey("f", modifierFlags: [.command, .control])
+        XCTAssertTrue(
+            poll(timeout: 12.0) {
+                let frame = mainWindow.frame
+                return frame.width > initialFrame.width + 20
+                    || frame.height > initialFrame.height + 20
+            },
+            "Main window did not enter native full screen"
+        )
+        let fullScreenFrame = mainWindow.frame
+
+        app.typeKey(",", modifierFlags: .command)
+        let settingsWindow = app.windows["Settings"]
+        XCTAssertTrue(
+            poll(timeout: 8.0) {
+                settingsWindow.exists
+                    && settingsWindow.isHittable
+                    && mainWindow.isHittable
+            },
+            "Settings and the full-screen main window must share the active Space"
+        )
+        XCTAssertEqual(mainWindow.frame.width, fullScreenFrame.width, accuracy: 2)
+        XCTAssertEqual(mainWindow.frame.height, fullScreenFrame.height, accuracy: 2)
+
+        settingsWindow.typeKey("w", modifierFlags: .command)
+        XCTAssertTrue(
+            poll(timeout: 4.0) { !settingsWindow.exists },
+            "Cmd+W should close the key Settings window"
+        )
+        XCTAssertTrue(mainWindow.exists, "Closing Settings must not close the main window")
+        XCTAssertEqual(mainWindow.frame.width, fullScreenFrame.width, accuracy: 2)
+        XCTAssertEqual(mainWindow.frame.height, fullScreenFrame.height, accuracy: 2)
+    }
+}
