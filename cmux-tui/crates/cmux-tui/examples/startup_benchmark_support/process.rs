@@ -428,13 +428,17 @@ fn run_pty(
     let mut spawned = pair.spawn(command)?;
     let reader = spawned.master.try_clone_reader()?;
     let writer = Arc::new(Mutex::new(spawned.master.take_writer()?));
+    let process_tree = PtyProcessTree::from_spawned(&spawned);
     let killer = spawned.child.clone_killer();
     let (event_sender, event_receiver) = mpsc::channel();
     let writer_for_reader = writer.clone();
     let marker_bytes = marker.into_bytes();
-    let reader_thread = thread::Builder::new()
-        .name("startup-benchmark-pty-reader".into())
-        .spawn(move || read_pty(reader, writer_for_reader, marker_bytes, event_sender))?;
+    let (reader_sender, reader_receiver) = mpsc::channel();
+    let reader_thread =
+        thread::Builder::new().name("startup-benchmark-pty-reader".into()).spawn(move || {
+            let result = read_pty(reader, writer_for_reader, marker_bytes, event_sender);
+            let _ = reader_sender.send(result);
+        })?;
     let (status_sender, status_receiver) = mpsc::channel();
     let status_thread =
         thread::Builder::new().name("startup-benchmark-pty-wait".into()).spawn(move || {
@@ -443,8 +447,11 @@ fn run_pty(
         })?;
     let mut runtime = PtyRuntime {
         killer,
+        process_tree,
+        writer: Some(writer),
         status_receiver,
         status_thread: Some(status_thread),
+        reader_receiver,
         reader_thread: Some(reader_thread),
     };
 
@@ -470,12 +477,7 @@ fn run_pty(
     } else {
         PhaseMetric::default()
     };
-    let detach = (|| -> Result<()> {
-        let mut writer = writer.lock().map_err(|_| anyhow!("PTY writer lock poisoned"))?;
-        writer.write_all(b"\x02d")?;
-        writer.flush()?;
-        Ok(())
-    })();
+    let detach = runtime.write(b"\x02d");
     if let Err(error) = detach {
         return runtime.fail(error.context("detach interactive benchmark process"));
     }
@@ -812,25 +814,45 @@ struct PtyReadResult {
 
 struct PtyRuntime {
     killer: Box<dyn cmux_pty::ChildKiller + Send + Sync>,
+    process_tree: PtyProcessTree,
+    writer: Option<Arc<Mutex<Box<dyn Write + Send>>>>,
     status_receiver: mpsc::Receiver<io::Result<cmux_pty::ExitStatus>>,
     status_thread: Option<thread::JoinHandle<()>>,
-    reader_thread: Option<thread::JoinHandle<io::Result<PtyReadResult>>>,
+    reader_receiver: mpsc::Receiver<io::Result<PtyReadResult>>,
+    reader_thread: Option<thread::JoinHandle<()>>,
 }
 
 impl PtyRuntime {
+    fn write(&self, bytes: &[u8]) -> Result<()> {
+        let writer = self.writer.as_ref().context("PTY writer already closed")?;
+        let mut writer = writer.lock().map_err(|_| anyhow!("PTY writer lock poisoned"))?;
+        writer.write_all(bytes)?;
+        writer.flush()?;
+        Ok(())
+    }
+
+    fn terminate_tree(&mut self) -> io::Result<()> {
+        self.process_tree.terminate(self.killer.as_mut())
+    }
+
     fn finish(
         &mut self,
         terminate: bool,
         timeout: Duration,
     ) -> Result<(cmux_pty::ExitStatus, PtyReadResult, CompletionTimings)> {
+        // Close the harness writer before waiting. A full-tree termination then
+        // closes every slave handle and makes reader completion observable.
+        self.writer.take();
         let exit_started = Instant::now();
-        let mut kill_error = if terminate { self.killer.kill().err() } else { None };
+        let mut kill_error = if terminate { self.terminate_tree().err() } else { None };
+        let mut tree_termination_attempted = terminate;
         let mut timed_out = false;
         let status = match self.status_receiver.recv_timeout(timeout) {
             Ok(status) => status,
             Err(mpsc::RecvTimeoutError::Timeout) if !terminate => {
                 timed_out = true;
-                if let Err(error) = self.killer.kill() {
+                tree_termination_attempted = true;
+                if let Err(error) = self.terminate_tree() {
                     kill_error = Some(error);
                 }
                 match self.status_receiver.recv_timeout(PROCESS_TIMEOUT) {
@@ -861,18 +883,34 @@ impl PtyRuntime {
             .context("PTY wait thread already joined")?
             .join()
             .map_err(|_| anyhow!("PTY wait thread panicked"))?;
-        let reader = self
-            .reader_thread
+        let mut reader_timed_out = false;
+        let reader = match self.reader_receiver.recv_timeout(PROCESS_TIMEOUT) {
+            Ok(reader) => reader,
+            Err(mpsc::RecvTimeoutError::Timeout) if !tree_termination_attempted => {
+                reader_timed_out = true;
+                if let Err(error) = self.terminate_tree() {
+                    kill_error = Some(error);
+                }
+                self.reader_receiver
+                    .recv_timeout(PROCESS_TIMEOUT)
+                    .context("wait for PTY reader after full-tree termination")?
+            }
+            Err(error) => return Err(error).context("wait for PTY reader completion"),
+        }?;
+        self.reader_thread
             .take()
             .context("PTY reader thread already joined")?
             .join()
-            .map_err(|_| anyhow!("PTY reader panicked"))??;
+            .map_err(|_| anyhow!("PTY reader panicked"))?;
         let thread_join = join_started.elapsed();
         if let Some(error) = kill_error {
             return Err(error).context("kill interactive process during cleanup");
         }
         if timed_out {
             bail!("interactive process exceeded {timeout:?} after detach and was killed");
+        }
+        if reader_timed_out {
+            bail!("PTY reader exceeded {PROCESS_TIMEOUT:?} and required full-tree termination");
         }
         Ok((
             status.context("wait for interactive process")?,
@@ -885,6 +923,71 @@ impl PtyRuntime {
         match self.finish(true, PROCESS_TIMEOUT) {
             Ok(_) => Err(error),
             Err(cleanup) => Err(error.context(format!("PTY cleanup also failed: {cleanup:#}"))),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PtyProcessTree {
+    #[cfg(windows)]
+    child_id: Option<u32>,
+    #[cfg(unix)]
+    process_group: Option<libc::pid_t>,
+}
+
+impl PtyProcessTree {
+    fn from_spawned(spawned: &cmux_pty::SpawnedPty) -> Self {
+        Self {
+            #[cfg(windows)]
+            child_id: spawned.child.process_id(),
+            #[cfg(unix)]
+            process_group: spawned.master.process_group_leader(),
+        }
+    }
+
+    fn terminate(self, killer: &mut (dyn cmux_pty::ChildKiller + Send + Sync)) -> io::Result<()> {
+        #[cfg(unix)]
+        if let Some(group) = self.process_group.filter(|group| *group > 0) {
+            // SAFETY: a negative, validated process-group id targets every
+            // process in the launched PTY session and no process outside it.
+            if unsafe { libc::kill(-group, libc::SIGKILL) } == 0 {
+                return Ok(());
+            }
+            let error = io::Error::last_os_error();
+            if error.raw_os_error() == Some(libc::ESRCH) {
+                return Ok(());
+            }
+            return Err(error);
+        }
+
+        #[cfg(windows)]
+        if let Some(child_id) = self.child_id {
+            if terminate_windows_process_tree(child_id).is_ok() {
+                return Ok(());
+            }
+        }
+
+        killer.kill()
+    }
+}
+
+#[cfg(windows)]
+fn terminate_windows_process_tree(child_id: u32) -> io::Result<()> {
+    let mut child = Command::new("taskkill")
+        .args(["/PID", &child_id.to_string(), "/T", "/F"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()?;
+    match child.wait_timeout(PROCESS_TIMEOUT)? {
+        Some(status) if status.success() => Ok(()),
+        Some(status) => Err(io::Error::other(format!("taskkill exited with {status}"))),
+        None => {
+            child.kill()?;
+            let status = child.wait()?;
+            Err(io::Error::other(format!(
+                "taskkill exceeded {PROCESS_TIMEOUT:?} and was killed with {status}"
+            )))
         }
     }
 }

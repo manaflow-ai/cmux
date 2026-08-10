@@ -271,7 +271,11 @@ impl ScenarioTarget {
         let cleanup_started = std::time::Instant::now();
         let cleanup = fixture.cleanup();
         let cleanup_duration = cleanup_started.elapsed();
-        let root_deferral = if cleanup.is_ok() { Some(fixture.defer_root(recorder)) } else { None };
+        let root_deferral = if result.is_ok() && cleanup.is_ok() {
+            Some(fixture.defer_root(recorder))
+        } else {
+            None
+        };
         let root_deferral = root_deferral.transpose()?;
         let result = match (result, cleanup) {
             (Ok(mut result), Ok(cleanup)) => {
