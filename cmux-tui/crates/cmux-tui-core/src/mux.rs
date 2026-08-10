@@ -14921,10 +14921,7 @@ fn register_terminal_runtime_checked(
     {
         for existing_id in existing_ids {
             if let Some(existing) = state.terminal_catalog.get(existing_id) {
-                anyhow::ensure!(
-                    existing.shares_terminal_runtime(surface),
-                    "duplicate_terminal_id"
-                );
+                anyhow::ensure!(existing.shares_terminal_runtime(surface), "duplicate_terminal_id");
             }
         }
     }
@@ -15022,14 +15019,13 @@ fn unregister_terminal_catalog_host(
     let Some(host) = mux.resource_terminal_host_identity(runtime) else {
         return;
     };
-    let remove_host = if let Some(terminal_ids) =
-        state.terminal_catalog_by_host.get_mut(&host.terminal_id)
-    {
-        terminal_ids.remove(terminal_id);
-        terminal_ids.is_empty()
-    } else {
-        false
-    };
+    let remove_host =
+        if let Some(terminal_ids) = state.terminal_catalog_by_host.get_mut(&host.terminal_id) {
+            terminal_ids.remove(terminal_id);
+            terminal_ids.is_empty()
+        } else {
+            false
+        };
     if remove_host {
         state.terminal_catalog_by_host.remove(&host.terminal_id);
     }

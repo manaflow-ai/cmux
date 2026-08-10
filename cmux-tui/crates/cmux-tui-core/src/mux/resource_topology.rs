@@ -2356,12 +2356,8 @@ impl Mux {
                 "terminal_incarnation_mismatch"
             );
         }
-        let catalog_public_ids = terminal_catalog_public_ids_by_host(
-            self,
-            &state,
-            terminal_id,
-            planned_incarnation,
-        );
+        let catalog_public_ids =
+            terminal_catalog_public_ids_by_host(self, &state, terminal_id, planned_incarnation);
 
         let mut plan = self.resource_terminal_close_plan_locked(
             terminal_id,
@@ -2522,16 +2518,10 @@ impl Mux {
             );
         }
         let content_id = ContentPublicId::Terminal(terminal_public_id.clone());
-        let catalog_public_ids = terminal_catalog_public_ids_by_host(
-            self,
-            state,
-            terminal_id,
-            terminal_incarnation,
-        );
+        let catalog_public_ids =
+            terminal_catalog_public_ids_by_host(self, state, terminal_id, terminal_incarnation);
         let runtime = state.terminal_catalog.get(terminal_public_id).or_else(|| {
-            catalog_public_ids
-                .iter()
-                .find_map(|public_id| state.terminal_catalog.get(public_id))
+            catalog_public_ids.iter().find_map(|public_id| state.terminal_catalog.get(public_id))
         });
         if let Some(runtime) = runtime {
             let host = self
