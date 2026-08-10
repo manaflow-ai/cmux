@@ -1379,6 +1379,28 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
+    fn mac_process_scope_launcher_stops_before_the_requested_program() {
+        let command = UnixProcessScope::suspended_command("/usr/bin/false");
+        let arguments = command
+            .get_args()
+            .map(|argument| argument.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            arguments,
+            [
+                "-p",
+                "(version 1) (allow default) (deny process-fork)",
+                "/bin/sh",
+                "-c",
+                "kill -STOP $$; exec \"$@\"",
+                "cmux-process-scope",
+                "/usr/bin/false",
+            ]
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
     fn mac_process_scope_runs_the_requested_program() {
         let mut scope = UnixProcessScope::prepare().unwrap();
         let mut command = UnixProcessScope::suspended_command("/usr/bin/false");
