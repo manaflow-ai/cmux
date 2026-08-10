@@ -9097,9 +9097,10 @@ impl Mux {
                 TerminalLifecycle::Adopting => {
                     terminal.incarnation.as_deref() == Some(identity.incarnation.as_str())
                 }
-                TerminalLifecycle::Running
-                | TerminalLifecycle::Exited
-                | TerminalLifecycle::Tombstoned => false,
+                TerminalLifecycle::Running => {
+                    terminal.incarnation.as_deref() == Some(identity.incarnation.as_str())
+                }
+                TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned => false,
             };
             return Ok(pending.then_some(TerminalHostCallbackTarget::Pending));
         };
