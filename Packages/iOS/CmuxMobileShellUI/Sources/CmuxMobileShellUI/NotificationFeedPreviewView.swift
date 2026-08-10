@@ -66,6 +66,13 @@ public struct NotificationFeedPreviewView: View {
                         refreshesOnAppear: false,
                         actions: actions
                     )
+                    // Mirrors the shell: the field roots inside the stack so
+                    // the platform owns its push/pop lifecycle.
+                    .modifier(MobilePrimarySearchFieldModifier(
+                        searchCoordinator: primarySearchCoordinator,
+                        scope: .notifications,
+                        submit: { selectedTab = primarySearchCoordinator.commitSubmit() }
+                    ))
                     .navigationDestination(isPresented: notificationRouteIsPresented) {
                         NotificationFeedPreviewWorkspaceDestination(
                             workspaceName: notificationRoute.map { workspaceName(for: $0.id) }

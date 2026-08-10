@@ -536,6 +536,10 @@ public struct WorkspaceListLayoutPreviewView: View {
                     }
                     .navigationDestination(item: $fixtureRoute) { route in
                         fixtureWorkspaceDetail(for: route.id)
+                            // Only the workspaces-tab push hides the bars; the
+                            // search-stack push keeps the tab bar so the field
+                            // restores at the bottom on pop.
+                            .toolbarVisibility(.hidden, for: .tabBar, .bottomBar)
                             .navigationBarBackButtonHidden(true)
                             .toolbar {
                                 ToolbarItem(placement: .topBarLeading) {
@@ -657,7 +661,6 @@ public struct WorkspaceListLayoutPreviewView: View {
                 .foregroundStyle(.secondary)
         }
         .accessibilityIdentifier("FixtureWorkspaceDetail")
-        .toolbarVisibility(.hidden, for: .tabBar, .bottomBar)
     }
 }
 

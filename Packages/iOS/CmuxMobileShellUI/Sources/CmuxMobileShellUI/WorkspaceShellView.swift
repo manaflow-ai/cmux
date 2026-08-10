@@ -391,13 +391,17 @@ struct WorkspaceShellView: View {
                 // from here raced the search-field dismissal and could record
                 // the push without performing it, stranding the list with no
                 // tab bar (the "stuck after selecting from search" bug).
+                // The tab bar stays visible on the pushed detail (the App
+                // Store search pattern): hiding it removes the bottom anchor
+                // the platform needs to restore the minimized field there
+                // when the detail pops — hidden, the restore re-hosts the
+                // field in the top navigation bar.
                 .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                     workspaceDestination(
                         for: workspaceID,
                         createWorkspace: createWorkspaceInCompactStack,
                         canCreateWorkspaceForSelection: canCreateWorkspaceForSelection
                     )
-                    .toolbarVisibility(.hidden, for: .tabBar)
                 }
             }
         }
