@@ -20,7 +20,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
     let connection: RemoteTmuxControlConnection
     let backendProducerID: UUID?
     let backendTmuxSessionID: UInt64?
-    let onControlPaneRemoved: (PaneID, UUID?) -> Void
+    let onControlPaneRemoved: (Bonsplit.PaneID, UUID?) -> Void
     let onControlSurfaceRemoved: (UUID) -> Void
 
     /// Updates the tracked session name after a `rename-session`.
@@ -114,7 +114,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
     private var outerSurfacePaneIdByWindow: [Int: Int] = [:]
     var windowIdByPanel: [UUID: Int] = [:]
     var windowIdByPane: [Int: Int] = [:]
-    var controlPaneIdByPane: [Int: PaneID] = [:]
+    var controlPaneIdByPane: [Int: Bonsplit.PaneID] = [:]
     var controlSurfaceIdByPane: [Int: UUID] = [:]
     var tmuxPaneIdByControlSurface: [UUID: Int] = [:]
     /// Last-known working directory per tmux pane, so switching the active pane
@@ -180,7 +180,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         backendTmuxSessionID: UInt64? = nil,
         restoredSurfaces: [TerminalBackendRemoteTmuxProducerProjection.Surface] = [],
         pendingPaneSeedByteLimit: Int = RemoteTmuxControlConnection.maximumPendingPaneSeedBytes,
-        onControlPaneRemoved: @escaping (PaneID, UUID?) -> Void = { _, _ in },
+        onControlPaneRemoved: @escaping (Bonsplit.PaneID, UUID?) -> Void = { _, _ in },
         onControlSurfaceRemoved: @escaping (UUID) -> Void = { _ in }
     ) {
         self.host = host
