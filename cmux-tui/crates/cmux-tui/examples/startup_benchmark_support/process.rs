@@ -3,17 +3,17 @@ use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{anyhow, bail, Context, Result};
 use cmux_pty::{PtyCommand, PtySize};
 use rusqlite::Connection;
 use serde_json::Value;
 use wait_timeout::ChildExt;
 
-use super::{Evidence, RunResult, Scenario, TargetKind, duration_ns};
+use super::{duration_ns, Evidence, RunResult, Scenario, TargetKind};
 
 const EVENT_TIMEOUT: Duration = Duration::from_secs(30);
 const PROCESS_TIMEOUT: Duration = Duration::from_secs(30);
@@ -28,6 +28,7 @@ pub struct Target {
     pub sha: String,
     pub observed_sha: String,
     pub ghostty_sha: String,
+    version: String,
     pub launcher: Vec<String>,
 }
 
@@ -47,7 +48,8 @@ impl Target {
             );
         }
         let ghostty_sha = git_sha(&source.join("ghostty"))?;
-        Ok(Self { kind, binary, source, sha, observed_sha, ghostty_sha, launcher })
+        let version = binary_version(&binary)?;
+        Ok(Self { kind, binary, source, sha, observed_sha, ghostty_sha, version, launcher })
     }
 }
 
@@ -134,7 +136,8 @@ impl Fixture {
                 }
                 drop(connection);
                 let expected = format!(
-                    "unsupported workspace registry schema {INCOMPATIBLE_SCHEMA}; newest supported is {valid_schema}"
+                    "cannot open session \"{session}\" with cmux {}: its saved state is incompatible with this build",
+                    common.target.version
                 );
                 common.setup_evidence.readiness_lines += 1;
                 common.setup_evidence.socket_rpcs += 2;
@@ -993,6 +996,26 @@ fn git_sha(path: &Path) -> Result<String> {
         );
     }
     Ok(String::from_utf8(captured.stdout)?.trim().to_string())
+}
+
+fn binary_version(binary: &Path) -> Result<String> {
+    let mut command = Command::new(binary);
+    command.arg("--version");
+    let captured =
+        run_captured(command).with_context(|| format!("read version from {}", binary.display()))?;
+    if !captured.status.success() {
+        bail!(
+            "{} --version failed: {}",
+            binary.display(),
+            String::from_utf8_lossy(&captured.stderr)
+        );
+    }
+    let output = String::from_utf8(captured.stdout)?;
+    output
+        .trim()
+        .strip_prefix("cmux ")
+        .map(str::to_string)
+        .with_context(|| format!("unexpected {} --version output: {output:?}", binary.display()))
 }
 
 fn json_cli(common: &Common, socket: &Path, args: &[&str]) -> Result<Value> {

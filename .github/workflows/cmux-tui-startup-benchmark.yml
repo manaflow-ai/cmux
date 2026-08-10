@@ -513,7 +513,7 @@ jobs:
               "warm": "attach PTY process spawn to unique session marker followed by frame-end cursor visibility",
               "headless": "process spawn to readiness line and successful session ping RPC",
               "restored": "process spawn to readiness line and topology RPC containing the saved terminal",
-              "incompatible": "process spawn to nonzero exit with the exact unsupported-schema error",
+              "incompatible": "process spawn to nonzero exit with the exact public incompatible-state error",
           }
           summary_fields = {
               "count",

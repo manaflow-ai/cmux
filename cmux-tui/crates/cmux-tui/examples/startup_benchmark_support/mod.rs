@@ -4,14 +4,14 @@ mod report;
 
 use std::str::FromStr;
 
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use serde::Serialize;
 
 pub use args::Args;
-pub use process::{Fixture, Target, run_sample};
+pub use process::{run_sample, Fixture, Target};
 pub use report::{
-    ComparisonReport, HostMetadata, Pair, ProfileReport, SampleSet, ScenarioReport, SignedSummary,
-    TargetMetadata, now_unix_ms,
+    now_unix_ms, ComparisonReport, HostMetadata, Pair, ProfileReport, SampleSet, ScenarioReport,
+    SignedSummary, TargetMetadata,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -79,7 +79,7 @@ impl Scenario {
                 "process spawn to readiness line and topology RPC containing the saved terminal"
             }
             Self::Incompatible => {
-                "process spawn to nonzero exit with the exact unsupported-schema error"
+                "process spawn to nonzero exit with the exact public incompatible-state error"
             }
         }
     }

@@ -7,7 +7,7 @@ use std::io::Read;
 use std::process::{Command, Stdio};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use wait_timeout::ChildExt;
@@ -107,7 +107,8 @@ impl Summary {
             })
             .sum::<f64>()
             / values.len() as f64;
-        let median = percentile(values, 50) as f64;
+        let values_f64 = values.iter().map(|value| *value as f64).collect::<Vec<_>>();
+        let median = median_f64(&values_f64);
         let mut deviations =
             values.iter().map(|value| (*value as f64 - median).abs()).collect::<Vec<_>>();
         deviations.sort_by(f64::total_cmp);
@@ -157,7 +158,8 @@ impl SignedSummary {
             })
             .sum::<f64>()
             / sorted.len() as f64;
-        let median = percentile_signed(&sorted, 50) as f64;
+        let sorted_f64 = sorted.iter().map(|value| *value as f64).collect::<Vec<_>>();
+        let median = median_f64(&sorted_f64);
         let mut deviations =
             sorted.iter().map(|value| (*value as f64 - median).abs()).collect::<Vec<_>>();
         deviations.sort_by(f64::total_cmp);
@@ -431,5 +433,14 @@ mod tests {
         assert_eq!(summary.min, -10);
         assert_eq!(summary.p50, -2);
         assert_eq!(summary.max, 8);
+    }
+
+    #[test]
+    fn even_sized_mad_uses_the_arithmetic_median_as_its_center() {
+        let unsigned = Summary::from_sorted(&[0, 0, 1, 2, 2, 2]).unwrap();
+        let signed = SignedSummary::new(&[-2, -2, -1, 0, 0, 0]).unwrap();
+
+        assert_eq!(unsigned.mad, 0.5);
+        assert_eq!(signed.mad, 0.5);
     }
 }
