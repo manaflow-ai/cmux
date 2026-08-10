@@ -82,23 +82,16 @@ fn append_prejournal_projection_migration(
         |row| row.get::<_, String>(0),
     )?;
     let digest = Sha256::digest(
-        format!("{PREJOURNAL_MIGRATION_FORMAT}/{session_id}/{}", projection.terminal_id)
-            .as_bytes(),
+        format!("{PREJOURNAL_MIGRATION_FORMAT}/{session_id}/{}", projection.terminal_id).as_bytes(),
     );
     let event_id = format!(
         "event_agent_projection_migration_{}",
         digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>()
     );
-    let producer = JournalProducer {
-        kind: "migration".into(),
-        id: "agent-projection-v1".into(),
-    };
+    let producer = JournalProducer { kind: "migration".into(), id: "agent-projection-v1".into() };
     let subjects = vec![
         JournalSubject { kind: "session".into(), id: session_id },
-        JournalSubject {
-            kind: "terminal".into(),
-            id: projection.terminal_id.to_string(),
-        },
+        JournalSubject { kind: "terminal".into(), id: projection.terminal_id.to_string() },
     ];
     let result = projection
         .result
@@ -391,9 +384,7 @@ fn stored_live_projections(
              WHERE terminal.deleted_revision IS NULL
              ORDER BY projection.terminal_id ASC",
         )?;
-        statement
-            .query_map([], |row| row.get::<_, String>(0))?
-            .collect::<Result<Vec<_>, _>>()?
+        statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
     };
     terminal_ids
         .into_iter()
