@@ -59,13 +59,13 @@ public struct CMUXMobileAppView: View {
 }
 
 /// Renders a caller-owned session without adding another SwiftUI state owner.
-package struct CMUXMobileAppSessionView: View {
+public struct CMUXMobileAppSessionView: View {
     let session: MobileShellUISession
     let signOutHook: MobileSignOutHook
     #if os(iOS)
     let onboardingStore: MobileOnboardingStore
 
-    package init(
+    public init(
         session: MobileShellUISession,
         onboardingStore: MobileOnboardingStore,
         signOutHook: MobileSignOutHook
@@ -75,13 +75,13 @@ package struct CMUXMobileAppSessionView: View {
         self.signOutHook = signOutHook
     }
     #else
-    package init(session: MobileShellUISession, signOutHook: MobileSignOutHook) {
+    public init(session: MobileShellUISession, signOutHook: MobileSignOutHook) {
         self.session = session
         self.signOutHook = signOutHook
     }
     #endif
 
-    package var body: some View {
+    public var body: some View {
         #if os(iOS)
         CMUXMobileRootView(
             store: session.store,
