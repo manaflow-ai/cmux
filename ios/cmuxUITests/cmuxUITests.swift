@@ -2532,9 +2532,11 @@ final class cmuxUITests: XCTestCase {
         XCTAssertLessThanOrEqual(model.frame.midX, scroller.frame.maxX)
         XCTAssertTrue(model.isHittable)
 
+        let navigationBar = app.navigationBars.firstMatch
+        XCTAssertTrue(navigationBar.waitForExistence(timeout: 3))
         XCTAssertGreaterThanOrEqual(
             prompt.frame.minY,
-            app.navigationBars["New Task"].frame.maxY,
+            navigationBar.frame.maxY,
             "Prompt focus must not scroll the prompt behind the navigation title"
         )
         XCTAssertLessThanOrEqual(prompt.frame.maxY, options.frame.minY)
