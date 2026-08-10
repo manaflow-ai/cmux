@@ -1213,7 +1213,14 @@ fn has_inline_relay_ticket_argument(args: &[String]) -> bool {
             | "--relay-ticket-command"
             | "--relay-ticket-command-arg"
             | "--advertise"
-            | "--term" => index += 2,
+            | "--term" => {
+                if args.get(index + 1).is_some_and(|value| {
+                    value == "--relay-ticket" || value.starts_with("--relay-ticket=")
+                }) {
+                    return true;
+                }
+                index += 2;
+            }
             "--machine-provider-command" => {
                 index += 1;
                 while index < args.len() && args[index] != "--" {

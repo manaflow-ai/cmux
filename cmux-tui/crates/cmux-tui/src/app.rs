@@ -8600,7 +8600,7 @@ impl App {
         }
         match self.owner_machine {
             Some(owner) => self.machine_presented == Some(owner),
-            None => self.machine_ui.is_none(),
+            None => self.machine_presented.is_none(),
         }
     }
 
