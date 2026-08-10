@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 11, IR 6c7f42663c8059b5e8c1cb0a1df201c1949665b925845653e46f5ef7f5742eb3.
+// cmux-tui mux protocol 11, IR 3f220af11c5ad1bfab74b2bf3cebf71ee904faaafd9833ae5c87a53812f86943.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -95,6 +95,44 @@ pub struct BrowserFrame {
     pub height: u32,
     pub seq: u64,
     pub width: u32,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BrowserProviderAuthentication {
+    #[serde(rename = "none")]
+    None,
+    #[serde(rename = "bearer")]
+    Bearer,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BrowserProviderSnapshot {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub authentication: Option<BrowserProviderAuthentication>,
+    pub available: bool,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub clients: Option<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub endpoint: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub provider_id: Option<String>,
+    pub revision: u64,
+    pub targets: Vec<BrowserProviderTarget>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BrowserProviderTarget {
+    pub tab_id: String,
+    pub target_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BrowserProviderUnregisterResult {
+    pub removed: bool,
 }
 
 #[rustfmt::skip]
@@ -252,6 +290,65 @@ pub struct ExportedPane {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FocusDirectionResult {
     pub pane: Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FrontendFocusTarget {
+    #[serde(rename = "pane")]
+    Pane,
+    #[serde(rename = "machine_rail")]
+    MachineRail,
+    #[serde(rename = "workspace_rail")]
+    WorkspaceRail,
+    #[serde(rename = "tabs_rail")]
+    TabsRail,
+    #[serde(rename = "projection_rail")]
+    ProjectionRail,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum FrontendJournalEvent {
+    #[serde(rename = "focus")]
+    Focus {
+        #[serde(default, skip_serializing_if = "Optional::is_missing")]
+        content_id: Optional<String>,
+        event_id: String,
+        frontend_projection_id: String,
+        generation: String,
+        #[serde(default, skip_serializing_if = "Optional::is_missing")]
+        pane_id: Optional<String>,
+        #[serde(default, skip_serializing_if = "Optional::is_missing")]
+        screen_id: Optional<String>,
+        #[serde(default, skip_serializing_if = "Optional::is_missing")]
+        tab_id: Optional<String>,
+        target: FrontendFocusTarget,
+        #[serde(default, skip_serializing_if = "Optional::is_missing")]
+        workspace_id: Optional<String>,
+    },
+    #[serde(rename = "resize")]
+    Resize {
+        cell_height: u16,
+        cell_width: u16,
+        cols: u16,
+        event_id: String,
+        frontend_projection_id: String,
+        generation: String,
+        rows: u16,
+    },
+    #[serde(rename = "viewport")]
+    Viewport {
+        event_id: String,
+        frontend_projection_id: String,
+        generation: String,
+        offset: u64,
+        #[serde(default, skip_serializing_if = "Optional::is_missing")]
+        screen_id: Optional<String>,
+        settled: bool,
+        target: u64,
+    },
 }
 
 #[rustfmt::skip]

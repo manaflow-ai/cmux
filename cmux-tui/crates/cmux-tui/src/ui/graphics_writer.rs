@@ -1894,7 +1894,8 @@ mod tests {
     #[cfg(not(unix))]
     #[test]
     fn production_graphics_writer_is_disabled_without_interruptible_output() {
-        let result = GraphicsWriter::spawn(Arc::new(StdoutLock::new(())));
+        let (processing_fence, _processing_fence_notifier) = graphics_fence_channel();
+        let result = GraphicsWriter::spawn(Arc::new(StdoutLock::new(())), processing_fence, || {});
         let Err(error) = result else {
             panic!("non-Unix graphics output must be disabled");
         };
@@ -2410,7 +2411,7 @@ mod tests {
         });
         ready_rx
             .recv_timeout(Duration::from_secs(2))
-            .expect("initial graphics scene must finish before observing the next write");
+            .expect("initial graphics batch must finish before blocking stdout");
         bytes.lock().unwrap().clear();
 
         let draw_guard = stdout_lock.lock();
