@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileSupport
+import ImageIO
 import PhotosUI
 import QuickLook
 import SwiftUI
@@ -250,11 +251,11 @@ public struct MobileAttachmentCardStrip: View {
     @ViewBuilder
     private func imageCard(_ attachment: MobileStagedAttachment) -> some View {
         Group {
-            if let data = attachment.thumbnailData,
-               let image = UIImage(data: data) {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
+            if let data = attachment.thumbnailData {
+                MobileAttachmentDecodedImage(
+                    data: data,
+                    id: attachment.id
+                )
             } else {
                 Image(systemName: "photo")
                     .font(.title2)
@@ -314,7 +315,9 @@ private struct MobileAttachmentPreview: View {
     var body: some View {
         NavigationStack {
             Group {
-                if QLPreviewController.canPreview(attachment.localFileURL as NSURL) {
+                if attachment.kind == .image {
+                    MobileImageAttachmentPreview(attachment: attachment)
+                } else if QLPreviewController.canPreview(attachment.localFileURL as NSURL) {
                     QuickLookPreview(url: attachment.localFileURL)
                 } else {
                     ContentUnavailableView(
@@ -337,6 +340,93 @@ private struct MobileAttachmentPreview: View {
                 }
         }
         .accessibilityIdentifier("MobileAttachmentPreview")
+    }
+}
+
+private struct MobileAttachmentDecodedImage: View {
+    let data: Data
+    let id: UUID
+    @State private var image: CGImage?
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(decorative: image, scale: 1)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Image(systemName: "photo")
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .task(id: id) {
+            let decoded = await Task.detached(priority: .userInitiated) {
+                MobileAttachmentImageDecoder.decode(data: data)
+            }.value
+            guard !Task.isCancelled else { return }
+            image = decoded
+        }
+    }
+}
+
+private struct MobileImageAttachmentPreview: View {
+    let attachment: MobileStagedAttachment
+    @State private var image: CGImage?
+    @State private var didFail = false
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(decorative: image, scale: 1)
+                    .resizable()
+                    .scaledToFit()
+                    .padding()
+            } else if didFail {
+                ContentUnavailableView(
+                    String.mobileAttachmentLocalized(
+                        "mobile.attachment.preview.unsupported.title",
+                        "Preview Unavailable"
+                    ),
+                    systemImage: "photo.badge.exclamationmark",
+                    description: Text(String.mobileAttachmentLocalized(
+                        "mobile.attachment.preview.unsupported.message",
+                        "This file type can’t be previewed."
+                    ))
+                )
+            } else {
+                ProgressView()
+            }
+        }
+        .task(id: attachment.id) {
+            let url = attachment.localFileURL
+            let decoded = await Task.detached(priority: .userInitiated) {
+                MobileAttachmentImageDecoder.decode(url: url)
+            }.value
+            guard !Task.isCancelled else { return }
+            image = decoded
+            didFail = decoded == nil
+        }
+    }
+}
+
+private enum MobileAttachmentImageDecoder {
+    static func decode(url: URL) -> CGImage? {
+        guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {
+            return nil
+        }
+        return decode(data: data)
+    }
+
+    static func decode(data: Data) -> CGImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+            return nil
+        }
+        return CGImageSourceCreateImageAtIndex(
+            source,
+            0,
+            [kCGImageSourceShouldCacheImmediately: true] as CFDictionary
+        )
     }
 }
 
