@@ -7793,6 +7793,19 @@ final class SimulatorDiscoverabilityUITests: XCTestCase {
     }
 
     @MainActor
+    func testSimulatorLifecycleDiagnostic() throws {
+        let app = launchFixture(mode: "one")
+        let picker = app.buttons["MobileSimulatorPicker"]
+        if picker.waitForExistence(timeout: 8) {
+            picker.tap()
+            _ = app.otherElements["SimulatorStreamPane"].waitForExistence(timeout: 4)
+        }
+        let timeline = app.descendants(matching: .any)["SimulatorLifecycleDebugTimeline"]
+        _ = timeline.waitForExistence(timeout: 2)
+        print("cmux.simulator.lifecycle.timeline \(timeline.value as? String ?? "missing")")
+    }
+
+    @MainActor
     private func launchFixture(mode: String, state: String = "inactive") -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]

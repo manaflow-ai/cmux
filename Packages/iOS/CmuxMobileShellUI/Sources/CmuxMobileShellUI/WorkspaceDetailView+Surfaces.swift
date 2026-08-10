@@ -2,7 +2,6 @@ import CmuxMobileBrowser
 import CmuxMobileBrowserStream
 import CmuxMobileShell
 import CmuxMobileTerminal
-import Foundation
 import SwiftUI
 
 extension WorkspaceDetailView {
@@ -148,21 +147,15 @@ extension WorkspaceDetailView {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             #if DEBUG
-            NSLog(
-                "cmux.simulator.lifecycle pane.appear workspace=%@ panel=%@ active=%@",
-                workspace.rpcWorkspaceID.rawValue,
-                simulator.id,
-                simulatorStreamStore.activeState(in: workspace.rpcWorkspaceID.rawValue)?.id ?? "nil"
+            simulatorStreamStore.recordLifecycleDebugEvent(
+                "pane.appear workspace=\(workspace.rpcWorkspaceID.rawValue) panel=\(simulator.id) active=\(simulatorStreamStore.activeState(in: workspace.rpcWorkspaceID.rawValue)?.id ?? "nil")"
             )
             #endif
         }
         .onDisappear {
             #if DEBUG
-            NSLog(
-                "cmux.simulator.lifecycle pane.disappear workspace=%@ panel=%@ active=%@",
-                workspace.rpcWorkspaceID.rawValue,
-                simulator.id,
-                simulatorStreamStore.activeState(in: workspace.rpcWorkspaceID.rawValue)?.id ?? "nil"
+            simulatorStreamStore.recordLifecycleDebugEvent(
+                "pane.disappear workspace=\(workspace.rpcWorkspaceID.rawValue) panel=\(simulator.id) active=\(simulatorStreamStore.activeState(in: workspace.rpcWorkspaceID.rawValue)?.id ?? "nil")"
             )
             #endif
             // Panel-scoped: when switching simulator A -> B, A's onDisappear

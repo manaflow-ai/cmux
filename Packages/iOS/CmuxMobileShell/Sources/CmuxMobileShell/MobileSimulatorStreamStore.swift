@@ -178,8 +178,24 @@ public final class MobileSimulatorStreamStore {
     private var statesByPanel: [String: MobileSimulatorStreamSurfaceState] = [:]
     private var activePanelByWorkspace: [String: String] = [:]
     private var currentConnectionStatus: MobileSimulatorStreamSurfaceState.ConnectionStatus = .disconnected
+    #if DEBUG
+    public private(set) var lifecycleDebugEvents: [String] = []
+    #endif
 
     public init() {}
+
+    #if DEBUG
+    public var lifecycleDebugTimeline: String {
+        lifecycleDebugEvents.joined(separator: " | ")
+    }
+
+    public func recordLifecycleDebugEvent(_ event: String) {
+        lifecycleDebugEvents.append(event)
+        if lifecycleDebugEvents.count > 32 {
+            lifecycleDebugEvents.removeFirst(lifecycleDebugEvents.count - 32)
+        }
+    }
+    #endif
 
     public func panels(in workspaceID: String) -> [MobileSimulatorPanelDescriptor] {
         descriptorsByWorkspace[workspaceID] ?? []
@@ -221,11 +237,8 @@ public final class MobileSimulatorStreamStore {
     ) -> MobileSimulatorStreamSurfaceState? {
         guard let state = statesByPanel[panelID] else {
             #if DEBUG
-            NSLog(
-                "cmux.simulator.lifecycle store.activate.missing workspace=%@ panel=%@ active=%@",
-                workspaceID,
-                panelID,
-                activePanelByWorkspace[workspaceID] ?? "nil"
+            recordLifecycleDebugEvent(
+                "store.activate.missing workspace=\(workspaceID) panel=\(panelID) active=\(activePanelByWorkspace[workspaceID] ?? "nil")"
             )
             #endif
             return nil
@@ -239,11 +252,8 @@ public final class MobileSimulatorStreamStore {
             state.streamStatus = .starting
         }
         #if DEBUG
-        NSLog(
-            "cmux.simulator.lifecycle store.activate workspace=%@ panel=%@ active=%@",
-            workspaceID,
-            panelID,
-            activePanelByWorkspace[workspaceID] ?? "nil"
+        recordLifecycleDebugEvent(
+            "store.activate workspace=\(workspaceID) panel=\(panelID) active=\(activePanelByWorkspace[workspaceID] ?? "nil")"
         )
         #endif
         return state
@@ -257,11 +267,8 @@ public final class MobileSimulatorStreamStore {
             statesByPanel[panelID]?.streamStatus = .idle
         }
         #if DEBUG
-        NSLog(
-            "cmux.simulator.lifecycle store.deactivate.workspace workspace=%@ panel=%@ active=%@",
-            workspaceID,
-            previousPanelID ?? "nil",
-            activePanelByWorkspace[workspaceID] ?? "nil"
+        recordLifecycleDebugEvent(
+            "store.deactivate.workspace workspace=\(workspaceID) panel=\(previousPanelID ?? "nil") active=\(activePanelByWorkspace[workspaceID] ?? "nil")"
         )
         #endif
     }
@@ -273,11 +280,8 @@ public final class MobileSimulatorStreamStore {
     public func deactivate(panelID: String, in workspaceID: String) {
         guard activePanelByWorkspace[workspaceID] == panelID else {
             #if DEBUG
-            NSLog(
-                "cmux.simulator.lifecycle store.deactivate.panel.skipped workspace=%@ panel=%@ active=%@",
-                workspaceID,
-                panelID,
-                activePanelByWorkspace[workspaceID] ?? "nil"
+            recordLifecycleDebugEvent(
+                "store.deactivate.panel.skipped workspace=\(workspaceID) panel=\(panelID) active=\(activePanelByWorkspace[workspaceID] ?? "nil")"
             )
             #endif
             return
@@ -285,11 +289,8 @@ public final class MobileSimulatorStreamStore {
         activePanelByWorkspace[workspaceID] = nil
         statesByPanel[panelID]?.streamStatus = .idle
         #if DEBUG
-        NSLog(
-            "cmux.simulator.lifecycle store.deactivate.panel workspace=%@ panel=%@ active=%@",
-            workspaceID,
-            panelID,
-            activePanelByWorkspace[workspaceID] ?? "nil"
+        recordLifecycleDebugEvent(
+            "store.deactivate.panel workspace=\(workspaceID) panel=\(panelID) active=\(activePanelByWorkspace[workspaceID] ?? "nil")"
         )
         #endif
     }

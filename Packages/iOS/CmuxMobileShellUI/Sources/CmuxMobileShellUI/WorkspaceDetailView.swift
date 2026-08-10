@@ -10,7 +10,6 @@ import CmuxMobileSupport
 import CmuxMobileTerminal
 import CmuxMobileToast
 import CmuxMobileWorkspace
-import Foundation
 import SwiftUI
 #if os(iOS)
 @preconcurrency import UIKit
@@ -998,11 +997,8 @@ struct WorkspaceDetailView: View {
     private func syncSimulatorStreamPanels() {
         let workspaceID = workspace.rpcWorkspaceID.rawValue
         #if DEBUG
-        NSLog(
-            "cmux.simulator.lifecycle sync.before workspace=%@ panels=%@ active=%@",
-            workspaceID,
-            workspace.simulators.map(\.panelID).joined(separator: ","),
-            simulatorStreamStore.activeState(in: workspaceID)?.id ?? "nil"
+        simulatorStreamStore.recordLifecycleDebugEvent(
+            "sync.before workspace=\(workspaceID) panels=\(workspace.simulators.map(\.panelID).joined(separator: ",")) active=\(simulatorStreamStore.activeState(in: workspaceID)?.id ?? "nil")"
         )
         #endif
         simulatorStreamStore.replaceSimulatorPanels(
@@ -1010,11 +1006,8 @@ struct WorkspaceDetailView: View {
             with: workspace.simulators
         )
         #if DEBUG
-        NSLog(
-            "cmux.simulator.lifecycle sync.after workspace=%@ panels=%@ active=%@",
-            workspaceID,
-            simulatorStreamStore.panels(in: workspaceID).map(\.panelID).joined(separator: ","),
-            simulatorStreamStore.activeState(in: workspaceID)?.id ?? "nil"
+        simulatorStreamStore.recordLifecycleDebugEvent(
+            "sync.after workspace=\(workspaceID) panels=\(simulatorStreamStore.panels(in: workspaceID).map(\.panelID).joined(separator: ",")) active=\(simulatorStreamStore.activeState(in: workspaceID)?.id ?? "nil")"
         )
         #endif
     }

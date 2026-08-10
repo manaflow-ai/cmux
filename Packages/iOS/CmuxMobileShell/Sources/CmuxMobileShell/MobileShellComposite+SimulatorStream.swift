@@ -8,12 +8,8 @@ extension MobileShellComposite {
     /// then reconciles the matching host RPC transition through the same owner.
     public func selectMobileSimulatorStream(panelID: String, workspaceID: String) {
         #if DEBUG
-        NSLog(
-            "cmux.simulator.lifecycle select.entry workspace=%@ panel=%@ active=%@ state=%d",
-            workspaceID,
-            panelID,
-            simulatorStreamStore.activeState(in: workspaceID)?.id ?? "nil",
-            simulatorStreamStore.state(for: panelID) == nil ? 0 : 1
+        simulatorStreamStore.recordLifecycleDebugEvent(
+            "select.entry workspace=\(workspaceID) panel=\(panelID) active=\(simulatorStreamStore.activeState(in: workspaceID)?.id ?? "nil") state=\(simulatorStreamStore.state(for: panelID) == nil ? 0 : 1)"
         )
         #endif
         guard simulatorStreamStore.state(for: panelID) != nil else { return }
@@ -25,11 +21,8 @@ extension MobileShellComposite {
         }
         simulatorStreamStore.activate(panelID: panelID, in: workspaceID)
         #if DEBUG
-        NSLog(
-            "cmux.simulator.lifecycle select.activated workspace=%@ panel=%@ active=%@",
-            workspaceID,
-            panelID,
-            simulatorStreamStore.activeState(in: workspaceID)?.id ?? "nil"
+        simulatorStreamStore.recordLifecycleDebugEvent(
+            "select.activated workspace=\(workspaceID) panel=\(panelID) active=\(simulatorStreamStore.activeState(in: workspaceID)?.id ?? "nil")"
         )
         #endif
         transitionMobileSimulatorStreamSelection(

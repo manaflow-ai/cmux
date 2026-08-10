@@ -72,6 +72,15 @@ public struct SimulatorDiscoverabilityPreviewView: View {
             .environment(session.browserStreamStore)
             .environment(session.simulatorStreamStore)
             .environment(session.terminalRuntimeOwner)
+            .overlay(alignment: .topLeading) {
+                Color.clear
+                    .frame(width: 1, height: 1)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Simulator lifecycle debug timeline")
+                    .accessibilityValue(session.simulatorStreamStore.lifecycleDebugTimeline)
+                    .accessibilityIdentifier("SimulatorLifecycleDebugTimeline")
+                    .allowsHitTesting(false)
+            }
     }
 
     private static func descriptors(
