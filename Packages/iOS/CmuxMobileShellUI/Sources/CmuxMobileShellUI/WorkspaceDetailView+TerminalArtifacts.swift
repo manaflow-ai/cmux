@@ -29,7 +29,9 @@ extension WorkspaceDetailView {
         // scrollback survives a theme change.
         configThemeGeneration: store.terminalConfigThemeGeneration,
         artifactFilesEnabled: store.supportsTerminalArtifacts,
+        terminalFolderTapEnabled: terminalFolderTapEnabled,
         terminalFilesChipEnabled: terminalFilesChipEnabled,
+        showMissingFiles: showMissingFiles,
         sessionArtifactCountEnabled: store.supportsChatArtifactGallery,
         visibleArtifactCount: visibleArtifactCount,
         onArtifactFilesRequested: { anchor in

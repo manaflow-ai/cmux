@@ -1,7 +1,7 @@
 import Foundation
 
 /// Immutable render state for one path-keyed artifact viewer page.
-struct ChatArtifactViewerPageSnapshot: Identifiable, Equatable {
+struct ChatArtifactViewerPageSnapshot: Identifiable, Equatable, Sendable {
     let path: String
     let state: ChatArtifactViewerState
     let textChunks: [String]
@@ -44,6 +44,11 @@ struct ChatArtifactViewerPageSnapshot: Identifiable, Equatable {
     var shouldShowTextJumpControls: Bool {
         state == .text
             || (state == .markdown && markdownPresentation.mode == .raw)
+    }
+
+    var isImage: Bool {
+        if case .image = state { return true }
+        return false
     }
 
     var hasViewerActions: Bool {

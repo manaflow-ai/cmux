@@ -31,6 +31,11 @@ public struct ChatRowActions {
     /// Shows a non-resizing detail sheet for an embedded prose code block.
     public var showCodeBlockDetail: (String, Int) -> Void
 
+    /// A row copied something to the pasteboard; the host confirms it
+    /// (toast + haptic), keeping one confirmation vocabulary above the
+    /// snapshot boundary.
+    public var notifyCopied: () -> Void
+
     /// Creates an action bundle.
     ///
     /// - Parameters:
@@ -50,7 +55,8 @@ public struct ChatRowActions {
         openArtifact: @escaping (String) -> Void = { _ in },
         showMessageDetail: @escaping (ChatMessage) -> Void = { _ in },
         showTerminalCommandDetail: @escaping (TerminalCommandBlock) -> Void = { _ in },
-        showCodeBlockDetail: @escaping (String, Int) -> Void = { _, _ in }
+        showCodeBlockDetail: @escaping (String, Int) -> Void = { _, _ in },
+        notifyCopied: @escaping () -> Void = {}
     ) {
         self.answerOption = answerOption
         self.retryPending = retryPending
@@ -60,5 +66,6 @@ public struct ChatRowActions {
         self.showMessageDetail = showMessageDetail
         self.showTerminalCommandDetail = showTerminalCommandDetail
         self.showCodeBlockDetail = showCodeBlockDetail
+        self.notifyCopied = notifyCopied
     }
 }

@@ -18,7 +18,12 @@ public enum ControlWorkspaceGroupNewWorkspaceResolution: Sendable, Equatable {
     /// The group was not found (legacy `not_found` / "Group not found", `data:
     /// {"group_id": …}`).
     case notFound
+    /// The group exists, but its topology owner rejected the creation request.
+    case requestFailed
     /// The workspace was created in the group. Carries its id (the coordinator
     /// mints the workspace ref).
     case created(workspaceID: UUID)
+    /// The persistent topology owner accepted the request. The workspace id is
+    /// canonical before projection, and the request id can be polled.
+    case submittedToBackend(requestID: UUID, workspaceID: UUID)
 }

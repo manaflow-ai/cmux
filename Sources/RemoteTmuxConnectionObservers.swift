@@ -28,14 +28,15 @@ final class RemoteTmuxConnectionObservers {
 
     /// Registers a consumer's callbacks and returns a token to deregister them.
     ///
-    /// Multiple consumers (e.g. a mirrored workspace and a single-pane display
-    /// tab) can observe the same shared connection concurrently; every callback
+    /// Multiple mirrored workspaces can observe the same shared connection
+    /// concurrently; every callback
     /// fires for every event. Pass the returned token to ``remove(_:)`` when the
     /// consumer goes away.
     ///
     /// - Parameters:
     ///   - onPaneOutput: receives every `%output` (raw, octal-unescaped bytes).
-    ///   - onPaneSeed: receives one complete capture plus terminal-state seed.
+    ///   - onPaneSeed: receives an authoritative snapshot and its ordered live cutover.
+    ///   - onPaneSeedFailure: receives a failed authoritative seed attempt.
     ///   - onPaneCwd: receives a pane's working directory (`pane_current_path`),
     ///     both the initial value and live changes.
     ///   - onPaneReflow: receives a pane's reflow classification (`true` =
@@ -107,9 +108,14 @@ final class RemoteTmuxConnectionObservers {
         for callback in Array(paneOutputObservers.values) { callback(paneId, data) }
     }
 
-    /// Fans one complete capture/state transaction out as an atomic parser seed.
+    /// Fans a typed seed to seed-aware observers. Output-only observers receive
+    /// one compatibility write, never both paths.
     func emitPaneSeed(_ paneId: Int, _ seed: RemoteTmuxPaneSeed) {
         for callback in Array(paneSeedObservers.values) { callback(paneId, seed) }
+        for (token, callback) in Array(paneOutputObservers)
+        where paneSeedObservers[token] == nil {
+            callback(paneId, seed.renderedBytes)
+        }
     }
 
     func emitPaneSeedFailure(_ paneId: Int) {

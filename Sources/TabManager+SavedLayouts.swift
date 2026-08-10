@@ -17,7 +17,7 @@ extension TabManager {
         }
         let configureWorkspace: @MainActor (Workspace) -> Void = { workspace in
             if let color = layout.workspace.color {
-                workspace.setCustomColor(color)
+                self.setTabColor(tabId: workspace.id, color: color)
             }
             if let layoutNode = layout.workspace.layout {
                 workspace.applyCustomLayout(layoutNode, baseCwd: resolvedCwd)

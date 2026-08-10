@@ -19,7 +19,8 @@ extension BackingUpPairedMacStore {
         teamID: String?,
         now: Date
     ) async throws -> Bool {
-        try await inner.upsertIfNewer(
+        let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
+        return try await inner.upsertIfNewer(
             macDeviceID: macDeviceID,
             displayName: displayName,
             routes: routes,

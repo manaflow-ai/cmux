@@ -38,7 +38,7 @@ struct TerminalSurfaceLaunchResolverTests {
                     "ADDED": "added",
                 ]
             ),
-            commandShim: nil
+            commandShims: nil
         )
 
         #expect(resolved.workingDirectory == "/request")
@@ -51,6 +51,7 @@ struct TerminalSurfaceLaunchResolverTests {
         #expect(resolved.environment["ADDED"] == "added")
         #expect(resolved.environment["CMUX_WORKSPACE_ID"] == workspaceID.uuidString)
         #expect(resolved.environment["CMUX_SURFACE_ID"] == surfaceID.uuidString)
+        #expect(resolved.environment["CMUX_TERMINAL_LIFECYCLE_ID"] == surfaceID.uuidString)
         #expect(resolved.environment["CMUX_SOCKET_PATH"] == "/tmp/cmux-test.sock")
         #expect(resolved.environment["CMUX_PORT"] == "40300")
         #expect(resolved.environment["CMUX_PORT_END"] == "40399")
@@ -71,7 +72,7 @@ struct TerminalSurfaceLaunchResolverTests {
                 initialEnvironmentOverrides: [:],
                 additionalEnvironment: [:]
             ),
-            commandShim: nil
+            commandShims: nil
         )
 
         #expect(resolved.command == nil)
@@ -83,8 +84,8 @@ struct TerminalSurfaceLaunchResolverTests {
             userGhosttyShellIntegrationMode: { "none" },
             spawnPolicyProvider: FakeSpawnPolicyProvider(),
             runtimeFilesystem: TerminalSurfaceRuntimeFilesystem(
-                claudeCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp"),
-                installClaudeCommandShim: { _, _, _ in nil },
+                agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp"),
+                installAgentCommandShims: { _, _, _ in nil },
                 isExecutableFile: { _ in false }
             ),
             sessionPortBase: 40_000,

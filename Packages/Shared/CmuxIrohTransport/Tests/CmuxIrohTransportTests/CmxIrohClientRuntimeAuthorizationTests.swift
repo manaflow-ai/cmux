@@ -5,6 +5,65 @@ import Testing
 
 extension CmxIrohClientRuntimeTests {
     @Test
+    func firstDialReusesStartupDiscoveryWhenBrokerRateLimitsDuplicateLookup() async throws {
+        let fixture = try RegistryFixture()
+        let discovery = try fixture.discovery(targetHints: [])
+        let identity = try CmxIrohIdentityMaterial(
+            secretKey: CmxIrohSecretKey(bytes: fixture.privateKey.rawRepresentation),
+            generation: fixture.initiator.identityGeneration
+        )
+        let configuration = CmxIrohClientRuntimeConfiguration(
+            accountID: "account-a",
+            deviceID: fixture.initiator.deviceID,
+            appInstanceID: discovery.bindings[0].appInstanceID,
+            tag: fixture.initiator.tag,
+            displayName: nil,
+            identity: identity,
+            capabilities: discovery.bindings[0].capabilities,
+            managedRelayURLs: [fixture.relayURL]
+        )
+        let relay = CmxIrohRelayTokenResponse(
+            token: "testrelaytoken",
+            expiresAt: "2027-01-15T10:00:00Z",
+            refreshAfter: "2027-01-15T09:00:00Z",
+            relayFleet: [fixture.relayURL]
+        )
+        let broker = TestIrohClientBroker(
+            binding: discovery.bindings[0],
+            discovery: discovery,
+            relay: relay,
+            pairGrant: try fixture.pairGrantResponse(
+                issuedAt: fixture.nowSeconds,
+                expiresAt: fixture.nowSeconds + 3_600
+            ),
+            discoveryErrorsByCount: [
+                2: CmxIrohTrustBrokerClientError.rateLimited(
+                    code: "rate_limited",
+                    retryAfterSeconds: 60
+                ),
+            ]
+        )
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(
+                endpoints: [TestIrohEndpoint(identity: fixture.initiator.endpointID)]
+            ),
+            broker: broker,
+            configuration: configuration,
+            pendingRevocations: CmxIrohPendingRevocationOutbox(
+                secureStore: TestSecureCredentialStore()
+            ),
+            now: { fixture.now }
+        )
+        try await runtime.start()
+        let provider = try #require(await runtime.registryContextProvider)
+
+        _ = try await provider.context(for: fixture.request(hints: []))
+
+        #expect(await broker.observedDiscoveryCount() == 1)
+        await runtime.stop()
+    }
+
+    @Test
     func connectivityOnlyStartupRestoresVerifiedKnownMacRoutes() async throws {
         let fixture = try RegistryFixture()
         let discovery = try fixture.discovery(targetHints: [])

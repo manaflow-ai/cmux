@@ -59,32 +59,32 @@ public final class TerminalSurfaceLaunchResolver {
         self.defaultShellArguments = defaultShellArguments
     }
 
-    /// Installs per-surface command shims, then resolves the exact launch.
+    /// Installs per-surface agent command shims, then resolves the exact launch.
     public func resolveInstallingCommandShim(
         _ request: TerminalSurfaceLaunchRequest
     ) async -> TerminalSurfaceResolvedLaunch {
-        let shim: TerminalSurfaceClaudeCommandShim?
-        if let wrapperURL = resourceURL?.appendingPathComponent("bin/cmux-claude-wrapper") {
+        let shims: TerminalSurfaceAgentCommandShimSet?
+        if let wrapperDirectoryURL = resourceURL?.appendingPathComponent("bin", isDirectory: true) {
             let filesystem = runtimeFilesystem
-            let temporaryDirectory = filesystem.claudeCommandShimTemporaryDirectory
+            let temporaryDirectory = filesystem.agentCommandShimTemporaryDirectory
             let surfaceID = request.surfaceID
-            shim = await Task.detached(priority: .utility) {
-                await filesystem.installClaudeCommandShim(
-                    wrapperURL,
+            shims = await Task.detached(priority: .utility) {
+                await filesystem.installAgentCommandShims(
+                    wrapperDirectoryURL,
                     surfaceID,
                     temporaryDirectory
                 )
             }.value
         } else {
-            shim = nil
+            shims = nil
         }
-        return resolve(request, commandShim: shim)
+        return resolve(request, commandShims: shims)
     }
 
     /// Resolves spawn environment, command, working directory, and one-shot input.
     public func resolve(
         _ request: TerminalSurfaceLaunchRequest,
-        commandShim: TerminalSurfaceClaudeCommandShim?
+        commandShims: TerminalSurfaceAgentCommandShimSet?
     ) -> TerminalSurfaceResolvedLaunch {
         var baseConfig = request.configTemplate ?? CmuxSurfaceConfigTemplate()
         var environment = baseConfig.environmentVariables
@@ -104,6 +104,7 @@ public final class TerminalSurfaceLaunchResolver {
             TerminalSurface.cmuxContextEnvironment(
                 workspaceId: request.workspaceID,
                 surfaceId: request.surfaceID,
+                terminalLifecycleId: request.terminalLifecycleID,
                 socketPath: socketPath
             ),
             to: &environment,
@@ -176,18 +177,17 @@ public final class TerminalSurfaceLaunchResolver {
             }
         }
 
-        if let commandShim {
-            setManagedValue("CMUX_CLAUDE_WRAPPER_SHIM", commandShim.executablePath)
-            setManagedValue("CMUX_CLAUDE_WRAPPER_SHIM_ROOT", commandShim.directoryPath)
-            if let codexShim = commandShim.codexCommandShim {
-                setManagedValue("CMUX_CODEX_WRAPPER_SHIM", codexShim.executablePath)
-                setManagedValue("CMUX_CODEX_WRAPPER_SHIM_ROOT", codexShim.directoryPath)
+        if let commandShims {
+            setManagedValue("CMUX_AGENT_COMMAND_SHIM_ROOT", commandShims.directoryPath)
+            for shim in commandShims.shims {
+                setManagedValue(shim.wrapperShimEnvironmentKey, shim.executablePath)
+                setManagedValue(shim.wrapperShimRootEnvironmentKey, shim.directoryPath)
             }
             let currentPath = environment["PATH"] ?? ambientEnvironment["PATH"] ?? ""
             setManagedValue(
                 "PATH",
                 TerminalSurface.pathByPrependingUniqueDirectory(
-                    commandShim.directoryPath,
+                    commandShims.directoryPath,
                     to: currentPath
                 )
             )

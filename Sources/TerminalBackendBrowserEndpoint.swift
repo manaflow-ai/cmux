@@ -1,6 +1,7 @@
 import CmuxTerminalBackend
 import CmuxCore
 import Foundation
+import WebKit
 
 /// Exact identity of one daemon-owned browser placement endpoint.
 ///
@@ -106,7 +107,7 @@ protocol TerminalBackendBrowserEndpointCreating {
     ) throws -> BrowserPanel
 }
 
-struct TerminalBackendNativeBrowserPresentationRequest: Sendable {
+struct TerminalBackendNativeBrowserPresentationRequest: @unchecked Sendable {
     let url: URL?
     let initialRequest: URLRequest?
     let profileID: UUID?
@@ -118,6 +119,7 @@ struct TerminalBackendNativeBrowserPresentationRequest: Sendable {
     let bypassRemoteProxy: Bool
     let isRemoteWorkspace: Bool
     let remoteWebsiteDataStoreIdentifier: UUID?
+    let websiteDataStore: WKWebsiteDataStore?
 
     init(
         url: URL?,
@@ -130,7 +132,8 @@ struct TerminalBackendNativeBrowserPresentationRequest: Sendable {
         proxyEndpoint: BrowserProxyEndpoint? = nil,
         bypassRemoteProxy: Bool = false,
         isRemoteWorkspace: Bool = false,
-        remoteWebsiteDataStoreIdentifier: UUID? = nil
+        remoteWebsiteDataStoreIdentifier: UUID? = nil,
+        websiteDataStore: WKWebsiteDataStore? = nil
     ) {
         self.url = url
         self.initialRequest = initialRequest
@@ -143,6 +146,7 @@ struct TerminalBackendNativeBrowserPresentationRequest: Sendable {
         self.bypassRemoteProxy = bypassRemoteProxy
         self.isRemoteWorkspace = isRemoteWorkspace
         self.remoteWebsiteDataStoreIdentifier = remoteWebsiteDataStoreIdentifier
+        self.websiteDataStore = websiteDataStore
     }
 }
 
@@ -243,7 +247,8 @@ struct NativeTerminalBackendBrowserEndpointFactory:
             proxyEndpoint: request?.proxyEndpoint,
             bypassRemoteProxy: request?.bypassRemoteProxy ?? false,
             isRemoteWorkspace: request?.isRemoteWorkspace ?? false,
-            remoteWebsiteDataStoreIdentifier: request?.remoteWebsiteDataStoreIdentifier
+            remoteWebsiteDataStoreIdentifier: request?.remoteWebsiteDataStoreIdentifier,
+            websiteDataStore: request?.websiteDataStore
         )
     }
 }

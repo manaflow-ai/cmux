@@ -188,14 +188,14 @@ enum OpenCodeDatabaseSnapshot {
 
 // MARK: - Session entry
 
-struct PullRequestLink: Hashable {
+struct PullRequestLink: Hashable, Sendable {
     let number: Int
     let url: String
     let repository: String?
 }
 
 /// Agent-specific fields used to build the resume command with appropriate flags.
-enum AgentSpecifics: Hashable {
+enum AgentSpecifics: Hashable, Sendable {
     case claude(model: String?, permissionMode: String?, configDirectoryForResume: String?)
     case codex(model: String?, approvalPolicy: String?, sandboxMode: String?, effort: String?)
     case grok(model: String?, permissionMode: String?, sandboxMode: String?, grokHome: String?)
@@ -252,7 +252,7 @@ enum ClaudeConfigurationRoot {
     }
 }
 
-struct SessionEntry: Identifiable, Hashable {
+struct SessionEntry: Identifiable, Hashable, Sendable {
     let id: String
     let agent: SessionAgent
     /// Native session identifier for the agent's CLI (used to build the resume command).

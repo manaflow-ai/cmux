@@ -155,9 +155,13 @@ extension CmuxConfigExecutor {
             return false
         }
         let configureWorkspace: @MainActor (Workspace) -> Void = { newWorkspace in
-            newWorkspace.setCustomTitle(workspaceName)
+            tabManager.setCustomTitle(
+                tabId: newWorkspace.id,
+                title: workspaceName,
+                source: .auto
+            )
             if let color = wsDef.color {
-                newWorkspace.setCustomColor(color)
+                tabManager.setTabColor(tabId: newWorkspace.id, color: color)
             }
 
             if let existingWorkspaceToClose,

@@ -5,7 +5,7 @@ use std::sync::mpsc::{RecvError, RecvTimeoutError, TryRecvError};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
-use crate::{MuxEvent, SurfaceId, SurfaceUuid};
+use crate::{MuxEvent, PaneId, ScreenId, SurfaceId, TreeDelta, TreeDeltaKind, WorkspaceId};
 
 // A subscriber may drain accepted events after crossing this limit, then observes a disconnect.
 const MAX_PENDING_EVENTS: usize = 4_096;
@@ -20,14 +20,17 @@ struct MuxEventSubscriber {
     filter: MuxEventFilter,
 }
 
-#[derive(Clone, Copy)]
 enum MuxEventFilter {
     All,
     AttachedSurface(SurfaceId),
-    TerminalActivity,
-    ConfigReload,
-    RendererLifecycle,
-    TerminalInteractionModes,
+    SurfaceSession(SurfaceSessionScope),
+}
+
+struct SurfaceSessionScope {
+    surface: SurfaceId,
+    workspace: WorkspaceId,
+    screen: ScreenId,
+    pane: PaneId,
 }
 
 pub struct MuxEventReceiver {
@@ -44,14 +47,18 @@ struct MuxEventMailbox {
 struct MuxEventMailboxState {
     next_sequence: u128,
     events: VecDeque<(u128, MuxEvent)>,
-    title_sequences: HashMap<SurfaceId, u128>,
-    titles: BTreeMap<u128, (SurfaceId, Arc<str>)>,
-    surface_output_sequences: HashMap<SurfaceId, u128>,
-    surface_outputs: BTreeMap<u128, SurfaceId>,
-    terminal_interaction_mode_sequences: HashMap<(SurfaceUuid, u64), u128>,
-    terminal_interaction_modes: BTreeMap<u128, (SurfaceUuid, u64, u64, bool)>,
+    coalesced_sequences: HashMap<CoalescedEventKey, u128>,
+    coalesced: BTreeMap<u128, (CoalescedEventKey, MuxEvent)>,
     closed: bool,
     overflowed: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum CoalescedEventKey {
+    Agent(SurfaceId),
+    Title(SurfaceId),
+    SurfaceOutput(SurfaceId),
+    Scroll(SurfaceId),
 }
 
 impl MuxEventBroadcaster {
@@ -63,20 +70,41 @@ impl MuxEventBroadcaster {
         self.subscribe_with_filter(MuxEventFilter::AttachedSurface(surface))
     }
 
-    pub fn subscribe_terminal_activity(&self) -> MuxEventReceiver {
-        self.subscribe_with_filter(MuxEventFilter::TerminalActivity)
+    pub fn subscribe_surface_session(
+        &self,
+        surface: SurfaceId,
+        workspace: WorkspaceId,
+        screen: ScreenId,
+        pane: PaneId,
+    ) -> MuxEventReceiver {
+        self.subscribe_with_filter(MuxEventFilter::SurfaceSession(SurfaceSessionScope {
+            surface,
+            workspace,
+            screen,
+            pane,
+        }))
     }
 
-    pub fn subscribe_config_reload(&self) -> MuxEventReceiver {
-        self.subscribe_with_filter(MuxEventFilter::ConfigReload)
-    }
-
-    pub fn subscribe_renderer_lifecycle(&self) -> MuxEventReceiver {
-        self.subscribe_with_filter(MuxEventFilter::RendererLifecycle)
-    }
-
-    pub fn subscribe_terminal_interaction_modes(&self) -> MuxEventReceiver {
-        self.subscribe_with_filter(MuxEventFilter::TerminalInteractionModes)
+    pub(crate) fn update_surface_session_path(
+        &self,
+        surface: SurfaceId,
+        workspace: WorkspaceId,
+        screen: ScreenId,
+        pane: PaneId,
+    ) {
+        let mut subscribers = self.subscribers.lock().unwrap();
+        subscribers.retain_mut(|subscriber| {
+            let Some(mailbox) = subscriber.mailbox.upgrade() else { return false };
+            if let MuxEventFilter::SurfaceSession(scope) = &mut subscriber.filter
+                && scope.surface == surface
+            {
+                scope.workspace = workspace;
+                scope.screen = screen;
+                scope.pane = pane;
+                return mailbox.push(MuxEvent::TreeChanged);
+            }
+            true
+        });
     }
 
     fn subscribe_with_filter(&self, filter: MuxEventFilter) -> MuxEventReceiver {
@@ -90,7 +118,7 @@ impl MuxEventBroadcaster {
 
     pub fn emit(&self, event: MuxEvent) {
         let mut subscribers = self.subscribers.lock().unwrap();
-        subscribers.retain(|subscriber| {
+        subscribers.retain_mut(|subscriber| {
             let Some(mailbox) = subscriber.mailbox.upgrade() else { return false };
             !subscriber.filter.accepts(&event) || mailbox.push(event.clone())
         });
@@ -98,33 +126,83 @@ impl MuxEventBroadcaster {
 }
 
 impl MuxEventFilter {
-    fn accepts(self, event: &MuxEvent) -> bool {
+    fn accepts(&mut self, event: &MuxEvent) -> bool {
         match self {
             Self::All => true,
             Self::AttachedSurface(surface) => match event {
-                MuxEvent::Notification(notification) => notification.surface == Some(surface),
-                MuxEvent::ScrollChanged { surface: event_surface, .. } => *event_surface == surface,
+                MuxEvent::Notification(notification) => notification.surface == Some(*surface),
+                MuxEvent::ScrollChanged { surface: event_surface, .. } => {
+                    *event_surface == *surface
+                }
                 _ => false,
             },
-            Self::TerminalActivity => matches!(
-                event,
-                MuxEvent::TerminalActivity(_) | MuxEvent::TerminalActivityReceipt(_)
-            ),
-            Self::ConfigReload => matches!(event, MuxEvent::ConfigReloadRequested),
-            Self::RendererLifecycle => matches!(
-                event,
-                MuxEvent::RendererConfigInvalidated { .. }
-                    | MuxEvent::RendererWorkerChanged { .. }
-                    | MuxEvent::RendererPresentationReady { .. }
-            ),
-            Self::TerminalInteractionModes => {
-                matches!(
-                    event,
-                    MuxEvent::TerminalInteractionModeChanged { .. }
-                        | MuxEvent::TerminalInteractionModeInvalidated { .. }
-                )
+            Self::SurfaceSession(scope) => scope.accepts(event),
+        }
+    }
+}
+
+impl SurfaceSessionScope {
+    fn accepts(&mut self, event: &MuxEvent) -> bool {
+        match event {
+            MuxEvent::SurfaceOutput(surface)
+            | MuxEvent::SurfaceExited(surface)
+            | MuxEvent::Bell(surface) => *surface == self.surface,
+            MuxEvent::SurfaceResized { surface, .. }
+            | MuxEvent::SurfaceResizeFailed { surface, .. }
+            | MuxEvent::AgentChanged { surface, .. }
+            | MuxEvent::TitleChanged { surface, .. }
+            | MuxEvent::ScrollChanged { surface, .. } => *surface == self.surface,
+            MuxEvent::Notification(notification) => {
+                notification.surface.is_none_or(|surface| surface == self.surface)
+            }
+            MuxEvent::TreeDelta(delta) => self.accepts_tree_delta(delta),
+            // A surface-only client always renders its target across the full
+            // host terminal. Screen layout churn therefore carries no useful
+            // state and would only force repeated whole-tree refreshes.
+            MuxEvent::LayoutChanged(_) => false,
+            MuxEvent::ClientAttached { .. }
+            | MuxEvent::ClientChanged { .. }
+            | MuxEvent::ClientDetached(_)
+            | MuxEvent::ClientListInvalidated
+            | MuxEvent::TreeChanged
+            | MuxEvent::TreeSelectionChanged => false,
+            MuxEvent::GraphicsStatus(_)
+            | MuxEvent::Status(_)
+            | MuxEvent::ConfigReloadRequested
+            | MuxEvent::WindowTitleRequested(_)
+            | MuxEvent::FrontendProjectionChanged { .. }
+            | MuxEvent::TerminalRegistryChanged { .. }
+            | MuxEvent::PairingRequested(_)
+            | MuxEvent::PairingResolved { .. }
+            | MuxEvent::Empty => true,
+        }
+    }
+
+    fn accepts_tree_delta(&mut self, delta: &TreeDelta) -> bool {
+        let relevant = match delta.kind {
+            TreeDeltaKind::TabAdded | TreeDeltaKind::TabClosed | TreeDeltaKind::TabRenamed => {
+                delta.surface == Some(self.surface)
+            }
+            TreeDeltaKind::PaneClosed => delta.pane == Some(self.pane),
+            TreeDeltaKind::ScreenClosed => delta.screen == Some(self.screen),
+            TreeDeltaKind::WorkspaceClosed => delta.workspace == self.workspace,
+            TreeDeltaKind::WorkspaceAdded
+            | TreeDeltaKind::WorkspaceRenamed
+            | TreeDeltaKind::WorkspaceMoved
+            | TreeDeltaKind::ScreenAdded
+            | TreeDeltaKind::ScreenRenamed
+            | TreeDeltaKind::PaneAdded => false,
+        };
+        if delta.surface == Some(self.surface) && delta.kind == TreeDeltaKind::TabAdded {
+            self.workspace = delta.workspace;
+            if let Some(screen) = delta.screen {
+                self.screen = screen;
+            }
+            if let Some(pane) = delta.pane {
+                self.pane = pane;
             }
         }
+        relevant
     }
 }
 
@@ -146,116 +224,65 @@ impl MuxEventMailbox {
         }
         let sequence = state.next_sequence;
         state.next_sequence = state.next_sequence.saturating_add(1);
-        match event {
-            MuxEvent::TitleChanged { surface, title } => {
-                if let Some(previous) = state.title_sequences.get(&surface).copied() {
-                    state.titles.remove(&previous);
-                } else if !state.reserve_pending_slot() {
-                    self.changed.notify_all();
-                    return false;
-                }
-                state.title_sequences.insert(surface, sequence);
-                state.titles.insert(sequence, (surface, title));
+        let accepted = match event {
+            event @ MuxEvent::AgentChanged { surface, .. } => {
+                state.push_coalesced(sequence, CoalescedEventKey::Agent(surface), event)
             }
-            MuxEvent::SurfaceOutput(surface) => {
-                if let Some(previous) = state.surface_output_sequences.get(&surface).copied() {
-                    state.surface_outputs.remove(&previous);
-                } else if !state.reserve_pending_slot() {
-                    self.changed.notify_all();
-                    return false;
-                }
-                state.surface_output_sequences.insert(surface, sequence);
-                state.surface_outputs.insert(sequence, surface);
+            event @ MuxEvent::TitleChanged { surface, .. } => {
+                state.push_coalesced(sequence, CoalescedEventKey::Title(surface), event)
             }
-            MuxEvent::TerminalInteractionModeChanged {
-                surface_uuid,
-                terminal_epoch,
-                interaction_revision,
-                mouse_tracking,
-            } => {
-                let key = (surface_uuid, terminal_epoch);
-                if let Some(previous) = state.terminal_interaction_mode_sequences.get(&key).copied()
-                {
-                    state.terminal_interaction_modes.remove(&previous);
-                } else if !state.reserve_pending_slot() {
-                    self.changed.notify_all();
-                    return false;
-                }
-                state.terminal_interaction_mode_sequences.insert(key, sequence);
-                state.terminal_interaction_modes.insert(
-                    sequence,
-                    (surface_uuid, terminal_epoch, interaction_revision, mouse_tracking),
-                );
+            event @ MuxEvent::SurfaceOutput(surface) => {
+                state.push_coalesced(sequence, CoalescedEventKey::SurfaceOutput(surface), event)
             }
-            MuxEvent::TerminalInteractionModeInvalidated {
-                surface_uuid,
-                terminal_epoch,
-                reason,
-            } => {
-                state.terminal_interaction_mode_sequences.clear();
-                state.terminal_interaction_modes.clear();
-                if !state.reserve_pending_slot() {
-                    self.changed.notify_all();
-                    return false;
-                }
-                state.events.push_back((
-                    sequence,
-                    MuxEvent::TerminalInteractionModeInvalidated {
-                        surface_uuid,
-                        terminal_epoch,
-                        reason,
-                    },
-                ));
+            event @ MuxEvent::ScrollChanged { surface, .. } => {
+                state.push_coalesced(sequence, CoalescedEventKey::Scroll(surface), event)
             }
             MuxEvent::SurfaceExited(surface) => {
-                if let Some(previous) = state.title_sequences.remove(&surface) {
-                    state.titles.remove(&previous);
-                }
-                if let Some(previous) = state.surface_output_sequences.remove(&surface) {
-                    state.surface_outputs.remove(&previous);
-                }
+                state.discard_surface_state(surface);
                 if !state.reserve_pending_slot() {
-                    self.changed.notify_all();
-                    return false;
+                    false
+                } else {
+                    state.events.push_back((sequence, MuxEvent::SurfaceExited(surface)));
+                    true
                 }
-                state.events.push_back((sequence, MuxEvent::SurfaceExited(surface)));
             }
             MuxEvent::Empty => {
-                // `Empty` is a structural reset, but `SurfaceExited` is also
-                // the terminal lifecycle signal for render/attach clients.
-                // A short-lived child can exit before its creator finishes
-                // inserting the pane, then be reaped again after insertion.
-                // Preserve any pending exits across that second reset and
-                // order them after `Empty`, matching the normal close path.
-                let pending_exits = state
+                let mut terminal_events = state
                     .events
                     .iter()
-                    .filter_map(|(_, event)| match event {
-                        MuxEvent::SurfaceExited(surface) => Some(*surface),
-                        _ => None,
+                    .filter(|(_, event)| {
+                        matches!(event, MuxEvent::SurfaceExited(_))
+                            || matches!(
+                                event,
+                                MuxEvent::TreeDelta(delta)
+                                    if delta.kind == TreeDeltaKind::WorkspaceClosed
+                            )
                     })
+                    .cloned()
                     .collect::<Vec<_>>();
-                state.events.clear();
-                state.title_sequences.clear();
-                state.titles.clear();
-                state.surface_output_sequences.clear();
-                state.surface_outputs.clear();
-                state.terminal_interaction_mode_sequences.clear();
-                state.terminal_interaction_modes.clear();
-                state.events.push_back((sequence, MuxEvent::Empty));
-                for surface in pending_exits.into_iter().take(MAX_PENDING_EVENTS - 1) {
-                    let sequence = state.next_sequence;
-                    state.next_sequence = state.next_sequence.saturating_add(1);
-                    state.events.push_back((sequence, MuxEvent::SurfaceExited(surface)));
+                let keep = MAX_PENDING_EVENTS.saturating_sub(1);
+                if terminal_events.len() > keep {
+                    terminal_events.drain(..terminal_events.len() - keep);
                 }
+                state.events.clear();
+                state.coalesced_sequences.clear();
+                state.coalesced.clear();
+                state.events.extend(terminal_events);
+                state.events.push_back((sequence, MuxEvent::Empty));
+                true
             }
             event => {
                 if !state.reserve_pending_slot() {
-                    self.changed.notify_all();
-                    return false;
+                    false
+                } else {
+                    state.events.push_back((sequence, event));
+                    true
                 }
-                state.events.push_back((sequence, event));
             }
+        };
+        if !accepted {
+            self.changed.notify_all();
+            return false;
         }
         self.changed.notify_one();
         true
@@ -265,29 +292,35 @@ impl MuxEventMailbox {
         self.state.lock().unwrap().closed = true;
         self.changed.notify_all();
     }
-
-    fn cancel(&self) {
-        let mut state = self.state.lock().unwrap();
-        state.closed = true;
-        state.events.clear();
-        state.title_sequences.clear();
-        state.titles.clear();
-        state.surface_output_sequences.clear();
-        state.surface_outputs.clear();
-        state.terminal_interaction_mode_sequences.clear();
-        state.terminal_interaction_modes.clear();
-        self.changed.notify_all();
-    }
 }
 
 impl MuxEventMailboxState {
+    fn push_coalesced(&mut self, sequence: u128, key: CoalescedEventKey, event: MuxEvent) -> bool {
+        if let Some(previous) = self.coalesced_sequences.get(&key).copied() {
+            self.coalesced.remove(&previous);
+        } else if !self.reserve_pending_slot() {
+            return false;
+        }
+        self.coalesced_sequences.insert(key, sequence);
+        self.coalesced.insert(sequence, (key, event));
+        true
+    }
+
+    fn discard_coalesced(&mut self, key: CoalescedEventKey) {
+        if let Some(previous) = self.coalesced_sequences.remove(&key) {
+            self.coalesced.remove(&previous);
+        }
+    }
+
+    fn discard_surface_state(&mut self, surface: SurfaceId) {
+        self.discard_coalesced(CoalescedEventKey::Agent(surface));
+        self.discard_coalesced(CoalescedEventKey::Title(surface));
+        self.discard_coalesced(CoalescedEventKey::SurfaceOutput(surface));
+        self.discard_coalesced(CoalescedEventKey::Scroll(surface));
+    }
+
     fn reserve_pending_slot(&mut self) -> bool {
-        if self.events.len()
-            + self.titles.len()
-            + self.surface_outputs.len()
-            + self.terminal_interaction_modes.len()
-            < MAX_PENDING_EVENTS
-        {
+        if self.events.len() + self.coalesced.len() < MAX_PENDING_EVENTS {
             true
         } else {
             self.closed = true;
@@ -298,51 +331,19 @@ impl MuxEventMailboxState {
 
     fn pop(&mut self) -> Option<MuxEvent> {
         let event_sequence = self.events.front().map(|(sequence, _)| *sequence);
-        let title_sequence = self.titles.first_key_value().map(|(sequence, _)| *sequence);
-        let surface_output_sequence =
-            self.surface_outputs.first_key_value().map(|(sequence, _)| *sequence);
-        let terminal_interaction_mode_sequence =
-            self.terminal_interaction_modes.first_key_value().map(|(sequence, _)| *sequence);
-        let next_sequence = [
-            event_sequence,
-            title_sequence,
-            surface_output_sequence,
-            terminal_interaction_mode_sequence,
-        ]
-        .into_iter()
-        .flatten()
-        .min()?;
+        let coalesced_sequence = self.coalesced.first_key_value().map(|(sequence, _)| *sequence);
+        let next_sequence = [event_sequence, coalesced_sequence].into_iter().flatten().min()?;
         if event_sequence == Some(next_sequence) {
             self.events.pop_front().map(|(_, event)| event)
-        } else if title_sequence == Some(next_sequence) {
-            let (_, (surface, title)) = self.titles.pop_first()?;
-            self.title_sequences.remove(&surface);
-            Some(MuxEvent::TitleChanged { surface, title })
-        } else if surface_output_sequence == Some(next_sequence) {
-            let (_, surface) = self.surface_outputs.pop_first()?;
-            self.surface_output_sequences.remove(&surface);
-            Some(MuxEvent::SurfaceOutput(surface))
         } else {
-            let (_, (surface_uuid, terminal_epoch, interaction_revision, mouse_tracking)) =
-                self.terminal_interaction_modes.pop_first()?;
-            self.terminal_interaction_mode_sequences.remove(&(surface_uuid, terminal_epoch));
-            Some(MuxEvent::TerminalInteractionModeChanged {
-                surface_uuid,
-                terminal_epoch,
-                interaction_revision,
-                mouse_tracking,
-            })
+            let (_, (key, event)) = self.coalesced.pop_first()?;
+            self.coalesced_sequences.remove(&key);
+            Some(event)
         }
     }
 }
 
 impl MuxEventReceiver {
-    /// Cancel this subscriber and wake a thread blocked in [`Self::recv`].
-    /// Pending events are discarded because the receiver has no future owner.
-    pub fn close(&self) {
-        self.mailbox.cancel();
-    }
-
     pub fn overflowed(&self) -> bool {
         self.mailbox.state.lock().unwrap().overflowed
     }
@@ -407,224 +408,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn receiver_close_wakes_blocked_recv_without_polling() {
-        let broadcaster = MuxEventBroadcaster::default();
-        let events = Arc::new(broadcaster.subscribe());
-        let blocked = events.clone();
-        let (started_tx, started_rx) = std::sync::mpsc::channel();
-        let thread = std::thread::spawn(move || {
-            started_tx.send(()).unwrap();
-            blocked.recv()
-        });
-        started_rx.recv().unwrap();
-
-        events.close();
-
-        assert!(thread.join().unwrap().is_err());
-        assert!(matches!(events.try_recv(), Err(TryRecvError::Disconnected)));
-    }
-
-    #[test]
-    fn config_reload_subscription_does_not_accumulate_unrelated_events() {
-        let broadcaster = MuxEventBroadcaster::default();
-        let events = broadcaster.subscribe_config_reload();
-
-        broadcaster.emit(MuxEvent::SurfaceOutput(7));
-        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
-
-        broadcaster.emit(MuxEvent::ConfigReloadRequested);
-        assert!(matches!(events.recv().unwrap(), MuxEvent::ConfigReloadRequested));
-    }
-
-    #[test]
-    fn renderer_lifecycle_subscription_accepts_only_renderer_lifecycle_events() {
-        let broadcaster = MuxEventBroadcaster::default();
-        let events = broadcaster.subscribe_renderer_lifecycle();
-
-        for surface in 0..=MAX_PENDING_EVENTS {
-            broadcaster.emit(MuxEvent::SurfaceOutput(surface as SurfaceId));
-            broadcaster.emit(MuxEvent::TreeChanged);
-        }
-        broadcaster.emit(MuxEvent::ConfigReloadRequested);
-        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
-        assert!(!events.overflowed());
-
-        let workspace_uuid = crate::WorkspaceUuid::new();
-        broadcaster.emit(MuxEvent::RendererConfigInvalidated {
-            revision: 7,
-            digest: [0x5a; 32],
-            reason: Arc::<str>::from("ghostty-config-reloaded"),
-            default_colors: crate::DefaultColors::default(),
-        });
-        broadcaster.emit(MuxEvent::RendererWorkerChanged {
-            workspace_uuid,
-            prior_renderer_epoch: 4,
-            prior_process_id: Some(41),
-            prior_process_instance_token: None,
-            status: None,
-            reason: Some(Arc::<str>::from("worker-exited")),
-        });
-        broadcaster.emit(MuxEvent::RendererPresentationReady {
-            workspace_uuid,
-            renderer_epoch: 5,
-            process_id: 42,
-            process_instance_token: crate::renderer_supervisor::RendererProcessInstanceToken {
-                start_time_seconds: 11,
-                start_time_microseconds: 12,
-            },
-            effective_user_id: 501,
-            metrics: crate::renderer_control::RendererPresentationReady {
-                terminal_id: uuid::Uuid::new_v4(),
-                terminal_epoch: 2,
-                presentation_id: uuid::Uuid::new_v4(),
-                presentation_generation: 3,
-                canonical_sequence: 8,
-                presentation_sequence: 9,
-                columns: 120,
-                rows: 40,
-                cell_width: 8,
-                cell_height: 16,
-                padding_top: 1,
-                padding_right: 2,
-                padding_bottom: 3,
-                padding_left: 4,
-            },
-        });
-
-        assert!(matches!(
-            events.recv().unwrap(),
-            MuxEvent::RendererConfigInvalidated { revision: 7, .. }
-        ));
-        assert!(matches!(
-            events.recv().unwrap(),
-            MuxEvent::RendererWorkerChanged { workspace_uuid: received, .. }
-                if received == workspace_uuid
-        ));
-        assert!(matches!(
-            events.recv().unwrap(),
-            MuxEvent::RendererPresentationReady { workspace_uuid: received, .. }
-                if received == workspace_uuid
-        ));
-        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
-    }
-
-    #[test]
-    fn terminal_interaction_mode_subscription_filters_noise_and_coalesces_each_runtime() {
-        let broadcaster = MuxEventBroadcaster::default();
-        let events = broadcaster.subscribe_terminal_interaction_modes();
-
-        for surface in 0..=MAX_PENDING_EVENTS {
-            broadcaster.emit(MuxEvent::SurfaceOutput(surface as SurfaceId));
-            broadcaster.emit(MuxEvent::TreeChanged);
-        }
-        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
-        assert!(!events.overflowed());
-
-        let first = crate::SurfaceUuid::new();
-        let second = crate::SurfaceUuid::new();
-        for revision in 2..=10_001 {
-            broadcaster.emit(MuxEvent::TerminalInteractionModeChanged {
-                surface_uuid: first,
-                terminal_epoch: 11,
-                interaction_revision: revision,
-                mouse_tracking: revision % 2 == 0,
-            });
-            broadcaster.emit(MuxEvent::TerminalInteractionModeChanged {
-                surface_uuid: second,
-                terminal_epoch: 22,
-                interaction_revision: revision,
-                mouse_tracking: revision % 2 != 0,
-            });
-        }
-
-        assert!(matches!(
-            events.recv().unwrap(),
-            MuxEvent::TerminalInteractionModeChanged {
-                surface_uuid,
-                terminal_epoch: 11,
-                interaction_revision: 10_001,
-                mouse_tracking: false,
-            } if surface_uuid == first
-        ));
-        assert!(matches!(
-            events.recv().unwrap(),
-            MuxEvent::TerminalInteractionModeChanged {
-                surface_uuid,
-                terminal_epoch: 22,
-                interaction_revision: 10_001,
-                mouse_tracking: true,
-            } if surface_uuid == second
-        ));
-        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
-        assert!(!events.overflowed());
-    }
-
-    #[test]
-    fn terminal_interaction_mode_mailbox_retains_new_runtime_when_old_runtime_reports_late() {
-        let broadcaster = MuxEventBroadcaster::default();
-        let events = broadcaster.subscribe_terminal_interaction_modes();
-        let surface_uuid = crate::SurfaceUuid::new();
-
-        broadcaster.emit(MuxEvent::TerminalInteractionModeChanged {
-            surface_uuid,
-            terminal_epoch: 1,
-            interaction_revision: 2,
-            mouse_tracking: true,
-        });
-        broadcaster.emit(MuxEvent::TerminalInteractionModeChanged {
-            surface_uuid,
-            terminal_epoch: 2,
-            interaction_revision: 2,
-            mouse_tracking: true,
-        });
-        broadcaster.emit(MuxEvent::TerminalInteractionModeChanged {
-            surface_uuid,
-            terminal_epoch: 1,
-            interaction_revision: 3,
-            mouse_tracking: false,
-        });
-
-        assert!(matches!(
-            events.recv().unwrap(),
-            MuxEvent::TerminalInteractionModeChanged {
-                terminal_epoch: 2,
-                interaction_revision: 2,
-                mouse_tracking: true,
-                ..
-            }
-        ));
-        assert!(matches!(
-            events.recv().unwrap(),
-            MuxEvent::TerminalInteractionModeChanged {
-                terminal_epoch: 1,
-                interaction_revision: 3,
-                mouse_tracking: false,
-                ..
-            }
-        ));
-        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
-    }
-
-    #[test]
-    fn terminal_interaction_mode_unique_runtime_overflow_disconnects_fail_closed() {
-        let broadcaster = MuxEventBroadcaster::default();
-        let events = broadcaster.subscribe_terminal_interaction_modes();
-
-        for _ in 0..=MAX_PENDING_EVENTS {
-            broadcaster.emit(MuxEvent::TerminalInteractionModeChanged {
-                surface_uuid: crate::SurfaceUuid::new(),
-                terminal_epoch: 1,
-                interaction_revision: 2,
-                mouse_tracking: true,
-            });
-        }
-
-        assert_eq!(events.try_iter().count(), MAX_PENDING_EVENTS);
-        assert!(events.overflowed());
-        assert!(matches!(events.try_recv(), Err(TryRecvError::Disconnected)));
-    }
-
-    #[test]
     fn title_churn_keeps_one_latest_value_per_surface_and_subscriber() {
         let broadcaster = MuxEventBroadcaster::default();
         let fast = broadcaster.subscribe();
@@ -653,6 +436,52 @@ mod tests {
             ));
             assert!(matches!(receiver.try_recv(), Err(TryRecvError::Empty)));
         }
+    }
+
+    #[test]
+    fn agent_churn_keeps_one_latest_value_per_surface() {
+        let broadcaster = MuxEventBroadcaster::default();
+        let events = broadcaster.subscribe();
+
+        for index in 0..10_000 {
+            broadcaster.emit(MuxEvent::AgentChanged {
+                surface: 1,
+                state: format!("one-{index}").into(),
+                source: "hook".into(),
+                session: None,
+                updated_at_ms: index,
+            });
+            broadcaster.emit(MuxEvent::AgentChanged {
+                surface: 2,
+                state: format!("two-{index}").into(),
+                source: "socket".into(),
+                session: Some("agent-session".into()),
+                updated_at_ms: index,
+            });
+        }
+
+        assert!(matches!(
+            events.recv().unwrap(),
+            MuxEvent::AgentChanged {
+                surface: 1,
+                state,
+                updated_at_ms: 9_999,
+                ..
+            } if state.as_ref() == "one-9999"
+        ));
+        assert!(matches!(
+            events.recv().unwrap(),
+            MuxEvent::AgentChanged {
+                surface: 2,
+                state,
+                source,
+                session: Some(session),
+                updated_at_ms: 9_999,
+            } if state.as_ref() == "two-9999"
+                && source.as_ref() == "socket"
+                && session.as_ref() == "agent-session"
+        ));
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
     }
 
     #[test]
@@ -703,6 +532,24 @@ mod tests {
     }
 
     #[test]
+    fn surface_exit_discards_its_pending_agent_state() {
+        let broadcaster = MuxEventBroadcaster::default();
+        let events = broadcaster.subscribe();
+
+        broadcaster.emit(MuxEvent::AgentChanged {
+            surface: 4,
+            state: "working".into(),
+            source: "hook".into(),
+            session: None,
+            updated_at_ms: 1,
+        });
+        broadcaster.emit(MuxEvent::SurfaceExited(4));
+
+        assert!(matches!(events.recv().unwrap(), MuxEvent::SurfaceExited(4)));
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[test]
     fn surface_output_churn_keeps_one_latest_position_per_surface() {
         let broadcaster = MuxEventBroadcaster::default();
         let events = broadcaster.subscribe();
@@ -723,11 +570,54 @@ mod tests {
     }
 
     #[test]
+    fn scroll_churn_keeps_one_latest_position_per_surface() {
+        let broadcaster = MuxEventBroadcaster::default();
+        let events = broadcaster.subscribe();
+
+        broadcaster.emit(MuxEvent::ScrollChanged { surface: 1, offset: 0, at_bottom: true });
+        broadcaster.emit(MuxEvent::Bell(2));
+        for offset in 1..10_000 {
+            broadcaster.emit(MuxEvent::ScrollChanged { surface: 1, offset, at_bottom: false });
+            broadcaster.emit(MuxEvent::ScrollChanged {
+                surface: 3,
+                offset: offset * 2,
+                at_bottom: false,
+            });
+        }
+        broadcaster.emit(MuxEvent::SurfaceExited(4));
+
+        assert!(matches!(events.recv().unwrap(), MuxEvent::Bell(2)));
+        assert!(matches!(
+            events.recv().unwrap(),
+            MuxEvent::ScrollChanged { surface: 1, offset: 9_999, at_bottom: false }
+        ));
+        assert!(matches!(
+            events.recv().unwrap(),
+            MuxEvent::ScrollChanged { surface: 3, offset: 19_998, at_bottom: false }
+        ));
+        assert!(matches!(events.recv().unwrap(), MuxEvent::SurfaceExited(4)));
+        assert!(!events.overflowed());
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[test]
     fn surface_exit_discards_its_pending_output() {
         let broadcaster = MuxEventBroadcaster::default();
         let events = broadcaster.subscribe();
 
         broadcaster.emit(MuxEvent::SurfaceOutput(4));
+        broadcaster.emit(MuxEvent::SurfaceExited(4));
+
+        assert!(matches!(events.recv().unwrap(), MuxEvent::SurfaceExited(4)));
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[test]
+    fn surface_exit_discards_its_pending_scroll_state() {
+        let broadcaster = MuxEventBroadcaster::default();
+        let events = broadcaster.subscribe();
+
+        broadcaster.emit(MuxEvent::ScrollChanged { surface: 4, offset: 12, at_bottom: false });
         broadcaster.emit(MuxEvent::SurfaceExited(4));
 
         assert!(matches!(events.recv().unwrap(), MuxEvent::SurfaceExited(4)));
@@ -780,6 +670,71 @@ mod tests {
     }
 
     #[test]
+    fn surface_session_subscription_filters_unrelated_hot_events_before_bounded_mailbox() {
+        let broadcaster = MuxEventBroadcaster::default();
+        let events = broadcaster.subscribe_surface_session(7, 1, 2, 3);
+
+        for index in 0..=MAX_PENDING_EVENTS {
+            broadcaster.emit(MuxEvent::Bell(8));
+            broadcaster.emit(MuxEvent::SurfaceOutput(8));
+            broadcaster.emit(MuxEvent::LayoutChanged(9));
+            broadcaster.emit(MuxEvent::LayoutChanged(2));
+            broadcaster.emit(MuxEvent::TitleChanged {
+                surface: 8,
+                title: Arc::from(format!("unrelated-{index}")),
+            });
+        }
+        broadcaster.emit(MuxEvent::SurfaceOutput(7));
+
+        assert!(matches!(events.recv().unwrap(), MuxEvent::SurfaceOutput(7)));
+        assert!(!events.overflowed());
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[test]
+    fn surface_session_subscription_filters_unscoped_tree_invalidations() {
+        let broadcaster = MuxEventBroadcaster::default();
+        let events = broadcaster.subscribe_surface_session(7, 1, 2, 3);
+
+        broadcaster.emit(MuxEvent::TreeChanged);
+        broadcaster.emit(MuxEvent::TreeDelta(TreeDelta {
+            kind: TreeDeltaKind::TabAdded,
+            workspace: 1,
+            screen: Some(2),
+            pane: Some(4),
+            surface: Some(8),
+            index: Some(0),
+            entity: serde_json::json!({}),
+            workspace_revision: None,
+        }));
+
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[test]
+    fn surface_session_subscription_tracks_the_target_tab_path_after_a_move() {
+        let broadcaster = MuxEventBroadcaster::default();
+        let events = broadcaster.subscribe_surface_session(7, 1, 2, 3);
+        let moved = TreeDelta {
+            kind: TreeDeltaKind::TabAdded,
+            workspace: 10,
+            screen: Some(20),
+            pane: Some(30),
+            surface: Some(7),
+            index: Some(0),
+            entity: serde_json::json!({}),
+            workspace_revision: None,
+        };
+
+        broadcaster.emit(MuxEvent::TreeDelta(moved));
+        broadcaster.emit(MuxEvent::LayoutChanged(2));
+        broadcaster.emit(MuxEvent::LayoutChanged(20));
+
+        assert!(matches!(events.recv().unwrap(), MuxEvent::TreeDelta(_)));
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[test]
     fn empty_preempts_a_full_mailbox() {
         let broadcaster = MuxEventBroadcaster::default();
         let events = broadcaster.subscribe();
@@ -792,19 +747,5 @@ mod tests {
         assert!(matches!(events.recv().unwrap(), MuxEvent::Empty));
         assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
         assert!(!events.overflowed());
-    }
-
-    #[test]
-    fn empty_preserves_a_pending_surface_exit_after_the_reset() {
-        let broadcaster = MuxEventBroadcaster::default();
-        let events = broadcaster.subscribe();
-
-        broadcaster.emit(MuxEvent::SurfaceExited(7));
-        broadcaster.emit(MuxEvent::TreeChanged);
-        broadcaster.emit(MuxEvent::Empty);
-
-        assert!(matches!(events.recv().unwrap(), MuxEvent::Empty));
-        assert!(matches!(events.recv().unwrap(), MuxEvent::SurfaceExited(7)));
-        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
     }
 }

@@ -5,6 +5,7 @@ public import Foundation
 public struct TerminalSurfaceLaunchRequest: Sendable {
     public let workspaceID: UUID
     public let surfaceID: UUID
+    public let terminalLifecycleID: UUID
     public let configTemplate: CmuxSurfaceConfigTemplate?
     public let workingDirectory: String?
     public let portOrdinal: Int
@@ -17,6 +18,7 @@ public struct TerminalSurfaceLaunchRequest: Sendable {
     public init(
         workspaceID: UUID,
         surfaceID: UUID,
+        terminalLifecycleID: UUID? = nil,
         configTemplate: CmuxSurfaceConfigTemplate?,
         workingDirectory: String?,
         portOrdinal: Int,
@@ -28,6 +30,7 @@ public struct TerminalSurfaceLaunchRequest: Sendable {
     ) {
         self.workspaceID = workspaceID
         self.surfaceID = surfaceID
+        self.terminalLifecycleID = terminalLifecycleID ?? surfaceID
         self.configTemplate = configTemplate
         self.workingDirectory = workingDirectory
         self.portOrdinal = portOrdinal

@@ -1,6 +1,17 @@
+import CMUXMobileCore
 import Foundation
 
 extension MobileHostService {
+    nonisolated static let irohArtifactLaneCapability = "iroh.artifact_lane.v1"
+    nonisolated static let terminalInputOrderedCapability = "terminal.input.ordered.v1"
+    nonisolated static let workspaceChangesCapability = "workspace.changes.v1"
+    /// Authenticated status includes the Mac's independent phone-forwarding
+    /// gate, presence mode, account proof, and API endpoint identity.
+    nonisolated static let phonePushStatusCapability = "phone_push.status.v1"
+    nonisolated static let phonePushSettingsCapability = "phone_push.settings.v1"
+    /// Authenticated request to enqueue a truthful, correlated test alert.
+    nonisolated static let phonePushTestCapability = "phone_push.test.v1"
+
     /// The single source of truth for the capabilities advertised to mobile
     /// clients via `mobile.host.status`. Every status path (the public-status
     /// cache, the network status gate, and `TerminalController`'s
@@ -21,23 +32,85 @@ extension MobileHostService {
     nonisolated static func mobileHostCapabilities(
         for profile: MobileTerminalDataPlaneProfile
     ) -> [String] {
+        mobileHostCapabilities(
+            for: profile,
+            includingWorkspaceChanges: CmuxFeatureFlags.offMainEffectiveValue(
+                for: CmuxFeatureFlags.mobileWorkspaceChangesFlag
+            ),
+            includingSimulator: CmuxFeatureFlags.offMainEffectiveValue(
+                for: CmuxFeatureFlags.simulatorFlag
+            )
+        )
+    }
+
+    /// The mobile diff viewer ships behind a remote feature flag: when the
+    /// flag is off this list omits `workspace.changes.v1`, and every iOS
+    /// entry point (chip, toolbar button, hint, sheet, summary polling)
+    /// feature-detects itself away. The RPC dispatch applies the same flag,
+    /// so a phone holding a stale capability list cannot call through.
+    /// `includingSimulator` mirrors the same pattern for the simulator
+    /// capabilities: `mobile.simulator.list`, stream start, and simulator
+    /// input all refuse with `capability_disabled` when
+    /// `simulator-enabled-release` is off, so advertising the capabilities
+    /// unconditionally would make iOS show Simulator rows whose first stream
+    /// or input call then fails.
+    nonisolated static func mobileHostCapabilities(
+        includingWorkspaceChanges: Bool,
+        includingSimulator: Bool = true
+    ) -> [String] {
+        mobileHostCapabilities(
+            for: .embeddedGhostty,
+            includingWorkspaceChanges: includingWorkspaceChanges,
+            includingSimulator: includingSimulator
+        )
+    }
+
+    private nonisolated static func mobileHostCapabilities(
+        for profile: MobileTerminalDataPlaneProfile,
+        includingWorkspaceChanges: Bool,
+        includingSimulator: Bool
+    ) -> [String] {
         var capabilities = [
+            MobileBrowserStreamCapability.identifier,
+            MobileBrowserStreamCapability.viewportIdentifier,
+            MobileBrowserStreamCapability.dialogIdentifier,
+            MobileBrowserStreamCapability.createIdentifier,
+            MobileSimulatorStreamCapability.current.identifier,
+            MobileSimulatorStreamCapability.current.inputIdentifier,
+            MobileSimulatorStreamCapability.current.ownershipIdentifier,
+            MobileSimulatorStreamCapability.current.keepaliveIdentifier,
             "events.v1",
             "notification.badge.v1",
             "notification.dismiss.v1",
+            "notification.feed.v1",
             "notification.reconcile.v1",
             "terminal.bytes.v1",
             "terminal.replay.v1",
+            Self.terminalInputOrderedCapability,
             "terminal.viewport.v1",
             "terminal.artifact.v1",
             "terminal.artifact.list.v1",
             "workspace.actions.v1",
+            Self.workspaceChangesCapability,
+            "workspace.metadata.v1",
             "workspace.read_state.v1",
             "workspace.close.v1",
             "workspace.move.v1",
             "workspace.group_actions.v1",
             "workspace.group_create.v1",
             "workspace.create_in_group.v1",
+            // Mac-scoped workspace mutations (move, group actions/create,
+            // create-in-group) are authorized by the signed-in Stack account;
+            // an attach ticket only narrows scope while current. iOS keeps the
+            // drag-and-drop and group-create affordances enabled after ticket
+            // expiry only against hosts that advertise this.
+            "workspace.mutations.account_auth.v1",
+            "workspace.task_create.v1",
+            "task.attachments.v1",
+            "task.models.v1",
+            "workspace.directory_browse.v1",
+            "workspace.directory_search.v1",
+            "workspace.directory_search.v2",
             "chat.artifact.v1",
             "chat.artifact.folders.v1",
             "chat.artifact.gallery.v1",
@@ -50,12 +123,36 @@ extension MobileHostService {
         ]
         switch profile {
         case .embeddedGhostty:
-            capabilities.append("terminal.render_grid.v1")
+            capabilities.append(contentsOf: [
+                "terminal.render_grid.v1",
+                "terminal.render_grid.verified_replay.v1",
+                // Screen-anchored render grids let the phone own deep local
+                // scrollback independently from the Mac scroll position.
+                "terminal.render_grid.screen_anchor.v1",
+            ])
         case .backendCompatibility:
             if let compatibilityCapability = profile.compatibilityCapability {
                 capabilities.append(compatibilityCapability)
             }
         }
+        if !includingWorkspaceChanges {
+            capabilities.removeAll { $0 == Self.workspaceChangesCapability }
+        }
+        if !includingSimulator {
+            let simulatorCapabilities: Set<String> = [
+                MobileSimulatorStreamCapability.current.identifier,
+                MobileSimulatorStreamCapability.current.inputIdentifier,
+                MobileSimulatorStreamCapability.current.ownershipIdentifier,
+                MobileSimulatorStreamCapability.current.keepaliveIdentifier,
+            ]
+            capabilities.removeAll { simulatorCapabilities.contains($0) }
+        }
+        return applyingDebugCapabilitySuppressions(capabilities)
+    }
+
+    nonisolated static func applyingDebugCapabilitySuppressions(
+        _ capabilities: [String]
+    ) -> [String] {
         #if DEBUG
         // Lets a dev Mac impersonate an older host while dogfooding the iOS update hint.
         let suppressed = Set(

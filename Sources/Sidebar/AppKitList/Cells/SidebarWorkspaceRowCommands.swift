@@ -49,6 +49,8 @@ struct SidebarWorkspaceRowCommands {
 #endif
         var selectedTabIds = readSelectedTabIds()
         let workspaceIds = tabManager.tabs.map(\.id)
+        let anchorIds = Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
+        let selectionKindPolicy = SidebarSelectionKindPolicy()
         let shiftAnchorIndex = isShift
             ? SidebarWorkspaceSelectionSyncPolicy().shiftClickAnchorIndex(
                 existingAnchorIndex: readLastSelectionIndex(),
@@ -72,7 +74,7 @@ struct SidebarWorkspaceRowCommands {
             let anchorIdsByGroup: [UUID: UUID] = Dictionary(
                 uniqueKeysWithValues: tabManager.workspaceGroups.map { ($0.id, $0.anchorWorkspaceId) }
             )
-            let rangeIds = tabManager.tabs[lower...upper].compactMap { tab -> UUID? in
+            let visibleRangeIds = tabManager.tabs[lower...upper].compactMap { tab -> UUID? in
                 if let gid = tab.groupId,
                    collapsedGroupIds.contains(gid),
                    anchorIdsByGroup[gid] != tab.id {
@@ -80,17 +82,25 @@ struct SidebarWorkspaceRowCommands {
                 }
                 return tab.id
             }
+            selectedTabIds = Set(selectionKindPolicy.workspaceShiftRangeIds(
+                rangeIds: Array(selectedTabIds),
+                anchorIds: anchorIds
+            ))
+            let rangeIds = selectionKindPolicy.workspaceShiftRangeIds(
+                rangeIds: visibleRangeIds,
+                anchorIds: anchorIds
+            )
             if isCommand {
                 selectedTabIds.formUnion(rangeIds)
             } else {
                 selectedTabIds = Set(rangeIds)
             }
         } else if isCommand {
-            if selectedTabIds.contains(tab.id) {
-                selectedTabIds.remove(tab.id)
-            } else {
-                selectedTabIds.insert(tab.id)
-            }
+            selectedTabIds = selectionKindPolicy.workspaceCmdClickSelection(
+                current: selectedTabIds,
+                clickedId: tab.id,
+                anchorIds: anchorIds
+            )
         } else {
             selectedTabIds = [tab.id]
         }
@@ -160,8 +170,14 @@ struct SidebarWorkspaceRowCommands {
         alert.accessoryView = input
         alert.addButton(withTitle: String(localized: "alert.renameWorkspace.rename", defaultValue: "Rename"))
         alert.addButton(withTitle: String(localized: "alert.renameWorkspace.cancel", defaultValue: "Cancel"))
-        alert.window.initialFirstResponder = input
-        let response = alert.runModal()
+        let alertWindow = alert.window
+        alertWindow.initialFirstResponder = input
+        let response = alert.runCmuxModal(
+            presentingWindow: AppDelegate.shared?.mainWindowContainingWorkspace(tab.id)
+        ) { _ in
+            alertWindow.makeFirstResponder(input)
+            input.selectText(nil)
+        }
         guard response == .alertFirstButtonReturn else { return }
         tabManager.setCustomTitle(tabId: tab.id, title: input.stringValue)
     }
@@ -193,8 +209,14 @@ struct SidebarWorkspaceRowCommands {
         alert.accessoryView = input
         alert.addButton(withTitle: String(localized: "alert.customColor.apply", defaultValue: "Apply"))
         alert.addButton(withTitle: String(localized: "alert.customColor.cancel", defaultValue: "Cancel"))
-        alert.window.initialFirstResponder = input
-        let response = alert.runModal()
+        let alertWindow = alert.window
+        alertWindow.initialFirstResponder = input
+        let response = alert.runCmuxModal(
+            presentingWindow: AppDelegate.shared?.mainWindowContainingWorkspace(tab.id)
+        ) { _ in
+            alertWindow.makeFirstResponder(input)
+            input.selectText(nil)
+        }
         guard response == .alertFirstButtonReturn else { return }
         guard let normalized = WorkspaceTabColorSettings.addCustomColor(input.stringValue) else {
             showInvalidColorAlert(input.stringValue)
@@ -214,7 +236,9 @@ struct SidebarWorkspaceRowCommands {
             alert.informativeText = String(localized: "alert.invalidColor.invalidMessage", defaultValue: "\"\(trimmed)\" is not a valid hex color. Use #RRGGBB.")
         }
         alert.addButton(withTitle: String(localized: "alert.invalidColor.ok", defaultValue: "OK"))
-        _ = alert.runModal()
+        _ = alert.runCmuxModal(
+            presentingWindow: AppDelegate.shared?.mainWindowContainingWorkspace(tab.id)
+        )
     }
 
     /// Parity with TabItemView.moveWorkspaces(_:toWindow:).
@@ -284,8 +308,12 @@ struct SidebarWorkspaceRowMenuBuilder {
         addPinItem(to: menu, tabManager: tabManager)
         addGroupSection(to: menu, tabManager: tabManager)
         menu.addItem(.separator())
-        addTodoSection(to: menu, tabManager: tabManager)
-        menu.addItem(.separator())
+        // Legacy parity: the todo section renders only while the feature is
+        // enabled (SwiftUI merges the surrounding dividers when it is not).
+        if WorkspaceTodoFeature.isEnabled {
+            addTodoSection(to: menu, tabManager: tabManager)
+            menu.addItem(.separator())
+        }
         addRenameAndDescriptionItems(to: menu, tabManager: tabManager)
         addRemoteSection(to: menu, tabManager: tabManager)
         addColorMenu(to: menu, tabManager: tabManager)

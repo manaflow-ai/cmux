@@ -41,6 +41,124 @@ function resolveDevAPIBaseURL(fallback, override = "") {
   ]);
 }
 
+function removeStaleSocket(socketPath) {
+  return run(
+    "bash",
+    [
+      "-c",
+      [
+        'source "$1"',
+        'cmux_attach_socket_path() { printf "%s" "$CMUX_TEST_SOCKET"; }',
+        'cmux_attach_remove_stale_socket "release-gate"',
+      ].join("; "),
+      "mobile-attach-test",
+      validator,
+    ],
+    { CMUX_TEST_SOCKET: socketPath },
+  );
+}
+
+function waitForUsableSession(
+  status = 0,
+  baseline = "100",
+  timeout = "15",
+  event = '{"seq":101,"name":"mobile.rpc.ready","payload":{"connection_id":"connection-a","client_id":"phone-a","transport":"iroh","stream_id":"events"}}',
+  expectedClientID = "phone-a",
+) {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-mobile-admission-test-"));
+  const argsPath = path.join(tempRoot, "args");
+
+  try {
+    const result = run(
+      "bash",
+      [
+        "-c",
+        [
+          'source "$1"',
+          'cmux_attach_events() {',
+          '  shift 2',
+          '  printf "%s\\n" "$*" > "$CMUX_TEST_ARGS"',
+          '  [[ "$CMUX_TEST_STATUS" == "0" ]] && printf "%s\\n" "$CMUX_TEST_EVENT"',
+          '  return "$CMUX_TEST_STATUS"',
+          '}',
+          'cmux_attach_wait_for_usable_session "ready" "$2" "$3" "$4" "$5"',
+        ].join("\n"),
+        "mobile-admission-test",
+        validator,
+        repoRoot,
+        baseline,
+        timeout,
+        expectedClientID,
+      ],
+      {
+        CMUX_TEST_ARGS: argsPath,
+        CMUX_TEST_EVENT: event,
+        CMUX_TEST_STATUS: String(status),
+      },
+    );
+    result.eventArgs = fs.existsSync(argsPath) ? fs.readFileSync(argsPath, "utf8").trim() : "";
+    return result;
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+}
+
+function writeReadinessReceipt(eventJSON) {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-mobile-receipt-test-"));
+  const receiptPath = path.join(tempRoot, "receipt.json");
+  const result = run(
+    "bash",
+    [
+      "-c",
+      [
+        'source "$1"',
+        'cmux_attach_write_readiness_receipt "$2" "$3" iosrdy dev.cmux.ios.iosrdy physical_device phone-a iosrdy /tmp/cmux-debug-iosrdy.sock 8421 1 "$4"',
+      ].join("\n"),
+      "mobile-readiness-receipt-test",
+      validator,
+      receiptPath,
+      "0123456789abcdef0123456789abcdef01234567",
+      eventJSON,
+    ],
+  );
+  result.receipt = fs.existsSync(receiptPath)
+    ? JSON.parse(fs.readFileSync(receiptPath, "utf8"))
+    : null;
+  result.directoryMode = fs.statSync(tempRoot).mode & 0o777;
+  result.receiptMode = fs.existsSync(receiptPath)
+    ? fs.statSync(receiptPath).mode & 0o777
+    : null;
+  fs.rmSync(tempRoot, { recursive: true, force: true });
+  return result;
+}
+
+function readinessCursor(snapshot) {
+  return run(
+    "bash",
+    [
+      "-c",
+      [
+        'source "$1"',
+        'cmux_attach_events() { printf "%s\\n" "$CMUX_TEST_SNAPSHOT"; }',
+        'cmux_attach_readiness_cursor "ready" "$2"',
+      ].join("\n"),
+      "mobile-admission-cursor-test",
+      validator,
+      repoRoot,
+    ],
+    { CMUX_TEST_SNAPSHOT: snapshot },
+  );
+}
+
+function monotonicMilliseconds() {
+  return run("bash", [
+    "-c",
+    'source "$1"; cmux_attach_monotonic_milliseconds',
+    "mobile-monotonic-clock-test",
+    validator,
+  ]);
+}
+
 function extractShellFunction(source, name) {
   const start = source.indexOf(`${name}() {`);
   assert.notEqual(start, -1, `missing shell function ${name}`);
@@ -91,9 +209,18 @@ async function mintAttachURL(target, payload, maxAttempts = 1) {
   fs.mkdirSync(payloadDirectory);
   const payloads = Array.isArray(payload) ? payload : [payload];
   payloads.forEach((value, index) => {
+    const response = value?.cliResponse;
     fs.writeFileSync(
-      path.join(payloadDirectory, `${index + 1}`),
-      value == null ? "" : JSON.stringify(value),
+      path.join(payloadDirectory, `${index + 1}.stdout`),
+      response ? (response.stdout ?? "") : (value == null ? "" : JSON.stringify(value)),
+    );
+    fs.writeFileSync(
+      path.join(payloadDirectory, `${index + 1}.stderr`),
+      response?.stderr ?? "",
+    );
+    fs.writeFileSync(
+      path.join(payloadDirectory, `${index + 1}.status`),
+      String(response?.status ?? 0),
     );
   });
   const fakeCLI = path.join(scriptsDir, "cmux-debug-cli.sh");
@@ -105,7 +232,10 @@ async function mintAttachURL(target, payload, maxAttempts = 1) {
       'count="$((count + 1))"',
       'printf "%s" "$count" > "$CMUX_TEST_CALL_COUNTER"',
       'payload="$CMUX_TEST_PAYLOAD_DIRECTORY/$count"',
-      '[[ -f "$payload" ]] && cat "$payload"',
+      '[[ -f "$payload.stdout" ]] && cat "$payload.stdout"',
+      '[[ -f "$payload.stderr" ]] && cat "$payload.stderr" >&2',
+      'status="$(cat "$payload.status" 2>/dev/null || printf 0)"',
+      'exit "$status"',
       "",
     ].join("\n"),
   );
@@ -147,6 +277,72 @@ async function mintAttachURL(target, payload, maxAttempts = 1) {
     result.callCount = fs.existsSync(callCounterPath)
       ? Number.parseInt(fs.readFileSync(callCounterPath, "utf8"), 10)
       : 0;
+    return result;
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+}
+
+async function ensureMacAfterRelaunch() {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-mobile-ready-test-"));
+  const socketPath = path.join(tempRoot, "mobile.sock");
+  const appPath = path.join(tempRoot, "cmux DEV ready.app");
+  const callCounterPath = path.join(tempRoot, "call-count");
+  const pkillArgsPath = path.join(tempRoot, "pkill-args");
+  fs.mkdirSync(appPath);
+
+  const server = net.createServer();
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, resolve);
+  });
+
+  try {
+    const result = spawnSync(
+      "bash",
+      [
+        "-c",
+        [
+          'source "$1"',
+          'cmux_attach_enable_pairing_host() { :; }',
+          'cmux_attach_socket_path() { printf "%s" "$CMUX_TEST_SOCKET"; }',
+          'cmux_attach_mac_app_path() { printf "%s" "$CMUX_TEST_APP"; }',
+          'cmux_attach__slug() { printf "ready"; }',
+          'cmux_attach_mint_url() {',
+          '  count="$(cat "$CMUX_TEST_CALL_COUNTER" 2>/dev/null || printf 0)"',
+          '  count="$((count + 1))"',
+          '  printf "%s" "$count" > "$CMUX_TEST_CALL_COUNTER"',
+          '  if [[ "$count" -ge 2 ]]; then printf "cmux-ios-dev://attach?v=2&kind=iroh"; return 0; fi',
+          '  return 1',
+          '}',
+          'pkill() { printf "%s\\n" "$*" > "$CMUX_TEST_PKILL_ARGS"; return 0; }',
+          'open() { return 0; }',
+          'sleep() { return 0; }',
+          'cmux_attach_ensure_mac "ready" "$2" physical_device',
+        ].join("\n"),
+        "mobile-attach-test",
+        validator,
+        tempRoot,
+      ],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          CMUX_TEST_APP: appPath,
+          CMUX_TEST_CALL_COUNTER: callCounterPath,
+          CMUX_TEST_PKILL_ARGS: pkillArgsPath,
+          CMUX_TEST_SOCKET: socketPath,
+        },
+      },
+    );
+    result.callCount = fs.existsSync(callCounterPath)
+      ? Number.parseInt(fs.readFileSync(callCounterPath, "utf8"), 10)
+      : 0;
+    result.pkillArgs = fs.existsSync(pkillArgsPath)
+      ? fs.readFileSync(pkillArgsPath, "utf8").trim()
+      : "";
     return result;
   } finally {
     await new Promise((resolve) => server.close(resolve));
@@ -260,6 +456,127 @@ test("shared dev API origin accepts an explicit trusted backend", () => {
   assert.equal(result.stdout, "https://cmux-staging.vercel.app");
 });
 
+test("tagged stale-socket cleanup removes only the exact Unix socket", async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-stale-socket-test-"));
+  const socketPath = path.join(tempRoot, "release-gate.sock");
+  const neighborPath = path.join(tempRoot, "neighbor.sock");
+  fs.writeFileSync(neighborPath, "keep");
+  const server = net.createServer();
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, resolve);
+  });
+
+  try {
+    const result = removeStaleSocket(socketPath);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(fs.existsSync(socketPath), false);
+    assert.equal(fs.readFileSync(neighborPath, "utf8"), "keep");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("tagged stale-socket cleanup refuses a non-socket path", () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-stale-socket-test-"));
+  const socketPath = path.join(tempRoot, "release-gate.sock");
+  fs.writeFileSync(socketPath, "keep");
+
+  try {
+    const result = removeStaleSocket(socketPath);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /refusing to remove non-socket/);
+    assert.equal(fs.readFileSync(socketPath, "utf8"), "keep");
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("dogfood readiness captures the Mac event sequence before launch", () => {
+  const result = readinessCursor(
+    '{"type":"ack","resume":{"latest_seq":842,"next_seq":843}}',
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, "842");
+});
+
+test("dogfood readiness clock is stable across helper processes", () => {
+  const first = monotonicMilliseconds();
+  const second = monotonicMilliseconds();
+
+  assert.equal(first.status, 0, first.stderr);
+  assert.equal(second.status, 0, second.stderr);
+  const firstMilliseconds = Number.parseInt(first.stdout.trim(), 10);
+  const secondMilliseconds = Number.parseInt(second.stdout.trim(), 10);
+  assert.ok(Number.isSafeInteger(firstMilliseconds));
+  assert.ok(Number.isSafeInteger(secondMilliseconds));
+  assert.ok(
+    secondMilliseconds >= firstMilliseconds,
+    `expected monotonic clock, got ${firstMilliseconds} -> ${secondMilliseconds}`,
+  );
+});
+
+test("dogfood readiness blocks on the post-launch usable RPC event", () => {
+  const result = waitForUsableSession(0, "842", "15");
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(
+    result.eventArgs,
+    "--after 842 --name mobile.rpc.ready --limit 1 --timeout 15 --no-ack --no-heartbeat",
+  );
+  assert.match(result.stdout, /"name":"mobile\.rpc\.ready"/);
+});
+
+test("dogfood readiness rejects an event from another client", () => {
+  const result = waitForUsableSession(
+    0,
+    "842",
+    "1",
+    '{"seq":843,"name":"mobile.rpc.ready","payload":{"client_id":"other-phone"}}',
+    "phone-a",
+  );
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /did not establish a usable RPC session/i);
+});
+
+test("dogfood readiness fails when a usable RPC session misses its deadline", () => {
+  const result = waitForUsableSession(1);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /did not establish a usable RPC session.*readiness deadline/i);
+});
+
+test("dogfood readiness writes a secret-free identity and latency receipt", () => {
+  const result = writeReadinessReceipt(
+    '{"name":"mobile.rpc.ready","payload":{"connection_id":"connection-a","client_id":"phone-a","workspace_count":2,"stream_id":"events","transport":"iroh","access_token":"must-not-appear"}}',
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(result.receipt, {
+    schema: "cmux-ios-dogfood-readiness-v1",
+    git_sha: "0123456789abcdef0123456789abcdef01234567",
+    tag: "iosrdy",
+    bundle_id: "dev.cmux.ios.iosrdy",
+    target: "physical_device",
+    target_id: "phone-a",
+    mac_tag: "iosrdy",
+    socket_path: "/tmp/cmux-debug-iosrdy.sock",
+    readiness_latency_ms: 8421,
+    attempt_count: 1,
+    connection_id: "connection-a",
+    client_id: "phone-a",
+    workspace_count: 2,
+    stream_id: "events",
+    transport: "iroh",
+  });
+  assert.equal(result.directoryMode, 0o700);
+  assert.equal(result.receiptMode, 0o600);
+  assert.doesNotMatch(JSON.stringify(result.receipt), /must-not-appear|access_token/);
+});
+
 test("macOS and iOS reloads share the dev API backend override", () => {
   const macReload = fs.readFileSync(path.join(repoRoot, "scripts/reload.sh"), "utf8");
   const iosReload = fs.readFileSync(path.join(repoRoot, "ios/scripts/reload.sh"), "utf8");
@@ -367,6 +684,31 @@ test("physical-device mint waits for asynchronous Iroh publication", async () =>
   assert.equal(result.callCount, 2);
 });
 
+test("physical-device mint reports a redacted route-readiness timeout", async () => {
+  const result = await mintAttachURL(
+    "physical_device",
+    {
+      cliResponse: {
+        status: 1,
+        stderr: "unavailable: Mobile host routes are not available yet secret-token-value",
+      },
+    },
+  );
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /attach readiness exhausted: host_routes_unavailable/);
+  assert.doesNotMatch(result.stderr, /secret-token-value/);
+});
+
+test("physical-device mint distinguishes malformed successful output", async () => {
+  const result = await mintAttachURL(
+    "physical_device",
+    { cliResponse: { status: 0, stdout: "not-json secret-payload-value" } },
+  );
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /attach readiness exhausted: malformed_response/);
+  assert.doesNotMatch(result.stderr, /secret-payload-value/);
+});
+
 test("physical-device mint accepts an encrypted Iroh route", async () => {
   const payload = attachPayload("iroh");
   const result = await mintAttachURL("physical_device", payload);
@@ -422,6 +764,120 @@ test("physical-device mint retries transient empty responses", async () => {
   assert.equal(result.callCount, 2);
 });
 
+test("ensure-mac self-heals an unarmed running exact-tag app", async () => {
+  const result = await ensureMacAfterRelaunch();
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.callCount, 2);
+  assert.match(
+    result.pkillArgs,
+    /^-f cmux DEV ready\.app\/Contents\/MacOS\/cmux DEV$/,
+  );
+});
+
+test("release gate grants asynchronous Iroh publication a bounded startup window", () => {
+  const launcher = fs.readFileSync(
+    path.join(repoRoot, "scripts/mobile-dev-launch.sh"),
+    "utf8",
+  );
+  const gate = fs.readFileSync(
+    path.join(repoRoot, "scripts/run-iroh-release-gate.sh"),
+    "utf8",
+  );
+
+  assert.match(
+    launcher,
+    /ATTACH_MINT_MAX_ATTEMPTS="\$\{CMUX_ATTACH_MINT_MAX_ATTEMPTS:-20\}"/,
+  );
+  assert.match(
+    launcher,
+    /cmux_attach_mint_url[^\n]+"\$ATTACH_TARGET" "\$ATTACH_MINT_MAX_ATTEMPTS"/,
+  );
+  assert.match(
+    gate,
+    /CMUX_ATTACH_MINT_MAX_ATTEMPTS=600 \\[\s\S]{0,320}\.\/scripts\/mobile-dev-launch\.sh/,
+  );
+  assert.match(
+    gate,
+    /CMUX_ATTACH_MINT_MAX_ATTEMPTS=600 \\[\s\S]{0,120}cmux_attach_ensure_mac/,
+  );
+});
+
+test("simulator launch seeds a deterministic durable device id before app launch", () => {
+  const launcher = fs.readFileSync(
+    path.join(repoRoot, "scripts/mobile-dev-launch.sh"),
+    "utf8",
+  );
+  const simulatorBranch = launcher.slice(
+    launcher.indexOf('if [[ "$TARGET" == "simulator" ]]'),
+    launcher.indexOf("\nelse\n", launcher.indexOf('if [[ "$TARGET" == "simulator" ]]')),
+  );
+  const seed = simulatorBranch.indexOf(
+    'cmux_attach_seed_simulator_device_id "$SIM_UDID" "$BUNDLE_ID"',
+  );
+  const seedEnvironment = simulatorBranch.indexOf(
+    'SIMCTL_CHILD_CMUX_SIMULATOR_DEVICE_ID="$SIMULATOR_DEVICE_ID"',
+  );
+  const terminate = simulatorBranch.indexOf('xcrun simctl terminate');
+  const launch = simulatorBranch.indexOf('xcrun simctl "${launch_args[@]}"');
+
+  assert.notEqual(terminate, -1, "existing simulator app must terminate before seeding");
+  assert.notEqual(seed, -1, "simulator launch must seed the durable identity mirror");
+  assert.notEqual(
+    seedEnvironment,
+    -1,
+    "simulator launch must pass the durable seed into the sandboxed app process",
+  );
+  assert.notEqual(launch, -1, "simulator launch command is missing");
+  assert.ok(terminate < seed, "existing app must terminate before its durable identity is seeded");
+  assert.ok(
+    seed < seedEnvironment,
+    "the seed must be resolved before the simulator child environment uses it",
+  );
+  assert.ok(seed < launch, "durable identity must be seeded before the app starts");
+  assert.ok(
+    seedEnvironment < launch,
+    "the sandboxed app must receive its durable identity before launch",
+  );
+});
+
+test("release gate assigns each mode to its transport proof", () => {
+  const cases = [
+    ["automatic", "app-rpc"],
+    ["relay-only", "app-rpc"],
+    ["relay-expiry", "app-rpc"],
+    ["direct-only", "simulator-direct-transport"],
+    ["private-path", "host-private-path-transport"],
+  ];
+
+  for (const [mode, expectedPlan] of cases) {
+    const result = run("bash", [
+      "scripts/run-iroh-release-gate.sh",
+      "--mode",
+      mode,
+      "--tag",
+      `plan-${mode}`,
+      "--print-plan",
+    ]);
+    assert.equal(result.status, 0, `${mode}: ${result.stderr}`);
+    assert.equal(result.stdout.trim(), expectedPlan);
+  }
+});
+
+test("private-path plan ignores the unrelated staging base URL", () => {
+  const result = run("bash", [
+    "scripts/run-iroh-release-gate.sh",
+    "--mode",
+    "private-path",
+    "--tag",
+    "plan-private",
+    "--staging-base-url",
+    "not-a-network-url",
+    "--print-plan",
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), "host-private-path-transport");
+});
+
 test("mobile launch accepts an explicit no-attach override", () => {
   const result = run("bash", [
     "scripts/mobile-dev-launch.sh",
@@ -430,6 +886,62 @@ test("mobile launch accepts an explicit no-attach override", () => {
   ]);
   assert.equal(result.status, 0, result.stderr);
   assert.doesNotMatch(result.stderr, /unknown arg/);
+});
+
+test("ensure-mac fails closed before a simulator can launch unpaired", () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-ensure-mac-test-"));
+  const binDir = path.join(tempRoot, "bin");
+  const xcrunLog = path.join(tempRoot, "xcrun.log");
+  fs.mkdirSync(binDir);
+  fs.writeFileSync(
+    path.join(binDir, "defaults"),
+    "#!/bin/bash\nexit 0\n",
+    { mode: 0o755 },
+  );
+  fs.writeFileSync(
+    path.join(binDir, "xcrun"),
+    [
+      "#!/bin/bash",
+      'if [[ "$*" == "simctl list devices booted" ]]; then',
+      '  printf "iPhone 17 (AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA) (Booted)\\n"',
+      "  exit 0",
+      "fi",
+      'printf "%s\\n" "$*" >> "$CMUX_TEST_XCRUN_LOG"',
+      "exit 0",
+      "",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+
+  try {
+    const result = run(
+      "bash",
+      [
+        "scripts/mobile-dev-launch.sh",
+        "--tag",
+        `ensure-missing-${process.pid}`,
+        "--simulator",
+        "iPhone 17",
+        "--ensure-mac",
+        "--detach",
+        "--agent",
+      ],
+      {
+        HOME: tempRoot,
+        PATH: `${binDir}:${process.env.PATH}`,
+        CMUX_TEST_XCRUN_LOG: xcrunLog,
+        CMUX_UITEST_STACK_EMAIL: "agent@example.com",
+        CMUX_UITEST_STACK_PASSWORD: "test-password",
+      },
+    );
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /could not prepare tagged Mac.*auto-pair/i);
+    const calls = fs.existsSync(xcrunLog) ? fs.readFileSync(xcrunLog, "utf8") : "";
+    assert.doesNotMatch(calls, /simctl launch/);
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
 });
 
 test("local iOS reload never hides a requested setup failure with a plain launch", () => {
@@ -443,6 +955,78 @@ test("local iOS reload never hides a requested setup failure with a plain launch
   assert.match(
     iosReload,
     /elif ! auto_setup_launch device \"\$selected_device_install_id\"; then[\s\S]{0,640}return 1/,
+  );
+});
+
+test("release gate builds and installs on its exact isolated simulator", () => {
+  const iosReload = fs.readFileSync(path.join(repoRoot, "ios/scripts/reload.sh"), "utf8");
+  const gate = fs.readFileSync(
+    path.join(repoRoot, "scripts/run-iroh-release-gate.sh"),
+    "utf8",
+  );
+
+  assert.match(iosReload, /--simulator-id\)/);
+  assert.match(
+    iosReload,
+    /DESTINATION="platform=iOS Simulator,id=\$SIMULATOR_ID"/,
+  );
+  assert.match(
+    gate,
+    /\.\/ios\/scripts\/reload\.sh[\s\S]{0,320}--simulator-id "\$SIMULATOR_ID"/,
+  );
+});
+
+test("release gate shuts down retained same-tag simulators before creating its replacement", () => {
+  const gate = fs.readFileSync(
+    path.join(repoRoot, "scripts/run-iroh-release-gate.sh"),
+    "utf8",
+  );
+  const shutdown = gate.indexOf(
+    'shutdown_prior_gate_simulators "$SIMULATOR_NAME"',
+  );
+  const create = gate.indexOf(
+    'SIMULATOR_ID="$(SIMULATOR_NAME="$SIMULATOR_NAME"',
+  );
+
+  assert.notEqual(
+    shutdown,
+    -1,
+    "a retained same-tag simulator can keep replacing the deterministic device binding",
+  );
+  assert.notEqual(create, -1, "release-gate simulator creation is missing");
+  assert.ok(
+    shutdown < create,
+    "all prior same-tag simulators must stop before the replacement is created",
+  );
+  assert.match(
+    gate,
+    /device\.get\("name"\) == os\.environ\["SIMULATOR_NAME"\]/,
+  );
+  assert.match(gate, /xcrun simctl shutdown "\$prior_simulator_id"/);
+});
+
+test("release gate points Mac and iOS at one explicit presence backend", () => {
+  const gate = fs.readFileSync(
+    path.join(repoRoot, "scripts/run-iroh-release-gate.sh"),
+    "utf8",
+  );
+
+  assert.match(gate, /--presence-base-url <url>/);
+  assert.match(
+    gate,
+    /--presence-base-url\) PRESENCE_BASE_URL="\$\{2:-\}"; shift 2 ;;/,
+  );
+  assert.match(
+    gate,
+    /CMUX_PRESENCE_BASE_URL="\$PRESENCE_BASE_URL" \\\n[\s\S]{0,240}\.\/scripts\/reload\.sh/,
+  );
+  assert.match(
+    gate,
+    /CMUX_PRESENCE_BASE_URL="\$PRESENCE_BASE_URL" \\\n[\s\S]{0,320}\.\/ios\/scripts\/reload\.sh/,
+  );
+  assert.match(
+    gate,
+    /CMUX_PRESENCE_BASE_URL="\$PRESENCE_BASE_URL" \\\n[\s\S]{0,160}cmux_attach_ensure_mac/,
   );
 });
 

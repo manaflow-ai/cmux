@@ -16,8 +16,10 @@ let package = Package(
         ),
     ],
     dependencies: [
+        .package(path: "../../Shared/CMUXMobileCore"),
         .package(path: "../../Shared/CmuxAgentChat"),
         .package(path: "../CmuxMobileSupport"),
+        .package(path: "../CmuxMobileToast"),
         .package(
             url: "https://github.com/raspu/Highlightr.git",
             exact: "2.3.0"
@@ -27,8 +29,10 @@ let package = Package(
         .target(
             name: "CmuxAgentChatUI",
             dependencies: [
+                "CMUXMobileCore",
                 "CmuxAgentChat",
                 "CmuxMobileSupport",
+                "CmuxMobileToast",
                 .product(name: "Highlightr", package: "Highlightr"),
             ],
             resources: [.process("Resources")],

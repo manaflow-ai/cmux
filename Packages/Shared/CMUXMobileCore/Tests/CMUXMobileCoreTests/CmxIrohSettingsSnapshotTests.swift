@@ -5,6 +5,53 @@ import Testing
 
 @Suite
 struct CmxIrohSettingsSnapshotTests {
+    @Test func pathPreferenceReadsKnownValuesAndDefaultsUnknownValues() throws {
+        let suiteName = "CmxIrohSettingsSnapshotTests.path-preference.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        #expect(CmxIrohPathPreference.stored(in: defaults) == .automatic)
+
+        defaults.set("auto", forKey: CmxIrohPathPreference.defaultsKey)
+        #expect(CmxIrohPathPreference.stored(in: defaults) == .automatic)
+
+        defaults.set("relayOnly", forKey: CmxIrohPathPreference.defaultsKey)
+        #expect(CmxIrohPathPreference.stored(in: defaults) == .relayOnly)
+
+        defaults.set("unknown", forKey: CmxIrohPathPreference.defaultsKey)
+        #expect(CmxIrohPathPreference.stored(in: defaults) == .automatic)
+    }
+
+    @Test func pathPreferenceMapsToTransportVerificationMode() {
+        #expect(
+            CmxIrohPathPreference.automatic.transportVerificationMode == .automatic
+        )
+        #expect(
+            CmxIrohPathPreference.relayOnly.transportVerificationMode == .relayOnly
+        )
+    }
+
+    @Test func snapshotDefaultsAndRoundTripsPathPreference() {
+        let automatic = CmxIrohSettingsSnapshot(
+            runtimeStatus: .inactive,
+            preference: .automatic,
+            managedRelays: [],
+            customRelays: [],
+            policySource: .unavailable
+        )
+        let relayOnly = CmxIrohSettingsSnapshot(
+            runtimeStatus: .active,
+            preference: .automatic,
+            pathPreference: .relayOnly,
+            managedRelays: [],
+            customRelays: [],
+            policySource: .server
+        )
+
+        #expect(automatic.pathPreference == .automatic)
+        #expect(relayOnly.pathPreference == .relayOnly)
+    }
+
     @Test
     func activeRuntimeStatusPreservesOnlyRedactedPathLabels() {
         #expect(CmxIrohSettingsSnapshot.RuntimeStatus(
@@ -72,6 +119,22 @@ struct CmxIrohSettingsSnapshotTests {
         #expect(snapshot.customRelays == [relay])
         #expect(relay.credentialState == .configured)
         #expect(secretBearingLabels(in: snapshot).isEmpty)
+    }
+
+    @Test func debugTransportProjectionPreservesAllThreeVerificationModes() {
+        for mode in CmxIrohTransportVerificationMode.allCases {
+            let snapshot = CmxIrohSettingsSnapshot(
+                runtimeStatus: .active,
+                preference: .automatic,
+                managedRelays: [],
+                customRelays: [],
+                policySource: .server,
+                debugTransportVerificationMode: mode
+            )
+
+            #expect(snapshot.debugTransportVerificationMode == mode)
+            #expect(snapshot.debugRelayOnlyEnabled == (mode == .relayOnly))
+        }
     }
 
     @Test func managedPreferenceRequiresOneToSixteenSafeRelayIdentifiers() throws {

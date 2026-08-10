@@ -1,125 +1,63 @@
-# Control Socket Protocol
+# Raw control protocol v11
 
-As of protocol v8, every server speaks JSON Lines over a Unix domain socket. Send one JSON object per line. Every request receives one response line. `subscribe`, `subscribe-topology`, `subscribe-renderer-lifecycle`, and `attach-surface` also push event lines on the same connection.
+This is the private implementation interface for cmux frontends and
+compatibility adapters. New applications should use
+[`cmux.protocol/2`](../spec/resource-api-v2.md), the
+[noun-first CLI](../spec/cli.md), or a [handwritten SDK](../spec/bindings.md).
+High-level packages expose protocol v11 only through their `raw` namespace.
 
-Unix requests and authenticated WebSocket command frames are limited to 4 MiB.
-The Unix reader closes an oversized connection without buffering past that
-limit.
+As of protocol v11, every server speaks JSON Lines over a Unix domain socket. Send one JSON object per line. Every request receives one response line. `subscribe` and `attach-surface` also push event lines on the same connection.
 
-For shell use, prefer `cmux-tui <verb>`; it wraps the same socket commands and preserves JSON output with `--json`.
+Remote clients can carry the same JSON-lines stream through `cmux relay --session <name>`. The relay copies stdio to an existing local session socket and is commonly launched with `ssh -T`; it performs no authentication or command decoding itself. Client internals consume complete JSON messages, so WebSocket text frames and future framed transports can reuse the same remote-session implementation. See the [transport contract](../spec/transports.md#relay-stdio).
 
-Default socket path, using `XDG_RUNTIME_DIR`, then `TMPDIR`, then `/tmp`:
+For shell use, prefer the noun-first public CLI, such as
+`cmux workspace list --json`.
+
+Default socket path:
 
 ```text
-<runtime-dir>/cmux-tui-<uid>/<session>.sock
+$TMPDIR/cmux-tui-<uid>/<session>.sock
 ```
 
-On Darwin, an oversized environment runtime root falls back to the private mode-`0700` directory `/tmp/cmux-tui-<uid>`. Filesystem socket paths accept 103 bytes and reject 104 bytes; paths are never truncated.
-
-`identify` reports protocol v8 as the preferred version and v9 as the opt-in maximum:
+`identify` reports the protocol version:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":8,"protocol_min":6,"protocol_max":9,"capabilities":["canonical-topology-snapshot-v1","projection-state-reconnect-v1","renderer-lifecycle-subscription-v1","stable-entity-uuid-v1","terminal-activity-v1","terminal-control-lease-v1","terminal-input-idempotency-v1","terminal-ordered-input-v1","topology-resume-v1"],"session":"main","session_id":"<uuid>","daemon_instance_id":"<uuid>","topology_revision":47,"canonical_topology_revision":42,"pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":11,"capabilities":["attach-initial-size","workspace-registry-v1","daemon-handoff-force-v1","browser-pointer-frame-guard-v1","viewport-splits-v1","viewport-column-resize-v1","layout-undo-v1","clear-history-v1","surface-subscribe-filter","view-attachment-lease-v1","view-attachment-detach-v1","creation-receipts-v1","creation-selector-fallbacks-v1","provider-managed-workspace-authority-v2","clear-history-key-v1"],"session":"main","pid":12345}}
 ```
 
-`ping` returns the same session, daemon, process, and revision authority fields
-without the `app` field. Supervisors can prove readiness and process continuity
-with `ping`; they do not need to decode `topology-snapshot`.
-
-Responses have this shape:
+Responses have this shape. The second example is a failed `clear-history` request:
 
 ```json
 {"id":1,"ok":true,"data":{}}
-{"id":2,"ok":false,"error":"unknown surface 99"}
+{"id":2,"ok":false,"error":"unknown surface 99","error_delivery":"known-not-delivered"}
 ```
 
 Bad JSON returns `ok:false` with no request id.
 
 ## Command Contract
 
-The full API contract lives in `spec/`. `cmux-tui-core/src/server.rs` is the implementation source of truth.
+The complete command schemas live in
+[`spec/commands.md`](../spec/commands.md), event schemas and stream scoping in
+[`spec/events.md`](../spec/events.md), and framing, state-path, and security
+rules in [`spec/transports.md`](../spec/transports.md). This guide illustrates
+common flows rather than duplicating the exhaustive command list.
 
-The server command set in this branch is:
+Clients must require the `clear-history-v1` capability before sending `clear-history` to a protocol-v9 server.
 
-```text
-identify
-ping
-open-presentation
-update-presentation
-close-presentation
-list-presentations
-claim-projection-state
-update-projection-state
-update-projection-states
-release-projection-state
-list-projection-states
-topology-snapshot
-list-workspaces
-send
-read-screen
-vt-state
-new-tab
-new-browser-tab
-new-workspace
-new-screen
-split
-set-ratio
-move-tab
-move-workspace
-set-default-colors (deprecated wire command, always rejected; edit Ghostty config and use reload-config)
-close-surface
-close-pane
-close-screen
-close-workspace
-rename-pane
-rename-surface
-rename-screen
-rename-workspace
-resize-surface
-release-surface-size
-focus-pane
-select-tab
-select-screen
-select-workspace
-browser-mouse
-browser-wheel
-browser-key
-browser-insert-text
-browser-navigate
-browser-back
-browser-forward
-browser-reload
-browser-activate
-subscribe
-subscribe-topology
-subscribe-renderer-lifecycle
-attach-surface
-scroll-surface
-```
+Clients may include the structured `fallback_key` defined in `spec/commands.md` only when `identify` also advertises `clear-history-key-v1`. The server clears a primary screen without using the fallback. On an alternate screen it leaves both screens intact and encodes the fallback with the authoritative terminal keyboard modes.
 
-## Canonical Topology
+Failed `clear-history` responses add `error_delivery`. `known-not-delivered` proves that no clear or fallback input reached the terminal. `ambiguous` means delivery may have started. Missing or unknown values must be treated as ambiguous.
 
-Protocol v8 clients should require `canonical-topology-snapshot-v1`, `stable-entity-uuid-v1`, and `topology-resume-v1`. Fetch one atomic snapshot:
+`provider-managed-workspace-authority-v2` means the mux was provider-locked before its first control client and accepts private mirror commits only with its pre-provisioned authority. `mark-workspaces-provider-managed` validates that authority without changing ownership. Ordinary `close-workspace` and `rename-workspace` requests always fail on that mux. The provider-aware TUI sends an authorized `close-provider-managed-workspace` or `rename-provider-managed-workspace` only after the external provider accepts the corresponding lifecycle request. Provider-aware clients must refuse provider-owned mode when the server does not advertise this capability.
 
-```json
-{"id":12,"cmd":"topology-snapshot"}
-{"id":12,"ok":true,"data":{"daemon_instance_id":"<uuid>","session_id":"<uuid>","revision":41,"topology":{"workspaces":[]}}}
-```
+`browser-pointer-frame-guard-v1` means browser attach state and frame events report authoritative `pointer_frame_seq` and `pointer_frame_floor_seq`, and the server accepts `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded`. Each admitted bitmap receives a new pointer sequence even when its document and dimensions match the previous bitmap. The reported floor through latest range proves only that a token belongs to the current document and coordinate mapping. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command also acknowledges its own token, so a dropped presentation message cannot strand input. Each connection retains one acknowledged token, while the browser input queue bounds actions admitted before a later presentation. Navigation or geometry changes reset the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A remote TUI sends the same capability in `set-client-info`; the server permits browser attach only when both peers advertise it. Clients and servers that omit it remain compatible for PTY surfaces. The legacy `browser-mouse` and `browser-wheel` JSON schemas still accept an omitted or null guard, but a guarded server rejects those requests before surface lookup instead of interpreting the current frame as authority.
 
-Resume from that exact daemon, session, and revision on a persistent connection:
+`viewport-splits-v1` adds `new-pane-right` and a `viewport_splits` array to screen snapshots that use horizontal viewport columns. Each entry identifies a stable split id and gives the right child's width as a fraction of the frontend viewport. Frontends that implement it render the existing tree at one viewport width, append the marked right child, and expose horizontal viewport movement. Ordinary screen snapshots omit this viewport-only metadata. Other clients can ignore it and use the split ratio.
 
-```json
-{"id":13,"cmd":"subscribe-topology","daemon_instance_id":"<uuid>","session_id":"<uuid>","revision":41}
-{"id":13,"ok":true,"data":{"status":"subscribed","daemon_instance_id":"<uuid>","session_id":"<uuid>","from_revision":41,"current_revision":41,"replayed":0}}
-{"event":"topology-delta","daemon_instance_id":"<uuid>","session_id":"<uuid>","base_revision":41,"revision":42,"operation":"workspace-created","targets":{"workspaces":["<uuid>"]},"replacement":{"workspaces":[...]}}
-```
+`viewport-column-resize-v1` adds `set-viewport-pane-width` and `viewport_base_width`. Widths remain frontend-relative, from 0.1 through 1.0. Clients must require this capability before sending the resize command. An older server still renders the fallback split ratios and rejects the unknown command without changing layout. Invalid widths return `error_code:"viewport-width-out-of-range"`; a missing or ordinary pane returns `error_code:"viewport-column-not-found"`.
 
-Every successful structural topology transaction produces one delta. Failed and no-op requests produce none. Focus, selection, zoom, and scroll are presentation state, so legacy navigation commands keep their legacy events and advance only legacy `topology_revision`, not this canonical revision. Capability-v1 carries a complete replacement so clients can apply it deterministically. Replacement construction and wire bandwidth scale with the full topology, so this bootstrap does not make mutation cost independent of dormant workspaces. A follow-up capability can add typed patches without weakening the cursor and recovery contract. The retained history and each subscriber queue are bounded by count and serialized bytes. A stale daemon, stale session, future revision, history gap, oversized replay, or slow consumer requires a fresh snapshot. One connection may open one topology stream; the daemon permits 256 live streams. Duplicate and excess subscriptions fail before allocating a journal mailbox. Presentations, terminal content and geometry, titles, process status, notifications, agent records, PTY bytes, and render frames are outside this stream.
-
-`projection-state-reconnect-v1` stores only stable logical-window to workspace and selected-screen mappings in daemon memory. Registered protocol-v9 frontends claim each stable window UUID, atomically update affected windows after local projection succeeds, and release a record when the user explicitly closes that window. Disconnect preserves mappings while releasing claims, renderer resources, and terminal-control leases. These mappings do not advance canonical topology revision and do not survive daemon restart.
-
-Canonical protocol-v8 objects retain numeric IDs as current-daemon handles for legacy commands. Their parallel UUID fields are the daemon-owned identities and remain stable through rename, reorder, and move operations. Protocol-v7 tree payloads stay numeric and have no UUID guarantee. A recreated entity receives a new UUID. A daemon restart changes `daemon_instance_id`, so a client cannot resume against a replacement process even when `session_id` is unchanged.
+`layout-undo-v1` adds server-owned structural layout history and `undo-layout`. A creation undo first returns `confirmation_required`, the pane ids it would close, and a unique confirmation revision bound to those panes' exact tab membership. The client must show that consequence and resend the exact revision with `confirm_close:true`. A stale revision or changed tab membership fails without closing a pane; request a new preview before retrying. Resize-only and other non-destructive entries undo in one request.
 
 `move-tab` moves a surface to a target pane and insertion index. It supports same-pane reorder and cross-pane moves.
 
@@ -127,11 +65,21 @@ Canonical protocol-v8 objects retain numeric IDs as current-daemon handles for l
 {"id":10,"cmd":"move-tab","surface":4,"pane":2,"index":0}
 ```
 
-`move-workspace` moves a workspace to an insertion index.
+`move-workspace` moves a workspace to a zero-based insertion index. When moving
+right, the final index is one less than the requested insertion index because
+the source workspace is removed first.
 
 ```json
 {"id":11,"cmd":"move-workspace","workspace":3,"index":0}
 ```
+
+Protocol-v8 split nodes serialize as `{type:"split",split:<id>,dir,ratio,a,b}`. The `split` value remains stable until that node collapses. Resize an exact divider with:
+
+```json
+{"id":12,"cmd":"set-split-ratio","split":9,"ratio":0.65}
+```
+
+Ratios are clamped to `0.05..0.95`. A live split in a horizontal viewport can still imply a column width outside the supported `0.1..1.0` range. The server rejects that request with `error_code:"layout-ratio-out-of-range"` and keeps the split and layout unchanged; `layout-ratio-target-missing` is reserved for an absent pane or split.
 
 ## Events
 
@@ -158,36 +106,16 @@ Subscribed event lines are:
 
 `surface-resized` reports the final clamped cell size and is emitted only when the surface size actually changes. `surface-resize-failed` reports an asynchronous browser resize failure and the delay before an automatic retry, or `null` after retries are exhausted. Browser resize completions repeat the numeric `reservation_id` returned by the accepted request so clients can ignore stale completions.
 
-Protocol v7 `title-changed` carries the authoritative current `title`. Slow subscribers coalesce repeated pending title changes per surface to the latest value.
+Protocol v7 and newer `title-changed` events carry the authoritative current `title`. Slow subscribers coalesce repeated pending title changes per surface to the latest value.
 
-Browser input, navigation, activation, and browser reconfigure work from `resize-surface` enqueue per-surface CDP work. Protocol v7 `resize-surface` responses include `data.accepted` and `data.reservation_id`; `true` means the resize was applied or queued, and `false` means it was already satisfied, pending, or waiting for its retry backoff. Completion arrives as `surface-resized`, and asynchronous failure arrives as `surface-resize-failed`. Two consecutive CDP call timeouts mark only that browser surface failed with `browser is not responding`.
-
-### Renderer lifecycle
-
-A registered protocol-v9 `swift-shell` or `tui` frontend can require
-`renderer-lifecycle-subscription-v1` and open the dedicated stream:
-
-```json
-{"id":21,"cmd":"subscribe-renderer-lifecycle"}
-{"id":21,"ok":true,"data":{}}
-```
-
-The stream filters at the mux broadcaster and carries only those three event
-names: `renderer-worker-changed`, `renderer-presentation-ready`, and
-`renderer-config-invalidated`. Surface output, terminal activity, tree changes,
-and topology deltas do not enter its 4,096-event mailbox. One connection may
-open one renderer lifecycle stream, and one daemon permits 256 live streams. A
-mailbox or transport backlog overflow ends the stream with exactly
-`{"event":"renderer-lifecycle-overflow"}`. The client reconnects, fetches
-`renderer-workers`, rebuilds its renderer presentations, and subscribes on a
-new connection.
+Browser input, navigation, activation, and browser reconfigure work from `resize-surface` enqueue per-surface CDP work. Protocol v7 and newer `resize-surface` responses include `data.accepted` and `data.reservation_id`; `true` means the resize was applied or queued, and `false` means it was already satisfied, pending, or waiting for its retry backoff. Completion arrives as `surface-resized`, and asynchronous failure arrives as `surface-resize-failed`. Two consecutive CDP call timeouts mark only that browser surface failed with `browser is not responding`.
 
 ## Attach Surface
 
 `attach-surface` streams a PTY or browser surface.
 
 ```json
-{"id":30,"cmd":"attach-surface","surface":4}
+{"id":30,"cmd":"attach-surface","surface":4,"cols":120,"rows":40}
 ```
 
 The server first sends:
@@ -195,6 +123,12 @@ The server first sends:
 ```json
 {"event":"vt-state","surface":4,"cols":120,"rows":40,"data":"<base64-vt-replay>"}
 ```
+
+If this connection negotiated `view-attachment-lease-v1`, the later command
+response contains `data.lease`. The lease addresses this exact attach stream.
+Use it with `resize-attached-view` and `release-attached-view-size`. With
+`view-attachment-detach-v1`, `detach-attached-view` closes only that stream and
+releases its size contribution.
 
 Then it sends ordered stream frames:
 
@@ -205,17 +139,7 @@ Then it sends ordered stream frames:
 
 The `resized` attach frame carries the new cell size and a fresh VT replay captured at that size. It is delivered in the same attach stream as output frames, so a client can reset its local terminal, apply the replay, and continue consuming later output in order.
 
-Registered protocol-v9 clients may request the explicit noncanonical compatibility stream:
-
-```json
-{"id":31,"cmd":"attach-surface","surface":4,"mode":"compatibility"}
-{"event":"vt-state","surface":4,"surface_uuid":"<uuid>","runtime_epoch":17,"generation":1,"sequence":240,"fidelity":"noncanonical-byte-stream","cols":120,"rows":40,"data":"<base64-vt-replay>"}
-{"event":"output","surface":4,"surface_uuid":"<uuid>","runtime_epoch":17,"generation":1,"start_sequence":240,"next_sequence":243,"data":"YWJj"}
-```
-
-The client accepts output only when the UUID and epoch match, the generation is current, and `start_sequence` equals its previous cursor. `resized` increments the generation and carries a complete replay plus the new cursor boundary. Overflow, a cursor gap, an unexpected generation, or a new runtime epoch requires reattach and full replay. The client-side parser is a presentation replica and cannot claim canonical state parity.
-
-For browser surfaces, the server first sends `browser-state` with URL, title, size, status, stalled-frame state, and the latest PNG frame if one exists. Later updates send `browser-state` and `frame` events. Frame payloads are base64 PNG data and slow clients skip older frames rather than buffering unboundedly. Canonical browser endpoints advertise `frontend_projection:"frontend-optional"`, so a frontend without this PNG consumer can omit only the browser presentation while retaining sibling terminal convergence. The daemon identity remains reserved and cannot be reused by a local browser overlay.
+For browser surfaces, the server first sends `browser-state` with URL, title, size, status, stalled-frame state, `pointer_frame_seq`, and the latest PNG frame if one exists. A null pointer sequence keeps the retained image renderable but blocks pointer input. Later updates send `browser-state` and `frame` events. Each frame event couples the PNG with its authoritative `status`, `error`, and `pointer_frame_seq`; that sequence changes with every admitted replacement but authorizes input only after the client acknowledges presenting it. Clients must not infer pointer admission from the image sequence. Frame payloads are base64 PNG data and slow clients skip older frames rather than buffering unboundedly.
 
 When the stream ends, it sends:
 
@@ -225,13 +149,23 @@ When the stream ends, it sends:
 
 ## Client Compatibility
 
-The remote TUI accepts protocol v7 and v8. It uses the retained legacy attach and event contract in both versions and refuses older or unknown newer versions.
+The remote TUI requires protocol v11. It rejects protocol-v10 servers because v11 changes terminal placement nullability, terminal identity nullability, lifecycle typing, typed terminal exit records, and renderer minting responses. Protocol-v11 servers without `browser-pointer-frame-guard-v1` remain compatible for PTY surfaces, but the remote TUI rejects browser attachment because it cannot route browser pointer input safely. Every bundled client that opens a long-lived `attach-surface` socket sends `set-client-info` with `browser-pointer-frame-guard-v1` on that same connection before attaching a browser surface, because capability state and guarded-client pointer captures are scoped to the connection. Legacy one-shot pointer commands retain owner zero so a down/move/up sequence can remain compatible across short-lived sockets.
 
-The external renderer backend can negotiate protocol v9 with `register-client`. V9 moves each terminal one-way from shared legacy mutation to independent connection-and-presentation-bound input and geometry leases. It adds lane transfer, bounded automation input delegation, atomic input groups, one daemon-assigned input order per canonical terminal, and acknowledged idempotent retry receipts. The complete contract is in `../spec/terminal-control-v9.md`.
+Existing `set-ratio` clients remain source-compatible and the server keeps the pane-and-direction command unchanged. Protocol-v8 and newer frontends should read `layout.split` and send `set-split-ratio` so nested same-direction dividers are addressed exactly. Protocol v9 adds stack layout nodes and `new-pane`; clients must not send `new-pane` to a protocol-v8 server. Protocol v10 requires `surface` on every `set-client-sizing` request and moves `size_participating` into each `list-clients.sizes` entry.
 
-Attach clients mirror PTY surfaces locally. On first render, a client can resize the server surface before requesting `attach-surface`, so the initial VT replay is captured at the visible geometry.
+Attach clients mirror PTY surfaces locally. After `identify` advertises `attach-initial-size`, a client can include paired `cols` and `rows` in `attach-surface`, so the server records its initial size claim before capturing the first VT replay or render state. Older servers that omit the capability must receive neither field. Bundled long-lived clients echo `view-attachment-lease-v1` and `view-attachment-detach-v1` through `set-client-info`; against older servers, they close the transport when a raced attach must be abandoned because transport teardown is the only cleanup fence.
 
-When several attach clients render the same surface at different sizes, sizing follows latest local interaction. A client reasserts its visible sizes after key input, mouse input, paste, focus gained, or terminal resize. Mux-driven redraws update local mirrors from `surface-resized` without reasserting an idle client's viewport.
+When several clients display one terminal, their size reports are passive
+viewport hints until one exact client and terminal view claim geometry
+authority. Only that owner can resize the canonical PTY grid; every other view
+crops, pans, or scales it locally. Releasing or disconnecting the owner freezes
+the current grid until another explicit claim. Browser surfaces retain the
+legacy smallest-participating-size reducer because each browser has one live
+tab. A client releases its report when that view becomes hidden. Input and
+mux-driven redraws never claim geometry or reassert an idle viewport. See the
+canonical [`Sizing`](../spec/commands.md#sizing) contract.
+
+Provider-aware clients require `provider-managed-workspace-authority-v2` before exposing provider-owned workspace lifecycle controls. The server starts with provider ownership fixed for that mux generation, including during temporary provider descriptor gaps, so an older or stale client cannot reopen ordinary rename or close paths.
 
 ## Browser Limitations
 

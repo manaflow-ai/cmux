@@ -64,12 +64,77 @@ struct ShortcutRecorderViewTests {
         #expect(!button.isRecording)
     }
 
-    private func keyDownEvent(key: String, keyCode: UInt16) throws -> NSEvent {
+    @Test func commandShiftLessThanIsRejectedAsReloadConfigurationCollision() async throws {
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("shortcut-recorder-collision-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+
+        let button = RecorderHostButton(frame: .zero)
+        defer {
+            if button.isRecording {
+                button.stopRecording()
+            }
+        }
+        var recordedStroke: ShortcutStroke?
+        button.onStroke = { recordedStroke = $0 }
+        button.startRecording()
+        button.handleRecordingEvent(try keyDownEvent(
+            key: "<",
+            keyCode: 43,
+            modifierFlags: [.command, .shift]
+        ))
+
+        let stroke = try #require(recordedStroke)
+        let store = JSONConfigStore(fileURL: tempDirectory.appendingPathComponent("cmux.json"))
+        let catalog = SettingCatalog()
+        let model = ShortcutListModel(
+            jsonStore: store,
+            catalog: catalog,
+            errorLog: SettingsErrorLog()
+        )
+
+        await model.assign(stroke: stroke, to: .focusHistoryBack)
+
+        let bindings = await store.value(for: catalog.shortcuts.bindings)
+        #expect(bindings[ShortcutAction.focusHistoryBack.rawValue] == nil)
+        #expect(
+            model.conflictRejections[ShortcutAction.focusHistoryBack.rawValue]
+                == .reloadConfiguration
+        )
+    }
+
+    @Test func unmappedPrintableSymbolRemainsRecordable() throws {
+        let button = RecorderHostButton(frame: .zero)
+        defer {
+            if button.isRecording {
+                button.stopRecording()
+            }
+        }
+        var recordedStroke: ShortcutStroke?
+        button.onStroke = { recordedStroke = $0 }
+        button.startRecording()
+
+        button.handleRecordingEvent(try keyDownEvent(
+            key: "§",
+            keyCode: 10,
+            modifierFlags: [.command]
+        ))
+
+        #expect(recordedStroke?.key == "§")
+        #expect(recordedStroke?.keyCode == 10)
+    }
+
+    private func keyDownEvent(
+        key: String,
+        keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags = []
+    ) throws -> NSEvent {
         try #require(
             NSEvent.keyEvent(
                 with: .keyDown,
                 location: .zero,
-                modifierFlags: [],
+                modifierFlags: modifierFlags,
                 timestamp: ProcessInfo.processInfo.systemUptime,
                 windowNumber: 0,
                 context: nil,

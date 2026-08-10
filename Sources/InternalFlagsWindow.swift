@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import SwiftUI
 
 enum InternalFlagsPresenter {
@@ -44,14 +45,17 @@ private final class InternalFlagsWindowController: NSWindowController {
 
 private struct InternalFlagsView: View {
     let flags: CmuxFeatureFlags
+#if DEBUG
+    @AppStorage(DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
+    private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
+#endif
 
     private var rows: [InternalFlagRowSnapshot] {
         CmuxFeatureFlags.allFlags.map { definition in
             InternalFlagRowSnapshot(
                 definition: definition,
-                effectiveValue: flags.effectiveValue(for: definition),
-                overrideValue: flags.overrideValue(for: definition),
-                remoteValue: flags.remoteValue(for: definition)
+                resolution: flags.resolution(for: definition),
+                overrideValue: flags.overrideValue(for: definition)
             )
         }
     }
@@ -78,6 +82,20 @@ private struct InternalFlagsView: View {
 
             ScrollView {
                 LazyVStack(spacing: 0) {
+#if DEBUG
+                    InternalBooleanSettingRow(
+                        title: String(
+                            localized: "debug.devBuildBanner.show",
+                            defaultValue: "Show Dev Build Banner"
+                        ),
+                        key: DevBuildBannerDebugSettings.sidebarBannerVisibleKey,
+                        settingDescription: String(
+                            localized: "debug.devBuildBanner.description",
+                            defaultValue: "Controls the red debug-build label below the sidebar footer."
+                        ),
+                        isOn: $showSidebarDevBuildBanner
+                    )
+#endif
                     ForEach(rows) { row in
                         InternalFlagRow(
                             snapshot: row,
@@ -94,7 +112,7 @@ private struct InternalFlagsView: View {
             HStack(alignment: .center, spacing: 16) {
                 Text(String(
                     localized: "featureFlags.footer.note",
-                    defaultValue: "Overrides are local to this Mac and take precedence over remote flags."
+                    defaultValue: "Local overrides apply only when no remote value is available."
                 ))
                 .font(.footnote)
                 .foregroundStyle(.secondary)
@@ -111,6 +129,83 @@ private struct InternalFlagsView: View {
         }
         .frame(minWidth: 760, minHeight: 420)
         .background(Color(nsColor: .windowBackgroundColor))
+    }
+}
+
+#if DEBUG
+private struct InternalBooleanSettingRow: View {
+    let title: String
+    let key: String
+    let settingDescription: String
+    @Binding var isOn: Bool
+
+    var body: some View {
+        InternalFlagRowLayout(
+            title: title,
+            key: key,
+            flagDescription: settingDescription,
+            effectiveValue: isOn,
+            sourceTitle: String(localized: "featureFlags.source.local", defaultValue: "Local")
+        ) {
+            Picker(
+                String(localized: "featureFlags.override.pickerLabel", defaultValue: "Override"),
+                selection: $isOn
+            ) {
+                Text(String(localized: "featureFlags.override.on", defaultValue: "On"))
+                    .tag(true)
+                Text(String(localized: "featureFlags.override.off", defaultValue: "Off"))
+                    .tag(false)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 240)
+            .accessibilityIdentifier("InternalFlagsDevBuildBannerPicker")
+        }
+    }
+}
+#endif
+
+private struct InternalFlagRowLayout<OverrideControl: View>: View {
+    let title: String
+    let key: String
+    let flagDescription: String
+    let effectiveValue: Bool
+    let sourceTitle: String
+    @ViewBuilder let overrideControl: () -> OverrideControl
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.headline)
+                    .lineLimit(1)
+                Text(key)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                Text(flagDescription)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            InternalFlagValueBadge(isOn: effectiveValue)
+                .frame(width: 96, alignment: .leading)
+
+            Text(sourceTitle)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .frame(width: 96, alignment: .leading)
+
+            overrideControl()
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 14)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .overlay(alignment: .bottom) {
+            Divider()
+        }
     }
 }
 
@@ -139,18 +234,22 @@ private struct InternalFlagRowSnapshot: Identifiable, Equatable {
     var id: String { definition.key }
 
     let definition: CmuxFeatureFlagDefinition
-    let effectiveValue: Bool
+    let resolution: CmuxFeatureFlagResolution
     let overrideValue: Bool?
-    let remoteValue: Bool?
 
-    var source: InternalFlagValueSource {
-        if overrideValue != nil {
-            return .override
+    var isRemoteControlled: Bool {
+        resolution.source == .remote
+    }
+
+    var sourceTitle: String {
+        switch resolution.source {
+        case .remote:
+            return String(localized: "featureFlags.source.remote", defaultValue: "Remote")
+        case .override:
+            return String(localized: "featureFlags.source.override", defaultValue: "Override")
+        case .default:
+            return String(localized: "featureFlags.source.default", defaultValue: "Default")
         }
-        if remoteValue != nil {
-            return .remote
-        }
-        return .default
     }
 
     var overrideChoice: InternalFlagOverrideChoice {
@@ -160,7 +259,7 @@ private struct InternalFlagRowSnapshot: Identifiable, Equatable {
         case .some(false):
             return .off
         case .none:
-            return .remote
+            return .noOverride
         }
     }
 }
@@ -170,50 +269,39 @@ private struct InternalFlagRow: View {
     let setOverride: (Bool?) -> Void
 
     var body: some View {
-        HStack(alignment: .center, spacing: 16) {
+        InternalFlagRowLayout(
+            title: snapshot.definition.title,
+            key: snapshot.definition.key,
+            flagDescription: snapshot.definition.flagDescription,
+            effectiveValue: snapshot.resolution.effectiveValue,
+            sourceTitle: snapshot.sourceTitle
+        ) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(snapshot.definition.title)
-                    .font(.headline)
-                    .lineLimit(1)
-                Text(snapshot.definition.key)
-                    .font(.system(.caption, design: .monospaced))
+                Picker(
+                    String(localized: "featureFlags.override.pickerLabel", defaultValue: "Override"),
+                    selection: Binding(
+                        get: { snapshot.overrideChoice },
+                        set: { choice in setOverride(choice.overrideValue) }
+                    )
+                ) {
+                    ForEach(InternalFlagOverrideChoice.allCases) { choice in
+                        Text(choice.title).tag(choice)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .disabled(snapshot.isRemoteControlled)
+
+                if snapshot.isRemoteControlled {
+                    Text(String(
+                        localized: "featureFlags.override.remoteControlledNote",
+                        defaultValue: "Controlled remotely; local override inactive."
+                    ))
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                Text(snapshot.definition.flagDescription)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            InternalFlagValueBadge(isOn: snapshot.effectiveValue)
-                .frame(width: 96, alignment: .leading)
-
-            Text(snapshot.source.title)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .frame(width: 96, alignment: .leading)
-
-            Picker(
-                String(localized: "featureFlags.override.pickerLabel", defaultValue: "Override"),
-                selection: Binding(
-                    get: { snapshot.overrideChoice },
-                    set: { choice in setOverride(choice.overrideValue) }
-                )
-            ) {
-                ForEach(InternalFlagOverrideChoice.allCases) { choice in
-                    Text(choice.title).tag(choice)
                 }
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
             .frame(width: 240)
-        }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 14)
-        .background(Color(nsColor: .windowBackgroundColor))
-        .overlay(alignment: .bottom) {
-            Divider()
         }
     }
 }
@@ -234,27 +322,10 @@ private struct InternalFlagValueBadge: View {
     }
 }
 
-private enum InternalFlagValueSource {
-    case override
-    case remote
-    case `default`
-
-    var title: String {
-        switch self {
-        case .override:
-            return String(localized: "featureFlags.source.override", defaultValue: "Override")
-        case .remote:
-            return String(localized: "featureFlags.source.remote", defaultValue: "Remote")
-        case .default:
-            return String(localized: "featureFlags.source.default", defaultValue: "Default")
-        }
-    }
-}
-
 private enum InternalFlagOverrideChoice: CaseIterable, Hashable, Identifiable {
     case on
     case off
-    case remote
+    case noOverride
 
     var id: Self { self }
 
@@ -264,8 +335,8 @@ private enum InternalFlagOverrideChoice: CaseIterable, Hashable, Identifiable {
             return String(localized: "featureFlags.override.on", defaultValue: "On")
         case .off:
             return String(localized: "featureFlags.override.off", defaultValue: "Off")
-        case .remote:
-            return String(localized: "featureFlags.override.remote", defaultValue: "Remote")
+        case .noOverride:
+            return String(localized: "featureFlags.override.none", defaultValue: "No override")
         }
     }
 
@@ -275,7 +346,7 @@ private enum InternalFlagOverrideChoice: CaseIterable, Hashable, Identifiable {
             return true
         case .off:
             return false
-        case .remote:
+        case .noOverride:
             return nil
         }
     }

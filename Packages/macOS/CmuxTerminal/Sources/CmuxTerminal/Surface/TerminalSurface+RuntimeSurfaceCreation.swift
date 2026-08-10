@@ -16,9 +16,9 @@ extension TerminalSurface {
         app: ghostty_app_t,
         for view: any TerminalSurfaceNativeViewing,
         scaleFactors: (x: CGFloat, y: CGFloat, layer: CGFloat),
-        claudeShim: ClaudeCommandShim?
+        agentCommandShims: AgentCommandShimSet?
     ) -> (createdSurface: ghostty_surface_t?, runtimeInitialInput: String?) {
-        let baseConfig = configTemplate ?? CmuxSurfaceConfigTemplate()
+        let baseConfig = runtimeCreationConfigTemplate()
         let runtimeInitialInput = nextRuntimeInitialInput
         let resolvedLaunch = TerminalSurfaceLaunchResolver(
             userGhosttyShellIntegrationMode: { [engine] in
@@ -38,7 +38,8 @@ extension TerminalSurface {
             TerminalSurfaceLaunchRequest(
                 workspaceID: tabId,
                 surfaceID: id,
-                configTemplate: configTemplate,
+                terminalLifecycleID: terminalLifecycleId,
+                configTemplate: baseConfig,
                 workingDirectory: workingDirectory,
                 portOrdinal: portOrdinal,
                 initialCommand: initialCommand,
@@ -47,7 +48,7 @@ extension TerminalSurface {
                 initialEnvironmentOverrides: initialEnvironmentOverrides,
                 additionalEnvironment: additionalEnvironment
             ),
-            commandShim: claudeShim
+            commandShims: agentCommandShims
         )
         var surfaceConfig = ghostty_surface_config_new()
         let magnificationPercent = globalFontMagnificationPercent()
@@ -60,13 +61,25 @@ extension TerminalSurface {
         surfaceConfig.platform = ghostty_platform_u(macos: ghostty_platform_macos_s(
             nsview: Unmanaged.passUnretained(view as NSView).toOpaque()
         ))
-        let callbackContext = Unmanaged.passRetained(GhosttySurfaceCallbackContext(surfaceHost: view, surfaceController: self))
+        let rendererRealization = rendererRealization
+        let callbackContext = Unmanaged.passRetained(GhosttySurfaceCallbackContext(
+            surfaceHost: view,
+            surfaceController: self,
+            terminalLifecycleID: terminalLifecycleId,
+            rendererMailboxDidDrain: { surfaceID in
+                Task { @MainActor in
+                    rendererRealization.scheduleRendererPresentationRepair(surfaceID: surfaceID)
+                }
+            }
+        ))
         surfaceConfig.userdata = callbackContext.toOpaque()
+        surfaceConfig.renderer_event_cb = terminalRendererEventCallback
         surfaceCallbackContext?.release()
         surfaceCallbackContext = callbackContext
         surfaceConfig.scale_factor = scaleFactors.layer
         surfaceConfig.context = surfaceContext
-        if manualIO {
+        surfaceConfig.io_mode = ioMode.ghosttyMode
+        if ioMode.usesManualIO {
             // MANUAL I/O: ghostty spawns no process; typed input is delivered
             // to our callback and output is injected through
             // ghostty_surface_process_output.
@@ -75,7 +88,6 @@ extension TerminalSurface {
                 TerminalManualIOWriteBox(onWrite: manualInputHandler ?? { _ in })
             )
             manualIOContext = box
-            surfaceConfig.io_mode = GHOSTTY_SURFACE_IO_MANUAL
             surfaceConfig.io_write_cb = terminalManualIOWriteCallback
             surfaceConfig.io_write_userdata = box.toOpaque()
         }

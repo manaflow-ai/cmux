@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-Builds need zig 0.15.2, a Rust toolchain, and the `ghostty` submodule. `ghostty-vt-sys` compiles `libghostty-vt.a` from that submodule, so an uninitialized submodule fails before the TUI starts.
+Builds need Zig 0.16.0, a Rust toolchain, and the `ghostty` submodule. `ghostty-vt-sys` compiles `libghostty-vt.a` from that submodule, so an uninitialized submodule fails before the TUI starts.
 
 ```bash
 cd cmux-tui
@@ -21,7 +21,9 @@ cargo run -p cmux-tui -- --session agents
 
 The default session is `main`. Quitting a local TUI shuts down that in-process session and removes its socket.
 
-Use `--term <value>` to set `TERM` for child PTYs. Without it, children get `xterm-256color`; the surface layer also honors `CMUX_TUI_TERM` when no CLI value is supplied, with `CMUX_MUX_TERM` retained as a legacy fallback.
+Press `Ctrl-b` to reveal the active prefix commands in the bottom bar. Press `Ctrl-b ?` for the full scrollable shortcut list. Right-click a pane for pane actions, or anywhere in the sidebar for sidebar actions; hold Shift while right-clicking when an inner terminal app owns mouse input.
+
+Use `--term <value>` to set `TERM` for child PTYs. Without it, children get `xterm-256color`; the terminal runtime also honors `CMUX_TUI_TERM` when no CLI value is supplied, with `CMUX_MUX_TERM` retained as a legacy fallback.
 
 ## Headless server and attach
 
@@ -41,6 +43,44 @@ cargo run -p cmux-tui -- attach --session agents
 
 Detach from an attached TUI with prefix `d`. With default keys, that is `Ctrl-b d`. The server keeps running, and another `attach` reconnects to the same tree. PTY tabs attach with a Ghostty VT-state replay followed by a live output stream.
 
+PTY programs may emit inline images with the Kitty graphics protocol. cmux-tui preserves those images across local, attached, and remote sessions when the outer terminal supports Kitty graphics, subject to the configured replay and transport byte limits; graphics beyond the replay budget may be omitted.
+
+Attach one terminal without the sidebar, status bar, pane border, or other tabs:
+
+```bash
+cargo run -p cmux-tui -- attach --session agents --terminal <terminal-id>
+```
+
+Use the noun-first public CLI to inspect or automate individual resources:
+
+```bash
+cargo run -p cmux-tui -- workspace list
+cargo run -p cmux-tui -- workspace current run -- cargo test
+cargo run -p cmux-tui -- terminal term_0123456789abcdef0123456789abcdef attach --jsonl
+```
+
+Resource selectors accept a typed opaque ID, `current`, or an exact name. Names need not be unique. An ambiguous name returns every candidate ID without changing state.
+
+## Remote machines
+
+The optional machine rail keeps rendering local while it connects individual sessions through Unix sockets or SSH. It is disabled for the default local run and activates when `machine_sidebar.enabled` is true or `machines` contains a valid entry in `cmux-tui.json`. The SSH connector shares the managed lifecycle used by `cmux-tui ssh`: it checks the remote binary, starts the named headless mux and sidecar on demand, and reconnects without nesting a second TUI. Packaged releases can install their pinned remote binary. Source builds require the exact matching binary to be installed remotely.
+
+Packaged clients use the same configuration and can start with:
+
+```bash
+npx cmux
+```
+
+See [Machines](machines.md) for Unix and SSH examples, rail input, and remote setup.
+
+To share an existing local session through cmux.cloud without a public listener, run its outbound machine agent separately:
+
+```bash
+npx cmux machine-agent --session agents
+```
+
+Run this command from an interactive terminal with `/dev/tty`; the agent fails closed without a controlling terminal, including on reconnects. The first registration prints the one-time code used by `+ Connect machine` on cmux.cloud.
+
 ## Sessions and sockets
 
 The default socket path is:
@@ -51,21 +91,9 @@ The default socket path is:
 
 The usual default is `$XDG_RUNTIME_DIR/cmux-tui-<uid>/main.sock` when `XDG_RUNTIME_DIR` is set, then `$TMPDIR/cmux-tui-<uid>/main.sock`, then `/tmp/cmux-tui-<uid>/main.sock`. On Darwin, an oversized environment root falls back to `/tmp/cmux-tui-<uid>` so the path fits the 103-byte Unix-socket limit; the server creates the per-user directory with mode `0700`. `--session <name>` changes the final file name. `--socket <path>` bypasses the session-derived path. Server-started child processes receive both `CMUX_TUI_SOCKET` and legacy `CMUX_MUX_SOCKET` with the socket path.
 
-The bundled cmux launch agent uses `--app-service-layout`. That mode ignores runtime and home environment overrides, selects `/tmp/cmux-tui-<uid>/<session>.sock`, and obtains `~/Library/Application Support/cmux-tui/state` from the native macOS account record. Explicit `--socket` and `--state-dir` flags cannot be combined with this mode.
-
 ## Platforms and XDG
 
 cmux-tui supports macOS and Linux; Windows support via ConPTY is planned for phase 2. The TUI config path resolves `CMUX_TUI_CONFIG`, then legacy `CMUX_MUX_CONFIG`, then `$XDG_CONFIG_HOME/cmux/cmux-tui.json` or `~/.config/cmux/cmux-tui.json`. Existing `mux.json` files remain supported and are used when `cmux-tui.json` is absent.
-
-Daemon session identity persists separately from configuration. The default
-state directory is `~/Library/Application Support/cmux-tui/state` on macOS,
-`$XDG_STATE_HOME/cmux-tui` on Linux when set, then
-`~/.local/state/cmux-tui`. `CMUX_TUI_STATE_DIR` or server option
-`--state-dir <path>` selects an explicit root. A malformed or unknown-version
-record stops startup without overwriting bytes. `--recover-state` archives the
-bad record and creates a new session identity. This store currently preserves
-identity only; workspace topology, PTYs, scrollback, and presentations are not
-restored after the daemon exits.
 
 Launched Chrome profile paths are platform-specific. On macOS the default is `~/Library/Application Support/cmux-tui/chrome-profile`. On Linux and other non-macOS targets, `XDG_DATA_HOME` is used when set, then `~/.local/share/cmux-tui/chrome-profile`.
 

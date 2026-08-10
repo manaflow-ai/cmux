@@ -55,6 +55,8 @@ public struct TerminalSurfaceEmbeddedRuntimeDependencies {
     public let runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator
     public let restoreSpawnScheduler: any TerminalSurfaceRuntimeSpawnScheduling
     public let runtimeFilesystem: TerminalSurfaceRuntimeFilesystem
+    public let agentCommandShimInstallDeadline: Duration
+    public let agentCommandShimInstallDeadlineClock: any Clock<Duration>
     public let sessionPortBase: Int
     public let sessionPortRangeSize: Int
 
@@ -65,6 +67,8 @@ public struct TerminalSurfaceEmbeddedRuntimeDependencies {
         runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator,
         restoreSpawnScheduler: any TerminalSurfaceRuntimeSpawnScheduling,
         runtimeFilesystem: TerminalSurfaceRuntimeFilesystem,
+        agentCommandShimInstallDeadline: Duration = .seconds(5),
+        agentCommandShimInstallDeadlineClock: any Clock<Duration> = ContinuousClock(),
         sessionPortBase: Int,
         sessionPortRangeSize: Int
     ) {
@@ -74,6 +78,8 @@ public struct TerminalSurfaceEmbeddedRuntimeDependencies {
         self.runtimeTeardown = runtimeTeardown
         self.restoreSpawnScheduler = restoreSpawnScheduler
         self.runtimeFilesystem = runtimeFilesystem
+        self.agentCommandShimInstallDeadline = agentCommandShimInstallDeadline
+        self.agentCommandShimInstallDeadlineClock = agentCommandShimInstallDeadlineClock
         self.sessionPortBase = sessionPortBase
         self.sessionPortRangeSize = sessionPortRangeSize
     }
@@ -104,6 +110,8 @@ public struct TerminalSurfaceRuntimeDependencies {
         runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator,
         restoreSpawnScheduler: any TerminalSurfaceRuntimeSpawnScheduling,
         runtimeFilesystem: TerminalSurfaceRuntimeFilesystem,
+        agentCommandShimInstallDeadline: Duration = .seconds(5),
+        agentCommandShimInstallDeadlineClock: any Clock<Duration> = ContinuousClock(),
         sessionPortBase: Int,
         sessionPortRangeSize: Int,
         scrollbackReplayEnvironmentKey: String,
@@ -124,6 +132,8 @@ public struct TerminalSurfaceRuntimeDependencies {
             runtimeTeardown: runtimeTeardown,
             restoreSpawnScheduler: restoreSpawnScheduler,
             runtimeFilesystem: runtimeFilesystem,
+            agentCommandShimInstallDeadline: agentCommandShimInstallDeadline,
+            agentCommandShimInstallDeadlineClock: agentCommandShimInstallDeadlineClock,
             sessionPortBase: sessionPortBase,
             sessionPortRangeSize: sessionPortRangeSize
         )

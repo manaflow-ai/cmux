@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CmuxFoundation
 import CmuxTerminalCore
 import GhosttyKit
 
@@ -36,11 +37,14 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
     @Test func capturesSurfaceIdentityAtCreation() {
         let controller = FakeSurfaceController()
         let host = FakeSurfaceHost()
+        let terminalLifecycleID = UUID()
         let context = GhosttySurfaceCallbackContext(
             surfaceHost: host,
-            surfaceController: controller
+            surfaceController: controller,
+            terminalLifecycleID: terminalLifecycleID
         )
         #expect(context.surfaceId == controller.surfaceId)
+        #expect(context.terminalLifecycleID == terminalLifecycleID)
         #expect(context.tabId == controller.owningTabId)
     }
 
@@ -50,7 +54,8 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
         var controller: FakeSurfaceController? = FakeSurfaceController()
         let context = GhosttySurfaceCallbackContext(
             surfaceHost: host,
-            surfaceController: controller!
+            surfaceController: controller!,
+            terminalLifecycleID: UUID()
         )
         controller = nil
         #expect(context.tabId == hostTabId)
@@ -62,7 +67,8 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
         let host = FakeSurfaceHost()
         let context = GhosttySurfaceCallbackContext(
             surfaceHost: host,
-            surfaceController: controller
+            surfaceController: controller,
+            terminalLifecycleID: UUID()
         )
         #expect(context.runtimeSurface == pointer)
     }
@@ -74,7 +80,8 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
         var controller: FakeSurfaceController? = FakeSurfaceController()
         let context = GhosttySurfaceCallbackContext(
             surfaceHost: host,
-            surfaceController: controller!
+            surfaceController: controller!,
+            terminalLifecycleID: UUID()
         )
         controller = nil
         #expect(context.runtimeSurface == pointer)
@@ -85,11 +92,38 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
         var host: FakeSurfaceHost? = FakeSurfaceHost()
         let context = GhosttySurfaceCallbackContext(
             surfaceHost: host!,
-            surfaceController: controller!
+            surfaceController: controller!,
+            terminalLifecycleID: UUID()
         )
         controller = nil
         host = nil
         #expect(context.runtimeSurface == nil)
         #expect(context.tabId == nil)
+    }
+
+    @Test func rendererRepairSignalCoalescesUntilRearmed() {
+        let controller = FakeSurfaceController()
+        let host = FakeSurfaceHost()
+        let expectedSurfaceID = controller.surfaceId
+        let callbackCount = AtomicUInt64Generation()
+        let context = GhosttySurfaceCallbackContext(
+            surfaceHost: host,
+            surfaceController: controller,
+            terminalLifecycleID: UUID(),
+            rendererMailboxDidDrain: { surfaceID in
+                #expect(surfaceID == expectedSurfaceID)
+                _ = callbackCount.advanceRelaxed()
+            }
+        )
+
+        context.rendererMailboxDidDrain()
+        context.armRendererPresentationRepair()
+        context.rendererMailboxDidDrain()
+        context.rendererMailboxDidDrain()
+        context.armRendererPresentationRepair()
+        context.cancelRendererPresentationRepair()
+        context.rendererMailboxDidDrain()
+
+        #expect(callbackCount.loadRelaxed() == 1)
     }
 }
