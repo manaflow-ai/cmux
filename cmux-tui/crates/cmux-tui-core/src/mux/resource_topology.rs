@@ -2415,11 +2415,11 @@ impl Mux {
         let closed_incarnation = close.terminal.result["incarnation"].as_str().map(str::to_owned);
         let terminal_commit = close.terminal;
         let resource = close.resource.context("terminal close omitted its resource commit")?;
-        anyhow::ensure!(
-            resource.replayed == terminal_commit.replayed,
-            "terminal and resource close replay state diverged"
-        );
-        if resource.replayed {
+        // Old close commits can contain only the terminal mutation. Repair
+        // the missing resource mutation and install its projection. Skip the
+        // plan only when both sides already committed, because live memory
+        // can then contain a newer incarnation that this replay must retain.
+        if terminal_commit.replayed && resource.replayed {
             drop(state);
             drop(registry);
             drop(_creation_fence);

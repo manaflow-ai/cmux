@@ -445,6 +445,9 @@ jobs:
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
           version: ${{ steps.ghostty-zig-version.outputs.version }}
+          # Native Windows must compile from a complete cache. The setup-zig
+          # global cache can restore object indexes without compiler_rt.lib.
+          use-cache: false
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust

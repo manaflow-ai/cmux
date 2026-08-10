@@ -20772,6 +20772,51 @@ mod tests {
         assert_eq!(terminal.lifecycle, TerminalLifecycle::Tombstoned);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn terminal_only_close_replay_repairs_resource_state_and_memory() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let host = mux.resource_terminal_host_identity(&surface).unwrap();
+        let resource_revision = mux.with_state(|state| state.resource_revision);
+        let mutation = WorkspaceMutation::new("terminal-only-close-repair", "test").unwrap();
+
+        let terminal = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .close_terminal(
+                &mutation,
+                None,
+                None,
+                &host.terminal_id,
+                Some(&host.incarnation),
+            )
+            .unwrap();
+        assert!(!terminal.replayed);
+        assert!(mux.surface(surface.id).is_some());
+
+        let repaired = mux
+            .close_terminal_with_mutation(
+                &host.terminal_id,
+                Some(&host.incarnation),
+                None,
+                None,
+                &mutation,
+            )
+            .unwrap();
+
+        assert_eq!(terminal.revision, repaired.terminal_revision);
+        assert!(repaired.surface.is_some());
+        assert!(mux.surface(surface.id).is_none());
+        assert_eq!(
+            mux.with_state(|state| state.resource_revision),
+            resource_revision + 1
+        );
+        let terminal = mux.resolve_terminal(&host.terminal_id).unwrap().unwrap().terminal;
+        assert_eq!(terminal.lifecycle, TerminalLifecycle::Tombstoned);
+    }
+
     #[test]
     fn failed_browser_surface_attach_kills_worker() {
         let mux = test_mux();
