@@ -5023,7 +5023,8 @@ fn run_terminal_resource_wait(
     request: &crate::resource_router::ParsedResourceRequest,
     canceled: &ResourceWaitCancellation,
 ) -> Result<Option<Value>, ResourceError> {
-    let (_, surface) = resource_terminal_surface(mux, &request.selectors)?;
+    let (_, terminal, _) = resource_terminal(mux, &request.selectors)?;
+    let surface = terminal.compatibility_surface();
     let pattern = request.fields["pattern"].as_str().expect("catalog validates wait pattern");
     let regex = Regex::new(pattern).map_err(|_| {
         ResourceError::validation_invalid(
@@ -5330,15 +5331,7 @@ fn resource_client_snapshot(
     let mut attached_terminal_ids = Vec::<TerminalPublicId>::new();
     let mut sizes = Vec::<Value>::new();
     for (surface_id, size) in &record.attached {
-        let Some(surface) = mux.surface(*surface_id) else {
-            continue;
-        };
-        let Some(identity) = surface.resource_identity() else {
-            continue;
-        };
-        let ContentPublicId::Terminal(terminal_id) = &identity.content_id else {
-            continue;
-        };
+        let Some(terminal_id) = mux.terminal_id_for_viewer(*surface_id) else { continue };
         attached_terminal_ids.push(terminal_id.clone());
         let (cols, rows) =
             size.map_or((Value::Null, Value::Null), |(cols, rows)| (json!(cols), json!(rows)));
@@ -5448,24 +5441,25 @@ fn resource_client_metadata_update(
     resource_client_snapshot(mux, requesting_client, &session_id, &record)
 }
 
-fn resource_terminal_surface(
+fn resource_terminal(
     mux: &Mux,
     selectors: &crate::ResourceSelectors,
-) -> Result<(TerminalPublicId, Arc<crate::Surface>), ResourceError> {
+) -> Result<(TerminalPublicId, Arc<crate::TerminalResource>, Option<SurfaceId>), ResourceError> {
     let mut route = selectors.clone();
     route.client = None;
-    let terminal_id = mux
-        .resolve_resource_path(crate::ResourceTarget::Terminal, &route)?
-        .terminal
-        .ok_or_else(|| ResourceError::not_found("terminal", "<resolved>"))?;
-    let surface_id = mux
-        .resource_surface_for_terminal(&terminal_id)
+    let resolved = mux.resolve_resource_slots(crate::ResourceTarget::Terminal, &route)?;
+    let terminal_id =
+        resolved.path.terminal.ok_or_else(|| ResourceError::not_found("terminal", "<resolved>"))?;
+    let terminal = mux
+        .terminal_resource(&terminal_id)
         .ok_or_else(|| ResourceError::not_found("terminal", terminal_id.as_str()))?;
-    let surface = mux
-        .surface(surface_id)
-        .filter(|surface| surface.kind() == SurfaceKind::Pty)
-        .ok_or_else(|| ResourceError::not_found("terminal", terminal_id.as_str()))?;
-    Ok((terminal_id, surface))
+    let selected_viewer = (route.workspace.is_some()
+        || route.screen.is_some()
+        || route.pane.is_some()
+        || route.tab.is_some())
+    .then_some(resolved.tab)
+    .flatten();
+    Ok((terminal_id, terminal, selected_viewer))
 }
 
 fn resource_browser_surface(
@@ -5495,7 +5489,7 @@ fn resource_client_sizing_set(
 ) -> Result<Value, ResourceError> {
     let operation = "client.sizing.set";
     let (target, session_id) = resolve_resource_client(mux, requesting_client, &request.selectors)?;
-    let (_, surface) = resource_terminal_surface(mux, &request.selectors)?;
+    let (_, terminal, selected_viewer) = resource_terminal(mux, &request.selectors)?;
     let enabled =
         request.fields["enabled"].as_bool().expect("catalog validates client sizing enabled");
     let exclusive = request.fields.get("exclusive").and_then(Value::as_bool).unwrap_or(false);
@@ -5505,18 +5499,22 @@ fn resource_client_sizing_set(
             "exclusive client sizing must be enabled",
         ));
     }
-    let changed = if exclusive {
-        mux.use_only_client_size(surface.id, target)
-    } else {
-        mux.set_client_size_participation(surface.id, target, enabled)
-    }
-    .ok_or_else(|| {
-        ResourceError::operation_failed(
-            operation,
-            "the selected client has no size lease for the terminal",
-            json!({}),
+    // A terminal already has one canonical geometry authority. `exclusive`
+    // therefore has the same result as enabling its selected client/viewer.
+    let changed = mux
+        .set_terminal_client_size_participation(
+            terminal.runtime_id(),
+            selected_viewer,
+            target,
+            enabled,
         )
-    })?;
+        .ok_or_else(|| {
+            ResourceError::operation_failed(
+                operation,
+                "the selected client has no size lease for the terminal",
+                json!({}),
+            )
+        })?;
     let _ = changed;
     let record = mux
         .control_clients
@@ -5538,17 +5536,23 @@ fn resource_client_sizing_release(
     request: &crate::resource_router::ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     let (target, session_id) = resolve_resource_client(mux, requesting_client, &request.selectors)?;
-    let (_, surface) = resource_terminal_surface(mux, &request.selectors)?;
-    let attached = mux.control_clients.clear_size(target, surface.id);
-    let had_report = mux.client_surface_size(surface.id, target).is_some();
-    if had_report {
-        mux.remove_surface_size_client(surface.id, target);
+    let (_, terminal, selected_viewer) = resource_terminal(mux, &request.selectors)?;
+    let _lifecycle = mux.lock_client_sizing_lifecycle();
+    let viewers = selected_viewer.map_or_else(
+        || mux.terminal_client_viewers(terminal.runtime_id(), target),
+        |viewer| vec![viewer],
+    );
+    let mut changed = false;
+    for viewer in viewers {
+        let attached = mux.control_clients.clear_size(target, viewer);
+        let had_report = mux.client_surface_size(viewer, target).is_some();
+        if had_report {
+            mux.remove_surface_size_client(viewer, target);
+        }
+        changed |= attached.as_ref().is_some_and(|(changed, _, _)| *changed) || had_report;
     }
-    if attached.as_ref().is_some_and(|(changed, _, _)| *changed) || had_report {
-        let (name, kind) = attached
-            .map(|(_, name, kind)| (name, kind))
-            .or_else(|| mux.control_clients.client_info(target))
-            .unwrap_or((None, None));
+    if changed {
+        let (name, kind) = mux.control_clients.client_info(target).unwrap_or((None, None));
         mux.emit(MuxEvent::ClientChanged { client: target, name, kind });
     }
     let record = mux
@@ -5581,8 +5585,19 @@ fn checked_resource_u16(
 }
 
 fn surface_public_content_id(mux: &Mux, surface: SurfaceId) -> Option<String> {
-    let surface = mux.surface(surface)?;
-    surface.resource_identity().map(|identity| identity.content_id.as_str().to_string())
+    mux.with_state(|state| {
+        state
+            .surfaces
+            .get(&surface)
+            .and_then(|surface| surface.resource_identity())
+            .map(|identity| identity.content_id.as_str().to_string())
+            .or_else(|| {
+                state
+                    .terminal_catalog_by_runtime
+                    .get(&surface)
+                    .map(|terminal_id| terminal_id.as_str().to_string())
+            })
+    })
 }
 
 fn resource_client_cell_pixels_set(
@@ -5631,12 +5646,17 @@ fn resource_terminal_viewer_resize(
     request: &crate::resource_router::ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     let operation = "terminal.viewer.resize";
-    let (_, surface) = resource_terminal_surface(mux, &request.selectors)?;
+    let (_, terminal, _) = resource_terminal(mux, &request.selectors)?;
     let cols = checked_resource_u16(operation, &request.fields, "cols")?;
     let rows = checked_resource_u16(operation, &request.fields, "rows")?;
     let (cols, rows) = clamp_terminal_size(cols, rows);
     let resize = mux
-        .resize_surface_for_control_client_with_reservation(surface.id, client, cols, rows)
+        .resize_surface_for_control_client_with_reservation(
+            terminal.runtime_id(),
+            client,
+            cols,
+            rows,
+        )
         .map_err(|error| {
             ResourceError::operation_failed(operation, error.to_string(), json!({}))
         })?;
@@ -5669,8 +5689,8 @@ fn resource_terminal_viewer_release(
     client: u64,
     request: &crate::resource_router::ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
-    let (_, surface) = resource_terminal_surface(mux, &request.selectors)?;
-    release_resource_viewer_size(mux, client, surface.id);
+    let (_, terminal, _) = resource_terminal(mux, &request.selectors)?;
+    release_resource_viewer_size(mux, client, terminal.runtime_id());
     Ok(json!({}))
 }
 
@@ -5733,11 +5753,14 @@ fn resource_terminal_renderer_grant(
     request: &crate::resource_router::ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     let operation = "terminal.renderer_grant.create";
-    let (terminal_id, surface) = resource_terminal_surface(mux, &request.selectors)?;
+    let (terminal_id, terminal, _) = resource_terminal(mux, &request.selectors)?;
     let ttl_ms = request.fields.get("ttl_ms").and_then(Value::as_u64).unwrap_or(30_000);
-    let grant = surface.mint_renderer_grant(Duration::from_millis(ttl_ms)).map_err(|error| {
-        ResourceError::operation_failed(operation, error.to_string(), json!({}))
-    })?;
+    let grant = terminal
+        .compatibility_surface()
+        .mint_renderer_grant(Duration::from_millis(ttl_ms))
+        .map_err(|error| {
+            ResourceError::operation_failed(operation, error.to_string(), json!({}))
+        })?;
     Ok(json!({
         "endpoint":grant.endpoint,
         "terminal_id":terminal_id,
@@ -5961,7 +5984,8 @@ fn prepare_terminal_resource_attach(
     request: &crate::resource_router::ParsedResourceRequest,
 ) -> Result<(Value, TerminalResourceAttachStart), ResourceError> {
     let operation = "terminal.attach";
-    let (terminal_id, surface) = resource_terminal_surface(mux, &request.selectors)?;
+    let (terminal_id, terminal, _) = resource_terminal(mux, &request.selectors)?;
+    let surface = terminal.compatibility_surface();
     let stream_id = resource_stream_id(request)?;
     let initial_size = match (request.fields.get("cols"), request.fields.get("rows")) {
         (Some(cols), Some(rows)) => Some((
@@ -5979,7 +6003,7 @@ fn prepare_terminal_resource_attach(
         writer,
         operation,
         stream_id.clone(),
-        surface.id,
+        terminal.runtime_id(),
         initial_size,
     )?;
     let attach = match surface.attach_render_stream() {
@@ -8675,7 +8699,9 @@ fn mark_client_attached(
     if let Some((cols, rows)) = initial_size {
         let cols = cols.max(1);
         let rows = rows.max(1);
-        let is_browser = mux.surface(surface).is_some_and(|surface| surface.as_browser().is_some());
+        let is_browser = mux
+            .viewer_target_surface(surface)
+            .is_some_and(|surface| surface.as_browser().is_some());
         let (completion_tx, completion_rx) = std::sync::mpsc::sync_channel(1);
         let mut previous_view_size = None;
         let resize = if let Some(lease) = lease.as_deref() {
@@ -8730,7 +8756,7 @@ fn mark_client_attached(
         if resize_reservation.is_none()
             && let Some((effective_cols, effective_rows)) = effective_size
         {
-            let Some(attached_surface) = mux.surface(surface) else {
+            let Some(attached_surface) = mux.viewer_target_surface(surface) else {
                 rollback_failed_attach(mux, client, surface, stream.id, Some(rollback));
                 anyhow::bail!("surface {surface} disappeared while sizing before attach");
             };
@@ -9413,10 +9439,9 @@ fn handle_command_with_cancellation(
         Command::MintTerminalRendererByTerminal { terminal, ttl_ms } => {
             let terminal = TerminalPublicId::parse(terminal)?;
             let surface = mux
-                .resource_surface_for_terminal(&terminal)
-                .ok_or_else(|| anyhow::anyhow!("terminal {terminal} is not live"))?;
-            let surface = get_surface(mux, surface)?;
-            require_pty(&surface)?;
+                .terminal_resource(&terminal)
+                .ok_or_else(|| anyhow::anyhow!("terminal {terminal} is not live"))?
+                .compatibility_surface();
             let grant = surface.mint_renderer_grant(Duration::from_millis(ttl_ms))?;
             Ok(terminal_renderer_grant_json(grant, ttl_ms))
         }
@@ -11928,9 +11953,9 @@ mod tests {
             TerminalPublicId::parse(created["result"]["value"]["terminal_id"].as_str().unwrap())
                 .unwrap();
         let surface = mux
-            .resource_surface_for_terminal(&terminal_id)
-            .and_then(|surface| mux.surface(surface))
-            .expect("created terminal surface");
+            .terminal_resource(&terminal_id)
+            .expect("created terminal resource")
+            .compatibility_surface();
         let wait = resource_request(
             "coalesced-wait",
             "terminal.wait",
@@ -11985,9 +12010,9 @@ mod tests {
             TerminalPublicId::parse(created["result"]["value"]["terminal_id"].as_str().unwrap())
                 .unwrap();
         let surface = mux
-            .resource_surface_for_terminal(&terminal_id)
-            .and_then(|surface| mux.surface(surface))
-            .expect("created terminal surface");
+            .terminal_resource(&terminal_id)
+            .expect("created terminal resource")
+            .compatibility_surface();
 
         let wait = resource_request(
             "reused-request-id",
@@ -12172,9 +12197,9 @@ mod tests {
             TerminalPublicId::parse(created["result"]["value"]["terminal_id"].as_str().unwrap())
                 .unwrap();
         let surface = mux
-            .resource_surface_for_terminal(&terminal_id)
-            .and_then(|surface| mux.surface(surface))
-            .expect("created terminal surface");
+            .terminal_resource(&terminal_id)
+            .expect("created terminal resource")
+            .compatibility_surface();
         let wait = resource_request(
             "ordered-target",
             "terminal.wait",
@@ -12320,9 +12345,9 @@ mod tests {
             TerminalPublicId::parse(created["result"]["value"]["terminal_id"].as_str().unwrap())
                 .unwrap();
         let surface = mux
-            .resource_surface_for_terminal(&terminal_id)
-            .and_then(|surface| mux.surface(surface))
-            .expect("created terminal surface");
+            .terminal_resource(&terminal_id)
+            .expect("created terminal resource")
+            .compatibility_surface();
         let wait = resource_request(
             "idle-screen-wait",
             "terminal.wait",
@@ -12400,7 +12425,7 @@ mod tests {
             exited_at_ms: 4_567_890,
         };
         assert!(first.persist_terminal_exit_for_test(&terminal_id, &exit).unwrap());
-        assert_eq!(first.resource_surface_for_terminal(&terminal_id), None);
+        assert!(first.terminal_resource(&terminal_id).is_none());
         assert!(disconnect_client(&first, client, false));
         drop(scheduler);
         drop(writer);
@@ -13477,7 +13502,7 @@ mod tests {
     }
 
     #[test]
-    fn terminal_resource_attach_acknowledges_before_styled_snapshot_and_cancels() {
+    fn zero_view_terminal_attach_sizes_and_streams_the_resource() {
         let mux = test_mux();
         let created = crate::resource_router::handle_resource_message(
             &mux,
@@ -13498,6 +13523,17 @@ mod tests {
         let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
         let terminal_id =
             snapshot["terminals"][0]["id"].as_str().expect("created terminal id").to_string();
+        let terminal_public_id = TerminalPublicId::parse(terminal_id.clone()).unwrap();
+        let placement = mux.with_state(|state| {
+            state
+                .placements_of_content(&ContentPublicId::Terminal(terminal_public_id.clone()))
+                .first()
+                .copied()
+                .expect("created terminal placement")
+        });
+        assert!(mux.close_surface(placement).unwrap());
+        assert!(mux.surface(placement).is_none());
+        assert!(mux.terminal_resource(&terminal_public_id).is_some());
 
         let (writer, outbound) = captured_writer();
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
@@ -13512,6 +13548,8 @@ mod tests {
                 "session":"current",
                 "terminal":terminal_id,
                 "stream_id":stream_id,
+                "cols":96,
+                "rows":31,
             }),
             None,
         );
@@ -13532,6 +13570,54 @@ mod tests {
         assert_eq!(
             item["item"]["render"]["rows"].as_array().unwrap().len(),
             item["item"]["render"]["size"]["rows"].as_u64().unwrap() as usize
+        );
+
+        let listed = resource_client_snapshot(
+            &mux,
+            client,
+            &mux.resolve_resource_path(
+                crate::ResourceTarget::Session,
+                &crate::ResourceSelectors {
+                    machine: Some("current".to_string()),
+                    session: Some("current".to_string()),
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+            .session
+            .unwrap(),
+            &mux.control_clients.resource_records().into_iter().next().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(listed["attached_terminal_ids"], json!([terminal_id]));
+        assert_eq!(listed["sizes"][0]["terminal_id"], terminal_id);
+        assert_eq!(listed["sizes"][0]["cols"], 96);
+        assert_eq!(listed["sizes"][0]["rows"], 31);
+
+        let sizing = resource_request(
+            "terminal-attach-sizing",
+            "client.sizing.set",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "client":listed["id"],
+                "terminal":terminal_id,
+                "enabled":true,
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &sizing, &writer, &scheduler));
+        let sizing_response = loop {
+            let message = pop_json(&outbound);
+            if message["type"] == "response" && message["id"] == "terminal-attach-sizing" {
+                break message;
+            }
+        };
+        assert_eq!(sizing_response["ok"], true);
+        assert_eq!(sizing_response["result"]["sizes"][0]["participating"], true);
+        assert_eq!(
+            mux.terminal_resource(&terminal_public_id).unwrap().compatibility_surface().size(),
+            (96, 31)
         );
 
         let cancel = resource_request(

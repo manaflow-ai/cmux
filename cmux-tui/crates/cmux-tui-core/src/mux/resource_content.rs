@@ -79,13 +79,13 @@ impl Mux {
                     .cloned()
                     .context("destination pane has no durable projection")?;
                 let host = mux
-                    .resource_terminal_host_identity(&terminal)
+                    .resource_terminal_host_identity(&terminal.compatibility_surface())
                     .context("terminal omitted its durable host identity")?;
                 let host_id = host.terminal_id;
                 let tab_id = TabPublicId::random()?;
                 let surface_id = mux.next_id();
                 let content_id = ContentPublicId::Terminal(terminal_id.clone());
-                let projected = terminal.project_terminal(
+                let projected = terminal.project(
                     surface_id,
                     TabResourceIdentity::new(tab_id.clone(), content_id.clone()),
                 )?;
@@ -145,10 +145,11 @@ impl Mux {
                 let durable = registry
                     .terminal_record(&host_id)?
                     .context("terminal projection has no durable host")?;
+                let terminal_surface = terminal.compatibility_surface();
                 let terminal_value = public_terminal_snapshot(
                     &terminal_id,
                     &durable,
-                    Some(terminal.as_ref()),
+                    Some(&terminal_surface),
                     terminal_tab_ids,
                 )?;
                 let mut deltas = Vec::with_capacity(tabs.len().saturating_add(1));
@@ -596,6 +597,13 @@ impl Mux {
         result: Value,
     ) -> anyhow::Result<ResourceEffectProjection> {
         let before = registry.resource_topology_snapshot()?;
+        // Terminals can have zero tabs, so the old topology tab list is not
+        // an exhaustive source for terminal tombstones or delete events.
+        let before_terminal_ids = registry
+            .live_terminal_resource_ids()?
+            .into_iter()
+            .map(|(_, terminal_id)| terminal_id)
+            .collect::<Vec<_>>();
         let terminal_records = registry
             .terminal_snapshot()?
             .terminals
@@ -752,8 +760,13 @@ impl Mux {
                             ContentPublicId::Terminal(terminal_id) => {
                                 let first_terminal_placement =
                                     live_terminals.insert(terminal_id.clone());
-                                let runtime = state.terminal_catalog.get(terminal_id).or(surface);
+                                let runtime = state
+                                    .terminal_catalog
+                                    .get(terminal_id)
+                                    .map(|terminal| terminal.compatibility_surface())
+                                    .or_else(|| surface.cloned());
                                 let host_id = runtime
+                                    .as_ref()
                                     .and_then(|surface| {
                                         self.resource_terminal_host_identity(surface)
                                             .map(|host| host.terminal_id)
@@ -849,7 +862,11 @@ impl Mux {
                         ));
                         match &tab.content_id {
                             ContentPublicId::Terminal(id) if first_terminal_placement => {
-                                let runtime = state.terminal_catalog.get(id).or(surface);
+                                let runtime = state
+                                    .terminal_catalog
+                                    .get(id)
+                                    .map(|terminal| terminal.compatibility_surface())
+                                    .or_else(|| surface.cloned());
                                 let durable = tab
                                     .terminal_id
                                     .as_deref()
@@ -860,7 +877,7 @@ impl Mux {
                                 let value = public_terminal_snapshot(
                                     id,
                                     durable,
-                                    runtime.map(std::sync::Arc::as_ref),
+                                    runtime.as_deref(),
                                     tab_ids,
                                 )?;
                                 public.push(("terminal", id.to_string(), value));
@@ -924,12 +941,13 @@ impl Mux {
                 }
             }
         }
-        for (terminal_id, surface) in &state.terminal_catalog {
+        for (terminal_id, terminal) in &state.terminal_catalog {
             if !live_terminals.insert(terminal_id.clone()) {
                 continue;
             }
+            let surface = terminal.compatibility_surface();
             let host = self
-                .resource_terminal_host_identity(surface)
+                .resource_terminal_host_identity(&surface)
                 .context("catalog terminal omitted its durable host identity")?;
             let terminal = terminal_records
                 .get(&host.terminal_id)
@@ -968,6 +986,16 @@ impl Mux {
 
         let mut tombstoned_terminals = HashSet::new();
         let mut tombstoned_browsers = HashSet::new();
+        for terminal_id in &before_terminal_ids {
+            if !live_terminals.contains(terminal_id)
+                && tombstoned_terminals.insert(terminal_id.clone())
+            {
+                changes.push(ResourceChange::TombstoneTerminal {
+                    public_id: terminal_id.clone(),
+                    expected_incarnation: None,
+                });
+            }
+        }
         for tab in &before.tabs {
             if !live_tabs.contains(&tab.public_id) {
                 changes.push(ResourceChange::TombstoneTab {
@@ -1027,6 +1055,13 @@ impl Mux {
             }));
         }
         let mut deleted_content = HashSet::new();
+        for terminal_id in &before_terminal_ids {
+            if !live_terminals.contains(terminal_id)
+                && deleted_content.insert(("terminal", terminal_id.as_str()))
+            {
+                push_delete_delta(&mut deltas, "terminal", terminal_id.as_str());
+            }
+        }
         for tab in &before.tabs {
             let (kind, id) = match &tab.content_id {
                 ContentPublicId::Terminal(id) => ("terminal", id.as_str()),

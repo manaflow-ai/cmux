@@ -352,27 +352,15 @@ fn execute_terminal_effect(
         Ok(fields) => fields.clone(),
         Err(error) => return effects::commit_known_failure(mux, prepared, error),
     };
-    let Some(surface_id) = mux.resource_surface_for_terminal(&terminal_id) else {
+    let Some(terminal) = mux.terminal_resource(&terminal_id) else {
         return effects::commit_known_failure(
             mux,
             prepared,
             ResourceError::not_found("terminal", terminal_id.as_str()),
         );
     };
-    let Some(surface) = mux.surface(surface_id) else {
-        return effects::commit_known_failure(
-            mux,
-            prepared,
-            ResourceError::not_found("terminal", terminal_id.as_str()),
-        );
-    };
-    if surface.kind() != SurfaceKind::Pty {
-        return effects::commit_known_failure(
-            mux,
-            prepared,
-            ResourceError::not_found("terminal", terminal_id.as_str()),
-        );
-    }
+    let surface_id = terminal.runtime_id();
+    let surface = terminal.compatibility_surface();
 
     let action = match prepared.operation.as_str() {
         "terminal.input.write" => terminal_write(&surface, &fields),
@@ -1019,12 +1007,9 @@ fn resolve_terminal_surface(
     let path = mux.resolve_resource_path(ResourceTarget::Terminal, selectors)?;
     let terminal_id =
         path.terminal.ok_or_else(|| ResourceError::not_found("terminal", "<resolved>"))?;
-    let surface_id = mux
-        .resource_surface_for_terminal(&terminal_id)
-        .ok_or_else(|| ResourceError::not_found("terminal", terminal_id.as_str()))?;
     let surface = mux
-        .surface(surface_id)
-        .filter(|surface| surface.kind() == SurfaceKind::Pty)
+        .terminal_resource(&terminal_id)
+        .map(|terminal| terminal.compatibility_surface())
         .ok_or_else(|| ResourceError::not_found("terminal", terminal_id.as_str()))?;
     Ok((terminal_id, surface))
 }
@@ -1578,9 +1563,10 @@ mod tests {
         .unwrap();
         let terminal_id =
             TerminalPublicId::parse(created["value"]["terminal_id"].as_str().unwrap()).unwrap();
-        let surface_id =
-            mux.resource_surface_for_terminal(&terminal_id).expect("created terminal is live");
-        let surface = mux.surface(surface_id).expect("created terminal surface is live");
+        let surface = mux
+            .terminal_resource(&terminal_id)
+            .expect("created terminal resource is live")
+            .compatibility_surface();
         let selectors = ResourceSelectors {
             machine: Some("current".to_string()),
             session: Some("current".to_string()),
@@ -1752,7 +1738,8 @@ mod tests {
             .unwrap();
         assert!(terminal["tab_id"].is_null());
         assert_eq!(terminal["tab_ids"], json!([]));
-        assert!(mux.surface(original.id).is_some());
+        assert!(mux.surface(original.id).is_none());
+        assert!(mux.terminal_resource(&terminal_id).is_some());
         assert!(
             dispatch(&mux, parsed_request("terminal.screen.read", &selectors, json!({}), None),)
                 .is_ok()

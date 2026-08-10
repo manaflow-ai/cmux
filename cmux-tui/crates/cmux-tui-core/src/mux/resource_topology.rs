@@ -2602,10 +2602,8 @@ impl Mux {
             }
             ResourceOperation::TerminalClose => {
                 let surface = slots.tab.context("terminal disappeared")?;
-                let runtime = state
-                    .terminal_runtime_by_id(surface)
-                    .cloned()
-                    .context("terminal disappeared")?;
+                let runtime =
+                    state.terminal_runtime_by_id(surface).context("terminal disappeared")?;
                 let public_id = runtime
                     .terminal_public_id()
                     .cloned()

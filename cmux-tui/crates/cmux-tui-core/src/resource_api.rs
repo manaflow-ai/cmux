@@ -616,11 +616,14 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
         let terminals = terminal_order
             .into_iter()
             .map(|terminal_id| {
-                let surface = state.terminal_catalog.get(&terminal_id);
+                let surface = state
+                    .terminal_catalog
+                    .get(&terminal_id)
+                    .map(|terminal| terminal.compatibility_surface());
                 let host_id = terminal_hosts_by_resource.get(&terminal_id).with_context(|| {
                     format!("terminal {terminal_id} omitted its durable identity")
                 })?;
-                if let Some(surface) = surface {
+                if let Some(surface) = surface.as_ref() {
                     let runtime_host =
                         mux.resource_terminal_host_identity(surface).with_context(|| {
                             format!("terminal {terminal_id} runtime omitted its durable identity")
@@ -634,7 +637,7 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
                     format!("terminal {terminal_id} references missing {host_id}")
                 })?;
                 let tab_ids = tab_ids_by_terminal.remove(&terminal_id).unwrap_or_default();
-                public_terminal_snapshot(&terminal_id, durable, surface.map(Arc::as_ref), tab_ids)
+                public_terminal_snapshot(&terminal_id, durable, surface.as_deref(), tab_ids)
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
 
