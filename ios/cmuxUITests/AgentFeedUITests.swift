@@ -58,16 +58,20 @@ final class AgentFeedUITests: XCTestCase {
 
         let submit = app.buttons["MobileAgentFeedQuestionSubmit-\(suffix)"]
         XCTAssertTrue(submit.waitForExistence(timeout: 3))
-        XCTAssertFalse(submit.isEnabled)
+        waitForEnabled(submit, expected: false)
         app.buttons["MobileAgentFeedQuestion-scope-iphone-\(suffix)"].tap()
-        XCTAssertFalse(submit.isEnabled)
+        waitForEnabled(submit, expected: false)
         let other = app.textFields["MobileAgentFeedQuestionOther-priority-\(suffix)"]
         XCTAssertTrue(other.waitForExistence(timeout: 3))
         other.tap()
         other.typeText("Oldest blocked request")
-        XCTAssertTrue(submit.isEnabled)
+        waitForEnabled(submit, expected: true)
         submit.tap()
-        XCTAssertTrue(expand.waitForNonExistence(timeout: 5))
+        let resolved = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label CONTAINS %@", "Resolved"),
+            object: expand
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [resolved], timeout: 5), .completed)
 
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "agent-feed-multi-question-resolved"
@@ -93,19 +97,15 @@ final class AgentFeedUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [complete], timeout: 20), .completed)
         let value = try XCTUnwrap(metrics.value as? String)
         print("AgentFeedPerformanceMetrics: \(value)")
-        let fields = Dictionary(uniqueKeysWithValues: value.split(separator: ";").compactMap { component in
-            let pair = component.split(separator: "=", maxSplits: 1).map(String.init)
-            guard pair.count == 2 else { return nil }
-            return (pair[0], pair[1])
-        })
-        let frames = try XCTUnwrap(fields["frames"].flatMap(Int.init), value)
-        let frameP95 = try XCTUnwrap(fields["frame_p95_ms"].flatMap(Double.init), value)
-        let frameStalls = try XCTUnwrap(fields["frame_ge250"].flatMap(Int.init), value)
-        let visibility = try XCTUnwrap(fields["visibility"].flatMap(Int.init), value)
-        let visibilityP95 = try XCTUnwrap(fields["visibility_p95_ms"].flatMap(Double.init), value)
-        let visibilityStalls = try XCTUnwrap(fields["visibility_ge250"].flatMap(Int.init), value)
+        let fields: [String: String] = metricFields(value)
+        let frames: Int = try XCTUnwrap(fields["frames"].flatMap { Int($0) }, value)
+        let frameP95: Double = try XCTUnwrap(fields["frame_p95_ms"].flatMap { Double($0) }, value)
+        let frameStalls: Int = try XCTUnwrap(fields["frame_ge250"].flatMap { Int($0) }, value)
+        let visibility: Int = try XCTUnwrap(fields["visibility"].flatMap { Int($0) }, value)
+        let visibilityP95: Double = try XCTUnwrap(fields["visibility_p95_ms"].flatMap { Double($0) }, value)
+        let visibilityStalls: Int = try XCTUnwrap(fields["visibility_ge250"].flatMap { Int($0) }, value)
 
-        XCTAssertEqual(frames, 130, value)
+        XCTAssertGreaterThanOrEqual(frames, 130, value)
         XCTAssertEqual(visibility, 100, value)
         XCTAssertLessThanOrEqual(frameP95, 33, value)
         XCTAssertLessThanOrEqual(visibilityP95, 250, value)
@@ -236,5 +236,27 @@ final class AgentFeedUITests: XCTestCase {
             app.swipeUp()
         }
         XCTAssertTrue(element.isHittable)
+    }
+
+    private func waitForEnabled(
+        _ element: XCUIElement,
+        expected: Bool,
+        timeout: TimeInterval = 3
+    ) {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "enabled == %@", NSNumber(value: expected)),
+            object: element
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: timeout), .completed)
+    }
+
+    private func metricFields(_ marker: String) -> [String: String] {
+        var fields: [String: String] = [:]
+        for component in marker.split(separator: ";") {
+            let pair = component.split(separator: "=", maxSplits: 1)
+            guard pair.count == 2 else { continue }
+            fields[String(pair[0])] = String(pair[1])
+        }
+        return fields
     }
 }

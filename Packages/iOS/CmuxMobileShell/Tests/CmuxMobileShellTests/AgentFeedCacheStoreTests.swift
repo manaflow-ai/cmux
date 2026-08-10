@@ -8,7 +8,7 @@ import Testing
             .appending(path: "agent-feed-cache-\(UUID().uuidString)", directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = AgentFeedCacheStore(directory: directory)
-        let now = Date()
+        let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
 
         for index in 0..<22 {
             await store.upsert(

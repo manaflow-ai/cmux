@@ -321,6 +321,7 @@ struct AgentFeedPreviewConfiguration {
             id: 108,
             source: "gemini",
             kind: "assistantMessage",
+            minutesAgo: 0,
             title: "Reconnected without duplicate",
             status: .telemetry,
             payload: .message(text: "Authoritative snapshot won", fromUser: false),

@@ -66,7 +66,8 @@ final class AgentFeedPerformanceProbe: NSObject {
 
         let finishedInjecting = nextBurstIndex == burst.count
         let collectedSettleFrames = frameIntervals.count >= burst.count + 30
-        if finishedInjecting && collectedSettleFrames {
+        let observedEveryInsertion = visibilityLatencies.count == burst.count
+        if finishedInjecting && collectedSettleFrames && observedEveryInsertion {
             link.invalidate()
             displayLink = nil
             inject = nil
