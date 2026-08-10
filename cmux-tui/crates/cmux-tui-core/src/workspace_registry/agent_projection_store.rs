@@ -12,6 +12,8 @@ const PREJOURNAL_MIGRATION_PRODUCER_ID: &str = "agent-projection-v1";
 const AGENT_PROJECTION_JOURNAL_CURSOR_KEY: &str = "agent_projection_journal_sequence_v1";
 const AGENT_PROJECTION_JOURNAL_CANDIDATE_KEY: &str =
     "agent_projection_journal_candidate_sequence_v1";
+const LEGACY_AGENT_EVENT_ID_LOWER_BOUND: &str = "event_agent_";
+const LEGACY_AGENT_EVENT_ID_UPPER_BOUND: &str = "event_agent`";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct AgentProjectionRow {
@@ -23,6 +25,7 @@ struct AgentProjectionRow {
     provider: Option<String>,
     committed_sequence: u64,
     result: Option<Value>,
+    begins_session: bool,
 }
 
 pub(super) fn apply_agent_projection_journal_record(
@@ -90,7 +93,8 @@ pub(super) fn rebuild_agent_projections_from_journal(
         return Ok(());
     }
 
-    let (mut projections, mut head_sequence) = derive_agent_projections_from_journal(&tx)?;
+    let (mut projections, mut head_sequence) =
+        derive_agent_projections_from_legacy_agent_index(&tx)?;
     for mut stored in stored_live_projections(&tx)? {
         let key = stored.terminal_id.to_string();
         if projections.contains_key(&key) {
@@ -261,16 +265,28 @@ fn append_prejournal_projection_migration(
     )
 }
 
-fn derive_agent_projections_from_journal(
+fn derive_agent_projections_from_legacy_agent_index(
     connection: &Connection,
 ) -> anyhow::Result<(BTreeMap<String, AgentProjectionRow>, u64)> {
+    let mut statement = connection.prepare(
+        "SELECT sequence
+         FROM journal_event_index
+         WHERE event_id >= ?1 AND event_id < ?2",
+    )?;
+    let mut sequences = statement
+        .query_map(
+            params![LEGACY_AGENT_EVENT_ID_LOWER_BOUND, LEGACY_AGENT_EVENT_ID_UPPER_BOUND],
+            |row| row.get::<_, i64>(0),
+        )?
+        .map(|sequence| {
+            u64::try_from(sequence?).context("legacy agent journal sequence is negative")
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    sequences.sort_unstable();
+
     let mut projections = BTreeMap::new();
-    let mut sequence = 0;
-    loop {
-        let page = session_journal::query_session_journal_after(connection, sequence, 1024)?;
-        let empty = page.records.is_empty();
-        for record in page.records {
-            sequence = record.sequence;
+    for batch in sequences.chunks(1024) {
+        for record in session_journal::query_session_journal_sequences(connection, batch)? {
             let Some(next) = projection_from_journal_record(
                 record.sequence,
                 &record.kind,
@@ -287,11 +303,8 @@ fn derive_agent_projections_from_journal(
             let current = projections.remove(&key);
             projections.insert(key, merge_projection(current, next));
         }
-        if empty || sequence >= page.head_sequence {
-            break;
-        }
     }
-    Ok((projections, sequence))
+    Ok((projections, session_journal::session_journal_head(connection)?))
 }
 
 fn projection_from_journal_record(
@@ -355,6 +368,7 @@ fn projection_from_journal_record(
         provider,
         committed_sequence: sequence,
         result: None,
+        begins_session: kind == "agent.session.started",
     }))
 }
 
@@ -383,6 +397,7 @@ fn projection_from_resource_report(
         .filter(|source| matches!(*source, "hook" | "socket" | "detected"))
         .unwrap_or("detected")
         .to_string();
+    let begins_session = source == "socket";
     let updated_at_ms = result
         .get("updated_at_ms")
         .and_then(|value| value.as_str().and_then(|value| value.parse::<u64>().ok()))
@@ -408,6 +423,7 @@ fn projection_from_resource_report(
         provider,
         committed_sequence: sequence,
         result: Some(Value::Object(result.clone())),
+        begins_session,
     }))
 }
 
@@ -445,6 +461,7 @@ fn projection_from_recovery_event(
         provider,
         committed_sequence: sequence,
         result: None,
+        begins_session: false,
     }))
 }
 
@@ -511,17 +528,23 @@ fn merge_projection(
     current: Option<AgentProjectionRow>,
     next: AgentProjectionRow,
 ) -> AgentProjectionRow {
-    match current {
-        Some(current)
-            if current.source == "hook"
-                && next.source == "socket"
-                && current.source_session.is_some()
-                && current.source_session == next.source_session =>
-        {
-            current
+    let Some(current) = current else {
+        return next;
+    };
+    let same_verified_identity = current.source_session.is_some()
+        && current.source_session == next.source_session
+        && current.provider.is_some()
+        && current.provider == next.provider;
+    if same_verified_identity {
+        if current.source == "hook" && next.source == "socket" {
+            return current;
         }
-        _ => next,
+        return next;
     }
+    if next.begins_session || current.source_session.is_none() {
+        return next;
+    }
+    current
 }
 
 fn stored_projection(

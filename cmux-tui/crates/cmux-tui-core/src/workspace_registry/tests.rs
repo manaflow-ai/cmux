@@ -5199,7 +5199,7 @@ fn journal_agent_new_socket_session_replaces_old_hook_session() {
             "source":"socket",
             "updated_at_ms":revision.to_string(),
             "source_session":source_session,
-            "extra":{"provider":"socket-test"},
+            "extra":{"provider":"pi"},
         });
         registry
             .commit_agent_projection(
