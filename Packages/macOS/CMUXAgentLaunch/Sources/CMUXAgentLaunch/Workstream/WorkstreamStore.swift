@@ -99,8 +99,7 @@ public final class WorkstreamStore {
     public func start() async {
         if let persistence {
             if let page = try? await persistence.loadPage(limit: min(initialLoadLimit, ringCapacity)) {
-                items = page.items
-                expireRestoredPendingItems()
+                items = expiringRestoredPendingItems(page.items)
                 hasMorePersistedItems = page.hasMoreBefore
                 oldestLoadedPersistenceOffset = page.startOffset
                 rebuildContextIndex()
@@ -138,7 +137,8 @@ public final class WorkstreamStore {
         }
 
         let existingIds = Set(items.map(\.id))
-        let olderItems = page.items.filter { !existingIds.contains($0.id) }
+        let olderItems = expiringRestoredPendingItems(page.items)
+            .filter { !existingIds.contains($0.id) }
         if !olderItems.isEmpty {
             items.insert(contentsOf: olderItems, at: 0)
         }
@@ -186,7 +186,8 @@ public final class WorkstreamStore {
         }
         let page = try await persistence.loadPage(endingBefore: endOffset, limit: boundedLimit)
         let currentByID = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
-        let pageItems = page.items.map { currentByID[$0.id] ?? $0 }
+        let restoredItems = expiringRestoredPendingItems(page.items)
+        let pageItems = restoredItems.map { currentByID[$0.id] ?? $0 }
         let nextCursor = page.hasMoreBefore
             ? pageItems.first.flatMap { item in
                 page.itemStartOffsets.first.map {
@@ -290,11 +291,14 @@ public final class WorkstreamStore {
         }
     }
 
-    private func expireRestoredPendingItems() {
+    private func expiringRestoredPendingItems(_ restoredItems: [WorkstreamItem]) -> [WorkstreamItem] {
         let now = clock()
-        for index in items.indices where items[index].status.isPending {
-            items[index].status = .expired(at: now)
-            items[index].updatedAt = now
+        return restoredItems.map { restoredItem in
+            guard restoredItem.status.isPending else { return restoredItem }
+            var expiredItem = restoredItem
+            expiredItem.status = .expired(at: now)
+            expiredItem.updatedAt = now
+            return expiredItem
         }
     }
 
