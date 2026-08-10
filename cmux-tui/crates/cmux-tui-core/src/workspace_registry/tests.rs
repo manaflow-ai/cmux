@@ -5099,13 +5099,14 @@ fn journal_agent_legacy_upgrade_keeps_later_stored_socket_projection() {
                 "journal_agent_upgrade_old_hook",
             )
             .unwrap();
+        let socket_updated_at = unix_epoch_ms().unwrap().saturating_add(1_000);
         let result = json!({
             "id":agent_resource(&terminal_id),
             "session_id":registry.session_id(),
             "terminal_id":terminal_id,
             "state":"idle",
             "source":"socket",
-            "updated_at_ms":"2",
+            "updated_at_ms":socket_updated_at.to_string(),
             "source_session":"new-socket-session",
             "extra":{"provider":"socket-test"},
         });

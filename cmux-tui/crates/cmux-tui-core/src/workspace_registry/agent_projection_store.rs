@@ -225,10 +225,8 @@ fn append_prejournal_projection_migration(
     let digest = Sha256::digest(
         format!("{PREJOURNAL_MIGRATION_FORMAT}/{session_id}/{}", projection.terminal_id).as_bytes(),
     );
-    let event_id = format!(
-        "event_agent_projection_migration_{}",
-        digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>()
-    );
+    let event_id =
+        format!("event_agent_projection_migration_{}", encode_lower_hex(&digest));
     let producer =
         JournalProducer { kind: "migration".into(), id: PREJOURNAL_MIGRATION_PRODUCER_ID.into() };
     let subjects = vec![
@@ -628,6 +626,9 @@ fn merge_projection(
             }
             return current;
         }
+        if matches!(current.state.as_str(), "done" | "interrupted") {
+            return current;
+        }
         return next;
     }
     let current_is_final = matches!(current.state.as_str(), "done" | "interrupted");
@@ -768,6 +769,16 @@ fn terminal_is_live(
 
 fn agent_id(terminal_id: &TerminalPublicId) -> anyhow::Result<AgentPublicId> {
     let digest = Sha256::digest(format!("cmux.protocol/2/agent/{terminal_id}").as_bytes());
-    let payload = digest[..16].iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+    let payload = encode_lower_hex(&digest[..16]);
     AgentPublicId::parse(format!("agent_{payload}")).map_err(Into::into)
+}
+
+fn encode_lower_hex(bytes: &[u8]) -> String {
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for &byte in bytes {
+        encoded.push(char::from(DIGITS[usize::from(byte >> 4)]));
+        encoded.push(char::from(DIGITS[usize::from(byte & 0x0f)]));
+    }
+    encoded
 }
