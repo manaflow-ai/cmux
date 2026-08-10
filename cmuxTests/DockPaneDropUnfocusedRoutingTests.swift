@@ -470,7 +470,7 @@ struct DockPaneDropUnfocusedRoutingTests {
             let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
             let dockPanelId = try #require(dock.newSurface(kind: .terminal, inPane: dockPane, focus: false))
             let dockTabId = try #require(dock.surfaceId(forPanelId: dockPanelId))
-            let dockSourcePane = dock.paneId(forPanelId: dockPanelId) ?? dockPane
+            let dockSourcePane = try #require(dock.paneId(forPanelId: dockPanelId))
 
             let payload = try Self.makePaneDragPayload(tabId: dockTabId.uuid, sourcePaneId: dockSourcePane.id)
             let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.issue-7529.\(UUID().uuidString)"))
