@@ -235,6 +235,29 @@ import Testing
         #expect(state?.streamStatus == .stalled)
     }
 
+    @Test func decodeStallStaysVisibleUntilAFrameIsActuallyPresented() throws {
+        let store = MobileSimulatorStreamStore()
+        store.replaceSimulatorPanels(in: "workspace-1", with: [simulatorDescriptor()])
+        let state = try #require(store.activate(panelID: "sim-1", in: "workspace-1"))
+        state.streamStatus = .streaming
+        state.markStreamStale()
+        let frame = MobileSimulatorFrameEvent(
+            panelID: "sim-1",
+            sequence: 12,
+            format: .jpeg,
+            pixelWidth: 390,
+            pixelHeight: 844,
+            displayScale: 3,
+            dataBase64: "bmV3ZXI="
+        )
+
+        store.receiveSimulatorFramePayload(try JSONEncoder().encode(frame))
+        #expect(state.streamStatus == .stalled)
+
+        store.simulatorFrameDidPresent(panelID: "sim-1")
+        #expect(state.streamStatus == .streaming)
+    }
+
     /// The stalled overlay stays visible through a recovery attempt (restart
     /// re-selection and start both preserve it) and clears only when a fresh
     /// frame proves the stream is live again.

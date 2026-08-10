@@ -729,6 +729,88 @@ struct MobileHostSimulatorFrameQueueDiagnosticsTests {
         #expect(newest.renderGridResyncSurfaceIDs.isEmpty)
         #expect(queue.count == 1)
     }
+
+    @Test func simulatorFrameSheddingCreatesOneReplayDebtForExactPanel() {
+        let queue = MobileHostConnectionEventQueue(
+            maximumEventCount: 2,
+            maximumByteCount: 1_000_000
+        )
+        queue.updateSubscribedTopics(["simulator.frame"])
+        let frame = Data(repeating: 0x61, count: 16)
+        #expect(queue.enqueue(
+            topic: "simulator.frame", coalesceKey: "sim-1",
+            isFullRenderGridFrame: false, frame: frame
+        ).admitted)
+        #expect(queue.enqueue(
+            topic: "simulator.frame", coalesceKey: "sim-2",
+            isFullRenderGridFrame: false, frame: frame
+        ).admitted)
+
+        let newest = queue.enqueue(
+            topic: "simulator.frame", coalesceKey: "sim-1",
+            isFullRenderGridFrame: false, frame: frame
+        )
+
+        #expect(newest.admitted)
+        #expect(queue.takeSimulatorFrameReplayAfterDrainRequests() == ["sim-1"])
+        #expect(queue.takeSimulatorFrameReplayAfterDrainRequests().isEmpty)
+    }
+
+    @Test func drainProgressRoutesSimulatorReplayToExactConnectionAndPanel() async {
+        let connectionID = UUID()
+        let replayRecorder = MobileHostSimulatorReplayRecorder()
+        let queue = MobileHostConnectionEventQueue(
+            maximumEventCount: 1,
+            maximumByteCount: 1_000_000
+        )
+        let session = MobileHostConnection(
+            id: connectionID,
+            transport: RecordingMobileHostByteTransport(),
+            eventQueue: queue,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in },
+            requestSimulatorFrameReplay: { connectionID, panelIDs in
+                await replayRecorder.record(connectionID: connectionID, panelIDs: panelIDs)
+            }
+        )
+        await session.subscribe(streamID: "events", topics: ["simulator.frame"])
+        let frame = Data(repeating: 0x61, count: 16)
+        #expect(queue.enqueue(
+            topic: "simulator.frame", coalesceKey: "sim-a",
+            isFullRenderGridFrame: false, frame: frame
+        ).admitted)
+        #expect(queue.enqueue(
+            topic: "simulator.frame", coalesceKey: "sim-b",
+            isFullRenderGridFrame: false, frame: frame
+        ).admitted)
+
+        await session.drainQueuedEvents()
+
+        #expect(await replayRecorder.requests() == [
+            MobileHostSimulatorReplayRequest(connectionID: connectionID, panelIDs: ["sim-a"]),
+        ])
+        await session.close(reason: "test cleanup")
+    }
+}
+
+private struct MobileHostSimulatorReplayRequest: Equatable, Sendable {
+    let connectionID: UUID
+    let panelIDs: Set<String>
+}
+
+private actor MobileHostSimulatorReplayRecorder {
+    private var recordedRequests: [MobileHostSimulatorReplayRequest] = []
+
+    func record(connectionID: UUID, panelIDs: Set<String>) {
+        recordedRequests.append(MobileHostSimulatorReplayRequest(
+            connectionID: connectionID,
+            panelIDs: panelIDs
+        ))
+    }
+
+    func requests() -> [MobileHostSimulatorReplayRequest] { recordedRequests }
 }
 
 /// A byte transport whose `send` never completes on its own: it models a
