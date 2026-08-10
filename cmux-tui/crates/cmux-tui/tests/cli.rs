@@ -447,21 +447,31 @@ fn has_tui_client(socket: &std::path::Path) -> bool {
 }
 
 #[cfg(unix)]
-fn wait_for_tui_client(socket: &std::path::Path, owner: &mut PtyChild) {
+fn wait_for_owner_server_ready(socket: &std::path::Path, owner: &mut PtyChild) {
     let mut events = ServerEventSubscription::start(socket);
-    if has_tui_client(socket) {
-        return;
-    }
+    let mut tui_attached = has_tui_client(socket);
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         if let Some(status) = owner.child.as_mut().unwrap().try_wait().unwrap() {
             panic!("interactive owner exited before shutdown: {status}");
         }
+        assert!(
+            Instant::now() < deadline,
+            "interactive owner did not make its server lifecycle-ready"
+        );
+        if tui_attached {
+            let identity =
+                json_socket_request(socket, serde_json::json!({"id":1,"cmd":"identify"}));
+            if identity["lifecycle_ready"].as_bool() == Some(true) {
+                return;
+            }
+            continue;
+        }
         let event = events.next_before(deadline);
         if matches!(event["event"].as_str(), Some("client-attached" | "client-changed"))
             && event["kind"].as_str() == Some("tui")
         {
-            return;
+            tui_attached = true;
         }
         assert_ne!(event["event"], "overflow", "readiness subscription overflowed");
     }
@@ -2751,7 +2761,7 @@ fn session_shutdown_exits_an_interactive_local_owner() {
     let mut owner =
         PtyChild::start(&["--session", "interactive-session-shutdown", "--socket", socket_arg]);
     wait_for_socket_path(&socket);
-    wait_for_tui_client(&socket, &mut owner);
+    wait_for_owner_server_ready(&socket, &mut owner);
 
     let shutdown =
         lifecycle_cli(&["--json", "--socket", socket_arg, "session", "current", "shutdown"]);
