@@ -375,16 +375,13 @@ jobs:
         shell: bash
         run: |
           if [[ "$MODE" == "full" ]]; then
-            # Integration tests own PTYs and process-wide status state. Keep
-            # those resources isolated from tests in the same binary.
-            cargo test --workspace --exclude cmux-tui-core --locked -- --test-threads=1
             mkdir -p target
-            cargo test -p cmux-tui-core --locked --no-run --message-format=json \
-              > target/cmux-tui-core-test-binaries.jsonl
-            python3 ../.github/scripts/run-cmux-tui-core-tests-isolated.py \
-              target/cmux-tui-core-test-binaries.jsonl \
-              crates/cmux-tui-core
-            cargo test -p cmux-tui-core --doc --locked
+            cargo test --workspace --locked --no-run --message-format=json \
+              > target/cmux-tui-test-binaries.jsonl
+            python3 ../.github/scripts/run-cmux-tui-tests-isolated.py \
+              target/cmux-tui-test-binaries.jsonl \
+              .
+            cargo test --workspace --doc --locked
             exit 0
           fi
           cargo test --workspace --locked "$TEST_FILTER" -- --list \
