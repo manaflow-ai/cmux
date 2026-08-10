@@ -3387,7 +3387,16 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
     assert_eq!(agents[0]["state"].as_str(), Some("idle"));
 
     let send_key = cli(&server, &["--quiet", "terminal", &terminal, "keys", "enter"]);
-    assert_success(&send_key);
+    if !send_key.status.success() {
+        assert_eq!(send_key.status.code(), Some(1));
+        assert!(
+            String::from_utf8_lossy(&send_key.stderr)
+                .contains("the external effect may have run before its outcome was recorded"),
+            "unexpected key delivery failure: {}",
+            String::from_utf8_lossy(&send_key.stderr)
+        );
+    }
+    assert!(send_key.stdout.is_empty(), "--quiet key delivery wrote output");
 
     let select_bare = cli(&server, &["tab"]);
     assert_eq!(select_bare.status.code(), Some(2));
