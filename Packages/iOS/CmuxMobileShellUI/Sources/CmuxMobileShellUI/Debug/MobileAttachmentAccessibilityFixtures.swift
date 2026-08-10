@@ -1,13 +1,12 @@
 #if os(iOS) && DEBUG
 import CmuxMobileSupport
 import Foundation
+import UIKit
 
 /// App-owned attachment files used only by deterministic accessibility hosts.
 enum MobileAttachmentAccessibilityFixtures {
     static func basic() -> [MobileStagedAttachment] {
-        let imageData = Data(base64Encoded:
-            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
-        ) ?? Data()
+        let imageData = distinctiveImageData()
         let fileData = Data("attachment fixture".utf8)
         return [
             make(
@@ -85,6 +84,31 @@ enum MobileAttachmentAccessibilityFixtures {
             byteCount: data.count,
             thumbnailData: thumbnailData
         )
+    }
+
+    private static func distinctiveImageData() -> Data {
+        let size = CGSize(width: 96, height: 96)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: size, format: format).pngData { renderer in
+            let context = renderer.cgContext
+            context.setFillColor(UIColor(
+                red: 0.08,
+                green: 0.32,
+                blue: 0.88,
+                alpha: 1
+            ).cgColor)
+            context.fill(CGRect(origin: .zero, size: size))
+            context.setFillColor(UIColor(
+                red: 1,
+                green: 0.78,
+                blue: 0.08,
+                alpha: 1
+            ).cgColor)
+            context.fill(CGRect(x: 0, y: 0, width: 48, height: 48))
+            context.fill(CGRect(x: 48, y: 48, width: 48, height: 48))
+        }
     }
 }
 #endif
