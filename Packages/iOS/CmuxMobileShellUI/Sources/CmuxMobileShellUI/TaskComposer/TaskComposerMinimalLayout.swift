@@ -22,6 +22,7 @@ struct TaskComposerMinimalLayout: View {
     let failureText: String?
     let completedOperationRecovery: TaskComposerCompletedOperationRecovery?
     let attachments: [TaskComposerAttachment]
+    let isPreparingAttachments: Bool
     let showsAttachmentButton: Bool
     /// Deferred builder: constructing the options sheet walks workspaces for
     /// directory candidates, so it must not run on every keystroke's body
@@ -116,10 +117,12 @@ struct TaskComposerMinimalLayout: View {
                 .padding(.horizontal, 16)
             }
 
-            if !attachments.isEmpty {
+            if !attachments.isEmpty || isPreparingAttachments {
                 TaskComposerAttachmentStrip(
                     attachments: attachments,
                     isDisabled: isDisabled,
+                    isPreparing: isPreparingAttachments,
+                    onPreviewDismiss: { isPromptFocused = true },
                     remove: removeAttachment
                 )
                 .padding(.horizontal, 16)

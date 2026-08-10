@@ -40,6 +40,7 @@ struct TaskComposerSheet: View {
     @State var attachmentPhotoSelection: [PhotosPickerItem] = []
     @State var isAttachmentFileImporterPresented = false
     @State var attachmentStagingTask: Task<Void, Never>?
+    @State var attachmentStagingGeneration = UUID()
     @State var attachmentAlertMessage: String?
 
     let sessionGeneration: Int
@@ -65,6 +66,7 @@ struct TaskComposerSheet: View {
     init(
         store: CMUXMobileShellStore,
         availableMachines: [MobilePairedMac]? = nil,
+        initialAttachments: [TaskComposerAttachment] = [],
         submitTaskComposer: (@MainActor (
             _ macDeviceID: String,
             _ instanceTag: String?,
@@ -84,6 +86,7 @@ struct TaskComposerSheet: View {
         ) async -> Result<MobileTaskDirectoryListResponse, MobileTaskDirectoryListFailure>)? = nil
     ) {
         self.store = store
+        _attachments = State(initialValue: initialAttachments)
         self.availableMachines = availableMachines
         self.sessionGeneration = store.currentSessionGeneration
         self.searchTaskDirectories = searchTaskDirectories
@@ -269,6 +272,8 @@ struct TaskComposerSheet: View {
                 // Parent-driven dismissal must cancel result application.
                 submitTask?.cancel()
                 attachmentStagingTask?.cancel()
+                attachmentStagingGeneration = UUID()
+                attachmentStagingTask = nil
                 removeStagedAttachmentFiles()
                 if shouldPersistDraftOnDisappear {
                     persistDraft()
@@ -353,6 +358,7 @@ struct TaskComposerSheet: View {
                         models: availableModels,
                         selectedModelID: selectedModelID,
                         attachments: attachments,
+                        isPreparingAttachments: attachmentStagingTask != nil,
                         showsAttachmentButton: showsAttachmentButton,
                         selectTemplate: selectTemplateFromPicker,
                         selectTemplateAndModel: selectTemplateAndModelFromPicker,
@@ -444,6 +450,7 @@ struct TaskComposerSheet: View {
             failureText: failureText,
             completedOperationRecovery: blockingCompletedOperationRecovery,
             attachments: attachments,
+            isPreparingAttachments: attachmentStagingTask != nil,
             showsAttachmentButton: showsAttachmentButton,
             optionsSheet: { minimalOptionsSheet },
             endEditing: resolveCompletedOperationRecoveryAfterEditing,

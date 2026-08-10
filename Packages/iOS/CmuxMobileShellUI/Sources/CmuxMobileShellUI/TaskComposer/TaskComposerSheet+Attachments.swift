@@ -2,6 +2,7 @@
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
+import CmuxAgentChatUI
 import Foundation
 import PhotosUI
 import SwiftUI
@@ -40,18 +41,23 @@ extension TaskComposerSheet {
 
     func stageSelectedPhotos(_ items: [PhotosPickerItem]) {
         attachmentStagingTask?.cancel()
+        let generation = UUID()
+        attachmentStagingGeneration = generation
         attachmentStagingTask = Task { @MainActor in
             defer {
                 attachmentPhotoSelection = []
-                attachmentStagingTask = nil
+                if attachmentStagingGeneration == generation {
+                    attachmentStagingTask = nil
+                }
             }
             for item in items.prefix(remainingAttachmentCount) {
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled,
+                      attachmentStagingGeneration == generation else { return }
                 do {
                     guard let imported = try await item.loadTransferable(
-                        type: ImportedImageFile.self
+                        type: MobileImportedImageFile.self
                     ) else {
-                        throw TaskComposerAttachmentStager.StagingError.imageRejected
+                        throw TaskComposerAttachmentStager.StagingError.unreadableFile
                     }
                     defer {
                         try? FileManager.default.removeItem(at: imported.url)
@@ -61,7 +67,8 @@ extension TaskComposerSheet {
                             at: imported.url,
                             originalFileName: imported.originalFileName
                         )
-                    guard !Task.isCancelled else {
+                    guard !Task.isCancelled,
+                          attachmentStagingGeneration == generation else {
                         try? FileManager.default.removeItem(
                             at: attachment.localStagedFileURL
                         )
@@ -81,18 +88,34 @@ extension TaskComposerSheet {
 
     func stageSelectedFiles(_ result: Result<[URL], any Error>) {
         guard case .success(let urls) = result else {
+            if case let .failure(error) = result,
+               (error as? CocoaError)?.code == .userCancelled {
+                return
+            }
             attachmentAlertMessage = Self.attachmentUnreadableFailureMessage
             return
         }
+        let availableCount = remainingAttachmentCount
+        if urls.count > availableCount {
+            attachmentAlertMessage = Self.attachmentCountFailureMessage
+        }
         attachmentStagingTask?.cancel()
+        let generation = UUID()
+        attachmentStagingGeneration = generation
         attachmentStagingTask = Task { @MainActor in
-            defer { attachmentStagingTask = nil }
-            for url in urls.prefix(remainingAttachmentCount) {
-                guard !Task.isCancelled else { return }
+            defer {
+                if attachmentStagingGeneration == generation {
+                    attachmentStagingTask = nil
+                }
+            }
+            for url in urls.prefix(availableCount) {
+                guard !Task.isCancelled,
+                      attachmentStagingGeneration == generation else { return }
                 do {
                     let attachment = try await TaskComposerAttachmentStager()
                         .stageFile(at: url)
-                    guard !Task.isCancelled else {
+                    guard !Task.isCancelled,
+                          attachmentStagingGeneration == generation else {
                         try? FileManager.default.removeItem(
                             at: attachment.localStagedFileURL
                         )
@@ -220,15 +243,10 @@ extension TaskComposerSheet {
             return attachmentUnreadableFailureMessage
         }
         switch stagingError {
-        case .imageRejected:
-            return L10n.string(
-                "mobile.taskComposer.attachments.imageRejected",
-                defaultValue: "That image couldn’t be compressed below 8 MB."
-            )
         case .fileTooLarge:
             return L10n.string(
                 "mobile.taskComposer.attachments.fileTooLarge",
-                defaultValue: "Choose a file smaller than 32 MB."
+                defaultValue: "Choose a file 32 MB or smaller."
             )
         case .unreadableFile:
             return attachmentUnreadableFailureMessage

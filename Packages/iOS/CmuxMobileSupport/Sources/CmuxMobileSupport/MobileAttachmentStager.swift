@@ -1,4 +1,8 @@
 public import Foundation
+#if canImport(UIKit)
+import ImageIO
+import UIKit
+#endif
 
 /// Copies picker results into app-owned storage without changing their bytes.
 public actor MobileAttachmentStager {
@@ -57,10 +61,7 @@ public actor MobileAttachmentStager {
         guard values.isRegularFile == true, let byteCount = values.fileSize else {
             throw StagingError.unreadableFile
         }
-        let itemLimit = kind == .image
-            ? MobileStagedAttachment.maximumImageBytes
-            : MobileStagedAttachment.maximumFileBytes
-        guard byteCount <= itemLimit else {
+        guard byteCount <= MobileStagedAttachment.maximumFileBytes else {
             throw StagingError.fileTooLarge
         }
         try fileManager.createDirectory(at: rootURL, withIntermediateDirectories: true)
@@ -75,7 +76,8 @@ public actor MobileAttachmentStager {
                 kind: kind,
                 fileName: Self.safeBaseName(originalFileName, fallback: sourceURL.lastPathComponent),
                 localFileURL: destination,
-                byteCount: byteCount
+                byteCount: byteCount,
+                thumbnailData: kind == .image ? Self.thumbnailData(for: destination) : nil
             )
         } catch let error as StagingError {
             try? fileManager.removeItem(at: destination)
@@ -98,5 +100,23 @@ public actor MobileAttachmentStager {
         let fallbackBase = (fallback as NSString).lastPathComponent
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return fallbackBase.isEmpty ? "attachment" : fallbackBase
+    }
+
+    private static func thumbnailData(for url: URL) -> Data? {
+        #if canImport(UIKit)
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(
+                  source,
+                  0,
+                  [
+                      kCGImageSourceCreateThumbnailFromImageAlways: true,
+                      kCGImageSourceCreateThumbnailWithTransform: true,
+                      kCGImageSourceThumbnailMaxPixelSize: 320,
+                  ] as CFDictionary
+              ) else { return nil }
+        return UIImage(cgImage: image).jpegData(compressionQuality: 0.78)
+        #else
+        return nil
+        #endif
     }
 }

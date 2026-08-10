@@ -1,5 +1,6 @@
 #if os(iOS)
 import PhotosUI
+import CmuxAgentChatUI
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -13,23 +14,14 @@ struct TaskComposerAttachmentPickerModifier: ViewModifier {
     let selectedFiles: (Result<[URL], any Error>) -> Void
 
     func body(content: Content) -> some View {
-        content
-            .photosPicker(
-                isPresented: $isPhotoPickerPresented,
-                selection: $photoSelection,
-                maxSelectionCount: max(remainingCount, 1),
-                matching: .images
-            )
-            .fileImporter(
-                isPresented: $isFileImporterPresented,
-                allowedContentTypes: [.item],
-                allowsMultipleSelection: true,
-                onCompletion: selectedFiles
-            )
-            .onChange(of: photoSelection) { _, items in
-                guard !items.isEmpty else { return }
-                selectedPhotos(items)
-            }
+        content.modifier(MobileAttachmentPickerModifier(
+            isPhotoPickerPresented: $isPhotoPickerPresented,
+            photoSelection: $photoSelection,
+            isFileImporterPresented: $isFileImporterPresented,
+            remainingCount: remainingCount,
+            selectedPhotos: selectedPhotos,
+            selectedFiles: selectedFiles
+        ))
     }
 }
 #endif

@@ -28,7 +28,12 @@ public struct ChatComposerView: View {
     @State private var isStagingAttachments = false
     #if os(iOS)
     @State private var pickedItems: [PhotosPickerItem] = []
-    @State private var attachments: [ChatComposerAttachment] = []
+    @State private var attachments: [MobileStagedAttachment] = []
+    @State private var isPhotoPickerPresented = false
+    @State private var isFileImporterPresented = false
+    @State private var attachmentError: String?
+    @State private var attachmentStagingTask: Task<Void, Never>?
+    @State private var attachmentStagingGeneration = UUID()
     @State private var dictation = ComposerDictationController()
     #endif
 
@@ -78,11 +83,40 @@ public struct ChatComposerView: View {
             #if DEBUG
             .background(ChatComposerDebugAutofocusBridge())
             #endif
-            .onDisappear { dictation.cancel() }
+            .onDisappear {
+                dictation.cancel()
+                attachmentStagingTask?.cancel()
+                attachmentStagingTask = nil
+                attachmentStagingGeneration = UUID()
+                isStagingAttachments = false
+                removeUnsentAttachments()
+            }
             .onChange(of: isDraftFocused) { _, focused in
                 if !focused, !dictation.locksComposerField {
                     dictation.stop()
                 }
+            }
+            .modifier(MobileAttachmentPickerModifier(
+                isPhotoPickerPresented: $isPhotoPickerPresented,
+                photoSelection: $pickedItems,
+                isFileImporterPresented: $isFileImporterPresented,
+                remainingCount: MobileStagedAttachment.maximumCount - attachments.count,
+                selectedPhotos: startLoadingPickedItems,
+                selectedFiles: startLoadingPickedFiles
+            ))
+            .alert(
+                String(localized: "mobile.attachment.error.title", defaultValue: "Couldn’t Add Attachment", bundle: .module),
+                isPresented: Binding(
+                    get: { attachmentError != nil },
+                    set: { if !$0 { attachmentError = nil } }
+                )
+            ) {
+                Button(
+                    String(localized: "mobile.attachment.error.ok", defaultValue: "OK", bundle: .module),
+                    role: .cancel
+                ) { attachmentError = nil }
+            } message: {
+                Text(attachmentError ?? "")
             }
         #else
         composerStack
@@ -123,7 +157,7 @@ public struct ChatComposerView: View {
                     onOpenTerminal: onOpenTerminal
                 )
                 #if os(iOS)
-                if !attachments.isEmpty {
+                if !attachments.isEmpty || isStagingAttachments {
                     attachmentStrip
                 }
                 #endif
@@ -324,7 +358,16 @@ public struct ChatComposerView: View {
         guard hasContent, !isStagingAttachments else { return }
         #if os(iOS)
         dictation.cancel()
-        let outbound = attachments.map(\.outbound)
+        let outbound = attachments.map {
+            ChatOutboundAttachment(
+                localFileURL: $0.localFileURL,
+                byteCount: $0.byteCount,
+                fileName: $0.fileName,
+                kind: $0.kind == .image ? .image : .file,
+                thumbnailData: $0.thumbnailData,
+                uploadID: $0.id
+            )
+        }
         MobileHapticFeedback().impact(style: .light)
         #else
         let outbound: [ChatOutboundAttachment] = []
@@ -360,12 +403,42 @@ public struct ChatComposerView: View {
 
     private func performPaste() {
         let pasteboard = UIPasteboard.general
-        if attachments.count < 4,
-           let attachment = pasteboard.chatComposerAttachment(
+        if attachments.count < MobileStagedAttachment.maximumCount,
+           let pasted = pasteboard.chatComposerAttachment(
                maxDimension: Self.maxAttachmentDimension,
                jpegQuality: Self.jpegQuality
            ) {
-            attachments.append(attachment)
+            let fileName = pasted.format == .png ? "pasted-image.png" : "pasted-image.jpg"
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-pasted-\(UUID())-\(fileName)")
+            do {
+                try pasted.data.write(to: url, options: .atomic)
+                startAttachmentStaging { generation in
+                    defer { try? FileManager.default.removeItem(at: url) }
+                    do {
+                        let attachment = try await MobileAttachmentStager().stage(
+                            sourceURL: url,
+                            kind: .image,
+                            originalFileName: fileName
+                        )
+                        guard !Task.isCancelled,
+                              attachmentStagingGeneration == generation else {
+                            try? FileManager.default.removeItem(at: attachment.localFileURL)
+                            return
+                        }
+                        appendStagedAttachment(attachment)
+                    } catch is CancellationError {
+                        return
+                    } catch {
+                        guard attachmentStagingGeneration == generation else { return }
+                        attachmentError = attachmentErrorMessage(error)
+                    }
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                attachmentError = attachmentErrorMessage(error)
+            }
             isDraftFocused = true
             return
         }
@@ -377,14 +450,12 @@ public struct ChatComposerView: View {
     }
 
     private var attachButton: some View {
-        PhotosPicker(selection: $pickedItems, maxSelectionCount: 4, matching: .images) {
-            MobileComposerIconLabel(
-                systemImage: "paperclip",
-                foregroundStyle: AnyShapeStyle(Color.secondary.opacity(0.8)),
-                size: controlHeight
-            )
-        }
-        .buttonStyle(.plain)
+        MobileAttachmentPickerButton(
+            style: .circularPlus,
+            isDisabled: isStagingAttachments || attachments.count >= MobileStagedAttachment.maximumCount,
+            choosePhotos: { isPhotoPickerPresented = true },
+            chooseFiles: { isFileImporterPresented = true }
+        )
         .accessibilityIdentifier("ChatComposerAttach")
         .accessibilityLabel(
             String(
@@ -393,10 +464,6 @@ public struct ChatComposerView: View {
                 bundle: .module
             )
         )
-        .onChange(of: pickedItems) {
-            let items = pickedItems
-            Task { await loadPickedItems(items) }
-        }
     }
 
     private var micButton: some View {
@@ -425,75 +492,157 @@ public struct ChatComposerView: View {
     }
 
     private var attachmentStrip: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(Array(attachments.enumerated()), id: \.element.id) { index, attachment in
-                    attachment.thumbnail
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 60, height: 60)
-                        .clipShape(.rect(cornerRadius: 10))
-                        .overlay(alignment: .topTrailing) {
-                            removeButton(id: attachment.id, index: index)
-                        }
-                        .accessibilityElement(children: .combine)
-                        .accessibilityLabel(
-                            String(
-                                localized: "chat.composer.attachment.accessibility",
-                                defaultValue: "Attachment \(index + 1)",
-                                bundle: .module
-                            )
-                        )
-                }
-            }
-            .padding(.vertical, 2)
-        }
-    }
-
-    private func removeButton(id: String, index: Int) -> some View {
-        Button {
-            removeAttachment(id: id)
-        } label: {
-            Image(systemName: "xmark.circle.fill")
-                .font(.system(size: 16))
-                .foregroundStyle(.white, .black.opacity(0.6))
-                .padding(3)
-                .frame(width: 44, height: 44, alignment: .topTrailing)
-                .contentShape(.rect)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(
-            String(
-                localized: "chat.composer.remove_attachment.accessibility",
-                defaultValue: "Remove attachment \(index + 1)",
-                bundle: .module
-            )
+        MobileAttachmentCardStrip(
+            attachments: attachments,
+            isDisabled: false,
+            isPreparing: isStagingAttachments,
+            onPreviewDismiss: { isDraftFocused = true },
+            remove: removeAttachment
         )
     }
 
-    private func removeAttachment(id: String) {
+    private func removeAttachment(id: UUID) {
         guard let index = attachments.firstIndex(where: { $0.id == id }) else { return }
-        attachments.remove(at: index)
-        if let pickedIndex = pickedItems.firstIndex(where: { $0.itemIdentifier == id }) {
-            pickedItems.remove(at: pickedIndex)
+        let removed = attachments.remove(at: index)
+        try? FileManager.default.removeItem(at: removed.localFileURL)
+    }
+
+    private func startLoadingPickedItems(_ items: [PhotosPickerItem]) {
+        startAttachmentStaging { generation in
+            await loadPickedItems(items, generation: generation)
         }
     }
 
-    private func loadPickedItems(_ items: [PhotosPickerItem]) async {
-        isStagingAttachments = true
-        defer { isStagingAttachments = false }
-        var staged: [ChatComposerAttachment] = []
-        for (index, item) in items.enumerated() {
-            guard let data = try? await item.loadTransferable(type: Data.self),
-                  let attachment = data.chatComposerImageAttachment(
-                      id: item.itemIdentifier ?? "picked-\(index)",
-                      maxDimension: Self.maxAttachmentDimension,
-                      jpegQuality: Self.jpegQuality
-                  )
-            else { continue }
-            staged.append(attachment)
+    private func startLoadingPickedFiles(_ result: Result<[URL], any Error>) {
+        if case let .failure(error) = result,
+           (error as? CocoaError)?.code == .userCancelled {
+            return
         }
-        attachments = staged
+        if case let .success(urls) = result,
+           urls.count > MobileStagedAttachment.maximumCount - attachments.count {
+            attachmentError = String(
+                localized: "mobile.attachment.error.count",
+                defaultValue: "You can attach up to 10 files.",
+                bundle: .module
+            )
+        }
+        startAttachmentStaging { generation in
+            await loadPickedFiles(result, generation: generation)
+        }
+    }
+
+    private func startAttachmentStaging(
+        operation: @escaping @MainActor (UUID) async -> Void
+    ) {
+        attachmentStagingTask?.cancel()
+        let generation = UUID()
+        attachmentStagingGeneration = generation
+        isStagingAttachments = true
+        attachmentStagingTask = Task { @MainActor in
+            await operation(generation)
+            guard attachmentStagingGeneration == generation else { return }
+            attachmentStagingTask = nil
+            isStagingAttachments = false
+        }
+    }
+
+    private func loadPickedItems(_ items: [PhotosPickerItem], generation: UUID) async {
+        for item in items.prefix(MobileStagedAttachment.maximumCount - attachments.count) {
+            guard !Task.isCancelled, attachmentStagingGeneration == generation else { return }
+            do {
+                guard let imported = try await item.loadTransferable(type: MobileImportedImageFile.self) else { continue }
+                defer { try? FileManager.default.removeItem(at: imported.url) }
+                let attachment = try await MobileAttachmentStager().stage(
+                    sourceURL: imported.url,
+                    kind: .image,
+                    originalFileName: imported.originalFileName
+                )
+                guard !Task.isCancelled, attachmentStagingGeneration == generation else {
+                    try? FileManager.default.removeItem(at: attachment.localFileURL)
+                    return
+                }
+                appendStagedAttachment(attachment)
+            } catch is CancellationError {
+                return
+            } catch {
+                guard attachmentStagingGeneration == generation else { return }
+                attachmentError = attachmentErrorMessage(error)
+            }
+        }
+    }
+
+    private func loadPickedFiles(_ result: Result<[URL], any Error>, generation: UUID) async {
+        guard case let .success(urls) = result else {
+            attachmentError = attachmentErrorMessage(nil)
+            return
+        }
+        for url in urls.prefix(MobileStagedAttachment.maximumCount - attachments.count) {
+            guard !Task.isCancelled, attachmentStagingGeneration == generation else { return }
+            do {
+                let attachment = try await MobileAttachmentStager().stage(
+                    sourceURL: url,
+                    kind: .file,
+                    originalFileName: url.lastPathComponent
+                )
+                guard !Task.isCancelled, attachmentStagingGeneration == generation else {
+                    try? FileManager.default.removeItem(at: attachment.localFileURL)
+                    return
+                }
+                appendStagedAttachment(attachment)
+            } catch is CancellationError {
+                return
+            } catch {
+                guard attachmentStagingGeneration == generation else { return }
+                attachmentError = attachmentErrorMessage(error)
+            }
+        }
+    }
+
+    private func attachmentErrorMessage(_ error: (any Error)?) -> String {
+        if let error,
+           case MobileAttachmentStager.StagingError.fileTooLarge = error {
+            return String(
+                localized: "mobile.attachment.error.tooLarge",
+                defaultValue: "Attachments must be 32 MB or smaller.",
+                bundle: .module
+            )
+        }
+        return String(
+            localized: "mobile.attachment.error.unreadable",
+            defaultValue: "The selected file couldn’t be read.",
+            bundle: .module
+        )
+    }
+
+    private func appendStagedAttachment(_ attachment: MobileStagedAttachment) {
+        guard attachments.count < MobileStagedAttachment.maximumCount else {
+            try? FileManager.default.removeItem(at: attachment.localFileURL)
+            attachmentError = String(
+                localized: "mobile.attachment.error.count",
+                defaultValue: "You can attach up to 10 files.",
+                bundle: .module
+            )
+            return
+        }
+        let total = attachments.reduce(0) { $0 + $1.byteCount }
+        guard total + attachment.byteCount <= MobileStagedAttachment.maximumTotalBytes else {
+            try? FileManager.default.removeItem(at: attachment.localFileURL)
+            attachmentError = String(
+                localized: "mobile.attachment.error.total",
+                defaultValue: "Attachments can use up to 64 MB in total.",
+                bundle: .module
+            )
+            return
+        }
+        attachments.append(attachment)
+    }
+
+    private func removeUnsentAttachments() {
+        let unsent = attachments
+        attachments = []
+        for attachment in unsent {
+            try? FileManager.default.removeItem(at: attachment.localFileURL)
+        }
     }
     #endif
 }

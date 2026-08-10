@@ -7364,7 +7364,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func addPendingAttachment(_ data: Data, format: String, forTerminalID terminalID: String? = nil) -> MobilePendingAttachment.ID? {
         guard !data.isEmpty else { return nil }
         let attachment = MobilePendingAttachment(data: data, format: format)
-        guard let result = addPendingAttachment(attachment, forTerminalID: terminalID) else {
+        guard let result = addPendingAttachment(
+            attachment,
+            forTerminalID: terminalID,
+            usesLegacyImageLimit: true
+        ) else {
             try? FileManager.default.removeItem(at: attachment.localFileURL)
             return nil
         }
@@ -7379,16 +7383,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) -> MobilePendingAttachment.ID? {
         addPendingAttachment(
             MobilePendingAttachment(stagedAttachment),
-            forTerminalID: terminalID
+            forTerminalID: terminalID,
+            usesLegacyImageLimit: false
         )
     }
 
     @discardableResult
     private func addPendingAttachment(
         _ attachment: MobilePendingAttachment,
-        forTerminalID terminalID: String?
+        forTerminalID terminalID: String?,
+        usesLegacyImageLimit: Bool
     ) -> MobilePendingAttachment.ID? {
-        guard attachment.byteCount > 0,
+        guard (!usesLegacyImageLimit || attachment.byteCount > 0),
               let key = terminalID ?? selectedTerminalID?.rawValue else { return nil }
         // Reject any add for a terminal that is not in the current topology, so a
         // closed/recreated/stale id can never accrue orphaned bytes the user can no
@@ -7396,7 +7402,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // call and the session-guarded variant funnel through here.
         guard terminalExistsInTopology(key) else { return nil }
         // A single image larger than the per-image cap is rejected outright.
-        let itemLimit = attachment.kind == .image
+        let itemLimit = usesLegacyImageLimit && attachment.kind == .image
             ? TaskComposerAttachment.maximumImageBytes
             : TaskComposerAttachment.maximumFileBytes
         guard attachment.byteCount <= itemLimit else { return nil }
@@ -10363,7 +10369,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceID: MobileWorkspacePreview.ID,
         terminalID: MobileTerminalPreview.ID
     ) async -> Bool {
-        guard attachment.byteCount > 0, let client = remoteClient else { return false }
+        guard let client = remoteClient else { return false }
         let generation = connectionGeneration
         do {
             let receipt = try await MobileAttachmentRPCUploader(client: client).upload(

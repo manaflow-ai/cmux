@@ -24,6 +24,7 @@ public struct TaskComposerAccessibilityPreviewView: View {
     private let presentsDirectoryPermissionFailure: Bool
     private let presentsDirectoryScrollStress: Bool
     private let holdsSubmissionInPreparation: Bool
+    private let attachmentFixtures: [TaskComposerAttachment]
     @State private var directoryPaginationRecoveryPreview: TaskComposerDirectoryPaginationRecoveryPreview?
 
     /// Creates the preview with isolated, in-memory task state so repeated UI
@@ -35,7 +36,9 @@ public struct TaskComposerAccessibilityPreviewView: View {
     /// `CMUX_UITEST_TASK_DIRECTORY_PICKER_PREVIEW=1` to present the production
     /// directory picker with deterministic filesystem results. Set
     /// `CMUX_UITEST_TASK_DIRECTORY_PAGINATION_RECOVERY_PREVIEW=1` to make the
-    /// first page-2 request fail and its exact retry succeed.
+    /// first page-2 request fail and its exact retry succeed. Set
+    /// `CMUX_UITEST_TASK_COMPOSER_ATTACHMENTS=1` to seed production image/file
+    /// cards whose bodies, previews, remove controls, and filenames are stable.
     public init() {
         let environment = ProcessInfo.processInfo.environment
         let presentsDirectoryPaginationRecovery = environment[
@@ -89,6 +92,9 @@ public struct TaskComposerAccessibilityPreviewView: View {
         self.holdsSubmissionInPreparation = environment[
             "CMUX_UITEST_TASK_COMPOSER_HOLD_PREPARATION"
         ] == "1"
+        self.attachmentFixtures = environment[
+            "CMUX_UITEST_TASK_COMPOSER_ATTACHMENTS"
+        ] == "1" ? Self.makeAttachmentFixtures() : []
         _directoryPaginationRecoveryPreview = State(
             initialValue: presentsDirectoryPaginationRecovery
                 ? TaskComposerDirectoryPaginationRecoveryPreview()
@@ -134,6 +140,7 @@ public struct TaskComposerAccessibilityPreviewView: View {
                             Self.stablePreviewMac,
                             Self.backupPreviewMac,
                         ],
+                        initialAttachments: attachmentFixtures,
                         submitTaskComposer: { macDeviceID, _, spec, willStartCreate in
                             let attemptNumber = submissionAttempts.count + 1
                             submittedMacDeviceID = macDeviceID
@@ -195,6 +202,35 @@ public struct TaskComposerAccessibilityPreviewView: View {
                     }
                 }
             }
+    }
+
+    private static func makeAttachmentFixtures() -> [TaskComposerAttachment] {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-task-attachment-preview", isDirectory: true)
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let imageData = Data(base64Encoded:
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        ) ?? Data()
+        let imageURL = root.appendingPathComponent("preview.png")
+        let fileData = Data("attachment fixture".utf8)
+        let fileURL = root.appendingPathComponent("preview.txt")
+        try? imageData.write(to: imageURL, options: .atomic)
+        try? fileData.write(to: fileURL, options: .atomic)
+        return [
+            TaskComposerAttachment(
+                kind: .image,
+                fileName: "設計 🖼️.png",
+                localFileURL: imageURL,
+                byteCount: imageData.count,
+                thumbnailData: imageData
+            ),
+            TaskComposerAttachment(
+                kind: .file,
+                fileName: "-release notes.txt",
+                localFileURL: fileURL,
+                byteCount: fileData.count
+            ),
+        ]
     }
 
     private static let previewMac = MobilePairedMac(

@@ -17,6 +17,7 @@ struct TaskComposerPromptCard: View {
     let models: [MobileTaskAgentModel]
     let selectedModelID: String?
     let attachments: [TaskComposerAttachment]
+    let isPreparingAttachments: Bool
     let showsAttachmentButton: Bool
     let selectTemplate: (MobileTaskTemplate.ID) -> Void
     let selectTemplateAndModel: (MobileTaskTemplate.ID, String?) -> Void
@@ -68,10 +69,12 @@ struct TaskComposerPromptCard: View {
                     endEditing: endEditing
                 )
 
-            if !attachments.isEmpty {
+            if !attachments.isEmpty || isPreparingAttachments {
                 TaskComposerAttachmentStrip(
                     attachments: attachments,
                     isDisabled: isDisabled,
+                    isPreparing: isPreparingAttachments,
+                    onPreviewDismiss: { isFocused = true },
                     remove: removeAttachment
                 )
             }
