@@ -250,8 +250,7 @@ fn run_reconnect_provider_endpoint(
 ) {
     let (stream, _) = listener.accept().unwrap();
     let mut ws = accept(stream).unwrap();
-    loop {
-        let Some(request) = read_json(&mut ws) else { break };
+    while let Some(request) = read_json(&mut ws) {
         let id = request["id"].clone();
         match request["method"].as_str().unwrap() {
             "Target.setDiscoverTargets" => {
@@ -322,8 +321,7 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
         let mut main_loader = 1u32;
         let mut main_url = "https://example.test".to_string();
 
-        loop {
-            let Some(request) = read_json(&mut ws) else { break };
+        while let Some(request) = read_json(&mut ws) {
             let id = request["id"].clone();
             let method = request["method"].as_str().unwrap().to_string();
             seen_tx.send(request.clone()).unwrap();
@@ -1035,8 +1033,7 @@ fn wedged_browser_navigate_does_not_block_same_socket_connection() {
     let server = thread::spawn(move || {
         let (stream, _) = listener.accept().unwrap();
         let mut ws = accept(stream).unwrap();
-        loop {
-            let Some(request) = read_json(&mut ws) else { break };
+        while let Some(request) = read_json(&mut ws) {
             let id = request["id"].clone();
             let method = request["method"].as_str().unwrap().to_string();
             seen_tx.send(request.clone()).unwrap();
@@ -1188,8 +1185,7 @@ fn queued_back_and_forward_do_not_collapse_while_worker_is_blocked() {
     let server = thread::spawn(move || {
         let (stream, _) = listener.accept().unwrap();
         let mut ws = accept(stream).unwrap();
-        loop {
-            let Some(request) = read_json(&mut ws) else { break };
+        while let Some(request) = read_json(&mut ws) {
             let id = request["id"].clone();
             let method = request["method"].as_str().unwrap().to_string();
             seen_tx.send(request.clone()).unwrap();
@@ -1340,8 +1336,7 @@ fn control_command_reports_backpressure_when_worker_queue_is_full() {
     let server = thread::spawn(move || {
         let (stream, _) = listener.accept().unwrap();
         let mut ws = accept(stream).unwrap();
-        loop {
-            let Some(request) = read_json(&mut ws) else { break };
+        while let Some(request) = read_json(&mut ws) {
             let id = request["id"].clone();
             let method = request["method"].as_str().unwrap().to_string();
             seen_tx.send(request.clone()).unwrap();
@@ -1457,8 +1452,7 @@ fn browser_capture_scale_applies_to_metrics_screencast_and_input() {
     let server = thread::spawn(move || {
         let (stream, _) = listener.accept().unwrap();
         let mut ws = accept(stream).unwrap();
-        loop {
-            let Some(request) = read_json(&mut ws) else { break };
+        while let Some(request) = read_json(&mut ws) {
             let id = request["id"].clone();
             let method = request["method"].as_str().unwrap().to_string();
             seen_tx.send(request.clone()).unwrap();
@@ -1577,8 +1571,7 @@ fn stalled_external_browser_nudges_target_once_before_interaction() {
     let server = thread::spawn(move || {
         let (stream, _) = listener.accept().unwrap();
         let mut ws = accept(stream).unwrap();
-        loop {
-            let Some(request) = read_json(&mut ws) else { break };
+        while let Some(request) = read_json(&mut ws) {
             let id = request["id"].clone();
             let method = request["method"].as_str().unwrap().to_string();
             seen_tx.send(request.clone()).unwrap();
@@ -1788,8 +1781,7 @@ fn provider_target_revision_reattaches_on_the_same_browser_connection() {
     let cdp_server = thread::spawn(move || {
         let (stream, _) = listener.accept().unwrap();
         let mut ws = accept(stream).unwrap();
-        loop {
-            let Some(request) = read_json(&mut ws) else { break };
+        while let Some(request) = read_json(&mut ws) {
             let id = request["id"].clone();
             match request["method"].as_str().unwrap() {
                 "Target.setDiscoverTargets" => {
