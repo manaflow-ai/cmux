@@ -31,21 +31,21 @@ struct AgentFeedView: View {
     @State private var unseenItemCount = 0
     @State private var newestItemIsVisible = true
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-
-    private var visibleItems: [MobileAgentFeedItem] { filter.apply(to: items) }
+    @Environment(\.agentFeedLocalizer) private var localizer
 
     var body: some View {
+        let visibleItems = filter.apply(to: items)
         VStack(spacing: 0) {
-            AgentFeedStatusBanner(status: status, retry: actions.refresh)
+            AgentFeedStatusBanner(status: status, retry: actions.refresh, localizer: localizer)
             filterControl
             .padding(.horizontal)
             .padding(.vertical, 8)
 
             if visibleItems.isEmpty {
                 ContentUnavailableView(
-                    AgentFeedL10n.string("mobile.agentFeed.empty.title", defaultValue: "No agent activity"),
+                    localizer.string("mobile.agentFeed.empty.title", defaultValue: "No agent activity"),
                     systemImage: "text.bubble",
-                    description: Text(AgentFeedL10n.string(
+                    description: Text(localizer.string(
                         "mobile.agentFeed.empty.message",
                         defaultValue: "Agent updates and requests will appear here."
                     ))
@@ -62,12 +62,9 @@ struct AgentFeedView: View {
                                 unseenItemCount = 0
                             } label: {
                                 Label(
-                                    String(
-                                        format: AgentFeedL10n.string(
-                                            "mobile.agentFeed.newActivity.count",
-                                            defaultValue: "%d new activities"
-                                        ),
-                                        unseenItemCount
+                                    localizer.string(
+                                        "mobile.agentFeed.newActivity.count",
+                                        defaultValue: "\(unseenItemCount) new activities"
                                     ),
                                     systemImage: "arrow.up"
                                 )
@@ -124,9 +121,9 @@ struct AgentFeedView: View {
                 }
             }
         }
-        .navigationTitle(AgentFeedL10n.string("mobile.tabs.feed", defaultValue: "Feed"))
+        .navigationTitle(localizer.string("mobile.tabs.feed", defaultValue: "Feed"))
         .accessibilityIdentifier("MobileAgentFeed")
-        .onChange(of: items.map(\.id), initial: true) { _, ids in
+        .onChange(of: visibleItems.map(\.id), initial: true) { _, ids in
             let current = Set(ids)
             if !knownItemIDs.isEmpty, !newestItemIsVisible {
                 unseenItemCount += current.subtracting(knownItemIDs).count
@@ -140,11 +137,11 @@ struct AgentFeedView: View {
             HStack {
                 if isLoadingOlder { ProgressView() }
                 Text(isLoadingOlder
-                    ? AgentFeedL10n.string(
+                    ? localizer.string(
                         "mobile.agentFeed.history.loadingOlder",
                         defaultValue: "Loading older activity…"
                     )
-                    : AgentFeedL10n.string(
+                    : localizer.string(
                         "mobile.agentFeed.history.loadOlder",
                         defaultValue: "Load Older"
                     ))
@@ -187,12 +184,12 @@ struct AgentFeedView: View {
 
     private var filterPicker: some View {
         Picker(
-            AgentFeedL10n.string("mobile.agentFeed.filter.label", defaultValue: "Feed filter"),
+            localizer.string("mobile.agentFeed.filter.label", defaultValue: "Feed filter"),
             selection: $filter
         ) {
-            Text(AgentFeedL10n.string("mobile.agentFeed.filter.needsInput", defaultValue: "Needs Input"))
+            Text(localizer.string("mobile.agentFeed.filter.needsInput", defaultValue: "Needs Input"))
                 .tag(MobileAgentFeedFilter.needsInput)
-            Text(AgentFeedL10n.string("mobile.agentFeed.filter.all", defaultValue: "All Activity"))
+            Text(localizer.string("mobile.agentFeed.filter.all", defaultValue: "All Activity"))
                 .tag(MobileAgentFeedFilter.allActivity)
         }
         .accessibilityIdentifier("MobileAgentFeedFilter")
@@ -202,28 +199,29 @@ struct AgentFeedView: View {
 private struct AgentFeedStatusBanner: View {
     let status: MobileAgentFeedStatus
     let retry: @MainActor () -> Void
+    let localizer: AgentFeedLocalizer
 
     var body: some View {
         switch status {
         case .idle, .ready: EmptyView()
         case .loading:
-            Label(AgentFeedL10n.string("mobile.agentFeed.status.syncing", defaultValue: "Syncing Feed…"), systemImage: "arrow.triangle.2.circlepath")
+            Label(localizer.string("mobile.agentFeed.status.syncing", defaultValue: "Syncing Feed…"), systemImage: "arrow.triangle.2.circlepath")
                 .accessibilityIdentifier("MobileAgentFeedStatusSyncing")
         case .offlineCached:
-            Label(AgentFeedL10n.string("mobile.agentFeed.status.offline", defaultValue: "Offline. Showing cached activity."), systemImage: "wifi.slash")
+            Label(localizer.string("mobile.agentFeed.status.offline", defaultValue: "Offline. Showing cached activity."), systemImage: "wifi.slash")
                 .accessibilityIdentifier("MobileAgentFeedStatusOffline")
         case .partial:
-            Label(AgentFeedL10n.string("mobile.agentFeed.status.partial", defaultValue: "Some computers are unavailable."), systemImage: "exclamationmark.triangle")
+            Label(localizer.string("mobile.agentFeed.status.partial", defaultValue: "Some computers are unavailable."), systemImage: "exclamationmark.triangle")
                 .accessibilityIdentifier("MobileAgentFeedStatusPartial")
         case .reconnecting:
-            Label(AgentFeedL10n.string("mobile.agentFeed.status.reconnecting", defaultValue: "Reconnecting…"), systemImage: "network")
+            Label(localizer.string("mobile.agentFeed.status.reconnecting", defaultValue: "Reconnecting…"), systemImage: "network")
                 .accessibilityIdentifier("MobileAgentFeedStatusReconnecting")
         case .requiresMacUpdate:
-            Label(AgentFeedL10n.string("mobile.agentFeed.status.updateMac", defaultValue: "Update cmux on your Mac to use Feed."), systemImage: "arrow.down.app")
+            Label(localizer.string("mobile.agentFeed.status.updateMac", defaultValue: "Update cmux on your Mac to use Feed."), systemImage: "arrow.down.app")
                 .accessibilityIdentifier("MobileAgentFeedStatusUpdateMac")
         case .unavailable, .failed:
             Button(action: retry) {
-                Label(AgentFeedL10n.string("mobile.agentFeed.status.retry", defaultValue: "Feed unavailable. Retry"), systemImage: "arrow.clockwise")
+                Label(localizer.string("mobile.agentFeed.status.retry", defaultValue: "Feed unavailable. Retry"), systemImage: "arrow.clockwise")
             }
             .accessibilityIdentifier("MobileAgentFeedRetry")
         }

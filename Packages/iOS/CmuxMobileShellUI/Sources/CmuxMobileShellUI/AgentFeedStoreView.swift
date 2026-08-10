@@ -6,6 +6,7 @@ import SwiftUI
 /// The only agent-feed view that retains the observable shell store.
 struct AgentFeedStoreView: View {
     @Bindable var store: CMUXMobileShellStore
+    private let localizer = AgentFeedLocalizer()
     @State private var filter: MobileAgentFeedFilter = .needsInput
 
     var body: some View {
@@ -28,6 +29,7 @@ struct AgentFeedStoreView: View {
                 recordTopRowAppearance: { _ in }
             )
         )
+        .environment(\.agentFeedLocalizer, localizer)
     }
 }
 #endif

@@ -1561,8 +1561,21 @@
     "mobile.agentFeed.newActivity.count" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "%d new activities" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "新しいアクティビティ %d件" } }
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : { "stringUnit" : { "state" : "translated", "value" : "%lld new activity" } },
+              "other" : { "stringUnit" : { "state" : "translated", "value" : "%lld new activities" } }
+            }
+          }
+        },
+        "ja" : {
+          "variations" : {
+            "plural" : {
+              "other" : { "stringUnit" : { "state" : "translated", "value" : "新しいアクティビティ %lld件" } }
+            }
+          }
+        }
       }
     },
     "mobile.agentFeed.history.loadOlder" : {

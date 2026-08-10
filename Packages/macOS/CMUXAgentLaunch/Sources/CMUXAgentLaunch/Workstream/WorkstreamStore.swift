@@ -100,6 +100,7 @@ public final class WorkstreamStore {
         if let persistence {
             if let page = try? await persistence.loadPage(limit: min(initialLoadLimit, ringCapacity)) {
                 items = page.items
+                expireRestoredPendingItems()
                 hasMorePersistedItems = page.hasMoreBefore
                 oldestLoadedPersistenceOffset = page.startOffset
                 rebuildContextIndex()
@@ -286,6 +287,14 @@ public final class WorkstreamStore {
         if items.count > ringCapacity {
             let overflow = items.count - ringCapacity
             items.removeFirst(overflow)
+        }
+    }
+
+    private func expireRestoredPendingItems() {
+        let now = clock()
+        for index in items.indices where items[index].status.isPending {
+            items[index].status = .expired(at: now)
+            items[index].updatedAt = now
         }
     }
 

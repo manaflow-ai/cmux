@@ -62,6 +62,7 @@ struct WorkstreamStoreTests {
         )
         await store.start()
         #expect(store.items.map(\.workstreamId) == ["s3", "s4"])
+        #expect(store.items.allSatisfy { !$0.status.isPending })
         #expect(store.hasMorePersistedItems)
 
         await store.loadOlderItems()

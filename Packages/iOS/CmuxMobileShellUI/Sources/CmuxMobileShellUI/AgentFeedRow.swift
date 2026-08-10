@@ -355,14 +355,9 @@ private struct AgentFeedRowHeader: View {
     }
 
     private var computerContext: String {
-        String(
-            format: AgentFeedL10n.string(
-                "mobile.agentFeed.card.computerContext",
-                defaultValue: "%@ · %@ · %@"
-            ),
-            item.macDisplayName,
-            item.connectionStatus.label,
-            item.wire.workstreamID
+        AgentFeedL10n.string(
+            "mobile.agentFeed.card.computerContext",
+            defaultValue: "\(item.macDisplayName) · \(item.connectionStatus.label) · \(item.wire.workstreamID)"
         )
     }
 
@@ -415,28 +410,24 @@ private struct AgentFeedContext: View {
     }
 }
 
-private struct AgentFeedCopy {
-    static func workspaceRouteLabel(_ workspaceID: String?) -> String {
-        String(
-            format: AgentFeedL10n.string(
-                "mobile.agentFeed.card.workspaceID",
-                defaultValue: "Workspace ID: %@"
-            ),
-            routeValue(workspaceID)
+private let AgentFeedCopy = AgentFeedRowCopy()
+
+private struct AgentFeedRowCopy {
+    func workspaceRouteLabel(_ workspaceID: String?) -> String {
+        AgentFeedL10n.string(
+            "mobile.agentFeed.card.workspaceID",
+            defaultValue: "Workspace ID: \(routeValue(workspaceID))"
         )
     }
 
-    static func surfaceRouteLabel(_ surfaceID: String?) -> String {
-        String(
-            format: AgentFeedL10n.string(
-                "mobile.agentFeed.card.surfaceID",
-                defaultValue: "Surface ID: %@"
-            ),
-            routeValue(surfaceID)
+    func surfaceRouteLabel(_ surfaceID: String?) -> String {
+        AgentFeedL10n.string(
+            "mobile.agentFeed.card.surfaceID",
+            defaultValue: "Surface ID: \(routeValue(surfaceID))"
         )
     }
 
-    private static func routeValue(_ value: String?) -> String {
+    private func routeValue(_ value: String?) -> String {
         guard let value, !value.isEmpty else {
             return AgentFeedL10n.string(
                 "mobile.agentFeed.card.routeUnavailable",
@@ -446,7 +437,7 @@ private struct AgentFeedCopy {
         return value
     }
 
-    static func statusLabel(_ status: MobileWorkstreamFeedStatus) -> String {
+    func statusLabel(_ status: MobileWorkstreamFeedStatus) -> String {
         switch status {
         case .pending: AgentFeedL10n.string("mobile.agentFeed.card.pending", defaultValue: "Needs input")
         case .resolved: AgentFeedL10n.string("mobile.agentFeed.card.resolved", defaultValue: "Resolved")
@@ -456,7 +447,7 @@ private struct AgentFeedCopy {
         }
     }
 
-    static func sourceLabel(_ source: String) -> String {
+    func sourceLabel(_ source: String) -> String {
         switch source {
         case "claude": return AgentFeedL10n.string("mobile.agentFeed.source.claude", defaultValue: "Claude")
         case "codex": return AgentFeedL10n.string("mobile.agentFeed.source.codex", defaultValue: "Codex")
@@ -464,26 +455,25 @@ private struct AgentFeedCopy {
         case "hermes-agent": return AgentFeedL10n.string("mobile.agentFeed.source.hermes", defaultValue: "Hermes")
         case "gemini": return AgentFeedL10n.string("mobile.agentFeed.source.gemini", defaultValue: "Gemini")
         default:
-            return String(
-                format: AgentFeedL10n.string("mobile.agentFeed.source.other", defaultValue: "Agent: %@"),
-                source
+            return AgentFeedL10n.string(
+                "mobile.agentFeed.source.other",
+                defaultValue: "Agent: \(source)"
             )
         }
     }
 
-    static func payloadSummary(_ payload: MobileWorkstreamFeedPayload) -> String {
+    func payloadSummary(_ payload: MobileWorkstreamFeedPayload) -> String {
         switch payload {
         case .permission(_, let tool, let summary, _): return summary.isEmpty ? tool : "\(tool)\n\(summary)"
         case .exitPlan(_, let plan, _, _): return plan
         case .question(_, let questions): return questions.map(\.prompt).formatted()
         case .toolUse(let name, _):
-            return String(format: AgentFeedL10n.string("mobile.agentFeed.activity.toolUse", defaultValue: "Using %@"), name)
+            return AgentFeedL10n.string("mobile.agentFeed.activity.toolUse", defaultValue: "Using \(name)")
         case .toolResult(let name, let result, let isError):
             return isError
-                ? String(
-                    format: AgentFeedL10n.string("mobile.agentFeed.activity.toolError", defaultValue: "%@ failed: %@"),
-                    name,
-                    result
+                ? AgentFeedL10n.string(
+                    "mobile.agentFeed.activity.toolError",
+                    defaultValue: "\(name) failed: \(result)"
                 )
                 : result
         case .message(let text, _): return text
@@ -494,7 +484,7 @@ private struct AgentFeedCopy {
         }
     }
 
-    static func permissionModeLabel(_ mode: String) -> String {
+    func permissionModeLabel(_ mode: String) -> String {
         switch mode {
         case "once": AgentFeedL10n.string("mobile.agentFeed.permission.once", defaultValue: "Allow Once")
         case "always": AgentFeedL10n.string("mobile.agentFeed.permission.always", defaultValue: "Always Allow")
@@ -504,7 +494,7 @@ private struct AgentFeedCopy {
         }
     }
 
-    static func decisionLabel(_ decision: MobileWorkstreamDecision?) -> String? {
+    func decisionLabel(_ decision: MobileWorkstreamDecision?) -> String? {
         switch decision {
         case .permission(let mode): return permissionModeLabel(mode)
         case .exitPlan(let mode, let feedback):
@@ -517,19 +507,16 @@ private struct AgentFeedCopy {
         }
     }
 
-    static func resolutionLabel(_ status: MobileWorkstreamFeedStatus) -> String? {
+    func resolutionLabel(_ status: MobileWorkstreamFeedStatus) -> String? {
         guard case .resolved(let decision) = status,
               let decision = decisionLabel(decision) else { return nil }
-        return String(
-            format: AgentFeedL10n.string(
-                "mobile.agentFeed.card.resolution",
-                defaultValue: "Resolved: %@"
-            ),
-            decision
+        return AgentFeedL10n.string(
+            "mobile.agentFeed.card.resolution",
+            defaultValue: "Resolved: \(decision)"
         )
     }
 
-    static func planModeLabel(_ mode: String) -> String {
+    func planModeLabel(_ mode: String) -> String {
         switch mode {
         case "ultraplan": AgentFeedL10n.string("mobile.agentFeed.plan.ultraplan", defaultValue: "Ultraplan")
         case "bypassPermissions": AgentFeedL10n.string("mobile.agentFeed.plan.bypass", defaultValue: "Bypass Permissions")
