@@ -5170,6 +5170,146 @@ fn journal_agent_new_socket_session_replaces_old_hook_session() {
 }
 
 #[test]
+fn journal_agent_socket_replaces_hook_when_session_identity_is_missing() {
+    let mut registry = WorkspaceRegistry::in_memory("journal-agent-socket-missing-session").unwrap();
+    commit_terminal_topology(&mut registry, "journal-agent-socket-missing-session-topology");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let ingress =
+        crate::agent_hook_journal_ingress("pi", "agent_start", Some(terminal_id.as_str()), json!({}))
+            .unwrap();
+    let validated = crate::journal_kernel::ValidatedJournalIngress {
+        class: JournalClass::Observation,
+        replay: JournalReplayPolicy::Advisory,
+        sensitivity: JournalSensitivity::Sensitive,
+    };
+    registry
+        .append_journal_ingress(
+            &ingress,
+            &validated,
+            "client_socket_missing_session",
+            "journal_agent_socket_missing_hook",
+        )
+        .unwrap();
+
+    let result = json!({
+        "id":agent_resource(&terminal_id),
+        "session_id":registry.session_id(),
+        "terminal_id":terminal_id,
+        "state":"working",
+        "source":"socket",
+        "updated_at_ms":"2",
+        "source_session":null,
+        "extra":{"provider":"socket-test"},
+    });
+    registry
+        .commit_agent_projection(
+            &WorkspaceMutation::new(
+                "journal-agent-socket-missing-session",
+                "socket-test",
+            )
+            .unwrap(),
+            &json!({"source_session":null}),
+            Some(1),
+            &terminal_id,
+            &result,
+            &json!([]),
+        )
+        .unwrap();
+    let agent = registry.public_projections().unwrap().agents.remove(0);
+    assert_eq!(agent.source, "socket");
+    assert!(agent.source_session.is_none());
+}
+
+#[test]
+fn journal_agent_child_completion_does_not_finish_terminal_owner() {
+    let mut registry = WorkspaceRegistry::in_memory("journal-agent-child-completion").unwrap();
+    commit_terminal_topology(&mut registry, "journal-agent-child-completion-topology");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let validated = crate::journal_kernel::ValidatedJournalIngress {
+        class: JournalClass::Observation,
+        replay: JournalReplayPolicy::Advisory,
+        sensitivity: JournalSensitivity::Sensitive,
+    };
+    let root = crate::agent_hook_journal_ingress(
+        "codex",
+        "AgentStart",
+        Some(terminal_id.as_str()),
+        json!({
+            "session_id":"tree-session",
+            "agent_id":"root-agent",
+            "root_agent_id":"root-agent",
+        }),
+    )
+    .unwrap();
+    registry
+        .append_journal_ingress(
+            &root,
+            &validated,
+            "client_child_completion",
+            "journal_agent_root_start",
+        )
+        .unwrap();
+
+    let child = crate::agent_hook_journal_ingress(
+        "codex",
+        "AgentEnd",
+        Some(terminal_id.as_str()),
+        json!({
+            "session_id":"tree-session",
+            "agent_id":"child-agent",
+            "parent_agent_id":"root-agent",
+            "root_agent_id":"root-agent",
+            "agent_depth":1,
+        }),
+    )
+    .unwrap();
+    registry
+        .append_journal_ingress(
+            &child,
+            &validated,
+            "client_child_completion",
+            "journal_agent_child_end",
+        )
+        .unwrap();
+
+    let agent = registry.public_projections().unwrap().agents.remove(0);
+    assert_eq!(agent.state, "working");
+    assert_eq!(agent.source_session.as_deref(), Some("tree-session"));
+}
+
+#[test]
+fn journal_agent_tool_start_resumes_blocked_terminal_owner() {
+    let mut registry = WorkspaceRegistry::in_memory("journal-agent-tool-resume").unwrap();
+    commit_terminal_topology(&mut registry, "journal-agent-tool-resume-topology");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let validated = crate::journal_kernel::ValidatedJournalIngress {
+        class: JournalClass::Observation,
+        replay: JournalReplayPolicy::Advisory,
+        sensitivity: JournalSensitivity::Sensitive,
+    };
+    for (index, event) in ["AgentStart", "PermissionRequest", "PreToolUse"].into_iter().enumerate()
+    {
+        let ingress = crate::agent_hook_journal_ingress(
+            "codex",
+            event,
+            Some(terminal_id.as_str()),
+            json!({"session_id":"resumed-session","tool_name":"Bash"}),
+        )
+        .unwrap();
+        registry
+            .append_journal_ingress(
+                &ingress,
+                &validated,
+                "client_tool_resume",
+                &format!("journal_agent_tool_resume_{index}"),
+            )
+            .unwrap();
+        let state = registry.public_projections().unwrap().agents.remove(0).state;
+        assert_eq!(state, ["working", "blocked", "working"][index]);
+    }
+}
+
+#[test]
 fn journal_agent_plugin_report_cannot_write_projection() {
     let root = temp_root("journal-agent-untrusted-report");
     let session = "journal-agent-untrusted-report";
