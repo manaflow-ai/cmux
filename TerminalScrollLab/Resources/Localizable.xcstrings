@@ -15,8 +15,8 @@
     },
     "scroll.audit.format" : {
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "%@; %@; target row %llu; rendered row %llu" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%@、%@、目標行 %llu、描画行 %llu" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%@; %@; %@; target row %llu; rendered row %llu" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%@、%@、%@、目標行 %llu、描画行 %llu" } }
       }
     },
     "scroll.chrome.moved" : {
@@ -65,6 +65,18 @@
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "IDLE" } },
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "待機中" } }
+      }
+    },
+    "scroll.renderer.fractional-active" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Fractional renderer active" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "端数ピクセル描画が有効" } }
+      }
+    },
+    "scroll.renderer.fractional-inactive" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Fractional renderer inactive" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "端数ピクセル描画が無効" } }
       }
     },
     "terminal.prompt" : {

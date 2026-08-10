@@ -1842,9 +1842,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
     var localViewportState = LocalViewportState()
     /// Physical-pixel-aligned fractional position for the renderer contents.
-    /// The renderer frame and this offset share the geometry path below, so a
-    /// layout pass cannot erase local pixel scrolling.
+    /// The renderer base frame and this offset share the placement path below,
+    /// so a layout pass cannot erase local pixel scrolling.
     var localScrollbackPresentationTranslationY: CGFloat = 0
+    var localScrollbackRendererBaseFrame: CGRect?
 
     /// Drops scroll work tied to a surface generation that will no longer run.
     func resetScrollStateForSurfaceReplacement() {
@@ -1853,6 +1854,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         localScrollApplyInFlight = false
         localViewportState = LocalViewportState()
         localScrollbackPresentationTranslationY = 0
+        localScrollbackRendererBaseFrame = nil
     }
 
     /// Map a touch point to a grid cell (shared effective grid with the Mac), so
@@ -3862,19 +3864,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         var geometryChanged = layer.contentsScale != scale
         layer.contentsScale = scale
         for sublayer in layer.sublayers ?? [] where isGhosttyRendererLayer(sublayer) {
-            sublayer.setAffineTransform(.identity)
-            if sublayer.frame != renderRect {
+            if localScrollbackRendererBaseFrame != renderRect {
                 geometryChanged = true
-                sublayer.frame = renderRect
             }
+            localScrollbackRendererBaseFrame = renderRect
             if sublayer.bounds.size != renderRect.size {
                 geometryChanged = true
                 sublayer.bounds.size = renderRect.size
             }
-            sublayer.bounds.origin = CGPoint(
-                x: 0,
-                y: -localScrollbackPresentationTranslationY
-            )
+            placeLocalScrollbackRendererLayer(sublayer, baseFrame: renderRect)
             if sublayer.contentsScale != scale {
                 geometryChanged = true
             }
@@ -3887,6 +3885,26 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             verifiedReplayReadyTransactionID = nil
             restartPendingVerifiedReplayPresentationForCurrentGeometry()
         }
+    }
+
+    /// The single geometry path for Ghostty's local fractional presentation.
+    /// Moving the renderer frame translates its own IOSurface contents, while
+    /// the host view and its UIKit chrome remain stationary.
+    @discardableResult
+    func placeLocalScrollbackRendererLayer(
+        _ rendererLayer: CALayer,
+        baseFrame: CGRect
+    ) -> CGFloat {
+        rendererLayer.setAffineTransform(.identity)
+        rendererLayer.bounds.origin = .zero
+        let targetFrame = baseFrame.offsetBy(
+            dx: 0,
+            dy: localScrollbackPresentationTranslationY
+        )
+        if rendererLayer.frame != targetFrame {
+            rendererLayer.frame = targetFrame
+        }
+        return rendererLayer.frame.minY - baseFrame.minY
     }
 
     /// Add / update a 1-pixel separator border around the pinned surface

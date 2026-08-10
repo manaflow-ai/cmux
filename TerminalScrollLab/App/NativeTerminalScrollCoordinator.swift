@@ -17,15 +17,18 @@ final class NativeTerminalScrollCoordinator: NSObject, UIScrollViewDelegate {
     private var hasRequestedLocalViewport = false
     private var currentPresentationTranslationY: CGFloat = 0
     private var presentedViewportRow: UInt64?
+    private let shouldApplyHalfRowOffsetForTesting: Bool
 
     init(
         terminalView: GhosttySurfaceView,
         scrollView: UIScrollView,
-        metricsLabel: UILabel
+        metricsLabel: UILabel,
+        shouldApplyHalfRowOffsetForTesting: Bool = false
     ) {
         self.terminalView = terminalView
         self.scrollView = scrollView
         self.metricsLabel = metricsLabel
+        self.shouldApplyHalfRowOffsetForTesting = shouldApplyHalfRowOffsetForTesting
         super.init()
         scrollView.delegate = self
     }
@@ -52,6 +55,7 @@ final class NativeTerminalScrollCoordinator: NSObject, UIScrollViewDelegate {
         }
         configureScrollRange(preferredOffsetY: min(authoritativeOffsetY, maximumOffsetY))
         reconcilePresentationWithCurrentOffset()
+        applyHalfRowOffsetForTestingIfNeeded()
     }
 
     func updatePresentedViewport(row: UInt64) {
@@ -63,6 +67,7 @@ final class NativeTerminalScrollCoordinator: NSObject, UIScrollViewDelegate {
     func updateLayout() {
         guard viewportRows > 0, cellHeight > 0 else { return }
         configureScrollRange()
+        applyHalfRowOffsetForTestingIfNeeded()
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
@@ -165,6 +170,23 @@ final class NativeTerminalScrollCoordinator: NSObject, UIScrollViewDelegate {
         )
     }
 
+    private func applyHalfRowOffsetForTestingIfNeeded() {
+        let maximumOffsetY = max(0, scrollView.contentSize.height - scrollView.bounds.height)
+        guard shouldApplyHalfRowOffsetForTesting,
+              state != nil,
+              cellHeight > 0,
+              maximumOffsetY > cellHeight else { return }
+        let targetOffsetY = maximumOffsetY - cellHeight / 2
+        guard abs(scrollView.contentOffset.y - targetOffsetY) > 0.01 else {
+            scrollViewDidScroll(scrollView)
+            return
+        }
+        scrollView.setContentOffset(
+            CGPoint(x: scrollView.contentOffset.x, y: targetOffsetY),
+            animated: false
+        )
+    }
+
     private func updateMetrics(
         rawOffsetY: CGFloat,
         translationY: CGFloat,
@@ -206,15 +228,25 @@ final class NativeTerminalScrollCoordinator: NSObject, UIScrollViewDelegate {
         let renderedRow = presentedViewportRow ?? boundary?.viewportOffsetRows ?? 0
         let auditFormat = String(
             localized: "scroll.audit.format",
-            defaultValue: "%@; %@; target row %llu; rendered row %llu"
+            defaultValue: "%@; %@; %@; target row %llu; rendered row %llu"
         )
         let chromeStatus = terminalView.transform == .identity
             ? String(localized: "scroll.chrome.stable", defaultValue: "Fixed chrome stable")
             : String(localized: "scroll.chrome.moved", defaultValue: "Fixed chrome moved")
+        let rendererStatus = abs(translationY) >= 0.5 / max(metricsLabel.traitCollection.displayScale, 1)
+            ? String(
+                localized: "scroll.renderer.fractional-active",
+                defaultValue: "Fractional renderer active"
+            )
+            : String(
+                localized: "scroll.renderer.fractional-inactive",
+                defaultValue: "Fractional renderer inactive"
+            )
         metricsLabel.accessibilityValue = String(
             format: auditFormat,
             deceleration,
             chromeStatus,
+            rendererStatus,
             targetRow,
             renderedRow
         )

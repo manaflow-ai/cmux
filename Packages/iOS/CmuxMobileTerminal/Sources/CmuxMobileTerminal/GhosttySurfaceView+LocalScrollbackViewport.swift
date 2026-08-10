@@ -101,21 +101,21 @@ extension GhosttySurfaceView {
         let scale = max(window?.windowScene?.screen.scale ?? traitCollection.displayScale, 1)
         let alignedTranslationY = (translationY * scale).rounded() / scale
         localScrollbackPresentationTranslationY = alignedTranslationY
-        guard let rendererLayer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer) else {
-            return alignedTranslationY
+        guard let rendererLayer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer),
+              let baseFrame = localScrollbackRendererBaseFrame else {
+            return 0
         }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         rendererLayer.minificationFilter = .nearest
         rendererLayer.magnificationFilter = .nearest
         rendererLayer.allowsEdgeAntialiasing = false
-        rendererLayer.setAffineTransform(.identity)
-        rendererLayer.bounds.origin = CGPoint(
-            x: 0,
-            y: -localScrollbackPresentationTranslationY
+        let appliedTranslationY = placeLocalScrollbackRendererLayer(
+            rendererLayer,
+            baseFrame: baseFrame
         )
         CATransaction.commit()
-        return alignedTranslationY
+        return appliedTranslationY
     }
 
     var pendingLocalViewportRow: UInt64? {

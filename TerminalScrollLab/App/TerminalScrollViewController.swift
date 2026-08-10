@@ -122,7 +122,10 @@ final class TerminalScrollViewController: UIViewController {
         scrollCoordinator = NativeTerminalScrollCoordinator(
             terminalView: terminalView,
             scrollView: mechanicsView,
-            metricsLabel: metricsLabel
+            metricsLabel: metricsLabel,
+            shouldApplyHalfRowOffsetForTesting: UserDefaults.standard.bool(
+                forKey: "SCROLL_LAB_HALF_ROW"
+            )
         )
     }
 

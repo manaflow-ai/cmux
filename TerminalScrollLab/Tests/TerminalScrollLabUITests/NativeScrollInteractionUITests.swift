@@ -1,15 +1,16 @@
 import XCTest
 
+@MainActor
 final class NativeScrollInteractionUITests: XCTestCase {
     private var app: XCUIApplication!
 
     override func setUpWithError() throws {
         continueAfterFailure = false
         app = XCUIApplication()
-        app.launch()
     }
 
     func testFastDragUsesContinuousNativeDeceleration() throws {
+        app.launch()
         let metrics = app.staticTexts["nativeScrollMetrics"]
         XCTAssertTrue(metrics.waitForExistence(timeout: 5))
         let window = app.windows.firstMatch
@@ -25,6 +26,7 @@ final class NativeScrollInteractionUITests: XCTestCase {
     }
 
     func testBottomEdgeOverscrollReturnsToRest() throws {
+        app.launch()
         let metrics = app.staticTexts["nativeScrollMetrics"]
         XCTAssertTrue(metrics.waitForExistence(timeout: 5))
         let window = app.windows.firstMatch
@@ -48,8 +50,7 @@ final class NativeScrollInteractionUITests: XCTestCase {
     }
 
     func testHalfRowOffsetMovesRendererPixels() throws {
-        app.terminate()
-        app.launchArguments = ["-scroll-lab-half-row"]
+        app.launchArguments = ["-SCROLL_LAB_HALF_ROW", "YES"]
         app.launch()
 
         let metrics = app.staticTexts["nativeScrollMetrics"]
