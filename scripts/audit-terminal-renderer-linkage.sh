@@ -75,7 +75,8 @@ contains_exact_symbol() {
   grep -Fqx -- "$symbol" "$symbols"
 }
 
-banned_process_regex='(^|[[:space:]])(_openpty|_forkpty|_fork|_vfork|_posix_spawn|_posix_spawnp|_execv|_execve|_execvp|_execvpe|_execl|_execle|_execlp|_waitpid)([[:space:]]|$)'
+banned_process_interposer_regex='(^|[[:space:]])(_fork|_execve)([[:space:]]|$)'
+banned_process_other_regex='(^|[[:space:]])(_openpty|_forkpty|_vfork|_posix_spawn|_posix_spawnp|_execv|_execvp|_execvpe|_execl|_execle|_execlp|_waitpid)([[:space:]]|$)'
 banned_ghostty_regex='ghostty_(app_|surface_|process_census)'
 banned_terminal_regex='terminal\.(Parser|Stream)|termio|(^|[._])pty([._]|$)'
 banned_dynamic_loader_regex='(^|[[:space:]])(_dlopen|_dlopen_preflight|_dlsym|_CFBundleLoadExecutable|_CFBundleLoadExecutableAndReturnError|_CFBundlePreflightExecutable|_NSCreateObjectFileImageFromFile|_NSLinkModule)([[:space:]]|$)'
@@ -133,12 +134,22 @@ if [[ "$ARCHIVE_ONLY" == false ]]; then
   fi
 
   for table in "$DEFINED" "$UNDEFINED" "$ALL_SYMBOLS"; do
-    matches="$(grep -E "$banned_process_regex|$banned_ghostty_regex" "$table" || true)"
+    matches="$(grep -E "$banned_process_other_regex|$banned_ghostty_regex" "$table" || true)"
     if [[ -n "$matches" ]]; then
       fail_with_matches \
         "final renderer executable links process-owning or full Ghostty symbols" \
         "$matches"
     fi
+  done
+  for interposer in _fork _execve; do
+    contains_exact_symbol "$DEFINED" "$interposer" || {
+      echo "error: final renderer executable is missing fail-closed interposer: $interposer" >&2
+      exit 1
+    }
+    contains_exact_symbol "$UNDEFINED" "$interposer" && {
+      echo "error: final renderer executable imports process capability: $interposer" >&2
+      exit 1
+    }
   done
   dynamic_loader_matches="$(grep -E "$banned_dynamic_loader_regex|$banned_swift_bundle_loader_regex" "$DEFINED" "$UNDEFINED" "$ALL_SYMBOLS" || true)"
   if [[ -n "$dynamic_loader_matches" ]]; then
@@ -227,19 +238,31 @@ while IFS= read -r archive; do
   strings -a "$archive" > "$archive_strings"
   grep -E '^_ghostty_' "$archive_defined" | sort -u > "$archive_ghostty"
 
-  # Zig 0.16 emits its compile-time-only Threaded table in the monolithic ZCU
-  # object. The linked probe below proves that dead stripping removes those
-  # unused process sections. Process references in every other member fail.
-  forbidden_process="$(
-    grep -E "$banned_process_regex" "$archive_undefined" \
+  # Zig 0.16 emits the Threaded table in one monolithic ZCU object. Only its
+  # fork and execve references may cross into the fail-closed C boundary.
+  forbidden_process_interposer="$(
+    grep -E "$banned_process_interposer_regex" "$archive_undefined" \
       | grep -Ev ':libghostty-scene-renderer_zcu\.o:' \
       || true
   )"
+  forbidden_process_other="$(grep -E "$banned_process_other_regex" "$archive_undefined" || true)"
   forbidden_ghostty="$(grep -E "$banned_ghostty_regex" "$archive_undefined" || true)"
-  forbidden_undefined="$forbidden_process$forbidden_ghostty"
+  forbidden_undefined="$forbidden_process_interposer$forbidden_process_other$forbidden_ghostty"
   [[ -z "$forbidden_undefined" ]] || fail_with_matches \
     "scene archive contains forbidden process/runtime references: $archive" \
     "$forbidden_undefined"
+
+  required_boundary_symbols=(
+    _fork
+    _execve
+    _cmux_scene_process_capabilities_fail_closed_probe
+  )
+  for symbol in "${required_boundary_symbols[@]}"; do
+    contains_exact_symbol "$archive_defined" "$symbol" || {
+      echo "error: scene archive is missing fail-closed process boundary: $symbol ($archive)" >&2
+      exit 1
+    }
+  done
 
   forbidden_dynamic_loader="$(grep -E "$banned_dynamic_loader_regex|$banned_swift_bundle_loader_regex" "$archive_defined" "$archive_undefined" "$archive_all" || true)"
   [[ -z "$forbidden_dynamic_loader" ]] || fail_with_matches \
@@ -283,13 +306,15 @@ if [[ "$ARCHIVE_ONLY" == true ]]; then
   {
     printf '#include <stdint.h>\n'
     printf '#include "ghostty_scene.h"\n'
+    printf 'extern int cmux_scene_process_capabilities_fail_closed_probe(void);\n'
     printf 'static void (*volatile scene_symbols[])(void) = {\n'
     sed -E 's/^_(.*)$/    (void (*)(void)) \&\1,/' "$DECLARED_ABI"
     printf '};\n'
     printf 'int main(void) {\n'
     printf '    uintptr_t value = 0;\n'
     printf '    for (unsigned long i = 0; i < sizeof(scene_symbols) / sizeof(scene_symbols[0]); ++i) value ^= (uintptr_t) scene_symbols[i];\n'
-    printf '    return value == 0;\n'
+    printf '    if (value == 0) return 1;\n'
+    printf '    return cmux_scene_process_capabilities_fail_closed_probe();\n'
     printf '}\n'
   } > "$PROBE_SOURCE"
   clang \
@@ -310,14 +335,37 @@ if [[ "$ARCHIVE_ONLY" == true ]]; then
     -lc++ \
     -o "$PROBE_BINARY"
 
+  PROBE_DEFINED="$TEMP_DIR/probe-defined.txt"
+  PROBE_UNDEFINED="$TEMP_DIR/probe-undefined.txt"
   PROBE_SYMBOLS="$TEMP_DIR/probe-symbols.txt"
   PROBE_LOADS="$TEMP_DIR/probe-loads.txt"
+  nm -gUj "$PROBE_BINARY" > "$PROBE_DEFINED"
+  nm -uj "$PROBE_BINARY" > "$PROBE_UNDEFINED"
   nm -a "$PROBE_BINARY" > "$PROBE_SYMBOLS"
   otool -L "$PROBE_BINARY" > "$PROBE_LOADS"
-  probe_forbidden="$(grep -Ei "$banned_process_regex|$banned_ghostty_regex|$banned_terminal_regex|$banned_dynamic_loader_regex|$banned_swift_bundle_loader_regex" "$PROBE_SYMBOLS" || true)"
+  probe_forbidden="$(grep -Ei "$banned_process_other_regex|$banned_ghostty_regex|$banned_terminal_regex|$banned_dynamic_loader_regex|$banned_swift_bundle_loader_regex" "$PROBE_SYMBOLS" || true)"
   [[ -z "$probe_forbidden" ]] || fail_with_matches \
     "linked scene archive probe retains forbidden runtime symbols" \
     "$probe_forbidden"
+  for interposer in _fork _execve; do
+    contains_exact_symbol "$PROBE_DEFINED" "$interposer" || {
+      echo "error: linked scene archive probe is missing fail-closed interposer: $interposer" >&2
+      exit 1
+    }
+    contains_exact_symbol "$PROBE_UNDEFINED" "$interposer" && {
+      echo "error: linked scene archive probe imports process capability: $interposer" >&2
+      exit 1
+    }
+  done
+  contains_exact_symbol "$PROBE_DEFINED" _cmux_scene_process_capabilities_fail_closed_probe || {
+    echo "error: linked scene archive probe is missing fail-closed behavior probe" >&2
+    exit 1
+  }
+  "$PROBE_BINARY" || {
+    status=$?
+    echo "error: linked scene archive fail-closed behavior probe failed: status=$status" >&2
+    exit 1
+  }
   probe_loads="$(sed -n '2,$p' "$PROBE_LOADS" | grep -Ei 'Ghostty(SceneRenderer)?Kit|libghostty' || true)"
   [[ -z "$probe_loads" ]] || fail_with_matches \
     "linked scene archive probe dynamically loads a Ghostty library" \
