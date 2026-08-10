@@ -1,49 +1,40 @@
-# SDK conformance
+# Public resource SDK conformance
 
-This suite sends one declarative contract through the public Python,
-TypeScript, Rust, Go, Java, C++, and Zig SDK APIs. It audits all 83 commands
-and 44 events through generated public metadata, then runs identical protocol
-fixtures against each language.
+This suite drives the handwritten Python, TypeScript, Rust, Go, Java, C++,
+and Zig SDK roots through one `cmux.protocol/2` contract. The fake server
+checks exact Unix JSONL requests and exercises reads, mutation replay,
+revision and ambiguity errors, indeterminate external effects, typed unknown
+stream items, cancellation ordering, decimal strings, redaction, and
+stream-local message and byte overflow. Creation fixtures cover every
+resolution state and all three `CreatedPath` variants. Exit fixtures cover a
+non-error pending timeout and an exact exit-code outcome.
 
-The deterministic fake server covers partial frames, exact `uint64` limits,
-oversized responses, invalid UTF-8, timeouts, events before acknowledgement,
-unknown events, terminal overflow, closing a pending read, five stream modes,
-four successful authority boundaries, and a default provider-authority denial
-that proves zero bytes reach the socket. Handwritten fixtures independently
-verify missing, explicit null, and typed values. They cover an
-optional-nullable request, required-nullable responses and events, and
-optional non-null responses and events. Exact request matching rejects
-accidental fields.
-Three live checks start an isolated headless `cmux-tui` server, call
-`identify` and `ping`, then create a workspace and terminal, send and read a
-marker, verify ordered delta events, rename the workspace, close it, and
-confirm it disappeared.
-
-The full seven-language run executes 266 checks: 34 fake cases, one metadata
-audit, and three live cases per language.
-
-From the repository root:
+Run all installed toolchains from the repository root:
 
 ```sh
 python3 cmux-tui/bindings/conformance/runner.py \
   --require python,typescript,rust,go,java,cpp,zig
 ```
 
-Use a prebuilt server with `--cmux-tui-bin cmux-tui/target/debug/cmux-tui`.
-Use `--fake-only` while changing an adapter. `--no-build` reuses binaries in
-`conformance/.build`. `--no-codegen-check` is only for diagnosing stale
-generated SDK output.
+Use `--no-build` to reuse adapter outputs. Pass
+`--cmux-tui-bin cmux-tui/target/debug/cmux-tui` to run each adapter against
+that exact executable in an isolated durable session. The live suite creates
+duplicate names, proves ambiguous selection cannot mutate either candidate,
+runs a correlated terminal that exits 17, and observes pending before exit.
+It restarts the server against the same state root, verifies the exact
+creation path and exit record, verifies stable workspace IDs and names, then
+closes every fixture. TypeScript runs the same lifecycle over Unix and
+authenticated WebSocket transports.
 
-Set `CMUX_ZIG` when the supported Zig 0.15.2 executable is not named `zig`.
-On macOS, a standalone Zig distribution may also need `DEVELOPER_DIR` and
-`SDKROOT`.
+The Zig adapter targets Zig 0.15.2. Set `CMUX_ZIG` when that compiler is not
+the `zig` on `PATH`.
 
-Adapters consume normal package boundaries where practical: TypeScript uses
-compiled `dist` exports, Java and C++ link compiled package outputs, and
-Rust, Go, and Zig resolve their public package modules as downstream
-consumers. Python imports its zero-dependency package tree directly so the
-suite does not mutate the active Python environment.
+Generated protocol-11 compatibility tests are intentionally separate:
 
-The adapter process protocol is documented in
-[`adapter-protocol.md`](adapter-protocol.md). All build output stays under the
-ignored `conformance/.build` directory.
+```sh
+python3 cmux-tui/bindings/conformance/raw/runner.py \
+  --require python,typescript,rust,go,java,cpp,zig
+```
+
+The adapter process contract is in
+[`adapter-protocol.md`](adapter-protocol.md).

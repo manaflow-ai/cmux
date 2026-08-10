@@ -27,19 +27,26 @@ extension GhosttySurfaceView {
 
     /// The viewport report for the current geometry: base-font row and column
     /// capacity (see `TerminalRowCapacityFit`).
+    ///
+    /// `measuredFontSize` is the font the surface was rendering at when the
+    /// cell size was measured (captured with the geometry pass), NOT the
+    /// current `liveFontSize`: a zoom applied between the measurement and
+    /// this call would otherwise break the base-font normalization by the
+    /// zoom ratio and report a grid several times too small or too large.
     func capacityReportGrid(
         for natural: TerminalGridSize,
         containerPixelWidth: CGFloat,
         containerPixelHeight: CGFloat,
         cellPixelWidth: CGFloat,
-        cellPixelHeight: CGFloat
+        cellPixelHeight: CGFloat,
+        measuredFontSize: Float32
     ) -> TerminalGridSize {
         guard let fit = TerminalRowCapacityFit(
             containerPixelHeight: containerPixelHeight,
             cellPixelHeight: cellPixelHeight,
             containerPixelWidth: containerPixelWidth,
             cellPixelWidth: cellPixelWidth,
-            liveFontSize: liveFontSize
+            liveFontSize: measuredFontSize
         ), let rows = fit.capacityRows(atBaseFontSize: userBaseFontSize),
               let columns = fit.capacityColumns(atBaseFontSize: userBaseFontSize) else { return natural }
         return TerminalGridSize(
@@ -53,12 +60,16 @@ extension GhosttySurfaceView {
     /// Re-derive the rendered font from the effective grid. The supplied width
     /// is the same stable width used for the column report, so a transient
     /// overlay sample cannot make a valid full-width grant look oversized.
+    ///
+    /// `measuredFontSize` pairs with the supplied cell size (measured in the
+    /// same geometry pass); see `capacityReportGrid`.
     func autoFitFontToEffectiveRows(
         renderedRows: Int,
         containerPixelWidth: CGFloat,
         containerPixelHeight: CGFloat,
         cellPixelWidth: CGFloat,
-        cellPixelHeight: CGFloat
+        cellPixelHeight: CGFloat,
+        measuredFontSize: Float32
     ) {
         guard pendingFontSize == nil else { return }
         guard let eff = effectiveGrid else {
@@ -73,7 +84,7 @@ extension GhosttySurfaceView {
             cellPixelHeight: cellPixelHeight,
             containerPixelWidth: containerPixelWidth,
             cellPixelWidth: cellPixelWidth,
-            liveFontSize: liveFontSize
+            liveFontSize: measuredFontSize
         ), let baseRows = fit.capacityRows(atBaseFontSize: userBaseFontSize),
               let baseColumns = fit.capacityColumns(atBaseFontSize: userBaseFontSize) else { return }
         if eff.cols >= baseColumns && eff.rows >= baseRows {

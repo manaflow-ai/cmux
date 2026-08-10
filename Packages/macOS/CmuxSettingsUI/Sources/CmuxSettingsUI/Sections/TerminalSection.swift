@@ -386,7 +386,7 @@ public struct TerminalSection: View {
                 String(localized: "settings.terminal.agentHibernation", defaultValue: "Agent Hibernation"),
                 subtitle: hibernation.current
                     ? String(localized: "settings.terminal.agentHibernation.subtitleOn", defaultValue: "Idle background agent terminals can be suspended when the live-terminal limit is exceeded.")
-                    : String(localized: "settings.terminal.agentHibernation.subtitleOff", defaultValue: "Agent terminals stay live until you close them or quit cmux.")
+                    : String(localized: "settings.terminal.agentHibernation.subtitleOff", defaultValue: "Scheduled hibernation is off. During critical memory pressure, cmux may still hibernate safe idle background agents.")
             ) {
                 Toggle("", isOn: Binding(get: { hibernation.current }, set: { hibernation.set($0) }))
                     .labelsHidden()

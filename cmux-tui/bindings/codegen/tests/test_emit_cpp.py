@@ -20,9 +20,9 @@ class CppEmitterTests(unittest.TestCase):
 
         generated = emit(load_ir_document(document))
         header = generated[
-            PurePosixPath("include/cmux/generated/models.hpp")
+            PurePosixPath("include/cmux/raw/generated/models.hpp")
         ]
-        source = generated[PurePosixPath("src/generated/protocol.cpp")]
+        source = generated[PurePosixPath("src/raw/generated/protocol.cpp")]
 
         self.assertIn("enum class Transport {\n    unix_,\n    ws,\n};", header)
         self.assertIn(
@@ -52,9 +52,9 @@ class CppEmitterTests(unittest.TestCase):
 
         generated = emit(load_ir_document(document))
         header = generated[
-            PurePosixPath("include/cmux/generated/commands.hpp")
+            PurePosixPath("include/cmux/raw/generated/commands.hpp")
         ]
-        source = generated[PurePosixPath("src/generated/protocol.cpp")]
+        source = generated[PurePosixPath("src/raw/generated/protocol.cpp")]
 
         self.assertIn("struct CommandFieldRequirement {", header)
         self.assertIn(

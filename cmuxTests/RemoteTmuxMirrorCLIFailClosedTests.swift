@@ -30,7 +30,8 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
 
             let result = TerminalController.shared.controlSurfaceClose(
                 routing: harness.routing(),
-                surfaceID: nil
+                surfaceID: nil,
+                hasSurfaceIDParam: false
             )
 
             #expect(result == .noFocusedSurface)
@@ -93,7 +94,8 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
             defer { harness.tearDown() }
             let result = TerminalController.shared.controlSurfaceClose(
                 routing: harness.routing(),
-                surfaceID: harness.outerPanelID
+                surfaceID: harness.outerPanelID,
+                hasSurfaceIDParam: true
             )
 
             #expect(result == .surfaceNotFound(harness.outerPanelID))
@@ -253,7 +255,8 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
 
             let result = TerminalController.shared.controlSurfaceClose(
                 routing: harness.routing(paneID: firstPaneID),
-                surfaceID: nil
+                surfaceID: nil,
+                hasSurfaceIDParam: false
             )
 
             #expect(result == .closeFailed(firstSurfaceID))

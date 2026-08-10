@@ -1,16 +1,19 @@
-use crate::{Id, LivePane, Pane, Screen, Tab, TabKind, Tree, Workspace};
+use crate::generated::{
+    Id, LivePane, Pane as RawPane, Screen as RawScreen, Tab as RawTab, TabKind, Tree,
+    Workspace as RawWorkspace,
+};
 
 /// Borrowed workspace-tree context for a surface.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SurfaceContext<'a> {
     /// Workspace containing the surface.
-    pub workspace: &'a Workspace,
+    pub workspace: &'a RawWorkspace,
     /// Screen containing the surface.
-    pub screen: &'a Screen,
+    pub screen: &'a RawScreen,
     /// Live pane containing the surface.
     pub pane: &'a LivePane,
     /// Tab that owns the surface.
-    pub tab: &'a Tab,
+    pub tab: &'a RawTab,
 }
 
 impl Tree {
@@ -22,7 +25,7 @@ impl Tree {
         for workspace in &self.workspaces {
             for screen in &workspace.screens {
                 for pane in &screen.panes {
-                    let Pane::LivePane(pane) = pane else {
+                    let RawPane::LivePane(pane) = pane else {
                         continue;
                     };
                     if let Some(tab) = pane.tabs.iter().find(|tab| tab.surface == surface) {
@@ -43,8 +46,8 @@ impl Tree {
         let workspace = self.workspaces.iter().find(|workspace| workspace.active)?;
         let screen = workspace.screens.iter().find(|screen| screen.active)?;
         let pane = screen.panes.iter().find_map(|pane| match pane {
-            Pane::LivePane(pane) if pane.id == screen.active_pane => Some(pane),
-            Pane::LivePane(_) | Pane::DeadPane(_) => None,
+            RawPane::LivePane(pane) if pane.id == screen.active_pane => Some(pane),
+            RawPane::LivePane(_) | RawPane::DeadPane(_) => None,
         })?;
         let active_tab = usize::try_from(pane.active_tab).ok()?;
         let tab = pane.tabs.get(active_tab)?;

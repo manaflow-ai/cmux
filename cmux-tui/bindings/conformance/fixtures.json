@@ -1,724 +1,373 @@
 {
-  "contract_version": 1,
+  "contract_version": 2,
+  "protocol": "cmux.protocol/2",
+  "constants": {
+    "machine": "machine_11111111111111111111111111111111",
+    "session": "session_22222222222222222222222222222222",
+    "workspace": "ws_33333333333333333333333333333333",
+    "candidate_a": "ws_44444444444444444444444444444444",
+    "candidate_b": "ws_55555555555555555555555555555555",
+    "screen": "screen_66666666666666666666666666666666",
+    "pane": "pane_77777777777777777777777777777777",
+    "tab": "tab_88888888888888888888888888888888",
+    "terminal": "term_99999999999999999999999999999999",
+    "browser": "browser_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "generation": "generation-conformance",
+    "revision": "18446744073709551615",
+    "exit_revision": "18446744073709551614",
+    "exited_at": "18446744073709551613",
+    "idempotency_key": "conformance-idempotency-key",
+    "correlation_key": "conformance-correlation-key",
+    "name": "api β"
+  },
   "fake_cases": [
     {
-      "name": "partial-frames",
-      "adapter": {
-        "op": "identify",
-        "timeout_ms": 1000,
-        "max_frame_bytes": 16777216
-      },
-      "server": {
-        "behavior": "identify",
-        "chunks": [1, 2, 3, 5, 8, 13]
-      },
+      "name": "read-envelope-and-decimal",
+      "adapter": {"op": "read"},
+      "server": {"behavior": "read"},
       "expect": {
         "ok": true,
         "value": {
-          "protocol": 10,
-          "workspace_revision": "0",
-          "terminal_revision": "18446744073709551615"
-        }
-      }
-    },
-    {
-      "name": "exact-uint64-boundaries",
-      "adapter": {
-        "op": "identify",
-        "timeout_ms": 1000,
-        "max_frame_bytes": 16777216
-      },
-      "server": {
-        "behavior": "identify"
-      },
-      "expect": {
-        "ok": true,
-        "value": {
-          "workspace_revision": "0",
-          "terminal_revision": "18446744073709551615"
-        }
-      }
-    },
-    {
-      "name": "nullable-literal-null",
-      "adapter": {
-        "op": "nullable-literal",
-        "timeout_ms": 1000
-      },
-      "server": {
-        "behavior": "terminal-placement",
-        "lifecycle": null
-      },
-      "expect": {
-        "ok": true,
-        "value": {
-          "lifecycle": null
-        }
-      }
-    },
-    {
-      "name": "nullable-literal-running",
-      "adapter": {
-        "op": "nullable-literal",
-        "timeout_ms": 1000
-      },
-      "server": {
-        "behavior": "terminal-placement",
-        "lifecycle": "running"
-      },
-      "expect": {
-        "ok": true,
-        "value": {
-          "lifecycle": "running"
-        }
-      }
-    },
-    {
-      "name": "required-nullable-response-missing",
-      "adapter": {
-        "op": "nullable-literal",
-        "timeout_ms": 1000
-      },
-      "server": {
-        "behavior": "terminal-placement",
-        "omit_lifecycle": true
-      },
-      "expect_error": "decode"
-    },
-    {
-      "name": "optional-non-null-response-omitted",
-      "adapter": {
-        "op": "optional-non-null-response",
-        "presence": "omitted",
-        "timeout_ms": 1000
-      },
-      "server": {
-        "behavior": "identify",
-        "capabilities_presence": "omitted"
-      },
-      "expect": {
-        "ok": true,
-        "value": {
-          "present": false
-        }
-      }
-    },
-    {
-      "name": "optional-non-null-response-value",
-      "adapter": {
-        "op": "optional-non-null-response",
-        "presence": "value",
-        "timeout_ms": 1000
-      },
-      "server": {
-        "behavior": "identify",
-        "capabilities_presence": "value"
-      },
-      "expect": {
-        "ok": true,
-        "value": {
-          "present": true
-        }
-      }
-    },
-    {
-      "name": "optional-non-null-response-null",
-      "adapter": {
-        "op": "optional-non-null-response",
-        "presence": "null",
-        "timeout_ms": 1000
-      },
-      "server": {
-        "behavior": "identify",
-        "capabilities_presence": "null"
-      },
-      "expect_error": "decode"
-    },
-    {
-      "name": "optional-nullable-request-omitted",
-      "adapter": {
-        "op": "optional-nullable-request",
-        "presence": "omitted",
-        "timeout_ms": 1000
-      },
-      "server": {
-        "behavior": "request-shape",
-        "expect_request": {
-          "cmd": "set-client-info"
-        }
-      },
-      "expect": {
-        "ok": true,
-        "value": {
-          "presence": "omitted"
-        }
-      }
-    },
-    {
-      "name": "optional-nullable-request-null",
-      "adapter": {
-        "op": "optional-nullable-request",
-        "presence": "null",
-        "timeout_ms": 1000
-      },
-      "server": {
-        "behavior": "request-shape",
-        "expect_request": {
-          "cmd": "set-client-info",
-          "name": null
-        }
-      },
-      "expect": {
-        "ok": true,
-        "value": {
-          "presence": "null"
-        }
-      }
-    },
-    {
-      "name": "optional-nullable-request-value",
-      "adapter": {
-        "op": "optional-nullable-request",
-        "presence": "value",
-        "timeout_ms": 1000
-      },
-      "server": {
-        "behavior": "request-shape",
-        "expect_request": {
-          "cmd": "set-client-info",
-          "name": "conformance-client"
-        }
-      },
-      "expect": {
-        "ok": true,
-        "value": {
-          "presence": "value"
-        }
-      }
-    },
-    {
-      "name": "oversized-response",
-      "adapter": {
-        "op": "identify",
-        "timeout_ms": 1000,
-        "max_frame_bytes": 1024
-      },
-      "server": {
-        "behavior": "oversized-identify",
-        "response_bytes": 4096
-      },
-      "expect_error": "limit"
-    },
-    {
-      "name": "invalid-utf8",
-      "adapter": {
-        "op": "identify",
-        "timeout_ms": 1000,
-        "max_frame_bytes": 16777216
-      },
-      "server": {
-        "behavior": "invalid-utf8"
-      },
-      "expect_error": "decode"
-    },
-    {
-      "name": "command-timeout",
-      "adapter": {
-        "op": "identify",
-        "timeout_ms": 100,
-        "max_frame_bytes": 16777216
-      },
-      "server": {
-        "behavior": "timeout",
-        "hold_ms": 500
-      },
-      "expect_error": "timeout"
-    },
-    {
-      "name": "event-before-ack",
-      "adapter": {
-        "op": "stream",
-        "stream": "subscribe-coarse",
-        "events": 1,
-        "timeout_ms": 1000
-      },
-      "server": {
-        "behavior": "stream",
-        "before_ack": [
-          {"event": "empty"}
-        ]
-      },
-      "expect": {
-        "ok": true,
-        "value": {
-          "events": [
-            {"event": "empty"}
-          ]
-        }
-      }
-    },
-    {
-      "name": "unknown-event",
-      "adapter": {
-        "op": "stream",
-        "stream": "subscribe-coarse",
-        "events": 1,
-        "timeout_ms": 1000
-      },
-      "server": {
-        "behavior": "stream",
-        "after_ack": [
-          {"event": "future-event", "meaning": 42}
-        ]
-      },
-      "expect": {
-        "ok": true,
-        "value": {
-          "events": [
-            {"event": "future-event", "unknown": true, "raw": {"event": "future-event", "meaning": 42}}
-          ]
-        }
-      }
-    },
-    {
-      "name": "required-nullable-event-null",
-      "adapter": {
-        "op": "required-nullable-event",
-        "stream": "subscribe-coarse",
-        "timeout_ms": 1000
-      },
-      "server": {
-        "behavior": "stream",
-        "after_ack": [
-          {
-            "event": "client-changed",
-            "client": 7,
-            "kind": null,
-            "name": null
+          "alive": true,
+          "cursor": {
+            "generation": "generation-conformance",
+            "revision": "18446744073709551615"
           }
-        ]
-      },
-      "expect": {
-        "ok": true,
-        "value": {
-          "name": null
         }
       }
     },
     {
-      "name": "required-nullable-event-value",
-      "adapter": {
-        "op": "required-nullable-event",
-        "stream": "subscribe-coarse",
-        "timeout_ms": 1000
-      },
-      "server": {
-        "behavior": "stream",
-        "after_ack": [
-          {
-            "event": "client-changed",
-            "client": 7,
-            "kind": null,
-            "name": "conformance-client"
-          }
-        ]
-      },
+      "name": "mutation-idempotent-replay",
+      "adapter": {"op": "mutation-replay"},
+      "server": {"behavior": "mutation-replay"},
       "expect": {
         "ok": true,
         "value": {
-          "name": "conformance-client"
+          "first": {
+            "workspace_id": "ws_33333333333333333333333333333333",
+            "name": "api β",
+            "generation": "generation-conformance",
+            "revision": "18446744073709551615",
+            "replayed": false
+          },
+          "second": {
+            "workspace_id": "ws_33333333333333333333333333333333",
+            "name": "api β",
+            "generation": "generation-conformance",
+            "revision": "18446744073709551615",
+            "replayed": true
+          }
         }
       }
     },
     {
-      "name": "required-nullable-event-missing",
-      "adapter": {
-        "op": "required-nullable-event",
-        "stream": "subscribe-coarse",
-        "timeout_ms": 1000
-      },
-      "server": {
-        "behavior": "stream",
-        "after_ack": [
-          {
-            "event": "client-changed",
-            "client": 7,
-            "kind": null
-          }
-        ]
-      },
-      "expect_error": "decode"
-    },
-    {
-      "name": "optional-non-null-event-omitted",
-      "adapter": {
-        "op": "optional-non-null-event",
-        "stream": "attach-byte",
-        "surface": "7",
-        "presence": "omitted",
-        "timeout_ms": 1000
-      },
-      "server": {
-        "behavior": "stream",
-        "after_ack": [
-          {
-            "event": "output",
-            "surface": 7,
-            "data": ""
-          }
-        ]
-      },
+      "name": "mutation-indeterminate-is-one-request",
+      "adapter": {"op": "mutation-error", "error_code": "mutation.indeterminate"},
+      "server": {"behavior": "mutation-indeterminate"},
       "expect": {
         "ok": true,
         "value": {
-          "present": false
+          "code": "mutation.indeterminate",
+          "message": "external effect outcome is unknown",
+          "details": {
+            "idempotency_key": "conformance-idempotency-key",
+            "operation": "workspace.rename",
+            "recovery": "inspect_state_then_retry_with_new_key"
+          },
+          "retryable": false
         }
       }
     },
     {
-      "name": "optional-non-null-event-value",
-      "adapter": {
-        "op": "optional-non-null-event",
-        "stream": "attach-byte",
-        "surface": "7",
-        "presence": "value",
-        "timeout_ms": 1000
-      },
-      "server": {
-        "behavior": "stream",
-        "after_ack": [
-          {
-            "event": "output",
-            "surface": 7,
-            "data": "",
-            "colors": {
-              "fg": "#010203",
-              "bg": null,
-              "selection_bg": null,
-              "selection_fg": null
+      "name": "revision-conflict-is-structured",
+      "adapter": {"op": "mutation-error", "error_code": "revision.conflict"},
+      "server": {"behavior": "revision-conflict"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "code": "revision.conflict",
+          "message": "expected revision is stale",
+          "details": {
+            "expected": "18446744073709551615",
+            "actual": "42"
+          },
+          "retryable": true
+        }
+      }
+    },
+    {
+      "name": "duplicate-name-ambiguity-preserves-all-candidates",
+      "adapter": {"op": "mutation-error", "error_code": "selector.ambiguous"},
+      "server": {"behavior": "selector-ambiguous"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "code": "selector.ambiguous",
+          "message": "more than one workspace is named api",
+          "details": {
+            "candidates": [
+              "ws_44444444444444444444444444444444",
+              "ws_55555555555555555555555555555555"
+            ]
+          },
+          "retryable": false
+        }
+      }
+    },
+    {
+      "name": "typed-stream-preserves-unknown-and-decimals",
+      "adapter": {"op": "stream-unknown"},
+      "server": {"behavior": "stream-unknown"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "sequence": "18446744073709551615",
+          "cursor": {
+            "generation": "generation-conformance",
+            "revision": "18446744073709551615"
+          },
+          "kind": "future.session.widget",
+          "raw": {
+            "kind": "future.session.widget",
+            "payload": {
+              "label": "kept",
+              "revision": "18446744073709551615"
             }
-          }
-        ]
-      },
-      "expect": {
-        "ok": true,
-        "value": {
-          "present": true
+          },
+          "end": "completed"
         }
       }
     },
     {
-      "name": "optional-non-null-event-null",
-      "adapter": {
-        "op": "optional-non-null-event",
-        "stream": "attach-byte",
-        "surface": "7",
-        "presence": "null",
-        "timeout_ms": 1000
-      },
-      "server": {
-        "behavior": "stream",
-        "after_ack": [
-          {
-            "event": "output",
-            "surface": 7,
-            "data": "",
-            "colors": null
-          }
-        ]
-      },
-      "expect_error": "decode"
-    },
-    {
-      "name": "overflow-terminates-subscribe",
-      "adapter": {
-        "op": "stream",
-        "stream": "subscribe-coarse",
-        "events": 2,
-        "timeout_ms": 1000
-      },
-      "server": {
-        "behavior": "stream",
-        "after_ack": [
-          {"event": "overflow", "scope": "surface", "error": "subscriber fell behind"}
-        ]
-      },
+      "name": "cancel-purges-queued-items-and-orders-end-before-response",
+      "adapter": {"op": "stream-cancel"},
+      "server": {"behavior": "stream-cancel"},
       "expect": {
         "ok": true,
         "value": {
-          "events": [
-            {"event": "overflow", "scope": "surface", "error": "subscriber fell behind"}
-          ],
-          "terminal": true
+          "end": "canceled",
+          "items_after_cancel": 0,
+          "cancel_calls": 2
         }
       }
     },
     {
-      "name": "close-unblocks-pending-read",
-      "adapter": {
-        "op": "close-pending-stream",
-        "stream": "subscribe-coarse",
-        "close_after_ms": 50,
-        "deadline_ms": 1000
-      },
-      "server": {
-        "behavior": "stream",
-        "hold_ms": 1200
-      },
+      "name": "message-overflow-is-stream-local",
+      "adapter": {"op": "stream-overflow", "dimension": "messages"},
+      "server": {"behavior": "stream-overflow-messages"},
       "expect": {
         "ok": true,
         "value": {
-          "unblocked": true
+          "first_end": "gap",
+          "second_kind": "future.after-overflow",
+          "control_alive": true
         }
       }
     },
     {
-      "name": "subscribe-coarse-mode",
-      "adapter": {
-        "op": "stream",
-        "stream": "subscribe-coarse",
-        "events": 1,
-        "timeout_ms": 1000
-      },
-      "server": {
-        "behavior": "stream",
-        "after_ack": [
-          {"event": "tree-changed"}
-        ]
-      },
+      "name": "byte-overflow-is-stream-local",
+      "adapter": {"op": "stream-overflow", "dimension": "bytes"},
+      "server": {"behavior": "stream-overflow-bytes"},
       "expect": {
         "ok": true,
         "value": {
-          "events": [
-            {"event": "tree-changed"}
-          ]
+          "first_end": "gap",
+          "second_kind": "future.after-overflow",
+          "control_alive": true
         }
       }
     },
     {
-      "name": "subscribe-deltas-mode",
-      "adapter": {
-        "op": "stream",
-        "stream": "subscribe-deltas",
-        "events": 1,
-        "timeout_ms": 1000
-      },
-      "server": {
-        "behavior": "stream",
-        "after_ack": [
-          {"event": "tree-changed"}
-        ]
-      },
+      "name": "creation-resolve-created-workspace-path",
+      "adapter": {"op": "creation-resolve"},
+      "server": {"behavior": "creation-created-workspace"},
       "expect": {
         "ok": true,
         "value": {
-          "events": [
-            {"event": "tree-changed"}
-          ]
+          "correlation_key": "conformance-correlation-key",
+          "state": "created",
+          "recovery": "none",
+          "operation": "workspace.create",
+          "idempotency_key": "conformance-idempotency-key",
+          "created_path": {
+            "kind": "workspace",
+            "workspace_id": "ws_33333333333333333333333333333333"
+          },
+          "generation": "generation-conformance",
+          "revision": "18446744073709551615"
         }
       }
     },
     {
-      "name": "attach-byte-mode",
-      "adapter": {
-        "op": "stream",
-        "stream": "attach-byte",
-        "surface": "18446744073709551615",
-        "events": 1,
-        "timeout_ms": 1000
-      },
-      "server": {
-        "behavior": "stream",
-        "before_ack": [
-          {"event": "output", "surface": 18446744073709551615, "data": "aGk="}
-        ]
-      },
+      "name": "creation-resolve-created-terminal-path",
+      "adapter": {"op": "creation-resolve"},
+      "server": {"behavior": "creation-created-terminal"},
       "expect": {
         "ok": true,
         "value": {
-          "events": [
-            {"event": "output", "surface": "18446744073709551615", "data": "aGk="}
-          ]
+          "correlation_key": "conformance-correlation-key",
+          "state": "created",
+          "recovery": "none",
+          "operation": "workspace.run",
+          "idempotency_key": "conformance-idempotency-key",
+          "created_path": {
+            "kind": "terminal",
+            "workspace_id": "ws_33333333333333333333333333333333",
+            "screen_id": "screen_66666666666666666666666666666666",
+            "pane_id": "pane_77777777777777777777777777777777",
+            "tab_id": "tab_88888888888888888888888888888888",
+            "terminal_id": "term_99999999999999999999999999999999"
+          },
+          "generation": "generation-conformance",
+          "revision": "18446744073709551615"
         }
       }
     },
     {
-      "name": "attach-render-mode",
-      "adapter": {
-        "op": "stream",
-        "stream": "attach-render",
-        "surface": "7",
-        "events": 1,
-        "timeout_ms": 1000
-      },
-      "server": {
-        "behavior": "stream",
-        "after_ack": [
-          {"event": "detached", "surface": 7}
-        ]
-      },
+      "name": "creation-resolve-created-browser-path",
+      "adapter": {"op": "creation-resolve"},
+      "server": {"behavior": "creation-created-browser"},
       "expect": {
         "ok": true,
         "value": {
-          "events": [
-            {"event": "detached", "surface": "7"}
-          ],
-          "terminal": true
+          "correlation_key": "conformance-correlation-key",
+          "state": "created",
+          "recovery": "none",
+          "operation": "tab.create_browser",
+          "idempotency_key": "conformance-idempotency-key",
+          "created_path": {
+            "kind": "browser",
+            "workspace_id": "ws_33333333333333333333333333333333",
+            "screen_id": "screen_66666666666666666666666666666666",
+            "pane_id": "pane_77777777777777777777777777777777",
+            "tab_id": "tab_88888888888888888888888888888888",
+            "browser_id": "browser_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "generation": "generation-conformance",
+          "revision": "18446744073709551615"
         }
       }
     },
     {
-      "name": "attach-browser-mode",
-      "adapter": {
-        "op": "stream",
-        "stream": "attach-browser",
-        "surface": "8",
-        "events": 1,
-        "timeout_ms": 1000
-      },
-      "server": {
-        "behavior": "stream",
-        "after_ack": [
-          {"event": "browser-state", "surface": 8, "cols": 80, "rows": 24, "url": "https://example.test", "title": "Example", "status": "live", "error": null, "frames_stalled": false}
-        ]
-      },
+      "name": "creation-resolve-pending-means-wait",
+      "adapter": {"op": "creation-resolve"},
+      "server": {"behavior": "creation-pending"},
       "expect": {
         "ok": true,
         "value": {
-          "events": [
-            {"event": "browser-state", "surface": "8", "status": "live"}
-          ]
+          "correlation_key": "conformance-correlation-key",
+          "state": "pending",
+          "recovery": "wait",
+          "operation": "pane.run",
+          "idempotency_key": "conformance-idempotency-key"
         }
       }
     },
     {
-      "name": "control-authority",
-      "adapter": {
-        "op": "authority",
-        "authority": "control",
-        "timeout_ms": 1000
-      },
-      "server": {
-        "behavior": "authority"
-      },
-      "expect": {
-        "ok": true,
-        "value": {"command": "ping"}
-      }
-    },
-    {
-      "name": "frontend-authority",
-      "adapter": {
-        "op": "authority",
-        "authority": "frontend",
-        "timeout_ms": 1000
-      },
-      "server": {
-        "behavior": "authority"
-      },
-      "expect": {
-        "ok": true,
-        "value": {"command": "browser-back"}
-      }
-    },
-    {
-      "name": "local-admin-authority",
-      "adapter": {
-        "op": "authority",
-        "authority": "local-admin",
-        "timeout_ms": 1000
-      },
-      "server": {
-        "behavior": "authority"
-      },
-      "expect": {
-        "ok": true,
-        "value": {"command": "pairing-response"}
-      }
-    },
-    {
-      "name": "provider-authority",
-      "adapter": {
-        "op": "authority",
-        "authority": "provider-authority",
-        "timeout_ms": 1000
-      },
-      "server": {
-        "behavior": "authority"
-      },
-      "expect": {
-        "ok": true,
-        "value": {"command": "mark-workspaces-provider-managed"}
-      }
-    },
-    {
-      "name": "provider-authority-default-denied-no-write",
-      "adapter": {
-        "op": "authority-denied",
-        "timeout_ms": 1000
-      },
-      "server": {
-        "behavior": "no-write"
-      },
-      "expect": {
-        "ok": true,
-        "value": {"denied": true}
-      }
-    }
-  ],
-  "real_cases": [
-    {
-      "name": "headless-identify",
-      "adapter": {
-        "op": "identify",
-        "timeout_ms": 5000,
-        "max_frame_bytes": 16777216
-      },
+      "name": "creation-resolve-prepared-retries-same-key",
+      "adapter": {"op": "creation-resolve"},
+      "server": {"behavior": "creation-not-applied-same-key"},
       "expect": {
         "ok": true,
         "value": {
-          "app": "cmux-tui",
-          "protocol": 10
+          "correlation_key": "conformance-correlation-key",
+          "state": "not_applied",
+          "recovery": "retry_same_idempotency_key",
+          "operation": "pane.split",
+          "idempotency_key": "conformance-idempotency-key"
         }
       }
     },
     {
-      "name": "headless-ping",
-      "adapter": {
-        "op": "authority",
-        "authority": "control",
-        "timeout_ms": 5000
-      },
+      "name": "creation-resolve-absent-retries-new-key",
+      "adapter": {"op": "creation-resolve"},
+      "server": {"behavior": "creation-not-applied-new-key"},
       "expect": {
         "ok": true,
         "value": {
-          "command": "ping"
+          "correlation_key": "conformance-correlation-key",
+          "state": "not_applied",
+          "recovery": "retry_new_idempotency_key"
         }
       }
     },
     {
-      "name": "headless-lifecycle",
-      "adapter": {
-        "op": "real-flow",
-        "timeout_ms": 5000,
-        "max_frame_bytes": 16777216,
-        "marker": "cmux-sdk-conformance-marker",
-        "workspace_name": "sdk-conformance-workspace",
-        "renamed_name": "sdk-conformance-renamed"
-      },
+      "name": "creation-resolve-indeterminate-forbids-retry",
+      "adapter": {"op": "creation-resolve"},
+      "server": {"behavior": "creation-indeterminate"},
       "expect": {
         "ok": true,
         "value": {
-          "identified": true,
-          "workspace_created": true,
-          "terminal_created": true,
-          "marker_sent": true,
-          "wait_matched": true,
-          "read_contains_marker": true,
-          "stream_ordered": true,
-          "renamed": true,
-          "closed": true,
-          "disappeared": true
+          "correlation_key": "conformance-correlation-key",
+          "state": "indeterminate",
+          "recovery": "do_not_retry",
+          "operation": "screen.create",
+          "idempotency_key": "conformance-idempotency-key"
+        }
+      }
+    },
+    {
+      "name": "creation-correlation-conflict-is-structured",
+      "adapter": {"op": "creation-conflict"},
+      "server": {"behavior": "creation-conflict"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "code": "creation.conflict",
+          "message": "correlation key is already bound to different creation semantics",
+          "details": {
+            "correlation_key": "conformance-correlation-key",
+            "existing_operation": "workspace.run",
+            "requested_operation": "workspace.create",
+            "existing_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "requested_fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "retryable": false
+        }
+      }
+    },
+    {
+      "name": "terminal-wait-exit-timeout-is-pending",
+      "adapter": {"op": "terminal-wait-exit", "timeout_ms": "0"},
+      "server": {"behavior": "terminal-exit-pending"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "state": "pending",
+          "terminal_id": "term_99999999999999999999999999999999",
+          "lifecycle": "running",
+          "revision": "18446744073709551615"
+        }
+      }
+    },
+    {
+      "name": "terminal-wait-exit-preserves-code-17",
+      "adapter": {"op": "terminal-wait-exit", "timeout_ms": "5000"},
+      "server": {"behavior": "terminal-exit-code"},
+      "expect": {
+        "ok": true,
+        "value": {
+          "state": "exited",
+          "terminal_id": "term_99999999999999999999999999999999",
+          "lifecycle": "exited",
+          "outcome": {
+            "kind": "exit",
+            "code": 17
+          },
+          "exited_at": "18446744073709551613",
+          "revision": "18446744073709551614"
+        }
+      }
+    },
+    {
+      "name": "sensitive-values-redact",
+      "adapter": {"op": "redaction"},
+      "server": null,
+      "expect": {
+        "ok": true,
+        "value": {
+          "specifier_redacted": true,
+          "renderer_token_redacted": true
         }
       }
     }

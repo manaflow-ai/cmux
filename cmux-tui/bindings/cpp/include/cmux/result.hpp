@@ -11,6 +11,7 @@
 namespace cmux {
 
 class Json;
+struct MutationOutcomeUncertain;
 
 enum class ErrorCode {
     invalid_argument,
@@ -20,6 +21,9 @@ enum class ErrorCode {
     command,
     decode,
     closed,
+    canceled,
+    outcome_uncertain,
+    stream_local_overflow,
     unsupported,
     authority,
 };
@@ -28,6 +32,10 @@ struct Error {
     ErrorCode code = ErrorCode::protocol;
     std::string message;
     std::shared_ptr<const Json> response;
+    std::string protocol_code;
+    std::shared_ptr<const Json> details;
+    bool retryable = false;
+    std::shared_ptr<const MutationOutcomeUncertain> uncertain_mutation;
 
     [[nodiscard]] std::string code_name() const;
 };
@@ -134,7 +142,10 @@ private:
 };
 
 inline Error make_error(ErrorCode code, std::string message) {
-    return Error{code, std::move(message), {}};
+    Error error;
+    error.code = code;
+    error.message = std::move(message);
+    return error;
 }
 
 }  // namespace cmux

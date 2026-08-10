@@ -3,7 +3,7 @@ from __future__ import annotations
 import base64
 import unittest
 
-from cmux._generated.codec import decode_event
+from cmux.raw._generated.codec import decode_event
 
 
 class EventTests(unittest.TestCase):

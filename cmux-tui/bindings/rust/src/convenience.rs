@@ -1,9 +1,9 @@
-use crate::{
-    AttachSurfaceRequest, AttachSurfaceRequestMode, CmuxClient, CmuxStream, IdentifyRequest,
-    IdentifyResult, ListWorkspacesRequest, NewWorkspaceRequest, Optional, ReadScreenRequest,
-    ReadScreenResult, Result, SendRequest, SubscribeRequest, SubscribeRequestTreeEvents,
-    SurfaceResult, Tree,
+use crate::generated::{
+    AttachSurfaceRequest, AttachSurfaceRequestMode, IdentifyRequest, IdentifyResult,
+    ListWorkspacesRequest, NewWorkspaceRequest, ReadScreenRequest, ReadScreenResult, SendRequest,
+    SubscribeRequest, SubscribeRequestTreeEvents, SurfaceResult, Tree,
 };
+use crate::{CmuxClient, CmuxStream, Optional, Result};
 
 /// Handwritten builder for a typed subscribe stream.
 #[derive(Debug, Clone, Copy, Default)]

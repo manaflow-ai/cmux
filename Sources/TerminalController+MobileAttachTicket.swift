@@ -52,7 +52,7 @@ extension TerminalController {
             }
             let terminalPanel: TerminalPanel?
             if let surfaceId = resolved.surfaceId {
-                guard let panel = resolved.workspace.terminalPanel(for: surfaceId) else {
+                guard let panel = resolved.workspace.terminalInputTarget(forPanelID: surfaceId)?.panel else {
                     return .err(
                         code: "invalid_request",
                         message: "terminal_id does not reference a terminal",

@@ -16,6 +16,10 @@ TUI = ROOT / "cmux-tui"
 SPEC = TUI / "spec"
 BINDINGS = TUI / "bindings"
 SERVER = TUI / "crates/cmux-tui-core/src/server.rs"
+RUNTIME_NAMED_REQUEST_REFS = {
+    "ProtocolKeyInput": "TerminalKeyInput",
+    "crate::ResourceSelectors": "ResourceSelectors",
+}
 
 sys.path.insert(0, str(BINDINGS))
 
@@ -163,6 +167,15 @@ def runtime_command_fields() -> dict[str, dict[str, RuntimeField]]:
             commands[camel_to_kebab(unit.group(1))] = {}
             index += 1
             continue
+        boxed = re.fullmatch(
+            r"    ([A-Z][A-Za-z0-9]*)\(Box<([A-Z][A-Za-z0-9]*)>\),",
+            line,
+        )
+        if boxed:
+            variant, request_type = boxed.groups()
+            commands[camel_to_kebab(variant)] = _rust_struct_fields(source, request_type)
+            index += 1
+            continue
         structured = re.fullmatch(r"    ([A-Z][A-Za-z0-9]*) \{", line)
         if not structured:
             if line.strip() and not line.strip().startswith(("///", "//")):
@@ -238,6 +251,8 @@ def _runtime_type_shape(rust_type: str) -> str:
         if not separator or key != "String":
             fail(f"unsupported Rust map request type {rust_type!r}")
         return f"map<{_runtime_type_shape(value)}>"
+    if sdk_type := RUNTIME_NAMED_REQUEST_REFS.get(rust_type):
+        return f"ref<{sdk_type}>"
     scalars = {
         "String": "string",
         "bool": "boolean",
@@ -302,6 +317,8 @@ def _schema_type_shape(
         name = str(expression["name"])
         if name == "DeclarativeLayout":
             return "declarative-layout"
+        if name in RUNTIME_NAMED_REQUEST_REFS.values():
+            return f"ref<{name}>"
         if name in seen:
             fail(f"cyclic SDK type reference while checking Rust request field: {name}")
         target = types.get(name)

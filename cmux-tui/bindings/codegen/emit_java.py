@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 import re
+import xml.etree.ElementTree as ET
 from collections.abc import Mapping
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from codegen.ir import SdkIR, mutable_document
@@ -25,10 +26,32 @@ _JAVA_RESERVED = {
 }
 
 _HEADER = """// Generated from cmux-tui/spec/sdk-schema.json. DO NOT EDIT.
-package com.cmux.generated;
+package com.cmux.raw;
 
 """
-_SDK_VERSION = "0.4.0"
+_JAVA_PACKAGE_MANIFEST = (
+    Path(__file__).resolve().parents[1] / "java" / "pom.xml"
+)
+_SDK_VERSION_PATTERN = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
+
+
+def _read_sdk_version(manifest: Path) -> str:
+    try:
+        root = ET.parse(manifest).getroot()
+    except (OSError, ET.ParseError) as error:
+        raise ValueError(
+            f"cannot read Java package version from {manifest}: {error}"
+        ) from error
+    namespace = ""
+    if root.tag.startswith("{") and "}" in root.tag:
+        namespace = root.tag[1:].split("}", 1)[0]
+    version_tag = f"{{{namespace}}}version" if namespace else "version"
+    version = root.findtext(version_tag)
+    if version is None or not _SDK_VERSION_PATTERN.fullmatch(version.strip()):
+        raise ValueError(
+            f"Java package manifest {manifest} must define an X.Y.Z project version"
+        )
+    return version.strip()
 
 
 def _words(value: str) -> list[str]:
@@ -152,8 +175,9 @@ class Registry:
 
 
 class JavaEmitter:
-    def __init__(self, ir: SdkIR):
+    def __init__(self, ir: SdkIR, sdk_version: str):
         self.ir = ir
+        self.sdk_version = sdk_version
         self.document = mutable_document(ir)
         self.registry = Registry()
         self.request_exprs: dict[str, Mapping[str, Any]] = {}
@@ -317,12 +341,6 @@ class JavaEmitter:
 
     def _imports(self, expr: Mapping[str, Any], extra: tuple[str, ...] = ()) -> str:
         imports = {
-            "com.cmux.Bytes",
-            "com.cmux.Field",
-            "com.cmux.UInt64",
-            "com.cmux.Wire",
-            "com.cmux.WireEnum",
-            "com.cmux.WireValue",
             "java.util.ArrayList",
             "java.util.Collections",
             "java.util.LinkedHashMap",
@@ -340,8 +358,6 @@ class JavaEmitter:
         body = ",\n".join(constants) + ";\n"
         return (
             _HEADER
-            + "import com.cmux.CmuxDecodeException;\n"
-            + "import com.cmux.WireEnum;\n"
             + "import java.util.Objects;\n\n"
             + f"public enum {name} implements WireEnum {{\n"
             + body
@@ -708,9 +724,6 @@ class JavaEmitter:
     def _render_tagged_union(self, name: str, expr: Mapping[str, Any]) -> str:
         lines = [
             _HEADER,
-            "import com.cmux.CmuxDecodeException;\n"
-            "import com.cmux.Wire;\n"
-            "import com.cmux.WireValue;\n"
             "import java.util.Map;\n\n",
             f"public interface {name} extends WireValue {{",
             f"    static {name} fromWire(Object value) {{",
@@ -754,9 +767,6 @@ class JavaEmitter:
             variants.append((label, self._type(variant, boxed=True), variant))
         lines = [
             _HEADER,
-            "import com.cmux.CmuxDecodeException;\n"
-            "import com.cmux.Wire;\n"
-            "import com.cmux.WireValue;\n"
             "import java.util.Objects;\n\n",
             f"public final class {name} implements WireValue {{",
             "    public enum Kind { "
@@ -864,7 +874,6 @@ class JavaEmitter:
             )
         return (
             _HEADER
-            + "import com.cmux.WireEnum;\n\n"
             + "public enum Authority implements WireEnum {\n"
             + ",\n".join(constants)
             + ";\n\n"
@@ -1028,11 +1037,9 @@ class JavaEmitter:
     def _protocol_source(self) -> str:
         lines = [
             _HEADER,
-            "import com.cmux.CmuxDecodeException;\n"
-            "import com.cmux.Wire;\n"
             "import java.util.Map;\n\n",
             "public final class Protocol {",
-            f"    public static final String SDK_VERSION = {_java_string(_SDK_VERSION)};",
+            f"    public static final String SDK_VERSION = {_java_string(self.sdk_version)};",
             f"    public static final int VERSION = {self.ir.mux_protocol};",
             f"    public static final int SCHEMA_VERSION = {self.ir.schema_version};",
             f"    public static final String IR_SHA256 = {_java_string(self.ir.ir_sha256)};",
@@ -1062,7 +1069,6 @@ class JavaEmitter:
     def _protocol_support_source() -> str:
         return (
             _HEADER
-            + "import com.cmux.CmuxDecodeException;\n"
             + "import java.math.BigDecimal;\n"
             + "import java.math.BigInteger;\n"
             + "import java.util.Objects;\n\n"
@@ -1083,7 +1089,6 @@ class JavaEmitter:
     def _unknown_event_source() -> str:
         return (
             _HEADER
-            + "import com.cmux.Wire;\n"
             + "import java.util.Collections;\n"
             + "import java.util.LinkedHashMap;\n"
             + "import java.util.Map;\n\n"
@@ -1110,9 +1115,6 @@ class JavaEmitter:
     def _client_source(self) -> str:
         lines = [
             _HEADER,
-            "import com.cmux.CmuxException;\n"
-            "import com.cmux.CmuxStream;\n"
-            "import com.cmux.Wire;\n"
             "import java.util.List;\n"
             "import java.util.Map;\n\n",
             "/** Canonical typed method surface for every implemented protocol command. */",
@@ -1157,12 +1159,16 @@ def java_name_for(wire_name: str) -> str:
     return _camel(wire_name)
 
 
-def emit(ir: SdkIR) -> Mapping[str | PurePosixPath, str | bytes]:
-    return JavaEmitter(ir).render()
+def emit(
+    ir: SdkIR,
+    *,
+    version_manifest: Path = _JAVA_PACKAGE_MANIFEST,
+) -> Mapping[str | PurePosixPath, str | bytes]:
+    return JavaEmitter(ir, _read_sdk_version(version_manifest)).render()
 
 
 EMITTER = Emitter(
     language="java",
-    output_root=PurePosixPath("java/src/com/cmux/generated"),
+    output_root=PurePosixPath("java/src/com/cmux/raw"),
     render=emit,
 )

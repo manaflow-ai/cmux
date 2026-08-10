@@ -1,169 +1,303 @@
 const std = @import("std");
 
-pub const wire = @import("wire.zig");
-pub const transport = @import("transport.zig");
-pub const client = @import("client.zig");
-pub const capabilities = @import("capabilities.zig");
-pub const provider = @import("provider.zig");
-pub const protocol = @import("generated/protocol.zig");
+pub const raw = @import("raw.zig");
+pub const resource = @import("resource.zig");
 
-pub const Client = client.Client;
-pub const AuthorityPolicy = client.AuthorityPolicy;
-pub const CommandRequirements = client.CommandRequirements;
-pub const FieldRequirement = client.FieldRequirement;
-pub const UncheckedCommand = client.UncheckedCommand;
-pub const OwnedRemoteError = client.OwnedRemoteError;
-pub const Connection = transport.Connection;
-pub const Options = client.Options;
-pub const Limits = wire.Limits;
-pub const Stream = client.Stream;
-pub const Value = wire.Value;
-pub const Field = wire.Field;
-pub const Nullable = wire.Nullable;
-pub const Map = wire.Map;
-pub const decodeBase64Alloc = wire.decodeBase64Alloc;
-pub const encodeBase64Alloc = wire.encodeBase64Alloc;
-pub const eventWireName = protocol.eventWireName;
-pub const hasCapability = capabilities.hasCapability;
-pub const requireCapability = capabilities.requireCapability;
-pub const ProviderClient = provider.ProviderClient;
-pub const ProviderOptions = provider.Options;
-pub const ProviderSnapshot = provider.Snapshot;
-pub const ProviderWorkspace = provider.Workspace;
-pub const ProviderMutation = provider.Mutation;
-pub const ProviderCreateWorkspaceOptions = provider.CreateWorkspaceOptions;
-pub const ProviderRenameWorkspaceOptions = provider.RenameWorkspaceOptions;
-pub const ProviderCloseWorkspaceOptions = provider.CloseWorkspaceOptions;
+pub const Operation = resource.Operation;
+pub const OperationClass = resource.OperationClass;
+pub const Client = resource.Client;
+pub const Options = resource.Options;
+pub const MutationOptions = resource.MutationOptions;
+pub const ExactCommand = resource.ExactCommand;
+pub const ShellCommand = resource.ShellCommand;
+pub const RunCommand = resource.RunCommand;
+pub const RunOptions = resource.RunOptions;
+pub const TerminalHistoryOptions = resource.TerminalHistoryOptions;
+pub const CreateTerminalTabOptions = resource.CreateTerminalTabOptions;
+pub const CreateBrowserTabOptions = resource.CreateBrowserTabOptions;
+pub const InitialContent = resource.InitialContent;
+pub const CreateWorkspaceOptions = resource.CreateWorkspaceOptions;
+pub const UndoLayoutOptions = resource.UndoLayoutOptions;
+pub const ClientMetadataUpdate = resource.ClientMetadataUpdate;
+pub const OptionalStringUpdate = resource.OptionalStringUpdate;
+pub const Cursor = resource.Cursor;
+pub const CreatedPath = resource.CreatedPath;
+pub const CreatedWorkspaceOnly = resource.CreatedWorkspaceOnly;
+pub const CreatedTerminalPath = resource.CreatedTerminalPath;
+pub const CreatedBrowserPath = resource.CreatedBrowserPath;
+pub const ResourceError = resource.ResourceError;
+pub const OwnedResourceError = resource.OwnedResourceError;
+pub const MutationTransportCause = resource.MutationTransportCause;
+pub const MutationTransportUncertain =
+    resource.MutationTransportUncertain;
+pub const OwnedMutationTransportUncertain =
+    resource.OwnedMutationTransportUncertain;
+pub const ResourceErrorDetails = resource.ResourceErrorDetails;
+pub const ErrorResourceScope = resource.ErrorResourceScope;
+pub const ErrorResourceId = resource.ErrorResourceId;
+pub const MutationRecovery = resource.MutationRecovery;
+pub const ConfirmationRequiredDetails =
+    resource.ConfirmationRequiredDetails;
+pub const CreationConflictDetails = resource.CreationConflictDetails;
+pub const CursorGapDetails = resource.CursorGapDetails;
+pub const CursorInvalidDetails = resource.CursorInvalidDetails;
+pub const IdempotencyConflictDetails =
+    resource.IdempotencyConflictDetails;
+pub const LocalIoDetails = resource.LocalIoDetails;
+pub const MutationIndeterminateDetails =
+    resource.MutationIndeterminateDetails;
+pub const OperationFailedDetails = resource.OperationFailedDetails;
+pub const ResourceNotFoundDetails = resource.ResourceNotFoundDetails;
+pub const RevisionConflictDetails = resource.RevisionConflictDetails;
+pub const SelectorAmbiguousDetails = resource.SelectorAmbiguousDetails;
+pub const SelectorInvalidDetails = resource.SelectorInvalidDetails;
+pub const SelectorNotFoundDetails = resource.SelectorNotFoundDetails;
+pub const SelectorWrongParentDetails =
+    resource.SelectorWrongParentDetails;
+pub const TransportClosedDetails = resource.TransportClosedDetails;
+pub const ValidationInvalidDetails = resource.ValidationInvalidDetails;
+pub const UnrecognizedResourceErrorDetails =
+    resource.UnrecognizedResourceErrorDetails;
+pub const MalformedResourceErrorDetails =
+    resource.MalformedResourceErrorDetails;
+pub const SensitiveString = resource.SensitiveString;
+pub const RendererGrant = resource.RendererGrant;
+pub const RendererGrantOptions = resource.RendererGrantOptions;
+pub const MachineId = resource.MachineId;
+pub const SessionId = resource.SessionId;
+pub const WorkspaceId = resource.WorkspaceId;
+pub const ScreenId = resource.ScreenId;
+pub const PaneId = resource.PaneId;
+pub const TabId = resource.TabId;
+pub const TerminalId = resource.TerminalId;
+pub const BrowserId = resource.BrowserId;
+pub const ConnectedClientId = resource.ConnectedClientId;
+pub const SplitId = resource.SplitId;
+pub const NotificationId = resource.NotificationId;
+pub const AgentId = resource.AgentId;
+pub const StreamId = resource.StreamId;
+pub const FrontendProjectionId = resource.FrontendProjectionId;
+pub const PairingRequestId = resource.PairingRequestId;
+pub const SidebarViewId = resource.SidebarViewId;
+pub const SidebarPluginId = resource.SidebarPluginId;
+pub const Selector = resource.Selector;
+pub const ResourceSnapshot = resource.ResourceSnapshot;
+pub const MachineOrigin = resource.MachineOrigin;
+pub const MachineStatus = resource.MachineStatus;
+pub const MachineSnapshot = resource.MachineSnapshot;
+pub const SessionSnapshot = resource.SessionSnapshot;
+pub const WorkspaceSnapshot = resource.WorkspaceSnapshot;
+pub const ClientTransport = resource.ClientTransport;
+pub const ClientTerminalSize = resource.ClientTerminalSize;
+pub const ClientSnapshot = resource.ClientSnapshot;
+pub const BrowserSource = resource.BrowserSource;
+pub const BrowserStatus = resource.BrowserStatus;
+pub const BrowserSnapshot = resource.BrowserSnapshot;
+pub const PixelSize = resource.PixelSize;
+pub const BrowserViewerResizeResult =
+    resource.BrowserViewerResizeResult;
+pub const CellPixelFailure = resource.CellPixelFailure;
+pub const CellPixelsResult = resource.CellPixelsResult;
+pub const LayoutDirection = resource.LayoutDirection;
+pub const LayoutLeaf = resource.LayoutLeaf;
+pub const LayoutSplit = resource.LayoutSplit;
+pub const LayoutStack = resource.LayoutStack;
+pub const LayoutColumn = resource.LayoutColumn;
+pub const LayoutViewport = resource.LayoutViewport;
+pub const UnknownLayoutNode = resource.UnknownLayoutNode;
+pub const LayoutNode = resource.LayoutNode;
+pub const LayoutDocument = resource.LayoutDocument;
+pub const ScreenSnapshot = resource.ScreenSnapshot;
+pub const PaneSnapshot = resource.PaneSnapshot;
+pub const TabContentKind = resource.TabContentKind;
+pub const TabContentId = resource.TabContentId;
+pub const TabSnapshot = resource.TabSnapshot;
+pub const EmptyResult = resource.EmptyResult;
+pub const PingResult = resource.PingResult;
+pub const RenderUnderline = resource.RenderUnderline;
+pub const RenderRun = resource.RenderRun;
+pub const RenderRow = resource.RenderRow;
+pub const TerminalScreenResult = resource.TerminalScreenResult;
+pub const TerminalStateResult = resource.TerminalStateResult;
+pub const TerminalHistoryResult = resource.TerminalHistoryResult;
+pub const TerminalWaitResult = resource.TerminalWaitResult;
+pub const TerminalCopyMode = resource.TerminalCopyMode;
+pub const TerminalCopyResult = resource.TerminalCopyResult;
+pub const ProcessInfoResult = resource.ProcessInfoResult;
+pub const Size = resource.Size;
+pub const ViewerResizeResult = resource.ViewerResizeResult;
+pub const OwnedMachineSnapshot = resource.OwnedMachineSnapshot;
+pub const OwnedSessionSnapshot = resource.OwnedSessionSnapshot;
+pub const OwnedWorkspaceSnapshot = resource.OwnedWorkspaceSnapshot;
+pub const OwnedClientSnapshot = resource.OwnedClientSnapshot;
+pub const OwnedBrowserSnapshot = resource.OwnedBrowserSnapshot;
+pub const OwnedScreenSnapshot = resource.OwnedScreenSnapshot;
+pub const OwnedPaneSnapshot = resource.OwnedPaneSnapshot;
+pub const OwnedTabSnapshot = resource.OwnedTabSnapshot;
+pub const OwnedPingResult = resource.OwnedPingResult;
+pub const OwnedEmptyResult = resource.OwnedEmptyResult;
+pub const OwnedTerminalScreenResult =
+    resource.OwnedTerminalScreenResult;
+pub const OwnedTerminalStateResult =
+    resource.OwnedTerminalStateResult;
+pub const OwnedTerminalHistoryResult =
+    resource.OwnedTerminalHistoryResult;
+pub const OwnedTerminalWaitResult = resource.OwnedTerminalWaitResult;
+pub const OwnedTerminalCopyResult = resource.OwnedTerminalCopyResult;
+pub const OwnedProcessInfoResult = resource.OwnedProcessInfoResult;
+pub const OwnedViewerResizeResult = resource.OwnedViewerResizeResult;
+pub const OwnedBrowserViewerResizeResult =
+    resource.OwnedBrowserViewerResizeResult;
+pub const OwnedCellPixelsResult = resource.OwnedCellPixelsResult;
+pub const MachineList = resource.MachineList;
+pub const SessionList = resource.SessionList;
+pub const WorkspaceList = resource.WorkspaceList;
+pub const WorkspaceMutationResult = resource.WorkspaceMutationResult;
+pub const BrowserMutationResult = resource.BrowserMutationResult;
+pub const ScreenMutationResult = resource.ScreenMutationResult;
+pub const PaneMutationResult = resource.PaneMutationResult;
+pub const TabMutationResult = resource.TabMutationResult;
+pub const CreatedPathMutationResult =
+    resource.CreatedPathMutationResult;
+pub const CreatedTerminalPathMutationResult =
+    resource.CreatedTerminalPathMutationResult;
+pub const CreatedBrowserPathMutationResult =
+    resource.CreatedBrowserPathMutationResult;
+pub const EmptyMutationResult = resource.EmptyMutationResult;
+pub const Machine = resource.Machine;
+pub const Session = resource.Session;
+pub const Workspace = resource.Workspace;
+pub const Screen = resource.Screen;
+pub const Pane = resource.Pane;
+pub const Tab = resource.Tab;
+pub const Terminal = resource.Terminal;
+pub const Browser = resource.Browser;
+pub const ConnectedClient = resource.ConnectedClient;
+pub const PairingRequest = resource.PairingRequest;
+pub const FrontendProjection = resource.FrontendProjection;
+pub const SidebarView = resource.SidebarView;
+pub const ResetReason = resource.ResetReason;
+pub const ResourceKind = resource.ResourceKind;
+pub const ResourceReference = resource.ResourceReference;
+pub const ResourceUpsert = resource.ResourceUpsert;
+pub const ResourceDelete = resource.ResourceDelete;
+pub const ResourceChange = resource.ResourceChange;
+pub const UnknownDiscriminated = resource.UnknownDiscriminated;
+pub const SessionSnapshotEvent = resource.SessionSnapshotEvent;
+pub const SessionDeltaEvent = resource.SessionDeltaEvent;
+pub const SessionEvent = resource.SessionEvent;
+pub const TerminalAttachmentItem = resource.TerminalAttachmentItem;
+pub const BrowserAttachmentItem = resource.BrowserAttachmentItem;
+pub const SidebarViewItem = resource.SidebarViewItem;
+pub const StreamEnd = resource.StreamEnd;
+pub const StreamEndReason = resource.StreamEndReason;
+pub const SessionEventStream = resource.SessionEventStream;
+pub const TerminalAttachmentStream = resource.TerminalAttachmentStream;
+pub const BrowserAttachmentStream = resource.BrowserAttachmentStream;
+pub const SidebarViewStream = resource.SidebarViewStream;
+pub const ConnectionFactory = resource.ConnectionFactory;
+pub const ResourceEntitySnapshot = resource.ResourceEntitySnapshot;
+pub const RenderCursorStyle = resource.RenderCursorStyle;
+pub const RenderCursor = resource.RenderCursor;
+pub const RenderSnapshot = resource.RenderSnapshot;
+pub const RenderPatch = resource.RenderPatch;
+pub const RenderScroll = resource.RenderScroll;
+pub const BrowserFrameMime = resource.BrowserFrameMime;
+pub const CreateScreenOptions = resource.CreateScreenOptions;
+pub const CreatePaneOptions = resource.CreatePaneOptions;
+pub const Direction = resource.Direction;
+pub const SplitOptions = resource.SplitOptions;
+pub const MoveDestination = resource.MoveDestination;
+pub const TerminalProjectOptions = resource.TerminalProjectOptions;
+pub const TerminalMouseKind = resource.TerminalMouseKind;
+pub const BrowserKeyKind = resource.BrowserKeyKind;
+pub const BrowserMouseKind = resource.BrowserMouseKind;
+pub const InputModifier = resource.InputModifier;
+pub const TerminalMouseOptions = resource.TerminalMouseOptions;
+pub const BrowserKeyOptions = resource.BrowserKeyOptions;
+pub const BrowserMouseOptions = resource.BrowserMouseOptions;
+pub const BrowserWheelOptions = resource.BrowserWheelOptions;
+pub const TerminalAttachOptions = resource.TerminalAttachOptions;
+pub const BrowserAttachOptions = resource.BrowserAttachOptions;
+pub const NotificationListOptions = resource.NotificationListOptions;
+pub const NotificationCreateOptions = resource.NotificationCreateOptions;
+pub const AgentListOptions = resource.AgentListOptions;
+pub const AgentReportOptions = resource.AgentReportOptions;
+pub const SidebarEnsureOptions = resource.SidebarEnsureOptions;
+pub const RendererGrantRequest = resource.RendererGrantRequest;
+pub const TerminalDefaultsUpdate = resource.TerminalDefaultsUpdate;
+pub const CursorStyle = resource.CursorStyle;
+pub const OptionalCursorStyleUpdate =
+    resource.OptionalCursorStyleUpdate;
+pub const OptionalBoolUpdate = resource.OptionalBoolUpdate;
+pub const OptionalPaletteUpdate = resource.OptionalPaletteUpdate;
+pub const TerminalExitOutcome = resource.TerminalExitOutcome;
+pub const TerminalExit = resource.TerminalExit;
+pub const TerminalLifecycle = resource.TerminalLifecycle;
+pub const TerminalSnapshot = resource.TerminalSnapshot;
+pub const NotificationLevel = resource.NotificationLevel;
+pub const NotificationSnapshot = resource.NotificationSnapshot;
+pub const AgentState = resource.AgentState;
+pub const AgentSource = resource.AgentSource;
+pub const AgentSnapshot = resource.AgentSnapshot;
+pub const PairingStatus = resource.PairingStatus;
+pub const PairingDecision = resource.PairingDecision;
+pub const PairingRequestSnapshot = resource.PairingRequestSnapshot;
+pub const PairingResolutionResult = resource.PairingResolutionResult;
+pub const FrontendProjectionSnapshot =
+    resource.FrontendProjectionSnapshot;
+pub const SidebarViewSnapshot = resource.SidebarViewSnapshot;
+pub const CreationState = resource.CreationState;
+pub const CreationRecovery = resource.CreationRecovery;
+pub const CreationResolution = resource.CreationResolution;
+pub const TerminalWaitExitPending = resource.TerminalWaitExitPending;
+pub const TerminalWaitExitExited = resource.TerminalWaitExitExited;
+pub const TerminalWaitExitResult = resource.TerminalWaitExitResult;
+pub const PaneNeighborResult = resource.PaneNeighborResult;
+pub const ShutdownResult = resource.ShutdownResult;
+pub const ReloadConfigResult = resource.ReloadConfigResult;
+pub const TerminalDefaultsSnapshot = resource.TerminalDefaultsSnapshot;
+pub const OwnedTerminalSnapshot = resource.OwnedTerminalSnapshot;
+pub const OwnedTerminalWaitExitResult =
+    resource.OwnedTerminalWaitExitResult;
+pub const OwnedPaneNeighborResult = resource.OwnedPaneNeighborResult;
+pub const OwnedCreationResolution = resource.OwnedCreationResolution;
+pub const OwnedResourceSnapshot = resource.OwnedResourceSnapshot;
+pub const OwnedReloadConfigResult = resource.OwnedReloadConfigResult;
+pub const OwnedLayoutDocument = resource.OwnedLayoutDocument;
+pub const OwnedFrontendProjectionSnapshot =
+    resource.OwnedFrontendProjectionSnapshot;
+pub const OwnedSidebarViewSnapshot =
+    resource.OwnedSidebarViewSnapshot;
+pub const OwnedPairingResolutionResult =
+    resource.OwnedPairingResolutionResult;
+pub const ScreenList = resource.ScreenList;
+pub const PaneList = resource.PaneList;
+pub const TabList = resource.TabList;
+pub const TerminalList = resource.TerminalList;
+pub const BrowserList = resource.BrowserList;
+pub const ClientList = resource.ClientList;
+pub const NotificationList = resource.NotificationList;
+pub const AgentList = resource.AgentList;
+pub const PairingRequestList = resource.PairingRequestList;
+pub const SessionMutationResult = resource.SessionMutationResult;
+pub const TerminalMutationResult = resource.TerminalMutationResult;
+pub const NotificationMutationResult =
+    resource.NotificationMutationResult;
+pub const AgentMutationResult = resource.AgentMutationResult;
+pub const PairingResolutionMutationResult =
+    resource.PairingResolutionMutationResult;
+pub const FrontendProjectionMutationResult =
+    resource.FrontendProjectionMutationResult;
+pub const SidebarViewMutationResult =
+    resource.SidebarViewMutationResult;
+pub const ShutdownMutationResult = resource.ShutdownMutationResult;
+pub const ReloadConfigMutationResult =
+    resource.ReloadConfigMutationResult;
+pub const TerminalDefaultsMutationResult =
+    resource.TerminalDefaultsMutationResult;
 
 test {
-    std.testing.refAllDecls(capabilities);
-    std.testing.refAllDecls(provider);
-    _ = @import("authority_test.zig");
-    _ = @import("provider_test.zig");
-    _ = @import("stream_client_test.zig");
-    _ = @import("wire_presence_test.zig");
-    _ = @import("generated/presence_test.zig");
-    std.testing.refAllDecls(protocol);
-    try std.testing.expectEqual(@as(usize, 83), protocol.command_count);
-    try std.testing.expectEqual(@as(usize, 44), protocol.event_count);
-}
-
-test "unknown generated event preserves raw JSON" {
-    var parsed = try wire.parse(
-        std.testing.allocator,
-        "{\"event\":\"future-event\",\"id\":18446744073709551615}",
-        .{},
-    );
-    defer parsed.deinit();
-    var event = try protocol.decodeEvent(std.testing.allocator, parsed.value);
-    defer event.deinit();
-    try std.testing.expectEqualStrings(
-        "future-event",
-        protocol.eventWireName(event.value),
-    );
-    switch (event.value) {
-        .unknown => |unknown| {
-            try std.testing.expectEqualStrings("future-event", unknown.name);
-            try std.testing.expectEqual(
-                std.math.maxInt(u64),
-                try wire.decodeLeaky(
-                    u64,
-                    std.testing.allocator,
-                    unknown.raw.object.get("id").?,
-                ),
-            );
-        },
-        else => return error.ExpectedUnknownEvent,
-    }
-}
-
-test "known event exposes its exact wire name" {
-    var parsed = try wire.parse(
-        std.testing.allocator,
-        "{\"event\":\"empty\"}",
-        .{},
-    );
-    defer parsed.deinit();
-    var event = try protocol.decodeEvent(std.testing.allocator, parsed.value);
-    defer event.deinit();
-    try std.testing.expectEqualStrings(
-        "empty",
-        protocol.eventWireName(event.value),
-    );
-}
-
-test "generated recursive layout union round trips" {
-    const left = protocol.Layout{ .leaf = .{ .pane = 1 } };
-    const right = protocol.Layout{ .leaf = .{ .pane = 2 } };
-    const layout = protocol.Layout{ .split = .{
-        .a = &left,
-        .b = &right,
-        .dir = .right,
-        .ratio = 0.5,
-    } };
-    var encoded = try wire.encode(std.testing.allocator, layout);
-    defer encoded.deinit();
-    try std.testing.expectEqualStrings(
-        "split",
-        try wire.objectString(encoded.value, "type"),
-    );
-    var decoded = try wire.decode(
-        protocol.Layout,
-        std.testing.allocator,
-        encoded.value,
-    );
-    defer decoded.deinit();
-    switch (decoded.value) {
-        .split => |split| {
-            try std.testing.expectEqual(protocol.SplitDirection.right, split.dir);
-            try std.testing.expectApproxEqAbs(@as(f32, 0.5), split.ratio, 0.001);
-            try std.testing.expectEqual(@as(u64, 1), split.a.leaf.pane);
-            try std.testing.expectEqual(@as(u64, 2), split.b.leaf.pane);
-        },
-        else => return error.ExpectedSplit,
-    }
-}
-
-test "generated untagged pane and typed map decode" {
-    var pane_json = try wire.parse(
-        std.testing.allocator,
-        "{\"id\":7,\"dead\":true}",
-        .{},
-    );
-    defer pane_json.deinit();
-    var pane = try wire.decode(
-        protocol.Pane,
-        std.testing.allocator,
-        pane_json.value,
-    );
-    defer pane.deinit();
-    try std.testing.expectEqual(@as(u64, 7), pane.value.dead.id);
-
-    var colors_json = try wire.parse(
-        std.testing.allocator,
-        "{\"fg\":null,\"bg\":null,\"selection_bg\":null," ++
-            "\"selection_fg\":null,\"palette\":{\"0\":\"#000000\",\"255\":\"#ffffff\"}}",
-        .{},
-    );
-    defer colors_json.deinit();
-    var colors = try wire.decode(
-        protocol.TerminalColors,
-        std.testing.allocator,
-        colors_json.value,
-    );
-    defer colors.deinit();
-    const palette = colors.value.palette orelse return error.ExpectedPalette;
-    try std.testing.expectEqualStrings("#000000", palette.get("0").?);
-    try std.testing.expectEqualStrings("#ffffff", palette.get("255").?);
-}
-
-test "attach request exposes explicit protocol modes as a generated enum" {
-    try std.testing.expectEqualStrings(
-        "bytes",
-        protocol.AttachSurfaceRequestMode.bytes.toWire(),
-    );
-    try std.testing.expectEqualStrings(
-        "render",
-        protocol.AttachSurfaceRequestMode.render.toWire(),
-    );
+    std.testing.refAllDecls(resource);
+    std.testing.refAllDecls(raw);
 }

@@ -54,7 +54,7 @@ try {
   const runtimeType = execFileSync(process.execPath, [
     "--input-type=module",
     "--eval",
-    "import('cmux/browser').then(({ CmuxClient }) => process.stdout.write(typeof CmuxClient))",
+    "import('cmux-sdk/browser').then(({ Client }) => process.stdout.write(typeof Client))",
   ], {
     cwd: scratchProject,
     encoding: "utf8",

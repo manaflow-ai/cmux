@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the protocol-10 SDK conformance suite through language adapters."""
+"""Cross-language conformance for the handwritten cmux resource SDKs."""
 
 from __future__ import annotations
 
@@ -7,7 +7,8 @@ import argparse
 import dataclasses
 import json
 import os
-import selectors
+import re
+import secrets
 import shutil
 import socket
 import subprocess
@@ -24,10 +25,78 @@ BINDINGS = HERE.parent
 MUX_DIR = BINDINGS.parent
 ROOT = MUX_DIR.parent
 FIXTURES = HERE / "fixtures.json"
-SDK_SCHEMA = MUX_DIR / "spec" / "sdk-schema.json"
-BUILD = HERE / ".build"
+CATALOG = MUX_DIR / "spec" / "resource-operations-v2.json"
+BUILD = HERE / ".build" / "resource-v2"
 LANGUAGES = ("python", "typescript", "rust", "go", "java", "cpp", "zig")
-UINT64_MAX = 18_446_744_073_709_551_615
+PROTOCOL = "cmux.protocol/2"
+TRANSPORTED_OPERATION_COUNT = 113
+MAX_REQUEST_BYTES = 4 * 1024 * 1024
+MAX_STREAM_MESSAGES = 256
+MAX_STREAM_BYTES = 16 * 1024 * 1024
+OPAQUE_STREAM = re.compile(r"^stream_[0-9a-f]{32}$")
+OPAQUE_WORKSPACE = re.compile(r"^ws_[0-9a-f]{32}$")
+OPAQUE_SCREEN = re.compile(r"^screen_[0-9a-f]{32}$")
+OPAQUE_PANE = re.compile(r"^pane_[0-9a-f]{32}$")
+OPAQUE_TAB = re.compile(r"^tab_[0-9a-f]{32}$")
+OPAQUE_TERMINAL = re.compile(r"^term_[0-9a-f]{32}$")
+UNSIGNED_DECIMAL = re.compile(r"^(0|[1-9][0-9]*)$")
+LIVE_SETUP_FIELDS = frozenset(
+    {
+        "pinged",
+        "stable_id",
+        "stable_renamed",
+        "duplicate_ids",
+        "ambiguity_code",
+        "ambiguity_preserved_all_candidates",
+        "no_mutation",
+    }
+)
+LIVE_RESTART_FIELDS = frozenset(
+    {
+        "same_ids",
+        "stable_name_preserved",
+        "duplicates_preserved",
+        "closed",
+        "disappeared",
+    }
+)
+LIVE_CREATION_EXIT_FIELDS = frozenset(
+    {
+        "correlation_key",
+        "created_path",
+        "pending_terminal_id",
+        "pending_state",
+        "pending_lifecycle",
+        "creation_state",
+        "creation_recovery",
+        "creation_generation",
+        "creation_revision",
+        "exit_state",
+        "exit_terminal_id",
+        "exit_lifecycle",
+        "exit_kind",
+        "exit_code",
+        "exited_at",
+        "exit_revision",
+    }
+)
+LIVE_EXIT_RESTART_FIELDS = frozenset(
+    {
+        "correlation_key",
+        "created_path",
+        "creation_state",
+        "creation_recovery",
+        "creation_generation",
+        "creation_revision",
+        "exit_state",
+        "exit_terminal_id",
+        "exit_lifecycle",
+        "exit_kind",
+        "exit_code",
+        "exited_at",
+        "exit_revision",
+    }
+)
 
 
 class ConformanceFailure(Exception):
@@ -53,6 +122,16 @@ class CaseResult:
     name: str
     status: str
     detail: str = ""
+
+
+@dataclasses.dataclass(frozen=True)
+class LiveCreationEvidence:
+    created_path: dict[str, str]
+    correlation_key: str
+    creation_generation: str
+    creation_revision: str
+    exited_at: str
+    exit_revision: str
 
 
 def adapter_specs() -> dict[str, AdapterSpec]:
@@ -87,7 +166,7 @@ def adapter_specs() -> dict[str, AdapterSpec]:
                     str(BUILD / "rust"),
                 ),
             ),
-            (str(BUILD / "rust" / "debug" / "cmux-conformance-rust"),),
+            (str(BUILD / "rust" / "debug" / "cmux-resource-conformance-rust"),),
             ROOT,
         ),
         "go": AdapterSpec(
@@ -98,11 +177,11 @@ def adapter_specs() -> dict[str, AdapterSpec]:
                     "go",
                     "build",
                     "-o",
-                    str(BUILD / "go" / "cmux-conformance-go"),
+                    str(BUILD / "go" / "cmux-resource-conformance-go"),
                     str(adapters / "go" / "main.go"),
                 ),
             ),
-            (str(BUILD / "go" / "cmux-conformance-go"),),
+            (str(BUILD / "go" / "cmux-resource-conformance-go"),),
             BINDINGS / "go",
         ),
         "java": AdapterSpec(
@@ -111,9 +190,11 @@ def adapter_specs() -> dict[str, AdapterSpec]:
             (("bash", str(adapters / "java" / "build.sh"), str(BUILD / "java")),),
             (
                 "java",
+                "-Xms16m",
+                "-Xmx192m",
                 "-cp",
                 str(BUILD / "java"),
-                "com.cmux.conformance.Adapter",
+                "com.cmux.conformance.ResourceAdapter",
             ),
             ROOT,
         ),
@@ -128,14 +209,9 @@ def adapter_specs() -> dict[str, AdapterSpec]:
                     "-B",
                     str(BUILD / "cpp"),
                 ),
-                (
-                    "cmake",
-                    "--build",
-                    str(BUILD / "cpp"),
-                    "--parallel",
-                ),
+                ("cmake", "--build", str(BUILD / "cpp"), "--parallel"),
             ),
-            (str(BUILD / "cpp" / "cmux-conformance-cpp"),),
+            (str(BUILD / "cpp" / "cmux-resource-conformance-cpp"),),
             ROOT,
         ),
         "zig": AdapterSpec(
@@ -153,7 +229,7 @@ def adapter_specs() -> dict[str, AdapterSpec]:
                     str(BUILD / "zig-cache"),
                 ),
             ),
-            (str(BUILD / "zig" / "bin" / "cmux-conformance-zig"),),
+            (str(BUILD / "zig" / "bin" / "cmux-resource-conformance-zig"),),
             ROOT,
         ),
     }
@@ -178,7 +254,7 @@ class Adapter:
                 text=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                timeout=300,
+                timeout=420,
                 check=False,
             )
             if result.returncode != 0:
@@ -186,7 +262,12 @@ class Adapter:
                     f"adapter build failed ({' '.join(command)}):\n{result.stdout}"
                 )
 
-    def request(self, payload: Mapping[str, Any], timeout: float = 10.0) -> dict[str, Any]:
+    def request(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        timeout: float = 45.0,
+    ) -> dict[str, Any]:
         process = subprocess.Popen(
             self.spec.command,
             cwd=self.spec.cwd,
@@ -196,63 +277,119 @@ class Adapter:
             stderr=subprocess.PIPE,
             text=True,
         )
+        request_line = json.dumps(
+            payload, separators=(",", ":"), ensure_ascii=False
+        ) + "\n"
         try:
-            request_line = json.dumps(payload, separators=(",", ":"), ensure_ascii=False) + "\n"
             stdout, stderr = process.communicate(request_line, timeout=timeout)
         except subprocess.TimeoutExpired:
             process.kill()
             stdout, stderr = process.communicate()
             raise ConformanceFailure(
-                f"adapter timed out after {timeout:.1f}s; stdout={stdout!r}; stderr={stderr!r}"
+                f"adapter timed out; stdout={stdout!r}; stderr={stderr!r}"
             )
         if process.returncode != 0:
             raise ConformanceFailure(
-                f"adapter exited {process.returncode}; stdout={stdout!r}; stderr={stderr!r}"
+                f"adapter exited {process.returncode}; "
+                f"stdout={stdout!r}; stderr={stderr!r}"
             )
         lines = [line for line in stdout.splitlines() if line.strip()]
         if len(lines) != 1:
             raise ConformanceFailure(
-                f"adapter must return exactly one NDJSON object; stdout={stdout!r}; stderr={stderr!r}"
+                "adapter must return exactly one JSON line; "
+                f"stdout={stdout!r}; stderr={stderr!r}"
             )
         try:
-            value = json.loads(lines[0])
-        except json.JSONDecodeError as exc:
+            response = json.loads(lines[0])
+        except json.JSONDecodeError as error:
             raise ConformanceFailure(
-                f"adapter returned invalid JSON: {exc}; stdout={stdout!r}; stderr={stderr!r}"
-            ) from exc
-        if not isinstance(value, dict):
-            raise ConformanceFailure(f"adapter response must be an object, got {type(value).__name__}")
-        if value.get("contract_version") != 1:
+                f"adapter returned invalid JSON: {error}; stdout={stdout!r}"
+            ) from error
+        if not isinstance(response, dict):
+            raise ConformanceFailure("adapter response must be an object")
+        if response.get("contract_version") != 2:
             raise ConformanceFailure(
-                f"adapter contract_version must be 1, got {value.get('contract_version')!r}"
+                f"adapter contract_version must be 2, got "
+                f"{response.get('contract_version')!r}"
             )
-        if value.get("id") != payload.get("id"):
+        if response.get("id") != payload.get("id"):
             raise ConformanceFailure(
-                f"adapter response id {value.get('id')!r} != request id {payload.get('id')!r}"
+                f"adapter response id {response.get('id')!r} does not match "
+                f"{payload.get('id')!r}"
             )
-        return value
+        ok = response.get("ok")
+        if not isinstance(ok, bool):
+            raise ConformanceFailure(
+                f"adapter response ok must be a boolean, got {ok!r}"
+            )
+        expected_fields = (
+            {"contract_version", "id", "ok", "value"}
+            if ok
+            else {"contract_version", "id", "ok", "error"}
+        )
+        if set(response) != expected_fields:
+            raise ConformanceFailure(
+                f"adapter response fields must be exactly "
+                f"{sorted(expected_fields)}, got {sorted(response)}"
+            )
+        if not ok:
+            error = response["error"]
+            if not isinstance(error, dict) or set(error) != {"kind", "message"}:
+                raise ConformanceFailure(
+                    "adapter error must contain exactly kind and message"
+                )
+            if error["kind"] not in {
+                "adapter",
+                "transport",
+                "protocol",
+                "resource",
+            }:
+                raise ConformanceFailure(
+                    f"adapter error kind is invalid: {error['kind']!r}"
+                )
+            if not isinstance(error["message"], str) or not error["message"]:
+                raise ConformanceFailure(
+                    "adapter error message must be a nonempty string"
+                )
+        return response
 
 
-class FakeServer:
-    def __init__(self, spec: Mapping[str, Any]) -> None:
-        self.spec = dict(spec)
-        self.directory = Path(tempfile.mkdtemp(prefix="cmux-sdk-conformance-"))
+@dataclasses.dataclass
+class _Connection:
+    socket: socket.socket
+    writer_lock: threading.Lock = dataclasses.field(default_factory=threading.Lock)
+
+
+class ResourceV2Server:
+    """Deterministic Unix JSONL peer that validates public request envelopes."""
+
+    def __init__(
+        self,
+        behavior: str,
+        constants: Mapping[str, str],
+        operations: Mapping[str, Mapping[str, Any]],
+    ) -> None:
+        self.behavior = behavior
+        self.constants = dict(constants)
+        self.operations = operations
+        self.directory = Path(tempfile.mkdtemp(prefix="cmux-resource-conformance-"))
         self.socket_path = self.directory / "server.sock"
         self.listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.listener.bind(str(self.socket_path))
-        self.listener.listen(4)
+        self.listener.listen(16)
         self.listener.settimeout(0.1)
         self.stop_event = threading.Event()
-        self.done = threading.Event()
-        self.connected = threading.Event()
-        self.bytes_received = threading.Event()
         self.error: BaseException | None = None
         self.requests: list[dict[str, Any]] = []
+        self.connections: list[_Connection] = []
         self.connection_threads: list[threading.Thread] = []
-        self.behavior = str(self.spec["behavior"])
+        self.sender_threads: list[threading.Thread] = []
+        self.lock = threading.Lock()
+        self.changed = threading.Condition(self.lock)
+        self.stream_opens = 0
         self.thread = threading.Thread(target=self._serve, daemon=True)
 
-    def __enter__(self) -> "FakeServer":
+    def __enter__(self) -> "ResourceV2Server":
         self.thread.start()
         return self
 
@@ -264,12 +401,18 @@ class FakeServer:
             probe.close()
         except OSError:
             pass
+        for connection in list(self.connections):
+            try:
+                connection.socket.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            connection.socket.close()
         self.thread.join(timeout=3)
-        for thread in self.connection_threads:
-            thread.join(timeout=1)
+        for thread in self.connection_threads + self.sender_threads:
+            thread.join(timeout=3)
         self.listener.close()
+        self.socket_path.unlink(missing_ok=True)
         try:
-            self.socket_path.unlink(missing_ok=True)
             self.directory.rmdir()
         except OSError:
             pass
@@ -278,12 +421,14 @@ class FakeServer:
 
     def _serve(self) -> None:
         try:
-            while not self.stop_event.is_set() and not self.done.is_set():
+            while not self.stop_event.is_set():
                 try:
-                    connection, _ = self.listener.accept()
+                    raw, _ = self.listener.accept()
                 except socket.timeout:
                     continue
-                self.connected.set()
+                connection = _Connection(raw)
+                with self.lock:
+                    self.connections.append(connection)
                 thread = threading.Thread(
                     target=self._handle_connection,
                     args=(connection,),
@@ -291,544 +436,1333 @@ class FakeServer:
                 )
                 self.connection_threads.append(thread)
                 thread.start()
-        except BaseException as exc:
-            self.error = exc
-            self.done.set()
+        except BaseException as error:
+            if not self.stop_event.is_set():
+                self._fail(error)
 
-    def _handle_connection(self, connection: socket.socket) -> None:
+    def _handle_connection(self, connection: _Connection) -> None:
         try:
-            with connection:
-                if self.behavior == "no-write":
-                    self._no_write(connection)
-                elif self.behavior == "request-shape":
-                    self._request_shape(connection)
-                elif self.behavior == "authority":
-                    self._authority(connection)
-                else:
-                    self._one(connection, self.behavior)
-        except BaseException as exc:
-            idle_stream_connection = (
-                self.behavior == "stream"
-                and (
-                    isinstance(exc, socket.timeout)
-                    or (
-                        isinstance(exc, ConformanceFailure)
-                        and "closed before sending" in str(exc)
-                    )
-                )
-            )
-            if not self.stop_event.is_set() and not self.done.is_set() and not idle_stream_connection:
-                self.error = exc
-                self.done.set()
+            with connection.socket:
+                reader = connection.socket.makefile("rb")
+                while not self.stop_event.is_set():
+                    line = reader.readline(MAX_REQUEST_BYTES + 2)
+                    if not line:
+                        break
+                    if len(line) > MAX_REQUEST_BYTES + 1 or not line.endswith(b"\n"):
+                        raise ConformanceFailure("request exceeded 4 MiB or lacked JSONL newline")
+                    try:
+                        request = json.loads(line)
+                    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+                        raise ConformanceFailure(f"invalid request JSONL: {error}") from error
+                    self._validate_base(request)
+                    with self.changed:
+                        self.requests.append(request)
+                        self.changed.notify_all()
+                    self._dispatch(connection, request)
+        except (BrokenPipeError, ConnectionResetError, OSError) as error:
+            if not self.stop_event.is_set():
+                self._fail(error)
+        except BaseException as error:
+            if not self.stop_event.is_set():
+                self._fail(error)
 
-    def _no_write(self, connection: socket.socket) -> None:
-        connection.settimeout(2)
-        try:
-            data = connection.recv(1)
-        except socket.timeout:
-            data = b""
-        if data:
-            self.bytes_received.set()
+    def _fail(self, error: BaseException) -> None:
+        with self.changed:
+            if self.error is None:
+                self.error = error
+            self.changed.notify_all()
+
+    def _validate_base(self, request: Any) -> None:
+        if not isinstance(request, dict):
+            raise ConformanceFailure("request envelope must be an object")
+        operation = request.get("operation")
+        if operation not in self.operations:
+            raise ConformanceFailure(f"unknown public operation {operation!r}")
+        op_class = self.operations[operation]["class"]
+        allowed = {"protocol", "type", "id", "operation", "params"}
+        if op_class == "mutation":
+            allowed.add("idempotency_key")
+        if set(request) != allowed:
             raise ConformanceFailure(
-                "provider-authority denial wrote bytes before returning"
+                f"{operation} envelope keys {sorted(request)} != {sorted(allowed)}"
             )
-        self.done.set()
+        if request["protocol"] != PROTOCOL or request["type"] != "request":
+            raise ConformanceFailure("request used the wrong protocol or envelope type")
+        request_id = request["id"]
+        if not isinstance(request_id, str) or not 1 <= len(request_id) <= 128:
+            raise ConformanceFailure("request id must be a bounded nonempty string")
+        if not isinstance(request["params"], dict):
+            raise ConformanceFailure("request params must be an object")
+        if op_class == "mutation":
+            key = request["idempotency_key"]
+            if not isinstance(key, str) or not 1 <= len(key) <= 128:
+                raise ConformanceFailure("mutation key must be a bounded nonempty string")
 
-    def _request_shape(self, connection: socket.socket) -> None:
-        request = self._read_request(connection)
-        if request.get("cmd") == "identify":
-            self._send_json(connection, self._identify_response(request))
-            try:
-                request = self._read_request(connection)
-            except socket.timeout:
-                self.stop_event.wait(2)
-                return
-            except ConformanceFailure as exc:
-                if "closed before sending" not in str(exc):
-                    raise
-                self.stop_event.wait(2)
-                return
-
-        actual = {key: value for key, value in request.items() if key != "id"}
-        expected = self.spec.get("expect_request")
-        if actual != expected:
-            raise ConformanceFailure(
-                "typed request shape mismatch\n"
-                f"expected: {json.dumps(expected, sort_keys=True)}\n"
-                f"actual: {json.dumps(actual, sort_keys=True)}"
-            )
-        self._send_json(
-            connection,
-            {"id": request.get("id"), "ok": True, "data": {}},
-        )
-        self.done.set()
-
-    def _read_request(self, connection: socket.socket) -> dict[str, Any]:
-        connection.settimeout(2)
-        data = bytearray()
-        while b"\n" not in data:
-            chunk = connection.recv(4096)
-            if not chunk:
-                raise ConformanceFailure("adapter closed before sending a complete request")
-            data.extend(chunk)
-            if len(data) > 1_048_576:
-                raise ConformanceFailure("adapter request exceeded 1 MiB")
-        line, _, _ = data.partition(b"\n")
-        value = json.loads(line)
-        if not isinstance(value, dict):
-            raise ConformanceFailure("wire request is not an object")
-        self.requests.append(value)
-        return value
-
-    def _send_json(self, connection: socket.socket, value: Mapping[str, Any]) -> None:
-        wire = json.dumps(value, separators=(",", ":"), ensure_ascii=False).encode() + b"\n"
-        chunks = [int(size) for size in self.spec.get("chunks", [])]
-        if not chunks:
-            connection.sendall(wire)
-            return
-        offset = 0
-        index = 0
-        while offset < len(wire):
-            size = chunks[index % len(chunks)]
-            connection.sendall(wire[offset : offset + size])
-            offset += size
-            index += 1
-            time.sleep(0.001)
-
-    def _identify_data(self) -> dict[str, Any]:
-        data = {
-            "app": "cmux-tui",
-            "version": "0.0.0-conformance",
-            "build_commit": None,
-            "ghostty_commit": None,
-            "protocol": 10,
-            "capabilities": [
-                "attach-initial-size",
-                "provider-managed-workspace-authority-v2",
-                "surface-subscribe-filter",
-                "workspace-registry-v1",
-            ],
-            "session": "conformance",
-            "pid": 4242,
-            "registry_id": "registry-conformance",
-            "generation": "generation-conformance",
-            "workspace_revision": 0,
-            "terminal_revision": UINT64_MAX,
-            "daemon_handoff": 1,
-        }
-        capabilities_presence = self.spec.get("capabilities_presence")
-        if capabilities_presence == "omitted":
-            data.pop("capabilities")
-        elif capabilities_presence == "null":
-            data["capabilities"] = None
-        elif capabilities_presence == "value":
-            data["capabilities"] = ["conformance-capability"]
-        elif capabilities_presence is not None:
-            raise ConformanceFailure(
-                f"unknown capabilities presence {capabilities_presence!r}"
-            )
-        return data
-
-    def _identify_response(self, request: Mapping[str, Any]) -> dict[str, Any]:
-        return {"id": request.get("id"), "ok": True, "data": self._identify_data()}
-
-    def _one(self, connection: socket.socket, behavior: str) -> None:
-        request = self._read_request(connection)
-        if request.get("cmd") == "identify" and behavior in ("stream",):
-            self._send_json(connection, self._identify_response(request))
-            try:
-                request = self._read_request(connection)
-            except socket.timeout:
-                # Some SDKs negotiate on their command connection and open the
-                # stream on a second socket. Others reuse this connection.
-                self.stop_event.wait(2)
-                return
-            except ConformanceFailure as exc:
-                if "closed before sending" not in str(exc):
-                    raise
-                self.stop_event.wait(2)
-                return
-        if request.get("cmd") == "identify" and behavior == "terminal-placement":
-            self._send_json(connection, self._identify_response(request))
-            request = self._read_request(connection)
-        if behavior == "identify":
-            self._send_json(connection, self._identify_response(request))
-        elif behavior == "oversized-identify":
-            data = self._identify_data()
-            data["version"] = "x" * int(self.spec.get("response_bytes", 4096))
-            self._send_json(connection, {"id": request.get("id"), "ok": True, "data": data})
-        elif behavior == "invalid-utf8":
-            connection.sendall(b'{"id":1,"ok":true,"data":{"app":"cmux-\\xff"}}\n')
-        elif behavior == "timeout":
-            self.stop_event.wait(int(self.spec.get("hold_ms", 500)) / 1000)
-        elif behavior == "terminal-placement":
-            if request.get("cmd") != "create-terminal":
-                raise ConformanceFailure(
-                    f"expected create-terminal command, got {request!r}"
-                )
-            data = {
-                "surface": 1,
-                "pane": 2,
-                "screen": 3,
-                "workspace": 4,
-                "terminal_id": None,
-                "terminal_incarnation": None,
-                "generation": "generation-conformance",
-                "key": "workspace-key",
-                "registry_id": "registry-conformance",
-                "replayed": False,
-                "terminal_revision": 5,
-            }
-            if not self.spec.get("omit_lifecycle", False):
-                data["lifecycle"] = self.spec.get("lifecycle")
-            self._send_json(
-                connection,
-                {"id": request.get("id"), "ok": True, "data": data},
-            )
-        elif behavior == "stream":
-            self._stream(connection, request)
-            return
-        else:
-            raise ConformanceFailure(f"unknown fake server behavior {behavior!r}")
-        self.done.set()
-
-    def _stream(self, connection: socket.socket, request: Mapping[str, Any]) -> None:
-        if request.get("cmd") not in ("subscribe", "attach-surface"):
-            raise ConformanceFailure(f"expected stream command, got {request!r}")
-        for event in self.spec.get("before_ack", []):
-            self._send_json(connection, event)
-        self._send_json(connection, {"id": request.get("id"), "ok": True, "data": {}})
-        for event in self.spec.get("after_ack", []):
-            self._send_json(connection, event)
-        if self.spec.get("close_after_send"):
-            self.done.set()
-            return
-        self.stop_event.wait(int(self.spec.get("hold_ms", 100)) / 1000)
-        self.done.set()
-
-    def _authority(self, connection: socket.socket) -> None:
-        request = self._read_request(connection)
-        if request.get("cmd") == "identify":
-            self._send_json(connection, self._identify_response(request))
-            request = self._read_request(connection)
-        command = request.get("cmd")
-        if command == "ping":
-            data: dict[str, Any] = {
-                "ok": True,
-                "version": "0.0.0-conformance",
-                "build_commit": None,
-                "ghostty_commit": None,
-                "protocol": 10,
-            }
-        elif command in (
-            "browser-back",
-            "pairing-response",
-            "mark-workspaces-provider-managed",
-        ):
-            data = {}
-        else:
-            raise ConformanceFailure(f"unexpected authority probe command {command!r}")
-        self._send_json(connection, {"id": request.get("id"), "ok": True, "data": data})
-        self.done.set()
-
-
-@dataclasses.dataclass
-class HeadlessServer:
-    process: subprocess.Popen[str]
-    socket_path: str
-    log: list[str]
-    directory: Path
-
-
-def start_headless_server(binary: Path) -> HeadlessServer:
-    session = f"sdk-conformance-{os.getpid()}-{time.time_ns()}"
-    directory = Path(tempfile.mkdtemp(prefix="cmux-sdk-real-"))
-    socket_path = directory / "cmux.sock"
-    process = subprocess.Popen(
-        [
-            str(binary),
-            "--headless",
-            "--ephemeral",
-            "--socket",
-            str(socket_path),
-            "--session",
-            session,
-        ],
-        cwd=MUX_DIR,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-    )
-    assert process.stdout is not None
-    selector = selectors.DefaultSelector()
-    selector.register(process.stdout, selectors.EVENT_READ)
-    deadline = time.monotonic() + 15
-    lines: list[str] = []
-    try:
-        while time.monotonic() < deadline:
-            for key, _ in selector.select(timeout=0.1):
-                line = key.fileobj.readline()
-                if line:
-                    lines.append(line.rstrip())
-            if socket_path.exists():
-                break
-            if process.poll() is not None:
-                raise ConformanceFailure(
-                    f"headless server exited before socket path: {'; '.join(lines)}"
-                )
-    finally:
-        selector.close()
-    if not socket_path.exists():
-        stop_headless_server(process)
-        shutil.rmtree(directory, ignore_errors=True)
-        raise ConformanceFailure(
-            f"timed out waiting for headless server socket: {'; '.join(lines)}"
-        )
-    return HeadlessServer(process, str(socket_path), lines, directory)
-
-
-def stop_headless_server(process: subprocess.Popen[str]) -> None:
-    if process.poll() is not None:
-        return
-    process.terminate()
-    try:
-        process.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        process.kill()
-        process.wait(timeout=5)
-
-
-def partial_match(actual: Any, expected: Any) -> bool:
-    if isinstance(expected, dict):
-        return isinstance(actual, dict) and all(
-            key in actual and partial_match(actual[key], value)
-            for key, value in expected.items()
-        )
-    if isinstance(expected, list):
-        return (
-            isinstance(actual, list)
-            and len(actual) >= len(expected)
-            and all(partial_match(actual[index], value) for index, value in enumerate(expected))
-        )
-    return actual == expected
-
-
-def assert_case_response(case: Mapping[str, Any], response: Mapping[str, Any]) -> None:
-    expected_error = case.get("expect_error")
-    if expected_error is not None:
-        if response.get("ok") is not False:
-            raise ConformanceFailure(f"expected {expected_error} error, got {response}")
-        error = response.get("error")
-        if not isinstance(error, dict) or error.get("kind") != expected_error:
-            raise ConformanceFailure(f"expected {expected_error} error, got {response}")
-        return
-    expected = case["expect"]
-    comparable = {key: value for key, value in response.items() if key not in ("id", "contract_version")}
-    if not partial_match(comparable, expected):
-        raise ConformanceFailure(
-            "response mismatch\n"
-            f"expected subset: {json.dumps(expected, sort_keys=True)}\n"
-            f"actual: {json.dumps(comparable, sort_keys=True)}"
-        )
-
-
-def run_metadata_audit(adapter: Adapter) -> None:
-    response = adapter.request({"contract_version": 1, "id": "metadata", "op": "metadata"})
-    if response.get("ok") is not True:
-        raise ConformanceFailure(f"metadata operation failed: {response}")
-    value = response.get("value")
-    if not isinstance(value, dict):
-        raise ConformanceFailure("metadata value must be an object")
-    commands = value.get("commands")
-    events = value.get("events")
-    if not isinstance(commands, list) or not isinstance(events, list):
-        raise ConformanceFailure("metadata commands/events must be arrays")
-    actual_commands = {item["name"] for item in commands if isinstance(item, dict) and "name" in item}
-    actual_events = {item["name"] for item in events if isinstance(item, dict) and "name" in item}
-    schema = json.loads(SDK_SCHEMA.read_text())
-    expected_commands = set(schema["commands"])
-    expected_events = set(schema["events"])
-    if actual_commands != expected_commands:
-        raise ConformanceFailure(
-            f"command metadata mismatch: missing={sorted(expected_commands - actual_commands)}, "
-            f"extra={sorted(actual_commands - expected_commands)}"
-        )
-    if actual_events != expected_events:
-        raise ConformanceFailure(
-            f"event metadata mismatch: missing={sorted(expected_events - actual_events)}, "
-            f"extra={sorted(actual_events - expected_events)}"
-        )
-    authorities = {
-        item.get("authority")
-        for item in commands
-        if isinstance(item, dict) and item.get("authority")
-    }
-    expected_authorities = {command["authority"] for command in schema["commands"].values()}
-    if authorities != expected_authorities:
-        raise ConformanceFailure(
-            f"authority metadata mismatch: expected={sorted(expected_authorities)}, "
-            f"actual={sorted(authorities)}"
-        )
-    streams = {
-        stream
-        for item in events
-        if isinstance(item, dict)
-        for stream in item.get("streams", [])
-    }
-    expected_streams = {
-        stream
-        for event in schema["events"].values()
-        for stream in event["streams"]
-    }
-    if streams != expected_streams:
-        raise ConformanceFailure(
-            f"event stream metadata mismatch: expected={sorted(expected_streams)}, "
-            f"actual={sorted(streams)}"
-        )
-
-
-def run_fake_case(adapter: Adapter, case: Mapping[str, Any], ordinal: int) -> None:
-    with FakeServer(case["server"]) as server:
-        payload = dict(case["adapter"])
-        payload.update(
-            {
-                "contract_version": 1,
-                "id": f"fake-{ordinal}",
-                "socket_path": str(server.socket_path),
-            }
-        )
-        timeout = max(10.0, float(payload.get("deadline_ms", payload.get("timeout_ms", 1000))) / 1000 + 3)
-        response = adapter.request(payload, timeout=timeout)
-        assert_case_response(case, response)
-        if server.behavior == "no-write":
-            if server.connected.wait(timeout=0.5) and not server.done.wait(timeout=2):
-                raise ConformanceFailure(
-                    "default client left its no-write authority probe connected"
-                )
-            if server.bytes_received.is_set():
-                raise ConformanceFailure(
-                    "default client wrote bytes for a denied provider-authority command"
-                )
-            return
-        if not server.done.wait(timeout=2):
-            raise ConformanceFailure("fake server did not finish")
-
-
-def run_real_cases(adapter: Adapter, cases: Sequence[Mapping[str, Any]], binary: Path) -> None:
-    server = start_headless_server(binary)
-    try:
-        for ordinal, case in enumerate(cases):
-            payload = dict(case["adapter"])
-            payload.update(
+    def _dispatch(self, connection: _Connection, request: Mapping[str, Any]) -> None:
+        operation = request["operation"]
+        if operation == "session.ping":
+            self._expect_params(
+                request,
                 {
-                    "contract_version": 1,
-                    "id": f"real-{ordinal}",
-                    "socket_path": server.socket_path,
-                }
+                    "machine": "current",
+                    "session": self.constants["session"],
+                },
             )
-            response = adapter.request(payload, timeout=15)
-            assert_case_response(case, response)
-    finally:
-        stop_headless_server(server.process)
-        shutil.rmtree(server.directory, ignore_errors=True)
+            self._ok(
+                connection,
+                request,
+                {
+                    "alive": True,
+                    "cursor": {
+                        "generation": self.constants["generation"],
+                        "revision": self.constants["revision"],
+                    },
+                },
+            )
+            return
+        if operation == "workspace.rename":
+            self._expect_mutation(request)
+            self._dispatch_mutation(connection, request)
+            return
+        if operation == "session.creation.resolve":
+            self._expect_creation_resolution(request)
+            self._dispatch_creation_resolution(connection, request)
+            return
+        if operation == "workspace.create":
+            self._expect_creation_conflict(request)
+            self._dispatch_creation_conflict(connection, request)
+            return
+        if operation == "terminal.wait_exit":
+            self._expect_terminal_wait_exit(request)
+            self._dispatch_terminal_wait_exit(connection, request)
+            return
+        if operation == "session.events":
+            self._expect_stream_open(request)
+            self._dispatch_stream_open(connection, request)
+            return
+        if operation == "stream.cancel":
+            self._expect_stream_cancel(request)
+            self._dispatch_cancel(connection, request)
+            return
+        raise ConformanceFailure(
+            f"behavior {self.behavior} did not expect operation {operation}"
+        )
+
+    def _expect_params(
+        self, request: Mapping[str, Any], expected: Mapping[str, Any]
+    ) -> None:
+        if request["params"] != expected:
+            raise ConformanceFailure(
+                "exact params mismatch\n"
+                f"expected: {json.dumps(expected, sort_keys=True, ensure_ascii=False)}\n"
+                f"actual: {json.dumps(request['params'], sort_keys=True, ensure_ascii=False)}"
+            )
+
+    def _expect_mutation(self, request: Mapping[str, Any]) -> None:
+        self._expect_params(
+            request,
+            {
+                "machine": "current",
+                "session": self.constants["session"],
+                "workspace": self.constants["workspace"],
+                "name": self.constants["name"],
+                "expected_revision": self.constants["revision"],
+            },
+        )
+        if request["idempotency_key"] != self.constants["idempotency_key"]:
+            raise ConformanceFailure("adapter changed the explicit idempotency key")
+
+    def _expect_stream_open(self, request: Mapping[str, Any]) -> None:
+        params = request["params"]
+        if set(params) != {"machine", "session", "stream_id"}:
+            raise ConformanceFailure(
+                f"session.events params must be exact, got {sorted(params)}"
+            )
+        if (
+            params["machine"] != "current"
+            or params["session"] != self.constants["session"]
+            or not isinstance(params["stream_id"], str)
+            or OPAQUE_STREAM.fullmatch(params["stream_id"]) is None
+        ):
+            raise ConformanceFailure(f"invalid session.events routing: {params!r}")
+
+    def _expect_creation_resolution(self, request: Mapping[str, Any]) -> None:
+        self._expect_params(
+            request,
+            {
+                "machine": "current",
+                "session": self.constants["session"],
+                "correlation_key": self.constants["correlation_key"],
+            },
+        )
+
+    def _expect_creation_conflict(self, request: Mapping[str, Any]) -> None:
+        self._expect_params(
+            request,
+            {
+                "machine": "current",
+                "session": self.constants["session"],
+                "name": self.constants["name"],
+                "initial_content": "empty",
+                "correlation_key": self.constants["correlation_key"],
+            },
+        )
+        if request["idempotency_key"] != self.constants["idempotency_key"]:
+            raise ConformanceFailure(
+                "adapter changed the explicit creation idempotency key"
+            )
+
+    def _expect_terminal_wait_exit(self, request: Mapping[str, Any]) -> None:
+        expected_timeout = (
+            "0" if self.behavior == "terminal-exit-pending" else "5000"
+        )
+        self._expect_params(
+            request,
+            {
+                "machine": "current",
+                "session": self.constants["session"],
+                "terminal": self.constants["terminal"],
+                "timeout_ms": expected_timeout,
+            },
+        )
+
+    def _expect_stream_cancel(self, request: Mapping[str, Any]) -> None:
+        params = request["params"]
+        if set(params) != {"machine", "session", "stream"}:
+            raise ConformanceFailure(
+                f"stream.cancel params must be exact, got {sorted(params)}"
+            )
+        if (
+            params["machine"] != "current"
+            or params["session"] != self.constants["session"]
+            or not isinstance(params["stream"], str)
+            or OPAQUE_STREAM.fullmatch(params["stream"]) is None
+        ):
+            raise ConformanceFailure(f"invalid stream.cancel routing: {params!r}")
+
+    def _dispatch_mutation(
+        self, connection: _Connection, request: Mapping[str, Any]
+    ) -> None:
+        if self.behavior == "mutation-replay":
+            prior = sum(
+                item["operation"] == "workspace.rename" for item in self.requests
+            )
+            self._ok(connection, request, self._mutation_result(prior > 1))
+            return
+        errors = {
+            "mutation-indeterminate": {
+                "code": "mutation.indeterminate",
+                "message": "external effect outcome is unknown",
+                "details": {
+                    "idempotency_key": self.constants["idempotency_key"],
+                    "operation": "workspace.rename",
+                    "recovery": "inspect_state_then_retry_with_new_key",
+                },
+                "retryable": False,
+            },
+            "revision-conflict": {
+                "code": "revision.conflict",
+                "message": "expected revision is stale",
+                "details": {
+                    "expected": self.constants["revision"],
+                    "actual": "42",
+                },
+                "retryable": True,
+            },
+            "selector-ambiguous": {
+                "code": "selector.ambiguous",
+                "message": "more than one workspace is named api",
+                "details": {
+                    "candidates": [
+                        self.constants["candidate_a"],
+                        self.constants["candidate_b"],
+                    ]
+                },
+                "retryable": False,
+            },
+        }
+        error = errors.get(self.behavior)
+        if error is None:
+            raise ConformanceFailure(
+                f"behavior {self.behavior} cannot handle workspace.rename"
+            )
+        self._error(connection, request, error)
+
+    def _dispatch_creation_resolution(
+        self, connection: _Connection, request: Mapping[str, Any]
+    ) -> None:
+        common = {
+            "correlation_key": self.constants["correlation_key"],
+            "idempotency_key": self.constants["idempotency_key"],
+        }
+        created_common = {
+            **common,
+            "state": "created",
+            "recovery": "none",
+            "generation": self.constants["generation"],
+            "revision": self.constants["revision"],
+        }
+        created_paths = {
+            "creation-created-workspace": {
+                **created_common,
+                "operation": "workspace.create",
+                "created_path": {
+                    "kind": "workspace",
+                    "workspace_id": self.constants["workspace"],
+                },
+            },
+            "creation-created-terminal": {
+                **created_common,
+                "operation": "workspace.run",
+                "created_path": self._created_terminal_path(),
+            },
+            "creation-created-browser": {
+                **created_common,
+                "operation": "tab.create_browser",
+                "created_path": {
+                    "kind": "browser",
+                    "workspace_id": self.constants["workspace"],
+                    "screen_id": self.constants["screen"],
+                    "pane_id": self.constants["pane"],
+                    "tab_id": self.constants["tab"],
+                    "browser_id": self.constants["browser"],
+                },
+            },
+        }
+        result = created_paths.get(self.behavior)
+        if result is None:
+            other_states = {
+                "creation-pending": {
+                    **common,
+                    "state": "pending",
+                    "recovery": "wait",
+                    "operation": "pane.run",
+                },
+                "creation-not-applied-same-key": {
+                    **common,
+                    "state": "not_applied",
+                    "recovery": "retry_same_idempotency_key",
+                    "operation": "pane.split",
+                },
+                "creation-not-applied-new-key": {
+                    "correlation_key": self.constants["correlation_key"],
+                    "state": "not_applied",
+                    "recovery": "retry_new_idempotency_key",
+                },
+                "creation-indeterminate": {
+                    **common,
+                    "state": "indeterminate",
+                    "recovery": "do_not_retry",
+                    "operation": "screen.create",
+                },
+            }
+            result = other_states.get(self.behavior)
+        if result is None:
+            raise ConformanceFailure(
+                f"behavior {self.behavior} cannot resolve a creation"
+            )
+        self._ok(connection, request, result)
+
+    def _dispatch_creation_conflict(
+        self, connection: _Connection, request: Mapping[str, Any]
+    ) -> None:
+        if self.behavior != "creation-conflict":
+            raise ConformanceFailure(
+                f"behavior {self.behavior} cannot handle workspace.create"
+            )
+        self._error(
+            connection,
+            request,
+            {
+                "code": "creation.conflict",
+                "message": (
+                    "correlation key is already bound to different "
+                    "creation semantics"
+                ),
+                "details": {
+                    "correlation_key": self.constants["correlation_key"],
+                    "existing_operation": "workspace.run",
+                    "requested_operation": "workspace.create",
+                    "existing_fingerprint": "a" * 64,
+                    "requested_fingerprint": "b" * 64,
+                },
+                "retryable": False,
+            },
+        )
+
+    def _dispatch_terminal_wait_exit(
+        self, connection: _Connection, request: Mapping[str, Any]
+    ) -> None:
+        if self.behavior == "terminal-exit-pending":
+            self._ok(
+                connection,
+                request,
+                {
+                    "state": "pending",
+                    "terminal_id": self.constants["terminal"],
+                    "lifecycle": "running",
+                    "revision": self.constants["revision"],
+                },
+            )
+            return
+        if self.behavior == "terminal-exit-code":
+            self._ok(
+                connection,
+                request,
+                {
+                    "state": "exited",
+                    "terminal_id": self.constants["terminal"],
+                    "lifecycle": "exited",
+                    "outcome": {"kind": "exit", "code": 17},
+                    "exited_at": self.constants["exited_at"],
+                    "revision": self.constants["exit_revision"],
+                },
+            )
+            return
+        raise ConformanceFailure(
+            f"behavior {self.behavior} cannot handle terminal.wait_exit"
+        )
+
+    def _created_terminal_path(self) -> dict[str, Any]:
+        return {
+            "kind": "terminal",
+            "workspace_id": self.constants["workspace"],
+            "screen_id": self.constants["screen"],
+            "pane_id": self.constants["pane"],
+            "tab_id": self.constants["tab"],
+            "terminal_id": self.constants["terminal"],
+        }
+
+    def _mutation_result(self, replayed: bool) -> dict[str, Any]:
+        return {
+            "value": {
+                "id": self.constants["workspace"],
+                "session_id": self.constants["session"],
+                "name": self.constants["name"],
+                "index": 7,
+                "focused": False,
+            },
+            "generation": self.constants["generation"],
+            "revision": self.constants["revision"],
+            "replayed": replayed,
+        }
+
+    def _dispatch_stream_open(
+        self, connection: _Connection, request: Mapping[str, Any]
+    ) -> None:
+        stream_id = request["params"]["stream_id"]
+        with self.lock:
+            self.stream_opens += 1
+            index = self.stream_opens
+        self._ok(
+            connection,
+            request,
+            {
+                "stream_id": stream_id,
+                "cursor": {
+                    "generation": self.constants["generation"],
+                    "revision": "0",
+                },
+            },
+        )
+        if self.behavior == "stream-unknown":
+            self._stream_item(
+                connection,
+                stream_id,
+                self.constants["revision"],
+                {
+                    "kind": "future.session.widget",
+                    "payload": {
+                        "label": "kept",
+                        "revision": self.constants["revision"],
+                    },
+                },
+                revision=self.constants["revision"],
+            )
+            self._stream_end(connection, stream_id, "completed")
+            return
+        if self.behavior == "stream-cancel":
+            self._stream_item(
+                connection,
+                stream_id,
+                "0",
+                {"kind": "future.queued", "payload": {"must_be_purged": True}},
+                revision="0",
+            )
+            return
+        if self.behavior in {
+            "stream-overflow-messages",
+            "stream-overflow-bytes",
+        }:
+            sender = threading.Thread(
+                target=self._send_overflow,
+                args=(connection, stream_id, index),
+                daemon=True,
+            )
+            self.sender_threads.append(sender)
+            sender.start()
+            return
+        raise ConformanceFailure(
+            f"behavior {self.behavior} cannot handle session.events"
+        )
+
+    def _send_overflow(
+        self, connection: _Connection, stream_id: str, index: int
+    ) -> None:
+        try:
+            if index > 1:
+                self._stream_item(
+                    connection,
+                    stream_id,
+                    "0",
+                    {
+                        "kind": "future.after-overflow",
+                        "payload": {"stream_is_independent": True},
+                    },
+                    revision="0",
+                )
+                self._stream_end(connection, stream_id, "completed")
+                return
+            if self.behavior == "stream-overflow-messages":
+                count = MAX_STREAM_MESSAGES + 1
+                payload = {"kind": "future.bulk", "payload": {"padding": "x"}}
+            else:
+                count = 17
+                payload = {
+                    "kind": "future.bulk",
+                    "payload": {"padding": "x" * 1_048_000},
+                }
+            for sequence in range(count):
+                if self.stop_event.is_set():
+                    return
+                self._stream_item(
+                    connection,
+                    stream_id,
+                    str(sequence),
+                    payload,
+                    revision=str(sequence),
+                )
+            self._stream_end(
+                connection,
+                stream_id,
+                "gap",
+                cursor={
+                    "generation": self.constants["generation"],
+                    "revision": str(count),
+                },
+                recovery="open a fresh stream to receive a new snapshot",
+            )
+        except (BrokenPipeError, ConnectionResetError, OSError) as error:
+            if not self.stop_event.is_set():
+                self._fail(error)
+        except BaseException as error:
+            self._fail(error)
+
+    def _dispatch_cancel(
+        self, connection: _Connection, request: Mapping[str, Any]
+    ) -> None:
+        stream_id = request["params"]["stream"]
+        if self.behavior == "stream-cancel":
+            # The contract requires the terminal envelope to be queued first.
+            self._stream_end(connection, stream_id, "canceled")
+        self._ok(connection, request, {})
+
+    def _ok(
+        self,
+        connection: _Connection,
+        request: Mapping[str, Any],
+        result: Any,
+    ) -> None:
+        self._send(
+            connection,
+            {
+                "protocol": PROTOCOL,
+                "type": "response",
+                "id": request["id"],
+                "ok": True,
+                "result": result,
+            },
+        )
+
+    def _error(
+        self,
+        connection: _Connection,
+        request: Mapping[str, Any],
+        error: Mapping[str, Any],
+    ) -> None:
+        self._send(
+            connection,
+            {
+                "protocol": PROTOCOL,
+                "type": "response",
+                "id": request["id"],
+                "ok": False,
+                "error": error,
+            },
+        )
+
+    def _stream_item(
+        self,
+        connection: _Connection,
+        stream_id: str,
+        sequence: str,
+        item: Any,
+        *,
+        revision: str,
+    ) -> None:
+        self._send(
+            connection,
+            {
+                "protocol": PROTOCOL,
+                "type": "stream_item",
+                "stream_id": stream_id,
+                "sequence": sequence,
+                "cursor": {
+                    "generation": self.constants["generation"],
+                    "revision": revision,
+                },
+                "item": item,
+            },
+        )
+
+    def _stream_end(
+        self,
+        connection: _Connection,
+        stream_id: str,
+        reason: str,
+        *,
+        cursor: Mapping[str, str] | None = None,
+        recovery: str | None = None,
+    ) -> None:
+        envelope: dict[str, Any] = {
+            "protocol": PROTOCOL,
+            "type": "stream_end",
+            "stream_id": stream_id,
+            "reason": reason,
+        }
+        if cursor is not None:
+            envelope["cursor"] = dict(cursor)
+        if recovery is not None:
+            envelope["recovery"] = recovery
+        self._send(connection, envelope)
+
+    def _send(self, connection: _Connection, value: Mapping[str, Any]) -> None:
+        encoded = json.dumps(
+            value, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
+        if len(encoded) > MAX_STREAM_BYTES:
+            raise ConformanceFailure(
+                f"fake response frame exceeded {MAX_STREAM_BYTES} bytes"
+            )
+        with connection.writer_lock:
+            connection.socket.sendall(encoded + b"\n")
+
+    def wait_for_requests(self, count: int, timeout: float = 2.0) -> None:
+        deadline = time.monotonic() + timeout
+        with self.changed:
+            while len(self.requests) < count and self.error is None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self.changed.wait(remaining)
+        if self.error is not None:
+            raise ConformanceFailure(f"fake server failed: {self.error}") from self.error
+
+    def assert_complete(self) -> None:
+        expected = {
+            "read": {"session.ping": 1},
+            "mutation-replay": {"workspace.rename": 2},
+            "mutation-indeterminate": {"workspace.rename": 1},
+            "revision-conflict": {"workspace.rename": 1},
+            "selector-ambiguous": {"workspace.rename": 1},
+            "creation-created-workspace": {"session.creation.resolve": 1},
+            "creation-created-terminal": {"session.creation.resolve": 1},
+            "creation-created-browser": {"session.creation.resolve": 1},
+            "creation-pending": {"session.creation.resolve": 1},
+            "creation-not-applied-same-key": {"session.creation.resolve": 1},
+            "creation-not-applied-new-key": {"session.creation.resolve": 1},
+            "creation-indeterminate": {"session.creation.resolve": 1},
+            "creation-conflict": {"workspace.create": 1},
+            "terminal-exit-pending": {"terminal.wait_exit": 1},
+            "terminal-exit-code": {"terminal.wait_exit": 1},
+            "stream-unknown": {"session.events": 1},
+            "stream-cancel": {"session.events": 1, "stream.cancel": 1},
+        }
+        if self.behavior in {
+            "stream-overflow-messages",
+            "stream-overflow-bytes",
+        }:
+            self.wait_for_requests(3, timeout=3.0)
+            counts = self._request_counts()
+            if counts.get("session.events") != 2:
+                raise ConformanceFailure(
+                    f"overflow must open two independent streams, got {counts}"
+                )
+            if counts.get("session.ping") != 1:
+                raise ConformanceFailure(
+                    f"overflow must leave control reads alive, got {counts}"
+                )
+            return
+        wanted = expected[self.behavior]
+        self.wait_for_requests(sum(wanted.values()))
+        counts = self._request_counts()
+        if counts != wanted:
+            raise ConformanceFailure(
+                f"{self.behavior} request counts {counts} != {wanted}"
+            )
+
+    def _request_counts(self) -> dict[str, int]:
+        result: dict[str, int] = {}
+        with self.lock:
+            requests = list(self.requests)
+        for request in requests:
+            operation = request["operation"]
+            result[operation] = result.get(operation, 0) + 1
+        return result
 
 
-def parse_args(argv: Sequence[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--language",
-        action="append",
-        choices=LANGUAGES,
-        help="language to test; repeat to select multiple (default: all)",
-    )
-    parser.add_argument("--fake-only", action="store_true", help="skip the real headless server smoke")
-    parser.add_argument("--real-only", action="store_true", help="skip deterministic fake-server cases")
-    parser.add_argument(
-        "--require",
-        default="",
-        help="comma-separated languages whose missing toolchain is a failure",
-    )
-    parser.add_argument(
-        "--cmux-tui-bin",
-        type=Path,
-        default=None,
-        help="prebuilt cmux-tui binary (default: cmux-tui/target/debug/cmux-tui)",
-    )
-    parser.add_argument("--no-build", action="store_true", help="do not build adapters or cmux-tui")
-    parser.add_argument(
-        "--no-codegen-check",
-        action="store_true",
-        help="skip generated SDK drift detection (diagnostics only)",
-    )
-    args = parser.parse_args(argv)
-    if args.fake_only and args.real_only:
-        parser.error("--fake-only and --real-only are mutually exclusive")
-    return args
+def load_contract() -> tuple[dict[str, Any], dict[str, Any]]:
+    fixtures = json.loads(FIXTURES.read_text())
+    catalog = json.loads(CATALOG.read_text())
+    if fixtures.get("contract_version") != 2:
+        raise ConformanceFailure("fixture adapter contract must be version 2")
+    if fixtures.get("protocol") != PROTOCOL:
+        raise ConformanceFailure("fixtures target the wrong protocol")
+    if catalog.get("protocol") != PROTOCOL:
+        raise ConformanceFailure("operation catalog targets the wrong protocol")
+    operations = catalog.get("operations")
+    if (
+        not isinstance(operations, dict)
+        or len(operations) != TRANSPORTED_OPERATION_COUNT
+    ):
+        raise ConformanceFailure(
+            f"expected {TRANSPORTED_OPERATION_COUNT} transported operations, got "
+            f"{len(operations) if isinstance(operations, dict) else 'invalid'}"
+        )
+    return fixtures, catalog
 
 
-def ensure_tui_binary(path: Path, no_build: bool) -> None:
-    if path.exists():
+def assert_response(actual: Mapping[str, Any], expected: Mapping[str, Any]) -> None:
+    comparable = {
+        "ok": actual.get("ok"),
+        **({"value": actual.get("value")} if "value" in actual else {}),
+        **({"error": actual.get("error")} if "error" in actual else {}),
+    }
+    if comparable != expected:
+        raise ConformanceFailure(
+            "adapter result mismatch\n"
+            f"expected: {json.dumps(expected, indent=2, ensure_ascii=False, sort_keys=True)}\n"
+            f"actual: {json.dumps(comparable, indent=2, ensure_ascii=False, sort_keys=True)}"
+        )
+
+
+def run_fake_case(
+    adapter: Adapter,
+    case: Mapping[str, Any],
+    constants: Mapping[str, str],
+    operations: Mapping[str, Mapping[str, Any]],
+) -> None:
+    payload = {
+        "contract_version": 2,
+        "id": case["name"],
+        **case["adapter"],
+        "constants": constants,
+    }
+    server_spec = case.get("server")
+    if server_spec is None:
+        response = adapter.request(payload)
+        assert_response(response, case["expect"])
         return
-    if no_build:
-        raise ConformanceFailure(f"cmux-tui binary does not exist: {path}")
-    result = subprocess.run(
-        ("cargo", "build", "-p", "cmux-tui", "--locked"),
-        cwd=MUX_DIR,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        timeout=600,
-        check=False,
+    with ResourceV2Server(
+        str(server_spec["behavior"]), constants, operations
+    ) as server:
+        payload["socket_path"] = str(server.socket_path)
+        response = adapter.request(
+            payload,
+            timeout=75.0 if "overflow" in case["name"] else 20.0,
+        )
+        server.assert_complete()
+        assert_response(response, case["expect"])
+
+
+def live_transports(language: str) -> tuple[str, ...]:
+    if language == "typescript":
+        return ("unix", "websocket")
+    return ("unix",)
+
+
+def reserve_loopback_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        return int(listener.getsockname()[1])
+
+
+def live_server_command(
+    binary: Path,
+    socket_path: Path,
+    state_path: Path,
+    session_name: str,
+    websocket_port: int,
+    websocket_token: str,
+) -> tuple[str, ...]:
+    return (
+        str(binary),
+        "--headless",
+        "--session",
+        session_name,
+        "--socket",
+        str(socket_path),
+        "--state",
+        str(state_path),
+        "--ws",
+        f"127.0.0.1:{websocket_port}",
+        "--ws-token",
+        websocket_token,
     )
-    if result.returncode != 0:
-        raise ConformanceFailure(f"cmux-tui build failed:\n{result.stdout}")
+
+
+def unix_socket_ready(path: Path) -> bool:
     if not path.exists():
-        raise ConformanceFailure(f"cmux-tui build succeeded but binary is missing: {path}")
+        return False
+    connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    connection.settimeout(0.2)
+    try:
+        connection.connect(str(path))
+    except OSError:
+        return False
+    finally:
+        connection.close()
+    return True
 
 
-def check_generated_sdks() -> None:
-    command = (
-        sys.executable,
-        str(BINDINGS / "codegen" / "generate.py"),
-        "--check",
+def tcp_socket_ready(port: int) -> bool:
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+            return True
+    except OSError:
+        return False
+
+
+def start_live_server(
+    binary: Path,
+    socket_path: Path,
+    state_path: Path,
+    session_name: str,
+    websocket_token: str,
+) -> tuple[subprocess.Popen[str], str]:
+    websocket_port = reserve_loopback_port()
+    command = live_server_command(
+        binary,
+        socket_path,
+        state_path,
+        session_name,
+        websocket_port,
+        websocket_token,
     )
-    result = subprocess.run(
+    process = subprocess.Popen(
         command,
         cwd=ROOT,
-        text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        timeout=300,
-        check=False,
+        text=True,
     )
-    if result.returncode != 0:
-        raise ConformanceFailure(f"generated SDK drift:\n{result.stdout}")
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            output = process.stdout.read() if process.stdout else ""
+            raise ConformanceFailure(
+                f"live server exited {process.returncode}: {output}"
+            )
+        if unix_socket_ready(socket_path) and tcp_socket_ready(websocket_port):
+            return process, f"ws://127.0.0.1:{websocket_port}"
+        time.sleep(0.05)
+    stop_live_server(process, socket_path)
+    raise ConformanceFailure(
+        "live server did not make both Unix and WebSocket listeners ready"
+    )
+
+
+def stop_live_server(
+    process: subprocess.Popen[str],
+    socket_path: Path,
+) -> None:
+    if process.poll() is None:
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+    deadline = time.monotonic() + 1
+    while socket_path.exists() and time.monotonic() < deadline:
+        time.sleep(0.02)
+    if socket_path.exists():
+        socket_path.unlink()
+
+
+def response_value(
+    response: Mapping[str, Any],
+    fields: frozenset[str],
+    phase: str,
+) -> dict[str, Any]:
+    if response.get("ok") is not True:
+        raise ConformanceFailure(
+            f"{phase} adapter request failed: "
+            f"{json.dumps(response.get('error'), ensure_ascii=False)}"
+        )
+    value = response.get("value")
+    if not isinstance(value, dict):
+        raise ConformanceFailure(f"{phase} result must be an object")
+    if set(value) != fields:
+        raise ConformanceFailure(
+            f"{phase} result fields must be exactly {sorted(fields)}, "
+            f"got {sorted(value)}"
+        )
+    return value
+
+
+def require_unsigned_decimal(value: Any, field: str, phase: str) -> str:
+    if not isinstance(value, str) or UNSIGNED_DECIMAL.fullmatch(value) is None:
+        raise ConformanceFailure(
+            f"{phase} {field} must be an unsigned decimal string, got {value!r}"
+        )
+    return value
+
+
+def require_created_terminal_path(
+    value: Any,
+    phase: str,
+) -> dict[str, str]:
+    fields = {
+        "kind",
+        "workspace_id",
+        "screen_id",
+        "pane_id",
+        "tab_id",
+        "terminal_id",
+    }
+    if not isinstance(value, dict) or set(value) != fields:
+        raise ConformanceFailure(
+            f"{phase} created_path must be an exact terminal path"
+        )
+    checks = {
+        "workspace_id": OPAQUE_WORKSPACE,
+        "screen_id": OPAQUE_SCREEN,
+        "pane_id": OPAQUE_PANE,
+        "tab_id": OPAQUE_TAB,
+        "terminal_id": OPAQUE_TERMINAL,
+    }
+    if value["kind"] != "terminal":
+        raise ConformanceFailure(
+            f"{phase} created_path kind must be terminal, got "
+            f"{value['kind']!r}"
+        )
+    for field, pattern in checks.items():
+        identifier = value[field]
+        if (
+            not isinstance(identifier, str)
+            or pattern.fullmatch(identifier) is None
+        ):
+            raise ConformanceFailure(
+                f"{phase} created_path {field} is invalid: {identifier!r}"
+            )
+    return {field: str(value[field]) for field in fields}
+
+
+def validate_live_setup(
+    response: Mapping[str, Any],
+    transport: str,
+) -> tuple[str, list[str]]:
+    value = response_value(response, LIVE_SETUP_FIELDS, f"{transport} setup")
+    stable_id = value["stable_id"]
+    duplicate_ids = value["duplicate_ids"]
+    if not isinstance(stable_id, str) or OPAQUE_WORKSPACE.fullmatch(stable_id) is None:
+        raise ConformanceFailure(
+            f"{transport} setup returned invalid stable workspace id {stable_id!r}"
+        )
+    if (
+        not isinstance(duplicate_ids, list)
+        or len(duplicate_ids) != 2
+        or any(
+            not isinstance(identifier, str)
+            or OPAQUE_WORKSPACE.fullmatch(identifier) is None
+            for identifier in duplicate_ids
+        )
+    ):
+        raise ConformanceFailure(
+            f"{transport} setup returned invalid duplicate ids {duplicate_ids!r}"
+        )
+    if len({stable_id, *duplicate_ids}) != 3:
+        raise ConformanceFailure(
+            f"{transport} setup did not create three distinct workspace ids"
+        )
+    expected_true = (
+        "pinged",
+        "stable_renamed",
+        "ambiguity_preserved_all_candidates",
+        "no_mutation",
+    )
+    failed = [field for field in expected_true if value[field] is not True]
+    if failed:
+        raise ConformanceFailure(
+            f"{transport} setup failed assertions: {', '.join(failed)}"
+        )
+    if value["ambiguity_code"] != "selector.ambiguous":
+        raise ConformanceFailure(
+            f"{transport} setup expected selector.ambiguous, "
+            f"got {value['ambiguity_code']!r}"
+        )
+    return stable_id, duplicate_ids
+
+
+def validate_live_restart(
+    response: Mapping[str, Any],
+    transport: str,
+) -> None:
+    value = response_value(response, LIVE_RESTART_FIELDS, f"{transport} restart")
+    failed = [field for field in LIVE_RESTART_FIELDS if value[field] is not True]
+    if failed:
+        raise ConformanceFailure(
+            f"{transport} restart failed assertions: {', '.join(sorted(failed))}"
+        )
+
+
+def validate_live_creation_exit(
+    response: Mapping[str, Any],
+    transport: str,
+    expected_correlation_key: str,
+) -> LiveCreationEvidence:
+    phase = f"{transport} creation-exit"
+    value = response_value(response, LIVE_CREATION_EXIT_FIELDS, phase)
+    if value["correlation_key"] != expected_correlation_key:
+        raise ConformanceFailure(
+            f"{phase} correlation_key {value['correlation_key']!r} != "
+            f"{expected_correlation_key!r}"
+        )
+    created_path = require_created_terminal_path(
+        value["created_path"], phase
+    )
+    terminal_id = created_path["terminal_id"]
+    exact = {
+        "pending_state": "pending",
+        "creation_state": "created",
+        "creation_recovery": "none",
+        "exit_state": "exited",
+        "exit_lifecycle": "exited",
+        "exit_kind": "exit",
+    }
+    mismatches = [
+        f"{field}={value[field]!r}"
+        for field, expected in exact.items()
+        if value[field] != expected
+    ]
+    if value["pending_lifecycle"] not in {"launching", "running"}:
+        mismatches.append(
+            f"pending_lifecycle={value['pending_lifecycle']!r}"
+        )
+    for field in ("pending_terminal_id", "exit_terminal_id"):
+        if value[field] != terminal_id:
+            mismatches.append(f"{field}={value[field]!r}")
+    if (
+        isinstance(value["exit_code"], bool)
+        or not isinstance(value["exit_code"], int)
+        or value["exit_code"] != 17
+    ):
+        mismatches.append(f"exit_code={value['exit_code']!r}")
+    generation = value["creation_generation"]
+    if not isinstance(generation, str) or not 1 <= len(generation) <= 128:
+        mismatches.append(f"creation_generation={generation!r}")
+    if mismatches:
+        raise ConformanceFailure(
+            f"{phase} failed assertions: {', '.join(mismatches)}"
+        )
+    return LiveCreationEvidence(
+        created_path=created_path,
+        correlation_key=expected_correlation_key,
+        creation_generation=generation,
+        creation_revision=require_unsigned_decimal(
+            value["creation_revision"], "creation_revision", phase
+        ),
+        exited_at=require_unsigned_decimal(
+            value["exited_at"], "exited_at", phase
+        ),
+        exit_revision=require_unsigned_decimal(
+            value["exit_revision"], "exit_revision", phase
+        ),
+    )
+
+
+def validate_live_exit_restart(
+    response: Mapping[str, Any],
+    transport: str,
+    expected: LiveCreationEvidence,
+) -> None:
+    phase = f"{transport} exit-restart"
+    value = response_value(response, LIVE_EXIT_RESTART_FIELDS, phase)
+    exact = {
+        "correlation_key": expected.correlation_key,
+        "created_path": expected.created_path,
+        "creation_state": "created",
+        "creation_recovery": "none",
+        "creation_generation": expected.creation_generation,
+        "creation_revision": expected.creation_revision,
+        "exit_state": "exited",
+        "exit_terminal_id": expected.created_path["terminal_id"],
+        "exit_lifecycle": "exited",
+        "exit_kind": "exit",
+        "exit_code": 17,
+        "exited_at": expected.exited_at,
+        "exit_revision": expected.exit_revision,
+    }
+    mismatches = [
+        f"{field}={value[field]!r}"
+        for field, wanted in exact.items()
+        if (
+            value[field] != wanted
+            or (
+                field == "exit_code"
+                and isinstance(value[field], bool)
+            )
+        )
+    ]
+    if mismatches:
+        raise ConformanceFailure(
+            f"{phase} failed assertions: {', '.join(mismatches)}"
+        )
+    require_unsigned_decimal(value["exited_at"], "exited_at", phase)
+    require_unsigned_decimal(value["exit_revision"], "exit_revision", phase)
+    require_unsigned_decimal(
+        value["creation_revision"], "creation_revision", phase
+    )
+
+
+def live_payload(
+    *,
+    identifier: str,
+    operation: str,
+    transport: str,
+    socket_path: Path,
+    websocket_url: str,
+    websocket_token: str,
+    constants: Mapping[str, str],
+    workspace_name: str,
+    key_prefix: str,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "contract_version": 2,
+        "id": identifier,
+        "op": operation,
+        "transport": transport,
+        "socket_path": str(socket_path),
+        "constants": constants,
+        "workspace_name": workspace_name,
+        "key_prefix": key_prefix,
+    }
+    if transport == "websocket":
+        payload["websocket_url"] = websocket_url
+        payload["websocket_token"] = websocket_token
+    return payload
+
+
+def run_live_case(
+    adapter: Adapter,
+    binary: Path,
+    constants: Mapping[str, str],
+) -> tuple[str, ...]:
+    try:
+        exact_binary = binary.expanduser().resolve(strict=True)
+    except FileNotFoundError as error:
+        raise ConformanceFailure(
+            f"cmux-tui binary does not exist: {binary}"
+        ) from error
+    if not exact_binary.is_file() or not os.access(exact_binary, os.X_OK):
+        raise ConformanceFailure(
+            f"cmux-tui binary is not an executable file: {exact_binary}"
+        )
+
+    directory = Path(
+        tempfile.mkdtemp(prefix=f"cmux-resource-{adapter.spec.language}-")
+    )
+    socket_path = directory / "session.sock"
+    state_path = directory / "state"
+    nonce = secrets.token_hex(4)
+    session_name = f"resource-v2-{adapter.spec.language}-{nonce}"
+    websocket_token = f"conformance-{secrets.token_hex(16)}"
+    base_name = f"conformance-{adapter.spec.language}-{nonce}"
+    transports = live_transports(adapter.spec.language)
+    process: subprocess.Popen[str] | None = None
+    setup: dict[str, tuple[str, list[str]]] = {}
+    creation: dict[str, LiveCreationEvidence] = {}
+    try:
+        process, websocket_url = start_live_server(
+            exact_binary,
+            socket_path,
+            state_path,
+            session_name,
+            websocket_token,
+        )
+        for transport in transports:
+            workspace_name = f"{base_name}-{transport}"
+            payload = live_payload(
+                identifier=f"live-{transport}-setup",
+                operation="live-setup",
+                transport=transport,
+                socket_path=socket_path,
+                websocket_url=websocket_url,
+                websocket_token=websocket_token,
+                constants=constants,
+                workspace_name=workspace_name,
+                key_prefix=transport,
+            )
+            setup[transport] = validate_live_setup(
+                adapter.request(payload, timeout=45),
+                transport,
+            )
+            stable_id, _ = setup[transport]
+            correlation_key = f"{transport}-terminal-correlation"
+            payload = live_payload(
+                identifier=f"live-{transport}-creation-exit",
+                operation="live-creation-exit",
+                transport=transport,
+                socket_path=socket_path,
+                websocket_url=websocket_url,
+                websocket_token=websocket_token,
+                constants=constants,
+                workspace_name=workspace_name,
+                key_prefix=transport,
+            )
+            payload.update(
+                {
+                    "expected_stable_id": stable_id,
+                    "exit_shell": "sleep 2; exit 17",
+                    "pending_timeout_ms": "0",
+                    "exit_timeout_ms": "10000",
+                    "expected_exit_code": 17,
+                }
+            )
+            creation[transport] = validate_live_creation_exit(
+                adapter.request(payload, timeout=45),
+                transport,
+                correlation_key,
+            )
+
+        stop_live_server(process, socket_path)
+        process = None
+        process, websocket_url = start_live_server(
+            exact_binary,
+            socket_path,
+            state_path,
+            session_name,
+            websocket_token,
+        )
+        for transport in transports:
+            stable_id, duplicate_ids = setup[transport]
+            evidence = creation[transport]
+            workspace_name = f"{base_name}-{transport}"
+            payload = live_payload(
+                identifier=f"live-{transport}-exit-restart",
+                operation="live-exit-restart",
+                transport=transport,
+                socket_path=socket_path,
+                websocket_url=websocket_url,
+                websocket_token=websocket_token,
+                constants=constants,
+                workspace_name=workspace_name,
+                key_prefix=transport,
+            )
+            payload.update(
+                {
+                    "expected_created_path": evidence.created_path,
+                    "expected_correlation_key": evidence.correlation_key,
+                    "expected_creation_generation": (
+                        evidence.creation_generation
+                    ),
+                    "expected_creation_revision": evidence.creation_revision,
+                    "expected_exited_at": evidence.exited_at,
+                    "expected_exit_revision": evidence.exit_revision,
+                    "exit_timeout_ms": "0",
+                    "expected_exit_code": 17,
+                }
+            )
+            validate_live_exit_restart(
+                adapter.request(payload, timeout=45),
+                transport,
+                evidence,
+            )
+            payload = live_payload(
+                identifier=f"live-{transport}-restart",
+                operation="live-restart",
+                transport=transport,
+                socket_path=socket_path,
+                websocket_url=websocket_url,
+                websocket_token=websocket_token,
+                constants=constants,
+                workspace_name=workspace_name,
+                key_prefix=transport,
+            )
+            payload["expected_stable_id"] = stable_id
+            payload["expected_duplicate_ids"] = duplicate_ids
+            validate_live_restart(
+                adapter.request(payload, timeout=45),
+                transport,
+            )
+        return transports
+    finally:
+        if process is not None:
+            stop_live_server(process, socket_path)
+        shutil.rmtree(directory, ignore_errors=True)
+
+
+def parse_languages(value: str) -> tuple[str, ...]:
+    if not value:
+        return ()
+    names = tuple(item.strip() for item in value.split(",") if item.strip())
+    unknown = sorted(set(names) - set(LANGUAGES))
+    if unknown:
+        raise argparse.ArgumentTypeError(
+            f"unknown language(s): {', '.join(unknown)}"
+        )
+    return names
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = parse_args(sys.argv[1:] if argv is None else argv)
-    selected = tuple(args.language or LANGUAGES)
-    required = {name for name in args.require.split(",") if name}
-    fixtures = json.loads(FIXTURES.read_text())
-    if fixtures.get("contract_version") != 1:
-        raise SystemExit("fixtures contract_version must be 1")
-    specs = adapter_specs()
-    binary = (args.cmux_tui_bin or (MUX_DIR / "target" / "debug" / "cmux-tui")).resolve()
-    if not args.no_codegen_check:
-        try:
-            check_generated_sdks()
-        except Exception as exc:
-            print(f"FAIL codegen-check: {exc}")
-            return 1
-    if not args.fake_only:
-        try:
-            ensure_tui_binary(binary, args.no_build)
-        except Exception as exc:
-            print(f"FAIL server-build: {exc}")
-            return 1
+    parser = argparse.ArgumentParser(
+        description="Run public cmux.protocol/2 SDK conformance"
+    )
+    parser.add_argument(
+        "--languages",
+        type=parse_languages,
+        default=LANGUAGES,
+        help="comma-separated adapters to attempt",
+    )
+    parser.add_argument(
+        "--require",
+        type=parse_languages,
+        default=(),
+        help="comma-separated adapters that may not be skipped",
+    )
+    parser.add_argument("--no-build", action="store_true")
+    parser.add_argument("--fake-only", action="store_true")
+    parser.add_argument(
+        "--case",
+        action="append",
+        default=[],
+        help="run only the named fake case; repeat for more than one",
+    )
+    parser.add_argument("--cmux-tui-bin", type=Path)
+    args = parser.parse_args(argv)
 
+    fixtures, catalog = load_contract()
+    constants = fixtures["constants"]
+    operations = catalog["operations"]
+    required = set(args.require)
+    selected = tuple(args.languages)
+    if not required.issubset(selected):
+        parser.error("--require must be a subset of --languages")
+
+    BUILD.mkdir(parents=True, exist_ok=True)
     results: list[CaseResult] = []
+    specs = adapter_specs()
     for language in selected:
         adapter = Adapter(specs[language])
         try:
@@ -836,47 +1770,66 @@ def main(argv: Sequence[str] | None = None) -> int:
                 adapter.build()
             else:
                 adapter.check_tools()
-        except ToolchainMissing as exc:
-            status = "FAIL" if language in required else "SKIP"
-            results.append(CaseResult(language, "adapter-build", status, str(exc)))
+        except ToolchainMissing as error:
+            if language in required:
+                results.append(CaseResult(language, "build", "FAIL", str(error)))
+            else:
+                results.append(CaseResult(language, "build", "SKIP", str(error)))
             continue
-        except Exception as exc:
-            results.append(CaseResult(language, "adapter-build", "FAIL", str(exc)))
+        except ConformanceFailure as error:
+            results.append(CaseResult(language, "build", "FAIL", str(error)))
             continue
 
-        try:
-            run_metadata_audit(adapter)
-        except Exception as exc:
-            results.append(CaseResult(language, "metadata-coverage", "FAIL", str(exc)))
-        else:
-            results.append(CaseResult(language, "metadata-coverage", "PASS"))
-
-        if not args.real_only:
-            for ordinal, case in enumerate(fixtures["fake_cases"]):
-                try:
-                    run_fake_case(adapter, case, ordinal)
-                except Exception as exc:
-                    results.append(CaseResult(language, case["name"], "FAIL", str(exc)))
-                else:
-                    results.append(CaseResult(language, case["name"], "PASS"))
-
-        if not args.fake_only:
-            for case in fixtures["real_cases"]:
-                try:
-                    run_real_cases(adapter, [case], binary)
-                except Exception as exc:
-                    results.append(CaseResult(language, case["name"], "FAIL", str(exc)))
-                else:
-                    results.append(CaseResult(language, case["name"], "PASS"))
+        cases = fixtures["fake_cases"]
+        if args.case:
+            cases = [case for case in cases if case["name"] in set(args.case)]
+            missing_cases = set(args.case) - {case["name"] for case in cases}
+            if missing_cases:
+                parser.error(f"unknown case(s): {', '.join(sorted(missing_cases))}")
+        for case in cases:
+            try:
+                run_fake_case(adapter, case, constants, operations)
+            except BaseException as error:
+                results.append(
+                    CaseResult(language, str(case["name"]), "FAIL", str(error))
+                )
+            else:
+                results.append(CaseResult(language, str(case["name"]), "PASS"))
+        if not args.fake_only and args.cmux_tui_bin is not None:
+            transports = live_transports(language)
+            try:
+                run_live_case(adapter, args.cmux_tui_bin, constants)
+            except BaseException as error:
+                for transport in transports:
+                    results.append(
+                        CaseResult(
+                            language,
+                            f"live-creation-exit-restart-{transport}",
+                            "FAIL",
+                            str(error),
+                        )
+                    )
+            else:
+                for transport in transports:
+                    results.append(
+                        CaseResult(
+                            language,
+                            f"live-creation-exit-restart-{transport}",
+                            "PASS",
+                        )
+                    )
 
     for result in results:
         suffix = f": {result.detail}" if result.detail else ""
-        print(f"{result.status} {result.language}/{result.name}{suffix}")
-    passed = sum(result.status == "PASS" for result in results)
-    skipped = sum(result.status == "SKIP" for result in results)
-    failed = sum(result.status == "FAIL" for result in results)
-    print(f"conformance: {passed} passed, {skipped} skipped, {failed} failed")
-    return 0 if failed == 0 else 1
+        print(f"{result.status:4} {result.language:10} {result.name}{suffix}")
+    failures = [result for result in results if result.status == "FAIL"]
+    passes = sum(result.status == "PASS" for result in results)
+    skips = sum(result.status == "SKIP" for result in results)
+    print(
+        f"\npublic resource conformance: {passes} passed, "
+        f"{len(failures)} failed, {skips} skipped"
+    )
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":

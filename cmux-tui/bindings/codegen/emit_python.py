@@ -133,7 +133,7 @@ COMMAND_FIELD_ORDER = {
         "complete",
     ),
     "set-split-ratio": ("split", "ratio"),
-    "shutdown-daemon": ("pid", "generation"),
+    "shutdown-daemon": ("pid", "generation", "force"),
     "subscribe": ("surface", "tree_events"),
 }
 
@@ -1082,6 +1082,6 @@ def emit(value: SdkIR) -> Mapping[PurePosixPath, str]:
 
 EMITTER = Emitter(
     language="python",
-    output_root=PurePosixPath("python/cmux/_generated"),
+    output_root=PurePosixPath("python/cmux/raw/_generated"),
     render=emit,
 )

@@ -10,6 +10,8 @@ import Testing
 struct SidebarAppKitRowCellTests {
     private static func makeSnapshot(
         title: String = "Workspace",
+        customDescription: String? = nil,
+        isPinned: Bool = false,
         metadataEntries: [SidebarStatusEntry] = []
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
@@ -18,8 +20,8 @@ struct SidebarAppKitRowCellTests {
                 showsAgentActivity: false
             ),
             title: title,
-            customDescription: nil,
-            isPinned: false,
+            customDescription: customDescription,
+            isPinned: isPinned,
             customColorHex: nil,
             remoteWorkspaceSidebarText: nil,
             remoteConnectionStatusText: "",
@@ -51,11 +53,13 @@ struct SidebarAppKitRowCellTests {
         )
     }
 
-    private static func makeModel(
+    fileprivate static func makeModel(
         workspaceId: UUID = UUID(),
         isActive: Bool = false,
+        isPinned: Bool = false,
         canClose: Bool = true,
         settings: SidebarTabItemSettingsSnapshot? = nil,
+        customDescription: String? = nil,
         metadataEntries: [SidebarStatusEntry] = [],
         shortcutHintText: String? = nil
     ) -> SidebarWorkspaceRowModel {
@@ -64,10 +68,15 @@ struct SidebarAppKitRowCellTests {
         return SidebarWorkspaceRowModel(
             workspaceId: workspaceId,
             index: 0,
-            snapshot: makeSnapshot(metadataEntries: metadataEntries),
+            snapshot: makeSnapshot(
+                customDescription: customDescription,
+                isPinned: isPinned,
+                metadataEntries: metadataEntries
+            ),
             settings: resolvedSettings,
             isActive: isActive,
             isMultiSelected: false,
+            hasUserCustomTitle: false,
             canCloseWorkspace: canClose,
             accessibilityWorkspaceCount: 1,
             unreadCount: 0,
@@ -151,11 +160,15 @@ struct SidebarAppKitRowCellTests {
 
     private static func makeActions(
         model: SidebarWorkspaceRowModel,
+        tab: Workspace? = nil,
+        tabManager: TabManager? = nil,
+        onOpenWorkspaceDescriptionURL: @escaping (URL) -> Void = { _ in },
         onOpenStatusURL: @escaping (URL) -> Void = { _ in }
     ) -> SidebarAppKitRowActions {
+        let resolvedTab = tab ?? Workspace()
         let commands = SidebarWorkspaceRowCommands(
-            tab: Workspace(),
-            tabManager: nil,
+            tab: resolvedTab,
+            tabManager: tabManager,
             notificationStore: nil,
             index: model.index,
             contextMenuWorkspaceIds: [model.workspaceId],
@@ -175,6 +188,7 @@ struct SidebarAppKitRowCellTests {
         return SidebarAppKitRowActions(
             commands: commands,
             onOpenStatusURL: onOpenStatusURL,
+            onOpenWorkspaceDescriptionURL: onOpenWorkspaceDescriptionURL,
             onOpenPullRequest: { _ in },
             onOpenPort: { _ in },
             onToggleChecklistExpansion: {},
@@ -199,14 +213,23 @@ struct SidebarAppKitRowCellTests {
         )
     }
 
-    private static func configuredCell(
+    fileprivate static func configuredCell(
         model: SidebarWorkspaceRowModel,
+        tab: Workspace? = nil,
+        tabManager: TabManager? = nil,
+        onOpenWorkspaceDescriptionURL: @escaping (URL) -> Void = { _ in },
         onOpenStatusURL: @escaping (URL) -> Void = { _ in }
     ) -> SidebarWorkspaceRowTableCellView {
         let cell = SidebarWorkspaceRowTableCellView()
         cell.configure(
             model: model,
-            actions: makeActions(model: model, onOpenStatusURL: onOpenStatusURL),
+            actions: makeActions(
+                model: model,
+                tab: tab,
+                tabManager: tabManager,
+                onOpenWorkspaceDescriptionURL: onOpenWorkspaceDescriptionURL,
+                onOpenStatusURL: onOpenStatusURL
+            ),
             isPointerHovering: false,
             contextMenuDidOpen: {},
             contextMenuDidClose: {}
@@ -214,8 +237,158 @@ struct SidebarAppKitRowCellTests {
         return cell
     }
 
-    private static func descendants(of view: NSView) -> [NSView] {
+    fileprivate static func descendants(of view: NSView) -> [NSView] {
         view.subviews + view.subviews.flatMap { descendants(of: $0) }
+    }
+
+    private static func textView(in cell: SidebarWorkspaceRowTableCellView, linkedTo url: URL) -> SidebarRowTextView? {
+        descendants(of: cell)
+            .compactMap { $0 as? SidebarRowTextView }
+            .first { view in
+                attributedString(view.attributedStringValue, containsLink: url)
+            }
+    }
+
+    private static func attributedString(_ attributedString: NSAttributedString, containsLink url: URL) -> Bool {
+        guard attributedString.length > 0 else { return false }
+        var location = 0
+        while location < attributedString.length {
+            var range = NSRange(location: 0, length: 0)
+            let value = attributedString.attribute(.link, at: location, effectiveRange: &range)
+            if linkURL(from: value) == url {
+                return true
+            }
+            location = max(location + 1, range.location + max(range.length, 1))
+        }
+        return false
+    }
+
+    private static func linkURL(from value: Any?) -> URL? {
+        switch value {
+        case let url as URL:
+            return url
+        case let url as NSURL:
+            return url as URL
+        case let string as String:
+            return URL(string: string)
+        default:
+            return nil
+        }
+    }
+
+    @discardableResult
+    private static func layoutCell(_ cell: SidebarWorkspaceRowTableCellView, model: SidebarWorkspaceRowModel, width: CGFloat = 440) -> NSWindow {
+        let height = cell.layoutContent(model: model, width: width, apply: false)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: width, height: height),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+        window.contentView = host
+        cell.frame = host.bounds
+        host.addSubview(cell)
+        cell.needsLayout = true
+        cell.layoutSubtreeIfNeeded()
+        return window
+    }
+
+    @discardableResult
+    private static func click(_ view: NSView, in window: NSWindow, at point: NSPoint) throws -> NSView {
+        #expect(view.window === window)
+        window.orderFront(nil)
+        defer { window.orderOut(nil) }
+        let windowPoint = view.convert(point, to: nil)
+        let windowNumber = window.windowNumber
+        let timestamp = ProcessInfo.processInfo.systemUptime
+        let down = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: windowPoint,
+            modifierFlags: [],
+            timestamp: timestamp,
+            windowNumber: windowNumber,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1
+        ))
+        let up = try #require(NSEvent.mouseEvent(
+            with: .leftMouseUp,
+            location: windowPoint,
+            modifierFlags: [],
+            timestamp: timestamp + 0.01,
+            windowNumber: windowNumber,
+            context: nil,
+            eventNumber: 2,
+            clickCount: 1,
+            pressure: 0
+        ))
+        let hitView = try #require(window.contentView?.hitTest(windowPoint))
+        window.sendEvent(down)
+        window.sendEvent(up)
+        return hitView
+    }
+
+    private static let linkedMetadataMarkdown =
+        "[acme/widgets](https://github.com/acme/widgets/tree/branch) • " +
+        "[PR#123](https://github.com/acme/widgets/pull/123) • " +
+        "[dev-7](http://127.0.0.1:53000/workspaces/7)"
+
+    private static let linkedMetadataURLs = [
+        URL(string: "https://github.com/acme/widgets/tree/branch")!,
+        URL(string: "https://github.com/acme/widgets/pull/123")!,
+        URL(string: "http://127.0.0.1:53000/workspaces/7")!,
+    ]
+
+    private static func links(in textView: NSTextView) -> [(range: NSRange, url: URL)] {
+        var links: [(range: NSRange, url: URL)] = []
+        let fullRange = NSRange(location: 0, length: textView.textStorage?.length ?? 0)
+        textView.textStorage?.enumerateAttribute(.link, in: fullRange) { value, range, _ in
+            let url: URL?
+            if let value = value as? URL {
+                url = value
+            } else if let value = value as? String {
+                url = URL(string: value)
+            } else {
+                url = nil
+            }
+            if let url {
+                links.append((range, url))
+            }
+        }
+        return links
+    }
+
+    @discardableResult
+    private static func activateLink(
+        _ link: (range: NSRange, url: URL),
+        in textView: NSTextView
+    ) -> Bool {
+        textView.delegate?.textView?(
+            textView,
+            clickedOnLink: link.url,
+            at: link.range.location
+        ) ?? false
+    }
+
+    private static func hitTestPoint(
+        forCharacterAt characterIndex: Int,
+        in textView: NSTextView
+    ) throws -> NSPoint {
+        let layoutManager = try #require(textView.layoutManager)
+        let textContainer = try #require(textView.textContainer)
+        layoutManager.ensureLayout(for: textContainer)
+        let glyphRange = layoutManager.glyphRange(
+            forCharacterRange: NSRange(location: characterIndex, length: 1),
+            actualCharacterRange: nil
+        )
+        let glyphBounds = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+        let localPoint = NSPoint(
+            x: textView.textContainerOrigin.x + glyphBounds.midX,
+            y: textView.textContainerOrigin.y + glyphBounds.midY
+        )
+        return textView.convert(localPoint, to: textView.superview)
     }
 
     @Test(arguments: zip(["codex", "claude_code"], ["Running", "Needs input"]))
@@ -242,15 +415,403 @@ struct SidebarAppKitRowCellTests {
             metadataEntries: [SidebarStatusEntry(key: "repro_link", value: "click me", url: url)]
         )
         var openedURL: URL?
-        let cell = Self.configuredCell(model: model) { openedURL = $0 }
+        let cell = Self.configuredCell(model: model, onOpenStatusURL: { openedURL = $0 })
+        _ = Self.layoutCell(cell, model: model)
         let buttons = Self.descendants(of: cell).compactMap { $0 as? NSButton }
 
         let link = try #require(buttons.first { $0.toolTip == url.absoluteString })
-        #expect(link.action != nil)
-        #expect(link.target != nil)
+        let action = try #require(link.action)
+        let target = try #require(link.target)
         #expect(link.isEnabled)
-        link.performClick(nil)
+        #expect(NSApp.sendAction(action, to: target, from: link))
         #expect(openedURL == url)
+    }
+
+    @Test(arguments: [
+        "http://example.com/page",
+        "https://linear.app/attendu/issue/ATD-366",
+    ])
+    func workspaceDescriptionURLClickOpensLinkWithoutEnablingTextSelection(
+        _ urlString: String
+    ) throws {
+        let url = try #require(URL(string: urlString))
+        let model = Self.makeModel(customDescription: url.absoluteString)
+        var openedURL: URL?
+        let cell = Self.configuredCell(
+            model: model,
+            onOpenWorkspaceDescriptionURL: { openedURL = $0 }
+        )
+        let window = Self.layoutCell(cell, model: model)
+        let textView = try #require(Self.textView(in: cell, linkedTo: url))
+
+        #expect(!textView.isSelectable)
+
+        let hitView = try Self.click(
+            textView,
+            in: window,
+            at: NSPoint(x: min(16, textView.bounds.width / 2), y: textView.bounds.midY)
+        )
+
+        #expect(hitView === textView)
+        #expect(openedURL == url)
+        #expect(!textView.isSelectable)
+    }
+
+    @Test
+    func workspaceDescriptionURLClickDoesNotExpandIntoAdjacentPlainText() throws {
+        let url = try #require(URL(string: "https://linear.app/attendu/issue/ATD-366"))
+        let prefix = "See "
+        let model = Self.makeModel(customDescription: "\(prefix)\(url.absoluteString)")
+        var openedURL: URL?
+        let cell = Self.configuredCell(
+            model: model,
+            onOpenWorkspaceDescriptionURL: { openedURL = $0 }
+        )
+        let window = Self.layoutCell(cell, model: model)
+        let textView = try #require(Self.textView(in: cell, linkedTo: url))
+        let font = try #require(textView.attributedStringValue.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+        let prefixWidth = (prefix as NSString).size(withAttributes: [.font: font]).width
+
+        let hitView = try Self.click(
+            textView,
+            in: window,
+            at: NSPoint(x: max(0, prefixWidth - 0.5), y: textView.bounds.midY)
+        )
+
+        #expect(hitView !== textView)
+        #expect(openedURL == nil)
+    }
+
+    @Test
+    func workspaceDescriptionURLClickOpensWrappedTopLineLink() throws {
+        let url = try #require(URL(string: "https://linear.app/attendu/issue/ATD-366"))
+        let model = Self.makeModel(customDescription: "\(url.absoluteString) plain text after the link wraps below")
+        var openedURL: URL?
+        let cell = Self.configuredCell(
+            model: model,
+            onOpenWorkspaceDescriptionURL: { openedURL = $0 }
+        )
+        let window = Self.layoutCell(cell, model: model, width: 240)
+        let textView = try #require(Self.textView(in: cell, linkedTo: url))
+        let font = try #require(textView.attributedStringValue.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+
+        #expect(textView.bounds.height > font.ascender - font.descender)
+        #expect(textView.isFlipped)
+
+        let hitView = try Self.click(
+            textView,
+            in: window,
+            at: NSPoint(x: min(16, textView.bounds.width / 2), y: ceil((font.ascender - font.descender) / 2))
+        )
+
+        #expect(hitView === textView)
+        #expect(openedURL == url)
+    }
+
+    @Test(arguments: ["file:///tmp/not-ok.command", "x-custom://open"])
+    func workspaceDescriptionUnsafeURLClickIsIgnored(_ urlString: String) throws {
+        let url = try #require(URL(string: urlString))
+        let model = Self.makeModel(customDescription: "[launch](\(url.absoluteString))")
+        var openedURL: URL?
+        let cell = Self.configuredCell(
+            model: model,
+            onOpenWorkspaceDescriptionURL: { openedURL = $0 }
+        )
+        let window = Self.layoutCell(cell, model: model)
+        let textView = try #require(Self.textView(in: cell, linkedTo: url))
+
+        let hitView = try Self.click(
+            textView,
+            in: window,
+            at: NSPoint(x: min(12, textView.bounds.width / 2), y: textView.bounds.midY)
+        )
+
+        #expect(hitView !== textView)
+        #expect(openedURL == nil)
+    }
+
+    @Test
+    func markdownMetadataRendersLabelsAndIndependentLinks() throws {
+        let model = Self.makeModel(
+            metadataEntries: [
+                SidebarStatusEntry(
+                    key: "repo_workspace",
+                    value: Self.linkedMetadataMarkdown,
+                    format: .markdown
+                ),
+            ]
+        )
+        let cell = Self.configuredCell(model: model)
+        let textView = try #require(
+            Self.descendants(of: cell)
+                .compactMap { $0 as? NSTextView }
+                .first { !$0.isHidden }
+        )
+
+        #expect(textView.string == "acme/widgets • PR#123 • dev-7")
+        #expect(!textView.string.contains("["))
+        #expect(Self.links(in: textView).map(\.url) == Self.linkedMetadataURLs)
+    }
+
+    @Test
+    func markdownMetadataDoesNotCaptureKeyboardFocus() throws {
+        let model = Self.makeModel(
+            metadataEntries: [
+                SidebarStatusEntry(
+                    key: "repo_workspace",
+                    value: Self.linkedMetadataMarkdown,
+                    format: .markdown
+                ),
+            ]
+        )
+        let cell = Self.configuredCell(model: model)
+        let textView = try #require(
+            Self.descendants(of: cell)
+                .compactMap { $0 as? NSTextView }
+                .first { !$0.isHidden }
+        )
+
+        #expect(!textView.acceptsFirstResponder)
+    }
+
+    @Test
+    func markdownMetadataExplicitURLPreservesFormattedRowAction() throws {
+        let explicitURL = try #require(URL(string: "https://example.com/explicit"))
+        let model = Self.makeModel(
+            metadataEntries: [
+                SidebarStatusEntry(
+                    key: "repo_workspace",
+                    value: Self.linkedMetadataMarkdown,
+                    url: explicitURL,
+                    format: .markdown
+                ),
+            ]
+        )
+        var openedURL: URL?
+        let cell = Self.configuredCell(model: model) { openedURL = $0 }
+        let textView = try #require(
+            Self.descendants(of: cell)
+                .compactMap { $0 as? NSTextView }
+                .first { !$0.isHidden }
+        )
+
+        #expect(textView.string == "acme/widgets • PR#123 • dev-7")
+        let links = Self.links(in: textView)
+        #expect(links.count == 1)
+        let link = try #require(links.first)
+        #expect(link.range == NSRange(location: 0, length: textView.string.utf16.count))
+        #expect(link.url == explicitURL)
+        #expect(Self.activateLink(link, in: textView))
+        #expect(openedURL == explicitURL)
+    }
+
+    @Test
+    func markdownMetadataOnlyCapturesClicksOnLinkGlyphs() throws {
+        let row = SidebarRowIconTextLine()
+        row.configureMetadataEntry(
+            SidebarStatusEntry(
+                key: "links",
+                value: "plain [link](https://example.com)",
+                format: .markdown
+            ),
+            model: Self.makeModel(),
+            color: .secondaryLabelColor,
+            onOpenURL: { _ in }
+        )
+
+        let height = row.measuredHeight(width: 220)
+        row.frame = NSRect(x: 0, y: 0, width: 220, height: height)
+        row.layoutSubtreeIfNeeded()
+        let textView = try #require(
+            Self.descendants(of: row)
+                .compactMap { $0 as? NSTextView }
+                .first { !$0.isHidden }
+        )
+        let links = Self.links(in: textView)
+        #expect(links.count == 1)
+        let link = try #require(links.first)
+        let plainPoint = try Self.hitTestPoint(forCharacterAt: 0, in: textView)
+        let linkPoint = try Self.hitTestPoint(forCharacterAt: link.range.location, in: textView)
+
+        #expect(textView.hitTest(plainPoint) == nil)
+        #expect(textView.hitTest(linkPoint) === textView)
+    }
+
+    @Test
+    func markdownMetadataLinkSelectionPrecedesEachOpen() throws {
+        let manager = TabManager()
+        let originalWorkspaceId = try #require(manager.selectedTabId)
+        let targetWorkspace = manager.addWorkspace(select: false)
+        let model = Self.makeModel(
+            workspaceId: targetWorkspace.id,
+            metadataEntries: [
+                SidebarStatusEntry(
+                    key: "repo_workspace",
+                    value: Self.linkedMetadataMarkdown,
+                    format: .markdown
+                ),
+            ]
+        )
+        var opened: [URL] = []
+        var wasSelectedBeforeOpen: [Bool] = []
+        let cell = Self.configuredCell(
+            model: model,
+            tab: targetWorkspace,
+            tabManager: manager
+        ) { url in
+            wasSelectedBeforeOpen.append(manager.selectedTabId == targetWorkspace.id)
+            opened.append(url)
+        }
+        let textView = try #require(
+            Self.descendants(of: cell)
+                .compactMap { $0 as? NSTextView }
+                .first { !$0.isHidden }
+        )
+
+        #expect(manager.selectedTabId == originalWorkspaceId)
+        for link in Self.links(in: textView) {
+            #expect(Self.activateLink(link, in: textView))
+        }
+        #expect(opened == Self.linkedMetadataURLs)
+        #expect(wasSelectedBeforeOpen == [true, true, true])
+    }
+
+    @Test
+    func markdownMetadataLeavesUnsafeSchemeLabelInert() throws {
+        let markdown = "[safe](https://example.com) • [unsafe](javascript:alert(1))"
+        let model = Self.makeModel(
+            metadataEntries: [
+                SidebarStatusEntry(key: "links", value: markdown, format: .markdown),
+            ]
+        )
+        let cell = Self.configuredCell(model: model)
+        let textView = try #require(
+            Self.descendants(of: cell)
+                .compactMap { $0 as? NSTextView }
+                .first { !$0.isHidden }
+        )
+
+        #expect(textView.string == "safe • unsafe")
+        #expect(Self.links(in: textView).map(\.url) == [URL(string: "https://example.com")!])
+    }
+
+    @Test
+    func markdownMetadataStaysSingleLineAndHeightStable() throws {
+        let markdown = (1...20)
+            .map { "[workspace-\($0)](https://example.com/workspaces/\($0))" }
+            .joined(separator: " • ")
+        let row = SidebarRowIconTextLine()
+        row.configureMetadataEntry(
+            SidebarStatusEntry(key: "links", value: markdown, format: .markdown),
+            model: Self.makeModel(),
+            color: .secondaryLabelColor,
+            onOpenURL: { _ in }
+        )
+
+        let beforeLayout = row.measuredHeight(width: 120)
+        row.frame = NSRect(x: 0, y: 0, width: 120, height: beforeLayout)
+        row.layoutSubtreeIfNeeded()
+        let afterLayout = row.measuredHeight(width: 120)
+        let textView = try #require(
+            Self.descendants(of: row)
+                .compactMap { $0 as? NSTextView }
+                .first { !$0.isHidden }
+        )
+
+        #expect(textView.textContainer?.maximumNumberOfLines == 1)
+        #expect(textView.textContainer?.lineBreakMode == .byTruncatingTail)
+        #expect(afterLayout == beforeLayout)
+    }
+
+    @Test
+    func markdownMetadataTextContainerHasDrawableHeight() throws {
+        let row = SidebarRowIconTextLine()
+        row.configureMetadataEntry(
+            SidebarStatusEntry(
+                key: "repo_workspace",
+                value: Self.linkedMetadataMarkdown,
+                format: .markdown
+            ),
+            model: Self.makeModel(),
+            color: .secondaryLabelColor,
+            onOpenURL: { _ in }
+        )
+
+        let height = row.measuredHeight(width: 220)
+        row.frame = NSRect(x: 0, y: 0, width: 220, height: height)
+        row.layoutSubtreeIfNeeded()
+        let textView = try #require(
+            Self.descendants(of: row)
+                .compactMap { $0 as? NSTextView }
+                .first { !$0.isHidden }
+        )
+        let textContainer = try #require(textView.textContainer)
+        let layoutManager = try #require(textView.layoutManager)
+
+        layoutManager.ensureLayout(for: textContainer)
+        #expect(textContainer.containerSize.height > 0)
+        #expect(layoutManager.usedRect(for: textContainer).height > 0)
+    }
+
+    @Test
+    func metadataRowReconfigurationClearsMutuallyExclusiveState() throws {
+        let row = SidebarRowIconTextLine()
+        let model = Self.makeModel()
+        var firstOpened = 0
+        row.configureMetadataEntry(
+            SidebarStatusEntry(
+                key: "repo_workspace",
+                value: Self.linkedMetadataMarkdown,
+                format: .markdown
+            ),
+            model: model,
+            color: .secondaryLabelColor,
+            onOpenURL: { _ in firstOpened += 1 }
+        )
+        let markdownView = try #require(
+            Self.descendants(of: row).compactMap { $0 as? NSTextView }.first
+        )
+        let staleLink = try #require(Self.links(in: markdownView).first)
+
+        row.configureMetadataEntry(
+            SidebarStatusEntry(key: "plain", value: "plain value"),
+            model: model,
+            color: .secondaryLabelColor,
+            onOpenURL: { _ in }
+        )
+        #expect(markdownView.isHidden)
+        #expect(markdownView.string.isEmpty)
+        #expect(Self.links(in: markdownView).isEmpty)
+        #expect(!Self.activateLink(staleLink, in: markdownView))
+        #expect(firstOpened == 0)
+
+        let explicitURL = try #require(URL(string: "https://example.com/plain"))
+        row.configureMetadataEntry(
+            SidebarStatusEntry(key: "plain-link", value: "plain link", url: explicitURL),
+            model: model,
+            color: .secondaryLabelColor,
+            onOpenURL: { _ in }
+        )
+        #expect(markdownView.isHidden)
+        #expect(markdownView.string.isEmpty)
+
+        var secondOpened: URL?
+        row.configureMetadataEntry(
+            SidebarStatusEntry(
+                key: "markdown-again",
+                value: "[again](https://example.com/again)",
+                format: .markdown
+            ),
+            model: model,
+            color: .secondaryLabelColor,
+            onOpenURL: { secondOpened = $0 }
+        )
+        let currentLink = try #require(Self.links(in: markdownView).first)
+        #expect(!markdownView.isHidden)
+        #expect(markdownView.string == "again")
+        #expect(Self.activateLink(currentLink, in: markdownView))
+        #expect(secondOpened == URL(string: "https://example.com/again"))
+        #expect(firstOpened == 0)
     }
 
     @Test
@@ -511,5 +1072,60 @@ struct SidebarAppKitRowCellTests {
             #expect(!Self.makeSwiftUIRow(settings: settings).settings.details[keyPath: detailKey])
             #expect(!Self.makeModel(settings: settings).settings.details[keyPath: detailKey])
         }
+    }
+}
+
+@Suite
+@MainActor
+struct SidebarPinnedIndicatorColorTests {
+    @Test
+    func pinnedGroupUsesWorkspacePinColor() throws {
+        let workspaceCell = SidebarAppKitRowCellTests.configuredCell(
+            model: SidebarAppKitRowCellTests.makeModel(isPinned: true)
+        )
+        let groupCell = SidebarGroupHeaderTableCellView()
+        groupCell.configurePresentation(model: SidebarGroupHeaderRowModel(
+            groupId: UUID(),
+            anchorWorkspaceId: UUID(),
+            name: "Group",
+            iconSymbol: "folder",
+            tintHex: nil,
+            isCollapsed: false,
+            isPinned: true,
+            isAnchorActive: false,
+            isMultiSelected: false,
+            multiSelectionBackgroundStyle: .clear,
+            memberCount: 1,
+            anchorUnreadCount: 0,
+            canMarkRead: false,
+            canMarkUnread: false,
+            hasLatestNotifications: false,
+            canMarkAllRead: false,
+            canMarkAllUnread: false,
+            shortcutHintText: nil,
+            shortcutHintXOffset: 0,
+            shortcutHintYOffset: 0,
+            fontScale: 1,
+            globalFontMagnificationPercent: 100,
+            cwdContextMenuItems: [],
+            rowSpacing: 2,
+            isFirstRow: true,
+            isBeingDragged: false,
+            topDropIndicatorVisible: false,
+            bottomDropIndicatorVisible: false
+        ))
+
+        let workspacePin = try #require(
+            SidebarAppKitRowCellTests.descendants(of: workspaceCell)
+                .compactMap { $0 as? NSImageView }
+                .first { !$0.isHidden && $0.toolTip != nil }
+        )
+        let groupPin = try #require(
+            SidebarAppKitRowCellTests.descendants(of: groupCell)
+                .compactMap { $0 as? NSImageView }
+                .first { !$0.isHidden && $0.toolTip != nil }
+        )
+
+        #expect(groupPin.contentTintColor == workspacePin.contentTintColor)
     }
 }

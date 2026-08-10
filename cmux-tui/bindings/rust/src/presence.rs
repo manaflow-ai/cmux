@@ -96,7 +96,7 @@ where
 }
 
 /// Backwards-compatible name for a required nullable value.
-pub type Nullable<T> = crate::RequiredNullable<T>;
+pub type Nullable<T> = crate::raw_support::RequiredNullable<T>;
 
 #[cfg(test)]
 mod tests {

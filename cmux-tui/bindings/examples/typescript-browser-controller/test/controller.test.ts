@@ -1,20 +1,33 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  CmuxClient,
-  parseWireJson,
-  stringifyWireJson,
-  type Tab,
+  Client,
+  CmuxConnectionError,
+  MAX_STREAM_MESSAGES,
+  browserId,
+  decimalString,
+  paneId,
+  screenId,
+  tabId,
+  workspaceId,
+  type BrowserSnapshot,
   type Transport,
-  type Tree,
   type Unsubscribe,
-} from "cmux/browser";
+} from "cmux-sdk/browser";
 import {
   BrowserController,
-  browserTabsFromTree,
+  browserTabsFromSnapshots,
   type BrowserFrameSnapshot,
   type BrowserRecovery,
 } from "../src/index.js";
+
+const BROWSER_ID = "browser_" + "1".repeat(32);
+const TAB_ID = "tab_" + "2".repeat(32);
+const STREAM_ID = "stream_" + "a".repeat(32);
+const WORKSPACE_ID = "ws_" + "4".repeat(32);
+const SCREEN_ID = "screen_" + "5".repeat(32);
+const PANE_ID = "pane_" + "6".repeat(32);
+const GENERATION = "fake-generation";
 
 class FakeTransport implements Transport {
   private readonly messages = new Set<(json: string) => void>();
@@ -23,11 +36,14 @@ class FakeTransport implements Transport {
   closed = false;
 
   constructor(
-    private readonly receive: (transport: FakeTransport, request: Record<string, unknown>) => void,
+    private readonly receive: (
+      transport: FakeTransport,
+      request: Record<string, unknown>,
+    ) => void,
   ) {}
 
   send(json: string): void {
-    this.receive(this, parseWireJson(json) as Record<string, unknown>);
+    this.receive(this, JSON.parse(json) as Record<string, unknown>);
   }
 
   onMessage(handler: (json: string) => void): Unsubscribe {
@@ -51,12 +67,42 @@ class FakeTransport implements Transport {
     for (const handler of this.closes) handler();
   }
 
-  respond(id: unknown, data: unknown): void {
-    this.emit({ id, ok: true, data });
+  respond(request: Record<string, unknown>, result: unknown): void {
+    this.emit({
+      protocol: "cmux.protocol/2",
+      type: "response",
+      id: request.id,
+      ok: true,
+      result,
+    });
   }
 
-  event(event: Record<string, unknown>): void {
-    this.emit(event);
+  stream(
+    streamId: string,
+    sequence: string,
+    item: Record<string, unknown>,
+  ): void {
+    this.emit({
+      protocol: "cmux.protocol/2",
+      type: "stream_item",
+      stream_id: streamId,
+      sequence,
+      item,
+    });
+  }
+
+  end(
+    streamId: string,
+    reason: "completed" | "canceled" | "gap",
+    recovery?: string,
+  ): void {
+    this.emit({
+      protocol: "cmux.protocol/2",
+      type: "stream_end",
+      stream_id: streamId,
+      reason,
+      ...(recovery === undefined ? {} : { recovery }),
+    });
   }
 
   fail(error: Error): void {
@@ -64,7 +110,7 @@ class FakeTransport implements Transport {
   }
 
   private emit(value: unknown): void {
-    const json = stringifyWireJson(value);
+    const json = JSON.stringify(value);
     for (const handler of this.messages) handler(json);
   }
 }
@@ -73,151 +119,312 @@ class BrowserServer {
   readonly requests: Array<Record<string, unknown>> = [];
   attachAttempts = 0;
 
-  client(): CmuxClient {
-    return new CmuxClient({
-      transport: new FakeTransport((transport, request) => this.handle(transport, request)),
-      streamTransportFactory: () => new FakeTransport(
-        (transport, request) => this.handle(transport, request),
-      ),
+  constructor(
+    private readonly attachmentMode: "normal" | "hold" | "overflow" = "normal",
+  ) {}
+
+  client(): Client {
+    return new Client({
+      transport: new FakeTransport((transport, request) => {
+        this.handle(transport, request);
+      }),
       timeoutMs: 100,
+      randomHex128: () => "a".repeat(32),
     });
   }
 
-  private handle(transport: FakeTransport, request: Record<string, unknown>): void {
+  private handle(
+    transport: FakeTransport,
+    request: Record<string, unknown>,
+  ): void {
     this.requests.push(request);
-    switch (request.cmd) {
-      case "identify":
-        transport.respond(request.id, identifyResult());
+    const operation = String(request.operation);
+    const params = request.params as Record<string, unknown>;
+    switch (operation) {
+      case "browser.list":
+        transport.respond(
+          request,
+          this.attachmentMode !== "overflow" && this.attachAttempts < 2
+            ? [browserSnapshot()]
+            : [],
+        );
         return;
-      case "list-workspaces":
-        transport.respond(request.id, workspaceTree(this.attachAttempts < 2));
-        return;
-      case "attach-surface":
+      case "browser.attach": {
         this.attachAttempts += 1;
-        if (this.attachAttempts === 1) {
-          transport.event(browserState(1n));
-          transport.event(frameEvent(2n));
-          transport.event({
-            event: "overflow",
-            scope: "surface",
-            surface: 42n,
-            error: "consumer fell behind",
+        const streamId = String(params.stream_id);
+        transport.respond(request, { stream_id: streamId });
+        if (this.attachmentMode === "hold") {
+          transport.stream(streamId, "1", {
+            kind: "snapshot",
+            browser: browserSnapshot(),
+            size: { width_px: 1200, height_px: 800 },
           });
-        } else {
-          transport.event(browserState(3n));
-          transport.event({ event: "detached", surface: 42n });
+          return;
         }
-        transport.respond(request.id, {});
+        if (this.attachmentMode === "overflow") {
+          for (let index = 0; index <= MAX_STREAM_MESSAGES; index += 1) {
+            transport.stream(streamId, String(index + 1), {
+              kind: "state",
+              url: `https://cmux.dev/${index}`,
+              title: "overflow",
+              loading: false,
+            });
+          }
+          return;
+        }
+        if (this.attachAttempts === 1) {
+          transport.stream(streamId, "1", {
+            kind: "snapshot",
+            browser: browserSnapshot(),
+            size: { width_px: 1200, height_px: 800 },
+          });
+          transport.stream(streamId, "2", {
+            kind: "frame",
+            mime_type: "image/png",
+            data_base64: "ZnJhbWU=",
+            width_px: 1200,
+            height_px: 800,
+            pointer_frame_seq: "41",
+          });
+          transport.end(
+            streamId,
+            "gap",
+            "reopen the stream to obtain a fresh snapshot",
+          );
+        } else {
+          transport.stream(streamId, "3", {
+            kind: "state",
+            url: "https://cmux.dev/updated",
+            title: "updated",
+            loading: false,
+          });
+          transport.end(streamId, "completed");
+        }
         return;
-      case "browser-navigate":
-      case "browser-reload":
-      case "browser-back":
-      case "browser-forward":
-      case "browser-activate":
-      case "browser-insert-text":
-      case "browser-key":
-      case "browser-mouse":
-      case "browser-wheel":
-        transport.respond(request.id, {});
+      }
+      case "browser.navigate":
+      case "browser.back":
+      case "browser.forward":
+      case "browser.reload":
+      case "browser.activate":
+        transport.respond(request, mutation(browserSnapshot()));
         return;
+      case "browser.input.text":
+      case "browser.input.key":
+      case "browser.input.mouse":
+      case "browser.input.wheel":
+        transport.respond(request, mutation({}));
+        return;
+      case "tab.create_browser":
+        transport.respond(request, mutation(browserCreatedPath()));
+        return;
+      case "stream.cancel": {
+        transport.respond(request, {});
+        transport.end(String(params.stream), "canceled");
+        return;
+      }
       default:
-        throw new Error(`unexpected command ${String(request.cmd)}`);
+        throw new Error(`unexpected operation ${operation}`);
     }
   }
 }
 
-test("discovers browser tabs without exposing PTY tabs or dead panes", () => {
-  const tabs = browserTabsFromTree(workspaceTree(true));
-  assert.equal(tabs.length, 1);
-  assert.deepEqual(tabs[0], {
-    surface: 42n,
-    workspace: 1n,
-    workspaceName: "sdk examples",
-    screen: 2n,
-    screenName: "browser",
-    pane: 3n,
-    paneName: "web",
-    tabIndex: 1,
-    active: true,
-    title: "cmux docs",
-    name: "docs",
-    status: "live",
-    error: null,
-    framesStalled: false,
-    source: "launched",
-  });
+test("maps the typed browser snapshots without legacy surface IDs", () => {
+  const snapshot = browserSnapshot();
+  const tabs = browserTabsFromSnapshots([
+    {
+      id: browserId(BROWSER_ID),
+      tabId: tabId(TAB_ID),
+      url: String(snapshot.url),
+      title: String(snapshot.title),
+      loading: false,
+      source: "launched",
+      status: "live",
+      error: null,
+      framesStalled: false,
+      size: { cols: 120, rows: 40 },
+      extra: {},
+    } satisfies BrowserSnapshot,
+  ]);
+  assert.equal(tabs[0]?.id, BROWSER_ID);
+  assert.equal(tabs[0]?.tabId, TAB_ID);
 });
 
-test("drives every browser control through typed public methods", async () => {
+test("drives every browser control through public resource handles", async () => {
   const server = new BrowserServer();
   const controller = new BrowserController({
     createClient: () => server.client(),
     recoveryDelayMs: 0,
   });
+  const id = browserId(BROWSER_ID);
+  const pointerFrameSeq = decimalString("41");
 
-  assert.equal((await controller.listBrowserTabs())[0]?.surface, 42n);
-  await controller.navigate(42n, "https://example.com");
-  await controller.reload(42n);
-  await controller.back(42n);
-  await controller.forward(42n);
-  await controller.activate(42n);
-  await controller.insertText(42n, "hello");
-  await controller.key(42n, {
-    kind: "down",
+  assert.equal((await controller.listBrowserTabs())[0]?.id, id);
+  await controller.navigate(id, "https://example.com");
+  await controller.reload(id);
+  await controller.back(id);
+  await controller.forward(id);
+  await controller.activate(id);
+  await controller.insertText(id, "hello");
+  await controller.key(id, {
+    kind: "press",
     key: "Enter",
-    code: "Enter",
-    windows_virtual_key_code: 13,
-    modifiers: 0,
-    text: "\r",
+    modifiers: ["shift"],
   });
-  await controller.mouse(42n, {
+  await controller.mouse(id, {
     kind: "down",
-    x_px: 10,
-    y_px: 20,
+    xPx: 10,
+    yPx: 20,
     button: "left",
-    click_count: 1,
+    clickCount: 1,
+    pointerFrameSeq,
   });
-  await controller.wheel(42n, {
-    x_px: 10,
-    y_px: 20,
-    delta_y_px: -120,
+  await controller.wheel(id, {
+    xPx: 10,
+    yPx: 20,
+    deltaX: 0,
+    deltaY: -120,
+    pointerFrameSeq,
   });
 
-  const commands = server.requests.map((request) => request.cmd);
-  assert.deepEqual(commands, [
-    "identify",
-    "list-workspaces",
-    "browser-navigate",
-    "browser-reload",
-    "browser-back",
-    "browser-forward",
-    "browser-activate",
-    "browser-insert-text",
-    "browser-key",
-    "browser-mouse",
-    "browser-wheel",
-  ]);
-  assert.equal(server.requests[2]?.url, "https://example.com");
-  assert.equal(server.requests[7]?.text, "hello");
-  assert.equal(server.requests[8]?.windows_virtual_key_code, 13);
-  assert.equal(server.requests[9]?.button, "left");
-  assert.equal(server.requests[10]?.delta_y_px, -120);
+  assert.deepEqual(
+    server.requests.map((request) => request.operation),
+    [
+      "browser.list",
+      "browser.navigate",
+      "browser.reload",
+      "browser.back",
+      "browser.forward",
+      "browser.activate",
+      "browser.input.text",
+      "browser.input.key",
+      "browser.input.mouse",
+      "browser.input.wheel",
+    ],
+  );
+  const key = server.requests[7]?.params as Record<string, unknown>;
+  const mouse = server.requests[8]?.params as Record<string, unknown>;
+  const wheel = server.requests[9]?.params as Record<string, unknown>;
+  assert.deepEqual(key.modifiers, ["shift"]);
+  assert.equal(mouse.click_count, 1);
+  assert.equal(mouse.pointer_frame_seq, pointerFrameSeq);
+  assert.equal(wheel.delta_y, -120);
+  assert.equal(wheel.pointer_frame_seq, pointerFrameSeq);
   await controller.close();
 });
 
-test("resyncs and reattaches after overflow, then stops when detached surface disappears", async () => {
+test("creates a browser tab with explicit correlation and idempotency", async () => {
+  const server = new BrowserServer();
+  const controller = new BrowserController({
+    createClient: () => server.client(),
+  });
+  const creation = await controller.createBrowserTab({
+    location: {
+      workspaceId: workspaceId(WORKSPACE_ID),
+      screenId: screenId(SCREEN_ID),
+      paneId: paneId(PANE_ID),
+    },
+    url: "https://example.com",
+    name: "docs",
+    widthPx: 1200,
+    heightPx: 800,
+    correlationKey: "browser-docs",
+    idempotencyKey: "browser-docs-attempt-1",
+  });
+
+  assert.equal(creation.recovered, false);
+  assert.equal(creation.replayed, false);
+  assert.equal(creation.browser.id, BROWSER_ID);
+  assert.equal(creation.path.tab.id, TAB_ID);
+  const request = server.requests[0];
+  assert.equal(request?.operation, "tab.create_browser");
+  assert.equal(request?.idempotency_key, "browser-docs-attempt-1");
+  const params = request?.params as Record<string, unknown>;
+  assert.equal(params.correlation_key, "browser-docs");
+  assert.equal(params.workspace, WORKSPACE_ID);
+  assert.equal(params.screen, SCREEN_ID);
+  assert.equal(params.pane, PANE_ID);
+  await controller.close();
+});
+
+test("resolves a correlated browser path after losing the create response", async () => {
+  const requests: Array<Record<string, unknown>> = [];
+  let clients = 0;
+  const controller = new BrowserController({
+    createClient: () => {
+      clients += 1;
+      const ordinal = clients;
+      return new Client({
+        timeoutMs: 100,
+        randomHex128: () => `${ordinal}`.repeat(32),
+        transport: new FakeTransport((transport, request) => {
+          requests.push(request);
+          if (ordinal === 1 && request.operation === "tab.create_browser") {
+            transport.fail(new CmuxConnectionError("create response lost"));
+            return;
+          }
+          if (
+            ordinal === 2
+            && request.operation === "session.creation.resolve"
+          ) {
+            transport.respond(request, {
+              correlation_key: "recovered-browser",
+              state: "created",
+              recovery: "none",
+              operation: "tab.create_browser",
+              idempotency_key: "recovered-browser-attempt-1",
+              created_path: browserCreatedPath(),
+              generation: GENERATION,
+              revision: "9",
+            });
+            return;
+          }
+          throw new Error(`unexpected operation ${String(request.operation)}`);
+        }),
+      });
+    },
+  });
+
+  const creation = await controller.createBrowserTab({
+    location: {
+      workspaceId: workspaceId(WORKSPACE_ID),
+      screenId: screenId(SCREEN_ID),
+      paneId: paneId(PANE_ID),
+    },
+    url: "https://cmux.dev",
+    correlationKey: "recovered-browser",
+    idempotencyKey: "recovered-browser-attempt-1",
+  });
+
+  assert.equal(clients, 2);
+  assert.equal(creation.recovered, true);
+  assert.equal(creation.replayed, undefined);
+  assert.equal(creation.browser.id, BROWSER_ID);
+  assert.deepEqual(
+    requests.map((request) => request.operation),
+    ["tab.create_browser", "session.creation.resolve"],
+  );
+  assert.equal(requests[0]?.idempotency_key, "recovered-browser-attempt-1");
+  assert.equal(
+    (requests[1]?.params as Record<string, unknown>).correlation_key,
+    "recovered-browser",
+  );
+  await controller.close();
+});
+
+test("resyncs after a gap and stops when the browser disappears", async () => {
   const server = new BrowserServer();
   const frames: BrowserFrameSnapshot[] = [];
   const recoveries: BrowserRecovery[] = [];
-  const states: bigint[] = [];
+  const states: string[] = [];
   const controller = new BrowserController({
     createClient: () => server.client(),
     recoveryDelayMs: 0,
   });
 
-  await controller.followBrowser(42n, {
+  await controller.followBrowser(browserId(BROWSER_ID), {
     onState: (state) => {
-      states.push(state.frame?.seq ?? -1n);
+      states.push(state.url);
     },
     onFrame: (frame) => {
       frames.push(frame);
@@ -225,47 +432,51 @@ test("resyncs and reattaches after overflow, then stops when detached surface di
     onRecovery: (recovery) => {
       recoveries.push(recovery);
     },
-  }, {
-    maxRecoveries: 2,
-    idleReadTimeoutMs: 50,
-  });
+  }, { maxRecoveries: 2 });
 
-  assert.deepEqual(states, [1n, 3n]);
-  assert.deepEqual(frames.map(({ sequence, source }) => ({ sequence, source })), [
-    { sequence: 1n, source: "initial-state" },
-    { sequence: 2n, source: "frame-event" },
-    { sequence: 3n, source: "initial-state" },
-  ]);
+  assert.deepEqual(states, ["https://cmux.dev/updated"]);
   assert.deepEqual(
-    recoveries.map(({ reason, attempt, surfacePresent }) => ({
+    frames.map(({ sequence, pointerFrameSeq, mimeType }) => ({
+      sequence,
+      pointerFrameSeq,
+      mimeType,
+    })),
+    [{
+      sequence: "2",
+      pointerFrameSeq: "41",
+      mimeType: "image/png",
+    }],
+  );
+  assert.deepEqual(
+    recoveries.map(({ reason, attempt, browserPresent }) => ({
       reason,
       attempt,
-      surfacePresent,
+      browserPresent,
     })),
     [
-      { reason: "overflow", attempt: 1, surfacePresent: true },
-      { reason: "detached", attempt: 2, surfacePresent: false },
+      { reason: "gap", attempt: 1, browserPresent: true },
+      { reason: "stream-ended", attempt: 2, browserPresent: false },
     ],
   );
   assert.equal(server.attachAttempts, 2);
   await controller.close();
 });
 
-test("replaces a failed command client with a fresh public client", async () => {
+test("replaces a failed command client with a fresh resource client", async () => {
   let clients = 0;
   const controller = new BrowserController({
     createClient: () => {
       clients += 1;
       const ordinal = clients;
-      return new CmuxClient({
+      return new Client({
         timeoutMs: 100,
+        randomHex128: () => "b".repeat(32),
         transport: new FakeTransport((transport, request) => {
-          if (request.cmd === "identify") {
-            transport.respond(request.id, identifyResult());
-          } else if (request.cmd === "list-workspaces" && ordinal === 1) {
-            transport.fail(new Error("socket reset"));
-          } else if (request.cmd === "list-workspaces") {
-            transport.respond(request.id, workspaceTree(true));
+          if (request.operation !== "browser.list") return;
+          if (ordinal === 1) {
+            transport.fail(new CmuxConnectionError("socket reset"));
+          } else {
+            transport.respond(request, [browserSnapshot()]);
           }
         }),
       });
@@ -273,109 +484,98 @@ test("replaces a failed command client with a fresh public client", async () => 
     commandReconnectAttempts: 1,
   });
 
-  assert.equal((await controller.listBrowserTabs())[0]?.surface, 42n);
+  assert.equal((await controller.listBrowserTabs())[0]?.id, BROWSER_ID);
   assert.equal(clients, 2);
   await controller.close();
 });
 
-function identifyResult(): Record<string, unknown> {
-  return {
-    app: "cmux-tui",
-    version: "0.1.2",
-    protocol: 10,
-    session: "sdk-test",
-    pid: 123,
-    daemon_handoff: 1,
-    generation: "generation-1",
-    registry_id: "registry-1",
-    terminal_revision: 1n,
-    workspace_revision: 1n,
-    capabilities: ["attach-initial-size"],
-  };
-}
+test("AbortSignal cancels a live browser attachment", async () => {
+  const server = new BrowserServer("hold");
+  const controller = new BrowserController({
+    createClient: () => server.client(),
+    recoveryDelayMs: 0,
+  });
+  const abort = new AbortController();
 
-function workspaceTree(browserPresent: boolean): Tree {
-  const tabs: Tab[] = [{
-    browser_source: null,
-    dead: false,
-    kind: "pty",
-    name: "shell",
-    size: { cols: 80, rows: 24 },
-    surface: 41n,
-    title: "shell",
-  }];
-  if (browserPresent) {
-    tabs.push({
-      browser_error: null,
-      browser_frames_stalled: false,
-      browser_source: "launched",
-      browser_status: "live",
-      dead: false,
-      kind: "browser",
-      name: "docs",
-      size: { cols: 120, rows: 40 },
-      surface: 42n,
-      title: "cmux docs",
-    });
-  }
-  return {
-    generation: "generation-1",
-    pane_revision: 1n,
-    registry_id: "registry-1",
-    terminal_revision: 1n,
-    workspace_revision: 1n,
-    workspaces: [{
-      active: true,
-      id: 1n,
-      name: "sdk examples",
-      screens: [{
-        active: true,
-        active_pane: 3n,
-        id: 2n,
-        layout: { type: "leaf", pane: 3n },
-        name: "browser",
-        panes: [{
-          active_tab: browserPresent ? 1n : 0n,
-          id: 3n,
-          name: "web",
-          tabs,
-        }, {
-          dead: true,
-          id: 99n,
-        }],
-        zoomed_pane: null,
-      }],
-    }],
-  };
-}
+  await controller.followBrowser(browserId(BROWSER_ID), {
+    onSnapshot: () => abort.abort(),
+  }, { signal: abort.signal });
 
-function browserState(sequence: bigint): Record<string, unknown> {
+  assert.deepEqual(
+    server.requests.map((request) => request.operation),
+    ["browser.attach", "stream.cancel"],
+  );
+  assert.equal(
+    (server.requests[1]?.params as Record<string, unknown>).stream,
+    STREAM_ID,
+  );
+  await controller.close();
+});
+
+test("bounded SDK stream purges overflow and resyncs from a snapshot", async () => {
+  const server = new BrowserServer("overflow");
+  const recoveries: BrowserRecovery[] = [];
+  let delivered = 0;
+  const controller = new BrowserController({
+    createClient: () => server.client(),
+    recoveryDelayMs: 0,
+  });
+
+  await controller.followBrowser(browserId(BROWSER_ID), {
+    onEvent: () => {
+      delivered += 1;
+    },
+    onRecovery: (recovery) => {
+      recoveries.push(recovery);
+    },
+  }, { maxRecoveries: 1 });
+
+  assert.equal(delivered, 0);
+  assert.deepEqual(
+    recoveries.map(({ reason, browserPresent }) => ({
+      reason,
+      browserPresent,
+    })),
+    [{ reason: "gap", browserPresent: false }],
+  );
+  assert.deepEqual(
+    server.requests.map((request) => request.operation),
+    ["browser.attach", "stream.cancel", "browser.list"],
+  );
+  await controller.close();
+});
+
+function browserSnapshot(): Record<string, unknown> {
   return {
-    event: "browser-state",
-    surface: 42n,
-    cols: 120,
-    rows: 40,
+    id: BROWSER_ID,
+    tab_id: TAB_ID,
     url: "https://cmux.dev",
     title: "cmux docs",
+    loading: false,
+    source: "launched",
     status: "live",
     error: null,
     frames_stalled: false,
-    frame: {
-      seq: sequence,
-      width: 1200,
-      height: 800,
-      data: "aW5pdGlhbA==",
-    },
+    size: { cols: 120, rows: 40 },
   };
 }
 
-function frameEvent(sequence: bigint): Record<string, unknown> {
+function browserCreatedPath(): Record<string, unknown> {
   return {
-    event: "frame",
-    surface: 42n,
-    seq: sequence,
-    width: 1200,
-    height: 800,
-    data: "ZnJhbWU=",
+    kind: "browser",
+    workspace_id: WORKSPACE_ID,
+    screen_id: SCREEN_ID,
+    pane_id: PANE_ID,
+    tab_id: TAB_ID,
+    browser_id: BROWSER_ID,
+  };
+}
+
+function mutation(value: unknown): Record<string, unknown> {
+  return {
+    value,
+    generation: GENERATION,
+    revision: "2",
+    replayed: false,
   };
 }

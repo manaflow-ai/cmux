@@ -16,6 +16,16 @@ export type BlogPost = {
 
 export const blogPosts = [
   {
+    slug: "367-billion-tokens",
+    key: "tokenMultitasking",
+    title: "How I used 367 billion tokens in 30 days",
+    date: "2026-07-29",
+    summary:
+      "My cmux loop is Cmd+Shift+U, review the next finished agent, reply, repeat, then start another task when the notification queue is empty.",
+    author: lawrenceChen,
+    locales: fallbackContentLocales,
+  },
+  {
     slug: "claude-code-best-worktree-manager",
     key: "claudeCodeBestWorktreeManager",
     title: "Superrepos and Why Claude Code Is the Best Worktree Manager",

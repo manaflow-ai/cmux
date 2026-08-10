@@ -6,13 +6,16 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 CLASSPATH="$ROOT/build/classes:$ROOT/build/test-classes"
 for test_class in \
-  com.cmux.CodecTest \
-  com.cmux.SocketDiscoveryTest \
-  com.cmux.GeneratedCoverageTest \
-  com.cmux.GeneratedModelTest \
-  com.cmux.StreamModeTest \
-  com.cmux.LifecycleTest \
-  com.cmux.ErgonomicsTest
+  com.cmux.raw.CodecTest \
+  com.cmux.raw.SocketDiscoveryTest \
+  com.cmux.raw.GeneratedCoverageTest \
+  com.cmux.raw.GeneratedModelTest \
+  com.cmux.raw.StreamModeTest \
+  com.cmux.raw.LifecycleTest \
+  com.cmux.raw.ErgonomicsTest \
+  com.cmux.internal.UnixTransportTest \
+  com.cmux.ResourceApiTest \
+  com.cmux.BrowserPointerFrameTest
 do
   java -ea -cp "$CLASSPATH" "$test_class"
 done

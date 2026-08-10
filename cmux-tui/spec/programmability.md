@@ -1,6 +1,12 @@
 # Programmability Completeness
 
-This contract defines when a cmux-tui feature is programmable. A feature is complete only when its authoritative state and side effects have a typed protocol route, observable results, compatibility metadata, and conformance coverage. A raw JSON escape hatch does not count as typed SDK support.
+This inventory audits both the private frontend protocol and secondary
+implementation boundaries. Public application completeness is defined by
+[`cmux.protocol/2`](resource-api-v2.md), its
+[operation catalog](resource-operations-v2.json), the
+[noun-first CLI](cli.md), and the [SDK contract](bindings.md).
+
+A feature is complete only when its authoritative state and side effects have a typed protocol route, observable results, compatibility metadata, and conformance coverage. A raw JSON escape hatch does not count as typed SDK support.
 
 [`inventory.json`](inventory.json) is the checked inventory. CI validates it against its JSON Schema and compares it with the Rust protocol version, `Command`, `Action`, and `MenuAction` enums, serialized wire event names, secondary protocol enums, and the prose sections that define each implemented command and event.
 
@@ -55,7 +61,7 @@ The implemented v10 inventory is complete as a description of current wire behav
 | Terminal-host resize | The host produces a length-prefixed replay, while the current consumer includes that length word in replay bytes | Repair the decoder, add producer-consumer and cross-language fixtures, then promote terminal-host v1 from partial |
 | PTY selection | Native selection is frontend-local and `copy selection` cannot reconstruct it remotely | `extract-text` by absolute range; optional frontend-local selection adapter |
 | Terminal search | Clients page scrollback and search themselves | Cursor-based `search-scrollback` with revision and match ranges |
-| Process outcome | `process-info` reports current metadata; terminal host drops authoritative child exit status | `get-execution`, `wait-execution`, exit code/signal/timestamps, and process lifecycle events |
+| Process outcome | `terminal.process.get`, `terminal.wait_exit`, and `TerminalSnapshot.exit` expose one durable child outcome per terminal | Separate execution IDs and lifecycle events for multiple sequential processes in one terminal |
 | Terminal history | Paged retained rows have unstable indexes | History revision, cursor pagination, eviction boundary, and explicit clear-history operation |
 | Browser basics | Create, input, navigate, back, forward, reload, activate, state, and frames are implemented | Typed methods in every frontend SDK |
 | Browser lifecycle | Browser success is asynchronous and CDP failures arrive later | Correlated operation ids, target/crash/dialog/download events, viewport revision, and optional raw CDP profile |

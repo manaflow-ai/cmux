@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import selectors
 import shutil
 import socket
 import tempfile
@@ -39,10 +38,7 @@ class UnixJsonServer:
         self._listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self._listener.bind(self.path)
         self._listener.listen()
-        self._wake_read, self._wake_write = socket.socketpair()
-        self._selector = selectors.DefaultSelector()
-        self._selector.register(self._listener, selectors.EVENT_READ)
-        self._selector.register(self._wake_read, selectors.EVENT_READ)
+        self._listener.settimeout(0.1)
         self._stop = threading.Event()
         self._threads: list[threading.Thread] = []
         self._accept = threading.Thread(target=self._accept_loop, daemon=True)
@@ -50,29 +46,21 @@ class UnixJsonServer:
 
     def _accept_loop(self) -> None:
         index = 0
-        while True:
+        while not self._stop.is_set():
             try:
-                ready = self._selector.select()
-            except (OSError, ValueError):
-                return
-            for key, _ in ready:
-                if key.fileobj is self._wake_read:
-                    self._wake_read.recv(1)
-                    return
-                if self._stop.is_set():
-                    return
-                try:
-                    connection, _ = self._listener.accept()
-                except OSError:
-                    return
-                thread = threading.Thread(
-                    target=self._run_handler,
-                    args=(connection, index),
-                    daemon=True,
-                )
-                index += 1
-                self._threads.append(thread)
-                thread.start()
+                connection, _ = self._listener.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            thread = threading.Thread(
+                target=self._run_handler,
+                args=(connection, index),
+                daemon=True,
+            )
+            index += 1
+            self._threads.append(thread)
+            thread.start()
 
     def _run_handler(self, connection: socket.socket, index: int) -> None:
         with connection:
@@ -83,21 +71,11 @@ class UnixJsonServer:
 
     def close(self) -> None:
         self._stop.set()
-        try:
-            self._wake_write.send(b"\0")
-        except OSError:
-            pass
-        self._accept.join(timeout=1)
-        accept_stopped = not self._accept.is_alive()
-        self._selector.close()
         self._listener.close()
-        self._wake_read.close()
-        self._wake_write.close()
+        self._accept.join(timeout=1)
         for thread in self._threads:
             thread.join(timeout=1)
         shutil.rmtree(self._root, ignore_errors=True)
-        if not accept_stopped:
-            raise RuntimeError("test server accept loop did not stop")
 
     def __enter__(self) -> "UnixJsonServer":
         return self

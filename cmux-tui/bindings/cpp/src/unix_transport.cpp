@@ -1,5 +1,6 @@
 #include "cmux/transport.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <cerrno>
 #include <chrono>
@@ -55,6 +56,51 @@ using Clock = std::chrono::steady_clock;
     }
 }
 
+[[nodiscard]] bool unix_socket_path_fits(std::string_view path) noexcept {
+    sockaddr_un address{};
+    return path.size() < sizeof(address.sun_path);
+}
+
+[[nodiscard]] std::string runtime_socket_path(
+    std::string base,
+    std::string_view session) {
+    if (base.empty()) {
+        base = "/tmp";
+    }
+    if (base.back() != '/') {
+        base.push_back('/');
+    }
+    base += "cmux-tui-";
+    base += std::to_string(static_cast<unsigned long>(::getuid()));
+    base.push_back('/');
+    base.append(session);
+    base += ".sock";
+    return base;
+}
+
+[[nodiscard]] bool ascii_alphanumeric(char byte) noexcept {
+    return (byte >= 'A' && byte <= 'Z') ||
+           (byte >= 'a' && byte <= 'z') ||
+           (byte >= '0' && byte <= '9');
+}
+
+[[nodiscard]] Result<void> validate_session_name(
+    std::string_view session) {
+    const auto valid_tail = [](char byte) {
+        return ascii_alphanumeric(byte) ||
+               byte == '.' || byte == '_' || byte == '-';
+    };
+    if (session.empty() || session.size() > 64U ||
+        session == "." || session == ".." ||
+        !ascii_alphanumeric(session.front()) ||
+        !std::all_of(session.begin() + 1, session.end(), valid_tail)) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "session must match [A-Za-z0-9][A-Za-z0-9._-]{0,63}");
+    }
+    return {};
+}
+
 }  // namespace
 
 struct UnixTransport::Impl {
@@ -68,6 +114,9 @@ struct UnixTransport::Impl {
     std::mutex send_mutex;
     std::mutex receive_mutex;
     std::string receive_buffer;
+#if defined(CMUX_CPP_TESTING)
+    std::function<void()> before_receive_wait;
+#endif
 };
 
 UnixTransport::UnixTransport(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
@@ -94,7 +143,7 @@ Result<std::unique_ptr<Transport>> UnixTransport::connect(
     }
     sockaddr_un address{};
     address.sun_family = AF_UNIX;
-    if (path.size() >= sizeof(address.sun_path)) {
+    if (!unix_socket_path_fits(path)) {
         return make_error(ErrorCode::invalid_argument, "Unix socket path is too long");
     }
     std::memcpy(address.sun_path, path.c_str(), path.size() + 1);
@@ -223,6 +272,11 @@ Result<std::string> UnixTransport::receive(Timeout timeout) {
         if (impl_->closed.load(std::memory_order_acquire)) {
             return make_error(ErrorCode::closed, "transport is closed");
         }
+#if defined(CMUX_CPP_TESTING)
+        if (impl_->before_receive_wait) {
+            impl_->before_receive_wait();
+        }
+#endif
         auto ready = wait_for_fd(impl_->fd, POLLIN, deadline);
         if (!ready) {
             if (impl_->closed.load(std::memory_order_acquire)) {
@@ -252,6 +306,12 @@ Result<std::string> UnixTransport::receive(Timeout timeout) {
     }
 }
 
+#if defined(CMUX_CPP_TESTING)
+void UnixTransport::set_before_receive_wait_for_testing(std::function<void()> hook) {
+    impl_->before_receive_wait = std::move(hook);
+}
+#endif
+
 void UnixTransport::close() noexcept {
     if (!impl_) {
         return;
@@ -263,17 +323,18 @@ void UnixTransport::close() noexcept {
 }
 
 std::string default_socket_path(std::string_view session) {
-    std::string base;
-    if (const char* tmp = std::getenv("TMPDIR"); tmp && *tmp != '\0') {
-        base = tmp;
-    } else {
+    const char* base = std::getenv("XDG_RUNTIME_DIR");
+    if (!base || *base == '\0') {
+        base = std::getenv("TMPDIR");
+    }
+    if (!base || *base == '\0') {
         base = "/tmp";
     }
-    while (base.size() > 1 && base.back() == '/') {
-        base.pop_back();
+    auto preferred = runtime_socket_path(base, session);
+    if (!unix_socket_path_fits(preferred)) {
+        return runtime_socket_path("/tmp", session);
     }
-    return base + "/cmux-tui-" + std::to_string(static_cast<unsigned long>(::getuid())) + "/" +
-           std::string(session) + ".sock";
+    return preferred;
 }
 
 std::string socket_path_from_environment() {
@@ -284,6 +345,23 @@ std::string socket_path_from_environment() {
         return path;
     }
     return {};
+}
+
+Result<std::string> resolve_socket_path(
+    std::string_view explicit_path,
+    std::string_view session) {
+    if (!explicit_path.empty()) {
+        return std::string(explicit_path);
+    }
+    auto environment_path = socket_path_from_environment();
+    if (!environment_path.empty()) {
+        return environment_path;
+    }
+    auto valid = validate_session_name(session);
+    if (!valid) {
+        return std::move(valid).error();
+    }
+    return default_socket_path(session);
 }
 
 TransportFactory unix_transport_factory(

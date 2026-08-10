@@ -4,8 +4,8 @@ import threading
 import unittest
 from typing import Callable, Iterable
 
-from cmux import AuthorityError, CmuxClient, CommandError, CursorStyle, ProtocolError
-from cmux import TimeoutError as CmuxTimeoutError
+from cmux.raw import AuthorityError, CmuxClient, CommandError, CursorStyle, ProtocolError
+from cmux.raw import TimeoutError as CmuxTimeoutError
 
 from support import UnixJsonServer, receive_frame, send_frame
 
@@ -244,8 +244,7 @@ class LifecycleTests(unittest.TestCase):
 
             def read() -> None:
                 try:
-                    read_started.set()
-                    next(stream)
+                    stream._next(before_wait=read_started.set)
                 except BaseException as error:
                     outcome.append(error)
 

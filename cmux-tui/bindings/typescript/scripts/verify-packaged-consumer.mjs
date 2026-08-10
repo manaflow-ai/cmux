@@ -16,15 +16,22 @@ const project = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const scratch = mkdtempSync(join(tmpdir(), "cmux-typescript-package-"));
 
 try {
-  const packed = JSON.parse(execFileSync("npm", [
-    "pack",
-    project,
-    "--json",
-    "--pack-destination",
-    scratch,
-  ], { encoding: "utf8" }));
-  const filename = packed[0]?.filename;
-  assert.equal(typeof filename, "string");
+  let archive;
+  if (process.env.CMUX_NPM_PACKAGE) {
+    archive = resolve(process.env.CMUX_NPM_PACKAGE);
+    assert.ok(existsSync(archive), `package archive does not exist: ${archive}`);
+  } else {
+    const packed = JSON.parse(execFileSync("npm", [
+      "pack",
+      project,
+      "--json",
+      "--pack-destination",
+      scratch,
+    ], { encoding: "utf8" }));
+    const filename = packed[0]?.filename;
+    assert.equal(typeof filename, "string");
+    archive = join(scratch, filename);
+  }
 
   const consumer = join(scratch, "consumer");
   mkdirSync(consumer);
@@ -47,48 +54,108 @@ try {
   }));
   writeFileSync(join(consumer, "consumer.ts"), `
 import {
-  CmuxAbortError,
-  CmuxAuthorityError,
-  CmuxClient,
-  COMMAND_METADATA,
-  type BrowserStreamEvent,
-  type CmuxAuthority,
-  type CmuxStream,
+  Client,
+  browserId,
+  decimalString,
+  exact,
+  paneId,
+  screenId,
+  selectCurrent,
+  sessionId,
+  terminalId,
+  workspaceId,
+  type CreatedBrowserPath,
+  type CreatedPath,
+  type CreatedTerminalPath,
+  type CreationResolution,
+  type Agent,
+  type AgentReportOptions,
+  type MutationResult,
+  type MutationReceipt,
+  type Terminal,
+  type TerminalWaitExitResult,
   type Transport,
-} from "cmux/browser";
+} from "cmux-sdk";
+import { WebSocketTransport } from "cmux-sdk/browser";
+import { NodeClient } from "cmux-sdk/node";
+import { CmuxClient, COMMAND_METADATA } from "cmux-sdk/raw";
 
 declare const transport: Transport;
-const client = new CmuxClient({ transport, timeoutMs: 5_000 });
-const provider = new CmuxClient({
-  transport,
-  authorities: ["frontend"],
-  enableProviderAuthority: true,
-});
-const authorities: readonly CmuxAuthority[] = provider.authorities;
-const pasteSince: 7 = COMMAND_METADATA.send.fields.paste.since;
-const filtered = client.subscribe({ surface: 18446744073709551615n });
-const lifetime = new AbortController();
-const stream: Promise<CmuxStream<BrowserStreamEvent>> = client.attachBrowserSurface(
-  18446744073709551615n,
-  { signal: lifetime.signal, idleTimeoutMs: 30_000 },
+const client = new Client({ transport, timeoutMs: 5_000 });
+const session = client.session(sessionId("session_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+const selectedTerminalId = terminalId("term_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+const terminal = session.terminal(selectedTerminalId);
+const pointerFrameSeq = decimalString("42");
+const write: Promise<MutationReceipt> = terminal.write(
+  "printf",
+  { idempotencyKey: "consumer-write", expectedRevision: decimalString("7") },
 );
-void stream.then(async (events) => {
-  const read = new AbortController();
-  const event = await events.next({ signal: read.signal, timeoutMs: 1_000 });
-  switch (event.event) {
-    case "browser-state":
-      console.log(event.url);
-      break;
-    case "unknown":
-      console.log(event.wireEvent, event.raw);
-      break;
-  }
+const creation: Promise<CreationResolution> =
+  session.creation.resolve("create-key");
+const reportOptions: AgentReportOptions = {
+  terminalId: selectedTerminalId,
+  state: "working",
+  source: "socket",
+  sourceSession: "package-consumer",
+};
+const reported: Promise<MutationResult<Agent>> =
+  session.reportAgent(reportOptions);
+const workspace = session.workspace(
+  workspaceId("ws_cccccccccccccccccccccccccccccccc"),
+);
+const launched: Promise<MutationResult<CreatedTerminalPath>> = workspace.run({
+  command: exact(["printf", "%s", "$HOME"]),
 });
-void CmuxAbortError;
-void CmuxAuthorityError;
-void authorities;
-void filtered;
-void pasteSince;
+const pane = workspace
+  .screen(screenId("screen_dddddddddddddddddddddddddddddddd"))
+  .pane(paneId("pane_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"));
+const createdBrowser: Promise<MutationResult<CreatedBrowserPath>> =
+  pane.createBrowserTab({ url: "https://example.com" });
+const browserHandle = session.browser(
+  browserId("browser_ffffffffffffffffffffffffffffffff"),
+);
+void browserHandle.mouse({
+  kind: "move",
+  xPx: 10,
+  yPx: 20,
+  pointerFrameSeq,
+});
+void browserHandle.wheel({
+  deltaX: 0,
+  deltaY: -120,
+  xPx: 10,
+  yPx: 20,
+  pointerFrameSeq,
+});
+function narrow(path: CreatedPath) {
+  if (path.kind === "terminal") return path.terminal.id;
+  if (path.kind === "browser") return path.browser.id;
+  return path.workspace.id;
+}
+const exit: Promise<TerminalWaitExitResult> =
+  terminal.waitExit(decimalString("1000"));
+const current = selectCurrent();
+const command = exact(["printf", "%s", "$HOME"]);
+const browser = new WebSocketTransport("ws://127.0.0.1/cmux");
+const node = new NodeClient({ session: "main" });
+const raw = CmuxClient;
+void COMMAND_METADATA;
+void browser;
+void client;
+void command;
+void creation;
+void createdBrowser;
+void current;
+void exit;
+void launched;
+void narrow;
+void node;
+void raw;
+void reportOptions;
+void reported;
+void session;
+void terminal;
+void write;
 `);
 
   execFileSync("npm", [
@@ -97,38 +164,57 @@ void pasteSince;
     "--no-audit",
     "--no-fund",
     "--no-package-lock",
-    join(scratch, filename),
+    archive,
   ], { cwd: consumer, stdio: "pipe" });
 
   const compiler = resolve(project, "node_modules/typescript/bin/tsc");
   execFileSync(process.execPath, [compiler, "-p", join(consumer, "tsconfig.json")], {
     cwd: consumer,
-    stdio: "pipe",
+    stdio: "inherit",
   });
 
-  const installedRoot = join(consumer, "node_modules/cmux");
+  const installedRoot = join(consumer, "node_modules/cmux-sdk");
   const installed = JSON.parse(readFileSync(join(installedRoot, "package.json"), "utf8"));
-  assert.equal(installed.name, "cmux");
+  assert.equal(installed.name, "cmux-sdk");
   assert.deepEqual(installed.dependencies ?? {}, {});
+  assert.deepEqual(Object.keys(installed.exports).sort(), [".", "./browser", "./node", "./raw"]);
 
-  const browserEntry = join(installedRoot, "dist/src/browser.js");
-  const visited = browserDependencyGraph(browserEntry);
-  assert.ok(visited.some((path) => path.endsWith("/browser.js")));
-  assert.ok(!visited.some((path) => path.endsWith("/node-client.js")));
-  assert.ok(!visited.some((path) => path.endsWith("/node-transport.js")));
+  for (const entry of ["index.js", "browser.js"]) {
+    const graph = dependencyGraph(join(installedRoot, "dist/src", entry));
+    assert.ok(!graph.some((path) => path.includes("/raw/")));
+    assert.ok(!graph.some((path) => path.includes("/generated/")));
+    assert.ok(!graph.some((path) => path.endsWith("/node-transport.js")));
+    assert.ok(!graph.some((path) => path.endsWith("/node.js")));
+  }
 
-  const runtimeType = execFileSync(process.execPath, [
+  const rawBrowserGraph = dependencyGraph(
+    join(installedRoot, "dist/src/raw/browser.js"),
+  );
+  assert.ok(!rawBrowserGraph.some((path) => path.endsWith("/node-transport.js")));
+  assert.ok(!rawBrowserGraph.some((path) => path.endsWith("/node-client.js")));
+
+  const runtimeTypes = execFileSync(process.execPath, [
     "--input-type=module",
     "--eval",
-    "import('cmux/browser').then(({ CmuxClient }) => process.stdout.write(typeof CmuxClient))",
+    `Promise.all([
+      import("cmux-sdk"),
+      import("cmux-sdk/browser"),
+      import("cmux-sdk/node"),
+      import("cmux-sdk/raw"),
+    ]).then(([root, browser, node, raw]) => process.stdout.write([
+      typeof root.Client,
+      typeof browser.WebSocketTransport,
+      typeof node.NodeClient,
+      typeof raw.CmuxClient,
+    ].join(",")))`,
   ], { cwd: consumer, encoding: "utf8" });
-  assert.equal(runtimeType, "function");
-  console.log("clean browser-only npm consumer compile passed");
+  assert.equal(runtimeTypes, "function,function,function,function");
+  console.log("clean root/browser/node/raw npm consumer compile passed");
 } finally {
   rmSync(scratch, { recursive: true, force: true });
 }
 
-function browserDependencyGraph(entry) {
+function dependencyGraph(entry) {
   const pending = [entry];
   const visited = new Set();
   const importPattern = /(?:import|export)\s+(?:[^"'()]*?\sfrom\s*)?["']([^"']+)["']/g;
@@ -142,7 +228,7 @@ function browserDependencyGraph(entry) {
       assert.ok(!specifier.startsWith("node:"), `${file} imports ${specifier}`);
       if (!specifier.startsWith(".")) continue;
       const target = resolve(dirname(file), specifier);
-      assert.ok(existsSync(target), `missing browser dependency ${target}`);
+      assert.ok(existsSync(target), `missing dependency ${target}`);
       pending.push(target);
     }
   }

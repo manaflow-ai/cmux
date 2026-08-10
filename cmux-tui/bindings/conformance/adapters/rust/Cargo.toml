@@ -1,5 +1,5 @@
 [package]
-name = "cmux-conformance-rust"
+name = "cmux-resource-conformance-rust"
 version = "0.0.0"
 edition = "2024"
 publish = false
@@ -7,6 +7,6 @@ publish = false
 [workspace]
 
 [dependencies]
-cmux-client = { path = "../../../rust" }
+cmux_sdk = { package = "cmux-sdk", path = "../../../rust" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

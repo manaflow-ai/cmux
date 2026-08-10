@@ -400,7 +400,7 @@ class ZigEmitter:
                 "value: wire.Value) !@This() {",
             ]
         )
-        # Pane is the only untagged union in protocol 10. Its `dead` literal
+        # Pane is the only untagged union in the current protocol. Its `dead` literal
         # is the stable discriminator and avoids speculative allocations.
         if name == "Pane":
             lines.extend(
@@ -848,6 +848,6 @@ def render(ir: SdkIR) -> Mapping[str | PurePosixPath, str | bytes]:
 
 EMITTER = Emitter(
     language="zig",
-    output_root=PurePosixPath("zig/src/generated"),
+    output_root=PurePosixPath("zig/src/raw/generated"),
     render=render,
 )

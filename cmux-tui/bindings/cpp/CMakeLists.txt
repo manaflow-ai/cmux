@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(cmux_tui_sdk VERSION 0.4.0 LANGUAGES CXX)
+project(cmux_tui_sdk VERSION 1.0.0 LANGUAGES CXX)
 
 include(CMakePackageConfigHelpers)
 include(GNUInstallDirs)
@@ -10,12 +10,14 @@ option(CMUX_BUILD_TESTS "Build the cmux-tui C++ SDK tests" ${PROJECT_IS_TOP_LEVE
 find_package(Threads REQUIRED)
 
 add_library(cmux_tui_sdk
-    src/attachment.cpp
     src/base64.cpp
-    src/client_core.cpp
     src/json.cpp
+    src/resource.cpp
+    src/resource_models.cpp
+    src/raw/attachment.cpp
+    src/raw/client_core.cpp
+    src/raw/generated/protocol.cpp
     src/unix_transport.cpp
-    src/generated/protocol.cpp
 )
 add_library(cmux::sdk ALIAS cmux_tui_sdk)
 
@@ -70,6 +72,7 @@ install(FILES
 
 if(CMUX_BUILD_TESTS)
     enable_testing()
+    target_compile_definitions(cmux_tui_sdk PRIVATE CMUX_CPP_TESTING=1)
     add_executable(cmux_cpp_tests
         tests/test_main.cpp
         tests/test_attachment.cpp
@@ -78,10 +81,13 @@ if(CMUX_BUILD_TESTS)
         tests/test_generated.cpp
         tests/test_json.cpp
         tests/test_macro_collision.cpp
+        tests/test_resource.cpp
         tests/test_unix_transport.cpp
     )
     target_link_libraries(cmux_cpp_tests PRIVATE cmux::sdk Threads::Threads)
     target_compile_features(cmux_cpp_tests PRIVATE cxx_std_20)
+    target_compile_definitions(cmux_cpp_tests PRIVATE CMUX_CPP_TESTING=1)
+    target_include_directories(cmux_cpp_tests PRIVATE src)
     if(CMAKE_CXX_COMPILER_ID MATCHES "AppleClang|Clang|GNU")
         target_compile_options(cmux_cpp_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()

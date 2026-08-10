@@ -8,6 +8,13 @@ import Testing
 @testable import cmux
 #endif
 
+private let remoteShellPromptFishExecutablePath = [
+    "/opt/homebrew/bin/fish",
+    "/usr/local/bin/fish",
+    "/usr/bin/fish",
+    "/bin/fish",
+].first { FileManager.default.isExecutableFile(atPath: $0) }
+
 struct RemoteShellPromptRelayTests {
     @Test("remote zsh prompt reports Git metadata through the relay")
     func remoteZshPromptReportsGitMetadataThroughRelay() throws {
@@ -71,6 +78,79 @@ struct RemoteShellPromptRelayTests {
         #expect(output.contains(
             #"rpc surface.report_shell_state {"workspace_id":"11111111-1111-1111-1111-111111111111","state":"prompt"}"#
         ), Comment(rawValue: output))
+    }
+
+    @Test(
+        "remote fish retries TTY registration until the relay acknowledges it",
+        .enabled(if: remoteShellPromptFishExecutablePath != nil)
+    )
+    func remoteFishRetriesTTYRegistrationUntilAcknowledged() throws {
+        let fish = try #require(remoteShellPromptFishExecutablePath)
+        let integration = try #require(
+            RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(named: "fish/config.fish")
+        )
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-fish-relay-tty-\(UUID().uuidString)", isDirectory: true)
+        let binDirectory = directory.appendingPathComponent("bin", isDirectory: true)
+        let integrationFile = directory.appendingPathComponent("config.fish")
+        let cmuxFile = binDirectory.appendingPathComponent("cmux")
+        let logFile = directory.appendingPathComponent("relay.log")
+        try FileManager.default.createDirectory(at: binDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        try integration.write(to: integrationFile, atomically: true, encoding: .utf8)
+        try Data().write(to: logFile)
+        try """
+        #!/bin/sh
+        if [ "${1:-}" = rpc ] && [ "${2:-}" = surface.report_tty ]; then
+          printf 'call\\n' >> "$CMUX_TEST_LOG"
+          [ "$(/usr/bin/wc -l < "$CMUX_TEST_LOG")" -gt 1 ] || exit 1
+        fi
+        printf '{"ok":true}\\n'
+        """.write(to: cmuxFile, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cmuxFile.path)
+
+        let process = Process()
+        let standardOutput = Pipe()
+        let standardError = Pipe()
+        process.executableURL = URL(fileURLWithPath: fish)
+        process.arguments = [
+            "-c",
+            """
+            source '\(integrationFile.path)'
+            set -g _CMUX_TTY_NAME ttys990
+            set -g _CMUX_TTY_REPORTED 0
+            _cmux_report_tty_once
+            _cmux_report_tty_once
+            for _cmux_i in (seq 1 20)
+                test -s "$CMUX_TEST_LOG"; and break
+                sleep 0.05
+            end
+            printf 'calls=%s\\nreported=%s\\n' (count (cat "$CMUX_TEST_LOG")) "$_CMUX_TTY_REPORTED"
+            """,
+        ]
+        process.environment = [
+            "CMUX_BUNDLED_CLI_PATH": cmuxFile.path,
+            "CMUX_SOCKET_PATH": "127.0.0.1:64011",
+            "CMUX_SSH_ATTEMPT_ID": "44444444-4444-4444-4444-444444444444",
+            "CMUX_TAB_ID": "11111111-1111-1111-1111-111111111111",
+            "CMUX_TERMINAL_LIFECYCLE_ID": "33333333-3333-3333-3333-333333333333",
+            "CMUX_TEST_LOG": logFile.path,
+            "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+            "HOME": directory.path,
+            "PATH": "\(binDirectory.path):/usr/bin:/bin",
+            "TERM": "xterm-256color",
+        ]
+        process.standardOutput = standardOutput
+        process.standardError = standardError
+        try process.run()
+        process.waitUntilExit()
+        let output = String(decoding: standardOutput.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        let error = String(decoding: standardError.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+
+        #expect(process.terminationStatus == 0, "\(error)\n\(output)")
+        #expect(output.contains("calls=2"), Comment(rawValue: output))
+        #expect(output.contains("reported=1"), Comment(rawValue: output))
     }
 
     private func runPrompt(

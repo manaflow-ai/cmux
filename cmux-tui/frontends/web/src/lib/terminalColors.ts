@@ -1,5 +1,5 @@
 import type { ITerminalOptions, ITheme } from "@xterm/xterm";
-import type { TerminalColors } from "cmux/browser";
+import type { TerminalColors } from "cmux/raw";
 
 type CursorColors = {
   cursor_style?: unknown;

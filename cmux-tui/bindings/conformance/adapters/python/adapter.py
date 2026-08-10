@@ -1,14 +1,10 @@
 #!/usr/bin/env python3
-"""Protocol-10 conformance adapter for the public Python SDK."""
+"""Public resource conformance adapter for the dependency-free Python SDK."""
 
 from __future__ import annotations
 
-import dataclasses
 import json
 import sys
-import threading
-import time
-from enum import Enum
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -19,377 +15,586 @@ sys.path.insert(0, str(ROOT / "cmux-tui" / "bindings" / "python"))
 import cmux  # noqa: E402
 
 
-UINT64_KEYS = {
-    "client",
-    "index",
-    "offset",
-    "pane",
-    "pane_revision",
-    "projection_revision",
-    "request",
-    "screen",
-    "seq",
-    "surface",
-    "terminal_revision",
-    "timeout_ms",
-    "workspace",
-    "workspace_revision",
-}
+def error_value(error: cmux.ResourceError) -> dict[str, Any]:
+    return {
+        "code": error.code,
+        "message": error.message,
+        "details": plain(error.details),
+        "retryable": error.retryable,
+    }
 
 
-def normalize(value: Any, key: str | None = None) -> Any:
-    if value is cmux.MISSING:
-        return None
-    if isinstance(value, Enum):
-        return value.value
-    if dataclasses.is_dataclass(value):
-        return normalize(dataclasses.asdict(value))
-    if isinstance(value, Mapping):
+def plain(value: Any) -> Any:
+    if isinstance(value, cmux.Document):
+        return plain(value.fields)
+    if isinstance(value, cmux.Cursor):
         return {
-            str(item_key): normalize(item_value, str(item_key))
-            for item_key, item_value in value.items()
-            if item_value is not cmux.MISSING and item_key != "raw"
+            "generation": value.generation,
+            "revision": str(value.revision),
         }
+    if isinstance(value, Mapping):
+        return {str(key): plain(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
-        return [normalize(item) for item in value]
-    if isinstance(value, bytes):
-        import base64
-
-        return base64.b64encode(value).decode("ascii")
-    if isinstance(value, int) and not isinstance(value, bool) and (
-        key in UINT64_KEYS or (key is not None and key.endswith("_revision"))
-    ):
-        return str(value)
+        return [plain(item) for item in value]
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    if hasattr(value, "value") and isinstance(value.value, str):
+        return value.value
     return value
 
 
-def event_value(event: Any) -> dict[str, Any]:
-    raw = dict(getattr(event, "raw", {}) or {})
-    if isinstance(event, cmux.UnknownEvent):
-        return {
-            "event": event.event,
-            "unknown": True,
-            "raw": normalize(event.raw),
-        }
-    if raw:
-        return normalize(raw)
-    return normalize(event)
+def session(client: cmux.Client, constants: Mapping[str, str]):
+    return client.session(cmux.SessionId(constants["session"]))
 
 
-def classify(error: BaseException) -> str:
-    text = str(error).lower()
-    if isinstance(error, cmux.TimeoutError) or "timed out" in text or "did not respond" in text:
-        return "timeout"
-    if "limit" in text or "exceed" in text or "too many" in text:
-        return "limit"
-    if isinstance(error, cmux.CommandError):
-        return "command"
-    if isinstance(error, cmux.ProtocolError):
-        return "decode"
-    return "transport"
-
-
-def metadata() -> dict[str, Any]:
-    commands = [
-        {
-            "name": item.wire_name,
-            "authority": item.authority,
-            "stream": item.stream_kind,
-        }
-        for item in cmux.COMMANDS.values()
-    ]
-    events = [
-        {
-            "name": item.wire_name,
-            "streams": list(item.streams),
-        }
-        for item in cmux.EVENTS.values()
-    ]
-    return {"commands": commands, "events": events}
-
-
-def make_client(
-    request: Mapping[str, Any],
-    *,
-    allow_provider_authority: bool = False,
-) -> cmux.CmuxClient:
-    return cmux.CmuxClient(
-        socket_path=str(request["socket_path"]),
-        timeout=max(float(request.get("timeout_ms", 1000)) / 1000, 0.001),
-        max_line_bytes=int(request.get("max_frame_bytes", 16 * 1024 * 1024)),
-        max_pre_ack_events=int(request.get("max_buffered_events", 256)),
-        allow_provider_authority=allow_provider_authority,
+def workspace(client: cmux.Client, constants: Mapping[str, str]):
+    return session(client, constants).workspace(
+        cmux.WorkspaceId(constants["workspace"])
     )
 
 
-def identify(request: Mapping[str, Any]) -> dict[str, Any]:
-    with make_client(request) as client:
-        value = client.identify()
+def mutation_value(result: Any) -> dict[str, Any]:
+    handle = result.value
+    snapshot = handle.snapshot
+    if snapshot is None:
+        snapshot = handle.refresh()
+    return {
+        "workspace_id": str(snapshot.id),
+        "name": snapshot.name,
+        "generation": result.generation,
+        "revision": str(result.revision),
+        "replayed": result.replayed,
+    }
+
+
+def required_handle_id(handle: Any, label: str) -> str:
+    identifier = getattr(handle, "id", None)
+    if identifier is None:
+        raise AssertionError(f"created path omitted {label}")
+    return str(identifier)
+
+
+def created_path_value(path: cmux.CreatedPath) -> dict[str, Any]:
+    result = {
+        "kind": path.kind,
+        "workspace_id": required_handle_id(path.workspace, "workspace_id"),
+    }
+    if path.kind == "workspace":
+        return result
+    result.update(
+        {
+            "screen_id": required_handle_id(path.screen, "screen_id"),
+            "pane_id": required_handle_id(path.pane, "pane_id"),
+            "tab_id": required_handle_id(path.tab, "tab_id"),
+        }
+    )
+    if path.kind == "terminal":
+        result["terminal_id"] = required_handle_id(
+            path.terminal,
+            "terminal_id",
+        )
+        return result
+    if path.kind == "browser":
+        result["browser_id"] = required_handle_id(path.browser, "browser_id")
+        return result
+    raise AssertionError(f"unsupported created path kind {path.kind!r}")
+
+
+def creation_resolution_value(
+    resolution: cmux.CreationResolution[cmux.CreatedPath],
+) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "correlation_key": resolution.correlation_key,
+        "state": resolution.state,
+        "recovery": resolution.recovery,
+    }
+    if resolution.operation is not None:
+        result["operation"] = resolution.operation
+    if resolution.idempotency_key is not None:
+        result["idempotency_key"] = resolution.idempotency_key
+    if resolution.created_path is not None:
+        result["created_path"] = created_path_value(resolution.created_path)
+    if resolution.generation is not None:
+        result["generation"] = resolution.generation
+    if resolution.revision is not None:
+        result["revision"] = resolution.revision
+    return result
+
+
+def terminal_exit_outcome_value(outcome: cmux.TerminalExitOutcome) -> dict[str, Any]:
+    if isinstance(outcome, cmux.TerminalExitCode):
+        return {"kind": outcome.kind, "code": outcome.code}
+    if isinstance(outcome, cmux.TerminalExitSignal):
         return {
-            "app": value.app,
-            "protocol": value.protocol,
-            "workspace_revision": str(value.workspace_revision),
-            "terminal_revision": str(value.terminal_revision),
+            "kind": outcome.kind,
+            "signal": outcome.signal,
+            "core_dumped": outcome.core_dumped,
+        }
+    if isinstance(outcome, cmux.TerminalExitUnknown):
+        return {"kind": outcome.kind, "reason": outcome.reason}
+    raise AssertionError(
+        f"unsupported terminal exit outcome {type(outcome).__name__}"
+    )
+
+
+def terminal_wait_exit_value(
+    value: cmux.TerminalWaitExitResult,
+) -> dict[str, Any]:
+    if isinstance(value, cmux.TerminalWaitExitPending):
+        return {
+            "state": value.state,
+            "terminal_id": str(value.terminal_id),
+            "lifecycle": value.lifecycle,
+            "revision": value.revision,
+        }
+    if isinstance(value, cmux.TerminalWaitExitExited):
+        return {
+            "state": value.state,
+            "terminal_id": str(value.terminal_id),
+            "lifecycle": value.lifecycle,
+            "outcome": terminal_exit_outcome_value(value.outcome),
+            "exited_at": value.exited_at,
+            "revision": value.revision,
+        }
+    raise AssertionError(
+        f"unsupported terminal wait result {type(value).__name__}"
+    )
+
+
+def unknown_value(item: Any) -> tuple[str, dict[str, Any]]:
+    value = getattr(item, "value", getattr(item, "item", None))
+    if not isinstance(value, cmux.Unknown):
+        raise AssertionError("session event was not the public Unknown variant")
+    return value.kind, plain(value.raw)
+
+
+def drain_end(stream: Any) -> str:
+    try:
+        while True:
+            next(stream)
+    except cmux.StreamError as error:
+        return error.reason
+    except StopIteration:
+        end = stream.end
+        return end.reason if end is not None else "completed"
+
+
+def live_session(client: cmux.Client):
+    return client.session(cmux.Selector.current())
+
+
+def workspace_rows(current: Any) -> dict[str, str]:
+    rows: dict[str, str] = {}
+    for item in current.list_workspaces():
+        snapshot = item.snapshot
+        if snapshot is None:
+            snapshot = item.refresh()
+        rows[str(snapshot.id)] = snapshot.name
+    return rows
+
+
+def live_setup(
+    client: cmux.Client,
+    base_name: str,
+    key_prefix: str,
+) -> dict[str, Any]:
+    current = live_session(client)
+    pinged = current.ping().alive
+    stable = current.create_workspace(
+        cmux.CreateWorkspaceOptions(
+            name=base_name,
+            initial_content="empty",
+        ),
+        idempotency_key=f"{key_prefix}-stable-create",
+    ).value.workspace
+    if stable is None or stable.id is None:
+        raise AssertionError("workspace.create omitted stable workspace handle")
+    stable_id = str(stable.id)
+    stable_renamed_name = f"{base_name}-renamed"
+    renamed = stable.rename(
+        stable_renamed_name,
+        idempotency_key=f"{key_prefix}-stable-rename",
+    )
+    renamed_snapshot = renamed.value.snapshot
+    if renamed_snapshot is None:
+        renamed_snapshot = renamed.value.refresh()
+
+    duplicate_name = f"{base_name}-duplicate"
+    duplicate_ids: list[str] = []
+    for suffix in ("a", "b"):
+        duplicate = current.create_workspace(
+            cmux.CreateWorkspaceOptions(
+                name=duplicate_name,
+                initial_content="empty",
+            ),
+            idempotency_key=f"{key_prefix}-duplicate-{suffix}",
+        ).value.workspace
+        if duplicate is None or duplicate.id is None:
+            raise AssertionError("workspace.create omitted duplicate workspace handle")
+        duplicate_ids.append(str(duplicate.id))
+
+    ambiguity_code = ""
+    ambiguity_candidates: list[str] = []
+    try:
+        current.workspace(cmux.Selector.name(duplicate_name)).rename(
+            f"{base_name}-must-not-apply",
+            idempotency_key=f"{key_prefix}-ambiguous-rename",
+        )
+    except cmux.ResourceError as error:
+        ambiguity_code = error.code
+        details = plain(error.details)
+        if isinstance(details, Mapping):
+            candidates = details.get("candidates")
+            if isinstance(candidates, list):
+                ambiguity_candidates = [
+                    str(candidate) for candidate in candidates
+                ]
+    else:
+        raise AssertionError("duplicate workspace selector unexpectedly mutated")
+
+    rows = workspace_rows(current)
+    return {
+        "pinged": pinged,
+        "stable_id": stable_id,
+        "stable_renamed": renamed_snapshot.name == stable_renamed_name,
+        "duplicate_ids": duplicate_ids,
+        "ambiguity_code": ambiguity_code,
+        "ambiguity_preserved_all_candidates": (
+            set(ambiguity_candidates) == set(duplicate_ids)
+            and len(ambiguity_candidates) == len(duplicate_ids)
+        ),
+        "no_mutation": (
+            all(rows.get(identifier) == duplicate_name for identifier in duplicate_ids)
+            and f"{base_name}-must-not-apply" not in rows.values()
+        ),
+    }
+
+
+def live_restart(
+    client: cmux.Client,
+    base_name: str,
+    key_prefix: str,
+    expected_stable_id: str,
+    expected_duplicate_ids: list[str],
+) -> dict[str, Any]:
+    current = live_session(client)
+    rows = workspace_rows(current)
+    expected_ids = {expected_stable_id, *expected_duplicate_ids}
+    same_ids = expected_ids.issubset(rows)
+    stable_name_preserved = (
+        rows.get(expected_stable_id) == f"{base_name}-renamed"
+    )
+    duplicates_preserved = all(
+        rows.get(identifier) == f"{base_name}-duplicate"
+        for identifier in expected_duplicate_ids
+    )
+
+    current.workspace(cmux.WorkspaceId(expected_stable_id)).close(
+        idempotency_key=f"{key_prefix}-close-stable"
+    )
+    for suffix, identifier in zip(("a", "b"), expected_duplicate_ids):
+        current.workspace(cmux.WorkspaceId(identifier)).close(
+            idempotency_key=f"{key_prefix}-close-{suffix}"
+        )
+    remaining = workspace_rows(current)
+    return {
+        "same_ids": same_ids,
+        "stable_name_preserved": stable_name_preserved,
+        "duplicates_preserved": duplicates_preserved,
+        "closed": True,
+        "disappeared": expected_ids.isdisjoint(remaining),
+    }
+
+
+def live_creation_exit(
+    client: cmux.Client,
+    payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    current = live_session(client)
+    workspace_handle = current.workspace(
+        cmux.WorkspaceId(str(payload["expected_stable_id"]))
+    )
+    screen_created = workspace_handle.create_screen(
+        cmux.CreateScreenOptions(),
+        idempotency_key=f"{payload['key_prefix']}-runtime-screen",
+    )
+    pane = screen_created.value.pane
+    if pane is None or pane.id is None:
+        raise AssertionError("screen.create omitted its terminal pane")
+
+    correlation_key = f"{payload['key_prefix']}-terminal-correlation"
+    run_result = pane.run(
+        cmux.RunOptions(
+            command=cmux.ShellCommand(str(payload["exit_shell"])),
+            correlation_key=correlation_key,
+        ),
+        idempotency_key=f"{payload['key_prefix']}-terminal-run",
+    )
+    path = created_path_value(run_result.value)
+    terminal = run_result.value.terminal
+    if terminal is None or terminal.id is None:
+        raise AssertionError("pane.run omitted its terminal")
+
+    pending = terminal_wait_exit_value(
+        terminal.wait_exit(int(str(payload["pending_timeout_ms"])))
+    )
+    resolution = creation_resolution_value(
+        current.creation.resolve(correlation_key)
+    )
+    exited = terminal_wait_exit_value(
+        terminal.wait_exit(int(str(payload["exit_timeout_ms"])))
+    )
+    if resolution.get("created_path") != path:
+        raise AssertionError(
+            "creation resolution returned a different terminal path"
+        )
+    outcome = exited.get("outcome")
+    if not isinstance(outcome, Mapping):
+        raise AssertionError("terminal did not return an exited outcome")
+
+    return {
+        "correlation_key": correlation_key,
+        "created_path": path,
+        "pending_terminal_id": pending["terminal_id"],
+        "pending_state": pending["state"],
+        "pending_lifecycle": pending["lifecycle"],
+        "creation_state": resolution["state"],
+        "creation_recovery": resolution["recovery"],
+        "creation_generation": resolution.get("generation"),
+        "creation_revision": resolution.get("revision"),
+        "exit_state": exited["state"],
+        "exit_terminal_id": exited["terminal_id"],
+        "exit_lifecycle": exited["lifecycle"],
+        "exit_kind": outcome.get("kind"),
+        "exit_code": outcome.get("code"),
+        "exited_at": exited.get("exited_at"),
+        "exit_revision": exited["revision"],
+    }
+
+
+def live_exit_restart(
+    client: cmux.Client,
+    payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    current = live_session(client)
+    resolution = creation_resolution_value(
+        current.creation.resolve(str(payload["expected_correlation_key"]))
+    )
+    expected_path = payload["expected_created_path"]
+    if not isinstance(expected_path, Mapping):
+        raise TypeError("expected_created_path must be an object")
+    terminal_id = expected_path.get("terminal_id")
+    if not isinstance(terminal_id, str):
+        raise TypeError("expected_created_path.terminal_id must be a string")
+    exited = terminal_wait_exit_value(
+        current.terminal(cmux.TerminalId(terminal_id)).wait_exit(
+            int(str(payload["exit_timeout_ms"]))
+        )
+    )
+    outcome = exited.get("outcome")
+    if not isinstance(outcome, Mapping):
+        raise AssertionError("terminal did not return a durable exit outcome")
+    return {
+        "correlation_key": resolution["correlation_key"],
+        "created_path": resolution.get("created_path"),
+        "creation_state": resolution["state"],
+        "creation_recovery": resolution["recovery"],
+        "creation_generation": resolution.get("generation"),
+        "creation_revision": resolution.get("revision"),
+        "exit_state": exited["state"],
+        "exit_terminal_id": exited["terminal_id"],
+        "exit_lifecycle": exited["lifecycle"],
+        "exit_kind": outcome.get("kind"),
+        "exit_code": outcome.get("code"),
+        "exited_at": exited.get("exited_at"),
+        "exit_revision": exited["revision"],
+    }
+
+
+def run(payload: Mapping[str, Any]) -> Any:
+    operation = payload["op"]
+    constants = payload["constants"]
+    if operation == "redaction":
+        secret = "provider://conformance-secret"
+        token = "renderer-conformance-secret"
+        specifier = cmux.RendererGrant(
+            secret,
+            endpoint="unix:///tmp/renderer",
+            terminal_id=cmux.TerminalId(
+                "term_66666666666666666666666666666666"
+            ),
+            rights=("render",),
+            ttl_ms=1000,
+        )
+        grant = cmux.RendererGrant(
+            token,
+            endpoint="unix:///tmp/renderer",
+            terminal_id=cmux.TerminalId(
+                "term_66666666666666666666666666666666"
+            ),
+            rights=("render",),
+            ttl_ms=1000,
+        )
+        return {
+            "specifier_redacted": secret not in repr(specifier)
+            and secret not in str(specifier),
+            "renderer_token_redacted": token not in repr(grant)
+            and token not in str(grant),
         }
 
-
-def nullable_literal(request: Mapping[str, Any]) -> dict[str, Any]:
-    with make_client(request) as client:
-        placement = client.create_terminal(key="workspace-key")
-        return {"lifecycle": placement.lifecycle}
-
-
-def optional_non_null_response(request: Mapping[str, Any]) -> dict[str, Any]:
-    with make_client(request) as client:
-        value = client.identify()
-        return {"present": value.capabilities is not cmux.MISSING}
-
-
-def optional_nullable_request(request: Mapping[str, Any]) -> dict[str, Any]:
-    presence = str(request["presence"])
-    with make_client(request) as client:
-        if presence == "omitted":
-            client.set_client_info()
-        elif presence == "null":
-            client.set_client_info(name=None)
-        elif presence == "value":
-            client.set_client_info(name="conformance-client")
-        else:
-            raise ValueError(f"unknown presence {presence!r}")
-    return {"presence": presence}
-
-
-def open_stream(client: cmux.CmuxClient, request: Mapping[str, Any]) -> Any:
-    kind = request["stream"]
-    if kind == "subscribe-coarse":
-        return client.subscribe()
-    if kind == "subscribe-deltas":
-        return client.subscribe_deltas()
-    surface = int(str(request.get("surface", "7")))
-    if kind == "attach-byte":
-        return client.attach_bytes(surface)
-    if kind == "attach-render":
-        return client.attach_render(surface)
-    if kind == "attach-browser":
-        return client.attach_browser(surface)
-    raise ValueError(f"unknown stream {kind!r}")
-
-
-def stream(request: Mapping[str, Any]) -> dict[str, Any]:
-    client = make_client(request)
-    events: list[dict[str, Any]] = []
-    terminal = False
-    try:
-        opened = open_stream(client, request)
-        try:
-            for _ in range(int(request.get("events", 1))):
-                try:
-                    event = next(opened)
-                except StopIteration:
-                    terminal = True
-                    break
-                events.append(event_value(event))
-                if getattr(event, "event", None) in ("overflow", "detached"):
-                    terminal = True
-        finally:
-            opened.close()
-    finally:
-        client.close()
-    return {"events": events, "terminal": terminal}
-
-
-def required_nullable_event(request: Mapping[str, Any]) -> dict[str, Any]:
-    client = make_client(request)
-    opened = client.subscribe()
-    try:
-        event = next(opened)
-        if not isinstance(event, cmux.ClientChangedEvent):
-            raise cmux.ProtocolError(
-                f"expected client-changed event, got {getattr(event, 'event', None)!r}"
-            )
-        return {"name": event.name}
-    finally:
-        opened.close()
-        client.close()
-
-
-def optional_non_null_event(request: Mapping[str, Any]) -> dict[str, Any]:
-    client = make_client(request)
-    opened = open_stream(client, request)
-    try:
-        event = next(opened)
-        if not isinstance(event, cmux.OutputEvent):
-            raise cmux.ProtocolError(
-                f"expected output event, got {getattr(event, 'event', None)!r}"
-            )
-        return {"present": event.colors is not cmux.MISSING}
-    finally:
-        opened.close()
-        client.close()
-
-
-def close_pending_stream(request: Mapping[str, Any]) -> dict[str, Any]:
-    client = make_client(request)
-    opened = open_stream(client, request)
-    finished = threading.Event()
-
-    def read() -> None:
-        try:
-            next(opened)
-        except BaseException:
-            pass
-        finally:
-            finished.set()
-
-    reader = threading.Thread(target=read, daemon=True)
-    reader.start()
-    time.sleep(int(request.get("close_after_ms", 50)) / 1000)
-    opened.close()
-    deadline = int(request.get("deadline_ms", 1000)) / 1000
-    unblocked = finished.wait(deadline)
-    client.close()
-    reader.join(timeout=0.1)
-    return {"unblocked": unblocked}
-
-
-def authority(request: Mapping[str, Any]) -> dict[str, Any]:
-    authority_name = str(request["authority"])
-    with make_client(
-        request,
-        allow_provider_authority=authority_name == "provider-authority",
+    with cmux.Client(
+        payload["socket_path"],
+        timeout=15.0,
+        random_hex_128=lambda: "a" * 32,
     ) as client:
-        if authority_name == "control":
-            client.ping()
-            command = "ping"
-        elif authority_name == "frontend":
-            client.browser_back(7)
-            command = "browser-back"
-        elif authority_name == "local-admin":
-            client.pairing_response(1, False)
-            command = "pairing-response"
-        elif authority_name == "provider-authority":
-            client.mark_workspaces_provider_managed("conformance-authority")
-            command = "mark-workspaces-provider-managed"
-        else:
-            raise ValueError(f"unknown authority {authority_name!r}")
-    return {"command": command}
-
-
-def authority_denied(request: Mapping[str, Any]) -> dict[str, Any]:
-    with make_client(request) as client:
-        try:
-            client.mark_workspaces_provider_managed("conformance-authority")
-        except cmux.AuthorityError:
-            return {"denied": True}
-    raise RuntimeError("default client allowed provider-authority command")
-
-
-def real_flow(request: Mapping[str, Any]) -> dict[str, Any]:
-    marker = str(request.get("marker", "cmux-sdk-conformance-marker"))
-    workspace_name = str(request.get("workspace_name", "sdk-conformance-workspace"))
-    renamed_name = str(request.get("renamed_name", "sdk-conformance-renamed"))
-    client = make_client(request)
-    opened = None
-    workspace: int | None = None
-    closed = False
-    try:
-        identity = client.identify()
-        opened = client.subscribe_deltas()
-        created = client.new_workspace(name=workspace_name, cols=80, rows=24)
-        surface = created.surface
-        client.send(surface, text=f"printf '{marker}\\n'\r")
-        waited = client.wait_for(surface, marker, 5_000)
-        screen = client.read_screen(surface)
-        context = cmux.find_surface(client.list_workspaces(), surface)
-        if context is None:
-            raise RuntimeError(f"created surface {surface} is absent from the tree")
-        workspace = context.workspace.id
-        terminal_created = context.tab.kind == "pty" and not context.tab.dead
-        renamed = client.rename_workspace(renamed_name, workspace=workspace)
-        client.close_workspace(workspace=workspace)
-        closed = True
-        remaining = client.list_workspaces()
-        disappeared = all(item.id != workspace for item in remaining.workspaces)
-
-        required_events = [
-            "workspace-added",
-            "workspace-renamed",
-            "workspace-closed",
-        ]
-        observed: list[str] = []
-        for _ in range(64):
-            if all(name in observed for name in required_events):
-                break
-            observed.append(next(opened).event)
-        positions = [observed.index(name) for name in required_events]
-        stream_ordered = positions == sorted(positions)
-        return {
-            "identified": identity.protocol == 10,
-            "workspace_created": workspace > 0,
-            "terminal_created": terminal_created,
-            "marker_sent": True,
-            "wait_matched": waited.matched is True,
-            "read_contains_marker": marker in screen.text,
-            "stream_ordered": stream_ordered,
-            "renamed": renamed.workspace == workspace,
-            "closed": closed,
-            "disappeared": disappeared,
-            "observed_events": observed,
-        }
-    finally:
-        if workspace is not None and not closed:
+        if operation == "read":
+            result = session(client, constants).ping()
+            return {
+                "alive": result.alive,
+                "cursor": plain(result.cursor),
+            }
+        if operation == "mutation-replay":
+            target = workspace(client, constants)
+            options = {
+                "idempotency_key": constants["idempotency_key"],
+                "expected_revision": constants["revision"],
+            }
+            first = target.rename(constants["name"], **options)
+            second = target.rename(constants["name"], **options)
+            return {
+                "first": mutation_value(first),
+                "second": mutation_value(second),
+            }
+        if operation == "mutation-error":
             try:
-                client.close_workspace(workspace=workspace)
-            except BaseException:
+                workspace(client, constants).rename(
+                    constants["name"],
+                    idempotency_key=constants["idempotency_key"],
+                    expected_revision=constants["revision"],
+                )
+            except cmux.ResourceError as error:
+                return error_value(error)
+            raise AssertionError("mutation unexpectedly succeeded")
+        if operation == "creation-resolve":
+            return creation_resolution_value(
+                session(client, constants).creation.resolve(
+                    constants["correlation_key"]
+                )
+            )
+        if operation == "creation-conflict":
+            try:
+                session(client, constants).create_workspace(
+                    cmux.CreateWorkspaceOptions(
+                        name=constants["name"],
+                        initial_content="empty",
+                        correlation_key=constants["correlation_key"],
+                    ),
+                    idempotency_key=constants["idempotency_key"],
+                )
+            except cmux.ResourceError as error:
+                return error_value(error)
+            raise AssertionError("creation conflict unexpectedly succeeded")
+        if operation == "terminal-wait-exit":
+            return terminal_wait_exit_value(
+                session(client, constants)
+                .terminal(cmux.TerminalId(constants["terminal"]))
+                .wait_exit(int(str(payload["timeout_ms"])))
+            )
+        if operation == "stream-unknown":
+            stream = session(client, constants).events()
+            item = next(stream)
+            kind, raw = unknown_value(item)
+            try:
+                next(stream)
+            except StopIteration:
                 pass
-        if opened is not None:
-            opened.close()
-        client.close()
-
-
-def dispatch(request: Mapping[str, Any]) -> Any:
-    operation = request.get("op")
-    if operation == "metadata":
-        return metadata()
-    if operation == "identify":
-        return identify(request)
-    if operation == "nullable-literal":
-        return nullable_literal(request)
-    if operation == "optional-non-null-response":
-        return optional_non_null_response(request)
-    if operation == "optional-nullable-request":
-        return optional_nullable_request(request)
-    if operation == "stream":
-        return stream(request)
-    if operation == "required-nullable-event":
-        return required_nullable_event(request)
-    if operation == "optional-non-null-event":
-        return optional_non_null_event(request)
-    if operation == "close-pending-stream":
-        return close_pending_stream(request)
-    if operation == "authority":
-        return authority(request)
-    if operation == "authority-denied":
-        return authority_denied(request)
-    if operation == "real-flow":
-        return real_flow(request)
-    raise ValueError(f"unknown adapter operation {operation!r}")
+            return {
+                "sequence": str(item.sequence),
+                "cursor": plain(item.cursor),
+                "kind": kind,
+                "raw": raw,
+                "end": stream.end.reason if stream.end else "completed",
+            }
+        if operation == "stream-cancel":
+            stream = session(client, constants).events()
+            stream.cancel()
+            stream.cancel()
+            count = 0
+            try:
+                while True:
+                    next(stream)
+                    count += 1
+            except StopIteration:
+                pass
+            return {
+                "end": stream.end.reason if stream.end else "canceled",
+                "items_after_cancel": count,
+                "cancel_calls": 2,
+            }
+        if operation == "stream-overflow":
+            first = session(client, constants).events()
+            first_end = drain_end(first)
+            second = session(client, constants).events()
+            second_item = next(second)
+            second_kind, _ = unknown_value(second_item)
+            try:
+                next(second)
+            except StopIteration:
+                pass
+            control = session(client, constants).ping()
+            return {
+                "first_end": first_end,
+                "second_kind": second_kind,
+                "control_alive": control.alive,
+            }
+        if operation == "live-setup":
+            return live_setup(
+                client,
+                str(payload["workspace_name"]),
+                str(payload["key_prefix"]),
+            )
+        if operation == "live-creation-exit":
+            return live_creation_exit(client, payload)
+        if operation == "live-exit-restart":
+            return live_exit_restart(client, payload)
+        if operation == "live-restart":
+            duplicate_ids = payload["expected_duplicate_ids"]
+            if not isinstance(duplicate_ids, list) or not all(
+                isinstance(identifier, str) for identifier in duplicate_ids
+            ):
+                raise TypeError("expected_duplicate_ids must be a string list")
+            return live_restart(
+                client,
+                str(payload["workspace_name"]),
+                str(payload["key_prefix"]),
+                str(payload["expected_stable_id"]),
+                duplicate_ids,
+            )
+    raise AssertionError(f"unknown adapter operation {operation}")
 
 
 def main() -> int:
-    line = sys.stdin.buffer.readline()
-    request: dict[str, Any] = json.loads(line)
-    response: dict[str, Any] = {
-        "contract_version": 1,
-        "id": request.get("id"),
-    }
+    payload = json.loads(sys.stdin.readline())
+    identifier = payload.get("id")
     try:
-        response["value"] = dispatch(request)
-        response["ok"] = True
+        value = run(payload)
+        response = {
+            "contract_version": 2,
+            "id": identifier,
+            "ok": True,
+            "value": value,
+        }
     except BaseException as error:
-        response["ok"] = False
-        response["error"] = {"kind": classify(error), "message": str(error)}
-    sys.stdout.write(json.dumps(response, separators=(",", ":"), ensure_ascii=False) + "\n")
+        response = {
+            "contract_version": 2,
+            "id": identifier,
+            "ok": False,
+            "error": {
+                "kind": "adapter",
+                "message": f"{type(error).__name__}: {error}",
+            },
+        }
+    print(json.dumps(response, separators=(",", ":"), ensure_ascii=False))
     return 0
 
 

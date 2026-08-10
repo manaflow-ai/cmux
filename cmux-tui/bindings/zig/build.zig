@@ -17,7 +17,7 @@ pub fn build(b: *std.Build) void {
     const run_unit_tests = b.addRunArtifact(unit_tests);
     const test_step = b.step(
         "test",
-        "Run codec, transport, lifecycle, provider, and API tests",
+        "Run codec, transport, lifecycle, stream, and API tests",
     );
     test_step.dependOn(&run_unit_tests.step);
 
@@ -30,7 +30,7 @@ pub fn build(b: *std.Build) void {
     const example = b.addExecutable(.{
         .name = "cmux-tui-watch",
         .root_module = example_module,
-        .version = std.SemanticVersion.parse("0.4.0") catch unreachable,
+        .version = std.SemanticVersion.parse("1.0.0") catch unreachable,
     });
     b.installArtifact(example);
 

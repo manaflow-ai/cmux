@@ -5,10 +5,11 @@ import os
 import sys
 import time
 from pathlib import Path
+from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from cmux import CommandError, CmuxClient, TimeoutError as CmuxTimeoutError  # noqa: E402
+from cmux.raw import CommandError, CmuxClient, TimeoutError as CmuxTimeoutError  # noqa: E402
 
 
 def main() -> int:
@@ -20,13 +21,21 @@ def main() -> int:
     with CmuxClient(socket_path=socket_path, timeout=5.0) as client:
         info = client.identify()
         assert info.app == "cmux-tui", info
-        assert 5 <= info.protocol <= 10, info
+        assert 5 <= info.protocol <= 11, info
         created = client.new_workspace(name=marker, cols=80, rows=24)
         client.send(created.surface, text=f"printf '{marker}\\n'\r")
         wait_for_marker(client, created.surface, marker)
         assert marker in client.read_screen(created.surface).text
         workspace = find_workspace_for_surface(client.list_workspaces(), created.surface)
         assert workspace is not None
+        pane = find_pane_for_surface(client.list_workspaces(), created.surface)
+        assert pane is not None
+        client.new_pane_right(pane, width=0.5)
+        viewport_screen = find_screen_for_surface(client.list_workspaces(), created.surface)
+        assert viewport_screen is not None
+        assert viewport_screen.viewport_base_width == 1.0
+        assert len(viewport_screen.viewport_splits) == 1
+        assert abs(viewport_screen.viewport_splits[0].width - 0.5) < 0.0001
         client.rename_surface(created.surface, f"{marker}-renamed")
         events = client.subscribe()
         try:
@@ -137,12 +146,30 @@ def next_attach_output(stream, timeout: float) -> None:
     raise CmuxTimeoutError("attach output not observed")
 
 
-def find_workspace_for_surface(tree, surface: int) -> int | None:
+def find_workspace_for_surface(tree, surface: int) -> Optional[int]:
     for workspace in tree.workspaces:
         for screen in workspace.screens:
             for pane in screen.panes:
                 if any(tab.surface == surface for tab in pane.tabs):
                     return workspace.id
+    return None
+
+
+def find_pane_for_surface(tree, surface: int) -> Optional[int]:
+    for workspace in tree.workspaces:
+        for screen in workspace.screens:
+            for pane in screen.panes:
+                if any(tab.surface == surface for tab in pane.tabs):
+                    return pane.id
+    return None
+
+
+def find_screen_for_surface(tree, surface: int):
+    for workspace in tree.workspaces:
+        for screen in workspace.screens:
+            for pane in screen.panes:
+                if any(tab.surface == surface for tab in pane.tabs):
+                    return screen
     return None
 
 

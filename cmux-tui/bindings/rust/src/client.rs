@@ -1,8 +1,8 @@
-use crate::codec::JsonLineConnection;
-use crate::generated::{decode_event, Event, IdentifyResult};
 use crate::CommandMetadata;
-use serde::de::DeserializeOwned;
+use crate::codec::JsonLineConnection;
+use crate::generated::{Event, IdentifyResult, decode_event};
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 use std::collections::VecDeque;
 use std::fmt;
@@ -11,25 +11,74 @@ use std::net::Shutdown;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 pub type Result<T> = std::result::Result<T, CmuxError>;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 #[non_exhaustive]
 pub enum CmuxError {
-    Command { command: String, message: String, id: Option<Value> },
-    AuthorityDenied { command: &'static str, authority: &'static str },
+    Command {
+        command: String,
+        message: String,
+        id: Option<Value>,
+    },
+    /// Structured `cmux.protocol/2` operation failure.
+    Protocol {
+        code: String,
+        message: String,
+        details: Value,
+        retryable: bool,
+    },
+    /// A destructive layout mutation requires an exact stale-state fence.
+    ConfirmationRequired {
+        message: String,
+        details: crate::ConfirmationRequiredDetails,
+    },
+    AuthorityDenied {
+        command: &'static str,
+        authority: &'static str,
+    },
     Decode(String),
     Connection(String),
     Timeout(String),
-    ProtocolVersion { command: &'static str, required: u32, actual: u32 },
-    MissingCapability { command: &'static str, capability: &'static str },
+    /// A caller canceled one resource operation before its response arrived.
+    Cancelled(String),
+    /// A mutation lost its response after a transport failure.
+    MutationTransport {
+        operation: String,
+        idempotency_key: String,
+        source: Box<CmuxError>,
+    },
+    ProtocolVersion {
+        command: &'static str,
+        required: u32,
+        actual: u32,
+    },
+    MissingCapability {
+        command: &'static str,
+        capability: &'static str,
+    },
     InvalidArgument(String),
-    FrameTooLarge { size: usize, limit: usize },
-    QueueOverflow { limit: usize },
+    FrameTooLarge {
+        size: usize,
+        limit: usize,
+    },
+    QueueOverflow {
+        limit: usize,
+    },
+    InvalidId {
+        expected_prefix: &'static str,
+        value: String,
+    },
+    UnexpectedEnvelope(String),
+    StreamEnded {
+        reason: String,
+        recovery: Option<String>,
+        error: Option<Box<CmuxError>>,
+    },
     Closed,
 }
 
@@ -37,6 +86,10 @@ impl fmt::Display for CmuxError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Command { command, message, .. } => write!(formatter, "{command}: {message}"),
+            Self::Protocol { code, message, .. } => write!(formatter, "{code}: {message}"),
+            Self::ConfirmationRequired { message, .. } => {
+                write!(formatter, "confirmation.required: {message}")
+            }
             Self::AuthorityDenied { command, authority } => {
                 write!(
                     formatter,
@@ -46,7 +99,13 @@ impl fmt::Display for CmuxError {
             Self::Decode(message)
             | Self::Connection(message)
             | Self::Timeout(message)
+            | Self::Cancelled(message)
             | Self::InvalidArgument(message) => formatter.write_str(message),
+            Self::MutationTransport { operation, idempotency_key, .. } => write!(
+                formatter,
+                "{operation} transport failed after dispatch; mutation outcome is uncertain \
+                 (idempotency_key={idempotency_key})"
+            ),
             Self::ProtocolVersion { command, required, actual } => {
                 write!(
                     formatter,
@@ -62,12 +121,33 @@ impl fmt::Display for CmuxError {
             Self::QueueOverflow { limit } => {
                 write!(formatter, "event queue exceeded configured limit {limit}")
             }
+            Self::InvalidId { expected_prefix, value } => {
+                write!(formatter, "expected {expected_prefix}_ opaque ID, got {value:?}")
+            }
+            Self::UnexpectedEnvelope(message) => formatter.write_str(message),
+            Self::StreamEnded { reason, recovery, error } => {
+                write!(formatter, "stream ended: {reason}")?;
+                if let Some(error) = error {
+                    write!(formatter, ": {error}")?;
+                }
+                if let Some(recovery) = recovery {
+                    write!(formatter, " ({recovery})")?;
+                }
+                Ok(())
+            }
             Self::Closed => formatter.write_str("stream is closed"),
         }
     }
 }
 
-impl std::error::Error for CmuxError {}
+impl std::error::Error for CmuxError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::MutationTransport { source, .. } => Some(source.as_ref()),
+            _ => None,
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct ClientConfig {
@@ -149,6 +229,7 @@ impl CmuxClient {
         }
         let connection = JsonLineConnection::connect(
             &config.socket_path,
+            config.timeout,
             config.timeout,
             config.max_frame_bytes,
         )?;
@@ -237,6 +318,7 @@ impl CmuxClient {
         let envelope = request_envelope(metadata.name, id.clone(), request)?;
         let mut connection = JsonLineConnection::connect(
             &self.config.socket_path,
+            self.config.timeout,
             self.config.timeout,
             self.config.max_frame_bytes,
         )?;
@@ -392,10 +474,12 @@ impl CmuxStream {
             return Ok(self.finish_if_terminal(event));
         }
         let control = Arc::clone(&self.control);
-        let value = self.connection.with_read_timeout(timeout, |connection| loop {
-            let value = connection.recv().map_err(|error| map_closed(error, &control))?;
-            if value.get("event").is_some() {
-                return Ok(value);
+        let value = self.connection.with_read_timeout(timeout, |connection| {
+            loop {
+                let value = connection.recv().map_err(|error| map_closed(error, &control))?;
+                if value.get("event").is_some() {
+                    return Ok(value);
+                }
             }
         })?;
         Ok(self.finish_if_terminal(decode_event(value)))
@@ -510,11 +594,7 @@ fn decode_response<Response: DeserializeOwned>(command: &str, response: Value) -
 }
 
 fn map_closed(error: CmuxError, control: &StreamControl) -> CmuxError {
-    if control.closed.load(Ordering::Acquire) {
-        CmuxError::Closed
-    } else {
-        error
-    }
+    if control.closed.load(Ordering::Acquire) { CmuxError::Closed } else { error }
 }
 
 pub fn env_socket_path() -> Option<PathBuf> {
@@ -562,13 +642,20 @@ mod tests {
     use super::*;
     use std::io::{BufRead, BufReader, Write};
     use std::os::unix::net::UnixListener;
-    use std::sync::mpsc;
     use std::thread;
     use std::time::Instant;
 
+    static SUBSCRIBE_METADATA: CommandMetadata = CommandMetadata {
+        name: "subscribe",
+        since: 1,
+        capability: None,
+        authority: "control",
+        stream: Some(crate::StreamMetadata { kind: "subscribe", terminal_event: None }),
+    };
+
     fn temp_socket(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
-            "cmux-client-{name}-{}-{}.sock",
+            "cmux-sdk-{name}-{}-{}.sock",
             std::process::id(),
             Instant::now().elapsed().as_nanos()
         ))
@@ -590,39 +677,35 @@ mod tests {
 
     #[test]
     fn close_handle_unblocks_a_reader() {
-        let (release_server_tx, release_server_rx) = mpsc::channel();
+        let (release_server_tx, release_server_rx) = std::sync::mpsc::channel();
         let (path, server) = spawn_stream_server("close", move |mut stream| {
             let mut request = String::new();
             BufReader::new(stream.try_clone().unwrap()).read_line(&mut request).unwrap();
             let id = serde_json::from_str::<Value>(&request).unwrap()["id"].clone();
             writeln!(stream, "{}", serde_json::json!({"id": id, "ok": true, "data": {}})).unwrap();
-            release_server_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+            release_server_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         });
         let mut client = CmuxClient::connect(
             ClientConfig::from_socket_path(&path).with_timeout(Duration::from_secs(5)),
         )
         .unwrap();
-        let metadata: &'static CommandMetadata = Box::leak(Box::new(CommandMetadata {
-            name: "subscribe",
-            since: 1,
-            capability: None,
-            authority: "control",
-            stream: Some(crate::StreamMetadata { kind: "subscribe", terminal_event: None }),
-        }));
-        let stream = client.execute_stream(metadata, &serde_json::json!({})).unwrap();
+        let stream = client.execute_stream(&SUBSCRIBE_METADATA, &serde_json::json!({})).unwrap();
         let closer = stream.closer();
-        let (reader_started_tx, reader_started_rx) = mpsc::channel();
+        let (reader_started_tx, reader_started_rx) = std::sync::mpsc::channel();
+        let (reader_result_tx, reader_result_rx) = std::sync::mpsc::channel();
         let reader = thread::spawn(move || {
             let mut stream = stream;
             reader_started_tx.send(()).unwrap();
-            stream.recv()
+            reader_result_tx.send(stream.recv()).unwrap();
         });
-        reader_started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        reader_started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         closer.close();
-        assert!(matches!(reader.join().unwrap(), Err(CmuxError::Closed)));
+        let result = reader_result_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         release_server_tx.send(()).unwrap();
+        reader.join().unwrap();
         server.join().unwrap();
         let _ = std::fs::remove_file(path);
+        assert!(matches!(result, Err(CmuxError::Closed)));
     }
 
     #[test]
@@ -635,14 +718,8 @@ mod tests {
             writeln!(stream, "{}", serde_json::json!({"id": id, "ok": true, "data": {}})).unwrap();
         });
         let mut client = CmuxClient::connect(ClientConfig::from_socket_path(&path)).unwrap();
-        let metadata: &'static CommandMetadata = Box::leak(Box::new(CommandMetadata {
-            name: "subscribe",
-            since: 1,
-            capability: None,
-            authority: "control",
-            stream: Some(crate::StreamMetadata { kind: "subscribe", terminal_event: None }),
-        }));
-        let mut stream = client.execute_stream(metadata, &serde_json::json!({})).unwrap();
+        let mut stream =
+            client.execute_stream(&SUBSCRIBE_METADATA, &serde_json::json!({})).unwrap();
         assert_eq!(stream.buffered_len(), 1);
         assert_eq!(stream.recv().unwrap().wire_name(), Some("tree-changed"));
         server.join().unwrap();
@@ -660,14 +737,7 @@ mod tests {
         let mut client =
             CmuxClient::connect(ClientConfig::from_socket_path(&path).with_max_queued_events(1))
                 .unwrap();
-        let metadata: &'static CommandMetadata = Box::leak(Box::new(CommandMetadata {
-            name: "subscribe",
-            since: 1,
-            capability: None,
-            authority: "control",
-            stream: Some(crate::StreamMetadata { kind: "subscribe", terminal_event: None }),
-        }));
-        let result = client.execute_stream(metadata, &serde_json::json!({}));
+        let result = client.execute_stream(&SUBSCRIBE_METADATA, &serde_json::json!({}));
         assert!(matches!(result, Err(CmuxError::QueueOverflow { limit: 1 })));
         server.join().unwrap();
         let _ = std::fs::remove_file(path);

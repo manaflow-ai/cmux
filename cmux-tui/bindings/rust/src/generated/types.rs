@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 10, IR 2006a175f8506aeeca40689c7a61651a6685a7b03b3c9c52c38cd5259c3a9a96.
+// cmux-tui mux protocol 11, IR 5299d9228d2d800423d244630722c8606297370f5962458962b88af542fd5cc1.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -76,6 +76,20 @@ pub struct ApplyLayoutResult {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AttachedViewOutcomeResult {
+    pub outcome: ViewAttachmentOutcome,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AttachedViewResizeResult {
+    pub accepted: bool,
+    pub outcome: ViewAttachmentOutcome,
+    pub reservation_id: Nullable<u64>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BrowserFrame {
     pub data: Base64,
     pub height: u32,
@@ -97,6 +111,14 @@ pub struct CellPixelResize {
     pub reservation_id: u64,
     pub rows: u16,
     pub surface: Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CellPixelSurface {
+    pub height_px: u16,
+    pub surface: Id,
+    pub width_px: u16,
 }
 
 #[rustfmt::skip]
@@ -246,6 +268,14 @@ pub struct FrontendProjection {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GetCellPixelsResult {
+    pub height_px: u16,
+    pub surfaces: Vec<CellPixelSurface>,
+    pub width_px: u16,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum IdMappingKind {
     #[serde(rename = "workspace")]
@@ -295,6 +325,27 @@ pub struct IdsResult {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct KittyGraphicsState {
+    pub alternate_next_image_id: u32,
+    pub alternate_replay_next_image_id: u32,
+    pub image_bytes: u64,
+    pub images: u64,
+    pub inflight_bytes: u64,
+    pub placements: u64,
+    pub primary_next_image_id: u32,
+    pub primary_replay_next_image_id: u32,
+    pub replay_cursor_offset: u32,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct KittyImageAlias {
+    pub image_id: u32,
+    pub image_number: u32,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum Layout {
     #[serde(rename = "leaf")]
@@ -315,6 +366,34 @@ pub enum Layout {
         expanded: Id,
         panes: Vec<Id>,
     },
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LayoutUndoConfirmationRequired {
+    pub closes_panes: Vec<Id>,
+    pub confirmation_required: bool,
+    pub revision: u64,
+    pub screen: Id,
+    pub undone: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum LayoutUndoResult {
+    LayoutUndoUndone(LayoutUndoUndone),
+    LayoutUndoConfirmationRequired(LayoutUndoConfirmationRequired),
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LayoutUndoUndone {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub confirmation_required: Option<bool>,
+    pub revision: u64,
+    pub screen: Id,
+    pub undone: bool,
 }
 
 #[rustfmt::skip]
@@ -350,6 +429,7 @@ pub struct LivePane {
 pub struct MintTerminalRendererResult {
     pub endpoint: String,
     pub incarnation: String,
+    pub protocol_version: u16,
     pub rights: u32,
     pub terminal_id: String,
     pub token: String,
@@ -463,6 +543,7 @@ pub struct ReadScreenResult {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReadScrollbackResult {
+    pub epoch: u64,
     pub rows: Vec<RenderRow>,
     pub start: u32,
     pub total: u32,
@@ -477,6 +558,77 @@ pub struct RenderCursor {
     pub visible: bool,
     pub x: u16,
     pub y: u16,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RenderGraphicFormat {
+    #[serde(rename = "rgb")]
+    Rgb,
+    #[serde(rename = "rgba")]
+    Rgba,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RenderGraphicImage {
+    pub data: Base64,
+    pub format: RenderGraphicFormat,
+    pub generation: u64,
+    pub height: u32,
+    pub id: u32,
+    pub width: u32,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RenderGraphicPlacement {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub anchor_col: Option<u16>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub anchor_row: Option<u32>,
+    pub columns: u32,
+    pub grid_cols: u32,
+    pub grid_rows: u32,
+    pub image_id: u32,
+    pub ordinal: u32,
+    pub pixel_height: u32,
+    pub pixel_width: u32,
+    pub placement_id: u32,
+    pub rows: u32,
+    pub source_height: u32,
+    pub source_width: u32,
+    pub source_x: u32,
+    pub source_y: u32,
+    pub viewport_col: i32,
+    pub viewport_row: i32,
+    pub viewport_visible: bool,
+    pub x_offset: u32,
+    pub y_offset: u32,
+    pub z: i32,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RenderGraphics {
+    pub generation: u64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub images: Option<Vec<RenderGraphicImage>>,
+    pub placements: Vec<RenderGraphicPlacement>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub removed_image_ids: Option<Vec<u32>>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RenderGraphicsDelta {
+    pub generation: u64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub images: Option<Vec<RenderGraphicImage>>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub placements: Option<Vec<RenderGraphicPlacement>>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub removed_image_ids: Option<Vec<u32>>,
 }
 
 #[rustfmt::skip]
@@ -533,7 +685,7 @@ pub struct ResizeSurfaceResult {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResolveTerminalResult {
-    pub exit: Nullable<JsonValue>,
+    pub exit: Nullable<TerminalExit>,
     pub generation: String,
     pub launch_spec: JsonValue,
     pub lifecycle: TerminalLifecycle,
@@ -546,14 +698,55 @@ pub struct ResolveTerminalResult {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ResourceSelectors {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub agent: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub browser: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub client: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub frontend_projection: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub machine: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub notification: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pairing_request: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pane: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub screen: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub session: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub sidebar_view: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub split: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub stream: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub tab: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub workspace: Optional<String>,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunResult {
-    pub pane: Id,
-    pub screen: Id,
-    pub surface: Id,
-    pub terminal_id: Nullable<String>,
+    pub already_exited: bool,
+    pub exit: Nullable<TerminalExit>,
+    pub lifecycle: TerminalLifecycle,
+    pub pane: Nullable<Id>,
+    pub screen: Nullable<Id>,
+    pub surface: Nullable<Id>,
+    pub terminal_id: String,
     pub terminal_incarnation: Nullable<String>,
-    pub workspace: Id,
+    pub terminal_revision: u64,
+    pub workspace: Nullable<Id>,
 }
 
 #[rustfmt::skip]
@@ -666,11 +859,15 @@ pub struct Tab {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub short_id: Option<String>,
     pub size: Nullable<Size>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub supports_clear_history_key_fallback: Option<bool>,
     pub surface: Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_incarnation: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_resource_id: Optional<String>,
     pub title: String,
 }
 
@@ -701,6 +898,294 @@ pub struct TerminalEventsResult {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalExit {
+    pub exited_at_ms: u64,
+    pub outcome: TerminalExitOutcome,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum TerminalExitOutcome {
+    #[serde(rename = "exit")]
+    Exit {
+        code: i32,
+    },
+    #[serde(rename = "signal")]
+    Signal {
+        core_dumped: bool,
+        signal: i32,
+    },
+    #[serde(rename = "unknown")]
+    Unknown {
+        reason: String,
+    },
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TerminalKey {
+    #[serde(rename = "unidentified")]
+    Unidentified,
+    #[serde(rename = "backquote")]
+    Backquote,
+    #[serde(rename = "backslash")]
+    Backslash,
+    #[serde(rename = "bracket-left")]
+    BracketLeft,
+    #[serde(rename = "bracket-right")]
+    BracketRight,
+    #[serde(rename = "comma")]
+    Comma,
+    #[serde(rename = "digit0")]
+    Digit0,
+    #[serde(rename = "digit1")]
+    Digit1,
+    #[serde(rename = "digit2")]
+    Digit2,
+    #[serde(rename = "digit3")]
+    Digit3,
+    #[serde(rename = "digit4")]
+    Digit4,
+    #[serde(rename = "digit5")]
+    Digit5,
+    #[serde(rename = "digit6")]
+    Digit6,
+    #[serde(rename = "digit7")]
+    Digit7,
+    #[serde(rename = "digit8")]
+    Digit8,
+    #[serde(rename = "digit9")]
+    Digit9,
+    #[serde(rename = "equal")]
+    Equal,
+    #[serde(rename = "a")]
+    A,
+    #[serde(rename = "b")]
+    B,
+    #[serde(rename = "c")]
+    C,
+    #[serde(rename = "d")]
+    D,
+    #[serde(rename = "e")]
+    E,
+    #[serde(rename = "f")]
+    F,
+    #[serde(rename = "g")]
+    G,
+    #[serde(rename = "h")]
+    H,
+    #[serde(rename = "i")]
+    I,
+    #[serde(rename = "j")]
+    J,
+    #[serde(rename = "k")]
+    K,
+    #[serde(rename = "l")]
+    L,
+    #[serde(rename = "m")]
+    M,
+    #[serde(rename = "n")]
+    N,
+    #[serde(rename = "o")]
+    O,
+    #[serde(rename = "p")]
+    P,
+    #[serde(rename = "q")]
+    Q,
+    #[serde(rename = "r")]
+    R,
+    #[serde(rename = "s")]
+    S,
+    #[serde(rename = "t")]
+    T,
+    #[serde(rename = "u")]
+    U,
+    #[serde(rename = "v")]
+    V,
+    #[serde(rename = "w")]
+    W,
+    #[serde(rename = "x")]
+    X,
+    #[serde(rename = "y")]
+    Y,
+    #[serde(rename = "z")]
+    Z,
+    #[serde(rename = "minus")]
+    Minus,
+    #[serde(rename = "period")]
+    Period,
+    #[serde(rename = "quote")]
+    Quote,
+    #[serde(rename = "semicolon")]
+    Semicolon,
+    #[serde(rename = "slash")]
+    Slash,
+    #[serde(rename = "backspace")]
+    Backspace,
+    #[serde(rename = "enter")]
+    Enter,
+    #[serde(rename = "space")]
+    Space,
+    #[serde(rename = "tab")]
+    Tab,
+    #[serde(rename = "delete")]
+    Delete,
+    #[serde(rename = "end")]
+    End,
+    #[serde(rename = "home")]
+    Home,
+    #[serde(rename = "insert")]
+    Insert,
+    #[serde(rename = "page-down")]
+    PageDown,
+    #[serde(rename = "page-up")]
+    PageUp,
+    #[serde(rename = "arrow-down")]
+    ArrowDown,
+    #[serde(rename = "arrow-left")]
+    ArrowLeft,
+    #[serde(rename = "arrow-right")]
+    ArrowRight,
+    #[serde(rename = "arrow-up")]
+    ArrowUp,
+    #[serde(rename = "numpad0")]
+    Numpad0,
+    #[serde(rename = "numpad1")]
+    Numpad1,
+    #[serde(rename = "numpad2")]
+    Numpad2,
+    #[serde(rename = "numpad3")]
+    Numpad3,
+    #[serde(rename = "numpad4")]
+    Numpad4,
+    #[serde(rename = "numpad5")]
+    Numpad5,
+    #[serde(rename = "numpad6")]
+    Numpad6,
+    #[serde(rename = "numpad7")]
+    Numpad7,
+    #[serde(rename = "numpad8")]
+    Numpad8,
+    #[serde(rename = "numpad9")]
+    Numpad9,
+    #[serde(rename = "numpad-add")]
+    NumpadAdd,
+    #[serde(rename = "numpad-backspace")]
+    NumpadBackspace,
+    #[serde(rename = "numpad-comma")]
+    NumpadComma,
+    #[serde(rename = "numpad-decimal")]
+    NumpadDecimal,
+    #[serde(rename = "numpad-divide")]
+    NumpadDivide,
+    #[serde(rename = "numpad-enter")]
+    NumpadEnter,
+    #[serde(rename = "numpad-equal")]
+    NumpadEqual,
+    #[serde(rename = "numpad-multiply")]
+    NumpadMultiply,
+    #[serde(rename = "numpad-subtract")]
+    NumpadSubtract,
+    #[serde(rename = "numpad-up")]
+    NumpadUp,
+    #[serde(rename = "numpad-down")]
+    NumpadDown,
+    #[serde(rename = "numpad-right")]
+    NumpadRight,
+    #[serde(rename = "numpad-left")]
+    NumpadLeft,
+    #[serde(rename = "numpad-begin")]
+    NumpadBegin,
+    #[serde(rename = "numpad-home")]
+    NumpadHome,
+    #[serde(rename = "numpad-end")]
+    NumpadEnd,
+    #[serde(rename = "numpad-insert")]
+    NumpadInsert,
+    #[serde(rename = "numpad-delete")]
+    NumpadDelete,
+    #[serde(rename = "numpad-page-up")]
+    NumpadPageUp,
+    #[serde(rename = "numpad-page-down")]
+    NumpadPageDown,
+    #[serde(rename = "escape")]
+    Escape,
+    #[serde(rename = "f1")]
+    F1,
+    #[serde(rename = "f2")]
+    F2,
+    #[serde(rename = "f3")]
+    F3,
+    #[serde(rename = "f4")]
+    F4,
+    #[serde(rename = "f5")]
+    F5,
+    #[serde(rename = "f6")]
+    F6,
+    #[serde(rename = "f7")]
+    F7,
+    #[serde(rename = "f8")]
+    F8,
+    #[serde(rename = "f9")]
+    F9,
+    #[serde(rename = "f10")]
+    F10,
+    #[serde(rename = "f11")]
+    F11,
+    #[serde(rename = "f12")]
+    F12,
+    #[serde(rename = "f13")]
+    F13,
+    #[serde(rename = "f14")]
+    F14,
+    #[serde(rename = "f15")]
+    F15,
+    #[serde(rename = "f16")]
+    F16,
+    #[serde(rename = "f17")]
+    F17,
+    #[serde(rename = "f18")]
+    F18,
+    #[serde(rename = "f19")]
+    F19,
+    #[serde(rename = "f20")]
+    F20,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TerminalKeyAction {
+    #[serde(rename = "press")]
+    Press,
+    #[serde(rename = "release")]
+    Release,
+    #[serde(rename = "repeat")]
+    Repeat,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalKeyInput {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub action: Optional<TerminalKeyAction>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub base_layout_codepoint: Optional<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub composing: Option<bool>,
+    pub consumed_mods: TerminalModifiers,
+    pub key: TerminalKey,
+    pub macos_option_as_alt: bool,
+    pub mods: TerminalModifiers,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub shifted_codepoint: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub unshifted_codepoint: Optional<String>,
+    pub utf8: String,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TerminalLifecycle {
     #[serde(rename = "launching")]
@@ -717,25 +1202,39 @@ pub enum TerminalLifecycle {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalModifiers {
+    pub alt: bool,
+    pub caps_lock: bool,
+    pub control: bool,
+    pub num_lock: bool,
+    pub shift: bool,
+    #[serde(rename = "super")]
+    pub super_: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TerminalPlacement {
+    pub already_exited: bool,
+    pub exit: Nullable<TerminalExit>,
     pub generation: String,
     pub key: String,
-    pub lifecycle: Nullable<String>,
-    pub pane: Id,
+    pub lifecycle: TerminalLifecycle,
+    pub pane: Nullable<Id>,
     pub registry_id: String,
     pub replayed: bool,
-    pub screen: Id,
-    pub surface: Id,
-    pub terminal_id: Nullable<String>,
+    pub screen: Nullable<Id>,
+    pub surface: Nullable<Id>,
+    pub terminal_id: String,
     pub terminal_incarnation: Nullable<String>,
     pub terminal_revision: u64,
-    pub workspace: Id,
+    pub workspace: Nullable<Id>,
 }
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TerminalRecord {
-    pub exit: Nullable<JsonValue>,
+    pub exit: Nullable<TerminalExit>,
     pub launch_spec: JsonValue,
     pub lifecycle: TerminalLifecycle,
     pub terminal_id: String,
@@ -772,10 +1271,25 @@ pub struct Tree {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ViewAttachmentOutcome {
+    #[serde(rename = "applied")]
+    Applied,
+    #[serde(rename = "passive")]
+    Passive,
+    #[serde(rename = "superseded")]
+    Superseded,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VtStateResult {
     pub cols: u16,
     pub data: Base64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub kitty_graphics_state: Option<KittyGraphicsState>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub kitty_image_aliases: Option<Vec<KittyImageAlias>>,
     pub rows: u16,
 }
 

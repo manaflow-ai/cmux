@@ -5,9 +5,9 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.cmux</groupId>
   <artifactId>cmux-java-sdk</artifactId>
-  <version>0.4.0</version>
+  <version>1.0.0</version>
   <name>cmux Java SDK</name>
-  <description>Dependency-free Java 17 SDK for the cmux-tui protocol</description>
+  <description>Dependency-free Java 17 SDK for the cmux resource and raw protocols</description>
   <url>https://github.com/manaflow-ai/cmux</url>
   <licenses>
     <license>

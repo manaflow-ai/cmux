@@ -5,24 +5,24 @@ import os
 import unittest
 from unittest.mock import patch
 
-from cmux import (
+from cmux.raw import (
     MISSING,
     MUX_PROTOCOL,
     UnknownEvent,
     default_socket_path,
     env_socket_path,
 )
-from cmux._generated import models
-from cmux._generated._schema import SCHEMA
-from cmux._generated.client import GeneratedClientMixin
-from cmux._generated.codec import decode_event, encode_request
-from cmux._generated.metadata import COMMANDS, EVENTS, IR_SHA256
+from cmux.raw._generated import models
+from cmux.raw._generated._schema import SCHEMA
+from cmux.raw._generated.client import GeneratedClientMixin
+from cmux.raw._generated.codec import decode_event, encode_request
+from cmux.raw._generated.metadata import COMMANDS, EVENTS, IR_SHA256
 
 
 class GeneratedProtocolTests(unittest.TestCase):
-    def test_protocol_ten_inventory_is_exhaustive(self) -> None:
-        self.assertEqual(MUX_PROTOCOL, 10)
-        self.assertEqual(len(COMMANDS), 83)
+    def test_protocol_inventory_is_exhaustive(self) -> None:
+        self.assertEqual(MUX_PROTOCOL, 11)
+        self.assertEqual(len(COMMANDS), 97)
         self.assertEqual(set(COMMANDS), set(SCHEMA["commands"]))
         self.assertEqual(set(EVENTS), set(SCHEMA["events"]))
         self.assertEqual(len(IR_SHA256), 64)
@@ -79,7 +79,9 @@ class GeneratedProtocolTests(unittest.TestCase):
             authorities,
             {"control", "frontend", "local-admin", "provider-authority"},
         )
-        self.assertTrue(all(5 <= metadata.since <= 10 for metadata in COMMANDS.values()))
+        self.assertTrue(
+            all(5 <= metadata.since <= MUX_PROTOCOL for metadata in COMMANDS.values())
+        )
         self.assertEqual(
             COMMANDS["rename-provider-managed-workspace"].authority,
             "provider-authority",

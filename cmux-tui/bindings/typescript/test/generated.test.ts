@@ -7,13 +7,13 @@ import {
   PROFILES,
   SDK_IR_SHA256,
   SDK_SCHEMA_VERSION,
-} from "cmux/browser";
+} from "cmux-sdk/raw";
 
-test("generated protocol coverage matches the canonical v10 IR", () => {
-  assert.equal(MUX_PROTOCOL_VERSION, 10);
+test("generated protocol coverage matches the canonical v11 IR", () => {
+  assert.equal(MUX_PROTOCOL_VERSION, 11);
   assert.equal(SDK_SCHEMA_VERSION, 2);
-  assert.equal(Object.keys(COMMAND_METADATA).length, 83);
-  assert.equal(Object.keys(EVENT_METADATA).length, 44);
+  assert.equal(Object.keys(COMMAND_METADATA).length, 97);
+  assert.equal(Object.keys(EVENT_METADATA).length, 45);
   assert.equal(SDK_IR_SHA256.length, 64);
   assert.deepEqual(Object.keys(PROFILES).sort(), [
     "control",
@@ -27,7 +27,7 @@ test("generated active events exclude serialized-only shapes", () => {
   const emitted = Object.entries(EVENT_METADATA)
     .filter(([, metadata]) => metadata.emission === "emitted")
     .map(([name]) => name);
-  assert.equal(emitted.length, 43);
+  assert.equal(emitted.length, 44);
   assert.equal(EVENT_METADATA["client-list-invalidated"].emission, "serialized-never-emitted");
   assert.equal(emitted.includes("client-list-invalidated"), false);
 });
@@ -41,6 +41,17 @@ test("every generated command carries authority and version metadata", () => {
 });
 
 test("generated command metadata exposes gated request fields", () => {
+  for (const command of [
+    "browser-frame-presented",
+    "browser-mouse-guarded",
+    "browser-wheel-guarded",
+  ] as const) {
+    assert.equal(
+      COMMAND_METADATA[command].capability,
+      "browser-pointer-frame-guard-v1",
+    );
+    assert.equal(COMMAND_METADATA[command].since, 10);
+  }
   assert.deepEqual(COMMAND_METADATA.send.fields.paste, {
     since: 7,
     capability: null,

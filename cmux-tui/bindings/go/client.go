@@ -4,150 +4,170 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net"
-	"os"
-	"path/filepath"
-	"regexp"
-	"runtime"
-	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 	"unicode/utf8"
+
+	"github.com/manaflow-ai/cmux/cmux-tui/bindings/go/internal/wirev2"
 )
 
 const (
-	// MaxRequestBytes is the maximum encoded client message size. The
-	// JSON-lines delimiter is excluded.
-	MaxRequestBytes = 4 * 1024 * 1024
-	// MaxResponseBytes is the maximum encoded server message size. The
-	// JSON-lines delimiter is excluded.
-	MaxResponseBytes = 16 * 1024 * 1024
-	// MaxBufferedStreamEvents matches the server's per-stream event backlog.
-	MaxBufferedStreamEvents = 4096
+	MaxRequestBytes                = 4 * 1024 * 1024
+	MaxResponseBytes               = 16 * 1024 * 1024
+	MaxStreamQueueMessages         = 256
+	MaxStreamQueueBytes            = 16 * 1024 * 1024
+	failedStreamOpenCleanupTimeout = time.Second
+	abandonedRequestCleanupTimeout = time.Second
 )
 
-var (
-	ErrCommand          = errors.New("cmux-tui command error")
-	ErrConnection       = errors.New("cmux-tui connection error")
-	ErrTimeout          = errors.New("cmux-tui timeout")
-	ErrProtocolMismatch = errors.New("cmux-tui protocol mismatch")
-	ErrDecode           = errors.New("cmux-tui decode error")
-	ErrInvalidArgument  = errors.New("cmux-tui invalid argument")
-	ErrMessageTooLarge  = errors.New("cmux-tui message too large")
-	ErrBufferFull       = errors.New("cmux-tui stream buffer full")
-	ErrAuthority        = errors.New("cmux-tui authority denied")
-)
+var errFrameTooLarge = errors.New("cmux server frame too large")
 
-var validSessionName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+type DialContextFunc func(context.Context, string, string) (net.Conn, error)
+type IdempotencyKeyFunc func() (string, error)
 
-type CommandError struct {
-	Message string
-	ID      any
+type ClientOptions struct {
+	SocketPath       string
+	Session          string
+	Timeout          time.Duration
+	DialContext      DialContextFunc
+	IdempotencyKey   IdempotencyKeyFunc
+	MaxRequestBytes  int
+	MaxResponseBytes int
 }
 
-func (e *CommandError) Error() string { return e.Message }
-func (e *CommandError) Is(target error) bool {
-	return target == ErrCommand
+type responseEnvelope struct {
+	Protocol string          `json:"protocol"`
+	Type     string          `json:"type"`
+	ID       string          `json:"id"`
+	OK       bool            `json:"ok"`
+	Result   json.RawMessage `json:"result"`
+	Error    *ResourceError  `json:"error"`
 }
 
-type connectionError struct{ msg string }
-
-func (e *connectionError) Error() string { return e.msg }
-func (e *connectionError) Is(target error) bool {
-	return target == ErrConnection
+type streamEnvelope struct {
+	Protocol string          `json:"protocol"`
+	Type     string          `json:"type"`
+	StreamID StreamID        `json:"stream_id"`
+	Sequence Decimal         `json:"sequence"`
+	Cursor   *Cursor         `json:"cursor"`
+	Item     json.RawMessage `json:"item"`
+	Reason   string          `json:"reason"`
+	Error    *ResourceError  `json:"error"`
+	Recovery string          `json:"recovery"`
 }
 
-type timeoutError struct {
-	msg   string
-	cause error
+type responseEnvelopeWire struct {
+	Protocol *string         `json:"protocol"`
+	Type     *string         `json:"type"`
+	ID       *string         `json:"id"`
+	OK       *bool           `json:"ok"`
+	Result   json.RawMessage `json:"result"`
+	Error    json.RawMessage `json:"error"`
 }
 
-func (e *timeoutError) Error() string { return e.msg }
-func (e *timeoutError) Is(target error) bool {
-	return target == ErrTimeout
-}
-func (e *timeoutError) Unwrap() error { return e.cause }
-
-// AuthorityError reports a generated command rejected by the client's local
-// authority policy before any bytes were written to the session socket.
-type AuthorityError struct {
-	Command  string
-	Required Authority
+type streamItemEnvelopeWire struct {
+	Protocol *string         `json:"protocol"`
+	Type     *string         `json:"type"`
+	StreamID json.RawMessage `json:"stream_id"`
+	Sequence json.RawMessage `json:"sequence"`
+	Cursor   json.RawMessage `json:"cursor"`
+	Item     json.RawMessage `json:"item"`
 }
 
-func (e *AuthorityError) Error() string {
-	return fmt.Sprintf("%s requires %s authority", e.Command, e.Required)
-}
-func (e *AuthorityError) Is(target error) bool {
-	return target == ErrAuthority
-}
-
-type protocolError struct{ msg string }
-
-func (e *protocolError) Error() string { return e.msg }
-func (e *protocolError) Is(target error) bool {
-	return target == ErrProtocolMismatch
+type streamEndEnvelopeWire struct {
+	Protocol *string         `json:"protocol"`
+	Type     *string         `json:"type"`
+	StreamID json.RawMessage `json:"stream_id"`
+	Reason   *string         `json:"reason"`
+	Cursor   json.RawMessage `json:"cursor"`
+	Error    json.RawMessage `json:"error"`
+	Recovery json.RawMessage `json:"recovery"`
 }
 
-type decodeError struct{ msg string }
-
-func (e *decodeError) Error() string { return e.msg }
-func (e *decodeError) Is(target error) bool {
-	return target == ErrDecode
+type resourceErrorWire struct {
+	Code      *string         `json:"code"`
+	Message   *string         `json:"message"`
+	Details   json.RawMessage `json:"details"`
+	Retryable *bool           `json:"retryable"`
 }
 
-// Client serializes command calls over one Unix connection. Streams use
-// dedicated connections so closing a stream cancels only that local reader.
+type pendingResponse struct {
+	envelope responseEnvelope
+	err      error
+}
+
+type requestCancelResultWire struct {
+	Canceled *bool `json:"canceled"`
+}
+
+type abandonedRequestCleanup struct {
+	once sync.Once
+	done chan struct{}
+	err  error
+}
+
+type streamRoute struct {
+	messages         chan streamMessage
+	mu               sync.Mutex
+	accepting        bool
+	terminated       bool
+	serverEnded      bool
+	queuedBytes      int
+	cancelParams     map[string]any
+	openDispatched   bool
+	openAcknowledged bool
+	cleanupStarted   bool
+	cancelItem       func(json.RawMessage) error
+	cancelSignal     chan struct{}
+	cancelEnd        *streamEnvelope
+	cancelErr        error
+}
+
+type streamMessage struct {
+	envelope streamEnvelope
+	err      error
+	size     int
+}
+
+// Client is the high-level resource API connection. It never retries a
+// mutation. All request, stream, cancellation, and close I/O is caller
+// cancellable through context.Context.
 type Client struct {
-	socketPath              string
-	timeout                 time.Duration
-	maxRequestBytes         int
-	maxResponseBytes        int
-	maxBufferedStreamEvents int
-	conn                    *jsonLineConn
-	mu                      sync.Mutex
-	nextID                  atomic.Uint64
-	negotiationMu           sync.RWMutex
-	protocol                *uint32
-	capabilities            map[string]struct{}
-	enableProviderAuthority bool
+	conn             net.Conn
+	reader           *bufio.Reader
+	timeout          time.Duration
+	maxRequestBytes  int
+	maxResponseBytes int
+	idempotencyKey   IdempotencyKeyFunc
+	writer           chan struct{}
+	framingUnsafe    bool // guarded by writer
+	nextRequestID    atomic.Uint64
+
+	requestCleanupMu   sync.Mutex
+	requestCleanups    int
+	requestCleanupDone chan struct{}
+
+	mu      sync.Mutex
+	pending map[string]chan pendingResponse
+	streams map[StreamID]*streamRoute
+	closed  bool
+	done    chan struct{}
+	err     error
 }
 
-type Options struct {
-	SocketPath string
-	Session    string
-	Timeout    time.Duration
-
-	// MaxRequestBytes, MaxResponseBytes, and MaxBufferedStreamEvents set
-	// per-client safety limits. Zero uses the corresponding package default.
-	MaxRequestBytes         int
-	MaxResponseBytes        int
-	MaxBufferedStreamEvents int
-
-	// EnableProviderAuthority permits provider-owned workspace mutations.
-	// Ordinary Unix clients allow control, frontend, and local-admin commands
-	// by default, but provider authority requires this explicit opt-in.
-	EnableProviderAuthority bool
-
-	// AllowProtocolV6Attach is retained for source compatibility. Current byte,
-	// render, and browser attachments work without an opt-in.
-	//
-	// Deprecated: this option no longer changes behavior.
-	AllowProtocolV6Attach bool
-}
-
-func NewClient(options Options) (*Client, error) {
-	session := options.Session
-	if session == "" {
-		session = "main"
-	}
-	socketPath, err := ResolveSocketPath(options.SocketPath, session)
-	if err != nil {
+func NewClient(ctx context.Context, options ClientOptions) (*Client, error) {
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	timeout := options.Timeout
@@ -157,911 +177,1373 @@ func NewClient(options Options) (*Client, error) {
 	if timeout < 0 {
 		return nil, fmt.Errorf("%w: timeout must not be negative", ErrInvalidArgument)
 	}
-	maxRequestBytes, err := optionLimit(
-		"MaxRequestBytes",
-		options.MaxRequestBytes,
-		MaxRequestBytes,
-	)
-	if err != nil {
-		return nil, err
+	maxRequest := options.MaxRequestBytes
+	if maxRequest == 0 {
+		maxRequest = MaxRequestBytes
 	}
-	maxResponseBytes, err := optionLimit(
-		"MaxResponseBytes",
-		options.MaxResponseBytes,
-		MaxResponseBytes,
-	)
-	if err != nil {
-		return nil, err
+	maxResponse := options.MaxResponseBytes
+	if maxResponse == 0 {
+		maxResponse = MaxResponseBytes
 	}
-	maxBufferedStreamEvents, err := optionLimit(
-		"MaxBufferedStreamEvents",
-		options.MaxBufferedStreamEvents,
-		MaxBufferedStreamEvents,
-	)
-	if err != nil {
-		return nil, err
+	if maxRequest < 1 || maxResponse < 1 {
+		return nil, fmt.Errorf("%w: message limits must be positive", ErrInvalidArgument)
 	}
-	conn, err := dialJSON(socketPath, maxRequestBytes, maxResponseBytes)
-	if err != nil {
-		return nil, err
+	socket := options.SocketPath
+	if socket == "" {
+		socket = defaultSocketPath(options.Session)
 	}
-	return &Client{
-		socketPath:              socketPath,
-		timeout:                 timeout,
-		maxRequestBytes:         maxRequestBytes,
-		maxResponseBytes:        maxResponseBytes,
-		maxBufferedStreamEvents: maxBufferedStreamEvents,
-		conn:                    conn,
-		enableProviderAuthority: options.EnableProviderAuthority,
-	}, nil
+	dial := options.DialContext
+	if dial == nil {
+		var dialer net.Dialer
+		dial = dialer.DialContext
+	}
+	keySource := options.IdempotencyKey
+	if keySource == nil {
+		keySource = newIdempotencyKey
+	}
+	conn, err := dial(ctx, "unix", socket)
+	if err != nil {
+		return nil, &TransportError{Operation: "connect", Err: err}
+	}
+	client := &Client{
+		conn:             conn,
+		reader:           bufio.NewReaderSize(conn, 64*1024),
+		timeout:          timeout,
+		maxRequestBytes:  maxRequest,
+		maxResponseBytes: maxResponse,
+		idempotencyKey:   keySource,
+		writer:           make(chan struct{}, 1),
+		pending:          make(map[string]chan pendingResponse),
+		streams:          make(map[StreamID]*streamRoute),
+		done:             make(chan struct{}),
+	}
+	client.writer <- struct{}{}
+	go client.readLoop()
+	return client, nil
 }
 
-func optionLimit(name string, value, defaultValue int) (int, error) {
-	if value < 0 {
-		return 0, fmt.Errorf("%w: %s must not be negative", ErrInvalidArgument, name)
+func (c *Client) Close(ctx context.Context) error {
+	if c == nil {
+		return nil
 	}
-	if value == 0 {
-		return defaultValue, nil
+	if err := ctx.Err(); err != nil {
+		return err
 	}
-	return value, nil
-}
-
-// ResolveSocketPath applies the normative explicit, environment, and runtime
-// directory discovery order.
-func ResolveSocketPath(explicit, session string) (string, error) {
-	if explicit != "" {
-		return explicit, nil
-	}
-	if socketPath := EnvSocketPath(); socketPath != "" {
-		return socketPath, nil
-	}
-	if err := ValidateSession(session); err != nil {
-		return "", err
-	}
-	return DefaultSocketPath(session), nil
-}
-
-// ValidateSession rejects names that could escape the private runtime
-// directory or cannot be used portably by the server.
-func ValidateSession(session string) error {
-	if !validSessionName.MatchString(session) || session == "." || session == ".." {
-		return fmt.Errorf(
-			"%w: session must match [A-Za-z0-9][A-Za-z0-9._-]{0,63}",
-			ErrInvalidArgument,
-		)
-	}
+	c.fail(&TransportError{Operation: "close", Err: ErrClosed})
 	return nil
 }
 
-func DefaultSocketPath(session string) string {
-	base := firstNonEmptyEnv("XDG_RUNTIME_DIR", "TMPDIR")
-	if base == "" {
-		base = "/tmp"
-	}
-	fileName := session + ".sock"
-	preferred := filepath.Join(base, fmt.Sprintf("cmux-tui-%d", os.Getuid()), fileName)
-	if unixSocketPathFits(preferred) {
-		return preferred
-	}
-	return filepath.Join("/tmp", fmt.Sprintf("cmux-tui-%d", os.Getuid()), fileName)
-}
-
-func EnvSocketPath() string {
-	if socketPath := os.Getenv("CMUX_TUI_SOCKET"); socketPath != "" {
-		return socketPath
-	}
-	return os.Getenv("CMUX_MUX_SOCKET")
-}
-
-func firstNonEmptyEnv(names ...string) string {
-	for _, name := range names {
-		if value := os.Getenv(name); value != "" {
-			return value
-		}
-	}
-	return ""
-}
-
-func unixSocketPathFits(path string) bool {
-	capacity := 108
-	if runtime.GOOS == "darwin" {
-		capacity = 104
-	}
-	return len([]byte(path)) < capacity
-}
-
-func (c *Client) Close() error {
-	if c == nil || c.conn == nil {
-		return nil
-	}
-	return c.conn.Close()
-}
-
-// SendRaw is the forward-compatible request escape hatch. It preserves exact
-// integers as json.Number values in the returned response envelope.
-func (c *Client) SendRaw(
+func (c *Client) do(
 	ctx context.Context,
-	requestValue map[string]any,
-) (map[string]any, error) {
-	if command, ok := requestValue["cmd"].(string); ok {
-		if metadata, known := commandMetadata[command]; known {
-			if err := c.checkAuthority(metadata); err != nil {
-				return nil, err
+	operation wirev2.Operation,
+	params map[string]any,
+	idempotencyKey string,
+	result any,
+) error {
+	return c.doTracked(ctx, operation, params, idempotencyKey, result, nil)
+}
+
+func (c *Client) doTracked(
+	ctx context.Context,
+	operation wirev2.Operation,
+	params map[string]any,
+	idempotencyKey string,
+	result any,
+	onDispatched func(),
+) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	switch operation.Class {
+	case wirev2.Mutation:
+		if idempotencyKey == "" {
+			var err error
+			idempotencyKey, err = c.idempotencyKey()
+			if err != nil {
+				return &TransportError{Operation: operation.Name, Err: err}
 			}
 		}
+		if err := validateIdempotencyKey(idempotencyKey); err != nil {
+			return err
+		}
+	default:
+		if idempotencyKey != "" {
+			return fmt.Errorf("%w: %s does not accept an idempotency key", ErrInvalidArgument, operation.Name)
+		}
+	}
+	requestID := "go-" + strconv.FormatUint(c.nextRequestID.Add(1), 10)
+	request := map[string]any{
+		"protocol":  wirev2.Protocol,
+		"type":      "request",
+		"id":        requestID,
+		"operation": operation.Name,
+		"params":    params,
+	}
+	if idempotencyKey != "" {
+		request[wirev2.FieldIdempotencyKey] = idempotencyKey
+	}
+	uncertain := func(err error) error {
+		if operation.Class != wirev2.Mutation {
+			return err
+		}
+		return &MutationTransportUncertainError{
+			Operation: operation.Name, IdempotencyKey: idempotencyKey, Err: err,
+		}
+	}
+	waiter := make(chan pendingResponse, 1)
+	var cleanup *abandonedRequestCleanup
+	if isCancelableWait(operation) {
+		cleanup = &abandonedRequestCleanup{done: make(chan struct{})}
 	}
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.conn == nil {
-		return nil, &connectionError{msg: "client is not connected"}
-	}
-	request := make(map[string]any, len(requestValue)+1)
-	for key, value := range requestValue {
-		request[key] = value
-	}
-	if _, ok := request["id"]; !ok {
-		request["id"] = c.nextRequestID()
-	}
-	requestID := request["id"]
-	if err := c.conn.Send(ctx, c.timeout, request); err != nil {
-		return nil, err
-	}
-	for {
-		response, err := c.conn.Recv(ctx, c.timeout)
-		if err != nil {
-			return nil, err
+	if c.closed {
+		err := c.err
+		c.mu.Unlock()
+		if err == nil {
+			err = ErrClosed
 		}
-		if _, ok := response["event"].(string); ok {
-			continue
+		return err
+	}
+	c.pending[requestID] = waiter
+	c.mu.Unlock()
+	mayHaveSent, fullyWritten, err := c.write(
+		ctx,
+		operation.Name,
+		request,
+		onDispatched,
+	)
+	if err != nil {
+		c.removePending(requestID, waiter)
+		if mayHaveSent {
+			// A partial JSON frame poisons the shared transport regardless of
+			// operation. Only a complete frame leaves framing safe enough for
+			// eligible pre-close stream cancellations.
+			c.failWithCleanup(err, fullyWritten)
 		}
-		if id, ok := response["id"]; ok && !sameJSONValue(id, requestID) {
-			continue
+		if mayHaveSent {
+			return uncertain(err)
 		}
-		return response, nil
+		return err
+	}
+	handleResponse := func(response pendingResponse) error {
+		if response.err != nil {
+			return uncertain(response.err)
+		}
+		if !response.envelope.OK {
+			if response.envelope.Error == nil {
+				return &ProtocolError{Message: "failed response omitted error"}
+			}
+			return &ResourceError{
+				Code:      response.envelope.Error.Code,
+				Message:   response.envelope.Error.Message,
+				Details:   cloneRaw(response.envelope.Error.Details),
+				Retryable: response.envelope.Error.Retryable,
+			}
+		}
+		if result == nil {
+			return nil
+		}
+		decoder := json.NewDecoder(bytes.NewReader(response.envelope.Result))
+		decoder.UseNumber()
+		if err := decoder.Decode(result); err != nil {
+			return &ProtocolError{Message: "cannot decode " + operation.Name + " result: " + err.Error()}
+		}
+		return nil
+	}
+	select {
+	case response := <-waiter:
+		return handleResponse(response)
+	case <-ctx.Done():
+		original := ctx.Err()
+		if cleanup != nil {
+			_ = c.cleanupAbandonedRequest(
+				cleanup,
+				operation,
+				requestID,
+				waiter,
+			)
+		} else {
+			c.removePending(requestID, waiter)
+		}
+		return uncertain(original)
+	case <-c.done:
+		// Preserve a response that raced with transport shutdown.
+		select {
+		case response, ok := <-waiter:
+			if ok {
+				return handleResponse(response)
+			}
+		default:
+		}
+		return uncertain(c.connectionError())
 	}
 }
 
-func (c *Client) request(
-	ctx context.Context,
-	command string,
-	params map[string]any,
-	out any,
+func isCancelableWait(operation wirev2.Operation) bool {
+	return operation == wirev2.TerminalWait ||
+		operation == wirev2.TerminalWaitExit
+}
+
+func (c *Client) cleanupAbandonedRequest(
+	cleanup *abandonedRequestCleanup,
+	operation wirev2.Operation,
+	targetID string,
+	targetWaiter chan pendingResponse,
 ) error {
-	if params == nil {
-		params = map[string]any{}
+	cleanup.once.Do(func() {
+		deadline := time.Now().Add(abandonedRequestCleanupTimeout)
+		c.beginRequestCleanup()
+		cleanup.err = c.runAbandonedRequestCleanup(
+			operation,
+			targetID,
+			targetWaiter,
+			deadline,
+		)
+		if cleanup.err != nil {
+			c.failWithCleanup(cleanup.err, false)
+		}
+		c.finishRequestCleanup()
+		close(cleanup.done)
+	})
+	<-cleanup.done
+	return cleanup.err
+}
+
+func (c *Client) runAbandonedRequestCleanup(
+	operation wirev2.Operation,
+	targetID string,
+	targetWaiter chan pendingResponse,
+	deadline time.Time,
+) error {
+	timer := time.NewTimer(time.Until(deadline))
+	defer timer.Stop()
+	select {
+	case <-c.writer:
+	case <-timer.C:
+		return &TransportError{
+			Operation: wirev2.RequestCancel.Name,
+			Err:       context.DeadlineExceeded,
+		}
+	case <-c.done:
+		return c.connectionError()
 	}
-	params["id"] = c.nextRequestID()
-	params["cmd"] = command
-	response, err := c.SendRaw(ctx, params)
+	defer func() { c.writer <- struct{}{} }()
+
+	if c.framingUnsafe {
+		return &TransportError{
+			Operation: wirev2.RequestCancel.Name,
+			Err:       errors.New("connection framing is unsafe"),
+		}
+	}
+
+	cancelID := "go-" + strconv.FormatUint(c.nextRequestID.Add(1), 10)
+	cancelWaiter := make(chan pendingResponse, 1)
+	c.mu.Lock()
+	if c.closed {
+		err := c.err
+		c.mu.Unlock()
+		if err == nil {
+			err = ErrClosed
+		}
+		return err
+	}
+	c.pending[cancelID] = cancelWaiter
+	c.mu.Unlock()
+	defer c.removePending(cancelID, cancelWaiter)
+
+	request := map[string]any{
+		"protocol":  wirev2.Protocol,
+		"type":      "request",
+		"id":        cancelID,
+		"operation": wirev2.RequestCancel.Name,
+		"params": map[string]any{
+			wirev2.FieldRequestID: targetID,
+		},
+	}
+	if err := c.writeFrameLocked(
+		wirev2.RequestCancel.Name,
+		request,
+		deadline,
+	); err != nil {
+		return err
+	}
+
+	cancelResponse, err := c.awaitPendingResponseUntil(
+		cancelWaiter,
+		deadline,
+	)
 	if err != nil {
 		return err
 	}
-	if ok, _ := response["ok"].(bool); ok {
-		if out == nil {
+	canceled, err := decodeRequestCancelResponse(cancelResponse)
+	if err != nil {
+		return err
+	}
+	if canceled {
+		if c.removePending(targetID, targetWaiter) {
 			return nil
 		}
-		encoded, err := json.Marshal(response["data"])
+		targetResponse, err := c.awaitPendingResponseUntil(
+			targetWaiter,
+			deadline,
+		)
 		if err != nil {
-			return &decodeError{msg: err.Error()}
-		}
-		if err := decodeJSON(encoded, out); err != nil {
-			return &decodeError{msg: err.Error()}
-		}
-		return nil
-	}
-	message, _ := response["error"].(string)
-	if message == "" {
-		message = "unknown error"
-	}
-	return &CommandError{Message: message, ID: response["id"]}
-}
-
-func (c *Client) requestGenerated(
-	ctx context.Context,
-	metadata CommandMetadata,
-	command string,
-	params map[string]any,
-	out any,
-) error {
-	if err := c.checkAuthority(metadata); err != nil {
-		return err
-	}
-	if err := c.requireGeneratedCompatibility(ctx, metadata, params); err != nil {
-		return err
-	}
-	if err := c.request(ctx, command, params, out); err != nil {
-		return err
-	}
-	if command == "identify" {
-		if result, ok := out.(*IdentifyResult); ok {
-			c.rememberNegotiation(result.Protocol, result.Capabilities)
-		}
-	}
-	return nil
-}
-
-func (c *Client) checkAuthority(metadata CommandMetadata) error {
-	switch metadata.Authority {
-	case AuthorityControl, AuthorityFrontend, AuthorityLocalAdmin:
-		return nil
-	case AuthorityProviderAuthority:
-		if c.enableProviderAuthority {
-			return nil
-		}
-	}
-	return &AuthorityError{
-		Command:  metadata.Name,
-		Required: metadata.Authority,
-	}
-}
-
-func (c *Client) requireGeneratedCompatibility(
-	ctx context.Context,
-	metadata CommandMetadata,
-	params map[string]any,
-) error {
-	if metadata.Name != "identify" && metadata.Since > 5 {
-		if err := c.requireProtocol(ctx, metadata.Since, metadata.Name); err != nil {
 			return err
 		}
-	}
-	if metadata.Capability != "" {
-		if err := c.requireCapability(
-			ctx,
-			metadata.Capability,
-			metadata.Name,
+		if err := validateAbandonedWaitResponse(
+			operation,
+			targetResponse,
 		); err != nil {
 			return err
 		}
-	}
-	fields := make([]string, 0, len(params))
-	for field := range params {
-		fields = append(fields, field)
-	}
-	sort.Strings(fields)
-	for _, field := range fields {
-		feature := metadata.Name + "." + field
-		if since := metadata.FieldSince[field]; since > 5 {
-			if err := c.requireProtocol(ctx, since, feature); err != nil {
-				return err
-			}
-		}
-		if capability := metadata.FieldCapabilities[field]; capability != "" {
-			if err := c.requireCapability(ctx, capability, feature); err != nil {
-				return err
-			}
+		return &ProtocolError{
+			Message: "request.cancel returned canceled=true after the target responded",
 		}
 	}
-	return nil
-}
 
-func (c *Client) nextRequestID() uint64 {
-	return c.nextID.Add(1)
-}
-
-func (c *Client) rememberNegotiation(protocol uint32, values *[]string) {
-	capabilities := make(map[string]struct{})
-	if values != nil {
-		for _, capability := range *values {
-			capabilities[capability] = struct{}{}
-		}
-	}
-	c.negotiationMu.Lock()
-	c.protocol = &protocol
-	c.capabilities = capabilities
-	c.negotiationMu.Unlock()
-}
-
-// IdentifyDetailed is retained as a compatibility spelling.
-func (c *Client) IdentifyDetailed(ctx context.Context) (IdentifyDetails, error) {
-	return c.Identify(ctx)
-}
-
-func (c *Client) requireProtocol(
-	ctx context.Context,
-	minimum uint32,
-	feature string,
-) error {
-	protocol, identified, _ := c.negotiatedState("")
-	if !identified {
-		if _, err := c.Identify(ctx); err != nil {
-			return err
-		}
-		protocol, _, _ = c.negotiatedState("")
-	}
-	if protocol < minimum {
-		return &protocolError{msg: fmt.Sprintf(
-			"%s requires protocol %d; server uses protocol %d",
-			feature,
-			minimum,
-			protocol,
-		)}
-	}
-	return nil
-}
-
-func (c *Client) hasCapability(capability string) bool {
-	_, _, supported := c.negotiatedState(capability)
-	return supported
-}
-
-func (c *Client) requireCapability(
-	ctx context.Context,
-	capability string,
-	feature string,
-) error {
-	_, identified, supported := c.negotiatedState(capability)
-	if !identified {
-		if _, err := c.Identify(ctx); err != nil {
-			return err
-		}
-		_, _, supported = c.negotiatedState(capability)
-	}
-	if !supported {
-		return &protocolError{msg: feature + " is not supported by this server"}
-	}
-	return nil
-}
-
-func (c *Client) negotiatedState(capability string) (uint32, bool, bool) {
-	c.negotiationMu.RLock()
-	defer c.negotiationMu.RUnlock()
-	if c.protocol == nil {
-		return 0, false, false
-	}
-	_, supported := c.capabilities[capability]
-	return *c.protocol, true, supported
-}
-
-// Send preserves the exact text, base64 bytes, and paste presence represented
-// by SendOptions.
-func (c *Client) Send(
-	ctx context.Context,
-	surface ID,
-	options SendOptions,
-) error {
-	params := map[string]any{"surface": surface}
-	if options.Text.IsNull() {
-		params["text"] = nil
-	} else if text, ok := options.Text.Get(); ok {
-		params["text"] = text
-	}
-	if options.Bytes.IsNull() {
-		params["bytes"] = nil
-	} else if encoded, ok := options.Bytes.Get(); ok {
-		params["bytes"] = encoded
-	}
-	if options.Paste != nil {
-		params["paste"] = *options.Paste
-	}
-	return c.requestGenerated(
-		ctx,
-		commandMetadata["send"],
-		"send",
-		params,
-		nil,
-	)
-}
-
-func (c *Client) UseOnlyClientSize(
-	ctx context.Context,
-	surface ID,
-	client uint64,
-) error {
-	exclusive := true
-	return c.SetClientSizing(
-		ctx,
-		surface,
-		true,
-		SetClientSizingOptions{
-			Client:    Value(client),
-			Exclusive: &exclusive,
-		},
-	)
-}
-
-func (c *Client) UseAllClientSizes(ctx context.Context, surface ID) error {
-	return c.SetClientSizing(ctx, surface, true, SetClientSizingOptions{})
-}
-
-// VtState is retained for source compatibility with the pre-generator name.
-func (c *Client) VtState(ctx context.Context, surface ID) (VTStateResult, error) {
-	return c.VTState(ctx, surface)
-}
-
-// CloseWorkspaceByID is the concise numeric-id form of CloseWorkspace.
-func (c *Client) CloseWorkspaceByID(
-	ctx context.Context,
-	workspace ID,
-) (CloseWorkspaceResult, error) {
-	return c.CloseWorkspace(
-		ctx,
-		CloseWorkspaceOptions{Workspace: Value(workspace)},
-	)
-}
-
-func (c *Client) Subscribe(ctx context.Context) (*Stream, error) {
-	return c.SubscribeWithOptions(ctx, SubscribeOptions{})
-}
-
-func (c *Client) SubscribeDeltas(ctx context.Context) (*Stream, error) {
-	return c.SubscribeWithOptions(
-		ctx,
-		SubscribeOptions{TreeEvents: Value(TreeEventsDeltas)},
-	)
-}
-
-func (c *Client) SubscribeWithOptions(
-	ctx context.Context,
-	options SubscribeOptions,
-) (*Stream, error) {
-	params := map[string]any{"id": c.nextRequestID(), "cmd": "subscribe"}
-	if options.TreeEvents.IsNull() {
-		params["tree_events"] = nil
-	} else if treeEvents, ok := options.TreeEvents.Get(); ok {
-		switch treeEvents {
-		case TreeEventsCoarse, TreeEventsDeltas:
-			params["tree_events"] = string(treeEvents)
-		default:
-			return nil, fmt.Errorf(
-				"%w: unsupported tree event mode %q",
-				ErrInvalidArgument,
-				treeEvents,
-			)
-		}
-	}
-	if options.Surface.IsNull() {
-		params["surface"] = nil
-	} else if surface, ok := options.Surface.Get(); ok {
-		params["surface"] = surface
-	}
-	return c.openGeneratedStream(ctx, commandMetadata["subscribe"], params)
-}
-
-func (c *Client) AttachSurface(
-	ctx context.Context,
-	surface ID,
-) (*Stream, error) {
-	return c.AttachSurfaceWithOptions(ctx, surface, AttachSurfaceOptions{})
-}
-
-func (c *Client) AttachSurfaceWithOptions(
-	ctx context.Context,
-	surface ID,
-	options AttachSurfaceOptions,
-) (*Stream, error) {
-	if options.Cols.IsAbsent() != options.Rows.IsAbsent() {
-		return nil, fmt.Errorf(
-			"%w: attach-surface cols and rows must be supplied together",
-			ErrInvalidArgument,
-		)
-	}
-	params := map[string]any{
-		"id":      c.nextRequestID(),
-		"cmd":     "attach-surface",
-		"surface": surface,
-	}
-	if options.Mode.IsNull() {
-		params["mode"] = nil
-	} else if mode, ok := options.Mode.Get(); ok {
-		switch mode {
-		case AttachBytes, AttachRender:
-			params["mode"] = string(mode)
-		default:
-			return nil, fmt.Errorf(
-				"%w: unsupported attach mode %q",
-				ErrInvalidArgument,
-				mode,
-			)
-		}
-	}
-	if options.Cols.IsNull() {
-		params["cols"] = nil
-	} else if cols, ok := options.Cols.Get(); ok {
-		params["cols"] = cols
-	}
-	if options.Rows.IsNull() {
-		params["rows"] = nil
-	} else if rows, ok := options.Rows.Get(); ok {
-		params["rows"] = rows
-	}
-	return c.openGeneratedStream(ctx, commandMetadata["attach-surface"], params)
-}
-
-func (c *Client) openGeneratedStream(
-	ctx context.Context,
-	metadata CommandMetadata,
-	request map[string]any,
-) (*Stream, error) {
-	if err := c.checkAuthority(metadata); err != nil {
-		return nil, err
-	}
-	if err := c.requireGeneratedCompatibility(ctx, metadata, request); err != nil {
-		return nil, err
-	}
-	return c.openStream(ctx, request)
-}
-
-func (c *Client) openStream(
-	ctx context.Context,
-	request map[string]any,
-) (*Stream, error) {
-	conn, err := dialJSON(
-		c.socketPath,
-		c.requestLimit(),
-		c.responseLimit(),
+	targetResponse, err := c.awaitPendingResponseUntil(
+		targetWaiter,
+		deadline,
 	)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	if err := conn.Send(ctx, c.timeout, request); err != nil {
-		_ = conn.Close()
-		return nil, err
+	if err := validateAbandonedWaitResponse(
+		operation,
+		targetResponse,
+	); err != nil {
+		return err
 	}
-	requestID := request["id"]
-	buffered := make([]Event, 0, 1)
-	for {
-		response, err := conn.Recv(ctx, c.timeout)
-		if err != nil {
-			_ = conn.Close()
-			return nil, err
-		}
-		if _, ok := response["event"].(string); ok {
-			eventLimit := c.streamEventLimit()
-			if len(buffered) >= eventLimit {
-				_ = conn.Close()
-				return nil, fmt.Errorf(
-					"%w: more than %d events arrived before the stream response",
-					ErrBufferFull,
-					eventLimit,
-				)
+	return nil
+}
+
+func decodeRequestCancelResponse(response pendingResponse) (bool, error) {
+	if response.err != nil {
+		return false, response.err
+	}
+	if !response.envelope.OK {
+		if response.envelope.Error == nil {
+			return false, &ProtocolError{
+				Message: "request.cancel failed without a structured error",
 			}
-			buffered = append(buffered, parseEvent(response))
-			continue
 		}
-		if !sameJSONValue(response["id"], requestID) {
-			continue
+		return false, &ResourceError{
+			Code:      response.envelope.Error.Code,
+			Message:   response.envelope.Error.Message,
+			Details:   cloneRaw(response.envelope.Error.Details),
+			Retryable: response.envelope.Error.Retryable,
 		}
-		if ok, _ := response["ok"].(bool); ok {
-			return &Stream{conn: conn, timeout: c.timeout, buffered: buffered}, nil
+	}
+	var result requestCancelResultWire
+	if err := strictDecode(response.envelope.Result, &result); err != nil {
+		return false, &ProtocolError{
+			Message: "cannot decode request.cancel result: " + err.Error(),
 		}
-		message, _ := response["error"].(string)
-		if message == "" {
-			message = "unknown error"
+	}
+	if result.Canceled == nil {
+		return false, &ProtocolError{
+			Message: "request.cancel result omitted canceled",
 		}
-		_ = conn.Close()
-		return nil, &CommandError{Message: message, ID: response["id"]}
 	}
+	return *result.Canceled, nil
 }
 
-func (c *Client) requestLimit() int {
-	if c.maxRequestBytes == 0 {
-		return MaxRequestBytes
+func validateAbandonedWaitResponse(
+	operation wirev2.Operation,
+	response pendingResponse,
+) error {
+	if response.err != nil {
+		return response.err
 	}
-	return c.maxRequestBytes
-}
-
-func (c *Client) responseLimit() int {
-	if c.maxResponseBytes == 0 {
-		return MaxResponseBytes
-	}
-	return c.maxResponseBytes
-}
-
-func (c *Client) streamEventLimit() int {
-	if c.maxBufferedStreamEvents == 0 {
-		return MaxBufferedStreamEvents
-	}
-	return c.maxBufferedStreamEvents
-}
-
-// Stream is a dedicated subscribe or attach transport. Close is concurrent
-// safe and unblocks Recv.
-type Stream struct {
-	conn     *jsonLineConn
-	timeout  time.Duration
-	buffered []Event
-	closed   atomic.Bool
-}
-
-func (s *Stream) Close() error {
-	if s == nil || s.conn == nil || !s.closed.CompareAndSwap(false, true) {
+	if !response.envelope.OK {
+		if response.envelope.Error == nil {
+			return &ProtocolError{
+				Message: operation.Name + " failed without a structured error",
+			}
+		}
 		return nil
 	}
-	return s.conn.Close()
-}
-
-func (s *Stream) Recv(ctx context.Context) (Event, error) {
-	if s.closed.Load() {
-		return nil, io.EOF
-	}
-	if len(s.buffered) > 0 {
-		event := s.buffered[0]
-		s.buffered = s.buffered[1:]
-		return s.finishTerminal(event), nil
-	}
-	for {
-		value, err := s.conn.Recv(ctx, s.timeout)
+	switch operation {
+	case wirev2.TerminalWait:
+		_, err := decodeValue[TerminalWaitResult](
+			response.envelope.Result,
+			"terminal wait result",
+		)
+		return err
+	case wirev2.TerminalWaitExit:
+		_, err := decodeTerminalWaitExitResult(response.envelope.Result)
 		if err != nil {
-			if s.closed.Load() && errors.Is(err, ErrConnection) {
-				return nil, io.EOF
+			return &ProtocolError{
+				Message: "cannot decode terminal wait exit result: " + err.Error(),
 			}
-			return nil, err
 		}
-		if _, ok := value["event"].(string); ok {
-			return s.finishTerminal(parseEvent(value)), nil
+		return nil
+	default:
+		return &ProtocolError{
+			Message: "request cancellation targeted unsupported operation " +
+				operation.Name,
 		}
 	}
 }
 
-func (s *Stream) finishTerminal(event Event) Event {
-	switch event.(type) {
-	case DetachedEvent, OverflowEvent:
-		_ = s.Close()
+func (c *Client) awaitPendingResponseUntil(
+	waiter <-chan pendingResponse,
+	deadline time.Time,
+) (pendingResponse, error) {
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		return pendingResponse{}, &TransportError{
+			Operation: wirev2.RequestCancel.Name,
+			Err:       context.DeadlineExceeded,
+		}
 	}
-	return event
+	timer := time.NewTimer(remaining)
+	defer timer.Stop()
+	select {
+	case response, ok := <-waiter:
+		if !ok {
+			return pendingResponse{}, &ProtocolError{
+				Message: "request response route closed without a response",
+			}
+		}
+		return response, nil
+	case <-timer.C:
+		return pendingResponse{}, &TransportError{
+			Operation: wirev2.RequestCancel.Name,
+			Err:       context.DeadlineExceeded,
+		}
+	case <-c.done:
+		select {
+		case response, ok := <-waiter:
+			if ok {
+				return response, nil
+			}
+		default:
+		}
+		return pendingResponse{}, c.connectionError()
+	}
 }
 
-type jsonLineConn struct {
-	conn             net.Conn
-	reader           *bufio.Reader
-	maxRequestBytes  int
-	maxResponseBytes int
-	sendMu           sync.Mutex
-	readMu           sync.Mutex
-	closeOnce        sync.Once
-	closeErr         error
-}
-
-func dialJSON(
-	socketPath string,
-	maxRequestBytes int,
-	maxResponseBytes int,
-) (*jsonLineConn, error) {
-	conn, err := net.Dial("unix", socketPath)
+func (c *Client) writeFrameLocked(
+	operation string,
+	value any,
+	deadline time.Time,
+) error {
+	encoded, err := json.Marshal(value)
 	if err != nil {
-		return nil, &connectionError{msg: fmt.Sprintf(
-			"cannot connect to session socket %s: %v",
-			socketPath,
-			err,
-		)}
+		return &ProtocolError{
+			Message: "cannot encode " + operation + ": " + err.Error(),
+		}
 	}
-	return &jsonLineConn{
-		conn:             conn,
-		reader:           bufio.NewReader(conn),
-		maxRequestBytes:  maxRequestBytes,
-		maxResponseBytes: maxResponseBytes,
+	if len(encoded) > c.maxRequestBytes {
+		return fmt.Errorf(
+			"%w: %s request exceeds %d bytes",
+			ErrInvalidArgument,
+			operation,
+			c.maxRequestBytes,
+		)
+	}
+	if err := c.conn.SetWriteDeadline(deadline); err != nil {
+		return &TransportError{Operation: operation, Err: err}
+	}
+	encoded = append(encoded, '\n')
+	written := false
+	for len(encoded) > 0 {
+		count, writeErr := c.conn.Write(encoded)
+		if count < 0 || count > len(encoded) {
+			c.framingUnsafe = true
+			return &TransportError{
+				Operation: operation,
+				Err:       errors.New("transport returned an invalid write count"),
+			}
+		}
+		written = written || count > 0
+		encoded = encoded[count:]
+		if writeErr != nil {
+			if len(encoded) > 0 {
+				c.framingUnsafe = true
+			}
+			return &TransportError{Operation: operation, Err: writeErr}
+		}
+		if count == 0 {
+			if written {
+				c.framingUnsafe = true
+			}
+			return &TransportError{
+				Operation: operation,
+				Err:       io.ErrNoProgress,
+			}
+		}
+	}
+	return nil
+}
+
+func (c *Client) beginRequestCleanup() {
+	c.requestCleanupMu.Lock()
+	if c.requestCleanups == 0 {
+		c.requestCleanupDone = make(chan struct{})
+	}
+	c.requestCleanups++
+	c.requestCleanupMu.Unlock()
+}
+
+func (c *Client) finishRequestCleanup() {
+	c.requestCleanupMu.Lock()
+	if c.requestCleanups > 0 {
+		c.requestCleanups--
+	}
+	if c.requestCleanups == 0 && c.requestCleanupDone != nil {
+		close(c.requestCleanupDone)
+		c.requestCleanupDone = nil
+	}
+	c.requestCleanupMu.Unlock()
+}
+
+func (c *Client) acquireWriter(ctx context.Context) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-c.done:
+			return c.connectionError()
+		case <-c.writer:
+		}
+
+		c.requestCleanupMu.Lock()
+		active := c.requestCleanups > 0
+		cleanupDone := c.requestCleanupDone
+		c.requestCleanupMu.Unlock()
+		if !active {
+			return nil
+		}
+		c.writer <- struct{}{}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-c.done:
+			return c.connectionError()
+		case <-cleanupDone:
+		}
+	}
+}
+
+func validateIdempotencyKey(value string) error {
+	if !utf8.ValidString(value) {
+		return fmt.Errorf("%w: mutation idempotency key must contain valid Unicode scalars", ErrInvalidArgument)
+	}
+	if len(value) < 1 || len(value) > 128 {
+		return fmt.Errorf("%w: mutation idempotency key must contain 1 to 128 UTF-8 bytes", ErrInvalidArgument)
+	}
+	if strings.TrimFunc(value, unicode.IsSpace) == "" {
+		return fmt.Errorf("%w: mutation idempotency key must contain a non-whitespace Unicode scalar", ErrInvalidArgument)
+	}
+	if strings.IndexFunc(value, unicode.IsControl) >= 0 {
+		return fmt.Errorf("%w: mutation idempotency key must not contain Unicode control characters", ErrInvalidArgument)
+	}
+	return nil
+}
+
+func (c *Client) write(
+	ctx context.Context,
+	operation string,
+	value any,
+	onDispatched func(),
+) (mayHaveSent bool, fullyWritten bool, resultErr error) {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return false, false, &ProtocolError{
+			Message: "cannot encode " + operation + ": " + err.Error(),
+		}
+	}
+	if len(encoded) > c.maxRequestBytes {
+		return false, false, fmt.Errorf(
+			"%w: %s request exceeds %d bytes",
+			ErrInvalidArgument,
+			operation,
+			c.maxRequestBytes,
+		)
+	}
+	if err := c.acquireWriter(ctx); err != nil {
+		return false, false, err
+	}
+	defer func() {
+		if mayHaveSent && !fullyWritten {
+			// Publish poisoned framing before releasing writer ownership. A
+			// cleanup already started by another failure must observe this.
+			c.framingUnsafe = true
+		}
+		c.writer <- struct{}{}
+	}()
+	deadline := time.Now().Add(c.timeout)
+	if contextDeadline, ok := ctx.Deadline(); ok && contextDeadline.Before(deadline) {
+		deadline = contextDeadline
+	}
+	if err := c.conn.SetWriteDeadline(deadline); err != nil {
+		return false, false, &TransportError{Operation: operation, Err: err}
+	}
+	encoded = append(encoded, '\n')
+	written := false
+	for len(encoded) > 0 {
+		if err := ctx.Err(); err != nil {
+			return written, false, err
+		}
+		count, err := c.conn.Write(encoded)
+		written = written || count > 0
+		encoded = encoded[count:]
+		if len(encoded) == 0 && onDispatched != nil {
+			onDispatched()
+		}
+		if err != nil {
+			return written, len(encoded) == 0, &TransportError{
+				Operation: operation,
+				Err:       err,
+			}
+		}
+		if count == 0 {
+			return written, false, &TransportError{
+				Operation: operation,
+				Err:       io.ErrNoProgress,
+			}
+		}
+	}
+	return true, true, nil
+}
+
+func (c *Client) readLoop() {
+	for {
+		line, err := readBoundedLine(c.reader, c.maxResponseBytes)
+		if err != nil {
+			if errors.Is(err, errFrameTooLarge) {
+				c.fail(&ProtocolError{Message: fmt.Sprintf("server message exceeds %d bytes", c.maxResponseBytes)})
+				return
+			}
+			if errors.Is(err, io.EOF) {
+				err = io.ErrUnexpectedEOF
+			}
+			c.fail(&TransportError{Operation: "read", Err: err})
+			return
+		}
+		line = bytes.TrimSuffix(line, []byte{'\n'})
+		line = bytes.TrimSuffix(line, []byte{'\r'})
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		var header struct {
+			Protocol string   `json:"protocol"`
+			Type     string   `json:"type"`
+			ID       string   `json:"id"`
+			StreamID StreamID `json:"stream_id"`
+		}
+		if err := json.Unmarshal(line, &header); err != nil {
+			c.fail(&ProtocolError{Message: "invalid JSON from server: " + err.Error()})
+			return
+		}
+		if header.Protocol != wirev2.Protocol {
+			c.fail(&ProtocolError{Message: "unexpected protocol " + header.Protocol})
+			return
+		}
+		switch header.Type {
+		case "response":
+			response, err := decodeResponseEnvelope(line)
+			if err != nil {
+				c.fail(err)
+				return
+			}
+			c.mu.Lock()
+			waiter := c.pending[response.ID]
+			delete(c.pending, response.ID)
+			c.mu.Unlock()
+			if waiter != nil {
+				waiter <- pendingResponse{envelope: response}
+				close(waiter)
+			}
+		case "stream_item", "stream_end":
+			envelope, err := decodeStreamEnvelope(line, header.Type)
+			if err != nil {
+				c.fail(err)
+				return
+			}
+			c.deliverStream(envelope, len(line))
+		default:
+			c.fail(&ProtocolError{Message: "unexpected envelope type " + header.Type})
+			return
+		}
+	}
+}
+
+func decodeResponseEnvelope(raw json.RawMessage) (responseEnvelope, error) {
+	var wire responseEnvelopeWire
+	if err := strictDecode(raw, &wire); err != nil {
+		return responseEnvelope{}, &ProtocolError{
+			Message: "invalid response: " + err.Error(),
+		}
+	}
+	if wire.Protocol == nil || *wire.Protocol != wirev2.Protocol ||
+		wire.Type == nil || *wire.Type != "response" {
+		return responseEnvelope{}, &ProtocolError{
+			Message: "expected cmux.protocol/2 response envelope",
+		}
+	}
+	if wire.ID == nil || utf8.RuneCountInString(*wire.ID) < 1 ||
+		utf8.RuneCountInString(*wire.ID) > 128 {
+		return responseEnvelope{}, &ProtocolError{
+			Message: "response id must contain 1 to 128 characters",
+		}
+	}
+	if wire.OK == nil {
+		return responseEnvelope{}, &ProtocolError{
+			Message: "response ok must be a boolean",
+		}
+	}
+	response := responseEnvelope{
+		Protocol: *wire.Protocol,
+		Type:     *wire.Type,
+		ID:       *wire.ID,
+		OK:       *wire.OK,
+	}
+	if *wire.OK {
+		if wire.Result == nil || wire.Error != nil {
+			return responseEnvelope{}, &ProtocolError{
+				Message: "successful response requires result and forbids error",
+			}
+		}
+		response.Result = cloneRaw(wire.Result)
+		return response, nil
+	}
+	if wire.Error == nil || wire.Result != nil {
+		return responseEnvelope{}, &ProtocolError{
+			Message: "failed response requires error and forbids result",
+		}
+	}
+	structured, err := decodeStructuredError(wire.Error)
+	if err != nil {
+		return responseEnvelope{}, &ProtocolError{
+			Message: "invalid response error: " + err.Error(),
+		}
+	}
+	response.Error = structured
+	return response, nil
+}
+
+func decodeStreamEnvelope(
+	raw json.RawMessage,
+	envelopeType string,
+) (streamEnvelope, error) {
+	switch envelopeType {
+	case "stream_item":
+		return decodeStreamItemEnvelope(raw)
+	case "stream_end":
+		return decodeStreamEndEnvelope(raw)
+	default:
+		return streamEnvelope{}, &ProtocolError{
+			Message: "unexpected stream envelope type " + envelopeType,
+		}
+	}
+}
+
+func decodeStreamItemEnvelope(raw json.RawMessage) (streamEnvelope, error) {
+	var wire streamItemEnvelopeWire
+	if err := strictDecode(raw, &wire); err != nil {
+		return streamEnvelope{}, &ProtocolError{
+			Message: "invalid stream_item: " + err.Error(),
+		}
+	}
+	if wire.Protocol == nil || *wire.Protocol != wirev2.Protocol ||
+		wire.Type == nil || *wire.Type != "stream_item" {
+		return streamEnvelope{}, &ProtocolError{
+			Message: "expected cmux.protocol/2 stream_item envelope",
+		}
+	}
+	streamID, err := decodeRequiredStreamID(wire.StreamID)
+	if err != nil {
+		return streamEnvelope{}, &ProtocolError{
+			Message: "invalid stream_item stream_id: " + err.Error(),
+		}
+	}
+	if wire.Sequence == nil {
+		return streamEnvelope{}, &ProtocolError{
+			Message: "stream_item sequence is required",
+		}
+	}
+	var sequence Decimal
+	if err := strictDecode(wire.Sequence, &sequence); err != nil {
+		return streamEnvelope{}, &ProtocolError{
+			Message: "invalid stream_item sequence: " + err.Error(),
+		}
+	}
+	cursor, err := decodeOptionalCursor(wire.Cursor)
+	if err != nil {
+		return streamEnvelope{}, &ProtocolError{
+			Message: "invalid stream_item cursor: " + err.Error(),
+		}
+	}
+	if wire.Item == nil {
+		return streamEnvelope{}, &ProtocolError{
+			Message: "stream_item item is required",
+		}
+	}
+	return streamEnvelope{
+		Protocol: *wire.Protocol,
+		Type:     *wire.Type,
+		StreamID: streamID,
+		Sequence: sequence,
+		Cursor:   cursor,
+		Item:     cloneRaw(wire.Item),
 	}, nil
 }
 
-func (c *jsonLineConn) Close() error {
-	c.closeOnce.Do(func() {
-		c.closeErr = c.conn.Close()
-	})
-	return c.closeErr
+func decodeStreamEndEnvelope(raw json.RawMessage) (streamEnvelope, error) {
+	var wire streamEndEnvelopeWire
+	if err := strictDecode(raw, &wire); err != nil {
+		return streamEnvelope{}, &ProtocolError{
+			Message: "invalid stream_end: " + err.Error(),
+		}
+	}
+	if wire.Protocol == nil || *wire.Protocol != wirev2.Protocol ||
+		wire.Type == nil || *wire.Type != "stream_end" {
+		return streamEnvelope{}, &ProtocolError{
+			Message: "expected cmux.protocol/2 stream_end envelope",
+		}
+	}
+	streamID, err := decodeRequiredStreamID(wire.StreamID)
+	if err != nil {
+		return streamEnvelope{}, &ProtocolError{
+			Message: "invalid stream_end stream_id: " + err.Error(),
+		}
+	}
+	if wire.Reason == nil || !validStreamEndReason(*wire.Reason) {
+		return streamEnvelope{}, &ProtocolError{
+			Message: "invalid stream_end reason",
+		}
+	}
+	cursor, err := decodeOptionalCursor(wire.Cursor)
+	if err != nil {
+		return streamEnvelope{}, &ProtocolError{
+			Message: "invalid stream_end cursor: " + err.Error(),
+		}
+	}
+	var recovery string
+	if wire.Recovery != nil {
+		if bytes.Equal(bytes.TrimSpace(wire.Recovery), []byte("null")) {
+			return streamEnvelope{}, &ProtocolError{
+				Message: "invalid stream_end recovery: recovery must not be null",
+			}
+		}
+		if err := strictDecode(wire.Recovery, &recovery); err != nil {
+			return streamEnvelope{}, &ProtocolError{
+				Message: "invalid stream_end recovery: " + err.Error(),
+			}
+		}
+	}
+	var structured *ResourceError
+	if wire.Error != nil {
+		structured, err = decodeStructuredError(wire.Error)
+		if err != nil {
+			return streamEnvelope{}, &ProtocolError{
+				Message: "invalid stream_end error: " + err.Error(),
+			}
+		}
+	}
+	if (*wire.Reason == "error") != (structured != nil) {
+		return streamEnvelope{}, &ProtocolError{
+			Message: "stream_end error is required exactly when reason is error",
+		}
+	}
+	return streamEnvelope{
+		Protocol: *wire.Protocol,
+		Type:     *wire.Type,
+		StreamID: streamID,
+		Reason:   *wire.Reason,
+		Cursor:   cursor,
+		Error:    structured,
+		Recovery: recovery,
+	}, nil
 }
 
-func (c *jsonLineConn) Send(
-	ctx context.Context,
-	timeout time.Duration,
-	value map[string]any,
-) error {
-	c.sendMu.Lock()
-	defer c.sendMu.Unlock()
-	if err := timeoutFromContext(ctx); err != nil {
-		return err
+func decodeRequiredStreamID(raw json.RawMessage) (StreamID, error) {
+	if raw == nil {
+		return "", fmt.Errorf("field is required")
 	}
-	if err := setWriteDeadline(ctx, c.conn, timeout); err != nil {
-		return err
+	var streamID StreamID
+	if err := strictDecode(raw, &streamID); err != nil {
+		return "", err
 	}
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		return &decodeError{msg: err.Error()}
+	return streamID, nil
+}
+
+func decodeOptionalCursor(raw json.RawMessage) (*Cursor, error) {
+	if raw == nil {
+		return nil, nil
 	}
-	maximum := c.maxRequestBytes
-	if maximum == 0 {
-		maximum = MaxRequestBytes
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil, fmt.Errorf("cursor must not be null")
 	}
-	if len(encoded) > maximum {
-		return fmt.Errorf(
-			"%w: request is %d bytes, maximum is %d",
-			ErrMessageTooLarge,
-			len(encoded),
-			maximum,
+	var cursor Cursor
+	if err := strictDecode(raw, &cursor); err != nil {
+		return nil, err
+	}
+	return &cursor, nil
+}
+
+func decodeStructuredError(raw json.RawMessage) (*ResourceError, error) {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil, fmt.Errorf("error must not be null")
+	}
+	var wire resourceErrorWire
+	if err := strictDecode(raw, &wire); err != nil {
+		return nil, err
+	}
+	if wire.Code == nil || wire.Message == nil || wire.Details == nil ||
+		wire.Retryable == nil {
+		return nil, fmt.Errorf(
+			"error requires code, message, details, and retryable",
 		)
 	}
-	if !utf8.Valid(encoded) {
-		return &decodeError{msg: "request is not valid UTF-8"}
-	}
-	encoded = append(encoded, '\n')
-	cancelDeadline := context.AfterFunc(ctx, func() {
-		_ = c.conn.SetWriteDeadline(time.Now())
-	})
-	err = writeAll(c.conn, encoded)
-	cancelDeadline()
-	if err != nil {
-		if contextError := timeoutFromContext(ctx); contextError != nil {
-			return contextError
-		}
-		return classifyNetError(err, "socket write failed")
-	}
-	return nil
+	return &ResourceError{
+		Code:      *wire.Code,
+		Message:   *wire.Message,
+		Details:   cloneRaw(wire.Details),
+		Retryable: *wire.Retryable,
+	}, nil
 }
 
-func (c *jsonLineConn) Recv(
-	ctx context.Context,
-	timeout time.Duration,
-) (map[string]any, error) {
-	c.readMu.Lock()
-	defer c.readMu.Unlock()
-	if err := timeoutFromContext(ctx); err != nil {
-		return nil, err
-	}
-	deadline := time.Now().Add(timeout)
-	if contextDeadline, ok := ctx.Deadline(); ok && contextDeadline.Before(deadline) {
-		deadline = contextDeadline
-	}
-	if err := c.conn.SetReadDeadline(deadline); err != nil {
-		return nil, &connectionError{msg: err.Error()}
-	}
-	cancelDeadline := context.AfterFunc(ctx, func() {
-		_ = c.conn.SetReadDeadline(time.Now())
-	})
-	maximum := c.maxResponseBytes
-	if maximum == 0 {
-		maximum = MaxResponseBytes
-	}
-	line, err := readBoundedLine(c.reader, maximum)
-	cancelDeadline()
-	if err != nil {
-		if contextError := timeoutFromContext(ctx); contextError != nil {
-			return nil, contextError
-		}
-		if errors.Is(err, ErrMessageTooLarge) {
-			_ = c.Close()
-			return nil, err
-		}
-		return nil, classifyNetError(err, "socket read failed")
-	}
-	if !utf8.Valid(line) {
-		_ = c.Close()
-		return nil, &decodeError{msg: "response is not valid UTF-8"}
-	}
-	var value map[string]any
-	if err := decodeJSON(line, &value); err != nil {
-		_ = c.Close()
-		return nil, &decodeError{msg: err.Error()}
-	}
-	return value, nil
-}
-
-func timeoutFromContext(ctx context.Context) *timeoutError {
-	if err := ctx.Err(); err != nil {
-		return &timeoutError{msg: err.Error(), cause: err}
-	}
-	if deadline, ok := ctx.Deadline(); ok && !time.Now().Before(deadline) {
-		return &timeoutError{
-			msg:   context.DeadlineExceeded.Error(),
-			cause: context.DeadlineExceeded,
-		}
-	}
-	return nil
-}
-
-func setWriteDeadline(
-	ctx context.Context,
-	conn net.Conn,
-	timeout time.Duration,
-) error {
-	deadline := time.Now().Add(timeout)
-	if contextDeadline, ok := ctx.Deadline(); ok && contextDeadline.Before(deadline) {
-		deadline = contextDeadline
-	}
-	if err := conn.SetWriteDeadline(deadline); err != nil {
-		return &connectionError{msg: err.Error()}
-	}
-	return nil
-}
-
-func classifyNetError(err error, prefix string) error {
-	if errors.Is(err, os.ErrDeadlineExceeded) {
-		return &timeoutError{msg: "session did not respond"}
-	}
-	var netError net.Error
-	if errors.As(err, &netError) && netError.Timeout() {
-		return &timeoutError{msg: "session did not respond"}
-	}
-	return &connectionError{msg: fmt.Sprintf("%s: %v", prefix, err)}
-}
-
-func mergeCommandParams(base map[string]any, value any) (map[string]any, error) {
-	options, err := commandMap(value)
-	if err != nil {
-		return nil, err
-	}
-	for key, item := range options {
-		base[key] = item
-	}
-	return base, nil
-}
-
-func commandMap(value any) (map[string]any, error) {
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		return nil, err
-	}
-	out := map[string]any{}
-	if err := decodeJSON(encoded, &out); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func decodeEvent(raw map[string]any, out any) bool {
-	encoded, err := json.Marshal(raw)
-	if err != nil {
+func validStreamEndReason(reason string) bool {
+	switch reason {
+	case "completed", "canceled", "closed", "gap", "error":
+		return true
+	default:
 		return false
 	}
-	return decodeJSON(encoded, out) == nil
 }
 
-func decodeJSON(data []byte, out any) error {
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
-	if err := decoder.Decode(out); err != nil {
-		return err
+func (c *Client) deliverStream(envelope streamEnvelope, size int) {
+	c.mu.Lock()
+	route := c.streams[envelope.StreamID]
+	if route == nil {
+		c.mu.Unlock()
+		return
 	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return errors.New("multiple JSON values in one message")
+	cleanup := c.deliverStreamLocked(route, envelope, size)
+	c.mu.Unlock()
+	if cleanup {
+		go c.cancelStreamBestEffort(route.cancelParams)
+	}
+}
+
+// deliverStreamLocked returns whether the caller owns stream cleanup.
+// c.mu must be held by the caller.
+func (c *Client) deliverStreamLocked(
+	route *streamRoute,
+	envelope streamEnvelope,
+	size int,
+) bool {
+	if envelope.Type == "stream_end" && !route.retainForExplicitCancel() {
+		delete(c.streams, envelope.StreamID)
+	}
+	if route.deliver(streamMessage{envelope: envelope, size: size}) {
+		return false
+	}
+	if envelope.Type == "stream_end" {
+		return false
+	}
+	delete(c.streams, envelope.StreamID)
+	route.overflow()
+	return route.beginStreamCleanup()
+}
+
+func (c *Client) fail(err error) {
+	c.failWithCleanup(err, true)
+}
+
+func (c *Client) failWithCleanup(err error, attemptCleanup bool) {
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return
+	}
+	c.closed = true
+	c.err = err
+	close(c.done)
+	pending := c.pending
+	streams := c.streams
+	c.pending = make(map[string]chan pendingResponse)
+	c.streams = make(map[StreamID]*streamRoute)
+	c.mu.Unlock()
+	if attemptCleanup {
+		c.cancelFailedStreamOpens(streams)
+	}
+	_ = c.conn.Close()
+	for _, waiter := range pending {
+		waiter <- pendingResponse{err: err}
+		close(waiter)
+	}
+	for _, route := range streams {
+		route.finish(err)
+	}
+}
+
+func (c *Client) cancelFailedStreamOpens(
+	streams map[StreamID]*streamRoute,
+) {
+	deadline := time.Now().Add(failedStreamOpenCleanupTimeout)
+	timer := time.NewTimer(time.Until(deadline))
+	defer timer.Stop()
+	select {
+	case <-c.writer:
+	case <-timer.C:
+		return
+	}
+	defer func() { c.writer <- struct{}{} }()
+	if c.framingUnsafe {
+		return
+	}
+	if err := c.conn.SetWriteDeadline(deadline); err != nil {
+		return
+	}
+	for _, route := range streams {
+		params, needed := route.failedOpenCancelParams()
+		if !needed {
+			continue
 		}
-		return err
+		if err := c.writeUntrackedStreamCancel(params, deadline); err != nil {
+			return
+		}
+	}
+}
+
+func (c *Client) writeUntrackedStreamCancel(
+	params map[string]any,
+	deadline time.Time,
+) error {
+	if err := c.conn.SetWriteDeadline(deadline); err != nil {
+		return &TransportError{
+			Operation: wirev2.StreamCancel.Name,
+			Err:       err,
+		}
+	}
+	request := map[string]any{
+		"protocol":  wirev2.Protocol,
+		"type":      "request",
+		"id":        "go-" + strconv.FormatUint(c.nextRequestID.Add(1), 10),
+		"operation": wirev2.StreamCancel.Name,
+		"params":    params,
+	}
+	encoded, err := json.Marshal(request)
+	if err != nil {
+		return &ProtocolError{
+			Message: "cannot encode stream.cancel request: " + err.Error(),
+		}
+	}
+	encoded = append(encoded, '\n')
+	for len(encoded) > 0 {
+		count, writeErr := c.conn.Write(encoded)
+		encoded = encoded[count:]
+		if writeErr != nil {
+			return &TransportError{
+				Operation: wirev2.StreamCancel.Name,
+				Err:       writeErr,
+			}
+		}
+		if count == 0 {
+			return &TransportError{
+				Operation: wirev2.StreamCancel.Name,
+				Err:       io.ErrNoProgress,
+			}
+		}
 	}
 	return nil
 }
 
-func readBoundedLine(reader *bufio.Reader, maximum int) ([]byte, error) {
-	var line []byte
+func (r *streamRoute) markOpenDispatched() {
+	r.mu.Lock()
+	r.openDispatched = true
+	r.mu.Unlock()
+}
+
+func (r *streamRoute) markOpenAcknowledged() {
+	r.mu.Lock()
+	r.openAcknowledged = true
+	r.mu.Unlock()
+}
+
+func (r *streamRoute) endedByServer() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.serverEnded
+}
+
+func (r *streamRoute) failedOpenCancelParams() (map[string]any, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.openDispatched || r.openAcknowledged || r.cleanupStarted {
+		return nil, false
+	}
+	r.cleanupStarted = true
+	return copyParams(r.cancelParams), true
+}
+
+func (r *streamRoute) beginFailedOpenCleanup() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.openDispatched || r.openAcknowledged || r.cleanupStarted {
+		return false
+	}
+	r.cleanupStarted = true
+	return true
+}
+
+func (r *streamRoute) beginStreamCleanup() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.cleanupStarted {
+		return false
+	}
+	r.cleanupStarted = true
+	return true
+}
+
+func (r *streamRoute) beginExplicitCancel(
+	validateItem func(json.RawMessage) error,
+) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.cleanupStarted {
+		return false
+	}
+	r.cleanupStarted = true
+	r.cancelItem = validateItem
+	if r.cancelSignal == nil {
+		r.cancelSignal = make(chan struct{}, 1)
+	}
+	return true
+}
+
+func (r *streamRoute) retainForExplicitCancel() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.cancelItem != nil
+}
+
+func (r *streamRoute) explicitCancelState() (*streamEnvelope, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var end *streamEnvelope
+	if r.cancelEnd != nil {
+		value := *r.cancelEnd
+		end = &value
+	}
+	return end, r.cancelErr
+}
+
+func (r *streamRoute) notifyExplicitCancelLocked() {
+	select {
+	case r.cancelSignal <- struct{}{}:
+	default:
+	}
+}
+
+func (r *streamRoute) finish(err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.terminated {
+		return
+	}
+	r.accepting = false
+	r.terminated = true
+	r.purgeLocked()
+	r.messages <- streamMessage{err: err}
+}
+
+func (r *streamRoute) cancelTerminal() *StreamEndError {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.accepting = false
+	r.terminated = true
+	var end *StreamEndError
+	for {
+		select {
+		case message := <-r.messages:
+			r.queuedBytes -= message.size
+			if message.envelope.Type == "stream_end" {
+				end = streamEndFromEnvelope(message.envelope)
+			} else if candidate, ok := message.err.(*StreamEndError); ok {
+				end = candidate
+			}
+		default:
+			r.queuedBytes = 0
+			return end
+		}
+	}
+}
+
+func (r *streamRoute) deliver(message streamMessage) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.terminated {
+		return false
+	}
+	if message.envelope.Type == "stream_end" {
+		r.serverEnded = true
+	}
+	if r.cancelItem != nil {
+		if r.cancelEnd != nil {
+			var err error
+			if message.envelope.Type == "stream_item" {
+				err = r.cancelItem(message.envelope.Item)
+			}
+			if err == nil {
+				err = &ProtocolError{
+					Message: "stream envelope followed stream_end during cancellation",
+				}
+			}
+			r.cancelErr = err
+			r.accepting = false
+			r.terminated = true
+			r.purgeLocked()
+			r.notifyExplicitCancelLocked()
+			return true
+		}
+		switch message.envelope.Type {
+		case "stream_item":
+			if err := r.cancelItem(message.envelope.Item); err != nil {
+				r.cancelErr = err
+				r.accepting = false
+				r.terminated = true
+				r.purgeLocked()
+				r.notifyExplicitCancelLocked()
+			}
+			return true
+		case "stream_end":
+			end := message.envelope
+			r.cancelEnd = &end
+			r.accepting = false
+			r.notifyExplicitCancelLocked()
+			return true
+		}
+	}
+	if !r.accepting {
+		return false
+	}
+	if message.envelope.Type != "stream_end" &&
+		(len(r.messages) >= MaxStreamQueueMessages ||
+			r.queuedBytes+message.size > MaxStreamQueueBytes) {
+		return false
+	}
+	if message.envelope.Type == "stream_end" {
+		r.accepting = false
+	}
+	select {
+	case r.messages <- message:
+		r.queuedBytes += message.size
+		return true
+	default:
+		return false
+	}
+}
+
+func (r *streamRoute) consumed(size int) {
+	r.mu.Lock()
+	r.queuedBytes -= size
+	if r.queuedBytes < 0 {
+		r.queuedBytes = 0
+	}
+	r.mu.Unlock()
+}
+
+func (r *streamRoute) overflow() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.terminated {
+		return
+	}
+	r.accepting = false
+	r.terminated = true
+	r.purgeLocked()
+	r.messages <- streamMessage{err: &StreamEndError{
+		Reason: "gap",
+		ResourceError: &ResourceError{
+			Code:      "stream.local_overflow",
+			Message:   "local stream queue exceeded its bounded capacity",
+			Details:   json.RawMessage(`{"message_limit":256,"byte_limit":16777216}`),
+			Retryable: true,
+		},
+		Recovery: "open a fresh stream to receive a new snapshot",
+	}}
+}
+
+func (r *streamRoute) purgeLocked() {
+	for {
+		select {
+		case message := <-r.messages:
+			r.queuedBytes -= message.size
+		default:
+			r.queuedBytes = 0
+			return
+		}
+	}
+}
+
+func (c *Client) removePending(
+	id string,
+	expected chan pendingResponse,
+) bool {
+	c.mu.Lock()
+	current, exists := c.pending[id]
+	if exists && current == expected {
+		delete(c.pending, id)
+	}
+	c.mu.Unlock()
+	return exists && current == expected
+}
+
+func (c *Client) connectionError() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.err != nil {
+		return c.err
+	}
+	return ErrClosed
+}
+
+func newStreamID() (StreamID, error) {
+	var entropy [16]byte
+	if _, err := rand.Read(entropy[:]); err != nil {
+		return "", err
+	}
+	return StreamID("stream_" + hex.EncodeToString(entropy[:])), nil
+}
+
+func newIdempotencyKey() (string, error) {
+	var entropy [16]byte
+	if _, err := rand.Read(entropy[:]); err != nil {
+		return "", err
+	}
+	return "idem_" + hex.EncodeToString(entropy[:]), nil
+}
+
+func cloneRaw(value json.RawMessage) json.RawMessage {
+	return append(json.RawMessage(nil), value...)
+}
+
+func readBoundedLine(reader *bufio.Reader, maxBytes int) ([]byte, error) {
+	line := make([]byte, 0, min(maxBytes+1, 64*1024))
 	for {
 		fragment, err := reader.ReadSlice('\n')
-		if len(line)+len(fragment) > maximum+1 {
-			return nil, fmt.Errorf(
-				"%w: response exceeds %d bytes",
-				ErrMessageTooLarge,
-				maximum,
-			)
+		if len(line)+len(fragment) > maxBytes+1 {
+			return nil, errFrameTooLarge
 		}
 		line = append(line, fragment...)
-		if err == nil {
-			line = line[:len(line)-1]
-			if len(line) > 0 && line[len(line)-1] == '\r' {
-				line = line[:len(line)-1]
+		switch {
+		case err == nil:
+			if len(line) == 0 || line[len(line)-1] != '\n' {
+				return nil, io.ErrUnexpectedEOF
 			}
 			return line, nil
-		}
-		if !errors.Is(err, bufio.ErrBufferFull) {
+		case errors.Is(err, bufio.ErrBufferFull):
+			continue
+		default:
 			return nil, err
 		}
 	}
-}
-
-func writeAll(writer io.Writer, data []byte) error {
-	for len(data) > 0 {
-		written, err := writer.Write(data)
-		if err != nil {
-			return err
-		}
-		if written == 0 {
-			return io.ErrShortWrite
-		}
-		data = data[written:]
-	}
-	return nil
-}
-
-func sameJSONValue(a, b any) bool {
-	first, _ := json.Marshal(a)
-	second, _ := json.Marshal(b)
-	return string(first) == string(second)
 }

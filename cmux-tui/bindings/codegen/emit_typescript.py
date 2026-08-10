@@ -349,7 +349,12 @@ def _render_events(ir: Any, document: Mapping[str, Any]) -> str:
             "",
         ]
     )
-    _union(lines, "KnownCmuxEvent", emitted, "Every event emitted by protocol v10.")
+    _union(
+        lines,
+        "KnownCmuxEvent",
+        emitted,
+        f"Every event emitted by protocol v{ir.mux_protocol}.",
+    )
     _union(
         lines,
         "SerializedButNotEmittedEvent",
@@ -465,6 +470,6 @@ def emit(ir: ir_module.SdkIR) -> Mapping[str | PurePosixPath, str | bytes]:
 
 EMITTER = writer.Emitter(
     language="typescript",
-    output_root=PurePosixPath("typescript/src/generated"),
+    output_root=PurePosixPath("typescript/src/raw/generated"),
     render=emit,
 )

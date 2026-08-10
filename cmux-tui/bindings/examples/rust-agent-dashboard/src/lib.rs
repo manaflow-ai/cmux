@@ -1,13 +1,14 @@
 mod model;
 
 pub use model::{
-    AgentSummary, AgentTransition, AgentUpdate, DashboardModel, RefreshPlan, ServerSummary,
-    WorkspaceSummary, state_name,
+    AgentSummary, AgentTransition, AgentUpdate, DashboardModel, ServerSummary, WorkspaceSummary,
+    state_name,
 };
 
-use cmux_client::{
-    AgentState, ClientConfig, CmuxClient, CmuxError, ListAgentsRequest, NotificationLevel,
-    NotifyRequest, Optional, SubscriptionBuilder,
+use cmux::{
+    AgentId, AgentState, Client, Config, CreationState, Error, MutationOptions, NotificationLevel,
+    NotificationOptions, RunCommand, RunOptions as CmuxRunOptions, Session, TerminalId,
+    TerminalSnapshot, TerminalWaitExitResult, Workspace,
 };
 use std::collections::BTreeSet;
 use std::fmt;
@@ -21,9 +22,9 @@ pub type Result<T> = std::result::Result<T, DashboardError>;
 
 #[derive(Debug)]
 pub enum DashboardError {
-    Sdk(CmuxError),
+    Sdk(Error),
     Io(io::Error),
-    Stream(String),
+    Invariant(String),
 }
 
 impl fmt::Display for DashboardError {
@@ -31,15 +32,15 @@ impl fmt::Display for DashboardError {
         match self {
             Self::Sdk(error) => write!(formatter, "{error}"),
             Self::Io(error) => write!(formatter, "{error}"),
-            Self::Stream(message) => formatter.write_str(message),
+            Self::Invariant(message) => formatter.write_str(message),
         }
     }
 }
 
 impl std::error::Error for DashboardError {}
 
-impl From<CmuxError> for DashboardError {
-    fn from(error: CmuxError) -> Self {
+impl From<Error> for DashboardError {
+    fn from(error: Error) -> Self {
         Self::Sdk(error)
     }
 }
@@ -71,124 +72,96 @@ impl Default for RunOptions {
 
 #[derive(Debug, Default)]
 pub struct NotificationTracker {
-    blocked: BTreeSet<u64>,
+    blocked: BTreeSet<AgentId>,
 }
 
 impl NotificationTracker {
     fn reconcile(&mut self, model: &DashboardModel) {
-        self.blocked.retain(|surface| {
-            model.agents.get(surface).is_some_and(|agent| agent.state == AgentState::Blocked)
+        self.blocked.retain(|id| {
+            model.agents.get(id).is_some_and(|agent| agent.state == AgentState::Blocked)
         });
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct CommandCheckOptions {
+    pub command: RunCommand,
+    pub correlation_key: String,
+    pub idempotency_key: String,
+    pub exit_timeout_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CommandCheckResult {
+    pub terminal_id: TerminalId,
+    pub recovered_creation: bool,
+    pub wait: TerminalWaitExitResult,
+    pub snapshot: TerminalSnapshot,
+}
+
 pub fn run_connection(
-    config: ClientConfig,
+    config: Config,
     options: &RunOptions,
     shutdown: &AtomicBool,
     notifications: &mut NotificationTracker,
     output: &mut dyn Write,
 ) -> Result<()> {
     if options.agent_poll_interval.is_zero() {
-        return Err(DashboardError::Stream(
+        return Err(DashboardError::Invariant(
             "agent poll interval must be greater than zero".to_string(),
         ));
     }
 
-    let mut client = CmuxClient::connect(config)?;
-    let identify = client.identify_server()?;
+    let client = Client::connect(config)?;
+    let result = run_connected(&client, options, shutdown, notifications, output);
+    let close = client.close();
+    result?;
+    close?;
+    Ok(())
+}
 
-    // Register before fetching snapshots. The SDK buffers events that race the
-    // subscribe acknowledgement, so applying the snapshot and then draining
-    // the stream has no topology gap.
-    let mut stream = SubscriptionBuilder::deltas().open(&mut client)?;
-    let mut model = DashboardModel::new(&identify);
-    model.replace_tree(client.workspace_tree()?);
-    let update = model.replace_agents(client.list_agents(ListAgentsRequest::default())?.agents);
-    notifications.reconcile(&model);
-    notify_newly_blocked(
-        &mut client,
-        &model,
-        &update.transitions,
-        options.notify_blocked,
-        notifications,
-    )?;
+fn run_connected(
+    client: &Client,
+    options: &RunOptions,
+    shutdown: &AtomicBool,
+    notifications: &mut NotificationTracker,
+    output: &mut dyn Write,
+) -> Result<()> {
+    let session = client.current_session();
+    let mut model = DashboardModel::new(session.refresh()?);
+    refresh(&session, &mut model, options, notifications)?;
     write_dashboard(output, &model, options.clear_screen)?;
 
     let started = Instant::now();
     let deadline = options.watch_for.map(|duration| started + duration);
-    let mut next_agent_poll = Instant::now() + options.agent_poll_interval;
+    let mut next_refresh = started + options.agent_poll_interval;
     loop {
         let now = Instant::now();
         if shutdown.load(Ordering::Acquire) || deadline.is_some_and(|end| now >= end) {
-            stream.close();
-            client.close();
             return Ok(());
         }
-
-        if now >= next_agent_poll {
-            let update =
-                model.replace_agents(client.list_agents(ListAgentsRequest::default())?.agents);
-            notifications.reconcile(&model);
-            notify_newly_blocked(
-                &mut client,
-                &model,
-                &update.transitions,
-                options.notify_blocked,
-                notifications,
-            )?;
-            if update.changed {
-                model.status = "agent snapshot refreshed".to_string();
+        if now >= next_refresh {
+            let changed = refresh(&session, &mut model, options, notifications)?;
+            if changed {
+                model.status = "resource snapshots refreshed".to_string();
                 write_dashboard(output, &model, options.clear_screen)?;
             }
-            next_agent_poll = now + options.agent_poll_interval;
+            next_refresh = now + options.agent_poll_interval;
             continue;
         }
 
-        let mut timeout =
-            Duration::from_millis(250).min(next_agent_poll.saturating_duration_since(now));
+        let mut wait = Duration::from_millis(50).min(next_refresh.saturating_duration_since(now));
         if let Some(end) = deadline {
-            timeout = timeout.min(end.saturating_duration_since(now));
+            wait = wait.min(end.saturating_duration_since(now));
         }
-        if timeout.is_zero() {
-            continue;
-        }
-
-        let event = match stream.recv_timeout(timeout) {
-            Ok(event) => event,
-            Err(CmuxError::Timeout(_)) => continue,
-            Err(error) => return Err(error.into()),
-        };
-        let refresh = model.apply_event(&event);
-        if refresh.tree {
-            model.replace_tree(client.workspace_tree()?);
-        }
-        if refresh.agents {
-            let agent_update =
-                model.replace_agents(client.list_agents(ListAgentsRequest::default())?.agents);
-            notifications.reconcile(&model);
-            notify_newly_blocked(
-                &mut client,
-                &model,
-                &agent_update.transitions,
-                options.notify_blocked,
-                notifications,
-            )?;
-            next_agent_poll = Instant::now() + options.agent_poll_interval;
-        }
-        write_dashboard(output, &model, options.clear_screen)?;
-        if refresh.reconnect {
-            stream.close();
-            client.close();
-            return Err(DashboardError::Stream(
-                "subscription overflowed; reconnecting from fresh snapshots".to_string(),
-            ));
+        if !wait.is_zero() {
+            thread::sleep(wait);
         }
     }
 }
 
 pub fn run_with_reconnect(
-    config: ClientConfig,
+    config: Config,
     options: &RunOptions,
     reconnect_delay: Duration,
     shutdown: Arc<AtomicBool>,
@@ -222,8 +195,24 @@ pub fn run_with_reconnect(
     }
 }
 
+fn refresh(
+    session: &Session,
+    model: &mut DashboardModel,
+    options: &RunOptions,
+    tracker: &mut NotificationTracker,
+) -> Result<bool> {
+    let snapshot = session.snapshot()?;
+    let server_changed = model.replace_server(snapshot.session);
+    let workspace_changed = model.replace_workspaces(snapshot.workspaces);
+    let update =
+        model.replace_agents(snapshot.agents.into_iter().map(AgentSummary::from).collect());
+    tracker.reconcile(model);
+    notify_newly_blocked(session, model, &update.transitions, options.notify_blocked, tracker)?;
+    Ok(server_changed || workspace_changed || update.changed)
+}
+
 fn notify_newly_blocked(
-    client: &mut CmuxClient,
+    session: &Session,
     model: &DashboardModel,
     transitions: &[AgentTransition],
     enabled: bool,
@@ -233,23 +222,97 @@ fn notify_newly_blocked(
         return Ok(());
     }
     for transition in transitions {
-        if transition.current != AgentState::Blocked || !tracker.blocked.insert(transition.surface)
-        {
+        if transition.current != AgentState::Blocked || tracker.blocked.contains(&transition.id) {
             continue;
         }
-        let session = model
-            .agents
-            .get(&transition.surface)
-            .and_then(|agent| agent.session.as_deref())
-            .unwrap_or("unknown");
-        client.notify(NotifyRequest {
-            body: format!("Agent session {session} is blocked on surface {}.", transition.surface),
-            level: Optional::Value(NotificationLevel::Warning),
-            surface: Optional::Value(transition.surface),
+        let terminal_id =
+            model.agents.get(&transition.id).map(|agent| agent.terminal_id.clone()).ok_or_else(
+                || {
+                    DashboardError::Invariant(format!(
+                        "blocked agent {} disappeared before notification",
+                        transition.id
+                    ))
+                },
+            )?;
+        session.create_notification(NotificationOptions {
             title: "Agent needs input".to_string(),
+            body: format!("Agent {} is blocked.", transition.id),
+            level: Some(NotificationLevel::Warning),
+            terminal_id: Some(terminal_id),
         })?;
+        tracker.blocked.insert(transition.id.clone());
     }
     Ok(())
+}
+
+/// Runs one command with reconnect-safe creation recovery and returns its exact
+/// lifecycle snapshot after a bounded server-side exit wait.
+pub fn run_command_check(
+    session: &Session,
+    workspace: &Workspace,
+    options: CommandCheckOptions,
+) -> Result<CommandCheckResult> {
+    let run = CmuxRunOptions::command(options.command)
+        .correlation_key(options.correlation_key.clone())?;
+    let mutation = MutationOptions::new(options.idempotency_key.clone())?;
+    let (terminal, recovered_creation) = match workspace.run_with(run, mutation) {
+        Ok(created) => (created.resource, false),
+        Err(error) => {
+            let Error::MutationTransport { operation, idempotency_key, .. } = &error else {
+                return Err(error.into());
+            };
+            if operation != "workspace.run" || idempotency_key != &options.idempotency_key {
+                return Err(DashboardError::Invariant(format!(
+                    "unexpected uncertain mutation {operation} with key {idempotency_key}"
+                )));
+            }
+            let resolution = session.creation().resolve(options.correlation_key)?;
+            if resolution.operation.as_deref().is_some_and(|value| value != "workspace.run") {
+                return Err(DashboardError::Invariant(
+                    "creation correlation resolved to a different operation".to_string(),
+                ));
+            }
+            if resolution.state != CreationState::Created {
+                return Err(DashboardError::Invariant(format!(
+                    "creation is {:?}; recovery is {:?}",
+                    resolution.state, resolution.recovery
+                )));
+            }
+            let terminal_id = resolution
+                .created_path
+                .as_ref()
+                .and_then(cmux::CreatedPath::terminal_id)
+                .cloned()
+                .ok_or_else(|| {
+                    DashboardError::Invariant(
+                        "created workspace.run resolution lacks a terminal path".to_string(),
+                    )
+                })?;
+            (session.terminal(terminal_id), true)
+        }
+    };
+
+    let terminal_id = terminal.id().cloned().ok_or_else(|| {
+        DashboardError::Invariant("created terminal handle lacks an opaque ID".to_string())
+    })?;
+    let wait = terminal.wait_exit(options.exit_timeout_ms)?;
+    let waited_id = match &wait {
+        TerminalWaitExitResult::Pending(result) => &result.terminal_id,
+        TerminalWaitExitResult::Exited(result) => &result.terminal_id,
+    };
+    if waited_id != &terminal_id {
+        return Err(DashboardError::Invariant(format!(
+            "terminal wait returned {waited_id} for {terminal_id}"
+        )));
+    }
+    let snapshot = terminal.refresh()?;
+    if snapshot.id != terminal_id {
+        return Err(DashboardError::Invariant(format!(
+            "terminal refresh returned {} for {terminal_id}",
+            snapshot.id
+        )));
+    }
+    Ok(CommandCheckResult { terminal_id, recovered_creation, wait, snapshot })
 }
 
 fn write_dashboard(output: &mut dyn Write, model: &DashboardModel, clear: bool) -> Result<()> {

@@ -71,6 +71,10 @@ impl FileBrowser {
         self.visible.iter().map(|index| &self.entries[*index])
     }
 
+    pub fn visible_entry(&self, index: usize) -> Option<&FileEntry> {
+        self.visible.get(index).map(|entry| &self.entries[*entry])
+    }
+
     pub fn total_len(&self) -> usize {
         self.entries.len()
     }

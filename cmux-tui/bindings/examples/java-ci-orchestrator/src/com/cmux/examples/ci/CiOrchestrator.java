@@ -1,40 +1,41 @@
 package com.cmux.examples.ci;
 
-import com.cmux.CmuxClient;
-import com.cmux.CmuxException;
-import com.cmux.UInt64;
-import com.cmux.generated.CloseWorkspaceRequest;
-import com.cmux.generated.CreateTerminalRequest;
-import com.cmux.generated.CreateWorkspaceRequest;
-import com.cmux.generated.IdentifyResult;
-import com.cmux.generated.NotificationLevel;
-import com.cmux.generated.NotifyRequest;
-import com.cmux.generated.ReadScreenRequest;
-import com.cmux.generated.ReadScreenResult;
-import com.cmux.generated.ReadScrollbackRequest;
-import com.cmux.generated.ReadScrollbackResult;
-import com.cmux.generated.RenderRow;
-import com.cmux.generated.RenderRun;
-import com.cmux.generated.TerminalPlacement;
-import com.cmux.generated.WorkspaceMutationResult;
+import com.cmux.Client;
+import com.cmux.CreatedPath;
+import com.cmux.CreatedTerminalPath;
+import com.cmux.CreatedWorkspaceOnly;
+import com.cmux.Decimal;
+import com.cmux.Ids;
+import com.cmux.MutationOutcomeUncertain;
+import com.cmux.MutationResult;
+import com.cmux.Notification;
+import com.cmux.Options;
+import com.cmux.Render;
+import com.cmux.Results;
+import com.cmux.Selector;
+import com.cmux.Session;
+import com.cmux.ShellCommand;
+import com.cmux.Snapshots;
+import com.cmux.Terminal;
+import com.cmux.Transport;
+import com.cmux.Workspace;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.UUID;
 import java.util.concurrent.TimeoutException;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
- * A dependency-free CI/task orchestrator built only on the public cmux Java SDK.
+ * A dependency-free CI task orchestrator built only on the public cmux
+ * resource API.
  */
 public final class CiOrchestrator {
-    private static final int MAX_SCROLLBACK_ROWS = 65_535;
-    private static final Pattern SAFE_MARKER = Pattern.compile("[A-Za-z0-9_]+");
+    private static final int MAX_HISTORY_ROWS = 65_535;
+    private static final Pattern SAFE_OPERATION_KEY =
+        Pattern.compile("[A-Za-z0-9_-]{1,80}");
 
     private CiOrchestrator() {}
 
@@ -43,21 +44,22 @@ public final class CiOrchestrator {
             Config config = Config.parse(args);
             Outcome outcome = execute(config);
             System.out.printf(
-                "session=%s workspace=%s surface=%s exit=%d%n",
-                outcome.identity().session(),
-                outcome.workspace(),
-                outcome.surface(),
-                outcome.exitCode()
+                "session=%s workspace=%s terminal=%s exit=%s%n",
+                config.session(),
+                outcome.workspace().value(),
+                outcome.terminal().value(),
+                describeExit(outcome.exit().outcome())
             );
             System.out.println("--- screen ---");
-            System.out.println(outcome.screen());
-            System.out.println("--- scrollback ---");
-            System.out.println(outcome.scrollback());
-            if (outcome.notification().isPresent()) {
-                System.out.println("notification=" + outcome.notification().orElseThrow());
-            }
-            if (outcome.exitCode() != 0) {
-                System.exit(outcome.exitCode());
+            System.out.println(outcome.screen().text());
+            System.out.println("--- history ---");
+            System.out.println(historyText(outcome.history()));
+            outcome.notification().ifPresent(
+                id -> System.out.println("notification=" + id.value())
+            );
+            int processExitCode = outcome.processExitCode();
+            if (processExitCode != 0) {
+                System.exit(processExitCode);
             }
         } catch (Exception error) {
             System.err.println("cmux CI orchestration failed: " + usefulMessage(error));
@@ -66,18 +68,27 @@ public final class CiOrchestrator {
     }
 
     /**
-     * Runs one command in a newly registered workspace and always attempts to
-     * tombstone that workspace before returning.
+     * Runs one command in a new workspace and always attempts to close that
+     * workspace before returning.
      */
     public static Outcome execute(Config config) throws Exception {
-        Objects.requireNonNull(config, "config");
-        CmuxClient.Builder clientBuilder = CmuxClient.builder()
-            .session(config.session())
-            .timeout(config.timeout());
-        config.socketPath().ifPresent(clientBuilder::socketPath);
+        return execute(config, null);
+    }
 
-        try (CmuxClient client = clientBuilder.build()) {
-            WorkspaceCleanup cleanup = new WorkspaceCleanup(client);
+    static Outcome execute(Config config, Transport transport) throws Exception {
+        Objects.requireNonNull(config, "config");
+        Client.Builder builder = Client.builder()
+            .session(config.session())
+            .timeout(config.timeout().plusMillis(500));
+        config.socketPath().ifPresent(builder::socket);
+        if (transport != null) {
+            builder.transport(transport);
+        }
+
+        try (Client client = builder.build()) {
+            Session session = client.machine(Selector.current())
+                .session(Selector.current());
+            WorkspaceCleanup cleanup = new WorkspaceCleanup();
             Thread shutdownHook = new Thread(
                 cleanup::closeQuietly,
                 "cmux-ci-workspace-cleanup"
@@ -87,19 +98,18 @@ public final class CiOrchestrator {
             Outcome outcome = null;
             Exception operationFailure = null;
             try {
-                outcome = runCommand(client, cleanup, config);
+                outcome = runCommand(session, cleanup, config);
             } catch (Exception error) {
                 operationFailure = error;
                 notifyFailure(
-                    client,
-                    cleanup.surface(),
+                    session,
                     "cmux CI orchestration error",
                     usefulMessage(error)
                 );
             } finally {
                 try {
                     cleanup.close();
-                } catch (CmuxException cleanupError) {
+                } catch (RuntimeException cleanupError) {
                     if (operationFailure != null) {
                         operationFailure.addSuppressed(cleanupError);
                     } else {
@@ -117,151 +127,317 @@ public final class CiOrchestrator {
     }
 
     private static Outcome runCommand(
-        CmuxClient client,
+        Session session,
         WorkspaceCleanup cleanup,
         Config config
     ) throws Exception {
-        IdentifyResult identity = client.identify();
-
-        WorkspaceMutationResult workspace = client.createWorkspace(
-            CreateWorkspaceRequest.builder()
-                .key(config.workspaceKey())
-                .name(config.workspaceName())
-                .build()
+        Creation<CreatedWorkspaceOnly> workspaceCreation = createWorkspace(
+            session,
+            config
         );
-        cleanup.arm(workspace.key());
+        Ids.WorkspaceId workspaceId = workspaceCreation.path().workspaceId();
+        Workspace workspace = session.workspace(Selector.id(workspaceId));
+        cleanup.arm(workspace);
 
-        CreateTerminalRequest.Builder terminalRequest = CreateTerminalRequest.builder()
-            .key(workspace.key())
-            .argv(wrapperArgv(config.command(), config.marker()))
-            .name("ci-task");
-        config.cwd().map(Path::toString).ifPresent(terminalRequest::cwd);
-        TerminalPlacement terminal = client.createTerminal(terminalRequest.build());
-        cleanup.surface(terminal.surface());
-
-        ReadScreenResult completedScreen = waitForExitMarker(
-            client,
-            terminal.surface(),
-            config.marker(),
-            config.timeout(),
-            config.pollInterval()
+        Creation<CreatedTerminalPath> terminalCreation = runTerminal(
+            session,
+            workspace,
+            config
         );
-        int exitCode = parseExitCode(completedScreen.text(), config.marker())
-            .orElseThrow(() -> new IllegalStateException("exit marker disappeared"));
-        ReadScrollbackResult scrollback = client.readScrollback(
-            ReadScrollbackRequest.builder()
-                .surface(terminal.surface())
-                .start(0)
-                .count(MAX_SCROLLBACK_ROWS)
-                .build()
+        Ids.TerminalId terminalId = terminalCreation.path().terminalId();
+        Terminal terminal = session.terminal(Selector.id(terminalId));
+
+        Results.TerminalWaitExitResult waited = terminal.waitExit(
+            new Options.WaitExit(
+                Options.Read.defaults(),
+                Optional.of(Decimal.parse(
+                    Long.toString(config.timeout().toMillis())
+                ))
+            )
+        );
+        if (waited instanceof Results.TerminalWaitExitPending pending) {
+            if (!pending.terminalId().equals(terminalId)) {
+                throw new IllegalStateException(
+                    "terminal.wait_exit returned the wrong terminal"
+                );
+            }
+            throw new TimeoutException(
+                "timed out after " + config.timeout()
+                    + " waiting for terminal " + terminalId.value() + " to exit"
+            );
+        }
+        Results.TerminalWaitExitExited exited =
+            (Results.TerminalWaitExitExited) waited;
+        if (!exited.terminalId().equals(terminalId)) {
+            throw new IllegalStateException(
+                "terminal.wait_exit returned the wrong terminal"
+            );
+        }
+
+        Snapshots.TerminalSnapshot terminalSnapshot = terminal.refresh();
+        validateExitedSnapshot(terminalSnapshot, exited);
+        Results.TerminalScreenResult screen =
+            terminal.readScreen(Options.Read.defaults());
+        Results.TerminalHistoryResult history = terminal.readHistory(
+            new Options.HistoryRead(
+                Options.Read.defaults(),
+                Optional.empty(),
+                Optional.of(MAX_HISTORY_ROWS),
+                false
+            )
         );
 
-        Optional<UInt64> notification = Optional.empty();
-        if (exitCode != 0) {
+        Optional<Ids.NotificationId> notification = Optional.empty();
+        if (!isSuccess(exited.outcome())) {
             notification = notifyFailure(
-                client,
-                Optional.of(terminal.surface()),
+                session,
+                terminalId,
                 "cmux CI task failed",
-                "Command exited with status " + exitCode
+                "Command " + describeExit(exited.outcome())
             );
         }
 
         return new Outcome(
-            identity,
-            workspace.workspace(),
-            terminal.surface(),
-            exitCode,
-            completedScreen.text(),
-            renderScrollback(scrollback.rows()),
-            notification
+            workspaceId,
+            terminalId,
+            exited,
+            terminalSnapshot,
+            screen,
+            history,
+            notification,
+            workspaceCreation.recovered(),
+            terminalCreation.recovered()
         );
     }
 
-    private static ReadScreenResult waitForExitMarker(
-        CmuxClient client,
-        UInt64 surface,
-        String marker,
-        Duration timeout,
-        Duration pollInterval
-    ) throws Exception {
-        long deadline = System.nanoTime() + timeout.toNanos();
-        ReadScreenRequest request = ReadScreenRequest.builder().surface(surface).build();
-        while (true) {
-            ReadScreenResult screen = client.readScreen(request);
-            if (parseExitCode(screen.text(), marker).isPresent()) {
-                return screen;
-            }
+    private static Creation<CreatedWorkspaceOnly> createWorkspace(
+        Session session,
+        Config config
+    ) {
+        try {
+            MutationResult<CreatedPath> result = session.createWorkspace(
+                Options.WorkspaceCreate.builder()
+                    .mutation(Options.Mutation.keyed(
+                        config.workspaceIdempotencyKey()
+                    ))
+                    .name(config.workspaceName())
+                    .initialContent(Options.InitialContent.EMPTY)
+                    .correlationKey(config.workspaceCorrelationKey())
+                    .build()
+            );
+            return new Creation<>(
+                requirePath(
+                    result.value(),
+                    CreatedWorkspaceOnly.class,
+                    "workspace.create"
+                ),
+                false
+            );
+        } catch (MutationOutcomeUncertain uncertain) {
+            return new Creation<>(
+                recoverPath(
+                    session,
+                    uncertain,
+                    "workspace.create",
+                    config.workspaceIdempotencyKey(),
+                    config.workspaceCorrelationKey(),
+                    CreatedWorkspaceOnly.class
+                ),
+                true
+            );
+        }
+    }
 
-            long remainingNanos = deadline - System.nanoTime();
-            if (remainingNanos <= 0) {
-                throw new TimeoutException(
-                    "timed out after " + timeout + " waiting for marker " + marker
+    private static Creation<CreatedTerminalPath> runTerminal(
+        Session session,
+        Workspace workspace,
+        Config config
+    ) {
+        Options.Run.Builder run = Options.Run.builder(
+            new ShellCommand(config.command())
+        )
+            .mutation(Options.Mutation.keyed(config.runIdempotencyKey()))
+            .name("ci-task")
+            .correlationKey(config.runCorrelationKey());
+        config.cwd().map(Path::toString).ifPresent(run::cwd);
+        try {
+            return new Creation<>(workspace.run(run.build()).value(), false);
+        } catch (MutationOutcomeUncertain uncertain) {
+            return new Creation<>(
+                recoverPath(
+                    session,
+                    uncertain,
+                    "workspace.run",
+                    config.runIdempotencyKey(),
+                    config.runCorrelationKey(),
+                    CreatedTerminalPath.class
+                ),
+                true
+            );
+        }
+    }
+
+    private static <T extends CreatedPath> T recoverPath(
+        Session session,
+        MutationOutcomeUncertain uncertain,
+        String expectedOperation,
+        String expectedIdempotencyKey,
+        String correlationKey,
+        Class<T> pathType
+    ) {
+        if (!uncertain.operation().equals(expectedOperation)
+                || !uncertain.idempotencyKey().equals(expectedIdempotencyKey)) {
+            throw new IllegalStateException(
+                "unexpected uncertain mutation " + uncertain.operation()
+                    + " with key " + uncertain.idempotencyKey(),
+                uncertain
+            );
+        }
+        Results.CreationResolution resolution = session.resolveCreation(
+            new Options.CreationResolve(
+                Options.Read.defaults(),
+                correlationKey
+            )
+        );
+        if (!resolution.correlationKey().equals(correlationKey)) {
+            throw new IllegalStateException(
+                "creation resolution returned a different correlation key"
+            );
+        }
+        if (resolution.state() != Results.CreationState.CREATED) {
+            throw new IllegalStateException(
+                "creation is " + resolution.state()
+                    + "; recovery is " + resolution.recovery()
+            );
+        }
+        resolution.operation().ifPresent(operation -> {
+            if (!operation.equals(expectedOperation)) {
+                throw new IllegalStateException(
+                    "creation correlation resolved to " + operation
                 );
             }
-            long sleepNanos = Math.min(pollInterval.toNanos(), remainingNanos);
-            try {
-                Duration sleep = Duration.ofNanos(sleepNanos);
-                Thread.sleep(sleep.toMillis(), sleep.toNanosPart() % 1_000_000);
-            } catch (InterruptedException interrupted) {
-                Thread.currentThread().interrupt();
-                throw interrupted;
+        });
+        resolution.idempotencyKey().ifPresent(key -> {
+            if (!key.equals(expectedIdempotencyKey)) {
+                throw new IllegalStateException(
+                    "creation correlation resolved to a different idempotency key"
+                );
             }
-        }
-    }
-
-    private static List<String> wrapperArgv(String command, String marker) {
-        String script = """
-            set +e
-            /bin/sh -lc "$1"
-            status=$?
-            printf '\\n%s:%s\\n' "$2" "$status"
-            exit "$status"
-            """;
-        return List.of(
-            "/bin/sh",
-            "-c",
-            script,
-            "cmux-ci-wrapper",
-            command,
-            marker
+        });
+        CreatedPath path = resolution.createdPath().orElseThrow(
+            () -> new IllegalStateException(
+                "created resolution omitted its created path"
+            )
         );
+        return requirePath(path, pathType, expectedOperation);
     }
 
-    private static OptionalInt parseExitCode(String text, String marker) {
-        Pattern pattern = Pattern.compile(Pattern.quote(marker) + ":([0-9]{1,3})");
-        Matcher matcher = pattern.matcher(text);
-        OptionalInt result = OptionalInt.empty();
-        while (matcher.find()) {
-            int value = Integer.parseInt(matcher.group(1));
-            if (value <= 255) {
-                result = OptionalInt.of(value);
-            }
+    private static <T extends CreatedPath> T requirePath(
+        CreatedPath path,
+        Class<T> pathType,
+        String operation
+    ) {
+        if (!pathType.isInstance(path)) {
+            throw new IllegalStateException(
+                operation + " returned " + path.getClass().getSimpleName()
+                    + " instead of " + pathType.getSimpleName()
+            );
         }
-        return result;
+        return pathType.cast(path);
     }
 
-    private static String renderScrollback(List<RenderRow> rows) {
-        return rows.stream()
-            .map(row -> row.runs().stream().map(RenderRun::text).collect(Collectors.joining()))
+    private static void validateExitedSnapshot(
+        Snapshots.TerminalSnapshot snapshot,
+        Results.TerminalWaitExitExited exited
+    ) {
+        if (!snapshot.id().equals(exited.terminalId())
+                || snapshot.lifecycle() != Snapshots.TerminalLifecycle.EXITED
+                || snapshot.running()) {
+            throw new IllegalStateException(
+                "terminal refresh did not return the exited terminal"
+            );
+        }
+        Snapshots.TerminalExit durableExit = snapshot.exit().orElseThrow(
+            () -> new IllegalStateException(
+                "exited terminal snapshot omitted its durable exit"
+            )
+        );
+        if (!durableExit.outcome().equals(exited.outcome())
+                || !durableExit.exitedAt().equals(exited.exitedAt())
+                || !durableExit.revision().equals(exited.revision())) {
+            throw new IllegalStateException(
+                "terminal snapshot exit differs from terminal.wait_exit"
+            );
+        }
+    }
+
+    private static boolean isSuccess(Results.TerminalExitOutcome outcome) {
+        return outcome instanceof Results.TerminalExitCode code
+            && code.code() == 0;
+    }
+
+    private static String describeExit(Results.TerminalExitOutcome outcome) {
+        if (outcome instanceof Results.TerminalExitCode code) {
+            return "exited with status " + code.code();
+        }
+        if (outcome instanceof Results.TerminalExitSignal signal) {
+            return "terminated by signal " + signal.signal()
+                + (signal.coreDumped() ? " with a core dump" : "");
+        }
+        Results.TerminalExitUnknown unknown =
+            (Results.TerminalExitUnknown) outcome;
+        return "ended for an unknown reason: " + unknown.reason();
+    }
+
+    public static String historyText(Results.TerminalHistoryResult history) {
+        return history.rows().stream()
+            .map(row -> row.runs().stream()
+                .map(Render.Run::text)
+                .collect(Collectors.joining()))
             .collect(Collectors.joining("\n"));
     }
 
-    private static Optional<UInt64> notifyFailure(
-        CmuxClient client,
-        Optional<UInt64> surface,
+    private static Optional<Ids.NotificationId> notifyFailure(
+        Session session,
         String title,
         String body
     ) {
+        return notifyFailure(session, new Options.NotificationCreate(
+            Options.Mutation.defaults(),
+            title,
+            body,
+            Optional.of("error")
+        ));
+    }
+
+    private static Optional<Ids.NotificationId> notifyFailure(
+        Session session,
+        Ids.TerminalId terminalId,
+        String title,
+        String body
+    ) {
+        return notifyFailure(session, new Options.NotificationCreate(
+            Options.Mutation.defaults(),
+            title,
+            body,
+            Optional.of("error"),
+            Optional.of(terminalId)
+        ));
+    }
+
+    private static Optional<Ids.NotificationId> notifyFailure(
+        Session session,
+        Options.NotificationCreate notification
+    ) {
         try {
-            NotifyRequest.Builder request = NotifyRequest.builder()
-                .title(title)
-                .body(body)
-                .level(NotificationLevel.ERROR);
-            surface.ifPresent(request::surface);
-            return Optional.of(client.notify(request.build()).notification());
-        } catch (CmuxException notificationError) {
+            MutationResult<Notification> result = session.createNotification(
+                notification
+            );
+            return Optional.of(result.value().snapshot().id());
+        } catch (RuntimeException notificationError) {
             System.err.println(
-                "could not post cmux failure notification: " + usefulMessage(notificationError)
+                "could not post cmux failure notification: "
+                    + usefulMessage(notificationError)
             );
             return Optional.empty();
         }
@@ -282,25 +458,41 @@ public final class CiOrchestrator {
             : message;
     }
 
+    private record Creation<T extends CreatedPath>(T path, boolean recovered) {
+        private Creation {
+            Objects.requireNonNull(path, "path");
+        }
+    }
+
     public record Outcome(
-        IdentifyResult identity,
-        UInt64 workspace,
-        UInt64 surface,
-        int exitCode,
-        String screen,
-        String scrollback,
-        Optional<UInt64> notification
+        Ids.WorkspaceId workspace,
+        Ids.TerminalId terminal,
+        Results.TerminalWaitExitExited exit,
+        Snapshots.TerminalSnapshot terminalSnapshot,
+        Results.TerminalScreenResult screen,
+        Results.TerminalHistoryResult history,
+        Optional<Ids.NotificationId> notification,
+        boolean recoveredWorkspace,
+        boolean recoveredTerminal
     ) {
         public Outcome {
-            Objects.requireNonNull(identity, "identity");
             Objects.requireNonNull(workspace, "workspace");
-            Objects.requireNonNull(surface, "surface");
+            Objects.requireNonNull(terminal, "terminal");
+            Objects.requireNonNull(exit, "exit");
+            Objects.requireNonNull(terminalSnapshot, "terminalSnapshot");
             Objects.requireNonNull(screen, "screen");
-            Objects.requireNonNull(scrollback, "scrollback");
+            Objects.requireNonNull(history, "history");
             Objects.requireNonNull(notification, "notification");
-            if (exitCode < 0 || exitCode > 255) {
-                throw new IllegalArgumentException("exitCode must be in 0..255");
+        }
+
+        public int processExitCode() {
+            if (exit.outcome() instanceof Results.TerminalExitCode code) {
+                return Math.max(0, Math.min(255, code.code()));
             }
+            if (exit.outcome() instanceof Results.TerminalExitSignal signal) {
+                return Math.min(255, 128 + signal.signal());
+            }
+            return 2;
         }
     }
 
@@ -308,22 +500,18 @@ public final class CiOrchestrator {
         String session,
         Optional<Path> socketPath,
         Duration timeout,
-        Duration pollInterval,
         String command,
         Optional<Path> cwd,
-        String marker,
-        String workspaceKey,
+        String operationKey,
         String workspaceName
     ) {
         public Config {
             Objects.requireNonNull(session, "session");
             Objects.requireNonNull(socketPath, "socketPath");
             Objects.requireNonNull(timeout, "timeout");
-            Objects.requireNonNull(pollInterval, "pollInterval");
             Objects.requireNonNull(command, "command");
             Objects.requireNonNull(cwd, "cwd");
-            Objects.requireNonNull(marker, "marker");
-            Objects.requireNonNull(workspaceKey, "workspaceKey");
+            Objects.requireNonNull(operationKey, "operationKey");
             Objects.requireNonNull(workspaceName, "workspaceName");
             if (session.isBlank()) {
                 throw new IllegalArgumentException("session must not be blank");
@@ -331,25 +519,34 @@ public final class CiOrchestrator {
             if (timeout.isNegative() || timeout.isZero()) {
                 throw new IllegalArgumentException("timeout must be positive");
             }
-            if (pollInterval.isNegative() || pollInterval.isZero()) {
-                throw new IllegalArgumentException("pollInterval must be positive");
-            }
             if (command.isBlank()) {
                 throw new IllegalArgumentException("command must not be blank");
             }
-            if (!SAFE_MARKER.matcher(marker).matches()) {
+            if (!SAFE_OPERATION_KEY.matcher(operationKey).matches()) {
                 throw new IllegalArgumentException(
-                    "marker must contain only ASCII letters, digits, or underscore"
-                );
-            }
-            if (!UUID.fromString(workspaceKey).toString().equals(workspaceKey)) {
-                throw new IllegalArgumentException(
-                    "workspaceKey must be a lowercase canonical UUID"
+                    "operationKey must contain 1 to 80 ASCII letters, digits, "
+                        + "underscores, or hyphens"
                 );
             }
             if (workspaceName.isBlank()) {
                 throw new IllegalArgumentException("workspaceName must not be blank");
             }
+        }
+
+        public String workspaceCorrelationKey() {
+            return operationKey + "-workspace";
+        }
+
+        public String workspaceIdempotencyKey() {
+            return operationKey + "-workspace-attempt-1";
+        }
+
+        public String runCorrelationKey() {
+            return operationKey + "-run";
+        }
+
+        public String runIdempotencyKey() {
+            return operationKey + "-run-attempt-1";
         }
 
         public static Config parse(String[] args) {
@@ -380,17 +577,13 @@ public final class CiOrchestrator {
             }
 
             String suffix = UUID.randomUUID().toString().replace("-", "");
-            String marker = "CMUX_CI_" + suffix;
-            String workspaceKey = UUID.randomUUID().toString();
             return new Config(
                 session,
                 Optional.ofNullable(socket),
                 timeout,
-                Duration.ofMillis(100),
                 command,
                 Optional.ofNullable(cwd),
-                marker,
-                workspaceKey,
+                "cmux-ci-" + suffix,
                 "cmux-ci-" + suffix.substring(0, 8)
             );
         }
@@ -411,31 +604,16 @@ public final class CiOrchestrator {
     }
 
     private static final class WorkspaceCleanup {
-        private final CmuxClient client;
+        private Workspace workspace;
         private boolean closed;
-        private volatile String workspaceKey;
-        private volatile UInt64 surface;
 
-        private WorkspaceCleanup(CmuxClient client) {
-            this.client = client;
+        private synchronized void arm(Workspace value) {
+            workspace = Objects.requireNonNull(value, "value");
         }
 
-        private void arm(String key) {
-            workspaceKey = key;
-        }
-
-        private void surface(UInt64 value) {
-            surface = value;
-        }
-
-        private Optional<UInt64> surface() {
-            return Optional.ofNullable(surface);
-        }
-
-        private synchronized void close() throws CmuxException {
-            String key = workspaceKey;
-            if (key != null && !closed) {
-                client.closeWorkspace(CloseWorkspaceRequest.builder().key(key).build());
+        private synchronized void close() {
+            if (workspace != null && !closed) {
+                workspace.close(Options.Mutation.defaults());
                 closed = true;
             }
         }
@@ -443,9 +621,10 @@ public final class CiOrchestrator {
         private void closeQuietly() {
             try {
                 close();
-            } catch (CmuxException cleanupError) {
+            } catch (RuntimeException cleanupError) {
                 System.err.println(
-                    "could not clean up cmux CI workspace: " + usefulMessage(cleanupError)
+                    "could not clean up cmux CI workspace: "
+                        + usefulMessage(cleanupError)
                 );
             }
         }

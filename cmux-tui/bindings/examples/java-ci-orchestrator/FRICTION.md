@@ -1,37 +1,28 @@
 # Java SDK friction
 
-No raw or private API was used.
+No raw, generated-model, internal, private, or generic escape API is used.
 
-Resolved during this simulation: `TerminalPlacement.lifecycle` is required but
-nullable in the schema. The initial generated decoder rejected the JSON null
-returned by ordinary local `createTerminal` calls. The generator and regression
-test now preserve null, and this fake server exercises that response.
+The strict API resolved the earlier untyped result and exit-status gaps:
+`terminal.waitExit`, `terminal.readScreen`, `terminal.readHistory`, terminal
+lifecycle snapshots, and closed exit-outcome variants are all concrete types.
+Creation methods accept correlation keys, deterministic terminal creation
+returns `CreatedTerminalPath`, and `Session.resolveCreation` recovers a durable
+created path after response loss.
 
-1. A common isolated-task flow requires coordinating `createWorkspace`,
-   `createTerminal`, marker injection, repeated `readScreen`,
-   `readScrollback`, `notify`, and `closeWorkspace`. A
-   `runCapturedInWorkspace` helper with cleanup and exit status would remove
-   the largest source of application code.
-2. Generated `waitFor` uses the command connection and shares its transport
-   timeout. The protocol command can outlive that deadline and blocks other
-   requests. A dedicated cancellable wait handle or client-managed secondary
-   connection would make automation safe.
-3. The SDK exposes no terminal exit-status primitive. Consumers must inject a
-   unique marker into PTY output, parse it, and keep the wrapper alive long
-   enough to capture the viewport. A typed terminal-completed event or
-   `waitForExit` result should include status and retained output.
-4. Optional generated fields use `Field<T>`, while builders accept nullable
-   values where `null` means explicit JSON null and skipping the method means
-   omission. Builders should expose named `omitX` and `nullX` methods, or
-   document nullability on every setter.
-5. Request builders do not validate cross-field rules such as `argv` versus
-   `command`, `workspace` versus `key`, or paired `cols` and `rows`. Invalid
-   combinations fail only after a socket round trip.
-6. Cleanup requires a custom synchronized guard plus a shutdown hook. A closeable
-   workspace lease would make ownership and idempotent cleanup explicit.
-7. Styled scrollback is useful, but converting `RenderRow` and `RenderRun` to
-   plain text and paging beyond 65,535 rows is consumer work. Add
-   `plainText()` and an iterator or pager.
-8. `CmuxCommandException` provides a message and request id without a stable
-   error code. Automation cannot reliably distinguish a timeout, missing
-   surface, revision conflict, or permission failure without parsing prose.
+Remaining friction:
+
+1. `terminal.waitExit` shares the client's request deadline. The client timeout
+   must exceed the server-side wait timeout, coupling connection policy to one
+   operation.
+2. `Session.resolveCreation` correctly returns the closed `CreatedPath` union,
+   but a caller recovering a known operation must still verify the expected
+   path variant at runtime.
+3. Workspace ownership requires a custom shutdown hook and idempotent cleanup
+   guard. An `AutoCloseable` workspace lease would make this lifecycle explicit.
+4. Typed history preserves styled runs, so a plain-text CLI must concatenate
+   runs and pages itself. A standard plain-text projection helper would avoid
+   each consumer implementing this conversion.
+
+The resource-handle composition, opaque identifiers, exact terminal lifecycle,
+and correlation recovery are principled. No protocol workaround remains in the
+command execution path.

@@ -151,6 +151,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
 
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
+        layoutFrameLayer()
         rebuildPresentationTimer()
         pushGeometry()
     }
@@ -348,18 +349,27 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
             )
             return
         }
+        // Resize transports may take a frame to start. Keep the immutable
+        // host-owned image visible until that replacement frame completes.
+        let preservesPresentedFrame =
+            frameTransportDescriptor.map {
+                $0.width != frameTransport.width || $0.height != frameTransport.height
+            } ?? false
         stopPresentationTimer()
-        retireFramePipeline()
-        frameLayer?.removeFromSuperlayer()
-        frameLayer = nil
+        retireFramePipeline(clearPresentedFrame: !preservesPresentedFrame)
+        if !preservesPresentedFrame {
+            frameLayer?.removeFromSuperlayer()
+            frameLayer = nil
+        }
         frameTransportDescriptor = nil
         lastFrameSequence = nil
-        let frameLayer = CALayer()
-        frameLayer.contentsGravity = .resize
-        frameLayer.minificationFilter = .linear
-        frameLayer.magnificationFilter = .linear
-        layer?.addSublayer(frameLayer)
-        self.frameLayer = frameLayer
+        if frameLayer == nil {
+            let frameLayer = CALayer()
+            frameLayer.contentsGravity = .resize
+            layer?.addSublayer(frameLayer)
+            self.frameLayer = frameLayer
+        }
+        updateFrameLayerBackingScale()
         framePipeline = SimulatorFramePresentationPipeline(
             source: source,
             presentationDidComplete: { [weak self] in
@@ -371,6 +381,19 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         renderLatestFrame()
         layoutFrameLayer()
         startPresentationTimer()
+    }
+
+    func updateFrameLayerSampling(displayedRawSize: CGSize) {
+        guard let frameLayer, let frameTransportDescriptor else { return }
+        let scale = frameLayer.contentsScale
+        let displayedPixelWidth = displayedRawSize.width * scale
+        let displayedPixelHeight = displayedRawSize.height * scale
+        let isPixelAligned =
+            abs(displayedPixelWidth - Double(frameTransportDescriptor.width)) <= 1
+            && abs(displayedPixelHeight - Double(frameTransportDescriptor.height)) <= 1
+        let filter: CALayerContentsFilter = isPixelAligned ? .nearest : .linear
+        frameLayer.minificationFilter = filter
+        frameLayer.magnificationFilter = filter
     }
 
     func renderLatestFrame() {
@@ -442,10 +465,10 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         renderLatestFrame()
     }
 
-    private func retireFramePipeline() {
+    private func retireFramePipeline(clearPresentedFrame: Bool = true) {
         let pipeline = framePipeline
         framePipeline = nil
-        frameLayer?.contents = nil
+        if clearPresentedFrame { frameLayer?.contents = nil }
         pipeline?.invalidate()
     }
 

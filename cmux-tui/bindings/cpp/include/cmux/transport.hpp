@@ -47,6 +47,10 @@ public:
     [[nodiscard]] Result<std::string> receive(Timeout timeout) override;
     void close() noexcept override;
 
+#if defined(CMUX_CPP_TESTING)
+    void set_before_receive_wait_for_testing(std::function<void()> hook);
+#endif
+
 private:
     struct Impl;
     explicit UnixTransport(std::unique_ptr<Impl> impl);
@@ -55,6 +59,9 @@ private:
 
 [[nodiscard]] std::string default_socket_path(std::string_view session = "main");
 [[nodiscard]] std::string socket_path_from_environment();
+[[nodiscard]] Result<std::string> resolve_socket_path(
+    std::string_view explicit_path,
+    std::string_view session = "main");
 [[nodiscard]] TransportFactory unix_transport_factory(
     std::string path,
     Timeout connect_timeout,

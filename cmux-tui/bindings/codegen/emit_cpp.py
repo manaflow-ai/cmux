@@ -515,9 +515,9 @@ class CppEmitter:
             "#include <variant>",
             "#include <vector>",
             "",
-            '#include "cmux/codec.hpp"',
+            '#include "cmux/raw/codec.hpp"',
             "",
-            "namespace cmux {",
+            "namespace cmux::raw {",
             "",
             f"inline constexpr std::uint32_t kMuxProtocolVersion = {self.ir.mux_protocol}U;",
             f'inline constexpr std::string_view kProtocolIrSha256 = "{self.ir.ir_sha256}";',
@@ -542,7 +542,7 @@ class CppEmitter:
                     "",
                 ]
             )
-        lines.extend(["}  // namespace cmux", ""])
+        lines.extend(["}  // namespace cmux::raw", ""])
         return "\n".join(lines)
 
     def events_header(self) -> str:
@@ -555,10 +555,10 @@ class CppEmitter:
             "#include <string_view>",
             "#include <variant>",
             "",
-            '#include "cmux/generated/models.hpp"',
-            '#include "cmux/stream.hpp"',
+            '#include "cmux/raw/generated/models.hpp"',
+            '#include "cmux/raw/stream.hpp"',
             "",
-            "namespace cmux {",
+            "namespace cmux::raw {",
             "",
             "struct UnknownEvent {",
             "    std::string name;",
@@ -596,7 +596,7 @@ class CppEmitter:
             "",
             "[[nodiscard]] std::span<const EventMetadata> event_metadata() noexcept;",
             "",
-            "}  // namespace cmux",
+            "}  // namespace cmux::raw",
             "",
         ]
         return "\n".join(lines)
@@ -620,10 +620,10 @@ class CppEmitter:
             "#include <string_view>",
             "#include <utility>",
             "",
-            '#include "cmux/client_core.hpp"',
-            '#include "cmux/generated/events.hpp"',
+            '#include "cmux/raw/client_core.hpp"',
+            '#include "cmux/raw/generated/events.hpp"',
             "",
-            "namespace cmux {",
+            "namespace cmux::raw {",
             "",
             "struct CommandFieldRequirement {",
             "    std::string_view name;",
@@ -704,7 +704,7 @@ class CppEmitter:
                 "    detail::ClientCore core_;",
                 "};",
                 "",
-                "}  // namespace cmux",
+                "}  // namespace cmux::raw",
                 "",
             ]
         )
@@ -1147,12 +1147,12 @@ class CppEmitter:
     def source(self) -> str:
         lines = [
             "// Generated from cmux-tui/spec/sdk-schema.json. Do not edit.",
-            '#include "cmux/generated/commands.hpp"',
+            '#include "cmux/raw/generated/commands.hpp"',
             "",
             "#include <array>",
             "#include <utility>",
             "",
-            "namespace cmux {",
+            "namespace cmux::raw {",
             "",
         ]
         for name in self.models:
@@ -1349,15 +1349,15 @@ class CppEmitter:
                         "",
                     ]
                 )
-        lines.extend(["}  // namespace cmux", ""])
+        lines.extend(["}  // namespace cmux::raw", ""])
         return "\n".join(lines)
 
     def render(self) -> dict[PurePosixPath, str]:
         return {
-            PurePosixPath("include/cmux/generated/models.hpp"): self.models_header(),
-            PurePosixPath("include/cmux/generated/events.hpp"): self.events_header(),
-            PurePosixPath("include/cmux/generated/commands.hpp"): self.commands_header(),
-            PurePosixPath("src/generated/protocol.cpp"): self.source(),
+            PurePosixPath("include/cmux/raw/generated/models.hpp"): self.models_header(),
+            PurePosixPath("include/cmux/raw/generated/events.hpp"): self.events_header(),
+            PurePosixPath("include/cmux/raw/generated/commands.hpp"): self.commands_header(),
+            PurePosixPath("src/raw/generated/protocol.cpp"): self.source(),
         }
 
 

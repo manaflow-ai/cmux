@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { CmuxClient } from "../src/client.js";
-import { CmuxProtocolError } from "../src/errors.js";
-import type { JsonObject } from "../src/protocol/index.js";
+import { CmuxClient } from "../src/raw/client.js";
+import { CmuxProtocolError } from "../src/raw/errors.js";
+import type { JsonObject } from "../src/raw/protocol/index.js";
 import type { Transport, Unsubscribe } from "../src/transport.js";
 import { parseWireJson, stringifyWireJson } from "../src/wire-json.js";
 

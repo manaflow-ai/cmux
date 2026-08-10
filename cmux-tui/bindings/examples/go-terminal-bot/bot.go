@@ -4,20 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	cmux "github.com/manaflow-ai/cmux/cmux-tui/bindings/go"
 )
 
-const mutationOrigin = "go-terminal-bot"
-
-type workspaceLease struct {
-	id       cmux.ID
-	key      string
-	revision uint64
-}
-
-// Run creates or finds the configured workspace, executes the command, and
-// closes the workspace unless KeepWorkspace is set.
+// Run creates an isolated workspace, runs the exact command, captures terminal
+// state, emits a typed notification, and closes the workspace by default.
 func (bot *Bot) Run(parent context.Context) (result Result, runErr error) {
 	ctx := parent
 	cancel := func() {}
@@ -26,9 +19,51 @@ func (bot *Bot) Run(parent context.Context) (result Result, runErr error) {
 	}
 	defer cancel()
 
-	var lease *workspaceLease
+	client, err := cmux.NewClient(ctx, cmux.ClientOptions{
+		SocketPath: bot.config.SocketPath,
+		Session:    bot.config.Session,
+		Timeout:    bot.config.IOTimeout,
+	})
+	if err != nil {
+		return result, fmt.Errorf("connect resource client: %w", err)
+	}
 	defer func() {
-		if lease == nil || bot.config.KeepWorkspace {
+		closeCtx, closeCancel := context.WithTimeout(
+			context.Background(),
+			bot.config.CleanupTimeout,
+		)
+		defer closeCancel()
+		runErr = errors.Join(runErr, client.Close(closeCtx))
+	}()
+
+	session := client.
+		Machine(cmux.SelectCurrent[cmux.MachineID]()).
+		Session(cmux.SelectCurrent[cmux.SessionID]())
+	workspaceCorrelation := bot.correlationKey("workspace.create")
+	createdWorkspace, err := bot.createWithRecovery(
+		ctx,
+		session,
+		"workspace.create",
+		workspaceCorrelation,
+		func(idempotencyKey string) (cmux.MutationResult[cmux.CreatedPath], error) {
+			return session.CreateWorkspace(ctx, cmux.WorkspaceCreateOptions{
+				MutationOptions: cmux.MutationOptions{
+					IdempotencyKey: idempotencyKey,
+					CorrelationKey: workspaceCorrelation,
+				},
+				Name:           cmux.OptionalString(bot.config.WorkspaceName),
+				InitialContent: "empty",
+			})
+		},
+	)
+	if err != nil {
+		return result, fmt.Errorf("create workspace: %w", err)
+	}
+	result.Workspace = createdWorkspace.Value.Workspace
+	result.WorkspaceRevision = createdWorkspace.Revision
+	workspace := session.Workspace(cmux.SelectID(result.Workspace))
+	defer func() {
+		if bot.config.KeepWorkspace {
 			return
 		}
 		cleanupCtx, cleanupCancel := context.WithTimeout(
@@ -36,107 +71,100 @@ func (bot *Bot) Run(parent context.Context) (result Result, runErr error) {
 			bot.config.CleanupTimeout,
 		)
 		defer cleanupCancel()
-		if err := bot.closeWorkspace(cleanupCtx, lease); err != nil {
-			runErr = errors.Join(runErr, err)
+		if _, err := workspace.Close(cleanupCtx, cmux.WorkspaceCloseOptions{}); err != nil {
+			runErr = errors.Join(runErr, fmt.Errorf("close workspace: %w", err))
 		}
 	}()
 
-	deltas, err := bot.openDeltaStream(ctx)
+	runCorrelation := bot.correlationKey("workspace.run")
+	createdTerminal, err := bot.createWithRecovery(
+		ctx,
+		session,
+		"workspace.run",
+		runCorrelation,
+		func(idempotencyKey string) (cmux.MutationResult[cmux.CreatedPath], error) {
+			runOptions := cmux.WorkspaceRunOptions{
+				MutationOptions: cmux.MutationOptions{
+					IdempotencyKey: idempotencyKey,
+					CorrelationKey: runCorrelation,
+				},
+				Command: cmux.Exact(bot.config.Argv...),
+				Name:    cmux.OptionalString(bot.config.TerminalName),
+			}
+			if bot.config.Cwd != "" {
+				runOptions.CWD = cmux.OptionalString(bot.config.Cwd)
+			}
+			return workspace.Run(ctx, runOptions)
+		},
+	)
 	if err != nil {
-		return result, err
+		return result, fmt.Errorf("run terminal command: %w", err)
 	}
-	defer func() {
-		if deltas != nil {
-			_ = deltas.Close()
-		}
-	}()
+	path := createdTerminal.Value
+	result.Screen = path.Screen
+	result.Pane = path.Pane
+	result.Tab = path.Tab
+	result.Terminal = path.Terminal
+	result.TerminalRevision = createdTerminal.Revision
+	terminal := session.Terminal(cmux.SelectID(result.Terminal))
 
-	tree, err := bot.listWorkspaces(ctx)
+	waitOptions := cmux.TerminalWaitExitOptions{}
+	if bot.config.Timeout > 0 {
+		milliseconds := cmux.Decimal(bot.config.Timeout.Milliseconds())
+		waitOptions.TimeoutMS = &milliseconds
+	}
+	waited, err := terminal.WaitExit(ctx, waitOptions)
 	if err != nil {
-		return result, err
+		bot.captureAndNotify(
+			terminal,
+			session,
+			&result,
+			"Terminal task interrupted",
+			err.Error(),
+			"warning",
+		)
+		return result, fmt.Errorf("wait for terminal exit: %w", err)
 	}
-	// Keep a provisional key lease so cleanup can reconcile an ambiguous
-	// create-workspace response after cancellation or transport loss.
-	lease = &workspaceLease{key: bot.config.WorkspaceKey}
-	ensuredLease, err := bot.ensureWorkspace(ctx, tree)
+	exitCode, revision, err := terminalExit(waited)
 	if err != nil {
+		bot.captureAndNotify(
+			terminal,
+			session,
+			&result,
+			"Terminal task ended unexpectedly",
+			err.Error(),
+			"error",
+		)
 		return result, err
-	}
-	lease = ensuredLease
-	result.Workspace = lease.id
-	result.WorkspaceKey = lease.key
-	result.WorkspaceRevision = lease.revision
-
-	placement, err := bot.createTerminal(ctx, lease)
-	if err != nil {
-		return result, err
-	}
-	result.Screen = placement.Screen
-	result.Pane = placement.Pane
-	result.Surface = placement.Surface
-	result.TerminalID = bot.config.TerminalID
-	result.TerminalRevision = placement.TerminalRevision
-
-	bytes, err := bot.openByteStream(ctx, result.Surface)
-	if err != nil {
-		return result, err
-	}
-	defer func() {
-		if bytes != nil {
-			_ = bytes.Close()
-		}
-	}()
-
-	if err := bot.reportAgent(ctx, result.Surface, cmux.AgentStateWorking); err != nil {
-		result.Warnings = append(result.Warnings, err.Error())
-	}
-
-	marker := newCompletionMarker(bot.config.MutationID)
-	input := marker.command(bot.config.Argv)
-	if err := bot.send(ctx, result.Surface, input); err != nil {
-		bot.finishInterrupted(&result, err)
-		return result, err
-	}
-
-	monitor := bot.startMonitor(ctx, result.Surface, deltas, bytes, marker)
-	deltas = nil
-	bytes = nil
-	defer monitor.Close()
-
-	exitCode, err := monitor.waitForMarker(ctx, &result)
-	if err != nil {
-		bot.finishInterrupted(&result, err)
-		return result, fmt.Errorf("monitor terminal task: %w", err)
 	}
 	result.ExitCode = exitCode
+	result.TerminalRevision = revision
 
-	finishCtx, finishCancel := context.WithTimeout(
+	captureCtx, captureCancel := context.WithTimeout(
 		context.Background(),
 		bot.config.CleanupTimeout,
 	)
-	bot.capture(finishCtx, &result)
-	state := cmux.AgentStateDone
+	defer captureCancel()
+	bot.capture(captureCtx, terminal, &result)
+	level := "info"
+	title := "Terminal task completed"
 	if exitCode != 0 {
-		state = cmux.AgentStateBlocked
+		level = "error"
+		title = "Terminal task failed"
 	}
-	if err := bot.reportAgent(finishCtx, result.Surface, state); err != nil {
-		result.Warnings = append(result.Warnings, err.Error())
+	bot.notify(
+		captureCtx,
+		session,
+		&result,
+		title,
+		fmt.Sprintf("exit status %d in workspace %s", exitCode, result.Workspace),
+		level,
+	)
+	if bot.config.Output != nil && result.ScreenText != "" {
+		if _, err := fmt.Fprintln(bot.config.Output, result.ScreenText); err != nil {
+			result.Warnings = append(result.Warnings, "write output: "+err.Error())
+		}
 	}
-	if notification, err := bot.notify(finishCtx, result.Surface, exitCode); err != nil {
-		result.Warnings = append(result.Warnings, err.Error())
-	} else {
-		result.Notification = notification
-	}
-	if err := bot.send(finishCtx, result.Surface, "\n"); err != nil {
-		result.Warnings = append(result.Warnings, err.Error())
-	}
-	finishCancel()
-
-	exitCtx, exitCancel := context.WithTimeout(context.Background(), bot.config.ExitGrace)
-	if err := monitor.waitForExit(exitCtx, &result); err != nil {
-		result.Warnings = append(result.Warnings, "wait for terminal exit: "+err.Error())
-	}
-	exitCancel()
 
 	if exitCode != 0 {
 		return result, &TaskError{ExitCode: exitCode}
@@ -144,230 +172,190 @@ func (bot *Bot) Run(parent context.Context) (result Result, runErr error) {
 	return result, nil
 }
 
-func (bot *Bot) listWorkspaces(ctx context.Context) (cmux.Tree, error) {
-	var tree cmux.Tree
-	err := bot.call(ctx, true, "list workspaces", func(client *cmux.Client) error {
-		var err error
-		tree, err = client.ListWorkspaces(ctx)
-		return err
-	})
-	return tree, err
+func (bot *Bot) captureAndNotify(
+	terminal *cmux.Terminal,
+	session *cmux.Session,
+	result *Result,
+	title string,
+	body string,
+	level string,
+) {
+	ctx, cancel := context.WithTimeout(context.Background(), bot.config.CleanupTimeout)
+	defer cancel()
+	bot.capture(ctx, terminal, result)
+	bot.notify(ctx, session, result, title, body, level)
 }
 
-func (bot *Bot) ensureWorkspace(
-	ctx context.Context,
-	tree cmux.Tree,
-) (*workspaceLease, error) {
-	for _, workspace := range tree.Workspaces {
-		if workspace.Key != nil && *workspace.Key == bot.config.WorkspaceKey {
-			return &workspaceLease{
-				id:       workspace.ID,
-				key:      *workspace.Key,
-				revision: uint64Value(tree.WorkspaceRevision),
-			}, nil
-		}
+func (bot *Bot) capture(ctx context.Context, terminal *cmux.Terminal, result *Result) {
+	screen, err := terminal.ReadScreen(ctx, cmux.TerminalScreenReadOptions{})
+	if err != nil {
+		result.Warnings = append(result.Warnings, "read screen: "+err.Error())
+	} else {
+		result.ScreenText = screen.Text
 	}
 
-	key := bot.config.WorkspaceKey
-	name := bot.config.WorkspaceName
-	origin := mutationOrigin
-	mutationID := bot.config.MutationID + "-workspace-create"
-	var created cmux.CreateWorkspaceResult
-	err := bot.call(ctx, true, "create isolated workspace", func(client *cmux.Client) error {
-		var err error
-		created, err = client.CreateWorkspace(ctx, cmux.CreateWorkspaceOptions{
-			ExpectedGeneration: optionalPresence(tree.Generation),
-			ExpectedRevision:   optionalPresence(tree.WorkspaceRevision),
-			Key:                cmux.Value(key),
-			MutationID:         cmux.Value(mutationID),
-			Name:               cmux.Value(name),
-			Origin:             cmux.Value(origin),
-		})
-		return err
+	history, err := terminal.ReadHistory(ctx, cmux.TerminalHistoryReadOptions{
+		Limit: cmux.OptionalUint32(bot.config.HistoryRows),
 	})
 	if err != nil {
-		return nil, err
+		result.Warnings = append(result.Warnings, "read history: "+err.Error())
+	} else {
+		result.HistoryText = historyText(history)
 	}
-	return &workspaceLease{
-		id:       created.Workspace,
-		key:      created.Key,
-		revision: created.WorkspaceRevision,
-	}, nil
-}
-
-func (bot *Bot) createTerminal(
-	ctx context.Context,
-	lease *workspaceLease,
-) (cmux.CreateTerminalResult, error) {
-	var terminals cmux.ListTerminalsResult
-	if err := bot.call(ctx, true, "list terminals", func(client *cmux.Client) error {
-		var err error
-		terminals, err = client.ListTerminals(ctx)
-		return err
-	}); err != nil {
-		return cmux.CreateTerminalResult{}, err
-	}
-
-	argv := []string{defaultShell}
-	key := lease.key
-	name := bot.config.TerminalName
-	origin := mutationOrigin
-	mutationID := bot.config.MutationID + "-terminal-create"
-	terminalID := bot.config.TerminalID
-	var created cmux.CreateTerminalResult
-	err := bot.call(ctx, true, "create terminal task", func(client *cmux.Client) error {
-		var err error
-		created, err = client.CreateTerminal(ctx, cmux.CreateTerminalOptions{
-			Argv:               cmux.Value(argv),
-			Cwd:                optionalString(bot.config.Cwd),
-			ExpectedGeneration: cmux.Value(terminals.Generation),
-			ExpectedRevision:   cmux.Value(terminals.TerminalRevision),
-			Key:                cmux.Value(key),
-			MutationID:         cmux.Value(mutationID),
-			Name:               cmux.Value(name),
-			Origin:             cmux.Value(origin),
-			TerminalID:         cmux.Value(terminalID),
-		})
-		return err
-	})
-	return created, err
-}
-
-func (bot *Bot) send(ctx context.Context, surface cmux.ID, text string) error {
-	return bot.call(ctx, false, "send terminal input", func(client *cmux.Client) error {
-		return client.Send(ctx, surface, cmux.SendOptions{Text: cmux.Value(text)})
-	})
-}
-
-func (bot *Bot) reportAgent(
-	ctx context.Context,
-	surface cmux.ID,
-	state cmux.AgentState,
-) error {
-	session := bot.config.AgentSession
-	return bot.call(ctx, true, "report agent state", func(client *cmux.Client) error {
-		_, err := client.ReportAgent(
-			ctx,
-			surface,
-			cmux.AgentReportSourceSocket,
-			state,
-			cmux.ReportAgentOptions{Session: cmux.Value(session)},
-		)
-		return err
-	})
 }
 
 func (bot *Bot) notify(
 	ctx context.Context,
-	surface cmux.ID,
-	exitCode int,
-) (cmux.ID, error) {
-	level := cmux.NotificationLevelInfo
-	title := "Terminal task completed"
-	body := fmt.Sprintf("exit status %d in workspace %s", exitCode, bot.config.WorkspaceKey)
-	if exitCode != 0 {
-		level = cmux.NotificationLevelError
-		title = "Terminal task failed"
-	}
-	var notified cmux.NotifyResult
-	err := bot.call(ctx, false, "post terminal notification", func(client *cmux.Client) error {
-		var err error
-		notified, err = client.Notify(ctx, title, body, cmux.NotifyOptions{
-			Level:   cmux.Value(level),
-			Surface: cmux.Value(surface),
-		})
-		return err
+	session *cmux.Session,
+	result *Result,
+	title string,
+	body string,
+	level string,
+) {
+	created, err := session.CreateNotification(ctx, cmux.NotificationCreateOptions{
+		Title:      title,
+		Body:       body,
+		Level:      cmux.OptionalString(level),
+		TerminalID: &result.Terminal,
 	})
-	return notified.Notification, err
-}
-
-func (bot *Bot) finishInterrupted(result *Result, cause error) {
-	if result.Surface == 0 {
+	if err != nil {
+		result.Warnings = append(result.Warnings, "create notification: "+err.Error())
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), bot.config.CleanupTimeout)
-	defer cancel()
-	bot.capture(ctx, result)
-	if err := bot.reportAgent(ctx, result.Surface, cmux.AgentStateBlocked); err != nil {
-		result.Warnings = append(result.Warnings, err.Error())
-	}
-	level := cmux.NotificationLevelWarning
-	var notified cmux.NotifyResult
-	err := bot.call(ctx, false, "post interruption notification", func(client *cmux.Client) error {
-		var err error
-		notified, err = client.Notify(
-			ctx,
-			"Terminal task interrupted",
-			cause.Error(),
-			cmux.NotifyOptions{
-				Level:   cmux.Value(level),
-				Surface: cmux.Value(result.Surface),
-			},
-		)
-		return err
-	})
-	if err != nil {
-		result.Warnings = append(result.Warnings, err.Error())
-	} else {
-		result.Notification = notified.Notification
-	}
+	result.Notification = created.Value.Snapshot().ID
 }
 
-func (bot *Bot) closeWorkspace(ctx context.Context, lease *workspaceLease) error {
-	tree, err := bot.listWorkspaces(ctx)
-	if err != nil {
-		return fmt.Errorf("cleanup workspace snapshot: %w", err)
-	}
-	found := false
-	for _, workspace := range tree.Workspaces {
-		if workspace.Key != nil && *workspace.Key == lease.key {
-			found = true
-			lease.id = workspace.ID
-			break
+type createCall func(string) (cmux.MutationResult[cmux.CreatedPath], error)
+
+func (bot *Bot) createWithRecovery(
+	ctx context.Context,
+	session *cmux.Session,
+	action string,
+	correlationKey string,
+	create createCall,
+) (cmux.MutationResult[cmux.CreatedPath], error) {
+	idempotencyKey := bot.idempotencyKey(action, 0)
+	for attempt := 0; attempt < 2; attempt++ {
+		created, err := create(idempotencyKey)
+		if err == nil {
+			return created, nil
+		}
+		if !creationOutcomeUncertain(err) {
+			return cmux.MutationResult[cmux.CreatedPath]{}, err
+		}
+
+		resolution, resolveErr := session.ResolveCreation(
+			ctx,
+			correlationKey,
+			cmux.SessionCreationResolveOptions{},
+		)
+		if resolveErr != nil {
+			return cmux.MutationResult[cmux.CreatedPath]{}, errors.Join(err, resolveErr)
+		}
+		switch resolution.State {
+		case cmux.CreationResolutionCreated:
+			if resolution.CreatedPath == nil ||
+				resolution.Generation == nil ||
+				resolution.Revision == nil {
+				return cmux.MutationResult[cmux.CreatedPath]{}, fmt.Errorf(
+					"%s creation lookup omitted its committed result",
+					action,
+				)
+			}
+			return cmux.MutationResult[cmux.CreatedPath]{
+				Value:      *resolution.CreatedPath,
+				Generation: *resolution.Generation,
+				Revision:   *resolution.Revision,
+			}, nil
+		case cmux.CreationResolutionNotApplied:
+			if attempt == 1 {
+				break
+			}
+			if resolution.Recovery == cmux.CreationRetryNewIdempotencyKey {
+				idempotencyKey = bot.idempotencyKey(action, attempt+1)
+			}
+			continue
+		default:
+			return cmux.MutationResult[cmux.CreatedPath]{}, fmt.Errorf(
+				"%s creation lookup returned state=%s recovery=%s",
+				action,
+				resolution.State,
+				resolution.Recovery,
+			)
 		}
 	}
-	if !found {
-		return nil
-	}
-
-	origin := mutationOrigin
-	mutationID := bot.config.MutationID + "-workspace-close"
-	_, err = func() (cmux.CloseWorkspaceResult, error) {
-		var closed cmux.CloseWorkspaceResult
-		err := bot.call(ctx, true, "close isolated workspace", func(client *cmux.Client) error {
-			var err error
-			closed, err = client.CloseWorkspace(ctx, cmux.CloseWorkspaceOptions{
-				ExpectedGeneration: optionalPresence(tree.Generation),
-				ExpectedRevision:   optionalPresence(tree.WorkspaceRevision),
-				Key:                cmux.Value(lease.key),
-				MutationID:         cmux.Value(mutationID),
-				Origin:             cmux.Value(origin),
-				Workspace:          cmux.Value(lease.id),
-			})
-			return err
-		})
-		return closed, err
-	}()
-	return err
+	return cmux.MutationResult[cmux.CreatedPath]{}, fmt.Errorf(
+		"%s was not applied after one bounded retry",
+		action,
+	)
 }
 
-func optionalString(value string) cmux.Presence[string] {
-	if value == "" {
-		return cmux.Presence[string]{}
+func creationOutcomeUncertain(err error) bool {
+	var transport *cmux.MutationTransportUncertainError
+	if errors.As(err, &transport) {
+		return true
 	}
-	return cmux.Value(value)
+	var resource *cmux.ResourceError
+	return errors.As(err, &resource) && resource.IsCode("mutation.indeterminate")
 }
 
-func optionalPresence[T any](value *T) cmux.Presence[T] {
-	if value == nil {
-		return cmux.Presence[T]{}
-	}
-	return cmux.Value(*value)
+func (bot *Bot) correlationKey(action string) string {
+	return "go-terminal-bot:" + bot.runID + ":" + action
 }
 
-func uint64Value(value *uint64) uint64 {
-	if value == nil {
-		return 0
+func (bot *Bot) idempotencyKey(action string, attempt int) string {
+	return fmt.Sprintf(
+		"go-terminal-bot:%s:%s:%d",
+		bot.runID,
+		action,
+		attempt,
+	)
+}
+
+func terminalExit(
+	result cmux.TerminalWaitExitResult,
+) (int, cmux.Decimal, error) {
+	exited, ok := result.(cmux.TerminalWaitExitExited)
+	if !ok {
+		pending, pendingOK := result.(cmux.TerminalWaitExitPending)
+		if pendingOK {
+			return 0, pending.Revision, fmt.Errorf(
+				"terminal remained %s after its exit wait",
+				pending.Lifecycle,
+			)
+		}
+		return 0, 0, fmt.Errorf("terminal exit returned an unknown result")
 	}
-	return *value
+
+	switch outcome := exited.Outcome.(type) {
+	case cmux.TerminalExitCode:
+		return int(outcome.Code), exited.Revision, nil
+	case cmux.TerminalExitSignal:
+		return 0, exited.Revision, fmt.Errorf(
+			"terminal process exited from signal %d (core_dumped=%t)",
+			outcome.Signal,
+			outcome.CoreDumped,
+		)
+	case cmux.TerminalExitUnknown:
+		return 0, exited.Revision, fmt.Errorf(
+			"terminal process exit is unknown: %s",
+			outcome.Reason,
+		)
+	default:
+		return 0, exited.Revision, fmt.Errorf(
+			"terminal process returned an unknown exit outcome",
+		)
+	}
+}
+
+func historyText(history cmux.TerminalHistoryResult) string {
+	lines := make([]string, 0, len(history.Rows))
+	for _, row := range history.Rows {
+		var line strings.Builder
+		for _, run := range row.Runs {
+			line.WriteString(run.Text)
+		}
+		lines = append(lines, line.String())
+	}
+	return strings.Join(lines, "\n")
 }
