@@ -1,6 +1,7 @@
+use std::collections::VecDeque;
 use std::env;
 use std::fs;
-use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -531,6 +532,12 @@ fn run_pty(
         bail!(
             "interactive process exited with {status}: {}",
             String::from_utf8_lossy(&reader.output)
+        );
+    }
+    if reader.probe_responses < 4 {
+        bail!(
+            "interactive process answered {} terminal probes, expected at least 4",
+            reader.probe_responses
         );
     }
     let measured_event = observed_at.duration_since(started);
@@ -1221,6 +1228,7 @@ enum CursorVisibility {
 
 #[derive(Default)]
 struct ProbeTracker {
+    cpr: bool,
     foreground: bool,
     background: bool,
     window: bool,
@@ -1234,7 +1242,8 @@ struct ProbeTracker {
 impl ProbeTracker {
     fn observe(&mut self, bytes: &[u8]) -> Vec<&'static [u8]> {
         self.pending.extend_from_slice(bytes);
-        let probes: [(&[u8], &[u8], &mut bool); 6] = [
+        let probes: [(&[u8], &[u8], &mut bool); 7] = [
+            (b"\x1b[6n", b"\x1b[1;1R", &mut self.cpr),
             (b"\x1b]10;?\x1b\\", b"\x1b]10;rgb:eeee/dddd/cccc\x1b\\", &mut self.foreground),
             (b"\x1b]11;?\x1b\\", b"\x1b]11;rgb:1111/2222/3333\x1b\\", &mut self.background),
             (b"\x1b[14t", b"\x1b[4;384;640t", &mut self.window),
@@ -1292,30 +1301,270 @@ struct Captured {
 }
 
 fn run_captured(mut command: Command) -> Result<Captured> {
-    // Pipe readers cannot prove completion when a descendant inherits a writer.
-    // Regular files decouple output availability from descendant lifetimes.
-    let mut stdout_file = tempfile::tempfile().context("create stdout capture file")?;
-    let mut stderr_file = tempfile::tempfile().context("create stderr capture file")?;
-    command
-        .stdin(Stdio::null())
-        .stdout(Stdio::from(stdout_file.try_clone()?))
-        .stderr(Stdio::from(stderr_file.try_clone()?));
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     let started = Instant::now();
     let mut child = command.spawn()?;
-    let status = wait_child(&mut child, PROCESS_TIMEOUT)?;
+    let process_tree = CapturedProcessTree::new(child.id());
+    let (capture_sender, capture_receiver) = mpsc::channel();
+    let stdout_pipe = child.stdout.take().context("captured command omitted stdout pipe")?;
+    let stderr_pipe = child.stderr.take().context("captured command omitted stderr pipe")?;
+    let mut stdout = match CaptureReader::spawn(
+        stdout_pipe,
+        "startup-benchmark-stdout-reader",
+        CaptureStream::Stdout,
+        capture_sender.clone(),
+    ) {
+        Ok(reader) => reader,
+        Err(error) => {
+            let _ = process_tree.terminate();
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(error).context("spawn captured stdout reader");
+        }
+    };
+    let mut stderr = match CaptureReader::spawn(
+        stderr_pipe,
+        "startup-benchmark-stderr-reader",
+        CaptureStream::Stderr,
+        capture_sender,
+    ) {
+        Ok(reader) => reader,
+        Err(error) => {
+            let _ = process_tree.terminate();
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = stdout.cancel();
+            let _ = stdout.join();
+            return Err(error).context("spawn captured stderr reader");
+        }
+    };
+    let mut lifecycle_error = None;
+    let status = if let Some(status) = child.wait_timeout(PROCESS_TIMEOUT)? {
+        status
+    } else {
+        let tree_error = process_tree.terminate().err();
+        let kill_error = if tree_error.is_some() { child.kill().err() } else { None };
+        let status = child.wait()?;
+        let mut error =
+            anyhow!("process exceeded {PROCESS_TIMEOUT:?} and was killed with {status}");
+        if let Some(tree_error) = tree_error {
+            error = error.context(format!("process-tree termination also failed: {tree_error}"));
+        }
+        if let Some(kill_error) = kill_error {
+            error = error.context(format!("direct child kill also failed: {kill_error}"));
+        }
+        lifecycle_error = Some(error);
+        status
+    };
     let duration = started.elapsed();
-    let stdout = read_bounded_snapshot(&mut stdout_file)?;
-    let stderr = read_bounded_snapshot(&mut stderr_file)?;
+    let mut stdout_result = None;
+    let mut stderr_result = None;
+    let capture = collect_capture_results(
+        &capture_receiver,
+        &mut stdout_result,
+        &mut stderr_result,
+        Instant::now() + PROCESS_TIMEOUT,
+    );
+    if let Err(error) = capture {
+        let tree_error = process_tree.terminate_after_exit().err();
+        let stdout_cancel = stdout.cancel().err();
+        let stderr_cancel = stderr.cancel().err();
+        let recovery = collect_capture_results(
+            &capture_receiver,
+            &mut stdout_result,
+            &mut stderr_result,
+            Instant::now() + PROCESS_TIMEOUT,
+        );
+        let mut error = error.context("captured output did not complete after child exit");
+        if let Some(tree_error) = tree_error {
+            error = error.context(format!("process-tree termination also failed: {tree_error}"));
+        }
+        if let Some(cancel) = stdout_cancel.or(stderr_cancel) {
+            error = error.context(format!("capture-reader cancellation also failed: {cancel}"));
+        }
+        if let Err(recovery) = recovery {
+            error = error.context(format!("capture-reader recovery also failed: {recovery:#}"));
+            return Err(error);
+        }
+        lifecycle_error = Some(error);
+    }
+    let stdout_join = stdout.join();
+    let stderr_join = stderr.join();
+    if let Err(join) = stdout_join.and(stderr_join) {
+        return Err(join).context("join captured output readers");
+    }
+    if let Some(error) = lifecycle_error {
+        return Err(error);
+    }
+    let stdout = stdout_result.context("stdout reader returned no result")??;
+    let stderr = stderr_result.context("stderr reader returned no result")??;
     Ok(Captured { status, stdout, stderr, duration })
 }
 
-fn read_bounded_snapshot(file: &mut fs::File) -> io::Result<Vec<u8>> {
-    let available = file.metadata()?.len();
-    let capture = available.min(MAX_CAPTURE_BYTES as u64);
-    file.seek(SeekFrom::Start(available - capture))?;
-    let mut output = Vec::with_capacity(capture as usize);
-    file.take(capture).read_to_end(&mut output)?;
-    Ok(output)
+#[derive(Clone, Copy)]
+enum CaptureStream {
+    Stdout,
+    Stderr,
+}
+
+struct CaptureEvent {
+    stream: CaptureStream,
+    result: io::Result<Vec<u8>>,
+}
+
+fn collect_capture_results(
+    receiver: &mpsc::Receiver<CaptureEvent>,
+    stdout: &mut Option<io::Result<Vec<u8>>>,
+    stderr: &mut Option<io::Result<Vec<u8>>>,
+    deadline: Instant,
+) -> Result<()> {
+    while stdout.is_none() || stderr.is_none() {
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .context("captured reader deadline expired")?;
+        let event =
+            receiver.recv_timeout(remaining).context("wait for captured reader completion")?;
+        let slot = match event.stream {
+            CaptureStream::Stdout => &mut *stdout,
+            CaptureStream::Stderr => &mut *stderr,
+        };
+        if slot.replace(event.result).is_some() {
+            bail!("captured reader reported completion twice");
+        }
+    }
+    Ok(())
+}
+
+struct CaptureReader {
+    thread: Option<thread::JoinHandle<()>>,
+    cancelled: Arc<AtomicBool>,
+}
+
+impl CaptureReader {
+    fn spawn(
+        reader: impl Read + Send + 'static,
+        name: &str,
+        stream: CaptureStream,
+        sender: mpsc::Sender<CaptureEvent>,
+    ) -> Result<Self> {
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let cancelled_for_reader = cancelled.clone();
+        let thread = thread::Builder::new().name(name.into()).spawn(move || {
+            let result = read_bounded_stream(reader, cancelled_for_reader);
+            let _ = sender.send(CaptureEvent { stream, result });
+        })?;
+        Ok(Self { thread: Some(thread), cancelled })
+    }
+
+    #[cfg(windows)]
+    fn cancel(&self) -> io::Result<()> {
+        use std::os::windows::io::AsRawHandle;
+
+        self.cancelled.store(true, Ordering::Release);
+        let thread = self
+            .thread
+            .as_ref()
+            .ok_or_else(|| io::Error::other("capture reader thread already joined"))?;
+        // SAFETY: this live JoinHandle owns the exact capture reader thread.
+        // The call only cancels synchronous I/O issued by that thread.
+        let result = unsafe { cancel_synchronous_io(thread.as_raw_handle()) };
+        if result != 0 {
+            return Ok(());
+        }
+        let error = io::Error::last_os_error();
+        const ERROR_NOT_FOUND: i32 = 1168;
+        if error.raw_os_error() == Some(ERROR_NOT_FOUND) { Ok(()) } else { Err(error) }
+    }
+
+    #[cfg(not(windows))]
+    fn cancel(&self) -> io::Result<()> {
+        self.cancelled.store(true, Ordering::Release);
+        Ok(())
+    }
+
+    fn join(&mut self) -> Result<()> {
+        self.thread
+            .take()
+            .context("capture reader thread already joined")?
+            .join()
+            .map_err(|_| anyhow!("capture reader panicked"))
+    }
+}
+
+fn read_bounded_stream(mut reader: impl Read, cancelled: Arc<AtomicBool>) -> io::Result<Vec<u8>> {
+    let mut output = VecDeque::new();
+    let mut buffer = [0_u8; 8192];
+    loop {
+        if cancelled.load(Ordering::Acquire) {
+            return Ok(output.into_iter().collect());
+        }
+        match reader.read(&mut buffer) {
+            Ok(0) => return Ok(output.into_iter().collect()),
+            Ok(read) => append_bounded_tail(&mut output, &buffer[..read]),
+            Err(_) if cancelled.load(Ordering::Acquire) => {
+                return Ok(output.into_iter().collect());
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+fn append_bounded_tail(output: &mut VecDeque<u8>, bytes: &[u8]) {
+    if bytes.len() >= MAX_CAPTURE_BYTES {
+        output.clear();
+        output.extend(bytes[bytes.len() - MAX_CAPTURE_BYTES..].iter().copied());
+        return;
+    }
+    let overflow = output.len().saturating_add(bytes.len()).saturating_sub(MAX_CAPTURE_BYTES);
+    output.drain(..overflow);
+    output.extend(bytes.iter().copied());
+}
+
+#[derive(Clone, Copy)]
+struct CapturedProcessTree {
+    child_id: u32,
+}
+
+impl CapturedProcessTree {
+    fn new(child_id: u32) -> Self {
+        Self { child_id }
+    }
+
+    fn terminate(self) -> io::Result<()> {
+        #[cfg(unix)]
+        {
+            let group = self.child_id as libc::pid_t;
+            // SAFETY: process_group(0) created a new group whose leader is the
+            // validated direct child. The negative id targets only that group.
+            if unsafe { libc::kill(-group, libc::SIGKILL) } == 0 {
+                return Ok(());
+            }
+            let error = io::Error::last_os_error();
+            if error.raw_os_error() == Some(libc::ESRCH) {
+                return Ok(());
+            }
+            return Err(error);
+        }
+
+        #[cfg(windows)]
+        return terminate_windows_process_tree(self.child_id);
+    }
+
+    fn terminate_after_exit(self) -> io::Result<()> {
+        #[cfg(unix)]
+        return self.terminate();
+
+        // The Windows child PID can be reused after exit. Cancelling the exact
+        // owned reader threads closes the harness pipe handles without sending
+        // taskkill to a possibly unrelated later process.
+        #[cfg(windows)]
+        return Ok(());
+    }
 }
 
 fn wait_child(child: &mut Child, timeout: Duration) -> Result<ExitStatus> {
@@ -1572,14 +1821,13 @@ mod tests {
     }
 
     #[test]
-    fn capture_snapshot_does_not_wait_for_writer_eof() {
-        let mut capture = tempfile::tempfile().unwrap();
-        let mut retained_writer = capture.try_clone().unwrap();
-        retained_writer.write_all(b"complete output").unwrap();
-        retained_writer.flush().unwrap();
+    fn captured_output_retains_only_the_bounded_tail() {
+        let input: Vec<u8> = (0..MAX_CAPTURE_BYTES + 17).map(|index| index as u8).collect();
+        let output =
+            read_bounded_stream(io::Cursor::new(&input), Arc::new(AtomicBool::new(false))).unwrap();
 
-        assert_eq!(read_bounded_snapshot(&mut capture).unwrap(), b"complete output");
-        drop(retained_writer);
+        assert_eq!(output.len(), MAX_CAPTURE_BYTES);
+        assert_eq!(output, input[input.len() - MAX_CAPTURE_BYTES..]);
     }
 
     #[test]
