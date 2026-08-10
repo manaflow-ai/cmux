@@ -19694,10 +19694,8 @@ mod tests {
         let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
         // A second tab keeps the pane live after the terminal view detaches.
         let second = mux.new_tab(Some(pane), None, None).unwrap();
-        let terminal = first
-            .terminal_public_id()
-            .cloned()
-            .expect("test terminal has a public identity");
+        let terminal =
+            first.terminal_public_id().cloned().expect("test terminal has a public identity");
 
         mux.report_agent(
             first.id,
