@@ -145,15 +145,25 @@ class SettingsUITestCase: XCTestCase {
 }
 
 /// User-visible regression coverage for Settings window presentation. This
-/// deliberately drives native full screen before opening Settings: a plain
-/// `window.exists` assertion can pass for a window stranded on another Space,
-/// so the test also requires both windows to remain hittable and proves that
-/// Cmd+W is delivered to Settings rather than the full-screen main window.
+/// deliberately creates Settings before driving the main window into native
+/// full screen. That leaves the existing Settings window on the desktop Space
+/// unless its AppKit policy follows the invocation. A plain `window.exists`
+/// assertion can still pass there, so the test also requires both windows to
+/// remain hittable and proves that Cmd+W reaches Settings rather than the
+/// full-screen main window.
 final class SettingsWindowPresentationUITests: SettingsUITestCase {
     func testCmdCommaPresentsKeySettingsOverFullScreenMainWindow() {
         let app = makeLaunchedApp()
         let mainWindow = app.windows.firstMatch
         let initialFrame = mainWindow.frame
+
+        let settingsWindow = openSettings(app)
+        XCTAssertTrue(settingsWindow.isHittable, "Settings must start on the desktop Space")
+
+        // Return key-window status to the terminal while leaving Settings
+        // alive on the desktop. This reproduces the stale-visible-window path
+        // that `NSWindow.isVisible` alone incorrectly treats as success.
+        app.typeKey("`", modifierFlags: .command)
 
         app.typeKey("f", modifierFlags: [.command, .control])
         XCTAssertTrue(
@@ -167,7 +177,6 @@ final class SettingsWindowPresentationUITests: SettingsUITestCase {
         let fullScreenFrame = mainWindow.frame
 
         app.typeKey(",", modifierFlags: .command)
-        let settingsWindow = app.windows["Settings"]
         XCTAssertTrue(
             poll(timeout: 8.0) {
                 settingsWindow.exists
