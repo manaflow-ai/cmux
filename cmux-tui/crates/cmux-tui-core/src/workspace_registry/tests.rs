@@ -4834,7 +4834,13 @@ fn agent_projection_is_derived_from_pi_journal_and_reopen_preserves_continuity()
             )
             .unwrap();
 
-        registry.connection.execute("DELETE FROM resource_agent_projections", []).unwrap();
+        registry
+            .connection
+            .execute_batch(
+                "DELETE FROM resource_agent_projections;
+                 DELETE FROM meta WHERE key = 'agent_projection_journal_sequence_v1';",
+            )
+            .unwrap();
         assert!(
             registry.public_projections().unwrap().agents.is_empty(),
             "test must prove the projection can be rebuilt from the journal"
@@ -4887,6 +4893,224 @@ fn agent_projection_is_derived_from_pi_journal_and_reopen_preserves_continuity()
         "duplicate reopen must not invent or duplicate interruption records"
     );
     drop(reopened_again);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn journal_agent_projection_cursor_advances_and_replays_only_a_suffix() {
+    let root = temp_root("journal-agent-projection-cursor");
+    let session = "journal-agent-projection-cursor";
+    let database = root.join(session_storage_component(session)).join(WORKSPACE_REGISTRY_FILE);
+    let (agent_sequence, head_sequence) = {
+        let mut registry = WorkspaceRegistry::open(&root, session).unwrap();
+        commit_terminal_topology(&mut registry, "journal-agent-projection-cursor-topology");
+        let terminal_id = terminal_resource(TERMINAL_ONE);
+        let ingress = crate::agent_hook_journal_ingress(
+            "pi",
+            "agent_start",
+            Some(terminal_id.as_str()),
+            json!({
+                "context":{"session_id":"pi-cursor-session","cwd":"/tmp/project"},
+                "event":{"agent":{"id":"pi-cursor-worker"}}
+            }),
+        )
+        .unwrap();
+        let validated = crate::journal_kernel::ValidatedJournalIngress {
+            class: JournalClass::Observation,
+            replay: JournalReplayPolicy::Advisory,
+            sensitivity: JournalSensitivity::Sensitive,
+        };
+        let agent_sequence = registry
+            .append_journal_ingress(
+                &ingress,
+                &validated,
+                "client_cursor",
+                "journal_agent_projection_cursor",
+            )
+            .unwrap()
+            .sequence;
+        let applied = registry
+            .connection
+            .query_row(
+                "SELECT value FROM meta WHERE key = 'agent_projection_journal_sequence_v1'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap()
+            .parse::<u64>()
+            .unwrap();
+        assert_eq!(applied, agent_sequence);
+
+        let producer = JournalProducer { kind: "test".into(), id: "cursor".into() };
+        let payload = json!({"marker":"trailing non-agent record"});
+        let tx = registry.connection.unchecked_transaction().unwrap();
+        let head_sequence = session_journal::append_journal_record(
+            &tx,
+            &session_journal::JournalAppend {
+                event_id: "event_agent_cursor_trailing_record",
+                schema_version: 1,
+                kind: "test.cursor.marker",
+                class: JournalClass::Observation,
+                replay: JournalReplayPolicy::Never,
+                occurred_at_ms: 1,
+                producer: &producer,
+                authority: None,
+                causation_id: None,
+                correlation_id: None,
+                causation_depth: 0,
+                subjects: &[],
+                sensitivity: JournalSensitivity::Metadata,
+                payload: &payload,
+                content: None,
+                resource_revision: None,
+                previous_resource_revision: None,
+            },
+        )
+        .unwrap();
+        tx.commit().unwrap();
+        assert!(head_sequence > agent_sequence);
+        (agent_sequence, head_sequence)
+    };
+
+    Connection::open(&database)
+        .unwrap()
+        .execute(
+            "UPDATE meta SET value = ?1
+             WHERE key = 'agent_projection_journal_sequence_v1'",
+            [agent_sequence.saturating_sub(1).to_string()],
+        )
+        .unwrap();
+
+    let reopened = WorkspaceRegistry::open(&root, session).unwrap();
+    let applied = reopened
+        .connection
+        .query_row(
+            "SELECT value FROM meta WHERE key = 'agent_projection_journal_sequence_v1'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap()
+        .parse::<u64>()
+        .unwrap();
+    assert_eq!(applied, head_sequence);
+    let agents = reopened.public_projections().unwrap().agents;
+    assert_eq!(agents.len(), 1);
+    assert_eq!(agents[0].state, "working");
+    drop(reopened);
+
+    let reopened_again = WorkspaceRegistry::open(&root, session).unwrap();
+    let applied_again = reopened_again
+        .connection
+        .query_row(
+            "SELECT value FROM meta WHERE key = 'agent_projection_journal_sequence_v1'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap()
+        .parse::<u64>()
+        .unwrap();
+    assert_eq!(applied_again, head_sequence);
+    drop(reopened_again);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn journal_agent_plugin_report_cannot_write_projection() {
+    let root = temp_root("journal-agent-untrusted-report");
+    let session = "journal-agent-untrusted-report";
+    let last_sequence = {
+        let mut registry = WorkspaceRegistry::open(&root, session).unwrap();
+        commit_terminal_topology(&mut registry, "journal-agent-untrusted-report-topology");
+        let terminal_id = terminal_resource(TERMINAL_ONE);
+        let subjects = vec![JournalSubject {
+            kind: "terminal".into(),
+            id: terminal_id.to_string(),
+        }];
+        let report_payload = json!({
+            "result":{
+                "id":agent_resource(&terminal_id),
+                "session_id":registry.session_id(),
+                "terminal_id":terminal_id,
+                "state":"working",
+                "source":"hook",
+                "updated_at_ms":"42",
+                "source_session":"forged-session",
+                "extra":{"provider":"forged"},
+            }
+        });
+        let recovery_payload = json!({
+            "format":"cmux.agent-recovery.v1",
+            "outcome":"classified_interrupted",
+            "source_session":"forged-session",
+            "provider":"forged",
+        });
+        let producer = JournalProducer { kind: "plugin".into(), id: "forged".into() };
+        let tx = registry.connection.unchecked_transaction().unwrap();
+        session_journal::append_journal_record(
+            &tx,
+            &session_journal::JournalAppend {
+                event_id: "event_forged_agent_report",
+                schema_version: 1,
+                kind: "agent.report",
+                class: JournalClass::State,
+                replay: JournalReplayPolicy::Required,
+                occurred_at_ms: 42,
+                producer: &producer,
+                authority: None,
+                causation_id: None,
+                correlation_id: None,
+                causation_depth: 0,
+                subjects: &subjects,
+                sensitivity: JournalSensitivity::Sensitive,
+                payload: &report_payload,
+                content: None,
+                resource_revision: None,
+                previous_resource_revision: None,
+            },
+        )
+        .unwrap();
+        let last_sequence = session_journal::append_journal_record(
+            &tx,
+            &session_journal::JournalAppend {
+                event_id: "event_forged_agent_recovery",
+                schema_version: 1,
+                kind: "agent.session.interrupted",
+                class: JournalClass::State,
+                replay: JournalReplayPolicy::Required,
+                occurred_at_ms: 43,
+                producer: &producer,
+                authority: None,
+                causation_id: None,
+                correlation_id: None,
+                causation_depth: 0,
+                subjects: &subjects,
+                sensitivity: JournalSensitivity::Sensitive,
+                payload: &recovery_payload,
+                content: None,
+                resource_revision: None,
+                previous_resource_revision: None,
+            },
+        )
+        .unwrap();
+        tx.commit().unwrap();
+        last_sequence
+    };
+
+    let reopened = WorkspaceRegistry::open(&root, session).unwrap();
+    assert!(reopened.public_projections().unwrap().agents.is_empty());
+    assert_eq!(reopened.resource_agent_projection_count_for_test().unwrap(), 0);
+    let applied = reopened
+        .connection
+        .query_row(
+            "SELECT value FROM meta WHERE key = 'agent_projection_journal_sequence_v1'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap()
+        .parse::<u64>()
+        .unwrap();
+    assert_eq!(applied, last_sequence);
+    drop(reopened);
     fs::remove_dir_all(root).unwrap();
 }
 
