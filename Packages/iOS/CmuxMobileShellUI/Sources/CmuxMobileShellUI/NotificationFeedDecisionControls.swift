@@ -214,17 +214,17 @@ struct NotificationFeedQuestionControls: View {
     }
 
     private var answers: [String] {
-        prompts.enumerated().compactMap { index, prompt in
+        prompts.enumerated().map { index, prompt in
             let custom = (customAnswers[index] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             if !custom.isEmpty { return custom }
             let selected = selections[index] ?? []
             let labels = prompt.options.filter { selected.contains($0.id) }.map(\.label)
-            return labels.isEmpty ? nil : labels.joined(separator: ", ")
+            return labels.joined(separator: ", ")
         }
     }
 
     private var canSubmit: Bool {
-        !answers.isEmpty || (!prompts.isEmpty && prompts.allSatisfy(\.options.isEmpty))
+        !prompts.isEmpty && answers.allSatisfy { !$0.isEmpty }
     }
 
     private func toggle(_ id: String, at index: Int, allowsMultiple: Bool) {

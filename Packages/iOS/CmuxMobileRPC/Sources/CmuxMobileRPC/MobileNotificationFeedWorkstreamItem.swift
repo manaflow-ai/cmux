@@ -32,7 +32,7 @@ public struct MobileNotificationFeedWorkstreamItem: Decodable, Equatable, Sendab
         case questions
     }
 
-    public init(from decoder: any Decoder) throws {
+    public nonisolated init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         workstreamID = try container.decode(String.self, forKey: .workstreamID)
@@ -50,7 +50,7 @@ public struct MobileNotificationFeedWorkstreamItem: Decodable, Equatable, Sendab
             forKey: .questions
         ) ?? []
         let rawDate = try container.decode(String.self, forKey: .createdAt)
-        guard let parsedDate = ISO8601DateFormatter().date(from: rawDate) else {
+        guard let parsedDate = try? Date(rawDate, strategy: .iso8601) else {
             throw DecodingError.dataCorruptedError(
                 forKey: .createdAt,
                 in: container,
@@ -58,6 +58,36 @@ public struct MobileNotificationFeedWorkstreamItem: Decodable, Equatable, Sendab
             )
         }
         createdAt = parsedDate
+    }
+
+    nonisolated init(
+        id: String,
+        workstreamID: String,
+        workspaceID: String?,
+        surfaceID: String?,
+        source: String,
+        kind: String,
+        createdAt: Date,
+        requestID: String,
+        toolName: String?,
+        toolInput: String?,
+        plan: String?,
+        defaultMode: String?,
+        questions: [MobileNotificationFeedQuestion]
+    ) {
+        self.id = id
+        self.workstreamID = workstreamID
+        self.workspaceID = workspaceID
+        self.surfaceID = surfaceID
+        self.source = source
+        self.kind = kind
+        self.createdAt = createdAt
+        self.requestID = requestID
+        self.toolName = toolName
+        self.toolInput = toolInput
+        self.plan = plan
+        self.defaultMode = defaultMode
+        self.questions = questions
     }
 }
 
@@ -73,6 +103,20 @@ public struct MobileNotificationFeedQuestion: Decodable, Equatable, Sendable {
         case id, header, prompt, options
         case multiSelect = "multi_select"
     }
+
+    nonisolated init(
+        id: String,
+        header: String?,
+        prompt: String,
+        multiSelect: Bool,
+        options: [MobileNotificationFeedQuestionOption]
+    ) {
+        self.id = id
+        self.header = header
+        self.prompt = prompt
+        self.multiSelect = multiSelect
+        self.options = options
+    }
 }
 
 /// One preset choice in a workstream question prompt.
@@ -80,4 +124,10 @@ public struct MobileNotificationFeedQuestionOption: Decodable, Equatable, Sendab
     public let id: String
     public let label: String
     public let description: String?
+
+    nonisolated init(id: String, label: String, description: String?) {
+        self.id = id
+        self.label = label
+        self.description = description
+    }
 }

@@ -155,21 +155,27 @@ extension MobileShellComposite {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty,
               item.connectionStatus == .connected,
-              let surfaceID = item.remoteSurfaceID,
-              let workspaceID = workspaceID(
-                  matchingRemoteWorkspaceID: item.remoteWorkspaceID,
-                  macDeviceID: item.macDeviceID
-              ) ?? (item.retargetsToLiveSurfaceOwner
-                  ? workspaceID(
-                      containingSurfaceID: surfaceID,
-                      macDeviceID: item.macDeviceID
-                  )
-                  : nil) else {
+              let surfaceID = item.remoteSurfaceID else {
             return false
         }
+        let targetWorkspaceID: MobileWorkspacePreview.ID?
+        if item.retargetsToLiveSurfaceOwner {
+            targetWorkspaceID = workspaceID(
+                forTerminalID: surfaceID,
+                macDeviceID: item.macDeviceID,
+                instanceTag: item.macInstanceTag
+            )
+        } else {
+            targetWorkspaceID = rowWorkspaceID(
+                forRemoteWorkspaceID: MobileWorkspacePreview.ID(rawValue: item.remoteWorkspaceID),
+                macDeviceID: item.macDeviceID,
+                instanceTag: item.macInstanceTag
+            )
+        }
+        guard let targetWorkspaceID else { return false }
         return await sendTerminalInput(
             trimmed + "\r",
-            workspaceID: workspaceID,
+            workspaceID: targetWorkspaceID,
             terminalID: MobileTerminalPreview.ID(rawValue: surfaceID)
         )
     }
@@ -703,13 +709,14 @@ extension MobileShellComposite {
                           let workspaceID = normalizedIdentifier(wire.workspaceID) else {
                         return nil
                     }
+                    let remoteSurfaceID = normalizedOptionalIdentifier(wire.surfaceID)
                     return MobileNotificationFeedItem(
                         macDeviceID: itemMacDeviceID,
                         macInstanceTag: itemInstanceTag,
                         notificationID: id,
                         macDisplayName: macDisplayName,
                         remoteWorkspaceID: workspaceID,
-                        remoteSurfaceID: normalizedOptionalIdentifier(wire.surfaceID),
+                        remoteSurfaceID: remoteSurfaceID,
                         title: mobileShellNotificationFeedString(
                             wire.title,
                             limitedToUTF8Bytes: mobileShellNotificationFeedTitleByteLimit
@@ -734,7 +741,7 @@ extension MobileShellComposite {
                             limitedToUTF8Bytes: mobileShellNotificationFeedMetadataByteLimit
                         ),
                         connectionStatus: status,
-                        interaction: wire.surfaceID == nil ? nil : .terminalReply
+                        interaction: remoteSurfaceID == nil ? nil : .terminalReply
                     )
                 }
         let workstreamItems = response.workstreams.compactMap { wire -> MobileNotificationFeedItem? in

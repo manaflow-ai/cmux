@@ -265,7 +265,11 @@ struct MobileSettingsView: View {
                         selection: $notificationFeedDesignRaw
                     ) {
                         ForEach(MobileNotificationFeedDesign.allCases) { design in
-                            Text(design.title).tag(design.rawValue)
+                            Text(design.title)
+                                .tag(design.rawValue)
+                                .accessibilityIdentifier(
+                                    "MobileSettingsNotificationFeedDesignOption-\(design.rawValue)"
+                                )
                         }
                     }
                     .accessibilityIdentifier("MobileSettingsNotificationFeedDesign")

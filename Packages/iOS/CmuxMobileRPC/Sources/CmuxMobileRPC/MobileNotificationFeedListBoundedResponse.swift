@@ -25,7 +25,10 @@ struct MobileNotificationFeedListBoundedResponse: Decodable {
             workstreams.reserveCapacity(min(options.maxNotifications, workstreamsContainer.count ?? options.maxNotifications))
             while !workstreamsContainer.isAtEnd, workstreams.count < options.maxNotifications {
                 try Task.checkCancellation()
-                workstreams.append(try workstreamsContainer.decode(MobileNotificationFeedWorkstreamItem.self))
+                if let item = try workstreamsContainer
+                    .decode(MobileNotificationFeedListBoundedWorkstreamItem.self).item {
+                    workstreams.append(item)
+                }
             }
         }
         response = MobileNotificationFeedListResponse(

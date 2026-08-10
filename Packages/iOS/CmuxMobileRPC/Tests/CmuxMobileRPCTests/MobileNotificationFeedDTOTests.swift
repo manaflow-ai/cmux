@@ -126,7 +126,7 @@ struct MobileNotificationFeedDTOTests {
             decodingBounded: data,
             maxNotifications: 1,
             stringLimits: MobileNotificationFeedListStringLimits(
-                identifierByteLimit: 8,
+                identifierByteLimit: 9,
                 titleByteLimit: 5,
                 subtitleByteLimit: 4,
                 bodyByteLimit: 6,

@@ -23,10 +23,18 @@ extension TerminalController {
         store.notificationFeedHistory.reconcileActiveNotifications(store.notifications)
         let snapshot = store.notificationFeedHistory.snapshot
         let items = snapshot.notifications.map(mobileNotificationFeedWireItem)
-        let workstreams = FeedCoordinator.shared.snapshot(pendingOnly: true)
+        let pendingWorkstreams = await FeedCoordinator.shared.pendingSnapshotWhenReady()
             .reversed()
             .prefix(64)
-            .compactMap(Self.mobileNotificationFeedWorkstreamPayload)
+        let resolvedTargets = await Self.mobileNotificationFeedTargets(
+            for: Array(pendingWorkstreams)
+        )
+        let workstreams = pendingWorkstreams.compactMap { item in
+            Self.mobileNotificationFeedWorkstreamPayload(
+                item,
+                target: Self.mobileNotificationFeedTarget(for: item, in: resolvedTargets)
+            )
+        }
         let fitted = await Self.mobileNotificationFeedItemsFittingFrame(
             responseID: responseID,
             revision: snapshot.revision,
@@ -41,7 +49,8 @@ extension TerminalController {
     }
 
     private nonisolated static func mobileNotificationFeedWorkstreamPayload(
-        _ item: WorkstreamItem
+        _ item: WorkstreamItem,
+        target: FeedJumpResolver.Target?
     ) -> MobileNotificationFeedWorkstreamWireItem? {
         guard item.status.isPending else {
             return nil
@@ -53,12 +62,45 @@ extension TerminalController {
             return nil
         }
         var payload = FeedSocketEncoding.itemDict(item)
-        if let parsed = FeedJumpResolver.parse(item.workstreamId),
-           let target = FeedJumpResolver.lookup(agent: parsed.agent, sessionId: parsed.sessionId) {
+        // Raw tool input can contain commands, paths, tokens, or other secrets.
+        // The phone needs the tool name and typed decision payload, not the raw input.
+        payload.removeValue(forKey: "tool_input")
+        payload.removeValue(forKey: "tool_input_capabilities")
+        if let target {
             payload["workspace_id"] = target.workspaceId
             payload["surface_id"] = target.surfaceId
         }
         return MobileNotificationFeedWorkstreamWireItem(foundationPayload: payload)
+    }
+
+    private nonisolated static func mobileNotificationFeedTargets(
+        for items: [WorkstreamItem]
+    ) async -> [FeedJumpResolver.LookupKey: FeedJumpResolver.Target] {
+        let keys = Set(items.compactMap(mobileNotificationFeedLookupKey))
+        guard !keys.isEmpty else { return [:] }
+        let worker = Task.detached(priority: .utility) {
+            FeedJumpResolver.lookup(keys)
+        }
+        return await withTaskCancellationHandler {
+            await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
+    }
+
+    private nonisolated static func mobileNotificationFeedLookupKey(
+        _ item: WorkstreamItem
+    ) -> FeedJumpResolver.LookupKey? {
+        guard let parsed = FeedJumpResolver.parse(item.workstreamId) else { return nil }
+        return FeedJumpResolver.LookupKey(agent: parsed.agent, sessionId: parsed.sessionId)
+    }
+
+    private nonisolated static func mobileNotificationFeedTarget(
+        for item: WorkstreamItem,
+        in targets: [FeedJumpResolver.LookupKey: FeedJumpResolver.Target]
+    ) -> FeedJumpResolver.Target? {
+        guard let key = mobileNotificationFeedLookupKey(item) else { return nil }
+        return targets[key]
     }
 
     private nonisolated struct MobileNotificationFeedFittedPayload: Sendable {
