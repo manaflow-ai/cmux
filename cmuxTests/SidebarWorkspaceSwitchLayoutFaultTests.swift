@@ -80,20 +80,28 @@ struct SidebarWorkspaceSwitchLayoutFaultTests {
     private nonisolated static func waitForLogMessage(_ expected: String, since startDate: Date) async throws -> Bool {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(5))
-        var readStart = startDate
+        let predicate = NSPredicate(
+            format: "subsystem == %@ AND category == %@ AND composedMessage == %@",
+            "com.cmuxterm.tests",
+            "layout",
+            expected
+        )
         while clock.now < deadline {
-            // OSLogStore instances are fixed snapshots. Recreate the snapshot
-            // while advancing the date cursor instead of rescanning from the
-            // start of the workload on every poll.
+            // OSLogStore instances are fixed snapshots, and log buffers can
+            // become queryable out of timestamp order. Recreate the snapshot
+            // without advancing past an unseen sentinel; the exact predicate
+            // keeps each poll scoped to this test's single completion record.
             let store = try OSLogStore(scope: .currentProcessIdentifier)
-            let entries = try store.getEntries(at: store.position(date: readStart))
-            var newestEntryDate = readStart
-            for entry in entries {
-                guard entry.date >= readStart else { continue }
-                if (entry as? OSLogEntryLog)?.composedMessage == expected { return true }
-                if entry.date > newestEntryDate { newestEntryDate = entry.date }
+            let entries = try store.getEntries(
+                at: store.position(date: startDate),
+                matching: predicate
+            )
+            if entries.contains(where: { entry in
+                entry.date >= startDate &&
+                    (entry as? OSLogEntryLog)?.composedMessage == expected
+            }) {
+                return true
             }
-            readStart = newestEntryDate
             try await clock.sleep(for: .milliseconds(25))
         }
         return false
