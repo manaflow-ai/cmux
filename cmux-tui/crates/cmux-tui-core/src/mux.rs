@@ -6749,12 +6749,12 @@ impl Mux {
                 terminal_id,
                 terminal_incarnation,
             )?;
-            let resource_revision = replay.as_ref().map(|_| registry.resource_revision()).transpose()?;
+            let resource_revision =
+                replay.as_ref().map(|_| registry.resource_revision()).transpose()?;
             (replay, resource_revision)
         };
         if let Some(commit) = replay {
-            let replayed_incarnation =
-                commit.result["incarnation"].as_str().map(str::to_owned);
+            let replayed_incarnation = commit.result["incarnation"].as_str().map(str::to_owned);
             let (public_id, removed, runtime, changed_screens, empty_revision) = {
                 let mut state = self.state.lock().unwrap();
                 if let Some(revision) = replayed_resource_revision {
@@ -6802,7 +6802,8 @@ impl Mux {
                     }
                     (None, removed)
                 };
-                let empty_revision = state.workspaces.is_empty().then_some(state.workspace_revision);
+                let empty_revision =
+                    state.workspaces.is_empty().then_some(state.workspace_revision);
                 (public_id, removed, runtime, changed_screens, empty_revision)
             };
             self.publish_resource_event();
@@ -6845,113 +6846,112 @@ impl Mux {
         // transaction then has only the terminal host and zero-view terminal
         // resource to tombstone.
         let mut closed_views = Vec::new();
-        let (commit, terminal_incarnation, closed_public_id, runtime, empty_revision, publish) =
-            loop {
-                let target = {
-                    let state = self.state.lock().unwrap();
-                    state.surfaces.iter().find_map(|(surface_id, surface)| {
-                        self.resource_terminal_host_identity(surface)
-                            .is_some_and(|identity| identity.terminal_id == terminal_id)
-                            .then_some(*surface_id)
-                    })
-                };
-                if let Some(target) = target {
-                    anyhow::ensure!(
-                        self.close_surface(target)?,
-                        "terminal view {target} has no durable tab"
-                    );
-                    closed_views.push(target);
-                    continue;
-                }
-
-                let mut registry = self.workspace_registry.lock().unwrap();
-                let public_id = registry.terminal_resource_id(terminal_id)?;
-                let mut state = self.state.lock().unwrap();
-                if let Some(target) = state.surfaces.iter().find_map(|(surface_id, surface)| {
+        let (commit, terminal_incarnation, closed_public_id, runtime, empty_revision, publish) = loop {
+            let target = {
+                let state = self.state.lock().unwrap();
+                state.surfaces.iter().find_map(|(surface_id, surface)| {
                     self.resource_terminal_host_identity(surface)
                         .is_some_and(|identity| identity.terminal_id == terminal_id)
                         .then_some(*surface_id)
-                }) {
-                    drop(state);
-                    drop(registry);
-                    anyhow::ensure!(
-                        self.close_surface(target)?,
-                        "terminal view {target} has no durable tab"
-                    );
-                    closed_views.push(target);
-                    continue;
-                }
-
-                let catalog_public_id = public_id.clone().or_else(|| {
-                    state.terminal_catalog.iter().find_map(|(public_id, surface)| {
-                        self.resource_terminal_host_identity(surface)
-                            .is_some_and(|identity| identity.terminal_id == terminal_id)
-                            .then(|| public_id.clone())
-                    })
-                });
-                let runtime = catalog_public_id
-                    .as_ref()
-                    .and_then(|public_id| state.terminal_catalog.get(public_id))
-                    .cloned();
-                let patch = public_id.as_ref().map(|public_id| ResourcePatch {
-                    changes: vec![ResourceChange::TombstoneTerminal {
-                        public_id: public_id.clone(),
-                        expected_incarnation: terminal_incarnation.map(str::to_owned),
-                    }],
-                });
-                let empty_deltas = Value::Array(Vec::new());
-                let deltas = public_id.as_ref().map(|public_id| {
-                    serde_json::json!([{
-                        "kind":"delete",
-                        "sequence":0,
-                        "resource":"terminal",
-                        "id":public_id,
-                    }])
-                });
-                let empty_result = serde_json::json!({});
-                let close = registry.close_terminal_with_resource_patch(
-                    mutation,
-                    None,
-                    None,
-                    patch.as_ref().map(|_| state.resource_revision),
-                    terminal_id,
-                    terminal_incarnation,
-                    patch.as_ref(),
-                    &empty_result,
-                    deltas.as_ref().unwrap_or(&empty_deltas),
-                )?;
-                let closed_incarnation =
-                    close.terminal.result["incarnation"].as_str().map(str::to_owned);
-                let commit = close.terminal;
-                let newly_closed =
-                    !commit.replayed && !commit.result["already_closed"].as_bool().unwrap_or(false);
-                if newly_closed {
-                    self.emit_terminal_registry_changed(&registry, commit.revision);
-                }
-                let publish_resource =
-                    close.resource.as_ref().is_some_and(|commit| !commit.replayed);
-                if let Some(resource) = close.resource
-                    && !resource.replayed
-                {
-                    state.resource_revision = resource.revision;
-                }
-                let removed_runtime = catalog_public_id.as_ref().and_then(|public_id| {
-                    remove_terminal_content_from_state(self, &mut state, public_id).0
-                });
-                let empty_revision =
-                    state.workspaces.is_empty().then_some(state.workspace_revision);
-                break (
-                    commit,
-                    closed_incarnation,
-                    catalog_public_id,
-                    removed_runtime.or(runtime),
-                    empty_revision,
-                    publish_resource,
-                );
+                })
             };
+            if let Some(target) = target {
+                anyhow::ensure!(
+                    self.close_surface(target)?,
+                    "terminal view {target} has no durable tab"
+                );
+                closed_views.push(target);
+                continue;
+            }
+
+            let mut registry = self.workspace_registry.lock().unwrap();
+            let public_id = registry.terminal_resource_id(terminal_id)?;
+            let mut state = self.state.lock().unwrap();
+            if let Some(target) = state.surfaces.iter().find_map(|(surface_id, surface)| {
+                self.resource_terminal_host_identity(surface)
+                    .is_some_and(|identity| identity.terminal_id == terminal_id)
+                    .then_some(*surface_id)
+            }) {
+                drop(state);
+                drop(registry);
+                anyhow::ensure!(
+                    self.close_surface(target)?,
+                    "terminal view {target} has no durable tab"
+                );
+                closed_views.push(target);
+                continue;
+            }
+
+            let catalog_public_id = public_id.clone().or_else(|| {
+                state.terminal_catalog.iter().find_map(|(public_id, surface)| {
+                    self.resource_terminal_host_identity(surface)
+                        .is_some_and(|identity| identity.terminal_id == terminal_id)
+                        .then(|| public_id.clone())
+                })
+            });
+            let runtime = catalog_public_id
+                .as_ref()
+                .and_then(|public_id| state.terminal_catalog.get(public_id))
+                .cloned();
+            let patch = public_id.as_ref().map(|public_id| ResourcePatch {
+                changes: vec![ResourceChange::TombstoneTerminal {
+                    public_id: public_id.clone(),
+                    expected_incarnation: terminal_incarnation.map(str::to_owned),
+                }],
+            });
+            let empty_deltas = Value::Array(Vec::new());
+            let deltas = public_id.as_ref().map(|public_id| {
+                serde_json::json!([{
+                    "kind":"delete",
+                    "sequence":0,
+                    "resource":"terminal",
+                    "id":public_id,
+                }])
+            });
+            let empty_result = serde_json::json!({});
+            let close = registry.close_terminal_with_resource_patch(
+                mutation,
+                None,
+                None,
+                patch.as_ref().map(|_| state.resource_revision),
+                terminal_id,
+                terminal_incarnation,
+                patch.as_ref(),
+                &empty_result,
+                deltas.as_ref().unwrap_or(&empty_deltas),
+            )?;
+            let closed_incarnation =
+                close.terminal.result["incarnation"].as_str().map(str::to_owned);
+            let commit = close.terminal;
+            let newly_closed =
+                !commit.replayed && !commit.result["already_closed"].as_bool().unwrap_or(false);
+            if newly_closed {
+                self.emit_terminal_registry_changed(&registry, commit.revision);
+            }
+            let publish_resource = close.resource.as_ref().is_some_and(|commit| !commit.replayed);
+            if let Some(resource) = close.resource
+                && !resource.replayed
+            {
+                state.resource_revision = resource.revision;
+            }
+            let removed_runtime = catalog_public_id.as_ref().and_then(|public_id| {
+                remove_terminal_content_from_state(self, &mut state, public_id).0
+            });
+            let empty_revision = state.workspaces.is_empty().then_some(state.workspace_revision);
+            break (
+                commit,
+                closed_incarnation,
+                catalog_public_id,
+                removed_runtime.or(runtime),
+                empty_revision,
+                publish_resource,
+            );
+        };
         let newly_closed =
             !commit.replayed && !commit.result["already_closed"].as_bool().unwrap_or(false);
-        self.notify_terminal_exit_waiters(newly_closed.then_some(closed_public_id.clone()).flatten());
+        self.notify_terminal_exit_waiters(
+            newly_closed.then_some(closed_public_id.clone()).flatten(),
+        );
         if publish {
             self.publish_resource_event();
         }
