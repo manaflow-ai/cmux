@@ -6,7 +6,6 @@ import UIKit
 
 /// A full-screen prompt canvas with compact task controls above the keyboard.
 struct TaskComposerLayout: View {
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Binding var prompt: String
     let genericPromptPlaceholder: String
     let directory: String
@@ -43,24 +42,15 @@ struct TaskComposerLayout: View {
     @State private var isOptionsPresented = false
 
     var body: some View {
-        Group {
-            if horizontalSizeClass == .regular {
-                TaskComposerKeyboardDock(
-                    canvas: promptCanvas,
-                    accessory: accessoryBar
-                )
-                // Keep the controller full-height so UIKit's keyboard guide,
-                // rather than SwiftUI's combined container/keyboard inset,
-                // owns the dock position.
-                .ignoresSafeArea(.container, edges: .bottom)
-                .ignoresSafeArea(.keyboard, edges: .bottom)
-            } else {
-                promptCanvas
-                    .safeAreaInset(edge: .bottom, spacing: 0) {
-                        accessoryBar
-                    }
-            }
-        }
+        TaskComposerKeyboardDock(
+            canvas: promptCanvas,
+            accessory: accessoryBar
+        )
+        // Keep one full-height controller mounted across rotations and Split
+        // View resizing. UIKit's keyboard guide owns the dock position without
+        // recreating the prompt editor or its focus state.
+        .ignoresSafeArea(.container, edges: .bottom)
+        .ignoresSafeArea(.keyboard, edges: .bottom)
         .navigationTitle(navigationTitle)
         .mobileInlineNavigationTitle()
         .toolbar {

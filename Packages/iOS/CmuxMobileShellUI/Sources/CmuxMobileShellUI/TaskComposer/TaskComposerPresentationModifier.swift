@@ -3,7 +3,6 @@ import SwiftUI
 
 private struct TaskComposerPresentationModifier<PresentedContent: View>: ViewModifier {
     @Binding private var isPresented: Bool
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     private let presentedContent: () -> PresentedContent
 
     init(
@@ -14,22 +13,14 @@ private struct TaskComposerPresentationModifier<PresentedContent: View>: ViewMod
         self.presentedContent = presentedContent
     }
 
-    @ViewBuilder
     func body(content: Content) -> some View {
-        if horizontalSizeClass == .regular {
-            // A regular-width form sheet ends above the docked iPad keyboard,
-            // so its bottom controls cannot be keyboard-pinned. Give the
-            // canonical composer the full screen in that presentation class.
-            content.fullScreenCover(
-                isPresented: $isPresented,
-                content: presentedContent
-            )
-        } else {
-            content.sheet(
-                isPresented: $isPresented,
-                content: presentedContent
-            )
-        }
+        // One presenter owns the whole editing session. Switching between a
+        // sheet and a full-screen cover during Split View resizing tears down
+        // the draft, focus, and staged attachments.
+        content.fullScreenCover(
+            isPresented: $isPresented,
+            content: presentedContent
+        )
     }
 }
 

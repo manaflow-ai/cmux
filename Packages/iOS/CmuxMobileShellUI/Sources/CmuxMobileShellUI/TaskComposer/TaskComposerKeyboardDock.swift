@@ -52,7 +52,10 @@ final class TaskComposerKeyboardDockViewController<Canvas: View, Accessory: View
         super.viewDidLoad()
         view.backgroundColor = .clear
         let keyboardGuide = view.keyboardLayoutGuide
-        keyboardGuide.followsUndockedKeyboard = true
+        // A floating iPad keyboard must not pull this full-width dock into the
+        // middle of the canvas. Docked keyboards move the guide normally;
+        // undocked keyboards leave the controls at the bottom safe area.
+        keyboardGuide.followsUndockedKeyboard = false
         keyboardGuide.usesBottomSafeArea = true
 
         addChild(canvasHostingController)
