@@ -9,7 +9,7 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocale, useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
 import { Link, useRouter } from "@/i18n/navigation";
 
@@ -128,6 +128,8 @@ function DashboardOrganizationSwitcher() {
   const searchParams = useSearchParams();
   const t = useTranslations("dashboard.accountMenu");
   const [switchError, setSwitchError] = useState(false);
+  const [switchPending, setSwitchPending] = useState(false);
+  const switchPendingRef = useRef(false);
   const organizationQueryKey = [
     "coderouter-organizations",
     user.id,
@@ -174,32 +176,37 @@ function DashboardOrganizationSwitcher() {
   const switchOrganization = async (
     team: (typeof selectableTeams)[number] | null,
   ) => {
+    if (switchPendingRef.current) return;
     const organizationId = team?.id ?? personal?.id;
     if (!organizationId) return;
+    switchPendingRef.current = true;
+    setSwitchPending(true);
     setSwitchError(false);
     try {
       await user.setSelectedTeam(team);
+      queryClient.setQueryData<OrganizationCatalog>(
+        organizationQueryKey,
+        (current) =>
+          current
+            ? { ...current, selectedTeamId: team?.id ?? null }
+            : current,
+      );
+      void queryClient.invalidateQueries({
+        queryKey: organizationQueryKey,
+        exact: true,
+      });
+      router.push(
+        `/dashboard/coderouter?team=${
+          encodeURIComponent(organizationId)
+        }`,
+      );
+      router.refresh();
     } catch {
       setSwitchError(true);
-      return;
+    } finally {
+      switchPendingRef.current = false;
+      setSwitchPending(false);
     }
-    queryClient.setQueryData<OrganizationCatalog>(
-      organizationQueryKey,
-      (current) =>
-        current
-          ? { ...current, selectedTeamId: team?.id ?? null }
-          : current,
-    );
-    void queryClient.invalidateQueries({
-      queryKey: organizationQueryKey,
-      exact: true,
-    });
-    router.push(
-      `/dashboard/coderouter?team=${
-        encodeURIComponent(organizationId)
-      }`,
-    );
-    router.refresh();
   };
   const shared = {
     teams: selectableTeams,
@@ -220,7 +227,13 @@ function DashboardOrganizationSwitcher() {
     : <TeamSwitcher {...shared} onChange={switchOrganization} />;
   return (
     <>
-      {switcher}
+      <fieldset
+        disabled={switchPending}
+        aria-busy={switchPending}
+        className="m-0 min-w-0 border-0 p-0 disabled:cursor-wait disabled:opacity-60"
+      >
+        {switcher}
+      </fieldset>
       {switchError ? (
         <p role="alert" className="mt-1 text-xs text-red-600 dark:text-red-400">
           {t("organizationSwitchError")}{" "}
