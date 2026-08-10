@@ -14,8 +14,8 @@ struct SimulatorPresentedImage: @unchecked Sendable {
         let task = Task<SimulatorPresentedImage?, Never>.detached(priority: .userInitiated) {
             guard !Task.isCancelled,
                   let data = Data(base64Encoded: base64),
-                  let image = UIImage(data: data) else { return nil }
-            let prepared = image.preparingForDisplay() ?? image
+                  let image = UIImage(data: data),
+                  let prepared = image.preparingForDisplay() else { return nil }
             guard !Task.isCancelled else { return nil }
             return SimulatorPresentedImage(image: prepared)
         }
