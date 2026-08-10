@@ -114,6 +114,29 @@ final class AgentFeedUITests: XCTestCase {
     }
 
     @MainActor
+    func testAgentFeedBurstPreservesOffTopViewportAndOffersJumpToNewest() throws {
+        let app = launchFixture(scenario: "new-activity")
+        defer { app.terminate() }
+
+        let list = app.descendants(matching: .any)["MobileAgentFeedList"]
+        XCTAssertTrue(list.waitForExistence(timeout: 8))
+        list.swipeUp()
+        list.swipeUp()
+        list.swipeUp()
+        XCTAssertFalse(app.staticTexts["New activity burst 100"].exists)
+
+        let inject = app.buttons["AgentFeedFixtureInjectNewActivity"]
+        XCTAssertTrue(inject.exists)
+        inject.tap()
+        let newActivity = app.buttons["MobileAgentFeedNewActivity"]
+        XCTAssertTrue(newActivity.waitForExistence(timeout: 8))
+        XCTAssertFalse(app.staticTexts["New activity burst 100"].exists)
+
+        newActivity.tap()
+        XCTAssertTrue(app.staticTexts["New activity burst 100"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
     func testAgentFeedDeterministicStressAndOfflineScenarios() throws {
         var app = launchFixture(scenario: "stress")
         var marker = app.descendants(matching: .any)["AgentFeedScenario-stress"]

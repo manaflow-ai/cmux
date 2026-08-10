@@ -28,8 +28,8 @@ struct AgentFeedView: View {
     @State private var questionSelections: [MobileAgentFeedItemID: [String: Set<String>]] = [:]
     @State private var otherAnswers: [MobileAgentFeedItemID: [String: String]] = [:]
     @State private var knownItemIDs: Set<MobileAgentFeedItemID> = []
+    @State private var visibilityTracker = AgentFeedVisibilityTracker()
     @State private var unseenItemCount = 0
-    @State private var newestItemIsVisible = true
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.agentFeedLocalizer) private var localizer
 
@@ -53,7 +53,49 @@ struct AgentFeedView: View {
                 .accessibilityIdentifier("MobileAgentFeedEmpty")
             } else {
                 ScrollViewReader { proxy in
-                    VStack(spacing: 0) {
+                    List {
+                        ForEach(visibleItems) { item in
+                            AgentFeedRow(
+                            item: item,
+                            isExpanded: expandedIDs.contains(item.id),
+                            draft: drafts[item.id] ?? "",
+                            mutationState: mutationStates[item.id] ?? .idle,
+                            interactionsEnabled: interactionsEnabled(for: item),
+                            planFeedback: planFeedback[item.id] ?? "",
+                            questionSelections: questionSelections[item.id] ?? [:],
+                            otherAnswers: otherAnswers[item.id] ?? [:],
+                            actions: AgentFeedRowActions(
+                                setExpanded: { setExpanded($0, id: item.id) },
+                                setDraft: { actions.setDraft(item.id, $0) },
+                                setPlanFeedback: { planFeedback[item.id] = $0 },
+                                setQuestionSelection: { question, selection in
+                                    questionSelections[item.id, default: [:]][question] = selection
+                                },
+                                setOtherAnswer: { question, value in
+                                    otherAnswers[item.id, default: [:]][question] = value
+                                },
+                                reply: { actions.reply(item) },
+                                decide: { actions.decide(item, $0) },
+                                open: { actions.open(item) }
+                            )
+                        )
+                            .equatable()
+                            .onScrollVisibilityChange(threshold: 0.01) { isVisible in
+                                visibilityTracker.setVisible(isVisible, id: item.id)
+                            }
+                            .onAppear {
+                                guard item.id == visibleItems.first?.id else { return }
+                                actions.recordTopRowAppearance(item.id)
+                            }
+                        }
+                        if hasMoreItems {
+                            loadOlderControl
+                        }
+                    }
+                    .listStyle(.plain)
+                    .refreshable { actions.refresh() }
+                    .accessibilityIdentifier("MobileAgentFeedList")
+                    .overlay(alignment: .top) {
                         if unseenItemCount > 0 {
                             Button {
                                 if let newest = visibleItems.first {
@@ -71,65 +113,38 @@ struct AgentFeedView: View {
                             }
                             .frame(minHeight: 44)
                             .accessibilityIdentifier("MobileAgentFeedNewActivity")
+                            .background(.regularMaterial, in: Capsule())
                         }
-                        List {
-                            ForEach(visibleItems) { item in
-                                AgentFeedRow(
-                                item: item,
-                                isExpanded: expandedIDs.contains(item.id),
-                                draft: drafts[item.id] ?? "",
-                                mutationState: mutationStates[item.id] ?? .idle,
-                                interactionsEnabled: interactionsEnabled(for: item),
-                                planFeedback: planFeedback[item.id] ?? "",
-                                questionSelections: questionSelections[item.id] ?? [:],
-                                otherAnswers: otherAnswers[item.id] ?? [:],
-                                actions: AgentFeedRowActions(
-                                    setExpanded: { setExpanded($0, id: item.id) },
-                                    setDraft: { actions.setDraft(item.id, $0) },
-                                    setPlanFeedback: { planFeedback[item.id] = $0 },
-                                    setQuestionSelection: { question, selection in
-                                        questionSelections[item.id, default: [:]][question] = selection
-                                    },
-                                    setOtherAnswer: { question, value in
-                                        otherAnswers[item.id, default: [:]][question] = value
-                                    },
-                                    reply: { actions.reply(item) },
-                                    decide: { actions.decide(item, $0) },
-                                    open: { actions.open(item) }
-                                )
-                            )
-                                .equatable()
-                                .onAppear {
-                                    guard item.id == visibleItems.first?.id else { return }
-                                    newestItemIsVisible = true
-                                    unseenItemCount = 0
-                                    actions.recordTopRowAppearance(item.id)
-                                }
-                                .onDisappear {
-                                    guard item.id == visibleItems.first?.id else { return }
-                                    newestItemIsVisible = false
-                                }
-                            }
-                            if hasMoreItems {
-                                loadOlderControl
-                            }
+                    }
+                    .onChange(of: visibleItems.map(\.id), initial: true) { oldIDs, newIDs in
+                        let allCurrentIDs = Set(items.map(\.id))
+                        let genuinelyNewIDs = allCurrentIDs.subtracting(knownItemIDs)
+                        defer { knownItemIDs = allCurrentIDs }
+                        guard !oldIDs.isEmpty,
+                              !genuinelyNewIDs.isEmpty,
+                              let oldNewestID = oldIDs.first,
+                              !visibilityTracker.visibleIDs.contains(oldNewestID) else {
+                            return
                         }
-                        .listStyle(.plain)
-                        .refreshable { actions.refresh() }
-                        .accessibilityIdentifier("MobileAgentFeedList")
+                        let insertedVisibleCount = Set(newIDs)
+                            .subtracting(oldIDs)
+                            .intersection(genuinelyNewIDs)
+                            .count
+                        guard insertedVisibleCount > 0 else { return }
+                        let anchorID = visibilityTracker.topVisibleID(orderedBy: oldIDs)
+                        unseenItemCount += insertedVisibleCount
+                        guard let anchorID else { return }
+                        var transaction = Transaction()
+                        transaction.disablesAnimations = true
+                        withTransaction(transaction) {
+                            proxy.scrollTo(anchorID, anchor: .top)
+                        }
                     }
                 }
             }
         }
         .navigationTitle(localizer.string("mobile.tabs.feed", defaultValue: "Feed"))
         .accessibilityIdentifier("MobileAgentFeed")
-        .onChange(of: visibleItems.map(\.id), initial: true) { _, ids in
-            let current = Set(ids)
-            if !knownItemIDs.isEmpty, !newestItemIsVisible {
-                unseenItemCount += current.subtracting(knownItemIDs).count
-            }
-            knownItemIDs = current
-        }
     }
 
     private var loadOlderControl: some View {
@@ -193,6 +208,26 @@ struct AgentFeedView: View {
                 .tag(MobileAgentFeedFilter.allActivity)
         }
         .accessibilityIdentifier("MobileAgentFeedFilter")
+    }
+}
+
+/// Observes row visibility without publishing per-frame SwiftUI state. The
+/// scroll view remains the sole owner of gesture physics; Feed reads this set
+/// only when an item insertion must preserve an off-top viewport.
+@MainActor
+private final class AgentFeedVisibilityTracker {
+    private(set) var visibleIDs: Set<MobileAgentFeedItemID> = []
+
+    func setVisible(_ isVisible: Bool, id: MobileAgentFeedItemID) {
+        if isVisible {
+            visibleIDs.insert(id)
+        } else {
+            visibleIDs.remove(id)
+        }
+    }
+
+    func topVisibleID(orderedBy ids: [MobileAgentFeedItemID]) -> MobileAgentFeedItemID? {
+        ids.first(where: visibleIDs.contains)
     }
 }
 
