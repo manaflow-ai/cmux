@@ -21469,11 +21469,13 @@ mod tests {
     #[test]
     fn frontend_journal_queue_keeps_only_the_latest_event_of_each_type() {
         let queue = FrontendJournalQueue::default();
-        let event_id = |event: &FrontendJournalEvent| match event {
-            FrontendJournalEvent::Focus { event_id, .. }
-            | FrontendJournalEvent::Resize { event_id, .. }
-            | FrontendJournalEvent::Viewport { event_id, .. } => event_id.as_str(),
-        };
+        fn event_id(event: &FrontendJournalEvent) -> &str {
+            match event {
+                FrontendJournalEvent::Focus { event_id, .. }
+                | FrontendJournalEvent::Resize { event_id, .. }
+                | FrontendJournalEvent::Viewport { event_id, .. } => event_id,
+            }
+        }
         let session = Session::Local(Mux::new(
             "frontend-journal-bounded-coalescing",
             SurfaceOptions::default(),
