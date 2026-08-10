@@ -304,13 +304,12 @@ pub(crate) fn start(mux: &Arc<Mux>) -> anyhow::Result<()> {
     }
     let weak = Arc::downgrade(mux);
     let thread_runtime = runtime.clone();
-    let spawned = std::thread::Builder::new().name("mux-session-journal-hooks".into()).spawn(
-        move || {
+    let spawned =
+        std::thread::Builder::new().name("mux-session-journal-hooks".into()).spawn(move || {
             let _runtime_guard = JournalHookRuntimeGuard(thread_runtime.clone());
             let mut claim = DispatcherClaim::new(weak.clone());
             run_dispatcher(weak, &mut claim, thread_runtime);
-        },
-    );
+        });
     if let Err(error) = spawned {
         runtime.finish();
         mux.release_journal_hook_dispatcher();
@@ -415,14 +414,9 @@ fn run_delivery_worker(
     }
 }
 
-fn run_dispatcher(
-    mux: Weak<Mux>,
-    claim: &mut DispatcherClaim,
-    runtime: Arc<JournalHookRuntime>,
-) {
+fn run_dispatcher(mux: Weak<Mux>, claim: &mut DispatcherClaim, runtime: Arc<JournalHookRuntime>) {
     let Some(initial_mux) = mux.upgrade() else { return };
-    let Ok(mut workers) =
-        start_delivery_workers(&initial_mux.shared_journal_handle(), &runtime)
+    let Ok(mut workers) = start_delivery_workers(&initial_mux.shared_journal_handle(), &runtime)
     else {
         return;
     };
@@ -442,10 +436,8 @@ fn run_dispatcher(
             workers.shutdown();
             if let Some(mux) = claim.mux.upgrade() {
                 completed.extend(workers.completions.try_iter());
-                let results = completed
-                    .into_iter()
-                    .map(|completion| completion.result)
-                    .collect::<Vec<_>>();
+                let results =
+                    completed.into_iter().map(|completion| completion.result).collect::<Vec<_>>();
                 if let Err(error) = mux.finish_journal_hook_deliveries(&results) {
                     eprintln!("cmux-tui: finish canceled journal hooks during shutdown: {error:#}");
                 }
@@ -540,9 +532,7 @@ fn run_dispatcher(
                                         delivery,
                                         attempt: attempt.attempt,
                                         exit_code: None,
-                                        error: Some(
-                                            "hook canceled during daemon shutdown".into(),
-                                        ),
+                                        error: Some("hook canceled during daemon shutdown".into()),
                                     },
                                 });
                             } else if let Err(error) = workers.sender.send(DeliveryJob {
@@ -940,27 +930,13 @@ fn execute_delivery_with_shutdown(
     let timeout = Duration::from_millis(delivery.manifest.exec.timeout_ms);
     #[cfg(unix)]
     {
-        let result = execute_hook_child_unix(
-            &mut child,
-            stdin,
-            &input,
-            process_group,
-            timeout,
-            cancelled,
-        );
+        let result =
+            execute_hook_child_unix(&mut child, stdin, &input, process_group, timeout, cancelled);
         tree.terminate();
         result
     }
     #[cfg(windows)]
-    execute_hook_child_portable(
-        &mut child,
-        stdin,
-        &input,
-        process_group,
-        timeout,
-        &job,
-        cancelled,
-    )
+    execute_hook_child_portable(&mut child, stdin, &input, process_group, timeout, &job, cancelled)
 }
 
 #[cfg(test)]
@@ -1416,11 +1392,7 @@ mod tests {
             return;
         }
 
-        for mode in [
-            "close-fds",
-            "clear-environment",
-            "close-fds-and-clear-environment",
-        ] {
+        for mode in ["close-fds", "clear-environment", "close-fds-and-clear-environment"] {
             let root = std::env::temp_dir().join(format!(
                 "cmux-jh-{}-{:x}",
                 std::process::id(),
@@ -1503,10 +1475,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!(
             "cmux-jh-shutdown-{}-{:x}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
         ));
         std::fs::create_dir_all(&root).unwrap();
         let signal_path = root.join("detached.sock");

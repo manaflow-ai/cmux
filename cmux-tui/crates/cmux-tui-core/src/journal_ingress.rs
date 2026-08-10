@@ -413,8 +413,7 @@ impl JournalIngressSender {
     pub(crate) fn send(&self, event: JournalIngressEvent) {
         debug_assert!(matches!(
             &event,
-            JournalIngressEvent::TerminalOutput { .. }
-                | JournalIngressEvent::TerminalResize { .. }
+            JournalIngressEvent::TerminalOutput { .. } | JournalIngressEvent::TerminalResize { .. }
         ));
         let Some(sender) = &self.terminal_sender else { return };
         match event {
@@ -449,8 +448,7 @@ impl JournalIngressSender {
     ) -> Result<(), JournalIngressTrySendError> {
         debug_assert!(matches!(
             &event,
-            JournalIngressEvent::TerminalOutput { .. }
-                | JournalIngressEvent::TerminalResize { .. }
+            JournalIngressEvent::TerminalOutput { .. } | JournalIngressEvent::TerminalResize { .. }
         ));
         let Some(sender) = &self.terminal_sender else { return Ok(()) };
         if let Some(error) = self.state.failure() {

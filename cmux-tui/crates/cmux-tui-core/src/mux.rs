@@ -4679,10 +4679,7 @@ impl Mux {
     }
 
     #[cfg(test)]
-    pub(crate) fn install_journal_failure_notifier_for_test(
-        &self,
-        notifier: SyncSender<String>,
-    ) {
+    pub(crate) fn install_journal_failure_notifier_for_test(&self, notifier: SyncSender<String>) {
         self.journal_ingress.install_failure_notifier_for_test(notifier);
     }
 

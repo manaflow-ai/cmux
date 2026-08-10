@@ -806,7 +806,8 @@ impl WorkspaceRegistry {
                     terminal_id, ..
                 }
                 | crate::journal_ingress::JournalIngressEvent::TerminalOutputGap {
-                    terminal_id, ..
+                    terminal_id,
+                    ..
                 } => Some(terminal_id.as_str().to_string()),
                 crate::journal_ingress::JournalIngressEvent::Frontend { .. }
                 | crate::journal_ingress::JournalIngressEvent::Producer { .. }
