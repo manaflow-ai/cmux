@@ -332,6 +332,7 @@ private struct MobileAttachmentPreview: View {
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) {
                         Button(String.mobileAttachmentLocalized("mobile.attachment.done", "Done")) { dismiss() }
+                            .accessibilityIdentifier("MobileAttachmentPreviewDone")
                     }
                 }
         }
