@@ -16,6 +16,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Bounded UTF-8 JSON-lines connection over a JDK Unix-domain socket. */
@@ -24,7 +25,8 @@ final class JsonLineConnection implements AutoCloseable {
     static final int DEFAULT_MAX_RESPONSE_BYTES = 16_777_216;
 
     private final SocketChannel channel;
-    private final Selector selector;
+    private final Selector readSelector;
+    private final Selector writeSelector;
     private final int maxRequestBytes;
     private final int maxResponseBytes;
     private final int maxJsonDepth;
@@ -35,13 +37,15 @@ final class JsonLineConnection implements AutoCloseable {
 
     private JsonLineConnection(
         SocketChannel channel,
-        Selector selector,
+        Selector readSelector,
+        Selector writeSelector,
         int maxRequestBytes,
         int maxResponseBytes,
         int maxJsonDepth
     ) {
         this.channel = channel;
-        this.selector = selector;
+        this.readSelector = readSelector;
+        this.writeSelector = writeSelector;
         this.maxRequestBytes = maxRequestBytes;
         this.maxResponseBytes = maxResponseBytes;
         this.maxJsonDepth = maxJsonDepth;
@@ -54,29 +58,35 @@ final class JsonLineConnection implements AutoCloseable {
         int maxJsonDepth
     ) throws CmuxTransportException {
         SocketChannel channel = null;
-        Selector selector = null;
+        Selector readSelector = null;
+        Selector writeSelector = null;
         try {
             channel = SocketChannel.open(StandardProtocolFamily.UNIX);
             channel.configureBlocking(true);
             channel.connect(UnixDomainSocketAddress.of(socket));
             channel.configureBlocking(false);
-            selector = Selector.open();
-            channel.register(selector, SelectionKey.OP_READ);
+            readSelector = Selector.open();
+            writeSelector = Selector.open();
+            channel.register(readSelector, SelectionKey.OP_READ);
+            channel.register(writeSelector, SelectionKey.OP_WRITE);
             return new JsonLineConnection(
                 channel,
-                selector,
+                readSelector,
+                writeSelector,
                 positive(maxRequestBytes, "maxRequestBytes"),
                 positive(maxResponseBytes, "maxResponseBytes"),
                 positive(maxJsonDepth, "maxJsonDepth")
             );
         } catch (IOException | RuntimeException error) {
-            closeQuietly(selector);
+            closeQuietly(readSelector);
+            closeQuietly(writeSelector);
             closeQuietly(channel);
             throw new CmuxTransportException("cannot connect to session socket " + socket, error);
         }
     }
 
-    void send(Map<String, Object> value) throws CmuxException {
+    void send(Map<String, Object> value, Deadline deadline) throws CmuxException {
+        Objects.requireNonNull(deadline, "deadline");
         byte[] message;
         try {
             message = Json.stringify(Wire.encode(value), maxJsonDepth).getBytes(StandardCharsets.UTF_8);
@@ -91,23 +101,40 @@ final class JsonLineConnection implements AutoCloseable {
         synchronized (writeLock) {
             ensureOpen();
             try {
-                writeFully(ByteBuffer.wrap(message));
-                writeFully(ByteBuffer.wrap(new byte[] {'\n'}));
+                writeFully(ByteBuffer.wrap(message), deadline);
+                writeFully(ByteBuffer.wrap(new byte[] {'\n'}), deadline);
+            } catch (CmuxException error) {
+                close();
+                throw error;
             } catch (ClosedChannelException error) {
+                close();
                 throw new CmuxTransportException("connection is closed", error);
             } catch (IOException error) {
+                close();
                 throw new CmuxTransportException("socket write failed", error);
             }
         }
     }
 
     Map<String, Object> receive(Duration timeout) throws CmuxException {
-        if (timeout == null || timeout.isNegative() || timeout.isZero()) {
-            throw new IllegalArgumentException("timeout must be positive");
-        }
+        return receive(deadline(timeout), () -> {});
+    }
+
+    Map<String, Object> receive(Duration timeout, Runnable beforeWait)
+        throws CmuxException {
+        return receive(deadline(timeout), beforeWait);
+    }
+
+    Map<String, Object> receive(Deadline deadline) throws CmuxException {
+        return receive(deadline, () -> {});
+    }
+
+    Map<String, Object> receive(Deadline deadline, Runnable beforeWait)
+        throws CmuxException {
+        Objects.requireNonNull(deadline, "deadline");
+        Objects.requireNonNull(beforeWait, "beforeWait");
         synchronized (readLock) {
             ensureOpen();
-            long deadline = deadline(timeout);
             while (true) {
                 byte[] line = takeLine();
                 if (line != null) {
@@ -122,19 +149,21 @@ final class JsonLineConnection implements AutoCloseable {
                     }
                     return Wire.object(decoded, "server message");
                 }
-                long remaining = deadline - System.nanoTime();
-                if (remaining <= 0) {
-                    throw new CmuxTimeoutException("session did not respond before timeout");
-                }
+                long remaining = deadline.remainingNanos(
+                    "session did not respond before timeout"
+                );
                 try {
-                    int ready = selector.select(Math.max(1, Duration.ofNanos(remaining).toMillis()));
+                    beforeWait.run();
+                    int ready = readSelector.select(
+                        Math.max(1, Duration.ofNanos(remaining).toMillis())
+                    );
                     if (closed.get()) {
                         throw new CmuxTransportException("connection is closed");
                     }
                     if (ready == 0) {
                         continue;
                     }
-                    selector.selectedKeys().clear();
+                    readSelector.selectedKeys().clear();
                     ByteBuffer chunk = ByteBuffer.allocate(8192);
                     int count = channel.read(chunk);
                     if (count < 0) {
@@ -163,8 +192,10 @@ final class JsonLineConnection implements AutoCloseable {
         }
     }
 
-    private void writeFully(ByteBuffer bytes) throws IOException, CmuxTransportException {
+    private void writeFully(ByteBuffer bytes, Deadline deadline)
+        throws IOException, CmuxException {
         while (bytes.hasRemaining()) {
+            deadline.remainingNanos("session did not accept request before timeout");
             int written = channel.write(bytes);
             if (written > 0) {
                 continue;
@@ -172,13 +203,37 @@ final class JsonLineConnection implements AutoCloseable {
             if (closed.get()) {
                 throw new ClosedChannelException();
             }
+            if (Thread.currentThread().isInterrupted()) {
+                throw interruptedWrite();
+            }
             try {
-                Thread.sleep(1);
-            } catch (InterruptedException error) {
-                Thread.currentThread().interrupt();
-                throw new CmuxTransportException("interrupted during socket write", error);
+                long remaining = deadline.remainingNanos(
+                    "session did not accept request before timeout"
+                );
+                int ready = writeSelector.select(
+                    Math.max(1, Duration.ofNanos(remaining).toMillis())
+                );
+                if (closed.get()) {
+                    throw new ClosedChannelException();
+                }
+                if (Thread.currentThread().isInterrupted()) {
+                    throw interruptedWrite();
+                }
+                if (ready > 0) {
+                    writeSelector.selectedKeys().clear();
+                }
+            } catch (ClosedSelectorException | CancelledKeyException error) {
+                ClosedChannelException closedChannel = new ClosedChannelException();
+                closedChannel.initCause(error);
+                throw closedChannel;
             }
         }
+    }
+
+    private static CmuxTransportException interruptedWrite() {
+        InterruptedException error = new InterruptedException("socket write interrupted");
+        Thread.currentThread().interrupt();
+        return new CmuxTransportException("interrupted during socket write", error);
     }
 
     private byte[] takeLine() throws CmuxTransportException {
@@ -223,15 +278,46 @@ final class JsonLineConnection implements AutoCloseable {
         return true;
     }
 
-    private static long deadline(Duration timeout) {
+    static Deadline deadline(Duration timeout) {
+        if (timeout == null || timeout.isNegative() || timeout.isZero()) {
+            throw new IllegalArgumentException("timeout must be positive");
+        }
         long now = System.nanoTime();
         long nanos;
         try {
             nanos = timeout.toNanos();
         } catch (ArithmeticException error) {
-            return Long.MAX_VALUE;
+            return Deadline.infinite();
         }
-        return nanos >= Long.MAX_VALUE - now ? Long.MAX_VALUE : now + nanos;
+        return now > Long.MAX_VALUE - nanos
+            ? Deadline.infinite()
+            : new Deadline(now + nanos, false);
+    }
+
+    static final class Deadline {
+        private final long nanoTime;
+        private final boolean infinite;
+
+        private Deadline(long nanoTime, boolean infinite) {
+            this.nanoTime = nanoTime;
+            this.infinite = infinite;
+        }
+
+        private static Deadline infinite() {
+            return new Deadline(0, true);
+        }
+
+        private long remainingNanos(String timeoutMessage)
+            throws CmuxTimeoutException {
+            if (infinite) {
+                return Long.MAX_VALUE;
+            }
+            long remaining = nanoTime - System.nanoTime();
+            if (remaining <= 0) {
+                throw new CmuxTimeoutException(timeoutMessage);
+            }
+            return remaining;
+        }
     }
 
     private void ensureOpen() throws CmuxTransportException {
@@ -245,9 +331,11 @@ final class JsonLineConnection implements AutoCloseable {
         if (!closed.compareAndSet(false, true)) {
             return;
         }
-        selector.wakeup();
+        readSelector.wakeup();
+        writeSelector.wakeup();
         closeQuietly(channel);
-        closeQuietly(selector);
+        closeQuietly(readSelector);
+        closeQuietly(writeSelector);
     }
 
     private static int positive(int value, String name) {
