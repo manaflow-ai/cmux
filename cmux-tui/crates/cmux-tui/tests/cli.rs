@@ -525,6 +525,7 @@ fn server_lifecycle_start_rejects_inline_relay_ticket_without_echoing_secret() {
     for args in [
         &["server", "start", "--relay-ticket", secret][..],
         &["--json", "server", "start", "--relay-ticket", secret][..],
+        &["server", "start", "--relay-ticket=inline-server-start-secret-marker"][..],
     ] {
         let output = lifecycle_cli(args);
         assert_eq!(output.status.code(), Some(2));

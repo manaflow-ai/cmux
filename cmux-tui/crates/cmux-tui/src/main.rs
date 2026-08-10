@@ -618,7 +618,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                     .push(args.next().unwrap_or_else(|| usage_exit("--relay-slot needs a value")));
                 out.remote = true;
             }
-            "--relay-ticket" => {
+            option if option == "--relay-ticket" || option.starts_with("--relay-ticket=") => {
                 return Err(localization::catalog()
                     .remote_client
                     .inline_relay_ticket_rejected
@@ -1112,6 +1112,7 @@ fn is_cli_invocation(args: &[String]) -> bool {
             | "--remote-resume-lease-seconds"
             | "--relay"
             | "--relay-slot"
+            | "--relay-ticket"
             | "--relay-ticket-file"
             | "--relay-ticket-command"
             | "--relay-ticket-command-arg"
