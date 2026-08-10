@@ -335,8 +335,8 @@ private struct QuickLookPreview: UIViewControllerRepresentable {
 
 private extension String {
     static func mobileAttachmentLocalized(
-        _ key: String.LocalizationValue,
-        _ fallback: String
+        _ key: StaticString,
+        _ fallback: String.LocalizationValue
     ) -> String {
         String(localized: key, defaultValue: fallback, bundle: .module)
     }
