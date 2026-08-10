@@ -22,7 +22,7 @@ struct AgentChatDemoScreen: View {
         self.style = style
         self.attachmentFixtures = ProcessInfo.processInfo.environment[
             "CMUX_UITEST_AGENT_CHAT_ATTACHMENTS"
-        ] == "1" ? MobileAttachmentAccessibilityFixtures.basic() : []
+        ] == "1" ? MobileAttachmentAccessibilityFixtures().basic() : []
     }
 
     var body: some View {

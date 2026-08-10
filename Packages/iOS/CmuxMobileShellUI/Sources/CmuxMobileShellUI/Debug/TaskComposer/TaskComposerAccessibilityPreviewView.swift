@@ -93,12 +93,13 @@ public struct TaskComposerAccessibilityPreviewView: View {
         self.holdsSubmissionInPreparation = environment[
             "CMUX_UITEST_TASK_COMPOSER_HOLD_PREPARATION"
         ] == "1"
+        let attachmentFixtures = MobileAttachmentAccessibilityFixtures()
         if environment["CMUX_UITEST_TASK_COMPOSER_MAX_ATTACHMENTS"] == "1" {
-            self.attachmentFixtures = MobileAttachmentAccessibilityFixtures.maximumCount()
+            self.attachmentFixtures = attachmentFixtures.maximumCount()
         } else if environment["CMUX_UITEST_TASK_COMPOSER_ATTACHMENT_EDGE_CASES"] == "1" {
-            self.attachmentFixtures = MobileAttachmentAccessibilityFixtures.edgeCases()
+            self.attachmentFixtures = attachmentFixtures.edgeCases()
         } else if environment["CMUX_UITEST_TASK_COMPOSER_ATTACHMENTS"] == "1" {
-            self.attachmentFixtures = MobileAttachmentAccessibilityFixtures.basic()
+            self.attachmentFixtures = attachmentFixtures.basic()
         } else {
             self.attachmentFixtures = []
         }

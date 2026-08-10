@@ -4,8 +4,20 @@ import Foundation
 import UIKit
 
 /// App-owned attachment files used only by deterministic accessibility hosts.
-enum MobileAttachmentAccessibilityFixtures {
-    static func basic() -> [MobileStagedAttachment] {
+struct MobileAttachmentAccessibilityFixtures {
+    private let rootURL: URL
+    private let fileManager: FileManager
+
+    init(
+        rootURL: URL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-attachment-accessibility-fixtures", isDirectory: true),
+        fileManager: FileManager = FileManager()
+    ) {
+        self.rootURL = rootURL
+        self.fileManager = fileManager
+    }
+
+    func basic() -> [MobileStagedAttachment] {
         let imageData = distinctiveImageData()
         let fileData = Data("attachment fixture".utf8)
         return [
@@ -27,7 +39,7 @@ enum MobileAttachmentAccessibilityFixtures {
         ]
     }
 
-    static func edgeCases() -> [MobileStagedAttachment] {
+    func edgeCases() -> [MobileStagedAttachment] {
         [
             make(
                 id: "18349618-77EF-42C6-8E90-4C1D10DDB6CE",
@@ -46,11 +58,11 @@ enum MobileAttachmentAccessibilityFixtures {
         ]
     }
 
-    static func overflow() -> [MobileStagedAttachment] {
+    func overflow() -> [MobileStagedAttachment] {
         basic() + edgeCases()
     }
 
-    static func maximumCount() -> [MobileStagedAttachment] {
+    func maximumCount() -> [MobileStagedAttachment] {
         (0..<MobileStagedAttachment.maximumCount).map { index in
             let suffix = String(format: "%02d", index + 1)
             return make(
@@ -63,7 +75,7 @@ enum MobileAttachmentAccessibilityFixtures {
         }
     }
 
-    private static func make(
+    private func make(
         id: String,
         kind: MobileStagedAttachment.Kind,
         fileName: String,
@@ -71,10 +83,8 @@ enum MobileAttachmentAccessibilityFixtures {
         data: Data,
         thumbnailData: Data? = nil
     ) -> MobileStagedAttachment {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-attachment-accessibility-fixtures", isDirectory: true)
-        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let url = root.appendingPathComponent(storedName)
+        try? fileManager.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        let url = rootURL.appendingPathComponent(storedName)
         try? data.write(to: url, options: .atomic)
         return MobileStagedAttachment(
             id: UUID(uuidString: id)!,
@@ -86,7 +96,7 @@ enum MobileAttachmentAccessibilityFixtures {
         )
     }
 
-    private static func distinctiveImageData() -> Data {
+    private func distinctiveImageData() -> Data {
         let size = CGSize(width: 96, height: 96)
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1

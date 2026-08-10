@@ -144,11 +144,12 @@ private struct TerminalAttachmentComposerAccessibilityHost: View {
             isSignedIn: true,
             workspaces: [workspace]
         )
+        let attachmentFixtures = MobileAttachmentAccessibilityFixtures()
         let attachments = ProcessInfo.processInfo.environment[
             "CMUX_UITEST_TERMINAL_ATTACHMENT_FIXTURE"
         ] == "overflow"
-            ? MobileAttachmentAccessibilityFixtures.overflow()
-            : MobileAttachmentAccessibilityFixtures.basic()
+            ? attachmentFixtures.overflow()
+            : attachmentFixtures.basic()
         for attachment in attachments {
             store.addPendingAttachment(attachment, forTerminalID: Self.terminalID)
         }
