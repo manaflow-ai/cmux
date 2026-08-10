@@ -2839,13 +2839,11 @@ impl Mux {
     ) -> anyhow::Result<ResourceClosePlan> {
         let mut placements =
             state.placements_of_content(&ContentPublicId::Terminal(public_id.clone())).to_vec();
-        if placements.is_empty() {
-            placements.extend(state.surfaces.iter().filter_map(|(surface_id, surface)| {
-                self.resource_terminal_host_identity(surface)
-                    .is_some_and(|identity| identity.terminal_id == terminal_id)
-                    .then_some(*surface_id)
-            }));
-        }
+        placements.extend(state.surfaces.iter().filter_map(|(surface_id, surface)| {
+            self.resource_terminal_host_identity(surface)
+                .is_some_and(|identity| identity.terminal_id == terminal_id)
+                .then_some(*surface_id)
+        }));
         placements.sort_unstable();
         placements.dedup();
         let changed_screens = unique_screen_ids(

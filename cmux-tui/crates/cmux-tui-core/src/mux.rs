@@ -19659,39 +19659,31 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn explicit_terminal_close_repairs_a_missing_placement_index() {
-        const TERMINAL: &str = "0000000000004000800000000000004a";
-        const INCARNATION: &str = "1000000000004000800000000000004a";
+    fn explicit_terminal_close_repairs_a_partly_populated_placement_index() {
         let mux = test_mux();
-        let workspace = mux
-            .create_empty_workspace(
-                Some("partial restore".into()),
-                Some("018f6e21-7b70-7e70-8000-00000000104a".into()),
-                None,
-            )
-            .unwrap();
-        let surface =
-            mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
-        let public_id =
-            mux.workspace_registry.lock().unwrap().terminal_resource_id(TERMINAL).unwrap().unwrap();
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let second = projected_terminal_view(&mux, &first);
+        let host = mux.resource_terminal_host_identity(&first).unwrap();
+        let public_id = first.terminal_public_id().cloned().unwrap();
 
         {
             let mut state = mux.state.lock().unwrap();
-            let runtime_id = state.surfaces[&surface].terminal_runtime_id().unwrap();
+            let runtime_id = first.terminal_runtime_id().unwrap();
             state
                 .resource_indexes
                 .content_placements
-                .remove(&ContentPublicId::Terminal(public_id.clone()));
+                .insert(ContentPublicId::Terminal(public_id.clone()), vec![first.id]);
             state.terminal_catalog.remove(&public_id);
             state.terminal_catalog_by_runtime.remove(&runtime_id);
         }
 
-        let closed = mux.close_terminal(TERMINAL, INCARNATION).unwrap();
+        let closed = mux.close_terminal(&host.terminal_id, &host.incarnation).unwrap();
 
-        assert_eq!(closed.surface, Some(surface));
-        assert!(mux.surface(surface).is_none());
+        assert!(closed.surface.is_some());
+        assert!(mux.surface(first.id).is_none());
+        assert!(mux.surface(second.id).is_none());
         assert_eq!(
-            mux.resolve_terminal(TERMINAL).unwrap().unwrap().terminal.lifecycle,
+            mux.resolve_terminal(&host.terminal_id).unwrap().unwrap().terminal.lifecycle,
             TerminalLifecycle::Tombstoned
         );
     }
