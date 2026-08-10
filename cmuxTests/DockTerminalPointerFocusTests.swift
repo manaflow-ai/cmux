@@ -140,6 +140,19 @@ struct DockTerminalPointerFocusTests {
         #expect(secondPanel.hostedView.debugRenderStats().isActive)
 
         dock.installAttentionRouting(for: secondPanel)
+        let runtimeSurface = try #require(secondPanel.surface.surface)
+        Data("\u{1b}[?1000h".utf8).withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress?
+                .assumingMemoryBound(to: CChar.self) else {
+                return
+            }
+            ghostty_surface_process_output(
+                runtimeSurface,
+                baseAddress,
+                UInt(rawBuffer.count)
+            )
+        }
+        #expect(ghostty_surface_mouse_captured(runtimeSurface))
         dock.focusPanel(firstPanel.id)
         #expect(window.makeFirstResponder(mainSurfaceView))
         appDelegate.noteMainPanelKeyboardFocusIntent(
