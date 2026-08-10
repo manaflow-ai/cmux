@@ -121,6 +121,7 @@ jobs:
 
           seen = set()
           selected = []
+          pidfd_probe = None
           with open("target/cargo-test-binaries.jsonl", "r", encoding="utf-8") as messages:
               for line in messages:
                   try:
@@ -133,6 +134,8 @@ jobs:
                   if not executable or executable in seen:
                       continue
                   seen.add(executable)
+                  if re.fullmatch(r"cmux_tui_core-[0-9a-f]+", os.path.basename(executable)):
+                      pidfd_probe = executable
                   if shard_for(executable) == shard:
                       selected.append(executable)
 
@@ -140,10 +143,14 @@ jobs:
               raise SystemExit("cargo did not report any test binaries")
           if not selected:
               raise SystemExit(f"Valgrind shard {shard} selected no test binaries")
+          if pidfd_probe is None:
+              raise SystemExit("cargo did not report the cmux_tui_core pidfd probe binary")
 
           with open("target/valgrind-test-binaries.txt", "w", encoding="utf-8") as output:
               for executable in selected:
                   print(executable, file=output)
+          with open("target/valgrind-pidfd-probe.txt", "w", encoding="utf-8") as output:
+              print(pidfd_probe, file=output)
 
           print(
               f"Valgrind shard {shard} selected {len(selected)} of {len(seen)} test binaries",
@@ -177,16 +184,8 @@ jobs:
               -- "$bin" "$@"
           }
 
-          pidfd_probe=
-          while IFS= read -r bin; do
-            case "${bin##*/}" in
-              cmux_tui_core-*)
-                pidfd_probe="$bin"
-                break
-                ;;
-            esac
-          done < target/valgrind-test-binaries.txt
-          test -n "$pidfd_probe"
+          pidfd_probe="$(< target/valgrind-pidfd-probe.txt)"
+          test -x "$pidfd_probe"
           probe_test=process_session::tests::successful_preflight_survives_a_transient_initializer_failure
           "$pidfd_probe" --exact "$probe_test" >/dev/null
           valgrind_pidfd_supported=true

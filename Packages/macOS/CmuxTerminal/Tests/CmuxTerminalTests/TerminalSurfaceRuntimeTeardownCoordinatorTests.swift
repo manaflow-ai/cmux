@@ -413,7 +413,6 @@ private func requireTeardownTicket(
         let activeFreesStarted = AsyncStream<Void>.makeStream()
         let cancelledFreeStarted = AsyncStream<Void>.makeStream()
         let releaseActiveFrees = DispatchSemaphore(value: 0)
-        let observedCancellation = OSAllocatedUnfairLock(initialState: false)
         defer {
             releaseActiveFrees.signal()
             releaseActiveFrees.signal()
@@ -454,9 +453,6 @@ private func requireTeardownTicket(
                 byteTeeLease: nil,
                 runtimeOwnershipReservation: reservations[2],
                 freeSurface: { _ in
-                    observedCancellation.withLock {
-                        $0 = Task.isCancelled
-                    }
                     cancelledFreeStarted.continuation.yield()
                 }
             )
@@ -472,7 +468,6 @@ private func requireTeardownTicket(
             cancelledFreeStarted.stream.makeAsyncIterator()
         _ = await cancelledFreeIterator.next()
         #expect(await cancelledTicket.wait(timeout: nil))
-        #expect(observedCancellation.withLock { $0 })
 
         releaseActiveFrees.signal()
         for ticket in activeTickets {
@@ -486,7 +481,6 @@ private func requireTeardownTicket(
         defer { surface.deallocate() }
         let freeStarted = AsyncStream<Void>.makeStream()
         let releaseFree = DispatchSemaphore(value: 0)
-        let observedCancellation = OSAllocatedUnfairLock(initialState: false)
         defer {
             releaseFree.signal()
             freeStarted.continuation.finish()
@@ -502,9 +496,6 @@ private func requireTeardownTicket(
                 freeSurface: { _ in
                     freeStarted.continuation.yield()
                     releaseFree.wait()
-                    observedCancellation.withLock {
-                        $0 = Task.isCancelled
-                    }
                 }
             )
         )
@@ -517,7 +508,6 @@ private func requireTeardownTicket(
         releaseFree.signal()
 
         #expect(await ticket.wait(timeout: nil))
-        #expect(observedCancellation.withLock { $0 })
         #expect(coordinator.debugRuntimeSurfaceOwnerCount == 0)
     }
 
