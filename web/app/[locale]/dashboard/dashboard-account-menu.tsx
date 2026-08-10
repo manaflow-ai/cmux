@@ -139,7 +139,10 @@ function DashboardOrganizationSwitcher() {
   const { data, isPending } = useQuery({
     queryKey: organizationQueryKey,
     queryFn: ({ signal }) => loadOrganizationCatalog(signal),
-    staleTime: 60_000,
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: "always",
+    refetchOnReconnect: "always",
   });
 
   if (isPending) {
