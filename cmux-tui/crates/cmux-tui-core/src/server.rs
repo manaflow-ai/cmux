@@ -19453,7 +19453,11 @@ mod tests {
         })
         .to_string();
 
-        assert!(handle_connection_message(&mux, requester, &shutdown, &writer, &scheduler));
+        // Complete the shutdown request through the shared request handler
+        // before testing the connection-level fence. The real connection
+        // scheduler is asynchronous, so using it for setup would race the
+        // shutdown flag that this test needs as its precondition.
+        assert!(handle_message(&mux, requester, &shutdown, &writer));
         assert!(mux.daemon_shutdown_requested());
         assert!(mux.control_clients.contains(requester));
         assert!(writer.is_open());
