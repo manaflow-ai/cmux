@@ -24713,7 +24713,7 @@ mod tests {
         assert!(offset_before > 0);
         let selection = Selection { surface: surface.id, anchor: (1, 1), head: (2, 2) };
 
-        let (mut app, _events) = test_app_with_events(Session::Local(mux.clone()));
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
         app.sidebar_visible = false;
         app.replace_tree(app.session.tree());
         app.selection = Some(selection);
@@ -24724,8 +24724,14 @@ mod tests {
             ),
             RenderAction::None
         );
+        let failure_ready = loop {
+            let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            if matches!(event, AppEvent::PtyFailuresReady) {
+                break event;
+            }
+        };
+        app.handle(failure_ready).unwrap();
         assert!(app.pty_input.shutdown(Duration::from_secs(1)));
-        app.apply_pty_failures();
 
         assert_eq!(
             app.status_message.as_deref(),
@@ -25079,9 +25085,9 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let socket = dir.join("mux.sock");
         server::serve(mux.clone(), Some(socket.clone())).unwrap();
+        let tree = mux.tree();
         let remote = RemoteSession::connect(&socket).unwrap();
         let session = Session::Remote(remote);
-        let tree = session.refresh_tree().unwrap();
         let SurfaceAttach::Attached(mirror) =
             session.try_surface_sized(surface.id, Some((20, 8))).unwrap()
         else {
