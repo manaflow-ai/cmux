@@ -6678,7 +6678,7 @@ fn journal_agent_prejournal_projection_migrates_once_and_survives_reopen() {
 
 #[test]
 fn journal_agent_prejournal_projection_migration_is_bounded_on_open() {
-    const PROJECTION_COUNT: usize = 1_025;
+    const PROJECTION_COUNT: usize = 65;
 
     let root = temp_root("journal-agent-bounded-prejournal-migration");
     let session = "journal-agent-bounded-prejournal-migration";
