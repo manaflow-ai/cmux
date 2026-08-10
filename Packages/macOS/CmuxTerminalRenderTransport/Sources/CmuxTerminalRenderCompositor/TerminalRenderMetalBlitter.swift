@@ -181,8 +181,9 @@ actor TerminalRenderMetalBlitter {
         let presentedMetadata = frame.metadata
         let presentedEpoch = currentEpoch
         drawable.addPresentedHandler { [weak self] _ in
+            guard let blitter = self else { return }
             Task {
-                await self?.frameBecameVisible(
+                await blitter.frameBecameVisible(
                     presentedMetadata,
                     submissionEpoch: presentedEpoch
                 )
@@ -193,9 +194,8 @@ actor TerminalRenderMetalBlitter {
             // then permit the remote worker to reuse exactly this pool slot.
             _ = frame
             release(releaseRecord)
-            Task { [weak self] in
-                await self?.completedBlit()
-            }
+            guard let blitter = self else { return }
+            Task { await blitter.completedBlit() }
         }
         commandBuffer.present(drawable)
         commandBuffer.commit()
