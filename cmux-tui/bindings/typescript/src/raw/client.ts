@@ -92,6 +92,19 @@ import {
   utf8ByteLength,
 } from "../transport-limits.js";
 import { parseWireJson, stringifyWireJson } from "../wire-json.js";
+import {
+  TOPOLOGY_V8_CAPABILITIES,
+  parseSubscribeTopologyResult,
+  parseTopologyCursor,
+  parseTopologySnapshot,
+  parseTopologyStreamEvent,
+  validateTopologyDelta,
+  type TopologyCursor,
+  type TopologyResnapshotRequiredResult,
+  type TopologySnapshot,
+  type TopologyStreamEvent,
+  type TopologySubscribedResult,
+} from "../protocol/topology.js";
 
 export interface CmuxClientOptions {
   transport: Transport;
@@ -135,6 +148,17 @@ export interface SendRawOptions {
   /** Cancels the request and any transport frame that has not started dispatch. */
   signal?: AbortSignal;
 }
+
+export interface TopologySubscription {
+  status: "subscribed";
+  info: TopologySubscribedResult;
+  stream: CmuxStream<TopologyStreamEvent>;
+  cursor(): TopologyCursor;
+}
+
+export type TopologySubscribeOutcome =
+  | TopologySubscription
+  | TopologyResnapshotRequiredResult;
 
 export const DEFAULT_MAX_BUFFERED_EVENTS = 256;
 export const DEFAULT_MAX_ATTACH_ENCODED_CHARS = RENDER_ATTACH_MAX_ENCODED_CHARS;
@@ -444,6 +468,7 @@ export class CmuxStream<T extends { event: string }> implements AsyncIterable<T>
   private closed = false;
   private endsAfterDrain = false;
   private terminalError: Error | null = null;
+  private response: unknown;
 
   constructor(
     readonly idleTimeoutMs: number | undefined,
@@ -578,6 +603,11 @@ export class CmuxStream<T extends { event: string }> implements AsyncIterable<T>
   get error(): Error | null {
     return this.terminalError;
   }
+
+  /** The successful command response data that opened this stream. */
+  get responseData(): unknown { return this.response; }
+
+  setResponseData(value: unknown): void { this.response = value; }
 
   async *[Symbol.asyncIterator](): AsyncIterator<T> {
     try {
@@ -754,6 +784,75 @@ export class CmuxClient {
 
   /** The protocol reported by the latest `identify()`, or null before identification. */
   get protocol(): number | null { return this.identifiedProtocol; }
+
+  async topologySnapshot(): Promise<TopologySnapshot> {
+    await this.requireTopologyV8();
+    const response = await this.sendRaw({ cmd: "topology-snapshot" });
+    if (!response.ok) {
+      throw new CmuxCommandError(response.error || "unknown error", response.id, response);
+    }
+    try {
+      return parseTopologySnapshot(response.data);
+    } catch (error) {
+      throw new CmuxProtocolError(`invalid topology snapshot: ${(error as Error).message}`);
+    }
+  }
+
+  async subscribeTopology(cursor: TopologyCursor): Promise<TopologySubscribeOutcome> {
+    await this.requireTopologyV8();
+    let applied = parseTopologyCursor(cursor);
+    let stream: CmuxStream<TopologyStreamEvent>;
+    try {
+      stream = await this.openStream(
+        { cmd: "subscribe-topology", ...applied },
+        (raw) => {
+          const event = parseTopologyStreamEvent(raw);
+          if (event.event === "topology-resnapshot-required") return event;
+          const required = validateTopologyDelta(applied, event);
+          if (required) return required;
+          applied = { ...applied, revision: event.revision };
+          return event;
+        },
+        (event, dedicated) => dedicated
+          || event.event === "topology-delta"
+          || event.event === "topology-resnapshot-required",
+        (event) => event.event === "topology-resnapshot-required",
+        true,
+        undefined,
+        {},
+        true,
+      );
+    } catch (error) {
+      if (error instanceof CmuxProtocolError && error.message === "stream event buffer overflow") {
+        return {
+          status: "resnapshot-required",
+          daemon_instance_id: cursor.daemon_instance_id,
+          session_id: cursor.session_id,
+          reason: "slow-consumer",
+        };
+      }
+      throw error;
+    }
+    let result;
+    try {
+      result = parseSubscribeTopologyResult(stream.responseData);
+    } catch (error) {
+      stream.close();
+      throw new CmuxProtocolError(
+        `invalid subscribe-topology response: ${(error as Error).message}`,
+      );
+    }
+    if (result.status === "resnapshot-required") {
+      stream.close();
+      return result;
+    }
+    const fenceFailure = this.subscriptionFenceFailure(cursor, result);
+    if (fenceFailure) {
+      stream.close();
+      return fenceFailure;
+    }
+    return { status: "subscribed", info: result, stream, cursor: () => ({ ...applied }) };
+  }
 
   ping(): Promise<PingResult> { return this.request("ping"); }
   setClientInfo(name?: string, kind?: string): Promise<EmptyResult> {
@@ -1151,6 +1250,36 @@ export class CmuxClient {
     }
   }
 
+  private async requireTopologyV8(): Promise<void> {
+    if (this.identifiedProtocol === null) await this.identify();
+    const missing = TOPOLOGY_V8_CAPABILITIES.filter(
+      (capability) => !this.identifiedCapabilities.has(capability),
+    );
+    if ((this.identifiedProtocol ?? 0) < 8 || missing.length > 0) {
+      throw new CmuxProtocolError(
+        `canonical topology requires protocol 8 and capabilities ${TOPOLOGY_V8_CAPABILITIES.join(",")}; `
+          + `server protocol=${this.identifiedProtocol ?? 0} missing=${missing.join(",")}`,
+      );
+    }
+  }
+
+  private subscriptionFenceFailure(
+    cursor: TopologyCursor,
+    result: TopologySubscribedResult,
+  ): TopologyResnapshotRequiredResult | null {
+    let reason: TopologyResnapshotRequiredResult["reason"] | null = null;
+    if (result.daemon_instance_id !== cursor.daemon_instance_id) reason = "stale-daemon";
+    else if (result.session_id !== cursor.session_id) reason = "stale-session";
+    else if (result.from_revision !== cursor.revision) reason = "history-gap";
+    return reason === null ? null : {
+      status: "resnapshot-required",
+      daemon_instance_id: result.daemon_instance_id,
+      session_id: result.session_id,
+      current_revision: result.current_revision,
+      reason,
+    };
+  }
+
   private async identifyForStream(signal?: AbortSignal): Promise<IdentifyResult> {
     if (!signal) return this.identify();
     const request = {
@@ -1290,7 +1419,7 @@ export class CmuxClient {
   }
 
   private async openStream<T extends { event: string }>(
-    request: CmuxRequest,
+    request: CmuxRequest | JsonObject,
     map: (event: UnknownEvent) => T,
     accept: (event: UnknownEvent, dedicated: boolean) => boolean,
     terminal: (event: T) => boolean = () => false,
@@ -1300,6 +1429,7 @@ export class CmuxClient {
       retainedBytes: (event: T, receivedBytes: number) => number;
     },
     streamOptions: StreamOpenOptions = {},
+    wireOnly = false,
   ): Promise<CmuxStream<T>> {
     if (streamOptions.signal?.aborted) {
       throw new CmuxAbortError("stream open aborted");
@@ -1309,10 +1439,13 @@ export class CmuxClient {
       this.streamIdleTimeout("idleTimeoutMs", idleTimeoutMs);
     }
     const { cmd, id: requestId, ...rawParams } = request;
-    await this.ensureCommandAvailable(cmd, rawParams);
+    if (typeof cmd !== "string") throw new CmuxProtocolError("stream command is not a string");
+    if (!wireOnly) await this.ensureCommandAvailable(cmd as CmuxCommand, rawParams);
     if (
+      !wireOnly
+      &&
       this.identifiedProtocol === null
-      && commandStreamNeedsDecodeContext(cmd)
+      && commandStreamNeedsDecodeContext(cmd as CmuxCommand)
     ) {
       await this.identifyForStream(streamOptions.signal);
     }
@@ -1368,7 +1501,9 @@ export class CmuxClient {
     });
     terminalSubscription = router.onTerminal((error) => stream.fail(error));
 
-    const encoded = encodeCommandParams(cmd, rawParams);
+    const encoded = wireOnly
+      ? rawParams
+      : encodeCommandParams(cmd as CmuxCommand, rawParams);
     const payload = this.dropUndefined({
       id: requestId ?? this.nextId(),
       cmd,
@@ -1386,6 +1521,7 @@ export class CmuxClient {
       stream.close();
       throw new CmuxCommandError(response.error || "unknown error", response.id, response);
     }
+    stream.setResponseData(response.data);
     const terminalError = streamError ?? stream.error;
     if (terminalError) throw terminalError;
     if (streamOptions.signal) {

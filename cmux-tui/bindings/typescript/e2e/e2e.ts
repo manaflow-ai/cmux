@@ -5,6 +5,7 @@ import {
   stringifyWireJson,
   type Id,
   type Tree,
+  type UUID,
 } from "../src/raw/index.js";
 
 async function main(): Promise<void> {

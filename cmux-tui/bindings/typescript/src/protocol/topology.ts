@@ -1,4 +1,4 @@
-import type { Id, SplitDirection } from "./common.js";
+import type { Id, SplitDirection } from "../raw/protocol/index.js";
 
 declare const uuidBrand: unique symbol;
 /** A lowercase, hyphenated RFC 9562 UUID. */

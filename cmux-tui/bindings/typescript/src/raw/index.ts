@@ -11,6 +11,7 @@ export * from "./protocol/index.js";
 export * from "./websocket-transport.js";
 export * from "../base64.js";
 export * from "../node-transport.js";
+export * from "../protocol/topology.js";
 export * from "../transport.js";
 export * from "../transport-limits.js";
 export * from "../wire-json.js";
