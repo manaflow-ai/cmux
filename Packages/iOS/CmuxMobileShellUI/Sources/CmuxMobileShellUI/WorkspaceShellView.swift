@@ -308,15 +308,6 @@ struct WorkspaceShellView: View {
                     searchSelectionRestoresSearchOnPop = false
                 }
             }
-            .onChange(of: workspaceSearchNavigationPath) { _, path in
-                guard path.isEmpty, searchSelectionRestoresSearchOnPop else { return }
-                searchSelectionRestoresSearchOnPop = false
-                guard selectedPrimaryTab == .search else { return }
-                // Re-activate as a fresh presentation: it anchors at the
-                // bottom like a search-control tap and pulls the query back
-                // from the commit made when the result was selected.
-                primarySearchCoordinator.setPresentation(true)
-            }
             .onChange(of: store.deeplinkWorkspaceNavigationRequest) { _, request in
                 guard request != nil else { return }
                 consumeDeeplinkNavigationRequestIfNeeded()
@@ -406,6 +397,17 @@ struct WorkspaceShellView: View {
                         canCreateWorkspaceForSelection: canCreateWorkspaceForSelection
                     )
                     .toolbarVisibility(.hidden, for: .tabBar)
+                    // Restore the search session only once the pop transition
+                    // has fully completed (onDisappear): re-presenting while
+                    // the stack is still animating hosts the field in the top
+                    // navigation bar and blanks the bound query.
+                    .onDisappear {
+                        guard searchSelectionRestoresSearchOnPop else { return }
+                        searchSelectionRestoresSearchOnPop = false
+                        guard selectedPrimaryTab == .search,
+                              workspaceSearchNavigationPath.isEmpty else { return }
+                        primarySearchCoordinator.setPresentation(true)
+                    }
                 }
             }
         }

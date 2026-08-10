@@ -577,6 +577,15 @@ public struct WorkspaceListLayoutPreviewView: View {
                             // inside the search tab with the system back button.
                             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                                 fixtureWorkspaceDetail(for: workspaceID)
+                                    // Mirrors the shell: restore the search
+                                    // session only after the pop completes.
+                                    .onDisappear {
+                                        guard searchSelectionRestoresSearchOnPop else { return }
+                                        searchSelectionRestoresSearchOnPop = false
+                                        guard selectedPrimaryTab == .search,
+                                              searchFixturePath.isEmpty else { return }
+                                        primarySearchCoordinator.setPresentation(true)
+                                    }
                             }
                         }
                     } notificationSearch: {
@@ -593,12 +602,6 @@ public struct WorkspaceListLayoutPreviewView: View {
                 searchFixturePath = []
                 searchSelectionRestoresSearchOnPop = false
             }
-        }
-        .onChange(of: searchFixturePath) { _, path in
-            guard path.isEmpty, searchSelectionRestoresSearchOnPop else { return }
-            searchSelectionRestoresSearchOnPop = false
-            guard selectedPrimaryTab == .search else { return }
-            primarySearchCoordinator.setPresentation(true)
         }
         .overlay(alignment: .topLeading) {
             ZStack(alignment: .topLeading) {
