@@ -1,10 +1,18 @@
 import Foundation
 import GhosttyKit
 import CmuxTerminalCore
+import os
 @testable import CmuxTerminal
 
 final class FakeSurfaceRegistry: @unchecked Sendable, TerminalSurfaceRegistering {
     private let backing = TerminalSurfaceRegistry()
+    private let allSurfacesCallCountLock = OSAllocatedUnfairLock(
+        initialState: 0
+    )
+
+    var allSurfacesCallCount: Int {
+        allSurfacesCallCountLock.withLock { $0 }
+    }
 
     var topologyGeneration: UInt64 { backing.topologyGeneration }
     func register(
@@ -72,6 +80,7 @@ final class FakeSurfaceRegistry: @unchecked Sendable, TerminalSurfaceRegistering
         backing.updateFocusPlacement(id: id, placement)
     }
     func allSurfaces() -> [any TerminalSurfacing] {
+        allSurfacesCallCountLock.withLock { $0 += 1 }
         backing.allSurfaces()
     }
 }

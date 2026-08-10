@@ -401,6 +401,56 @@ import CmuxTerminalCore
                 fixtures[1].surface.id,
             ]
         )
+        #expect(
+            registry.allSurfacesCallCount == 0,
+            "overflow recovery must not scan the full surface registry"
+        )
+    }
+
+    @Test func overflowRecoveryContinuesInFixedMainActorBatches() async throws {
+        let batchCount = 32
+        let overflowCount = batchCount + 1
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
+            maximumRuntimeSurfaceOwnerCount: overflowCount
+        )
+        let saturation = try saturateRuntimeOwnershipRecovery(
+            coordinator,
+            count: overflowCount
+        )
+        defer {
+            releaseRuntimeOwnershipSaturation(saturation, from: coordinator)
+        }
+        let registry = FakeSurfaceRegistry()
+        let scheduler = RecordingRestoreSpawnScheduler()
+        let fixtures = (0..<overflowCount).map { _ in
+            makeSurfaceFixture(
+                registry: registry,
+                scheduler: scheduler,
+                runtimeTeardown: coordinator
+            )
+        }
+
+        for (index, fixture) in fixtures.enumerated() {
+            fixture.surface.createSurface(for: fixture.nativeView)
+            scheduler.runScheduledOperation(at: index)
+            try #require(
+                fixture.surface.runtimeSurfaceAdmissionDeferredCreationSource
+                    == .scheduledRestore
+            )
+        }
+
+        for owner in saturation.owners {
+            coordinator.cancelRuntimeSurfaceOwnership(owner)
+        }
+        await scheduler.waitForScheduledCount(overflowCount + batchCount)
+
+        #expect(scheduler.scheduledSurfaceIds.count == overflowCount + batchCount)
+        await scheduler.waitForScheduledCount(overflowCount * 2)
+        #expect(
+            Array(scheduler.scheduledSurfaceIds.suffix(overflowCount))
+                == fixtures.map { $0.surface.id }
+        )
+        #expect(registry.allSurfacesCallCount == 0)
     }
 
     @Test func overflowStoreSurvivesImmediateRecoveryCapacityRelease() async throws {
@@ -542,6 +592,48 @@ import CmuxTerminalCore
         #expect(
             scheduler.scheduledSurfaceIds.last == sentinel.surface.id
         )
+    }
+
+    @Test func cancelledOverflowSurfaceIsRemovedBeforeCapacityReturns() async throws {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
+            maximumRuntimeSurfaceOwnerCount: 2
+        )
+        let saturation = try saturateRuntimeOwnershipRecovery(coordinator)
+        defer { releaseRuntimeOwnershipSaturation(saturation, from: coordinator) }
+        let registry = FakeSurfaceRegistry()
+        let scheduler = RecordingRestoreSpawnScheduler()
+        let cancelled = makeSurfaceFixture(
+            registry: registry,
+            scheduler: scheduler,
+            runtimeTeardown: coordinator
+        )
+        let sentinel = makeSurfaceFixture(
+            registry: registry,
+            scheduler: scheduler,
+            runtimeTeardown: coordinator
+        )
+
+        for (index, fixture) in [cancelled, sentinel].enumerated() {
+            fixture.surface.createSurface(for: fixture.nativeView)
+            scheduler.runScheduledOperation(at: index)
+            try #require(
+                fixture.surface.runtimeSurfaceAdmissionDeferredCreationSource
+                    == .scheduledRestore
+            )
+        }
+        cancelled.surface.beginPortalCloseLifecycle(reason: "test.cancelOverflow")
+
+        coordinator.cancelRuntimeSurfaceOwnership(saturation.owners[0])
+        await scheduler.waitForScheduledCount(3)
+
+        #expect(
+            scheduler.scheduledSurfaceIds == [
+                cancelled.surface.id,
+                sentinel.surface.id,
+                sentinel.surface.id,
+            ]
+        )
+        #expect(registry.allSurfacesCallCount == 0)
     }
 
     @Test func configurationReloadDefersAndPromotesRuntimeCreation() {
@@ -813,15 +905,16 @@ import CmuxTerminalCore
     }
 
     private func saturateRuntimeOwnershipRecovery(
-        _ coordinator: TerminalSurfaceRuntimeTeardownCoordinator
+        _ coordinator: TerminalSurfaceRuntimeTeardownCoordinator,
+        count: Int = 2
     ) throws -> (
         owners: [TerminalSurfaceRuntimeOwnershipReservation],
         recoveryIDs: [UUID]
     ) {
-        let owners = try (0..<2).map { _ in
+        let owners = try (0..<count).map { _ in
             try #require(coordinator.reserveRuntimeSurfaceOwnership())
         }
-        let recoveryIDs = (0..<2).map { _ in UUID() }
+        let recoveryIDs = (0..<count).map { _ in UUID() }
         for recoveryID in recoveryIDs {
             #expect(
                 coordinator.reserveRuntimeSurfaceOwnership(
