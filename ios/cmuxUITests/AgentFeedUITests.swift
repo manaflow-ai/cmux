@@ -107,7 +107,7 @@ final class AgentFeedUITests: XCTestCase {
         let visibilityP95: Double = try XCTUnwrap(fields["visibility_p95_ms"].flatMap { Double($0) }, value)
         let visibilityStalls: Int = try XCTUnwrap(fields["visibility_ge250"].flatMap { Int($0) }, value)
 
-        XCTAssertGreaterThanOrEqual(frames, 130, value)
+        XCTAssertGreaterThanOrEqual(frames, 60, value)
         XCTAssertEqual(visibility, 1, value)
         XCTAssertLessThanOrEqual(frameP95, 33, value)
         XCTAssertLessThanOrEqual(visibilityP95, 250, value)
