@@ -1233,11 +1233,11 @@ final class cmuxUITests: XCTestCase {
         guard searchField.waitForExistence(timeout: 3) else {
             return XCTFail("Search field missing after popping back from the detail")
         }
-        XCTAssertEqual(
-            searchField.value as? String,
-            "Docs",
-            "Restored search field must carry the query from before the push"
-        )
+        guard waitForSearchFieldValue(searchField, "Docs", timeout: 3) else {
+            return XCTFail(
+                "Restored search field must carry the query from before the push, got \(String(describing: searchField.value))"
+            )
+        }
         guard waitForHittable(docsRow, timeout: 3) else {
             return XCTFail("Matching row missing from the restored search results")
         }
@@ -1781,10 +1781,9 @@ final class cmuxUITests: XCTestCase {
             searchField.waitForExistence(timeout: 3),
             "Search field missing after popping back to the search results"
         )
-        XCTAssertEqual(
-            searchField.value as? String,
-            "Docs",
-            "Restored search field must carry the query from before the push"
+        XCTAssertTrue(
+            waitForSearchFieldValue(searchField, "Docs", timeout: 3),
+            "Restored search field must carry the query from before the push, got \(String(describing: searchField.value))"
         )
         guard let fieldFrame = waitForUsableFrame(of: searchField, timeout: 3) else {
             return XCTFail("Restored search field had no usable frame")
@@ -5681,6 +5680,21 @@ final class cmuxUITests: XCTestCase {
     private func waitForHittable(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
         let expectation = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "exists == true AND isHittable == true"),
+            object: element
+        )
+        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    /// Search-field text populates a beat after a programmatic presentation,
+    /// so value checks must poll instead of reading once.
+    @MainActor
+    private func waitForSearchFieldValue(
+        _ element: XCUIElement,
+        _ value: String,
+        timeout: TimeInterval
+    ) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", value),
             object: element
         )
         return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
