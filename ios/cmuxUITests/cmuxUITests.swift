@@ -2399,7 +2399,11 @@ final class cmuxUITests: XCTestCase {
             "MobileAttachmentPreviewDecodedPixelSize"
         ]
         XCTAssertTrue(decodedSize.waitForExistence(timeout: 8))
-        XCTAssertEqual(decodedSize.label, "2048x4096")
+        let normalizedDecodedSize = decodedSize.label
+            .split(separator: "x", omittingEmptySubsequences: false)
+            .map { String($0.filter(\.isNumber)) }
+            .joined(separator: "x")
+        XCTAssertEqual(normalizedDecodedSize, "2048x4096")
         keepScreenshot(named: "task-oriented-large-image-preview", app: app)
 
         app.buttons["MobileAttachmentPreviewDone"].tap()
