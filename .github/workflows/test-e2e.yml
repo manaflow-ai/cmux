@@ -502,11 +502,10 @@ jobs:
           # one xcodebuild invocation; a filter can select a suite living in either.
           xctest = [int(value) for value in re.findall(r"Executed\s+(\d+)\s+tests?\b", text)]
           swift_testing = [int(value) for value in re.findall(r"Test run with\s+(\d+)\s+tests?\b", text)]
-          counts = []
-          if xctest:
-              counts.append(xctest[-1])
-          if swift_testing:
-              counts.append(swift_testing[-1])
+          # App-hosted Swift Testing can emit a selected run followed by an
+          # auxiliary zero-test run. Count every summary so the later host
+          # teardown cannot erase a test that actually executed.
+          counts = xctest + swift_testing
           if counts:
               print(max(counts))
           PY
