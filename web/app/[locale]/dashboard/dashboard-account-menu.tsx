@@ -231,7 +231,6 @@ function DashboardOrganizationSwitcher() {
     const timeout = setTimeout(() => {
       if (activeSwitchRef.current !== operation) return;
       timedOut = true;
-      setSwitchPending(false);
       setSwitchError(true);
     }, ORGANIZATION_SWITCH_TIMEOUT_MS);
 
@@ -255,6 +254,7 @@ function DashboardOrganizationSwitcher() {
           queryKey: organizationQueryKey,
           exact: true,
         });
+        setSwitchPending(false);
       }
     }, () => {
       if (activeSwitchRef.current !== operation) return;
@@ -298,10 +298,13 @@ function DashboardOrganizationSwitcher() {
       </fieldset>
       {switchError ? (
         <p role="alert" className="mt-1 text-xs text-red-600 dark:text-red-400">
-          {t("organizationSwitchError")}{" "}
-          <Link href="/dashboard/team" className="underline">
-            {t("settings")}
-          </Link>
+          <button
+            type="button"
+            className="text-left underline"
+            onClick={() => globalThis.location.reload()}
+          >
+            {t("organizationSwitchError")}
+          </button>
         </p>
       ) : null}
     </>
