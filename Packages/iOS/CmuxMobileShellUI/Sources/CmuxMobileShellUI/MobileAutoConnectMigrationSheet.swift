@@ -7,9 +7,10 @@ struct MobileAutoConnectMigrationSheet: View {
     let openConnectionSettings: () -> Void
     let showsLayoutProbe: Bool
 
-    /// The system caps an oversized height detent, turning the scroll view into
-    /// the fallback only when the wrapped content exceeds the available screen.
+    /// The requested detent follows the intrinsic content while the UIKit
+    /// reader feeds the system's actual visible cap back into the ScrollView.
     @State private var contentHeight: CGFloat = 1
+    @State private var availableViewportHeight: CGFloat?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -26,6 +27,7 @@ struct MobileAutoConnectMigrationSheet: View {
                 }
             }
             .scrollBounceBehavior(.basedOnSize)
+            .frame(maxHeight: availableViewportHeight)
             #if DEBUG
             .overlay {
                 if showsLayoutProbe {
@@ -33,6 +35,11 @@ struct MobileAutoConnectMigrationSheet: View {
                 }
             }
             #endif
+        }
+        .background {
+            MobileAutoConnectMigrationViewportReader { newHeight in
+                availableViewportHeight = newHeight
+            }
         }
         .presentationDetents([.height(contentHeight)])
         .presentationContentInteraction(.scrolls)
