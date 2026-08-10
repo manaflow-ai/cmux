@@ -48,6 +48,45 @@ struct MobileTaskAttachmentStoreTests {
         #expect(retry.receivedBytes == 5)
     }
 
+    @Test func retryFromZeroRestartsAnIncompleteUpload() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let operationID = UUID()
+        let uploadID = UUID()
+
+        _ = try fixture.store.upload(.init(
+            operationID: operationID,
+            uploadID: uploadID,
+            fileName: "notes.txt",
+            totalBytes: 5,
+            offset: 0,
+            dataBase64: Data("old".utf8).base64EncodedString(),
+            isLast: false
+        ))
+        let restarted = try fixture.store.upload(.init(
+            operationID: operationID,
+            uploadID: uploadID,
+            fileName: "notes.txt",
+            totalBytes: 5,
+            offset: 0,
+            dataBase64: Data("ne".utf8).base64EncodedString(),
+            isLast: false
+        ))
+        #expect(restarted.receivedBytes == 2)
+
+        let completed = try fixture.store.upload(.init(
+            operationID: operationID,
+            uploadID: uploadID,
+            fileName: "notes.txt",
+            totalBytes: 5,
+            offset: 2,
+            dataBase64: Data("wer".utf8).base64EncodedString(),
+            isLast: true
+        ))
+        let path = try #require(completed.path)
+        #expect(try Data(contentsOf: URL(fileURLWithPath: path)) == Data("newer".utf8))
+    }
+
     @Test func duplicateNamesReceiveNumericSuffixes() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
