@@ -13966,31 +13966,44 @@ fn terminal_host_matches(
         && expected_incarnation.is_none_or(|expected| identity.incarnation == expected)
 }
 
-/// Discover every live view by its durable terminal identity. The runtime
-/// binding can be incomplete while restored topology is being adopted.
+/// Discover every durable or live view by terminal identity. The runtime
+/// binding and live surface can be absent while restored topology is adopted.
 fn terminal_content_placements(
     mux: &Mux,
     state: &State,
     terminal_id: &TerminalPublicId,
     expected_host: Option<(&str, Option<&str>)>,
 ) -> Vec<SurfaceId> {
+    let content_id = ContentPublicId::Terminal(terminal_id.clone());
+    let matches_live_surface = |candidate: &Arc<Surface>| {
+        if candidate.terminal_public_id() != Some(terminal_id) {
+            return false;
+        }
+        let Some((expected_id, expected_incarnation)) = expected_host else {
+            return true;
+        };
+        mux.resource_terminal_host_identity(candidate)
+            .is_some_and(|identity| {
+                terminal_host_matches(&identity, expected_id, expected_incarnation)
+            })
+    };
     let mut targets = state
-        .surfaces
+        .placements_of_content(&content_id)
         .iter()
-        .filter_map(|(placement, candidate)| {
-            if candidate.terminal_public_id() != Some(terminal_id) {
-                return None;
-            }
-            if let Some((expected_id, expected_incarnation)) = expected_host {
-                let identity = mux.resource_terminal_host_identity(candidate)?;
-                if !terminal_host_matches(&identity, expected_id, expected_incarnation) {
-                    return None;
+        .copied()
+        .filter(|placement| {
+            state.resource_indexes.content_ids.get(placement) == Some(&content_id)
+                && match state.surfaces.get(placement) {
+                    Some(candidate) => matches_live_surface(candidate),
+                    None => true,
                 }
-            }
-            Some(*placement)
         })
         .collect::<Vec<_>>();
+    targets.extend(state.surfaces.iter().filter_map(|(placement, candidate)| {
+        matches_live_surface(candidate).then_some(*placement)
+    }));
     targets.sort_unstable();
+    targets.dedup();
     targets
 }
 
