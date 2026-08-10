@@ -1970,7 +1970,13 @@ mod tests {
             "shutdown waited without a bound for a descendant-held PTY"
         );
 
-        assert_eq!(unsafe { libc::kill(descendant_pid, libc::SIGKILL) }, 0);
+        if unsafe { libc::kill(descendant_pid, libc::SIGKILL) } != 0 {
+            assert_eq!(
+                std::io::Error::last_os_error().raw_os_error(),
+                Some(libc::ESRCH),
+                "descendant cleanup failed"
+            );
+        }
         assert!(
             surface.wait_for_terminal_reader_for_test(Instant::now() + Duration::from_secs(5)),
             "terminal reader did not signal descendant cleanup"
