@@ -316,19 +316,28 @@ impl Common {
     }
 
     fn pty_command(&self, args: &[String], wrapped: bool) -> Result<PtyCommand> {
-        let (program, prefix) = if wrapped && !self.target.launcher.is_empty() {
-            (self.target.launcher[0].clone(), self.target.launcher[1..].to_vec())
-        } else {
-            (self.target.binary.to_string_lossy().into_owned(), Vec::new())
-        };
+        let (program, prefix) =
+            pty_program_and_prefix(&self.target.binary, &self.target.launcher, wrapped);
         let mut command = PtyCommand::new(program);
-        if !prefix.is_empty() {
-            command.args(prefix);
-            command.args([self.target.binary.to_string_lossy().into_owned()]);
-        }
+        command.args(prefix);
         command.args(args.to_vec());
         self.apply_pty_env(&mut command);
         Ok(command)
+    }
+}
+
+fn pty_program_and_prefix(
+    binary: &Path,
+    launcher: &[String],
+    wrapped: bool,
+) -> (String, Vec<String>) {
+    match (wrapped, launcher.split_first()) {
+        (true, Some((program, launcher_args))) => {
+            let mut prefix = launcher_args.to_vec();
+            prefix.push(binary.to_string_lossy().into_owned());
+            (program.clone(), prefix)
+        }
+        _ => (binary.to_string_lossy().into_owned(), Vec::new()),
     }
 }
 
@@ -1043,20 +1052,37 @@ fn binary_version(binary: &Path) -> Result<String> {
 }
 
 fn source_zig_version(source: &Path) -> Result<String> {
-    let script = source.join("scripts/ghostty-zig-version.sh");
-    let mut command = Command::new("bash");
-    command.arg(&script);
-    let captured = run_captured(command)
-        .with_context(|| format!("resolve Zig version with {}", script.display()))?;
-    if !captured.status.success() {
-        bail!("{} failed: {}", script.display(), String::from_utf8_lossy(&captured.stderr));
+    let manifest = source.join("ghostty/build.zig.zon");
+    let contents =
+        fs::read_to_string(&manifest).with_context(|| format!("read {}", manifest.display()))?;
+    parse_minimum_zig_version(&contents).with_context(|| format!("parse {}", manifest.display()))
+}
+
+fn parse_minimum_zig_version(manifest: &str) -> Result<String> {
+    for line in manifest.lines() {
+        let line = line.trim_start();
+        let Some(value) = line.strip_prefix(".minimum_zig_version") else {
+            continue;
+        };
+        let value = value
+            .trim_start()
+            .strip_prefix('=')
+            .map(str::trim_start)
+            .and_then(|value| value.strip_prefix('"'))
+            .and_then(|value| value.split_once('"').map(|(version, _)| version))
+            .context("minimum_zig_version has invalid syntax")?;
+        let mut components = value.split('.');
+        let valid = (0..3).all(|_| {
+            components.next().is_some_and(|component| {
+                !component.is_empty() && component.bytes().all(|byte| byte.is_ascii_digit())
+            })
+        }) && components.next().is_none();
+        if !valid {
+            bail!("minimum_zig_version is not a three-part numeric version: {value:?}");
+        }
+        return Ok(value.to_string());
     }
-    let output = String::from_utf8(captured.stdout)?;
-    let version = output.trim();
-    if version.is_empty() || version.lines().count() != 1 {
-        bail!("{} returned invalid Zig version {output:?}", script.display());
-    }
-    Ok(version.to_string())
+    bail!("minimum_zig_version is missing")
 }
 
 fn source_rust_toolchain(source: &Path) -> Result<String> {
@@ -1197,5 +1223,43 @@ mod tests {
             expected
         )
         .is_err());
+    }
+
+    #[test]
+    fn one_token_pty_launcher_inserts_the_target_binary() {
+        let binary = Path::new("/bench/cmux-tui");
+        let launcher = ["time".to_string()];
+
+        let (program, prefix) = pty_program_and_prefix(binary, &launcher, true);
+
+        assert_eq!(program, "time");
+        assert_eq!(prefix, ["/bench/cmux-tui"]);
+    }
+
+    #[test]
+    fn multi_token_pty_launcher_keeps_options_before_the_target_binary() {
+        let binary = Path::new("/bench/cmux-tui");
+        let launcher = ["strace".to_string(), "-ff".to_string(), "-c".to_string()];
+
+        let (program, prefix) = pty_program_and_prefix(binary, &launcher, true);
+
+        assert_eq!(program, "strace");
+        assert_eq!(prefix, ["-ff", "-c", "/bench/cmux-tui"]);
+    }
+
+    #[test]
+    fn zig_manifest_parser_accepts_independent_target_versions() {
+        let baseline = ".{\n    .minimum_zig_version = \"0.15.2\",\n}";
+        let candidate = ".{\n\t.minimum_zig_version=\"0.16.0\",\n}";
+
+        assert_eq!(parse_minimum_zig_version(baseline).unwrap(), "0.15.2");
+        assert_eq!(parse_minimum_zig_version(candidate).unwrap(), "0.16.0");
+    }
+
+    #[test]
+    fn zig_manifest_parser_rejects_malformed_and_missing_values() {
+        assert!(parse_minimum_zig_version(".minimum_zig_version = \"0.16\",").is_err());
+        assert!(parse_minimum_zig_version(".minimum_zig_version = 0.16.0,").is_err());
+        assert!(parse_minimum_zig_version(".{};").is_err());
     }
 }
