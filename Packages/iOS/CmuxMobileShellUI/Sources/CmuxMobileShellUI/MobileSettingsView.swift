@@ -36,6 +36,10 @@ struct MobileSettingsView: View {
     @AppStorage(MobileNotificationFeedDesign.storageKey) private var notificationFeedDesignRaw =
         MobileNotificationFeedDesign.timeline.rawValue
 
+    private var notificationFeedDesign: MobileNotificationFeedDesign {
+        MobileNotificationFeedDesign(rawValue: notificationFeedDesignRaw) ?? .timeline
+    }
+
     @Environment(\.dismiss) private var dismiss
     @State private var showingShortcuts = false
     /// Mirrors ``MobilePushCoordinator/isEnabled`` so the toggle's label/icon
@@ -273,6 +277,7 @@ struct MobileSettingsView: View {
                         }
                     }
                     .accessibilityIdentifier("MobileSettingsNotificationFeedDesign")
+                    .accessibilityValue(notificationFeedDesign.title)
                 } header: {
                     Text(L10n.string("mobile.settings.cmuxLabs", defaultValue: "CMUX Labs"))
                 } footer: {

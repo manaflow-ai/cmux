@@ -1864,7 +1864,7 @@ final class cmuxUITests: XCTestCase {
         ])
         defer { app.terminate() }
 
-        let feed = app.descendants(matching: .any)["MobileNotificationFeed"]
+        let feed = app.descendants(matching: .any)["MobileNotificationFeed"].firstMatch
         XCTAssertTrue(feed.waitForExistence(timeout: 8))
 
         let matchingRow = app.descendants(matching: .any)[
@@ -1972,7 +1972,7 @@ final class cmuxUITests: XCTestCase {
         ])
         defer { app.terminate() }
 
-        let feed = app.descendants(matching: .any)["MobileNotificationFeed"]
+        let feed = app.descendants(matching: .any)["MobileNotificationFeed"].firstMatch
         XCTAssertTrue(feed.waitForExistence(timeout: 8))
         XCTAssertTrue(app.tabBars.buttons["Feed"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["MobileNotificationFeedDayToday"].exists)
@@ -1981,7 +1981,9 @@ final class cmuxUITests: XCTestCase {
         let approvalBody = app.staticTexts[
             "The feed screen is implemented. Review the navigation and approve the final interaction pass."
         ]
-        let approvalRow = app.descendants(matching: .any)["MobileNotificationFeedRow-studio-codex-approval"]
+        let approvalRow = app.descendants(matching: .any)[
+            "MobileNotificationFeedRow-studio-codex-approval"
+        ].firstMatch
         XCTAssertTrue(approvalTitle.waitForExistence(timeout: 3))
         XCTAssertTrue(approvalBody.waitForExistence(timeout: 3))
         XCTAssertTrue(approvalRow.waitForExistence(timeout: 3))
@@ -2010,7 +2012,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Build Mac"].exists)
         let unavailableRow = app.descendants(matching: .any)[
             "MobileNotificationFeedRow-build-mac-input-needed"
-        ]
+        ].firstMatch
         XCTAssertTrue(unavailableRow.waitForExistence(timeout: 3))
         let unavailableValue = try XCTUnwrap(unavailableRow.value as? String)
         XCTAssertTrue(unavailableValue.contains("Workspace: Cloud Builder"))
@@ -2028,7 +2030,9 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(unreadFilter.waitForExistence(timeout: 3))
         unreadFilter.tap()
 
-        let completedRow = app.descendants(matching: .any)["MobileNotificationFeedRow-macbook-tests-passed"]
+        let completedRow = app.descendants(matching: .any)[
+            "MobileNotificationFeedRow-macbook-tests-passed"
+        ].firstMatch
         XCTAssertTrue(completedRow.waitForExistence(timeout: 3))
         completedRow.swipeRight()
         let markRead = app.descendants(matching: .any)["MobileNotificationFeedMarkReadSwipe-macbook-tests-passed"]
@@ -2108,12 +2112,12 @@ final class cmuxUITests: XCTestCase {
         ])
         defer { app.terminate() }
 
-        let feed = app.descendants(matching: .any)["MobileNotificationFeed"]
+        let feed = app.descendants(matching: .any)["MobileNotificationFeed"].firstMatch
         XCTAssertTrue(feed.waitForExistence(timeout: 8))
 
         let permissionRow = app.descendants(matching: .any)[
             "MobileNotificationFeedRow-studio-codex-approval"
-        ]
+        ].firstMatch
         let allowOnce = app.buttons["MobileNotificationFeedPermission-once"]
         XCTAssertTrue(allowOnce.waitForExistence(timeout: 3))
         allowOnce.tap()
@@ -2121,7 +2125,7 @@ final class cmuxUITests: XCTestCase {
 
         let planRow = app.descendants(matching: .any)[
             "MobileNotificationFeedRow-studio-plan-review"
-        ]
+        ].firstMatch
         XCTAssertTrue(planRow.waitForExistence(timeout: 3))
         let planFeedback = app.textFields["MobileNotificationFeedExitPlanFeedback"]
         for _ in 0..<8 where !planFeedback.isHittable {
@@ -2137,7 +2141,7 @@ final class cmuxUITests: XCTestCase {
 
         let questionRow = app.descendants(matching: .any)[
             "MobileNotificationFeedRow-studio-agent-question"
-        ]
+        ].firstMatch
         XCTAssertTrue(questionRow.waitForExistence(timeout: 3))
         let notes = app.textFields["MobileNotificationFeedQuestionCustom-1"]
         for _ in 0..<5 where !notes.isHittable {
@@ -2167,7 +2171,7 @@ final class cmuxUITests: XCTestCase {
 
         let finishedRow = app.descendants(matching: .any)[
             "MobileNotificationFeedRow-macbook-agent-finished"
-        ]
+        ].firstMatch
         for _ in 0..<8 where !finishedRow.isHittable {
             feed.swipeUp(velocity: .slow)
         }
@@ -2195,7 +2199,7 @@ final class cmuxUITests: XCTestCase {
         let settings = app.buttons["MobileWorkspaceSettingsMenu"]
         XCTAssertTrue(settings.waitForExistence(timeout: 8))
         tap(settings, in: app)
-        let picker = app.descendants(matching: .any)["MobileSettingsNotificationFeedDesign"]
+        let picker = app.descendants(matching: .any)["MobileSettingsNotificationFeedDesign"].firstMatch
         for _ in 0..<6 where !picker.isHittable {
             app.swipeUp(velocity: .slow)
         }
@@ -2215,7 +2219,7 @@ final class cmuxUITests: XCTestCase {
             option.tap()
             let selectedValue = XCTNSPredicateExpectation(
                 predicate: NSPredicate(format: "value CONTAINS %@", title),
-                object: app.descendants(matching: .any)["MobileSettingsNotificationFeedDesign"]
+                object: app.descendants(matching: .any)["MobileSettingsNotificationFeedDesign"].firstMatch
             )
             XCTAssertEqual(XCTWaiter.wait(for: [selectedValue], timeout: 3), .completed)
         }
@@ -2233,7 +2237,7 @@ final class cmuxUITests: XCTestCase {
                 environment: ["CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "1"],
                 launchArguments: ["-cmux.labs.notificationFeedDesign", design]
             )
-            let feed = app.descendants(matching: .any)["MobileNotificationFeed"]
+            let feed = app.descendants(matching: .any)["MobileNotificationFeed"].firstMatch
             XCTAssertTrue(feed.waitForExistence(timeout: 8), "Missing Feed design: \(design)")
             XCTAssertTrue(
                 (feed.value as? String)?.contains(title) == true,
