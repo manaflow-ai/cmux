@@ -33,6 +33,14 @@ final class AgentFeedPerformanceProbe: NSObject {
         previousFrameTimestamp = nil
         markerValue = "state=running;frames=0;visibility=0"
         let link = CADisplayLink(target: self, selector: #selector(frameTick(_:)))
+        // Keep the probe's sampling clock deterministic. An unconstrained
+        // display link may settle near 24 Hz for this otherwise static screen,
+        // which makes a healthy callback cadence exceed the 33 ms stall gate.
+        link.preferredFrameRateRange = CAFrameRateRange(
+            minimum: 60,
+            maximum: 60,
+            preferred: 60
+        )
         link.add(to: .main, forMode: .common)
         displayLink = link
     }
