@@ -20925,12 +20925,8 @@ mod tests {
             assert!(!state.terminal_catalog.contains_key(&public_id));
             assert_eq!(state.resource_revision, before_revision + 1);
         });
-        let durable_public_id = mux
-            .workspace_registry
-            .lock()
-            .unwrap()
-            .terminal_resource_id(&host.terminal_id)
-            .unwrap();
+        let durable_public_id =
+            mux.workspace_registry.lock().unwrap().terminal_resource_id(&host.terminal_id).unwrap();
         assert_eq!(durable_public_id, None);
     }
 
