@@ -359,7 +359,9 @@ pub enum MessageKind {
     /// Targeted response to `SetKittyGraphicsLimits`; payload is the applied
     /// four-field resource limit tuple.
     KittyGraphicsLimitsAck = 19,
-    /// Response to `Launch` when the hidden host cannot publish a PTY.
+    /// Bootstrap-pipe response when the host could not create its PTY or
+    /// child. The bounded UTF-8 payload preserves the owning process's error
+    /// instead of making the launcher infer failure from EOF.
     LaunchFailed = 20,
     /// Targeted confirmation that `Terminate` reached the authoritative host.
     /// The PTY group shutdown continues asynchronously after this receipt.

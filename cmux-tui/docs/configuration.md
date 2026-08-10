@@ -38,12 +38,33 @@ Tabs are numbered by default. A recognized agent program can appear after the nu
 
 The built-in sidebar defaults to the workspace list. Set `"sidebar": {"view": "files"}` for the yazi-style file browser. `Tab` toggles the built-in view while the sidebar is focused, and the configurable `toggle-sidebar-view` action toggles it from anywhere. A configured `sidebar.plugin` still replaces either built-in view.
 
+`sidebar.views` is an ordered list of native resource projections, with no fixed column count. Each view has a stable `id`, a `levels` path, and optional native `actions`. A one-level path renders a list. Multi-level paths such as `workspaces → agents` and `workspaces → panes → tabs` render collapsible trees in one column. Nesting is optional. Valid resources are `machines`, `workspaces`, `panes`, `tabs`, and `agents`. Flat pane, tab, and agent views follow the highlighted workspace. Omit a resource to hide it.
+
+`sidebar.profiles` names multiple view lists, and `sidebar.profile` selects the startup layout. Right-click anywhere and open **Sidebar → Layouts** to switch profiles without reconnecting machines. The same menu can hide or restore an individual view for the current session. Runtime visibility changes are keyed by profile and view ID, so switching away and back restores that profile's session-local choices.
+
+Actions use the same stable IDs and execution path as keyboard commands, including `new-workspace`, `new-tab`, and `new-pane-smart`. A view rooted at `workspaces` inherits `new-workspace`, including provider-specific isolated and shared choices. Set `"actions": []` to hide every pinned action, or provide an ordered list to replace the preset. Machine creation and connection actions remain capability-driven by the selected provider.
+
+Every view has an independent width and drag handle. Lower `collapse_priority` values hide first when the terminal must preserve 40 pane columns. A hidden view needs four additional columns before it returns, which prevents resize-boundary flicker. `sidebar.columns` remains a compatibility alias for one-level machine, workspace, and tab views; `sidebar.views` wins when both are present.
+
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
 | `sidebar.view` | `"files"` or `"workspaces"` | `"workspaces"` | Built-in sidebar view when `sidebar.plugin` is unset |
 | `sidebar.width` | integer | `22` | Sidebar width, clamped to 10 through 60 on load |
 | `sidebar.compact_width` | integer | `10` | Width used by compact mode, clamped to 10 through 60 and capped at `sidebar.width` |
 | `sidebar.max_width` | integer | `0` | Maximum live drag width; `0` means no configured maximum |
+| `sidebar.profile` | string | first configured profile | Startup profile ID; ignored without `sidebar.profiles` |
+| `sidebar.profiles` | array of profile objects | unset | Named layouts available from every context menu; overrides top-level `sidebar.views` and `sidebar.columns` |
+| `sidebar.profiles[].id` | string | required | Stable unique profile identity |
+| `sidebar.profiles[].name` | string | profile ID | Display name in the layout picker |
+| `sidebar.profiles[].views` | array of view objects | required | Ordered projections using the same schema as `sidebar.views` |
+| `sidebar.views` | array of view objects | unset | Ordered native lists and trees; omission preserves the machine-plus-workspace default |
+| `sidebar.views[].id` | string | required | Stable unique identity for focus, collapse, scroll, and width state |
+| `sidebar.views[].levels` | array of strings | required | Resource path, such as `["agents"]`, `["workspaces", "agents"]`, or `["workspaces", "panes", "tabs"]` |
+| `sidebar.views[].actions` | array of action IDs | resource preset | Ordered native actions pinned below the resource rows; `[]` hides them |
+| `sidebar.views[].width` | integer | resource default | Initial width, clamped to 10 through 60 |
+| `sidebar.views[].max_width` | integer | `0` | Maximum live drag width; `0` means no configured maximum |
+| `sidebar.views[].collapse_priority` | integer | resource default | Lower priorities hide first on narrow terminals |
+| `sidebar.columns` | array of column objects | unset | Compatibility form for one-level `machines`, `workspaces`, and `tabs` views |
 | `sidebar.plugin.command` | array of strings | unset | External sidebar plugin argv; when set, the sidebar hosts this program in a PTY instead of the built-in list |
 | `sidebar.plugin.cwd` | string | unset | Working directory for the sidebar plugin process |
 
@@ -74,16 +95,30 @@ cmux sidebar plugin use --builtin
 
 ## Machines
 
-The machine rail is an optional first rail to the left of the existing sidebar. It is inactive when `machine_sidebar.enabled` is false and `machines` is empty. Setting `enabled` to true shows the current local session and the static connector actions even when no extra targets are configured. Any valid `machines` entry also activates the rail.
+The machine rail is optional. Its position comes from a `sidebar.views` entry whose level is `machines`, or it stays first under the default layout. It activates when `machine_sidebar.enabled` is true, `machines` has a valid entry, or `machine_sidebar.create_sources` is nonempty.
 
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
 | `machine_sidebar.enabled` | boolean | `false` | Enables the machine rail without requiring a configured target |
 | `machine_sidebar.width` | integer | `22` | Initial machine-rail width, clamped to 10 through 60 on load |
 | `machine_sidebar.max_width` | integer | `0` | Maximum live drag width for the machine rail; `0` means no configured maximum |
+| `machine_sidebar.create_sources` | array | `[]` | Prototype-only native creation choices; no provider command is executed |
 | `machines` | array | `[]` | Static Unix-socket and SSH connection targets |
 
+Each prototype creation source has a unique `id`, a `name`, and an optional `subtitle`. Selecting `+ new machine` opens the native source picker. The current prototype adds a session-local catalog entry backed by the current mux socket, so Docker, E2B, Firecracker, and other labels exercise the full UI without provisioning or billing. Production providers remain responsible for real lifecycle and transport operations.
+
+Try the tracked prototype configuration with:
+
+```bash
+cd cmux-tui
+CMUX_TUI_CONFIG=examples/resource-columns.prototype.json cargo run -p cmux-tui -- --session columns
+```
+
+`resource-columns.prototype.json` starts with a two-column focused layout that omits tabs, then exposes three-column and tree profiles from the right-click Sidebar menu. `resource-tree.prototype.json` combines machines with a workspace/agent tree. `resource-tree-no-agents.prototype.json` combines machines with a workspace/pane/tab tree and contains no agent representation.
+
 Every machine has a unique nonempty `id`, a nonempty display `name`, an optional `subtitle`, and one transport. The id `current` is reserved for the automatically inserted local session.
+
+SSH machine targets currently require macOS or Linux because the remote daemon uses Unix PTYs and sockets. A native Windows OpenSSH target reports the WSL 2 prerequisite instead of attempting a Unix command in `cmd.exe`. Install a Linux distribution under WSL 2 and expose that Linux environment through its own SSH alias before attaching it as a machine.
 
 | Machine key | Applies to | Type | Default | Effect |
 | --- | --- | --- | --- | --- |
@@ -96,8 +131,8 @@ Every machine has a unique nonempty `id`, a nonempty display `name`, an optional
 | `user` | SSH | string | unset | SSH user, passed as `user@host` |
 | `port` | SSH | integer | unset | SSH port, passed with `-p` |
 | `identity_file` | SSH | string | unset | Local SSH identity path, passed with `-i` |
-| `session` | SSH | string | `"main"` | Remote cmux session passed to `relay --session` |
-| `binary` | SSH | string | `"cmux-tui"` | Remote executable path used for `binary relay`; this is one executable, not a shell command |
+| `session` | SSH | string | `"main"` | Remote cmux session started or reused by the managed connection |
+| `binary` | SSH | string | `"~/.local/bin/cmux-tui"` | Shell-safe remote executable path used for compatibility checks and the managed daemon |
 
 ```json
 {
@@ -130,7 +165,7 @@ Every machine has a unique nonempty `id`, a nonempty display `name`, an optional
 }
 ```
 
-The SSH target invokes noninteractive `ssh -T` with strict host-key checking, disabled agent forwarding, and disabled port forwarding, then runs `binary relay --session session` remotely. It connects to an existing remote server and does not start one. See [Machines](machines.md) for rail behavior and a complete `npx cmux` remote setup.
+The SSH target uses the same managed connection as `cmux-tui ssh`. It probes `binary`, starts or reuses the named remote mux and sidecar, and retains a reconnecting local bridge while that machine is selected. Packaged releases can install their pinned binary when the probe reports it missing or incompatible. Source builds require the exact matching binary to be preinstalled. SSH is noninteractive with strict host-key checking, disabled agent and X11 forwarding, and disabled port forwarding. See [Machines](machines.md) for rail behavior and setup details.
 
 ### Dynamic machine provider
 
@@ -246,8 +281,8 @@ WebSocket clients pair through a six-digit browser/TUI comparison by default. We
 | `keys.new-pane-right` | chord string or array or `"none"` | `"g"` | Insert a two-thirds-width terminal after the focused horizontal column |
 | `keys.undo-layout` | chord string or array or `"none"` | `"U"` | Undo the latest structural layout action on the focused screen |
 | `keys.focus-next-pane` | chord string or array or `"none"` | `"o"` | Cycle to the next pane in the current screen |
-| `keys.focus-left` | chord string or array or `"none"` | `["h","left","alt+h","alt+left"]` | Focus left |
-| `keys.focus-right` | chord string or array or `"none"` | `["l","right","alt+l","alt+right"]` | Focus right |
+| `keys.focus-left` | chord string or array or `"none"` | `["h","left","alt+h","alt+left"]` | Focus left, entering the rightmost sidebar view at the pane boundary |
+| `keys.focus-right` | chord string or array or `"none"` | `["l","right","alt+l","alt+right"]` | Focus right, returning to the pane after the final sidebar view |
 | `keys.focus-up` | chord string or array or `"none"` | `["k","up","alt+k","alt+up"]` | Focus up |
 | `keys.focus-down` | chord string or array or `"none"` | `["j","down","alt+j","alt+down"]` | Focus down |
 | `keys.swap-pane-prev` | chord string or array or `"none"` | `"{"` | Swap active pane with the previous pane in split-tree order |
