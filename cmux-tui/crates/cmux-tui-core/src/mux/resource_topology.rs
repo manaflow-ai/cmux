@@ -2243,10 +2243,8 @@ impl Mux {
             anyhow::ensure!(host.incarnation == expected, "terminal_incarnation_mismatch");
         }
         let surface = runtime.id;
-        let target = state
-            .placements_of_content(&ContentPublicId::Terminal(public_id.clone()))
-            .first()
-            .copied();
+        let target =
+            state.placements_of_content(&ContentPublicId::Terminal(public_id)).first().copied();
         let mut plan = self.resource_close_plan_locked(
             ResourceOperation::TerminalClose,
             EffectSlots { workspace: None, screen: None, pane: None, tab: Some(surface) },

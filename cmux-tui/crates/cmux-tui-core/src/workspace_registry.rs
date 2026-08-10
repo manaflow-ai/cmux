@@ -72,8 +72,7 @@ use resource_store::{
     apply_resource_patch, create_resource_schema, initialize_resource_mutation_retention,
     migrate_resource_agent_projections, migrate_resource_browser_metadata,
     migrate_resource_mutations_to_session_scope, migrate_resource_tabs_to_multiview,
-    prune_resource_mutations, resource_patch_replay, resource_tabs_needs_multiview_normalization,
-    validate_resource_invariants, validate_resource_patch,
+    resource_tabs_needs_multiview_normalization, validate_resource_invariants,
 };
 pub use session_journal::{
     JournalAuthority, JournalClass, JournalProducer, JournalReplayPolicy, JournalSensitivity,
@@ -2964,7 +2963,7 @@ impl WorkspaceRegistry {
         const OPERATION: &str = "terminal.close";
 
         validate_identifier("resource operation", OPERATION)?;
-        validate_resource_patch(patch)?;
+        resource_store::validate_resource_patch(patch)?;
         let fingerprint = terminal_close_fingerprint(mutation, terminal_id, expected_incarnation)?;
         let resource_result_json = canonical_json(resource_result)?;
         let tx = self.connection.transaction()?;
@@ -2979,7 +2978,7 @@ impl WorkspaceRegistry {
             expected_incarnation,
         )?;
         let resource = if let Some(replayed) =
-            resource_patch_replay(&tx, mutation, OPERATION, &fingerprint)?
+            resource_store::resource_patch_replay(&tx, mutation, OPERATION, &fingerprint)?
         {
             replayed
         } else {
@@ -3023,7 +3022,7 @@ impl WorkspaceRegistry {
                 resource_result,
                 resource_deltas,
             )?;
-            prune_resource_mutations(&tx)?;
+            resource_store::prune_resource_mutations(&tx)?;
             ResourcePatchCommit { revision, result: resource_result.clone(), replayed: false }
         };
         tx.commit()?;
