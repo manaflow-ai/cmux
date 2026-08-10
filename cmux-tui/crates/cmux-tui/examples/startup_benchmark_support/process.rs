@@ -57,6 +57,8 @@ impl Target {
         let zig_version = source_zig_version(&source)?;
         let rust_toolchain = source_rust_toolchain(&source)?;
         let version = binary_version(&binary)?;
+        validate_binary_identity(&version, &sha, &ghostty_sha)
+            .with_context(|| format!("validate {} binary identity", kind.as_str()))?;
         Ok(Self {
             kind,
             binary,
@@ -1125,6 +1127,30 @@ fn binary_version(binary: &Path) -> Result<String> {
         .with_context(|| format!("unexpected {} --version output: {output:?}", binary.display()))
 }
 
+fn validate_binary_identity(
+    version: &str,
+    expected_commit: &str,
+    expected_ghostty: &str,
+) -> Result<()> {
+    let (crate_version, metadata) =
+        version.rsplit_once(" (").context("binary version omitted stamped source identities")?;
+    if crate_version.is_empty() {
+        bail!("binary version omitted the crate version");
+    }
+    let metadata =
+        metadata.strip_suffix(')').context("binary version has malformed source identities")?;
+    let (commit, ghostty) = metadata
+        .split_once("; ghostty ")
+        .context("binary version omitted the stamped Ghostty identity")?;
+    if commit != expected_commit {
+        bail!("binary commit is {commit}, expected {expected_commit}");
+    }
+    if ghostty != expected_ghostty {
+        bail!("binary Ghostty commit is {ghostty}, expected {expected_ghostty}");
+    }
+    Ok(())
+}
+
 fn source_zig_version(source: &Path) -> Result<String> {
     let manifest = source.join("ghostty/build.zig.zon");
     let contents =
@@ -1342,5 +1368,26 @@ mod tests {
         assert!(parse_minimum_zig_version(".minimum_zig_version = \"0.16.0-dev.1\",").is_err());
         assert!(parse_minimum_zig_version(".minimum_zig_version = \"0.16.0+build.1\",").is_err());
         assert!(parse_minimum_zig_version(".{};").is_err());
+    }
+
+    #[test]
+    fn binary_identity_requires_exact_stamped_source_commits() {
+        let commit = "1111111111111111111111111111111111111111";
+        let ghostty = "2222222222222222222222222222222222222222";
+        let version = format!("0.1.0 ({commit}; ghostty {ghostty})");
+        assert!(validate_binary_identity(&version, commit, ghostty).is_ok());
+        assert!(
+            validate_binary_identity(
+                &version,
+                "3333333333333333333333333333333333333333",
+                ghostty,
+            )
+            .is_err()
+        );
+        assert!(
+            validate_binary_identity(&version, commit, "4444444444444444444444444444444444444444",)
+                .is_err()
+        );
+        assert!(validate_binary_identity("0.1.0", commit, ghostty).is_err());
     }
 }
