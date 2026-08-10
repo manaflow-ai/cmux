@@ -564,12 +564,17 @@ fn run_pty(
             terminal_da1_responses: usize::from(reader.probe_kinds.da1),
             terminal_keyboard_responses: usize::from(reader.probe_kinds.keyboard),
             socket_rpcs: usize::from(ping_socket.is_some()),
-            frame_cursor_shows: if reader.cursor_visibility == Some(CursorVisibility::Show) {
+            frame_cursor_shows: if reader.frame_completion == Some(FrameCompletion::Show) {
                 1
             } else {
                 0
             },
-            frame_cursor_hides: if reader.cursor_visibility == Some(CursorVisibility::Hide) {
+            frame_cursor_hides: if reader.frame_completion == Some(FrameCompletion::Hide) {
+                1
+            } else {
+                0
+            },
+            frame_cursor_positions: if reader.frame_completion == Some(FrameCompletion::Position) {
                 1
             } else {
                 0
@@ -986,7 +991,7 @@ struct PtyReadResult {
     output: Vec<u8>,
     probe_responses: usize,
     probe_kinds: ProbeKinds,
-    cursor_visibility: Option<CursorVisibility>,
+    frame_completion: Option<FrameCompletion>,
 }
 
 struct PtyRuntime {
@@ -1290,7 +1295,7 @@ fn read_pty(
                     output: output.into_iter().collect(),
                     probe_responses: probes.responses,
                     probe_kinds: probes.kinds(),
-                    cursor_visibility: frame_marker.visibility,
+                    frame_completion: frame_marker.completion,
                 });
             }
             Ok(read) => {
@@ -1322,7 +1327,7 @@ fn read_pty(
                         output: output.into_iter().collect(),
                         probe_responses: probes.responses,
                         probe_kinds: probes.kinds(),
-                        cursor_visibility: frame_marker.visibility,
+                        frame_completion: frame_marker.completion,
                     });
                 }
                 let _ = sender.send(PtyEvent::Failed(error.to_string()));
@@ -1336,17 +1341,17 @@ struct FrameMarkerTracker {
     marker: Vec<u8>,
     pending: Vec<u8>,
     marker_seen: bool,
-    visibility: Option<CursorVisibility>,
+    completion: Option<FrameCompletion>,
 }
 
 impl FrameMarkerTracker {
     fn new(marker: Vec<u8>) -> Self {
-        Self { marker, pending: Vec::new(), marker_seen: false, visibility: None }
+        Self { marker, pending: Vec::new(), marker_seen: false, completion: None }
     }
 
-    fn observe(&mut self, bytes: &[u8]) -> Option<CursorVisibility> {
-        if self.visibility.is_some() {
-            return self.visibility;
+    fn observe(&mut self, bytes: &[u8]) -> Option<FrameCompletion> {
+        if self.completion.is_some() {
+            return self.completion;
         }
         self.pending.extend_from_slice(bytes);
         if !self.marker_seen {
@@ -1357,25 +1362,59 @@ impl FrameMarkerTracker {
             self.pending.drain(..marker + self.marker.len());
             self.marker_seen = true;
         }
-        self.visibility =
-            match (find(&self.pending, b"\x1b[?25h"), find(&self.pending, b"\x1b[?25l")) {
-                (Some(show), Some(hide)) if show < hide => Some(CursorVisibility::Show),
-                (Some(_), Some(_)) => Some(CursorVisibility::Hide),
-                (Some(_), None) => Some(CursorVisibility::Show),
-                (None, Some(_)) => Some(CursorVisibility::Hide),
-                (None, None) => None,
-            };
-        if self.visibility.is_none() {
-            retain_tail(&mut self.pending, b"\x1b[?25h".len() - 1);
+        self.completion = first_frame_completion(&self.pending);
+        if self.completion.is_none() {
+            retain_tail(&mut self.pending, MAX_FRAME_COMPLETION_ESCAPE_LEN - 1);
         }
-        self.visibility
+        self.completion
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CursorVisibility {
+enum FrameCompletion {
     Show,
     Hide,
+    Position,
+}
+
+const MAX_FRAME_COMPLETION_ESCAPE_LEN: usize = b"\x1b[65535;65535H".len();
+
+fn first_frame_completion(bytes: &[u8]) -> Option<FrameCompletion> {
+    [
+        find(bytes, b"\x1b[?25h").map(|index| (index, FrameCompletion::Show)),
+        find(bytes, b"\x1b[?25l").map(|index| (index, FrameCompletion::Hide)),
+        find_cursor_position(bytes).map(|index| (index, FrameCompletion::Position)),
+    ]
+    .into_iter()
+    .flatten()
+    .min_by_key(|(index, _)| *index)
+    .map(|(_, completion)| completion)
+}
+
+fn find_cursor_position(bytes: &[u8]) -> Option<usize> {
+    for start in 0..bytes.len().saturating_sub(1) {
+        if bytes.get(start..start + 2) != Some(&b"\x1b["[..]) {
+            continue;
+        }
+        let mut index = start + 2;
+        let row_start = index;
+        while bytes.get(index).is_some_and(u8::is_ascii_digit) {
+            index += 1;
+        }
+        if index == row_start || index - row_start > 5 || bytes.get(index) != Some(&b';') {
+            continue;
+        }
+        index += 1;
+        let column_start = index;
+        while bytes.get(index).is_some_and(u8::is_ascii_digit) {
+            index += 1;
+        }
+        if index == column_start || index - column_start > 5 || bytes.get(index) != Some(&b'H') {
+            continue;
+        }
+        return Some(start);
+    }
+    None
 }
 
 #[derive(Default)]
@@ -1962,7 +2001,7 @@ mod tests {
         assert_eq!(tracker.observe(b"prefix [bench-cold"), None);
         assert_eq!(tracker.observe(b"-1] frame bytes"), None);
         assert_eq!(tracker.observe(b"\x1b[?25"), None);
-        assert_eq!(tracker.observe(b"h"), Some(CursorVisibility::Show));
+        assert_eq!(tracker.observe(b"h"), Some(FrameCompletion::Show));
     }
 
     #[test]
@@ -1970,7 +2009,7 @@ mod tests {
         let mut tracker = FrameMarkerTracker::new(b"[bench-warm-1] ".to_vec());
         assert_eq!(tracker.observe(b"\x1b[1;1H before [bench-warm"), None);
         assert_eq!(tracker.observe(b"-1] frame bytes \x1b[6;"), None);
-        assert!(tracker.observe(b"49H").is_some());
+        assert_eq!(tracker.observe(b"49H"), Some(FrameCompletion::Position));
     }
 
     #[test]
@@ -1978,7 +2017,7 @@ mod tests {
         let mut tracker = FrameMarkerTracker::new(b"[bench-cold-1] ".to_vec());
         assert_eq!(tracker.observe(b"[bench-cold-1] "), None);
         assert_eq!(tracker.observe(&vec![b'x'; MAX_CAPTURE_BYTES + 1]), None);
-        assert_eq!(tracker.observe(b"\x1b[?25l"), Some(CursorVisibility::Hide));
+        assert_eq!(tracker.observe(b"\x1b[?25l"), Some(FrameCompletion::Hide));
     }
 
     #[test]

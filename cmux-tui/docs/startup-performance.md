@@ -4,7 +4,7 @@ The startup benchmark compares two exact cmux-tui commits. It uses product outpu
 
 ## Scenarios
 
-- Cold starts a new interactive process with fresh isolated state. The event ends after the raw PTY stream contains its unique session label and a later frame-end cursor visibility command.
+- Cold starts a new interactive process with fresh isolated state. The event ends after the raw PTY stream contains its unique session label and a later frame-end cursor visibility or cursor position command.
 - Warm starts an attach client after a headless daemon has printed its readiness line and answered session current ping. The event ends at the attach client's first complete frame.
 - Headless starts a new daemon. The event ends after the readiness line and a successful session current ping.
 - Restored creates a real terminal through the public CLI, stops the daemon, and restarts it with the same state. The event ends after the readiness line and a terminal list response that contains the saved terminal ID.

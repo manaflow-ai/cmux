@@ -71,10 +71,10 @@ impl Scenario {
     pub fn event(self) -> &'static str {
         match self {
             Self::Cold => {
-                "PTY process spawn to unique session marker followed by frame-end cursor visibility"
+                "PTY process spawn to unique session marker followed by a frame-end cursor control"
             }
             Self::Warm => {
-                "attach PTY process spawn to unique session marker followed by frame-end cursor visibility"
+                "attach PTY process spawn to unique session marker followed by a frame-end cursor control"
             }
             Self::Headless => "process spawn to readiness line and successful session ping RPC",
             Self::Restored => {
@@ -123,6 +123,7 @@ pub struct Evidence {
     pub terminal_keyboard_responses: usize,
     pub frame_cursor_shows: usize,
     pub frame_cursor_hides: usize,
+    pub frame_cursor_positions: usize,
 }
 
 impl Evidence {
@@ -147,6 +148,7 @@ impl Evidence {
             terminal_keyboard_responses,
             frame_cursor_shows,
             frame_cursor_hides,
+            frame_cursor_positions,
         } = other;
         self.warmups_completed += *warmups_completed;
         self.samples_completed += *samples_completed;
@@ -167,6 +169,7 @@ impl Evidence {
         self.terminal_keyboard_responses += *terminal_keyboard_responses;
         self.frame_cursor_shows += *frame_cursor_shows;
         self.frame_cursor_hides += *frame_cursor_hides;
+        self.frame_cursor_positions += *frame_cursor_positions;
     }
 }
 

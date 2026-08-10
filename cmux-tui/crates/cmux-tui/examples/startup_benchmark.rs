@@ -378,7 +378,10 @@ fn validate_evidence(scenario: Scenario, args: &Args, evidence: &Evidence) -> Re
             bail!("{} did not answer one CPR query per launch", scenario.as_str())
         }
         Scenario::Cold | Scenario::Warm
-            if evidence.frame_cursor_shows + evidence.frame_cursor_hides != total =>
+            if evidence.frame_cursor_shows
+                + evidence.frame_cursor_hides
+                + evidence.frame_cursor_positions
+                != total =>
         {
             bail!("{} observed an invalid frame-end cursor count", scenario.as_str())
         }

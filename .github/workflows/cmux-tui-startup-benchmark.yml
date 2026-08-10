@@ -884,8 +884,8 @@ jobs:
               raise SystemExit("comparison lifecycle evidence unexpectedly contains profiles")
 
           event_names = {
-              "cold": "PTY process spawn to unique session marker followed by frame-end cursor visibility",
-              "warm": "attach PTY process spawn to unique session marker followed by frame-end cursor visibility",
+              "cold": "PTY process spawn to unique session marker followed by a frame-end cursor control",
+              "warm": "attach PTY process spawn to unique session marker followed by a frame-end cursor control",
               "headless": "process spawn to readiness line and successful session ping RPC",
               "restored": "process spawn to readiness line and topology RPC containing the saved terminal",
               "incompatible": "process spawn to nonzero exit with the exact public incompatible-state error",
@@ -989,6 +989,7 @@ jobs:
                       cursor_completions = (
                           evidence.get("frame_cursor_shows", 0)
                           + evidence.get("frame_cursor_hides", 0)
+                          + evidence.get("frame_cursor_positions", 0)
                       )
                       if cursor_completions != evidence["frame_completions"]:
                           raise SystemExit(f"{name} {target} has inconsistent cursor completion evidence")
