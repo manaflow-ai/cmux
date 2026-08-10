@@ -857,7 +857,14 @@ pub(super) fn append_journal_record(
          FROM json_each(?2)",
         params![sequence, subjects_json],
     )?;
-    u64::try_from(sequence).context("journal sequence is negative")
+    let sequence = u64::try_from(sequence).context("journal sequence is negative")?;
+    if append.kind.starts_with("agent.") {
+        super::agent_projection_store::note_agent_projection_journal_candidate(
+            transaction,
+            sequence,
+        )?;
+    }
+    Ok(sequence)
 }
 
 impl WorkspaceRegistry {
@@ -880,16 +887,7 @@ pub(super) fn query_session_journal_after(
         limit <= MAX_JOURNAL_PAGE_SIZE,
         "journal page limit exceeds {MAX_JOURNAL_PAGE_SIZE}"
     );
-    let head_sequence = connection.query_row(
-        "SELECT MAX(
-           COALESCE((SELECT MAX(sequence) FROM session_journal), 0),
-           COALESCE((SELECT MAX(end_sequence) FROM journal_segments), 0)
-         )",
-        [],
-        |row| row.get::<_, i64>(0),
-    )?;
-    let head_sequence =
-        u64::try_from(head_sequence).context("journal head sequence is negative")?;
+    let head_sequence = session_journal_head(connection)?;
     anyhow::ensure!(
         sequence <= head_sequence,
         "cursor.invalid: journal sequence {sequence} is ahead of {head_sequence}"
@@ -937,6 +935,18 @@ pub(super) fn query_session_journal_after(
         "session journal contains a gap after sequence {sequence}"
     );
     Ok(SessionJournalPage { head_sequence, records })
+}
+
+pub(super) fn session_journal_head(connection: &Connection) -> anyhow::Result<u64> {
+    let head_sequence = connection.query_row(
+        "SELECT MAX(
+           COALESCE((SELECT MAX(sequence) FROM session_journal), 0),
+           COALESCE((SELECT MAX(end_sequence) FROM journal_segments), 0)
+         )",
+        [],
+        |row| row.get::<_, i64>(0),
+    )?;
+    u64::try_from(head_sequence).context("journal head sequence is negative")
 }
 
 pub(super) fn query_session_journal_sequences(

@@ -6,7 +6,12 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
 const RECOVERY_FORMAT: &str = "cmux.agent-recovery.v1";
+const RECOVERY_PRODUCER_ID: &str = "agent-recovery-v1";
 const PREJOURNAL_MIGRATION_FORMAT: &str = "cmux.agent-projection-migration.v1";
+const PREJOURNAL_MIGRATION_PRODUCER_ID: &str = "agent-projection-v1";
+const AGENT_PROJECTION_JOURNAL_CURSOR_KEY: &str = "agent_projection_journal_sequence_v1";
+const AGENT_PROJECTION_JOURNAL_CANDIDATE_KEY: &str =
+    "agent_projection_journal_candidate_sequence_v1";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct AgentProjectionRow {
@@ -28,7 +33,9 @@ pub(super) fn apply_agent_projection_journal_record(
     producer: &JournalProducer,
     subjects: &[JournalSubject],
     payload: &Value,
+    resource_revision: Option<u64>,
 ) -> anyhow::Result<()> {
+    let advances_cursor = kind.starts_with("agent.");
     let Some(next) = projection_from_journal_record(
         sequence,
         kind,
@@ -36,30 +43,61 @@ pub(super) fn apply_agent_projection_journal_record(
         producer,
         subjects,
         payload,
+        resource_revision,
     )?
     else {
+        if advances_cursor {
+            advance_agent_projection_journal_cursor(transaction, sequence)?;
+        }
         return Ok(());
     };
     if !terminal_is_live(transaction, &next.terminal_id)? {
+        if advances_cursor {
+            advance_agent_projection_journal_cursor(transaction, sequence)?;
+        }
         return Ok(());
     }
     let current = stored_projection(transaction, &next.terminal_id)?;
     let selected = merge_projection(current, next);
     upsert_projection(transaction, &selected)?;
+    if advances_cursor {
+        advance_agent_projection_journal_cursor(transaction, sequence)?;
+    }
     Ok(())
 }
 
 pub(super) fn rebuild_agent_projections_from_journal(
     connection: &Connection,
 ) -> anyhow::Result<()> {
-    let mut projections = derive_agent_projections_from_journal(connection)?;
     let tx = connection.unchecked_transaction()?;
+    if let Some(sequence) = agent_projection_journal_cursor(&tx)? {
+        let candidate = agent_projection_journal_candidate(&tx)?.unwrap_or(0);
+        let head_sequence = session_journal::session_journal_head(&tx)?;
+        anyhow::ensure!(
+            sequence <= head_sequence,
+            "agent projection journal cursor {sequence} is ahead of journal head {head_sequence}"
+        );
+        anyhow::ensure!(
+            candidate <= head_sequence,
+            "agent projection journal candidate {candidate} is ahead of journal head {head_sequence}"
+        );
+        if candidate <= sequence {
+            store_agent_projection_journal_cursor(&tx, head_sequence)?;
+        } else {
+            replay_agent_projection_journal_suffix(&tx, sequence)?;
+        }
+        tx.commit()?;
+        return Ok(());
+    }
+
+    let (mut projections, mut head_sequence) = derive_agent_projections_from_journal(&tx)?;
     for mut stored in stored_live_projections(&tx)? {
         let key = stored.terminal_id.to_string();
         if projections.contains_key(&key) {
             continue;
         }
         stored.committed_sequence = append_prejournal_projection_migration(&tx, &stored)?;
+        head_sequence = head_sequence.max(stored.committed_sequence);
         projections.insert(key, stored);
     }
     tx.execute("DELETE FROM resource_agent_projections", [])?;
@@ -68,7 +106,114 @@ pub(super) fn rebuild_agent_projections_from_journal(
             upsert_projection(&tx, &projection)?;
         }
     }
+    store_agent_projection_journal_cursor(&tx, head_sequence)?;
     tx.commit()?;
+    Ok(())
+}
+
+fn replay_agent_projection_journal_suffix(
+    transaction: &Transaction<'_>,
+    mut sequence: u64,
+) -> anyhow::Result<()> {
+    loop {
+        let page = session_journal::query_session_journal_after(transaction, sequence, 1024)?;
+        let empty = page.records.is_empty();
+        for record in page.records {
+            sequence = record.sequence;
+            apply_agent_projection_journal_record(
+                transaction,
+                record.sequence,
+                &record.kind,
+                record.occurred_at_ms,
+                &record.producer,
+                &record.subjects,
+                &record.payload,
+                record.resource_revision,
+            )?;
+        }
+        if empty || sequence >= page.head_sequence {
+            store_agent_projection_journal_cursor(transaction, page.head_sequence)?;
+            return Ok(());
+        }
+    }
+}
+
+fn agent_projection_journal_cursor(
+    connection: &Connection,
+) -> anyhow::Result<Option<u64>> {
+    connection
+        .query_row(
+            "SELECT value FROM meta WHERE key = ?1",
+            [AGENT_PROJECTION_JOURNAL_CURSOR_KEY],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+        .map(|value| {
+            value
+                .parse::<u64>()
+                .context("agent projection journal cursor is invalid")
+        })
+        .transpose()
+}
+
+fn agent_projection_journal_candidate(
+    connection: &Connection,
+) -> anyhow::Result<Option<u64>> {
+    connection
+        .query_row(
+            "SELECT value FROM meta WHERE key = ?1",
+            [AGENT_PROJECTION_JOURNAL_CANDIDATE_KEY],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+        .map(|value| {
+            value
+                .parse::<u64>()
+                .context("agent projection journal candidate sequence is invalid")
+        })
+        .transpose()
+}
+
+fn store_agent_projection_journal_cursor(
+    transaction: &Transaction<'_>,
+    sequence: u64,
+) -> anyhow::Result<()> {
+    transaction.execute(
+        "INSERT INTO meta(key, value) VALUES(?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![AGENT_PROJECTION_JOURNAL_CURSOR_KEY, sequence.to_string()],
+    )?;
+    Ok(())
+}
+
+pub(super) fn advance_agent_projection_journal_cursor(
+    transaction: &Transaction<'_>,
+    sequence: u64,
+) -> anyhow::Result<()> {
+    let Some(applied_sequence) = agent_projection_journal_cursor(transaction)? else {
+        return Ok(());
+    };
+    anyhow::ensure!(
+        sequence >= applied_sequence,
+        "agent projection journal cursor cannot move backwards from {applied_sequence} to {sequence}"
+    );
+    store_agent_projection_journal_cursor(transaction, sequence)
+}
+
+pub(super) fn note_agent_projection_journal_candidate(
+    transaction: &Transaction<'_>,
+    sequence: u64,
+) -> anyhow::Result<()> {
+    let current = agent_projection_journal_candidate(transaction)?.unwrap_or(0);
+    anyhow::ensure!(
+        sequence >= current,
+        "agent projection journal candidate sequence cannot move backwards from {current} to {sequence}"
+    );
+    transaction.execute(
+        "INSERT INTO meta(key, value) VALUES(?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![AGENT_PROJECTION_JOURNAL_CANDIDATE_KEY, sequence.to_string()],
+    )?;
     Ok(())
 }
 
@@ -88,7 +233,10 @@ fn append_prejournal_projection_migration(
         "event_agent_projection_migration_{}",
         digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>()
     );
-    let producer = JournalProducer { kind: "migration".into(), id: "agent-projection-v1".into() };
+    let producer = JournalProducer {
+        kind: "migration".into(),
+        id: PREJOURNAL_MIGRATION_PRODUCER_ID.into(),
+    };
     let subjects = vec![
         JournalSubject { kind: "session".into(), id: session_id },
         JournalSubject { kind: "terminal".into(), id: projection.terminal_id.to_string() },
@@ -127,7 +275,7 @@ fn append_prejournal_projection_migration(
 
 fn derive_agent_projections_from_journal(
     connection: &Connection,
-) -> anyhow::Result<BTreeMap<String, AgentProjectionRow>> {
+) -> anyhow::Result<(BTreeMap<String, AgentProjectionRow>, u64)> {
     let mut projections = BTreeMap::new();
     let mut sequence = 0;
     loop {
@@ -142,6 +290,7 @@ fn derive_agent_projections_from_journal(
                 &record.producer,
                 &record.subjects,
                 &record.payload,
+                record.resource_revision,
             )?
             else {
                 continue;
@@ -154,7 +303,7 @@ fn derive_agent_projections_from_journal(
             break;
         }
     }
-    Ok(projections)
+    Ok((projections, sequence))
 }
 
 fn projection_from_journal_record(
@@ -164,11 +313,26 @@ fn projection_from_journal_record(
     producer: &JournalProducer,
     subjects: &[JournalSubject],
     payload: &Value,
+    resource_revision: Option<u64>,
 ) -> anyhow::Result<Option<AgentProjectionRow>> {
     if kind == "agent.report" {
+        let trusted_resource_operation =
+            producer.kind == "resource_operation" && resource_revision.is_some();
+        let trusted_migration = producer.kind == "migration"
+            && producer.id == PREJOURNAL_MIGRATION_PRODUCER_ID
+            && resource_revision.is_none()
+            && payload.get("format").and_then(Value::as_str)
+                == Some(PREJOURNAL_MIGRATION_FORMAT);
+        if !trusted_resource_operation && !trusted_migration {
+            return Ok(None);
+        }
         return projection_from_resource_report(sequence, payload);
     }
-    if kind == "agent.session.interrupted" && producer.kind == "recovery_policy" {
+    if kind == "agent.session.interrupted"
+        && producer.kind == "recovery_policy"
+        && producer.id == RECOVERY_PRODUCER_ID
+        && resource_revision.is_none()
+    {
         return projection_from_recovery_event(sequence, occurred_at_ms, subjects, payload);
     }
     if producer.kind != "agent_adapter" || producer.id != crate::AGENT_HOOK_PRODUCER_ID {

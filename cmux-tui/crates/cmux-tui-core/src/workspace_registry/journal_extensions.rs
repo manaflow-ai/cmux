@@ -1493,6 +1493,7 @@ fn append_journal_ingress_transaction(
         &producer,
         &subjects,
         &ingress.payload,
+        None,
     )?;
     let result = json!({
         "producer_id":ingress.producer_id,

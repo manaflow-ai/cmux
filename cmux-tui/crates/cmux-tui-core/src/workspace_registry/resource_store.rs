@@ -510,6 +510,7 @@ impl WorkspaceRegistry {
             &producer,
             &[],
             &payload,
+            Some(revision),
         )?;
         prune_resource_mutations(&tx)?;
         tx.commit()?;
