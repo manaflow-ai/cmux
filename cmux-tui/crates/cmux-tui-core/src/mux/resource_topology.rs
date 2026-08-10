@@ -2475,12 +2475,11 @@ impl Mux {
                 TERMINAL_HOST_CLEANUP_RECEIPT_FIELD.to_string(),
                 terminal_host_cleanup_receipt(&cleanup_identities),
             );
-        let closed_workspace_terminals =
-            if let Some(workspace_key) = closed_workspace_key.as_deref() {
-                registry.terminal_resource_ids_in_workspace(workspace_key)?
-            } else {
-                Vec::new()
-            };
+        let closed_workspace_terminals = if closed_workspace_key.is_some() {
+            Self::terminal_public_ids_for_hosted(&registry, &workspace_host_identities)?
+        } else {
+            Vec::new()
+        };
         #[cfg(test)]
         if let Some(hook) = self.resource_projection_before_commit.lock().unwrap().clone() {
             hook();

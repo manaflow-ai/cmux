@@ -443,7 +443,6 @@ mod unix {
     use anyhow::Context;
     use cmux_pty::{ChildKiller, MasterPty, PtyCommand, PtyOpenError, PtySize};
     use ghostty_vt::{Callbacks, CursorShape, Terminal};
-    use portable_pty::{ChildKiller, MasterPty, PtySize};
 
     use super::*;
 
@@ -781,7 +780,7 @@ mod unix {
             // exact-kill the host after this handoff because its child runs
             // in a separate session and may ignore terminal hangup.
             process.detach_reaper();
-            if let Ok(attachment) = connect_record(record, self.record_path.clone()) {
+            if let Ok(mut attachment) = connect_record(record, self.record_path.clone()) {
                 let _ = attachment.terminate();
                 attachment.disconnect();
             }
@@ -5734,10 +5733,10 @@ mod unix {
     #[cfg(debug_assertions)]
     fn wait_for_test_host_gate(signal_name: &str, gate_name: &str) -> anyhow::Result<()> {
         if let Some(signal) = std::env::var_os(signal_name) {
-            fs::OpenOptions::new().write(true).open(signal)?.write_all(b"1")?;
+            OpenOptions::new().write(true).open(signal)?.write_all(b"1")?;
         }
         if let Some(gate) = std::env::var_os(gate_name) {
-            let mut gate = fs::File::open(gate)?;
+            let mut gate = File::open(gate)?;
             let mut release = [0_u8; 1];
             gate.read_exact(&mut release)?;
         }

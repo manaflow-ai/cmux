@@ -4,27 +4,35 @@ import os
 import Testing
 @testable import CmuxTerminal
 
-/// Records freed pointers behind an actor so the @Sendable free closures can
-/// report back across the worker hop.
-private actor FreedSurfaceRecorder {
+/// Records freed pointers and publishes one event for each completed free.
+private final class FreedSurfaceRecorder: @unchecked Sendable {
     /// Freed pointers as Sendable bit patterns.
-    private(set) var freed: [UInt] = []
-    private var continuations: [Int: [CheckedContinuation<Void, Never>]] = [:]
+    private let state = OSAllocatedUnfairLock(initialState: [UInt]())
+    private let events: AsyncStream<Int>
+    private let continuation: AsyncStream<Int>.Continuation
+
+    init() {
+        (events, continuation) = AsyncStream.makeStream(of: Int.self)
+    }
 
     func record(_ pointerBits: UInt) {
-        freed.append(pointerBits)
-        let count = freed.count
-        for waiter in continuations.removeValue(forKey: count) ?? [] {
-            waiter.resume()
+        let count = state.withLock { freed in
+            freed.append(pointerBits)
+            return freed.count
         }
+        continuation.yield(count)
     }
 
     /// Suspends until `count` frees have been recorded.
     func waitForFreeCount(_ count: Int) async {
-        guard freed.count < count else { return }
-        await withCheckedContinuation { continuation in
-            continuations[count, default: []].append(continuation)
+        guard state.withLock({ $0.count }) < count else { return }
+        for await recordedCount in events where recordedCount >= count {
+            return
         }
+    }
+
+    var freed: [UInt] {
+        state.withLock { $0 }
     }
 }
 
@@ -91,41 +99,45 @@ private func requireTeardownTicket(
                 surface: surface,
                 callbackContext: nil,
                 freeSurface: { pointer in
-                    let bits = UInt(bitPattern: pointer)
-                    Task { await recorder.record(bits) }
+                    recorder.record(UInt(bitPattern: pointer))
                 }
             )
         )
 
         await recorder.waitForFreeCount(1)
         #expect(await ticket.wait(timeout: .seconds(1)))
-        #expect(await recorder.freed == [UInt(bitPattern: surface)])
+        #expect(recorder.freed == [UInt(bitPattern: surface)])
     }
 
-    @Test func teardownsForMultipleSurfacesAllFree() async {
+    @Test func teardownsForMultipleSurfacesAllFree() async throws {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
         let recorder = FreedSurfaceRecorder()
         let surfaces = (0..<3).map { _ in
             UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         }
         defer { for surface in surfaces { surface.deallocate() } }
+        let reservations = try (0..<surfaces.count).map { _ in
+            try #require(coordinator.reserveRuntimeSurfaceOwnership())
+        }
 
-        for surface in surfaces {
+        for (surface, reservation) in zip(surfaces, reservations) {
             coordinator.enqueueRuntimeTeardown(
                 id: UUID(),
                 workspaceId: UUID(),
                 reason: "test.batch",
                 surface: surface,
                 callbackContext: nil,
+                manualIOContext: nil,
+                byteTeeLease: nil,
+                runtimeOwnershipReservation: reservation,
                 freeSurface: { pointer in
-                    let bits = UInt(bitPattern: pointer)
-                    Task { await recorder.record(bits) }
+                    recorder.record(UInt(bitPattern: pointer))
                 }
             )
         }
 
         await recorder.waitForFreeCount(surfaces.count)
-        #expect(await Set(recorder.freed) == Set(surfaces.map { UInt(bitPattern: $0) }))
+        #expect(Set(recorder.freed) == Set(surfaces.map { UInt(bitPattern: $0) }))
     }
 
     @Test func oneStuckCloseDoesNotStrandLaterCloses() async throws {
@@ -157,6 +169,13 @@ private func requireTeardownTicket(
         var firstFreeIterator = firstFreeStarted.stream.makeAsyncIterator()
         _ = await firstFreeIterator.next()
 
+        let secondReservation = try #require(
+            coordinator.reserveRuntimeSurfaceOwnership()
+        )
+        let thirdReservation = try #require(
+            coordinator.reserveRuntimeSurfaceOwnership()
+        )
+
         let secondTicket = try requireTeardownTicket(
             coordinator.enqueueRuntimeTeardown(
                 id: UUID(),
@@ -164,6 +183,9 @@ private func requireTeardownTicket(
                 reason: "test.closeAfterStuckClose",
                 surface: surfaces[1],
                 callbackContext: nil,
+                manualIOContext: nil,
+                byteTeeLease: nil,
+                runtimeOwnershipReservation: secondReservation,
                 freeSurface: { _ in }
             )
         )
@@ -174,6 +196,9 @@ private func requireTeardownTicket(
                 reason: "test.secondCloseAfterStuckClose",
                 surface: surfaces[2],
                 callbackContext: nil,
+                manualIOContext: nil,
+                byteTeeLease: nil,
+                runtimeOwnershipReservation: thirdReservation,
                 freeSurface: { _ in }
             )
         )
@@ -187,9 +212,225 @@ private func requireTeardownTicket(
         #expect(await firstTicket.wait(timeout: .seconds(1)))
     }
 
+    @MainActor
+    @Test func boundedIngressDropsNewestSubmissionWithoutLeakingOwnershipOrWaiter() async throws {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
+            maximumRuntimeSurfaceOwnerCount: 2
+        )
+        let surfaces = (0..<2).map { _ in
+            UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        }
+        defer { for surface in surfaces { surface.deallocate() } }
+        let isolatedReservation = try #require(
+            await coordinator.reserveIsolatedHibernationTeardown()
+        )
+        let admittedTicket = try requireTeardownTicket(
+            coordinator.enqueueRuntimeTeardown(
+                id: UUID(),
+                workspaceId: UUID(),
+                reason: "test.fillBoundedIngress",
+                surface: surfaces[0],
+                callbackContext: nil,
+                manualIOContext: nil,
+                byteTeeLease: nil,
+                executionLane: .isolatedHibernation,
+                isolatedHibernationReservation: isolatedReservation,
+                freeSurface: { _ in }
+            )
+        )
+
+        // While this test owns MainActor, the consumer either has the admitted
+        // request buffered or waits for MainActor to validate its reservation.
+        // Two owner-free messages therefore fill the two-element buffer in
+        // either schedule.
+        coordinator.cancelAllRuntimeTeardowns()
+        coordinator.cancelAllRuntimeTeardowns()
+
+        let droppedTicket = coordinator.enqueueRuntimeTeardown(
+            id: UUID(),
+            workspaceId: UUID(),
+            reason: "test.dropNewestIngressSubmission",
+            surface: surfaces[1],
+            callbackContext: nil,
+            freeSurface: { _ in }
+        )
+        #expect(droppedTicket == nil)
+        #expect(coordinator.debugRuntimeSurfaceOwnerCount == 1)
+
+        #expect(
+            await coordinator.cancelRuntimeTeardown(ticketID: UUID()) == false
+        )
+        #expect(coordinator.debugRuntimeSurfaceOwnerCount == 1)
+
+        #expect(await admittedTicket.wait(timeout: nil))
+        #expect(coordinator.debugRuntimeSurfaceOwnerCount == 0)
+    }
+
+    @Test func cancellationBeforeStartStillFreesOwnedSurface() async throws {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let surfaces = (0..<3).map { _ in
+            UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        }
+        defer { for surface in surfaces { surface.deallocate() } }
+        let reservations = try (0..<3).map { _ in
+            try #require(coordinator.reserveRuntimeSurfaceOwnership())
+        }
+        let activeFreesStarted = AsyncStream<Void>.makeStream()
+        let cancelledFreeStarted = AsyncStream<Void>.makeStream()
+        let releaseActiveFrees = DispatchSemaphore(value: 0)
+        let observedCancellation = OSAllocatedUnfairLock(initialState: false)
+        defer {
+            releaseActiveFrees.signal()
+            releaseActiveFrees.signal()
+            activeFreesStarted.continuation.finish()
+            cancelledFreeStarted.continuation.finish()
+        }
+
+        let activeTickets = try (0..<2).map { index in
+            try requireTeardownTicket(
+                coordinator.enqueueRuntimeTeardown(
+                    id: UUID(),
+                    workspaceId: UUID(),
+                    reason: "test.activeBeforeCancellation",
+                    surface: surfaces[index],
+                    callbackContext: nil,
+                    manualIOContext: nil,
+                    byteTeeLease: nil,
+                    runtimeOwnershipReservation: reservations[index],
+                    freeSurface: { _ in
+                        activeFreesStarted.continuation.yield()
+                        releaseActiveFrees.wait()
+                    }
+                )
+            )
+        }
+        var activeFreesIterator = activeFreesStarted.stream.makeAsyncIterator()
+        _ = await activeFreesIterator.next()
+        _ = await activeFreesIterator.next()
+
+        let cancelledTicket = try requireTeardownTicket(
+            coordinator.enqueueRuntimeTeardown(
+                id: UUID(),
+                workspaceId: UUID(),
+                reason: "test.cancelledBeforeStart",
+                surface: surfaces[2],
+                callbackContext: nil,
+                manualIOContext: nil,
+                byteTeeLease: nil,
+                runtimeOwnershipReservation: reservations[2],
+                freeSurface: { _ in
+                    observedCancellation.withLock {
+                        $0 = Task.isCancelled
+                    }
+                    cancelledFreeStarted.continuation.yield()
+                }
+            )
+        )
+        #expect(
+            await coordinator.cancelRuntimeTeardown(
+                ticketID: cancelledTicket.id
+            )
+        )
+
+        releaseActiveFrees.signal()
+        var cancelledFreeIterator =
+            cancelledFreeStarted.stream.makeAsyncIterator()
+        _ = await cancelledFreeIterator.next()
+        #expect(await cancelledTicket.wait(timeout: nil))
+        #expect(observedCancellation.withLock { $0 })
+
+        releaseActiveFrees.signal()
+        for ticket in activeTickets {
+            #expect(await ticket.wait(timeout: nil))
+        }
+    }
+
+    @Test func cancellationDuringRunUsesNormalCompletionSignal() async throws {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        defer { surface.deallocate() }
+        let freeStarted = AsyncStream<Void>.makeStream()
+        let releaseFree = DispatchSemaphore(value: 0)
+        let observedCancellation = OSAllocatedUnfairLock(initialState: false)
+        defer {
+            releaseFree.signal()
+            freeStarted.continuation.finish()
+        }
+
+        let ticket = try requireTeardownTicket(
+            coordinator.enqueueRuntimeTeardown(
+                id: UUID(),
+                workspaceId: UUID(),
+                reason: "test.cancelledDuringRun",
+                surface: surface,
+                callbackContext: nil,
+                freeSurface: { _ in
+                    freeStarted.continuation.yield()
+                    releaseFree.wait()
+                    observedCancellation.withLock {
+                        $0 = Task.isCancelled
+                    }
+                }
+            )
+        )
+        var freeStartedIterator = freeStarted.stream.makeAsyncIterator()
+        _ = await freeStartedIterator.next()
+
+        #expect(
+            await coordinator.cancelRuntimeTeardown(ticketID: ticket.id)
+        )
+        releaseFree.signal()
+
+        #expect(await ticket.wait(timeout: nil))
+        #expect(observedCancellation.withLock { $0 })
+        #expect(coordinator.debugRuntimeSurfaceOwnerCount == 0)
+    }
+
+    @Test func completionReleasesResourcesAndSlotExactlyOnce() async throws {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let surfaces = (0..<2).map { _ in
+            UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        }
+        defer { for surface in surfaces { surface.deallocate() } }
+        let recorder = TeardownLifetimeRecorder()
+        let lease = LifetimeRecordingByteTeeLease(recorder: recorder)
+
+        let ticket = try requireTeardownTicket(
+            coordinator.enqueueRuntimeTeardown(
+                id: UUID(),
+                workspaceId: UUID(),
+                reason: "test.exactlyOnce",
+                surface: surfaces[0],
+                callbackContext: nil,
+                manualIOContext: nil,
+                byteTeeLease: lease,
+                freeSurface: { _ in recorder.record("free") }
+            )
+        )
+        #expect(await ticket.wait(timeout: nil))
+        #expect(
+            await coordinator.cancelRuntimeTeardown(ticketID: ticket.id)
+                == false
+        )
+        #expect(recorder.snapshot() == ["free", "tee.release"])
+        #expect(coordinator.debugRuntimeSurfaceOwnerCount == 0)
+
+        let nextTicket = try requireTeardownTicket(
+            coordinator.enqueueRuntimeTeardown(
+                id: UUID(),
+                workspaceId: UUID(),
+                reason: "test.slotReused",
+                surface: surfaces[1],
+                callbackContext: nil,
+                freeSurface: { _ in }
+            )
+        )
+        #expect(await nextTicket.wait(timeout: nil))
+        #expect(await !coordinator.debugCloseTeardownDegraded)
+    }
+
     @Test func twoStuckClosesBoundAdmissionUntilAWorkerRecovers() async throws {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
-            closeTeardownTimeout: .milliseconds(50),
             maximumRuntimeSurfaceOwnerCount: 4
         )
         let surfaces = (0..<3).map { _ in
@@ -234,11 +475,6 @@ private func requireTeardownTicket(
         _ = await freeStartedIterator.next()
         _ = await freeStartedIterator.next()
 
-        let degradationDeadline = ContinuousClock.now + .seconds(1)
-        while await !coordinator.debugCloseTeardownDegraded,
-              ContinuousClock.now < degradationDeadline {
-            await Task.yield()
-        }
         #expect(await coordinator.debugCloseTeardownDegraded)
         #expect(await coordinator.debugPendingTeardownCount == 2)
         #expect(coordinator.debugRuntimeSurfaceOwnerCount == 2)
@@ -254,17 +490,30 @@ private func requireTeardownTicket(
         #expect(rejectedTicket == nil)
         #expect(coordinator.debugRuntimeSurfaceOwnerCount == 2)
 
+        let recovery = AsyncStream<
+            TerminalSurfaceRuntimeOwnershipReservation
+        >.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let recoveryID = UUID()
+        #expect(
+            coordinator.reserveRuntimeSurfaceOwnership(
+                recoveryID: recoveryID,
+                onRecovery: { reservation in
+                    recovery.continuation.yield(reservation)
+                    recovery.continuation.finish()
+                }
+            ) == nil
+        )
+
         releaseFrees.signal()
+        var recoveryIterator = recovery.stream.makeAsyncIterator()
+        let recoveredReservation = try #require(
+            await recoveryIterator.next()
+        )
+        coordinator.cancelRuntimeSurfaceOwnership(recoveredReservation)
         releaseFrees.signal()
         #expect(await firstTicket.wait(timeout: .seconds(1)))
         #expect(await secondTicket.wait(timeout: .seconds(1)))
         #expect(coordinator.debugRuntimeSurfaceOwnerCount == 0)
-
-        let recoveryDeadline = ContinuousClock.now + .seconds(1)
-        while await coordinator.debugCloseTeardownDegraded,
-              ContinuousClock.now < recoveryDeadline {
-            await Task.yield()
-        }
         #expect(await !coordinator.debugCloseTeardownDegraded)
         let recoveredTicket = try requireTeardownTicket(
             coordinator.enqueueRuntimeTeardown(
@@ -292,6 +541,9 @@ private func requireTeardownTicket(
         let nextRecoveryID = UUID()
         var staleRecoveryDeclined = false
         var nextRecoveryRan = false
+        let nextRecovery = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
 
         let staleReservation = admission.reserve(
             recoveryID: staleRecoveryID,
@@ -308,6 +560,8 @@ private func requireTeardownTicket(
             recoveryID: nextRecoveryID,
             onRecovery: { reservation in
                 nextRecoveryRan = true
+                nextRecovery.continuation.yield()
+                nextRecovery.continuation.finish()
                 admission.release(reservation)
             }
         )
@@ -317,9 +571,8 @@ private func requireTeardownTicket(
         admission.release(firstOwner)
         staleProbe = nil
         #expect(releasedProbe == nil)
-        for _ in 0..<100 where !nextRecoveryRan {
-            await Task.yield()
-        }
+        var nextRecoveryIterator = nextRecovery.stream.makeAsyncIterator()
+        _ = await nextRecoveryIterator.next()
 
         #expect(staleRecoveryDeclined)
         #expect(
@@ -337,12 +590,14 @@ private func requireTeardownTicket(
         )
         admission.setCloseTeardownDegraded(true)
         var recoveredCount = 0
+        let recoveries = AsyncStream<Void>.makeStream()
 
         for _ in 0..<3 {
             let reservation = admission.reserve(
                 recoveryID: UUID(),
                 onRecovery: { reservation in
                     recoveredCount += 1
+                    recoveries.continuation.yield()
                     admission.release(reservation)
                 }
             )
@@ -354,9 +609,11 @@ private func requireTeardownTicket(
             admission.debugOwnerCount == 1,
             "admission reserved every available recovery slot before the main actor ran"
         )
-        for _ in 0..<100 where recoveredCount < 3 {
-            await Task.yield()
+        var recoveryIterator = recoveries.stream.makeAsyncIterator()
+        for _ in 0..<3 {
+            _ = await recoveryIterator.next()
         }
+        recoveries.continuation.finish()
         #expect(recoveredCount == 3)
         #expect(admission.debugOwnerCount == 0)
     }
@@ -460,20 +717,50 @@ private func requireTeardownTicket(
 
     @Test func staleIsolatedReservationFallsBackToBoundedClose() async throws {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
-        let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
-        defer { surface.deallocate() }
+        let surfaces = (0..<2).map { _ in
+            UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        }
+        defer { for surface in surfaces { surface.deallocate() } }
+        let isolatedFreeStarted = AsyncStream<Void>.makeStream()
+        let releaseIsolatedFree = DispatchSemaphore(value: 0)
         let freeCount = OSAllocatedUnfairLock(initialState: 0)
+        defer {
+            releaseIsolatedFree.signal()
+            isolatedFreeStarted.continuation.finish()
+        }
         let staleReservation = try #require(
             await coordinator.reserveIsolatedHibernationTeardown()
         )
         await coordinator.cancelIsolatedHibernationTeardown(staleReservation)
+        let blockingReservation = try #require(
+            await coordinator.reserveIsolatedHibernationTeardown()
+        )
+        let blockingTicket = try requireTeardownTicket(
+            coordinator.enqueueRuntimeTeardown(
+                id: UUID(),
+                workspaceId: UUID(),
+                reason: "test.blockingIsolatedReservation",
+                surface: surfaces[0],
+                callbackContext: nil,
+                manualIOContext: nil,
+                byteTeeLease: nil,
+                executionLane: .isolatedHibernation,
+                isolatedHibernationReservation: blockingReservation,
+                freeSurface: { _ in
+                    isolatedFreeStarted.continuation.yield()
+                    _ = releaseIsolatedFree.wait(timeout: .distantFuture)
+                }
+            )
+        )
+        var isolatedFreeIterator = isolatedFreeStarted.stream.makeAsyncIterator()
+        _ = await isolatedFreeIterator.next()
 
         let ticket = try requireTeardownTicket(
             coordinator.enqueueRuntimeTeardown(
                 id: UUID(),
                 workspaceId: UUID(),
                 reason: "test.staleIsolatedReservation",
-                surface: surface,
+                surface: surfaces[1],
                 callbackContext: nil,
                 manualIOContext: nil,
                 byteTeeLease: nil,
@@ -487,6 +774,10 @@ private func requireTeardownTicket(
 
         #expect(await ticket.wait(timeout: .seconds(1)))
         #expect(freeCount.withLock { $0 } == 1)
+        #expect(await blockingTicket.wait(timeout: .zero) == false)
+
+        releaseIsolatedFree.signal()
+        #expect(await blockingTicket.wait(timeout: .seconds(1)))
     }
 
     @Test func byteTeeCallbackOwnerIsReleasedOnlyAfterNativeFreeReturns() async {

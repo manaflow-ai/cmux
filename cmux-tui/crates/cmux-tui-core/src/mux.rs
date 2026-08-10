@@ -46,9 +46,9 @@ use crate::resource_mutation::{ResourceMutationMetrics, ResourceMutationPlan};
 use crate::resource_selector::{
     ResolvedResourceSlots, ResourceSelectorContext, resolve_resource_selectors,
 };
-use crate::surface::{
-    DefaultColors, Surface, SurfaceOptions, SurfaceShutdownOwner, SurfaceShutdownOwnerIdentity,
-};
+#[cfg(unix)]
+use crate::surface::SurfaceShutdownOwnerIdentity;
+use crate::surface::{DefaultColors, Surface, SurfaceOptions, SurfaceShutdownOwner};
 use crate::terminal_host::TerminalId;
 use crate::terminal_host_protocol::TerminalExit;
 use crate::terminal_host_runtime::TerminalHostIdentity;
@@ -3732,7 +3732,7 @@ impl Mux {
                 !self.consume_terminal_adoption_insert_failure(),
                 "injected terminal adoption topology failure"
             );
-            insert_restored_terminal_runtime_checked(&mut state, surface)?;
+            insert_restored_terminal_runtime_checked(self, &mut state, surface)?;
         } else {
             // One-release import path for a host that predates public content
             // identities. Give it a real initial placement so the normal
@@ -4159,50 +4159,31 @@ impl Mux {
             Ok(binding) => binding,
             Err(_) => return false,
         };
-        let id = restored_binding.as_ref().map_or_else(|| self.next_id(), |(slot, _)| *slot);
+        let id = restored_binding
+            .as_ref()
+            .and_then(|binding| binding.placements.first().map(|(slot, _)| *slot))
+            .unwrap_or_else(|| self.next_id());
         #[cfg(test)]
         let adoption_surface_factory =
             self.terminal_adoption_surface_factory.lock().unwrap().clone();
         #[cfg(test)]
         let adopted = if let Some(factory) = adoption_surface_factory {
             factory(id)
-        } else if let Some((_, resource_identity)) = &restored_binding {
-            Surface::adopt_hosted_with_resource_identity(
-                id,
-                task.options.clone(),
-                Arc::downgrade(self),
-                task.record.clone(),
-                task.record_path.clone(),
-                resource_identity.clone(),
-            )
         } else {
-            Surface::adopt_hosted(
-                id,
-                task.options.clone(),
-                Arc::downgrade(self),
-                task.record.clone(),
-                task.record_path.clone(),
+            self.adopt_restored_terminal(
+                restored_binding,
+                &task.options,
+                &task.record,
+                &task.record_path,
             )
         };
         #[cfg(not(test))]
-        let adopted = if let Some((_, resource_identity)) = &restored_binding {
-            Surface::adopt_hosted_with_resource_identity(
-                id,
-                task.options.clone(),
-                Arc::downgrade(self),
-                task.record.clone(),
-                task.record_path.clone(),
-                resource_identity.clone(),
-            )
-        } else {
-            Surface::adopt_hosted(
-                id,
-                task.options.clone(),
-                Arc::downgrade(self),
-                task.record.clone(),
-                task.record_path.clone(),
-            )
-        };
+        let adopted = self.adopt_restored_terminal(
+            restored_binding,
+            &task.options,
+            &task.record,
+            &task.record_path,
+        );
         let Ok(surface) = adopted else { return false };
         #[cfg(test)]
         let after_attach = self.terminal_adoption_after_attach.lock().unwrap().clone();
@@ -9592,7 +9573,6 @@ impl Mux {
         self.publish_resource_event();
         self.pending_workspace_surfaces.lock().unwrap().clear();
         self.agent_records.lock().unwrap().clear();
-        self.surface_notifications.lock().unwrap().clear();
         self.sidebar_plugin.lock().unwrap().surface = None;
         *self.client_sizing.lock().unwrap() = ClientSizingState::default();
         if tree_changed {
@@ -13465,8 +13445,9 @@ impl Mux {
             }
             let previous_active = state.active_pane();
             let key = state.workspaces[index].key.clone();
-            let closed_public_ids = registry.terminal_resource_ids_in_workspace(&key)?;
             let host_identities = registry.terminal_host_identities_in_workspace(&key)?;
+            let closed_public_ids =
+                Self::terminal_public_ids_for_hosted(&registry, &host_identities)?;
             let host_cleanup = self.prepare_terminal_host_cleanup_at_root(
                 terminal_host_root.as_deref(),
                 &host_identities,
@@ -16410,6 +16391,7 @@ fn insert_surface_checked(
     {
         anyhow::bail!("surface_owner_capacity_exhausted");
     }
+    register_terminal_runtime_checked(state, &surface)?;
     state.surfaces.insert(surface.id, surface);
     Ok(())
 }
@@ -16430,6 +16412,7 @@ fn insert_reserved_surface_checked(
     {
         anyhow::bail!("surface_owner_capacity_exhausted");
     }
+    register_terminal_runtime_checked(state, &surface)?;
     state.surfaces.insert(surface.id, surface);
     reservation.release();
     Ok(())
@@ -16450,6 +16433,7 @@ fn insert_surface_with_active_reservation_checked(
     {
         anyhow::bail!("surface_owner_capacity_exhausted");
     }
+    register_terminal_runtime_checked(state, &surface)?;
     state.surfaces.insert(surface.id, surface);
     Ok(())
 }
@@ -16488,8 +16472,6 @@ fn validate_surface_insertion(state: &State, surface: &Surface) -> anyhow::Resul
             "terminal placement identity does not match its runtime"
         );
     }
-    register_terminal_runtime_checked(state, &surface)?;
-    state.surfaces.insert(surface.id, surface);
     Ok(())
 }
 
@@ -16503,6 +16485,7 @@ fn insert_terminal_runtime_checked(state: &mut State, surface: Arc<Surface>) -> 
 }
 
 fn insert_restored_terminal_runtime_checked(
+    mux: &Mux,
     state: &mut State,
     surface: Arc<Surface>,
 ) -> anyhow::Result<()> {
@@ -16520,7 +16503,7 @@ fn insert_restored_terminal_runtime_checked(
         placements.contains(&surface.id),
         "restored terminal runtime is not one of its durable placements"
     );
-    insert_surface_checked(state, surface.clone())?;
+    insert_surface_with_active_reservation_checked(mux, state, surface.clone())?;
     for placement in placements.into_iter().filter(|placement| *placement != surface.id) {
         anyhow::ensure!(
             !state.surfaces.contains_key(&placement),
@@ -16534,7 +16517,7 @@ fn insert_restored_terminal_runtime_checked(
             .context("restored terminal placement has no tab identity")?;
         let projected = surface
             .project_terminal(placement, TabResourceIdentity::new(tab_id, content_id.clone()))?;
-        insert_surface_checked(state, projected)?;
+        insert_surface_checked(mux, state, projected)?;
     }
     Ok(())
 }
@@ -18681,7 +18664,9 @@ mod tests {
         )
         .unwrap();
 
-        insert_restored_terminal_runtime_checked(&mut restored.state, source.clone()).unwrap();
+        let mux = test_mux();
+        insert_restored_terminal_runtime_checked(&mux, &mut restored.state, source.clone())
+            .unwrap();
         assert_eq!(restored.state.terminal_catalog.len(), 1);
         for placement in &placements {
             assert!(
@@ -18690,7 +18675,6 @@ mod tests {
             );
         }
 
-        let mux = test_mux();
         for placement in placements {
             let _ = remove_surface(&mux, &mut restored.state, placement);
         }
@@ -18965,7 +18949,7 @@ mod tests {
         )));
         assert!(!projection.patch.changes.iter().any(|change| matches!(
             change,
-            ResourceChange::TombstoneTab { tab_id } if tab_id == &identity.tab_id
+            ResourceChange::TombstoneTab { tab_id, .. } if tab_id == &identity.tab_id
         )));
         assert!(!projection.patch.changes.iter().any(|change| matches!(
             change,
@@ -25437,6 +25421,7 @@ mod tests {
                     workspace_key: workspace.key.clone(),
                     supports_set_defaults: false,
                     supports_terminate_only: false,
+                    supports_terminate_ack: false,
                     supports_clear_history: false,
                 };
                 let path = root.join(format!("{terminal_id}.json"));
@@ -25516,6 +25501,7 @@ mod tests {
                     workspace_key: String::new(),
                     supports_set_defaults: true,
                     supports_terminate_only: true,
+                    supports_terminate_ack: false,
                     supports_clear_history: true,
                 },
                 record_path,
@@ -25555,6 +25541,7 @@ mod tests {
                     workspace_key: String::new(),
                     supports_set_defaults: false,
                     supports_terminate_only: false,
+                    supports_terminate_ack: false,
                     supports_clear_history: false,
                 },
                 record_path: std::path::PathBuf::new(),
@@ -25632,6 +25619,7 @@ mod tests {
                 workspace_key: String::new(),
                 supports_set_defaults: false,
                 supports_terminate_only: false,
+                supports_terminate_ack: false,
                 supports_clear_history: false,
             };
             let path = root.join(format!("{terminal_id}.json"));
@@ -25693,6 +25681,7 @@ mod tests {
             workspace_key: workspace.key,
             supports_set_defaults: true,
             supports_terminate_only: true,
+            supports_terminate_ack: false,
             supports_clear_history: true,
         };
         let record_path = root.join(format!("{terminal_id}.json"));
@@ -25742,6 +25731,7 @@ mod tests {
             workspace_key: String::new(),
             supports_set_defaults: false,
             supports_terminate_only: false,
+            supports_terminate_ack: false,
             supports_clear_history: false,
         };
         let task = TerminalAdoptionTask {
@@ -25812,6 +25802,7 @@ mod tests {
                 workspace_key: String::new(),
                 supports_set_defaults: true,
                 supports_terminate_only: true,
+                supports_terminate_ack: false,
                 supports_clear_history: true,
             },
             record_path: std::path::PathBuf::new(),
@@ -25886,6 +25877,7 @@ mod tests {
                         workspace_key: workspace.key.clone(),
                         supports_set_defaults: true,
                         supports_terminate_only: true,
+                        supports_terminate_ack: false,
                         supports_clear_history: true,
                     },
                     record_path,
@@ -25956,6 +25948,7 @@ mod tests {
             workspace_key: workspace.key.clone(),
             supports_set_defaults: true,
             supports_terminate_only: true,
+            supports_terminate_ack: false,
             supports_clear_history: true,
         };
         {
@@ -26601,6 +26594,7 @@ mod tests {
             workspace_key: String::new(),
             supports_set_defaults: false,
             supports_terminate_only: false,
+            supports_terminate_ack: false,
             supports_clear_history: false,
         };
         let record_path = record.record_path(&root);
@@ -28752,7 +28746,7 @@ mod tests {
             TerminalHostIdentity { terminal_id: TERMINAL.into(), incarnation: INCARNATION.into() },
         )
         .unwrap();
-        insert_surface_checked(&mut mux.state.lock().unwrap(), surface.clone()).unwrap();
+        insert_surface_checked(&mux, &mut mux.state.lock().unwrap(), surface.clone()).unwrap();
         let (placement, canonical_workspace, changed, _) =
             mux.bind_running_terminal_to_canonical_workspace(&surface).unwrap();
         assert!(changed);

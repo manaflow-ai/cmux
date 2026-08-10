@@ -831,47 +831,6 @@ fn public_layout_node(
     }
 }
 
-pub(crate) fn public_terminal_snapshot(
-    tab: &RegistryTab,
-    durable: &RegistryTerminal,
-    surface: Option<&Arc<crate::Surface>>,
-) -> anyhow::Result<Value> {
-    let ContentPublicId::Terminal(terminal_id) = &tab.content_id else {
-        anyhow::bail!("terminal snapshot requires terminal content")
-    };
-    let lifecycle = match durable.lifecycle {
-        TerminalLifecycle::Launching | TerminalLifecycle::Adopting => "launching",
-        TerminalLifecycle::Running => "running",
-        TerminalLifecycle::Exited => "exited",
-        TerminalLifecycle::Tombstoned => {
-            anyhow::bail!("live terminal tab references a tombstoned terminal")
-        }
-    };
-    let (cols, rows) = surface.map(|surface| surface.size()).unwrap_or((80, 24));
-    let mut terminal = json!({
-        "id": terminal_id,
-        "tab_id": tab.public_id,
-        "title": surface.map(|surface| surface.title()).unwrap_or_default(),
-        "cols": cols.max(1),
-        "rows": rows.max(1),
-        "running": durable.lifecycle == TerminalLifecycle::Running,
-        "lifecycle": lifecycle,
-    });
-    if let Some(cwd) = surface.and_then(|surface| surface.spawn_cwd()) {
-        terminal["cwd"] = json!(cwd);
-    }
-    if durable.lifecycle == TerminalLifecycle::Exited {
-        terminal["exit"] =
-            durable.exit.clone().context("exited terminal omitted its durable outcome")?;
-    } else {
-        anyhow::ensure!(
-            durable.exit.is_none(),
-            "non-exited terminal unexpectedly has a durable outcome"
-        );
-    }
-    Ok(terminal)
-}
-
 pub(crate) fn public_browser_snapshot(
     tab: &RegistryTab,
     durable: &RegistryBrowser,

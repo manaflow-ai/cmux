@@ -5,6 +5,7 @@
 //! browser-aware frontends should branch on [`SurfaceKind`] before using
 //! VT operations.
 
+#[cfg(unix)]
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
@@ -21,21 +22,22 @@ use std::sync::{Arc, Condvar, Mutex, TryLockError, Weak};
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
-use cmux_pty::PtyCommand;
+use cmux_pty::{ChildKiller, MasterPty, PtyCommand, PtySize};
 use ghostty_vt::{
     Callbacks, ClearHistoryOutcome, CursorShape, Dirty, KeyEncoder, KeyInput, KittyGraphicsLimits,
     KittyReplayState, MouseEncoders, MouseInput, RenderFrame, RenderState, Rgb, Screen, Scrollbar,
     Terminal, TerminalColorOverrides, TerminalPointerSemanticSnapshot, TrackedScreenPoint,
 };
-use portable_pty::{ChildKiller, MasterPty, PtySize};
 
+#[cfg(any(unix, test))]
+use crate::MuxEvent;
 use crate::mux::ResourceWaitWake;
 use crate::platform;
 use crate::resource::{ContentPublicId, TabResourceIdentity, TerminalPublicId};
 #[cfg(not(unix))]
 use crate::terminal_host_protocol::TerminalExitOutcome;
 use crate::terminal_host_protocol::{TerminalExit, wait_for_native_child_status};
-use crate::{Mux, MuxEvent, SurfaceId};
+use crate::{Mux, SurfaceId};
 
 pub use crate::browser::{
     BrowserAttachState, BrowserFrame, BrowserFrameStream, BrowserFrameUpdate, BrowserSource,
@@ -2728,6 +2730,7 @@ impl Surface {
             mux,
             None,
             None,
+            None,
             PtyLifetime::DaemonOwned,
             cell_pixels,
         )
@@ -2820,6 +2823,7 @@ impl Surface {
             .unwrap_or_default();
         #[cfg(unix)]
         crate::process_session::require_cached_stable_process_signaling()?;
+        #[cfg(unix)]
         if lifetime == PtyLifetime::SessionOwned
             && let Some(root) = opts.terminal_host_root.clone()
         {
@@ -8472,10 +8476,6 @@ mod tests {
                 Ok(AttachFrame::Resized { .. } | AttachFrame::ResizedWithColors { .. }) => {}
                 Ok(AttachFrame::OutputWithColors { .. }) => {
                     panic!("local PTYs must use ordered Output then ColorsChanged")
-                }
-                Err(RecvTimeoutError::Timeout) => {}
-                Err(RecvTimeoutError::Disconnected) => {
-                    panic!("local cursor activity stream disconnected")
                 }
             }
         };
