@@ -15,6 +15,7 @@ use crate::server::MAX_CREATION_SELECTOR_FALLBACKS;
 use crate::workspace_registry::{
     RegistryPane, RegistryScreen, RegistryViewportColumn, ResourceCreationPreparation,
     ResourceCreationRecovery, ResourcePatchCommit, ResourceWorkspaceClose, TerminalLifecycle,
+    TerminalResourceCloseCommit,
 };
 use crate::{ResolvedResourcePath, ResourceSelectors, ResourceTarget, SurfaceKind};
 
@@ -83,6 +84,10 @@ struct ResourceCloseEffects {
     changed_screens: Vec<ScreenId>,
     selection_resync: bool,
     empty_revision: Option<u64>,
+}
+
+fn terminal_close_state_error(detail: impl Into<String>) -> anyhow::Error {
+    anyhow::Error::msg(detail.into()).context("terminal close state is unavailable")
 }
 
 enum ResourceCloseTreePublication {
@@ -2209,6 +2214,177 @@ impl Mux {
         drop(_creation_fence);
         drop(_creation_handoff);
         Ok(self.finish_resource_close(committed))
+    }
+
+    /// Route the legacy host close through the same projected topology owner
+    /// as `terminal.close`. `None` means the host has no live public resource,
+    /// so the caller may use the host-only compatibility path.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn commit_legacy_terminal_close(
+        &self,
+        terminal_id: &str,
+        expected_incarnation: Option<&str>,
+        expected_generation: Option<&str>,
+        expected_terminal_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+    ) -> anyhow::Result<Option<TerminalCloseResult>> {
+        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_fence = self.resource_creation_execution.lock().unwrap();
+        let notifications = self.surface_notifications();
+        let mut registry = self.workspace_registry.lock().unwrap();
+        if let Some(terminal) =
+            registry.replay_terminal_close(mutation, terminal_id, expected_incarnation)?
+        {
+            let result = TerminalCloseResult {
+                surface: None,
+                terminal_id: terminal_id.to_string(),
+                terminal_incarnation: terminal.result["incarnation"].as_str().map(str::to_string),
+                already_closed: terminal.result["already_closed"].as_bool().unwrap_or(false),
+                terminal_revision: terminal.revision,
+            };
+            drop(registry);
+            drop(_creation_fence);
+            drop(_creation_handoff);
+            return Ok(Some(result));
+        }
+        let Some(public_id) = registry.terminal_resource_id(terminal_id)? else {
+            return Ok(None);
+        };
+        let mut state = self.state.lock().unwrap();
+        let durable_host = registry.terminal_host_id(&public_id)?.ok_or_else(|| {
+            terminal_close_state_error(format!("terminal {public_id} has no durable host"))
+        })?;
+        if durable_host != terminal_id {
+            return Err(terminal_close_state_error("terminal resource changed hosts"));
+        }
+        let content_id = ContentPublicId::Terminal(public_id.clone());
+        let (target, mut plan) = if let Some(runtime) =
+            state.terminal_catalog.get(&public_id).cloned()
+        {
+            let host = self.resource_terminal_host_identity(&runtime).ok_or_else(|| {
+                terminal_close_state_error("terminal runtime omitted its durable host identity")
+            })?;
+            if host.terminal_id != terminal_id {
+                return Err(terminal_close_state_error("terminal resource changed hosts"));
+            }
+            if let Some(expected) = expected_incarnation {
+                anyhow::ensure!(host.incarnation == expected, "terminal_incarnation_mismatch");
+            }
+            let target = state.placements_of_content(&content_id).first().copied();
+            let plan = self.resource_close_plan_locked(
+                ResourceOperation::TerminalClose,
+                EffectSlots { workspace: None, screen: None, pane: None, tab: Some(runtime.id) },
+                &registry,
+                &state,
+                &notifications,
+            )?;
+            (target, plan)
+        } else {
+            if !state.placements_of_content(&content_id).is_empty() {
+                return Err(terminal_close_state_error(format!(
+                    "live terminal resource {public_id} has views but no runtime owner"
+                )));
+            }
+            (
+                None,
+                ResourceClosePlan {
+                    state: state.clone(),
+                    removed: Vec::new(),
+                    terminal_runtime: None,
+                    closed_terminal_public_id: Some(public_id.clone()),
+                    terminal_batch: Vec::new(),
+                    workspace_close: None,
+                    delta: None,
+                    changed_screens: Vec::new(),
+                    selection_resync: false,
+                },
+            )
+        };
+        let mut projection =
+            self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
+        if !projection.patch.changes.iter().any(|change| {
+            matches!(
+                change,
+                ResourceChange::TombstoneTerminal { public_id: closing, .. }
+                    if closing == &public_id
+            )
+        }) {
+            let incarnation = registry
+                .terminal_record(terminal_id)?
+                .ok_or_else(|| {
+                    terminal_close_state_error(format!(
+                        "terminal close projection omitted host {terminal_id}"
+                    ))
+                })?
+                .incarnation;
+            projection.patch.changes.push(ResourceChange::TombstoneTerminal {
+                public_id: public_id.clone(),
+                expected_incarnation: incarnation,
+            });
+            let changes = projection.changes.as_array_mut().ok_or_else(|| {
+                terminal_close_state_error("terminal close projection changes are not an array")
+            })?;
+            changes.push(json!({
+                "kind":"delete",
+                "sequence":changes.len(),
+                "resource":"terminal",
+                "id":public_id,
+            }));
+        }
+        #[cfg(test)]
+        if let Some(hook) = self.resource_projection_before_commit.lock().unwrap().clone() {
+            hook();
+        }
+        let committed = registry.close_terminal_with_resource_patch(
+            mutation,
+            expected_generation,
+            expected_terminal_revision,
+            state.resource_revision,
+            terminal_id,
+            expected_incarnation,
+            &projection.patch,
+            &projection.result,
+            &projection.changes,
+        )?;
+        let (terminal, resource) = match committed {
+            TerminalResourceCloseCommit::Replay(terminal) => {
+                let result = TerminalCloseResult {
+                    surface: None,
+                    terminal_id: terminal_id.to_string(),
+                    terminal_incarnation: terminal.result["incarnation"]
+                        .as_str()
+                        .map(str::to_string),
+                    already_closed: terminal.result["already_closed"].as_bool().unwrap_or(false),
+                    terminal_revision: terminal.revision,
+                };
+                drop(state);
+                drop(registry);
+                drop(_creation_fence);
+                drop(_creation_handoff);
+                return Ok(Some(result));
+            }
+            TerminalResourceCloseCommit::Committed { terminal, resource } => (terminal, resource),
+        };
+        #[cfg(test)]
+        if let Some(hook) = self.resource_close_after_commit.lock().unwrap().clone() {
+            hook();
+        }
+        if !terminal.replayed && !terminal.result["already_closed"].as_bool().unwrap_or(false) {
+            self.emit_terminal_registry_changed(&registry, terminal.revision);
+        }
+        let effects = plan.install(&mut state, resource.revision, None);
+        drop(state);
+        drop(registry);
+        drop(_creation_fence);
+        drop(_creation_handoff);
+        self.finish_resource_close(CommittedResourceClose { commit: resource, effects });
+        Ok(Some(TerminalCloseResult {
+            surface: target,
+            terminal_id: terminal_id.to_string(),
+            terminal_incarnation: terminal.result["incarnation"].as_str().map(str::to_string),
+            already_closed: terminal.result["already_closed"].as_bool().unwrap_or(false),
+            terminal_revision: terminal.revision,
+        }))
     }
 
     pub(super) fn terminal_exit_detach_projection_locked(
