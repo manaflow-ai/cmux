@@ -1974,7 +1974,7 @@ final class cmuxUITests: XCTestCase {
 
         let feed = app.descendants(matching: .any)["MobileNotificationFeed"].firstMatch
         XCTAssertTrue(feed.waitForExistence(timeout: 8))
-        let feedList = app.descendants(matching: .any)["MobileNotificationFeedList-timeline"].firstMatch
+        let feedList = app.collectionViews.firstMatch
         XCTAssertTrue(feedList.waitForExistence(timeout: 3))
         XCTAssertTrue(app.tabBars.buttons["Feed"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["MobileNotificationFeedDayToday"].exists)
@@ -2115,7 +2115,7 @@ final class cmuxUITests: XCTestCase {
 
         let feed = app.descendants(matching: .any)["MobileNotificationFeed"].firstMatch
         XCTAssertTrue(feed.waitForExistence(timeout: 8))
-        let feedList = app.descendants(matching: .any)["MobileNotificationFeedList-timeline"].firstMatch
+        let feedList = app.collectionViews.firstMatch
         XCTAssertTrue(feedList.waitForExistence(timeout: 3))
 
         let permissionRow = app.descendants(matching: .any)[
