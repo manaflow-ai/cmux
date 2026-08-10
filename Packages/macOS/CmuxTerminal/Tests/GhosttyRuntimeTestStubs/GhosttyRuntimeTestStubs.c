@@ -52,6 +52,8 @@ static void* cmux_test_surface_read_target = NULL;
 static uint32_t cmux_test_surface_read_call_count = 0;
 static uint32_t cmux_test_surface_read_active_call_count = 0;
 static uint32_t cmux_test_surface_read_maximum_concurrent_call_count = 0;
+static bool cmux_test_surface_read_should_succeed = false;
+static uint32_t cmux_test_surface_free_text_call_count = 0;
 
 static struct timespec cmux_test_surface_free_timeout(void) {
     return (struct timespec) {
@@ -218,8 +220,24 @@ void cmux_test_ghostty_surface_read_blocking_reset(void) {
     cmux_test_surface_read_call_count = 0;
     cmux_test_surface_read_active_call_count = 0;
     cmux_test_surface_read_maximum_concurrent_call_count = 0;
+    cmux_test_surface_read_should_succeed = false;
+    cmux_test_surface_free_text_call_count = 0;
     pthread_cond_broadcast(&cmux_test_surface_read_condition);
     pthread_mutex_unlock(&cmux_test_surface_read_mutex);
+}
+
+void cmux_test_ghostty_surface_read_success_begin(void) {
+    pthread_mutex_lock(&cmux_test_surface_read_mutex);
+    cmux_test_surface_read_should_succeed = true;
+    cmux_test_surface_free_text_call_count = 0;
+    pthread_mutex_unlock(&cmux_test_surface_read_mutex);
+}
+
+uint32_t cmux_test_ghostty_surface_free_text_call_count(void) {
+    pthread_mutex_lock(&cmux_test_surface_read_mutex);
+    const uint32_t count = cmux_test_surface_free_text_call_count;
+    pthread_mutex_unlock(&cmux_test_surface_read_mutex);
+    return count;
 }
 
 void cmux_test_ghostty_renderer_realized_begin(void* surface) {
@@ -440,7 +458,13 @@ void ghostty_surface_request_process_termination(void *surface) {
 }
 void ghostty_surface_free_text(void *surface, ghostty_text_s *text) {
     (void)surface;
-    (void)text;
+    if (text == NULL || text->text == NULL) return;
+
+    free((void *)text->text);
+    memset(text, 0, sizeof(*text));
+    pthread_mutex_lock(&cmux_test_surface_read_mutex);
+    cmux_test_surface_free_text_call_count += 1;
+    pthread_mutex_unlock(&cmux_test_surface_read_mutex);
 }
 float ghostty_surface_font_size(void *surface) {
     return surface == cmux_test_font_surface
@@ -507,9 +531,18 @@ bool ghostty_surface_read_screen_tail_vt(
         cmux_test_surface_read_target = NULL;
     }
     cmux_test_surface_read_active_call_count -= 1;
+    const bool should_succeed = cmux_test_surface_read_should_succeed;
     pthread_cond_broadcast(&cmux_test_surface_read_condition);
     pthread_mutex_unlock(&cmux_test_surface_read_mutex);
-    return false;
+
+    if (!should_succeed || text == NULL) return false;
+    static const char success_text[] = "screen tail \xE2\x9C\x93";
+    char *owned_text = malloc(sizeof(success_text) - 1);
+    if (owned_text == NULL) return false;
+    memcpy(owned_text, success_text, sizeof(success_text) - 1);
+    text->text = owned_text;
+    text->text_len = sizeof(success_text) - 1;
+    return true;
 }
 void ghostty_surface_read_text(void) {}
 void ghostty_surface_refresh(void) {}

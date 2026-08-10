@@ -144,6 +144,26 @@ import Testing
         #expect(nativeFreeCount.withLock { $0 } == 1)
     }
 
+    @Test func successfulScreenTailReadReturnsUTF8AndFreesNativeText() async {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        cmux_test_ghostty_surface_read_success_begin()
+        defer {
+            cmux_test_ghostty_surface_read_blocking_reset()
+            surface.deallocate()
+        }
+
+        let request = TerminalSurfaceRuntimeScreenTailRequest(
+            surface: surface,
+            maxRows: 1,
+            maxBytes: 64,
+            nativeAccessGate: TerminalSurfaceRuntimeNativeAccessGate()
+        )
+
+        #expect(await coordinator.readScreenTailVT(request) == "screen tail ✓")
+        #expect(cmux_test_ghostty_surface_free_text_call_count() == 1)
+    }
+
     @Test func screenTailReadsDoNotOverlapNativeFormatting() async throws {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
         let firstSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)

@@ -122,6 +122,8 @@ uint32_t cmux_test_ghostty_surface_read_call_count(void);
 uint32_t cmux_test_ghostty_surface_read_maximum_concurrent_call_count(void);
 void cmux_test_ghostty_surface_read_release(void);
 void cmux_test_ghostty_surface_read_blocking_reset(void);
+void cmux_test_ghostty_surface_read_success_begin(void);
+uint32_t cmux_test_ghostty_surface_free_text_call_count(void);
 uint32_t cmux_test_ghostty_tty_name_call_count(void);
 void cmux_test_ghostty_renderer_realized_begin(void *surface);
 void cmux_test_ghostty_renderer_realized_reset(void);
