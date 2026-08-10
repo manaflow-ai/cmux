@@ -1089,6 +1089,23 @@
         }
       }
     },
+    "mobile.simulatorStream.emptyHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attach a Simulator pane in cmux on your Mac to control it from here"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macのcmuxでシミュレータペインを追加すると、ここから操作できます"
+          }
+        }
+      }
+    },
     "mobile.simulatorStream.home": {
       "extractionState": "manual",
       "localizations": {
@@ -4638,6 +4655,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "ワークスペース"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.simulator.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stream it live and tap, type, and swipe from your phone."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブでストリーミングし、スマートフォンからタップ・入力・スワイプできます。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.simulator.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Control your Mac's iOS Simulator"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacのiOSシミュレータを操作"
           }
         }
       }

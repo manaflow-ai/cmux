@@ -538,6 +538,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     nonisolated(unsafe) static var shared: AppDelegate?
     /// Stateless control-socket syscall layer (CmuxControlSocket); composition-root owned.
     nonisolated let socketTransport = SocketTransport()
+    /// App-level booted-Simulator sampling that drives the contextual
+    /// New Simulator tab-bar button; composition-root owned.
+    let simulatorBootPresence = SimulatorBootPresence()
     /// Owns the About Titlebar Debug subsystem (CmuxAppKitSupportUI); composition-root
     /// owned and created lazily so the window-decoration seam can point back at `self`.
     lazy var debugWindowsCoordinator = CmuxDebugWindowsCoordinator(decorator: self)
@@ -1369,6 +1372,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             telemetryEnabled: telemetryEnabled
         )
         let isRunningUnderXCTest = sentryStartupPolicy.isRunningUnderXCTest
+        if !isRunningUnderXCTest {
+            // Seed the contextual New Simulator affordance; throttled and
+            // flag-gated inside.
+            simulatorBootPresence.refresh()
+        }
         StartupBreadcrumbLog.append(
             "appDelegate.didFinish.begin",
             fields: [
@@ -1909,6 +1917,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationDidBecomeActive(_ notification: Notification) {
         PortScanner.shared.setTrackedAgentScanningPaused(false)
+        // Cheap, throttled sample: a user who just booted a Simulator in
+        // Xcode switches to cmux next, which is exactly this moment.
+        simulatorBootPresence.refresh()
         let activationWindows = mainWindowsForVisibilityController()
         if mainWindowVisibilityController.finishPendingApplicationActivationRestore(windows: activationWindows, reason: .applicationDidBecomeActive) == nil, !hasVisibleMainTerminalWindow() {
             _ = mainWindowVisibilityController.restoreApplicationWindowsAfterActivation(windows: activationWindows, reason: .applicationDidBecomeActive)

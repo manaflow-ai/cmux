@@ -1354,6 +1354,91 @@
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Unknown" } },
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "不明" } }
       }
+    },
+    "workspace.simulator.chip.accessibility" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Simulator attached"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シミュレータあり"
+          }
+        }
+      }
+    },
+    "workspace.simulator.chip.accessibility.booted" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Simulator running"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シミュレータ起動中"
+          }
+        }
+      }
+    },
+    "workspace.simulator.hint.body" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tap to stream and control it from this phone. It also lives in the Terminals menu in the toolbar."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "タップするとこのスマートフォンからストリーミングして操作できます。ツールバーのターミナルメニューからも開けます。"
+          }
+        }
+      }
+    },
+    "workspace.simulator.hint.dismiss" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dismiss"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "閉じる"
+          }
+        }
+      }
+    },
+    "workspace.simulator.hint.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This workspace has a Mac Simulator"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このワークスペースにはMacのシミュレータがあります"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

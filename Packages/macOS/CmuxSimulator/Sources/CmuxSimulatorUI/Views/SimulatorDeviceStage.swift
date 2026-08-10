@@ -10,6 +10,7 @@ struct SimulatorDeviceStage: View {
     let allowsPointerInput: Bool
     let pointerEntryEventFilter: (@MainActor (NSEvent) -> Bool)?
     let onRequestPanelFocus: @MainActor () -> Void
+    var phoneControlTeaser: SimulatorPhoneControlTeaser? = nil
 
     var body: some View {
         ZStack {
@@ -89,6 +90,45 @@ struct SimulatorDeviceStage: View {
         .shadow(color: .black.opacity(0.28), radius: 18, y: 8)
         .padding(simulatorDeviceStagePadding)
         .accessibilityLabel(simulatorStrings.simulator)
+        .overlay(alignment: .bottom) {
+            if let phoneControlTeaser {
+                phoneControlTeaserChip(phoneControlTeaser)
+            }
+        }
+    }
+
+    /// One-time cross-device teaser shown only over a LIVE stage: the moment
+    /// a user first sees their Simulator streaming in a pane is the moment
+    /// the phone-control payoff is most believable.
+    private func phoneControlTeaserChip(
+        _ teaser: SimulatorPhoneControlTeaser
+    ) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "iphone.radiowaves.left.and.right")
+                .foregroundStyle(.tint)
+                .accessibilityHidden(true)
+            Text(simulatorStrings.phoneControlTeaser)
+                .font(.callout)
+            Button(simulatorStrings.phoneControlTeaserAction) {
+                teaser.openPairing()
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            Button {
+                teaser.dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.caption.weight(.semibold))
+                    .padding(3)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(simulatorStrings.phoneControlTeaserDismiss)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .background(.regularMaterial, in: Capsule())
+        .padding(.bottom, 6)
+        .accessibilityIdentifier("SimulatorPhoneControlTeaser")
     }
 
     private func maximumDeviceSize(
@@ -142,12 +182,31 @@ struct SimulatorDeviceStage: View {
                 Button(simulatorStrings.reconnect) { coordinator.recover() }
             }
         default:
-            ContentUnavailableView(
-                simulatorStrings.selectToStart,
-                systemImage: "iphone",
-                description: nil
-            )
+            // Teaching empty state: name the next step and the payoff, and
+            // offer the fastest path — one click boots the most recently used
+            // device; the embedded picker is the same menu as the toolbar's.
+            ContentUnavailableView {
+                Label(simulatorStrings.selectToStart, systemImage: "iphone")
+            } description: {
+                Text(simulatorStrings.selectToStartHelp)
+            } actions: {
+                if let suggestion = quickStartDevice {
+                    Button(simulatorStrings.quickStart(suggestion.name)) {
+                        coordinator.selectDevice(id: suggestion.id)
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                SimulatorDevicePicker(coordinator: coordinator)
+            }
         }
+    }
+
+    /// The one-click boot suggestion: the most recently booted available
+    /// device, falling back to the first available one.
+    private var quickStartDevice: SimulatorDevice? {
+        coordinator.devices
+            .filter(\.isAvailable)
+            .max(by: { ($0.lastBootedAt ?? .distantPast) < ($1.lastBootedAt ?? .distantPast) })
     }
 
     private func deviceCornerRadius(

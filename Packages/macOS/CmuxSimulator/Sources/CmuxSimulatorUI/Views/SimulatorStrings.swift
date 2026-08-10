@@ -135,6 +135,40 @@ struct SimulatorStrings {
         bundle: .main,
         comment: "Idle text before a Simulator device is selected."
     )
+    let selectToStartHelp = LocalizedStringResource(
+        "simulator.status.selectToStart.help",
+        defaultValue: "Pick an iPhone or iPad and it boots automatically. Once running, you can control it from the cmux iOS app.",
+        bundle: .main,
+        comment: "Help text under the idle Simulator state, teaching the next step and the phone-control payoff."
+    )
+    let phoneControlTeaser = LocalizedStringResource(
+        "simulator.phoneControl.teaser",
+        defaultValue: "Control this Simulator from your iPhone",
+        bundle: .main,
+        comment: "One-time chip over a live Simulator stage pointing at phone control."
+    )
+    let phoneControlTeaserAction = LocalizedStringResource(
+        "simulator.phoneControl.teaser.action",
+        defaultValue: "Set Up",
+        bundle: .main,
+        comment: "Button on the phone-control teaser that opens Tailscale Pairing."
+    )
+    let phoneControlTeaserDismiss = LocalizedStringResource(
+        "simulator.phoneControl.teaser.dismiss",
+        defaultValue: "Dismiss",
+        bundle: .main,
+        comment: "Accessibility label for the phone-control teaser close button."
+    )
+    func quickStart(_ deviceName: String) -> String {
+        String(
+            format: String(
+                localized: "simulator.action.quickStart",
+                defaultValue: "Start %@",
+                comment: "Button that selects and boots the named Simulator device in one click."
+            ),
+            deviceName
+        )
+    }
     let device = LocalizedStringResource(
         "simulator.tools.device",
         defaultValue: "Device",

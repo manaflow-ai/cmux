@@ -11,6 +11,10 @@ struct SimulatorPanelView: View {
     let appearance: PanelAppearance
     let onRequestPanelFocus: () -> Void
     @State private var visibilityHostID = UUID()
+    /// One-time flag for the cross-device teaser; local dogfood resets it
+    /// with `defaults delete <bundle> cmux.simulator.phoneControlTeaser.dismissed`.
+    @AppStorage("cmux.simulator.phoneControlTeaser.dismissed")
+    private var phoneControlTeaserDismissed = false
 
     var body: some View {
         SimulatorPaneView(
@@ -18,7 +22,8 @@ struct SimulatorPanelView: View {
             backgroundColor: Color(nsColor: appearance.contentBackgroundColor),
             allowsPointerInput: allowsPointerInput,
             pointerEntryEventFilter: pointerEntryEventFilter,
-            onRequestPanelFocus: onRequestPanelFocus
+            onRequestPanelFocus: onRequestPanelFocus,
+            phoneControlTeaser: phoneControlTeaser
         )
             .background {
                 SimulatorFocusOwnershipBridge(panel: panel)
@@ -44,5 +49,25 @@ struct SimulatorPanelView: View {
                 panel.coordinator.releaseInputs()
                 panel.setVisibleInUI(false, hostID: visibilityHostID)
             }
+    }
+
+    /// The one-time "control from iPhone" teaser. `nil` (hidden) once
+    /// dismissed or when the pairing flow's feature flag is off, so the chip
+    /// can never advertise a dead path. The package renders it only over a
+    /// live device stage.
+    private var phoneControlTeaser: SimulatorPhoneControlTeaser? {
+        guard !phoneControlTeaserDismissed,
+              CmuxFeatureFlags.shared.isMobileConnectButtonEnabled else { return nil }
+        return SimulatorPhoneControlTeaser(
+            openPairing: {
+                phoneControlTeaserDismissed = true
+                _ = AppDelegate.shared?.performMobileConnectWorkspaceAction(
+                    debugSource: "simulator.phoneControlTeaser"
+                )
+            },
+            dismiss: {
+                phoneControlTeaserDismissed = true
+            }
+        )
     }
 }

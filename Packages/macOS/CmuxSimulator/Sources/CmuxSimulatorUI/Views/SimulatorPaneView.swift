@@ -8,6 +8,7 @@ public struct SimulatorPaneView: View {
     private let allowsPointerInput: Bool
     private let pointerEntryEventFilter: (@MainActor (NSEvent) -> Bool)?
     private let onRequestPanelFocus: @MainActor () -> Void
+    private let phoneControlTeaser: SimulatorPhoneControlTeaser?
 
     /// Creates a native Simulator pane.
     /// - Parameters:
@@ -21,13 +22,15 @@ public struct SimulatorPaneView: View {
         backgroundColor: Color,
         allowsPointerInput: Bool,
         pointerEntryEventFilter: (@MainActor (NSEvent) -> Bool)? = nil,
-        onRequestPanelFocus: @escaping @MainActor () -> Void = {}
+        onRequestPanelFocus: @escaping @MainActor () -> Void = {},
+        phoneControlTeaser: SimulatorPhoneControlTeaser? = nil
     ) {
         self.coordinator = coordinator
         self.backgroundColor = backgroundColor
         self.allowsPointerInput = allowsPointerInput
         self.pointerEntryEventFilter = pointerEntryEventFilter
         self.onRequestPanelFocus = onRequestPanelFocus
+        self.phoneControlTeaser = phoneControlTeaser
     }
 
     /// The composed Simulator toolbar, live device stage, and tools inspector.
@@ -41,7 +44,8 @@ public struct SimulatorPaneView: View {
                     backgroundColor: backgroundColor,
                     allowsPointerInput: allowsPointerInput,
                     pointerEntryEventFilter: pointerEntryEventFilter,
-                    onRequestPanelFocus: onRequestPanelFocus
+                    onRequestPanelFocus: onRequestPanelFocus,
+                    phoneControlTeaser: phoneControlTeaser
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 if coordinator.showsTools {

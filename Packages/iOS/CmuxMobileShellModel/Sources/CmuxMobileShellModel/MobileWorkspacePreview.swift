@@ -91,6 +91,15 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     public var terminals: [MobileTerminalPreview]
     /// The Simulator panes contained in the workspace, in display order.
     public var simulators: [MobileSimulatorPanelDescriptor]
+
+    /// Whether any of the workspace's Simulator panes currently has a booted
+    /// device, i.e. there is live content a phone could stream right now (vs
+    /// a pane whose device is shut down or not yet selected).
+    public var hasBootedSimulator: Bool {
+        simulators.contains { descriptor in
+            descriptor.selectedDeviceState?.caseInsensitiveCompare("Booted") == .orderedSame
+        }
+    }
     /// The owning Mac's DISTINCT color index in the aggregated list, stamped by
     /// ``MobileWorkspaceAggregation/derivedWorkspaces`` so same-Mac workspaces
     /// share one avatar color and different Macs are guaranteed distinct. `nil`

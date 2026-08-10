@@ -39,10 +39,19 @@ extension WorkspaceDetailView {
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
+            // At most one hint banner at a time; the changes hint wins
+            // because it is tied to fresh agent activity.
+            // (Simulator hint eligibility lives in
+            // `simulatorStreamHintPanelID` below.)
             if workspaceChangesHint != nil {
                 WorkspaceChangesHintBanner(
                     openChanges: openWorkspaceChanges,
                     dismiss: dismissWorkspaceChangesHint
+                )
+            } else if let panelID = simulatorStreamHintPanelID {
+                WorkspaceSimulatorHintBanner(
+                    openSimulator: { selectSimulatorStreamFromToolbar(panelID) },
+                    dismiss: { store.dismissSimulatorStreamHint() }
                 )
             }
         }
@@ -164,4 +173,15 @@ extension WorkspaceDetailView {
         }
     }
     #endif
+
+    /// The panel the simulator hint banner would open, or `nil` when the hint
+    /// must not show: already dismissed (globally, once ever), host lacks the
+    /// capability, a simulator stream is already active, or the workspace has
+    /// no simulator panes.
+    var simulatorStreamHintPanelID: String? {
+        guard !store.simulatorStreamHintDismissed,
+              store.supportsSimulatorStream,
+              activeSimulatorStream == nil else { return nil }
+        return simulatorStreamStore.panels(in: workspace.rpcWorkspaceID.rawValue).first?.panelID
+    }
 }
