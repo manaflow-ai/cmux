@@ -3882,7 +3882,7 @@ impl Surface {
     }
 
     fn apply_local_kitty_graphics_limits(
-        pty: &PtyTerminalRuntime,
+        pty: &PtySurface,
         requested: KittyGraphicsLimits,
     ) -> anyhow::Result<()> {
         let graphics_changed = {
