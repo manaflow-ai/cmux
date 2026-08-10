@@ -15125,7 +15125,8 @@ class TerminalController {
         return .ok(payload)
     }
 
-    private func applyMobileViewportReport(
+    /// Applies viewport metadata shared by mobile terminal-input handlers.
+    func applyMobileViewportReport(
         params: [String: Any],
         terminalPanel: TerminalPanel,
         sticky: Bool = false,
