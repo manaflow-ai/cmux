@@ -55,7 +55,16 @@ public struct TaskComposerAccessibilityPreviewView: View {
             "CMUX_UITEST_TASK_COMPOSER_OPEN_DIRECTORY_PREVIEW"
         ] == "1"
         let templateStore = TaskComposerAccessibilityTemplateStore()
-        if environment["CMUX_UITEST_TASK_COMPOSER_LONG_PROMPT"] == "1" {
+        if let prompt = environment["CMUX_UITEST_TASK_COMPOSER_DRAFT"] {
+            templateStore.setComposerDraft(MobileTaskComposerDraft(
+                prompt: prompt,
+                templateID: templateStore.listTemplates().first?.id,
+                macDeviceID: Self.previewMac.macDeviceID,
+                macInstanceTag: Self.previewMac.instanceTag,
+                directory: "~",
+                didEditDirectory: false
+            ))
+        } else if environment["CMUX_UITEST_TASK_COMPOSER_LONG_PROMPT"] == "1" {
             templateStore.setComposerDraft(MobileTaskComposerDraft(
                 prompt: Self.longPrompt,
                 templateID: templateStore.listTemplates().first?.id,

@@ -2397,12 +2397,13 @@ final class cmuxUITests: XCTestCase {
             let app = launchApp(mockData: false, environment: [
                 "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
                 "CMUX_UITEST_TASK_COMPOSER_ATTACHMENTS": "1",
+                "CMUX_UITEST_TASK_COMPOSER_DRAFT": "Lifecycle draft \(cycle)",
             ])
             defer { app.terminate() }
             let prompt = app.textFields["MobileTaskComposerPrompt"]
             XCTAssertTrue(prompt.waitForExistence(timeout: 8), "cycle \(cycle)")
-            try typeText("Lifecycle draft \(cycle)", into: prompt, in: app)
             let capturedDraft = try XCTUnwrap(prompt.value as? String)
+            XCTAssertEqual(capturedDraft, "Lifecycle draft \(cycle)")
 
             let cards = app.buttons.matching(
                 NSPredicate(format: "identifier BEGINSWITH %@", "MobileAttachmentCard.")
