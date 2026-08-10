@@ -193,6 +193,30 @@ mod tests {
     }
 
     #[test]
+    fn journal_agent_interrupted_projection_restores_to_runtime_record() {
+        let terminal = TerminalPublicId::parse("term_00000000000000000000000000000004").unwrap();
+        let projections = RegistryPublicProjections {
+            notifications: Vec::new(),
+            agents: vec![RegistryAgentProjection {
+                id: AgentPublicId::parse("agent_00000000000000000000000000000004").unwrap(),
+                terminal_id: terminal.clone(),
+                state: "interrupted".into(),
+                source: "hook".into(),
+                updated_at_ms: 4,
+                source_session: Some("interrupted-session".into()),
+            }],
+            terminal_defaults: None,
+            frontend_projections: Vec::new(),
+        };
+
+        let restored = restore_public_projections(&empty_state(), projections).unwrap();
+        let record = restored.agent_records.get(&terminal).unwrap();
+        assert_eq!(record.state, AgentState::Interrupted);
+        assert_eq!(record.source, AgentSource::Hook);
+        assert_eq!(record.session.as_deref(), Some("interrupted-session"));
+    }
+
+    #[test]
     fn unread_projection_without_terminal_identity_is_rejected() {
         let projections = RegistryPublicProjections {
             notifications: vec![RegistryNotificationProjection {

@@ -4891,6 +4891,124 @@ fn agent_projection_is_derived_from_pi_journal_and_reopen_preserves_continuity()
 }
 
 #[test]
+fn journal_agent_builtin_manifest_upgrades_reserved_schema_on_open() {
+    let root = temp_root("journal-agent-manifest-upgrade");
+    let database = root
+        .join(session_storage_component("journal-agent-manifest-upgrade"))
+        .join(WORKSPACE_REGISTRY_FILE);
+    drop(WorkspaceRegistry::open(&root, "journal-agent-manifest-upgrade").unwrap());
+
+    let mut legacy = crate::agent_hooks::built_in_agent_producer_manifest();
+    legacy.manifest_version = 1;
+    for event in &mut legacy.events {
+        event.payload_schema["properties"]["native"] = json!({});
+    }
+    let legacy_json = canonical_json(&serde_json::to_value(&legacy).unwrap()).unwrap();
+    Connection::open(&database)
+        .unwrap()
+        .execute(
+            "UPDATE journal_producers
+             SET manifest_version = 1, manifest_json = ?1
+             WHERE producer_id = ?2",
+            params![legacy_json, crate::AGENT_HOOK_PRODUCER_ID],
+        )
+        .unwrap();
+
+    let reopened = WorkspaceRegistry::open(&root, "journal-agent-manifest-upgrade").unwrap();
+    let (stored_version, stored_json) = reopened
+        .connection
+        .query_row(
+            "SELECT manifest_version, manifest_json
+             FROM journal_producers WHERE producer_id = ?1",
+            [crate::AGENT_HOOK_PRODUCER_ID],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+        )
+        .unwrap();
+    let current = crate::agent_hooks::built_in_agent_producer_manifest();
+    assert_eq!(crate::AGENT_HOOK_MANIFEST_VERSION, 2);
+    assert_eq!(stored_version, 2);
+    assert_eq!(
+        serde_json::from_str::<JournalProducerManifest>(&stored_json).unwrap(),
+        current
+    );
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn journal_agent_prejournal_projection_migrates_once_and_survives_reopen() {
+    let root = temp_root("journal-agent-prejournal-projection");
+    let session = "journal-agent-prejournal-projection";
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let original_json = {
+        let mut registry = WorkspaceRegistry::open(&root, session).unwrap();
+        commit_terminal_topology(&mut registry, "journal-agent-prejournal-topology");
+        let value = json!({
+            "id":agent_resource(&terminal_id),
+            "session_id":registry.session_id(),
+            "terminal_id":terminal_id,
+            "state":"working",
+            "source":"hook",
+            "updated_at_ms":"42",
+            "source_session":"legacy-agent-session",
+            "extra":{"provider":"pi"},
+        });
+        let value = canonical_json(&value).unwrap();
+        registry
+            .connection
+            .execute(
+                "INSERT INTO resource_agent_projections(
+                   terminal_id, result_json, committed_revision
+                 ) VALUES(?1, ?2, 1)",
+                params![terminal_id.as_str(), value],
+            )
+            .unwrap();
+        value
+    };
+
+    let reopened = WorkspaceRegistry::open(&root, session).unwrap();
+    let migrated_json = reopened
+        .connection
+        .query_row(
+            "SELECT result_json FROM resource_agent_projections WHERE terminal_id = ?1",
+            [terminal_id.as_str()],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap();
+    assert_eq!(migrated_json, original_json);
+    let migration_records = reopened
+        .session_journal_after(0, 1024)
+        .unwrap()
+        .records
+        .into_iter()
+        .filter(|record| record.kind == "agent.report")
+        .count();
+    assert_eq!(migration_records, 1);
+    drop(reopened);
+
+    let reopened_again = WorkspaceRegistry::open(&root, session).unwrap();
+    let reopened_json = reopened_again
+        .connection
+        .query_row(
+            "SELECT result_json FROM resource_agent_projections WHERE terminal_id = ?1",
+            [terminal_id.as_str()],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap();
+    assert_eq!(reopened_json, original_json);
+    let migration_records_again = reopened_again
+        .session_journal_after(0, 1024)
+        .unwrap()
+        .records
+        .into_iter()
+        .filter(|record| record.kind == "agent.report")
+        .count();
+    assert_eq!(migration_records_again, 1);
+    drop(reopened_again);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 #[ignore = "manual release-mode journal writer throughput probe"]
 fn terminal_journal_writer_throughput_probe() {
     const BATCH_SIZE: usize = 1_024;

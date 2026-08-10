@@ -20406,6 +20406,47 @@ mod tests {
     }
 
     #[test]
+    fn journal_agent_live_hook_ingress_updates_cache_and_replay() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+        let ingress = crate::agent_hook_journal_ingress(
+            "pi",
+            "agent_start",
+            Some(terminal_id.as_str()),
+            serde_json::json!({
+                "context":{"session_id":"pi-live-session","cwd":"/tmp/project"},
+                "event":{"agent":{"id":"pi-live-worker"}}
+            }),
+        )
+        .unwrap();
+
+        let first = mux
+            .append_journal_ingress(&ingress, "journal-agent-test", "pi-live-start")
+            .unwrap();
+        assert!(!first.replayed);
+        let agents = mux.list_agents(Some(surface.id), None);
+        assert_eq!(agents.len(), 1);
+        assert_eq!(agents[0].terminal_id, terminal_id);
+        assert_eq!(agents[0].state, AgentState::Working);
+        assert_eq!(agents[0].source, AgentSource::Hook);
+        assert_eq!(agents[0].session.as_deref(), Some("pi-live-session"));
+
+        mux.agent_records.lock().unwrap().clear();
+        assert!(mux.list_agents(Some(surface.id), None).is_empty());
+        let replay = mux
+            .append_journal_ingress(&ingress, "journal-agent-test", "pi-live-start")
+            .unwrap();
+        assert!(replay.replayed);
+        let restored = mux.list_agents(Some(surface.id), None);
+        assert_eq!(restored.len(), 1);
+        assert_eq!(restored[0].terminal_id, terminal_id);
+        assert_eq!(restored[0].state, AgentState::Working);
+        assert_eq!(restored[0].source, AgentSource::Hook);
+        assert_eq!(restored[0].session.as_deref(), Some("pi-live-session"));
+    }
+
+    #[test]
     fn raw_and_resource_agent_reports_share_durable_order_across_restart() {
         let root = std::env::temp_dir()
             .join(format!("cmux-agent-coordinator-{}", WorkspacePublicId::random().unwrap()));
