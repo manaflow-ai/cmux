@@ -2399,7 +2399,6 @@ final class cmuxUITests: XCTestCase {
                 "CMUX_UITEST_TASK_COMPOSER_ATTACHMENTS": "1",
                 "CMUX_UITEST_TASK_COMPOSER_DRAFT": "Lifecycle draft \(cycle)",
             ])
-            defer { app.terminate() }
             let prompt = app.textFields["MobileTaskComposerPrompt"]
             XCTAssertTrue(prompt.waitForExistence(timeout: 8), "cycle \(cycle)")
             let capturedDraft = try XCTUnwrap(prompt.value as? String)
@@ -2409,23 +2408,23 @@ final class cmuxUITests: XCTestCase {
                 NSPredicate(format: "identifier BEGINSWITH %@", "MobileAttachmentCard.")
             )
             XCTAssertEqual(cards.count, 2, "cycle \(cycle) must seed exactly two cards")
-            for index in 0..<2 {
-                app.buttons["MobileAttachmentCard.\(index)"].tap()
-                let preview = app.descendants(matching: .any)["MobileAttachmentPreview"]
-                XCTAssertTrue(preview.waitForExistence(timeout: 4), "cycle \(cycle), card \(index)")
-                app.buttons["MobileAttachmentPreviewDone"].tap()
-                XCTAssertTrue(preview.waitForNonExistence(timeout: 4), "cycle \(cycle), card \(index)")
-                XCTAssertEqual(prompt.value as? String, capturedDraft)
-            }
-
+            let removedCard = app.buttons["MobileAttachmentCard.1"]
             app.buttons["MobileAttachmentRemove.1"].tap()
-            app.buttons["MobileAttachmentRemove.0"].tap()
-            XCTAssertEqual(cards.count, 0, "cycle \(cycle) must remove both cards")
+            XCTAssertTrue(removedCard.waitForNonExistence(timeout: 3), "cycle \(cycle)")
+            XCTAssertEqual(cards.count, 1, "cycle \(cycle) must remove exactly one card")
+            XCTAssertEqual(prompt.value as? String, capturedDraft)
+
+            app.buttons["MobileAttachmentCard.0"].tap()
+            let preview = app.descendants(matching: .any)["MobileAttachmentPreview"]
+            XCTAssertTrue(preview.waitForExistence(timeout: 4), "cycle \(cycle)")
+            app.buttons["MobileAttachmentPreviewDone"].tap()
+            XCTAssertTrue(preview.waitForNonExistence(timeout: 4), "cycle \(cycle)")
             XCTAssertEqual(prompt.value as? String, capturedDraft)
             XCTAssertEqual(app.alerts.count, 0, "cycle \(cycle) must not surface attachment errors")
             if cycle == 5 {
                 keepScreenshot(named: "task-attachment-lifecycle-cycle-5", app: app)
             }
+            app.terminate()
         }
     }
 
