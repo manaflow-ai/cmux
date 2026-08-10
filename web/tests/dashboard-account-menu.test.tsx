@@ -283,6 +283,35 @@ describe("dashboard account menu", () => {
     expect(html).not.toContain('data-team-id="team-2"');
   });
 
+  test("uses the catalog selection when the URL has no team scope", () => {
+    searchTeam = null;
+    organizationQuery = {
+      data: {
+        selectedTeamId: "team-2",
+        teams: [{
+          id: "team-2",
+          name: "Team",
+          personal: false,
+          permissions: { use: true, manageAccounts: false },
+        }],
+      },
+      isPending: false,
+      isError: false,
+    };
+    currentUser = {
+      id: "user-lawrence",
+      displayName: "Lawrence",
+      primaryEmail: "lawrence@example.com",
+      signOut: async () => undefined,
+      selectedTeam: null,
+      useTeams: () => [{ id: "team-2", displayName: "Team" }],
+      setSelectedTeam: async () => undefined,
+    };
+    const html = renderToStaticMarkup(<DashboardAccountMenu />);
+
+    expect(html).toContain('data-team-id="team-2"');
+  });
+
   test("rejects malformed organization entries at the response boundary", () => {
     expect(__test.parseOrganizationCatalog({
       selectedTeamId: null,
