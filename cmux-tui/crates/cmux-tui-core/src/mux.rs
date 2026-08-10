@@ -19761,6 +19761,60 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn replayed_terminal_close_does_not_remove_a_new_incarnation() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let host = mux.resource_terminal_host_identity(&first).unwrap();
+        let workspace_key = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .terminal_record(&host.terminal_id)
+            .unwrap()
+            .unwrap()
+            .workspace_key;
+        let mutation = WorkspaceMutation::new("terminal-close-new-incarnation-replay", "test")
+            .unwrap();
+
+        mux.close_terminal_with_mutation(
+            &host.terminal_id,
+            None,
+            None,
+            None,
+            &mutation,
+        )
+        .unwrap();
+
+        let mut new_incarnation = host.incarnation.clone();
+        let replacement = if new_incarnation.starts_with('0') { "1" } else { "0" };
+        new_incarnation.replace_range(0..1, replacement);
+        let new_surface = mux
+            .seed_running_terminal_for_test(
+                &host.terminal_id,
+                &new_incarnation,
+                &workspace_key,
+            )
+            .unwrap();
+
+        let replay = mux
+            .close_terminal_with_mutation(
+                &host.terminal_id,
+                None,
+                None,
+                None,
+                &mutation,
+            )
+            .unwrap();
+
+        assert_eq!(replay.terminal_incarnation.as_deref(), Some(host.incarnation.as_str()));
+        assert!(mux.surface(new_surface).is_some());
+        let terminal = mux.resolve_terminal(&host.terminal_id).unwrap().unwrap().terminal;
+        assert_eq!(terminal.incarnation.as_deref(), Some(new_incarnation.as_str()));
+        assert_eq!(terminal.lifecycle, TerminalLifecycle::Running);
+    }
+
     #[test]
     fn failed_browser_surface_attach_kills_worker() {
         let mux = test_mux();
