@@ -19,15 +19,26 @@ mod launch_gate;
 mod model;
 mod mux;
 mod pairing;
+mod presentation;
+mod private_runtime;
+mod projection_state;
 pub mod provider_management;
+mod remote_tmux_producer;
+pub mod renderer_control;
+pub mod renderer_supervisor;
 pub mod resource;
 mod resource_api;
 mod resource_mutation;
 mod resource_router;
 mod resource_selector;
+mod semantic_scene;
 mod short_id;
 mod sidebar_resource;
+mod state_store;
 mod surface;
+mod terminal_activity;
+mod terminal_authority;
+mod topology;
 mod workspace_registry;
 
 pub mod layout;
@@ -51,7 +62,8 @@ pub use layout::{
 };
 pub use model::{Node, Pane, Screen, State, ViewportColumn, Workspace};
 pub use mux::{
-    AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, CellPixelUpdate,
+    AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, CanonicalSnapshot,
+    CellPixelUpdate,
     CellPixelUpdateFailure, Direction, GraphicsStatus, LayoutLeafSpec, LayoutRatioError,
     LayoutSpec, LayoutUndoError, LayoutUndoResult, Mux, MuxEvent, NotificationEvent,
     NotificationLevel, ProviderWorkspaceAuthority, ProviderWorkspaceAuthorityStatus,
@@ -61,9 +73,25 @@ pub use mux::{
     ZoomMode, ZoomState,
 };
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
+pub use presentation::{Presentation, PresentationScroll, PresentationView, PresentationZoom};
+pub use renderer_supervisor::{
+    RendererSupervisor, RendererSupervisorConfig, RendererSupervisorError, RendererSupervisorEvent,
+    RendererWorkerState, RendererWorkerStatus,
+};
+pub use resource::{
+    ContentPublicId, NotificationPublicId, PanePublicId, PublicSlotIndexes, ScreenPublicId,
+    TabPublicId, TerminalPublicId, WorkspacePublicId,
+};
 pub use resource_api::{ResourceMachineRequest, ResourceMachineService};
 pub use resource_selector::{ResolvedResourcePath, ResourceSelectors, ResourceTarget};
+pub use semantic_scene::{
+    SEMANTIC_SCENE_EVENT_CAPACITY, SEMANTIC_SCENE_MAX_EVENT_CAPACITY, SemanticSceneAttachError,
+    SemanticSceneAttachment, SemanticSceneAttachmentOptions, SemanticSceneCaptureOptions,
+    SemanticSceneControl, SemanticSceneEvent, SemanticSceneFailure, SemanticSceneFrame,
+    SemanticScenePresentationIdentity, SemanticSceneReceiver, SemanticSceneTerminalIdentity,
+};
 pub use short_id::assign_short_ids;
+pub use state_store::{STATE_STORE_VERSION, StateRecovery, StateStore, StateStoreError};
 pub use surface::apply_terminal_color_overrides;
 pub use surface::{
     AttachFrame, AttachFrameReceiver, AttachStream, BrowserAttachState, BrowserFrame,
