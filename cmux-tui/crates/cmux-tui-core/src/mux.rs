@@ -7577,6 +7577,7 @@ impl Mux {
     ) -> Option<Arc<Surface>> {
         let mut state = self.state.lock().unwrap();
         let removed = state.terminal_catalog.remove(terminal_id)?;
+        unregister_terminal_catalog_host(self, &mut state, terminal_id, &removed);
         if let Some(runtime_id) = removed.terminal_runtime_id() {
             state.terminal_catalog_by_runtime.remove(&runtime_id);
             state.terminal_placements_by_runtime.remove(&runtime_id);
@@ -14842,20 +14843,24 @@ fn insert_surface_checked(
             "terminal placement identity does not match its runtime"
         );
     }
-    register_terminal_runtime_checked(state, &surface)?;
+    register_terminal_runtime_checked(mux, state, &surface)?;
     register_terminal_placement_checked(state, &surface)?;
     register_terminal_host_placement_checked(mux, state, &surface)?;
     state.surfaces.insert(surface.id, surface);
     Ok(())
 }
 
-fn insert_terminal_runtime_checked(state: &mut State, surface: Arc<Surface>) -> anyhow::Result<()> {
+fn insert_terminal_runtime_checked(
+    mux: &Mux,
+    state: &mut State,
+    surface: Arc<Surface>,
+) -> anyhow::Result<()> {
     anyhow::ensure!(surface.kind() == SurfaceKind::Pty, "terminal catalog requires a PTY");
     anyhow::ensure!(
         surface.resource_identity().is_none(),
         "unplaced terminal runtime cannot carry a tab identity"
     );
-    register_terminal_runtime_checked(state, &surface)
+    register_terminal_runtime_checked(mux, state, &surface)
 }
 
 fn insert_restored_terminal_runtime_checked(
@@ -14870,7 +14875,7 @@ fn insert_restored_terminal_runtime_checked(
     let content_id = ContentPublicId::Terminal(terminal_id);
     let placements = state.placements_of_content(&content_id).to_vec();
     if placements.is_empty() {
-        return insert_terminal_runtime_checked(state, surface);
+        return insert_terminal_runtime_checked(mux, state, surface);
     }
 
     anyhow::ensure!(
@@ -14897,6 +14902,7 @@ fn insert_restored_terminal_runtime_checked(
 }
 
 fn register_terminal_runtime_checked(
+    mux: &Mux,
     state: &mut State,
     surface: &Arc<Surface>,
 ) -> anyhow::Result<()> {
@@ -14909,24 +14915,35 @@ fn register_terminal_runtime_checked(
     if let Some(existing) = state.terminal_catalog_by_runtime.get(&runtime_id) {
         anyhow::ensure!(existing == terminal_id, "terminal runtime has two content identities");
     }
+    let host = mux.resource_terminal_host_identity(surface);
+    if let Some(host) = host.as_ref()
+        && let Some(existing_ids) = state.terminal_catalog_by_host.get(&host.terminal_id)
+    {
+        for existing_id in existing_ids {
+            if let Some(existing) = state.terminal_catalog.get(existing_id) {
+                anyhow::ensure!(
+                    existing.shares_terminal_runtime(surface),
+                    "duplicate_terminal_id"
+                );
+            }
+        }
+    }
     if let Some(existing) = state.terminal_catalog.get(terminal_id) {
         anyhow::ensure!(
             existing.shares_terminal_runtime(surface),
             "terminal content identity points at two runtimes"
         );
     } else {
-        if let Some(identity) = surface.terminal_host_identity() {
-            for existing in state.terminal_catalog.values().filter(|existing| {
-                existing
-                    .terminal_host_identity()
-                    .is_some_and(|candidate| candidate.terminal_id == identity.terminal_id)
-            }) {
-                anyhow::ensure!(existing.shares_terminal_runtime(surface), "duplicate_terminal_id");
-            }
-        }
         state.terminal_catalog.insert(terminal_id.clone(), surface.clone());
     }
     state.terminal_catalog_by_runtime.insert(runtime_id, terminal_id.clone());
+    if let Some(host) = host {
+        state
+            .terminal_catalog_by_host
+            .entry(host.terminal_id)
+            .or_default()
+            .insert(terminal_id.clone());
+    }
     Ok(())
 }
 
@@ -14994,6 +15011,52 @@ fn unregister_terminal_host_placement(mux: &Mux, state: &mut State, surface: &Su
     if remove_host {
         state.terminal_placements_by_host.remove(&identity.terminal_id);
     }
+}
+
+fn unregister_terminal_catalog_host(
+    mux: &Mux,
+    state: &mut State,
+    terminal_id: &TerminalPublicId,
+    runtime: &Surface,
+) {
+    let Some(host) = mux.resource_terminal_host_identity(runtime) else {
+        return;
+    };
+    let remove_host = if let Some(terminal_ids) =
+        state.terminal_catalog_by_host.get_mut(&host.terminal_id)
+    {
+        terminal_ids.remove(terminal_id);
+        terminal_ids.is_empty()
+    } else {
+        false
+    };
+    if remove_host {
+        state.terminal_catalog_by_host.remove(&host.terminal_id);
+    }
+}
+
+fn terminal_catalog_public_ids_by_host(
+    mux: &Mux,
+    state: &State,
+    terminal_id: &str,
+    terminal_incarnation: Option<&str>,
+) -> Vec<TerminalPublicId> {
+    let mut terminal_ids = state
+        .terminal_catalog_by_host
+        .get(terminal_id)
+        .into_iter()
+        .flatten()
+        .filter(|public_id| {
+            state.terminal_catalog.get(*public_id).is_some_and(|runtime| {
+                mux.resource_terminal_host_identity(runtime).is_some_and(|host| {
+                    terminal_host_matches(&host, terminal_id, terminal_incarnation)
+                })
+            })
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    terminal_ids.sort_by(|left, right| left.as_str().cmp(right.as_str()));
+    terminal_ids
 }
 
 fn terminal_host_matches(
@@ -15098,6 +15161,9 @@ fn remove_terminal_content_from_state(
     targets: &[SurfaceId],
 ) -> (Option<Arc<Surface>>, Vec<Arc<Surface>>, bool) {
     let runtime = state.terminal_catalog.remove(terminal_id);
+    if let Some(runtime) = runtime.as_ref() {
+        unregister_terminal_catalog_host(mux, state, terminal_id, runtime);
+    }
     if let Some(runtime_id) = runtime.as_ref().and_then(|runtime| runtime.terminal_runtime_id()) {
         state.terminal_catalog_by_runtime.remove(&runtime_id);
         state.terminal_placements_by_runtime.remove(&runtime_id);
@@ -15113,6 +15179,46 @@ fn remove_terminal_content_from_state(
     }
     if split_index_dirty {
         Mux::rebuild_split_screen_index(state);
+    }
+    (runtime, removed, split_index_dirty)
+}
+
+fn remove_terminal_catalogs_and_targets_from_state(
+    mux: &Mux,
+    state: &mut State,
+    terminal_ids: &[TerminalPublicId],
+    targets: &[SurfaceId],
+) -> (Option<Arc<Surface>>, Vec<Arc<Surface>>, bool) {
+    let mut runtime = None;
+    let mut removed = Vec::new();
+    let mut split_index_dirty = false;
+    if terminal_ids.is_empty() {
+        for target in targets.iter().copied() {
+            let (surface, changed) = remove_surface(mux, state, target);
+            split_index_dirty |= changed;
+            if let Some(surface) = surface {
+                removed.push(surface);
+            }
+        }
+        if split_index_dirty {
+            Mux::rebuild_split_screen_index(state);
+        }
+        return (None, removed, split_index_dirty);
+    }
+
+    for (index, terminal_id) in terminal_ids.iter().enumerate() {
+        let current_targets = if index == 0 { targets } else { &[] };
+        let (candidate, mut terminal_views, changed) =
+            remove_terminal_content_from_state(mux, state, terminal_id, current_targets);
+        split_index_dirty |= changed;
+        removed.append(&mut terminal_views);
+        if let Some(candidate) = candidate {
+            if let Some(runtime) = runtime.as_ref() {
+                debug_assert!(runtime.shares_terminal_runtime(&candidate));
+            } else {
+                runtime = Some(candidate);
+            }
+        }
     }
     (runtime, removed, split_index_dirty)
 }
@@ -15562,6 +15668,7 @@ fn restore_resource_state(
             surfaces: HashMap::new(),
             terminal_catalog: HashMap::new(),
             terminal_catalog_by_runtime: HashMap::new(),
+            terminal_catalog_by_host: HashMap::new(),
             terminal_placements_by_runtime: HashMap::new(),
             terminal_placements_by_host: HashMap::new(),
             split_screens: HashMap::new(),
@@ -20205,6 +20312,10 @@ mod tests {
         });
         {
             let mut state = mux.state.lock().unwrap();
+            assert_eq!(
+                state.terminal_catalog_by_host[&host.terminal_id],
+                HashSet::from([terminal_id.clone()])
+            );
             assert_eq!(state.terminal_placements_by_runtime[&runtime_id], placements);
             assert_eq!(state.terminal_placements_by_host[&host.terminal_id], placements);
             state
@@ -20232,6 +20343,7 @@ mod tests {
                 !state.terminal_catalog_by_runtime.contains_key(&runtime_id),
                 "an exited runtime retained its reverse catalog entry"
             );
+            assert!(!state.terminal_catalog_by_host.contains_key(&host.terminal_id));
             assert!(!state.terminal_placements_by_runtime.contains_key(&runtime_id));
             assert!(!state.terminal_placements_by_host.contains_key(&host.terminal_id));
             assert!(!state.surfaces.contains_key(&source.id));
@@ -20928,6 +21040,65 @@ mod tests {
         let durable_public_id =
             mux.workspace_registry.lock().unwrap().terminal_resource_id(&host.terminal_id).unwrap();
         assert_eq!(durable_public_id, None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminal_close_without_a_resource_row_removes_the_host_catalog_owner() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let host = mux.resource_terminal_host_identity(&surface).unwrap();
+        let public_id = surface.terminal_public_id().cloned().unwrap();
+        let runtime_id = surface.terminal_runtime_id().unwrap();
+
+        assert!(mux.close_surface(surface.id).unwrap());
+        let current_revision = mux.with_state(|state| state.resource_revision);
+        let mutation = WorkspaceMutation::new("remove-terminal-resource-row", "test").unwrap();
+        let fingerprint = json!({
+            "operation":"test.remove-terminal-resource-row",
+            "terminal":public_id.clone(),
+        });
+        let commit = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .commit_resource_patch(
+                &mutation,
+                "test.remove-terminal-resource-row",
+                &fingerprint,
+                None,
+                Some(current_revision),
+                &ResourcePatch {
+                    changes: vec![ResourceChange::TombstoneTerminal {
+                        public_id: public_id.clone(),
+                        expected_incarnation: Some(host.incarnation.clone()),
+                    }],
+                },
+                &json!({}),
+                &json!([]),
+            )
+            .unwrap();
+        mux.state.lock().unwrap().resource_revision = commit.revision;
+        assert!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .terminal_resource_id(&host.terminal_id)
+                .unwrap()
+                .is_none()
+        );
+
+        mux.close_terminal(&host.terminal_id, &host.incarnation).unwrap();
+
+        mux.with_state(|state| {
+            assert!(!state.terminal_catalog.contains_key(&public_id));
+            assert!(!state.terminal_catalog_by_runtime.contains_key(&runtime_id));
+            assert!(!state.terminal_catalog_by_host.contains_key(&host.terminal_id));
+        });
+        assert_eq!(
+            mux.resolve_terminal(&host.terminal_id).unwrap().unwrap().terminal.lifecycle,
+            TerminalLifecycle::Tombstoned
+        );
     }
 
     #[cfg(unix)]

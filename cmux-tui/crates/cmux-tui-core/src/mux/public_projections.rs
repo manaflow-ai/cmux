@@ -137,6 +137,7 @@ mod tests {
             surfaces: HashMap::new(),
             terminal_catalog: HashMap::new(),
             terminal_catalog_by_runtime: HashMap::new(),
+            terminal_catalog_by_host: HashMap::new(),
             terminal_placements_by_runtime: HashMap::new(),
             terminal_placements_by_host: HashMap::new(),
             split_screens: HashMap::new(),

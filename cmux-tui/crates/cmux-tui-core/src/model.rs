@@ -871,6 +871,8 @@ pub struct State {
     pub(crate) terminal_catalog: HashMap<TerminalPublicId, Arc<Surface>>,
     /// Reverse lookup for catalog owners addressed by daemon-local runtime ID.
     pub(crate) terminal_catalog_by_runtime: HashMap<SurfaceId, TerminalPublicId>,
+    /// Catalog identities grouped by durable terminal host ID.
+    pub(crate) terminal_catalog_by_host: HashMap<String, HashSet<TerminalPublicId>>,
     /// Live view placements grouped by their daemon-local terminal runtime.
     pub(crate) terminal_placements_by_runtime: HashMap<SurfaceId, HashSet<SurfaceId>>,
     /// Live view placements grouped by durable terminal host identity.
