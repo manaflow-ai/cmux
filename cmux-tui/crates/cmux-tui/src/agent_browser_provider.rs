@@ -25,7 +25,7 @@ const SOCKET_TIMEOUT: Duration = Duration::from_secs(2);
 
 const INTEGRATION_MARKER: &str = "CMUX_TUI_AGENT_BROWSER_PROVIDER";
 const EXACT_TAB_ENV: [&str; 2] = ["CMUX_TUI_BROWSER_TAB_ID", "CMUX_BROWSER_TAB_ID"];
-const WORKSPACE_ENV: [&str; 2] = ["CMUX_TUI_WORKSPACE_ID", "CMUX_WORKSPACE_ID"];
+const WORKSPACE_ENV: [&str; 1] = ["CMUX_TUI_WORKSPACE_ID"];
 
 pub(crate) fn configure_surface_options(options: &mut SurfaceOptions) -> anyhow::Result<()> {
     let executable = std::env::current_exe()
@@ -122,7 +122,7 @@ fn browser_launch_response(request: &Value) -> anyhow::Result<Value> {
     let mut last_error = anyhow!("cmux-browser provider is not attached");
     let mut delay = Duration::from_millis(25);
     loop {
-        match resolve_page_target(&socket, &scope) {
+        match resolve_page_target(&socket, &scope, deadline) {
             Ok(resolved) => {
                 return Ok(json!({
                     "protocol": PLUGIN_PROTOCOL,
@@ -146,7 +146,11 @@ fn browser_launch_response(request: &Value) -> anyhow::Result<Value> {
         if Instant::now() >= deadline {
             return Err(last_error);
         }
-        std::thread::sleep(delay);
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(last_error);
+        }
+        std::thread::sleep(delay.min(remaining));
         delay = (delay * 2).min(Duration::from_millis(250));
     }
 }
@@ -199,10 +203,78 @@ struct ResolvedPageTarget {
     selection: &'static str,
 }
 
-fn resolve_page_target(socket: &Path, scope: &ProviderScope) -> anyhow::Result<ResolvedPageTarget> {
-    let mut control = MuxControl::connect(socket)?;
-    let topology = control.request(1, json!({"id":1,"cmd":"list-workspaces"}))?;
-    let provider = control.request(2, json!({"id":2,"cmd":"get-browser-provider"}))?;
+fn resolve_page_target(
+    socket: &Path,
+    scope: &ProviderScope,
+    deadline: Instant,
+) -> anyhow::Result<ResolvedPageTarget> {
+    let mut control = MuxControl::connect(socket, deadline)?;
+    let topology = control.request(1, json!({"id":1,"cmd":"list-workspaces"}), deadline)?;
+    let provider = control.request(2, json!({"id":2,"cmd":"get-browser-provider"}), deadline)?;
+    let confirmed_topology =
+        control.request(3, json!({"id":3,"cmd":"list-workspaces"}), deadline)?;
+    let confirmed_provider =
+        control.request(4, json!({"id":4,"cmd":"get-browser-provider"}), deadline)?;
+    ensure_stable_resolution(&topology, &provider, &confirmed_topology, &confirmed_provider)?;
+    resolve_page_target_snapshot(&topology, &provider, scope)
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct ResolutionFence {
+    registry_id: String,
+    generation: String,
+    workspace_revision: u64,
+    pane_revision: u64,
+    terminal_revision: u64,
+    provider_revision: u64,
+}
+
+impl ResolutionFence {
+    fn from_snapshots(topology: &Value, provider: &Value) -> anyhow::Result<Self> {
+        Ok(Self {
+            registry_id: required_string(topology, "registry_id", "workspace snapshot")?,
+            generation: required_string(topology, "generation", "workspace snapshot")?,
+            workspace_revision: required_u64(topology, "workspace_revision", "workspace snapshot")?,
+            pane_revision: required_u64(topology, "pane_revision", "workspace snapshot")?,
+            terminal_revision: required_u64(topology, "terminal_revision", "workspace snapshot")?,
+            provider_revision: required_u64(provider, "revision", "browser provider snapshot")?,
+        })
+    }
+}
+
+fn ensure_stable_resolution(
+    topology: &Value,
+    provider: &Value,
+    confirmed_topology: &Value,
+    confirmed_provider: &Value,
+) -> anyhow::Result<()> {
+    let first = ResolutionFence::from_snapshots(topology, provider)?;
+    let confirmed = ResolutionFence::from_snapshots(confirmed_topology, confirmed_provider)?;
+    anyhow::ensure!(
+        first == confirmed,
+        "cmux topology or browser provider changed during target resolution"
+    );
+    Ok(())
+}
+
+fn required_string(value: &Value, key: &str, source: &str) -> anyhow::Result<String> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| anyhow!("{source} omitted {key}"))
+}
+
+fn required_u64(value: &Value, key: &str, source: &str) -> anyhow::Result<u64> {
+    value.get(key).and_then(Value::as_u64).ok_or_else(|| anyhow!("{source} omitted {key}"))
+}
+
+fn resolve_page_target_snapshot(
+    topology: &Value,
+    provider: &Value,
+    scope: &ProviderScope,
+) -> anyhow::Result<ResolvedPageTarget> {
     anyhow::ensure!(
         provider.get("available").and_then(Value::as_bool) == Some(true),
         "cmux-browser is not attached to this cmux-tui session"
@@ -225,7 +297,7 @@ fn resolve_page_target(socket: &Path, scope: &ProviderScope) -> anyhow::Result<R
         })
         .collect::<BTreeMap<_, _>>();
     anyhow::ensure!(!targets.is_empty(), "cmux-browser has not published any browser tabs yet");
-    let selected = select_workspace_target(&topology, &targets, scope)?;
+    let selected = select_workspace_target(topology, &targets, scope)?;
     let endpoint = provider
         .get("endpoint")
         .and_then(Value::as_str)
@@ -237,7 +309,7 @@ fn resolve_page_target(socket: &Path, scope: &ProviderScope) -> anyhow::Result<R
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string(),
-        provider_revision: provider.get("revision").and_then(Value::as_u64).unwrap_or(0),
+        provider_revision: required_u64(provider, "revision", "browser provider snapshot")?,
         workspace_id: selected.workspace_id,
         tab_id: selected.tab_id,
         target_id: selected.target_id,
@@ -273,6 +345,8 @@ fn select_workspace_target(
         .ok_or_else(|| anyhow!("cmux-tui returned an invalid workspace snapshot"))?;
     let mut candidates = Vec::new();
     let mut terminal_location = None;
+    let mut terminal_location_is_ambiguous = false;
+    let terminal_workspace_hint = scope.workspace.as_ref();
     for (workspace_index, workspace) in workspaces.iter().enumerate() {
         let workspace_id = stable_string(workspace, "resource_id")
             .or_else(|| stable_string(workspace, "key"))
@@ -300,8 +374,16 @@ fn select_workspace_target(
                         .terminal
                         .as_ref()
                         .is_some_and(|terminal| terminal_ids.iter().any(|value| value == terminal))
+                        && terminal_workspace_hint.is_none_or(|workspace_hint| {
+                            workspace_keys.iter().any(|key| key == workspace_hint)
+                        })
                     {
-                        terminal_location = Some((workspace_index, screen_index, pane_index));
+                        let location = (workspace_index, screen_index, pane_index);
+                        if terminal_location.is_some_and(|existing| existing != location) {
+                            terminal_location_is_ambiguous = true;
+                        } else {
+                            terminal_location = Some(location);
+                        }
                     }
                     if tab.get("kind").and_then(Value::as_str) != Some("browser") {
                         continue;
@@ -332,6 +414,11 @@ fn select_workspace_target(
         return Ok(selected(candidate, "exact-tab"));
     }
 
+    anyhow::ensure!(
+        !terminal_location_is_ambiguous,
+        "the caller terminal has multiple cmux placements; set CMUX_TUI_WORKSPACE_ID or CMUX_TUI_BROWSER_TAB_ID"
+    );
+
     if let Some((workspace_index, screen_index, pane_index)) = terminal_location {
         let (_, candidate) = candidates
             .iter()
@@ -350,8 +437,7 @@ fn select_workspace_target(
         return Ok(selected(candidate, "terminal-workspace"));
     }
 
-    let workspace_hint = scope.workspace.as_ref().or(scope.session_hint.as_ref());
-    if let Some(workspace_hint) = workspace_hint {
+    if let Some(workspace_hint) = scope.workspace.as_ref().or(scope.session_hint.as_ref()) {
         let (_, candidate) = candidates
             .iter()
             .find(|(_, candidate)| candidate.workspace_keys.iter().any(|key| key == workspace_hint))
@@ -404,22 +490,44 @@ struct MuxControl {
 }
 
 impl MuxControl {
-    fn connect(socket: &Path) -> anyhow::Result<Self> {
-        let stream = UnixStream::connect(socket)
-            .with_context(|| format!("cannot connect to cmux-tui socket {}", socket.display()))?;
-        stream.set_read_timeout(Some(SOCKET_TIMEOUT))?;
-        stream.set_write_timeout(Some(SOCKET_TIMEOUT))?;
+    fn connect(socket: &Path, deadline: Instant) -> anyhow::Result<Self> {
+        let remaining = remaining_resolution_time(deadline)?;
+        let socket = socket.to_path_buf();
+        let display = socket.display().to_string();
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        let connector = std::thread::Builder::new()
+            .name("agent-browser-provider-connect".into())
+            .spawn(move || {
+            let _ = sender.send(UnixStream::connect(socket));
+        })?;
+        let stream = match receiver.recv_timeout(remaining) {
+            Ok(result) => {
+                let _ = connector.join();
+                result.with_context(|| format!("cannot connect to cmux-tui socket {display}"))?
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                let _ = connector.join();
+                return Err(anyhow!("cmux-tui socket connector stopped without a result"));
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                // This provider is a short-lived process. The outer loop has
+                // reached its shared final deadline, so returning ends the
+                // process and terminates the blocked connector thread.
+                drop(connector);
+                return Err(anyhow!("cmux-browser target resolution timed out"));
+            }
+        };
+        let timeout = remaining_socket_timeout(deadline)?;
+        stream.set_read_timeout(Some(timeout))?;
+        stream.set_write_timeout(Some(timeout))?;
         Ok(Self { writer: stream.try_clone()?, reader: BufReader::new(stream) })
     }
 
-    fn request(&mut self, id: u64, request: Value) -> anyhow::Result<Value> {
-        serde_json::to_writer(&mut self.writer, &request)?;
-        self.writer.write_all(b"\n")?;
-        self.writer.flush()?;
-        let mut line = Vec::new();
-        let read = self.reader.read_until(b'\n', &mut line)?;
-        anyhow::ensure!(read != 0, "cmux-tui closed its control socket");
-        anyhow::ensure!(line.len() <= RESPONSE_LIMIT, "cmux-tui response exceeds 16 MiB");
+    fn request(&mut self, id: u64, request: Value, deadline: Instant) -> anyhow::Result<Value> {
+        let mut encoded = serde_json::to_vec(&request)?;
+        encoded.push(b'\n');
+        write_control_request(&mut self.writer, &encoded, deadline)?;
+        let line = read_control_line(&mut self.reader, deadline, RESPONSE_LIMIT)?;
         let response: Value = serde_json::from_slice(&line).context("invalid cmux-tui response")?;
         anyhow::ensure!(
             response.get("id").and_then(Value::as_u64) == Some(id),
@@ -434,12 +542,79 @@ impl MuxControl {
     }
 }
 
+fn remaining_socket_timeout(deadline: Instant) -> anyhow::Result<Duration> {
+    Ok(remaining_resolution_time(deadline)?.min(SOCKET_TIMEOUT))
+}
+
+fn remaining_resolution_time(deadline: Instant) -> anyhow::Result<Duration> {
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    anyhow::ensure!(!remaining.is_zero(), "cmux-browser target resolution timed out");
+    Ok(remaining)
+}
+
+fn write_control_request(
+    writer: &mut UnixStream,
+    encoded: &[u8],
+    deadline: Instant,
+) -> anyhow::Result<()> {
+    let mut offset = 0;
+    while offset < encoded.len() {
+        writer.set_write_timeout(Some(remaining_socket_timeout(deadline)?))?;
+        match writer.write(&encoded[offset..]) {
+            Ok(0) => return Err(std::io::Error::from(std::io::ErrorKind::WriteZero).into()),
+            Ok(written) => offset += written,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    loop {
+        writer.set_write_timeout(Some(remaining_socket_timeout(deadline)?))?;
+        match writer.flush() {
+            Ok(()) => return Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+}
+
+fn read_control_line(
+    reader: &mut BufReader<UnixStream>,
+    deadline: Instant,
+    limit: usize,
+) -> anyhow::Result<Vec<u8>> {
+    let mut line = Vec::new();
+    loop {
+        reader.get_ref().set_read_timeout(Some(remaining_socket_timeout(deadline)?))?;
+        let available = reader.fill_buf()?;
+        anyhow::ensure!(!available.is_empty(), "cmux-tui closed its control socket");
+        let consumed = available
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map_or(available.len(), |newline| newline + 1);
+        anyhow::ensure!(
+            line.len().saturating_add(consumed) <= limit,
+            "cmux-tui response exceeds 16 MiB"
+        );
+        let complete = available[consumed - 1] == b'\n';
+        line.extend_from_slice(&available[..consumed]);
+        reader.consume(consumed);
+        if complete {
+            return Ok(line);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn topology() -> Value {
         json!({
+            "registry_id": "registry-one",
+            "generation": "generation-one",
+            "workspace_revision": 11,
+            "pane_revision": 12,
+            "terminal_revision": 13,
             "workspaces": [
                 {
                     "resource_id": "ws_one",
@@ -464,6 +639,21 @@ mod tests {
         })
     }
 
+    fn provider() -> Value {
+        json!({
+            "available": true,
+            "provider_id": "provider-one",
+            "endpoint": "ws://127.0.0.1:9222/devtools/browser/browser-one",
+            "authentication": "none",
+            "revision": 17,
+            "targets": [
+                {"tab_id":"tab_same_pane","target_id":"target-one"},
+                {"tab_id":"tab_other_pane","target_id":"target-other"},
+                {"tab_id":"tab_two","target_id":"target-two"}
+            ]
+        })
+    }
+
     fn targets() -> BTreeMap<String, String> {
         [
             ("tab_same_pane", "target-one"),
@@ -479,6 +669,20 @@ mod tests {
     fn caller_terminal_selects_same_pane_without_using_active_state() {
         let scope = ProviderScope { terminal: Some("term_one".into()), ..Default::default() };
         let selected = select_workspace_target(&topology(), &targets(), &scope).unwrap();
+        assert_eq!(selected.tab_id, "tab_same_pane");
+        assert_eq!(selected.selection, "terminal-workspace");
+    }
+
+    #[test]
+    fn trusted_terminal_is_not_constrained_by_a_session_name() {
+        let scope = ProviderScope {
+            terminal: Some("term_one".into()),
+            session_hint: Some("unrelated-outer-session".into()),
+            ..Default::default()
+        };
+
+        let selected = select_workspace_target(&topology(), &targets(), &scope).unwrap();
+
         assert_eq!(selected.tab_id, "tab_same_pane");
         assert_eq!(selected.selection, "terminal-workspace");
     }
@@ -500,6 +704,67 @@ mod tests {
     }
 
     #[test]
+    fn mirrored_terminal_uses_the_callers_workspace_placement() {
+        let mut topology = topology();
+        topology["workspaces"][1]["screens"][0]["panes"][0]["tabs"][0]["terminal_resource_id"] =
+            json!("term_one");
+        let scope = ProviderScope {
+            workspace: Some("workspace-one".into()),
+            terminal: Some("term_one".into()),
+            ..Default::default()
+        };
+
+        let selected = select_workspace_target(&topology, &targets(), &scope).unwrap();
+
+        assert_eq!(selected.workspace_id, "ws_one");
+        assert_eq!(selected.tab_id, "tab_same_pane");
+        assert_eq!(selected.selection, "terminal-workspace");
+    }
+
+    #[test]
+    fn mirrored_terminal_without_a_workspace_scope_is_rejected() {
+        let mut topology = topology();
+        topology["workspaces"][1]["screens"][0]["panes"][0]["tabs"][0]["terminal_resource_id"] =
+            json!("term_one");
+        let scope = ProviderScope { terminal: Some("term_one".into()), ..Default::default() };
+
+        let error = select_workspace_target(&topology, &targets(), &scope)
+            .err()
+            .expect("an unscoped mirrored terminal must be ambiguous");
+
+        assert!(error.to_string().contains("multiple cmux placements"));
+        assert!(error.to_string().contains("CMUX_TUI_BROWSER_TAB_ID"));
+    }
+
+    #[test]
+    fn stable_topology_and_provider_revisions_allow_target_resolution() {
+        ensure_stable_resolution(&topology(), &provider(), &topology(), &provider()).unwrap();
+        let scope = ProviderScope { terminal: Some("term_one".into()), ..Default::default() };
+
+        let resolved = resolve_page_target_snapshot(&topology(), &provider(), &scope).unwrap();
+
+        assert_eq!(resolved.tab_id, "tab_same_pane");
+        assert_eq!(resolved.provider_revision, 17);
+    }
+
+    #[test]
+    fn changing_topology_or_provider_revision_retries_resolution() {
+        let mut changed_topology = topology();
+        changed_topology["pane_revision"] = json!(13);
+        let error =
+            ensure_stable_resolution(&topology(), &provider(), &changed_topology, &provider())
+                .unwrap_err();
+        assert!(error.to_string().contains("changed during target resolution"));
+
+        let mut changed_provider = provider();
+        changed_provider["revision"] = json!(18);
+        let error =
+            ensure_stable_resolution(&topology(), &provider(), &topology(), &changed_provider)
+                .unwrap_err();
+        assert!(error.to_string().contains("changed during target resolution"));
+    }
+
+    #[test]
     fn direct_page_url_preserves_gateway_query_and_escapes_target() {
         assert_eq!(
             direct_page_url(
@@ -509,6 +774,21 @@ mod tests {
             .unwrap(),
             "ws://127.0.0.1:9222/devtools/page/target%2Fwith%20space?gateway=one"
         );
+    }
+
+    #[test]
+    fn control_response_limit_is_enforced_while_streaming() {
+        let (reader, mut writer) = UnixStream::pair().unwrap();
+        let writer = std::thread::spawn(move || writer.write_all(b"12345678\n").unwrap());
+        let error = read_control_line(
+            &mut BufReader::new(reader),
+            Instant::now() + Duration::from_secs(1),
+            8,
+        )
+        .unwrap_err();
+        writer.join().unwrap();
+
+        assert!(error.to_string().contains("response exceeds 16 MiB"));
     }
 
     #[test]

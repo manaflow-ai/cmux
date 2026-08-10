@@ -392,7 +392,8 @@
       "extra": false,
       "constraints": [
         "kind must be inside the producer plugin namespace.",
-        "payload_schema must be a compilable JSON Schema."
+        "payload_schema must be a compilable JSON Schema.",
+        "Storage v1 rejects secret event schemas until encrypted retention is implemented."
       ]
     },
     "JournalProducerManifest": {
@@ -461,7 +462,8 @@
       "extra": false,
       "constraints": [
         "namespace must equal plugin.<producer_id>.",
-        "Manifest versions increase monotonically."
+        "Manifest versions increase monotonically.",
+        "Storage v1 rejects secret producer authority until encrypted retention is implemented."
       ]
     },
     "JournalIngressEvent": {
@@ -905,7 +907,7 @@
       "constraints": [
         "Dimensions are ANDed. Values within kinds, classes, and subjects are ORed.",
         "A kind ending in .* matches that dotted namespace. Other kinds match exactly.",
-        "Sensitivity order is public, metadata, sensitive; a threshold includes lower levels and omission uses the transport cap (sensitive for local Unix, metadata remotely).",
+        "Sensitivity order is public, metadata, sensitive; a threshold includes lower levels. Omission defaults to metadata on every transport, and trusted local Unix clients may explicitly request sensitive.",
         "Subscriptions never deliver secret records; remote transports are capped at metadata and redact authority and causal fields.",
         "Structured dimensions run before the optional compiled regex."
       ]
@@ -2041,6 +2043,17 @@
             "resource": "terminal"
           }
         },
+        "tab_id": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "resource_id",
+              "resource": "tab"
+            }
+          },
+          "description": "Compatibility alias for the first view placement, or null when the terminal has no views."
+        },
         "tab_ids": {
           "required": true,
           "type": {
@@ -2049,7 +2062,8 @@
               "kind": "resource_id",
               "resource": "tab"
             }
-          }
+          },
+          "description": "All current servers emit every view placement. Protocol 1 SDK decoders accept this field being absent from older servers and derive a singleton from tab_id, or an empty array when tab_id is null."
         },
         "title": {
           "required": true,
@@ -2116,6 +2130,7 @@
       },
       "extra": false,
       "constraints": [
+        "tab_id is the first item in tab_ids, or null when tab_ids is empty.",
         "running is true exactly when lifecycle is running.",
         "exit is present exactly when lifecycle is exited."
       ]

@@ -1992,25 +1992,28 @@ fn client_reserved_short_lived_create_replays_its_durable_exit_without_topology(
     let first = request(&harness.socket, create.clone());
     assert_eq!(first["terminal_id"], terminal_id);
     assert_eq!(first["replayed"], false);
-    assert_eq!(first["already_exited"], true);
-    assert_eq!(first["lifecycle"], "exited");
-    assert_eq!(first["exit"]["outcome"], serde_json::json!({"kind":"exit","code":17}));
-    assert_eq!(first["surface"], serde_json::Value::Null);
-    assert_eq!(first["pane"], serde_json::Value::Null);
-    assert_eq!(first["screen"], serde_json::Value::Null);
-    assert_eq!(first["workspace"], serde_json::Value::Null);
+    let already_exited = first["already_exited"].as_bool().unwrap();
+    assert_eq!(first["lifecycle"], if already_exited { "exited" } else { "running" });
+    for field in ["surface", "pane", "screen", "workspace"] {
+        assert_eq!(first[field].is_null(), already_exited, "unexpected {field}: {first}");
+    }
+    if already_exited {
+        assert_eq!(first["exit"]["outcome"], serde_json::json!({"kind":"exit","code":17}));
+    } else {
+        assert!(first["exit"].is_null());
+    }
+    wait_for_no_host_records(&harness.host_root());
 
     let retry = request(&harness.socket, create);
     assert_eq!(retry["replayed"], true);
     assert_eq!(retry["terminal_id"], terminal_id);
     assert_eq!(retry["already_exited"], true);
     assert_eq!(retry["lifecycle"], "exited");
-    assert_eq!(retry["exit"], first["exit"]);
+    assert_eq!(retry["exit"]["outcome"], serde_json::json!({"kind":"exit","code":17}));
     assert_eq!(retry["surface"], serde_json::Value::Null);
     assert_eq!(retry["pane"], serde_json::Value::Null);
     assert_eq!(retry["screen"], serde_json::Value::Null);
     assert_eq!(retry["workspace"], serde_json::Value::Null);
-    wait_for_no_host_records(&harness.host_root());
 }
 
 #[test]
@@ -3179,6 +3182,39 @@ fn request_response(path: &Path, value: serde_json::Value) -> serde_json::Value 
     let mut line = String::new();
     reader.read_line(&mut line).unwrap();
     serde_json::from_str(&line).unwrap()
+}
+
+#[test]
+fn terminal_launch_rejection_preserves_the_host_error() {
+    let mut harness = RecoveryHarness::start_unstarted("launch-rejection-detail");
+    let child = harness.daemon_command().spawn().unwrap();
+    harness.child = Some(child);
+    wait_for_socket(&harness.socket);
+
+    let missing = format!("/tmp/cmux-terminal-host-missing-{}", std::process::id());
+    let response = request_response(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": [missing],
+            "new_workspace": true,
+            "name": "must-fail",
+            "cols": 80,
+            "rows": 24,
+        }),
+    );
+
+    assert_eq!(response["ok"], false, "missing command unexpectedly launched: {response}");
+    let error = response["error"].as_str().expect("rejection includes an error string");
+    assert!(
+        error.contains("No such file") || error.contains("not found"),
+        "terminal host discarded its launch error: {error}"
+    );
+    assert!(
+        !error.contains("closed before launch ready"),
+        "launcher exposed transport fallout instead of the host error: {error}"
+    );
 }
 
 fn resource_request(

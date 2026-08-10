@@ -928,6 +928,75 @@ mod tests {
     }
 
     #[test]
+    fn replaying_an_old_producer_put_keeps_the_current_validator() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-producer-replay-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent(
+            "producer-replay-validator",
+            crate::SurfaceOptions::default(),
+            &root,
+        )
+        .unwrap();
+        let original = JournalProducerManifest {
+            producer_id: "producer_replay_test".into(),
+            namespace: "plugin.producer_replay_test".into(),
+            manifest_version: 1,
+            max_sensitivity: JournalSensitivity::Metadata,
+            permissions: vec!["journal.append.plugin.producer_replay_test".into()],
+            events: vec![JournalEventSchema {
+                kind: "plugin.producer_replay_test.event".into(),
+                schema_version: 1,
+                class: JournalClass::Observation,
+                replay: JournalReplayPolicy::Advisory,
+                sensitivity: JournalSensitivity::Metadata,
+                payload_schema: json!({
+                    "type":"object",
+                    "required":["old"],
+                    "properties":{"old":{"type":"boolean"}},
+                    "additionalProperties":false,
+                }),
+            }],
+        };
+        mux.put_journal_producer(&original, "client_test", "producer_original").unwrap();
+        let mut current = original.clone();
+        current.manifest_version = 2;
+        current.events[0].payload_schema = json!({
+            "type":"object",
+            "required":["current"],
+            "properties":{"current":{"type":"boolean"}},
+            "additionalProperties":false,
+        });
+        mux.put_journal_producer(&current, "client_test", "producer_current").unwrap();
+
+        let replay =
+            mux.put_journal_producer(&original, "client_test", "producer_original").unwrap();
+        assert!(replay.replayed);
+        mux.append_journal_ingress(
+            &crate::JournalIngress {
+                producer_id: current.producer_id.clone(),
+                manifest_version: current.manifest_version,
+                kind: current.events[0].kind.clone(),
+                schema_version: current.events[0].schema_version,
+                occurred_at_ms: None,
+                subjects: vec![],
+                sensitivity: None,
+                payload: json!({"current":true}),
+                causation_id: None,
+                correlation_id: None,
+            },
+            "client_test",
+            "producer_current_event",
+        )
+        .unwrap();
+
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn segment_compression_never_holds_the_session_writer() {
         let root = std::env::temp_dir().join(format!(
             "cmux-journal-segment-writer-{}-{}",
@@ -1051,7 +1120,8 @@ mod tests {
             .unwrap();
         let surface = mux.surface(surface_id).unwrap();
         {
-            let _pending_output = surface.begin_terminal_journal_update_for_test().unwrap();
+            let mut pending_output = surface.begin_terminal_journal_update_for_test().unwrap();
+            assert!(pending_output.activate(), "terminal journal update must be active");
             let error = match capture(&mux) {
                 Ok(_) => panic!("checkpoint accepted unsettled terminal output"),
                 Err(error) => error,

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 11U;
-inline constexpr std::string_view kProtocolIrSha256 = "f43de75719bc1ec1e6a94c405a1f802a073eb93dfcb10ff6a3b68460bcb4499c";
+inline constexpr std::string_view kProtocolIrSha256 = "3f220af11c5ad1bfab74b2bf3cebf71ee904faaafd9833ae5c87a53812f86943";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -222,6 +222,7 @@ struct UnregisterBrowserProviderRequest;
 struct VtStateRequest;
 struct WaitForRequest;
 struct ZoomPaneRequest;
+struct AgentChangedEvent;
 struct BellEvent;
 struct BrowserStateEvent;
 struct ClientAttachedEvent;
@@ -313,6 +314,15 @@ enum class AgentState {
 struct Id {
     std::uint64_t value{};
     friend bool operator==(const Id&, const Id&) = default;
+};
+
+struct AgentChangedEvent {
+    std::optional<std::string> session{};
+    AgentSource source{};
+    AgentState state{};
+    Id surface{};
+    std::uint64_t updated_at_ms{};
+    friend bool operator==(const AgentChangedEvent&, const AgentChangedEvent&) = default;
 };
 
 struct AgentRecord {
@@ -537,7 +547,6 @@ struct BrowserProviderTarget {
 struct BrowserProviderSnapshot {
     std::optional<BrowserProviderAuthentication> authentication{};
     bool available{};
-    Field<std::string> bearer_token{};
     std::optional<std::uint64_t> clients{};
     std::optional<std::string> endpoint{};
     std::optional<std::string> provider_id{};
@@ -1103,6 +1112,8 @@ enum class FrontendFocusTarget {
     pane,
     machine_rail,
     workspace_rail,
+    tabs_rail,
+    projection_rail,
 };
 
 struct FrontendJournalEventFocus {
@@ -3745,6 +3756,12 @@ template <>
 struct Codec<ZoomPaneRequest> {
     static Result<Json> encode(const ZoomPaneRequest& value);
     static Result<ZoomPaneRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentChangedEvent> {
+    static Result<Json> encode(const AgentChangedEvent& value);
+    static Result<AgentChangedEvent> decode(const Json& value);
 };
 
 template <>

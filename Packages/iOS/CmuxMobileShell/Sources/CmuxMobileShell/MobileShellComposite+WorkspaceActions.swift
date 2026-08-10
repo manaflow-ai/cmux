@@ -636,4 +636,40 @@ extension MobileShellComposite {
         )
         workspaceGroups[index].isCollapsed = collapsed
     }
+
+    /// Choose how the aggregated All Computers list orders its rows, on THIS
+    /// device only. Persists via the device-local sort store and rebuilds the
+    /// derived list so the change renders immediately; nothing is sent to a
+    /// Mac (each Mac keeps its own sidebar order).
+    public func setWorkspaceSortMode(_ mode: MobileWorkspaceSortMode) {
+        guard workspaceSortMode != mode else { return }
+        workspaceSortStore.setMode(mode)
+        workspaceSortMode = mode
+        recomputeDerivedWorkspaceState()
+    }
+
+    /// Persist the user's computer order for
+    /// ``MobileWorkspaceSortMode/computerPriority``, highest priority first,
+    /// as Mac device ids. Device-local, like the mode.
+    public func setWorkspaceComputerPriority(_ deviceIDs: [String]) {
+        guard workspaceComputerPriority != deviceIDs else { return }
+        workspaceSortStore.setComputerPriority(deviceIDs)
+        workspaceComputerPriority = deviceIDs
+        recomputeDerivedWorkspaceState()
+    }
+
+    /// The stored computer order expanded with each computer's stored alias
+    /// device ids, so a per-Mac state that reports an alias id still ranks
+    /// with its computer. Aliases follow their representative id directly,
+    /// keeping one physical Mac's entries adjacent in the expanded order.
+    func expandedWorkspaceComputerPriority() -> [String] {
+        var expanded: [String] = []
+        for deviceID in workspaceComputerPriority {
+            expanded.append(deviceID)
+            for alias in pairedMacAliasIDs(for: deviceID) where !expanded.contains(alias) {
+                expanded.append(alias)
+            }
+        }
+        return expanded
+    }
 }

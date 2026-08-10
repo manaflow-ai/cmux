@@ -279,38 +279,39 @@ test("journal records must match their envelope cursor", async () => {
     if (request.operation !== "session.journal.subscribe") return;
     streamId = (request.params as Envelope).stream_id as string;
     current.ok(request, { stream_id: streamId });
-    setTimeout(() => current.emit({
-      protocol: "cmux.protocol/2",
-      type: "stream_item",
-      stream_id: streamId,
-      sequence: "1",
-      cursor: { generation: String(SESSION), revision: "1" },
-      item: {
-        sequence: "2",
-        event_id: "event_mismatched_cursor",
-        schema_version: 1,
-        kind: "agent.turn.completed",
-        class: "observation",
-        replay: "advisory",
-        occurred_at_ms: "1",
-        committed_at_ms: "2",
-        producer: { kind: "agent_adapter", id: "cmux_agents" },
-        authority: null,
-        causation_id: null,
-        correlation_id: null,
-        causation_depth: 0,
-        subjects: [],
-        sensitivity: "metadata",
-        payload: {},
-        resource_revision: null,
-        previous_resource_revision: null,
-      },
-    }), 0);
   });
   const client = new Client({ transport });
   const stream = await client.session(SESSION).journal();
+  const next = stream.next();
+  transport.emit({
+    protocol: "cmux.protocol/2",
+    type: "stream_item",
+    stream_id: streamId,
+    sequence: "1",
+    cursor: { generation: String(SESSION), revision: "1" },
+    item: {
+      sequence: "2",
+      event_id: "event_mismatched_cursor",
+      schema_version: 1,
+      kind: "agent.turn.completed",
+      class: "observation",
+      replay: "advisory",
+      occurred_at_ms: "1",
+      committed_at_ms: "2",
+      producer: { kind: "agent_adapter", id: "cmux_agents" },
+      authority: null,
+      causation_id: null,
+      correlation_id: null,
+      causation_depth: 0,
+      subjects: [],
+      sensitivity: "metadata",
+      payload: {},
+      resource_revision: null,
+      previous_resource_revision: null,
+    },
+  });
   await assert.rejects(
-    () => stream.next(),
+    () => next,
     /journal sequence must match its stream cursor/,
   );
   client.close();

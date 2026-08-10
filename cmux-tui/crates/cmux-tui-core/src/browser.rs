@@ -5220,7 +5220,11 @@ impl BrowserSurface {
         if !self.dead.swap(true, Ordering::AcqRel) {
             self.close_taps();
             if let Some(session) = self.session.lock().unwrap().take() {
-                session.runtime.unregister(&session.target_id, &session.session_id);
+                if session.runtime.source() == BrowserSource::Provider {
+                    session.runtime.close_surface_detached(&session.target_id, &session.session_id);
+                } else {
+                    session.runtime.unregister(&session.target_id, &session.session_id);
+                }
             }
             self.close_command_sender();
         }
@@ -5711,6 +5715,54 @@ mod tests {
 
     fn write_ws_json(ws: &mut tungstenite::WebSocket<TcpStream>, value: Value) {
         ws.send(Message::Text(value.to_string().into())).unwrap();
+    }
+
+    #[test]
+    fn confirmed_provider_close_detaches_without_closing_the_target() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (detached_tx, detached_rx) = mpsc::channel();
+        let server = thread::Builder::new()
+            .name("browser-provider-close-fake-cdp".into())
+            .spawn(move || {
+                let (stream, _) = listener.accept().unwrap();
+                let mut ws = accept(stream).unwrap();
+                let discover = read_ws_json(&mut ws);
+                assert_eq!(discover["method"], "Target.setDiscoverTargets");
+                write_ws_json(&mut ws, json!({"id":discover["id"],"result":{}}));
+
+                let detached = read_ws_json(&mut ws);
+                detached_tx.send(detached.clone()).unwrap();
+                write_ws_json(&mut ws, json!({"id":detached["id"],"result":{}}));
+            })
+            .unwrap();
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::Provider,
+        )
+        .unwrap();
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        let done = browser.take_worker_done_for_test();
+        let _route = runtime.register("provider-target", "provider-session");
+        browser
+            .mark_live(BrowserSession {
+                runtime: runtime.clone(),
+                target_id: "provider-target".to_string(),
+                session_id: "provider-session".to_string(),
+            })
+            .unwrap();
+
+        browser.close_confirmed().unwrap();
+        runtime.client.flush_outbound(Duration::from_secs(1)).unwrap();
+        let detached = detached_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(detached["method"], "Target.detachFromTarget");
+        assert_eq!(detached["params"]["sessionId"], "provider-session");
+        done.recv_timeout(Duration::from_secs(1)).expect("browser worker exited after close");
+
+        runtime.shutdown();
+        server.join().unwrap();
     }
 
     #[test]

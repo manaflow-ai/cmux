@@ -720,6 +720,7 @@ dependencies = [
  "crossterm",
  "getrandom 0.3.4",
  "ghostty-vt",
+ "glob",
  "libc",
  "parking_lot",
  "ratatui",
@@ -738,6 +739,7 @@ dependencies = [
  "url",
  "uuid",
  "wait-timeout",
+ "windows-sys 0.61.2",
  "zeroize",
 ]
 
@@ -776,6 +778,7 @@ dependencies = [
  "uds_windows",
  "url",
  "wait-timeout",
+ "windows-sys 0.61.2",
  "zeroize",
 ]
 
@@ -1395,12 +1398,6 @@ dependencies = [
  "regex-automata",
  "regex-syntax",
 ]
-
-[[package]]
-name = "fast-srgb8"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd2e7510819d6fbf51a5545c8f922716ecfb14df168a3242f7d33e0239efe6a1"
 
 [[package]]
 name = "fastrand"

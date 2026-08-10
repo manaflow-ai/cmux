@@ -167,6 +167,7 @@ session <selector> journal checkpoint list
 session <selector> journal restore preview [--checkpoint latest|<checkpoint-id>]
 session <selector> journal segment list
 session <selector> journal segment seal --through <sequence> --idempotency-key <key>
+session <name> reset-state [--force --confirm-reset <token>] [--state <path>]
 session <selector> creation <correlation-key> resolve
 session <selector> config reload
 session <selector> window title set|clear

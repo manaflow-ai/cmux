@@ -51,7 +51,6 @@ export default function cmuxTuiJournal(pi: any) {
     "model_select",
     "thinking_level_select",
     "user_bash",
-    "input",
     "session_shutdown",
   ]) {
     pi.on(eventName, (event: unknown, context: any) => {

@@ -145,7 +145,7 @@ pub(crate) struct SessionJournalReader {
 
 impl SessionJournalReader {
     pub(crate) fn open(database_path: &Path) -> anyhow::Result<Self> {
-        let connection = Connection::open_with_flags(
+        let connection = open_registry_database_with_flags(
             database_path,
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )
@@ -1490,7 +1490,7 @@ fn collect_patch_subjects(patch: &ResourcePatch, subjects: &mut BTreeSet<Journal
                     }
                 }
             }
-            ResourceChange::TombstoneTab { tab_id } => {
+            ResourceChange::TombstoneTab { tab_id, .. } => {
                 insert_subject(subjects, "tab", tab_id.as_str());
             }
             ResourceChange::SetTabOrder { pane_id, tab_ids } => {

@@ -35,3 +35,4 @@ url.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 uds_windows.workspace = true
+windows-sys.workspace = true

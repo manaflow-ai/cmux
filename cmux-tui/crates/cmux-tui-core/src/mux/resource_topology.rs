@@ -2896,27 +2896,6 @@ impl Mux {
         ))
     }
 
-    fn select_live_creation_selectors<'a>(
-        &self,
-        operation: ResourceOperation,
-        candidates: &'a [ResourceSelectors],
-        state: &State,
-        registry: &WorkspaceRegistry,
-    ) -> anyhow::Result<&'a ResourceSelectors> {
-        let mut last_missing = None;
-        for selectors in candidates {
-            let target = effect_target(operation, selectors);
-            match self.resolve_resource_path_in_state(state, registry, target, selectors) {
-                Ok(_) => return Ok(selectors),
-                Err(error) if error.code == "selector.not_found" => last_missing = Some(error),
-                Err(error) => return Err(anyhow::Error::new(error)),
-            }
-        }
-        Err(anyhow::Error::new(
-            last_missing.expect("non-empty candidates either resolve or report missing"),
-        ))
-    }
-
     fn settle_resource_creation(
         &self,
         recovery: ResourceCreationRecovery,

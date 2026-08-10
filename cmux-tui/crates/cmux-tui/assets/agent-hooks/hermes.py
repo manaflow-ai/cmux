@@ -15,7 +15,7 @@ def _append(native_event, payload):
             text=True,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            timeout=0.9,
+            timeout=5.0,
             check=False,
         )
     except Exception:

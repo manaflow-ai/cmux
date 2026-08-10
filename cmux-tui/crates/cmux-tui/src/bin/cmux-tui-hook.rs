@@ -1,5 +1,5 @@
 use std::env;
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::io::{self, BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
@@ -12,8 +12,8 @@ use serde_json::{Value, json};
 
 const MAX_NATIVE_PAYLOAD_BYTES: u64 = 1024 * 1024;
 const MAX_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
-const MAX_RESPONSE_BYTES: u64 = 16 * 1024 * 1024;
-const SOCKET_TIMEOUT: Duration = Duration::from_millis(800);
+const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
+const SOCKET_TIMEOUT: Duration = Duration::from_secs(4);
 
 #[derive(Debug, PartialEq, Eq)]
 struct Args {
@@ -114,7 +114,7 @@ fn append(socket: &Path, event: Value) -> anyhow::Result<()> {
         bail!("agent hook request exceeds the 4 MiB protocol limit");
     }
 
-    retry_until(SOCKET_TIMEOUT, |remaining| append_once(socket, &encoded, &request_id, remaining))
+    retry_until(SOCKET_TIMEOUT, |deadline| append_once(socket, &encoded, &request_id, deadline))
 }
 
 #[derive(Debug)]
@@ -125,7 +125,7 @@ enum AppendAttemptError {
 
 fn retry_until<T>(
     timeout: Duration,
-    mut attempt: impl FnMut(Duration) -> Result<T, AppendAttemptError>,
+    mut attempt: impl FnMut(Instant) -> Result<T, AppendAttemptError>,
 ) -> anyhow::Result<T> {
     let deadline = Instant::now() + timeout;
     let mut last_error = None;
@@ -138,7 +138,7 @@ fn retry_until<T>(
                 timeout.as_millis()
             ));
         }
-        match attempt(remaining) {
+        match attempt(deadline) {
             Ok(value) => return Ok(value),
             Err(AppendAttemptError::Fatal(error)) => return Err(error),
             Err(AppendAttemptError::Retryable(error)) => {
@@ -155,44 +155,11 @@ fn append_once(
     socket: &Path,
     encoded: &[u8],
     request_id: &str,
-    timeout: Duration,
+    deadline: Instant,
 ) -> Result<(), AppendAttemptError> {
-    let mut stream = transport::connect(socket).map_err(|error| {
-        let transient = matches!(
-            error.kind(),
-            io::ErrorKind::Interrupted | io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
-        );
-        let error = anyhow!(error).context(format!("connect to {}", socket.display()));
-        if transient {
-            AppendAttemptError::Retryable(error)
-        } else {
-            // No listener means this terminal is no longer attached to a live
-            // cmux-tui. Retrying a stale path only delays synchronous providers.
-            AppendAttemptError::Fatal(error)
-        }
-    })?;
-    stream
-        .set_read_timeout(Some(timeout))
-        .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
-    stream
-        .set_write_timeout(Some(timeout))
-        .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
-    stream.write_all(encoded).map_err(|error| AppendAttemptError::Retryable(error.into()))?;
-    stream.flush().map_err(|error| AppendAttemptError::Retryable(error.into()))?;
-
-    let mut response = Vec::new();
-    BufReader::new(stream)
-        .take(MAX_RESPONSE_BYTES + 2)
-        .read_until(b'\n', &mut response)
-        .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
-    if response.is_empty() || !response.ends_with(b"\n") {
-        return Err(AppendAttemptError::Retryable(anyhow!(
-            "journal append closed without a complete response"
-        )));
-    }
-    if response.len() as u64 > MAX_RESPONSE_BYTES {
-        return Err(AppendAttemptError::Fatal(anyhow!("journal append response exceeds 16 MiB")));
-    }
+    let mut stream = connect_before(socket, deadline)?;
+    write_before(&mut *stream, encoded, deadline)?;
+    let response = read_before(stream, deadline)?;
     let response: Value = serde_json::from_slice(&response)
         .map_err(|error| AppendAttemptError::Fatal(error.into()))?;
     if response.get("protocol").and_then(Value::as_str) != Some("cmux.protocol/2")
@@ -228,6 +195,133 @@ fn append_once(
         );
     }
     Ok(())
+}
+
+fn remaining_before(deadline: Instant) -> Result<Duration, AppendAttemptError> {
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero() {
+        Err(AppendAttemptError::Retryable(anyhow!("journal append deadline expired")))
+    } else {
+        Ok(remaining)
+    }
+}
+
+fn connect_before(
+    socket: &Path,
+    deadline: Instant,
+) -> Result<Box<dyn transport::Stream>, AppendAttemptError> {
+    let remaining = remaining_before(deadline)?;
+    let socket = socket.to_path_buf();
+    let display = socket.display().to_string();
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    let connector = std::thread::Builder::new()
+        .name("journal-hook-connect".into())
+        .spawn(move || {
+            let _ = sender.send(transport::connect(&socket));
+        })
+        .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
+    let result = match receiver.recv_timeout(remaining) {
+        Ok(result) => {
+            let _ = connector.join();
+            result
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            let _ = connector.join();
+            return Err(AppendAttemptError::Retryable(anyhow!(
+                "journal socket connector stopped without a result"
+            )));
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            // This helper is a short-lived process. Dropping the join handle is
+            // safe here because retry_until immediately reaches the same final
+            // deadline and main exits, which terminates the blocked connector.
+            drop(connector);
+            return Err(AppendAttemptError::Retryable(anyhow!("connect to {display} timed out")));
+        }
+    };
+    result.map_err(|error| {
+        let transient = matches!(
+            error.kind(),
+            io::ErrorKind::Interrupted | io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+        );
+        let error = anyhow!(error).context(format!("connect to {display}"));
+        if transient {
+            AppendAttemptError::Retryable(error)
+        } else {
+            // No listener means this terminal is no longer attached to a live
+            // cmux-tui. Retrying a stale path only delays synchronous providers.
+            AppendAttemptError::Fatal(error)
+        }
+    })
+}
+
+fn write_before(
+    stream: &mut dyn transport::Stream,
+    encoded: &[u8],
+    deadline: Instant,
+) -> Result<(), AppendAttemptError> {
+    let mut offset = 0;
+    while offset < encoded.len() {
+        stream
+            .set_write_timeout(Some(remaining_before(deadline)?))
+            .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
+        match stream.write(&encoded[offset..]) {
+            Ok(0) => {
+                return Err(AppendAttemptError::Retryable(
+                    io::Error::from(io::ErrorKind::WriteZero).into(),
+                ));
+            }
+            Ok(written) => offset += written,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(AppendAttemptError::Retryable(error.into())),
+        }
+    }
+    loop {
+        stream
+            .set_write_timeout(Some(remaining_before(deadline)?))
+            .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
+        match stream.flush() {
+            Ok(()) => return Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(AppendAttemptError::Retryable(error.into())),
+        }
+    }
+}
+
+fn read_before(
+    stream: Box<dyn transport::Stream>,
+    deadline: Instant,
+) -> Result<Vec<u8>, AppendAttemptError> {
+    let mut reader = BufReader::new(stream);
+    let mut response = Vec::new();
+    loop {
+        reader
+            .get_ref()
+            .set_read_timeout(Some(remaining_before(deadline)?))
+            .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
+        let available =
+            reader.fill_buf().map_err(|error| AppendAttemptError::Retryable(error.into()))?;
+        if available.is_empty() {
+            return Err(AppendAttemptError::Retryable(anyhow!(
+                "journal append closed without a complete response"
+            )));
+        }
+        let consumed = available
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map_or(available.len(), |newline| newline + 1);
+        if response.len().saturating_add(consumed) > MAX_RESPONSE_BYTES {
+            return Err(AppendAttemptError::Fatal(anyhow!(
+                "journal append response exceeds 16 MiB"
+            )));
+        }
+        let complete = available[consumed - 1] == b'\n';
+        response.extend_from_slice(&available[..consumed]);
+        reader.consume(consumed);
+        if complete {
+            return Ok(response);
+        }
+    }
 }
 
 fn random_identifiers() -> anyhow::Result<(String, String)> {
@@ -301,8 +395,12 @@ mod tests {
     fn missing_session_socket_is_immediately_inactive() {
         let root = tempfile::tempdir().unwrap();
         let socket = root.path().join("missing.sock");
-        let result =
-            append_once(&socket, b"{}\n", "request_missing_socket", Duration::from_millis(100));
+        let result = append_once(
+            &socket,
+            b"{}\n",
+            "request_missing_socket",
+            Instant::now() + Duration::from_millis(100),
+        );
 
         assert!(matches!(result, Err(AppendAttemptError::Fatal(_))));
     }

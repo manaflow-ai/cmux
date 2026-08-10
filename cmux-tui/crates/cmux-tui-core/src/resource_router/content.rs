@@ -607,6 +607,7 @@ fn targeted_browser_effect_projection(
         browser.source = match source {
             BrowserSource::External => RegistryBrowserSource::External,
             BrowserSource::Launched => RegistryBrowserSource::Launched,
+            BrowserSource::Provider => RegistryBrowserSource::External,
         };
     }
     browser.status = match &status {
@@ -2108,7 +2109,7 @@ mod tests {
         .unwrap_err();
         assert_eq!(error.code, "selector.not_found");
 
-        let mut unknown = selectors.clone();
+        let mut unknown = selectors;
         unknown.terminal = Some("term_ffffffffffffffffffffffffffffffff".into());
         let error = dispatch(
             &mux,

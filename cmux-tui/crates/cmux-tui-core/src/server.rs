@@ -1444,6 +1444,7 @@ struct ResourceWorkerAdmission {
     per_client_capacity: usize,
     server_capacity: usize,
     state: Mutex<ResourceWorkerAdmissionState>,
+    changed: Condvar,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1473,6 +1474,7 @@ impl Drop for ResourceWorkerPermitLease {
         if remove_client {
             state.active_by_client.remove(&self.client);
         }
+        self.admission.changed.notify_all();
     }
 }
 
@@ -1482,6 +1484,7 @@ impl ResourceWorkerAdmission {
             per_client_capacity,
             server_capacity,
             state: Mutex::new(ResourceWorkerAdmissionState::default()),
+            changed: Condvar::new(),
         })
     }
 
@@ -1508,6 +1511,22 @@ impl ResourceWorkerAdmission {
     #[cfg(test)]
     fn active(&self) -> usize {
         self.state.lock().unwrap().active
+    }
+
+    #[cfg(test)]
+    fn wait_until_idle(&self, deadline: Instant) -> bool {
+        let mut state = self.state.lock().unwrap();
+        while state.active != 0 {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return false;
+            };
+            let (next, timeout) = self.changed.wait_timeout(state, remaining).unwrap();
+            state = next;
+            if timeout.timed_out() && state.active != 0 {
+                return false;
+            }
+        }
+        true
     }
 }
 
@@ -4965,7 +4984,7 @@ impl Default for JournalStreamFilter {
             subject_ids: HashSet::new(),
             exact_subjects: HashMap::new(),
             has_subject_filter: false,
-            max_sensitivity: Some(JournalSensitivity::Sensitive),
+            max_sensitivity: Some(JournalSensitivity::Metadata),
             regex: None,
         }
     }
@@ -5155,7 +5174,13 @@ impl JournalStreamFilter {
                 })
             })
             .transpose()?
-            .or(Some(JournalSensitivity::Sensitive));
+            .or(Some(JournalSensitivity::Metadata));
+        if max_sensitivity == Some(JournalSensitivity::Secret) {
+            return Err(ResourceError::validation_invalid(
+                Some("filter.max_sensitivity"),
+                "journal subscriptions cannot include secret records",
+            ));
+        }
         let regex = object.get("regex").map(JournalCompiledRegex::parse).transpose()?;
         Ok(Self {
             exact_kinds,
@@ -7817,6 +7842,13 @@ fn handle_journal_extension_request(
 fn journal_extension_error(operation: &str, error: anyhow::Error) -> ResourceError {
     let message = error.to_string();
     eprintln!("cmux-tui: {operation} failed: {error:#}");
+    if error.downcast_ref::<crate::journal_ingress::JournalCommitIndeterminate>().is_some() {
+        // The helper must retry the same idempotency key until SQLite exposes
+        // the authoritative result. A non-retryable operation failure would
+        // make a later provider invocation allocate a new key and duplicate a
+        // commit that completed after the first receipt window.
+        return ResourceError::transport_closed(message);
+    }
     if message.contains("idempotency key was retried with a different payload") {
         return ResourceError::idempotency_conflict("<redacted>", operation);
     }
@@ -9401,7 +9433,6 @@ fn browser_provider_json(snapshot: Option<BrowserProviderSnapshot>) -> Value {
         "provider_id":snapshot.provider_id,
         "endpoint":snapshot.endpoint,
         "authentication":snapshot.authentication.name(),
-        "bearer_token":snapshot.authentication.bearer_token(),
         "revision":snapshot.revision,
         "clients":snapshot.clients,
         "targets":targets,
@@ -12437,6 +12468,14 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
         MuxEvent::TitleChanged { surface, title } => {
             json!({"event": "title-changed", "surface": surface, "title": title.as_ref()})
         }
+        MuxEvent::AgentChanged { surface, state, source, session, updated_at_ms } => json!({
+            "event": "agent-changed",
+            "surface": surface,
+            "state": state.as_ref(),
+            "source": source.as_ref(),
+            "session": session.as_deref(),
+            "updated_at_ms": updated_at_ms,
+        }),
         MuxEvent::Bell(id) => json!({"event": "bell", "surface": id}),
         MuxEvent::Notification(notification) => json!({
             "event": "notification",
@@ -12581,6 +12620,49 @@ mod tests {
         );
     }
 
+    #[test]
+    fn journal_filter_rejects_secret_max_sensitivity() {
+        let error = JournalStreamFilter::parse(Some(&json!({
+            "max_sensitivity":"secret",
+        })))
+        .err()
+        .expect("secret journal sensitivity must be rejected");
+        assert_eq!(error.code, "validation.invalid");
+        assert_eq!(error.details["field"], "filter.max_sensitivity");
+    }
+
+    #[test]
+    fn indeterminate_journal_commit_remains_retryable() {
+        let error = journal_extension_error(
+            "session.journal.append",
+            anyhow::Error::new(crate::journal_ingress::JournalCommitIndeterminate::after(
+                Duration::from_secs(3),
+            )),
+        );
+
+        assert_eq!(error.code, "transport.closed");
+        assert!(error.retryable);
+        assert!(error.message.contains("indeterminate"));
+    }
+
+    #[test]
+    fn journal_filter_requires_an_explicit_sensitive_opt_in() {
+        assert_eq!(
+            JournalStreamFilter::parse(None).unwrap().max_sensitivity,
+            Some(JournalSensitivity::Metadata)
+        );
+        assert_eq!(
+            JournalStreamFilter::parse(Some(&json!({}))).unwrap().max_sensitivity,
+            Some(JournalSensitivity::Metadata)
+        );
+        assert_eq!(
+            JournalStreamFilter::parse(Some(&json!({"max_sensitivity":"sensitive"})))
+                .unwrap()
+                .max_sensitivity,
+            Some(JournalSensitivity::Sensitive)
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn default_socket_path_falls_back_for_long_tmpdir() {
@@ -12679,7 +12761,7 @@ mod tests {
 
             let directory = loop {
                 let sequence = SEQUENCE.fetch_add(1, Ordering::Relaxed);
-                let candidate = PathBuf::from("/tmp")
+                let candidate = std::env::temp_dir()
                     .join(format!("cmux-tui-test-{}-{sequence}", std::process::id()));
                 match std::fs::create_dir(&candidate) {
                     Ok(()) => break candidate,
@@ -12694,6 +12776,7 @@ mod tests {
                     .expect("secure private test socket directory");
             }
             let path = directory.join(format!("{label}.sock"));
+            #[cfg(unix)]
             assert!(unix_socket_path_fits(&path));
             Self { directory, path }
         }
@@ -13375,7 +13458,10 @@ mod tests {
 
         let discovered =
             handle_command(&mux, local, Command::GetBrowserProvider, &local_writer).unwrap();
-        assert_eq!(discovered["bearer_token"], "secret-token");
+        assert!(
+            discovered.get("bearer_token").is_none(),
+            "provider discovery must not expose a registered bearer token"
+        );
 
         let remote_writer = test_writer();
         let remote =
@@ -14656,14 +14742,12 @@ mod tests {
             drop(worker_permit);
         }
         assert!(disconnect_client(&mux, client, false));
-        let cleanup_deadline = Instant::now() + Duration::from_secs(2);
-        while mux.control_clients.resource_stream_admission.active() != 0 {
-            assert!(
-                Instant::now() < cleanup_deadline,
-                "ended streams retained server worker capacity"
-            );
-            std::thread::sleep(Duration::from_millis(2));
-        }
+        assert!(
+            mux.control_clients
+                .resource_stream_admission
+                .wait_until_idle(Instant::now() + Duration::from_secs(2)),
+            "ended streams retained server worker capacity"
+        );
     }
 
     #[test]
@@ -14806,7 +14890,12 @@ mod tests {
         assert_eq!(response["type"], "response");
         assert_eq!(response["id"], "events-cancel");
         assert_eq!(response["ok"], true);
-        std::thread::sleep(Duration::from_millis(10));
+        assert!(
+            mux.control_clients
+                .resource_stream_admission
+                .wait_until_idle(Instant::now() + Duration::from_secs(2)),
+            "canceled event stream retained server worker capacity"
+        );
         assert!(outbound.try_pop().is_none(), "an item followed stream_end");
         disconnect_client(&mux, client, false);
     }
@@ -21033,6 +21122,27 @@ mod tests {
                 "event": "title-changed",
                 "surface": surface.id,
                 "title": "server title",
+            })
+        );
+    }
+
+    #[test]
+    fn agent_changed_event_preserves_the_scoped_agent_state() {
+        assert_eq!(
+            subscribed_event_json(&MuxEvent::AgentChanged {
+                surface: 7,
+                state: Arc::<str>::from("working"),
+                source: Arc::<str>::from("hook"),
+                session: Some(Arc::<str>::from("review")),
+                updated_at_ms: 41,
+            }),
+            json!({
+                "event": "agent-changed",
+                "surface": 7,
+                "state": "working",
+                "source": "hook",
+                "session": "review",
+                "updated_at_ms": 41,
             })
         );
     }

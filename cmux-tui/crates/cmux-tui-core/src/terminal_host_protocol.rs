@@ -380,11 +380,17 @@ pub enum MessageKind {
     /// Targeted response to `SetKittyGraphicsLimits`; payload is the applied
     /// four-field resource limit tuple.
     KittyGraphicsLimitsAck = 19,
-    /// Response to `Launch` when the hidden host cannot publish a PTY.
+    /// Bootstrap-pipe response when the host could not create its PTY or
+    /// child. The bounded UTF-8 payload preserves the owning process's error
+    /// instead of making the launcher infer failure from EOF.
     LaunchFailed = 20,
     /// Targeted confirmation that `Terminate` reached the authoritative host.
     /// The PTY group shutdown continues asynchronously after this receipt.
     TerminateAck = 21,
+    /// Targeted source fence for a daemon that will detach from a persistent
+    /// host. Every live frame admitted before this receipt is queued before it,
+    /// and this client is removed from live publication before the receipt.
+    DetachAck = 22,
     Input = 100,
     Paste = 101,
     ViewerSize = 102,
@@ -409,6 +415,9 @@ pub enum MessageKind {
     /// reader behind a bounded kernel-buffer barrier until the daemon has
     /// durably committed the terminal's public topology.
     Activate = 110,
+    /// Admin request for a final source-ordered receipt before a daemon closes
+    /// its persistent-host connection.
+    Detach = 111,
 }
 
 impl TryFrom<u16> for MessageKind {
@@ -437,6 +446,7 @@ impl TryFrom<u16> for MessageKind {
             19 => Ok(Self::KittyGraphicsLimitsAck),
             20 => Ok(Self::LaunchFailed),
             21 => Ok(Self::TerminateAck),
+            22 => Ok(Self::DetachAck),
             100 => Ok(Self::Input),
             101 => Ok(Self::Paste),
             102 => Ok(Self::ViewerSize),
@@ -448,6 +458,7 @@ impl TryFrom<u16> for MessageKind {
             108 => Ok(Self::SetCellPixelSize),
             109 => Ok(Self::SetKittyGraphicsLimits),
             110 => Ok(Self::Activate),
+            111 => Ok(Self::Detach),
             other => Err(ProtocolError::UnknownMessageKind(other)),
         }
     }
@@ -854,6 +865,8 @@ mod tests {
     fn terminate_receipt_has_a_stable_additive_message_kind() {
         assert_eq!(MessageKind::TerminateAck as u16, 21);
         assert_eq!(MessageKind::try_from(21).unwrap(), MessageKind::TerminateAck);
+        assert_eq!(MessageKind::DetachAck as u16, 22);
+        assert_eq!(MessageKind::try_from(22).unwrap(), MessageKind::DetachAck);
         assert_eq!(MessageKind::Terminate as u16, 104);
         assert_eq!(MessageKind::try_from(104).unwrap(), MessageKind::Terminate);
     }
@@ -924,6 +937,8 @@ mod tests {
     fn launch_activation_has_a_stable_additive_message_kind() {
         assert_eq!(MessageKind::Activate as u16, 110);
         assert_eq!(MessageKind::try_from(110).unwrap(), MessageKind::Activate);
+        assert_eq!(MessageKind::Detach as u16, 111);
+        assert_eq!(MessageKind::try_from(111).unwrap(), MessageKind::Detach);
     }
 
     #[test]

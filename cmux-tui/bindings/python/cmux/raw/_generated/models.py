@@ -71,6 +71,8 @@ class FrontendFocusTarget(str, Enum):
     PANE = 'pane'
     MACHINE_RAIL = 'machine_rail'
     WORKSPACE_RAIL = 'workspace_rail'
+    TABS_RAIL = 'tabs_rail'
+    PROJECTION_RAIL = 'projection_rail'
 
 class NotificationLevel(str, Enum):
     INFO = 'info'
@@ -285,7 +287,6 @@ class BrowserProviderSnapshot:
     revision: int
     targets: List[BrowserProviderTarget]
     authentication: Union[BrowserProviderAuthentication, MissingType] = field(default=MISSING)
-    bearer_token: Union[str, None, MissingType] = field(default=MISSING)
     clients: Union[int, MissingType] = field(default=MISSING)
     endpoint: Union[str, MissingType] = field(default=MISSING)
     provider_id: Union[str, MissingType] = field(default=MISSING)
@@ -1942,6 +1943,18 @@ class ZoomPaneRequest:
 
 
 @dataclass(frozen=True)
+class AgentChangedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/agent-changed/payload'
+    surface: Id
+    event: Literal['agent-changed']
+    session: Union[str, None]
+    source: AgentSource
+    state: AgentState
+    updated_at_ms: int
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class BellEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/bell/payload'
     surface: Id
@@ -2458,7 +2471,7 @@ LayoutUndoResult = Union[LayoutUndoUndone, LayoutUndoConfirmationRequired]
 Pane = Union[LivePane, DeadPane]
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[BellEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabClosedEvent, TabRenamedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[AgentChangedEvent, BellEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabClosedEvent, TabRenamedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -2675,6 +2688,7 @@ __all__ = [
     'VtStateRequest',
     'WaitForRequest',
     'ZoomPaneRequest',
+    'AgentChangedEvent',
     'BellEvent',
     'BrowserStateEvent',
     'ClientAttachedEvent',

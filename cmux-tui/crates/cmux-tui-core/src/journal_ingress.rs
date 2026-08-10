@@ -1,8 +1,10 @@
 use std::collections::VecDeque;
+use std::io;
 use std::mem::size_of;
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, TrySendError, sync_channel};
-use std::sync::{Arc, Weak};
-use std::time::Duration;
+use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
@@ -16,8 +18,40 @@ const JOURNAL_TERMINAL_QUEUE_CAPACITY: usize = 1024;
 const JOURNAL_DURABLE_QUEUE_CAPACITY: usize = 256;
 const JOURNAL_TERMINAL_BATCH_CHUNKS: usize = 64;
 const JOURNAL_DURABLE_BATCH_BYTES: usize = 8 * 1024 * 1024;
-const TERMINAL_OUTPUT_INGRESS_BYTES: usize = 64 * 1024;
+pub(crate) const TERMINAL_OUTPUT_INGRESS_BYTES: usize = 64 * 1024;
 const TERMINAL_OUTPUT_BATCH_BYTES: usize = 256 * 1024;
+const JOURNAL_TERMINAL_FAILURE_RETRY_ATTEMPTS: usize = 6;
+const JOURNAL_DURABLE_WAIT: Duration = Duration::from_secs(2);
+const JOURNAL_COMMIT_RESULT_WAIT: Duration = Duration::from_secs(1);
+const JOURNAL_WRITER_SHUTDOWN_WAIT: Duration = Duration::from_secs(1);
+const JOURNAL_SQLITE_RETRY_SLICE: Duration = Duration::from_millis(100);
+const COMMIT_PENDING: u8 = 0;
+const COMMIT_ADMITTED: u8 = 1;
+const COMMIT_CANCELED: u8 = 2;
+
+#[derive(Debug)]
+pub(crate) struct JournalCommitIndeterminate {
+    waited: Duration,
+}
+
+impl JournalCommitIndeterminate {
+    pub(crate) const fn after(waited: Duration) -> Self {
+        Self { waited }
+    }
+}
+
+impl std::fmt::Display for JournalCommitIndeterminate {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "session journal commit outcome is indeterminate after {} ms; the admitted commit may \
+             still become durable",
+            self.waited.as_millis()
+        )
+    }
+}
+
+impl std::error::Error for JournalCommitIndeterminate {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -25,6 +59,8 @@ pub enum FrontendFocusTarget {
     Pane,
     MachineRail,
     WorkspaceRail,
+    TabsRail,
+    ProjectionRail,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -108,6 +144,15 @@ pub(crate) enum JournalIngressEvent {
         cell_width: u16,
         cell_height: u16,
     },
+    /// Durable evidence that the terminal host could not prove a complete
+    /// source drain before daemon handoff. This record stays in the terminal
+    /// lane after all bytes accepted by the old reader and before its barrier.
+    TerminalOutputGap {
+        terminal_id: Arc<TerminalPublicId>,
+        generation: Arc<str>,
+        occurred_at_ms: u64,
+        reason: &'static str,
+    },
     Frontend {
         principal_id: String,
         occurred_at_ms: u64,
@@ -127,6 +172,7 @@ impl JournalIngressEvent {
             Self::TerminalBarrier => 0,
             Self::TerminalOutput { bytes, .. } => bytes.len(),
             Self::TerminalResize { .. } => 64,
+            Self::TerminalOutputGap { .. } => 128,
             Self::Frontend { event, .. } => match event {
                 FrontendJournalEvent::Focus { .. } => 512,
                 FrontendJournalEvent::Resize { .. } => 256,
@@ -199,8 +245,32 @@ fn json_value_resident_bytes(value: &serde_json::Value) -> usize {
 
 #[derive(Debug)]
 enum JournalIngressCompletion {
-    Durable(SyncSender<Result<(), String>>),
-    Producer(SyncSender<Result<crate::JournalAppendCommit, String>>),
+    Durable {
+        sender: SyncSender<Result<(), String>>,
+        deadline: Instant,
+        commit_fence: Arc<AtomicU8>,
+    },
+    Producer {
+        sender: SyncSender<Result<crate::JournalAppendCommit, String>>,
+        deadline: Instant,
+        commit_fence: Arc<AtomicU8>,
+    },
+}
+
+impl JournalIngressCompletion {
+    fn deadline(&self) -> Instant {
+        match self {
+            Self::Durable { deadline, .. } | Self::Producer { deadline, .. } => *deadline,
+        }
+    }
+
+    fn commit_fence(&self) -> &AtomicU8 {
+        match self {
+            Self::Durable { commit_fence, .. } | Self::Producer { commit_fence, .. } => {
+                commit_fence
+            }
+        }
+    }
 }
 
 pub(crate) struct QueuedJournalEvent {
@@ -209,6 +279,10 @@ pub(crate) struct QueuedJournalEvent {
 }
 
 impl QueuedJournalEvent {
+    fn deadline(&self) -> Option<Instant> {
+        self.completion.as_ref().map(JournalIngressCompletion::deadline)
+    }
+
     fn merge_output(&mut self, next: Self) -> Option<Self> {
         if self.completion.is_some() || next.completion.is_some() {
             return Some(next);
@@ -221,18 +295,184 @@ pub(crate) struct JournalIngressSender {
     terminal_sender: Option<SyncSender<QueuedJournalEvent>>,
     durable_sender: Option<SyncSender<QueuedJournalEvent>>,
     wake_sender: Option<SyncSender<()>>,
+    state: Arc<JournalIngressState>,
+    writer: Mutex<Option<JournalWriter>>,
+}
+
+pub(crate) struct JournalWriter {
+    thread: std::thread::JoinHandle<()>,
+    finished: Receiver<()>,
+}
+
+impl JournalWriter {
+    fn spawn(name: &str, task: impl FnOnce() + Send + 'static) -> io::Result<Self> {
+        let (finished_sender, finished) = sync_channel(1);
+        let thread = std::thread::Builder::new().name(name.into()).spawn(move || {
+            task();
+            let _ = finished_sender.send(());
+        })?;
+        Ok(Self { thread, finished })
+    }
+
+    fn join_until(self, deadline: Instant) -> anyhow::Result<()> {
+        let wait = deadline.saturating_duration_since(Instant::now());
+        match self.finished.recv_timeout(wait) {
+            Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => self
+                .thread
+                .join()
+                .map_err(|_| anyhow::anyhow!("session journal writer panicked during shutdown")),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(anyhow::anyhow!(
+                "session journal writer did not stop within {} ms; an admitted commit remains \
+                 owned by the detached writer and its idempotency receipt will resolve recovery",
+                wait.as_millis()
+            )),
+        }
+    }
 }
 
 pub(crate) struct JournalIngressReceivers {
     terminal: Receiver<QueuedJournalEvent>,
     durable: Receiver<QueuedJournalEvent>,
     wake: Receiver<()>,
+    state: Arc<JournalIngressState>,
+}
+
+pub(crate) enum JournalIngressTrySendError {
+    Full { event: Box<JournalIngressEvent>, space_epoch: u64 },
+    Failed { event: Box<JournalIngressEvent>, error: String },
+}
+
+#[derive(Default)]
+struct JournalIngressState {
+    failure: Mutex<Option<String>>,
+    enqueue_admission: Mutex<()>,
+    closed: AtomicBool,
+    commit_admission: Mutex<()>,
+    queue_space_epoch: Mutex<u64>,
+    queue_space_changed: Condvar,
+    #[cfg(test)]
+    failure_notifier: Mutex<Option<SyncSender<String>>>,
+    #[cfg(test)]
+    nonretryable_failure_hook: Mutex<Option<(SyncSender<()>, Receiver<()>)>>,
+    #[cfg(test)]
+    enqueue_full_notifier: Mutex<Option<SyncSender<()>>>,
+}
+
+impl JournalIngressState {
+    fn failure(&self) -> Option<String> {
+        self.failure.lock().unwrap().clone()
+    }
+
+    fn fail(&self, error: String) -> String {
+        let mut stored_failure = self.failure.lock().unwrap();
+        let failure = stored_failure.get_or_insert(error).clone();
+        drop(stored_failure);
+        self.publish_queue_space();
+        failure
+    }
+
+    fn admission_error(&self) -> Option<String> {
+        self.failure().or_else(|| {
+            self.closed
+                .load(Ordering::Acquire)
+                .then(|| "session journal admission is closed".to_string())
+        })
+    }
+
+    fn close_admission(&self) {
+        let _admission = self.enqueue_admission.lock().unwrap();
+        self.closed.store(true, Ordering::Release);
+        self.publish_queue_space();
+    }
+
+    #[cfg(test)]
+    fn notify_failure_for_test(&self, failure: &str) {
+        if let Some(notifier) = self.failure_notifier.lock().unwrap().take() {
+            let _ = notifier.send(failure.to_string());
+        }
+    }
+
+    #[cfg(test)]
+    fn pause_nonretryable_failure_for_test(&self) -> bool {
+        let hook = self.nonretryable_failure_hook.lock().unwrap().take();
+        let Some((entered, release)) = hook else { return false };
+        entered.send(()).expect("nonretryable journal failure observer closed");
+        release.recv().expect("nonretryable journal failure release closed");
+        true
+    }
+
+    fn queue_space_epoch(&self) -> u64 {
+        *self.queue_space_epoch.lock().unwrap()
+    }
+
+    fn publish_queue_space(&self) {
+        let mut epoch = self.queue_space_epoch.lock().unwrap();
+        *epoch = epoch.wrapping_add(1);
+        self.queue_space_changed.notify_all();
+    }
+
+    fn wait_for_queue_space_until(&self, observed: u64, deadline: Instant) -> Result<(), String> {
+        let mut epoch = self.queue_space_epoch.lock().unwrap();
+        while *epoch == observed {
+            if let Some(error) = self.admission_error() {
+                return Err(error);
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(format!(
+                    "timed out after {} ms waiting to queue a durable session journal event",
+                    JOURNAL_DURABLE_WAIT.as_millis()
+                ));
+            }
+            let (next, result) = self.queue_space_changed.wait_timeout(epoch, remaining).unwrap();
+            epoch = next;
+            if result.timed_out() && *epoch == observed {
+                return Err(format!(
+                    "timed out after {} ms waiting to queue a durable session journal event",
+                    JOURNAL_DURABLE_WAIT.as_millis()
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn wait_for_queue_space(&self, observed: u64) -> Result<(), String> {
+        self.wait_for_queue_space_until(observed, Instant::now() + JOURNAL_DURABLE_WAIT)
+    }
+
+    fn wait_for_queue_space_change(&self, observed: u64) -> Result<(), String> {
+        let mut epoch = self.queue_space_epoch.lock().unwrap();
+        while *epoch == observed {
+            if let Some(error) = self.admission_error() {
+                return Err(error);
+            }
+            epoch = self.queue_space_changed.wait(epoch).unwrap();
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    fn notify_enqueue_full_for_test(&self) {
+        if let Some(notifier) = self.enqueue_full_notifier.lock().unwrap().take() {
+            let _ = notifier.send(());
+        }
+    }
 }
 
 impl JournalIngressSender {
     pub(crate) fn new(enabled: bool) -> (Self, Option<JournalIngressReceivers>) {
+        let state = Arc::new(JournalIngressState::default());
         if !enabled {
-            return (Self { terminal_sender: None, durable_sender: None, wake_sender: None }, None);
+            return (
+                Self {
+                    terminal_sender: None,
+                    durable_sender: None,
+                    wake_sender: None,
+                    state,
+                    writer: Mutex::new(None),
+                },
+                None,
+            );
         }
         let (terminal_sender, terminal) = sync_channel(JOURNAL_TERMINAL_QUEUE_CAPACITY);
         let (durable_sender, durable) = sync_channel(JOURNAL_DURABLE_QUEUE_CAPACITY);
@@ -242,8 +482,10 @@ impl JournalIngressSender {
                 terminal_sender: Some(terminal_sender),
                 durable_sender: Some(durable_sender),
                 wake_sender: Some(wake_sender),
+                state: state.clone(),
+                writer: Mutex::new(None),
             },
-            Some(JournalIngressReceivers { terminal, durable, wake }),
+            Some(JournalIngressReceivers { terminal, durable, wake, state }),
         )
     }
 
@@ -279,26 +521,75 @@ impl JournalIngressSender {
         }
     }
 
+    pub(crate) fn try_send(
+        &self,
+        event: JournalIngressEvent,
+    ) -> Result<(), JournalIngressTrySendError> {
+        debug_assert!(matches!(
+            &event,
+            JournalIngressEvent::TerminalOutput { .. } | JournalIngressEvent::TerminalResize { .. }
+        ));
+        let Some(sender) = &self.terminal_sender else { return Ok(()) };
+        let _admission = self.state.enqueue_admission.lock().unwrap();
+        if let Some(error) = self.state.admission_error() {
+            return Err(JournalIngressTrySendError::Failed { event: Box::new(event), error });
+        }
+        let space_epoch = self.state.queue_space_epoch();
+        match sender.try_send(QueuedJournalEvent { event, completion: None }) {
+            Ok(()) => {
+                if let Some(wake) = &self.wake_sender {
+                    match wake.try_send(()) {
+                        Ok(()) | Err(TrySendError::Full(())) => {}
+                        Err(TrySendError::Disconnected(())) => {}
+                    }
+                }
+                Ok(())
+            }
+            Err(TrySendError::Full(queued)) => {
+                Err(JournalIngressTrySendError::Full { event: Box::new(queued.event), space_epoch })
+            }
+            Err(TrySendError::Disconnected(queued)) => Err(JournalIngressTrySendError::Failed {
+                event: Box::new(queued.event),
+                error: self.writer_error(),
+            }),
+        }
+    }
+
     pub(crate) fn send_durable(&self, event: JournalIngressEvent) -> anyhow::Result<()> {
-        let sender = if matches!(&event, JournalIngressEvent::TerminalBarrier) {
+        if let Some(error) = self.state.admission_error() {
+            anyhow::bail!(error);
+        }
+        let sender = if matches!(
+            &event,
+            JournalIngressEvent::TerminalBarrier | JournalIngressEvent::TerminalOutputGap { .. }
+        ) {
             &self.terminal_sender
         } else {
             &self.durable_sender
         };
         let Some(sender) = sender else { return Ok(()) };
         let (completion, result) = sync_channel(1);
-        self.enqueue(
+        let deadline = Instant::now() + JOURNAL_DURABLE_WAIT;
+        let commit_fence = Arc::new(AtomicU8::new(COMMIT_PENDING));
+        self.enqueue_until(
             sender,
             QueuedJournalEvent {
                 event,
-                completion: Some(JournalIngressCompletion::Durable(completion)),
+                completion: Some(JournalIngressCompletion::Durable {
+                    sender: completion,
+                    deadline,
+                    commit_fence: commit_fence.clone(),
+                }),
             },
+            deadline,
         )
-        .map_err(|_| anyhow::anyhow!("session journal writer stopped"))?;
-        result
-            .recv()
-            .map_err(|_| anyhow::anyhow!("session journal writer stopped"))?
-            .map_err(anyhow::Error::msg)
+        .map_err(anyhow::Error::msg)?;
+        self.wait_for_commit_result(
+            result,
+            deadline,
+            &commit_fence,
+            "waiting for session journal durability",
+        )
     }
 
     pub(crate) fn flush_terminal(&self) -> anyhow::Result<()> {
@@ -312,11 +603,16 @@ impl JournalIngressSender {
         origin: String,
         idempotency_key: String,
     ) -> anyhow::Result<crate::JournalAppendCommit> {
+        if let Some(error) = self.state.admission_error() {
+            anyhow::bail!(error);
+        }
         let Some(sender) = &self.durable_sender else {
             anyhow::bail!("session journal writer is unavailable")
         };
         let (completion, result) = sync_channel(1);
-        self.enqueue(
+        let deadline = Instant::now() + JOURNAL_DURABLE_WAIT;
+        let commit_fence = Arc::new(AtomicU8::new(COMMIT_PENDING));
+        self.enqueue_until(
             sender,
             QueuedJournalEvent {
                 event: JournalIngressEvent::Producer {
@@ -325,33 +621,202 @@ impl JournalIngressSender {
                     origin,
                     idempotency_key,
                 },
-                completion: Some(JournalIngressCompletion::Producer(completion)),
+                completion: Some(JournalIngressCompletion::Producer {
+                    sender: completion,
+                    deadline,
+                    commit_fence: commit_fence.clone(),
+                }),
             },
+            deadline,
         )
-        .map_err(|_| anyhow::anyhow!("session journal writer stopped"))?;
-        result
-            .recv()
-            .map_err(|_| anyhow::anyhow!("session journal writer stopped"))?
-            .map_err(anyhow::Error::msg)
+        .map_err(anyhow::Error::msg)?;
+        self.wait_for_commit_result(
+            result,
+            deadline,
+            &commit_fence,
+            "waiting for a session journal producer receipt",
+        )
     }
 
     pub(crate) const fn enabled(&self) -> bool {
         self.terminal_sender.is_some()
     }
 
-    fn enqueue(
-        &self,
-        sender: &SyncSender<QueuedJournalEvent>,
-        event: QueuedJournalEvent,
-    ) -> Result<(), ()> {
-        sender.send(event).map_err(|_| ())?;
+    pub(crate) fn close_and_join(&self) -> anyhow::Result<()> {
+        self.close_and_join_until(Instant::now() + JOURNAL_WRITER_SHUTDOWN_WAIT)
+    }
+
+    fn close_and_join_until(&self, deadline: Instant) -> anyhow::Result<()> {
+        self.state.close_admission();
         if let Some(wake) = &self.wake_sender {
             match wake.try_send(()) {
                 Ok(()) | Err(TrySendError::Full(())) => {}
                 Err(TrySendError::Disconnected(())) => {}
             }
         }
+        let Some(writer) = self.writer.lock().unwrap().take() else { return Ok(()) };
+        writer.join_until(deadline)
+    }
+
+    pub(crate) fn install_writer(&self, writer: JournalWriter) -> anyhow::Result<()> {
+        let mut installed = self.writer.lock().unwrap();
+        anyhow::ensure!(installed.is_none(), "session journal writer is already installed");
+        *installed = Some(writer);
         Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_failure_notifier_for_test(&self, notifier: SyncSender<String>) {
+        *self.state.failure_notifier.lock().unwrap() = Some(notifier);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_nonretryable_failure_hook_for_test(
+        &self,
+        entered: SyncSender<()>,
+        release: Receiver<()>,
+    ) {
+        *self.state.nonretryable_failure_hook.lock().unwrap() = Some((entered, release));
+    }
+
+    #[cfg(test)]
+    fn install_enqueue_full_notifier_for_test(&self, notifier: SyncSender<()>) {
+        *self.state.enqueue_full_notifier.lock().unwrap() = Some(notifier);
+    }
+
+    fn enqueue(
+        &self,
+        sender: &SyncSender<QueuedJournalEvent>,
+        event: QueuedJournalEvent,
+    ) -> Result<(), String> {
+        let mut pending = event;
+        loop {
+            let space_epoch = self.state.queue_space_epoch();
+            let result = {
+                let _admission = self.state.enqueue_admission.lock().unwrap();
+                if let Some(error) = self.state.admission_error() {
+                    return Err(error);
+                }
+                sender.try_send(pending)
+            };
+            match result {
+                Ok(()) => {
+                    if let Some(wake) = &self.wake_sender {
+                        match wake.try_send(()) {
+                            Ok(()) | Err(TrySendError::Full(())) => {}
+                            Err(TrySendError::Disconnected(())) => {}
+                        }
+                    }
+                    return Ok(());
+                }
+                Err(TrySendError::Full(event)) => pending = event,
+                Err(TrySendError::Disconnected(_)) => return Err(self.writer_error()),
+            }
+            #[cfg(test)]
+            self.state.notify_enqueue_full_for_test();
+            self.state.wait_for_queue_space_change(space_epoch)?;
+        }
+    }
+
+    fn enqueue_until(
+        &self,
+        sender: &SyncSender<QueuedJournalEvent>,
+        event: QueuedJournalEvent,
+        deadline: Instant,
+    ) -> Result<(), String> {
+        let mut pending = event;
+        loop {
+            if Instant::now() >= deadline {
+                return Err(format!(
+                    "timed out after {} ms waiting to queue a durable session journal event",
+                    JOURNAL_DURABLE_WAIT.as_millis()
+                ));
+            }
+            let space_epoch = self.state.queue_space_epoch();
+            let result = {
+                let _admission = self.state.enqueue_admission.lock().unwrap();
+                if Instant::now() >= deadline {
+                    return Err(format!(
+                        "timed out after {} ms waiting to queue a durable session journal event",
+                        JOURNAL_DURABLE_WAIT.as_millis()
+                    ));
+                }
+                if let Some(error) = self.state.admission_error() {
+                    return Err(error);
+                }
+                sender.try_send(pending)
+            };
+            match result {
+                Ok(()) => {
+                    if let Some(wake) = &self.wake_sender {
+                        match wake.try_send(()) {
+                            Ok(()) | Err(TrySendError::Full(())) => {}
+                            Err(TrySendError::Disconnected(())) => {}
+                        }
+                    }
+                    return Ok(());
+                }
+                Err(TrySendError::Full(event)) => pending = event,
+                Err(TrySendError::Disconnected(_)) => return Err(self.writer_error()),
+            }
+            self.state.wait_for_queue_space_until(space_epoch, deadline)?;
+        }
+    }
+
+    pub(crate) fn wait_for_queue_space(&self, observed: u64) -> Result<(), String> {
+        self.state.wait_for_queue_space(observed)
+    }
+
+    fn writer_error(&self) -> String {
+        self.state.admission_error().unwrap_or_else(|| "session journal writer stopped".into())
+    }
+
+    fn wait_for_commit_result<T>(
+        &self,
+        result: Receiver<Result<T, String>>,
+        deadline: Instant,
+        commit_fence: &AtomicU8,
+        operation: &str,
+    ) -> anyhow::Result<T> {
+        match result.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(result) => result.map_err(anyhow::Error::msg),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                Err(anyhow::Error::msg(self.writer_error()))
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                let admission = self.state.commit_admission.lock().unwrap();
+                match commit_fence.load(Ordering::Acquire) {
+                    COMMIT_PENDING => {
+                        commit_fence.store(COMMIT_CANCELED, Ordering::Release);
+                        Err(anyhow::anyhow!(
+                            "timed out after {} ms {operation}",
+                            JOURNAL_DURABLE_WAIT.as_millis()
+                        ))
+                    }
+                    COMMIT_ADMITTED => {
+                        drop(admission);
+                        match result.recv_timeout(JOURNAL_COMMIT_RESULT_WAIT) {
+                            Ok(result) => result.map_err(anyhow::Error::msg),
+                            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                                Err(anyhow::Error::msg(self.writer_error()))
+                            }
+                            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                                Err(anyhow::Error::new(JournalCommitIndeterminate::after(
+                                    JOURNAL_DURABLE_WAIT.saturating_add(JOURNAL_COMMIT_RESULT_WAIT),
+                                )))
+                            }
+                        }
+                    }
+                    COMMIT_CANCELED => Err(anyhow::anyhow!(
+                        "timed out after {} ms {operation}",
+                        JOURNAL_DURABLE_WAIT.as_millis()
+                    )),
+                    state => Err(anyhow::anyhow!(
+                        "session journal has an invalid commit admission state {state}"
+                    )),
+                }
+            }
+        }
     }
 }
 
@@ -361,10 +826,8 @@ pub(crate) fn start(
 ) -> anyhow::Result<()> {
     let Some(receivers) = receivers else { return Ok(()) };
     let weak = Arc::downgrade(mux);
-    std::thread::Builder::new()
-        .name("mux-session-journal-writer".into())
-        .spawn(move || run(weak, receivers))?;
-    Ok(())
+    let writer = JournalWriter::spawn("mux-session-journal-writer", move || run(weak, receivers))?;
+    mux.install_journal_writer(writer)
 }
 
 fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
@@ -374,6 +837,12 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
         while let Some(mut batch) = pending.pop_front() {
             let mut delay = Duration::from_millis(10);
             let mut reported_error = None;
+            let mut uncompleted_nonretryable_failures = 0_usize;
+            let retry_deadline = batch
+                .iter()
+                .filter_map(QueuedJournalEvent::deadline)
+                .min()
+                .unwrap_or_else(|| Instant::now() + JOURNAL_DURABLE_WAIT);
             loop {
                 let Some(mux) = mux.upgrade() else {
                     let error = "session journal stopped".to_string();
@@ -383,8 +852,23 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                     }
                     return;
                 };
+                if Instant::now() >= retry_deadline {
+                    stop_writer_after_retry_deadline(
+                        &mux,
+                        &receivers,
+                        &batch,
+                        pending,
+                        "the batch deadline expired before commit",
+                    );
+                    return;
+                }
                 let events = batch.iter().map(|queued| &queued.event).collect::<Vec<_>>();
-                match mux.commit_session_journal_events(&events) {
+                match mux.commit_session_journal_events(
+                    &events,
+                    retry_deadline,
+                    JOURNAL_SQLITE_RETRY_SLICE,
+                    || admit_batch_commit(&receivers.state, &batch, retry_deadline),
+                ) {
                     Ok(commits) => {
                         complete_batch_success(&batch, commits);
                         break;
@@ -395,11 +879,20 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                             eprintln!("cmux-tui: append session journal batch: {summary}");
                             reported_error = Some(summary.clone());
                         }
-                        if retryable_sqlite_error(&error)
-                            || (batch.len() == 1 && batch[0].completion.is_none())
-                        {
+                        let remaining = retry_deadline.saturating_duration_since(Instant::now());
+                        if remaining.is_zero() {
+                            stop_writer_after_retry_deadline(
+                                &mux,
+                                &receivers,
+                                &batch,
+                                pending,
+                                &format!("journal commit: {summary}"),
+                            );
+                            return;
+                        }
+                        if retryable_sqlite_error(&error) {
                             let epoch = mux.journal_event_epoch();
-                            mux.wait_for_journal_event(epoch, delay);
+                            mux.wait_for_journal_event(epoch, delay.min(remaining));
                             delay = (delay * 2).min(Duration::from_secs(1));
                             continue;
                         }
@@ -407,6 +900,31 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                             let later = batch.split_off(batch.len() / 2);
                             pending.push_front(later);
                             pending.push_front(batch);
+                        } else if batch[0].completion.is_none()
+                            && uncompleted_nonretryable_failures
+                                < JOURNAL_TERMINAL_FAILURE_RETRY_ATTEMPTS
+                        {
+                            uncompleted_nonretryable_failures += 1;
+                            #[cfg(test)]
+                            if receivers.state.pause_nonretryable_failure_for_test() {
+                                continue;
+                            }
+                            let epoch = mux.journal_event_epoch();
+                            mux.wait_for_journal_event(epoch, delay);
+                            delay = (delay * 2).min(Duration::from_secs(1));
+                            continue;
+                        } else if batch[0].completion.is_none() {
+                            let failure = receivers.state.fail(format!(
+                                "session journal writer failed permanently: {summary}"
+                            ));
+                            mux.request_daemon_shutdown();
+                            #[cfg(test)]
+                            receivers.state.notify_failure_for_test(&failure);
+                            complete_batch_error(&batch, failure.clone());
+                            for pending_batch in pending {
+                                complete_batch_error(&pending_batch, failure.clone());
+                            }
+                            return;
                         } else {
                             complete_batch_error(&batch, summary);
                         }
@@ -415,6 +933,61 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                 }
             }
         }
+    }
+}
+
+fn admit_batch_commit(
+    state: &JournalIngressState,
+    batch: &[QueuedJournalEvent],
+    deadline: Instant,
+) -> anyhow::Result<()> {
+    let _admission = state.commit_admission.lock().unwrap();
+    anyhow::ensure!(Instant::now() < deadline, "session journal commit deadline expired");
+    anyhow::ensure!(
+        batch.iter().filter_map(|queued| queued.completion.as_ref()).all(|completion| {
+            completion.commit_fence().load(Ordering::Acquire) != COMMIT_CANCELED
+        }),
+        "session journal commit was canceled before admission"
+    );
+    for completion in batch.iter().filter_map(|queued| queued.completion.as_ref()) {
+        completion.commit_fence().store(COMMIT_ADMITTED, Ordering::Release);
+    }
+    Ok(())
+}
+
+fn stop_writer_after_retry_deadline(
+    mux: &Mux,
+    receivers: &JournalIngressReceivers,
+    batch: &[QueuedJournalEvent],
+    pending: VecDeque<Vec<QueuedJournalEvent>>,
+    detail: &str,
+) {
+    let failure = receivers.state.fail(format!(
+        "session journal writer timed out after {} ms: {detail}",
+        JOURNAL_DURABLE_WAIT.as_millis()
+    ));
+    mux.request_daemon_shutdown();
+    #[cfg(test)]
+    receivers.state.notify_failure_for_test(&failure);
+    complete_batch_error(batch, failure.clone());
+    for pending_batch in pending {
+        complete_batch_error(&pending_batch, failure.clone());
+    }
+    complete_queued_error(receivers, &failure);
+}
+
+fn complete_queued_error(receivers: &JournalIngressReceivers, error: &str) {
+    let mut drained = false;
+    while let Ok(queued) = receivers.terminal.try_recv() {
+        drained = true;
+        complete_batch_error(std::slice::from_ref(&queued), error.to_string());
+    }
+    while let Ok(queued) = receivers.durable.try_recv() {
+        drained = true;
+        complete_batch_error(std::slice::from_ref(&queued), error.to_string());
+    }
+    if drained {
+        receivers.state.publish_queue_space();
     }
 }
 
@@ -429,15 +1002,22 @@ fn receive_batch(receivers: &JournalIngressReceivers) -> Option<Vec<QueuedJourna
         while receivers.wake.try_recv().is_ok() {}
         let mut batch =
             Vec::with_capacity(JOURNAL_TERMINAL_BATCH_CHUNKS + JOURNAL_DURABLE_QUEUE_CAPACITY);
-        drain_lane(&receivers.terminal, &mut batch, JOURNAL_TERMINAL_BATCH_CHUNKS, usize::MAX);
-        drain_lane(
+        let mut drained =
+            drain_lane(&receivers.terminal, &mut batch, JOURNAL_TERMINAL_BATCH_CHUNKS, usize::MAX);
+        drained |= drain_lane(
             &receivers.durable,
             &mut batch,
             JOURNAL_DURABLE_QUEUE_CAPACITY,
             JOURNAL_DURABLE_BATCH_BYTES,
         );
+        if drained {
+            receivers.state.publish_queue_space();
+        }
         if !batch.is_empty() {
             return Some(batch);
+        }
+        if receivers.state.closed.load(Ordering::Acquire) {
+            return None;
         }
         if receivers.wake.recv().is_err() {
             return None;
@@ -450,7 +1030,7 @@ fn drain_lane(
     batch: &mut Vec<QueuedJournalEvent>,
     limit: usize,
     byte_limit: usize,
-) {
+) -> bool {
     let mut drained = 0;
     let mut drained_bytes = 0_usize;
     while drained < limit && drained_bytes < byte_limit {
@@ -468,6 +1048,7 @@ fn drain_lane(
             batch.push(next);
         }
     }
+    drained != 0
 }
 
 fn retryable_sqlite_error(error: &anyhow::Error) -> bool {
@@ -495,13 +1076,13 @@ fn complete_batch_success(
     }
     for (queued, commit) in batch.iter().zip(commits) {
         match &queued.completion {
-            Some(JournalIngressCompletion::Durable(completion)) => {
-                let _ = completion.send(Ok(()));
+            Some(JournalIngressCompletion::Durable { sender, .. }) => {
+                let _ = sender.send(Ok(()));
             }
-            Some(JournalIngressCompletion::Producer(completion)) => {
+            Some(JournalIngressCompletion::Producer { sender, .. }) => {
                 let result = commit
                     .ok_or_else(|| "session journal omitted a producer append receipt".into());
-                let _ = completion.send(result);
+                let _ = sender.send(result);
             }
             None => {}
         }
@@ -511,11 +1092,11 @@ fn complete_batch_success(
 fn complete_batch_error(batch: &[QueuedJournalEvent], error: String) {
     for queued in batch {
         match &queued.completion {
-            Some(JournalIngressCompletion::Durable(completion)) => {
-                let _ = completion.send(Err(error.clone()));
+            Some(JournalIngressCompletion::Durable { sender, .. }) => {
+                let _ = sender.send(Err(error.clone()));
             }
-            Some(JournalIngressCompletion::Producer(completion)) => {
-                let _ = completion.send(Err(error.clone()));
+            Some(JournalIngressCompletion::Producer { sender, .. }) => {
+                let _ = sender.send(Err(error.clone()));
             }
             None => {}
         }
@@ -621,7 +1202,804 @@ mod tests {
     }
 
     #[test]
-    fn terminal_output_survives_a_nonretryable_writer_failure() {
+    fn frontend_event_retry_after_segment_sealing_is_idempotent() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-frontend-journal-sealed-retry-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent(
+            "frontend-journal-sealed-retry",
+            crate::SurfaceOptions::default(),
+            &root,
+        )
+        .unwrap();
+        let projection_id = public_id("projection", 8, FrontendProjectionPublicId::parse);
+        let event = FrontendJournalEvent::Resize {
+            event_id: "event_frontend_resize_sealed_retry".into(),
+            frontend_projection_id: projection_id,
+            generation: "frontend_generation_1".into(),
+            cols: 80,
+            rows: 24,
+            cell_width: 8,
+            cell_height: 16,
+        };
+        mux.journal_local_frontend_event(event.clone()).unwrap();
+        let checkpoint =
+            mux.create_journal_checkpoint("client_test", "frontend_sealed_checkpoint").unwrap();
+        mux.seal_journal_segments(
+            checkpoint.checkpoint.source_sequence,
+            "client_test",
+            "frontend_sealed_segment",
+        )
+        .unwrap();
+
+        mux.journal_local_frontend_event(event).unwrap();
+        let records = mux.session_journal_after(0, 1024).unwrap().records;
+        assert_eq!(
+            records
+                .iter()
+                .filter(|record| record.event_id == "event_frontend_resize_sealed_retry")
+                .count(),
+            1
+        );
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn shutdown_waits_for_queued_terminal_journal_output() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-terminal-journal-shutdown-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent(
+            "terminal-journal-shutdown",
+            crate::SurfaceOptions::default(),
+            &root,
+        )
+        .unwrap();
+        let database_path = std::fs::read_dir(&root)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.path().join("workspace-registry.sqlite3"))
+            .find(|path| path.is_file())
+            .expect("persistent journal database");
+        let blocker = rusqlite::Connection::open(database_path).unwrap();
+        blocker.execute_batch("BEGIN IMMEDIATE;").unwrap();
+        let terminal_id = Arc::new(public_id("term", 12, TerminalPublicId::parse));
+        mux.journal_terminal_output(
+            terminal_id,
+            Arc::from("shutdown-generation"),
+            b"persist before shutdown returns".to_vec(),
+        );
+
+        let shutdown_mux = mux.clone();
+        let (completed, completion) = sync_channel(1);
+        let shutdown = std::thread::spawn(move || {
+            shutdown_mux.shutdown();
+            completed.send(()).unwrap();
+        });
+        assert!(
+            completion.recv_timeout(Duration::from_millis(100)).is_err(),
+            "shutdown returned before the queued journal write could commit"
+        );
+        blocker.execute_batch("ROLLBACK;").unwrap();
+        completion.recv_timeout(Duration::from_secs(5)).unwrap();
+        shutdown.join().unwrap();
+
+        let records = mux.session_journal_after(0, 1024).unwrap().records;
+        let output = records
+            .iter()
+            .find(|record| record.kind == "terminal.output")
+            .expect("shutdown fenced queued terminal output");
+        assert_eq!(
+            output.terminal_output.as_deref(),
+            Some(b"persist before shutdown returns".as_slice())
+        );
+        drop(blocker);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn shutdown_has_a_deadline_when_the_journal_stays_locked() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-terminal-journal-locked-shutdown-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent(
+            "terminal-journal-locked-shutdown",
+            crate::SurfaceOptions::default(),
+            &root,
+        )
+        .unwrap();
+        let database_path = std::fs::read_dir(&root)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.path().join("workspace-registry.sqlite3"))
+            .find(|path| path.is_file())
+            .expect("persistent journal database");
+        let blocker = rusqlite::Connection::open(database_path).unwrap();
+        blocker.execute_batch("BEGIN IMMEDIATE;").unwrap();
+        mux.journal_terminal_output(
+            Arc::new(public_id("term", 15, TerminalPublicId::parse)),
+            Arc::from("locked-shutdown-generation"),
+            b"blocked until the shutdown deadline".to_vec(),
+        );
+
+        let started = Instant::now();
+        mux.shutdown();
+
+        assert!(
+            started.elapsed() < JOURNAL_DURABLE_WAIT + Duration::from_secs(2),
+            "a locked journal must not prevent shutdown forever"
+        );
+        assert!(
+            mux.daemon_shutdown_requested(),
+            "a journal lock beyond the fixed deadline must stop the daemon"
+        );
+        blocker.execute_batch("ROLLBACK;").unwrap();
+        assert!(
+            mux.flush_terminal_journal().unwrap_err().to_string().contains("timed out"),
+            "later writes must observe the terminal journal failure"
+        );
+        drop(blocker);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn producer_receipt_and_sqlite_retries_share_one_deadline() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-producer-locked-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent(
+            "journal-producer-locked",
+            crate::SurfaceOptions::default(),
+            &root,
+        )
+        .unwrap();
+        let database_path = std::fs::read_dir(&root)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.path().join("workspace-registry.sqlite3"))
+            .find(|path| path.is_file())
+            .expect("persistent journal database");
+        let blocker = rusqlite::Connection::open(database_path).unwrap();
+        blocker.execute_batch("BEGIN IMMEDIATE;").unwrap();
+        let ingress = crate::agent_hook_journal_ingress(
+            "codex",
+            "SubagentStop",
+            None,
+            serde_json::json!({
+                "session_id":"locked-producer-root",
+                "root_session_id":"locked-producer-root",
+                "parent_session_id":"locked-producer-root",
+                "child_agent_id":"locked-producer-child",
+                "message":"must return at the fixed deadline",
+            }),
+        )
+        .unwrap();
+        let (failed, failed_receiver) = sync_channel(1);
+        mux.install_journal_failure_notifier_for_test(failed);
+
+        let started = Instant::now();
+        let error = mux
+            .append_journal_ingress(&ingress, "client_locked_producer", "locked_producer_1")
+            .unwrap_err();
+
+        assert!(error.to_string().contains("timed out"));
+        assert!(
+            started.elapsed() < JOURNAL_DURABLE_WAIT + Duration::from_secs(2),
+            "a producer receipt must not wait without a limit"
+        );
+        failed_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(
+            mux.daemon_shutdown_requested(),
+            "a producer database lock beyond the deadline must stop the daemon"
+        );
+        blocker.execute_batch("ROLLBACK;").unwrap();
+        drop(blocker);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn producer_deadline_includes_workspace_registry_mutex_admission() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-producer-registry-lock-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent(
+            "journal-producer-registry-lock",
+            crate::SurfaceOptions::default(),
+            &root,
+        )
+        .unwrap();
+        let locked_mux = mux.clone();
+        let (entered, entered_receiver) = sync_channel(1);
+        let (release, release_receiver) = sync_channel(1);
+        let blocker = std::thread::spawn(move || {
+            locked_mux.hold_workspace_registry_for_test(entered, release_receiver);
+        });
+        entered_receiver.recv().unwrap();
+        let ingress = crate::agent_hook_journal_ingress(
+            "codex",
+            "SubagentStop",
+            None,
+            serde_json::json!({
+                "session_id":"registry-lock-root",
+                "root_session_id":"registry-lock-root",
+                "parent_session_id":"registry-lock-root",
+                "child_agent_id":"registry-lock-child",
+                "message":"registry-mutex-deadline-marker",
+            }),
+        )
+        .unwrap();
+        let (failed, failed_receiver) = sync_channel(1);
+        mux.install_journal_failure_notifier_for_test(failed);
+
+        let started = Instant::now();
+        let error = mux
+            .append_journal_ingress(&ingress, "client_registry_lock", "registry_lock_deadline_1")
+            .unwrap_err();
+
+        assert!(error.to_string().contains("timed out"));
+        assert!(
+            started.elapsed() < JOURNAL_DURABLE_WAIT + Duration::from_secs(2),
+            "registry mutex admission must not outlive the producer deadline"
+        );
+        failed_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(mux.daemon_shutdown_requested());
+        release.send(()).unwrap();
+        blocker.join().unwrap();
+        let records = mux.session_journal_after(0, 1024).unwrap().records;
+        assert!(
+            records.iter().all(|record| {
+                record.correlation_id.as_deref() != Some("registry_lock_deadline_1")
+            }),
+            "a producer event must not commit after its mutex admission deadline"
+        );
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn producer_deadline_prevents_a_late_transaction_commit() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-producer-commit-deadline-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent(
+            "journal-producer-commit-deadline",
+            crate::SurfaceOptions::default(),
+            &root,
+        )
+        .unwrap();
+        let (entered, entered_receiver) = sync_channel(1);
+        let (release, release_receiver) = sync_channel(1);
+        mux.install_journal_before_commit_for_test(entered, release_receiver);
+        let (failed, failed_receiver) = sync_channel(1);
+        mux.install_journal_failure_notifier_for_test(failed);
+        let ingress = crate::agent_hook_journal_ingress(
+            "codex",
+            "SubagentStop",
+            None,
+            serde_json::json!({
+                "session_id":"commit-deadline-root",
+                "root_session_id":"commit-deadline-root",
+                "parent_session_id":"commit-deadline-root",
+                "child_agent_id":"commit-deadline-child",
+                "message":"transaction-deadline-marker",
+            }),
+        )
+        .unwrap();
+        let producer_mux = mux.clone();
+        let (result_sender, result_receiver) = sync_channel(1);
+        let producer = std::thread::spawn(move || {
+            result_sender
+                .send(producer_mux.append_journal_ingress(
+                    &ingress,
+                    "client_commit_deadline",
+                    "commit_deadline_1",
+                ))
+                .unwrap();
+        });
+        entered_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let error = result_receiver
+            .recv_timeout(JOURNAL_DURABLE_WAIT + Duration::from_secs(1))
+            .expect("producer must return at its fixed deadline")
+            .unwrap_err();
+        assert!(error.to_string().contains("timed out"));
+        release.send(()).unwrap();
+        producer.join().unwrap();
+        failed_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(mux.daemon_shutdown_requested());
+        let records = mux.session_journal_after(0, 1024).unwrap().records;
+        assert!(
+            records
+                .iter()
+                .all(|record| { record.correlation_id.as_deref() != Some("commit_deadline_1") }),
+            "a producer transaction must roll back after its deadline"
+        );
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn producer_waits_for_an_admitted_commit_past_its_deadline() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-producer-admitted-commit-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent(
+            "journal-producer-admitted-commit",
+            crate::SurfaceOptions::default(),
+            &root,
+        )
+        .unwrap();
+        let (entered, entered_receiver) = sync_channel(1);
+        let (release, release_receiver) = sync_channel(1);
+        mux.install_journal_after_commit_admission_for_test(entered, release_receiver);
+        let ingress = crate::agent_hook_journal_ingress(
+            "codex",
+            "SubagentStop",
+            None,
+            serde_json::json!({
+                "session_id":"admitted-commit-root",
+                "root_session_id":"admitted-commit-root",
+                "parent_session_id":"admitted-commit-root",
+                "child_agent_id":"admitted-commit-child",
+                "message":"admitted-commit-marker",
+            }),
+        )
+        .unwrap();
+        let producer_mux = mux.clone();
+        let (result_sender, result_receiver) = sync_channel(1);
+        let producer = std::thread::spawn(move || {
+            result_sender
+                .send(producer_mux.append_journal_ingress(
+                    &ingress,
+                    "client_admitted_commit",
+                    "admitted_commit_1",
+                ))
+                .unwrap();
+        });
+        entered_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        assert!(
+            result_receiver
+                .recv_timeout(JOURNAL_DURABLE_WAIT + Duration::from_millis(100))
+                .is_err(),
+            "an admitted commit must not report a timeout while its result is unknown"
+        );
+        release.send(()).unwrap();
+        result_receiver.recv_timeout(Duration::from_secs(1)).unwrap().unwrap();
+        producer.join().unwrap();
+        let records = mux.session_journal_after(0, 1024).unwrap().records;
+        assert!(
+            records
+                .iter()
+                .any(|record| { record.correlation_id.as_deref() == Some("admitted_commit_1") }),
+            "the caller must observe success for the admitted durable commit"
+        );
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn producer_bounds_an_admitted_commit_with_an_indeterminate_result() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-producer-indeterminate-commit-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent(
+            "journal-producer-indeterminate-commit",
+            crate::SurfaceOptions::default(),
+            &root,
+        )
+        .unwrap();
+        let (entered, entered_receiver) = sync_channel(1);
+        let (release, release_receiver) = sync_channel(1);
+        mux.install_journal_after_commit_admission_for_test(entered, release_receiver);
+        let ingress = crate::agent_hook_journal_ingress(
+            "codex",
+            "SubagentStop",
+            None,
+            serde_json::json!({
+                "session_id":"indeterminate-commit-root",
+                "root_session_id":"indeterminate-commit-root",
+                "parent_session_id":"indeterminate-commit-root",
+                "child_agent_id":"indeterminate-commit-child",
+                "message":"indeterminate-commit-marker",
+            }),
+        )
+        .unwrap();
+        let producer_mux = mux.clone();
+        let (result_sender, result_receiver) = sync_channel(1);
+        let producer = std::thread::spawn(move || {
+            result_sender
+                .send(producer_mux.append_journal_ingress(
+                    &ingress,
+                    "client_indeterminate_commit",
+                    "indeterminate_commit_1",
+                ))
+                .unwrap();
+        });
+        entered_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let started = Instant::now();
+        let error = result_receiver
+            .recv_timeout(
+                JOURNAL_DURABLE_WAIT
+                    .saturating_add(JOURNAL_COMMIT_RESULT_WAIT)
+                    .saturating_add(Duration::from_secs(1)),
+            )
+            .expect("an admitted commit must return an explicit bounded result")
+            .unwrap_err();
+        assert!(error.to_string().contains("outcome is indeterminate"));
+        assert!(
+            started.elapsed()
+                < JOURNAL_DURABLE_WAIT
+                    .saturating_add(JOURNAL_COMMIT_RESULT_WAIT)
+                    .saturating_add(Duration::from_secs(1)),
+            "an admitted commit result must remain bounded"
+        );
+        let durable_epoch = mux.journal_event_epoch();
+        release.send(()).unwrap();
+        producer.join().unwrap();
+        assert_ne!(
+            mux.wait_for_journal_event(durable_epoch, Duration::from_secs(1)),
+            durable_epoch,
+            "an indeterminate admitted commit did not publish its durable result"
+        );
+        let records = mux.session_journal_after(0, 1024).unwrap().records;
+        assert!(
+            records.iter().any(|record| {
+                record.correlation_id.as_deref() == Some("indeterminate_commit_1")
+            }),
+            "an indeterminate result must not claim that the admitted commit failed"
+        );
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn shutdown_returns_when_an_admitted_commit_stays_blocked() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-admitted-shutdown-deadline-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent(
+            "journal-admitted-shutdown-deadline",
+            crate::SurfaceOptions::default(),
+            &root,
+        )
+        .unwrap();
+        let (entered, entered_receiver) = sync_channel(1);
+        let (release, release_receiver) = sync_channel(1);
+        mux.install_journal_after_commit_admission_for_test(entered, release_receiver);
+        let ingress = crate::agent_hook_journal_ingress(
+            "codex",
+            "SubagentStop",
+            None,
+            serde_json::json!({
+                "session_id":"admitted-shutdown-root",
+                "root_session_id":"admitted-shutdown-root",
+                "parent_session_id":"admitted-shutdown-root",
+                "child_agent_id":"admitted-shutdown-child",
+                "message":"admitted-shutdown-marker",
+            }),
+        )
+        .unwrap();
+        let producer_mux = mux.clone();
+        let (producer_result, producer_result_receiver) = sync_channel(1);
+        let producer = std::thread::spawn(move || {
+            producer_result
+                .send(producer_mux.append_journal_ingress(
+                    &ingress,
+                    "client_admitted_shutdown",
+                    "admitted_shutdown_1",
+                ))
+                .unwrap();
+        });
+        entered_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let shutdown_mux = mux.clone();
+        let (shutdown_completed, shutdown_completion) = sync_channel(1);
+        let shutdown = std::thread::spawn(move || {
+            shutdown_mux.shutdown();
+            shutdown_completed.send(()).unwrap();
+        });
+        let returned = shutdown_completion.recv_timeout(Duration::from_secs(5));
+
+        release.send(()).unwrap();
+        let result = producer_result_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(
+            result.is_ok() || result.unwrap_err().to_string().contains("indeterminate"),
+            "the admitted producer returned an invalid final result"
+        );
+        producer.join().unwrap();
+        shutdown.join().unwrap();
+        assert!(returned.is_ok(), "shutdown waited without a limit for an admitted commit");
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn shutdown_joins_terminal_readers_before_the_final_journal_fence() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-terminal-reader-shutdown-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent(
+            "terminal-reader-shutdown",
+            crate::SurfaceOptions::default(),
+            &root,
+        )
+        .unwrap();
+        let surface = crate::Surface::spawn_for_test(
+            1,
+            crate::SurfaceOptions::default(),
+            Arc::downgrade(&mux),
+        )
+        .unwrap();
+        let terminal_id = Arc::new(public_id("term", 13, TerminalPublicId::parse));
+        let (release_reader, reader_release) = sync_channel(1);
+        let reader_mux = mux.clone();
+        let reader = std::thread::spawn(move || {
+            reader_release.recv().unwrap();
+            reader_mux.journal_terminal_output(
+                terminal_id,
+                Arc::from("delayed-reader-generation"),
+                b"persist after reader shutdown starts".to_vec(),
+            );
+        });
+        surface.install_terminal_reader_for_test(reader);
+        mux.insert_surface_runtime_for_test(surface);
+
+        let shutdown_mux = mux.clone();
+        let (completed, completion) = sync_channel(1);
+        let shutdown = std::thread::spawn(move || {
+            shutdown_mux.shutdown();
+            completed.send(()).unwrap();
+        });
+        assert!(
+            completion.recv_timeout(Duration::from_millis(100)).is_err(),
+            "shutdown returned before the terminal reader stopped"
+        );
+        release_reader.send(()).unwrap();
+        completion.recv_timeout(Duration::from_secs(5)).unwrap();
+        shutdown.join().unwrap();
+
+        let records = mux.session_journal_after(0, 1024).unwrap().records;
+        let output = records
+            .iter()
+            .find(|record| record.kind == "terminal.output")
+            .expect("shutdown fenced delayed terminal reader output");
+        assert_eq!(
+            output.terminal_output.as_deref(),
+            Some(b"persist after reader shutdown starts".as_slice())
+        );
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn reader_timeout_preserves_the_active_update_before_closing_capture() {
+        let mux = Mux::new("active-terminal-journal-update", crate::SurfaceOptions::default());
+        let surface = crate::Surface::spawn_for_test(
+            1,
+            crate::SurfaceOptions::default(),
+            Arc::downgrade(&mux),
+        )
+        .unwrap();
+        let reader_surface = surface.clone();
+        let (active, active_receiver) = sync_channel(1);
+        let (release, release_receiver) = sync_channel(1);
+        let reader = std::thread::spawn(move || {
+            let mut update = reader_surface
+                .begin_terminal_journal_update_for_test()
+                .expect("journal capture must be open");
+            assert!(update.activate(), "active update reservation was revoked before mutation");
+            active.send(()).unwrap();
+            release_receiver.recv().unwrap();
+            drop(update);
+        });
+        surface.install_terminal_reader_for_test(reader);
+        active_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let finishing_surface = surface.clone();
+        let (finished, finished_receiver) = sync_channel(1);
+        let finisher = std::thread::spawn(move || {
+            let gap = finishing_surface
+                .finish_terminal_reader(Instant::now() + Duration::from_millis(10));
+            finished.send(gap).unwrap();
+        });
+        assert!(
+            finished_receiver.recv_timeout(Duration::from_millis(100)).is_err(),
+            "shutdown discarded an active terminal update at its reader deadline"
+        );
+        release.send(()).unwrap();
+        assert!(
+            finished_receiver.recv_timeout(Duration::from_secs(1)).unwrap().is_none(),
+            "a completed active update must not create an output gap"
+        );
+        assert!(
+            surface.begin_terminal_journal_update_for_test().is_none(),
+            "a late terminal update started after the shutdown capture fence"
+        );
+        finisher.join().unwrap();
+    }
+
+    #[test]
+    fn reader_timeout_revokes_a_pre_parse_reservation() {
+        let mux = Mux::new("reserved-terminal-journal-update", crate::SurfaceOptions::default());
+        let surface = crate::Surface::spawn_for_test(
+            1,
+            crate::SurfaceOptions::default(),
+            Arc::downgrade(&mux),
+        )
+        .unwrap();
+        let mut reservation =
+            surface.begin_terminal_journal_update_for_test().expect("journal capture must be open");
+        let finishing_surface = surface.clone();
+        let (finished, finished_receiver) = sync_channel(1);
+        let finisher = std::thread::spawn(move || {
+            let _ = finishing_surface
+                .finish_terminal_reader(Instant::now() + Duration::from_millis(10));
+            finished.send(()).unwrap();
+        });
+
+        finished_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(
+            !reservation.activate(),
+            "a blocked read reservation became active after the shutdown fence"
+        );
+        drop(reservation);
+        finisher.join().unwrap();
+    }
+
+    #[test]
+    fn shutdown_uses_one_terminal_reader_deadline_for_all_surfaces() {
+        let mux = Mux::new("shared-terminal-reader-deadline", crate::SurfaceOptions::default());
+        let mut releases = Vec::new();
+        for id in 1..=4 {
+            let surface = crate::Surface::spawn_for_test(
+                id,
+                crate::SurfaceOptions::default(),
+                Arc::downgrade(&mux),
+            )
+            .unwrap();
+            let (release, release_receiver) = sync_channel(1);
+            let reader = std::thread::spawn(move || release_receiver.recv().unwrap());
+            surface.install_terminal_reader_for_test(reader);
+            mux.insert_surface_runtime_for_test(surface);
+            releases.push(release);
+        }
+
+        let started = Instant::now();
+        mux.shutdown();
+
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "terminal reader shutdown applied its deadline once per surface"
+        );
+        for release in releases {
+            release.send(()).unwrap();
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn shutdown_is_bounded_when_a_descendant_keeps_the_pty_open() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-terminal-descendant-shutdown-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let descendant_pid_path = root.join("descendant.pid");
+        let mux = Mux::open_persistent(
+            "terminal-descendant-shutdown",
+            crate::SurfaceOptions::default(),
+            &root,
+        )
+        .unwrap();
+        let surface = crate::Surface::spawn(
+            1,
+            crate::SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".into(),
+                    "-c".into(),
+                    "stty -echo; printf input-ready; read ready; sleep 30 & echo $! > \"$1\"; printf detached-ready; exit 0".into(),
+                    "cmux-shutdown-test".into(),
+                    descendant_pid_path.to_string_lossy().into_owned(),
+                ]),
+                ..crate::SurfaceOptions::default()
+            },
+            Arc::downgrade(&mux),
+        )
+        .unwrap();
+        mux.insert_surface_runtime_for_test(surface.clone());
+
+        let ready_deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let observed = surface.terminal_stream_revision().unwrap();
+            if surface
+                .with_terminal(|term| term.viewport_text().unwrap().contains("input-ready"))
+                .unwrap()
+            {
+                break;
+            }
+            assert!(
+                surface
+                    .wait_for_terminal_stream_change(observed, Some(ready_deadline))
+                    .unwrap()
+                    .is_some(),
+                "descendant fixture did not become ready"
+            );
+        }
+        surface.write_bytes(b"ready\n").unwrap();
+        loop {
+            let observed = surface.terminal_stream_revision().unwrap();
+            if surface
+                .with_terminal(|term| term.viewport_text().unwrap().contains("detached-ready"))
+                .unwrap()
+            {
+                break;
+            }
+            assert!(
+                surface
+                    .wait_for_terminal_stream_change(observed, Some(ready_deadline))
+                    .unwrap()
+                    .is_some(),
+                "descendant fixture did not publish its pid"
+            );
+        }
+        let descendant_pid = std::fs::read_to_string(&descendant_pid_path)
+            .unwrap()
+            .trim()
+            .parse::<libc::pid_t>()
+            .unwrap();
+
+        let started = Instant::now();
+        mux.shutdown();
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "shutdown waited without a bound for a descendant-held PTY"
+        );
+
+        if unsafe { libc::kill(descendant_pid, libc::SIGKILL) } != 0 {
+            assert_eq!(
+                io::Error::last_os_error().raw_os_error(),
+                Some(libc::ESRCH),
+                "descendant cleanup failed"
+            );
+        }
+        assert!(
+            surface.wait_for_terminal_reader_for_test(Instant::now() + Duration::from_secs(5)),
+            "terminal reader did not signal descendant cleanup"
+        );
+        assert!(surface.is_dead(), "terminal reader did not stop after descendant cleanup");
+        drop(surface);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn terminal_output_survives_a_short_nonretryable_writer_failure() {
         let root = std::env::temp_dir().join(format!(
             "cmux-terminal-journal-writer-retry-{}-{}",
             std::process::id(),
@@ -651,14 +2029,18 @@ mod tests {
             )
             .unwrap();
 
+        let (failure_observed, failure_observed_receiver) = sync_channel(1);
+        let (retry, retry_receiver) = sync_channel(1);
+        mux.install_journal_nonretryable_failure_hook_for_test(failure_observed, retry_receiver);
         let terminal_id = Arc::new(public_id("term", 11, TerminalPublicId::parse));
         mux.journal_terminal_output(
             terminal_id.clone(),
             Arc::from("writer-retry-generation"),
             b"must survive retry".to_vec(),
         );
-        std::thread::sleep(Duration::from_millis(500));
+        failure_observed_receiver.recv_timeout(Duration::from_secs(5)).unwrap();
         injector.execute_batch("DROP TRIGGER reject_test_terminal_output;").unwrap();
+        retry.send(()).unwrap();
         mux.flush_terminal_journal().unwrap();
 
         let records = mux.session_journal_after(0, 1024).unwrap().records;
@@ -673,6 +2055,70 @@ mod tests {
             })
         );
 
+        drop(injector);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn permanent_terminal_writer_failure_releases_the_final_barrier() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-terminal-journal-writer-terminal-failure-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent(
+            "terminal-journal-writer-terminal-failure",
+            crate::SurfaceOptions::default(),
+            &root,
+        )
+        .unwrap();
+        let database_path = std::fs::read_dir(&root)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.path().join("workspace-registry.sqlite3"))
+            .find(|path| path.is_file())
+            .expect("persistent journal database");
+        let injector = rusqlite::Connection::open(database_path).unwrap();
+        injector
+            .execute_batch(
+                "CREATE TRIGGER reject_permanent_test_terminal_output
+                 BEFORE INSERT ON session_journal
+                 WHEN NEW.kind = 'terminal.output'
+                 BEGIN
+                   SELECT RAISE(ABORT, 'injected permanent terminal journal failure');
+                 END;",
+            )
+            .unwrap();
+        mux.journal_terminal_output(
+            Arc::new(public_id("term", 14, TerminalPublicId::parse)),
+            Arc::from("permanent-writer-failure-generation"),
+            b"cannot commit".to_vec(),
+        );
+
+        let started = Instant::now();
+        let error = mux.flush_terminal_journal().unwrap_err();
+
+        assert!(started.elapsed() < Duration::from_secs(3));
+        assert!(error.to_string().contains("injected permanent terminal journal failure"));
+        assert!(
+            mux.daemon_shutdown_requested(),
+            "a permanent output gap must stop the daemon instead of continuing silently"
+        );
+        assert!(
+            mux.try_journal_terminal_output(
+                Arc::new(public_id("term", 14, TerminalPublicId::parse)),
+                Arc::from("permanent-writer-failure-generation"),
+                42,
+                b"must not be accepted".to_vec(),
+            )
+            .is_err(),
+            "later output must observe the terminal writer failure"
+        );
+        assert!(
+            mux.flush_terminal_journal().unwrap_err().to_string().contains("failed permanently"),
+            "later barriers must observe the writer terminal state"
+        );
         drop(injector);
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
@@ -710,6 +2156,123 @@ mod tests {
         }
         assert_eq!(rebuilt, bytes);
         assert!(receivers.terminal.try_recv().is_err());
+    }
+
+    #[test]
+    fn closed_ingress_rejects_late_terminal_and_durable_events() {
+        let (sender, _receivers) = JournalIngressSender::new(true);
+        sender.close_and_join().unwrap();
+        let terminal_id = Arc::new(public_id("term", 15, TerminalPublicId::parse));
+
+        assert!(matches!(
+            sender.try_send(JournalIngressEvent::TerminalOutput {
+                terminal_id,
+                generation: Arc::from("closed-ingress-generation"),
+                occurred_at_ms: 44,
+                bytes: b"too late".to_vec(),
+            }),
+            Err(JournalIngressTrySendError::Failed { error, .. })
+                if error.contains("admission is closed")
+        ));
+        assert!(
+            sender
+                .send_durable(JournalIngressEvent::TerminalBarrier)
+                .unwrap_err()
+                .to_string()
+                .contains("admission is closed")
+        );
+    }
+
+    #[test]
+    fn shutdown_closes_admission_while_a_terminal_producer_waits_for_space() {
+        let (sender, receivers) = JournalIngressSender::new(true);
+        let receivers = receivers.unwrap();
+        let sender = Arc::new(sender);
+        let terminal_id = Arc::new(public_id("term", 16, TerminalPublicId::parse));
+        for index in 0..JOURNAL_TERMINAL_QUEUE_CAPACITY {
+            sender.send(JournalIngressEvent::TerminalResize {
+                terminal_id: terminal_id.clone(),
+                generation: Arc::from("blocked-admission-generation"),
+                occurred_at_ms: u64::try_from(index).unwrap(),
+                cols: 80,
+                rows: 24,
+                cell_width: 8,
+                cell_height: 16,
+            });
+        }
+        let (queue_full, queue_full_receiver) = sync_channel(1);
+        sender.install_enqueue_full_notifier_for_test(queue_full);
+        let blocked_sender = sender.clone();
+        let blocked_terminal = terminal_id;
+        let blocked = std::thread::spawn(move || {
+            blocked_sender.send(JournalIngressEvent::TerminalResize {
+                terminal_id: blocked_terminal,
+                generation: Arc::from("blocked-admission-generation"),
+                occurred_at_ms: u64::MAX,
+                cols: 81,
+                rows: 25,
+                cell_width: 8,
+                cell_height: 16,
+            });
+        });
+        queue_full_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let shutdown_sender = sender;
+        let (shutdown_completion, shutdown_completed) = sync_channel(1);
+        let shutdown = std::thread::spawn(move || {
+            shutdown_completion
+                .send(
+                    shutdown_sender
+                        .close_and_join_until(Instant::now() + Duration::from_millis(100)),
+                )
+                .unwrap();
+        });
+        let returned = shutdown_completed.recv_timeout(Duration::from_secs(1));
+        assert!(
+            returned.is_ok(),
+            "shutdown waited on a terminal producer that held the admission lock"
+        );
+        returned.unwrap().unwrap();
+        blocked.join().unwrap();
+        shutdown.join().unwrap();
+
+        let queued = (0..JOURNAL_TERMINAL_QUEUE_CAPACITY)
+            .map(|_| receivers.terminal.recv().unwrap())
+            .collect::<Vec<_>>();
+        assert!(
+            queued.iter().all(|queued| matches!(
+                &queued.event,
+                JournalIngressEvent::TerminalResize { occurred_at_ms, .. }
+                    if *occurred_at_ms != u64::MAX
+            )),
+            "the event waiting outside the admission fence must not enter after close"
+        );
+        assert!(receivers.terminal.try_recv().is_err());
+    }
+
+    #[test]
+    fn writer_shutdown_deadline_detaches_a_stalled_writer() {
+        let (sender, _receivers) = JournalIngressSender::new(true);
+        let (entered, entered_receiver) = sync_channel(1);
+        let (release, release_receiver) = sync_channel(1);
+        let (completed, completion_receiver) = sync_channel(1);
+        let writer = JournalWriter::spawn("stalled-journal-writer-test", move || {
+            entered.send(()).unwrap();
+            release_receiver.recv().unwrap();
+            completed.send(()).unwrap();
+        })
+        .unwrap();
+        sender.install_writer(writer).unwrap();
+        entered_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let deadline = Instant::now() + Duration::from_millis(100);
+        let started = Instant::now();
+        let error = sender.close_and_join_until(deadline).unwrap_err();
+
+        assert!(error.to_string().contains("did not stop within"));
+        assert!(started.elapsed() < Duration::from_secs(1));
+        release.send(()).unwrap();
+        completion_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
     }
 
     #[test]
@@ -858,7 +2421,7 @@ mod tests {
         let generation: Arc<str> = Arc::from("ingress-throughput-generation");
         let mut chunk = vec![b'x'; TERMINAL_OUTPUT_INGRESS_BYTES];
         chunk[TERMINAL_OUTPUT_INGRESS_BYTES - 17..].copy_from_slice(b"terminal-output\r\n");
-        let started = std::time::Instant::now();
+        let started = Instant::now();
         for _ in 0..CHUNKS {
             mux.journal_terminal_output(terminal_id.clone(), generation.clone(), chunk.clone());
         }

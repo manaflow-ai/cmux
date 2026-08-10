@@ -287,9 +287,6 @@ impl WorkspaceRegistry {
                       projection.result_json,
                       projection.committed_revision
                FROM resource_agent_projections projection
-               JOIN resource_terminals terminal
-                 ON terminal.public_id = projection.terminal_id
-                AND terminal.deleted_revision IS NULL
                WHERE (?1 IS NULL OR projection.terminal_id = ?1)
              )
              SELECT terminal_id, result_json, committed_revision

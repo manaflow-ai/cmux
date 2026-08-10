@@ -1004,7 +1004,6 @@ class FakeCmuxServer:
         }
         terminal = {
             "id": terminal_id,
-            "tab_id": tab_id,
             "tab_ids": [tab_id],
             "title": name if isinstance(name, str) else "",
             "cols": 100,
