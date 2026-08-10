@@ -18836,10 +18836,7 @@ mod tests {
         let mut ready = String::new();
         BufReader::new(lifecycle).read_line(&mut ready).unwrap();
         assert_eq!(served, path);
-        assert_eq!(
-            serde_json::from_str::<Value>(&ready).unwrap()["data"]["lifecycle_ready"],
-            true
-        );
+        assert_eq!(serde_json::from_str::<Value>(&ready).unwrap()["data"]["lifecycle_ready"], true);
         cleanup(&served);
     }
 

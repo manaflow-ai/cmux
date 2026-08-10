@@ -440,10 +440,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
 fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
     let args = args.into_iter().collect::<Vec<_>>();
     if has_inline_relay_ticket_argument(&args) {
-        return Err(localization::catalog()
-            .remote_client
-            .inline_relay_ticket_rejected
-            .to_string());
+        return Err(localization::catalog().remote_client.inline_relay_ticket_rejected.to_string());
     }
     let mut out = Args {
         attach: false,
