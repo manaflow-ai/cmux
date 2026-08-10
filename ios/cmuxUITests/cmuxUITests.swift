@@ -2587,6 +2587,7 @@ final class cmuxUITests: XCTestCase {
         let app = launchApp(mockData: true, environment: [
             "CMUX_UITEST_ATTACH_URL": try attachURL(port: port).absoluteString,
         ], launchArguments: [
+            "-cmux.mobile.taskComposerEnabled", "YES",
             "-UIPreferredContentSizeCategoryName",
             "UICTContentSizeCategoryAccessibilityXXXL",
         ])
