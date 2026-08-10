@@ -326,7 +326,11 @@ fn terminal_effect(mux: &Arc<Mux>, request: ParsedResourceRequest) -> Result<Val
     validate_terminal_effect_fields(&request)?;
     let fields = request.fields.clone();
     let preparation = effects::prepare(mux, &request, || {
-        let (terminal_id, _) = resolve_terminal_surface(mux, &request.selectors)?;
+        let terminal_id = if request.envelope.operation == ResourceOperation::TerminalClose {
+            resolve_terminal_wait_exit_id(mux, &request.selectors)?
+        } else {
+            resolve_terminal_surface(mux, &request.selectors)?.0
+        };
         Ok(json!({"terminal_id":terminal_id,"fields":fields}))
     })?;
     match preparation {
@@ -352,6 +356,16 @@ fn execute_terminal_effect(
         Ok(fields) => fields.clone(),
         Err(error) => return effects::commit_known_failure(mux, prepared, error),
     };
+    if prepared.operation == "terminal.close" {
+        let commit = mux.commit_resource_terminal_close_effect(
+            &terminal_id,
+            &prepared.idempotency_key,
+            &prepared.operation,
+            &prepared.fingerprint,
+        );
+        return finish_projection_commit(mux, prepared, commit);
+    }
+
     let Some(terminal) = mux.terminal_resource(&terminal_id) else {
         return effects::commit_known_failure(
             mux,
@@ -359,7 +373,6 @@ fn execute_terminal_effect(
             ResourceError::not_found("terminal", terminal_id.as_str()),
         );
     };
-    let surface_id = terminal.runtime_id();
     let surface = terminal.compatibility_surface();
 
     let action = match prepared.operation.as_str() {
@@ -371,7 +384,6 @@ fn execute_terminal_effect(
             surface.clear_history().map_err(|error| ActionFailure::Indeterminate(error.to_string()))
         }
         "terminal.viewport.scroll" => terminal_scroll_viewport(mux, &surface, &fields),
-        "terminal.close" => Ok(()),
         operation => Err(ActionFailure::Known(ResourceError::operation_failed(
             operation,
             "stored terminal effect operation is invalid",
@@ -380,16 +392,6 @@ fn execute_terminal_effect(
     };
     if let Err(failure) = action {
         return finish_action_failure(mux, prepared, failure);
-    }
-
-    if prepared.operation == "terminal.close" {
-        let commit = mux.commit_resource_terminal_close_effect(
-            surface_id,
-            &prepared.idempotency_key,
-            &prepared.operation,
-            &prepared.fingerprint,
-        );
-        return finish_projection_commit(mux, prepared, commit);
     }
 
     debug_assert!(effects::receipt_only_operation(&prepared.operation));

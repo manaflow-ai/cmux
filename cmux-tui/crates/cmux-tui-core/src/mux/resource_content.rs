@@ -15,7 +15,7 @@ use crate::workspace_registry::{
     RegistryBrowser, RegistryBrowserLaunch, RegistryBrowserSource, RegistryBrowserStatus,
     RegistryLayoutNode, RegistryPane, RegistryScreen, RegistryTab, RegistryViewport,
     RegistryViewportColumn, RegistryWorkspace, ResourceChange, ResourcePatch, ResourcePatchCommit,
-    WorkspaceMutation, WorkspaceRegistry,
+    TerminalLifecycle, WorkspaceMutation, WorkspaceRegistry,
 };
 use crate::{ResourceSelectors, ResourceTarget};
 
@@ -585,6 +585,63 @@ pub(crate) struct ResourceEffectProjection {
     pub(crate) result: Value,
 }
 
+impl ResourceEffectProjection {
+    /// Explicit terminal close is the only operation that retires an exited
+    /// receipt. Full tree projection cannot infer that intent because exited
+    /// terminals have no runtime or views.
+    pub(super) fn ensure_terminal_close(
+        &mut self,
+        terminal_id: &crate::resource::TerminalPublicId,
+        expected_incarnation: Option<&str>,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            !self.patch.changes.iter().any(|change| matches!(
+                change,
+                ResourceChange::UpsertTerminal { public_id, .. } if public_id == terminal_id
+            )),
+            "terminal close projection retained {terminal_id}"
+        );
+        if let Some(existing) = self.patch.changes.iter_mut().find_map(|change| match change {
+            ResourceChange::TombstoneTerminal { public_id, expected_incarnation }
+                if public_id == terminal_id =>
+            {
+                Some(expected_incarnation)
+            }
+            _ => None,
+        }) {
+            if existing.is_none() {
+                *existing = expected_incarnation.map(ToOwned::to_owned);
+            }
+        } else {
+            self.patch.changes.push(ResourceChange::TombstoneTerminal {
+                public_id: terminal_id.clone(),
+                expected_incarnation: expected_incarnation.map(ToOwned::to_owned),
+            });
+        }
+
+        let changes = self
+            .changes
+            .as_array_mut()
+            .context("terminal close topology changes are not an array")?;
+        anyhow::ensure!(
+            !changes.iter().any(|change| {
+                change["kind"] == "upsert"
+                    && change["resource"] == "terminal"
+                    && change["id"].as_str() == Some(terminal_id.as_str())
+            }),
+            "terminal close public projection retained {terminal_id}"
+        );
+        if !changes.iter().any(|change| {
+            change["kind"] == "delete"
+                && change["resource"] == "terminal"
+                && change["id"].as_str() == Some(terminal_id.as_str())
+        }) {
+            push_delete_delta(changes, "terminal", terminal_id.as_str());
+        }
+        Ok(())
+    }
+}
+
 impl Mux {
     /// Project the complete live tree into one durable patch while the caller
     /// holds the registry -> state writer fence. The matching effect receipt
@@ -596,19 +653,28 @@ impl Mux {
         result: Value,
     ) -> anyhow::Result<ResourceEffectProjection> {
         let before = registry.resource_topology_snapshot()?;
-        // Terminals can have zero tabs, so the old topology tab list is not
-        // an exhaustive source for terminal tombstones or delete events.
-        let before_terminal_ids = registry
-            .live_terminal_resource_ids()?
-            .into_iter()
-            .map(|(_, terminal_id)| terminal_id)
-            .collect::<Vec<_>>();
         let terminal_records = registry
             .terminal_snapshot()?
             .terminals
             .into_iter()
             .map(|terminal| (terminal.terminal_id.clone(), terminal))
             .collect::<HashMap<_, _>>();
+        // Terminals can have zero tabs, so the old topology tab list is not
+        // an exhaustive source for terminal tombstones or delete events.
+        // Exited terminals are durable receipts with no runtime. Their absence
+        // from live state is not an explicit close.
+        let terminal_resources = registry.live_terminal_resource_ids()?;
+        let exited_terminal_ids = terminal_resources
+            .iter()
+            .filter_map(|(host_id, terminal_id)| {
+                terminal_records
+                    .get(host_id)
+                    .is_some_and(|terminal| terminal.lifecycle == TerminalLifecycle::Exited)
+                    .then(|| terminal_id.clone())
+            })
+            .collect::<HashSet<_>>();
+        let before_terminal_ids =
+            terminal_resources.into_iter().map(|(_, terminal_id)| terminal_id).collect::<Vec<_>>();
         // Local UI mutations can attach resource-identified surfaces before
         // their reverse indexes are populated. Full projection is the
         // reconciliation boundary, so rebuild from the live tree first.
@@ -989,6 +1055,7 @@ impl Mux {
         let mut tombstoned_browsers = HashSet::new();
         for terminal_id in &before_terminal_ids {
             if !live_terminals.contains(terminal_id)
+                && !exited_terminal_ids.contains(terminal_id)
                 && tombstoned_terminals.insert(terminal_id.clone())
             {
                 changes.push(ResourceChange::TombstoneTerminal {
@@ -1006,7 +1073,9 @@ impl Mux {
             }
             match &tab.content_id {
                 ContentPublicId::Terminal(id)
-                    if !live_terminals.contains(id) && tombstoned_terminals.insert(id.clone()) =>
+                    if !live_terminals.contains(id)
+                        && !exited_terminal_ids.contains(id)
+                        && tombstoned_terminals.insert(id.clone()) =>
                 {
                     changes.push(ResourceChange::TombstoneTerminal {
                         public_id: id.clone(),
@@ -1058,17 +1127,23 @@ impl Mux {
         let mut deleted_content = HashSet::new();
         for terminal_id in &before_terminal_ids {
             if !live_terminals.contains(terminal_id)
+                && !exited_terminal_ids.contains(terminal_id)
                 && deleted_content.insert(("terminal", terminal_id.as_str()))
             {
                 push_delete_delta(&mut deltas, "terminal", terminal_id.as_str());
             }
         }
         for tab in &before.tabs {
+            let preserves_exited_terminal = match &tab.content_id {
+                ContentPublicId::Terminal(id) => exited_terminal_ids.contains(id),
+                ContentPublicId::Browser(_) => false,
+            };
             let (kind, id) = match &tab.content_id {
                 ContentPublicId::Terminal(id) => ("terminal", id.as_str()),
                 ContentPublicId::Browser(id) => ("browser", id.as_str()),
             };
             if !live_keys.contains(&(kind.to_string(), id.to_string()))
+                && !preserves_exited_terminal
                 && deleted_content.insert((kind, id))
             {
                 push_delete_delta(&mut deltas, kind, id);

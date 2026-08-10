@@ -2175,6 +2175,7 @@ impl Mux {
                     screen: Some(state.workspaces[workspace_index].screens[screen_index].id),
                     pane: Some(pane),
                     tab: Some(surface),
+                    terminal: None,
                 })
             },
         )?;
@@ -2185,7 +2186,7 @@ impl Mux {
 
     pub(crate) fn commit_resource_terminal_close_effect(
         &self,
-        surface: SurfaceId,
+        terminal_id: &TerminalPublicId,
         idempotency_key: &str,
         operation_name: &str,
         fingerprint: &Value,
@@ -2198,12 +2199,14 @@ impl Mux {
             idempotency_key,
             operation_name,
             fingerprint,
-            move |state| {
-                anyhow::ensure!(
-                    state.terminal_runtime_by_id(surface).is_some(),
-                    "terminal disappeared"
-                );
-                Ok(EffectSlots { workspace: None, screen: None, pane: None, tab: Some(surface) })
+            |_| {
+                Ok(EffectSlots {
+                    workspace: None,
+                    screen: None,
+                    pane: None,
+                    tab: None,
+                    terminal: Some(terminal_id.clone()),
+                })
             },
         )?;
         drop(_creation_fence);
@@ -2264,25 +2267,16 @@ impl Mux {
             "terminal exit retained its catalog runtime"
         );
         let selection_resync = selection_before != active_tree_selection(&projected);
-        let mut projection =
+        let projection =
             self.resource_effect_projection_locked(registry, &mut projected, json!({}))?;
-
-        let mut preserved_terminal = false;
-        projection.patch.changes.retain(|change| match change {
-            ResourceChange::TombstoneTerminal { public_id, .. }
-                if public_id == terminal_public_id =>
-            {
-                preserved_terminal = true;
-                false
-            }
-            _ => true,
-        });
-        if !tab_ids.is_empty() {
-            anyhow::ensure!(
-                preserved_terminal,
-                "terminal exit projection did not preserve its durable receipt"
-            );
-        }
+        anyhow::ensure!(
+            !projection.patch.changes.iter().any(|change| matches!(
+                change,
+                ResourceChange::TombstoneTerminal { public_id, .. }
+                    if public_id == terminal_public_id
+            )),
+            "terminal exit projection tombstoned its durable receipt"
+        );
         let detached_tabs = projection
             .patch
             .changes
@@ -2299,16 +2293,16 @@ impl Mux {
 
         let public_changes = projection
             .changes
-            .as_array_mut()
+            .as_array()
             .context("terminal exit topology changes are not an array")?;
-        public_changes.retain(|change| {
-            !(change["kind"] == "delete"
-                && change["resource"] == "terminal"
-                && change["id"].as_str() == Some(terminal_public_id.as_str()))
-        });
-        for (sequence, change) in public_changes.iter_mut().enumerate() {
-            change["sequence"] = json!(sequence);
-        }
+        anyhow::ensure!(
+            !public_changes.iter().any(|change| {
+                change["kind"] == "delete"
+                    && change["resource"] == "terminal"
+                    && change["id"].as_str() == Some(terminal_public_id.as_str())
+            }),
+            "terminal exit public projection deleted its durable receipt"
+        );
 
         Ok(Some(TerminalExitDetachProjection {
             state: projected,
@@ -2426,8 +2420,13 @@ impl Mux {
         }
         let mut plan =
             self.resource_close_plan_locked(operation, slots, &registry, &state, &notifications)?;
-        let projection =
+        let mut projection =
             self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
+        if let Some(terminal_id) = plan.closed_terminal_public_id.as_ref() {
+            let expected_incarnation =
+                plan.terminal_batch.first().and_then(|(_, incarnation)| incarnation.as_deref());
+            projection.ensure_terminal_close(terminal_id, expected_incarnation)?;
+        }
         #[cfg(test)]
         if let Some(hook) = self.resource_projection_before_commit.lock().unwrap().clone() {
             hook();
@@ -2514,7 +2513,7 @@ impl Mux {
         &self,
         operation: ResourceOperation,
         slots: EffectSlots,
-        _registry: &WorkspaceRegistry,
+        registry: &WorkspaceRegistry,
         state: &State,
         notifications: &HashMap<SurfaceId, SurfaceNotification>,
     ) -> anyhow::Result<ResourceClosePlan> {
@@ -2602,16 +2601,23 @@ impl Mux {
                 }
             }
             ResourceOperation::TerminalClose => {
-                let surface = slots.tab.context("terminal disappeared")?;
-                let runtime =
-                    state.terminal_runtime_by_id(surface).context("terminal disappeared")?;
-                let public_id = runtime
-                    .terminal_public_id()
-                    .cloned()
-                    .context("terminal catalog entry omitted its public identity")?;
-                let host = self
-                    .resource_terminal_host_identity(&runtime)
-                    .context("terminal omitted its durable host identity")?;
+                let public_id = slots.terminal.context("terminal disappeared")?;
+                let host_id = registry
+                    .terminal_host_id(&public_id)?
+                    .with_context(|| format!("terminal {public_id} has no durable host"))?;
+                let terminal = registry
+                    .terminal_record(&host_id)?
+                    .with_context(|| format!("terminal {public_id} has no durable receipt"))?;
+                let runtime = state
+                    .terminal_catalog
+                    .get(&public_id)
+                    .map(|terminal| terminal.compatibility_surface());
+                if let Some(runtime) = runtime.as_ref() {
+                    let host = self
+                        .resource_terminal_host_identity(runtime)
+                        .context("terminal omitted its durable host identity")?;
+                    anyhow::ensure!(host.terminal_id == host_id, "terminal changed durable hosts");
+                }
                 let placements = state
                     .placements_of_content(&ContentPublicId::Terminal(public_id.clone()))
                     .to_vec();
@@ -2621,8 +2627,8 @@ impl Mux {
                 ResourceCloseInputs {
                     surface_ids: placements,
                     changed_screens: screens,
-                    terminal_runtime: Some(runtime),
-                    terminal_batch: vec![(host.terminal_id, Some(host.incarnation))],
+                    terminal_runtime: runtime,
+                    terminal_batch: vec![(host_id, terminal.incarnation)],
                     terminal_public_id: Some(public_id),
                     ..Default::default()
                 }
@@ -2635,13 +2641,14 @@ impl Mux {
         if let Some(public_id) = &terminal_public_id {
             let (removed_runtime, terminal_views, changed) =
                 remove_terminal_content_from_state(self, &mut projected, public_id);
-            anyhow::ensure!(
-                removed_runtime
-                    .as_ref()
-                    .zip(terminal_runtime.as_ref())
-                    .is_some_and(|(removed, planned)| removed.shares_terminal_runtime(planned)),
-                "terminal close lost its catalog runtime"
-            );
+            match (removed_runtime.as_ref(), terminal_runtime.as_ref()) {
+                (Some(removed), Some(planned)) => anyhow::ensure!(
+                    removed.shares_terminal_runtime(planned),
+                    "terminal close changed its catalog runtime"
+                ),
+                (None, None) => {}
+                _ => anyhow::bail!("terminal close lost its catalog runtime"),
+            }
             removed = terminal_views;
             split_index_changed = changed;
             for surface in surface_ids {
@@ -3603,7 +3610,7 @@ impl Mux {
                     .with_context(|| format!("tab {id} disappeared"))
             })
             .transpose()?;
-        Ok(EffectSlots { workspace, screen, pane, tab })
+        Ok(EffectSlots { workspace, screen, pane, tab, terminal: path.terminal.clone() })
     }
 
     pub(super) fn created_resource_path(&self, surface: SurfaceId) -> anyhow::Result<Value> {
@@ -4156,12 +4163,13 @@ impl Mux {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct EffectSlots {
     workspace: Option<WorkspaceId>,
     screen: Option<ScreenId>,
     pane: Option<PaneId>,
     tab: Option<SurfaceId>,
+    terminal: Option<TerminalPublicId>,
 }
 
 enum ResourceCreationEvidence {
