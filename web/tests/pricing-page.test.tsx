@@ -107,6 +107,12 @@ describe("localized pricing page", () => {
         (row) => row.label === "Cloud VM 上のクラウドエージェント",
       )?.team,
     ).toBe("20時間/月、以降は従量課金");
+    expect(enMessages.dashboard.billing.free.upsellBody).toContain(
+      "shared CodeRouter with anonymous aggregate usage and cost analytics",
+    );
+    expect(jaMessages.dashboard.billing.free.upsellBody).toContain(
+      "匿名の集計使用量・コスト分析付き共有 CodeRouter",
+    );
   });
 
   beforeEach(() => {
