@@ -1778,13 +1778,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn’t reach Stack"
+            "value": "Couldn’t reach cmux"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stack に接続できません"
+            "value": "cmux に接続できません"
           }
         }
       }
@@ -1846,13 +1846,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stack rejected the sign-in"
+            "value": "cmux couldn’t complete the sign-in"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stack がサインインを拒否しました"
+            "value": "cmux でサインインを完了できませんでした"
           }
         }
       }
@@ -1880,13 +1880,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stack is temporarily unavailable"
+            "value": "cmux sign-in is temporarily unavailable"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stack は一時的に利用できません"
+            "value": "cmux のサインインは一時的に利用できません"
           }
         }
       }
@@ -1931,13 +1931,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Confirm you’re using the intended Stack account, then try again."
+            "value": "Confirm you’re using the intended cmux account, then try again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用する Stack アカウントが正しいことを確認して、もう一度試してください。"
+            "value": "使用する cmux アカウントが正しいことを確認して、もう一度試してください。"
           }
         }
       }
@@ -1948,13 +1948,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stack couldn’t authorize this sign-in"
+            "value": "cmux couldn’t authorize this sign-in"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stack がこのサインインを承認できませんでした"
+            "value": "cmux がこのサインインを承認できませんでした"
           }
         }
       }
@@ -2067,13 +2067,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux is verifying your Stack account. Keep this pane open."
+            "value": "cmux is verifying your account. Keep this pane open."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux が Stack アカウントを確認しています。このペインを開いたままにしてください。"
+            "value": "cmux がアカウントを確認しています。このペインを開いたままにしてください。"
           }
         }
       }
@@ -2101,13 +2101,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux is preparing a secure Stack sign-in window."
+            "value": "cmux is preparing a secure sign-in window."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux が安全な Stack サインインウインドウを準備しています。"
+            "value": "cmux が安全なサインインウインドウを準備しています。"
           }
         }
       }
@@ -2220,13 +2220,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Continue with your Stack account."
+            "value": "Continue with your cmux account."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stack アカウントで続行します。"
+            "value": "cmux アカウントで続行します。"
           }
         }
       }
@@ -2254,13 +2254,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux is connected to your Stack account."
+            "value": "Your cmux account is connected."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux が Stack アカウントに接続されました。"
+            "value": "cmux アカウントに接続しました。"
           }
         }
       }
