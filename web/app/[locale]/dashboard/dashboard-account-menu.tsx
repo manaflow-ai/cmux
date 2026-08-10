@@ -15,6 +15,7 @@ import { Link, useRouter } from "@/i18n/navigation";
 
 const menuItemClass =
   "flex min-h-9 w-full cursor-default select-none items-center gap-2 px-2.5 py-2 text-left text-sm text-foreground no-underline outline-none data-[highlighted]:bg-code-bg";
+const ORGANIZATION_CATALOG_TIMEOUT_MS = 5_000;
 
 export function DashboardAccountMenu() {
   const t = useTranslations("dashboard.accountMenu");
@@ -137,7 +138,7 @@ function DashboardOrganizationSwitcher() {
   ] as const;
   const { data, isPending } = useQuery({
     queryKey: organizationQueryKey,
-    queryFn: loadOrganizationCatalog,
+    queryFn: ({ signal }) => loadOrganizationCatalog(signal),
     staleTime: 60_000,
   });
 
@@ -233,9 +234,15 @@ function DashboardOrganizationSwitcher() {
   );
 }
 
-async function loadOrganizationCatalog(): Promise<OrganizationCatalog> {
+async function loadOrganizationCatalog(
+  cancellationSignal: AbortSignal,
+): Promise<OrganizationCatalog> {
   const response = await fetch("/api/coderouter/organizations", {
     headers: { accept: "application/json" },
+    signal: AbortSignal.any([
+      cancellationSignal,
+      AbortSignal.timeout(ORGANIZATION_CATALOG_TIMEOUT_MS),
+    ]),
   });
   if (!response.ok) {
     throw new Error("Could not load CodeRouter organizations");
@@ -283,7 +290,6 @@ function parseOrganizationCatalog(value: unknown): OrganizationCatalog | null {
       },
     });
   }
-  if (selectedTeamId !== null && !seen.has(selectedTeamId)) return null;
   return { selectedTeamId, teams };
 }
 

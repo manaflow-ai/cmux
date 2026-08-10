@@ -146,8 +146,8 @@
       "free": {
         "name": "Free",
         "body": "現在はFreeプランです。Proの上限やホスト型機能が必要になったらアップグレードしてください。",
-        "upsellTitle": "クラウドエージェントやチーム請求が必要になったらアップグレードできます。",
-        "upsellBody": "個人向けクラウド機能にはPro、共有請求とシート管理にはTeamを選択してください。",
+        "upsellTitle": "クラウドエージェントや共有 CodeRouter が必要になったらアップグレードできます。",
+        "upsellBody": "個人向けクラウド機能には Pro、匿名の集計使用量・コスト分析付き共有 CodeRouter には Team を選択してください。",
         "testflightTitle": "cmux iOSアプリを入手",
         "testflightBody": "iOSベータは、有効な個人向けProサブスクリプションでTestFlightから利用できます。",
         "testflightCta": "iOSベータに参加"
