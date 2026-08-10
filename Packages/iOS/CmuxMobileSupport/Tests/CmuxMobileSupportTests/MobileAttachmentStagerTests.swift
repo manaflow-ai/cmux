@@ -84,7 +84,12 @@ struct MobileAttachmentStagerTests {
                 originalFileName: source.lastPathComponent
             )
         }
-        #expect(try FileManager.default.contentsOfDirectory(at: fixture.staged).isEmpty)
+        #expect(
+            try FileManager.default.contentsOfDirectory(
+                at: fixture.staged,
+                includingPropertiesForKeys: nil
+            ).isEmpty
+        )
     }
 
     @Test func cancellationBeforeStagingLeavesNoAppOwnedFile() async throws {
@@ -104,7 +109,12 @@ struct MobileAttachmentStagerTests {
         await #expect(throws: CancellationError.self) {
             try await staging.value
         }
-        #expect(try FileManager.default.contentsOfDirectory(at: fixture.staged).isEmpty)
+        #expect(
+            try FileManager.default.contentsOfDirectory(
+                at: fixture.staged,
+                includingPropertiesForKeys: nil
+            ).isEmpty
+        )
     }
 
     private struct Fixture {
