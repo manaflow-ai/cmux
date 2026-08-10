@@ -2478,17 +2478,30 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(keyboard.waitForExistence(timeout: 3))
         let options = app.buttons["MobileTaskComposerOptionsButton"]
         let submit = app.buttons["MobileTaskComposerSubmitButton"]
-        let keyboardDock = app.otherElements["MobileTaskComposerKeyboardDock"]
         let accessoryBar = app.otherElements["MobileTaskComposerAccessoryBar"]
         XCTAssertTrue(options.waitForExistence(timeout: 3))
         XCTAssertTrue(submit.waitForExistence(timeout: 3))
-        XCTAssertTrue(keyboardDock.waitForExistence(timeout: 3))
         XCTAssertTrue(accessoryBar.waitForExistence(timeout: 3))
 
         let controlToKeyboardGap = keyboard.frame.minY - submit.frame.maxY
+        let assistantOccupants = (
+            app.buttons.allElementsBoundByIndex
+                + app.staticTexts.allElementsBoundByIndex
+        ).filter { element in
+            let frame = element.frame
+            return !frame.isEmpty
+                && frame.minY >= accessoryBar.frame.maxY - 1
+                && frame.maxY <= keyboard.frame.minY + 1
+        }
+        XCTAssertFalse(
+            assistantOccupants.isEmpty,
+            "The keyplane gap must contain the iPad text-input assistant strip"
+        )
+        let assistantTop = assistantOccupants.map(\.frame.minY).min()
+        let accessoryToAssistantGap = try XCTUnwrap(assistantTop) - accessoryBar.frame.maxY
         print(
-            "MPILL_DOCK_XCUI dock=\(keyboardDock.frame) accessory=\(accessoryBar.frame) "
-                + "submit=\(submit.frame) keyboard=\(keyboard.frame)"
+            "MPILL_DOCK_XCUI accessory=\(accessoryBar.frame) submit=\(submit.frame) "
+                + "assistantTop=\(assistantTop ?? -1) keyboard=\(keyboard.frame)"
         )
         XCTAssertGreaterThanOrEqual(
             controlToKeyboardGap,
@@ -2496,9 +2509,15 @@ final class cmuxUITests: XCTestCase {
             "The composer controls must remain above the software keyboard"
         )
         XCTAssertLessThanOrEqual(
-            controlToKeyboardGap,
-            8,
-            "The composer controls must remain visually attached to the software keyboard"
+            accessoryToAssistantGap,
+            12,
+            "The composer bar must meet the iPad assistant strip without form-sheet whitespace"
+        )
+        XCTAssertEqual(
+            accessoryBar.frame.maxY - submit.frame.maxY,
+            6,
+            accuracy: 1,
+            "The submit control must keep the bar's six-point bottom inset"
         )
         XCTAssertEqual(
             options.frame.maxY,
