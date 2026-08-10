@@ -1,7 +1,15 @@
 #if os(iOS)
 import CmuxMobileShellModel
 import CmuxMobileSupport
+import OSLog
 import SwiftUI
+
+#if DEBUG
+private let agentFeedViewportLogger = Logger(
+    subsystem: "com.cmuxterm.cmux.debug",
+    category: "AgentFeedViewport"
+)
+#endif
 
 struct AgentFeedActions {
     let setDraft: @MainActor (MobileAgentFeedItemID, String) -> Void
@@ -104,6 +112,11 @@ struct AgentFeedView: View {
                         threshold: 0.01
                     ) { visibleIDs in
                         visibilityTracker.replaceVisibleIDs(visibleIDs)
+#if DEBUG
+                        agentFeedViewportLogger.notice(
+                            "visibility count=\(visibleIDs.count, privacy: .public) first=\(String(describing: visibleIDs.first), privacy: .public)"
+                        )
+#endif
                     }
                     .overlay(alignment: .top) {
                         if unseenItemCount > 0 {
@@ -145,6 +158,13 @@ struct AgentFeedView: View {
                         let insertedVisibleCount = insertedBeforeOldNewest
                             .intersection(genuinelyNewIDs)
                             .count
+#if DEBUG
+                        if !genuinelyNewIDs.isEmpty {
+                            agentFeedViewportLogger.notice(
+                                "source old=\(oldIDs.count, privacy: .public) new=\(newIDs.count, privacy: .public) genuinelyNew=\(genuinelyNewIDs.count, privacy: .public) visible=\(visibilityTracker.visibleIDs.count, privacy: .public) oldNewestVisible=\(oldNewestID.map(visibilityTracker.visibleIDs.contains) ?? false, privacy: .public) insertedBefore=\(insertedVisibleCount, privacy: .public) anchor=\(String(describing: anchorID), privacy: .public)"
+                            )
+                        }
+#endif
                         if !oldIDs.isEmpty,
                            let oldNewestID,
                            !visibilityTracker.visibleIDs.contains(oldNewestID),
@@ -155,6 +175,11 @@ struct AgentFeedView: View {
                         renderedItems = newVisibleItems
                     }
                     .onChange(of: visibleItems.map(\.id)) { _, _ in
+#if DEBUG
+                        agentFeedViewportLogger.notice(
+                            "render committed count=\(visibleItems.count, privacy: .public) pending=\(String(describing: pendingViewportAnchor), privacy: .public) unseen=\(unseenItemCount, privacy: .public)"
+                        )
+#endif
                         guard let anchorID = pendingViewportAnchor else { return }
                         pendingViewportAnchor = nil
                         var transaction = Transaction()
