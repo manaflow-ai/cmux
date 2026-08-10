@@ -28,12 +28,29 @@ import Testing
 
     private static func stagedAttachment(
         byteCount: Int = 1,
+        actualByteCount: Int? = nil,
         kind: MobileStagedAttachment.Kind = .file
     ) -> MobileStagedAttachment {
         let id = UUID()
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("typed-admission-\(id).bin")
-        try? Data([0]).write(to: url)
+        guard FileManager.default.createFile(atPath: url.path, contents: nil) else {
+            Issue.record("could not create sparse attachment fixture")
+            return MobileStagedAttachment(
+                id: id,
+                kind: kind,
+                fileName: "attachment.bin",
+                localFileURL: url,
+                byteCount: byteCount
+            )
+        }
+        do {
+            let handle = try FileHandle(forWritingTo: url)
+            try handle.truncate(atOffset: UInt64(actualByteCount ?? byteCount))
+            try handle.close()
+        } catch {
+            Issue.record("could not size sparse attachment fixture: \(error)")
+        }
         return MobileStagedAttachment(
             id: id,
             kind: kind,
@@ -340,6 +357,34 @@ import Testing
         let result = composite.admitPendingAttachment(attachment, forTerminalID: "term-a")
 
         #expect(result == .rejected(.itemSizeLimit))
+    }
+
+    @Test func typedAdmissionRejectsMissingBackingFileWithoutMutation() {
+        let composite = Self.makeComposite()
+        let missingURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("missing-typed-admission-\(UUID()).bin")
+        let attachment = MobileStagedAttachment(
+            kind: .file,
+            fileName: "missing.bin",
+            localFileURL: missingURL,
+            byteCount: 1
+        )
+
+        let result = composite.admitPendingAttachment(attachment, forTerminalID: "term-a")
+
+        #expect(result == .rejected(.unreadableFile))
+        #expect(composite.pendingAttachments(forTerminalID: "term-a").isEmpty)
+    }
+
+    @Test func typedAdmissionRejectsMismatchedBackingFileSizeWithoutMutation() {
+        let composite = Self.makeComposite()
+        let attachment = Self.stagedAttachment(byteCount: 4, actualByteCount: 3)
+        defer { try? FileManager.default.removeItem(at: attachment.localFileURL) }
+
+        let result = composite.admitPendingAttachment(attachment, forTerminalID: "term-a")
+
+        #expect(result == .rejected(.unreadableFile))
+        #expect(composite.pendingAttachments(forTerminalID: "term-a").isEmpty)
     }
 
     @Test func typedAdmissionReportsPerTerminalCountLimit() {
