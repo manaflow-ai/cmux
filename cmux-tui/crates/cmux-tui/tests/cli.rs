@@ -97,6 +97,7 @@ struct HeadlessServer {
     socket: PathBuf,
     state: PathBuf,
     dir: PathBuf,
+    shutdown_owner_diagnostic: Option<PathBuf>,
 }
 
 impl HeadlessServer {
@@ -105,11 +106,15 @@ impl HeadlessServer {
     }
 
     fn start_with(name: &str, ephemeral: bool, environment: &[(&str, &str)]) -> Self {
-        Self::start_with_options(name, ephemeral, environment, None)
+        Self::start_with_options(name, ephemeral, environment, None, false)
+    }
+
+    fn start_with_shutdown_owner_diagnostic(name: &str, ephemeral: bool) -> Self {
+        Self::start_with_options(name, ephemeral, &[], None, true)
     }
 
     fn start_with_config(name: &str, config_contents: Option<&str>) -> Self {
-        Self::start_with_options(name, false, &[], config_contents)
+        Self::start_with_options(name, false, &[], config_contents, false)
     }
 
     fn start_with_options(
@@ -117,6 +122,7 @@ impl HeadlessServer {
         ephemeral: bool,
         environment: &[(&str, &str)],
         config_contents: Option<&str>,
+        capture_shutdown_owner_diagnostic: bool,
     ) -> Self {
         let dir = unique_temp_dir(name);
         fs::create_dir_all(&dir).unwrap();
@@ -137,10 +143,24 @@ impl HeadlessServer {
         for (name, value) in environment {
             command.env(name, value);
         }
+        let shutdown_owner_diagnostic =
+            capture_shutdown_owner_diagnostic.then(|| dir.join("shutdown-owner-diagnostic.txt"));
+        if let Some(path) = &shutdown_owner_diagnostic {
+            command.env("CMUX_TUI_TEST_SHUTDOWN_OWNER_DIAGNOSTIC", path);
+        }
         let child = command.stdout(Stdio::null()).stderr(Stdio::piped()).spawn().unwrap();
-        let server = Self { child, socket, state, dir };
+        let server = Self { child, socket, state, dir, shutdown_owner_diagnostic };
         server.wait_for_socket();
         server
+    }
+
+    fn shutdown_owner_diagnostic(&self) -> String {
+        let Some(path) = &self.shutdown_owner_diagnostic else {
+            return "shutdown owner diagnostic was not requested".to_string();
+        };
+        fs::read_to_string(path).unwrap_or_else(|error| {
+            format!("shutdown owner diagnostic was not published at {}: {error}", path.display())
+        })
     }
 
     fn wait_for_socket(&self) {
@@ -3183,7 +3203,10 @@ fn cancelled_published_host_is_terminated_through_its_record() {
 #[cfg(unix)]
 #[test]
 fn server_stop_kills_ephemeral_pty_process_groups() {
-    let mut server = HeadlessServer::start_with("server-stop-ephemeral-process-group", true, &[]);
+    let mut server = HeadlessServer::start_with_shutdown_owner_diagnostic(
+        "server-stop-ephemeral-process-group",
+        true,
+    );
     let descendant_pid_file = server.dir.join("ephemeral-descendant.pid");
     let command = format!(
         "trap '' HUP; (trap '' HUP; while :; do sleep 1; done) & echo $! > {}; wait",
@@ -3202,8 +3225,9 @@ fn server_stop_kills_ephemeral_pty_process_groups() {
     let descendant_pid = wait_for_pid_file(&descendant_pid_file, Duration::from_secs(5));
 
     let stop = cli(&server, &["--json", "server", "stop"]);
+    let shutdown_diagnostic = server.shutdown_owner_diagnostic();
 
-    assert_success(&stop);
+    assert_success_with_context(&stop, &shutdown_diagnostic);
     assert!(server.child.wait().unwrap().success());
     assert!(!process_is_active(direct_pid));
     assert!(!process_group_is_active(direct_pid));
@@ -3213,8 +3237,10 @@ fn server_stop_kills_ephemeral_pty_process_groups() {
 #[cfg(unix)]
 #[test]
 fn server_stop_kills_background_jobs_in_separate_pty_process_groups() {
-    let mut server =
-        HeadlessServer::start_with("server-stop-ephemeral-job-control-group", true, &[]);
+    let mut server = HeadlessServer::start_with_shutdown_owner_diagnostic(
+        "server-stop-ephemeral-job-control-group",
+        true,
+    );
     let descendant_pid_file = server.dir.join("ephemeral-background-job.pid");
     let command = format!(
         concat!(
@@ -3249,8 +3275,9 @@ fn server_stop_kills_background_jobs_in_separate_pty_process_groups() {
     let descendant_session = unsafe { libc::getsid(descendant_pid_raw) };
 
     let stop = cli(&server, &["--json", "server", "stop"]);
+    let shutdown_diagnostic = server.shutdown_owner_diagnostic();
 
-    assert_success(&stop);
+    assert_success_with_context(&stop, &shutdown_diagnostic);
     assert!(server.child.wait().unwrap().success());
     let descendant_remained = process_is_active(descendant_pid);
     if descendant_remained {
@@ -3280,7 +3307,8 @@ fn server_stop_kills_background_jobs_in_separate_pty_process_groups() {
 #[cfg(unix)]
 #[test]
 fn server_stop_drains_many_hosted_panes_before_acknowledging() {
-    let mut server = HeadlessServer::start("server-stop-many-panes");
+    let mut server =
+        HeadlessServer::start_with_shutdown_owner_diagnostic("server-stop-many-panes", false);
     let applied = raw_json(
         &server,
         serde_json::json!({
@@ -3312,8 +3340,9 @@ fn server_stop_drains_many_hosted_panes_before_acknowledging() {
 
     let stop_started = Instant::now();
     let stop = cli(&server, &["--json", "server", "stop"]);
+    let shutdown_diagnostic = server.shutdown_owner_diagnostic();
 
-    assert_success(&stop);
+    assert_success_with_context(&stop, &shutdown_diagnostic);
     assert!(stop_started.elapsed() < Duration::from_secs(5));
     assert!(server.child.wait().unwrap().success());
     assert!(!host_pids.iter().copied().any(process_is_active));
@@ -4882,6 +4911,18 @@ fn assert_success(output: &Output) {
         output.status.code(),
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[track_caller]
+fn assert_success_with_context(output: &Output, context: &str) {
+    assert!(
+        output.status.success(),
+        "expected success, got status {:?}\nstdout:\n{}\nstderr:\n{}\ncontext:\n{}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+        context,
     );
 }
 

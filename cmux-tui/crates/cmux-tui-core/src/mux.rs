@@ -401,11 +401,11 @@ impl ShutdownOwnerLedger {
         Some(self.stage(shutdown_owner_key(surface.id, &owner), owner))
     }
 
-    fn stage_daemon_owned_local_surface(
+    fn stage_local_process_surface(
         &self,
         surface: &Arc<Surface>,
     ) -> Option<(ShutdownOwnerKey, Arc<SurfaceShutdownOwner>)> {
-        let owner = surface.daemon_shutdown_owner()?;
+        let owner = surface.local_process_shutdown_owner()?;
         Some(self.stage(ShutdownOwnerKey::Surface(surface.id), owner))
     }
 
@@ -9225,7 +9225,7 @@ impl Mux {
             .context("drain unpublished child reaper ownership for daemon exit")?;
         let surfaces = unique_surface_runtimes(&self.state.lock().unwrap());
         for surface in surfaces {
-            let _ = self.shutdown_owners.stage_daemon_owned_local_surface(&surface);
+            let _ = self.shutdown_owners.stage_local_process_surface(&surface);
             surface.shutdown_for_daemon();
         }
         self.terminate_staged_shutdown_owners_until(deadline);
@@ -9641,7 +9641,17 @@ impl Mux {
             ));
         }
         if !failures.is_empty() {
-            anyhow::bail!("{}", failures.join("; "));
+            let diagnostic = failures.join("; ");
+            #[cfg(debug_assertions)]
+            if let Some(path) = std::env::var_os("CMUX_TUI_TEST_SHUTDOWN_OWNER_DIAGNOSTIC") {
+                std::fs::write(&path, diagnostic.as_bytes()).with_context(|| {
+                    format!(
+                        "write test shutdown owner diagnostic to {}",
+                        Path::new(&path).display()
+                    )
+                })?;
+            }
+            anyhow::bail!("{diagnostic}");
         }
 
         cleanup_lifecycle.complete();

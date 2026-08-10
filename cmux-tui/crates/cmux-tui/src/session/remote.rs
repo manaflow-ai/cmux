@@ -2582,8 +2582,12 @@ impl RemoteSession {
             return Err(RemoteRequestError::Transport(error).into());
         }
 
-        if self.shutdown.load(Ordering::Acquire) {
-            self.pending.lock().unwrap().remove(&id);
+        // A routed response has already removed this id and owns the receiver.
+        // Shutdown cancels only a request whose pending entry we can still take;
+        // otherwise consume the routed response or shutdown sentinel below.
+        if self.shutdown.load(Ordering::Acquire)
+            && self.pending.lock().unwrap().remove(&id).is_some()
+        {
             return Err(RemoteRequestError::Shutdown.into());
         }
 

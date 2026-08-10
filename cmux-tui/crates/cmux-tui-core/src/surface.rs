@@ -6052,15 +6052,14 @@ impl Surface {
         }
     }
 
-    pub(crate) fn daemon_shutdown_owner(&self) -> Option<SurfaceShutdownOwner> {
+    /// A local PTY process cannot survive its daemon, regardless of the
+    /// resource lifetime. Hosted runtimes have no local process owner here.
+    pub(crate) fn local_process_shutdown_owner(&self) -> Option<SurfaceShutdownOwner> {
         let Surface::Pty(pty) = self else { return None };
-        if pty.lifetime != PtyLifetime::DaemonOwned {
-            return None;
-        }
-        pty.local_process
-            .as_deref()
-            .cloned()
-            .map(|process| SurfaceShutdownOwner { kind: SurfaceShutdownOwnerKind::Local(process) })
+        let Some(LocalProcess::Owned(process)) = pty.local_process.as_deref() else { return None };
+        Some(SurfaceShutdownOwner {
+            kind: SurfaceShutdownOwnerKind::Local(LocalProcess::Owned(process.clone())),
+        })
     }
 
     #[cfg(test)]
