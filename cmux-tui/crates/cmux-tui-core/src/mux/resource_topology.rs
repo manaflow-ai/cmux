@@ -2488,15 +2488,35 @@ impl Mux {
         registry: &WorkspaceRegistry,
         state: &State,
         terminal_id: &str,
+        terminal_incarnation: Option<&str>,
         terminal_public_id: &TerminalPublicId,
     ) -> anyhow::Result<Option<TerminalExitDetachProjection>> {
+        let durable_terminal = registry
+            .terminal_record(terminal_id)?
+            .with_context(|| format!("unknown terminal {terminal_id}"))?;
+        if let Some(expected_incarnation) = terminal_incarnation {
+            anyhow::ensure!(
+                durable_terminal.incarnation.as_deref() == Some(expected_incarnation),
+                "terminal_incarnation_mismatch"
+            );
+        }
         let content_id = ContentPublicId::Terminal(terminal_public_id.clone());
-        let has_runtime = state.terminal_catalog.contains_key(terminal_public_id);
+        let runtime = state.terminal_catalog.get(terminal_public_id);
+        if let Some(runtime) = runtime {
+            let host = self
+                .resource_terminal_host_identity(runtime)
+                .context("terminal runtime omitted its durable host identity")?;
+            anyhow::ensure!(
+                terminal_host_matches(&host, terminal_id, terminal_incarnation),
+                "terminal exit runtime changed hosts or incarnations"
+            );
+        }
+        let has_runtime = runtime.is_some();
         let targets = terminal_content_placements(
             self,
             state,
             terminal_public_id,
-            Some((terminal_id, None)),
+            Some((terminal_id, terminal_incarnation)),
         );
         if targets.is_empty() && !has_runtime {
             return Ok(None);
@@ -2528,7 +2548,10 @@ impl Mux {
             let host = self
                 .resource_terminal_host_identity(runtime)
                 .context("terminal runtime omitted its durable host identity")?;
-            anyhow::ensure!(host.terminal_id == terminal_id, "terminal exit runtime changed hosts");
+            anyhow::ensure!(
+                terminal_host_matches(&host, terminal_id, terminal_incarnation),
+                "terminal exit runtime changed hosts or incarnations"
+            );
         }
         anyhow::ensure!(
             projected.placements_of_content(&content_id).is_empty(),
@@ -2646,6 +2669,7 @@ impl Mux {
             &registry,
             &state,
             terminal_id,
+            terminal.incarnation.as_deref(),
             &terminal_public_id,
         )?
         else {

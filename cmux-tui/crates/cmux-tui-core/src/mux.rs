@@ -12567,6 +12567,7 @@ impl Mux {
                 &registry,
                 &state,
                 terminal_id,
+                incarnation,
                 public_terminal_id,
             )?
         } else {
@@ -20269,6 +20270,52 @@ mod tests {
             }
         }
         mux.shutdown();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stale_terminal_exit_rejects_a_new_in_memory_incarnation() {
+        let mux = test_mux();
+        let old_surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let old_host = mux.resource_terminal_host_identity(&old_surface).unwrap();
+        let public_id = old_surface.terminal_public_id().cloned().unwrap();
+        let removed = mux.remove_surface_runtime_for_test(old_surface.id).unwrap();
+        mux.remove_terminal_catalog_for_test(&public_id).unwrap();
+
+        let mut new_incarnation = old_host.incarnation.clone();
+        let replacement = if new_incarnation.starts_with('0') { "1" } else { "0" };
+        new_incarnation.replace_range(0..1, replacement);
+        let new_surface = Surface::exited_terminal_placeholder_with_terminal_public_id(
+            mux.next_id(),
+            mux.surface_options.lock().unwrap().clone(),
+            Arc::downgrade(&mux),
+            TerminalHostIdentity {
+                terminal_id: old_host.terminal_id.clone(),
+                incarnation: new_incarnation,
+            },
+            public_id.clone(),
+        )
+        .unwrap();
+        insert_surface_checked(&mux, &mut mux.state.lock().unwrap(), new_surface.clone())
+            .unwrap();
+
+        let error = {
+            let registry = mux.workspace_registry.lock().unwrap();
+            let state = mux.state.lock().unwrap();
+            mux.terminal_exit_detach_projection_locked(
+                &registry,
+                &state,
+                &old_host.terminal_id,
+                Some(&old_host.incarnation),
+                &public_id,
+            )
+            .unwrap_err()
+        };
+
+        assert!(error.to_string().contains("runtime changed hosts or incarnations"));
+        assert!(mux.surface(new_surface.id).is_some());
+        removed.kill();
+        new_surface.kill();
     }
 
     #[test]
