@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileSupport
 import SwiftUI
 
 struct MobilePrimarySearchLifecycleModifier: ViewModifier {
