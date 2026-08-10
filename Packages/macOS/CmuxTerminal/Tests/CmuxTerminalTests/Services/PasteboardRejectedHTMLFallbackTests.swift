@@ -68,9 +68,10 @@ struct PasteboardRejectedHTMLFallbackTests {
             from: NSRange(location: 0, length: attributed.length),
             documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]
         )
-        pasteboard.declareTypes([.png, .html, .rtf], owner: nil)
+        pasteboard.declareTypes([.png, .html, .string, .rtf], owner: nil)
         pasteboard.setData(Data([0x89, 0x50, 0x4E, 0x47]), forType: .png)
         pasteboard.setString(rejectedHTML, forType: .html)
+        pasteboard.setString("??~", forType: .string)
         pasteboard.setData(rtf, forType: .rtf)
 
         #expect(
