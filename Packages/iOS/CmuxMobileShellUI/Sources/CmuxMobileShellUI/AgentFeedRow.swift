@@ -97,7 +97,7 @@ struct AgentFeedRow: View, Equatable {
                 Text(plan).font(.body).textSelection(.enabled)
                 TextField(
                     L10n.string("mobile.agentFeed.plan.feedback", defaultValue: "Request changes"),
-                    text: Binding(get: { planFeedback }, set: actions.setPlanFeedback),
+                    text: Binding(get: { planFeedback }, set: { actions.setPlanFeedback($0) }),
                     axis: .vertical
                 )
                 .lineLimit(2...6)
@@ -160,7 +160,7 @@ struct AgentFeedRow: View, Equatable {
         VStack(alignment: .leading, spacing: 8) {
             TextField(
                 L10n.string("mobile.agentFeed.reply.placeholder", defaultValue: "Reply to this agent"),
-                text: Binding(get: { draft }, set: actions.setDraft),
+                text: Binding(get: { draft }, set: { actions.setDraft($0) }),
                 axis: .vertical
             )
             .lineLimit(2...8)
