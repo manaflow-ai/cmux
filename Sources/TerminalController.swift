@@ -14180,6 +14180,12 @@ class TerminalController {
             result = v2MobileNotificationFeedMarkUnread(params: request.params)
         case "notification.feed.mark_all_read":
             result = v2MobileNotificationFeedMarkAllRead(params: request.params)
+        case "feed.permission.reply":
+            result = v2FeedPermissionReply(params: request.params)
+        case "feed.question.reply":
+            result = v2FeedQuestionReply(params: request.params)
+        case "feed.exit_plan.reply":
+            result = v2FeedExitPlanReply(params: request.params)
         case "dogfood.feedback.submit":
             result = await v2MobileDogfoodFeedbackSubmit(params: request.params)
         case "mobile.sync.fetch":

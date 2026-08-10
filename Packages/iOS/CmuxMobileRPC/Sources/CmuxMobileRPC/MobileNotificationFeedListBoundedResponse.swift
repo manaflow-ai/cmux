@@ -4,6 +4,7 @@ struct MobileNotificationFeedListBoundedResponse: Decodable {
     private enum CodingKeys: String, CodingKey {
         case revision
         case notifications
+        case workstreams
     }
 
     init(from decoder: any Decoder) throws {
@@ -19,9 +20,25 @@ struct MobileNotificationFeedListBoundedResponse: Decodable {
                 notifications.append(item)
             }
         }
+        var workstreams: [MobileNotificationFeedWorkstreamItem] = []
+        if var workstreamsContainer = try container.nestedUnkeyedContainerIfPresent(forKey: .workstreams) {
+            workstreams.reserveCapacity(min(options.maxNotifications, workstreamsContainer.count ?? options.maxNotifications))
+            while !workstreamsContainer.isAtEnd, workstreams.count < options.maxNotifications {
+                try Task.checkCancellation()
+                workstreams.append(try workstreamsContainer.decode(MobileNotificationFeedWorkstreamItem.self))
+            }
+        }
         response = MobileNotificationFeedListResponse(
             revision: revision,
-            notifications: notifications
+            notifications: notifications,
+            workstreams: workstreams
         )
+    }
+}
+
+private extension KeyedDecodingContainer {
+    func nestedUnkeyedContainerIfPresent(forKey key: Key) throws -> (any UnkeyedDecodingContainer)? {
+        guard contains(key), try !decodeNil(forKey: key) else { return nil }
+        return try nestedUnkeyedContainer(forKey: key)
     }
 }

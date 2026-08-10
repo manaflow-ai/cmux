@@ -95,6 +95,7 @@ final class FeedCoordinator: @unchecked Sendable {
         for ppid in store.pending.compactMap(\.ppid) {
             armPidWatcher(ppid: ppid)
         }
+        TerminalNotificationStore.shared.notificationFeedHistory.invalidateExternalContent()
     }
 
     /// Installs a one-shot kqueue watcher for `ppid`. The handler
@@ -114,6 +115,7 @@ final class FeedCoordinator: @unchecked Sendable {
             Task { @MainActor in
                 guard let self else { return }
                 self.store?.expireItems(forPpid: ppid)
+                TerminalNotificationStore.shared.notificationFeedHistory.invalidateExternalContent()
                 self.pidWatchers[ppid]?.cancel()
                 self.pidWatchers.removeValue(forKey: ppid)
             }
@@ -144,6 +146,7 @@ final class FeedCoordinator: @unchecked Sendable {
     func ingestRevalidatedOnMainActor(_ event: WorkstreamEvent) -> UUID? {
         guard let store else { return nil }
         store.ingest(event)
+        TerminalNotificationStore.shared.notificationFeedHistory.invalidateExternalContent()
         if let ppid = event.ppid, ppid > 0 {
             armPidWatcher(ppid: ppid)
         }
@@ -493,6 +496,7 @@ final class FeedCoordinator: @unchecked Sendable {
                 guard let store else { return }
                 if let itemId = Self.findItemId(for: requestId, in: store.items) {
                     store.markResolved(itemId, decision: decision)
+                    TerminalNotificationStore.shared.notificationFeedHistory.invalidateExternalContent()
                 }
             }
         }
@@ -536,6 +540,7 @@ final class FeedCoordinator: @unchecked Sendable {
         let expire: @Sendable () -> Void = { [itemId] in
             MainActor.assumeIsolated {
                 FeedCoordinator.shared.store?.markExpired(itemId)
+                TerminalNotificationStore.shared.notificationFeedHistory.invalidateExternalContent()
             }
         }
         if Thread.isMainThread {

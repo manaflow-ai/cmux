@@ -21,39 +21,39 @@ struct NotificationFeedRow: View, Equatable {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Button {
-                open()
-            } label: {
-                NotificationFeedRowLabel(
-                    title: item.title,
-                    createdAt: item.createdAt,
-                    isRead: item.isRead,
-                    presentation: model.presentation,
-                    design: design
-                )
+            if canOpen {
+                Button {
+                    open()
+                } label: {
+                    rowLabel
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(item.title)
+                .accessibilityValue(accessibilityValue)
+                .accessibilityHint(L10n.string(
+                    "mobile.notificationFeed.openHint",
+                    defaultValue: "Opens this notification's workspace."
+                ))
+            } else {
+                rowLabel
+                    .accessibilityLabel(item.title)
+                    .accessibilityValue(accessibilityValue)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(item.title)
-            .accessibilityValue(accessibilityValue)
-            .accessibilityHint(L10n.string(
-                "mobile.notificationFeed.openHint",
-                defaultValue: "Opens this notification's workspace."
-            ))
 
-            if canReply {
-                inlineReply
-            }
+            interactionControls
         }
         .contextMenu(menuItems: {
-            Button {
-                open()
-            } label: {
-                Label(
-                    L10n.string("mobile.notificationFeed.open", defaultValue: "Open"),
-                    systemImage: "arrow.up.forward.app"
-                )
+            if canOpen {
+                Button {
+                    open()
+                } label: {
+                    Label(
+                        L10n.string("mobile.notificationFeed.open", defaultValue: "Open"),
+                        systemImage: "arrow.up.forward.app"
+                    )
+                }
+                .accessibilityIdentifier("MobileNotificationFeedOpenMenu-\(accessibilitySuffix)")
             }
-            .accessibilityIdentifier("MobileNotificationFeedOpenMenu-\(accessibilitySuffix)")
 
             if canReply {
                 Button {
@@ -66,7 +66,7 @@ struct NotificationFeedRow: View, Equatable {
                 }
             }
 
-            if !item.isRead {
+            if canChangeReadState, !item.isRead {
                 Button {
                     actions.markRead(item)
                 } label: {
@@ -76,7 +76,7 @@ struct NotificationFeedRow: View, Equatable {
                     )
                 }
                 .accessibilityIdentifier("MobileNotificationFeedMarkReadMenu-\(accessibilitySuffix)")
-            } else {
+            } else if canChangeReadState {
                 Button {
                     actions.markUnread(item)
                 } label: {
@@ -89,7 +89,7 @@ struct NotificationFeedRow: View, Equatable {
             }
         })
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
-            if !item.isRead {
+            if canChangeReadState, !item.isRead {
                 Button {
                     actions.markRead(item)
                 } label: {
@@ -100,7 +100,7 @@ struct NotificationFeedRow: View, Equatable {
                 }
                 .tint(.blue)
                 .accessibilityIdentifier("MobileNotificationFeedMarkReadSwipe-\(accessibilitySuffix)")
-            } else {
+            } else if canChangeReadState {
                 Button {
                     actions.markUnread(item)
                 } label: {
@@ -117,11 +117,11 @@ struct NotificationFeedRow: View, Equatable {
             Button(L10n.string("mobile.notificationFeed.open", defaultValue: "Open")) {
                 open()
             }
-            if !item.isRead {
+            if canChangeReadState, !item.isRead {
                 Button(L10n.string("mobile.notificationFeed.markRead", defaultValue: "Mark as Read")) {
                     actions.markRead(item)
                 }
-            } else {
+            } else if canChangeReadState {
                 Button(L10n.string("mobile.notificationFeed.markUnread", defaultValue: "Mark as Unread")) {
                     actions.markUnread(item)
                 }
@@ -134,8 +134,65 @@ struct NotificationFeedRow: View, Equatable {
         actions.open(item)
     }
 
+    private var rowLabel: some View {
+        NotificationFeedRowLabel(
+            title: item.title,
+            createdAt: item.createdAt,
+            isRead: item.isRead,
+            presentation: model.presentation,
+            design: design
+        )
+    }
+
+    private var canOpen: Bool {
+        switch item.interaction {
+        case .permission, .exitPlan, .questions:
+            return item.remoteSurfaceID != nil
+        default:
+            return true
+        }
+    }
+
     private var canReply: Bool {
-        item.remoteSurfaceID != nil && item.connectionStatus == .connected
+        guard item.remoteSurfaceID != nil, item.connectionStatus == .connected else { return false }
+        switch item.interaction {
+        case .terminalReply, nil:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private var canChangeReadState: Bool {
+        switch item.interaction {
+        case .permission, .exitPlan, .questions:
+            return false
+        default:
+            return true
+        }
+    }
+
+    @ViewBuilder private var interactionControls: some View {
+        switch item.interaction {
+        case .permission:
+            NotificationFeedPermissionControls(item: item, design: design, action: actions.decidePermission)
+        case .exitPlan(_, let defaultMode):
+            NotificationFeedExitPlanControls(
+                item: item,
+                design: design,
+                defaultMode: defaultMode,
+                action: actions.decideExitPlan
+            )
+        case .questions(_, let prompts):
+            NotificationFeedQuestionControls(
+                item: item,
+                design: design,
+                prompts: prompts,
+                action: actions.answerQuestions
+            )
+        case .terminalReply, nil:
+            if canReply { inlineReply }
+        }
     }
 
     @ViewBuilder private var inlineReply: some View {
@@ -205,7 +262,7 @@ struct NotificationFeedRow: View, Equatable {
             if sent {
                 draft = ""
                 isReplying = false
-                actions.markRead(item)
+                if canChangeReadState { actions.markRead(item) }
             }
         }
     }

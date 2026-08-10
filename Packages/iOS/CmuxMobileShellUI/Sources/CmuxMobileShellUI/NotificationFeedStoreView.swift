@@ -43,6 +43,15 @@ struct NotificationFeedStoreView: View {
             reply: { item, text in
                 await store.replyToNotificationFeedItem(item, text: text)
             },
+            decidePermission: { item, mode in
+                await store.resolveNotificationFeedPermission(item, mode: mode)
+            },
+            decideExitPlan: { item, mode, feedback in
+                await store.resolveNotificationFeedExitPlan(item, mode: mode, feedback: feedback)
+            },
+            answerQuestions: { item, answers in
+                await store.resolveNotificationFeedQuestions(item, answers: answers)
+            },
             refresh: {
                 await store.refreshNotificationFeed()
             }

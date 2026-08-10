@@ -6,14 +6,33 @@ public struct MobileNotificationFeedListResponse: Decodable, Equatable, Sendable
     public let revision: Int
     /// The Mac's retained notifications, newest first.
     public let notifications: [MobileNotificationFeedListItem]
+    /// Pending agent decisions that can be completed inline.
+    public let workstreams: [MobileNotificationFeedWorkstreamItem]
+
+    private enum CodingKeys: String, CodingKey {
+        case revision, notifications, workstreams
+    }
 
     /// Creates a feed list response from a revision and retained notifications.
     public init(
         revision: Int,
-        notifications: [MobileNotificationFeedListItem]
+        notifications: [MobileNotificationFeedListItem],
+        workstreams: [MobileNotificationFeedWorkstreamItem] = []
     ) {
         self.revision = revision
         self.notifications = notifications
+        self.workstreams = workstreams
+    }
+
+    /// Decodes older notification-only snapshots and current actionable snapshots.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        revision = try container.decode(Int.self, forKey: .revision)
+        notifications = try container.decode([MobileNotificationFeedListItem].self, forKey: .notifications)
+        workstreams = try container.decodeIfPresent(
+            [MobileNotificationFeedWorkstreamItem].self,
+            forKey: .workstreams
+        ) ?? []
     }
 
     /// Decodes a notification-feed list response.

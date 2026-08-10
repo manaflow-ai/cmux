@@ -10,6 +10,9 @@ struct NotificationFeedActions {
     let markUnread: @MainActor (MobileNotificationFeedItem) -> Void
     let markAllRead: @MainActor () -> Void
     let reply: @MainActor @Sendable (MobileNotificationFeedItem, String) async -> Bool
+    let decidePermission: @MainActor @Sendable (MobileNotificationFeedItem, MobileFeedPermissionMode) async -> Bool
+    let decideExitPlan: @MainActor @Sendable (MobileNotificationFeedItem, MobileFeedExitPlanMode, String?) async -> Bool
+    let answerQuestions: @MainActor @Sendable (MobileNotificationFeedItem, [String]) async -> Bool
     let refresh: @MainActor @Sendable () async -> Void
 }
 

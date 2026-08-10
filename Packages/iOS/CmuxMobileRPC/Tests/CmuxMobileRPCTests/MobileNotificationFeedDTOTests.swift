@@ -34,6 +34,19 @@ struct MobileNotificationFeedDTOTests {
         #expect(!item.retargetsToLiveSurfaceOwner)
     }
 
+    @Test("List response decodes every structured workstream action")
+    func workstreamActionsDecode() throws {
+        let data = Data(#"{"revision":18,"notifications":[],"workstreams":[{"id":"item-1","workstream_id":"claude-session","workspace_id":"workspace-1","surface_id":"surface-1","source":"claude","kind":"permissionRequest","created_at":"2026-08-09T12:00:00Z","request_id":"request-1","tool_name":"Bash","tool_input":"pwd"},{"id":"item-2","workstream_id":"claude-session","workspace_id":"workspace-1","surface_id":"surface-1","source":"claude","kind":"exitPlan","created_at":"2026-08-09T12:00:01Z","request_id":"request-2","plan":"Ship it","default_mode":"manual"},{"id":"item-3","workstream_id":"claude-session","workspace_id":"workspace-1","surface_id":"surface-1","source":"claude","kind":"question","created_at":"2026-08-09T12:00:02Z","request_id":"request-3","questions":[{"id":"q1","header":"Scope","prompt":"Which targets?","multi_select":true,"options":[{"id":"ios","label":"iOS","description":"Phone app"}]}]}]}"#.utf8)
+
+        let response = try MobileNotificationFeedListResponse.decode(data)
+
+        #expect(response.workstreams.map(\.kind) == ["permissionRequest", "exitPlan", "question"])
+        #expect(response.workstreams[0].toolName == "Bash")
+        #expect(response.workstreams[1].defaultMode == "manual")
+        #expect(response.workstreams[2].questions.first?.multiSelect == true)
+        #expect(response.workstreams[2].questions.first?.options.first?.description == "Phone app")
+    }
+
     @Test("Bounded list response decodes only the retained prefix")
     func boundedListResponseDecodeStopsAtCapAndLimitsStrings() throws {
         let data = Data(

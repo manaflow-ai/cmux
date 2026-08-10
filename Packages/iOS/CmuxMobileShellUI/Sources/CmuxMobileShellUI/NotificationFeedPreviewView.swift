@@ -161,6 +161,18 @@ public struct NotificationFeedPreviewView: View {
                 setRead(true, for: item.id)
                 return true
             },
+            decidePermission: { item, _ in
+                setRead(true, for: item.id)
+                return true
+            },
+            decideExitPlan: { item, _, _ in
+                setRead(true, for: item.id)
+                return true
+            },
+            answerQuestions: { item, _ in
+                setRead(true, for: item.id)
+                return true
+            },
             refresh: {}
         )
     }
@@ -307,7 +319,63 @@ private func makeNotificationFeedPreviewFixtureItems(referenceDate: Date) -> [Mo
                 defaultValue: "cmux iOS"
             ),
             surfaceTitle: L10n.string("mobile.notificationFeed.preview.surface.codex", defaultValue: "Codex"),
-            connectionStatus: .connected
+            connectionStatus: .connected,
+            interaction: .permission(requestID: "preview-permission")
+        ),
+        MobileNotificationFeedItem(
+            macDeviceID: "studio",
+            notificationID: "plan-review",
+            macDisplayName: L10n.string("mobile.notificationFeed.preview.mac.studio", defaultValue: "Studio"),
+            remoteWorkspaceID: "workspace-ios-feed",
+            remoteSurfaceID: "surface-claude",
+            title: L10n.string("mobile.notificationFeed.preview.plan.title", defaultValue: "Claude · Plan review"),
+            body: L10n.string(
+                "mobile.notificationFeed.preview.plan.body",
+                defaultValue: "Implement the Feed, verify every inline action, then prepare the iPhone build."
+            ),
+            createdAt: referenceDate.addingTimeInterval(-8 * 60),
+            isRead: false,
+            workspaceTitle: L10n.string("mobile.notificationFeed.preview.workspace.ios", defaultValue: "cmux iOS"),
+            surfaceTitle: "Claude",
+            connectionStatus: .connected,
+            interaction: .exitPlan(requestID: "preview-plan", defaultMode: .manual)
+        ),
+        MobileNotificationFeedItem(
+            macDeviceID: "studio",
+            notificationID: "agent-question",
+            macDisplayName: L10n.string("mobile.notificationFeed.preview.mac.studio", defaultValue: "Studio"),
+            remoteWorkspaceID: "workspace-ios-feed",
+            remoteSurfaceID: "surface-claude",
+            title: L10n.string("mobile.notificationFeed.preview.question.title", defaultValue: "Claude · Question"),
+            body: L10n.string("mobile.notificationFeed.preview.question.body", defaultValue: "Which Feed details matter most?"),
+            createdAt: referenceDate.addingTimeInterval(-9 * 60),
+            isRead: false,
+            workspaceTitle: L10n.string("mobile.notificationFeed.preview.workspace.ios", defaultValue: "cmux iOS"),
+            surfaceTitle: "Claude",
+            connectionStatus: .connected,
+            interaction: .questions(
+                requestID: "preview-question",
+                prompts: [
+                    MobileFeedQuestionPrompt(
+                        id: "focus",
+                        header: L10n.string("mobile.notificationFeed.preview.question.header", defaultValue: "Focus"),
+                        prompt: L10n.string("mobile.notificationFeed.preview.question.body", defaultValue: "Which Feed details matter most?"),
+                        allowsMultipleSelections: true,
+                        options: [
+                            MobileFeedQuestionOption(
+                                id: "actions",
+                                label: L10n.string("mobile.notificationFeed.preview.question.actions", defaultValue: "Inline actions"),
+                                detail: nil
+                            ),
+                            MobileFeedQuestionOption(
+                                id: "density",
+                                label: L10n.string("mobile.notificationFeed.preview.question.density", defaultValue: "Information density"),
+                                detail: nil
+                            ),
+                        ]
+                    ),
+                ]
+            )
         ),
         MobileNotificationFeedItem(
             macDeviceID: "macbook",
