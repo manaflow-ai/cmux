@@ -425,11 +425,13 @@ fn run_pty(
     let pair = cmux_pty::open(PtySize { rows: 24, cols: 80, pixel_width: 640, pixel_height: 384 })?;
     let command = common.pty_command(&args, common.wrap_measured_process)?;
     let started = Instant::now();
-    let mut spawned = pair.spawn(command)?;
-    let reader = spawned.master.try_clone_reader()?;
-    let writer = Arc::new(Mutex::new(spawned.master.take_writer()?));
-    let process_tree = PtyProcessTree::from_spawned(&spawned);
-    let killer = spawned.child.clone_killer();
+    let spawned = pair.spawn(command)?;
+    let master = spawned.master;
+    let mut child = spawned.child;
+    let reader = master.try_clone_reader()?;
+    let writer = Arc::new(Mutex::new(master.take_writer()?));
+    let process_tree = PtyProcessTree::from_handles(master.as_ref(), child.as_ref());
+    let killer = child.clone_killer();
     let (event_sender, event_receiver) = mpsc::channel();
     let writer_for_reader = writer.clone();
     let marker_bytes = marker.into_bytes();
@@ -442,12 +444,13 @@ fn run_pty(
     let (status_sender, status_receiver) = mpsc::channel();
     let status_thread =
         thread::Builder::new().name("startup-benchmark-pty-wait".into()).spawn(move || {
-            let status = spawned.child.wait();
+            let status = child.wait();
             let _ = status_sender.send(status);
         })?;
     let mut runtime = PtyRuntime {
         killer,
         process_tree,
+        master: Some(master),
         writer: Some(writer),
         status_receiver,
         status_thread: Some(status_thread),
@@ -815,6 +818,7 @@ struct PtyReadResult {
 struct PtyRuntime {
     killer: Box<dyn cmux_pty::ChildKiller + Send + Sync>,
     process_tree: PtyProcessTree,
+    master: Option<Box<dyn cmux_pty::MasterPty + Send>>,
     writer: Option<Arc<Mutex<Box<dyn Write + Send>>>>,
     status_receiver: mpsc::Receiver<io::Result<cmux_pty::ExitStatus>>,
     status_thread: Option<thread::JoinHandle<()>>,
@@ -883,6 +887,9 @@ impl PtyRuntime {
             .context("PTY wait thread already joined")?
             .join()
             .map_err(|_| anyhow!("PTY wait thread panicked"))?;
+        // On ConPTY, process exit alone does not close the readable stream.
+        // The runtime owns and closes the master before it waits for EOF.
+        self.master.take().context("PTY master already closed")?;
         let mut reader_timed_out = false;
         let reader = match self.reader_receiver.recv_timeout(PROCESS_TIMEOUT) {
             Ok(reader) => reader,
@@ -936,12 +943,15 @@ struct PtyProcessTree {
 }
 
 impl PtyProcessTree {
-    fn from_spawned(spawned: &cmux_pty::SpawnedPty) -> Self {
+    fn from_handles(
+        _master: &(dyn cmux_pty::MasterPty + Send),
+        _child: &(dyn cmux_pty::Child + Send + Sync),
+    ) -> Self {
         Self {
             #[cfg(windows)]
-            child_id: spawned.child.process_id(),
+            child_id: _child.process_id(),
             #[cfg(unix)]
-            process_group: spawned.master.process_group_leader(),
+            process_group: _master.process_group_leader(),
         }
     }
 
