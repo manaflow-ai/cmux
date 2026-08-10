@@ -12525,6 +12525,9 @@ mod tests {
         let Some(marker) = std::env::var_os("CMUX_TEST_NON_READER_EXIT_MARKER") else {
             return;
         };
+        unsafe {
+            libc::signal(libc::SIGHUP, libc::SIG_IGN);
+        }
         let address = std::env::var("CMUX_TEST_PARENT_LIFETIME_ADDRESS").unwrap();
         let mut lifetime = std::net::TcpStream::connect(address).unwrap();
         lifetime.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
