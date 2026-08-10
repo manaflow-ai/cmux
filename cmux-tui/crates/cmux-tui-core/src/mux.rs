@@ -19775,37 +19775,20 @@ mod tests {
             .unwrap()
             .unwrap()
             .workspace_key;
-        let mutation = WorkspaceMutation::new("terminal-close-new-incarnation-replay", "test")
-            .unwrap();
+        let mutation =
+            WorkspaceMutation::new("terminal-close-new-incarnation-replay", "test").unwrap();
 
-        mux.close_terminal_with_mutation(
-            &host.terminal_id,
-            None,
-            None,
-            None,
-            &mutation,
-        )
-        .unwrap();
+        mux.close_terminal_with_mutation(&host.terminal_id, None, None, None, &mutation).unwrap();
 
         let mut new_incarnation = host.incarnation.clone();
         let replacement = if new_incarnation.starts_with('0') { "1" } else { "0" };
         new_incarnation.replace_range(0..1, replacement);
         let new_surface = mux
-            .seed_running_terminal_for_test(
-                &host.terminal_id,
-                &new_incarnation,
-                &workspace_key,
-            )
+            .seed_running_terminal_for_test(&host.terminal_id, &new_incarnation, &workspace_key)
             .unwrap();
 
         let replay = mux
-            .close_terminal_with_mutation(
-                &host.terminal_id,
-                None,
-                None,
-                None,
-                &mutation,
-            )
+            .close_terminal_with_mutation(&host.terminal_id, None, None, None, &mutation)
             .unwrap();
 
         assert_eq!(replay.terminal_incarnation.as_deref(), Some(host.incarnation.as_str()));
