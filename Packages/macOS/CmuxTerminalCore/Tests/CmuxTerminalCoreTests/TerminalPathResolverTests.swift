@@ -189,6 +189,45 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
             ) == relative
         )
     }
+
+    @Test func resolvesPathWithLineAndColumn() throws {
+        let existingFile = "/Users/dev/project/src/main.swift"
+        let reference = try #require(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveOpenURLFileReference(
+                "src/main.swift:42:5",
+                cwd: "/Users/dev/project"
+            )
+        )
+        #expect(reference.path == existingFile)
+        #expect(reference.line == 42)
+        #expect(reference.column == 5)
+    }
+
+    @Test func resolvesLocalFileURL() throws {
+        let existingFile = "/Users/dev/project/src/main.swift"
+        let reference = try #require(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveOpenURLFileReference(
+                "file:///Users/dev/project/src/main.swift:42",
+                cwd: "/Users/dev/project"
+            )
+        )
+        #expect(reference.path == existingFile)
+        #expect(reference.line == 42)
+        #expect(reference.column == nil)
+    }
+
+    @Test func prefersLiteralPathBeforeInterpretingLocationSuffix() throws {
+        let literalPath = "/tmp/report:42"
+        let reference = try #require(
+            TerminalPathResolver(fileExists: existsIn([literalPath, "/tmp/report"])).resolveOpenURLFileReference(
+                literalPath,
+                cwd: "/tmp"
+            )
+        )
+        #expect(reference.path == literalPath)
+        #expect(reference.line == nil)
+        #expect(reference.column == nil)
+    }
 }
 
 @Suite struct TerminalVisibleLineResolutionTests {

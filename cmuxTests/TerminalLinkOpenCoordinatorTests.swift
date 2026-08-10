@@ -9,6 +9,34 @@ import struct CmuxSettings.AppCatalogSection
 @testable import cmux
 #endif
 
+@MainActor
+private final class RecordingTerminalLinkContainer: TerminalLinkOpenContainer {
+    private(set) var openedFilePaths: [String] = []
+
+    var terminalLinkContainerDebugName: String { "recording" }
+
+    func terminalLinkWorkingDirectory(for sourcePanelId: UUID) -> String? {
+        "/tmp"
+    }
+
+    func terminalLinkIsRemoteTerminal(_ sourcePanelId: UUID) -> Bool {
+        false
+    }
+
+    func deferTerminalFileLinkOpen(
+        sourcePanelId: UUID,
+        filePath: String,
+        fallback: @escaping @MainActor @Sendable () -> Void
+    ) -> Bool {
+        openedFilePaths.append(filePath)
+        return true
+    }
+
+    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID) -> Bool {
+        false
+    }
+}
+
 @Suite("Terminal link open coordinator", .serialized)
 struct TerminalLinkOpenCoordinatorTests {
     private func makeDefaults() -> UserDefaults {
@@ -51,6 +79,49 @@ struct TerminalLinkOpenCoordinatorTests {
 
         #expect(handled)
         #expect(externallyOpened == [url])
+    }
+
+    @Test("path:line Cmd-click forwards the location to the preferred editor")
+    @MainActor
+    func pathLocationUsesPreferredEditor() throws {
+        let defaults = makeDefaults()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-terminal-link-(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fileURL = root.appendingPathComponent("main.swift")
+        try "print(\"hello\")\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let panelID = UUID()
+        let container = RecordingTerminalLinkContainer()
+        var preferredEditorOpen: (URL, Int?, Int?)?
+        var externallyOpened: [URL] = []
+        let coordinator = TerminalLinkOpenCoordinator(
+            defaults: defaults,
+            containerResolver: { _, sourcePanelID in
+                sourcePanelID == panelID ? container : nil
+            },
+            externalOpen: { openedURL in
+                externallyOpened.append(openedURL)
+                return true
+            },
+            preferredEditorOpen: { url, line, column in
+                preferredEditorOpen = (url, line, column)
+            },
+            deferOperation: { operation in operation() }
+        )
+
+        #expect(coordinator.open(TerminalLinkOpenRequest(
+            rawValue: "\(fileURL.path):42:5",
+            sourceWorkspaceId: nil,
+            sourcePanelId: panelID,
+            workingDirectory: root.path
+        )))
+        #expect(preferredEditorOpen?.0 == fileURL)
+        #expect(preferredEditorOpen?.1 == 42)
+        #expect(preferredEditorOpen?.2 == 5)
+        #expect(container.openedFilePaths.isEmpty)
+        #expect(externallyOpened.isEmpty)
     }
 
     @Test("Dock terminal links split once, then reuse the right browser pane")
