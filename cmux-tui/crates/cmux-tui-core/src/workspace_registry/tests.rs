@@ -5468,6 +5468,95 @@ fn journal_agent_rebuild_skips_indexed_archived_non_agent_segments() {
 }
 
 #[test]
+fn journal_agent_legacy_upgrade_backfills_archived_agent_event_kinds() {
+    let root = temp_root("journal-agent-legacy-archived-kind");
+    let session = "journal-agent-legacy-archived-kind";
+    let database = root.join(session_storage_component(session)).join(WORKSPACE_REGISTRY_FILE);
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, session).unwrap();
+        commit_terminal_topology(&mut registry, "journal-agent-legacy-archived-kind-topology");
+        let ingress = crate::agent_hook_journal_ingress(
+            "pi",
+            "agent_start",
+            Some(terminal_id.as_str()),
+            json!({"context":{"session_id":"legacy-archived-session"}}),
+        )
+        .unwrap();
+        let validated = crate::journal_kernel::ValidatedJournalIngress {
+            class: JournalClass::Observation,
+            replay: JournalReplayPolicy::Advisory,
+            sensitivity: JournalSensitivity::Sensitive,
+        };
+        registry
+            .append_journal_ingress(
+                &ingress,
+                &validated,
+                "client_legacy_archived_kind",
+                "journal_agent_legacy_archived_kind_start",
+            )
+            .unwrap();
+        let through = registry.session_journal_after(0, 32).unwrap().head_sequence;
+        registry
+            .create_journal_checkpoint(
+                through,
+                1,
+                &json!({
+                    "session_snapshot":{"cursor":{"revision":"1"}},
+                    "journal_extensions":{"producers":[],"hooks":[]},
+                }),
+                &[],
+                "client_legacy_archived_kind",
+                "journal_agent_legacy_archived_kind_checkpoint",
+            )
+            .unwrap();
+        let plan = match registry
+            .begin_journal_segment_seal(
+                through,
+                "client_legacy_archived_kind",
+                "journal_agent_legacy_archived_kind_segment",
+            )
+            .unwrap()
+        {
+            JournalSegmentSealStart::Prepare(plan) => plan,
+            JournalSegmentSealStart::Replay(_) => panic!("first archived agent seal replayed"),
+        };
+        let reader = SessionJournalReader::open(&database).unwrap();
+        let prepared = plan.prepare(&reader).unwrap();
+        registry
+            .commit_journal_segment_seal(
+                prepared,
+                "client_legacy_archived_kind",
+                "journal_agent_legacy_archived_kind_segment",
+            )
+            .unwrap()
+            .expect("archived agent segment boundary remained stable");
+    }
+
+    Connection::open(&database)
+        .unwrap()
+        .execute_batch(
+            "UPDATE journal_event_index SET kind = NULL;
+             DELETE FROM resource_agent_projections;
+             DELETE FROM meta
+             WHERE key IN (
+               'agent_projection_journal_sequence_v1',
+               'agent_projection_journal_candidate_sequence_v1',
+               'agent_projection_journal_rebuild_target_sequence_v1'
+             );",
+        )
+        .unwrap();
+
+    let reopened = WorkspaceRegistry::open(&root, session).unwrap();
+    let agent = reopened.public_projections().unwrap().agents.remove(0);
+    assert_eq!(agent.state, "working");
+    assert_eq!(agent.source, "hook");
+    assert_eq!(agent.source_session.as_deref(), Some("legacy-archived-session"));
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn journal_agent_legacy_upgrade_keeps_later_stored_socket_projection() {
     let root = temp_root("journal-agent-upgrade-stored-socket");
     let session = "journal-agent-upgrade-stored-socket";
@@ -6584,6 +6673,94 @@ fn journal_agent_prejournal_projection_migrates_once_and_survives_reopen() {
         .count();
     assert_eq!(migration_records_again, 1);
     drop(reopened_again);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn journal_agent_prejournal_projection_migration_is_bounded_on_open() {
+    const PROJECTION_COUNT: usize = 1_025;
+
+    let root = temp_root("journal-agent-bounded-prejournal-migration");
+    let session = "journal-agent-bounded-prejournal-migration";
+    {
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let session_id = registry.session_id().clone();
+        let tx = registry.connection.unchecked_transaction().unwrap();
+        for index in 0..PROJECTION_COUNT {
+            let terminal_id =
+                TerminalPublicId::parse(format!("term_{:032x}", index + 1_000)).unwrap();
+            let host_id = format!("legacy-agent-host-{index:04}");
+            let result = canonical_json(&json!({
+                "id":agent_resource(&terminal_id),
+                "session_id":session_id,
+                "terminal_id":terminal_id,
+                "state":"working",
+                "source":"hook",
+                "updated_at_ms":"42",
+                "source_session":format!("legacy-session-{index:04}"),
+                "extra":{"provider":"pi"},
+            }))
+            .unwrap();
+            tx.execute(
+                "INSERT INTO terminal_hosts(
+                   terminal_id, workspace_key, incarnation, lifecycle, launch_spec_json,
+                   exit_json, created_revision, updated_revision, deleted_revision
+                 ) VALUES(?1, 'legacy-agent-workspace', NULL, 'launching',
+                          '{\"command\":[\"/bin/zsh\"],\"cwd\":\"/tmp\",\"rows\":24,\"cols\":80}',
+                          NULL, 1, 1, NULL)",
+                [&host_id],
+            )
+            .unwrap();
+            tx.execute(
+                "INSERT INTO resource_identities(
+                   public_id, kind, created_revision, updated_revision, deleted_revision
+                 ) VALUES(?1, 'terminal', 1, 1, NULL)",
+                [terminal_id.as_str()],
+            )
+            .unwrap();
+            tx.execute(
+                "INSERT INTO resource_terminals(
+                   public_id, terminal_id, lifecycle,
+                   created_revision, updated_revision, deleted_revision
+                 ) VALUES(?1, ?2, 'active', 1, 1, NULL)",
+                params![terminal_id.as_str(), host_id],
+            )
+            .unwrap();
+            tx.execute(
+                "INSERT INTO resource_agent_projections(
+                   terminal_id, result_json, committed_revision
+                 ) VALUES(?1, ?2, 1)",
+                params![terminal_id.as_str(), result],
+            )
+            .unwrap();
+        }
+        tx.execute(
+            "DELETE FROM meta
+             WHERE key IN (
+               'agent_projection_journal_sequence_v1',
+               'agent_projection_journal_candidate_sequence_v1',
+               'agent_projection_journal_rebuild_target_sequence_v1'
+             )",
+            [],
+        )
+        .unwrap();
+        tx.commit().unwrap();
+    }
+
+    let reopened = WorkspaceRegistry::open(&root, session).unwrap();
+    let migration_records = reopened
+        .connection
+        .query_row("SELECT COUNT(*) FROM session_journal WHERE kind = 'agent.report'", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .unwrap();
+    assert!(migration_records > 0);
+    assert!(
+        migration_records < PROJECTION_COUNT as i64,
+        "one open must not migrate every legacy projection"
+    );
+    assert!(reopened.agent_projection_rebuild_pending().unwrap());
+    drop(reopened);
     fs::remove_dir_all(root).unwrap();
 }
 

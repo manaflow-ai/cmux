@@ -1937,6 +1937,8 @@ pub struct Mux {
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
     agent_records: Mutex<HashMap<TerminalPublicId, TerminalAgentRecord>>,
     agent_projection_rebuild_running: AtomicBool,
+    #[cfg(test)]
+    journal_before_publish: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     /// Nonterminal notifications remain placement-local. Terminal unread
     /// state is keyed separately by stable content identity so every view of
     /// one terminal shares the same attention marker.
@@ -2301,6 +2303,8 @@ impl Mux {
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
             agent_records: Mutex::new(agent_records),
             agent_projection_rebuild_running: AtomicBool::new(false),
+            #[cfg(test)]
+            journal_before_publish: Mutex::new(None),
             placement_notifications: Mutex::new(HashMap::new()),
             terminal_notifications: Mutex::new(terminal_notifications),
             notification_ledger: Mutex::new(notification_ledger),
@@ -4635,6 +4639,10 @@ impl Mux {
     }
 
     fn publish_journal_event(&self) {
+        #[cfg(test)]
+        if let Some(hook) = self.journal_before_publish.lock().unwrap().clone() {
+            hook();
+        }
         self.journal_kernel.notify_commit();
         let mut epoch = self.journal_event_epoch.lock().unwrap();
         *epoch = epoch.wrapping_add(1);
@@ -4821,6 +4829,14 @@ impl Mux {
             .lock()
             .unwrap()
             .set_journal_before_commit_for_test(entered, release);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_journal_before_publish_for_test(
+        &self,
+        hook: Arc<dyn Fn() + Send + Sync>,
+    ) {
+        *self.journal_before_publish.lock().unwrap() = Some(hook);
     }
 
     #[cfg(test)]
@@ -20605,6 +20621,69 @@ mod tests {
         assert_eq!(restored[0].state, AgentState::Working);
         assert_eq!(restored[0].source, AgentSource::Hook);
         assert_eq!(restored[0].session.as_deref(), Some("pi-live-session"));
+    }
+
+    #[test]
+    fn journal_agent_writer_publishes_after_cache_update() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-agent-publish-order-{}",
+            WorkspacePublicId::random().unwrap()
+        ));
+        let session = "journal-agent-publish-order";
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let mux = Mux::from_workspace_registry(
+            session.into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap();
+        let created = public_request(
+            &mux,
+            "journal-agent-publish-order-create",
+            "workspace.create",
+            serde_json::json!({
+                "machine":"current",
+                "session":"current",
+                "initial_content":"terminal",
+            }),
+            Some("journal-agent-publish-order-create"),
+        );
+        let terminal_id =
+            TerminalPublicId::parse(created["result"]["value"]["terminal_id"].as_str().unwrap())
+                .unwrap();
+        let surface_id = mux.resource_surface_for_terminal(&terminal_id).unwrap();
+        let (observed_sender, observed_receiver) = std::sync::mpsc::sync_channel(1);
+        let observed_mux = Arc::downgrade(&mux);
+        mux.install_journal_before_publish_for_test(Arc::new(move || {
+            let Some(mux) = observed_mux.upgrade() else { return };
+            let state = mux.list_agents(Some(surface_id), None).first().map(|agent| agent.state);
+            let _ = observed_sender.try_send(state);
+        }));
+        let ingress = crate::agent_hook_journal_ingress(
+            "pi",
+            "agent_start",
+            Some(terminal_id.as_str()),
+            serde_json::json!({"context":{"session_id":"publish-order-session"}}),
+        )
+        .unwrap();
+
+        mux.append_journal_ingress(
+            &ingress,
+            "journal-agent-publish-order",
+            "journal-agent-publish-order-start",
+        )
+        .unwrap();
+
+        assert_eq!(
+            observed_receiver.recv_timeout(Duration::from_secs(1)).unwrap(),
+            Some(AgentState::Working),
+            "journal listeners must not wake before the agent cache contains the commit"
+        );
+        mux.shutdown();
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
