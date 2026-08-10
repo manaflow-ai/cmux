@@ -1145,6 +1145,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @ObservationIgnored var agentFeedSnapshotsByMac: [String: AgentFeedMacSnapshot] = [:]
     @ObservationIgnored var agentFeedKnownRevisionsByMac: [String: UInt64] = [:]
     @ObservationIgnored var agentFeedRefreshTasksByMac: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored var agentFeedCacheScopeKey: String?
+    let agentFeedCacheStore = AgentFeedCacheStore()
     let agentFeedAggregation = MobileAgentFeedAggregation()
     var createWorkspaceTaskID: UUID?
     private var createTerminalTaskID: UUID?

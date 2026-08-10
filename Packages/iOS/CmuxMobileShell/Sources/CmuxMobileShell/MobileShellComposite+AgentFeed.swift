@@ -23,10 +23,15 @@ extension MobileShellComposite {
 
     /// Fetches all capable Macs and retains cached snapshots from offline Macs.
     public func refreshAgentFeed() async {
+        await restoreAgentFeedCacheIfNeeded()
         let targets = agentFeedTargets()
         guard !targets.isEmpty else {
             recomputeAgentFeedItems()
-            agentFeedStatus = connectedAgentFeedMacCount > 0 ? .requiresMacUpdate : .unavailable
+            if agentFeedItems.isEmpty {
+                agentFeedStatus = connectedAgentFeedMacCount > 0 ? .requiresMacUpdate : .unavailable
+            } else {
+                agentFeedStatus = connectedAgentFeedMacCount > 0 ? .requiresMacUpdate : .offlineCached
+            }
             return
         }
         agentFeedStatus = .loading
@@ -180,6 +185,10 @@ extension MobileShellComposite {
         agentFeedDrafts = [:]
         agentFeedMutationStates = [:]
         agentFeedStatus = .idle
+        if let scopeKey = agentFeedCacheScopeKey {
+            Task { await agentFeedCacheStore.clear(scopeKey: scopeKey) }
+        }
+        agentFeedCacheScopeKey = nil
     }
 
     private func scheduleAgentFeedRefresh(_ target: AgentFeedTarget) -> Task<Void, Never> {
@@ -219,6 +228,7 @@ extension MobileShellComposite {
             // revision from the previous process forever.
             agentFeedKnownRevisionsByMac[target.ownerKey] = response.revision
             recomputeAgentFeedItems()
+            await persistAgentFeedSnapshot(Self.sanitizedAgentFeedCacheData(data), target: target)
             if response.revision < invalidatedRevision, staleRetryBudget > 0 {
                 await fetchAgentFeed(target, staleRetryBudget: staleRetryBudget - 1)
             }
@@ -228,6 +238,66 @@ extension MobileShellComposite {
             )
             if agentFeedSnapshotsByMac[target.ownerKey] == nil { agentFeedStatus = .failed }
         }
+    }
+
+    private func restoreAgentFeedCacheIfNeeded() async {
+        guard agentFeedSnapshotsByMac.isEmpty,
+              let scope = await currentScopeSnapshot() else { return }
+        let scopeKey = pairedMacScopeKey(scope)
+        agentFeedCacheScopeKey = scopeKey
+        let cached = await agentFeedCacheStore.load(scopeKey: scopeKey)
+        guard await isScopeCurrent(scope) else { return }
+        for snapshot in cached {
+            guard let response = try? MobileWorkstreamFeedListResponse.decode(snapshot.responseData) else { continue }
+            let rows = response.items.prefix(MobileAgentFeedAggregation.maxItemCount).map { wire in
+                MobileAgentFeedItem(
+                    macDeviceID: snapshot.macDeviceID,
+                    macInstanceTag: snapshot.instanceTag,
+                    macDisplayName: snapshot.displayName,
+                    connectionStatus: .unavailable,
+                    wire: wire
+                )
+            }
+            agentFeedSnapshotsByMac[snapshot.ownerKey] = AgentFeedMacSnapshot(
+                revision: response.revision,
+                items: rows
+            )
+            agentFeedKnownRevisionsByMac[snapshot.ownerKey] = response.revision
+        }
+        recomputeAgentFeedItems()
+        if !agentFeedItems.isEmpty { agentFeedStatus = .offlineCached }
+    }
+
+    private func persistAgentFeedSnapshot(_ data: Data, target: AgentFeedTarget) async {
+        guard !data.isEmpty,
+              let scope = await currentScopeSnapshot(),
+              await isScopeCurrent(scope) else { return }
+        let scopeKey = pairedMacScopeKey(scope)
+        agentFeedCacheScopeKey = scopeKey
+        await agentFeedCacheStore.upsert(
+            AgentFeedCachedSnapshot(
+                ownerKey: target.ownerKey,
+                macDeviceID: target.macDeviceID,
+                instanceTag: target.instanceTag,
+                displayName: target.displayName,
+                responseData: data,
+                cachedAt: Date()
+            ),
+            scopeKey: scopeKey
+        )
+    }
+
+    /// Removes raw tool input before writing a host response to disk. Cards use
+    /// the host-produced redacted summary, so retaining raw values is needless.
+    static func sanitizedAgentFeedCacheData(_ data: Data) -> Data {
+        guard var root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              var items = root["items"] as? [[String: Any]] else { return Data() }
+        for index in items.indices {
+            items[index]["tool_input"] = nil
+            items[index]["tool_input_capabilities"] = nil
+        }
+        root["items"] = items
+        return (try? JSONSerialization.data(withJSONObject: root, options: [.sortedKeys])) ?? Data()
     }
 
     private var connectedAgentFeedMacCount: Int {
