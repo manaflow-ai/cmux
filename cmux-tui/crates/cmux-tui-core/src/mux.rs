@@ -21166,7 +21166,7 @@ mod tests {
         let mutation = WorkspaceMutation::new("remove-terminal-resource-row", "test").unwrap();
         let fingerprint = serde_json::json!({
             "operation":"test.remove-terminal-resource-row",
-            "terminal":public_id.clone(),
+            "terminal":public_id,
         });
         let commit = mux
             .workspace_registry
