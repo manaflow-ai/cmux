@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use cmux_tui_core::platform::transport;
 use cmux_tui_core::resource::{
-    EnvelopeType, MAX_MESSAGE_BYTES, OperationClass, PROTOCOL, ResponseEnvelope, StreamEndEnvelope,
-    ResourceOperation, StreamEndReason, StreamItemEnvelope,
+    EnvelopeType, MAX_MESSAGE_BYTES, OperationClass, PROTOCOL, ResourceOperation, ResponseEnvelope,
+    StreamEndEnvelope, StreamEndReason, StreamItemEnvelope,
 };
 use serde_json::{Value, json};
 
