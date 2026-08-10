@@ -5149,7 +5149,7 @@ mod tests {
         drop(client);
 
         assert!(
-            matches!(shutdown, Err(std::sync::mpsc::RecvTimeoutError::Disconnected)),
+            matches!(shutdown, Err(RecvTimeoutError::Disconnected)),
             "reader exit left the event channel live: {shutdown:?}"
         );
     }
