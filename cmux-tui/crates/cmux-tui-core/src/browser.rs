@@ -1,17 +1,15 @@
 use std::collections::{HashMap, VecDeque};
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use cmux_tui_cdp::{
-    CDP_EVENT_QUEUE_CAPACITY, CapturedFrame, CdpClient, CdpEvent, CdpKeyEvent, Chrome,
-    ChromeLaunchOptions, FrameEpoch, TargetCreated, discover_browser_ws_url,
-    resolve_browser_ws_url,
+    CDP_EVENT_QUEUE_CAPACITY, CapturedFrame, CdpClient, CdpEvent, CdpKeyEvent, Chrome, FrameEpoch,
+    TargetCreated, resolve_browser_ws_url,
 };
 
-use crate::platform;
+use crate::browser_provider::{BrowserProviderAuthentication, BrowserProviderTargetLease};
 use crate::resource::TabResourceIdentity;
 use crate::surface::{Surface, SurfaceMeta, SurfaceOptions};
 use crate::{Mux, MuxEvent, SurfaceId};
@@ -20,6 +18,7 @@ use crate::{Mux, MuxEvent, SurfaceId};
 pub enum BrowserSource {
     External,
     Launched,
+    Provider,
 }
 
 impl BrowserSource {
@@ -27,6 +26,9 @@ impl BrowserSource {
         match self {
             BrowserSource::External => "external",
             BrowserSource::Launched => "launched",
+            // Provider is a connection/ownership mode for a native external
+            // browser. Keep the stable public source vocabulary unchanged.
+            BrowserSource::Provider => "external",
         }
     }
 }
@@ -577,6 +579,8 @@ pub struct BrowserRuntime {
     client: CdpClient,
     chrome: Option<Chrome>,
     source: BrowserSource,
+    endpoint: String,
+    bearer_token: Option<String>,
     stealth_user_agent: Option<String>,
     routes: Mutex<Routes>,
     closed: AtomicBool,
@@ -764,13 +768,34 @@ impl BrowserRuntime {
         Self::connect_to_endpoint(&web_socket_url, chrome, source)
     }
 
+    pub(crate) fn connect_provider(
+        endpoint: &str,
+        authentication: &BrowserProviderAuthentication,
+    ) -> anyhow::Result<Arc<Self>> {
+        Self::connect_to_endpoint_with_bearer(
+            endpoint,
+            None,
+            BrowserSource::Provider,
+            authentication.bearer_token(),
+        )
+    }
+
     fn connect_to_endpoint(
         web_socket_url: &str,
         chrome: Option<Chrome>,
         source: BrowserSource,
     ) -> anyhow::Result<Arc<Self>> {
+        Self::connect_to_endpoint_with_bearer(web_socket_url, chrome, source, None)
+    }
+
+    fn connect_to_endpoint_with_bearer(
+        web_socket_url: &str,
+        chrome: Option<Chrome>,
+        source: BrowserSource,
+        bearer_token: Option<&str>,
+    ) -> anyhow::Result<Arc<Self>> {
         let (event_tx, event_rx) = sync_channel(CDP_EVENT_QUEUE_CAPACITY);
-        let client = CdpClient::connect(web_socket_url, event_tx)?;
+        let client = CdpClient::connect_with_bearer(web_socket_url, bearer_token, event_tx)?;
         let stealth_user_agent = if source == BrowserSource::Launched {
             client.browser_version().ok().and_then(|ua| clean_headless_user_agent(&ua))
         } else {
@@ -780,6 +805,8 @@ impl BrowserRuntime {
             client,
             chrome,
             source,
+            endpoint: web_socket_url.to_string(),
+            bearer_token: bearer_token.map(str::to_string),
             stealth_user_agent,
             routes: Mutex::new(Routes::default()),
             closed: AtomicBool::new(false),
@@ -797,6 +824,16 @@ impl BrowserRuntime {
         self.source
     }
 
+    pub(crate) fn matches_provider(
+        &self,
+        endpoint: &str,
+        authentication: &BrowserProviderAuthentication,
+    ) -> bool {
+        self.source == BrowserSource::Provider
+            && self.endpoint == endpoint
+            && self.bearer_token.as_deref() == authentication.bearer_token()
+    }
+
     pub(crate) fn bootstrap_surface_sync(
         self: &Arc<Self>,
         surface: Arc<Surface>,
@@ -807,28 +844,25 @@ impl BrowserRuntime {
             anyhow::bail!("CDP browser connection is closed");
         }
         let (target_id, normalized_url) = match bootstrap {
-            BrowserBootstrap::Create { url } => {
-                let normalized_url = normalize_url(&url);
-                let target_id = self.client.create_target(&normalized_url)?;
-                (target_id, normalized_url)
-            }
             BrowserBootstrap::ExistingTarget { target_id, url } => (target_id, normalize_url(&url)),
+            BrowserBootstrap::Provider { .. } => {
+                anyhow::bail!("browser provider target was not resolved before CDP bootstrap")
+            }
         };
         let session_id = self.client.attach_to_target(&target_id)?;
         let events = self.register(&target_id, &session_id);
         if surface.as_browser().is_none() {
-            self.unregister(&target_id, &session_id);
+            self.release_bootstrap_session(&target_id, &session_id);
             anyhow::bail!("browser bootstrap got a non-browser surface");
         }
         let setup_result =
             self.setup_attached_surface(&surface, &target_id, &session_id, &normalized_url);
         if let Err(err) = setup_result {
-            self.unregister(&target_id, &session_id);
-            let _ = self.client.close_target(&target_id);
+            self.release_bootstrap_session(&target_id, &session_id);
             return Err(err);
         }
 
-        start_surface_thread(surface, events, mux, Arc::downgrade(self))?;
+        start_surface_thread(surface, events, mux, Arc::downgrade(self), session_id)?;
         Ok(())
     }
 
@@ -901,8 +935,25 @@ impl BrowserRuntime {
 
     fn close_surface_detached(&self, target_id: &str, session_id: &str) {
         self.unregister(target_id, session_id);
-        if !self.is_closed() {
+        if self.is_closed() {
+            return;
+        }
+        if self.source == BrowserSource::Provider {
+            let _ = self.client.detach_from_target_detached(session_id);
+        } else {
             let _ = self.client.close_target_detached(target_id);
+        }
+    }
+
+    fn release_bootstrap_session(&self, target_id: &str, session_id: &str) {
+        self.unregister(target_id, session_id);
+        if self.is_closed() {
+            return;
+        }
+        if self.source == BrowserSource::Provider {
+            let _ = self.client.detach_from_target_detached(session_id);
+        } else {
+            let _ = self.client.close_target(target_id);
         }
     }
 
@@ -916,8 +967,8 @@ impl BrowserRuntime {
 }
 
 pub(crate) enum BrowserBootstrap {
-    Create { url: String },
     ExistingTarget { target_id: String, url: String },
+    Provider { tab_id: crate::resource::TabPublicId, url: String },
 }
 
 pub(crate) fn new_surface(
@@ -1096,96 +1147,13 @@ fn runtime_endpoint(
     if let Some(url) = opts.cdp_url.as_deref().filter(|url| !url.trim().is_empty()) {
         return Ok((resolve_browser_ws_url(url)?, None, BrowserSource::External));
     }
-    if opts.browser_discover {
-        let ports = if opts.browser_discover_ports.is_empty() {
-            &[9222][..]
-        } else {
-            opts.browser_discover_ports.as_slice()
-        };
-        if let Some(url) = discover_browser_ws_url(ports) {
-            return Ok((url, None, BrowserSource::External));
-        }
-    }
-
-    if std::env::var_os("CMUX_MUX_CDP_DEBUG").is_some() {
-        eprintln!(
-            "cdp: no external endpoint (discover={}); launching chrome",
-            opts.browser_discover
-        );
-    }
-    let chrome_binary = resolve_chrome_binary(opts.chrome_binary.as_deref())?;
-    let user_data_dir = if opts.browser_ephemeral {
-        None
-    } else {
-        Some(resolve_chrome_user_data_dir(
-            opts.browser_user_data_dir.as_deref(),
-            &opts.browser_session_name,
-        )?)
-    };
-    let chrome = Chrome::launch_with(&ChromeLaunchOptions {
-        binary: chrome_binary,
-        mode: opts.browser_mode,
-        user_data_dir,
-        ephemeral: opts.browser_ephemeral,
-    })?;
-    let web_socket_url = chrome.web_socket_url().to_string();
-    Ok((web_socket_url, Some(chrome), BrowserSource::Launched))
+    anyhow::bail!(
+        "no cmux-browser provider is attached; launch cmux-browser or set CMUX_MUX_CDP_URL for an explicit development endpoint"
+    )
 }
 
 fn clean_headless_user_agent(user_agent: &str) -> Option<String> {
     user_agent.contains("HeadlessChrome").then(|| user_agent.replace("HeadlessChrome", "Chrome"))
-}
-
-fn resolve_chrome_binary(explicit: Option<&str>) -> anyhow::Result<PathBuf> {
-    if let Some(path) = explicit.filter(|s| !s.trim().is_empty()) {
-        let path = PathBuf::from(path);
-        if platform::is_executable_file(&path) {
-            return Ok(path);
-        }
-        anyhow::bail!(
-            "configured browser.chrome_binary does not point to an executable file: {}",
-            path.display()
-        );
-    }
-
-    for path in platform::chrome_candidates() {
-        if platform::is_executable_file(&path) {
-            return Ok(path);
-        }
-    }
-
-    let config_hint = platform::config_path()
-        .map(|path| path.display().to_string())
-        .unwrap_or_else(|| "cmux-tui.json".to_string());
-    anyhow::bail!("no Chrome/Chromium binary found; set browser.chrome_binary in {config_hint}")
-}
-
-fn resolve_chrome_user_data_dir(
-    explicit: Option<&str>,
-    session_name: &str,
-) -> anyhow::Result<PathBuf> {
-    if let Some(path) = explicit.filter(|s| !s.trim().is_empty()) {
-        return Ok(PathBuf::from(path));
-    }
-    let base = platform::chrome_user_data_dir().ok_or_else(|| {
-        anyhow::anyhow!(
-            "cannot determine Chrome profile directory; set HOME or browser.user_data_dir"
-        )
-    })?;
-    Ok(base.join(sanitize_session_name(session_name)))
-}
-
-fn sanitize_session_name(name: &str) -> String {
-    let mut out = String::new();
-    for ch in name.chars() {
-        if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
-            out.push(ch);
-        } else {
-            out.push('-');
-        }
-    }
-    let trimmed = out.trim_matches('-');
-    if trimmed.is_empty() { "default".to_string() } else { trimmed.to_string() }
 }
 
 fn start_router(runtime: Weak<BrowserRuntime>, events: Receiver<CdpEvent>) -> anyhow::Result<()> {
@@ -1335,6 +1303,7 @@ fn start_surface_thread(
     events: Arc<SurfaceRoute>,
     mux: Weak<Mux>,
     runtime: Weak<BrowserRuntime>,
+    route_session_id: String,
 ) -> anyhow::Result<()> {
     let id = surface.id;
     std::thread::Builder::new().name(format!("browser-surface-{id}-events")).spawn(move || {
@@ -1478,10 +1447,29 @@ fn start_surface_thread(
                         mux.emit(MuxEvent::Status(message));
                     }
                 }
-                CdpEvent::Closed(_) => {
-                    browser.kill();
-                    if let Some(mux) = mux.upgrade() {
-                        mux.surface_exited(id);
+                CdpEvent::Closed(reason) => {
+                    if let Some(runtime) = runtime
+                        .upgrade()
+                        .filter(|runtime| runtime.source() == BrowserSource::Provider)
+                    {
+                        // Route closure is session-scoped. A replacement can
+                        // attach to the same browser-level WebSocket before
+                        // this old event thread drains its close marker; never
+                        // let that stale marker tear down the new session.
+                        if browser.prepare_provider_reconnect(&runtime, &route_session_id)
+                            && let Some(mux) = mux.upgrade()
+                        {
+                            mux.emit(MuxEvent::Status(format!(
+                                "cmux-browser provider disconnected: {reason}; waiting to reconnect"
+                            )));
+                            mux.emit(MuxEvent::SurfaceOutput(id));
+                            mux.restart_provider_browser_surface(surface.clone());
+                        }
+                    } else if !browser.is_dead() {
+                        browser.kill();
+                        if let Some(mux) = mux.upgrade() {
+                            mux.surface_exited(id);
+                        }
                     }
                     break;
                 }
@@ -2070,6 +2058,89 @@ impl BrowserSurface {
 
     pub fn source(&self) -> Option<BrowserSource> {
         self.session.lock().unwrap().as_ref().map(|session| session.runtime.source())
+    }
+
+    pub(crate) fn prepare_provider_bootstrap_attempt(&self) -> bool {
+        if self.is_dead() || self.session.lock().unwrap().is_some() {
+            return false;
+        }
+        let mut state = self.state.lock().unwrap();
+        state.status = BrowserStatus::Starting;
+        state.failure_kind = None;
+        state.source = None;
+        state.title = state.url.clone();
+        state.live_since = None;
+        state.last_frame_at = None;
+        state.stall_nudged = false;
+        state.not_responding_reported = false;
+        self.mark_state_dirty_locked(&mut state);
+        self.dirty.store(true, Ordering::Release);
+        true
+    }
+
+    fn prepare_provider_reconnect(&self, runtime: &Arc<BrowserRuntime>, session_id: &str) -> bool {
+        self.prepare_provider_session_replacement(|session| {
+            session.session_id == session_id && Arc::ptr_eq(&session.runtime, runtime)
+        })
+    }
+
+    pub(crate) fn prepare_provider_lease_replacement(
+        &self,
+        lease: Option<&BrowserProviderTargetLease>,
+    ) -> bool {
+        self.prepare_provider_session_replacement(|session| {
+            !lease.is_some_and(|lease| {
+                session.target_id == lease.target_id
+                    && session.runtime.matches_provider(&lease.endpoint, &lease.authentication)
+            })
+        })
+    }
+
+    fn prepare_provider_session_replacement(
+        &self,
+        should_replace: impl FnOnce(&BrowserSession) -> bool,
+    ) -> bool {
+        if self.is_dead() {
+            return false;
+        }
+        let Some(session) = ({
+            let mut current = self.session.lock().unwrap();
+            let matches = current.as_ref().is_some_and(|session| {
+                session.runtime.source() == BrowserSource::Provider && should_replace(session)
+            });
+            matches.then(|| current.take()).flatten()
+        }) else {
+            return false;
+        };
+        session.runtime.close_surface_detached(&session.target_id, &session.session_id);
+
+        let frame_epoch = self.frame_epoch.advance();
+        let mut state = self.state.lock().unwrap();
+        self.invalidate_pointer_frame_locked(&mut state, true);
+        state.latest_frame = None;
+        state.pending_frame = None;
+        state.pending_frame_epoch = None;
+        state.pending_navigation_epoch = None;
+        state.pending_document_epoch = None;
+        state.pending_authority_deadline = None;
+        state.pending_same_document_navigation = false;
+        state.pending_failure_recovery = false;
+        state.pending_navigation_rollback = None;
+        state.pending_screencast_capture = None;
+        state.failed_screencast_capture_epoch = None;
+        state.accepted_frame_epoch = frame_epoch;
+        state.page_viewport = None;
+        state.status = BrowserStatus::Starting;
+        state.failure_kind = None;
+        state.source = None;
+        state.title = state.url.clone();
+        state.live_since = None;
+        state.last_frame_at = None;
+        state.stall_nudged = false;
+        state.not_responding_reported = false;
+        self.mark_state_dirty_locked(&mut state);
+        self.dirty.store(true, Ordering::Release);
+        true
     }
 
     pub fn size(&self) -> (u16, u16) {
@@ -3943,7 +4014,7 @@ impl BrowserSurface {
     }
 
     fn maybe_nudge_stalled_external(&self, session: &BrowserSession) {
-        if session.runtime.source() != BrowserSource::External {
+        if session.runtime.source() == BrowserSource::Launched {
             return;
         }
         let should_nudge = {
@@ -5143,11 +5214,17 @@ impl BrowserSurface {
 
     fn close_blocking(&self) -> anyhow::Result<()> {
         let session = self.require_live_session()?;
-        session.runtime.client.close_target(&session.target_id)?;
+        if session.runtime.source() != BrowserSource::Provider {
+            session.runtime.client.close_target(&session.target_id)?;
+        }
         if !self.dead.swap(true, Ordering::AcqRel) {
             self.close_taps();
             if let Some(session) = self.session.lock().unwrap().take() {
-                session.runtime.unregister(&session.target_id, &session.session_id);
+                if session.runtime.source() == BrowserSource::Provider {
+                    session.runtime.close_surface_detached(&session.target_id, &session.session_id);
+                } else {
+                    session.runtime.unregister(&session.target_id, &session.session_id);
+                }
             }
             self.close_command_sender();
         }
@@ -5260,6 +5337,13 @@ fn handle_target_created(
         }
         return;
     };
+    // cmux-browser owns popup materialization and commits its canonical tab
+    // before publishing a target lease. CDP is only the rendering/input data
+    // plane in provider mode, so adopting this event here would create a
+    // second tab and race the browser's journal mutation.
+    if session.runtime.source() == BrowserSource::Provider {
+        return;
+    }
     if created.opener_id.as_deref() != Some(session.target_id.as_str()) {
         return;
     }
@@ -5360,7 +5444,6 @@ mod tests {
     };
     use crate::{Mux, MuxEvent, Surface, SurfaceOptions};
     use serde_json::{Value, json};
-    use std::io::{Read, Write};
     use std::net::{TcpListener, TcpStream};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex, Weak, mpsc};
@@ -5608,77 +5691,6 @@ mod tests {
         (runtime, server, events_rx, stop_tx)
     }
 
-    fn serve_json_version_until_stopped(
-        listener: TcpListener,
-        ready_tx: mpsc::Sender<()>,
-        stop_rx: mpsc::Receiver<()>,
-    ) {
-        listener.set_nonblocking(true).unwrap();
-        ready_tx.send(()).unwrap();
-        loop {
-            match listener.accept() {
-                Ok((mut stream, _)) => {
-                    // Accepted sockets inherit the listener's O_NONBLOCK on
-                    // macOS; reads must block until the request arrives.
-                    stream.set_nonblocking(false).unwrap();
-                    serve_json_version(&mut stream);
-                }
-                Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
-                    match stop_rx.recv_timeout(Duration::from_millis(10)) {
-                        Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
-                        Err(mpsc::RecvTimeoutError::Timeout) => {}
-                    }
-                }
-                Err(err) => panic!("failed to accept fake browser discovery connection: {err}"),
-            }
-        }
-    }
-
-    fn serve_json_version(stream: &mut TcpStream) {
-        stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
-        let mut request = Vec::new();
-        let mut buf = [0u8; 512];
-        while !request.windows(4).any(|window| window == b"\r\n\r\n") {
-            match stream.read(&mut buf) {
-                Ok(0) => return,
-                Ok(n) => request.extend_from_slice(&buf[..n]),
-                Err(err)
-                    if matches!(
-                        err.kind(),
-                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                    ) =>
-                {
-                    return;
-                }
-                Err(err) => panic!("failed to read fake browser discovery request: {err}"),
-            }
-        }
-        let body = r#"{"webSocketDebuggerUrl":"ws://127.0.0.1:9/devtools/browser/fake"}"#;
-        let response = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-            body.len(),
-            body
-        );
-        let _ = stream.write_all(response.as_bytes());
-        let _ = stream.flush();
-    }
-
-    fn runtime_endpoint_until_discovered(
-        opts: &SurfaceOptions,
-        deadline: Duration,
-    ) -> anyhow::Result<(String, Option<cmux_tui_cdp::Chrome>, BrowserSource)> {
-        let start = Instant::now();
-        let mut last_err = None;
-        while start.elapsed() < deadline {
-            match runtime_endpoint(opts) {
-                Ok(endpoint) => return Ok(endpoint),
-                Err(err) => last_err = Some(err),
-            }
-            thread::yield_now();
-        }
-        runtime_endpoint(opts).map_err(|err| last_err.unwrap_or(err))
-    }
-
     fn test_surface() -> Arc<Surface> {
         let opts = SurfaceOptions::default();
         new_surface(1, "https://example.test".into(), (10, 5), (8, 16), &opts, Weak::new()).unwrap()
@@ -5703,6 +5715,54 @@ mod tests {
 
     fn write_ws_json(ws: &mut tungstenite::WebSocket<TcpStream>, value: Value) {
         ws.send(Message::Text(value.to_string().into())).unwrap();
+    }
+
+    #[test]
+    fn confirmed_provider_close_detaches_without_closing_the_target() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (detached_tx, detached_rx) = mpsc::channel();
+        let server = thread::Builder::new()
+            .name("browser-provider-close-fake-cdp".into())
+            .spawn(move || {
+                let (stream, _) = listener.accept().unwrap();
+                let mut ws = accept(stream).unwrap();
+                let discover = read_ws_json(&mut ws);
+                assert_eq!(discover["method"], "Target.setDiscoverTargets");
+                write_ws_json(&mut ws, json!({"id":discover["id"],"result":{}}));
+
+                let detached = read_ws_json(&mut ws);
+                detached_tx.send(detached.clone()).unwrap();
+                write_ws_json(&mut ws, json!({"id":detached["id"],"result":{}}));
+            })
+            .unwrap();
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::Provider,
+        )
+        .unwrap();
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        let done = browser.take_worker_done_for_test();
+        let _route = runtime.register("provider-target", "provider-session");
+        browser
+            .mark_live(BrowserSession {
+                runtime: runtime.clone(),
+                target_id: "provider-target".to_string(),
+                session_id: "provider-session".to_string(),
+            })
+            .unwrap();
+
+        browser.close_confirmed().unwrap();
+        runtime.client.flush_outbound(Duration::from_secs(1)).unwrap();
+        let detached = detached_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(detached["method"], "Target.detachFromTarget");
+        assert_eq!(detached["params"]["sessionId"], "provider-session");
+        done.recv_timeout(Duration::from_secs(1)).expect("browser worker exited after close");
+
+        runtime.shutdown();
+        server.join().unwrap();
     }
 
     #[test]
@@ -6382,8 +6442,14 @@ mod tests {
             target_id: "target-1".to_string(),
             session_id: "session-1".to_string(),
         });
-        start_surface_thread(surface.clone(), route.clone(), Weak::new(), Arc::downgrade(&runtime))
-            .unwrap();
+        start_surface_thread(
+            surface.clone(),
+            route.clone(),
+            Weak::new(),
+            Arc::downgrade(&runtime),
+            "session-1".to_string(),
+        )
+        .unwrap();
 
         route.close("CDP surface event queue overflow".to_string());
         closed_rx
@@ -6975,20 +7041,8 @@ mod tests {
     }
 
     #[test]
-    fn browser_discovery_is_explicit_opt_in() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let (ready_tx, ready_rx) = mpsc::channel();
-        let (stop_tx, stop_rx) = mpsc::channel();
-        let server =
-            thread::spawn(move || serve_json_version_until_stopped(listener, ready_tx, stop_rx));
-        ready_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-
-        let opts = SurfaceOptions {
-            chrome_binary: Some("/definitely/missing/cmux-test-chrome".to_string()),
-            browser_discover_ports: vec![port],
-            ..Default::default()
-        };
+    fn runtime_never_discovers_or_launches_an_isolated_browser() {
+        let opts = SurfaceOptions::default();
         let explicit_opts = SurfaceOptions {
             cdp_url: Some("ws://127.0.0.1:9/devtools/browser/explicit".to_string()),
             ..opts.clone()
@@ -6998,25 +7052,19 @@ mod tests {
         assert!(chrome.is_none());
         assert_eq!(source, BrowserSource::External);
 
-        let err = match runtime_endpoint(&opts) {
-            Ok((url, _, source)) => {
-                panic!("default config should launch, not discover; got {source:?} {url}")
-            }
-            Err(err) => err,
-        };
-        assert!(err.to_string().contains("configured browser.chrome_binary"));
+        let error = runtime_endpoint(&opts).err().expect("provider-less runtime must fail");
+        assert!(error.to_string().contains("no cmux-browser provider is attached"));
 
-        let discover_opts = SurfaceOptions { browser_discover: true, ..opts };
-        let (url, chrome, source) =
-            runtime_endpoint_until_discovered(&discover_opts, Duration::from_secs(2))
-                .unwrap_or_else(|err| {
-                    panic!("browser discovery did not find fake endpoint within 2s: {err:#}")
-                });
-        assert_eq!(url, "ws://127.0.0.1:9/devtools/browser/fake");
-        assert!(chrome.is_none());
-        assert_eq!(source, BrowserSource::External);
-        stop_tx.send(()).unwrap();
-        server.join().unwrap();
+        let discover_opts = SurfaceOptions {
+            browser_discover: true,
+            browser_discover_ports: vec![9],
+            chrome_binary: Some("/definitely/missing/chrome".to_string()),
+            ..opts
+        };
+        let error = runtime_endpoint(&discover_opts)
+            .err()
+            .expect("legacy discovery options must not launch or discover Chrome");
+        assert!(error.to_string().contains("no cmux-browser provider is attached"));
     }
 
     #[test]
@@ -7704,8 +7752,14 @@ mod tests {
             target_id: "target-1".to_string(),
             session_id: "session-1".to_string(),
         });
-        start_surface_thread(surface.clone(), route, Weak::new(), Arc::downgrade(&runtime))
-            .unwrap();
+        start_surface_thread(
+            surface.clone(),
+            route,
+            Weak::new(),
+            Arc::downgrade(&runtime),
+            "session-1".to_string(),
+        )
+        .unwrap();
         browser.store_frame(test_frame(1));
 
         start_tx.send(()).unwrap();
@@ -8012,8 +8066,14 @@ mod tests {
 
         let events = mux.subscribe();
         let route = Arc::new(super::SurfaceRoute::new());
-        start_surface_thread(surface.clone(), route.clone(), Arc::downgrade(&mux), Weak::new())
-            .unwrap();
+        start_surface_thread(
+            surface.clone(),
+            route.clone(),
+            Arc::downgrade(&mux),
+            Weak::new(),
+            "session-test".to_string(),
+        )
+        .unwrap();
         assert!(!route.deliver(cmux_tui_cdp::CdpEvent::ScreencastFrame(
             cmux_tui_cdp::ScreencastFrame {
                 session_id: "session-test".to_string(),
@@ -9508,8 +9568,14 @@ mod tests {
             target_id: "target-1".to_string(),
             session_id: "session-1".to_string(),
         });
-        start_surface_thread(surface.clone(), route, Weak::new(), Arc::downgrade(&runtime))
-            .unwrap();
+        start_surface_thread(
+            surface.clone(),
+            route,
+            Weak::new(),
+            Arc::downgrade(&runtime),
+            "session-1".to_string(),
+        )
+        .unwrap();
         browser.store_frame(test_frame(1));
 
         browser.reload_blocking().unwrap();

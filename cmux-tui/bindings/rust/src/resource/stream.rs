@@ -16,6 +16,7 @@ pub(crate) type StreamItemValidator = fn(&StreamItem) -> Result<()>;
 
 pub(crate) struct StreamParts {
     pub(crate) id: StreamId,
+    pub(crate) attachment_lease: Option<String>,
     pub(crate) connection: crate::codec::JsonLineConnection,
     pub(crate) writer: UnixStream,
     pub(crate) cancel_params: Params,
@@ -113,6 +114,7 @@ impl StreamCancellation {
 /// Owned, blocking, cancellable iterator over one resource stream.
 pub struct ResourceStream {
     id: StreamId,
+    attachment_lease: Option<String>,
     connection: crate::codec::JsonLineConnection,
     cancellation: StreamCancellation,
     control_params: Params,
@@ -143,6 +145,7 @@ impl ResourceStream {
         };
         let mut stream = Self {
             id: parts.id,
+            attachment_lease: parts.attachment_lease,
             connection: parts.connection,
             cancellation,
             control_params: parts.control_params,
@@ -176,6 +179,10 @@ impl ResourceStream {
 
     pub fn id(&self) -> &StreamId {
         &self.id
+    }
+
+    pub fn attachment_lease(&self) -> Option<&str> {
+        self.attachment_lease.as_deref()
     }
 
     pub fn cancellation(&self) -> StreamCancellation {
@@ -670,6 +677,7 @@ mod tests {
         let writer = connection.shutdown_clone().unwrap();
         let mut stream = ResourceStream::from_parts(StreamParts {
             id: StreamId::parse("stream_00000000000000000000000000000001").unwrap(),
+            attachment_lease: None,
             connection,
             writer,
             cancel_params: Params::new(),
@@ -702,6 +710,7 @@ mod tests {
         let id = StreamId::parse("stream_00000000000000000000000000000001").unwrap();
         let mut stream = ResourceStream::from_parts(StreamParts {
             id: id.clone(),
+            attachment_lease: None,
             connection,
             writer,
             cancel_params: Params::new(),

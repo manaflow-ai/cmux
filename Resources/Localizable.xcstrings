@@ -1,6 +1,230 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cli.help.notify.reply": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "--reply                Allow a free-text inline reply" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "--reply                自由入力のインライン返信を許可" } }
+      }
+    },
+    "debug.menu.notification.all": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Emit All" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべて送信" } }
+      }
+    },
+    "debug.menu.notification.cli": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "CLI" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "CLI" } }
+      }
+    },
+    "debug.menu.notification.cliReply": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "CLI Reply" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "CLI 返信" } }
+      }
+    },
+    "debug.menu.notification.emit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Emit Notification" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知を送信" } }
+      }
+    },
+    "debug.menu.notification.error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Error" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エラー" } }
+      }
+    },
+    "debug.menu.notification.feedExitPlan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Exit Plan" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィード終了プラン" } }
+      }
+    },
+    "debug.menu.notification.feedPermission": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Permission" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィード権限" } }
+      }
+    },
+    "debug.menu.notification.feedQuestion": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Question" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィード質問" } }
+      }
+    },
+    "debug.menu.notification.feedQuestion4": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Question (4 Options)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィード質問（4つの選択肢）" } }
+      }
+    },
+    "debug.menu.notification.feedQuestionMany": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Question (Many Options)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィード質問（多数の選択肢）" } }
+      }
+    },
+    "debug.menu.notification.feedQuestionMultiple": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Question (Multiple)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィード質問（複数質問）" } }
+      }
+    },
+    "debug.menu.notification.feedQuestionMultiSelect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Question (Multi-select)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィード質問（複数選択）" } }
+      }
+    },
+    "debug.menu.notification.hookFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Hook Failed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フック失敗" } }
+      }
+    },
+    "debug.menu.notification.idle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Idle Reminder" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アイドル通知" } }
+      }
+    },
+    "debug.menu.notification.mode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Notification Debug Mode" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知デバッグモード" } }
+      }
+    },
+    "debug.menu.notification.needsPermission": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Needs Permission" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "権限が必要" } }
+      }
+    },
+    "debug.menu.notification.osc": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "OSC" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "OSC" } }
+      }
+    },
+    "debug.menu.notification.turnComplete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Turn Complete" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターン完了" } }
+      }
+    },
+    "debug.notification.error.invalidKindOrTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unknown kind or no notification target" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明な種類、または通知対象がありません" } }
+      }
+    },
+    "debug.notification.error.missingEnabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pass enabled=true or enabled=false to turn notification debug mode on or off." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "enabled=true または enabled=false を指定して、通知デバッグモードのオン/オフを切り替えてください。" } }
+      }
+    },
+    "debug.notification.error.missingKind": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pass kind=<notification kind> to choose which debug notification to emit." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "kind=<通知の種類> を指定して、発行するデバッグ通知を選んでください。" } }
+      }
+    },
+    "debug.notification.synthetic.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Synthetic %@ notification" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "合成 %@ 通知" } }
+      }
+    },
+    "debug.notification.synthetic.option": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Option %d" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "選択肢 %d" } }
+      }
+    },
+    "debug.notification.synthetic.plan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Inspect the notification and verify the actions." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知を確認し、アクションを検証します。" } }
+      }
+    },
+    "debug.notification.synthetic.question": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Choose a notification debug answer" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知デバッグの回答を選択" } }
+      }
+    },
+    "debug.notification.synthetic.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Notification Debug" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知デバッグ" } }
+      }
+    },
+    "feed.notification.exitPlan.revise": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Revise…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "修正…" } }
+      }
+    },
+    "feed.notification.question.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Other…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "その他…" } }
+      }
+    },
+    "terminal.notification.action.reply": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reply" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "返信" } }
+      }
+    },
+    "terminal.notification.action.replyPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Message the agent…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェントにメッセージ…" } }
+      }
+    },
+    "terminal.notification.action.replySend": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Send" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "送信" } }
+      }
+    },
     "about.appName": {
       "extractionState": "manual",
       "localizations": {
@@ -1554,13 +1778,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn’t reach Stack"
+            "value": "Couldn’t reach cmux"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stack に接続できません"
+            "value": "cmux に接続できません"
           }
         }
       }
@@ -1622,13 +1846,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stack rejected the sign-in"
+            "value": "cmux couldn’t complete the sign-in"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stack がサインインを拒否しました"
+            "value": "cmux でサインインを完了できませんでした"
           }
         }
       }
@@ -1656,13 +1880,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stack is temporarily unavailable"
+            "value": "cmux sign-in is temporarily unavailable"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stack は一時的に利用できません"
+            "value": "cmux のサインインは一時的に利用できません"
           }
         }
       }
@@ -1707,13 +1931,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Confirm you’re using the intended Stack account, then try again."
+            "value": "Confirm you’re using the intended cmux account, then try again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用する Stack アカウントが正しいことを確認して、もう一度試してください。"
+            "value": "使用する cmux アカウントが正しいことを確認して、もう一度試してください。"
           }
         }
       }
@@ -1724,13 +1948,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stack couldn’t authorize this sign-in"
+            "value": "cmux couldn’t authorize this sign-in"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stack がこのサインインを承認できませんでした"
+            "value": "cmux がこのサインインを承認できませんでした"
           }
         }
       }
@@ -1843,13 +2067,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux is verifying your Stack account. Keep this pane open."
+            "value": "cmux is verifying your account. Keep this pane open."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux が Stack アカウントを確認しています。このペインを開いたままにしてください。"
+            "value": "cmux がアカウントを確認しています。このペインを開いたままにしてください。"
           }
         }
       }
@@ -1877,13 +2101,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux is preparing a secure Stack sign-in window."
+            "value": "cmux is preparing a secure sign-in window."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux が安全な Stack サインインウインドウを準備しています。"
+            "value": "cmux が安全なサインインウインドウを準備しています。"
           }
         }
       }
@@ -1996,13 +2220,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Continue with your Stack account."
+            "value": "Continue with your cmux account."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stack アカウントで続行します。"
+            "value": "cmux アカウントで続行します。"
           }
         }
       }
@@ -2030,13 +2254,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux is connected to your Stack account."
+            "value": "Your cmux account is connected."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux が Stack アカウントに接続されました。"
+            "value": "cmux アカウントに接続しました。"
           }
         }
       }
@@ -34832,6 +35056,74 @@
         }
       }
     },
+    "cli.browser.error.diffViewerAllowlistInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid trusted diff viewer allowlist"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信頼済み差分ビューアの許可リストが無効です"
+          }
+        }
+      }
+    },
+    "cli.browser.error.diffViewerAllowlistMissingOrInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or invalid trusted diff viewer allowlist"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信頼済み差分ビューアの許可リストがないか、無効です"
+          }
+        }
+      }
+    },
+    "cli.browser.error.diffViewerSessionInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid trusted diff viewer session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信頼済み差分ビューアのセッションが無効です"
+          }
+        }
+      }
+    },
+    "cli.browser.error.diffViewerSessionMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing trusted diff viewer session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信頼済み差分ビューアのセッションがありません"
+          }
+        }
+      }
+    },
     "cli.browser.error.operationFailed": {
       "extractionState": "manual",
       "localizations": {
@@ -37686,6 +37978,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "（リモート tmux にルーティングされました。新しいウインドウは非同期で反映されます）"
+          }
+        }
+      }
+    },
+    "cli.send.queuedSuffix": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "queued (terminal starting; input will be sent when its PTY is ready)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キュー済み（ターミナル起動中。PTY 生成後に入力が送信されます）"
           }
         }
       }
@@ -41931,16 +42240,374 @@
     "cli.hooks.error.configDirectoryIsFile": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux إنشاء دليل hooks: يوجد ملف في %@. أزل الملف المتعارض أو أعد تسميته، ثم شغّل `cmux hooks setup` مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao kreirati direktorij hookova: datoteka postoji na %@. Uklonite ili preimenujte konfliktnu datoteku, a zatim ponovo pokrenite `cmux hooks setup`."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke oprette hookmappen: der findes en fil på %@. Fjern eller omdøb filen, og kør derefter `cmux hooks setup` igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte das Hook-Verzeichnis nicht erstellen: Unter %@ ist bereits eine Datei vorhanden. Entferne die Datei oder benenne sie um und führe dann `cmux hooks setup` erneut aus."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux could not create the hooks directory: a file exists at %@; remove or rename the conflicting file and re-run `cmux hooks setup`"
+            "value": "cmux could not create the hooks directory: a file exists at %@. Remove or rename the conflicting file, then run `cmux hooks setup` again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo crear el directorio de hooks: ya existe un archivo en %@. Elimina o cambia el nombre del archivo en conflicto y vuelve a ejecutar `cmux hooks setup`."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas pu créer le dossier des hooks : un fichier existe à l’emplacement %@. Supprimez ou renommez ce fichier, puis relancez `cmux hooks setup`."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non è riuscito a creare la directory degli hook: esiste già un file in %@. Rimuovi o rinomina il file in conflitto, quindi esegui di nuovo `cmux hooks setup`."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux は hooks ディレクトリを作成できませんでした: %@ にファイルがあります。競合するファイルを削除または名前変更してから `cmux hooks setup` を再実行してください"
+            "value": "cmux は hooks ディレクトリを作成できませんでした。%@ にファイルがあります。競合するファイルを削除または名前変更してから `cmux hooks setup` を再実行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចបង្កើតថត hooks បានទេ៖ មានឯកសារមួយនៅ %@។ លុប ឬប្តូរឈ្មោះឯកសារដែលប៉ះទង្គិច រួចដំណើរការ `cmux hooks setup` ម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 hooks 디렉터리를 만들지 못했습니다. %@에 파일이 있습니다. 충돌하는 파일을 제거하거나 이름을 바꾼 다음 `cmux hooks setup`을 다시 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke opprette hookmappen: det finnes en fil på %@. Fjern eller gi nytt navn til filen, og kjør deretter `cmux hooks setup` på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie mógł utworzyć katalogu hooków: w %@ istnieje plik. Usuń plik powodujący konflikt lub zmień jego nazwę, a następnie ponownie uruchom `cmux hooks setup`."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não conseguiu criar o diretório de hooks: existe um arquivo em %@. Remova ou renomeie o arquivo conflitante e execute `cmux hooks setup` novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не удалось создать каталог хуков: по пути %@ уже существует файл. Удалите или переименуйте этот файл, затем снова выполните `cmux hooks setup`."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่สามารถสร้างไดเรกทอรี hooks ได้ เนื่องจากมีไฟล์อยู่ที่ %@ โปรดลบหรือเปลี่ยนชื่อไฟล์ที่ขัดแย้ง แล้วเรียกใช้ `cmux hooks setup` อีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux hooks dizinini oluşturamadı: %@ konumunda bir dosya var. Çakışan dosyayı kaldırın veya yeniden adlandırın, ardından `cmux hooks setup` komutunu tekrar çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не вдалося створити каталог хуків: за шляхом %@ вже існує файл. Видаліть або перейменуйте цей файл, а потім знову виконайте `cmux hooks setup`."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法创建 hooks 目录：%@ 处已有文件。请移除或重命名冲突文件，然后再次运行 `cmux hooks setup`。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法建立 hooks 目錄：%@ 已有檔案。請移除或重新命名衝突的檔案，然後再次執行 `cmux hooks setup`。"
+          }
+        }
+      }
+    },
+    "cli.hooks.error.configDirectoryCreateFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux إنشاء دليل hooks في %@. تحقّق من أذونات الدليل الأصل ثم أعد المحاولة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao kreirati direktorij hookova na %@. Provjerite dozvole nadređenog direktorija i pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke oprette hookmappen på %@. Kontrollér tilladelserne for den overordnede mappe, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte das Hook-Verzeichnis unter %@ nicht erstellen. Prüfe die Berechtigungen des übergeordneten Verzeichnisses und versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not create the hooks directory at %@. Check the parent directory permissions and try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo crear el directorio de hooks en %@. Comprueba los permisos del directorio superior e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas pu créer le dossier des hooks à l’emplacement %@. Vérifiez les autorisations du dossier parent et réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non è riuscito a creare la directory degli hook in %@. Controlla i permessi della directory principale e riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は %@ に hooks ディレクトリを作成できませんでした。親ディレクトリの権限を確認して、もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចបង្កើតថត hooks នៅ %@ បានទេ។ ពិនិត្យសិទ្ធិរបស់ថតមេ ហើយព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 %@에 hooks 디렉터리를 만들지 못했습니다. 상위 디렉터리 권한을 확인한 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke opprette hookmappen på %@. Kontroller tillatelsene for den overordnede mappen og prøv på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie mógł utworzyć katalogu hooków w %@. Sprawdź uprawnienia katalogu nadrzędnego i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não conseguiu criar o diretório de hooks em %@. Verifique as permissões do diretório pai e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не удалось создать каталог хуков по пути %@. Проверьте разрешения родительского каталога и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่สามารถสร้างไดเรกทอรี hooks ที่ %@ ได้ โปรดตรวจสอบสิทธิ์ของไดเรกทอรีหลักแล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux %@ konumunda hooks dizinini oluşturamadı. Üst dizinin izinlerini kontrol edip yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не вдалося створити каталог хуків за шляхом %@. Перевірте дозволи батьківського каталогу та повторіть спробу."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法在 %@ 创建 hooks 目录。请检查父目录权限，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法在 %@ 建立 hooks 目錄。請檢查上層目錄權限，然後再試一次。"
+          }
+        }
+      }
+    },
+    "cli.hooks.error.pinnedTargetMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux ربط تثبيت الـ hooks هذا بتطبيق قيد التشغيل. افتح مساحة عمل في cmux وشغّل هذا الأمر مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao povezati ovu instalaciju hookova s pokrenutom aplikacijom. Otvorite cmux radni prostor i ponovo pokrenite ovu naredbu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke forbinde denne hookinstallation med en kørende app. Åbn et cmux-arbejdsområde, og kør kommandoen igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte diese Hook-Installation nicht mit einer laufenden App verbinden. Öffne einen cmux-Arbeitsbereich und führe diesen Befehl erneut aus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not connect this hook installation to a running app. Open a cmux workspace and run this command again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo conectar esta instalación de hooks con una aplicación en ejecución. Abre un espacio de trabajo de cmux y vuelve a ejecutar este comando."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas pu relier cette installation de hooks à une application en cours d’exécution. Ouvrez un espace de travail cmux et relancez cette commande."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non è riuscito a collegare questa installazione di hook a un’app in esecuzione. Apri uno spazio di lavoro cmux ed esegui di nuovo questo comando."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はこの hook のインストールを実行中のアプリに接続できませんでした。cmux ワークスペースを開き、このコマンドをもう一度実行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចភ្ជាប់ការដំឡើង hooks នេះទៅកម្មវិធីដែលកំពុងដំណើរការបានទេ។ បើក workspace ក្នុង cmux ហើយដំណើរការពាក្យបញ្ជានេះម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 이 훅 설치를 실행 중인 앱에 연결하지 못했습니다. cmux 작업 공간을 열고 이 명령을 다시 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke koble denne hookinstallasjonen til en app som kjører. Åpne et cmux-arbeidsområde og kjør kommandoen på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie mógł połączyć tej instalacji hooków z uruchomioną aplikacją. Otwórz obszar roboczy cmux i uruchom to polecenie ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não conseguiu conectar esta instalação de hooks a um aplicativo em execução. Abra um espaço de trabalho do cmux e execute este comando novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не удалось связать эту установку хуков с запущенным приложением. Откройте рабочее пространство cmux и выполните эту команду снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่สามารถเชื่อมต่อการติดตั้ง hooks นี้กับแอปที่กำลังทำงานอยู่ได้ เปิดพื้นที่ทำงาน cmux แล้วเรียกใช้คำสั่งนี้อีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux bu hook kurulumunu çalışan bir uygulamaya bağlayamadı. Bir cmux çalışma alanı açın ve bu komutu yeniden çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не вдалося пов’язати це встановлення хуків із запущеною програмою. Відкрийте робочий простір cmux і виконайте цю команду ще раз."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法将此 hooks 安装连接到正在运行的应用。请打开一个 cmux 工作区，然后再次运行此命令。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法將此 hooks 安裝連接到執行中的應用程式。請開啟 cmux 工作區，然後再次執行此命令。"
           }
         }
       }
@@ -81635,6 +82302,40 @@
         }
       }
     },
+    "controlSocket.reportShellState.invalidTerminalLifecycleID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Terminal session is out of date; restart the shell and try again"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エラー: ターミナルセッションが古いため、シェルを再起動してもう一度お試しください"
+          }
+        }
+      }
+    },
+    "controlSocket.surface.reportShellState.invalidTerminalLifecycleID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal session is out of date; restart the shell and try again"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルセッションが古いため、シェルを再起動してもう一度お試しください"
+          }
+        }
+      }
+    },
     "crashBreadcrumb.body": {
       "extractionState": "manual",
       "localizations": {
@@ -98563,6 +99264,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "This page cannot use diff comments."
+          }
+        }
+      }
+    },
+    "diffViewer.error.allowlistTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff viewer allowlist is too large"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差分ビューアの許可リストが大きすぎます"
           }
         }
       }
@@ -147785,22 +148503,124 @@
     "sessionIndex.agent.hermesAgent": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وكيل Hermes"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes agent"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes-agent"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes-Agent"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Hermes Agent"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agente Hermes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Hermes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agente Hermes"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hermes Agent"
+            "value": "Hermes エージェント"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងារ Hermes"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hermes Agent"
+            "value": "Hermes 에이전트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes-agent"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Hermes"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agente Hermes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агент Hermes"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์ Hermes"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes Aracısı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агент Hermes"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes 代理"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes 代理程式"
           }
         }
       }

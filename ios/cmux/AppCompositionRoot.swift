@@ -50,6 +50,12 @@ final class AppCompositionRoot {
     /// credentials, peer identities, addresses, or free-form errors.
     let diagnosticLog: DiagnosticLog
 
+    /// The consolidated on-disk log pair: `cmux-app.log` (app-wide, including
+    /// the mirrored string debug log) and `cmux-network.log` (network
+    /// diagnostics). Fed by the diagnostic ring's event tap; always on, since
+    /// structured events are privacy-safe by construction.
+    let appLog: AppLog
+
     /// Bridges the diagnostic event stream into Sentry (breadcrumbs, structured
     /// logs, and throttled failure events with the ring export attached). Held
     /// for the process lifetime; delivery no-ops whenever the crash SDK is off
@@ -89,8 +95,25 @@ final class AppCompositionRoot {
             exportRing: { [diagnosticLog] in await diagnosticLog.export() }
         )
         self.transportSentryReporter = transportSentryReporter
+        let appLog = AppLog(
+            appFileURL: AppLog.defaultAppLogFileURL,
+            networkFileURL: AppLog.defaultNetworkLogFileURL,
+            buildStamp: MobileDebugLog.buildStamp
+        )
+        self.appLog = appLog
         diagnosticLog.setEventTap { event in
+            appLog.ingest(event)
             transportSentryReporter.ingest(event)
+        }
+        // Mirror the string debug log into the app log file so one file holds
+        // the whole in-app story in wall-clock order. The string sink keeps
+        // its own privacy gating (DEBUG always, Release behind the verbose
+        // opt-in), so this mirror never widens what gets persisted.
+        Task {
+            let sink = MobileDebugLog.shared.sink
+            for await line in await sink.lines() {
+                appLog.mirrorAppLine(line)
+            }
         }
         self.analytics = MobileAnalyticsComposition(
             apiBaseURL: auth.config.apiBaseURL,
