@@ -3853,7 +3853,7 @@ impl ClientRegistry {
         }
     }
 
-    fn commit_daemon_handoff_after_ack(
+    pub(crate) fn commit_daemon_handoff_after_ack(
         &self,
         requesting_client: u64,
         acknowledge: impl FnOnce() -> std::io::Result<()>,
