@@ -1418,7 +1418,7 @@ mod tests {
                 let input = signal.try_clone().unwrap();
                 let mut child = Command::new("/bin/sh")
                     .args(["-c", "read _"])
-                    .stdin(Stdio::from(input))
+                    .stdin(Stdio::from(std::os::fd::OwnedFd::from(input)))
                     .stdout(Stdio::null())
                     .stderr(Stdio::null())
                     .spawn()
