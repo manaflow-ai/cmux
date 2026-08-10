@@ -2,6 +2,7 @@ import CmuxMobileSupport
 import SwiftUI
 
 struct AltScreenNoticeButton: View {
+    var controlForegroundColor: Color = .orange
     let dismissNotice: () -> Void
     @State private var isPresentingExplanation = false
 
@@ -12,7 +13,7 @@ struct AltScreenNoticeButton: View {
             Label(buttonAccessibilityLabel, systemImage: "exclamationmark.triangle.fill")
         }
         .labelStyle(.iconOnly)
-        .foregroundStyle(.orange)
+        .foregroundStyle(controlForegroundColor)
         .accessibilityLabel(buttonAccessibilityLabel)
         .accessibilityIdentifier("MobileTerminalAltScreenNoticeButton")
         .popover(isPresented: $isPresentingExplanation) {

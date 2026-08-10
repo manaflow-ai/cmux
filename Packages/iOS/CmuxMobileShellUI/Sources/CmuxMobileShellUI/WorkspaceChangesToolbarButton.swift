@@ -9,6 +9,7 @@ import SwiftUI
 struct WorkspaceChangesToolbarButton: View {
     let chip: MobileWorkspaceChangesChip?
     let workspaceID: String
+    let foregroundColor: Color
     let action: @MainActor () -> Void
 
     var body: some View {
@@ -18,7 +19,8 @@ struct WorkspaceChangesToolbarButton: View {
                     chip: chip,
                     workspaceID: workspaceID,
                     showsCapsuleBackground: false,
-                    stacksVertically: true
+                    stacksVertically: true,
+                    foregroundColor: foregroundColor
                 )
                 .frame(minWidth: 30, minHeight: 30)
             } else {

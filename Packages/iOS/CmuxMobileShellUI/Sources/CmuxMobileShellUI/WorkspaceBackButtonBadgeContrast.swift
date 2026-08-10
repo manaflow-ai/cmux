@@ -1,4 +1,4 @@
-enum WorkspaceBackButtonBadgeContrast {
+enum WorkspaceBackButtonBadgeContrast: Equatable {
     /// Use on dark terminal chrome: white circle, black text.
     case darkBackground
     /// Use on light chrome: black circle, white text.

@@ -15,6 +15,7 @@ public struct MobileCompactToolbarTitleStack: View {
     private let subtitle: String?
     private let titleFont: Font
     private let subtitleFont: Font
+    private let foregroundColor: Color?
 
     /// Creates a compact two-line title stack.
     ///
@@ -27,22 +28,25 @@ public struct MobileCompactToolbarTitleStack: View {
         title: String,
         subtitle: String?,
         titleFont: Font = .system(size: 14, weight: .semibold),
-        subtitleFont: Font = .system(size: 11, weight: .regular)
+        subtitleFont: Font = .system(size: 11, weight: .regular),
+        foregroundColor: Color? = nil
     ) {
         self.title = title
         self.subtitle = subtitle
         self.titleFont = titleFont
         self.subtitleFont = subtitleFont
+        self.foregroundColor = foregroundColor
     }
 
     /// The rendered compact title stack.
     public var body: some View {
         VStack(alignment: .leading, spacing: Self.rowSpacing) {
             line(title, font: titleFont, height: Self.titleRowHeight)
+                .foregroundStyle(foregroundColor ?? .primary)
 
             if let subtitleLine {
                 line(subtitleLine, font: subtitleFont, height: Self.subtitleRowHeight)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(foregroundColor ?? .secondary)
             }
         }
     }

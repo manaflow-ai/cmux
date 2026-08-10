@@ -9,6 +9,8 @@ struct WorkspaceChangesChipLabel: View {
     var showsCapsuleBackground = true
     /// Stacks +N over −M for width-constrained hosts (the toolbar button).
     var stacksVertically = false
+    /// Optional monochrome color for contrast-critical toolbar presentation.
+    var foregroundColor: Color? = nil
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -34,24 +36,24 @@ struct WorkspaceChangesChipLabel: View {
         let text = chipText
         if stacksVertically, let secondary = text.secondary {
             VStack(spacing: 0) {
-                Text(text.primary)
-                    .foregroundStyle(theme.addedStatus)
-                Text(secondary)
-                    .foregroundStyle(theme.deletedStatus)
+                statusText(text.primary, defaultColor: theme.addedStatus)
+                statusText(secondary, defaultColor: theme.deletedStatus)
             }
         } else {
             HStack(spacing: 3) {
                 if let secondary = text.secondary {
-                    Text(text.primary)
-                        .foregroundStyle(theme.addedStatus)
-                    Text(secondary)
-                        .foregroundStyle(theme.deletedStatus)
+                    statusText(text.primary, defaultColor: theme.addedStatus)
+                    statusText(secondary, defaultColor: theme.deletedStatus)
                 } else {
-                    Text(text.primary)
-                        .foregroundStyle(.secondary)
+                    statusText(text.primary, defaultColor: .secondary)
                 }
             }
         }
+    }
+
+    private func statusText(_ text: String, defaultColor: Color) -> some View {
+        Text(text)
+            .foregroundStyle(foregroundColor ?? defaultColor)
     }
 
     private var chipText: WorkspaceChangesChipText {

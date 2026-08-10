@@ -507,7 +507,6 @@ struct WorkspaceShellView: View {
                     canCreateWorkspaceForSelection: canCreateWorkspaceForSelection,
                     backButtonConfiguration: WorkspaceBackButtonConfiguration(
                         unreadCount: unreadWorkspaceCount(excluding: workspaceID),
-                        badgeContrast: .darkBackground,
                         action: popCompactStack
                     )
                 )

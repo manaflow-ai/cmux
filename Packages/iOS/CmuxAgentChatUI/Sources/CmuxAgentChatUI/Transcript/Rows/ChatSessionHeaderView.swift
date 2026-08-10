@@ -5,10 +5,10 @@ import SwiftUI
 /// The compact toolbar-principal header: a leading state indicator beside a
 /// two-line title (workspace name over tab name).
 ///
-/// State is carried entirely by the indicator (color + motion + a symbol for
-/// the two "attention" states), not words, so the narrow nav-bar center can
-/// spend its width on the names rather than on "needs input ·". VoiceOver
-/// still hears the full state via the accessibility value.
+/// State is carried entirely by the indicator (color, motion, and shape), not
+/// words, so the narrow nav-bar center can spend its width on the names rather
+/// than on "needs input ·". VoiceOver still hears the full state via the
+/// accessibility value.
 public struct ChatSessionHeaderView: View {
     private let descriptor: ChatSessionDescriptor
     private let agentState: ChatAgentState
@@ -16,6 +16,7 @@ public struct ChatSessionHeaderView: View {
     private let titleOverride: String?
     private let subtitle: String?
     private let style: Style
+    private let toolbarForegroundColor: Color?
 
     /// Creates a session header.
     ///
@@ -35,7 +36,8 @@ public struct ChatSessionHeaderView: View {
         isConnected: Bool,
         titleOverride: String? = nil,
         subtitle: String? = nil,
-        style: Style = .regular
+        style: Style = .regular,
+        toolbarForegroundColor: Color? = nil
     ) {
         self.descriptor = descriptor
         self.agentState = agentState
@@ -43,11 +45,17 @@ public struct ChatSessionHeaderView: View {
         self.titleOverride = titleOverride
         self.subtitle = subtitle
         self.style = style
+        self.toolbarForegroundColor = toolbarForegroundColor
     }
 
     public var body: some View {
         HStack(spacing: 6) {
-            ChatStateIndicatorView(state: agentState, isConnected: isConnected, size: indicatorSize)
+            ChatStateIndicatorView(
+                state: agentState,
+                isConnected: isConnected,
+                size: indicatorSize,
+                foregroundColor: compactForegroundColor
+            )
             titleStack
         }
         .padding(.horizontal, horizontalContentPadding)
@@ -83,7 +91,18 @@ public struct ChatSessionHeaderView: View {
                 }
             }
         case .toolbarCompact:
-            MobileCompactToolbarTitleStack(title: title, subtitle: subtitleLine)
+            MobileCompactToolbarTitleStack(
+                title: title,
+                subtitle: subtitleLine,
+                foregroundColor: toolbarForegroundColor
+            )
+        }
+    }
+
+    private var compactForegroundColor: Color? {
+        switch style {
+        case .regular: nil
+        case .toolbarCompact: toolbarForegroundColor
         }
     }
 
@@ -148,16 +167,16 @@ public struct ChatSessionHeaderView: View {
     }
 }
 
-/// The header's state glyph: color + motion for the two ambient states
-/// (working pulses green, idle is a filled gray dot), and a distinct SF
-/// Symbol shape for the two meaningful ones (needs-input is an orange
-/// question mark, ended is a hollow ring) so the four states are
-/// distinguishable by shape and motion, not color alone. While
-/// reconnecting it desaturates and breathes regardless of state.
+/// The header's state glyph uses color and motion in regular headers (working
+/// pulses green, idle is a filled gray dot) and static shape in monochrome
+/// toolbar headers (working is solid, idle is an inset ring). Needs-input is a
+/// question-mark symbol and ended is a full-size ring in either palette. While
+/// reconnecting the glyph desaturates and breathes regardless of state.
 struct ChatStateIndicatorView: View {
     let state: ChatAgentState
     let isConnected: Bool
     let size: CGFloat
+    var foregroundColor: Color? = nil
 
     @State private var pulseDimmed = false
 
@@ -201,15 +220,27 @@ struct ChatStateIndicatorView: View {
     private var glyph: some View {
         switch state {
         case .working:
-            Circle().fill(Color.green)
+            Circle().fill(foregroundColor ?? .green)
         case .idle:
-            Circle().fill(Color.secondary)
+            if let foregroundColor {
+                Circle()
+                    .stroke(foregroundColor, lineWidth: 1.3)
+                    .padding(size * 0.22)
+            } else {
+                Circle().fill(Color.secondary)
+            }
         case .needsInput:
-            Image(systemName: "questionmark.circle.fill")
-                .font(.system(size: size, weight: .bold))
-                .foregroundStyle(.white, .orange)
+            if let foregroundColor {
+                Image(systemName: "questionmark.circle.fill")
+                    .font(.system(size: size, weight: .bold))
+                    .foregroundStyle(foregroundColor)
+            } else {
+                Image(systemName: "questionmark.circle.fill")
+                    .font(.system(size: size, weight: .bold))
+                    .foregroundStyle(.white, .orange)
+            }
         case .ended:
-            Circle().stroke(Color.secondary, lineWidth: 1.3)
+            Circle().stroke(foregroundColor ?? .secondary, lineWidth: 1.3)
         }
     }
 }
