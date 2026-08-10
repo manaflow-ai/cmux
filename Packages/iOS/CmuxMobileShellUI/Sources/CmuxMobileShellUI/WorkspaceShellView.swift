@@ -706,8 +706,8 @@ struct WorkspaceShellView: View {
     @ToolbarContentBuilder
     private var rootToolbarContent: some ToolbarContent {
         WorkspaceRootToolbarLiveContent(
-            openSettings: settingsPresentation.present,
-            openDevices: deviceTreePresentation.present,
+            openSettings: { settingsPresentation.present() },
+            openDevices: { deviceTreePresentation.present() },
             pendingSelection: rootToolbarPendingSelection,
             select: handleRootToolbarSelection,
             showAddDevice: showAddDevice,

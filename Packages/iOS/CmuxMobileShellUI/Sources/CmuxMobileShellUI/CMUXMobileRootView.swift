@@ -203,6 +203,10 @@ struct CMUXMobileRootView: View {
     var body: some View {
         rootContent
         #if os(iOS)
+        .environment(
+            \.mobileChildPresentationProvider,
+            MobileChildPresentationProvider(resolve: childSheetPresentation)
+        )
         .sheet(
             isPresented: rootPresentationBinding,
             onDismiss: rootPresentationDidDismiss
@@ -336,7 +340,10 @@ struct CMUXMobileRootView: View {
             // account's discovery loop is cancelled and restarted.
             updateOnboardingMacDiscoveryKeepAlive()
         }
-        .onChange(of: onboardingStore.progress) { _, _ in
+        .onChange(of: onboardingStore.progress) { _, progress in
+            handleRootPresentation(
+                .migrationEligibilityChanged(isEligible: progress == .complete)
+            )
             updateOnboardingMacDiscoveryKeepAlive()
             presentAutoConnectMigrationIfEligible()
         }

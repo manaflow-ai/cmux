@@ -21,8 +21,10 @@ struct MobileChildSheetPresentation {
     }
 
     /// Requests ownership of the shared modal slot for this child sheet.
-    func present() {
+    @discardableResult
+    func present() -> Bool {
         isPresented.wrappedValue = true
+        return isPresented.wrappedValue
     }
 
     /// Begins dismissal while retaining modal ownership until `didDismiss`.

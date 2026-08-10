@@ -48,6 +48,7 @@ struct WorkspaceDetailView: View {
     @Environment(MobileSimulatorStreamStore.self) var simulatorStreamStore
     @Environment(MobileDisplaySettings.self) private var displaySettings
     @Environment(ToastCenter.self) private var toasts
+    @Environment(\.mobileChildPresentationProvider) private var childPresentationProvider
     /// Drives the destructive close-workspace confirmation dialog.
     @State var isConfirmingClose = false
     #if canImport(UIKit)
@@ -110,6 +111,43 @@ struct WorkspaceDetailView: View {
         simulatorStreamStore.activeState(in: workspace.rpcWorkspaceID.rawValue)
     }
     #if os(iOS)
+    /// Uses the root modal owner in the live app and local state in previews.
+    func resolvedPresentation(
+        for child: MobileRootPresentationState.ChildPresentation,
+        fallback: Binding<Bool>
+    ) -> MobileChildSheetPresentation {
+        childPresentationProvider?.presentation(for: child)
+            ?? MobileChildSheetPresentation(isPresented: fallback)
+    }
+
+    private var feedbackPresentation: MobileChildSheetPresentation {
+        resolvedPresentation(
+            for: .workspaceDetail(.feedbackComposer),
+            fallback: $isFeedbackComposerPresented
+        )
+    }
+
+    private var textSheetPresentation: MobileChildSheetPresentation {
+        resolvedPresentation(
+            for: .workspaceDetail(.terminalText),
+            fallback: $isTextSheetPresented
+        )
+    }
+
+    var workspaceChangesPresentation: MobileChildSheetPresentation {
+        resolvedPresentation(
+            for: .workspaceDetail(.workspaceChanges),
+            fallback: $isWorkspaceChangesSheetPresented
+        )
+    }
+
+    private var customizationPresentation: MobileChildSheetPresentation {
+        resolvedPresentation(
+            for: .workspaceDetail(.customization),
+            fallback: $isCustomizationPresented
+        )
+    }
+
     var terminalFilesChipEnabled: Bool {
         displaySettings.terminalFilesChipEnabled
     }
@@ -164,13 +202,25 @@ struct WorkspaceDetailView: View {
                 isPresented: $isConfirmingClose,
                 confirm: confirmCloseWorkspaceFromMenu
             )
-            .sheet(isPresented: $isFeedbackComposerPresented) {
+            .sheet(
+                isPresented: feedbackPresentation.isPresented,
+                onDismiss: feedbackPresentation.didDismiss
+            ) {
                 feedbackComposer
             }
-            .sheet(isPresented: $isTextSheetPresented) {
+            .sheet(
+                isPresented: textSheetPresentation.isPresented,
+                onDismiss: {
+                    textSheetSurfaceID = nil
+                    textSheetPresentation.didDismiss()
+                }
+            ) {
                 TerminalTextSheetView(surfaceID: textSheetSurfaceID)
             }
-            .sheet(isPresented: $isWorkspaceChangesSheetPresented) {
+            .sheet(
+                isPresented: workspaceChangesPresentation.isPresented,
+                onDismiss: workspaceChangesPresentation.didDismiss
+            ) {
                 WorkspaceChangesSheet(
                     store: store,
                     workspaceID: workspace.rpcWorkspaceID.rawValue,
@@ -184,7 +234,10 @@ struct WorkspaceDetailView: View {
                 text: $renameText,
                 onSave: commitRenameFromDialog
             )
-            .sheet(isPresented: $isCustomizationPresented) {
+            .sheet(
+                isPresented: customizationPresentation.isPresented,
+                onDismiss: customizationPresentation.didDismiss
+            ) {
                 WorkspaceCustomizationSheet(workspace: workspace) { initialDraft, submittedDraft in
                     await customizeWorkspace?(workspace.id, initialDraft, submittedDraft)
                         ?? .failure()
@@ -672,7 +725,9 @@ struct WorkspaceDetailView: View {
     /// plain text, because the render surface itself has no copy affordance.
     private func openTextSheetFromMenu() {
         textSheetSurfaceID = selectedTerminal?.id.rawValue
-        isTextSheetPresented = true
+        if !textSheetPresentation.present() {
+            textSheetSurfaceID = nil
+        }
     }
 
     private func openFeedbackComposerFromMenu() {
@@ -685,7 +740,7 @@ struct WorkspaceDetailView: View {
         // Prefill the reply-to address with the signed-in email on the email
         // path; the privileged agent path never reads it.
         feedbackEmail = store.signedInUserEmail ?? ""
-        isFeedbackComposerPresented = true
+        feedbackPresentation.present()
     }
 
     /// Whether the current submission will go straight to the agent (privileged
@@ -737,7 +792,7 @@ struct WorkspaceDetailView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(L10n.string("mobile.feedback.cancel", defaultValue: "Cancel")) {
-                        isFeedbackComposerPresented = false
+                        feedbackPresentation.dismiss()
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
@@ -800,7 +855,7 @@ struct WorkspaceDetailView: View {
             isSubmittingFeedback = false
             switch outcome {
             case .sentToAgent, .emailed:
-                isFeedbackComposerPresented = false
+                feedbackPresentation.dismiss()
                 if toasts.isEnabled {
                     // The toast supplies the success haptic; presenting after
                     // the composer dismisses keeps it the single confirmation.
@@ -856,7 +911,7 @@ struct WorkspaceDetailView: View {
 
     private func presentCustomizationFromMenu() {
         dismissTerminalKeyboardForChrome()
-        isCustomizationPresented = true
+        customizationPresentation.present()
     }
 
     /// Commit the rename dialog: forward the trimmed name to the Mac, which echoes

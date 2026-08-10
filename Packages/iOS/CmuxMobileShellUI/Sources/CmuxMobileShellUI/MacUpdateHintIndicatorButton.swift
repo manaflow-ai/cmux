@@ -6,11 +6,17 @@ struct MacUpdateHintIndicatorButton: View {
     let hint: MobileMacUpdateHint
     let macDisplayName: String?
     let dismiss: () -> Void
+    @Environment(\.mobileChildPresentationProvider) private var childPresentationProvider
     @State private var isPresentingExplanation = false
+
+    private var explanationPresentation: MobileChildSheetPresentation {
+        childPresentationProvider?.presentation(for: .workspaceList(.macUpdateHint))
+            ?? MobileChildSheetPresentation(isPresented: $isPresentingExplanation)
+    }
 
     var body: some View {
         Button {
-            isPresentingExplanation = true
+            explanationPresentation.present()
         } label: {
             Label(buttonAccessibilityLabel, systemImage: "arrow.up.circle.fill")
         }
@@ -22,7 +28,7 @@ struct MacUpdateHintIndicatorButton: View {
         .tint(.teal)
         .accessibilityLabel(buttonAccessibilityLabel)
         .accessibilityIdentifier("MobileMacUpdateHintIndicatorButton")
-        .popover(isPresented: $isPresentingExplanation) {
+        .popover(isPresented: explanationPresentation.isPresented) {
             ViewThatFits(in: .vertical) {
                 popoverContent
 
@@ -37,6 +43,7 @@ struct MacUpdateHintIndicatorButton: View {
             )
             .presentationSizing(AltScreenNoticePresentationSizing())
             .presentationCompactAdaptation(.popover)
+            .onDisappear(perform: explanationPresentation.didDismiss)
         }
     }
 
@@ -93,6 +100,6 @@ struct MacUpdateHintIndicatorButton: View {
 
     private func dismissFromPopover() {
         dismiss()
-        isPresentingExplanation = false
+        explanationPresentation.dismiss()
     }
 }

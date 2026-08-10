@@ -47,9 +47,15 @@ struct WorkspaceNavigationRow: View {
     /// full-swipe can request confirmation without directly closing the row.
     var confirmCloseWorkspace: ((MobileWorkspacePreview.ID) -> Void)? = nil
 
+    @Environment(\.mobileChildPresentationProvider) private var childPresentationProvider
     @State private var isRenaming = false
     @State private var renameDraft = ""
     @State private var isCustomizing = false
+
+    private var customizationPresentation: MobileChildSheetPresentation {
+        childPresentationProvider?.presentation(for: .workspaceList(.customization))
+            ?? MobileChildSheetPresentation(isPresented: $isCustomizing)
+    }
 
     var body: some View {
         rowTarget
@@ -84,7 +90,7 @@ struct WorkspaceNavigationRow: View {
         .accessibilityActions {
             if customizeWorkspace != nil {
                 Button(L10n.string("mobile.workspace.customize.action", defaultValue: "Customize")) {
-                    isCustomizing = true
+                    customizationPresentation.present()
                 }
             }
             if renameWorkspace != nil {
@@ -107,7 +113,10 @@ struct WorkspaceNavigationRow: View {
             guard !trimmed.isEmpty else { return }
             renameWorkspace?(workspace.id, trimmed)
         }
-        .sheet(isPresented: $isCustomizing) {
+        .sheet(
+            isPresented: customizationPresentation.isPresented,
+            onDismiss: customizationPresentation.didDismiss
+        ) {
             WorkspaceCustomizationSheet(workspace: workspace) { initialDraft, submittedDraft in
                 await customizeWorkspace?(workspace.id, initialDraft, submittedDraft) ?? .failure()
             }
@@ -199,7 +208,7 @@ struct WorkspaceNavigationRow: View {
         }
         if customizeWorkspace != nil {
             Button {
-                isCustomizing = true
+                customizationPresentation.present()
             } label: {
                 Label(
                     L10n.string("mobile.workspace.customize.action", defaultValue: "Customize"),

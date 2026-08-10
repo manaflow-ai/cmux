@@ -86,6 +86,40 @@ struct MobileRootPresentationStateTests {
         #expect(state.presentation == .autoConnectMigrationIntroduction)
     }
 
+    @Test(arguments: MobileRootPresentationState.WorkspaceListPresentation.allCases)
+    func everyWorkspaceListPresentationBlocksMigration(
+        _ presentation: MobileRootPresentationState.WorkspaceListPresentation
+    ) {
+        var state = MobileRootPresentationState()
+        let child = MobileRootPresentationState.ChildPresentation.workspaceList(presentation)
+
+        #expect(state.apply(.presentChild(child)) == .none)
+        #expect(state.presentation == .child(child))
+        #expect(state.apply(.presentAutoConnectMigrationIfIdle) == .none)
+        #expect(state.presentation == .child(child))
+
+        #expect(state.apply(.dismissChild(child)) == .none)
+        #expect(state.apply(.childDidDismiss(child)) == .retryAutoConnectMigration)
+        #expect(state.isIdle)
+    }
+
+    @Test(arguments: MobileRootPresentationState.WorkspaceDetailPresentation.allCases)
+    func everyWorkspaceDetailPresentationBlocksMigration(
+        _ presentation: MobileRootPresentationState.WorkspaceDetailPresentation
+    ) {
+        var state = MobileRootPresentationState()
+        let child = MobileRootPresentationState.ChildPresentation.workspaceDetail(presentation)
+
+        #expect(state.apply(.presentChild(child)) == .none)
+        #expect(state.presentation == .child(child))
+        #expect(state.apply(.presentAutoConnectMigrationIfIdle) == .none)
+        #expect(state.presentation == .child(child))
+
+        #expect(state.apply(.dismissChild(child)) == .none)
+        #expect(state.apply(.childDidDismiss(child)) == .retryAutoConnectMigration)
+        #expect(state.isIdle)
+    }
+
     @Test func pairingRequestedFromChildWaitsForItsDismissalCallback() {
         var state = MobileRootPresentationState()
         let scanner = PairingPresentation.scanner(entry: .settingsReplay)
@@ -111,6 +145,18 @@ struct MobileRootPresentationStateTests {
         #expect(state.isIdle)
 
         #expect(state.apply(.authenticationChanged(isAuthenticated: true)) == .none)
+        #expect(state.apply(.presentAutoConnectMigrationIfIdle) == .none)
+        #expect(state.presentation == .autoConnectMigrationIntroduction)
+    }
+
+    @Test func onboardingRegressionDismissesMigrationWithoutAcknowledgingIt() {
+        var state = MobileRootPresentationState()
+        state.apply(.presentAutoConnectMigrationIfIdle)
+
+        #expect(state.apply(.migrationEligibilityChanged(isEligible: false)) == .none)
+        #expect(state.isIdle)
+
+        #expect(state.apply(.migrationEligibilityChanged(isEligible: true)) == .none)
         #expect(state.apply(.presentAutoConnectMigrationIfIdle) == .none)
         #expect(state.presentation == .autoConnectMigrationIntroduction)
     }

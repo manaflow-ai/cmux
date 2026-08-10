@@ -5,6 +5,28 @@
 /// their content. A dismissing child keeps ownership until its `onDismiss`
 /// callback, preventing a root sheet from competing with UIKit's transition.
 struct MobileRootPresentationState: Equatable {
+    /// Presentations owned by the workspace list or one of its row actions.
+    enum WorkspaceListPresentation: Equatable, CaseIterable {
+        case terminalShortcutsSettings
+        case settings
+        case deviceTree
+        case viewOptions
+        case macUpdateHint
+        case customization
+        case changes
+    }
+
+    /// Presentations reachable after navigating into a workspace detail.
+    enum WorkspaceDetailPresentation: Equatable, CaseIterable {
+        case feedbackComposer
+        case terminalText
+        case workspaceChanges
+        case customization
+        case terminalArtifactFiles
+        case chatShortcutsSettings
+        case alternateScreenExplanation
+    }
+
     /// A child-owned sheet that participates in the shared modal slot.
     enum ChildPresentation: Equatable {
         case workspaceSettings
@@ -12,6 +34,8 @@ struct MobileRootPresentationState: Equatable {
         case workspaceTaskComposer
         case disconnectedSettings
         case disconnectedSetupHelp
+        case workspaceList(WorkspaceListPresentation)
+        case workspaceDetail(WorkspaceDetailPresentation)
     }
 
     /// The content or transition currently holding the shared modal slot.
@@ -36,6 +60,7 @@ struct MobileRootPresentationState: Equatable {
         case dismissChild(ChildPresentation)
         case childDidDismiss(ChildPresentation)
         case authenticationChanged(isAuthenticated: Bool)
+        case migrationEligibilityChanged(isEligible: Bool)
         case sheetDidRequestDismissal
         case dismissPairing
     }
@@ -144,6 +169,14 @@ struct MobileRootPresentationState: Equatable {
             }
             presentation = nil
             return effect
+
+        case let .migrationEligibilityChanged(isEligible):
+            guard !isEligible,
+                  presentation == .autoConnectMigrationIntroduction else {
+                return .none
+            }
+            presentation = nil
+            return .none
 
         case .sheetDidRequestDismissal:
             switch presentation {

@@ -23,11 +23,17 @@ struct WorkspaceChatPane: View {
     let onExitChat: () -> Void
 
     @Environment(BrowserSurfaceStore.self) private var browserStore
+    @Environment(\.mobileChildPresentationProvider) private var childPresentationProvider
 
     @State private var accessoryConfiguration = TerminalAccessoryConfiguration.shared
     @State private var isShowingShortcutSettings = false
     @State private var artifactThumbnailCache = ChatArtifactThumbnailCache()
     @State private var cachedArtifactLoader: CachedArtifactLoader?
+
+    private var shortcutSettingsPresentation: MobileChildSheetPresentation {
+        childPresentationProvider?.presentation(for: .workspaceDetail(.chatShortcutsSettings))
+            ?? MobileChildSheetPresentation(isPresented: $isShowingShortcutSettings)
+    }
 
     var body: some View {
         Group {
@@ -42,7 +48,10 @@ struct WorkspaceChatPane: View {
             )
             .environment(\.chatArtifactLoader, artifactLoader)
         }
-        .sheet(isPresented: $isShowingShortcutSettings) {
+        .sheet(
+            isPresented: shortcutSettingsPresentation.isPresented,
+            onDismiss: shortcutSettingsPresentation.didDismiss
+        ) {
             TerminalShortcutsSettingsView(scope: .agentChat)
         }
         .task(id: artifactLoaderKey) {
@@ -139,7 +148,7 @@ struct WorkspaceChatPane: View {
                 ),
                 tint: .secondary
             ) {
-                isShowingShortcutSettings = true
+                shortcutSettingsPresentation.present()
             },
         ]
     }

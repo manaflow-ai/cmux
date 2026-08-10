@@ -40,7 +40,7 @@ extension WorkspaceDetailView {
         dismissTerminalKeyboardForChrome()
         store.dismissWorkspaceChangesHint(workspaceID: workspaceID)
         workspaceChangesHint = nil
-        isWorkspaceChangesSheetPresented = true
+        workspaceChangesPresentation.present()
         Task {
             await store.fetchWorkspaceChangesSummaries(
                 workspaceIDs: [workspaceID],
