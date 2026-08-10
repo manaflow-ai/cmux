@@ -53,7 +53,7 @@ const CODEX_REASONING_EFFORTS: AgentModelChoice[] = [
 
 export const agentModelCatalog = {
   schemaVersion: 1,
-  updatedAt: "2026-07-09T00:00:00.000Z",
+  updatedAt: "2026-08-09T00:00:00.000Z",
   providers: {
     claude: {
       defaultModel: "claude-sonnet-5",

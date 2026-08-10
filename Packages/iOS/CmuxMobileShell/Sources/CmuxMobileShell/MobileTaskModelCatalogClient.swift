@@ -1,5 +1,5 @@
 public import CmuxMobileShellModel
-import Foundation
+public import Foundation
 
 /// Downloads the over-the-air task-model catalog used when a selected Mac
 /// cannot enumerate models from its installed agent.
