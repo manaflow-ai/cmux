@@ -23251,7 +23251,7 @@ mod tests {
                                 screen_ids: vec![screen],
                             },
                             ResourceChange::SetTabOrder {
-                                pane_id: pane.clone(),
+                                pane_id: pane,
                                 tab_ids: vec![tab.clone()],
                             },
                             ResourceChange::SetActiveWorkspace {
