@@ -526,6 +526,25 @@ impl WorkspaceRegistry {
             .map_err(Into::into)
     }
 
+    /// Resolve the immutable host-to-resource relationship after close. This
+    /// supports idempotent lifecycle retries without walking live surfaces.
+    pub fn terminal_resource_id_including_tombstone(
+        &self,
+        terminal_id: &str,
+    ) -> anyhow::Result<Option<TerminalPublicId>> {
+        validate_terminal_identity("terminal id", terminal_id)?;
+        self.connection
+            .query_row(
+                "SELECT public_id FROM resource_terminals WHERE terminal_id = ?1",
+                [terminal_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .map(TerminalPublicId::parse)
+            .transpose()
+            .map_err(Into::into)
+    }
+
     /// Return every live public terminal-to-host identity in one deterministic
     /// bulk read instead of resolving each terminal with a separate query.
     pub fn live_terminal_resource_ids(&self) -> anyhow::Result<Vec<(String, TerminalPublicId)>> {

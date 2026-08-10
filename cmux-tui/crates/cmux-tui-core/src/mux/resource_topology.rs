@@ -2249,38 +2249,61 @@ impl Mux {
                 self.emit_terminal_registry_changed(&registry, commit.revision);
             }
             let closed_incarnation = commit.result["incarnation"].as_str().map(str::to_owned);
-            let catalog_public_id =
-                state.terminal_catalog.iter().find_map(|(public_id, surface)| {
-                    self.resource_terminal_host_identity(surface)
-                        .is_some_and(|identity| {
-                            terminal_host_matches(
-                                &identity,
-                                terminal_id,
-                                closed_incarnation.as_deref(),
-                            )
-                        })
-                        .then(|| public_id.clone())
-                });
-            let runtime = catalog_public_id
+            let resource_public_id =
+                registry.terminal_resource_id_including_tombstone(terminal_id)?;
+            let runtime = resource_public_id
                 .as_ref()
                 .and_then(|public_id| state.terminal_catalog.get(public_id))
-                .cloned();
-            let targets = state
-                .surfaces
-                .iter()
-                .filter_map(|(surface_id, surface)| {
-                    self.resource_terminal_host_identity(surface)
-                        .is_some_and(|identity| {
-                            terminal_host_matches(
-                                &identity,
-                                terminal_id,
-                                closed_incarnation.as_deref(),
-                            )
-                        })
-                        .then_some(*surface_id)
+                .filter(|surface| {
+                    self.resource_terminal_host_identity(surface).is_some_and(|identity| {
+                        terminal_host_matches(
+                            &identity,
+                            terminal_id,
+                            closed_incarnation.as_deref(),
+                        )
+                    })
                 })
-                .collect::<Vec<_>>();
-            let waiter_public_id = catalog_public_id.clone().or_else(|| {
+                .cloned();
+            let repair_scan = newly_closed
+                && resource_public_id.as_ref().is_none_or(|public_id| {
+                    terminal_placement_indexes_need_repair(
+                        self,
+                        &state,
+                        public_id,
+                        Some((terminal_id, closed_incarnation.as_deref())),
+                    )
+                });
+            let targets = if let Some(public_id) = resource_public_id.as_ref() {
+                terminal_content_placements(
+                    self,
+                    &state,
+                    public_id,
+                    Some((terminal_id, closed_incarnation.as_deref())),
+                    repair_scan,
+                )
+            } else if repair_scan {
+                // A one-release pre-resource terminal has no durable public
+                // identity. Scan once when its lifecycle first tombstones;
+                // later retries remain constant-time.
+                state
+                    .surfaces
+                    .iter()
+                    .filter_map(|(surface_id, surface)| {
+                        self.resource_terminal_host_identity(surface)
+                            .is_some_and(|identity| {
+                                terminal_host_matches(
+                                    &identity,
+                                    terminal_id,
+                                    closed_incarnation.as_deref(),
+                                )
+                            })
+                            .then_some(*surface_id)
+                    })
+                    .collect::<Vec<_>>()
+            } else {
+                Vec::new()
+            };
+            let waiter_public_id = resource_public_id.clone().or_else(|| {
                 targets.iter().find_map(|surface_id| {
                     state
                         .surfaces
@@ -2293,7 +2316,9 @@ impl Mux {
             let changed_screens = unique_screen_ids(
                 targets.iter().filter_map(|surface| surface_screen_id(&state, *surface)),
             );
-            let removed = if let Some(public_id) = catalog_public_id.as_ref() {
+            let removed = if runtime.is_some()
+                && let Some(public_id) = resource_public_id.as_ref()
+            {
                 remove_terminal_content_from_state(self, &mut state, public_id, &targets).1
             } else {
                 let mut removed = Vec::new();
