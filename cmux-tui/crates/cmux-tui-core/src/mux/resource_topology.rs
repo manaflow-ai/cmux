@@ -2424,12 +2424,8 @@ impl Mux {
         terminal_public_id: &TerminalPublicId,
     ) -> anyhow::Result<Option<TerminalExitDetachProjection>> {
         let content_id = ContentPublicId::Terminal(terminal_public_id.clone());
-        let targets = terminal_content_placements(
-            self,
-            state,
-            terminal_public_id,
-            Some((terminal_id, None)),
-        );
+        let targets =
+            terminal_content_placements(self, state, terminal_public_id, Some((terminal_id, None)));
         let has_runtime = state.terminal_catalog.contains_key(terminal_public_id);
         if targets.is_empty() && !has_runtime {
             return Ok(None);
@@ -2455,12 +2451,8 @@ impl Mux {
         );
         let selection_before = active_tree_selection(state);
         let mut projected = state.clone();
-        let (runtime, removed, _) = remove_terminal_content_from_state(
-            self,
-            &mut projected,
-            terminal_public_id,
-            &targets,
-        );
+        let (runtime, removed, _) =
+            remove_terminal_content_from_state(self, &mut projected, terminal_public_id, &targets);
         if let Some(runtime) = runtime.as_ref() {
             let host = self
                 .resource_terminal_host_identity(runtime)
@@ -2907,12 +2899,8 @@ impl Mux {
         let mut removed = Vec::new();
         let mut split_index_changed = false;
         if let Some(public_id) = &terminal_public_id {
-            let (removed_runtime, terminal_views, changed) = remove_terminal_content_from_state(
-                self,
-                &mut projected,
-                public_id,
-                &surface_ids,
-            );
+            let (removed_runtime, terminal_views, changed) =
+                remove_terminal_content_from_state(self, &mut projected, public_id, &surface_ids);
             anyhow::ensure!(
                 match (removed_runtime.as_ref(), terminal_runtime.as_ref()) {
                     (Some(removed), Some(planned)) => removed.shares_terminal_runtime(planned),

@@ -14044,16 +14044,10 @@ fn remove_terminal_runtime_from_state(
         mux,
         state,
         &terminal_id,
-        host.as_ref().map(|host| {
-            (host.terminal_id.as_str(), Some(host.incarnation.as_str()))
-        }),
+        host.as_ref().map(|host| (host.terminal_id.as_str(), Some(host.incarnation.as_str()))),
     );
-    let (_, removed, split_index_dirty) = remove_terminal_content_from_state(
-        mux,
-        state,
-        &terminal_id,
-        &targets,
-    );
+    let (_, removed, split_index_dirty) =
+        remove_terminal_content_from_state(mux, state, &terminal_id, &targets);
     (removed, split_index_dirty)
 }
 
@@ -19720,8 +19714,7 @@ mod tests {
         }
 
         let mut wrong_incarnation = host.incarnation.clone();
-        let replacement =
-            if wrong_incarnation.starts_with('0') { "1" } else { "0" };
+        let replacement = if wrong_incarnation.starts_with('0') { "1" } else { "0" };
         wrong_incarnation.replace_range(0..1, replacement);
         assert!(mux.close_terminal(&host.terminal_id, &wrong_incarnation).is_err());
         assert!(mux.surface(first.id).is_some());
