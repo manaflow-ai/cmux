@@ -1526,10 +1526,13 @@ mod tests {
     #[test]
     fn probe_tracker_answers_each_observed_query_once() {
         let mut tracker = ProbeTracker::default();
+        assert!(tracker.observe(b"\x1b[").is_empty());
+        assert_eq!(tracker.observe(b"6n"), [b"\x1b[1;1R".as_slice()]);
+        assert!(tracker.observe(b"\x1b[6n").is_empty());
         assert!(tracker.observe(b"\x1b]10;?").is_empty());
         let first = tracker.observe(b"\x1b\\ noise \x1b[c");
         assert_eq!(first.len(), 2);
-        assert_eq!(tracker.responses, 2);
+        assert_eq!(tracker.responses, 3);
         assert!(tracker.observe(b"\x1b]10;?\x1b\\ noise \x1b[c").is_empty());
     }
 
