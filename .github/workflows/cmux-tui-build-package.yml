@@ -492,7 +492,7 @@ jobs:
       - name: Set up Python for ConPTY verification
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
-          python-version: "3.12.11"
+          python-version: "3.12.10"
 
       - name: Verify Windows ConPTY resize
         shell: bash
