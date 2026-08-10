@@ -6,24 +6,43 @@ struct MobileAutoConnectMigrationSheet: View {
     let continueWithAutoConnect: () -> Void
     let openConnectionSettings: () -> Void
 
-    var body: some View {
-        ViewThatFits(in: .vertical) {
-            MobileAutoConnectMigrationContent(
-                continueWithAutoConnect: continueWithAutoConnect,
-                openConnectionSettings: openConnectionSettings
-            )
-            .fixedSize(horizontal: false, vertical: true)
+    /// The system caps an oversized height detent, turning the scroll view into
+    /// the fallback only when the wrapped content exceeds the available screen.
+    @State private var contentHeight: CGFloat = 1
+    @State private var viewportHeight: CGFloat = 0
 
+    private var usesScrollFallback: Bool {
+        viewportHeight > 0 && contentHeight > viewportHeight + 1
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
             ScrollView {
                 MobileAutoConnectMigrationContent(
                     continueWithAutoConnect: continueWithAutoConnect,
                     openConnectionSettings: openConnectionSettings
                 )
+                .fixedSize(horizontal: false, vertical: true)
+                .onGeometryChange(for: CGFloat.self) { proxy in
+                    proxy.size.height
+                } action: { newHeight in
+                    contentHeight = max(newHeight, 1)
+                }
             }
             .scrollBounceBehavior(.basedOnSize)
-            .accessibilityIdentifier("MobileAutoConnectMigrationScrollView")
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.size.height
+            } action: { newHeight in
+                viewportHeight = newHeight
+            }
+            .accessibilityIdentifier(
+                usesScrollFallback
+                    ? "MobileAutoConnectMigrationScrollView"
+                    : "MobileAutoConnectMigrationIntrinsicContainer"
+            )
         }
-        .presentationSizing(.fitted)
+        .presentationDetents([.height(contentHeight)])
+        .presentationContentInteraction(.scrolls)
         .presentationDragIndicator(.visible)
         .accessibilityIdentifier("MobileAutoConnectMigrationSheet")
     }
