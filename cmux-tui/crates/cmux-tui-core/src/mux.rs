@@ -16055,6 +16055,63 @@ mod tests {
     }
 
     #[test]
+    fn raw_agent_report_addresses_a_zero_view_terminal_by_runtime_id() {
+        let mux = test_mux();
+        let terminal = mux.new_workspace(Some("source".into()), None).unwrap();
+        let terminal_id = terminal.terminal_public_id().cloned().unwrap();
+        let runtime_id = terminal.terminal_runtime_id().unwrap();
+        let pane = mux.with_state(|state| state.pane_of(terminal.id).unwrap());
+        mux.new_tab(Some(pane), None, None).unwrap();
+
+        assert!(mux.close_surface(terminal.id).unwrap());
+        assert!(mux.surface(terminal.id).is_none());
+
+        let report = mux
+            .report_agent(
+                runtime_id,
+                AgentState::Working,
+                AgentSource::Socket,
+                Some("runtime-report".into()),
+            )
+            .expect("a live terminal runtime must remain a valid raw report target");
+        assert_eq!(report.surface, runtime_id);
+        assert_eq!(report.terminal_id, terminal_id);
+        assert_eq!(report.session.as_deref(), Some("runtime-report"));
+    }
+
+    #[test]
+    fn zero_view_terminal_exit_snapshot_keeps_resource_geometry() {
+        let mux = test_mux();
+        let terminal = mux.new_workspace(Some("source".into()), Some((97, 31))).unwrap();
+        let terminal_id = terminal.terminal_public_id().cloned().unwrap();
+        let pane = mux.with_state(|state| state.pane_of(terminal.id).unwrap());
+        mux.new_tab(Some(pane), None, None).unwrap();
+
+        assert!(mux.close_surface(terminal.id).unwrap());
+        let revision = mux.with_state(|state| state.resource_revision);
+        let exit = TerminalExit {
+            outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 0 },
+            exited_at_ms: 7_000_001,
+        };
+        assert!(mux.persist_terminal_exit_for_test(&terminal_id, &exit).unwrap());
+
+        let events = mux.resource_events_after(revision).unwrap();
+        let exited = events
+            .batches
+            .iter()
+            .flat_map(|batch| batch.changes.as_array().unwrap())
+            .find(|change| {
+                change["resource"] == "terminal"
+                    && change["id"] == terminal_id.as_str()
+                    && change["value"]["lifecycle"] == "exited"
+            })
+            .expect("terminal exit must publish its resource snapshot");
+        assert_eq!(exited["value"]["cols"], 97);
+        assert_eq!(exited["value"]["rows"], 31);
+        assert_eq!(exited["value"]["tab_ids"], serde_json::json!([]));
+    }
+
+    #[test]
     fn terminal_resource_exit_does_not_require_a_live_view() {
         let mux = test_mux();
         let terminal = mux.new_workspace(Some("source".into()), None).unwrap();
@@ -19746,6 +19803,57 @@ mod tests {
         assert!(
             mux.terminal_exit_detaches.wait_until_finished(TERMINAL, deadline),
             "terminal detach retry worker did not release its ownership"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn failed_resource_exit_retry_keeps_terminal_lifecycle_authority() {
+        const TERMINAL: &str = "00000000000040008000000000000040";
+        const INCARNATION: &str = "10000000000040008000000000000040";
+        let mux = test_mux();
+        let workspace = mux
+            .create_empty_workspace(
+                Some("failed-resource-exit".into()),
+                Some("018f6e21-7b70-7e70-8000-000000001040".into()),
+                None,
+            )
+            .unwrap();
+        let placement =
+            mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
+        let resource = mux.surface(placement).unwrap().terminal_resource().unwrap();
+        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
+
+        mux.terminal_resource_exited(&resource);
+
+        assert!(mux.terminal_exit_detaches.contains(TERMINAL));
+        assert_eq!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .terminal_record(TERMINAL)
+                .unwrap()
+                .unwrap()
+                .lifecycle,
+            TerminalLifecycle::Running
+        );
+
+        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        assert!(
+            mux.terminal_exit_detaches.wait_until_finished(TERMINAL, deadline),
+            "resource exit retry worker did not finish"
+        );
+        assert_eq!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .terminal_record(TERMINAL)
+                .unwrap()
+                .unwrap()
+                .lifecycle,
+            TerminalLifecycle::Exited,
+            "retry must persist the exit before it detaches terminal topology"
         );
     }
 

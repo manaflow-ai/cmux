@@ -6557,6 +6557,18 @@ mod tests {
         assert_eq!(surface.resource_identity(), Some(&identity));
     }
 
+    #[test]
+    fn terminal_runtime_identity_requires_a_live_mux() {
+        let error = Surface::spawn_for_test_with_resource_identity(
+            1,
+            SurfaceOptions::default(),
+            Weak::new(),
+            Some(TabResourceIdentity::terminal(None).unwrap()),
+        )
+        .expect_err("terminal runtime identity must not fall back to a placement ID");
+        assert!(error.to_string().contains("live mux"));
+    }
+
     #[cfg(unix)]
     #[test]
     fn hosted_mirror_never_answers_terminal_queries() {
