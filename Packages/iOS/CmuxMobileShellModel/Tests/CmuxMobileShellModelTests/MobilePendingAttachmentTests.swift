@@ -1,3 +1,4 @@
+import CmuxMobileSupport
 import Foundation
 import Testing
 
@@ -5,6 +6,22 @@ import Testing
 
 @Suite("Mobile pending attachment")
 struct MobilePendingAttachmentTests {
+    @Test("compatibility data preserves missing backing file failure")
+    func compatibilityDataReturnsNilForMissingBackingFile() {
+        let missingURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mobile-pending-missing-\(UUID()).bin")
+        let staged = MobileStagedAttachment(
+            kind: .file,
+            fileName: "missing.bin",
+            localFileURL: missingURL,
+            byteCount: 1
+        )
+        let attachment = MobilePendingAttachment(staged)
+
+        let bytes: Data? = attachment.data
+        #expect(bytes == nil)
+    }
+
     @Test("legacy construction fails without publishing an unreadable file URL")
     func legacyConstructionPropagatesWriteFailure() throws {
         let blockedDirectory = FileManager.default.temporaryDirectory

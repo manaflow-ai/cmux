@@ -513,7 +513,7 @@ import Testing
             fill &+= 1
         }
         #expect(accepted == fits)
-        let total = composite.pendingAttachments(forTerminalID: "term-a").reduce(0) { $0 + $1.data.count }
+        let total = composite.pendingAttachments(forTerminalID: "term-a").reduce(0) { $0 + $1.byteCount }
         #expect(total <= budget)
     }
 
@@ -580,7 +580,7 @@ import Testing
         #expect(accepted == fits)
         var globalBytes = 0
         for i in 0..<(fits + 2) {
-            globalBytes += composite.pendingAttachments(forTerminalID: "term-\(i)").reduce(0) { $0 + $1.data.count }
+            globalBytes += composite.pendingAttachments(forTerminalID: "term-\(i)").reduce(0) { $0 + $1.byteCount }
         }
         #expect(globalBytes <= globalBudget)
     }
