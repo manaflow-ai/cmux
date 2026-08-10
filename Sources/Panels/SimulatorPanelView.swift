@@ -60,10 +60,13 @@ struct SimulatorPanelView: View {
               CmuxFeatureFlags.shared.isMobileConnectButtonEnabled else { return nil }
         return SimulatorPhoneControlTeaser(
             openPairing: {
-                phoneControlTeaserDismissed = true
-                _ = AppDelegate.shared?.performMobileConnectWorkspaceAction(
+                // Retire the teaser only when pairing actually opened, so a
+                // transient failure (no resolvable window) stays retryable.
+                if AppDelegate.shared?.performMobileConnectWorkspaceAction(
                     debugSource: "simulator.phoneControlTeaser"
-                )
+                ) != nil {
+                    phoneControlTeaserDismissed = true
+                }
             },
             dismiss: {
                 phoneControlTeaserDismissed = true

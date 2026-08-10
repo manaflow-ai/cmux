@@ -20,37 +20,53 @@ extension Notification.Name {
 @Observable
 final class SimulatorBootPresence {
     private(set) var hasBootedDevice = false
-    @ObservationIgnored private var lastRefreshAt: Date?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
-    @ObservationIgnored private let minimumRefreshInterval: TimeInterval
-    @ObservationIgnored private let now: () -> Date
+    @ObservationIgnored private var featureFlagsObserver: NSObjectProtocol?
     @ObservationIgnored private let discoverBootedDevice: @Sendable () async -> Bool
 
-    init(
-        minimumRefreshInterval: TimeInterval = 30,
-        now: @escaping () -> Date = Date.init,
-        discoverBootedDevice: @escaping @Sendable () async -> Bool = {
-            let devices = (try? await SimulatorControlService().discoverDevices()) ?? []
-            return devices.contains { $0.isAvailable && $0.state == .booted }
+    init(discoverBootedDevice: (@Sendable () async -> Bool)? = nil) {
+        if let discoverBootedDevice {
+            self.discoverBootedDevice = discoverBootedDevice
+        } else {
+            // One service reused across samples; discovery shells out to
+            // `simctl`, so per-refresh construction would rebuild its plumbing
+            // on every app activation.
+            let service = SimulatorControlService()
+            self.discoverBootedDevice = {
+                let devices = (try? await service.discoverDevices()) ?? []
+                return devices.contains { $0.isAvailable && $0.state == .booted }
+            }
         }
-    ) {
-        self.minimumRefreshInterval = minimumRefreshInterval
-        self.now = now
-        self.discoverBootedDevice = discoverBootedDevice
+        // The launch-time refresh runs before the remote flags load; when the
+        // simulator flag flips on afterward, sample immediately so the
+        // contextual button can appear without waiting for a reactivation.
+        featureFlagsObserver = NotificationCenter.default.addObserver(
+            forName: .cmuxFeatureFlagsDidChange,
+            object: CmuxFeatureFlags.shared,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.refresh()
+            }
+        }
     }
 
-    /// Samples `simctl` unless a sufficiently fresh answer exists.
-    /// Single-flight and throttled, so activation churn cannot stack device
-    /// discoveries. Posts ``Notification/Name/cmuxSimulatorBootPresenceDidChange``
-    /// only when the answer flips.
+    deinit {
+        if let featureFlagsObserver {
+            NotificationCenter.default.removeObserver(featureFlagsObserver)
+        }
+    }
+
+    /// Samples `simctl` for a fresh authoritative answer. Single-flight so
+    /// activation churn cannot stack device discoveries, but never served
+    /// from a time-based cache: this is UI-enabling state, and a stale
+    /// `false` would hide the contextual button right after the user booted
+    /// a Simulator. Posts
+    /// ``Notification/Name/cmuxSimulatorBootPresenceDidChange`` only when
+    /// the answer flips.
     func refresh() {
         guard CmuxFeatureFlags.shared.isSimulatorEnabled else { return }
         guard refreshTask == nil else { return }
-        if let lastRefreshAt,
-           now().timeIntervalSince(lastRefreshAt) < minimumRefreshInterval {
-            return
-        }
-        lastRefreshAt = now()
         refreshTask = Task { @MainActor [discoverBootedDevice] in
             let booted = await discoverBootedDevice()
             refreshTask = nil
