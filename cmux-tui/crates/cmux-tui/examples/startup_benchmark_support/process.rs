@@ -1,0 +1,2497 @@
+use std::collections::VecDeque;
+use std::env;
+use std::fs;
+use std::io::{self, Read, Write};
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, ExitStatus, Stdio};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, mpsc};
+use std::thread;
+use std::time::{Duration, Instant};
+
+use anyhow::{Context, Result, anyhow, bail};
+use cmux_pty::{PtyCommand, PtySize};
+use rusqlite::Connection;
+use serde_json::Value;
+use sha2::{Digest, Sha256};
+use wait_timeout::ChildExt;
+
+use super::lifecycle::FixtureRoot;
+use super::{
+    Evidence, LifecycleRecorder, PhaseMetric, RunPhases, RunResult, Scenario, SuiteDeadline,
+    TargetKind, duration_ns,
+};
+
+const EVENT_TIMEOUT: Duration = Duration::from_secs(30);
+const PROCESS_TIMEOUT: Duration = Duration::from_secs(30);
+const MAX_CAPTURE_BYTES: usize = 2 * 1024 * 1024;
+const INCOMPATIBLE_SCHEMA: i64 = 2_147_483_647;
+
+#[derive(Debug, Clone)]
+pub struct Target {
+    pub kind: TargetKind,
+    pub binary: PathBuf,
+    pub source: PathBuf,
+    pub sha: String,
+    pub expected_binary_sha256: String,
+    pub observed_sha: String,
+    pub ghostty_sha: String,
+    pub zig_version: String,
+    pub rust_toolchain: String,
+    pub embedded_identity_verified: bool,
+    version: String,
+    pub launcher: Vec<String>,
+}
+
+impl Target {
+    pub fn new(
+        kind: TargetKind,
+        binary: PathBuf,
+        source: PathBuf,
+        sha: String,
+        expected_binary_sha256: String,
+        launcher: Vec<String>,
+    ) -> Result<Self> {
+        let observed_sha = git_sha(&source)?;
+        if observed_sha != sha {
+            bail!(
+                "{} source SHA mismatch: requested {sha}, observed {observed_sha}",
+                kind.as_str()
+            );
+        }
+        let ghostty_sha = git_sha(&source.join("ghostty"))?;
+        let observed_binary_sha256 = binary_sha256(&binary)?;
+        if observed_binary_sha256 != expected_binary_sha256 {
+            bail!(
+                "{} binary SHA-256 mismatch: expected {expected_binary_sha256}, observed {observed_binary_sha256}",
+                kind.as_str()
+            );
+        }
+        let zig_version = source_zig_version(&source)?;
+        let rust_toolchain = source_rust_toolchain(&source)?;
+        let version = binary_version(&binary)?;
+        let embedded_identity_verified =
+            validate_binary_identity(&version, &sha, &ghostty_sha, kind == TargetKind::Candidate)
+                .with_context(|| format!("validate {} binary identity", kind.as_str()))?;
+        Ok(Self {
+            kind,
+            binary,
+            source,
+            sha,
+            expected_binary_sha256,
+            observed_sha,
+            ghostty_sha,
+            zig_version,
+            rust_toolchain,
+            embedded_identity_verified,
+            version,
+            launcher,
+        })
+    }
+}
+
+pub enum Fixture {
+    Cold(Common),
+    Warm { common: Common, server: RunningHeadless },
+    Headless(Common),
+    Restored { common: Common, state: PathBuf, terminal_id: String },
+    Incompatible { common: Common, state: PathBuf, database: PathBuf, expected: String },
+}
+
+impl Fixture {
+    pub fn new(
+        target: Target,
+        scenario: Scenario,
+        wrap_measured_process: bool,
+        fixture_parent: &Path,
+        deadline: SuiteDeadline,
+    ) -> Result<Self> {
+        deadline.ensure("preparing a startup fixture")?;
+        let mut common = Common::new(target, scenario, wrap_measured_process, fixture_parent)?;
+        match scenario {
+            Scenario::Cold => Ok(Self::Cold(common)),
+            Scenario::Headless => Ok(Self::Headless(common)),
+            Scenario::Warm => {
+                let socket = common.path("warm.sock");
+                let session = common.session_name("warm");
+                let args = headless_args(&session, &socket, None);
+                let mut server = RunningHeadless::start(&common, args, &socket, false, deadline)?;
+                server.wait_ready(deadline)?;
+                assert_ping(&common, &socket, deadline)?;
+                common.setup_evidence.readiness_lines += 1;
+                common.setup_evidence.socket_rpcs += 1;
+                Ok(Self::Warm { common, server })
+            }
+            Scenario::Restored => {
+                let state = common.path("restored-state");
+                fs::create_dir_all(&state)?;
+                let socket = common.path("restored-setup.sock");
+                let session = common.session_name("restored");
+                let args = headless_args(&session, &socket, Some(&state));
+                let mut server = RunningHeadless::start(&common, args, &socket, false, deadline)?;
+                server.wait_ready(deadline)?;
+                assert_ping(&common, &socket, deadline)?;
+                let created = json_cli(
+                    &common,
+                    &socket,
+                    &["workspace", "create", "--name", "bench-restored"],
+                    deadline,
+                )?;
+                let terminal_id = find_key_string(&created, "terminal_id")
+                    .context("workspace create did not return a terminal_id")?;
+                let topology = json_cli(&common, &socket, &["terminal", "list"], deadline)?;
+                if !terminal_list_contains_id(&topology, &terminal_id) {
+                    bail!("restored fixture terminal list omitted {terminal_id}");
+                }
+                server.shutdown_and_wait(&common, deadline)?;
+                common.setup_evidence.readiness_lines += 1;
+                common.setup_evidence.socket_rpcs += 4;
+                common.setup_evidence.process_exits += 1;
+                Ok(Self::Restored { common, state, terminal_id })
+            }
+            Scenario::Incompatible => {
+                let state = common.path("incompatible-state");
+                fs::create_dir_all(&state)?;
+                let socket = common.path("incompatible-setup.sock");
+                let session = common.session_name("incompatible");
+                let args = headless_args(&session, &socket, Some(&state));
+                let mut server = RunningHeadless::start(&common, args, &socket, false, deadline)?;
+                server.wait_ready(deadline)?;
+                assert_ping(&common, &socket, deadline)?;
+                server.shutdown_and_wait(&common, deadline)?;
+                let database = find_named_file(&state, "workspace-registry.sqlite3")?
+                    .context("valid state did not create workspace-registry.sqlite3")?;
+                let connection = Connection::open(&database)?;
+                let valid_schema: String = connection.query_row(
+                    "SELECT value FROM meta WHERE key = 'schema_version'",
+                    [],
+                    |row| row.get(0),
+                )?;
+                let valid_schema: i64 =
+                    valid_schema.parse().context("valid fixture schema is not an integer")?;
+                if valid_schema >= INCOMPATIBLE_SCHEMA {
+                    bail!("valid schema {valid_schema} is not below the rejection fixture");
+                }
+                let changed = connection.execute(
+                    "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
+                    [INCOMPATIBLE_SCHEMA.to_string()],
+                )?;
+                if changed != 1 {
+                    bail!("schema mutation updated {changed} rows");
+                }
+                drop(connection);
+                let expected = format!(
+                    "cannot open session \"{session}\" with cmux {}: its saved state is incompatible with this build",
+                    common.target.version
+                );
+                common.setup_evidence.readiness_lines += 1;
+                common.setup_evidence.socket_rpcs += 2;
+                common.setup_evidence.process_exits += 1;
+                Ok(Self::Incompatible { common, state, database, expected })
+            }
+        }
+    }
+
+    pub fn setup_evidence(&self) -> Evidence {
+        self.common().setup_evidence.clone()
+    }
+
+    pub fn cleanup(&mut self) -> Result<Evidence> {
+        let deadline = SuiteDeadline::unbounded();
+        let mut evidence = Evidence::default();
+        match self {
+            Self::Warm { common, server } => {
+                server.shutdown_and_wait(common, deadline)?;
+                evidence.socket_rpcs += 1;
+                evidence.process_exits += 1;
+            }
+            Self::Restored { common, state, terminal_id } => {
+                let socket = common.path("restored-cleanup.sock");
+                let session = common.session_name("restored");
+                let args = headless_args(&session, &socket, Some(state));
+                let mut server = RunningHeadless::start(common, args, &socket, false, deadline)?;
+                server.wait_ready(deadline)?;
+                let topology = json_cli(common, &socket, &["terminal", "list"], deadline)?;
+                evidence.socket_rpcs += 1;
+                match restored_cleanup_plan(&topology, terminal_id)? {
+                    RestoredCleanupPlan::CloseOwnedTerminal => {
+                        let close = json_cli_outcome(
+                            common,
+                            &socket,
+                            &["terminal", terminal_id, "close"],
+                            deadline,
+                        )?;
+                        evidence.socket_rpcs += 1;
+                        if restored_close_outcome(&close, terminal_id)?
+                            == RestoredCloseOutcome::AlreadyQuiescent
+                        {
+                            let topology =
+                                json_cli(common, &socket, &["terminal", "list"], deadline)?;
+                            evidence.socket_rpcs += 1;
+                            match restored_cleanup_plan(&topology, terminal_id)? {
+                                RestoredCleanupPlan::AlreadyQuiescent => {}
+                                RestoredCleanupPlan::CloseOwnedTerminal => bail!(
+                                    "restored cleanup terminal remained after its exact selector.not_found response"
+                                ),
+                            }
+                        }
+                    }
+                    RestoredCleanupPlan::AlreadyQuiescent => {}
+                }
+                server.shutdown_and_wait(common, deadline)?;
+                evidence.readiness_lines += 1;
+                evidence.socket_rpcs += 1;
+                evidence.process_exits += 1;
+            }
+            _ => {}
+        }
+        self.common_mut().root.mark_quiescent();
+        Ok(evidence)
+    }
+
+    pub fn defer_root(&mut self, recorder: &mut LifecycleRecorder) -> Result<PhaseMetric> {
+        self.common_mut().root.defer(recorder)
+    }
+
+    fn common(&self) -> &Common {
+        match self {
+            Self::Cold(common) | Self::Headless(common) => common,
+            Self::Warm { common, .. }
+            | Self::Restored { common, .. }
+            | Self::Incompatible { common, .. } => common,
+        }
+    }
+
+    fn common_mut(&mut self) -> &mut Common {
+        match self {
+            Self::Cold(common) | Self::Headless(common) => common,
+            Self::Warm { common, .. }
+            | Self::Restored { common, .. }
+            | Self::Incompatible { common, .. } => common,
+        }
+    }
+}
+
+pub fn run_sample(fixture: &mut Fixture, deadline: SuiteDeadline) -> Result<RunResult> {
+    deadline.ensure("starting a startup sample")?;
+    match fixture {
+        Fixture::Cold(common) => run_cold(common, deadline),
+        Fixture::Warm { common, server } => run_warm(common, server, deadline),
+        Fixture::Headless(common) => run_headless(common, deadline),
+        Fixture::Restored { common, state, terminal_id } => {
+            run_restored(common, state, terminal_id, deadline)
+        }
+        Fixture::Incompatible { common, state, database, expected } => {
+            run_incompatible(common, state, database, expected, deadline)
+        }
+    }
+}
+
+struct Common {
+    target: Target,
+    root: FixtureRoot,
+    config: PathBuf,
+    wrap_measured_process: bool,
+    setup_evidence: Evidence,
+}
+
+impl Common {
+    fn new(
+        target: Target,
+        scenario: Scenario,
+        wrap_measured_process: bool,
+        fixture_parent: &Path,
+    ) -> Result<Self> {
+        let root = FixtureRoot::new(fixture_parent)?;
+        let config = root.path().join("config.json");
+        fs::write(&config, b"{}")?;
+        for directory in ["home", "config", "data", "cache", "state", "tmp"] {
+            fs::create_dir_all(root.path().join(directory))?;
+        }
+        Ok(Self {
+            target,
+            root,
+            config,
+            wrap_measured_process,
+            setup_evidence: Evidence::default(),
+        })
+    }
+
+    fn path(&self, name: &str) -> PathBuf {
+        self.root.path().join(name)
+    }
+
+    fn next_path(&mut self) -> Result<(PathBuf, u64)> {
+        self.root.next_run_path()
+    }
+
+    fn session_name(&self, scenario: &str) -> String {
+        format!("bench-{scenario}")
+    }
+
+    fn apply_std_env(&self, command: &mut Command) {
+        command.env_clear();
+        copy_base_environment(|key, value| {
+            command.env(key, value);
+        });
+        for (key, value) in self.environment() {
+            command.env(key, value);
+        }
+        command.current_dir(self.root.path());
+    }
+
+    fn apply_pty_env(&self, command: &mut PtyCommand) {
+        command.env_clear();
+        copy_base_environment(|key, value| {
+            command.env(key, value);
+        });
+        for (key, value) in self.environment() {
+            command.env(key, value);
+        }
+        command.cwd(self.root.path());
+    }
+
+    fn environment(&self) -> Vec<(String, String)> {
+        let path = |name: &str| self.path(name).to_string_lossy().into_owned();
+        vec![
+            ("HOME".into(), path("home")),
+            ("USERPROFILE".into(), path("home")),
+            ("XDG_CONFIG_HOME".into(), path("config")),
+            ("XDG_DATA_HOME".into(), path("data")),
+            ("XDG_CACHE_HOME".into(), path("cache")),
+            ("XDG_STATE_HOME".into(), path("state")),
+            ("LOCALAPPDATA".into(), path("data")),
+            ("APPDATA".into(), path("config")),
+            ("TMPDIR".into(), path("tmp")),
+            ("TEMP".into(), path("tmp")),
+            ("TMP".into(), path("tmp")),
+            ("CMUX_TUI_CONFIG".into(), self.config.to_string_lossy().into_owned()),
+            ("TERM".into(), "xterm-256color".into()),
+            ("COLORTERM".into(), "truecolor".into()),
+            ("LANG".into(), "C.UTF-8".into()),
+        ]
+    }
+
+    fn std_command(&self, args: &[String], wrapped: bool) -> Result<Command> {
+        let mut command = if wrapped && !self.target.launcher.is_empty() {
+            let mut command = Command::new(&self.target.launcher[0]);
+            command.args(&self.target.launcher[1..]);
+            command.arg(&self.target.binary);
+            command
+        } else {
+            Command::new(&self.target.binary)
+        };
+        command.args(args);
+        self.apply_std_env(&mut command);
+        Ok(command)
+    }
+
+    fn pty_command(&self, args: &[String], wrapped: bool) -> Result<PtyCommand> {
+        let (program, prefix) =
+            pty_program_and_prefix(&self.target.binary, &self.target.launcher, wrapped);
+        let mut command = PtyCommand::new(program);
+        command.args(prefix);
+        command.args(args.to_vec());
+        self.apply_pty_env(&mut command);
+        Ok(command)
+    }
+}
+
+fn pty_program_and_prefix(
+    binary: &Path,
+    launcher: &[String],
+    wrapped: bool,
+) -> (String, Vec<String>) {
+    match (wrapped, launcher.split_first()) {
+        (true, Some((program, launcher_args))) => {
+            let mut prefix = launcher_args.to_vec();
+            prefix.push(binary.to_string_lossy().into_owned());
+            (program.clone(), prefix)
+        }
+        _ => (binary.to_string_lossy().into_owned(), Vec::new()),
+    }
+}
+
+fn copy_base_environment(mut set: impl FnMut(String, String)) {
+    for key in ["PATH", "SHELL", "SystemRoot", "WINDIR", "COMSPEC", "PATHEXT", "DEVELOPER_DIR"] {
+        if let Ok(value) = env::var(key) {
+            set(key.to_string(), value);
+        }
+    }
+}
+
+fn run_cold(common: &mut Common, deadline: SuiteDeadline) -> Result<RunResult> {
+    let (run, id) = common.next_path()?;
+    let socket = run.join("mux.sock");
+    let session = format!("{}-{id:020}", common.session_name("cold"));
+    let marker = format!("[{session}] ");
+    let args = vec![
+        "--ephemeral".into(),
+        "--session".into(),
+        session,
+        "--socket".into(),
+        socket.to_string_lossy().into_owned(),
+    ];
+    run_pty(common, args, marker, Some(&socket), deadline)
+}
+
+fn run_warm(
+    common: &mut Common,
+    _server: &mut RunningHeadless,
+    deadline: SuiteDeadline,
+) -> Result<RunResult> {
+    let session = common.session_name("warm");
+    let marker = format!("[{session}] ");
+    let socket = common.path("warm.sock");
+    let args = vec![
+        "attach".into(),
+        "--session".into(),
+        session,
+        "--socket".into(),
+        socket.to_string_lossy().into_owned(),
+    ];
+    run_pty(common, args, marker, None, deadline)
+}
+
+fn run_pty(
+    common: &Common,
+    args: Vec<String>,
+    marker: String,
+    ping_socket: Option<&Path>,
+    deadline: SuiteDeadline,
+) -> Result<RunResult> {
+    deadline.ensure("spawning an interactive startup process")?;
+    let pair = cmux_pty::open(PtySize { rows: 24, cols: 80, pixel_width: 640, pixel_height: 384 })?;
+    let command = common.pty_command(&args, common.wrap_measured_process)?;
+    let started = Instant::now();
+    let spawned = pair.spawn(command)?;
+    let master = spawned.master;
+    let mut child = spawned.child;
+    let reader = master.try_clone_reader()?;
+    let writer = Arc::new(Mutex::new(master.take_writer()?));
+    let process_tree = PtyProcessTree::from_handles(master.as_ref(), child.as_ref());
+    let killer = child.clone_killer();
+    let (event_sender, event_receiver) = mpsc::channel();
+    let writer_for_reader = writer.clone();
+    let marker_bytes = marker.into_bytes();
+    let diagnostic = Arc::new(Mutex::new(VecDeque::new()));
+    let diagnostic_for_reader = diagnostic.clone();
+    let probe_queries = Arc::new(AtomicUsize::new(0));
+    let probe_queries_for_reader = probe_queries.clone();
+    let probe_responses = Arc::new(AtomicUsize::new(0));
+    let probe_responses_for_reader = probe_responses.clone();
+    let reader_cancelled = Arc::new(AtomicBool::new(false));
+    let reader_cancelled_for_reader = reader_cancelled.clone();
+    let reader_event_sender = event_sender.clone();
+    let (reader_sender, reader_receiver) = mpsc::channel();
+    let reader_thread =
+        thread::Builder::new().name("startup-benchmark-pty-reader".into()).spawn(move || {
+            let result = read_pty(
+                reader,
+                writer_for_reader,
+                marker_bytes,
+                reader_event_sender,
+                diagnostic_for_reader,
+                probe_queries_for_reader,
+                probe_responses_for_reader,
+                reader_cancelled_for_reader,
+            );
+            let _ = reader_sender.send(result);
+        })?;
+    let (status_sender, status_receiver) = mpsc::channel();
+    let status_event_sender = event_sender;
+    let status_thread =
+        thread::Builder::new().name("startup-benchmark-pty-wait".into()).spawn(move || {
+            let status = child.wait();
+            let _ = status_sender.send(status);
+            let _ = status_event_sender.send(PtyEvent::Exited);
+        })?;
+    let mut runtime = PtyRuntime {
+        killer,
+        process_tree,
+        master: Some(master),
+        writer: Some(writer),
+        status_receiver,
+        status_thread: Some(status_thread),
+        reader_receiver,
+        reader_thread: Some(reader_thread),
+        diagnostic,
+        probe_queries,
+        probe_responses,
+        reader_cancelled,
+    };
+
+    let event_timeout = match deadline.timeout(EVENT_TIMEOUT, "waiting for the PTY render event") {
+        Ok(timeout) => timeout,
+        Err(error) => return runtime.fail(error),
+    };
+    let observed_at = match event_receiver.recv_timeout(event_timeout) {
+        Ok(PtyEvent::Marker(at)) => at,
+        Ok(PtyEvent::Ended) => {
+            let (_, reader, _) = runtime.finish(false, SuiteDeadline::unbounded())?;
+            return Err(runtime.failure_with_diagnostic(anyhow!(
+                "PTY ended before render marker: {}",
+                String::from_utf8_lossy(&reader.output)
+            )));
+        }
+        Ok(PtyEvent::Failed(error)) => {
+            return runtime.fail(anyhow!("PTY reader failed before render marker: {error}"));
+        }
+        Ok(PtyEvent::Exited) => {
+            let failure = anyhow!("interactive process exited before render marker");
+            return match runtime.finish(false, SuiteDeadline::unbounded()) {
+                Ok((status, reader, _)) => {
+                    Err(runtime.failure_with_diagnostic(failure.context(format!(
+                        "status {status}; PTY output: {}",
+                        String::from_utf8_lossy(&reader.output)
+                    ))))
+                }
+                Err(cleanup) => Err(runtime.failure_with_diagnostic(
+                    failure.context(format!("PTY cleanup also failed: {cleanup:#}")),
+                )),
+            };
+        }
+        Err(error) => {
+            return runtime.fail(anyhow!("render marker deadline expired: {error}"));
+        }
+    };
+    let validation = if let Some(socket) = ping_socket {
+        let validation_started = Instant::now();
+        if let Err(error) = assert_ping(common, socket, deadline) {
+            return runtime.fail(error.context("validate interactive process socket readiness"));
+        }
+        PhaseMetric::completed(validation_started.elapsed())?
+    } else {
+        PhaseMetric::default()
+    };
+    let detach = runtime.write(b"\x02d");
+    if let Err(error) = detach {
+        return runtime.fail(error.context("detach interactive benchmark process"));
+    }
+    let (status, reader, completion) = runtime.finish(false, deadline)?;
+    if !status.success() {
+        bail!(
+            "interactive process exited with {status}: {}",
+            String::from_utf8_lossy(&reader.output)
+        );
+    }
+    #[cfg(windows)]
+    if !reader.probe_kinds.cpr || reader.probe_responses < 2 {
+        bail!(
+            "interactive process answered an invalid Windows terminal-probe set: {:?}",
+            reader.probe_kinds
+        );
+    }
+    #[cfg(not(windows))]
+    if reader.probe_responses < 4 {
+        bail!(
+            "interactive process answered {} terminal probes, expected at least 4",
+            reader.probe_responses
+        );
+    }
+    let measured_event = observed_at.duration_since(started);
+    Ok(RunResult {
+        duration_ns: duration_ns(measured_event)?,
+        evidence: Evidence {
+            render_markers: 1,
+            frame_completions: 1,
+            process_exits: 1,
+            terminal_probe_responses: reader.probe_responses,
+            terminal_cpr_responses: usize::from(reader.probe_kinds.cpr),
+            terminal_foreground_color_responses: usize::from(reader.probe_kinds.foreground),
+            terminal_background_color_responses: usize::from(reader.probe_kinds.background),
+            terminal_window_pixel_responses: usize::from(reader.probe_kinds.window),
+            terminal_kitty_responses: usize::from(reader.probe_kinds.kitty),
+            terminal_da1_responses: usize::from(reader.probe_kinds.da1),
+            terminal_keyboard_responses: usize::from(reader.probe_kinds.keyboard),
+            socket_rpcs: usize::from(ping_socket.is_some()),
+            frame_cursor_shows: if reader.frame_completion == Some(FrameCompletion::Show) {
+                1
+            } else {
+                0
+            },
+            frame_cursor_hides: if reader.frame_completion == Some(FrameCompletion::Hide) {
+                1
+            } else {
+                0
+            },
+            frame_cursor_positions: if reader.frame_completion == Some(FrameCompletion::Position) {
+                1
+            } else {
+                0
+            },
+            ..Evidence::default()
+        },
+        phases: RunPhases {
+            measured_event: PhaseMetric::completed(measured_event)?,
+            validation,
+            process_exit: PhaseMetric::completed(completion.process_exit)?,
+            thread_join: PhaseMetric::completed(completion.thread_join)?,
+            ..RunPhases::default()
+        },
+    })
+}
+
+fn run_headless(common: &mut Common, deadline: SuiteDeadline) -> Result<RunResult> {
+    let (run, id) = common.next_path()?;
+    let socket = run.join("mux.sock");
+    let session = format!("{}-{id:020}", common.session_name("headless"));
+    let args = headless_args(&session, &socket, None);
+    let mut server =
+        RunningHeadless::start(common, args, &socket, common.wrap_measured_process, deadline)?;
+    server.wait_ready(deadline)?;
+    let validation_started = Instant::now();
+    assert_ping(common, &socket, deadline)?;
+    let validation = validation_started.elapsed();
+    let duration = server.started.elapsed();
+    let completion = server.shutdown_and_wait(common, deadline)?;
+    Ok(RunResult {
+        duration_ns: duration_ns(duration)?,
+        evidence: Evidence {
+            readiness_lines: 1,
+            socket_rpcs: 2,
+            process_exits: 1,
+            ..Evidence::default()
+        },
+        phases: RunPhases {
+            measured_event: PhaseMetric::completed(duration)?,
+            validation: PhaseMetric::completed(validation)?,
+            process_exit: PhaseMetric::completed(completion.process_exit)?,
+            thread_join: PhaseMetric::completed(completion.thread_join)?,
+            ..RunPhases::default()
+        },
+    })
+}
+
+fn run_restored(
+    common: &mut Common,
+    state: &Path,
+    terminal_id: &str,
+    deadline: SuiteDeadline,
+) -> Result<RunResult> {
+    let (run, _) = common.next_path()?;
+    let socket = run.join("mux.sock");
+    let session = common.session_name("restored");
+    let args = headless_args(&session, &socket, Some(state));
+    let mut server =
+        RunningHeadless::start(common, args, &socket, common.wrap_measured_process, deadline)?;
+    server.wait_ready(deadline)?;
+    let validation_started = Instant::now();
+    let topology = json_cli(common, &socket, &["terminal", "list"], deadline)?;
+    if !terminal_list_contains_id(&topology, terminal_id) {
+        bail!("restored terminal list omitted saved terminal {terminal_id}");
+    }
+    let validation = validation_started.elapsed();
+    let duration = server.started.elapsed();
+    let completion = server.shutdown_and_wait(common, deadline)?;
+    Ok(RunResult {
+        duration_ns: duration_ns(duration)?,
+        evidence: Evidence {
+            readiness_lines: 1,
+            socket_rpcs: 2,
+            restored_topologies: 1,
+            process_exits: 1,
+            ..Evidence::default()
+        },
+        phases: RunPhases {
+            measured_event: PhaseMetric::completed(duration)?,
+            validation: PhaseMetric::completed(validation)?,
+            process_exit: PhaseMetric::completed(completion.process_exit)?,
+            thread_join: PhaseMetric::completed(completion.thread_join)?,
+            ..RunPhases::default()
+        },
+    })
+}
+
+fn run_incompatible(
+    common: &mut Common,
+    state: &Path,
+    database: &Path,
+    expected: &str,
+    deadline: SuiteDeadline,
+) -> Result<RunResult> {
+    let (run, _) = common.next_path()?;
+    let socket = run.join("mux.sock");
+    let session = common.session_name("incompatible");
+    let args = headless_args(&session, &socket, Some(state));
+    let command = common.std_command(&args, common.wrap_measured_process)?;
+    let captured = run_captured(command, deadline)?;
+    if captured.status.success() {
+        bail!("incompatible state unexpectedly started successfully");
+    }
+    let validation_started = Instant::now();
+    let stderr = String::from_utf8_lossy(&captured.stderr);
+    let expected = format!("cmux-tui: {expected}");
+    validate_primary_diagnostic(&stderr, &expected)?;
+    let connection = Connection::open(database)?;
+    let stored: String =
+        connection.query_row("SELECT value FROM meta WHERE key = 'schema_version'", [], |row| {
+            row.get(0)
+        })?;
+    if stored != INCOMPATIBLE_SCHEMA.to_string() {
+        bail!("schema rejection changed stored schema to {stored}");
+    }
+    let validation = validation_started.elapsed();
+    Ok(RunResult {
+        duration_ns: duration_ns(captured.duration)?,
+        evidence: Evidence { schema_rejections: 1, process_exits: 1, ..Evidence::default() },
+        phases: RunPhases {
+            measured_event: PhaseMetric::completed(captured.duration)?,
+            validation: PhaseMetric::completed(validation)?,
+            process_exit: PhaseMetric::completed(captured.duration)?,
+            ..RunPhases::default()
+        },
+    })
+}
+
+fn validate_primary_diagnostic(stderr: &str, expected: &str) -> Result<()> {
+    let primary_diagnostic = stderr.lines().next().unwrap_or_default();
+    if primary_diagnostic != expected {
+        bail!(
+            "incompatible state primary diagnostic was {primary_diagnostic:?}, expected {expected:?}: {stderr}"
+        );
+    }
+    Ok(())
+}
+
+fn headless_args(session: &str, socket: &Path, state: Option<&Path>) -> Vec<String> {
+    let mut args = vec![
+        "--headless".into(),
+        "--session".into(),
+        session.into(),
+        "--socket".into(),
+        socket.to_string_lossy().into_owned(),
+    ];
+    if let Some(state) = state {
+        args.push("--state".into());
+        args.push(state.to_string_lossy().into_owned());
+    } else {
+        args.push("--ephemeral".into());
+    }
+    args
+}
+
+struct RunningHeadless {
+    child: Option<Child>,
+    process_tree: CapturedProcessTree,
+    socket: PathBuf,
+    started: Instant,
+    events: mpsc::Receiver<StreamEvent>,
+    reader_receiver: mpsc::Receiver<io::Result<Vec<u8>>>,
+    reader: Option<thread::JoinHandle<()>>,
+    reader_cancelled: Arc<AtomicBool>,
+}
+
+struct CompletionTimings {
+    process_exit: Duration,
+    thread_join: Duration,
+}
+
+impl RunningHeadless {
+    fn start(
+        common: &Common,
+        args: Vec<String>,
+        socket: &Path,
+        wrapped: bool,
+        deadline: SuiteDeadline,
+    ) -> Result<Self> {
+        deadline.ensure("spawning a headless startup process")?;
+        let mut command = common.std_command(&args, wrapped)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            command.process_group(0);
+        }
+        command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped());
+        let started = Instant::now();
+        let mut child = command.spawn()?;
+        let process_tree = CapturedProcessTree::new(child.id());
+        let stderr = child.stderr.take().context("headless stderr pipe missing")?;
+        let needle =
+            format!("cmux-tui: headless, control socket at {}", socket.display()).into_bytes();
+        let (sender, events) = mpsc::channel();
+        let (reader_sender, reader_receiver) = mpsc::channel();
+        let reader_cancelled = Arc::new(AtomicBool::new(false));
+        let reader_cancelled_for_thread = reader_cancelled.clone();
+        let reader =
+            match thread::Builder::new().name("startup-benchmark-stderr".into()).spawn(move || {
+                let result = read_until_event(stderr, needle, sender, reader_cancelled_for_thread);
+                let _ = reader_sender.send(result);
+            }) {
+                Ok(reader) => reader,
+                Err(error) => {
+                    let tree_error = process_tree.terminate().err();
+                    if tree_error.is_some() {
+                        let _ = child.kill();
+                    }
+                    let _ = child.wait_timeout(PROCESS_TIMEOUT);
+                    return Err(error).context("spawn headless stderr reader");
+                }
+            };
+        Ok(Self {
+            child: Some(child),
+            process_tree,
+            socket: socket.to_path_buf(),
+            started,
+            events,
+            reader_receiver,
+            reader: Some(reader),
+            reader_cancelled,
+        })
+    }
+
+    fn wait_ready(&mut self, deadline: SuiteDeadline) -> Result<Instant> {
+        let timeout = match deadline.timeout(EVENT_TIMEOUT, "waiting for headless readiness") {
+            Ok(timeout) => timeout,
+            Err(error) => return self.fail(error),
+        };
+        match self.events.recv_timeout(timeout) {
+            Ok(StreamEvent::Found(at)) => Ok(at),
+            Ok(StreamEvent::Ended) => {
+                self.fail(anyhow!("headless process exited before readiness"))
+            }
+            Ok(StreamEvent::Failed(error)) => {
+                self.fail(anyhow!("headless stderr failed before readiness: {error}"))
+            }
+            Err(error) => self.fail(anyhow!("headless readiness deadline expired: {error}")),
+        }
+    }
+
+    fn shutdown_and_wait(
+        &mut self,
+        common: &Common,
+        deadline: SuiteDeadline,
+    ) -> Result<CompletionTimings> {
+        let exit_started = Instant::now();
+        if let Err(error) =
+            json_cli(common, &self.socket, &["session", "current", "shutdown"], deadline)
+        {
+            return self.fail(error.context("request headless shutdown"));
+        }
+        let status = match self.wait_for_exit(deadline) {
+            Ok(status) => status,
+            Err(error) => return self.fail(error),
+        };
+        let process_exit = exit_started.elapsed();
+        self.child = None;
+        let join_started = Instant::now();
+        let output = self.finish_reader(deadline)?;
+        let thread_join = join_started.elapsed();
+        if !status.success() {
+            bail!("headless process exited with {status}: {}", String::from_utf8_lossy(&output));
+        }
+        Ok(CompletionTimings { process_exit, thread_join })
+    }
+
+    fn wait_for_exit(&mut self, deadline: SuiteDeadline) -> Result<ExitStatus> {
+        let timeout = deadline.timeout(PROCESS_TIMEOUT, "waiting for headless process exit")?;
+        let child = self.child.as_mut().context("headless process already reaped")?;
+        if let Some(status) = child.wait_timeout(timeout)? {
+            return Ok(status);
+        }
+        if let Err(error) = deadline.ensure("waiting for headless process exit") {
+            return Err(error);
+        }
+        bail!("headless process exceeded {timeout:?}")
+    }
+
+    fn cancel_reader(&self) -> io::Result<()> {
+        let reader = self
+            .reader
+            .as_ref()
+            .ok_or_else(|| io::Error::other("headless stderr reader already joined"))?;
+        cancel_blocking_reader(reader, &self.reader_cancelled)
+    }
+
+    fn finish_reader(&mut self, deadline: SuiteDeadline) -> Result<Vec<u8>> {
+        let mut wait_error = None;
+        let timeout = match deadline.timeout(PROCESS_TIMEOUT, "waiting for headless stderr") {
+            Ok(timeout) => timeout,
+            Err(error) => {
+                wait_error = Some(error);
+                Duration::ZERO
+            }
+        };
+        let result = match self.reader_receiver.recv_timeout(timeout) {
+            Ok(result) => result,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                if wait_error.is_none() {
+                    wait_error = Some(anyhow!("headless stderr reader exceeded {timeout:?}"));
+                }
+                let tree_error = self.process_tree.terminate_after_exit().err();
+                let cancel_error = self.cancel_reader().err();
+                let recovery = self
+                    .reader_receiver
+                    .recv_timeout(PROCESS_TIMEOUT)
+                    .context("wait for headless stderr after cancellation");
+                let result = match recovery {
+                    Ok(result) => result,
+                    Err(recovery) => {
+                        let mut error = recovery;
+                        if let Some(tree_error) = tree_error {
+                            error = error.context(format!(
+                                "process-tree termination also failed: {tree_error}"
+                            ));
+                        }
+                        if let Some(cancel_error) = cancel_error {
+                            error = error.context(format!(
+                                "stderr-reader cancellation also failed: {cancel_error}"
+                            ));
+                        }
+                        return Err(error);
+                    }
+                };
+                result
+            }
+            Err(error) => return Err(error).context("wait for headless stderr completion"),
+        };
+        self.reader
+            .take()
+            .context("headless stderr reader already joined")?
+            .join()
+            .map_err(|_| anyhow!("headless stderr reader panicked"))?;
+        let output = result.context("read headless stderr")?;
+        if let Some(error) = wait_error {
+            return Err(
+                error.context(format!("headless stderr: {}", String::from_utf8_lossy(&output)))
+            );
+        }
+        Ok(output)
+    }
+
+    fn terminate_and_read(&mut self) -> Result<Vec<u8>> {
+        let mut process_error = None;
+        if let Some(child) = self.child.as_mut() {
+            let tree_error = self.process_tree.terminate().err();
+            let kill_error = if tree_error.is_some() { child.kill().err() } else { None };
+            let status = child.wait_timeout(PROCESS_TIMEOUT)?;
+            if status.is_none() || tree_error.is_some() || kill_error.is_some() {
+                let mut error = status
+                    .map(|status| anyhow!("terminated headless process exited with {status}"))
+                    .unwrap_or_else(|| anyhow!("headless process did not exit after termination"));
+                if let Some(tree_error) = tree_error {
+                    error = error
+                        .context(format!("process-tree termination also failed: {tree_error}"));
+                }
+                if let Some(kill_error) = kill_error {
+                    error = error.context(format!("direct child kill also failed: {kill_error}"));
+                }
+                process_error = Some(error);
+            }
+        }
+        self.child = None;
+        self.cancel_reader()?;
+        let output = self.finish_reader(SuiteDeadline::unbounded())?;
+        if let Some(error) = process_error {
+            return Err(
+                error.context(format!("headless stderr: {}", String::from_utf8_lossy(&output)))
+            );
+        }
+        Ok(output)
+    }
+
+    fn fail<T>(&mut self, error: anyhow::Error) -> Result<T> {
+        match self.terminate_and_read() {
+            Ok(output) => {
+                Err(error.context(format!("headless stderr: {}", String::from_utf8_lossy(&output))))
+            }
+            Err(cleanup) => {
+                Err(error.context(format!("headless cleanup also failed: {cleanup:#}")))
+            }
+        }
+    }
+}
+
+impl Drop for RunningHeadless {
+    fn drop(&mut self) {
+        if self.child.is_some() || self.reader.is_some() {
+            let _ = self.terminate_and_read();
+        }
+    }
+}
+
+enum StreamEvent {
+    Found(Instant),
+    Ended,
+    Failed(String),
+}
+
+fn read_until_event(
+    mut reader: impl Read,
+    needle: Vec<u8>,
+    sender: mpsc::Sender<StreamEvent>,
+    cancelled: Arc<AtomicBool>,
+) -> std::io::Result<Vec<u8>> {
+    let mut output = VecDeque::new();
+    let mut pending = Vec::new();
+    let mut found = false;
+    let mut buffer = [0_u8; 4096];
+    loop {
+        if cancelled.load(Ordering::Acquire) {
+            return Ok(output.into_iter().collect());
+        }
+        match reader.read(&mut buffer) {
+            Ok(0) => {
+                if !found {
+                    let _ = sender.send(StreamEvent::Ended);
+                }
+                return Ok(output.into_iter().collect());
+            }
+            Ok(read) => {
+                append_bounded_tail(&mut output, &buffer[..read]);
+                if !found {
+                    pending.extend_from_slice(&buffer[..read]);
+                    if contains(&pending, &needle) {
+                        found = true;
+                        let _ = sender.send(StreamEvent::Found(Instant::now()));
+                    } else {
+                        retain_tail(&mut pending, needle.len().saturating_sub(1));
+                    }
+                }
+            }
+            Err(_) if cancelled.load(Ordering::Acquire) => {
+                return Ok(output.into_iter().collect());
+            }
+            Err(error) => {
+                let _ = sender.send(StreamEvent::Failed(error.to_string()));
+                return Err(error);
+            }
+        }
+    }
+}
+
+enum PtyEvent {
+    Marker(Instant),
+    Ended,
+    Failed(String),
+    Exited,
+}
+
+struct PtyReadResult {
+    output: Vec<u8>,
+    probe_responses: usize,
+    probe_kinds: ProbeKinds,
+    frame_completion: Option<FrameCompletion>,
+}
+
+struct PtyRuntime {
+    killer: Box<dyn cmux_pty::ChildKiller + Send + Sync>,
+    process_tree: PtyProcessTree,
+    master: Option<Box<dyn cmux_pty::MasterPty + Send>>,
+    writer: Option<Arc<Mutex<Box<dyn Write + Send>>>>,
+    status_receiver: mpsc::Receiver<io::Result<cmux_pty::ExitStatus>>,
+    status_thread: Option<thread::JoinHandle<()>>,
+    reader_receiver: mpsc::Receiver<io::Result<PtyReadResult>>,
+    reader_thread: Option<thread::JoinHandle<()>>,
+    diagnostic: Arc<Mutex<VecDeque<u8>>>,
+    probe_queries: Arc<AtomicUsize>,
+    probe_responses: Arc<AtomicUsize>,
+    reader_cancelled: Arc<AtomicBool>,
+}
+
+impl PtyRuntime {
+    fn write(&self, bytes: &[u8]) -> Result<()> {
+        let writer = self.writer.as_ref().context("PTY writer already closed")?;
+        let mut writer = writer.lock().map_err(|_| anyhow!("PTY writer lock poisoned"))?;
+        writer.write_all(bytes)?;
+        writer.flush()?;
+        Ok(())
+    }
+
+    fn terminate_tree(&mut self) -> io::Result<()> {
+        self.process_tree.terminate(self.killer.as_mut())
+    }
+
+    fn failure_with_diagnostic(&self, error: anyhow::Error) -> anyhow::Error {
+        let output = self
+            .diagnostic
+            .lock()
+            .map(|output| {
+                let output: Vec<u8> = output.iter().copied().collect();
+                String::from_utf8_lossy(&output).into_owned()
+            })
+            .unwrap_or_else(|_| "<PTY diagnostic lock poisoned>".into());
+        error.context(format!(
+            "PTY failure snapshot: queries={} responses={} output={output:?}",
+            self.probe_queries.load(Ordering::Relaxed),
+            self.probe_responses.load(Ordering::Relaxed)
+        ))
+    }
+
+    #[cfg(windows)]
+    fn cancel_reader_io(&self) -> io::Result<()> {
+        let reader = self
+            .reader_thread
+            .as_ref()
+            .ok_or_else(|| io::Error::other("PTY reader thread already joined"))?;
+        cancel_blocking_reader(reader, &self.reader_cancelled)
+    }
+
+    #[cfg(not(windows))]
+    fn cancel_reader_io(&self) -> io::Result<()> {
+        let reader = self
+            .reader_thread
+            .as_ref()
+            .ok_or_else(|| io::Error::other("PTY reader thread already joined"))?;
+        cancel_blocking_reader(reader, &self.reader_cancelled)
+    }
+
+    fn finish(
+        &mut self,
+        terminate: bool,
+        deadline: SuiteDeadline,
+    ) -> Result<(cmux_pty::ExitStatus, PtyReadResult, CompletionTimings)> {
+        // Close the harness writer before waiting. A full-tree termination then
+        // closes every slave handle and makes reader completion observable.
+        self.writer.take();
+        let exit_started = Instant::now();
+        let mut kill_error = if terminate { self.terminate_tree().err() } else { None };
+        let mut tree_termination_attempted = terminate;
+        let mut timed_out = false;
+        let mut suite_error = None;
+        let exit_timeout = match deadline.timeout(PROCESS_TIMEOUT, "waiting for PTY process exit") {
+            Ok(timeout) => timeout,
+            Err(error) => {
+                suite_error = Some(error);
+                Duration::ZERO
+            }
+        };
+        let status = match self.status_receiver.recv_timeout(exit_timeout) {
+            Ok(status) => status,
+            Err(mpsc::RecvTimeoutError::Timeout) if !terminate => {
+                timed_out = true;
+                tree_termination_attempted = true;
+                if let Err(error) = self.terminate_tree() {
+                    kill_error = Some(error);
+                }
+                match self.status_receiver.recv_timeout(PROCESS_TIMEOUT) {
+                    Ok(status) => status,
+                    Err(error) => {
+                        let error = anyhow!(error).context("reap interactive process after kill");
+                        return if let Some(kill) = kill_error {
+                            Err(error.context(format!("PTY kill also failed: {kill}")))
+                        } else {
+                            Err(error)
+                        };
+                    }
+                }
+            }
+            Err(error) => {
+                let error = anyhow!(error).context("wait for interactive process exit");
+                return if let Some(kill) = kill_error {
+                    Err(error.context(format!("PTY kill also failed: {kill}")))
+                } else {
+                    Err(error)
+                };
+            }
+        };
+        let process_exit = exit_started.elapsed();
+        let join_started = Instant::now();
+        self.status_thread
+            .take()
+            .context("PTY wait thread already joined")?
+            .join()
+            .map_err(|_| anyhow!("PTY wait thread panicked"))?;
+        // On ConPTY, process exit alone does not close the readable stream.
+        // The runtime owns and closes the master, then explicitly cancels the
+        // reader's synchronous I/O after the child is reaped. The reader treats
+        // that owner-requested cancellation as EOF.
+        self.master.take().context("PTY master already closed")?;
+        #[cfg(windows)]
+        if let Err(error) = self.cancel_reader_io() {
+            kill_error = Some(error);
+        }
+        let mut reader_timed_out = false;
+        let reader_timeout =
+            match deadline.timeout(PROCESS_TIMEOUT, "waiting for the PTY reader to finish") {
+                Ok(timeout) => timeout,
+                Err(error) => {
+                    suite_error = Some(error);
+                    Duration::ZERO
+                }
+            };
+        let reader = match self.reader_receiver.recv_timeout(reader_timeout) {
+            Ok(reader) => reader,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                reader_timed_out = true;
+                if !tree_termination_attempted {
+                    if let Err(error) = self.terminate_tree() {
+                        kill_error = Some(error);
+                    }
+                }
+                if let Err(error) = self.cancel_reader_io() {
+                    kill_error = Some(error);
+                }
+                self.reader_receiver
+                    .recv_timeout(PROCESS_TIMEOUT)
+                    .context("wait for PTY reader after full-tree termination")?
+            }
+            Err(error) => return Err(error).context("wait for PTY reader completion"),
+        };
+        self.reader_thread
+            .take()
+            .context("PTY reader thread already joined")?
+            .join()
+            .map_err(|_| anyhow!("PTY reader panicked"))?;
+        let reader = reader.context("read PTY output")?;
+        let thread_join = join_started.elapsed();
+        if let Some(error) = kill_error {
+            return Err(error).context("kill interactive process during cleanup");
+        }
+        if let Some(error) = suite_error {
+            return Err(error);
+        }
+        if timed_out {
+            bail!("interactive process exceeded {exit_timeout:?} after detach and was killed");
+        }
+        if reader_timed_out {
+            bail!("PTY reader exceeded {PROCESS_TIMEOUT:?} and required full-tree termination");
+        }
+        Ok((
+            status.context("wait for interactive process")?,
+            reader,
+            CompletionTimings { process_exit, thread_join },
+        ))
+    }
+
+    fn fail<T>(&mut self, error: anyhow::Error) -> Result<T> {
+        let cleanup = self.finish(true, SuiteDeadline::unbounded());
+        let error = match cleanup {
+            Ok(_) => error,
+            Err(cleanup) => error.context(format!("PTY cleanup also failed: {cleanup:#}")),
+        };
+        Err(self.failure_with_diagnostic(error))
+    }
+}
+
+#[cfg(windows)]
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    #[link_name = "CancelSynchronousIo"]
+    fn cancel_synchronous_io(thread: std::os::windows::io::RawHandle) -> i32;
+}
+
+#[cfg(windows)]
+fn cancel_blocking_reader(
+    thread: &thread::JoinHandle<()>,
+    cancelled: &AtomicBool,
+) -> io::Result<()> {
+    use std::os::windows::io::AsRawHandle;
+
+    cancelled.store(true, Ordering::Release);
+    // SAFETY: the live JoinHandle owns the exact reader thread. The call only
+    // cancels synchronous I/O issued by that thread.
+    let result = unsafe { cancel_synchronous_io(thread.as_raw_handle()) };
+    if result != 0 {
+        return Ok(());
+    }
+    let error = io::Error::last_os_error();
+    const ERROR_NOT_FOUND: i32 = 1168;
+    if error.raw_os_error() == Some(ERROR_NOT_FOUND) { Ok(()) } else { Err(error) }
+}
+
+#[cfg(not(windows))]
+fn cancel_blocking_reader(
+    _thread: &thread::JoinHandle<()>,
+    cancelled: &AtomicBool,
+) -> io::Result<()> {
+    cancelled.store(true, Ordering::Release);
+    Ok(())
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PtyProcessTree {
+    #[cfg(windows)]
+    child_id: Option<u32>,
+    #[cfg(unix)]
+    process_group: Option<libc::pid_t>,
+}
+
+impl PtyProcessTree {
+    fn from_handles(
+        _master: &(dyn cmux_pty::MasterPty + Send),
+        _child: &(dyn cmux_pty::Child + Send + Sync),
+    ) -> Self {
+        Self {
+            #[cfg(windows)]
+            child_id: _child.process_id(),
+            #[cfg(unix)]
+            process_group: _master.process_group_leader(),
+        }
+    }
+
+    fn terminate(self, killer: &mut (dyn cmux_pty::ChildKiller + Send + Sync)) -> io::Result<()> {
+        #[cfg(unix)]
+        if let Some(group) = self.process_group.filter(|group| *group > 0) {
+            // SAFETY: a negative, validated process-group id targets every
+            // process in the launched PTY session and no process outside it.
+            if unsafe { libc::kill(-group, libc::SIGKILL) } == 0 {
+                return Ok(());
+            }
+            let error = io::Error::last_os_error();
+            if error.raw_os_error() == Some(libc::ESRCH) {
+                return Ok(());
+            }
+            return Err(error);
+        }
+
+        #[cfg(windows)]
+        if let Some(child_id) = self.child_id {
+            if terminate_windows_process_tree(child_id).is_ok() {
+                return Ok(());
+            }
+        }
+
+        killer.kill()
+    }
+}
+
+#[cfg(windows)]
+fn terminate_windows_process_tree(child_id: u32) -> io::Result<()> {
+    let mut child = Command::new("taskkill")
+        .args(["/PID", &child_id.to_string(), "/T", "/F"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()?;
+    match child.wait_timeout(PROCESS_TIMEOUT)? {
+        Some(status) if status.success() => Ok(()),
+        Some(status) => Err(io::Error::other(format!("taskkill exited with {status}"))),
+        None => {
+            child.kill()?;
+            let status = child
+                .wait_timeout(PROCESS_TIMEOUT)?
+                .ok_or_else(|| io::Error::other("taskkill did not exit after direct kill"))?;
+            Err(io::Error::other(format!(
+                "taskkill exceeded {PROCESS_TIMEOUT:?} and was killed with {status}"
+            )))
+        }
+    }
+}
+
+fn read_pty(
+    mut reader: Box<dyn Read + Send>,
+    writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    marker: Vec<u8>,
+    sender: mpsc::Sender<PtyEvent>,
+    diagnostic: Arc<Mutex<VecDeque<u8>>>,
+    probe_queries: Arc<AtomicUsize>,
+    probe_responses: Arc<AtomicUsize>,
+    reader_cancelled: Arc<AtomicBool>,
+) -> std::io::Result<PtyReadResult> {
+    let mut output = VecDeque::new();
+    let mut probes = ProbeTracker::default();
+    let mut frame_marker = FrameMarkerTracker::new(marker);
+    let mut frame_seen = false;
+    let mut buffer = [0_u8; 4096];
+    loop {
+        match reader.read(&mut buffer) {
+            Ok(0) => {
+                if !frame_seen {
+                    let _ = sender.send(PtyEvent::Ended);
+                }
+                return Ok(PtyReadResult {
+                    output: output.into_iter().collect(),
+                    probe_responses: probes.responses,
+                    probe_kinds: probes.kinds(),
+                    frame_completion: frame_marker.completion,
+                });
+            }
+            Ok(read) => {
+                append_bounded_tail(&mut output, &buffer[..read]);
+                {
+                    let mut diagnostic = diagnostic
+                        .lock()
+                        .map_err(|_| io::Error::other("PTY diagnostic lock poisoned"))?;
+                    append_bounded_tail(&mut diagnostic, &buffer[..read]);
+                }
+                let responses = probes.observe(&buffer[..read]);
+                probe_queries.store(probes.responses, Ordering::Relaxed);
+                for response in responses {
+                    let mut writer = writer.lock().map_err(|_| {
+                        std::io::Error::other("terminal response writer lock poisoned")
+                    })?;
+                    writer.write_all(response)?;
+                    writer.flush()?;
+                    probe_responses.fetch_add(1, Ordering::Relaxed);
+                }
+                if !frame_seen && frame_marker.observe(&buffer[..read]).is_some() {
+                    frame_seen = true;
+                    let _ = sender.send(PtyEvent::Marker(Instant::now()));
+                }
+            }
+            Err(error) => {
+                if reader_cancelled.load(Ordering::Acquire) {
+                    return Ok(PtyReadResult {
+                        output: output.into_iter().collect(),
+                        probe_responses: probes.responses,
+                        probe_kinds: probes.kinds(),
+                        frame_completion: frame_marker.completion,
+                    });
+                }
+                let _ = sender.send(PtyEvent::Failed(error.to_string()));
+                return Err(error);
+            }
+        }
+    }
+}
+
+struct FrameMarkerTracker {
+    marker: Vec<u8>,
+    pending: Vec<u8>,
+    marker_seen: bool,
+    completion: Option<FrameCompletion>,
+}
+
+impl FrameMarkerTracker {
+    fn new(marker: Vec<u8>) -> Self {
+        Self { marker, pending: Vec::new(), marker_seen: false, completion: None }
+    }
+
+    fn observe(&mut self, bytes: &[u8]) -> Option<FrameCompletion> {
+        if self.completion.is_some() {
+            return self.completion;
+        }
+        self.pending.extend_from_slice(bytes);
+        if !self.marker_seen {
+            let Some(marker) = find(&self.pending, &self.marker) else {
+                retain_tail(&mut self.pending, self.marker.len().saturating_sub(1));
+                return None;
+            };
+            self.pending.drain(..marker + self.marker.len());
+            self.marker_seen = true;
+        }
+        self.completion = first_frame_completion(&self.pending);
+        if self.completion.is_none() {
+            retain_tail(&mut self.pending, MAX_FRAME_COMPLETION_ESCAPE_LEN - 1);
+        }
+        self.completion
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FrameCompletion {
+    Show,
+    Hide,
+    Position,
+}
+
+const MAX_FRAME_COMPLETION_ESCAPE_LEN: usize = b"\x1b[65535;65535H".len();
+
+fn first_frame_completion(bytes: &[u8]) -> Option<FrameCompletion> {
+    [
+        find(bytes, b"\x1b[?25h").map(|index| (index, FrameCompletion::Show)),
+        find(bytes, b"\x1b[?25l").map(|index| (index, FrameCompletion::Hide)),
+        find_cursor_position(bytes).map(|index| (index, FrameCompletion::Position)),
+    ]
+    .into_iter()
+    .flatten()
+    .min_by_key(|(index, _)| *index)
+    .map(|(_, completion)| completion)
+}
+
+fn find_cursor_position(bytes: &[u8]) -> Option<usize> {
+    for start in 0..bytes.len().saturating_sub(1) {
+        if bytes.get(start..start + 2) != Some(&b"\x1b["[..]) {
+            continue;
+        }
+        let mut index = start + 2;
+        let row_start = index;
+        while bytes.get(index).is_some_and(u8::is_ascii_digit) {
+            index += 1;
+        }
+        if index == row_start || index - row_start > 5 || bytes.get(index) != Some(&b';') {
+            continue;
+        }
+        index += 1;
+        let column_start = index;
+        while bytes.get(index).is_some_and(u8::is_ascii_digit) {
+            index += 1;
+        }
+        if index == column_start || index - column_start > 5 || bytes.get(index) != Some(&b'H') {
+            continue;
+        }
+        return Some(start);
+    }
+    None
+}
+
+#[derive(Default)]
+struct ProbeTracker {
+    cpr: bool,
+    foreground: bool,
+    background: bool,
+    window: bool,
+    kitty: bool,
+    da1: bool,
+    keyboard: bool,
+    responses: usize,
+    pending: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ProbeKinds {
+    cpr: bool,
+    foreground: bool,
+    background: bool,
+    window: bool,
+    kitty: bool,
+    da1: bool,
+    keyboard: bool,
+}
+
+impl ProbeTracker {
+    fn observe(&mut self, bytes: &[u8]) -> Vec<&'static [u8]> {
+        self.pending.extend_from_slice(bytes);
+        let probes: [(&[u8], &[u8], &mut bool); 7] = [
+            (b"\x1b[6n", b"\x1b[1;1R", &mut self.cpr),
+            (b"\x1b]10;?\x1b\\", b"\x1b]10;rgb:eeee/dddd/cccc\x1b\\", &mut self.foreground),
+            (b"\x1b]11;?\x1b\\", b"\x1b]11;rgb:1111/2222/3333\x1b\\", &mut self.background),
+            (b"\x1b[14t", b"\x1b[4;384;640t", &mut self.window),
+            (
+                b"\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\",
+                b"\x1b_Gi=31;EINVAL\x1b\\",
+                &mut self.kitty,
+            ),
+            (b"\x1b[c", b"\x1b[?1;2c", &mut self.da1),
+            (b"\x1b[?u", b"\x1b[?0u", &mut self.keyboard),
+        ];
+        let overlap = probes.iter().map(|(request, _, _)| request.len()).max().unwrap_or(1) - 1;
+        let mut responses = Vec::new();
+        for (request, response, sent) in probes {
+            if !*sent && contains(&self.pending, request) {
+                *sent = true;
+                self.responses += 1;
+                responses.push(response);
+            }
+        }
+        retain_tail(&mut self.pending, overlap);
+        responses
+    }
+
+    fn kinds(&self) -> ProbeKinds {
+        ProbeKinds {
+            cpr: self.cpr,
+            foreground: self.foreground,
+            background: self.background,
+            window: self.window,
+            kitty: self.kitty,
+            da1: self.da1,
+            keyboard: self.keyboard,
+        }
+    }
+}
+
+fn retain_tail(bytes: &mut Vec<u8>, keep: usize) {
+    if bytes.len() > keep {
+        bytes.drain(..bytes.len() - keep);
+    }
+}
+
+fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+    find(haystack, needle).is_some()
+}
+
+fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() {
+        return None;
+    }
+    haystack.windows(needle.len()).position(|window| window == needle)
+}
+
+struct Captured {
+    status: ExitStatus,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+    duration: Duration,
+}
+
+fn run_captured(mut command: Command, deadline: SuiteDeadline) -> Result<Captured> {
+    deadline.ensure("spawning a captured process")?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let started = Instant::now();
+    let mut child = command.spawn()?;
+    let process_tree = CapturedProcessTree::new(child.id());
+    let (capture_sender, capture_receiver) = mpsc::channel();
+    let stdout_pipe = child.stdout.take().context("captured command omitted stdout pipe")?;
+    let stderr_pipe = child.stderr.take().context("captured command omitted stderr pipe")?;
+    let mut stdout = match CaptureReader::spawn(
+        stdout_pipe,
+        "startup-benchmark-stdout-reader",
+        CaptureStream::Stdout,
+        capture_sender.clone(),
+    ) {
+        Ok(reader) => reader,
+        Err(error) => {
+            let _ = process_tree.terminate();
+            let _ = child.kill();
+            let _ = child.wait_timeout(PROCESS_TIMEOUT);
+            return Err(error).context("spawn captured stdout reader");
+        }
+    };
+    let mut stderr = match CaptureReader::spawn(
+        stderr_pipe,
+        "startup-benchmark-stderr-reader",
+        CaptureStream::Stderr,
+        capture_sender,
+    ) {
+        Ok(reader) => reader,
+        Err(error) => {
+            let _ = process_tree.terminate();
+            let _ = child.kill();
+            let _ = child.wait_timeout(PROCESS_TIMEOUT);
+            let _ = stdout.cancel();
+            if capture_receiver.recv_timeout(PROCESS_TIMEOUT).is_ok() {
+                let _ = stdout.join();
+            }
+            return Err(error).context("spawn captured stderr reader");
+        }
+    };
+    let mut lifecycle_error = None;
+    let mut status = None;
+    let process_timeout = match deadline.timeout(PROCESS_TIMEOUT, "waiting for captured process") {
+        Ok(timeout) => timeout,
+        Err(error) => {
+            lifecycle_error = Some(error);
+            Duration::ZERO
+        }
+    };
+    let initial_status = match child.wait_timeout(process_timeout) {
+        Ok(status) => status,
+        Err(error) => {
+            record_lifecycle_error(
+                &mut lifecycle_error,
+                anyhow!(error).context("wait for captured process"),
+            );
+            None
+        }
+    };
+    if let Some(completed) = initial_status {
+        status = Some(completed);
+    } else {
+        let tree_error = process_tree.terminate().err();
+        let kill_error = if tree_error.is_some() { child.kill().err() } else { None };
+        let recovery = child.wait_timeout(PROCESS_TIMEOUT);
+        match recovery {
+            Ok(recovered) => status = recovered,
+            Err(error) => record_lifecycle_error(
+                &mut lifecycle_error,
+                anyhow!(error).context("reap captured process after termination"),
+            ),
+        }
+        let mut error = lifecycle_error.take().unwrap_or_else(|| {
+            deadline.ensure("waiting for captured process").err().unwrap_or_else(|| {
+                status
+                    .as_ref()
+                    .map(|status| {
+                        anyhow!("process exceeded {process_timeout:?} and was killed with {status}")
+                    })
+                    .unwrap_or_else(|| {
+                        anyhow!(
+                            "process exceeded {process_timeout:?} and did not exit after termination"
+                        )
+                    })
+            })
+        });
+        if let Some(tree_error) = tree_error {
+            error = error.context(format!("process-tree termination also failed: {tree_error}"));
+        }
+        if let Some(kill_error) = kill_error {
+            error = error.context(format!("direct child kill also failed: {kill_error}"));
+        }
+        lifecycle_error = Some(error);
+    }
+    let duration = started.elapsed();
+    let mut stdout_result = None;
+    let mut stderr_result = None;
+    let capture_deadline =
+        match deadline.instant(PROCESS_TIMEOUT, "waiting for captured process output readers") {
+            Ok(deadline) => deadline,
+            Err(error) => {
+                record_lifecycle_error(&mut lifecycle_error, error);
+                Instant::now()
+            }
+        };
+    let capture = collect_capture_results(
+        &capture_receiver,
+        &mut stdout_result,
+        &mut stderr_result,
+        capture_deadline,
+    );
+    if let Err(error) = capture {
+        let tree_error = process_tree.terminate_after_exit().err();
+        let stdout_cancel = stdout.cancel().err();
+        let stderr_cancel = stderr.cancel().err();
+        let recovery = collect_capture_results(
+            &capture_receiver,
+            &mut stdout_result,
+            &mut stderr_result,
+            Instant::now() + PROCESS_TIMEOUT,
+        );
+        let mut error = error.context("captured output did not complete after child exit");
+        if let Some(tree_error) = tree_error {
+            error = error.context(format!("process-tree termination also failed: {tree_error}"));
+        }
+        if let Some(cancel) = stdout_cancel.or(stderr_cancel) {
+            error = error.context(format!("capture-reader cancellation also failed: {cancel}"));
+        }
+        if let Err(recovery) = recovery {
+            error = error.context(format!("capture-reader recovery also failed: {recovery:#}"));
+            return Err(error);
+        }
+        record_lifecycle_error(&mut lifecycle_error, error);
+    }
+    let stdout_join = stdout.join();
+    let stderr_join = stderr.join();
+    if let Err(join) = stdout_join.and(stderr_join) {
+        return Err(join).context("join captured output readers");
+    }
+    if let Some(error) = lifecycle_error {
+        return Err(error);
+    }
+    let status = status.context("captured process returned no exit status")?;
+    let stdout = stdout_result.context("stdout reader returned no result")??;
+    let stderr = stderr_result.context("stderr reader returned no result")??;
+    Ok(Captured { status, stdout, stderr, duration })
+}
+
+fn record_lifecycle_error(current: &mut Option<anyhow::Error>, error: anyhow::Error) {
+    *current = Some(match current.take() {
+        Some(current) => current.context(format!("additional lifecycle failure: {error:#}")),
+        None => error,
+    });
+}
+
+#[derive(Clone, Copy)]
+enum CaptureStream {
+    Stdout,
+    Stderr,
+}
+
+struct CaptureEvent {
+    stream: CaptureStream,
+    result: io::Result<Vec<u8>>,
+}
+
+fn collect_capture_results(
+    receiver: &mpsc::Receiver<CaptureEvent>,
+    stdout: &mut Option<io::Result<Vec<u8>>>,
+    stderr: &mut Option<io::Result<Vec<u8>>>,
+    deadline: Instant,
+) -> Result<()> {
+    while stdout.is_none() || stderr.is_none() {
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .context("captured reader deadline expired")?;
+        let event =
+            receiver.recv_timeout(remaining).context("wait for captured reader completion")?;
+        let slot = match event.stream {
+            CaptureStream::Stdout => &mut *stdout,
+            CaptureStream::Stderr => &mut *stderr,
+        };
+        if slot.replace(event.result).is_some() {
+            bail!("captured reader reported completion twice");
+        }
+    }
+    Ok(())
+}
+
+struct CaptureReader {
+    thread: Option<thread::JoinHandle<()>>,
+    cancelled: Arc<AtomicBool>,
+}
+
+impl CaptureReader {
+    fn spawn(
+        reader: impl Read + Send + 'static,
+        name: &str,
+        stream: CaptureStream,
+        sender: mpsc::Sender<CaptureEvent>,
+    ) -> Result<Self> {
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let cancelled_for_reader = cancelled.clone();
+        let thread = thread::Builder::new().name(name.into()).spawn(move || {
+            let result = read_bounded_stream(reader, cancelled_for_reader);
+            let _ = sender.send(CaptureEvent { stream, result });
+        })?;
+        Ok(Self { thread: Some(thread), cancelled })
+    }
+
+    #[cfg(windows)]
+    fn cancel(&self) -> io::Result<()> {
+        let thread = self
+            .thread
+            .as_ref()
+            .ok_or_else(|| io::Error::other("capture reader thread already joined"))?;
+        cancel_blocking_reader(thread, &self.cancelled)
+    }
+
+    #[cfg(not(windows))]
+    fn cancel(&self) -> io::Result<()> {
+        let thread = self
+            .thread
+            .as_ref()
+            .ok_or_else(|| io::Error::other("capture reader thread already joined"))?;
+        cancel_blocking_reader(thread, &self.cancelled)
+    }
+
+    fn join(&mut self) -> Result<()> {
+        self.thread
+            .take()
+            .context("capture reader thread already joined")?
+            .join()
+            .map_err(|_| anyhow!("capture reader panicked"))
+    }
+}
+
+fn read_bounded_stream(mut reader: impl Read, cancelled: Arc<AtomicBool>) -> io::Result<Vec<u8>> {
+    let mut output = VecDeque::new();
+    let mut buffer = [0_u8; 8192];
+    loop {
+        if cancelled.load(Ordering::Acquire) {
+            return Ok(output.into_iter().collect());
+        }
+        match reader.read(&mut buffer) {
+            Ok(0) => return Ok(output.into_iter().collect()),
+            Ok(read) => append_bounded_tail(&mut output, &buffer[..read]),
+            Err(_) if cancelled.load(Ordering::Acquire) => {
+                return Ok(output.into_iter().collect());
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+fn append_bounded_tail(output: &mut VecDeque<u8>, bytes: &[u8]) {
+    if bytes.len() >= MAX_CAPTURE_BYTES {
+        output.clear();
+        output.extend(bytes[bytes.len() - MAX_CAPTURE_BYTES..].iter().copied());
+        return;
+    }
+    let overflow = output.len().saturating_add(bytes.len()).saturating_sub(MAX_CAPTURE_BYTES);
+    output.drain(..overflow);
+    output.extend(bytes.iter().copied());
+}
+
+#[derive(Clone, Copy)]
+struct CapturedProcessTree {
+    child_id: u32,
+}
+
+impl CapturedProcessTree {
+    fn new(child_id: u32) -> Self {
+        Self { child_id }
+    }
+
+    fn terminate(self) -> io::Result<()> {
+        #[cfg(unix)]
+        {
+            let group = self.child_id as libc::pid_t;
+            // SAFETY: process_group(0) created a new group whose leader is the
+            // validated direct child. The negative id targets only that group.
+            if unsafe { libc::kill(-group, libc::SIGKILL) } == 0 {
+                return Ok(());
+            }
+            let error = io::Error::last_os_error();
+            if error.raw_os_error() == Some(libc::ESRCH) {
+                return Ok(());
+            }
+            return Err(error);
+        }
+
+        #[cfg(windows)]
+        return terminate_windows_process_tree(self.child_id);
+    }
+
+    fn terminate_after_exit(self) -> io::Result<()> {
+        #[cfg(unix)]
+        return self.terminate();
+
+        // The Windows child PID can be reused after exit. Cancelling the exact
+        // owned reader threads closes the harness pipe handles without sending
+        // taskkill to a possibly unrelated later process.
+        #[cfg(windows)]
+        return Ok(());
+    }
+}
+
+fn wait_child(child: &mut Child, timeout: Duration) -> Result<ExitStatus> {
+    if let Some(status) = child.wait_timeout(timeout)? {
+        return Ok(status);
+    }
+    child.kill()?;
+    let status = child
+        .wait_timeout(PROCESS_TIMEOUT)?
+        .context("process did not exit after direct-child kill")?;
+    bail!("process exceeded {timeout:?} and was killed with {status}")
+}
+
+fn assert_ping(common: &Common, socket: &Path, deadline: SuiteDeadline) -> Result<()> {
+    let value = json_cli(common, socket, &["session", "current", "ping"], deadline)?;
+    if value.get("alive").and_then(Value::as_bool) != Some(true) {
+        bail!("session ping did not return alive=true: {value}");
+    }
+    Ok(())
+}
+
+fn git_sha(path: &Path) -> Result<String> {
+    let mut command = Command::new("git");
+    command.arg("-C").arg(path).args(["rev-parse", "HEAD"]);
+    let captured = run_captured(command, SuiteDeadline::unbounded())
+        .with_context(|| format!("run git in {}", path.display()))?;
+    if !captured.status.success() {
+        bail!(
+            "git rev-parse failed in {}: {}",
+            path.display(),
+            String::from_utf8_lossy(&captured.stderr)
+        );
+    }
+    Ok(String::from_utf8(captured.stdout)?.trim().to_string())
+}
+
+fn binary_version(binary: &Path) -> Result<String> {
+    let mut command = Command::new(binary);
+    command.arg("--version");
+    let captured = run_captured(command, SuiteDeadline::unbounded())
+        .with_context(|| format!("read version from {}", binary.display()))?;
+    if !captured.status.success() {
+        bail!(
+            "{} --version failed: {}",
+            binary.display(),
+            String::from_utf8_lossy(&captured.stderr)
+        );
+    }
+    let output = String::from_utf8(captured.stdout)?;
+    output
+        .trim()
+        .strip_prefix("cmux ")
+        .map(str::to_string)
+        .with_context(|| format!("unexpected {} --version output: {output:?}", binary.display()))
+}
+
+fn binary_sha256(binary: &Path) -> Result<String> {
+    let bytes = fs::read(binary).with_context(|| format!("read {}", binary.display()))?;
+    Ok(format!("{:x}", Sha256::digest(bytes)))
+}
+
+fn validate_binary_identity(
+    version: &str,
+    expected_commit: &str,
+    expected_ghostty: &str,
+    require_stamp: bool,
+) -> Result<bool> {
+    let Some((crate_version, metadata)) = version.rsplit_once(" (") else {
+        if require_stamp {
+            bail!("binary version omitted stamped source identities");
+        }
+        return Ok(false);
+    };
+    if crate_version.is_empty() {
+        bail!("binary version omitted the crate version");
+    }
+    let metadata =
+        metadata.strip_suffix(')').context("binary version has malformed source identities")?;
+    let (commit, ghostty) = metadata
+        .split_once("; ghostty ")
+        .context("binary version omitted the stamped Ghostty identity")?;
+    if commit != expected_commit {
+        bail!("binary commit is {commit}, expected {expected_commit}");
+    }
+    if ghostty != expected_ghostty {
+        bail!("binary Ghostty commit is {ghostty}, expected {expected_ghostty}");
+    }
+    Ok(true)
+}
+
+fn source_zig_version(source: &Path) -> Result<String> {
+    let manifest = source.join("ghostty/build.zig.zon");
+    let contents =
+        fs::read_to_string(&manifest).with_context(|| format!("read {}", manifest.display()))?;
+    parse_minimum_zig_version(&contents).with_context(|| format!("parse {}", manifest.display()))
+}
+
+fn parse_minimum_zig_version(manifest: &str) -> Result<String> {
+    for line in manifest.lines() {
+        let line = line.trim_start();
+        let Some(value) = line.strip_prefix(".minimum_zig_version") else {
+            continue;
+        };
+        let value = value
+            .trim_start()
+            .strip_prefix('=')
+            .map(str::trim_start)
+            .and_then(|value| value.strip_prefix('"'))
+            .and_then(|value| value.split_once('"').map(|(version, _)| version))
+            .context("minimum_zig_version has invalid syntax")?;
+        let mut components = value.split('.');
+        let valid = (0..3).all(|_| {
+            components.next().is_some_and(|component| {
+                !component.is_empty() && component.bytes().all(|byte| byte.is_ascii_digit())
+            })
+        }) && components.next().is_none();
+        if !valid {
+            bail!("minimum_zig_version is not a three-part numeric version: {value:?}");
+        }
+        return Ok(value.to_string());
+    }
+    bail!("minimum_zig_version is missing")
+}
+
+fn source_rust_toolchain(source: &Path) -> Result<String> {
+    let cmux_tui = source.join("cmux-tui");
+    let mut command = Command::new("rustup");
+    command.args(["show", "active-toolchain"]).current_dir(&cmux_tui);
+    let captured = run_captured(command, SuiteDeadline::unbounded())
+        .with_context(|| format!("resolve Rust toolchain in {}", cmux_tui.display()))?;
+    if !captured.status.success() {
+        bail!(
+            "rustup show active-toolchain failed in {}: {}",
+            cmux_tui.display(),
+            String::from_utf8_lossy(&captured.stderr)
+        );
+    }
+    let output = String::from_utf8(captured.stdout)?;
+    output
+        .split_whitespace()
+        .next()
+        .map(str::to_string)
+        .with_context(|| format!("rustup returned no active toolchain in {}", cmux_tui.display()))
+}
+
+fn json_cli(
+    common: &Common,
+    socket: &Path,
+    args: &[&str],
+    deadline: SuiteDeadline,
+) -> Result<Value> {
+    match json_cli_outcome(common, socket, args, deadline)? {
+        JsonCliOutcome::Success(value) => Ok(value),
+        JsonCliOutcome::OperationError { exit_code, error } => {
+            bail!("socket RPC {args:?} failed with exit code {exit_code:?}: {error}")
+        }
+    }
+}
+
+fn json_cli_outcome(
+    common: &Common,
+    socket: &Path,
+    args: &[&str],
+    deadline: SuiteDeadline,
+) -> Result<JsonCliOutcome> {
+    // These noun-first requests use cmux_tui_core::platform::transport. Windows provides the
+    // local transport through uds_windows; the Unix-only remote-daemon command family is separate.
+    let mut command = common.std_command(&[], false)?;
+    command.args(["--json", "--socket"]);
+    command.arg(socket);
+    command.args(args);
+    let captured = run_captured(command, deadline)?;
+    if captured.status.success() {
+        let value = serde_json::from_slice(&captured.stdout).with_context(|| {
+            format!(
+                "socket RPC {:?} returned invalid JSON: {}",
+                args,
+                String::from_utf8_lossy(&captured.stdout)
+            )
+        })?;
+        return Ok(JsonCliOutcome::Success(value));
+    }
+    let error = serde_json::from_slice(&captured.stderr).with_context(|| {
+        format!(
+            "socket RPC {:?} returned an invalid structured error with {}: {}",
+            args,
+            captured.status,
+            String::from_utf8_lossy(&captured.stderr)
+        )
+    })?;
+    Ok(JsonCliOutcome::OperationError { exit_code: captured.status.code(), error })
+}
+
+fn find_key_string(value: &Value, key: &str) -> Option<String> {
+    match value {
+        Value::Object(object) => object
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .or_else(|| object.values().find_map(|child| find_key_string(child, key))),
+        Value::Array(array) => array.iter().find_map(|child| find_key_string(child, key)),
+        _ => None,
+    }
+}
+
+fn terminal_list_contains_id(value: &Value, expected: &str) -> bool {
+    value.as_array().is_some_and(|terminals| {
+        terminals
+            .iter()
+            .any(|terminal| terminal.get("id").and_then(Value::as_str) == Some(expected))
+    })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RestoredCleanupPlan {
+    CloseOwnedTerminal,
+    AlreadyQuiescent,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RestoredCloseOutcome {
+    Closed,
+    AlreadyQuiescent,
+}
+
+#[derive(Debug, PartialEq)]
+enum JsonCliOutcome {
+    Success(Value),
+    OperationError { exit_code: Option<i32>, error: Value },
+}
+
+fn restored_cleanup_plan(value: &Value, owned_terminal_id: &str) -> Result<RestoredCleanupPlan> {
+    let terminals = value.as_array().context("restored cleanup terminal list was not an array")?;
+    match terminals.as_slice() {
+        [] => Ok(RestoredCleanupPlan::AlreadyQuiescent),
+        [terminal] if terminal.get("id").and_then(Value::as_str) == Some(owned_terminal_id) => {
+            Ok(RestoredCleanupPlan::CloseOwnedTerminal)
+        }
+        _ => bail!(
+            "restored cleanup terminal list was neither empty nor the exact owned terminal {owned_terminal_id:?}: {value}"
+        ),
+    }
+}
+
+fn restored_close_outcome(
+    outcome: &JsonCliOutcome,
+    owned_terminal_id: &str,
+) -> Result<RestoredCloseOutcome> {
+    match outcome {
+        JsonCliOutcome::Success(_) => Ok(RestoredCloseOutcome::Closed),
+        JsonCliOutcome::OperationError { error, .. }
+            if error.get("code").and_then(Value::as_str) == Some("selector.not_found")
+                && error.pointer("/details/scope").and_then(Value::as_str) == Some("terminal")
+                && error.pointer("/details/selector").and_then(Value::as_str)
+                    == Some(owned_terminal_id) =>
+        {
+            Ok(RestoredCloseOutcome::AlreadyQuiescent)
+        }
+        JsonCliOutcome::OperationError { exit_code, error } => {
+            bail!("restored cleanup terminal close failed with exit code {exit_code:?}: {error}")
+        }
+    }
+}
+
+fn find_named_file(root: &Path, name: &str) -> Result<Option<PathBuf>> {
+    for entry in fs::read_dir(root)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            if let Some(found) = find_named_file(&path, name)? {
+                return Ok(Some(found));
+            }
+        } else if path.file_name().and_then(|value| value.to_str()) == Some(name) {
+            return Ok(Some(path));
+        }
+    }
+    Ok(None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn probe_tracker_answers_each_observed_query_once() {
+        let mut tracker = ProbeTracker::default();
+        assert!(tracker.observe(b"\x1b[").is_empty());
+        assert_eq!(tracker.observe(b"6n"), [b"\x1b[1;1R".as_slice()]);
+        assert!(tracker.observe(b"\x1b[6n").is_empty());
+        assert!(tracker.observe(b"\x1b]10;?").is_empty());
+        let first = tracker.observe(b"\x1b\\ noise \x1b[c");
+        assert_eq!(first.len(), 2);
+        assert_eq!(tracker.responses, 3);
+        assert!(tracker.observe(b"\x1b]10;?\x1b\\ noise \x1b[c").is_empty());
+    }
+
+    #[test]
+    fn frame_marker_requires_a_later_cursor_visibility_escape_across_reads() {
+        let mut tracker = FrameMarkerTracker::new(b"[bench-cold-1] ".to_vec());
+        assert_eq!(tracker.observe(b"prefix [bench-cold"), None);
+        assert_eq!(tracker.observe(b"-1] frame bytes"), None);
+        assert_eq!(tracker.observe(b"\x1b[?25"), None);
+        assert_eq!(tracker.observe(b"h"), Some(FrameCompletion::Show));
+    }
+
+    #[test]
+    fn frame_marker_accepts_a_later_split_cursor_position_escape() {
+        let mut tracker = FrameMarkerTracker::new(b"[bench-warm-1] ".to_vec());
+        assert_eq!(tracker.observe(b"\x1b[1;1H before [bench-warm"), None);
+        assert_eq!(tracker.observe(b"-1] frame bytes \x1b[6;"), None);
+        assert_eq!(tracker.observe(b"49H"), Some(FrameCompletion::Position));
+    }
+
+    #[test]
+    fn frame_marker_survives_more_than_the_diagnostic_capture_limit() {
+        let mut tracker = FrameMarkerTracker::new(b"[bench-cold-1] ".to_vec());
+        assert_eq!(tracker.observe(b"[bench-cold-1] "), None);
+        assert_eq!(tracker.observe(&vec![b'x'; MAX_CAPTURE_BYTES + 1]), None);
+        assert_eq!(tracker.observe(b"\x1b[?25l"), Some(FrameCompletion::Hide));
+    }
+
+    #[test]
+    fn terminal_list_requires_an_exact_top_level_record_id() {
+        let value = serde_json::json!([
+            {"id": "term:exact", "workspace_ref": "workspace:one"},
+            {"id": "term:other", "title": "term:exact-more"}
+        ]);
+        assert!(terminal_list_contains_id(&value, "term:exact"));
+        assert!(!terminal_list_contains_id(&value, "term:exa"));
+        assert!(!terminal_list_contains_id(
+            &serde_json::json!({"metadata": {"id": "term:exact"}}),
+            "term:exact"
+        ));
+        assert!(!terminal_list_contains_id(
+            &serde_json::json!([{"id": "term:other", "terminal_id": "term:exact"}]),
+            "term:exact"
+        ));
+    }
+
+    #[test]
+    fn restored_cleanup_closes_the_exact_owned_terminal() {
+        let value = serde_json::json!([
+            {"id": "term:owned", "workspace_ref": "workspace:one"}
+        ]);
+
+        assert_eq!(
+            restored_cleanup_plan(&value, "term:owned").unwrap(),
+            RestoredCleanupPlan::CloseOwnedTerminal
+        );
+    }
+
+    #[test]
+    fn restored_cleanup_accepts_an_empty_terminal_list_as_quiescent() {
+        assert_eq!(
+            restored_cleanup_plan(&serde_json::json!([]), "term:owned").unwrap(),
+            RestoredCleanupPlan::AlreadyQuiescent
+        );
+    }
+
+    #[test]
+    fn restored_cleanup_rejects_a_mismatched_terminal_topology() {
+        assert!(
+            restored_cleanup_plan(&serde_json::json!([{"id": "term:other"}]), "term:owned")
+                .is_err()
+        );
+        assert!(
+            restored_cleanup_plan(
+                &serde_json::json!([{"id": "term:owned"}, {"id": "term:other"}]),
+                "term:owned"
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn restored_cleanup_rejects_invalid_terminal_shapes() {
+        assert!(
+            restored_cleanup_plan(
+                &serde_json::json!({"terminals": [{"id": "term:owned"}]}),
+                "term:owned"
+            )
+            .is_err()
+        );
+        assert!(
+            restored_cleanup_plan(
+                &serde_json::json!([{"terminal_id": "term:owned"}]),
+                "term:owned"
+            )
+            .is_err()
+        );
+        assert!(restored_cleanup_plan(&serde_json::json!([{"id": 7}]), "term:owned").is_err());
+    }
+
+    #[test]
+    fn restored_close_accepts_a_successful_json_outcome() {
+        let outcome = JsonCliOutcome::Success(serde_json::json!({"closed": true}));
+
+        assert_eq!(
+            restored_close_outcome(&outcome, "term:owned").unwrap(),
+            RestoredCloseOutcome::Closed
+        );
+    }
+
+    #[test]
+    fn restored_close_accepts_only_the_exact_owned_terminal_not_found_error() {
+        let outcome = JsonCliOutcome::OperationError {
+            exit_code: Some(1),
+            error: serde_json::json!({
+                "code": "selector.not_found",
+                "message": "no terminal matches",
+                "details": {"scope": "terminal", "selector": "term:owned"}
+            }),
+        };
+
+        assert_eq!(
+            restored_close_outcome(&outcome, "term:owned").unwrap(),
+            RestoredCloseOutcome::AlreadyQuiescent
+        );
+    }
+
+    #[test]
+    fn restored_close_rejects_wrong_codes_scopes_and_selectors() {
+        for error in [
+            serde_json::json!({
+                "code": "selector.invalid",
+                "details": {"scope": "terminal", "selector": "term:owned"}
+            }),
+            serde_json::json!({
+                "code": "selector.not_found",
+                "details": {"scope": "workspace", "selector": "term:owned"}
+            }),
+            serde_json::json!({
+                "code": "selector.not_found",
+                "details": {"scope": "terminal", "selector": "term:other"}
+            }),
+        ] {
+            let outcome = JsonCliOutcome::OperationError { exit_code: Some(1), error };
+            assert!(restored_close_outcome(&outcome, "term:owned").is_err());
+        }
+    }
+
+    #[test]
+    fn restored_close_rejects_malformed_structured_errors() {
+        for error in [
+            serde_json::json!({"code": "selector.not_found"}),
+            serde_json::json!({
+                "code": "selector.not_found",
+                "details": {"scope": "terminal", "selector": 7}
+            }),
+            serde_json::json!("selector.not_found"),
+        ] {
+            let outcome = JsonCliOutcome::OperationError { exit_code: Some(1), error };
+            assert!(restored_close_outcome(&outcome, "term:owned").is_err());
+        }
+    }
+
+    #[test]
+    fn captured_output_retains_only_the_bounded_tail() {
+        let input: Vec<u8> = (0..MAX_CAPTURE_BYTES + 17).map(|index| index as u8).collect();
+        let output =
+            read_bounded_stream(io::Cursor::new(&input), Arc::new(AtomicBool::new(false))).unwrap();
+
+        assert_eq!(output.len(), MAX_CAPTURE_BYTES);
+        assert_eq!(output, input[input.len() - MAX_CAPTURE_BYTES..]);
+    }
+
+    #[test]
+    fn headless_stderr_retains_a_bounded_tail_and_finds_split_readiness() {
+        let needle = b"ready across a read boundary".to_vec();
+        let mut input = vec![b'x'; MAX_CAPTURE_BYTES + 4096 - 5];
+        input.extend_from_slice(&needle);
+        let (sender, events) = mpsc::channel();
+
+        let output = read_until_event(
+            io::Cursor::new(input),
+            needle,
+            sender,
+            Arc::new(AtomicBool::new(false)),
+        )
+        .unwrap();
+
+        assert!(matches!(events.recv().unwrap(), StreamEvent::Found(_)));
+        assert_eq!(output.len(), MAX_CAPTURE_BYTES);
+        assert!(output.ends_with(b"ready across a read boundary"));
+    }
+
+    #[test]
+    fn incompatible_error_requires_the_exact_primary_diagnostic() {
+        let expected = "cmux-tui: saved state is incompatible";
+        assert!(
+            validate_primary_diagnostic(
+                "cmux-tui: saved state is incompatible\r\nrecovery",
+                expected
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_primary_diagnostic(
+                "cmux-tui: saved state is incompatible with details\n",
+                expected
+            )
+            .is_err()
+        );
+        assert!(
+            validate_primary_diagnostic("prefix cmux-tui: saved state is incompatible\n", expected)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn one_token_pty_launcher_inserts_the_target_binary() {
+        let binary = Path::new("/bench/cmux-tui");
+        let launcher = ["time".to_string()];
+
+        let (program, prefix) = pty_program_and_prefix(binary, &launcher, true);
+
+        assert_eq!(program, "time");
+        assert_eq!(prefix, ["/bench/cmux-tui"]);
+    }
+
+    #[test]
+    fn multi_token_pty_launcher_keeps_options_before_the_target_binary() {
+        let binary = Path::new("/bench/cmux-tui");
+        let launcher = ["strace".to_string(), "-ff".to_string(), "-c".to_string()];
+
+        let (program, prefix) = pty_program_and_prefix(binary, &launcher, true);
+
+        assert_eq!(program, "strace");
+        assert_eq!(prefix, ["-ff", "-c", "/bench/cmux-tui"]);
+    }
+
+    #[test]
+    fn zig_manifest_parser_accepts_independent_target_versions() {
+        let baseline = ".{\n    .minimum_zig_version = \"0.15.2\",\n}";
+        let candidate = ".{\n\t.minimum_zig_version=\"0.16.0\",\n}";
+
+        assert_eq!(parse_minimum_zig_version(baseline).unwrap(), "0.15.2");
+        assert_eq!(parse_minimum_zig_version(candidate).unwrap(), "0.16.0");
+    }
+
+    #[test]
+    fn zig_manifest_parser_rejects_malformed_and_missing_values() {
+        assert!(parse_minimum_zig_version(".minimum_zig_version = \"0.16\",").is_err());
+        assert!(parse_minimum_zig_version(".minimum_zig_version = 0.16.0,").is_err());
+        assert!(parse_minimum_zig_version(".minimum_zig_version = \"0.16.0-dev.1\",").is_err());
+        assert!(parse_minimum_zig_version(".minimum_zig_version = \"0.16.0+build.1\",").is_err());
+        assert!(parse_minimum_zig_version(".{};").is_err());
+    }
+
+    #[test]
+    fn binary_identity_requires_exact_stamped_source_commits() {
+        let commit = "1111111111111111111111111111111111111111";
+        let ghostty = "2222222222222222222222222222222222222222";
+        let version = format!("0.1.0 ({commit}; ghostty {ghostty})");
+        assert_eq!(validate_binary_identity(&version, commit, ghostty, true).unwrap(), true);
+        assert!(
+            validate_binary_identity(
+                &version,
+                "3333333333333333333333333333333333333333",
+                ghostty,
+                true,
+            )
+            .is_err()
+        );
+        assert!(
+            validate_binary_identity(
+                &version,
+                commit,
+                "4444444444444444444444444444444444444444",
+                true,
+            )
+            .is_err()
+        );
+        assert!(validate_binary_identity("0.1.0", commit, ghostty, true).is_err());
+        assert_eq!(validate_binary_identity("0.1.0", commit, ghostty, false).unwrap(), false);
+    }
+}

@@ -1,0 +1,1005 @@
+name: cmux-tui startup benchmark
+
+on:
+  pull_request_target:
+    paths:
+      - .github/workflows/cmux-tui-startup-benchmark.yml
+      - .gitmodules
+      - ghostty
+      - cmux-tui/.cargo/**
+      - cmux-tui/Cargo.lock
+      - cmux-tui/Cargo.toml
+      - cmux-tui/rust-toolchain.toml
+      - .github/actions/setup-cmux-tui-rust/action.yml
+      - scripts/ghostty-zig-version.sh
+      # Keep this broad so new local startup dependencies cannot bypass the benchmark.
+      - cmux-tui/crates/**
+      - cmux-tui/vendor/**
+      - cmux-tui/scripts/verify-startup-benchmark.py
+      - cmux-tui/docs/startup-performance.md
+  workflow_dispatch:
+    inputs:
+      baseline_sha:
+        description: Exact 40-character baseline commit SHA
+        required: true
+        type: string
+      candidate_sha:
+        description: Exact 40-character candidate commit SHA
+        required: true
+        type: string
+      warmups:
+        description: Warmup launches per binary, minimum 10
+        required: true
+        default: "10"
+        type: string
+      samples:
+        description: Measured launches per binary and scenario, minimum 50
+        required: true
+        default: "50"
+        type: string
+
+concurrency:
+  group: cmux-tui-startup-${{ github.event.pull_request.number || inputs.candidate_sha || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    name: startup benchmark (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: ${{ matrix.timeout_minutes }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-blacksmith
+            runner: blacksmith-6vcpu-macos-15
+            timeout_minutes: 90
+            suite_deadline_seconds: 3600
+            rust_target: ""
+            binary_suffix: ""
+          - platform: linux-azure
+            runner: ubuntu-24.04
+            timeout_minutes: 90
+            suite_deadline_seconds: 3600
+            rust_target: ""
+            binary_suffix: ""
+          - platform: windows-azure
+            runner: windows-latest
+            timeout_minutes: 180
+            suite_deadline_seconds: 9000
+            rust_target: x86_64-pc-windows-gnu
+            binary_suffix: .exe
+    env:
+      BASELINE_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.baseline_sha || github.event.pull_request.base.sha }}
+      CANDIDATE_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.event.pull_request.head.sha }}
+      WARMUPS: ${{ github.event_name == 'workflow_dispatch' && inputs.warmups || '10' }}
+      SAMPLES: ${{ github.event_name == 'workflow_dispatch' && inputs.samples || '50' }}
+      SUITE_DEADLINE_SECONDS: ${{ matrix.suite_deadline_seconds }}
+      RUST_TARGET: ${{ matrix.rust_target }}
+      BINARY_SUFFIX: ${{ matrix.binary_suffix }}
+      PLATFORM_LABEL: ${{ matrix.platform }}
+      ARTIFACT_DIR: ${{ github.workspace }}/benchmark-artifacts/${{ matrix.platform }}
+      BASELINE_SOURCE: ${{ github.workspace }}/source-a
+      CANDIDATE_SOURCE: ${{ github.workspace }}/source-b
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+    steps:
+      - name: Validate requested commits
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$BASELINE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "baseline_sha must be a full lowercase commit SHA: $BASELINE_SHA" >&2
+            exit 1
+          fi
+          if [[ ! "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "candidate_sha must be a full lowercase commit SHA: $CANDIDATE_SHA" >&2
+            exit 1
+          fi
+          if [[ "$BASELINE_SHA" == "$CANDIDATE_SHA" ]]; then
+            echo "baseline_sha and candidate_sha must differ" >&2
+            exit 1
+          fi
+          if [[ ! "$WARMUPS" =~ ^[0-9]+$ ]] || (( WARMUPS < 10 || WARMUPS > 100 )); then
+            echo "warmups must be an integer from 10 through 100: $WARMUPS" >&2
+            exit 1
+          fi
+          if [[ ! "$SAMPLES" =~ ^[0-9]+$ ]] || (( SAMPLES < 50 || SAMPLES > 500 )); then
+            echo "samples must be an integer from 50 through 500: $SAMPLES" >&2
+            exit 1
+          fi
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            expected_ref="refs/heads/$DEFAULT_BRANCH"
+            if [[ "$GITHUB_REF" != "$expected_ref" ]]; then
+              echo "manual workflow must run from $expected_ref, not $GITHUB_REF" >&2
+              exit 1
+            fi
+          fi
+          if [[ "$GITHUB_SHA" != "$BASELINE_SHA" ]]; then
+            echo "trusted workflow SHA $GITHUB_SHA does not match baseline $BASELINE_SHA" >&2
+            exit 1
+          fi
+
+      - name: Checkout exact baseline
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: source-a
+          persist-credentials: false
+          ref: ${{ env.BASELINE_SHA }}
+
+      - name: Checkout exact candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: source-b
+          persist-credentials: false
+          ref: ${{ env.CANDIDATE_SHA }}
+
+      - name: Verify exact checkouts
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_baseline="$(git -C "$BASELINE_SOURCE" rev-parse HEAD)"
+          actual_candidate="$(git -C "$CANDIDATE_SOURCE" rev-parse HEAD)"
+          test "$actual_baseline" = "$BASELINE_SHA"
+          test "$actual_candidate" = "$CANDIDATE_SHA"
+          printf 'baseline=%s\ncandidate=%s\n' "$actual_baseline" "$actual_candidate"
+
+      - name: Initialize exact Ghostty revisions
+        shell: bash
+        run: |
+          set -euo pipefail
+          init_ghostty() {
+            local source="$1"
+            local expected
+            expected="$(git -C "$source" rev-parse HEAD:ghostty)"
+            if ! git -C "$source" submodule update --init --depth 1 ghostty; then
+              if [[ "$(git -C "$source/ghostty" rev-parse --is-shallow-repository 2>/dev/null)" == "true" ]]; then
+                git -C "$source/ghostty" fetch --unshallow origin
+              fi
+              git -C "$source" submodule update --init ghostty
+            fi
+            test "$(git -C "$source/ghostty" rev-parse HEAD)" = "$expected"
+          }
+          init_ghostty "$BASELINE_SOURCE"
+          init_ghostty "$CANDIDATE_SOURCE"
+          printf 'baseline_ghostty=%s\n' "$(git -C "$BASELINE_SOURCE/ghostty" rev-parse HEAD)"
+          printf 'candidate_ghostty=%s\n' "$(git -C "$CANDIDATE_SOURCE/ghostty" rev-parse HEAD)"
+
+      - name: Install Linux build and profile tools
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config strace valgrind
+
+      - name: Resolve exact Zig version
+        id: zig-version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version_parser="$BASELINE_SOURCE/scripts/ghostty-zig-version.sh"
+          test -f "$version_parser"
+          baseline_version="$(bash "$version_parser" "$BASELINE_SOURCE")"
+          candidate_version="$(bash "$version_parser" "$CANDIDATE_SOURCE")"
+          version_pattern='^[0-9]+\.[0-9]+\.[0-9]+$'
+          [[ "$baseline_version" =~ $version_pattern ]]
+          [[ "$candidate_version" =~ $version_pattern ]]
+          printf 'baseline=%s\n' "$baseline_version" >> "$GITHUB_OUTPUT"
+          printf 'candidate=%s\n' "$candidate_version" >> "$GITHUB_OUTPUT"
+
+      - name: Install baseline Zig
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.zig-version.outputs.baseline }}
+
+      - name: Capture baseline Zig
+        shell: bash
+        env:
+          EXPECTED_ZIG_VERSION: ${{ steps.zig-version.outputs.baseline }}
+        run: |
+          set -euo pipefail
+          zig_binary="$(command -v zig)"
+          actual_version="$("$zig_binary" version)"
+          test "$actual_version" = "$EXPECTED_ZIG_VERSION"
+          printf 'BASELINE_ZIG_BIN=%s\n' "$zig_binary" >> "$GITHUB_ENV"
+          printf 'BASELINE_ZIG_VERSION=%s\n' "$actual_version" >> "$GITHUB_ENV"
+
+      - name: Install candidate Zig
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.zig-version.outputs.candidate }}
+
+      - name: Capture candidate Zig
+        shell: bash
+        env:
+          EXPECTED_ZIG_VERSION: ${{ steps.zig-version.outputs.candidate }}
+        run: |
+          set -euo pipefail
+          zig_binary="$(command -v zig)"
+          actual_version="$("$zig_binary" version)"
+          test "$actual_version" = "$EXPECTED_ZIG_VERSION"
+          printf 'CANDIDATE_ZIG_BIN=%s\n' "$zig_binary" >> "$GITHUB_ENV"
+          printf 'CANDIDATE_ZIG_VERSION=%s\n' "$actual_version" >> "$GITHUB_ENV"
+
+      - name: Install baseline Rust toolchain
+        uses: ./source-a/.github/actions/setup-cmux-tui-rust
+        with:
+          toolchain-file: ${{ env.BASELINE_SOURCE }}/cmux-tui/rust-toolchain.toml
+
+      - name: Install candidate Rust toolchain
+        uses: ./source-a/.github/actions/setup-cmux-tui-rust
+        with:
+          toolchain-file: ${{ env.CANDIDATE_SOURCE }}/cmux-tui/rust-toolchain.toml
+
+      - name: Install Rust target and verify toolchains
+        shell: bash
+        run: |
+          set -euo pipefail
+          baseline_toolchain="$(cd "$BASELINE_SOURCE/cmux-tui" && rustup show active-toolchain | awk '{print $1}')"
+          candidate_toolchain="$(cd "$CANDIDATE_SOURCE/cmux-tui" && rustup show active-toolchain | awk '{print $1}')"
+          printf 'BASELINE_RUST_TOOLCHAIN=%s\n' "$baseline_toolchain" >> "$GITHUB_ENV"
+          printf 'CANDIDATE_RUST_TOOLCHAIN=%s\n' "$candidate_toolchain" >> "$GITHUB_ENV"
+          if [[ -n "$RUST_TARGET" ]]; then
+            rustup target add --toolchain "$baseline_toolchain" "$RUST_TARGET"
+            rustup target add --toolchain "$candidate_toolchain" "$RUST_TARGET"
+          fi
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            printf '%s\n' 'C:\msys64\mingw64\bin' >> "$GITHUB_PATH"
+          fi
+          rustc -vV
+          cargo -V
+          test "$("$BASELINE_ZIG_BIN" version)" = "$BASELINE_ZIG_VERSION"
+          test "$("$CANDIDATE_ZIG_BIN" version)" = "$CANDIDATE_ZIG_VERSION"
+
+      - name: Prepare evidence directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            fixture_parent="$RUNNER_TEMP/cbf"
+          else
+            fixture_parent="/tmp/cbf-${GITHUB_RUN_ID: -8}-$GITHUB_RUN_ATTEMPT"
+          fi
+          mkdir -p "$ARTIFACT_DIR/profiles" "$fixture_parent"
+          {
+            printf 'CMUX_BENCHMARK_RUN_ID=%s\n' "$GITHUB_RUN_ID"
+            printf 'CMUX_BENCHMARK_RUN_ATTEMPT=%s\n' "$GITHUB_RUN_ATTEMPT"
+            printf 'CMUX_BENCHMARK_RUNNER_NAME=%s\n' "$RUNNER_NAME"
+            printf 'CMUX_BENCHMARK_RUNNER_OS=%s\n' "$RUNNER_OS"
+            printf 'CMUX_BENCHMARK_RUNNER_ARCH=%s\n' "$RUNNER_ARCH"
+            printf 'CMUX_BENCHMARK_IMAGE_OS=%s\n' "${ImageOS:-}"
+            printf 'CMUX_BENCHMARK_IMAGE_VERSION=%s\n' "${ImageVersion:-}"
+            printf 'CMUX_BENCHMARK_WORKFLOW_REF=%s\n' "$GITHUB_WORKFLOW_REF"
+            printf 'BASELINE_TARGET_ROOT=%s\n' "$RUNNER_TEMP/cmux-startup-a"
+            printf 'CANDIDATE_TARGET_ROOT=%s\n' "$RUNNER_TEMP/cmux-startup-b"
+            printf 'FIXTURE_PARENT=%s\n' "$fixture_parent"
+          } >> "$GITHUB_ENV"
+
+      - name: Capture common runner metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            printf 'github_run_id=%s\n' "$GITHUB_RUN_ID"
+            printf 'github_run_attempt=%s\n' "$GITHUB_RUN_ATTEMPT"
+            printf 'github_workflow_ref=%s\n' "$GITHUB_WORKFLOW_REF"
+            printf 'github_event_name=%s\n' "$GITHUB_EVENT_NAME"
+            printf 'github_sha=%s\n' "$GITHUB_SHA"
+            printf 'baseline_sha=%s\n' "$BASELINE_SHA"
+            printf 'candidate_sha=%s\n' "$CANDIDATE_SHA"
+            printf 'runner_name=%s\n' "$RUNNER_NAME"
+            printf 'runner_os=%s\n' "$RUNNER_OS"
+            printf 'runner_arch=%s\n' "$RUNNER_ARCH"
+            printf 'image_os=%s\n' "${ImageOS:-}"
+            printf 'image_version=%s\n' "${ImageVersion:-}"
+            printf 'baseline_ghostty=%s\n' "$(git -C "$BASELINE_SOURCE/ghostty" rev-parse HEAD)"
+            printf 'candidate_ghostty=%s\n' "$(git -C "$CANDIDATE_SOURCE/ghostty" rev-parse HEAD)"
+            printf 'baseline_zig_version=%s\n' "$BASELINE_ZIG_VERSION"
+            printf 'candidate_zig_version=%s\n' "$CANDIDATE_ZIG_VERSION"
+            printf 'baseline_rust_toolchain=%s\n' "$BASELINE_RUST_TOOLCHAIN"
+            printf 'candidate_rust_toolchain=%s\n' "$CANDIDATE_RUST_TOOLCHAIN"
+            rustc -vV
+            cargo -V
+          } > "$ARTIFACT_DIR/runner-context.txt"
+
+      - name: Capture macOS hardware metadata
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          system_profiler SPHardwareDataType -json | python3 -c '
+          import json
+          import sys
+
+          source = json.load(sys.stdin).get("SPHardwareDataType", [])
+          allowed = {
+              "chip_type",
+              "machine_model",
+              "machine_name",
+              "number_processors",
+              "physical_memory",
+          }
+          records = [{key: value for key, value in record.items() if key in allowed} for record in source]
+          json.dump({"SPHardwareDataType": records}, sys.stdout, indent=2)
+          print()
+          ' > "$ARTIFACT_DIR/runner-hardware.json"
+          {
+            sw_vers
+            uname -a
+            sysctl -n hw.model hw.physicalcpu hw.logicalcpu hw.memsize
+            sysctl -n machdep.cpu.brand_string 2>/dev/null || true
+          } > "$ARTIFACT_DIR/runner-os.txt"
+
+      - name: Capture Linux hardware metadata
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          lscpu --json > "$ARTIFACT_DIR/runner-hardware.json"
+          {
+            cat /etc/os-release
+            uname -a
+            grep -E '^(MemTotal|MemAvailable):' /proc/meminfo
+          } > "$ARTIFACT_DIR/runner-os.txt"
+
+      - name: Capture Windows hardware metadata
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $metadata = [ordered]@{
+            ComputerSystem = Get-CimInstance Win32_ComputerSystem |
+              Select-Object Manufacturer, Model, SystemType, TotalPhysicalMemory,
+                NumberOfProcessors, NumberOfLogicalProcessors
+            OperatingSystem = Get-CimInstance Win32_OperatingSystem |
+              Select-Object Caption, Version, BuildNumber, OSArchitecture
+            Processors = @(Get-CimInstance Win32_Processor |
+              Select-Object Name, NumberOfCores, NumberOfLogicalProcessors, MaxClockSpeed)
+          }
+          $metadata | ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8 "$env:ARTIFACT_DIR/runner-hardware.json"
+          @(
+            [System.Runtime.InteropServices.RuntimeInformation]::OSDescription
+            [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+            [System.Environment]::OSVersion.VersionString
+          ) | Set-Content -Encoding utf8 "$env:ARTIFACT_DIR/runner-os.txt"
+
+      - name: Build exact release binaries and trusted benchmark harness
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          build_product() {
+            local source="$1"
+            local target_root="$2"
+            local commit="$3"
+            local zig_binary="$4"
+            local zig_version="$5"
+            local ghostty_commit
+            ghostty_commit="$(git -C "$source/ghostty" rev-parse HEAD)"
+            test "$("$zig_binary" version)" = "$zig_version"
+            local args=(cargo build -p cmux-tui --bin cmux-tui --release --locked)
+            if [[ -n "$RUST_TARGET" ]]; then
+              args+=(--target "$RUST_TARGET")
+            fi
+            (
+              cd "$source/cmux-tui"
+              unset CMUX_GHOSTTY_SRC
+              CMUX_TUI_BUILD_COMMIT="$commit" \
+              CMUX_TUI_GHOSTTY_COMMIT="$ghostty_commit" \
+              CARGO_TARGET_DIR="$target_root" \
+              PATH="$(dirname "$zig_binary"):$PATH" \
+                "${args[@]}"
+            )
+          }
+
+          build_product \
+            "$BASELINE_SOURCE" "$BASELINE_TARGET_ROOT" "$BASELINE_SHA" \
+            "$BASELINE_ZIG_BIN" "$BASELINE_ZIG_VERSION"
+          build_product \
+            "$CANDIDATE_SOURCE" "$CANDIDATE_TARGET_ROOT" "$CANDIDATE_SHA" \
+            "$CANDIDATE_ZIG_BIN" "$CANDIDATE_ZIG_VERSION"
+
+          harness_args=(cargo build -p cmux-tui --example startup_benchmark --release --locked)
+          if [[ -n "$RUST_TARGET" ]]; then
+            harness_args+=(--target "$RUST_TARGET")
+          fi
+          (
+            cd "$BASELINE_SOURCE/cmux-tui"
+            unset CMUX_GHOSTTY_SRC
+            CMUX_TUI_BUILD_COMMIT="$BASELINE_SHA" \
+            CMUX_TUI_GHOSTTY_COMMIT="$(git -C "$BASELINE_SOURCE/ghostty" rev-parse HEAD)" \
+            CARGO_TARGET_DIR="$BASELINE_TARGET_ROOT" \
+            PATH="$(dirname "$BASELINE_ZIG_BIN"):$PATH" \
+              "${harness_args[@]}"
+          )
+
+          python3 - <<'PY' >> "$GITHUB_ENV"
+          import hashlib
+          import os
+          import pathlib
+
+          target = os.environ["RUST_TARGET"]
+          suffix = os.environ["BINARY_SUFFIX"]
+
+          def binary(root):
+              release = pathlib.Path(os.environ[root])
+              if target:
+                  release /= target
+              return release / "release" / f"cmux-tui{suffix}"
+
+          def digest(path):
+              sha256 = hashlib.sha256()
+              with path.open("rb") as source:
+                  for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                      sha256.update(chunk)
+              return sha256.hexdigest()
+
+          print(f"BASELINE_BINARY_SHA256={digest(binary('BASELINE_TARGET_ROOT'))}")
+          print(f"CANDIDATE_BINARY_SHA256={digest(binary('CANDIDATE_TARGET_ROOT'))}")
+          PY
+
+      - name: Package profile attribution binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import shutil
+
+          artifact_root = pathlib.Path(os.environ["ARTIFACT_DIR"])
+          package_root = artifact_root / "binaries"
+          rust_target = os.environ["RUST_TARGET"]
+          binary_name = f"cmux-tui{os.environ['BINARY_SUFFIX']}"
+
+          def digest(path):
+              sha256 = hashlib.sha256()
+              with path.open("rb") as source:
+                  for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                      sha256.update(chunk)
+              return sha256.hexdigest()
+
+          def record(path):
+              return {
+                  "path": path.relative_to(artifact_root).as_posix(),
+                  "sha256": digest(path),
+                  "size_bytes": path.stat().st_size,
+              }
+
+          targets = {}
+          for target, root_variable in (
+              ("baseline", "BASELINE_TARGET_ROOT"),
+              ("candidate", "CANDIDATE_TARGET_ROOT"),
+          ):
+              release = pathlib.Path(os.environ[root_variable])
+              if rust_target:
+                  release /= rust_target
+              release /= "release"
+              source_binary = release / binary_name
+              if not source_binary.is_file():
+                  raise SystemExit(f"profile attribution binary is missing: {source_binary}")
+
+              target_root = package_root / target
+              target_root.mkdir(parents=True, exist_ok=True)
+              packaged_binary = target_root / binary_name
+              shutil.copy2(source_binary, packaged_binary)
+
+              sidecars = []
+              for suffix in (".dSYM", ".pdb", ".dwp", ".debug"):
+                  candidate = source_binary.with_suffix(suffix)
+                  if candidate.exists() and candidate not in sidecars:
+                      sidecars.append(candidate)
+              appended_dsym = source_binary.with_name(f"{source_binary.name}.dSYM")
+              if appended_dsym.exists() and appended_dsym not in sidecars:
+                  sidecars.append(appended_dsym)
+
+              symbols = []
+              for sidecar in sidecars:
+                  destination = target_root / sidecar.name
+                  if sidecar.is_dir():
+                      shutil.copytree(sidecar, destination)
+                      symbols.extend(record(path) for path in sorted(destination.rglob("*")) if path.is_file())
+                  elif sidecar.is_file():
+                      shutil.copy2(sidecar, destination)
+                      symbols.append(record(destination))
+
+              targets[target] = {
+                  "binary": record(packaged_binary),
+                  "symbols": symbols,
+              }
+
+          manifest = {
+              "schema_version": 1,
+              "purpose": "offline attribution of native cmux-tui startup profiles",
+              "targets": targets,
+          }
+          (artifact_root / "profile-attribution.json").write_text(
+              json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Test trusted baseline benchmark harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(cargo test -p cmux-tui --example startup_benchmark --release --locked)
+          if [[ -n "$RUST_TARGET" ]]; then
+            args+=(--target "$RUST_TARGET")
+          fi
+          (
+            cd "$BASELINE_SOURCE/cmux-tui"
+            unset CMUX_GHOSTTY_SRC
+            CMUX_TUI_BUILD_COMMIT="$BASELINE_SHA" \
+            CMUX_TUI_GHOSTTY_COMMIT="$(git -C "$BASELINE_SOURCE/ghostty" rev-parse HEAD)" \
+            CARGO_TARGET_DIR="$BASELINE_TARGET_ROOT" \
+            PATH="$(dirname "$BASELINE_ZIG_BIN"):$PATH" \
+              "${args[@]}"
+          )
+
+      - name: Run paired startup benchmark
+        shell: bash
+        run: |
+          set -euo pipefail
+          baseline_release="$BASELINE_TARGET_ROOT/release"
+          candidate_release="$CANDIDATE_TARGET_ROOT/release"
+          if [[ -n "$RUST_TARGET" ]]; then
+            baseline_release="$BASELINE_TARGET_ROOT/$RUST_TARGET/release"
+            candidate_release="$CANDIDATE_TARGET_ROOT/$RUST_TARGET/release"
+          fi
+          baseline_binary="$baseline_release/cmux-tui$BINARY_SUFFIX"
+          candidate_binary="$candidate_release/cmux-tui$BINARY_SUFFIX"
+          harness="$baseline_release/examples/startup_benchmark$BINARY_SUFFIX"
+          test -f "$baseline_binary"
+          test -f "$candidate_binary"
+          test -f "$harness"
+
+          export CMUX_BENCHMARK_RUN_ID="$GITHUB_RUN_ID"
+          export CMUX_BENCHMARK_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT"
+          export CMUX_BENCHMARK_RUNNER_NAME="$RUNNER_NAME"
+          export CMUX_BENCHMARK_RUNNER_OS="$RUNNER_OS"
+          export CMUX_BENCHMARK_RUNNER_ARCH="$RUNNER_ARCH"
+          export CMUX_BENCHMARK_IMAGE_OS="${ImageOS:-}"
+          export CMUX_BENCHMARK_IMAGE_VERSION="${ImageVersion:-}"
+          export CMUX_BENCHMARK_WORKFLOW_REF="$GITHUB_WORKFLOW_REF"
+
+          "$harness" \
+            --baseline-binary "$baseline_binary" \
+            --candidate-binary "$candidate_binary" \
+            --baseline-binary-sha256 "$BASELINE_BINARY_SHA256" \
+            --candidate-binary-sha256 "$CANDIDATE_BINARY_SHA256" \
+            --baseline-source "$BASELINE_SOURCE" \
+            --candidate-source "$CANDIDATE_SOURCE" \
+            --baseline-sha "$BASELINE_SHA" \
+            --candidate-sha "$CANDIDATE_SHA" \
+            --warmups "$WARMUPS" \
+            --samples "$SAMPLES" \
+            --suite-deadline-seconds "$SUITE_DEADLINE_SECONDS" \
+            --output-dir "$ARTIFACT_DIR" \
+            --fixture-parent "$FIXTURE_PARENT" \
+            --platform-label "$PLATFORM_LABEL"
+
+          test -s "$ARTIFACT_DIR/startup-benchmark.json"
+          test -s "$ARTIFACT_DIR/startup-benchmark.md"
+          cat "$ARTIFACT_DIR/startup-benchmark.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify benchmark evidence contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED_BASELINE_GHOSTTY="$(git -C "$BASELINE_SOURCE/ghostty" rev-parse HEAD)"
+          EXPECTED_CANDIDATE_GHOSTTY="$(git -C "$CANDIDATE_SOURCE/ghostty" rev-parse HEAD)"
+          export EXPECTED_BASELINE_GHOSTTY EXPECTED_CANDIDATE_GHOSTTY
+          python3 "$BASELINE_SOURCE/cmux-tui/scripts/verify-startup-benchmark.py" \
+            "$ARTIFACT_DIR/startup-benchmark.json"
+
+      - name: Capture macOS startup profiles
+        if: ${{ always() && runner.os == 'macOS' }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          profile_root="$ARTIFACT_DIR/profiles"
+          diagnostic="$profile_root/macos-profile-diagnostic.txt"
+          mkdir -p "$profile_root"
+          : > "$diagnostic"
+
+          if ! command -v xcrun >/dev/null 2>&1; then
+            echo "xcrun unavailable" >> "$diagnostic"
+            exit 0
+          fi
+          if ! command -v notifyutil >/dev/null 2>&1; then
+            echo "notifyutil unavailable" >> "$diagnostic"
+            exit 0
+          fi
+          xcrun xctrace version >> "$diagnostic" 2>&1
+          xcrun xctrace list templates > "$profile_root/xctrace-templates.txt" 2>> "$diagnostic"
+          if [[ ! -f "$BASELINE_TARGET_ROOT/release/examples/startup_benchmark" ]]; then
+            echo "benchmark harness unavailable after build" >> "$diagnostic"
+            exit 0
+          fi
+
+          run_xctrace_profile() {
+            local target="$1"
+            local template="$2"
+            local slug="$3"
+            local output_dir="$profile_root/$slug"
+            local trace="$output_dir/$target.trace"
+            local notification="com.manaflow.cmux.startup-profile.${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}.${target}.${slug}"
+            local notify_log="$output_dir/$target-notification.txt"
+            local xctrace_log="$output_dir/$target-xctrace.txt"
+            mkdir -p "$output_dir"
+
+            # Register before xctrace starts so the tracing-started event cannot be missed.
+            # The Perl alarm is only a failure deadline for the observable notification.
+            perl -e 'alarm shift; exec @ARGV' 30 notifyutil -1 "$notification" \
+              > "$notify_log" 2>&1 &
+            local notifier_pid=$!
+            xcrun xctrace record \
+              --template "$template" \
+              --output "$trace" \
+              --all-processes \
+              --time-limit 45s \
+              --notify-tracing-started "$notification" \
+              --no-prompt \
+              > "$xctrace_log" 2>&1 &
+            local profiler_pid=$!
+
+            wait "$notifier_pid"
+            local notify_status=$?
+            if [[ "$notify_status" -ne 0 ]]; then
+              kill -INT "$profiler_pid" 2>/dev/null || true
+              wait "$profiler_pid"
+              local trace_status=$?
+              printf '%s %s notify_exit=%s harness_exit=not-run trace_exit=%s trace=%s\n' \
+                "$target" "$template" "$notify_status" "$trace_status" "$trace" \
+                >> "$diagnostic"
+              return
+            fi
+
+            # xctrace observes the direct child without taking ownership of its PTY.
+            "$BASELINE_TARGET_ROOT/release/examples/startup_benchmark" \
+              --baseline-binary "$BASELINE_TARGET_ROOT/release/cmux-tui" \
+              --candidate-binary "$CANDIDATE_TARGET_ROOT/release/cmux-tui" \
+              --baseline-binary-sha256 "$BASELINE_BINARY_SHA256" \
+              --candidate-binary-sha256 "$CANDIDATE_BINARY_SHA256" \
+              --baseline-source "$BASELINE_SOURCE" \
+              --candidate-source "$CANDIDATE_SOURCE" \
+              --baseline-sha "$BASELINE_SHA" \
+              --candidate-sha "$CANDIDATE_SHA" \
+              --warmups "$WARMUPS" \
+              --samples "$SAMPLES" \
+              --output-dir "$output_dir" \
+              --fixture-parent "$FIXTURE_PARENT" \
+              --platform-label "$PLATFORM_LABEL" \
+              --profile-only cold \
+              --profile-target "$target"
+            local harness_status=$?
+
+            kill -INT "$profiler_pid" 2>/dev/null || true
+            # xctrace has its own 45-second deadline if SIGINT does not stop it promptly.
+            wait "$profiler_pid"
+            local trace_status=$?
+            printf '%s %s notify_exit=%s harness_exit=%s trace_exit=%s trace=%s\n' \
+              "$target" "$template" "$notify_status" "$harness_status" "$trace_status" \
+              "$trace" >> "$diagnostic"
+          }
+
+          run_xctrace_profile baseline "Time Profiler" time-profiler
+          run_xctrace_profile candidate "Time Profiler" time-profiler
+
+          if grep -Fq "Allocations" "$profile_root/xctrace-templates.txt"; then
+            run_xctrace_profile baseline "Allocations" allocations
+            run_xctrace_profile candidate "Allocations" allocations
+          else
+            echo "no Allocations template available" >> "$diagnostic"
+          fi
+
+          file_template=""
+          if grep -Fq "File Activity" "$profile_root/xctrace-templates.txt"; then
+            file_template="File Activity"
+          elif grep -Fq "System Trace" "$profile_root/xctrace-templates.txt"; then
+            file_template="System Trace"
+          fi
+          if [[ -n "$file_template" ]]; then
+            run_xctrace_profile baseline "$file_template" file-process
+            run_xctrace_profile candidate "$file_template" file-process
+          else
+            echo "no File Activity or System Trace template available" >> "$diagnostic"
+          fi
+          exit 0
+
+      - name: Capture Linux startup profiles
+        if: ${{ always() && runner.os == 'Linux' }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          profile_root="$ARTIFACT_DIR/profiles"
+          diagnostic="$profile_root/linux-profile-diagnostic.txt"
+          mkdir -p "$profile_root"
+          : > "$diagnostic"
+          {
+            strace --version
+            valgrind --version
+            if command -v perf >/dev/null 2>&1; then
+              perf --version
+              printf 'perf_event_paranoid='
+              cat /proc/sys/kernel/perf_event_paranoid
+            else
+              echo "perf unavailable"
+            fi
+          } >> "$diagnostic" 2>&1
+
+          baseline_release="$BASELINE_TARGET_ROOT/release"
+          candidate_release="$CANDIDATE_TARGET_ROOT/release"
+          harness="$baseline_release/examples/startup_benchmark"
+          if [[ ! -f "$harness" ]]; then
+            echo "benchmark harness unavailable after build" >> "$diagnostic"
+            exit 0
+          fi
+
+          run_linux_profile() {
+            local target="$1"
+            local tool="$2"
+            shift 2
+            local output_dir="$profile_root/$tool"
+            mkdir -p "$output_dir"
+            local launcher="--${target}-launcher-arg"
+            local launcher_args=()
+            for token in "$@"; do
+              launcher_args+=("${launcher}=$token")
+            done
+            "$harness" \
+              --baseline-binary "$baseline_release/cmux-tui" \
+              --candidate-binary "$candidate_release/cmux-tui" \
+              --baseline-binary-sha256 "$BASELINE_BINARY_SHA256" \
+              --candidate-binary-sha256 "$CANDIDATE_BINARY_SHA256" \
+              --baseline-source "$BASELINE_SOURCE" \
+              --candidate-source "$CANDIDATE_SOURCE" \
+              --baseline-sha "$BASELINE_SHA" \
+              --candidate-sha "$CANDIDATE_SHA" \
+              --warmups "$WARMUPS" \
+              --samples "$SAMPLES" \
+              --output-dir "$output_dir" \
+              --fixture-parent "$FIXTURE_PARENT" \
+              --platform-label "$PLATFORM_LABEL" \
+              --profile-only cold \
+              --profile-target "$target" \
+              "${launcher_args[@]}"
+            local status=$?
+            printf '%s %s exit=%s\n' "$target" "$tool" "$status" >> "$diagnostic"
+          }
+
+          run_linux_profile baseline strace \
+            strace -f -c -o "$profile_root/strace/baseline-summary.txt"
+          run_linux_profile candidate strace \
+            strace -f -c -o "$profile_root/strace/candidate-summary.txt"
+
+          run_linux_profile baseline strace-raw \
+            strace -ff -ttt -yy -s 256 \
+            -e trace=%file,%process,%network,fsync,fdatasync \
+            -o "$profile_root/strace-raw/baseline"
+          run_linux_profile candidate strace-raw \
+            strace -ff -ttt -yy -s 256 \
+            -e trace=%file,%process,%network,fsync,fdatasync \
+            -o "$profile_root/strace-raw/candidate"
+
+          run_linux_profile baseline massif \
+            valgrind --tool=massif --massif-out-file="$profile_root/massif/baseline.massif"
+          run_linux_profile candidate massif \
+            valgrind --tool=massif --massif-out-file="$profile_root/massif/candidate.massif"
+
+          if command -v perf >/dev/null 2>&1; then
+            run_linux_profile baseline perf \
+              perf record --call-graph dwarf --output "$profile_root/perf/baseline.data" --
+            run_linux_profile candidate perf \
+              perf record --call-graph dwarf --output "$profile_root/perf/candidate.data" --
+          fi
+          exit 0
+
+      - name: Capture Windows startup profiles
+        if: ${{ always() && runner.os == 'Windows' }}
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Continue"
+          $profileRoot = Join-Path $env:ARTIFACT_DIR "profiles/wpr"
+          New-Item -ItemType Directory -Force -Path $profileRoot | Out-Null
+          $diagnostic = Join-Path $profileRoot "windows-profile-diagnostic.txt"
+          $wpr = Get-Command wpr.exe -ErrorAction SilentlyContinue
+          if ($null -eq $wpr) {
+            "wpr.exe unavailable" | Set-Content -Encoding utf8 $diagnostic
+            exit 0
+          }
+          & $wpr.Source -profiles *> $diagnostic
+
+          $baselineRelease = Join-Path (Join-Path $env:BASELINE_TARGET_ROOT $env:RUST_TARGET) "release"
+          $candidateRelease = Join-Path (Join-Path $env:CANDIDATE_TARGET_ROOT $env:RUST_TARGET) "release"
+          $baselineBinary = Join-Path $baselineRelease "cmux-tui.exe"
+          $candidateBinary = Join-Path $candidateRelease "cmux-tui.exe"
+          $harness = Join-Path (Join-Path $baselineRelease "examples") "startup_benchmark.exe"
+          if (-not (Test-Path $harness)) {
+            "benchmark harness unavailable after build" | Add-Content -Encoding utf8 $diagnostic
+            exit 0
+          }
+          $common = @(
+            "--baseline-binary", $baselineBinary,
+            "--candidate-binary", $candidateBinary,
+            "--baseline-binary-sha256", $env:BASELINE_BINARY_SHA256,
+            "--candidate-binary-sha256", $env:CANDIDATE_BINARY_SHA256,
+            "--baseline-source", $env:BASELINE_SOURCE,
+            "--candidate-source", $env:CANDIDATE_SOURCE,
+            "--baseline-sha", $env:BASELINE_SHA,
+            "--candidate-sha", $env:CANDIDATE_SHA,
+            "--warmups", $env:WARMUPS,
+            "--samples", $env:SAMPLES,
+            "--output-dir", $profileRoot,
+            "--fixture-parent", $env:FIXTURE_PARENT,
+            "--platform-label", $env:PLATFORM_LABEL,
+            "--profile-only", "cold"
+          )
+
+          function Invoke-WprProfile([string] $target) {
+            $etl = Join-Path $profileRoot "$target.etl"
+            & $wpr.Source -cancel *> $null
+            & $wpr.Source -start GeneralProfile -filemode *>> $diagnostic
+            $startStatus = $LASTEXITCODE
+            if ($startStatus -ne 0) {
+              "$target WPR start exit=$startStatus" | Add-Content -Encoding utf8 $diagnostic
+              return
+            }
+            $profileStatus = 1
+            try {
+              & $harness @common "--profile-target" $target
+              $profileStatus = $LASTEXITCODE
+            } finally {
+              & $wpr.Source -stop $etl *>> $diagnostic
+              $stopStatus = $LASTEXITCODE
+              if ($stopStatus -ne 0) {
+                & $wpr.Source -cancel *>> $diagnostic
+              }
+              "$target harness exit=$profileStatus WPR stop exit=$stopStatus trace=$etl" |
+                Add-Content -Encoding utf8 $diagnostic
+            }
+          }
+
+          Invoke-WprProfile "baseline"
+          Invoke-WprProfile "candidate"
+          exit 0
+
+      - name: Upload startup evidence before fixture reclamation
+        id: upload_startup_evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-tui-startup-${{ matrix.platform }}
+          path: ${{ env.ARTIFACT_DIR }}/
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 30
+
+      - name: Reclaim deferred fixture roots
+        if: always()
+        continue-on-error: true
+        shell: bash
+        env:
+          EVIDENCE_UPLOAD_OUTCOME: ${{ steps.upload_startup_evidence.outcome }}
+        run: |
+          set +e
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import re
+          import subprocess
+          import sys
+          import time
+
+          artifact_root = pathlib.Path(os.environ["ARTIFACT_DIR"])
+          result_path = artifact_root / "startup-reclamation-result.json"
+          runner_temp = pathlib.Path(os.environ["RUNNER_TEMP"]).resolve()
+          fixture_parent = pathlib.Path(os.environ["FIXTURE_PARENT"]).resolve()
+          if os.environ["RUNNER_OS"] == "Windows":
+              expected_parent = (runner_temp / "cbf").resolve()
+          else:
+              expected_parent = pathlib.Path(
+                  f"/tmp/cbf-{os.environ['GITHUB_RUN_ID'][-8:]}-{os.environ['GITHUB_RUN_ATTEMPT']}"
+              ).resolve()
+          started = time.monotonic_ns()
+          status = "refused"
+          detail = ""
+          deferred_root_count = 0
+          final_reclaim_count = 0
+          upload_succeeded = os.environ.get("EVIDENCE_UPLOAD_OUTCOME") == "success"
+
+          same_path = os.path.normcase(str(fixture_parent)) == os.path.normcase(str(expected_parent))
+          if not upload_succeeded:
+              status = "skipped-upload-failed"
+              detail = (
+                  "fixture reclamation refused because startup evidence upload outcome was "
+                  f"{os.environ.get('EVIDENCE_UPLOAD_OUTCOME')!r}"
+              )
+          elif not same_path:
+              detail = f"fixture parent {fixture_parent} is not exact expected path {expected_parent}"
+          elif not fixture_parent.exists():
+              status = "already-absent"
+          else:
+              children = list(fixture_parent.iterdir())
+              valid = all(
+                  child.is_dir()
+                  and not child.is_symlink()
+                  and re.fullmatch(r"r-[0-9]{10}-[0-9]{20}", child.name) is not None
+                  for child in children
+              )
+              if not valid:
+                  detail = "fixture parent contains an unexpected entry; reclamation refused"
+              else:
+                  deferred_root_count = len(children)
+                  worker = """
+          import os
+          import pathlib
+          import shutil
+          import sys
+
+          parent = pathlib.Path(sys.argv[1]).resolve()
+          runner = pathlib.Path(sys.argv[2]).resolve()
+          if os.environ['RUNNER_OS'] == 'Windows':
+              expected = (runner / 'cbf').resolve()
+          else:
+              expected = pathlib.Path(
+                  f"/tmp/cbf-{os.environ['GITHUB_RUN_ID'][-8:]}-{os.environ['GITHUB_RUN_ATTEMPT']}"
+              ).resolve()
+          if os.path.normcase(str(parent)) != os.path.normcase(str(expected)):
+              raise SystemExit('cleanup path changed after validation')
+          shutil.rmtree(parent)
+          """
+                  try:
+                      completed = subprocess.run(
+                          [sys.executable, "-c", worker, str(fixture_parent), str(runner_temp)],
+                          capture_output=True,
+                          text=True,
+                          timeout=30,
+                          check=False,
+                      )
+                      if completed.returncode == 0:
+                          status = "reclaimed"
+                          final_reclaim_count = deferred_root_count
+                      else:
+                          status = "failed"
+                          detail = (completed.stderr or completed.stdout).strip()
+                  except subprocess.TimeoutExpired:
+                      status = "deadline-exceeded"
+                      detail = "recursive deletion exceeded 30 seconds and the worker was terminated"
+
+          result = {
+              "schema_version": 1,
+              "status": status,
+              "detail": detail,
+              "deferred_root_count": deferred_root_count,
+              "final_reclaim_count": final_reclaim_count,
+              "wall_ns": time.monotonic_ns() - started,
+              "evidence_uploaded_before_reclamation": upload_succeeded,
+          }
+          artifact_root.mkdir(parents=True, exist_ok=True)
+          result_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          print(json.dumps(result, sort_keys=True))
+          PY
+          exit 0
+
+      - name: Upload fixture reclamation result
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-tui-startup-${{ matrix.platform }}-reclamation
+          path: ${{ env.ARTIFACT_DIR }}/startup-reclamation-result.json
+          if-no-files-found: warn
+          retention-days: 30

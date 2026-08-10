@@ -1,0 +1,463 @@
+#!/usr/bin/env python3
+import hashlib
+import json
+import math
+import os
+import pathlib
+import re
+import sys
+
+path = pathlib.Path(sys.argv[1])
+document = json.loads(path.read_text(encoding="utf-8"))
+expected_warmups = int(os.environ["WARMUPS"])
+expected_samples = int(os.environ["SAMPLES"])
+
+required = {
+    "host.cpu": str,
+    "host.logical_processors": int,
+    "host.physical_cores": int,
+    "host.memory_bytes": int,
+    "host.kernel": str,
+    "host.rustc": str,
+    "host.cargo": str,
+    "host.zig": str,
+    "baseline.observed_sha": str,
+    "baseline.requested_sha": str,
+    "baseline.ghostty_sha": str,
+    "baseline.zig_version": str,
+    "baseline.rust_toolchain": str,
+    "baseline.expected_binary_sha256": str,
+    "baseline.binary_sha256": str,
+    "candidate.observed_sha": str,
+    "candidate.requested_sha": str,
+    "candidate.ghostty_sha": str,
+    "candidate.zig_version": str,
+    "candidate.rust_toolchain": str,
+    "candidate.expected_binary_sha256": str,
+    "candidate.binary_sha256": str,
+}
+
+def get(dotted):
+    value = document
+    for component in dotted.split("."):
+        if not isinstance(value, dict) or component not in value:
+            raise SystemExit(f"benchmark evidence is missing {dotted}")
+        value = value[component]
+    return value
+
+for dotted, expected_type in required.items():
+    value = get(dotted)
+    if not isinstance(value, expected_type) or isinstance(value, bool) or value == 0:
+        raise SystemExit(f"benchmark evidence has invalid {dotted}: {value!r}")
+    if isinstance(value, str) and value.strip().lower() in {
+        "",
+        "n/a",
+        "none",
+        "null",
+        "unavailable",
+        "unknown",
+    }:
+        raise SystemExit(f"benchmark evidence has sentinel {dotted}: {value!r}")
+
+expected = {
+    "baseline.requested_sha": os.environ["BASELINE_SHA"],
+    "baseline.observed_sha": os.environ["BASELINE_SHA"],
+    "candidate.requested_sha": os.environ["CANDIDATE_SHA"],
+    "candidate.observed_sha": os.environ["CANDIDATE_SHA"],
+    "baseline.ghostty_sha": os.environ["EXPECTED_BASELINE_GHOSTTY"],
+    "candidate.ghostty_sha": os.environ["EXPECTED_CANDIDATE_GHOSTTY"],
+    "baseline.zig_version": os.environ["BASELINE_ZIG_VERSION"],
+    "candidate.zig_version": os.environ["CANDIDATE_ZIG_VERSION"],
+    "baseline.rust_toolchain": os.environ["BASELINE_RUST_TOOLCHAIN"],
+    "candidate.rust_toolchain": os.environ["CANDIDATE_RUST_TOOLCHAIN"],
+    "baseline.expected_binary_sha256": os.environ["BASELINE_BINARY_SHA256"],
+    "candidate.expected_binary_sha256": os.environ["CANDIDATE_BINARY_SHA256"],
+}
+for dotted, expected_value in expected.items():
+    actual = get(dotted)
+    if actual != expected_value:
+        raise SystemExit(
+            f"benchmark evidence {dotted} is {actual!r}, expected {expected_value!r}"
+        )
+for dotted in (
+    "baseline.expected_binary_sha256",
+    "baseline.binary_sha256",
+    "candidate.expected_binary_sha256",
+    "candidate.binary_sha256",
+):
+    value = get(dotted)
+    if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
+        raise SystemExit(f"benchmark evidence has invalid {dotted}: {value!r}")
+for target in ("baseline", "candidate"):
+    if get(f"{target}.binary_sha256") != get(f"{target}.expected_binary_sha256"):
+        raise SystemExit(f"{target} binary changed after exact build attestation")
+if not isinstance(get("baseline.embedded_identity_verified"), bool):
+    raise SystemExit("baseline embedded identity result is not a boolean")
+if get("candidate.embedded_identity_verified") is not True:
+    raise SystemExit("candidate embedded source identity was not verified")
+
+if document.get("schema_version") != 2:
+    raise SystemExit(f"unsupported benchmark schema: {document.get('schema_version')!r}")
+if document.get("platform_label") != os.environ["PLATFORM_LABEL"]:
+    raise SystemExit(f"wrong platform label: {document.get('platform_label')!r}")
+if document.get("warmups") != expected_warmups:
+    raise SystemExit(f"wrong warmup count: {document.get('warmups')!r}")
+if document.get("paired_samples") != expected_samples:
+    raise SystemExit(f"wrong paired sample count: {document.get('paired_samples')!r}")
+if document.get("order") != "alternating baseline-first and candidate-first pairs":
+    raise SystemExit(f"wrong pairing order: {document.get('order')!r}")
+
+expected_ci = {
+    "CMUX_BENCHMARK_RUN_ID": os.environ["GITHUB_RUN_ID"],
+    "CMUX_BENCHMARK_RUN_ATTEMPT": os.environ["GITHUB_RUN_ATTEMPT"],
+    "CMUX_BENCHMARK_RUNNER_NAME": os.environ["RUNNER_NAME"],
+    "CMUX_BENCHMARK_RUNNER_OS": os.environ["RUNNER_OS"],
+    "CMUX_BENCHMARK_RUNNER_ARCH": os.environ["RUNNER_ARCH"],
+    "CMUX_BENCHMARK_IMAGE_OS": os.environ.get("ImageOS", ""),
+    "CMUX_BENCHMARK_IMAGE_VERSION": os.environ.get("ImageVersion", ""),
+    "CMUX_BENCHMARK_WORKFLOW_REF": os.environ["GITHUB_WORKFLOW_REF"],
+}
+if get("host.ci") != expected_ci:
+    raise SystemExit(
+        f"wrong normalized runner metadata: {get('host.ci')!r}, expected {expected_ci!r}"
+    )
+
+for target in ("baseline", "candidate"):
+    binary = pathlib.Path(get(f"{target}.binary"))
+    digest = hashlib.sha256(binary.read_bytes()).hexdigest()
+    if digest != get(f"{target}.binary_sha256"):
+        raise SystemExit(f"{target} binary hash does not match the measured binary")
+
+artifact_root = path.parent
+attribution_path = artifact_root / "profile-attribution.json"
+attribution = json.loads(attribution_path.read_text(encoding="utf-8"))
+if attribution.get("schema_version") != 1:
+    raise SystemExit(
+        f"unsupported profile attribution schema: {attribution.get('schema_version')!r}"
+    )
+if attribution.get("purpose") != "offline attribution of native cmux-tui startup profiles":
+    raise SystemExit("profile attribution manifest has the wrong purpose")
+attribution_targets = attribution.get("targets")
+if not isinstance(attribution_targets, dict) or set(attribution_targets) != {
+    "baseline",
+    "candidate",
+}:
+    raise SystemExit("profile attribution manifest has the wrong targets")
+
+listed_artifacts = set()
+
+def validate_artifact(entry, context):
+    if not isinstance(entry, dict) or set(entry) != {"path", "sha256", "size_bytes"}:
+        raise SystemExit(f"{context} has an invalid artifact record: {entry!r}")
+    if (
+        not isinstance(entry["path"], str)
+        or not isinstance(entry["sha256"], str)
+        or len(entry["sha256"]) != 64
+        or any(character not in "0123456789abcdef" for character in entry["sha256"])
+        or not isinstance(entry["size_bytes"], int)
+        or isinstance(entry["size_bytes"], bool)
+        or entry["size_bytes"] <= 0
+    ):
+        raise SystemExit(f"{context} has invalid artifact metadata: {entry!r}")
+    relative = pathlib.PurePosixPath(entry["path"])
+    if relative.is_absolute() or ".." in relative.parts or not relative.parts:
+        raise SystemExit(f"{context} has an unsafe artifact path: {entry['path']!r}")
+    if relative.as_posix() in listed_artifacts:
+        raise SystemExit(f"{context} duplicates artifact path: {entry['path']!r}")
+    artifact = artifact_root.joinpath(*relative.parts)
+    if artifact.is_symlink() or not artifact.is_file():
+        raise SystemExit(f"{context} artifact is missing or is a symlink: {artifact}")
+    if entry["size_bytes"] != artifact.stat().st_size:
+        raise SystemExit(f"{context} artifact size does not match: {artifact}")
+    digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
+    if entry["sha256"] != digest:
+        raise SystemExit(f"{context} artifact hash does not match: {artifact}")
+    listed_artifacts.add(relative.as_posix())
+    return entry
+
+for target in ("baseline", "candidate"):
+    target_manifest = attribution_targets[target]
+    if not isinstance(target_manifest, dict) or set(target_manifest) != {
+        "binary",
+        "symbols",
+    }:
+        raise SystemExit(f"{target} has an invalid profile attribution record")
+    binary_entry = validate_artifact(target_manifest["binary"], f"{target} binary")
+    expected_binary_path = f"binaries/{target}/cmux-tui{os.environ['BINARY_SUFFIX']}"
+    if binary_entry["path"] != expected_binary_path:
+        raise SystemExit(
+            f"{target} packaged binary path is {binary_entry['path']!r}, "
+            f"expected {expected_binary_path!r}"
+        )
+    if binary_entry["sha256"] != get(f"{target}.binary_sha256"):
+        raise SystemExit(f"{target} packaged binary is not the measured binary")
+    symbols = target_manifest["symbols"]
+    if not isinstance(symbols, list):
+        raise SystemExit(f"{target} symbols are not a list")
+    for index, symbol in enumerate(symbols):
+        validate_artifact(symbol, f"{target} symbol {index}")
+
+packaged_files = {
+    artifact.relative_to(artifact_root).as_posix()
+    for artifact in (artifact_root / "binaries").rglob("*")
+    if artifact.is_file()
+}
+if packaged_files != listed_artifacts:
+    raise SystemExit(
+        "profile attribution manifest does not list every packaged file: "
+        f"listed={sorted(listed_artifacts)!r} packaged={sorted(packaged_files)!r}"
+    )
+
+lifecycle_path = artifact_root / "startup-lifecycle.json"
+lifecycle = json.loads(lifecycle_path.read_text(encoding="utf-8"))
+if lifecycle.get("schema_version") != 1:
+    raise SystemExit(f"unsupported lifecycle schema: {lifecycle.get('schema_version')!r}")
+expected_fixture_parent_name = pathlib.Path(os.environ["FIXTURE_PARENT"]).name
+if lifecycle.get("fixture_parent_name") != expected_fixture_parent_name:
+    raise SystemExit(
+        f"wrong fixture parent name: {lifecycle.get('fixture_parent_name')!r}"
+    )
+if lifecycle.get("report_written_before_reclamation") is not True:
+    raise SystemExit("lifecycle evidence was published before the benchmark report")
+
+deferred_roots = lifecycle.get("deferred_roots")
+expected_root_count = 2 * (2 * (expected_warmups + expected_samples) + 3)
+if not isinstance(deferred_roots, list) or len(deferred_roots) != expected_root_count:
+    actual_root_count = len(deferred_roots) if isinstance(deferred_roots, list) else deferred_roots
+    raise SystemExit(f"wrong deferred root count: {actual_root_count!r}")
+if len(set(deferred_roots)) != len(deferred_roots) or any(
+    not isinstance(root, str) or re.fullmatch(r"r-[0-9]{10}-[0-9]{20}", root) is None
+    for root in deferred_roots
+):
+    raise SystemExit("deferred fixture roots are not unique fixed-width root names")
+
+lifecycle_pairs = lifecycle.get("pairs")
+expected_pair_count = 5 * (expected_warmups + expected_samples)
+if not isinstance(lifecycle_pairs, list) or len(lifecycle_pairs) != expected_pair_count:
+    raise SystemExit("lifecycle evidence has an incomplete pair set")
+checkpoint_files = sorted((artifact_root / "lifecycle-checkpoints").glob("*.json"))
+if len(checkpoint_files) != expected_pair_count:
+    raise SystemExit("lifecycle evidence has an incomplete durable checkpoint set")
+checkpoints = [json.loads(checkpoint.read_text(encoding="utf-8")) for checkpoint in checkpoint_files]
+if sorted(checkpoints, key=lambda value: json.dumps(value, sort_keys=True)) != sorted(
+    lifecycle_pairs, key=lambda value: json.dumps(value, sort_keys=True)
+):
+    raise SystemExit("durable lifecycle checkpoints do not match final lifecycle evidence")
+
+persistent = {"warm", "restored", "incompatible"}
+validation = {"cold": 1, "warm": 0, "headless": 1, "restored": 1, "incompatible": 1}
+observed_pair_keys = set()
+for pair in lifecycle_pairs:
+    scenario = pair.get("scenario")
+    kind = pair.get("kind")
+    index = pair.get("index")
+    first = pair.get("first")
+    if scenario not in {"cold", "warm", "headless", "restored", "incompatible"}:
+        raise SystemExit(f"unknown lifecycle scenario: {scenario!r}")
+    limit = expected_warmups if kind == "warmup" else expected_samples if kind == "measured" else -1
+    if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < limit:
+        raise SystemExit(f"invalid lifecycle pair index: {pair!r}")
+    expected_first = "baseline" if index % 2 == 0 else "candidate"
+    if first != expected_first:
+        raise SystemExit(f"wrong lifecycle pair order: {pair!r}")
+    key = (scenario, kind, index)
+    if key in observed_pair_keys:
+        raise SystemExit(f"duplicate lifecycle pair: {key!r}")
+    observed_pair_keys.add(key)
+    for target in ("baseline", "candidate"):
+        target_record = pair.get(target)
+        if not isinstance(target_record, dict) or target_record.get("target") != target:
+            raise SystemExit(f"wrong lifecycle target record: {target_record!r}")
+        phases = target_record.get("phases")
+        expected_counts = {
+            "prepare": 0 if scenario in persistent else 1,
+            "measured_event": 1,
+            "validation": validation[scenario],
+            "process_exit": 1,
+            "thread_join": 0 if scenario == "incompatible" else 1,
+            "fixture_cleanup": 0 if scenario in persistent else 1,
+            "root_deferral": 0 if scenario in persistent else 1,
+            "final_reclaim": 0,
+        }
+        if not isinstance(phases, dict) or set(phases) != set(expected_counts):
+            raise SystemExit(f"incomplete lifecycle phases: {phases!r}")
+        for phase, count in expected_counts.items():
+            metric = phases[phase]
+            if (
+                not isinstance(metric, dict)
+                or metric.get("count") != count
+                or not isinstance(metric.get("wall_ns"), int)
+                or isinstance(metric.get("wall_ns"), bool)
+                or metric["wall_ns"] < 0
+                or (count == 0 and metric["wall_ns"] != 0)
+            ):
+                raise SystemExit(
+                    f"invalid lifecycle metric for {scenario} {target} {phase}: {metric!r}"
+                )
+
+fixture_records = lifecycle.get("fixtures")
+if not isinstance(fixture_records, list) or len(fixture_records) != 12:
+    raise SystemExit("persistent fixture lifecycle evidence is incomplete")
+if lifecycle.get("profiles") != []:
+    raise SystemExit("comparison lifecycle evidence unexpectedly contains profiles")
+
+event_names = {
+    "cold": "PTY process spawn to unique session marker followed by a frame-end cursor control",
+    "warm": "attach PTY process spawn to unique session marker followed by a frame-end cursor control",
+    "headless": "process spawn to readiness line and successful session ping RPC",
+    "restored": "process spawn to readiness line and topology RPC containing the saved terminal",
+    "incompatible": "process spawn to nonzero exit with the exact public incompatible-state error",
+}
+summary_fields = {
+    "count",
+    "min",
+    "mean",
+    "stddev_population",
+    "mad",
+    "p50",
+    "p90",
+    "p95",
+    "p99",
+    "max",
+}
+
+def validate_summary(summary, count, label):
+    if not isinstance(summary, dict) or set(summary) != summary_fields:
+        raise SystemExit(f"{label} has incomplete summary fields: {summary!r}")
+    if summary["count"] != count or isinstance(summary["count"], bool):
+        raise SystemExit(f"{label} has the wrong summary count")
+    for field in summary_fields - {"count"}:
+        value = summary[field]
+        if (
+            not isinstance(value, (int, float))
+            or isinstance(value, bool)
+            or not math.isfinite(value)
+        ):
+            raise SystemExit(f"{label} has invalid summary {field}: {value!r}")
+    if summary["stddev_population"] < 0 or summary["mad"] < 0:
+        raise SystemExit(f"{label} has a negative spread")
+    percentile_order = [
+        summary["min"],
+        summary["p50"],
+        summary["p90"],
+        summary["p95"],
+        summary["p99"],
+        summary["max"],
+    ]
+    if percentile_order != sorted(percentile_order):
+        raise SystemExit(f"{label} has non-monotonic percentiles")
+
+scenarios = document.get("scenarios")
+if not isinstance(scenarios, list) or len(scenarios) != len(event_names):
+    raise SystemExit(f"benchmark evidence has invalid scenarios: {scenarios!r}")
+if [scenario.get("scenario") for scenario in scenarios] != list(event_names):
+    raise SystemExit("benchmark scenarios are missing or out of order")
+
+total_runs = expected_warmups + expected_samples
+for scenario in scenarios:
+    name = scenario["scenario"]
+    if scenario.get("event") != event_names[name]:
+        raise SystemExit(f"{name} has the wrong measured event")
+    ordered = {}
+    for target in ("baseline", "candidate"):
+        sample_set = scenario.get(target)
+        if not isinstance(sample_set, dict):
+            raise SystemExit(f"{name} is missing the {target} sample set")
+        values = sample_set.get("ordered_ns")
+        sorted_values = sample_set.get("sorted_ns")
+        if (
+            not isinstance(values, list)
+            or len(values) != expected_samples
+            or any(not isinstance(value, int) or value <= 0 for value in values)
+        ):
+            raise SystemExit(f"{name} has invalid {target} ordered samples")
+        if sorted_values != sorted(values):
+            raise SystemExit(f"{name} has invalid {target} sorted samples")
+        summary = sample_set.get("summary_ns")
+        validate_summary(summary, expected_samples, f"{name} {target}")
+        if summary.get("min") != sorted_values[0] or summary.get("max") != sorted_values[-1]:
+            raise SystemExit(f"{name} has inconsistent {target} summary bounds")
+        evidence = sample_set.get("evidence")
+        if not isinstance(evidence, dict):
+            raise SystemExit(f"{name} is missing {target} event evidence")
+        if evidence.get("warmups_completed") != expected_warmups:
+            raise SystemExit(f"{name} has an incomplete {target} warmup count")
+        if evidence.get("samples_completed") != expected_samples:
+            raise SystemExit(f"{name} has an incomplete {target} sample count")
+        interactive_probe_minimum = (
+            2 if os.environ["PLATFORM_LABEL"] == "windows-azure" else 4
+        ) * total_runs
+        required_events = {
+            "cold": {"render_markers": total_runs, "frame_completions": total_runs, "terminal_probe_responses": interactive_probe_minimum, "process_exits": total_runs},
+            "warm": {"render_markers": total_runs, "frame_completions": total_runs, "terminal_probe_responses": interactive_probe_minimum, "readiness_lines": 1, "socket_rpcs": 2},
+            "headless": {"readiness_lines": total_runs, "socket_rpcs": 2 * total_runs},
+            "restored": {"readiness_lines": total_runs, "socket_rpcs": 2 * total_runs, "restored_topologies": total_runs},
+            "incompatible": {"schema_rejections": total_runs, "process_exits": total_runs},
+        }[name]
+        for field, minimum in required_events.items():
+            if evidence.get(field, 0) < minimum:
+                raise SystemExit(
+                    f"{name} {target} has {evidence.get(field, 0)} {field}, expected at least {minimum}"
+                )
+        if name in {"cold", "warm"}:
+            if evidence["render_markers"] != total_runs:
+                raise SystemExit(f"{name} {target} has duplicate render markers")
+            if evidence["frame_completions"] != total_runs:
+                raise SystemExit(f"{name} {target} has duplicate frame completions")
+            cursor_completions = (
+                evidence.get("frame_cursor_shows", 0)
+                + evidence.get("frame_cursor_hides", 0)
+                + evidence.get("frame_cursor_positions", 0)
+            )
+            if cursor_completions != evidence["frame_completions"]:
+                raise SystemExit(f"{name} {target} has inconsistent cursor completion evidence")
+            probe_kind_fields = (
+                "terminal_cpr_responses",
+                "terminal_foreground_color_responses",
+                "terminal_background_color_responses",
+                "terminal_window_pixel_responses",
+                "terminal_kitty_responses",
+                "terminal_da1_responses",
+                "terminal_keyboard_responses",
+            )
+            probe_kind_counts = []
+            for field in probe_kind_fields:
+                count = evidence.get(field)
+                if not isinstance(count, int) or not 0 <= count <= total_runs:
+                    raise SystemExit(
+                        f"{name} {target} has invalid one-shot {field}: {count!r}"
+                    )
+                probe_kind_counts.append(count)
+            if sum(probe_kind_counts) != evidence["terminal_probe_responses"]:
+                raise SystemExit(
+                    f"{name} {target} probe-kind counts do not match total responses"
+                )
+            if (
+                os.environ["PLATFORM_LABEL"] == "windows-azure"
+                and evidence["terminal_cpr_responses"] != total_runs
+            ):
+                raise SystemExit(
+                    f"{name} {target} did not answer one CPR query per launch"
+                )
+        ordered[target] = values
+
+    pairs = scenario.get("pairs")
+    if not isinstance(pairs, list) or len(pairs) != expected_samples:
+        raise SystemExit(f"{name} has an incomplete paired distribution")
+    deltas = []
+    for index, pair in enumerate(pairs):
+        expected_first = "baseline" if index % 2 == 0 else "candidate"
+        delta = ordered["candidate"][index] - ordered["baseline"][index]
+        if pair != {
+            "index": index,
+            "first": expected_first,
+            "baseline_ns": ordered["baseline"][index],
+            "candidate_ns": ordered["candidate"][index],
+            "candidate_minus_baseline_ns": delta,
+        }:
+            raise SystemExit(f"{name} has an invalid pair at index {index}: {pair!r}")
+        deltas.append(delta)
+    delta_summary = scenario.get("paired_delta_summary_ns")
+    validate_summary(delta_summary, expected_samples, f"{name} paired delta")
+    if delta_summary.get("min") != min(deltas) or delta_summary.get("max") != max(deltas):
+        raise SystemExit(f"{name} has inconsistent paired delta bounds")

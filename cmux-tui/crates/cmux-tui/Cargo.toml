@@ -18,6 +18,11 @@ path = "src/main.rs"
 name = "cmux-tui-hook"
 path = "src/bin/cmux-tui-hook.rs"
 
+[[example]]
+name = "startup_benchmark"
+path = "examples/startup_benchmark.rs"
+test = true
+
 [dependencies]
 ghostty-vt.workspace = true
 cmux-tui-core.workspace = true
