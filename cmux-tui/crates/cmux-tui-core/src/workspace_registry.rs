@@ -357,6 +357,13 @@ pub struct TerminalRegistryCommit {
     pub replayed: bool,
 }
 
+/// A host mutation replay cannot acquire a public-resource side effect that
+/// was not part of its original transaction.
+pub(crate) enum TerminalResourceCloseCommit {
+    TerminalReplay(TerminalRegistryCommit),
+    Committed { terminal: TerminalRegistryCommit, resource: ResourcePatchCommit },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerminalBatchClose {
     pub revision: u64,
@@ -2959,7 +2966,7 @@ impl WorkspaceRegistry {
         patch: &ResourcePatch,
         resource_result: &Value,
         resource_deltas: &Value,
-    ) -> anyhow::Result<(TerminalRegistryCommit, ResourcePatchCommit)> {
+    ) -> anyhow::Result<TerminalResourceCloseCommit> {
         const OPERATION: &str = "terminal.close";
 
         validate_identifier("resource operation", OPERATION)?;
@@ -2977,6 +2984,13 @@ impl WorkspaceRegistry {
             terminal_id,
             expected_incarnation,
         )?;
+        if terminal.replayed {
+            // The original mutation may predate the combined close path. Its
+            // durable reply is final, so do not apply a patch to whichever
+            // public resource currently owns this terminal ID.
+            tx.commit()?;
+            return Ok(TerminalResourceCloseCommit::TerminalReplay(terminal));
+        }
         let resource = if let Some(replayed) =
             resource_store::resource_patch_replay(&tx, mutation, OPERATION, &fingerprint)?
         {
@@ -3026,7 +3040,7 @@ impl WorkspaceRegistry {
             ResourcePatchCommit { revision, result: resource_result.clone(), replayed: false }
         };
         tx.commit()?;
-        Ok((terminal, resource))
+        Ok(TerminalResourceCloseCommit::Committed { terminal, resource })
     }
 
     /// Tombstone every hosted tab in one pane/screen as one SQLite unit. All
