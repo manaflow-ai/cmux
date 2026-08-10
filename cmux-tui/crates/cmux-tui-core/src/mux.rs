@@ -20421,9 +20421,8 @@ mod tests {
         )
         .unwrap();
 
-        let first = mux
-            .append_journal_ingress(&ingress, "journal-agent-test", "pi-live-start")
-            .unwrap();
+        let first =
+            mux.append_journal_ingress(&ingress, "journal-agent-test", "pi-live-start").unwrap();
         assert!(!first.replayed);
         let agents = mux.list_agents(Some(surface.id), None);
         assert_eq!(agents.len(), 1);
@@ -20434,9 +20433,8 @@ mod tests {
 
         mux.agent_records.lock().unwrap().clear();
         assert!(mux.list_agents(Some(surface.id), None).is_empty());
-        let replay = mux
-            .append_journal_ingress(&ingress, "journal-agent-test", "pi-live-start")
-            .unwrap();
+        let replay =
+            mux.append_journal_ingress(&ingress, "journal-agent-test", "pi-live-start").unwrap();
         assert!(replay.replayed);
         let restored = mux.list_agents(Some(surface.id), None);
         assert_eq!(restored.len(), 1);

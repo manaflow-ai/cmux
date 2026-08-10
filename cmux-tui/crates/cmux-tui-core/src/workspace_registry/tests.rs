@@ -4927,10 +4927,7 @@ fn journal_agent_builtin_manifest_upgrades_reserved_schema_on_open() {
     let current = crate::agent_hooks::built_in_agent_producer_manifest();
     assert_eq!(crate::AGENT_HOOK_MANIFEST_VERSION, 2);
     assert_eq!(stored_version, 2);
-    assert_eq!(
-        serde_json::from_str::<JournalProducerManifest>(&stored_json).unwrap(),
-        current
-    );
+    assert_eq!(serde_json::from_str::<JournalProducerManifest>(&stored_json).unwrap(), current);
     drop(reopened);
     fs::remove_dir_all(root).unwrap();
 }
