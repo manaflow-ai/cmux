@@ -2322,7 +2322,7 @@ mod tests {
         let applied = std::cell::Cell::new(false);
 
         dispatch_local_owner_event(&cmux_tui_core::MuxEvent::ConfigReloadRequested, || {
-            applied.set(true)
+            applied.set(true);
         });
 
         assert!(applied.get());
