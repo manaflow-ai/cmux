@@ -5071,6 +5071,73 @@ fn journal_agent_legacy_upgrade_reads_only_indexed_agent_events() {
 }
 
 #[test]
+fn journal_agent_legacy_upgrade_keeps_later_stored_socket_projection() {
+    let root = temp_root("journal-agent-upgrade-stored-socket");
+    let session = "journal-agent-upgrade-stored-socket";
+    let database = root.join(session_storage_component(session)).join(WORKSPACE_REGISTRY_FILE);
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, session).unwrap();
+        commit_terminal_topology(&mut registry, "journal-agent-upgrade-stored-socket-topology");
+        let ingress = crate::agent_hook_journal_ingress(
+            "pi",
+            "agent_start",
+            Some(terminal_id.as_str()),
+            json!({"context":{"session_id":"old-hook-session"}}),
+        )
+        .unwrap();
+        let validated = crate::journal_kernel::ValidatedJournalIngress {
+            class: JournalClass::Observation,
+            replay: JournalReplayPolicy::Advisory,
+            sensitivity: JournalSensitivity::Sensitive,
+        };
+        registry
+            .append_journal_ingress(
+                &ingress,
+                &validated,
+                "client_upgrade_socket",
+                "journal_agent_upgrade_old_hook",
+            )
+            .unwrap();
+        let result = json!({
+            "id":agent_resource(&terminal_id),
+            "session_id":registry.session_id(),
+            "terminal_id":terminal_id,
+            "state":"idle",
+            "source":"socket",
+            "updated_at_ms":"2",
+            "source_session":"new-socket-session",
+            "extra":{"provider":"socket-test"},
+        });
+        registry
+            .commit_agent_projection(
+                &WorkspaceMutation::new("journal-agent-upgrade-socket", "socket-test").unwrap(),
+                &json!({"source_session":"new-socket-session"}),
+                Some(1),
+                &terminal_id,
+                &result,
+                &json!([]),
+            )
+            .unwrap();
+    }
+    Connection::open(&database)
+        .unwrap()
+        .execute(
+            "DELETE FROM meta WHERE key = 'agent_projection_journal_sequence_v1'",
+            [],
+        )
+        .unwrap();
+
+    let reopened = WorkspaceRegistry::open(&root, session).unwrap();
+    let agent = reopened.public_projections().unwrap().agents.remove(0);
+    assert_eq!(agent.state, "idle");
+    assert_eq!(agent.source, "socket");
+    assert_eq!(agent.source_session.as_deref(), Some("new-socket-session"));
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn journal_agent_append_applies_a_contiguous_projection_prefix() {
     let root = temp_root("journal-agent-contiguous-projection");
     let session = "journal-agent-contiguous-projection";
