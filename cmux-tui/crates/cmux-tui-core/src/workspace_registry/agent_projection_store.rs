@@ -695,7 +695,7 @@ fn stored_projection(
         [],
         |row| row.get::<_, String>(0),
     )?)?;
-    super::public_projection_store::decode_agent_projection(
+    public_projection_store::decode_agent_projection(
         &result_json,
         terminal_id,
         &session_id,

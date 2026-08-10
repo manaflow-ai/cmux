@@ -859,11 +859,11 @@ pub(super) fn append_journal_record(
     )?;
     let sequence = u64::try_from(sequence).context("journal sequence is negative")?;
     if append.kind.starts_with("agent.") {
-        super::agent_projection_store::note_agent_projection_journal_candidate(
+        agent_projection_store::note_agent_projection_journal_candidate(
             transaction,
             sequence,
         )?;
-        super::agent_projection_store::apply_agent_projection_journal_record(
+        agent_projection_store::apply_agent_projection_journal_record(
             transaction,
             sequence,
             append.kind,
