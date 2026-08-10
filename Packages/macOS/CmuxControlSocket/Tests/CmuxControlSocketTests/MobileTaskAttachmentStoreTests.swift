@@ -70,6 +70,34 @@ struct MobileTaskAttachmentStoreTests {
         #expect(URL(fileURLWithPath: try #require(second.path)).lastPathComponent == "report-2.txt")
     }
 
+    @Test func completedAttachmentLookupReturnsOnlyValidatedUploadBytes() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let operationID = UUID()
+        let uploadID = UUID()
+        let completed = try fixture.complete(
+            operationID: operationID,
+            uploadID: uploadID,
+            fileName: "- prompt 'quoted' 資料 📎.txt",
+            contents: "exact staged bytes"
+        )
+
+        let resolved = try fixture.store.completedAttachmentURL(
+            operationID: operationID,
+            uploadID: uploadID
+        )
+
+        #expect(resolved.path == completed.path)
+        #expect(resolved.lastPathComponent == "- prompt 'quoted' 資料 📎.txt")
+        #expect(try Data(contentsOf: resolved) == Data("exact staged bytes".utf8))
+        #expect(throws: MobileTaskAttachmentStoreError.self) {
+            try fixture.store.completedAttachmentURL(
+                operationID: operationID,
+                uploadID: UUID()
+            )
+        }
+    }
+
     @Test func rejectsOutOfOrderAndOversizedRequests() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
