@@ -26,6 +26,7 @@ public struct TaskComposerAccessibilityPreviewView: View {
     private let presentsDirectoryScrollStress: Bool
     private let holdsSubmissionInPreparation: Bool
     private let attachmentFixtures: [TaskComposerAttachment]
+    private let requestsInitialFocus: Bool
     @State private var directoryPaginationRecoveryPreview: TaskComposerDirectoryPaginationRecoveryPreview?
 
     /// Creates the preview with isolated, in-memory task state so repeated UI
@@ -102,6 +103,7 @@ public struct TaskComposerAccessibilityPreviewView: View {
         self.holdsSubmissionInPreparation = environment[
             "CMUX_UITEST_TASK_COMPOSER_HOLD_PREPARATION"
         ] == "1"
+        self.requestsInitialFocus = environment["CMUX_UITEST_TASK_COMPOSER_DRAFT"] == nil
         let attachmentFixtures = MobileAttachmentAccessibilityFixtures()
         if environment["CMUX_UITEST_TASK_COMPOSER_MAX_ATTACHMENTS"] == "1" {
             self.attachmentFixtures = attachmentFixtures.maximumCount()
@@ -158,6 +160,7 @@ public struct TaskComposerAccessibilityPreviewView: View {
                             Self.backupPreviewMac,
                         ],
                         initialAttachments: attachmentFixtures,
+                        requestsInitialFocus: requestsInitialFocus,
                         taskAttachmentCapabilityPredicate: attachmentFixtures.isEmpty
                             ? nil
                             : { _, _ in true },

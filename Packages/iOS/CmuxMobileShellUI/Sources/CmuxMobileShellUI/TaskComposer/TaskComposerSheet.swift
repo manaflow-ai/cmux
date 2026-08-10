@@ -44,6 +44,7 @@ struct TaskComposerSheet: View {
     @State var attachmentAlertMessage: String?
 
     let sessionGeneration: Int
+    private let requestsInitialFocus: Bool
     let taskAttachmentCapabilityPredicate: @MainActor (
         _ macDeviceID: String,
         _ instanceTag: String?
@@ -75,6 +76,7 @@ struct TaskComposerSheet: View {
         store: CMUXMobileShellStore,
         availableMachines: [MobilePairedMac]? = nil,
         initialAttachments: [TaskComposerAttachment] = [],
+        requestsInitialFocus: Bool = true,
         taskAttachmentCapabilityPredicate: (@MainActor (
             _ macDeviceID: String,
             _ instanceTag: String?
@@ -99,6 +101,7 @@ struct TaskComposerSheet: View {
     ) {
         self.store = store
         _attachments = State(initialValue: initialAttachments)
+        self.requestsInitialFocus = requestsInitialFocus
         self.availableMachines = availableMachines
         self.sessionGeneration = store.currentSessionGeneration
         self.taskAttachmentCapabilityPredicate = taskAttachmentCapabilityPredicate ?? {
@@ -356,7 +359,7 @@ struct TaskComposerSheet: View {
         .presentationDragIndicator(.visible)
         .interactiveDismissDisabled(submissionPhase.locksDismissal)
         .background(TaskComposerInitialFocusCoordinator(
-            isEnabled: !submissionPhase.disablesRequestEditing
+            isEnabled: requestsInitialFocus && !submissionPhase.disablesRequestEditing
         ))
     }
 
