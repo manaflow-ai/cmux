@@ -1987,10 +1987,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(approvalTitle.waitForExistence(timeout: 3))
         XCTAssertTrue(approvalBody.waitForExistence(timeout: 3))
         XCTAssertTrue(approvalRow.waitForExistence(timeout: 3))
-        let feedList = app.collectionViews.containing(
-            .any,
-            identifier: "MobileNotificationFeedRow-studio-codex-approval"
-        ).firstMatch
+        let feedList = app.collectionViews["MobileNotificationFeed"].firstMatch
         XCTAssertTrue(feedList.waitForExistence(timeout: 3))
         XCTAssertFalse(app.staticTexts["Notification feed"].exists)
         XCTAssertFalse(app.staticTexts["Context"].exists)
@@ -2131,10 +2128,7 @@ final class cmuxUITests: XCTestCase {
             "MobileNotificationFeedRow-studio-plan-review"
         ].firstMatch
         XCTAssertTrue(planRow.waitForExistence(timeout: 3))
-        let feedList = app.collectionViews.containing(
-            .any,
-            identifier: "MobileNotificationFeedRow-studio-plan-review"
-        ).firstMatch
+        let feedList = app.collectionViews["MobileNotificationFeed"].firstMatch
         XCTAssertTrue(feedList.waitForExistence(timeout: 3))
         let planFeedback = app.textFields["MobileNotificationFeedExitPlanFeedback"]
         for _ in 0..<8 where !planFeedback.isHittable {
