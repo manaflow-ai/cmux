@@ -381,28 +381,29 @@ impl OwnerReloadWorker {
         let stop = events.clone();
         let cancelled = Arc::new(AtomicBool::new(false));
         let worker_cancelled = cancelled.clone();
-        let thread = std::thread::Builder::new().name("owner-config-reload".into()).spawn(move || {
-            while !worker_cancelled.load(Ordering::Acquire) {
-                let Ok(event) = events.recv() else { return };
-                if !matches!(event, MuxEvent::ConfigReloadRequested) {
-                    continue;
-                }
-                let mut app_event = AppEvent::OwnerConfigReloadRequested;
-                loop {
-                    if worker_cancelled.load(Ordering::Acquire) {
-                        return;
+        let thread =
+            std::thread::Builder::new().name("owner-config-reload".into()).spawn(move || {
+                while !worker_cancelled.load(Ordering::Acquire) {
+                    let Ok(event) = events.recv() else { return };
+                    if !matches!(event, MuxEvent::ConfigReloadRequested) {
+                        continue;
                     }
-                    match tx.try_send(app_event) {
-                        Ok(()) => break,
-                        Err(TrySendError::Full(returned)) => {
-                            app_event = returned;
-                            std::thread::park_timeout(Duration::from_millis(1));
+                    let mut app_event = AppEvent::OwnerConfigReloadRequested;
+                    loop {
+                        if worker_cancelled.load(Ordering::Acquire) {
+                            return;
                         }
-                        Err(TrySendError::Disconnected(_)) => return,
+                        match tx.try_send(app_event) {
+                            Ok(()) => break,
+                            Err(TrySendError::Full(returned)) => {
+                                app_event = returned;
+                                std::thread::park_timeout(Duration::from_millis(1));
+                            }
+                            Err(TrySendError::Disconnected(_)) => return,
+                        }
                     }
                 }
-            }
-        })?;
+            })?;
         Ok(Self { stop: Some(stop), cancelled, thread: Some(thread) })
     }
 
@@ -7651,10 +7652,8 @@ fn run_with_machine_updates_inner(
     )?;
     let encoder = KeyEncoder::new()?;
     let (tx, rx) = sync_channel::<AppEvent>(APP_EVENT_CAPACITY);
-    let owner_reload_worker = owner_mux
-        .as_deref()
-        .map(|mux| OwnerReloadWorker::spawn(mux, tx.clone()))
-        .transpose()?;
+    let owner_reload_worker =
+        owner_mux.as_deref().map(|mux| OwnerReloadWorker::spawn(mux, tx.clone())).transpose()?;
     let host_input = HostInputRuntime::new();
     let browser_failure_tx = tx.clone();
     let browser_control_tx = tx.clone();

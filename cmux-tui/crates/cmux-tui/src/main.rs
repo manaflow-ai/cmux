@@ -1869,9 +1869,7 @@ fn local_owner_reload_events(mux: &Mux) -> cmux_tui_core::MuxEventReceiver {
     mux.subscribe_config_reload()
 }
 
-fn start_local_owner_event_loop(
-    mux: &Arc<Mux>,
-) -> LocalOwnerEventLoop {
+fn start_local_owner_event_loop(mux: &Arc<Mux>) -> LocalOwnerEventLoop {
     let weak_mux = Arc::downgrade(mux);
     let events = local_owner_reload_events(mux);
     let stop = events.clone();
