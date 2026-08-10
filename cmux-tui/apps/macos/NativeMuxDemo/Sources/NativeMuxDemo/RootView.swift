@@ -74,7 +74,7 @@ struct RootView: View {
 
     private func connected(_ snapshot: ResourceSnapshot) -> some View {
         let terminalStates = model.terminalViewStates()
-        HStack(spacing: 0) {
+        return HStack(spacing: 0) {
             WorkspaceSidebar(model: model, snapshot: snapshot)
                 .frame(width: 216)
             Divider()
