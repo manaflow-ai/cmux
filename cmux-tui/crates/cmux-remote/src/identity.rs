@@ -2716,13 +2716,13 @@ mod tests {
         );
 
         drop(blocked);
-        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        let deadline = Instant::now() + Duration::from_secs(1);
         loop {
             match AuthDatabase::load_or_create(temp.path(), "successor", false) {
                 Ok(_) => break,
                 Err(IdentityError::Io(error)) if error.kind() == std::io::ErrorKind::WouldBlock => {
                     assert!(
-                        std::time::Instant::now() < deadline,
+                        Instant::now() < deadline,
                         "the state lease remained held after the blocking write completed"
                     );
                     std::thread::yield_now();
@@ -2777,7 +2777,7 @@ mod tests {
         let drop_thread = std::thread::spawn(move || drop(database));
         drop(blocked);
         drop_thread.join().unwrap();
-        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        let deadline = Instant::now() + Duration::from_secs(1);
         loop {
             match AuthDatabase::load_or_create(temp.path(), "successor", false) {
                 Ok(successor) => {
@@ -2786,7 +2786,7 @@ mod tests {
                 }
                 Err(IdentityError::Io(error)) if error.kind() == std::io::ErrorKind::WouldBlock => {
                     assert!(
-                        std::time::Instant::now() < deadline,
+                        Instant::now() < deadline,
                         "the state lease remained held after queued persistence completed"
                     );
                     std::thread::yield_now();
@@ -3100,7 +3100,7 @@ mod tests {
             .unwrap();
         assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
 
-        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        let (sender, receiver) = mpsc::sync_channel(1);
         let creator = std::thread::spawn(move || {
             sender.send(load_or_create_identity(&identity_path)).unwrap();
         });
@@ -4061,8 +4061,8 @@ mod tests {
         );
         let state = Arc::new(Mutex::new(auth));
         let cleanup = PendingDecisionCleanup::new(&state, invitation_id.clone(), token);
-        let (locked_tx, locked_rx) = std::sync::mpsc::channel();
-        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let (locked_tx, locked_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
         let holder = std::thread::spawn({
             let state = Arc::clone(&state);
             move || {
@@ -4077,17 +4077,14 @@ mod tests {
         release_tx.send(()).unwrap();
         holder.join().unwrap();
 
-        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        let deadline = Instant::now() + Duration::from_secs(1);
         loop {
             if let Ok(locked) = state.try_lock()
                 && !locked.pending.contains_key(&invitation_id)
             {
                 break;
             }
-            assert!(
-                std::time::Instant::now() < deadline,
-                "pending enrollment cleanup never completed"
-            );
+            assert!(Instant::now() < deadline, "pending enrollment cleanup never completed");
             std::thread::sleep(Duration::from_millis(5));
         }
     }
