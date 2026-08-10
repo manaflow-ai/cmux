@@ -130,7 +130,12 @@ function DashboardOrganizationSwitcher() {
   const t = useTranslations("dashboard.accountMenu");
   const [switchError, setSwitchError] = useState(false);
   const [switchPending, setSwitchPending] = useState(false);
-  const switchPendingRef = useRef(false);
+  type SwitchRequest = {
+    readonly team: (typeof teams)[number] | null;
+    readonly organizationId: string;
+  };
+  const activeSwitchRef = useRef<Promise<void> | null>(null);
+  const queuedSwitchRef = useRef<SwitchRequest | null>(null);
   const organizationQueryKey = [
     "coderouter-organizations",
     user.id,
@@ -188,55 +193,83 @@ function DashboardOrganizationSwitcher() {
   const switchOrganization = async (
     team: (typeof selectableTeams)[number] | null,
   ) => {
-    if (switchPendingRef.current) return;
     const organizationId = team?.id ?? personal?.id;
     if (!organizationId) return;
-    switchPendingRef.current = true;
+    const request = { team, organizationId };
+    if (activeSwitchRef.current) {
+      queuedSwitchRef.current = request;
+      return;
+    }
+    runSwitch(request);
+  };
+  function applySuccessfulSwitch(request: SwitchRequest) {
+    const { team, organizationId } = request;
+    queryClient.setQueryData<OrganizationCatalog>(
+      organizationQueryKey,
+      (current) =>
+        current
+          ? { ...current, selectedTeamId: team?.id ?? null }
+          : current,
+    );
+    void queryClient.invalidateQueries({
+      queryKey: organizationQueryKey,
+      exact: true,
+    });
+    router.push(
+      `/dashboard/coderouter?team=${
+        encodeURIComponent(organizationId)
+      }`,
+    );
+    router.refresh();
+  }
+  function runSwitch(request: SwitchRequest) {
     setSwitchPending(true);
     setSwitchError(false);
-    const operation = user.setSelectedTeam(team);
-    const applySuccessfulSwitch = () => {
-      queryClient.setQueryData<OrganizationCatalog>(
-        organizationQueryKey,
-        (current) =>
-          current
-            ? { ...current, selectedTeamId: team?.id ?? null }
-            : current,
-      );
-      void queryClient.invalidateQueries({
-        queryKey: organizationQueryKey,
-        exact: true,
-      });
-      router.push(
-        `/dashboard/coderouter?team=${
-          encodeURIComponent(organizationId)
-        }`,
-      );
-      router.refresh();
-    };
-    const finishSwitch = () => {
-      switchPendingRef.current = false;
+    let timedOut = false;
+    const operation = user.setSelectedTeam(request.team);
+    activeSwitchRef.current = operation;
+    const timeout = setTimeout(() => {
+      if (activeSwitchRef.current !== operation) return;
+      timedOut = true;
       setSwitchPending(false);
-    };
-    try {
-      await withDeadline(
-        operation,
-        ORGANIZATION_SWITCH_TIMEOUT_MS,
-      );
-      applySuccessfulSwitch();
-      finishSwitch();
-    } catch (error) {
       setSwitchError(true);
-      if (error instanceof OperationTimeoutError) {
-        // The Stack SDK does not expose cancellation. Keep this mutation
-        // exclusively owned until it really settles, then reconcile its result.
-        void operation.then(applySuccessfulSwitch).catch(() => undefined)
-          .finally(finishSwitch);
-      } else {
-        finishSwitch();
+    }, ORGANIZATION_SWITCH_TIMEOUT_MS);
+
+    void operation.then(() => {
+      if (activeSwitchRef.current !== operation) return;
+      clearTimeout(timeout);
+      activeSwitchRef.current = null;
+      const queued = queuedSwitchRef.current;
+      queuedSwitchRef.current = null;
+      if (queued) {
+        runSwitch(queued);
+        return;
       }
-    }
-  };
+      if (!timedOut) {
+        applySuccessfulSwitch(request);
+        setSwitchPending(false);
+      } else {
+        // The request eventually settled after the UI deadline. Reconcile the
+        // catalog, but do not navigate away from whatever the user opened.
+        void queryClient.invalidateQueries({
+          queryKey: organizationQueryKey,
+          exact: true,
+        });
+      }
+    }, () => {
+      if (activeSwitchRef.current !== operation) return;
+      clearTimeout(timeout);
+      activeSwitchRef.current = null;
+      const queued = queuedSwitchRef.current;
+      queuedSwitchRef.current = null;
+      if (queued) {
+        runSwitch(queued);
+        return;
+      }
+      setSwitchPending(false);
+      setSwitchError(true);
+    });
+  }
   const shared = {
     teams: selectableTeams,
     teamId: personal?.id === selectedTeamId ? undefined : selectedTeamId,
@@ -296,31 +329,6 @@ async function loadOrganizationCatalog(
   return parsed;
 }
 
-async function withDeadline<T>(
-  operation: Promise<T>,
-  timeoutMs: number,
-): Promise<T> {
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  const deadline = new Promise<never>((_resolve, reject) => {
-    timeout = setTimeout(
-      () => reject(new OperationTimeoutError()),
-      timeoutMs,
-    );
-  });
-  try {
-    return await Promise.race([operation, deadline]);
-  } finally {
-    if (timeout) clearTimeout(timeout);
-  }
-}
-
-class OperationTimeoutError extends Error {
-  constructor() {
-    super("Operation timed out");
-    this.name = "OperationTimeoutError";
-  }
-}
-
 function parseOrganizationCatalog(value: unknown): OrganizationCatalog | null {
   if (!isPlainRecord(value) || !Array.isArray(value.teams)) return null;
   const selectedTeamId = value.selectedTeamId;
@@ -370,7 +378,7 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-export const __test = { parseOrganizationCatalog, withDeadline };
+export const __test = { parseOrganizationCatalog };
 
 function ChevronsUpDown() {
   return (
