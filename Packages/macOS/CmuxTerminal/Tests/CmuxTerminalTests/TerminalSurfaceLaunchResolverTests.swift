@@ -79,21 +79,235 @@ struct TerminalSurfaceLaunchResolverTests {
         #expect(resolved.arguments == ["/usr/bin/login", "-flp", "tester"])
     }
 
-    private func makeResolver(defaultArguments: [String]) -> TerminalSurfaceLaunchResolver {
+    @Test func resolvedGhosttyShellIsProtectedFromLaunchOverrides() {
+        var template = CmuxSurfaceConfigTemplate()
+        template.environmentVariables = ["SHELL": "/bin/bash"]
+        let resolver = makeResolver(
+            defaultArguments: ["/opt/homebrew/bin/fish", "-l"],
+            resolvedUserShell: "/opt/homebrew/bin/fish"
+        )
+
+        let resolved = resolver.resolve(
+            TerminalSurfaceLaunchRequest(
+                workspaceID: UUID(),
+                surfaceID: UUID(),
+                configTemplate: template,
+                workingDirectory: nil,
+                portOrdinal: 0,
+                initialCommand: nil,
+                initialInput: nil,
+                initialEnvironmentOverrides: ["SHELL": "/bin/zsh"],
+                additionalEnvironment: ["SHELL": "/usr/local/bin/nu"]
+            ),
+            commandShims: nil
+        )
+
+        #expect(resolved.environment["SHELL"] == "/opt/homebrew/bin/fish")
+    }
+
+    @Test func commandShimInstallUsesInjectedFiveSecondDeadline() async throws {
+        let clock = LaunchResolverManualClock()
+        let installer = BlockingCommandShimInstaller()
+        let filesystem = TerminalSurfaceRuntimeFilesystem(
+            agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp"),
+            installAgentCommandShims: { _, _, _ in
+                await installer.install()
+            },
+            isExecutableFile: { _ in false }
+        )
+        let resolver = makeResolver(
+            defaultArguments: ["/bin/zsh", "-l"],
+            runtimeFilesystem: filesystem,
+            resourceURL: URL(fileURLWithPath: "/tmp/cmux-test-resources"),
+            agentCommandShimInstallDeadline: .seconds(5),
+            agentCommandShimInstallDeadlineClock: clock
+        )
+        let request = TerminalSurfaceLaunchRequest(
+            workspaceID: UUID(),
+            surfaceID: UUID(),
+            configTemplate: nil,
+            workingDirectory: nil,
+            portOrdinal: 0,
+            initialCommand: nil,
+            initialInput: nil,
+            initialEnvironmentOverrides: [:],
+            additionalEnvironment: [:]
+        )
+        let resolution = Task { await resolver.resolveInstallingCommandShim(request) }
+        await installer.waitUntilStarted()
+        try await clock.waitUntilSleepers()
+
+        clock.advance(by: .seconds(5))
+        let resolved = await resolution.value
+        await installer.complete()
+
+        #expect(resolved.environment["CMUX_AGENT_COMMAND_SHIM_ROOT"] == nil)
+        #expect(resolved.command == nil)
+    }
+
+    private func makeResolver(
+        defaultArguments: [String],
+        resolvedUserShell: String? = nil,
+        runtimeFilesystem: TerminalSurfaceRuntimeFilesystem? = nil,
+        resourceURL: URL? = nil,
+        agentCommandShimInstallDeadline: Duration = .seconds(5),
+        agentCommandShimInstallDeadlineClock: any Clock<Duration> = ContinuousClock()
+    ) -> TerminalSurfaceLaunchResolver {
         TerminalSurfaceLaunchResolver(
             userGhosttyShellIntegrationMode: { "none" },
+            resolvedUserShell: { resolvedUserShell },
             spawnPolicyProvider: FakeSpawnPolicyProvider(),
-            runtimeFilesystem: TerminalSurfaceRuntimeFilesystem(
+            runtimeFilesystem: runtimeFilesystem ?? TerminalSurfaceRuntimeFilesystem(
                 agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp"),
                 installAgentCommandShims: { _, _, _ in nil },
                 isExecutableFile: { _ in false }
             ),
             sessionPortBase: 40_000,
             sessionPortRangeSize: 100,
-            resourceURL: nil,
+            resourceURL: resourceURL,
             bundleIdentifier: "com.cmux.test",
             ambientEnvironment: ["PATH": "/usr/bin", "SHELL": "/bin/zsh"],
-            defaultShellArguments: { defaultArguments }
+            defaultShellArguments: { defaultArguments },
+            agentCommandShimInstallDeadline: agentCommandShimInstallDeadline,
+            agentCommandShimInstallDeadlineClock: agentCommandShimInstallDeadlineClock
         )
+    }
+}
+
+private actor BlockingCommandShimInstaller {
+    private var started = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var completion: CheckedContinuation<TerminalSurfaceAgentCommandShimSet?, Never>?
+
+    func install() async -> TerminalSurfaceAgentCommandShimSet? {
+        started = true
+        let waiters = startWaiters
+        startWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+        return await withCheckedContinuation { continuation in
+            completion = continuation
+        }
+    }
+
+    func waitUntilStarted() async {
+        guard !started else { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+
+    func complete() {
+        completion?.resume(returning: nil)
+        completion = nil
+    }
+}
+
+private final class LaunchResolverManualClock: Clock, @unchecked Sendable {
+    struct Instant: InstantProtocol, Sendable {
+        var offset: Duration
+
+        func advanced(by duration: Duration) -> Instant { Instant(offset: offset + duration) }
+        func duration(to other: Instant) -> Duration { other.offset - offset }
+        static func < (lhs: Instant, rhs: Instant) -> Bool { lhs.offset < rhs.offset }
+    }
+
+    private struct Sleeper {
+        let deadline: Instant
+        let continuation: CheckedContinuation<Void, any Error>
+    }
+
+    private let lock = NSLock()
+    private var currentInstant = Instant(offset: .zero)
+    private var sleepers: [UUID: Sleeper] = [:]
+    private var cancelledSleeperIDs: Set<UUID> = []
+    private var parkWaiters: [
+        UUID: (count: Int, continuation: CheckedContinuation<Void, any Error>)
+    ] = [:]
+
+    var now: Instant {
+        lock.withLock { currentInstant }
+    }
+
+    var minimumResolution: Duration { .zero }
+
+    func sleep(until deadline: Instant, tolerance: Duration?) async throws {
+        let identifier = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Void, any Error>) in
+                lock.lock()
+                if cancelledSleeperIDs.remove(identifier) != nil {
+                    lock.unlock()
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                if deadline <= currentInstant {
+                    lock.unlock()
+                    continuation.resume()
+                    return
+                }
+                sleepers[identifier] = Sleeper(
+                    deadline: deadline,
+                    continuation: continuation
+                )
+                let waiters = takeSatisfiedParkWaitersLocked()
+                lock.unlock()
+                for waiter in waiters { waiter.resume() }
+            }
+        } onCancel: {
+            lock.lock()
+            let sleeper = sleepers.removeValue(forKey: identifier)
+            if sleeper == nil { cancelledSleeperIDs.insert(identifier) }
+            lock.unlock()
+            sleeper?.continuation.resume(throwing: CancellationError())
+        }
+    }
+
+    func waitUntilSleepers(count: Int = 1) async throws {
+        let identifier = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Void, any Error>) in
+                lock.lock()
+                if Task.isCancelled {
+                    lock.unlock()
+                    continuation.resume(throwing: CancellationError())
+                } else if sleepers.count >= count {
+                    lock.unlock()
+                    continuation.resume()
+                } else {
+                    parkWaiters[identifier] = (count, continuation)
+                    lock.unlock()
+                }
+            }
+        } onCancel: {
+            lock.lock()
+            let waiter = parkWaiters.removeValue(forKey: identifier)
+            lock.unlock()
+            waiter?.continuation.resume(throwing: CancellationError())
+        }
+    }
+
+    func advance(by duration: Duration) {
+        lock.lock()
+        currentInstant = currentInstant.advanced(by: duration)
+        var due: [Sleeper] = []
+        for (identifier, sleeper) in sleepers where sleeper.deadline <= currentInstant {
+            sleepers[identifier] = nil
+            due.append(sleeper)
+        }
+        lock.unlock()
+        for sleeper in due.sorted(by: { $0.deadline < $1.deadline }) {
+            sleeper.continuation.resume()
+        }
+    }
+
+    private func takeSatisfiedParkWaitersLocked() -> [CheckedContinuation<Void, any Error>] {
+        let identifiers = parkWaiters.compactMap { identifier, waiter in
+            sleepers.count >= waiter.count ? identifier : nil
+        }
+        return identifiers.compactMap {
+            parkWaiters.removeValue(forKey: $0)?.continuation
+        }
     }
 }

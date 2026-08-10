@@ -24,6 +24,9 @@ extension TerminalSurface {
             userGhosttyShellIntegrationMode: { [engine] in
                 engine.userGhosttyShellIntegrationMode
             },
+            resolvedUserShell: { [engine] in
+                engine.resolvedUserShell
+            },
             spawnPolicyProvider: spawnPolicyProvider,
             runtimeFilesystem: runtimeFilesystem,
             sessionPortBase: sessionPortBase,

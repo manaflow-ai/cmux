@@ -460,6 +460,9 @@ class GhosttyApp {
         sessionPortRangeSize: GhosttyApp.terminalSessionPortRangeSize,
         userGhosttyShellIntegrationMode: {
             GhosttyApp.shared.userGhosttyShellIntegrationMode
+        },
+        resolvedUserShell: {
+            GhosttyApp.shared.resolvedUserShell
         }
     )
 

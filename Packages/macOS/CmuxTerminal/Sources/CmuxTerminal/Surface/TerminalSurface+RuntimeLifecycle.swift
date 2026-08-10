@@ -275,17 +275,20 @@ extension TerminalSurface {
     @MainActor
     public func teardownSurface() {
         recordTeardownRequest(reason: "surface.teardown")
+        if externalRuntime != nil,
+           !externalCanonicalCloseSuppressedForAppTermination,
+           !externalCanonicalCloseRequested,
+           !requestCanonicalClose().accepted {
+            // The backend still owns a live terminal. Keep this presentation
+            // attached so a later teardown attempt can retry admission.
+            return
+        }
         markPortalLifecycleClosed(reason: "teardown")
         backgroundSurfaceStartSource = .normal
         cancelAgentCommandShimInstallLifecycle()
         closeHeadlessStartupWindowIfNeeded()
 
-        if let externalRuntime {
-            if !externalCanonicalCloseSuppressedForAppTermination,
-               !externalCanonicalCloseRequested {
-                externalCanonicalCloseRequested = true
-                _ = externalRuntime.enqueue(.closeCanonicalTerminal)
-            }
+        if externalRuntime != nil {
             externalPresentationLease?.detach()
             externalPresentationLease = nil
             return

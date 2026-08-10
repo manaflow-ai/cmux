@@ -17,6 +17,9 @@ public final class TerminalSurfaceLaunchResolver {
     private let bundleIdentifier: String?
     private let ambientEnvironment: [String: String]
     private let defaultShellArguments: DefaultShellArguments
+    private let resolvedUserShell: @MainActor () -> String?
+    private let agentCommandShimInstallDeadline: Duration
+    private let agentCommandShimInstallDeadlineClock: any Clock<Duration>
 
     public convenience init(
         dependencies: TerminalSurfaceLaunchDependencies,
@@ -26,6 +29,7 @@ public final class TerminalSurfaceLaunchResolver {
     ) {
         self.init(
             userGhosttyShellIntegrationMode: dependencies.userGhosttyShellIntegrationMode,
+            resolvedUserShell: dependencies.resolvedUserShell,
             spawnPolicyProvider: dependencies.spawnPolicyProvider,
             runtimeFilesystem: dependencies.runtimeFilesystem,
             sessionPortBase: dependencies.sessionPortBase,
@@ -33,12 +37,15 @@ public final class TerminalSurfaceLaunchResolver {
             resourceURL: resourceURL,
             bundleIdentifier: bundleIdentifier,
             ambientEnvironment: ambientEnvironment,
-            defaultShellArguments: Self.macOSLoginShellArguments
+            defaultShellArguments: Self.macOSLoginShellArguments,
+            agentCommandShimInstallDeadline: dependencies.agentCommandShimInstallDeadline,
+            agentCommandShimInstallDeadlineClock: dependencies.agentCommandShimInstallDeadlineClock
         )
     }
 
     public init(
         userGhosttyShellIntegrationMode: @escaping @MainActor () -> String,
+        resolvedUserShell: @escaping @MainActor () -> String? = { nil },
         spawnPolicyProvider: any TerminalSurfaceSpawnPolicyProviding,
         runtimeFilesystem: TerminalSurfaceRuntimeFilesystem,
         sessionPortBase: Int,
@@ -46,9 +53,12 @@ public final class TerminalSurfaceLaunchResolver {
         resourceURL: URL?,
         bundleIdentifier: String?,
         ambientEnvironment: [String: String],
-        defaultShellArguments: @escaping DefaultShellArguments
+        defaultShellArguments: @escaping DefaultShellArguments,
+        agentCommandShimInstallDeadline: Duration = .seconds(5),
+        agentCommandShimInstallDeadlineClock: any Clock<Duration> = ContinuousClock()
     ) {
         self.userGhosttyShellIntegrationMode = userGhosttyShellIntegrationMode
+        self.resolvedUserShell = resolvedUserShell
         self.spawnPolicyProvider = spawnPolicyProvider
         self.runtimeFilesystem = runtimeFilesystem
         self.sessionPortBase = sessionPortBase
@@ -57,6 +67,8 @@ public final class TerminalSurfaceLaunchResolver {
         self.bundleIdentifier = bundleIdentifier
         self.ambientEnvironment = ambientEnvironment
         self.defaultShellArguments = defaultShellArguments
+        self.agentCommandShimInstallDeadline = agentCommandShimInstallDeadline
+        self.agentCommandShimInstallDeadlineClock = agentCommandShimInstallDeadlineClock
     }
 
     /// Installs per-surface agent command shims, then resolves the exact launch.
@@ -68,13 +80,43 @@ public final class TerminalSurfaceLaunchResolver {
             let filesystem = runtimeFilesystem
             let temporaryDirectory = filesystem.agentCommandShimTemporaryDirectory
             let surfaceID = request.surfaceID
-            shims = await Task.detached(priority: .utility) {
-                await filesystem.installAgentCommandShims(
+            let (results, continuation) = AsyncStream<TerminalSurfaceAgentCommandShimSet?>
+                .makeStream(bufferingPolicy: .bufferingNewest(1))
+            let installTask = Task.detached(priority: .utility) {
+                let installed = await filesystem.installAgentCommandShims(
                     wrapperDirectoryURL,
                     surfaceID,
                     temporaryDirectory
                 )
-            }.value
+                continuation.yield(installed)
+                continuation.finish()
+            }
+            defer {
+                installTask.cancel()
+                continuation.finish()
+            }
+            let deadline = agentCommandShimInstallDeadline
+            let clock = agentCommandShimInstallDeadlineClock
+            shims = await withTaskGroup(
+                of: TerminalSurfaceAgentCommandShimSet?.self,
+                returning: TerminalSurfaceAgentCommandShimSet?.self
+            ) { group in
+                group.addTask {
+                    var iterator = results.makeAsyncIterator()
+                    return await iterator.next() ?? nil
+                }
+                group.addTask {
+                    do {
+                        try await clock.sleep(for: deadline, tolerance: nil)
+                    } catch {
+                        return nil
+                    }
+                    return nil
+                }
+                let first = await group.next() ?? nil
+                group.cancelAll()
+                return first
+            }
         } else {
             shims = nil
         }
@@ -97,6 +139,11 @@ public final class TerminalSurfaceLaunchResolver {
         func setManagedValue(_ key: String, _ value: String) {
             environment[key] = value
             protectedKeys.insert(key)
+        }
+
+        let resolvedShell = resolvedUserShell()?.nilIfEmpty
+        if let resolvedShell {
+            setManagedValue("SHELL", resolvedShell)
         }
 
         let socketPath = spawnPolicyProvider.controlSocketPath()
@@ -204,11 +251,9 @@ public final class TerminalSurfaceLaunchResolver {
                 to: &environment,
                 protectedKeys: &protectedKeys
             )
-            let shell = environment["SHELL"]?.nilIfEmpty
-                ?? ambientEnvironment["SHELL"]?.nilIfEmpty
-                ?? "/bin/zsh"
-            if let command = TerminalSurface.applyManagedShellSpecificStartupEnvironment(
-                shell: shell,
+            if let resolvedShell,
+               let command = TerminalSurface.applyManagedShellSpecificStartupEnvironment(
+                shell: resolvedShell,
                 integrationDir: integrationDir,
                 userGhosttyShellIntegrationMode: userGhosttyShellIntegrationMode(),
                 to: &environment,

@@ -24,11 +24,13 @@ extension TerminalSurface {
         // Only send focus events when the state changes to avoid redundant
         // prompt redraws with zsh themes like Powerlevel10k.
         guard force || focused != desiredFocusState else { return }
-        desiredFocusState = focused
         if let externalRuntime {
-            _ = externalRuntime.enqueue(.focus(focused))
+            if externalRuntime.enqueue(.focus(focused)).accepted {
+                desiredFocusState = focused
+            }
             return
         }
+        desiredFocusState = focused
         // Track desired state even before the C surface exists (e.g. during
         // layout restoration). createSurface syncs the state once created.
         guard let surface = surface else { return }

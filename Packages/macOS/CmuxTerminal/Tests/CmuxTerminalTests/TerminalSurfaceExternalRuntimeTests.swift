@@ -155,6 +155,61 @@ struct TerminalSurfaceExternalRuntimeTests {
         #expect(deinitLease.detachCount == 1)
     }
 
+    @Test func rejectedTeardownKeepsPresentationAttachedAndRetriesClose() {
+        let fixture = makeFixture()
+        let lease = fixture.runtime.leases[0]
+        fixture.runtime.rejectNext(.queueFull)
+
+        fixture.surface.teardownSurface()
+
+        #expect(fixture.runtime.mutations.isEmpty)
+        #expect(lease.detachCount == 0)
+
+        fixture.surface.teardownSurface()
+
+        #expect(fixture.runtime.mutations == [.closeCanonicalTerminal])
+        #expect(lease.detachCount == 1)
+    }
+
+    @Test func rejectedFocusRemainsRetryable() {
+        let fixture = makeFixture()
+        defer { fixture.surface.detachExternalPresentationPreservingCanonicalTerminal() }
+        fixture.runtime.rejectNext(.queueFull)
+
+        fixture.surface.setFocus(true)
+
+        #expect(!fixture.surface.debugDesiredFocusState())
+        #expect(fixture.runtime.mutations.isEmpty)
+
+        fixture.surface.setFocus(true)
+
+        #expect(fixture.surface.debugDesiredFocusState())
+        #expect(fixture.runtime.mutations == [.focus(true)])
+    }
+
+    @Test func reparentInstallsOnlyFromCanonicalProjection() {
+        let fixture = makeFixture()
+        defer { fixture.surface.detachExternalPresentationPreservingCanonicalTerminal() }
+        let originalWorkspaceID = fixture.surface.tabId
+        let destinationWorkspaceID = UUID()
+        fixture.runtime.rejectNext(.queueFull)
+
+        fixture.surface.updateWorkspaceId(destinationWorkspaceID)
+
+        #expect(fixture.runtime.mutations.isEmpty)
+        #expect(fixture.surface.tabId == originalWorkspaceID)
+
+        fixture.surface.updateWorkspaceId(destinationWorkspaceID)
+
+        #expect(fixture.runtime.mutations == [.reparent(workspaceID: destinationWorkspaceID)])
+        #expect(fixture.surface.tabId == originalWorkspaceID)
+
+        fixture.surface.installCanonicalWorkspaceId(destinationWorkspaceID)
+
+        #expect(fixture.surface.tabId == destinationWorkspaceID)
+        #expect(fixture.surface.surfaceView.tabId == destinationWorkspaceID)
+    }
+
     @Test func cachedScreenProcessAndCellStateRouteToExternalRuntime() async {
         let fixture = makeFixture()
         defer { fixture.surface.detachExternalPresentationPreservingCanonicalTerminal() }
@@ -269,6 +324,7 @@ private final class FakeExternalTerminalRuntime: TerminalExternalRuntime {
     private(set) var accessibilityEnableCount = 0
     private(set) var accessibilityDisableCount = 0
     private var nextSequence: UInt64 = 1
+    private var nextRejection: TerminalExternalIngressRejection?
 
     init(snapshot: TerminalExternalRuntimeSnapshot) {
         self.snapshot = snapshot
@@ -284,11 +340,19 @@ private final class FakeExternalTerminalRuntime: TerminalExternalRuntime {
     }
 
     func enqueue(_ mutation: TerminalExternalRuntimeMutation) -> TerminalExternalIngressResult {
+        if let nextRejection {
+            self.nextRejection = nil
+            return .rejected(nextRejection)
+        }
         let sequence = nextSequence
         nextSequence += 1
         mutations.append(mutation)
         acceptedSequences.append(sequence)
         return .accepted(sequence: sequence)
+    }
+
+    func rejectNext(_ rejection: TerminalExternalIngressRejection) {
+        nextRejection = rejection
     }
 
     func readScreenText(_ request: TerminalExternalScreenTextRequest) async -> String? {

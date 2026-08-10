@@ -325,9 +325,7 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         let objects = inProcessRendererSurfaces.allObjects
             .compactMap { $0 as? any TerminalSurfacing }
         lock.unlock()
-        return objects.sorted { lhs, rhs in
-            lhs.id.uuidString < rhs.id.uuidString
-        }
+        return objects
     }
 
     /// All live registered surfaces without imposing an allocation-heavy UUID

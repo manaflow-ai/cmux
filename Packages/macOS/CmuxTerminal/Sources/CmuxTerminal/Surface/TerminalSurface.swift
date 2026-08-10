@@ -758,13 +758,18 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         surfaceContext
     }
 
-    /// Rebinds the surface (and its views) to a new owning workspace id.
+    /// Rebinds an embedded surface immediately, or requests an external move.
+    /// External identity changes only when the canonical projection arrives.
     @MainActor
     public func updateWorkspaceId(_ newTabId: UUID) {
-        installCanonicalWorkspaceId(newTabId)
-        if externalRuntime != nil {
-            _ = externalRuntime?.enqueue(.reparent(workspaceID: newTabId))
+        if let externalRuntime {
+            // The backend projection is the only placement authority. A
+            // rejected request remains retryable because local identity does
+            // not advance before admission.
+            _ = externalRuntime.enqueue(.reparent(workspaceID: newTabId))
+            return
         }
+        installCanonicalWorkspaceId(newTabId)
     }
 
     /// Installs a backend-authoritative workspace identity without echoing a
