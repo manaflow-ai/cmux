@@ -263,9 +263,12 @@ extension TerminalController: ControlWorkspaceGroupContext {
         case .created(let workspace):
             return .created(workspaceID: workspace.id)
         case .submittedToBackend(let submission):
+            guard let workspaceID = submission.workspaceID else {
+                return .requestFailed
+            }
             return .submittedToBackend(
                 requestID: submission.requestID,
-                workspaceID: submission.workspaceID
+                workspaceID: workspaceID
             )
         case .failed:
             return .requestFailed

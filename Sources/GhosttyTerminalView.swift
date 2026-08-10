@@ -5470,20 +5470,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             }
         case .startSelection:
             if terminalSurface.mutateExternalCopyMode(operation: .startSelection).accepted {
-                keyboardCopyModeVisualActive = true
-                keyboardCopyModeVisualLineSelection = nil
+                keyboardCopyModeSelectionKind = .character
             }
         case .startLineSelection:
             if terminalSurface.mutateExternalCopyMode(
                 operation: .startLineSelection,
                 count: backendCount
             ).accepted {
-                keyboardCopyModeVisualActive = true
+                keyboardCopyModeSelectionKind = .line
             }
         case .clearSelection:
             if terminalSurface.mutateExternalCopyMode(operation: .clearSelection).accepted {
-                keyboardCopyModeVisualActive = false
-                keyboardCopyModeVisualLineSelection = nil
+                keyboardCopyModeSelectionKind = nil
             }
         case .copyAndExit:
             if terminalSurface.mutateExternalCopyMode(operation: .copyAndExit).accepted {
