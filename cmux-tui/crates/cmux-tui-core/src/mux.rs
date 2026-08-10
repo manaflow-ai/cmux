@@ -8963,6 +8963,15 @@ impl Mux {
         }
     }
 
+    fn report_browser_bootstrap_failure(&self, surface: &Arc<Surface>, error: String) {
+        if let Surface::Browser(browser) = surface.as_ref() {
+            browser.mark_failed(error.clone());
+        }
+        self.emit(MuxEvent::Status(format!("browser failed: {error}")));
+        self.emit(MuxEvent::TitleChanged { surface: surface.id, title: surface.title().into() });
+        self.emit(MuxEvent::SurfaceOutput(surface.id));
+    }
+
     pub(crate) fn restart_provider_browser_surface(self: &Arc<Self>, surface: Arc<Surface>) {
         let Some(identity) = surface.resource_identity() else { return };
         if !matches!(identity.content_id, ContentPublicId::Browser(_)) {
@@ -9369,7 +9378,10 @@ impl Mux {
         }
     }
 
-    fn terminate_workspace_hosts_from_receipt(&self, result: &Value) -> anyhow::Result<()> {
+    pub(crate) fn terminate_workspace_hosts_from_receipt(
+        &self,
+        result: &Value,
+    ) -> anyhow::Result<()> {
         let identities = terminal_host_cleanup_identities(result)?;
         let mut runtimes = Vec::new();
         let mut removed = Vec::new();
