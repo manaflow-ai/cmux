@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CryptoKit
 import Foundation
+import IrohLib
 import Testing
 @testable import CmuxIrohTransport
 
@@ -9,8 +10,8 @@ struct CmxIrohRegistrationSignerTests {
     @Test("signed transcript binds exact endpoint challenge and payload")
     func signedTranscript() throws {
         let secret = Data((0..<32).map(UInt8.init))
-        let privateKey = try Curve25519.Signing.PrivateKey(rawRepresentation: secret)
-        let endpointID = privateKey.publicKey.rawRepresentation.hex
+        let endpoint = try SecretKey.fromBytes(bytes: secret).public()
+        let endpointID = endpoint.toBytes().hex
         #expect(endpointID == "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8")
         let identity = try CmxIrohIdentityMaterial(
             secretKey: CmxIrohSecretKey(bytes: secret),
@@ -36,6 +37,7 @@ struct CmxIrohRegistrationSignerTests {
             pairingEnabled: false,
             capabilities: ["rpc", "terminal.streams"],
             pathHints: [hint],
+            directPorts: try CmxIrohDirectPorts(ipv4: 50_909, ipv6: 54_750),
             now: now
         )
         let signer = try CmxIrohRegistrationSigner(
@@ -56,7 +58,7 @@ struct CmxIrohRegistrationSignerTests {
             "cmux/iroh/device-registration/v1\n\(canonicalChallengeID)\n\(nonce)\n\(prepared.payloadSHA256)".utf8
         )
         let signature = try #require(Data(base64URL: request.signature))
-        #expect(privateKey.publicKey.isValidSignature(signature, for: transcript))
+        try endpoint.verify(message: transcript, signature: Signature.fromBytes(bytes: signature))
         #expect(request.payload == prepared.encodedPayload)
         #expect(request.challengeId == canonicalChallengeID)
         #expect(prepared.challengeRequest.endpointId == endpointID)
@@ -73,6 +75,8 @@ struct CmxIrohRegistrationSignerTests {
         let encodedHint = try #require(pathHints.first)
         #expect(encodedHint["observed_at"] is String)
         #expect(encodedHint["expires_at"] is String)
+        let directPorts = try #require(payloadObject["directPorts"] as? [String: Int])
+        #expect(directPorts == ["ipv4": 50_909, "ipv6": 54_750])
     }
 
     @Test("secret and declared endpoint must match")
@@ -121,8 +125,7 @@ struct CmxIrohRegistrationSignerTests {
     @Test("noncanonical challenge nonce is rejected")
     func malformedChallengeFails() throws {
         let secret = Data(repeating: 4, count: 32)
-        let privateKey = try Curve25519.Signing.PrivateKey(rawRepresentation: secret)
-        let endpointID = privateKey.publicKey.rawRepresentation.hex
+        let endpointID = try SecretKey.fromBytes(bytes: secret).public().toBytes().hex
         let identity = try CmxIrohIdentityMaterial(
             secretKey: CmxIrohSecretKey(bytes: secret),
             generation: 1

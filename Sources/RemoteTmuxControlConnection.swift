@@ -93,6 +93,7 @@ final class RemoteTmuxControlConnection {
     /// never come.
     var activityQueryCompletions: [UUID: ([Int: PaneForegroundState]?) -> Void] = [:]
     var newWindowCompletions: [UUID: (Int?) -> Void] = [:]
+    var newPaneCompletions: [UUID: (Int?) -> Void] = [:]
     /// Completions for ``sendTracked(_:completion:)`` blocks, keyed by the
     /// `.tracked` token in the FIFO. Guaranteed exactly one edge each: `%end`,
     /// `%error`, or a stream reset (``failPendingTrackedSends()``) — callers
@@ -385,10 +386,7 @@ final class RemoteTmuxControlConnection {
         initialBatchStaged.removeAll()
         // Normally already flushed by beginReconnecting; kept here so a future
         // caller of spawnProcess can't strand command decisions.
-        failPendingActivityQueries()
-        failPendingNewWindowRequests()
-        failPendingWindowReorderVerifications()
-        failPendingTrackedSends()
+        failPendingCommandTransactions()
         attachBlockDrained = false
         stderrBuffer = ""
         preControlOutputBuffer = ""
@@ -604,6 +602,27 @@ final class RemoteTmuxControlConnection {
         return true
     }
 
+    /// Enqueues one tmux command queue while retaining one FIFO correlation
+    /// entry for each semicolon-delimited command result.
+    @discardableResult
+    func sendCommandQueueInternal(_ commands: [String], kinds: [CommandKind]) -> Bool {
+        guard !commands.isEmpty,
+              commands.count == kinds.count,
+              commands.allSatisfy({ !$0.contains("\n") }) else { return false }
+        guard connectionState == .connected, let stdinWriter else { return false }
+        guard let data = (commands.joined(separator: " ; ") + "\n").data(using: .utf8)
+        else { return false }
+        let pendingStart = pendingCommands.count
+        pendingCommands.append(contentsOf: kinds)
+        guard stdinWriter.enqueue(data) else {
+            pendingCommands.removeSubrange(pendingStart...)
+            record("stdin-write-backpressure")
+            beginReconnecting()
+            return false
+        }
+        return true
+    }
+
     private func handleStdinWriteFailure() {
         guard connectionState == .connected || connectionState == .connecting else { return }
         // The control pipe is dead (broken pipe or a closed SSH child). Keep the
@@ -694,10 +713,7 @@ final class RemoteTmuxControlConnection {
         discardPendingPaneSeeds()
         // The stream is dead: a close decision awaiting an activity query must
         // not hang for the whole backoff window — fail it onto the cache now.
-        failPendingActivityQueries()
-        failPendingNewWindowRequests()
-        failPendingWindowReorderVerifications()
-        failPendingTrackedSends()
+        failPendingCommandTransactions()
         resetWindowListRequestCoalescing()
         cancelSizingFollowUps()
         // Subscriptions belong to the dying client, so forget them HERE, not in
@@ -769,12 +785,12 @@ final class RemoteTmuxControlConnection {
             if connectionState != .connected {
                 let wasReconnecting = connectionState == .reconnecting
                 connectionState = .connected
-                // Arm the one-shot attach redraw kick: if the upcoming size apply is
-                // a no-op (window already at our size), a running TUI gets no SIGWINCH
-                // and would keep showing its stale pre-attach frame. Consumed by the
-                // first size apply (debounced send, reconnect re-seed, or the
-                // first-connect list-windows result).
-                pendingAttachRedrawKick = true
+                // Only a first attach needs the rows-minus-one redraw kick. A
+                // reconnect keeps the existing tmux grid and replaces the mirror
+                // with an authoritative full-history seed; kicking after that seed
+                // would shrink the local primary grid, move its first visible row
+                // into scrollback, then paint that row again on restore.
+                pendingAttachRedrawKick = !wasReconnecting
                 reconnectAttemptCount = 0
                 reconnectTask?.cancel()
                 reconnectTask = nil
@@ -814,6 +830,9 @@ final class RemoteTmuxControlConnection {
             applySessionNameChange(sessionId: id, name: renameName, event: "session-renamed", refetchWindows: false)
         case .sessionsChanged:
             record("sessions-changed")
+        case .clientDetached:
+            record("client-detached")
+            replayRecordedSizeClaims()
         case let .windowAdd(id):
             record("window-add @\(id)")
             requestWindows()
@@ -837,6 +856,7 @@ final class RemoteTmuxControlConnection {
             // it doesn't accumulate across window churn.
             if let closing = windowsByID[id] {
                 for pane in closing.paneIDsInOrder {
+                    discardPendingPaneSeeds(paneId: pane)
                     paneOutputByteCounts[pane] = nil
                     paneForegroundStates[pane] = nil
                     paneHeaderLabels[pane] = nil

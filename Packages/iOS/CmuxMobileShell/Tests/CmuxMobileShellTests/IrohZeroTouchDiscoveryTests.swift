@@ -66,14 +66,14 @@ struct IrohZeroTouchDiscoveryTests {
     }
 
     @Test
-    func forgottenLiveCandidateIsNeitherDialedNorRecreated() async throws {
+    func hiddenLiveCandidateIsNeitherDialedNorRecreated() async throws {
         let fixture = try await makeFixture(
             candidates: [try candidate(deviceID: "mac-a", endpointByte: "a")],
             reportedDeviceID: "mac-a"
         )
         defer { fixture.cleanup() }
         let scope = try #require(await fixture.shell.currentScopeSnapshot(userID: "user-1"))
-        await fixture.shell.rememberForgottenMacDeviceID(
+        await fixture.shell.rememberHiddenMacDeviceID(
             MobilePairedMac.pairingID(macDeviceID: "mac-a", instanceTag: "stable"),
             scope: scope
         )
@@ -185,6 +185,46 @@ struct IrohZeroTouchDiscoveryTests {
                 && fixture.shell.foregroundMacDeviceID == "mac-live"
         })
         #expect(Array(fixture.factory.attemptedRouteIDs().prefix(2)) == ["iroh-mac-stale", "iroh-mac-live"])
+    }
+
+    @Test
+    func storedRouteDialsBeforeSlowZeroTouchDiscoveryCompletes() async throws {
+        let saved = try candidate(deviceID: "mac-a", endpointByte: "a")
+        let discovery = SuspendedIrohDiscovery(candidates: [])
+        let fixture = try await makeFixture(
+            discovery: discovery,
+            reportedDeviceID: "mac-a"
+        )
+        defer {
+            discovery.resume()
+            fixture.cleanup()
+        }
+        try await fixture.store.upsert(
+            macDeviceID: saved.deviceID,
+            displayName: saved.displayName,
+            routes: saved.routes,
+            instanceTag: saved.instanceTag,
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: saved.lastSeenAt
+        )
+        await fixture.shell.loadPairedMacs()
+
+        let reconnect = Task { @MainActor in
+            await fixture.shell.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+        }
+        let dialed = try await pollUntil {
+            fixture.factory.attemptedRouteIDs() == ["iroh-mac-a"]
+        }
+
+        #expect(
+            dialed,
+            "a saved authenticated route must not wait behind broker discovery"
+        )
+        discovery.resume()
+        #expect(await reconnect.value)
+        #expect(discovery.requestCount() == 0)
     }
 
     @Test
@@ -332,13 +372,15 @@ struct IrohZeroTouchDiscoveryTests {
 
     private func candidate(
         deviceID: String,
-        endpointByte: Character
+        endpointByte: Character,
+        instanceTag: String = "stable",
+        extraRoutes: [CmxAttachRoute] = []
     ) throws -> MobileDiscoveredIrohMac {
         let endpointID = String(repeating: String(endpointByte), count: 64)
         return MobileDiscoveredIrohMac(
             deviceID: deviceID,
             displayName: "Test \(deviceID)",
-            instanceTag: "stable",
+            instanceTag: instanceTag,
             routes: [try CmxAttachRoute(
                 id: "iroh-\(deviceID)",
                 kind: .iroh,
@@ -347,7 +389,7 @@ struct IrohZeroTouchDiscoveryTests {
                     pathHints: []
                 ),
                 priority: -10_000
-            )],
+            )] + extraRoutes,
             lastSeenAt: Self.fixedNow
         )
     }
@@ -408,6 +450,8 @@ private final class SuspendedIrohDiscovery: MobileIrohMacDiscovering {
         resumeWaiter?.resume()
         resumeWaiter = nil
     }
+
+    func requestCount() -> Int { wasRequested ? 1 : 0 }
 }
 
 private final class ZeroTouchRouteFactory: CmxByteTransportFactory, @unchecked Sendable {

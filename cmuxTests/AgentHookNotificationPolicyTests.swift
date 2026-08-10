@@ -108,6 +108,37 @@ struct AgentHookNotificationPolicyTests {
         ) == false)
     }
 
+    @Test func piNotificationTitleIncludesSurfaceTitle() {
+        #expect(
+            AgentHookNotificationPolicy.notificationTitle(
+                agentName: "pi",
+                displayName: "Pi",
+                surfaceTitle: "Pi Notification Session Titles"
+            ) == "Pi · Pi Notification Session Titles"
+        )
+        #expect(
+            AgentHookNotificationPolicy.notificationTitle(
+                agentName: "pi",
+                displayName: "Pi",
+                surfaceTitle: nil
+            ) == "Pi"
+        )
+        #expect(
+            AgentHookNotificationPolicy.notificationTitle(
+                agentName: "pi",
+                displayName: "Pi",
+                surfaceTitle: "pi · Build"
+            ) == "pi · Build"
+        )
+        #expect(
+            AgentHookNotificationPolicy.notificationTitle(
+                agentName: "codex",
+                displayName: "Codex",
+                surfaceTitle: "Unrelated surface title"
+            ) == "Codex"
+        )
+    }
+
     private func classify(_ message: String) -> AgentHookNotificationSummary {
         AgentHookNotificationClassifier.classify(
             displayName: "Grok",

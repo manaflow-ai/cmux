@@ -1,4 +1,5 @@
 import CmuxSwiftRender
+import Darwin
 import Foundation
 import Testing
 @testable import CmuxSidebarInterpreterClient
@@ -83,6 +84,38 @@ import Testing
         #expect(firstContext != secondContext, "a respawned worker must announce a fresh context")
     }
 
+    /// If a cached replay finds that a just-launched worker already closed
+    /// stdin, the initiating scene write retains the one relaunch budget and
+    /// recovers without waiting for another host tick.
+    @Test func initiatingSceneRecoversWhenInitialReplayWriteFails() async {
+        let closeStdinMarker = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-render-worker-close-stdin-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: closeStdinMarker) }
+        let client = RenderWorkerClient(
+            executableURL: renderFixtureURL(),
+            environment: ["CMUX_RENDER_FIXTURE_CLOSE_STDIN_ONCE_PATH": closeStdinMarker.path]
+        )
+        let collector = RenderEventCollector(stream: await client.subscribe())
+
+        await client.updateScene(
+            filePath: "/tmp/sidebar.swift",
+            state: ["payload": .string(String(repeating: "x", count: 4 * 1024 * 1024))],
+            topInset: 0,
+            bottomInset: 0
+        )
+        let events = await collector.waitForEvents(count: 1)
+        #expect(
+            FileManager.default.fileExists(atPath: closeStdinMarker.path),
+            "expected the closed-stdin fixture fault injection to activate"
+        )
+        await client.shutdown()
+
+        guard case .context = events.first else {
+            Issue.record("expected the initiating scene to relaunch after a failed cached replay, got \(events)")
+            return
+        }
+    }
+
     /// A renderer that never acks a scene is presumed hung: the watchdog
     /// discards it, and the next scene update relaunches a fresh worker that
     /// replays the latest scene.
@@ -126,6 +159,140 @@ import Testing
         #expect(firstContext != recoveryContext, "recovery must come from a fresh worker process")
     }
 
+    /// A worker can stop draining stdin after it announces its context. The
+    /// supervisor's ack deadline must still discard that worker even while a
+    /// later scene has filled the pipe; otherwise the actor is parked in
+    /// write(2), and the watchdog can never enter it to recover.
+    @Test func ackWatchdogFiresWhileWorkerInputPipeIsFull() async {
+        let stopReadingMarker = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-render-worker-stop-reading-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: stopReadingMarker) }
+        let client = RenderWorkerClient(
+            executableURL: renderFixtureURL(),
+            ackTimeout: .seconds(2),
+            environment: ["CMUX_RENDER_FIXTURE_STOP_READING_ONCE_PATH": stopReadingMarker.path]
+        )
+        let collector = RenderEventCollector(stream: await client.subscribe())
+
+        await client.updateScene(
+            filePath: "/tmp/sidebar.swift",
+            state: [:],
+            topInset: 0,
+            bottomInset: 0
+        )
+        let first = await collector.waitForEvents(count: 1)
+        guard case let .context(workerPID) = first.first else {
+            Issue.record("expected initial context before filling stdin, got \(first)")
+            await client.shutdown()
+            return
+        }
+
+        let workerSurvivedDeadline: Bool = await withCheckedContinuation { continuation in
+            let deadlineThread = Thread {
+                let deadline = ContinuousClock.now + .seconds(3)
+                var workerIsAlive = kill(pid_t(workerPID), 0) == 0
+                while workerIsAlive, ContinuousClock.now < deadline {
+                    Thread.sleep(forTimeInterval: 0.01)
+                    workerIsAlive = kill(pid_t(workerPID), 0) == 0
+                }
+                if workerIsAlive {
+                    kill(pid_t(workerPID), SIGKILL)
+                }
+                continuation.resume(returning: workerIsAlive)
+            }
+            deadlineThread.name = "cmux-render-worker-watchdog-test"
+            deadlineThread.start()
+            Task.detached {
+                await client.updateScene(
+                    filePath: "/tmp/large-sidebar.swift",
+                    state: ["payload": .string(String(repeating: "x", count: 4 * 1024 * 1024))],
+                    topInset: 0,
+                    bottomInset: 0
+                )
+            }
+        }
+        #expect(
+            !workerSurvivedDeadline,
+            "ack timeout must discard a worker even while its stdin writer is blocked"
+        )
+
+        await client.shutdown()
+    }
+
+    /// A stopped worker must not turn the host-side blocking-I/O bridge into an
+    /// unbounded retained-message queue. Once its bounded mailbox is full, the
+    /// pump fails the generation so supervision can close the pipe and recover.
+    @Test func writePumpRejectsOverflowInsteadOfGrowingWithoutBound() throws {
+        let pipe = Pipe()
+        let channel = try LengthPrefixedMessageChannel(
+            readFD: pipe.fileHandleForReading.fileDescriptor,
+            writeFD: pipe.fileHandleForWriting.fileDescriptor
+        )
+        let pump = RenderWorkerWritePump(channel: channel, generation: 1)
+        let failures = LockedFailureRecorder()
+        let payload = Data(count: 128 * 1024)
+
+        for _ in 0..<128 {
+            pump.enqueue(
+                RenderWorkerOutboundWrite(
+                    data: payload,
+                    remainingRelaunches: 0,
+                    ackSequence: nil
+                )
+            ) {
+                failures.record()
+            }
+        }
+
+        #expect(
+            failures.count == 1,
+            "mailbox overflow must fail one generation instead of retaining every message"
+        )
+
+        pump.cancel()
+        try pipe.fileHandleForReading.close()
+        try pipe.fileHandleForWriting.close()
+    }
+
+    /// Pointer-only traffic has no scene ACK to drive the scene watchdog. A
+    /// worker that stops reading must still be torn down by the write bridge's
+    /// independent deadline or bounded-mailbox overflow.
+    @Test func pointerOnlyBacklogDiscardsWorkerThatStopsReading() async {
+        let stopReadingMarker = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-render-worker-pointer-backlog-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: stopReadingMarker) }
+        let client = RenderWorkerClient(
+            executableURL: renderFixtureURL(),
+            ackTimeout: .milliseconds(300),
+            environment: ["CMUX_RENDER_FIXTURE_STOP_READING_ONCE_PATH": stopReadingMarker.path]
+        )
+        let collector = RenderEventCollector(stream: await client.subscribe())
+
+        await client.forward(RenderPointerEvent(kind: .down, x: 1, y: 1))
+        let first = await collector.waitForEvents(count: 1)
+        guard case let .context(workerPID) = first.first else {
+            Issue.record("expected initial context before pointer backlog, got \(first)")
+            await client.shutdown()
+            return
+        }
+
+        for index in 0..<2_048 {
+            let kind: RenderPointerEvent.Kind = index.isMultiple(of: 2) ? .down : .up
+            await client.forward(RenderPointerEvent(kind: kind, x: 1, y: 1))
+        }
+
+        let events = await collector.waitForEvents(count: 2, deadline: .seconds(3))
+        let contexts = events.compactMap { event -> UInt32? in
+            guard case let .context(context) = event else { return nil }
+            return context
+        }
+        #expect(
+            contexts.contains { $0 != workerPID },
+            "pointer-only traffic must discard and relaunch a stopped worker"
+        )
+        await client.shutdown()
+    }
+
     private func waitForContextReset(
         _ client: RenderWorkerClient,
         after initialContext: UInt32,
@@ -141,6 +308,21 @@ import Testing
             try? await Task.sleep(for: .milliseconds(50))
         }
         return false
+    }
+}
+
+private final class LockedFailureRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedCount = 0
+
+    var count: Int {
+        lock.withLock { recordedCount }
+    }
+
+    func record() {
+        lock.withLock {
+            recordedCount += 1
+        }
     }
 }
 
@@ -164,7 +346,7 @@ private actor RenderEventCollector {
         guard pump == nil else { return }
         pump = Task {
             for await event in stream {
-                await self.ingest(event)
+                self.ingest(event)
             }
         }
     }

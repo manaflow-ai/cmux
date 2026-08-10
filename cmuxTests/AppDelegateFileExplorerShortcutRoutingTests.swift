@@ -100,6 +100,27 @@ struct AppDelegateFileExplorerShortcutRoutingTests {
         }
     }
 
+    @Test func unboundSimulatorDefaultIsNotSuppressedAsAStaleMenuShortcut() throws {
+        try withIsolatedShortcutSettings {
+            let appDelegate = try #require(AppDelegate.shared, "Expected AppDelegate.shared")
+            let action = KeyboardShortcutSettings.Action.simulatorRotateLeft
+            let event = try #require(
+                makeKeyDownEvent(shortcut: action.defaultShortcut, windowNumber: 0),
+                "Failed to construct Simulator rotate-left event"
+            )
+
+            KeyboardShortcutSettings.setShortcut(.unbound, for: action)
+            #if DEBUG
+            AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
+            #endif
+
+            #expect(
+                !appDelegate.shouldSuppressStaleCmuxMenuShortcut(event: event),
+                "A Simulator default must fall through to guest input after it is unbound"
+            )
+        }
+    }
+
     private func withIsolatedShortcutSettings(_ body: () throws -> Void) rethrows {
         let originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
             prefix: "cmux-file-explorer-shortcut-routing"

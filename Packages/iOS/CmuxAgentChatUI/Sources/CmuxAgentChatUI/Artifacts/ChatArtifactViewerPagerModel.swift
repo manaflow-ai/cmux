@@ -83,42 +83,42 @@ final class ChatArtifactViewerPagerModel {
         )
     }
 
-    func toggleSearch() {
-        selectedPage.toggleSearch()
+    func toggleSearch(for path: String) {
+        pageModel(for: path)?.toggleSearch()
     }
 
-    func toggleGoToLine() {
-        selectedPage.toggleGoToLine()
+    func toggleGoToLine(for path: String) {
+        pageModel(for: path)?.toggleGoToLine()
     }
 
-    func requestTop() {
-        selectedPage.requestTop()
+    func requestTop(for path: String) {
+        pageModel(for: path)?.requestTop()
     }
 
-    func requestBottom() {
-        selectedPage.requestBottom()
+    func requestBottom(for path: String) {
+        pageModel(for: path)?.requestBottom()
     }
 
-    func toggleLineNumbers() {
-        selectedPage.toggleLineNumbers()
+    func toggleLineNumbers(for path: String) {
+        pageModel(for: path)?.toggleLineNumbers()
     }
 
-    func toggleWordWrap() {
-        selectedPage.toggleWordWrap()
+    func toggleWordWrap(for path: String) {
+        pageModel(for: path)?.toggleWordWrap()
     }
 
-    func selectMarkdownMode(_ mode: ChatArtifactMarkdownMode) {
-        selectedPage.selectMarkdownMode(mode)
+    func selectMarkdownMode(for path: String, _ mode: ChatArtifactMarkdownMode) {
+        pageModel(for: path)?.selectMarkdownMode(mode)
     }
 
     #if os(iOS)
-    func prepareShare(loader: ChatArtifactLoader) async {
-        let page = selectedPage
+    func prepareShare(for path: String, loader: ChatArtifactLoader) async {
+        guard let page = pageModel(for: path) else { return }
         await page.prepareShare(loader: loader)
     }
 
-    func prepareSave(loader: ChatArtifactLoader) async {
-        let page = selectedPage
+    func prepareSave(for path: String, loader: ChatArtifactLoader) async {
+        guard let page = pageModel(for: path) else { return }
         await page.prepareSave(loader: loader)
     }
 
@@ -134,8 +134,8 @@ final class ChatArtifactViewerPagerModel {
     }
     #endif
 
-    private var selectedPage: ChatArtifactViewerPageModel {
-        selectedPageModel
+    private func pageModel(for path: String) -> ChatArtifactViewerPageModel? {
+        path == selectedPath ? selectedPageModel : pagesByPath[path]
     }
 
     private var pagePaths: [String] {

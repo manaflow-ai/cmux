@@ -38,6 +38,10 @@ extension RemoteTmuxControlConnection {
                let completion = newWindowCompletions.removeValue(forKey: token) {
                 completion(nil)
             }
+            if case let .newPane(token) = kind,
+               let completion = newPaneCompletions.removeValue(forKey: token) {
+                completion(nil)
+            }
             if case let .tracked(token) = kind,
                let completion = trackedSendCompletions.removeValue(forKey: token) {
                 completion(false)
@@ -91,6 +95,12 @@ extension RemoteTmuxControlConnection {
                 RemoteTmuxControlStreamParser.id(Substring($0), sigil: "@")
             }
             completion(windowId)
+        case let .newPane(token):
+            guard let completion = newPaneCompletions.removeValue(forKey: token) else { break }
+            let paneId = lines.first.flatMap {
+                RemoteTmuxControlStreamParser.id(Substring($0), sigil: "%")
+            }
+            completion(paneId)
         case let .paneRects(windowId, generation):
             handlePaneRectsReply(windowId: windowId, generation: generation, lines: lines)
         case let .listWindows(requestGeneration, retainedPaneIDs):
@@ -277,7 +287,13 @@ extension RemoteTmuxControlConnection {
                 windowOrder = reconciledOrder
                 observers.notifyTopologyChanged()
             }
-        case let .capturePane(paneId):
+        case .paneOutputReset:
+            // Server-side output-cursor barrier only; capture owns the paint.
+            break
+        case .paneOutputContinue:
+            // Server-side cutover edge only; the state result completed the seed.
+            break
+        case let .capturePane(paneId, seedID):
             // capture-pane -e -S output is the pane's history + visible rows (with
             // SGR escapes). Home + clear the VISIBLE SCREEN (ESC[2J — NOT ESC[3J,
             // which would erase the scrollback we are seeding), then write every
@@ -292,7 +308,7 @@ extension RemoteTmuxControlConnection {
             if let data = painted.data(using: .utf8) {
                 installPaneSeedCapture(paneId: paneId, data: data)
             }
-        case let .paneState(paneId):
+        case let .paneState(paneId, seedID):
             // Restore the pane's terminal state (scroll region + DEC modes + cursor)
             // onto the mirror surface, applied after the capture paint. The scroll
             // region (DECSTBM) is the important one: without it an inline TUI's
@@ -324,7 +340,7 @@ extension RemoteTmuxControlConnection {
             // consumers (batch close, workspace close, quit warning) benefit too.
             for (paneId, state) in states { paneForegroundStates[paneId] = state }
             completion(states)
-        case let .paneAltScreen(paneId):
+        case let .paneAltScreen(paneId, seedID):
             // Match the mirror surface to the remote pane's screen (alt = no reflow on
             // resize). Emitted before the capture paint that follows in the FIFO, so the
             // seeded rows land on the right screen. The else branch is load-bearing on a
@@ -387,6 +403,12 @@ extension RemoteTmuxControlConnection {
     func failPendingNewWindowRequests() {
         let completions = Array(newWindowCompletions.values)
         newWindowCompletions.removeAll()
+        completions.forEach { $0(nil) }
+    }
+
+    func failPendingNewPaneRequests() {
+        let completions = Array(newPaneCompletions.values)
+        newPaneCompletions.removeAll()
         completions.forEach { $0(nil) }
     }
 

@@ -2,14 +2,21 @@ import AppKit
 import QuartzCore
 
 final class GPUSpinnerNSView: NSView {
-    private static let animationKey = "cmux.gpuSpinner.rotation"
+    static let animationKey = "cmux.gpuSpinner.rotation"
     private static let spokeCount = 8
     private static let cycleDuration: CFTimeInterval = 0.8
     private static let arcDuration: CFTimeInterval = 0.9
 
-    private let contentLayer = CALayer()
+    let contentLayer = CALayer()
     private var spokeLayers: [CALayer] = []
     private let arcLayer = CAShapeLayer()
+
+    var isPresentationActive = true {
+        didSet {
+            guard isPresentationActive != oldValue else { return }
+            updateAnimationState()
+        }
+    }
 
     var style: GPUSpinnerStyle = .macOSSpokes {
         didSet {
@@ -175,6 +182,7 @@ final class GPUSpinnerNSView: NSView {
     }
 
     private var shouldAnimate: Bool {
+        guard isPresentationActive else { return false }
         guard let window else { return false }
         guard window.occlusionState.contains(.visible) else { return false }
         if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion { return false }

@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 import { isIP } from "node:net";
 import { IrohInvalidInputError } from "./errors";
+import {
+  parseIrohDiscoveryScope,
+  type IrohDiscoveryScope,
+} from "./discoveryScope";
 export { MANAGED_RELAY_URLS } from "./publicationPolicy";
 
 export const IROH_ALPN = "cmux/mobile/1";
@@ -32,6 +36,11 @@ export type IrohPathHint = {
   };
 };
 
+export type IrohDirectPorts = {
+  readonly ipv4?: number;
+  readonly ipv6?: number;
+};
+
 export type IrohRegistrationPayload = {
   readonly route_contract_version: typeof IROH_ROUTE_CONTRACT_VERSION;
   readonly deviceId: string;
@@ -43,6 +52,7 @@ export type IrohRegistrationPayload = {
   readonly identityGeneration: number;
   readonly pairingEnabled: boolean;
   readonly capabilities: readonly string[];
+  readonly directPorts?: IrohDirectPorts;
   readonly pathHints: readonly IrohPathHint[];
 };
 
@@ -58,6 +68,7 @@ export type IrohRegisterRequest = {
   readonly nonce: string;
   readonly payload: string;
   readonly signature: string;
+  readonly discoveryScope?: IrohDiscoveryScope;
 };
 
 export function parseChallengeRequest(value: unknown): IrohChallengeRequest {
@@ -88,8 +99,17 @@ export function parseRegisterRequest(value: unknown): IrohRegisterRequest {
     nonce: base64url(body.nonce, 32, "invalid_nonce"),
     payload: boundedString(body.payload, 1, 48_000, "invalid_payload"),
     signature: base64url(body.signature, 64, "invalid_signature"),
+    ...(body.discoveryScope === undefined
+      ? {}
+      : { discoveryScope: parseIrohDiscoveryScope(body.discoveryScope) }),
   };
-  rejectUnknownKeys(body, ["challengeId", "nonce", "payload", "signature"]);
+  rejectUnknownKeys(body, [
+    "challengeId",
+    "nonce",
+    "payload",
+    "signature",
+    "discoveryScope",
+  ]);
   return parsed;
 }
 
@@ -157,6 +177,9 @@ export function parseRegistrationPayload(value: unknown, now: Date): IrohRegistr
     identityGeneration: positiveInteger(body.identityGeneration, "invalid_identity_generation"),
     pairingEnabled: boolean(body.pairingEnabled, "invalid_pairing_enabled"),
     capabilities,
+    ...(body.directPorts === undefined
+      ? {}
+      : { directPorts: parseIrohDirectPorts(body.directPorts) }),
     pathHints,
   };
   rejectUnknownKeys(body, [
@@ -170,9 +193,27 @@ export function parseRegistrationPayload(value: unknown, now: Date): IrohRegistr
     "identityGeneration",
     "pairingEnabled",
     "capabilities",
+    "directPorts",
     "pathHints",
   ]);
   return payload;
+}
+
+export function parseIrohDirectPorts(value: unknown): IrohDirectPorts {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new IrohInvalidInputError({ code: "invalid_direct_ports" });
+  }
+  const ports = value as Record<string, unknown>;
+  rejectUnknownKeys(ports, ["ipv4", "ipv6"]);
+  const ipv4 = ports.ipv4 === undefined ? undefined : udpPort(ports.ipv4);
+  const ipv6 = ports.ipv6 === undefined ? undefined : udpPort(ports.ipv6);
+  if (ipv4 === undefined && ipv6 === undefined) {
+    throw new IrohInvalidInputError({ code: "invalid_direct_ports" });
+  }
+  return {
+    ...(ipv4 === undefined ? {} : { ipv4 }),
+    ...(ipv6 === undefined ? {} : { ipv6 }),
+  };
 }
 
 export function parseBindingIdBody(value: unknown): { readonly bindingId: string } {
@@ -544,6 +585,13 @@ function positiveInteger(value: unknown, code: string): number {
     (value as number) < 1 ||
     (value as number) > POSTGRES_INT32_MAX
   ) throw new IrohInvalidInputError({ code });
+  return value as number;
+}
+
+function udpPort(value: unknown): number {
+  if (!Number.isInteger(value) || (value as number) < 1 || (value as number) > 65_535) {
+    throw new IrohInvalidInputError({ code: "invalid_direct_ports" });
+  }
   return value as number;
 }
 

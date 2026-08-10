@@ -220,6 +220,7 @@ extension Workspace {
 enum CanvasNewPaneType {
     case terminal
     case browser
+    case simulator
 }
 
 extension Workspace {

@@ -27,13 +27,34 @@ struct CrashDiagnosticSessionPolicyTests {
 
     @Test
     func terminalDefaultFileOpenIgnoresSymlinkedGhosttyCrashReportsInCmuxCrashDirectory() throws {
-        let crashReport = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".local/state/cmux/crash/cmux.ghosttycrash", isDirectory: false)
-        let symlink = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-symlinked-crash-\(UUID().uuidString).ghosttycrash", isDirectory: false)
+        // The fixture owns its crash directory instead of borrowing the real one.
+        // resolvingSymlinksInPath() only resolves a symlink whose target exists, so the report has
+        // to be created, and planting one in ~/.local/state/cmux/crash would look like a pending
+        // crash on the next launch. XDG_STATE_HOME is the product's own second crash location.
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-symlinked-crash-\(UUID().uuidString)", isDirectory: true)
+        let stateHome = root.appendingPathComponent("state", isDirectory: true)
+        let crashReport = stateHome
+            .appendingPathComponent("cmux/crash/cmux.ghosttycrash", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: crashReport.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("MDMP".utf8).write(to: crashReport)
+        let symlink = root.appendingPathComponent("crash-link.ghosttycrash", isDirectory: false)
         try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: crashReport)
+        // Read the live value with getenv: ProcessInfo caches the environment at first
+        // access, so if an earlier test setenv'd this variable at runtime, restoring the
+        // ProcessInfo snapshot in the defer below would clobber that test's state.
+        let previousStateHome = getenv("XDG_STATE_HOME").map { String(cString: $0) }
+        setenv("XDG_STATE_HOME", stateHome.path(percentEncoded: false), 1)
         defer {
-            try? FileManager.default.removeItem(at: symlink)
+            if let previousStateHome {
+                setenv("XDG_STATE_HOME", previousStateHome, 1)
+            } else {
+                unsetenv("XDG_STATE_HOME")
+            }
+            try? FileManager.default.removeItem(at: root)
         }
 
         #expect(
@@ -202,6 +223,47 @@ struct CrashDiagnosticSessionPolicyTests {
         ])
     }
 
+    @Test(arguments: [Float(13), Float(510)])
+    func sessionSnapshotKeepsCrashWorkspaceWithValidExplicitFontSize(fontSize: Float) {
+        let crashDirectory = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".local/state/cmux/crash", isDirectory: true)
+            .path
+        let projectDirectory = "/tmp/cmux-project"
+        let snapshot = crashAndProjectSnapshot(
+            crashDirectory: crashDirectory,
+            projectDirectory: projectDirectory,
+            fontSize: fontSize
+        )
+
+        let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot)
+
+        #expect(!pruned.removedAny)
+        #expect(pruned.snapshot?.windows.first?.tabManager.workspaces.map(\.currentDirectory) == [
+            crashDirectory,
+            projectDirectory,
+        ])
+    }
+
+    @Test(arguments: [Float.zero, -1, .nan, .infinity, 511, .greatestFiniteMagnitude])
+    func sessionSnapshotPrunesCrashWorkspaceWithInvalidFontSize(fontSize: Float) {
+        let crashDirectory = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".local/state/cmux/crash", isDirectory: true)
+            .path
+        let projectDirectory = "/tmp/cmux-project"
+        let snapshot = crashAndProjectSnapshot(
+            crashDirectory: crashDirectory,
+            projectDirectory: projectDirectory,
+            fontSize: fontSize
+        )
+
+        let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot)
+
+        #expect(pruned.removedAny)
+        #expect(pruned.snapshot?.windows.first?.tabManager.workspaces.map(\.currentDirectory) == [
+            projectDirectory,
+        ])
+    }
+
     @Test
     func sessionSnapshotPruningDoesNotResolveSymlinkedCrashDirectories() throws {
         let root = FileManager.default.temporaryDirectory
@@ -357,6 +419,37 @@ struct CrashDiagnosticSessionPolicyTests {
             logEntries: [],
             progress: nil,
             gitBranch: nil
+        )
+    }
+
+    private func crashAndProjectSnapshot(
+        crashDirectory: String,
+        projectDirectory: String,
+        fontSize: Float
+    ) -> AppSessionSnapshot {
+        AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 10,
+            windows: [
+                SessionWindowSnapshot(
+                    frame: nil,
+                    display: nil,
+                    tabManager: SessionTabManagerSnapshot(
+                        selectedWorkspaceIndex: 0,
+                        workspaces: [
+                            terminalWorkspaceSnapshot(
+                                currentDirectory: crashDirectory,
+                                terminal: SessionTerminalPanelSnapshot(
+                                    workingDirectory: crashDirectory,
+                                    fontSize: fontSize
+                                )
+                            ),
+                            emptyWorkspaceSnapshot(currentDirectory: projectDirectory),
+                        ]
+                    ),
+                    sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
+                ),
+            ]
         )
     }
 

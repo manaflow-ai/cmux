@@ -32,12 +32,4 @@ export const FEATURE_FLAGS = {
     reviewBy: "2026-10-01",
     defaultWhenUnavailable: false,
   },
-  proCheckout: {
-    key: "pro-checkout-enabled-release",
-    owner: "lawrencecchen",
-    description:
-      "Points the pricing page Pro CTA at /api/billing/checkout instead of the download link. Off until prod Stripe is live.",
-    reviewBy: "2026-10-01",
-    defaultWhenUnavailable: false,
-  },
 } as const satisfies Record<string, FeatureFlagDefinition>;

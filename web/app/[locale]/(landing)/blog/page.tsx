@@ -4,6 +4,7 @@ import { buildAlternates, openGraphDefaults, twitterSummary } from "@/i18n/seo";
 import { blogIndexSeoCopy } from "@/i18n/audited-seo";
 import { Link } from "@/i18n/navigation";
 import { blogPostsForLocale } from "@/app/[locale]/components/blog-posts";
+import { BlogPostMeta } from "@/app/[locale]/components/blog-author";
 
 export async function generateMetadata({
   params,
@@ -42,18 +43,21 @@ export default function BlogPage() {
           <article key={post.slug}>
             <Link
               href={`/blog/${post.slug}`}
-              className="block group"
+              className="group block"
             >
-              <h2 className="text-lg font-medium group-hover:underline">
+              <h2 className="pb-1 text-lg font-medium group-hover:underline">
                 {t(`posts.${post.key}.title`)}
               </h2>
-              <time className="text-sm text-muted">
-                {t(`posts.${post.key}.date`)}
-              </time>
               <p className="mt-1 text-muted">
                 {t(`posts.${post.key}.summary`)}
               </p>
             </Link>
+            <BlogPostMeta
+              author={post.author}
+              date={t(`posts.${post.key}.date`)}
+              dateTime={post.date}
+              compact
+            />
           </article>
         ))}
       </div>

@@ -104,6 +104,8 @@ public struct TerminalSurfaceRuntimeDependencies {
         runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator,
         restoreSpawnScheduler: any TerminalSurfaceRuntimeSpawnScheduling,
         runtimeFilesystem: TerminalSurfaceRuntimeFilesystem,
+        claudeCommandShimInstallDeadline: Duration = .seconds(5),
+        claudeCommandShimInstallDeadlineClock: any Clock<Duration> = ContinuousClock(),
         sessionPortBase: Int,
         sessionPortRangeSize: Int,
         scrollbackReplayEnvironmentKey: String,

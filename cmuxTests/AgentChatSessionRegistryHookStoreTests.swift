@@ -44,7 +44,7 @@ struct AgentChatSessionRegistryHookStoreTests {
                     ]
                 )
             },
-            codexRolloutPath: { _ in nil }
+            codexRolloutPaths: { _ in [] }
         )
 
         let session = try #require(observed.first)
@@ -128,7 +128,7 @@ struct AgentChatSessionRegistryHookStoreTests {
                     ]
                 )
             },
-            codexRolloutPath: { _ in nil }
+            codexRolloutPaths: { _ in [] }
         )
 
         #expect(observed.isEmpty)
@@ -171,6 +171,51 @@ struct AgentChatSessionRegistryHookStoreTests {
         #expect(historical.transcriptPath == transcriptPath)
         #expect(historical.state == .ended)
         #expect(registry.liveSession(surfaceID: surfaceID)?.sessionID == pendingID)
+    }
+
+    @MainActor
+    @Test func preferredCodexBindingUsesOnlyLatestDurableEvidence() async throws {
+        let home = try temporaryHomeDirectory()
+        let surfaceUUID = UUID()
+        let surfaceID = surfaceUUID.uuidString
+        let observedID = "019f8a6d-fa11-7ad0-9df4-4c1d28f04e3e"
+        let tieLowID = "019f8a6d-e3af-7882-9470-c5824a40ec86"
+        let tieHighID = "019f8a6d-f2c9-7ad0-9df4-4c1d28f04e3e"
+        try writeCodexHookStore(
+            home: home,
+            surfaceID: surfaceID,
+            entries: [
+                (sessionID: observedID, updatedAt: 100),
+                (sessionID: tieLowID, updatedAt: 200),
+                (sessionID: tieHighID, updatedAt: 200),
+            ]
+        )
+        let observed = AgentChatSessionRecord(
+            sessionID: observedID,
+            agentKind: .codex,
+            workspaceID: UUID().uuidString,
+            surfaceID: surfaceID,
+            workingDirectory: nil,
+            transcriptPath: nil,
+            state: .idle,
+            lastActivityAt: Date(timeIntervalSince1970: 300),
+            title: nil,
+            pid: nil
+        )
+        let registry = AgentChatSessionRegistry(
+            hookStore: AgentChatHookSessionStore(homeDirectory: home),
+            restoredRecords: [observed]
+        )
+
+        #expect(registry.preferredCodexSessionIDBySurfaceID(
+            onlySurfaceIDs: Set([surfaceUUID])
+        ).isEmpty)
+
+        await registry.seedFromHookStores(agentSources: ["codex"])
+
+        #expect(registry.preferredCodexSessionIDBySurfaceID(
+            onlySurfaceIDs: Set([surfaceUUID])
+        )[surfaceID] == tieHighID)
     }
 
     @MainActor
@@ -281,5 +326,25 @@ struct AgentChatSessionRegistryHookStoreTests {
         ]
         let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
         try data.write(to: directory.appendingPathComponent("claude-hook-sessions.json"))
+    }
+
+    private func writeCodexHookStore(
+        home: URL,
+        surfaceID: String,
+        entries: [(sessionID: String, updatedAt: TimeInterval)]
+    ) throws {
+        let directory = home.appendingPathComponent(".cmuxterm", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let sessions = Dictionary(uniqueKeysWithValues: entries.map { entry in
+            (entry.sessionID, [
+                "surfaceId": surfaceID,
+                "updatedAt": entry.updatedAt,
+            ] as [String: Any])
+        })
+        let data = try JSONSerialization.data(
+            withJSONObject: ["sessions": sessions],
+            options: [.sortedKeys]
+        )
+        try data.write(to: directory.appendingPathComponent("codex-hook-sessions.json"))
     }
 }

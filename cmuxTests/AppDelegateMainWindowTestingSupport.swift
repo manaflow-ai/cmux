@@ -71,7 +71,9 @@ extension AppDelegate {
             sidebarSelectionState: SidebarSelectionState(),
             fileExplorerState: fileExplorerState,
             cmuxConfigStore: cmuxConfigStore,
-            window: nil
+            window: nil,
+            workspaceTerminalFontSizeArbiter:
+                workspaceTerminalFontSizeArbiter
         )
         // Context-based tests exercise observer pipelines without a live phone
         // subscriber; force presence on so the graph attaches (pre-gate

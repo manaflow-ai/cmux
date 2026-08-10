@@ -1,6 +1,17 @@
+import CMUXMobileCore
 import Foundation
 
 extension MobileHostService {
+    nonisolated static let irohArtifactLaneCapability = "iroh.artifact_lane.v1"
+    nonisolated static let terminalInputOrderedCapability = "terminal.input.ordered.v1"
+    nonisolated static let workspaceChangesCapability = "workspace.changes.v1"
+    /// Authenticated status includes the Mac's independent phone-forwarding
+    /// gate, presence mode, account proof, and API endpoint identity.
+    nonisolated static let phonePushStatusCapability = "phone_push.status.v1"
+    nonisolated static let phonePushSettingsCapability = "phone_push.settings.v1"
+    /// Authenticated request to enqueue a truthful, correlated test alert.
+    nonisolated static let phonePushTestCapability = "phone_push.test.v1"
+
     /// The single source of truth for the capabilities advertised to mobile
     /// clients via `mobile.host.status`. Every status path (the public-status
     /// cache, the network status gate, and `TerminalController`'s
@@ -25,19 +36,35 @@ extension MobileHostService {
             "events.v1",
             "notification.badge.v1",
             "notification.dismiss.v1",
+            "notification.feed.v1",
             "notification.reconcile.v1",
             "terminal.bytes.v1",
             "terminal.replay.v1",
+            Self.terminalInputOrderedCapability,
             "terminal.viewport.v1",
             "terminal.artifact.v1",
             "terminal.artifact.list.v1",
             "workspace.actions.v1",
+            Self.workspaceChangesCapability,
+            "workspace.metadata.v1",
             "workspace.read_state.v1",
             "workspace.close.v1",
             "workspace.move.v1",
             "workspace.group_actions.v1",
             "workspace.group_create.v1",
             "workspace.create_in_group.v1",
+            // Mac-scoped workspace mutations (move, group actions/create,
+            // create-in-group) are authorized by the signed-in Stack account;
+            // an attach ticket only narrows scope while current. iOS keeps the
+            // drag-and-drop and group-create affordances enabled after ticket
+            // expiry only against hosts that advertise this.
+            "workspace.mutations.account_auth.v1",
+            "workspace.task_create.v1",
+            "task.attachments.v1",
+            "task.models.v1",
+            "workspace.directory_browse.v1",
+            "workspace.directory_search.v1",
+            "workspace.directory_search.v2",
             "chat.artifact.v1",
             "chat.artifact.folders.v1",
             "chat.artifact.gallery.v1",

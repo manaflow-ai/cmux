@@ -24,9 +24,11 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
     nonisolated(unsafe) private let surfaces = NSHashTable<AnyObject>.weakObjects()
     nonisolated(unsafe) private let inProcessRendererSurfaces = NSHashTable<AnyObject>.weakObjects()
     nonisolated(unsafe) private var runtimeSurfaceOwners: [UInt: UUID] = [:]
+    // SAFETY: every access is guarded by `lock`.
     nonisolated(unsafe) private var surfaceFocusPlacements: [UUID: TerminalSurfaceFocusPlacement] = [:]
     // SAFETY: every read and write is guarded by `lock`.
     nonisolated(unsafe) private var generation: UInt64 = 0
+    // SAFETY: every access is guarded by `lock`.
     nonisolated(unsafe) private weak var routeRetirer: (any MainWindowRouteRetiring)?
 
     /// Creates an empty registry.
@@ -164,10 +166,7 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
 
     /// All live registered surfaces, ordered by id for stable iteration.
     public func allSurfaces() -> [any TerminalSurfacing] {
-        lock.lock()
-        let objects = surfaces.allObjects.compactMap { $0 as? any TerminalSurfacing }
-        lock.unlock()
-        return objects.sorted { lhs, rhs in
+        allSurfacesUnordered().sorted { lhs, rhs in
             lhs.id.uuidString < rhs.id.uuidString
         }
     }

@@ -1,10 +1,18 @@
-use std::collections::BTreeMap;
-use std::io::{self, BufRead, BufReader, Read, Write};
-use std::path::PathBuf;
-use std::time::Duration;
+//! Hand-designed noun-first command line for `cmux.protocol/2`.
+//!
+//! The public grammar lives here and in `cli/command.rs`. The wire transport
+//! is deliberately isolated in `cli/wire.rs`, so public commands cannot
+//! accidentally fall back to the private command protocol.
 
-use cmux_tui_core::platform::transport;
-use serde_json::{Value, json};
+mod command;
+mod raw;
+mod wire;
+
+use std::borrow::Cow;
+use std::io::{self, Write};
+use std::path::PathBuf;
+
+use command::{CommandPlan, ParsedCommand};
 
 const REQUEST_ID: u64 = 1;
 
@@ -398,140 +406,153 @@ const VERBS: &[VerbSpec] = &[
     },
 ];
 
-const fn socket(build: BuildFn, print: PrintFn, stream: bool) -> VerbKind {
-    VerbKind::Socket { build, print, stream }
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) enum OutputMode {
+    #[default]
+    Human,
+    Json,
+    JsonLines,
+    Quiet,
 }
+
+#[derive(Clone, Debug, Default)]
+pub(super) struct GlobalArgs {
+    pub socket: Option<PathBuf>,
+    pub session: Option<String>,
+    pub machine: Option<String>,
+    pub output: OutputMode,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct UsageError(pub String);
+
+impl UsageError {
+    pub(super) fn new(message: impl Into<String>) -> Self {
+        Self(message.into())
+    }
+}
+
+impl std::fmt::Display for UsageError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for UsageError {}
 
 pub fn is_cli_invocation(args: &[String]) -> bool {
-    matches!(first_command_arg(args), FirstCommand::Help | FirstCommand::Verb)
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--socket" | "--session" | "--machine" => index += 2,
+            "--json" | "--jsonl" | "--quiet" => index += 1,
+            "-h" | "--help" | "help" => return true,
+            value if PUBLIC_SCOPES.contains(&value) => return true,
+            value if value.starts_with('-') => index += 1,
+            _ => return false,
+        }
+    }
+    false
 }
 
-pub fn run(args: &[String], usage: &str) -> i32 {
+pub fn run(args: &[String], startup_usage: &str) -> i32 {
     match parse(args) {
-        Ok(Parsed::Help) => {
-            print_help(usage);
+        Ok(ParsedCommand::Help(scope)) => {
+            if scope.as_deref() == Some("start") {
+                let mut stdout = io::stdout().lock();
+                let _ = stdout.write_all(startup_usage.as_bytes());
+                let _ = stdout.flush();
+            } else {
+                print_scope_help(scope.as_deref());
+            }
             0
         }
-        Ok(Parsed::Command(args)) => run_command(args),
-        Err(err) => {
-            eprintln!("cmux-tui: {}", err.0);
+        Ok(ParsedCommand::Command { global, plan }) => match plan {
+            CommandPlan::Protocol(request) => wire::run(global, request),
+            CommandPlan::SessionResetState(plan) => command::run_session_reset_state(global, plan),
+            CommandPlan::Plugin(plugin) => command::run_plugin(global, plugin),
+            CommandPlan::ProviderAuthority(authority) => {
+                command::run_provider_authority(global, authority)
+            }
+            CommandPlan::RawCommand(command) => raw::run(global, command),
+        },
+        Err(error) => {
+            eprintln!("cmux: {error}");
             2
         }
     }
 }
 
-pub fn print_help(usage: &str) {
-    print!("{usage}");
-    println!();
-    println!("VERB HELP");
-    for verb in VERBS {
-        println!("  {:<18} {}", verb.name, verb.help);
+fn parse(args: &[String]) -> Result<ParsedCommand, UsageError> {
+    let (global, command_args) = parse_globals(args)?;
+    if command_args.is_empty() {
+        return Err(UsageError::new("missing resource scope; use --help to list scopes"));
     }
-}
-
-enum FirstCommand {
-    None,
-    Help,
-    Verb,
-}
-
-enum Parsed {
-    Help,
-    Command(CliArgs),
-}
-
-fn first_command_arg(args: &[String]) -> FirstCommand {
-    let mut i = 0;
-    while i < args.len() {
-        match args[i].as_str() {
-            "--socket" | "--session" => i += 2,
-            "--json" => i += 1,
-            "-h" | "--help" => return FirstCommand::Help,
-            arg if arg.starts_with("--") => return FirstCommand::None,
-            "help" => return FirstCommand::Help,
-            arg if verb_by_name(arg).is_some() => return FirstCommand::Verb,
-            _ => return FirstCommand::None,
-        }
-    }
-    FirstCommand::None
-}
-
-fn parse(args: &[String]) -> Result<Parsed, UsageError> {
-    if matches!(first_command_arg(args), FirstCommand::Help) {
-        return Ok(Parsed::Help);
-    }
-
-    let mut global = GlobalArgs::default();
-    let mut flags = FlagMap::default();
-    let mut verb: Option<&'static VerbSpec> = None;
-    let mut i = 0;
-    while i < args.len() {
-        let arg = args[i].as_str();
-        match arg {
-            "-h" | "--help" | "help" => return Ok(Parsed::Help),
-            "--json" => {
-                global.json = true;
-                i += 1;
+    if command_args[0] == "help" {
+        return match command_args.get(1) {
+            None => Ok(ParsedCommand::Help(None)),
+            Some(scope) if scope == "start" => Ok(ParsedCommand::Help(Some(scope.clone()))),
+            Some(scope) if PUBLIC_SCOPES.contains(&scope.as_str()) => {
+                Ok(ParsedCommand::Help(Some(scope.clone())))
             }
+            Some(scope) => Err(UsageError::new(format!("unknown resource scope {scope:?}"))),
+        };
+    }
+    if command_args
+        .iter()
+        .take_while(|value| value.as_str() != "--")
+        .any(|value| matches!(value.as_str(), "-h" | "--help"))
+    {
+        let scope =
+            command_args.iter().find(|value| PUBLIC_SCOPES.contains(&value.as_str())).cloned();
+        return Ok(ParsedCommand::Help(scope));
+    }
+    let plan = command::parse(&command_args)?;
+    Ok(ParsedCommand::Command { global, plan })
+}
+
+fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), UsageError> {
+    let mut global = GlobalArgs::default();
+    let mut command = Vec::new();
+    let mut index = 0;
+    let mut after_separator = false;
+    while index < args.len() {
+        let value = &args[index];
+        if after_separator {
+            command.push(value.clone());
+            index += 1;
+            continue;
+        }
+        if value == "--" {
+            after_separator = true;
+            command.push(value.clone());
+            index += 1;
+            continue;
+        }
+        match value.as_str() {
             "--socket" => {
-                global.socket = Some(PathBuf::from(value_after(args, i, "--socket")?));
-                i += 2;
+                global.socket = Some(PathBuf::from(global_value(args, index, value)?));
+                index += 2;
             }
             "--session" => {
-                if verb.is_some_and(|spec| spec.allowed.contains(&"session")) {
-                    let value = value_after(args, i, "--session")?;
-                    if flags.values.insert("session".to_string(), value).is_some() {
-                        return Err(UsageError(format!("duplicate flag {arg:?}")));
-                    }
-                    i += 2;
-                } else {
-                    global.session = Some(value_after(args, i, "--session")?);
-                    i += 2;
-                }
+                global.session = Some(global_value(args, index, value)?);
+                index += 2;
             }
-            _ if verb.is_none() && verb_by_name(arg).is_some() => {
-                verb = verb_by_name(arg);
-                i += 1;
+            "--machine" => {
+                global.machine = Some(global_value(args, index, value)?);
+                index += 2;
             }
-            "--" => {
-                let Some(spec) = verb else {
-                    return Err(UsageError("missing verb before --".to_string()));
-                };
-                if spec.name != "run" {
-                    return Err(UsageError(format!("unexpected argument {arg:?}")));
-                }
-                flags.positionals.extend(args[i + 1..].iter().cloned());
-                break;
+            "--json" => {
+                set_output_mode(&mut global, OutputMode::Json, value)?;
+                index += 1;
             }
-            _ if arg.starts_with("--") => {
-                let Some(spec) = verb else {
-                    return Err(UsageError(format!("unknown global flag {arg:?}")));
-                };
-                let name = arg.trim_start_matches("--");
-                if !spec.allowed.contains(&name) {
-                    return Err(UsageError(format!("unknown flag {arg:?} for {}", spec.name)));
-                }
-                if is_boolean_flag(spec, name) {
-                    if flags.values.insert(name.to_string(), "true".to_string()).is_some() {
-                        return Err(UsageError(format!("duplicate flag {arg:?}")));
-                    }
-                    i += 1;
-                    continue;
-                }
-                let value = value_after(args, i, arg)?;
-                if flags.values.insert(name.to_string(), value).is_some() {
-                    return Err(UsageError(format!("duplicate flag {arg:?}")));
-                }
-                i += 2;
+            "--jsonl" => {
+                set_output_mode(&mut global, OutputMode::JsonLines, value)?;
+                index += 1;
             }
-            _ if verb.is_some() => {
-                let spec = verb.unwrap();
-                if spec.name == "send-key" || matches!(spec.kind, VerbKind::Local(_)) {
-                    flags.positionals.push(arg.to_string());
-                    i += 1;
-                } else {
-                    return Err(UsageError(format!("unexpected argument {arg:?}")));
-                }
+            "--quiet" => {
+                set_output_mode(&mut global, OutputMode::Quiet, value)?;
+                index += 1;
             }
             _ => return Err(UsageError(format!("unknown argument {arg:?}"))),
         }
@@ -667,18 +688,8 @@ fn run_one_response(
                 return 3;
             }
         }
-        let value = match serde_json::from_str::<Value>(&line) {
-            Ok(value) => value,
-            Err(err) => {
-                eprintln!("bad response: {err}");
-                return 3;
-            }
-        };
-        if value.get("event").is_some() {
-            continue;
-        }
-        return print_response(&value, json_output, print_human);
     }
+    Ok((global, command))
 }
 
 fn run_stream(mut reader: BufReader<Box<dyn transport::Stream>>) -> i32 {
@@ -1287,183 +1298,140 @@ fn print_empty(_: &Value, _: &mut dyn Write) -> io::Result<()> {
     Ok(())
 }
 
-fn print_identify(data: &Value, out: &mut dyn Write) -> io::Result<()> {
-    writeln!(
-        out,
-        "cmux-tui session={} protocol={} pid={}",
-        data.get("session").and_then(Value::as_str).unwrap_or(""),
-        data.get("protocol").and_then(Value::as_u64).unwrap_or(0),
-        data.get("pid").and_then(Value::as_u64).unwrap_or(0)
-    )
+fn print_scope_help(scope: Option<&str>) {
+    let text = scope.map(scope_help).unwrap_or(Cow::Borrowed(ROOT_HELP));
+    let mut stdout = io::stdout().lock();
+    let _ = stdout.write_all(text.as_bytes());
+    let _ = stdout.flush();
 }
 
-fn print_ping(data: &Value, out: &mut dyn Write) -> io::Result<()> {
-    writeln!(
-        out,
-        "cmux-tui version={} protocol={}",
-        data.get("version").and_then(Value::as_str).unwrap_or(""),
-        data.get("protocol").and_then(Value::as_u64).unwrap_or(0)
-    )
-}
-
-fn print_clients(data: &Value, out: &mut dyn Write) -> io::Result<()> {
-    let Some(clients) = data.as_array() else { return Ok(()) };
-    for client in clients {
-        let attached = client
-            .get("attached")
-            .and_then(Value::as_array)
-            .map(|surfaces| {
-                surfaces
-                    .iter()
-                    .filter_map(Value::as_u64)
-                    .map(|surface| surface.to_string())
-                    .collect::<Vec<_>>()
-                    .join(",")
-            })
-            .filter(|value| !value.is_empty())
-            .unwrap_or_else(|| "-".to_string());
-        let sizes = client
-            .get("sizes")
-            .and_then(Value::as_array)
-            .map(|sizes| {
-                sizes
-                    .iter()
-                    .map(|size| {
-                        let surface = size.get("surface").and_then(Value::as_u64).unwrap_or(0);
-                        match (
-                            size.get("cols").and_then(Value::as_u64),
-                            size.get("rows").and_then(Value::as_u64),
-                        ) {
-                            (Some(cols), Some(rows)) => format!("{surface}:{cols}x{rows}"),
-                            _ => format!("{surface}:null"),
-                        }
-                    })
-                    .collect::<Vec<_>>()
-                    .join(",")
-            })
-            .filter(|value| !value.is_empty())
-            .unwrap_or_else(|| "-".to_string());
-        writeln!(
-            out,
-            "{} {} {} {} connected={}s attached={} sizes={} self={} sizing={}",
-            client.get("client").and_then(Value::as_u64).unwrap_or(0),
-            client.get("transport").and_then(Value::as_str).unwrap_or(""),
-            client.get("name").and_then(Value::as_str).unwrap_or("-"),
-            client.get("kind").and_then(Value::as_str).unwrap_or("-"),
-            client.get("connected_seconds").and_then(Value::as_u64).unwrap_or(0),
-            attached,
-            sizes,
-            client.get("self").and_then(Value::as_bool).unwrap_or(false),
-            client.get("size_participating").and_then(Value::as_bool).unwrap_or(true),
-        )?;
-    }
-    Ok(())
-}
-
-fn print_read_screen(data: &Value, out: &mut dyn Write) -> io::Result<()> {
-    write!(out, "{}", data.get("text").and_then(Value::as_str).unwrap_or(""))
-}
-
-fn print_scrollback(data: &Value, out: &mut dyn Write) -> io::Result<()> {
-    let Some(rows) = data.get("rows").and_then(Value::as_array) else { return Ok(()) };
-    for row in rows {
-        if let Some(runs) = row.get("runs").and_then(Value::as_array) {
-            for run in runs {
-                write!(out, "{}", run.get("text").and_then(Value::as_str).unwrap_or(""))?;
-            }
-        }
-        writeln!(out)?;
-    }
-    Ok(())
-}
-
-fn print_vt_state(data: &Value, out: &mut dyn Write) -> io::Result<()> {
-    writeln!(
-        out,
-        "cols={} rows={} data={}",
-        data.get("cols").and_then(Value::as_u64).unwrap_or(0),
-        data.get("rows").and_then(Value::as_u64).unwrap_or(0),
-        data.get("data").and_then(Value::as_str).unwrap_or("")
-    )
-}
-
-fn print_surface(data: &Value, out: &mut dyn Write) -> io::Result<()> {
-    writeln!(out, "{}", data.get("surface").and_then(Value::as_u64).unwrap_or(0))
-}
-
-fn print_notification(data: &Value, out: &mut dyn Write) -> io::Result<()> {
-    writeln!(out, "{}", data.get("notification").and_then(Value::as_u64).unwrap_or(0))
-}
-
-fn print_ids(data: &Value, out: &mut dyn Write) -> io::Result<()> {
-    let Some(ids) = data.get("ids").and_then(Value::as_array) else { return Ok(()) };
-    for item in ids {
-        writeln!(
-            out,
-            "{} {} {}",
-            item.get("kind").and_then(Value::as_str).unwrap_or(""),
-            item.get("id").and_then(Value::as_u64).unwrap_or(0),
-            item.get("short_id").and_then(Value::as_str).unwrap_or("")
-        )?;
-    }
-    Ok(())
-}
-
-fn print_pane(data: &Value, out: &mut dyn Write) -> io::Result<()> {
-    writeln!(out, "{}", data.get("pane").and_then(Value::as_u64).unwrap_or(0))
-}
-
-fn print_optional_pane(data: &Value, out: &mut dyn Write) -> io::Result<()> {
-    match data.get("pane").and_then(Value::as_u64) {
-        Some(pane) => writeln!(out, "{pane}"),
-        None => writeln!(out, "null"),
+fn scope_help(scope: &str) -> Cow<'static, str> {
+    match scope {
+        "machine" => Cow::Borrowed(MACHINE_HELP),
+        "session" => Cow::Owned(session_help(&crate::localization::catalog().session_reset)),
+        "client" => Cow::Borrowed(CLIENT_HELP),
+        "workspace" => Cow::Borrowed(WORKSPACE_HELP),
+        "screen" => Cow::Borrowed(SCREEN_HELP),
+        "pane" => Cow::Borrowed(PANE_HELP),
+        "tab" => Cow::Borrowed(TAB_HELP),
+        "terminal" => Cow::Borrowed(TERMINAL_HELP),
+        "browser" => Cow::Borrowed(BROWSER_HELP),
+        "notification" => Cow::Borrowed(NOTIFICATION_HELP),
+        "agent" => Cow::Borrowed(AGENT_HELP),
+        "sidebar" => Cow::Borrowed(SIDEBAR_HELP),
+        "pairing" => Cow::Borrowed(PAIRING_HELP),
+        "projection" => Cow::Borrowed(PROJECTION_HELP),
+        "provider" => Cow::Borrowed(PROVIDER_HELP),
+        "raw" => Cow::Borrowed(RAW_HELP),
+        _ => Cow::Borrowed(ROOT_HELP),
     }
 }
 
-fn print_json_data(data: &Value, out: &mut dyn Write) -> io::Result<()> {
-    serde_json::to_writer(&mut *out, data).map_err(io::Error::other)?;
-    writeln!(out)
+const ROOT_HELP: &str = "\
+cmux - terminal multiplexer and resource client
+
+USAGE
+  cmux [START OPTIONS]
+  cmux attach [START OPTIONS]
+  cmux relay [ROUTING OPTIONS]
+  cmux machine-agent [OPTIONS]
+  cmux [GLOBAL OPTIONS] <scope> <action>
+
+GLOBAL OPTIONS
+  --socket <path>    Connect to an exact local session socket
+  --session <name>   Route through a named local session
+  --machine <value>  Constrain machine-scoped requests
+  --json             Print one JSON result
+  --jsonl            Print one JSON value per result or event
+  --quiet            Suppress successful output
+  -h, --help         Show command help
+
+PROCESS HELP
+  cmux help start
+  cmux attach --help
+  cmux relay --help
+  cmux machine-agent --help
+
+RESOURCE SCOPES
+  machine       Inspect the local machine and session route
+  session       Inspect and control a session
+  client        Inspect connected clients
+  workspace     Create and organize workspaces
+  screen        Create and organize screens
+  pane          Split, focus, and organize panes
+  tab           Create and organize terminal or browser tabs
+  terminal      Read, write, and attach to terminals
+  browser       Navigate and attach to browsers
+  notification  List and create notifications
+  agent         List and report agent state
+  sidebar       Manage sidebar views and local plugins
+  pairing       Resolve pairing requests
+  projection    Read and update frontend projections
+  provider      Install private provider authority
+  raw           Send an explicit low-level operation
+
+Run `cmux <scope> --help` for scope-specific paths.
+";
+
+const MACHINE_HELP: &str = "\
+USAGE
+  cmux machine list
+  cmux machine <selector> show
+  cmux machine <selector> session list
+  cmux machine <selector> session <selector> open
+";
+
+const SESSION_HELP_PREFIX: &str = "\
+USAGE
+  cmux session list
+  cmux session <selector> open|show|snapshot|ping|shutdown
+";
+
+const SESSION_HELP_SUFFIX: &str = "\
+  cmux session <selector> creation <correlation-key> resolve
+  cmux session <selector> events [--generation <value> --revision <decimal>]
+  cmux session <selector> config reload
+  cmux session <selector> window title set --title <value>
+  cmux session <selector> window title clear
+  cmux session <selector> terminal defaults set [OPTIONS]
+";
+
+fn session_help(messages: &crate::localization::SessionResetMessages) -> String {
+    format!("{SESSION_HELP_PREFIX}{}\n{SESSION_HELP_SUFFIX}", messages.help)
 }
 
-fn print_applied_layout(data: &Value, out: &mut dyn Write) -> io::Result<()> {
-    writeln!(out, "screen={}", data.get("screen").and_then(Value::as_u64).unwrap_or(0))?;
-    if let Some(panes) = data.get("panes").and_then(Value::as_array) {
-        for pane in panes {
-            writeln!(
-                out,
-                "pane={} surface={}",
-                pane.get("pane").and_then(Value::as_u64).unwrap_or(0),
-                pane.get("surface").and_then(Value::as_u64).unwrap_or(0)
-            )?;
-        }
-    }
-    Ok(())
-}
+const CLIENT_HELP: &str = "\
+USAGE
+  cmux client list
+  cmux client <selector> show|detach
+  cmux client <selector> label set [--name <value>] [--kind <value>]
+  cmux client <selector> sizing set --terminal <selector> --enabled <bool>
+  cmux client <selector> sizing release --terminal <selector>
+  cmux client <selector> cell pixels set --width-px <n> --height-px <n>
+";
 
-fn print_agents(data: &Value, out: &mut dyn Write) -> io::Result<()> {
-    let Some(agents) = data.get("agents").and_then(Value::as_array) else { return Ok(()) };
-    for agent in agents {
-        writeln!(
-            out,
-            "{} {} {} {}",
-            agent.get("surface").and_then(Value::as_u64).unwrap_or(0),
-            agent.get("state").and_then(Value::as_str).unwrap_or(""),
-            agent.get("source").and_then(Value::as_str).unwrap_or(""),
-            agent.get("session").and_then(Value::as_str).unwrap_or("-")
-        )?;
-    }
-    Ok(())
-}
+const WORKSPACE_HELP: &str = "\
+USAGE
+  cmux workspace list
+  cmux workspace create [--name <value>] [--empty] [--correlation-key <value>]
+  cmux workspace <selector> show|rename|move|focus|close
+  cmux workspace <selector> run [--correlation-key <value>] -- <argv...>
+  cmux workspace <selector> run [--correlation-key <value>] shell <script>
+  cmux workspace <selector> layout apply [OPTIONS]
+  cmux workspace <selector> screen ...
+  Nested panes support split --right or --down.
+";
 
-fn print_zoom_state(data: &Value, out: &mut dyn Write) -> io::Result<()> {
-    writeln!(
-        out,
-        "pane={} zoomed={} zoomed_pane={}",
-        data.get("pane").and_then(Value::as_u64).unwrap_or(0),
-        data.get("zoomed").and_then(Value::as_bool).unwrap_or(false),
-        atom(data.get("zoomed_pane"))
-    )
-}
+const SCREEN_HELP: &str = "\
+USAGE
+  cmux screen list
+  cmux screen create [--correlation-key <value>]
+  cmux screen <selector> show|rename|focus|close
+  cmux screen <selector> layout export
+  cmux screen <selector> layout undo [--confirm-close]
+    [--confirmation-token <value>]
+  cmux screen <selector> pane ...
+";
 
 fn print_process_info(data: &Value, out: &mut dyn Write) -> io::Result<()> {
     writeln!(
@@ -1476,114 +1444,106 @@ fn print_process_info(data: &Value, out: &mut dyn Write) -> io::Result<()> {
     )
 }
 
-fn print_tree(data: &Value, out: &mut dyn Write) -> io::Result<()> {
-    let Some(workspaces) = data.get("workspaces").and_then(Value::as_array) else {
-        return Ok(());
-    };
-    for workspace in workspaces {
-        let workspace_id = id_field(workspace, "id");
-        writeln!(
-            out,
-            "workspace id={} name={} active={}",
-            workspace_id,
-            atom(workspace.get("name")),
-            bool_field(workspace, "active")
-        )?;
-        let Some(screens) = workspace.get("screens").and_then(Value::as_array) else {
-            continue;
-        };
-        for screen in screens {
-            let screen_id = id_field(screen, "id");
-            writeln!(
-                out,
-                "screen id={} workspace={} name={} active={} active_pane={}",
-                screen_id,
-                workspace_id,
-                atom(screen.get("name")),
-                bool_field(screen, "active"),
-                id_field(screen, "active_pane")
-            )?;
-            let Some(panes) = screen.get("panes").and_then(Value::as_array) else {
-                continue;
-            };
-            for pane in panes {
-                let pane_id = id_field(pane, "id");
-                if bool_field(pane, "dead") {
-                    writeln!(out, "pane id={pane_id} screen={screen_id} dead=true")?;
-                    continue;
-                }
-                writeln!(
-                    out,
-                    "pane id={} screen={} name={} active_tab={}",
-                    pane_id,
-                    screen_id,
-                    atom(pane.get("name")),
-                    id_field(pane, "active_tab")
-                )?;
-                let Some(tabs) = pane.get("tabs").and_then(Value::as_array) else {
-                    continue;
-                };
-                for tab in tabs {
-                    let size = tab.get("size");
-                    let (cols, rows) = match size {
-                        Some(size) if size.is_object() => {
-                            (id_field(size, "cols"), id_field(size, "rows"))
-                        }
-                        _ => (0, 0),
-                    };
-                    writeln!(
-                        out,
-                        "tab surface={} pane={} kind={} browser_source={} name={} title={} dead={} cols={} rows={}",
-                        id_field(tab, "surface"),
-                        pane_id,
-                        tab.get("kind").and_then(Value::as_str).unwrap_or(""),
-                        atom(tab.get("browser_source")),
-                        atom(tab.get("name")),
-                        atom(tab.get("title")),
-                        bool_field(tab, "dead"),
-                        cols,
-                        rows
-                    )?;
-                }
-            }
-        }
-    }
-    Ok(())
-}
+const TAB_HELP: &str = "\
+USAGE
+  cmux tab list
+  cmux tab <selector> show|rename|move|focus|close
+  cmux tab create terminal [--correlation-key <value>] [OPTIONS]
+  cmux tab create browser --url <value> [--correlation-key <value>] [OPTIONS]
+  cmux tab <selector> terminal|browser ...
+";
 
-fn id_field(value: &Value, key: &str) -> u64 {
-    value.get(key).and_then(Value::as_u64).unwrap_or(0)
-}
+const TERMINAL_HELP: &str = "\
+USAGE
+  cmux terminal list
+  cmux terminal <selector> show
+  cmux terminal <selector> write [--text <value>|--bytes-base64 <base64>]
+  cmux terminal <selector> keys <key...>
+  cmux terminal <selector> mouse <kind> [OPTIONS]
+  cmux terminal <selector> focus <in|out>
+  cmux terminal <selector> screen read
+  cmux terminal <selector> screen wait --pattern <regex> [--timeout-ms <n>]
+  cmux terminal <selector> state read
+  cmux terminal <selector> history read|clear
+  cmux terminal <selector> copy|process show [OPTIONS]
+  cmux terminal <selector> process wait [--timeout-ms <n>]
+  cmux terminal <selector> viewport scroll --delta-rows <n>
+  cmux terminal <selector> move|project|attach|close [OPTIONS]
+";
 
-fn bool_field(value: &Value, key: &str) -> bool {
-    value.get(key).and_then(Value::as_bool).unwrap_or(false)
-}
+const BROWSER_HELP: &str = "\
+USAGE
+  cmux browser list
+  cmux browser <selector> show|navigate|back|forward|reload|activate
+  cmux browser <selector> key|text [OPTIONS]
+  cmux browser <selector> mouse|wheel --pointer-frame-seq <decimal> [OPTIONS]
+  cmux browser <selector> attach|close [OPTIONS]
+";
 
-fn atom(value: Option<&Value>) -> String {
-    match value {
-        Some(Value::String(text)) => serde_json::to_string(text).unwrap_or_default(),
-        Some(Value::Null) | None => "null".to_string(),
-        Some(value) => value.to_string(),
-    }
-}
+const NOTIFICATION_HELP: &str = "\
+USAGE
+  cmux notification list
+  cmux notification create --title <value> --body <value> [OPTIONS]
+";
+
+const AGENT_HELP: &str = "\
+USAGE
+  cmux agent list [OPTIONS]
+  cmux agent report --terminal <selector> --state <value> --source <value>
+";
+
+const SIDEBAR_HELP: &str = "\
+USAGE
+  cmux sidebar view show|attach|input|reload [OPTIONS]
+  cmux sidebar view ensure|resize --cols <n> --rows <n> [OPTIONS]
+  cmux sidebar plugin list
+  cmux sidebar plugin install <git-url> [--name <value>] [--force]
+  cmux sidebar plugin use <name-or-id>
+  cmux sidebar plugin use --builtin
+  cmux sidebar plugin update|remove <name-or-id>
+";
+
+const PAIRING_HELP: &str = "\
+USAGE
+  cmux pairing request list
+  cmux pairing request <selector> respond <accept|reject>
+";
+
+const PROJECTION_HELP: &str = "\
+USAGE
+  cmux projection show [--projection-id <selector>]
+  cmux projection put --projection <json> [--projection-id <selector>]
+";
+
+const PROVIDER_HELP: &str = "\
+USAGE
+  cmux --socket <path> provider authority install
+    --generation <decimal> --authority-file <root-private-path>
+";
+
+const RAW_HELP: &str = "\
+USAGE
+  cmux raw operation <dotted.name> [--params-json <object>]
+    [--mutation --idempotency-key <value>] [--stream]
+  cmux raw command --request-json <full-object>
+
+`raw operation` uses cmux.protocol/2. `raw command` is an unsafe internal
+escape for the legacy control protocol and provides no compatibility promise.
+";
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn plugin_verb_is_registered_as_local_with_help() {
-        let plugin = verb_by_name("plugin").expect("plugin verb registered");
-        assert!(matches!(plugin.kind, VerbKind::Local(_)));
-        assert!(plugin.allowed.contains(&"name"));
-        assert!(plugin.allowed.contains(&"force"));
-        assert!(plugin.allowed.contains(&"builtin"));
-        assert!(plugin.help.contains("sidebar plugins"));
+    fn strings(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| (*value).to_string()).collect()
     }
 
     #[test]
-    fn registered_verbs_have_help_text() {
-        assert!(VERBS.iter().all(|verb| !verb.help.is_empty()));
+    fn global_modes_are_mutually_exclusive() {
+        let error =
+            parse_globals(&strings(&["--json", "--quiet", "workspace", "list"])).unwrap_err();
+        assert!(error.0.contains("another output mode"));
     }
 
     #[test]
@@ -1650,17 +1610,33 @@ mod tests {
     }
 
     #[test]
-    fn scrollback_human_output_flattens_runs_one_row_per_line() {
-        let data = json!({
-            "rows": [
-                {"row": 0, "runs": [{"text": "car"}, {"text": "go"}]},
-                {"row": 1, "runs": [{"text": "ok"}]},
-            ],
-            "start": 0,
-            "total": 2,
-        });
-        let mut output = Vec::new();
-        print_scrollback(&data, &mut output).unwrap();
-        assert_eq!(output, b"cargo\nok\n");
+    fn every_scope_has_dedicated_help() {
+        for scope in PUBLIC_SCOPES {
+            let help = scope_help(scope);
+            assert!(help.contains("USAGE"));
+            assert!(help.contains(scope));
+        }
+        let english =
+            session_help(&crate::localization::catalog_for_locale("en_US.UTF-8").session_reset);
+        let japanese =
+            session_help(&crate::localization::catalog_for_locale("ja_JP.UTF-8").session_reset);
+        assert!(english.contains("creation <correlation-key> resolve"));
+        assert!(english.contains("session <name> reset-state"));
+        assert!(japanese.contains("session <name> reset-state"));
+        assert!(japanese.contains("保存状態のリセット"));
+        assert!(TERMINAL_HELP.contains("screen wait --pattern <regex>"));
+        assert!(TERMINAL_HELP.contains("process wait [--timeout-ms <n>]"));
+        assert!(TERMINAL_HELP.contains("move|project|attach|close"));
+    }
+
+    #[test]
+    fn startup_help_is_explicitly_discoverable() {
+        assert!(ROOT_HELP.contains("cmux help start"));
+        assert!(ROOT_HELP.starts_with("cmux - "));
+        assert!(!ROOT_HELP.contains("cmux-tui"));
+        assert!(matches!(
+            parse(&strings(&["help", "start"])).unwrap(),
+            ParsedCommand::Help(Some(scope)) if scope == "start"
+        ));
     }
 }

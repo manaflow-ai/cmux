@@ -159,7 +159,7 @@ struct ChatArtifactViewerPagerModelTests {
         )
         let identity = try #require(model.pageIdentity(for: path))
 
-        model.requestTop()
+        model.requestTop(for: path)
         let requestID = model.toolbarSnapshot.topRequestID
         let actions = model.actions(
             for: path,

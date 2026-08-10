@@ -2,7 +2,8 @@ import CmuxFoundation
 import SwiftUI
 
 enum ShortcutHintAnimation {
-    static let visibility: Animation = .easeOut(duration: 0.12)
+    static let visibilityDuration: TimeInterval = 0.12
+    static let visibility: Animation = .easeOut(duration: visibilityDuration)
     static let transition: AnyTransition = .opacity
 }
 

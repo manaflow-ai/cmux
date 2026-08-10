@@ -36,17 +36,23 @@ mod topology;
 pub mod layout;
 pub mod platform;
 pub mod server;
+pub mod terminal_host;
+pub mod terminal_host_protocol;
+pub mod terminal_host_runtime;
 
-pub use browser::{TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_url};
+pub use browser::{BrowserFailure, TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_url};
 pub use event_bus::{MuxEventBroadcaster, MuxEventReceiver};
 pub use identity::{
     DaemonInstanceId, PaneUuid, PresentationId, ScreenUuid, SessionId, SurfaceUuid, WorkspaceUuid,
 };
 pub use layout::{
-    LayoutResult, Rect, SplitEdge, SplitResize, directional_neighbor, layout_screen,
-    split_for_pane_edge, split_sides,
+    DEFAULT_VIEWPORT_PANE_WIDTH, ExactSplitResize, ExactViewportSplitResize, LayoutResult,
+    MAX_VIEWPORT_PANE_WIDTH, MIN_VIEWPORT_PANE_WIDTH, Rect, SplitEdge, SplitResize,
+    ViewportColumnRect, ViewportLayoutResult, VirtualRect, directional_neighbor,
+    exact_split_for_pane_edge, exact_split_for_pane_edge_with_viewport, layout_screen,
+    layout_screen_with_viewport, split_for_pane_edge, split_sides, zellij_default_pane_layout,
 };
-pub use model::{Node, Pane, Screen, State, Workspace};
+pub use model::{Node, Pane, Screen, State, ViewportColumn, Workspace};
 pub use mux::{
     AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, CanonicalSnapshot,
     CellPixelUpdate, CellPixelUpdateFailure, Direction, LayoutLeafSpec, LayoutSpec, Mux, MuxEvent,
@@ -69,8 +75,13 @@ pub use short_id::assign_short_ids;
 pub use state_store::{STATE_STORE_VERSION, StateRecovery, StateStore, StateStoreError};
 pub use surface::{
     AttachFrame, AttachFrameReceiver, AttachStream, BrowserAttachState, BrowserFrame,
-    BrowserFrameStream, BrowserSource, BrowserStatus, DefaultColors, RenderAttachFrame,
-    RenderAttachStream, Surface, SurfaceKind, SurfaceOptions, SurfaceRenderFrame, TerminalColors,
+    BrowserFrameStream, BrowserFrameUpdate, BrowserSource, BrowserStatus,
+    CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR, CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR,
+    CLEAR_HISTORY_PRESERVATION_ERROR, CLEAR_HISTORY_STREAM_TIMEOUT_ERROR, ClearHistoryDelivery,
+    ClearHistoryFailure, DefaultColors, GuardedMouseEncode, PointerSemanticProbe,
+    PointerSnapshotProbe, RenderAttachFrame, RenderAttachStream, Surface, SurfaceKind,
+    SurfaceOptions, SurfaceRenderFrame, TerminalColors, TerminalHostConnectionState,
+    TerminalPointerSnapshot,
 };
 pub use terminal_activity::{
     LEGACY_TERMINAL_ACTIVITY_READER_UUID, NotificationLevel, TerminalActivityFact,
@@ -80,7 +91,14 @@ pub use topology::{
     ResnapshotReason, ResnapshotRequired, TopologyDelta, TopologyDeltaReceiver, TopologyLimits,
     TopologyOperation, TopologyResume, TopologySnapshot, TopologySubscription, TopologyTargets,
 };
+pub use workspace_registry::{
+    FrontendProjection, PersistentSessionStateReset, PersistentSessionStateResetPreview,
+    PersistentSessionStateResetter, ProjectionCommit, RegistryCommit, RegistryEvent,
+    RegistrySnapshot, RegistryWorkspace, UnsupportedWorkspaceRegistrySchema, WorkspaceMutation,
+    WorkspaceRegistry,
+};
 
+pub use cmux_remote_protocol::REMOTE_SESSION_MESSAGE_MAX_BYTES;
 pub use cmux_tui_cdp::BrowserMode;
 pub use ghostty_vt::{CursorShape, Rgb};
 
@@ -91,6 +109,7 @@ pub fn launch_gate_entrypoint(args: &[String]) -> Option<anyhow::Result<()>> {
 
 pub type SurfaceId = u64;
 pub type PaneId = u64;
+pub type SplitId = u64;
 pub type ScreenId = u64;
 pub type WorkspaceId = u64;
 

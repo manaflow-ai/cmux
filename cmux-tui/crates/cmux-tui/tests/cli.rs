@@ -43,24 +43,40 @@ fn register_test_tui(writer: &mut impl Write, reader: &mut impl BufRead) {
 struct HeadlessServer {
     child: Child,
     socket: PathBuf,
+    state: PathBuf,
     dir: PathBuf,
 }
 
 impl HeadlessServer {
     fn start(name: &str) -> Self {
+        Self::start_with_config(name, None)
+    }
+
+    fn start_with_config(name: &str, config_contents: Option<&str>) -> Self {
         let dir = unique_temp_dir(name);
         fs::create_dir_all(&dir).unwrap();
         let socket = dir.join("mux.sock");
+        let state = dir.join("state");
+        // A headless fixture must never inherit the developer's real plugin
+        // configuration. Server-owned plugins are configured explicitly by
+        // the tests that exercise them.
+        let config = dir.join("config.json");
+        if let Some(contents) = config_contents {
+            fs::write(&config, contents).unwrap();
+        }
         let child = Command::new(bin())
             .args(["--headless", "--state-dir"])
             .arg(dir.join("state"))
             .arg("--socket")
             .arg(&socket)
+            .arg("--state")
+            .arg(&state)
+            .env("CMUX_TUI_CONFIG", &config)
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .spawn()
             .unwrap();
-        let server = Self { child, socket, dir };
+        let server = Self { child, socket, state, dir };
         server.wait_for_socket();
         server
     }
@@ -68,7 +84,7 @@ impl HeadlessServer {
     fn wait_for_socket(&self) {
         let deadline = Instant::now() + Duration::from_secs(15);
         while Instant::now() < deadline {
-            if self.socket.exists() {
+            if transport::connect(&self.socket).is_ok() {
                 return;
             }
             std::thread::sleep(Duration::from_millis(25));
@@ -92,11 +108,99 @@ impl HeadlessServer {
 
 impl Drop for HeadlessServer {
     fn drop(&mut self) {
+        // Durable terminal hosts intentionally outlive the daemon. Tests must
+        // close their terminal resources first rather than assuming SIGKILL
+        // of the daemon also owns or reaps their processes.
+        let hosts_stopped = self.close_all_resources();
         let _ = self.child.kill();
         let _ = self.child.wait();
         let _ = fs::remove_file(&self.socket);
         let _ = fs::remove_dir_all(&self.dir);
+        if !hosts_stopped && !std::thread::panicking() {
+            panic!("headless CLI fixture left a durable terminal-host process behind");
+        }
     }
+}
+
+fn try_json_socket_request(
+    path: &std::path::Path,
+    request: serde_json::Value,
+) -> Option<serde_json::Value> {
+    let stream = transport::connect(path).ok()?;
+    let mut writer = stream.try_clone_box().ok()?;
+    let mut reader = BufReader::new(stream);
+    writeln!(writer, "{request}").ok()?;
+    let mut line = String::new();
+    reader.read_line(&mut line).ok()?;
+    let response: serde_json::Value = serde_json::from_str(&line).ok()?;
+    (response["ok"] == true).then(|| response["data"].clone())
+}
+
+fn terminal_host_pids(root: &std::path::Path) -> Vec<u32> {
+    fs::read_dir(root)
+        .ok()
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter_map(|entry| fs::read(entry.path()).ok())
+        .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        .filter_map(|record| record["host_pid"].as_u64())
+        .filter_map(|pid| u32::try_from(pid).ok())
+        .collect()
+}
+
+#[cfg(unix)]
+fn process_exists(pid: u32) -> bool {
+    let Ok(pid) = libc::pid_t::try_from(pid) else { return false };
+    // SAFETY: signal zero performs only an existence/permission check.
+    if unsafe { libc::kill(pid, 0) == 0 } {
+        return true;
+    }
+    std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
+#[cfg(unix)]
+fn process_group_exists(pid: u32) -> bool {
+    let Ok(pid) = libc::pid_t::try_from(pid) else { return false };
+    // SAFETY: a negative PID with signal zero checks the process group and
+    // cannot deliver a signal.
+    if unsafe { libc::kill(-pid, 0) == 0 } {
+        return true;
+    }
+    std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
+#[cfg(not(unix))]
+fn process_exists(_pid: u32) -> bool {
+    false
+}
+
+#[cfg(not(unix))]
+fn process_group_exists(_pid: u32) -> bool {
+    false
+}
+
+fn wait_for_socket_path(path: &std::path::Path) {
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while Instant::now() < deadline {
+        if transport::connect(path).is_ok() {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    panic!("server did not accept connections at {}", path.display());
+}
+
+fn json_socket_request(path: &std::path::Path, request: serde_json::Value) -> serde_json::Value {
+    let stream = transport::connect(path).unwrap();
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+    writeln!(writer, "{request}").unwrap();
+    let mut line = String::new();
+    reader.read_line(&mut line).unwrap();
+    let response: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(response["ok"], true, "request failed: {response}");
+    response["data"].clone()
 }
 
 #[test]
@@ -133,13 +237,14 @@ fn durability_failure_terminates_daemon_and_releases_session_lock() {
 fn cli_verbs_cover_command_output_errors_and_streams() {
     let server = HeadlessServer::start("matrix");
 
-    let identify = cli(&server, &["identify"]);
+    let identify = raw_cli(&server, serde_json::json!({"id":"identify-human","cmd":"identify"}));
     assert_success(&identify);
-    assert!(String::from_utf8_lossy(&identify.stdout).starts_with("cmux-tui session="));
+    assert!(String::from_utf8_lossy(&identify.stdout).contains("\"protocol\":10"));
 
-    let identify_json = cli(&server, &["--json", "identify"]);
+    let identify_json =
+        raw_cli(&server, serde_json::json!({"id":"identify-json","cmd":"identify"}));
     assert_success(&identify_json);
-    let value: serde_json::Value = serde_json::from_slice(&identify_json.stdout).unwrap();
+    let value = json_output(&identify_json);
     assert_eq!(value.get("app").and_then(|v| v.as_str()), Some("cmux-tui"));
     assert!(value.get("protocol").and_then(|v| v.as_u64()).unwrap_or(0) >= 5);
 
@@ -156,9 +261,18 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
             .any(|capability| capability == "topology-resume-v1")
     );
 
-    let client_info =
-        cli(&server, &["set-client-info", "--name", "one-shot", "--kind", "cli-test"]);
+    let ping_json = json_cli(&server, &["session", "current", "ping"]);
+    assert_success(&ping_json);
+    let ping = json_output(&ping_json);
+    assert_eq!(ping.get("alive").and_then(|v| v.as_bool()), Some(true));
+    assert!(ping["cursor"]["generation"].is_string());
+
+    let client_info = json_cli(
+        &server,
+        &["client", "current", "label", "set", "--name", "one-shot", "--kind", "cli-test"],
+    );
     assert_success(&client_info);
+    assert_eq!(json_output(&client_info)["name"], "one-shot");
 
     let target = transport::connect(&server.socket).unwrap();
     let mut target_writer = target.try_clone_box().unwrap();
@@ -173,41 +287,88 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     target_reader.read_line(&mut target_response).unwrap();
     assert_eq!(serde_json::from_str::<serde_json::Value>(&target_response).unwrap()["ok"], true);
 
-    let clients = cli(&server, &["--json", "list-clients"]);
+    let sizing_workspace = json_cli(&server, &["workspace", "create", "--name", "cli-test"]);
+    assert_success(&sizing_workspace);
+    let created = json_output(&sizing_workspace);
+    let workspace_id = created["value"]["workspace_id"].as_str().unwrap().to_string();
+    let screen_id = created["value"]["screen_id"].as_str().unwrap().to_string();
+    let pane0 = created["value"]["pane_id"].as_str().unwrap().to_string();
+    let terminal = created["value"]["terminal_id"].as_str().unwrap().to_string();
+    let raw_tree =
+        raw_json(&server, serde_json::json!({"id":"created-tree","cmd":"list-workspaces"}));
+    let sizing_surface =
+        raw_tree["workspaces"][0]["screens"][0]["panes"][0]["tabs"][0]["surface"].as_u64().unwrap();
+    writeln!(target_writer, r#"{{"id":2,"cmd":"attach-surface","surface":{sizing_surface}}}"#)
+        .unwrap();
+    loop {
+        target_response.clear();
+        target_reader.read_line(&mut target_response).unwrap();
+        let response = serde_json::from_str::<serde_json::Value>(&target_response).unwrap();
+        if response["id"] == 2 {
+            assert_eq!(response["ok"], true);
+            break;
+        }
+    }
+    writeln!(
+        target_writer,
+        r#"{{"id":3,"cmd":"resize-surface","surface":{sizing_surface},"cols":80,"rows":24}}"#
+    )
+    .unwrap();
+    loop {
+        target_response.clear();
+        target_reader.read_line(&mut target_response).unwrap();
+        let response = serde_json::from_str::<serde_json::Value>(&target_response).unwrap();
+        if response["id"] == 3 {
+            assert_eq!(response["ok"], true);
+            break;
+        }
+    }
+
+    let clients = json_cli(&server, &["client", "list"]);
     assert_success(&clients);
-    let clients_json: serde_json::Value = serde_json::from_slice(&clients.stdout).unwrap();
+    let clients_json = json_output(&clients);
     let target_id = clients_json
         .as_array()
         .unwrap()
         .iter()
         .find(|client| client["name"] == "cli-detach-target")
-        .unwrap()["client"]
-        .as_u64()
+        .unwrap()["id"]
+        .as_str()
         .unwrap();
-    let clients_human = cli(&server, &["list-clients"]);
+    let clients_human = cli(&server, &["client", "list"]);
     assert_success(&clients_human);
-    assert!(String::from_utf8_lossy(&clients_human.stdout).contains("connected="));
-    let excluded = cli(
+    assert!(String::from_utf8_lossy(&clients_human.stdout).contains("CONNECTED SECONDS"));
+    assert!(String::from_utf8_lossy(&clients_human.stdout).contains("participating"));
+    let excluded = json_cli(
         &server,
-        &["set-client-sizing", "--client", &target_id.to_string(), "--enabled", "false"],
+        &["client", target_id, "sizing", "set", "--terminal", &terminal, "--enabled", "false"],
     );
     assert_success(&excluded);
-    let clients = cli(&server, &["--json", "list-clients"]);
+    let clients = json_cli(&server, &["client", "list"]);
     assert_success(&clients);
-    let clients_json: serde_json::Value = serde_json::from_slice(&clients.stdout).unwrap();
+    let clients_json = json_output(&clients);
     assert_eq!(
         clients_json
             .as_array()
             .unwrap()
             .iter()
-            .find(|client| client["client"] == target_id)
-            .unwrap()["size_participating"],
+            .find(|client| client["id"] == target_id)
+            .unwrap()["sizes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|size| size["terminal_id"] == terminal)
+            .unwrap()["participating"],
         false
     );
-    let detached = cli(&server, &["detach-client", "--client", &target_id.to_string()]);
+    let detached = cli(&server, &["--quiet", "client", target_id, "detach"]);
     assert_success(&detached);
-    target_response.clear();
-    assert_eq!(target_reader.read_line(&mut target_response).unwrap(), 0);
+    loop {
+        target_response.clear();
+        if target_reader.read_line(&mut target_response).unwrap() == 0 {
+            break;
+        }
+    }
 
     let title = cli(&server, &["set-window-title", "--title", "hello"]);
     assert_success(&title);
@@ -247,78 +408,251 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
 
     let focus = cli(
         &server,
-        &["--json", "focus-direction", "--pane", &pane0.to_string(), "--dir", "right"],
+        &["--quiet", "session", "current", "window", "title", "set", "--title", "hello"],
     );
-    assert_success(&focus);
-    let focus_json: serde_json::Value = serde_json::from_slice(&focus.stdout).unwrap();
-    assert_eq!(focus_json["pane"].as_u64(), Some(pane1));
+    assert_success(&title);
+    assert!(title.stdout.is_empty(), "--quiet mutation wrote output");
 
-    let zoom =
-        cli(&server, &["--json", "zoom-pane", "--pane", &pane1.to_string(), "--mode", "toggle"]);
+    let surface = sizing_surface;
+    assert!(surface > 0);
+    let snapshot = json_cli(&server, &["session", "current", "snapshot"]);
+    assert_success(&snapshot);
+    let tree_json = json_output(&snapshot);
+    let screen = tree_json["screens"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|candidate| candidate["id"] == screen_id)
+        .unwrap();
+    assert!(
+        screen["layout"]["root"].get("columns").is_none(),
+        "ordinary public layout unexpectedly used viewport columns"
+    );
+
+    let split = json_cli(&server, &["pane", &pane0, "split", "--right"]);
+    assert_success(&split);
+    let pane1 = json_output(&split)["value"]["pane_id"].as_str().unwrap().to_string();
+    let projected = json_cli(
+        &server,
+        &[
+            "terminal",
+            &terminal,
+            "project",
+            "--workspace",
+            &workspace_id,
+            "--screen",
+            &screen_id,
+            "--pane",
+            &pane1,
+            "--index",
+            "0",
+            "--name",
+            "mirror",
+        ],
+    );
+    assert_success(&projected);
+    let projected = json_output(&projected);
+    assert_eq!(projected["value"]["focused"], false);
+    let projected_tab = projected["value"]["id"].as_str().unwrap();
+    let terminals = json_cli(&server, &["terminal", "list"]);
+    assert_success(&terminals);
+    let terminals = json_output(&terminals);
+    let source =
+        terminals.as_array().unwrap().iter().find(|candidate| candidate["id"] == terminal).unwrap();
+    assert_eq!(source["tab_ids"].as_array().unwrap().len(), 2);
+    let snapshot = json_cli(&server, &["session", "current", "snapshot"]);
+    assert_success(&snapshot);
+    let snapshot_json = json_output(&snapshot);
+    let projected_record = snapshot_json["tabs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tab| tab["id"].as_str() == Some(projected_tab))
+        .unwrap();
+    assert_eq!(projected_record["pane_id"], pane1);
+    assert_eq!(projected_record["focused"], false);
+    let focused_tab = snapshot_json["tabs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tab| tab["pane_id"] == pane1 && tab["focused"] == true)
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_ne!(focused_tab, projected_tab);
+
+    let new_pane = json_cli(
+        &server,
+        &["screen", &screen_id, "pane", "create", "--cols", "80", "--rows", "24"],
+    );
+    assert_success(&new_pane);
+
+    let exported = json_cli(&server, &["screen", &screen_id, "layout", "export"]);
+    assert_success(&exported);
+    let exported_json = json_output(&exported);
+    assert_eq!(exported_json["root"]["kind"].as_str(), Some("split"));
+    assert_eq!(layout_leaf_count(&exported_json["root"]), 3);
+    let split_id = first_layout_split_id(&exported_json["root"]).unwrap();
+
+    let exact_ratio = json_cli(
+        &server,
+        &["pane", &pane0, "split", "ratio", "set", "--split", split_id, "--ratio", "0.7"],
+    );
+    assert_success(&exact_ratio);
+    let exported = json_cli(&server, &["screen", &screen_id, "layout", "export"]);
+    let exported_json = json_output(&exported);
+    let ratio = layout_split_ratio(&exported_json["root"], split_id).unwrap();
+    assert!((ratio - 0.7).abs() < 0.0001, "layout ratio was {ratio}");
+
+    let neighbor = json_cli(&server, &["pane", &pane0, "neighbor", "right"]);
+    assert_success(&neighbor);
+    let neighbor_json = json_output(&neighbor);
+    let neighboring_pane = neighbor_json["pane"]["id"].as_str().unwrap();
+    assert_ne!(pane0, neighboring_pane);
+
+    let focus = json_cli(&server, &["pane", &pane0, "focus", "direction", "right"]);
+    assert_success(&focus);
+    let focus_json = json_output(&focus);
+    assert_ne!(focus_json["value"]["id"].as_str(), Some(pane0.as_str()));
+
+    let zoom = json_cli(&server, &["pane", &pane1, "zoom", "--enabled", "true"]);
     assert_success(&zoom);
-    let zoom_json: serde_json::Value = serde_json::from_slice(&zoom.stdout).unwrap();
-    assert_eq!(zoom_json["zoomed"].as_bool(), Some(true));
-    assert_eq!(zoom_json["zoomed_pane"].as_u64(), Some(pane1));
+    let zoom_json = json_output(&zoom);
+    assert_eq!(zoom_json["value"]["zoomed"].as_bool(), Some(true));
+    assert_eq!(zoom_json["value"]["id"].as_str(), Some(pane1.as_str()));
+
+    let raw_tree =
+        raw_json(&server, serde_json::json!({"id":"pre-viewport-tree","cmd":"list-workspaces"}));
+    let raw_screen = &raw_tree["workspaces"][0]["screens"][0];
+    let raw_pane = raw_screen["active_pane"].as_u64().unwrap();
+    let viewport_pane = raw_json(
+        &server,
+        serde_json::json!({
+            "id":"new-viewport-pane",
+            "cmd":"new-pane-right",
+            "pane":raw_pane,
+            "cols":51,
+            "rows":22,
+        }),
+    );
+    let viewport_surface = viewport_pane["surface"].as_u64().unwrap();
+    assert!(viewport_surface > 0);
+    let tree = raw_json(&server, serde_json::json!({"id":"viewport-tree","cmd":"list-workspaces"}));
+    let viewport_splits =
+        tree["workspaces"][0]["screens"][0]["viewport_splits"].as_array().unwrap();
+    assert_eq!(viewport_splits.len(), 1);
+    let width = viewport_splits[0]["width"].as_f64().unwrap();
+    assert!((width - 2.0 / 3.0).abs() < 0.0001);
+    let viewport_pane = tree["workspaces"][0]["screens"][0]["active_pane"].as_u64().unwrap();
+    raw_json(
+        &server,
+        serde_json::json!({
+            "id":"resize-viewport",
+            "cmd":"set-viewport-pane-width",
+            "pane":viewport_pane,
+            "width":0.5,
+        }),
+    );
+    let base_pane = tree["workspaces"][0]["screens"][0]["panes"][0]["id"].as_u64().unwrap();
+    raw_json(
+        &server,
+        serde_json::json!({
+            "id":"resize-base",
+            "cmd":"set-viewport-pane-width",
+            "pane":base_pane,
+            "width":0.75,
+        }),
+    );
+    let tree = raw_json(&server, serde_json::json!({"id":"resized-tree","cmd":"list-workspaces"}));
+    let screen = &tree["workspaces"][0]["screens"][0];
+    assert_eq!(screen["viewport_base_width"].as_f64(), Some(0.75));
+    assert_eq!(screen["viewport_splits"][0]["width"].as_f64(), Some(0.5));
 
     let marker = format!("cmux_cli_marker_{}", std::process::id());
     let send = cli(
         &server,
-        &["send", "--surface", &surface.to_string(), "--text", &format!("echo {marker}\r")],
+        &["--quiet", "terminal", &terminal, "write", "--text", &format!("echo {marker}\r")],
     );
     assert_success(&send);
-    assert!(send.stdout.is_empty(), "mutating commands should be quiet on success");
-    let screen = wait_for_screen(&server, surface, &marker);
+    assert!(send.stdout.is_empty(), "--quiet mutation wrote output");
+    let screen = wait_for_screen(&server, &terminal, &marker);
     assert!(screen.contains(&marker), "screen did not contain marker; got {screen:?}");
 
-    let ids_json = cli(&server, &["--json", "ids", "--kind", "surface"]);
-    assert_success(&ids_json);
-    let ids: serde_json::Value = serde_json::from_slice(&ids_json.stdout).unwrap();
+    let ids =
+        raw_json(&server, serde_json::json!({"id":"surface-ids","cmd":"ids","kind":"surface"}));
     assert!(ids["ids"].as_array().unwrap().iter().any(|item| item["id"].as_u64() == Some(surface)));
 
-    let copied = cli(&server, &["copy", "--surface", &surface.to_string(), "--mode", "screen"]);
+    let copied = json_cli(&server, &["terminal", &terminal, "copy", "--mode", "screen"]);
     assert_success(&copied);
-    assert!(String::from_utf8_lossy(&copied.stdout).contains(&marker));
+    assert!(json_output(&copied)["text"].as_str().unwrap().contains(&marker));
 
-    let notify = cli(&server, &["notify", "--title", "Build", "--body", "ok"]);
+    let pending = format!("echo prompt_kept_{}", std::process::id());
+    let type_pending =
+        cli(&server, &["--quiet", "terminal", &terminal, "write", "--text", &pending]);
+    assert_success(&type_pending);
+    wait_for_screen(&server, &terminal, &pending);
+
+    let cleared = cli(&server, &["--quiet", "terminal", &terminal, "history", "clear"]);
+    assert_success(&cleared);
+    assert!(cleared.stdout.is_empty(), "--quiet history clear wrote output");
+    let output = json_cli(&server, &["terminal", &terminal, "screen", "read"]);
+    assert_success(&output);
+    let cleared_screen = json_output(&output)["text"].as_str().unwrap().to_string();
+    assert!(
+        cleared_screen.contains(&marker),
+        "clear-history removed visible output without a safe prompt boundary: {cleared_screen:?}"
+    );
+    assert!(!cleared_screen.trim().is_empty(), "clear-history blanked the active terminal");
+    let cleared_scrollback =
+        json_cli(&server, &["terminal", &terminal, "history", "read", "--limit", "200"]);
+    assert_success(&cleared_scrollback);
+    assert!(
+        !String::from_utf8_lossy(&cleared_scrollback.stdout).contains(&marker),
+        "clear-history retained prior output in scrollback"
+    );
+
+    let notify = json_cli(&server, &["notification", "create", "--title", "Build", "--body", "ok"]);
     assert_success(&notify);
-    assert!(String::from_utf8_lossy(&notify.stdout).trim().parse::<u64>().unwrap() > 0);
+    assert!(json_output(&notify)["value"]["id"].as_str().unwrap().starts_with("notification_"));
 
-    let report = cli(
+    let report = json_cli(
         &server,
         &[
-            "report-agent",
-            "--surface",
-            &surface.to_string(),
+            "agent",
+            "report",
+            "--terminal",
+            &terminal,
             "--state",
-            "working",
+            "idle",
             "--source",
             "socket",
-            "--session",
+            "--source-session",
             "cli",
         ],
     );
     assert_success(&report);
-    let agents = cli(&server, &["--json", "list-agents", "--surface", &surface.to_string()]);
+    let agents = json_cli(&server, &["agent", "list", "--terminal", &terminal]);
     assert_success(&agents);
-    let agents: serde_json::Value = serde_json::from_slice(&agents.stdout).unwrap();
-    assert_eq!(agents["agents"][0]["state"].as_str(), Some("working"));
+    let agents = json_output(&agents);
+    assert_eq!(agents[0]["state"].as_str(), Some("idle"));
 
-    let send_key = cli(&server, &["send-key", "--surface", &surface.to_string(), "enter"]);
+    let send_key = cli(&server, &["--quiet", "terminal", &terminal, "keys", "enter"]);
     assert_success(&send_key);
 
-    let select_bare = cli(&server, &["select-tab"]);
+    let select_bare = cli(&server, &["tab"]);
     assert_eq!(select_bare.status.code(), Some(2));
 
-    let close = cli(&server, &["close-surface", "--surface", &surface.to_string()]);
+    let close = cli(&server, &["--quiet", "terminal", &terminal, "close"]);
     assert_success(&close);
-    let closed_read = cli(&server, &["read-screen", "--surface", &surface.to_string()]);
+    let closed_read = json_cli(&server, &["terminal", &terminal, "screen", "read"]);
     assert_eq!(closed_read.status.code(), Some(1));
-    assert!(String::from_utf8_lossy(&closed_read.stderr).contains("unknown surface"));
+    assert_eq!(json_error(&closed_read)["code"], "selector.not_found");
 
     let bogus = Command::new(bin())
-        .args(["--socket"])
+        .args(["--json", "--socket"])
         .arg(server.dir.join("missing.sock"))
-        .arg("identify")
+        .args(["session", "current", "show"])
         .env_remove("CMUX_TUI_SOCKET")
         .output()
         .unwrap();
@@ -347,67 +681,89 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
 }
 
 #[test]
-fn cli_apply_layout_passes_explicit_surface_size() {
+fn raw_protocol_apply_layout_preserves_explicit_surface_size() {
     let server = HeadlessServer::start("apply-layout-size");
-    let applied = cli(
+    let applied = raw_json(
         &server,
-        &[
-            "--json",
-            "apply-layout",
-            "--layout",
-            r#"{"type":"leaf"}"#,
-            "--cols",
-            "111",
-            "--rows",
-            "37",
-        ],
+        serde_json::json!({
+            "id":"apply-sized-layout",
+            "cmd":"apply-layout",
+            "layout":{"type":"leaf"},
+            "cols":111,
+            "rows":37,
+        }),
     );
-    assert_success(&applied);
-    let applied: serde_json::Value = serde_json::from_slice(&applied.stdout).unwrap();
     let surface = applied["panes"][0]["surface"].as_u64().unwrap();
 
-    let state = cli(&server, &["--json", "vt-state", "--surface", &surface.to_string()]);
-    assert_success(&state);
-    let state: serde_json::Value = serde_json::from_slice(&state.stdout).unwrap();
+    let state = raw_json(
+        &server,
+        serde_json::json!({"id":"sized-state","cmd":"vt-state","surface":surface}),
+    );
     assert_eq!(state["cols"].as_u64(), Some(111));
     assert_eq!(state["rows"].as_u64(), Some(37));
 
-    let inherited = cli(&server, &["new-workspace"]);
-    assert_success(&inherited);
-    let inherited = String::from_utf8(inherited.stdout).unwrap().trim().parse::<u64>().unwrap();
-    let state = cli(&server, &["--json", "vt-state", "--surface", &inherited.to_string()]);
-    assert_success(&state);
-    let state: serde_json::Value = serde_json::from_slice(&state.stdout).unwrap();
+    let inherited = raw_json(
+        &server,
+        serde_json::json!({"id":"inherited-workspace","cmd":"new-workspace"}),
+    )["surface"]
+        .as_u64()
+        .unwrap();
+    let state = raw_json(
+        &server,
+        serde_json::json!({"id":"inherited-state","cmd":"vt-state","surface":inherited}),
+    );
     assert_eq!(state["cols"].as_u64(), Some(111));
     assert_eq!(state["rows"].as_u64(), Some(37));
 
-    let partial = cli(&server, &["apply-layout", "--layout", r#"{"type":"leaf"}"#, "--cols", "90"]);
-    assert_eq!(partial.status.code(), Some(2));
+    let partial = raw_json(
+        &server,
+        serde_json::json!({
+            "id":"partial-layout-size",
+            "cmd":"apply-layout",
+            "layout":{"type":"leaf"},
+            "cols":90,
+        }),
+    );
+    let partial_surface = partial["panes"][0]["surface"].as_u64().unwrap();
+    let state = raw_json(
+        &server,
+        serde_json::json!({
+            "id":"partial-layout-state",
+            "cmd":"vt-state",
+            "surface":partial_surface,
+        }),
+    );
+    assert_eq!(state["cols"].as_u64(), Some(111));
+    assert_eq!(state["rows"].as_u64(), Some(37));
 }
 
 fn assert_subscribe_reports_tree_changed(server: &HeadlessServer) {
-    let mut child = Command::new(bin())
-        .args(["--socket"])
-        .arg(&server.socket)
-        .arg("subscribe")
-        .env_remove("CMUX_TUI_SOCKET")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    let stdout = child.stdout.take().unwrap();
+    let stream = transport::connect(&server.socket).unwrap();
+    let mut writer = stream.try_clone_box().unwrap();
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
-        let reader = BufReader::new(stdout);
+        let reader = BufReader::new(stream);
         for line in reader.lines() {
             if tx.send(line.unwrap()).is_err() {
                 break;
             }
         }
     });
+    writeln!(writer, r#"{{"id":1,"cmd":"subscribe"}}"#).unwrap();
 
     std::thread::sleep(Duration::from_millis(200));
-    let tab = cli(server, &["new-tab"]);
+    let tab = json_cli(server, &["tab", "create", "terminal"]);
+    if !tab.status.success() {
+        let mut lines = Vec::new();
+        while let Ok(line) = rx.recv_timeout(Duration::from_millis(250)) {
+            lines.push(line);
+        }
+        panic!(
+            "tab creation failed while subscribed; stdout={} stderr={} events={lines:?}",
+            String::from_utf8_lossy(&tab.stdout),
+            String::from_utf8_lossy(&tab.stderr),
+        );
+    }
     assert_success(&tab);
 
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -416,14 +772,10 @@ fn assert_subscribe_reports_tree_changed(server: &HeadlessServer) {
         if let Ok(line) = rx.recv_timeout(Duration::from_millis(250)) {
             lines.push(line.clone());
             if line.contains("\"event\":\"tree-changed\"") {
-                let _ = child.kill();
-                let _ = child.wait();
                 return;
             }
         }
     }
-    let _ = child.kill();
-    let _ = child.wait();
     panic!("subscribe did not print tree-changed event; lines={lines:?}");
 }
 
@@ -488,7 +840,7 @@ fn assert_subscribe_topology_reports_revisioned_delta(server: &HeadlessServer) {
 }
 
 #[test]
-fn stream_preserves_partial_line_across_read_timeout() {
+fn raw_command_preserves_a_partial_response_line() {
     let dir = unique_temp_dir("partial-line");
     fs::create_dir_all(&dir).unwrap();
     let socket = dir.join("mux.sock");
@@ -501,20 +853,20 @@ fn stream_preserves_partial_line_across_read_timeout() {
             let mut reader = BufReader::new(read_half);
             reader.read_line(&mut request).unwrap();
         }
-        assert!(request.contains("\"cmd\":\"subscribe\""));
+        assert!(request.contains("\"cmd\":\"ping\""));
 
-        stream.write_all(br#"{"event":"status","message":""#).unwrap();
+        stream.write_all(br#"{"id":"partial","ok":true,"data":{"message":""#).unwrap();
         stream.flush().unwrap();
         std::thread::sleep(Duration::from_millis(350));
-        stream.write_all(br#"split-line-ok"}"#).unwrap();
+        stream.write_all(br#"split-line-ok"}}"#).unwrap();
         stream.write_all(b"\n").unwrap();
         stream.flush().unwrap();
     });
 
     let output = Command::new(bin())
-        .args(["--socket"])
+        .args(["--json", "--socket"])
         .arg(&socket)
-        .arg("subscribe")
+        .args(["raw", "command", "--request-json", r#"{"id":"partial","cmd":"ping"}"#])
         .env_remove("CMUX_TUI_SOCKET")
         .output()
         .unwrap();
@@ -523,23 +875,38 @@ fn stream_preserves_partial_line_across_read_timeout() {
     let _ = fs::remove_dir_all(&dir);
 
     assert_success(&output);
-    assert_eq!(
-        String::from_utf8(output.stdout).unwrap(),
-        "{\"event\":\"status\",\"message\":\"split-line-ok\"}\n"
-    );
+    assert_eq!(json_output(&output), serde_json::json!({"message":"split-line-ok"}));
 }
 
 #[test]
-fn help_lists_plugin_verbs() {
-    let output = Command::new(bin()).arg("--help").env_remove("CMUX_TUI_SOCKET").output().unwrap();
-    assert_success(&output);
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("plugin install <git-url>"));
-    assert!(stdout.contains("plugin use --builtin"));
-    assert!(stdout.contains("Manage installed sidebar plugins locally."));
-    assert!(stdout.contains("--ws <addr>"));
-    assert!(stdout.contains("--ws-token <token>"));
-    assert!(stdout.contains("--ws-insecure-bind"));
+fn help_uses_public_cmux_scopes_and_keeps_startup_options_discoverable() {
+    let root = Command::new(bin()).arg("--help").env_remove("CMUX_TUI_SOCKET").output().unwrap();
+    assert_success(&root);
+    let root = String::from_utf8(root.stdout).unwrap();
+    assert!(root.starts_with("cmux - terminal multiplexer and resource client"));
+    assert!(root.contains("sidebar       Manage sidebar views and local plugins"));
+    assert!(!root.contains("cmux-tui"));
+    assert!(!root.contains("new-pane-right"));
+
+    let sidebar = Command::new(bin())
+        .args(["sidebar", "--help"])
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&sidebar);
+    let sidebar = String::from_utf8(sidebar.stdout).unwrap();
+    assert!(sidebar.contains("cmux sidebar plugin install <git-url>"));
+    assert!(sidebar.contains("cmux sidebar plugin use --builtin"));
+
+    let startup =
+        Command::new(bin()).args(["help", "start"]).env_remove("CMUX_TUI_SOCKET").output().unwrap();
+    assert_success(&startup);
+    let startup = String::from_utf8(startup.stdout).unwrap();
+    assert!(startup.starts_with("cmux - "));
+    assert!(startup.contains("--ws <addr>"));
+    assert!(startup.contains("--ws-token <token>"));
+    assert!(startup.contains("--ws-insecure-bind"));
+    assert!(!startup.contains("cmux-tui"));
 }
 
 #[test]
@@ -617,8 +984,10 @@ fn plugin_install_use_and_list_work_against_local_git_repo() {
         &data_home,
         &config_path,
         &[
+            "--json",
             "--socket",
             missing_socket.to_str().unwrap(),
+            "sidebar",
             "plugin",
             "install",
             &url,
@@ -627,25 +996,35 @@ fn plugin_install_use_and_list_work_against_local_git_repo() {
         ],
     );
     assert_success(&install);
-    assert!(String::from_utf8_lossy(&install.stdout).contains("next: cmux-tui plugin use fixture"));
+    let installed = json_output(&install);
+    assert_eq!(installed["plugin"]["name"].as_str(), Some("fixture"));
+    assert_eq!(installed["plugin"]["active"].as_bool(), Some(false));
     let installed_dir = data_home.join("cmux").join("mux-plugins").join("fixture");
     assert!(installed_dir.join("cmux-plugin.toml").is_file());
 
-    let list = plugin_cli(&data_home, &config_path, &["--json", "plugin", "list"]);
+    let list = plugin_cli(&data_home, &config_path, &["--json", "sidebar", "plugin", "list"]);
     assert_success(&list);
-    let listed: serde_json::Value = serde_json::from_slice(&list.stdout).unwrap();
-    assert_eq!(listed["plugins"][0]["name"].as_str(), Some("fixture"));
-    assert_eq!(listed["plugins"][0]["selected"].as_bool(), Some(false));
+    let listed = json_output(&list);
+    assert_eq!(listed[0]["name"].as_str(), Some("fixture"));
+    assert_eq!(listed[0]["active"].as_bool(), Some(false));
 
     let use_plugin = plugin_cli(
         &data_home,
         &config_path,
-        &["--socket", missing_socket.to_str().unwrap(), "plugin", "use", "fixture"],
+        &[
+            "--json",
+            "--socket",
+            missing_socket.to_str().unwrap(),
+            "sidebar",
+            "plugin",
+            "use",
+            "fixture",
+        ],
     );
     assert_success(&use_plugin);
-    let stdout = String::from_utf8(use_plugin.stdout).unwrap();
-    assert!(stdout.contains("using fixture"));
-    assert!(stdout.contains("reload-config: not sent"));
+    let used = json_output(&use_plugin);
+    assert_eq!(used["plugin"]["name"].as_str(), Some("fixture"));
+    assert_eq!(used["plugin"]["active"].as_bool(), Some(true));
 
     let written: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
@@ -660,15 +1039,15 @@ fn plugin_install_use_and_list_work_against_local_git_repo() {
         Some(canonical_dir.join("bin/sidebar").to_str().unwrap())
     );
 
-    let list = plugin_cli(&data_home, &config_path, &["--json", "plugin", "list"]);
+    let list = plugin_cli(&data_home, &config_path, &["--json", "sidebar", "plugin", "list"]);
     assert_success(&list);
-    let listed: serde_json::Value = serde_json::from_slice(&list.stdout).unwrap();
-    assert_eq!(listed["plugins"][0]["selected"].as_bool(), Some(true));
+    let listed = json_output(&list);
+    assert_eq!(listed[0]["active"].as_bool(), Some(true));
 
     let builtin = plugin_cli(
         &data_home,
         &config_path,
-        &["--socket", missing_socket.to_str().unwrap(), "plugin", "use", "--builtin"],
+        &["--socket", missing_socket.to_str().unwrap(), "sidebar", "plugin", "use", "--builtin"],
     );
     assert_success(&builtin);
     let written: serde_json::Value =
@@ -679,13 +1058,13 @@ fn plugin_install_use_and_list_work_against_local_git_repo() {
     let _ = fs::remove_dir_all(&dir);
 }
 
-fn wait_for_screen(server: &HeadlessServer, surface: u64, marker: &str) -> String {
+fn wait_for_screen(server: &HeadlessServer, terminal: &str, marker: &str) -> String {
     let deadline = Instant::now() + Duration::from_secs(10);
     let mut last = String::new();
     while Instant::now() < deadline {
-        let output = cli(server, &["read-screen", "--surface", &surface.to_string()]);
+        let output = json_cli(server, &["terminal", terminal, "screen", "read"]);
         assert_success(&output);
-        last = String::from_utf8(output.stdout).unwrap();
+        last = json_output(&output)["text"].as_str().unwrap().to_string();
         if last.contains(marker) {
             return last;
         }
@@ -719,6 +1098,90 @@ fn cli(server: &HeadlessServer, args: &[&str]) -> Output {
         .unwrap()
 }
 
+fn json_cli(server: &HeadlessServer, args: &[&str]) -> Output {
+    Command::new(bin())
+        .args(["--json", "--socket"])
+        .arg(&server.socket)
+        .args(args)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap()
+}
+
+fn raw_cli(server: &HeadlessServer, request: serde_json::Value) -> Output {
+    let request = serde_json::to_string(&request).unwrap();
+    Command::new(bin())
+        .args(["--json", "--socket"])
+        .arg(&server.socket)
+        .args(["raw", "command", "--request-json", &request])
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap()
+}
+
+fn raw_json(server: &HeadlessServer, request: serde_json::Value) -> serde_json::Value {
+    let output = raw_cli(server, request);
+    assert_success(&output);
+    json_output(&output)
+}
+
+fn json_output(output: &Output) -> serde_json::Value {
+    serde_json::from_slice(&output.stdout).unwrap_or_else(|error| {
+        panic!("expected JSON stdout, got {error}: {}", String::from_utf8_lossy(&output.stdout))
+    })
+}
+
+fn json_error(output: &Output) -> serde_json::Value {
+    serde_json::from_slice(&output.stderr).unwrap_or_else(|error| {
+        panic!("expected JSON stderr, got {error}: {}", String::from_utf8_lossy(&output.stderr))
+    })
+}
+
+fn layout_leaf_count(node: &serde_json::Value) -> usize {
+    match node["kind"].as_str() {
+        Some("leaf") => 1,
+        Some("split") => layout_leaf_count(&node["first"]) + layout_leaf_count(&node["second"]),
+        Some("viewport") => node["columns"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|column| layout_leaf_count(&column["root"]))
+            .sum(),
+        Some("stack") => node["pane_ids"].as_array().unwrap().len(),
+        other => panic!("unexpected public layout node {other:?}: {node}"),
+    }
+}
+
+fn first_layout_split_id(node: &serde_json::Value) -> Option<&str> {
+    match node["kind"].as_str() {
+        Some("split") => node["split_id"]
+            .as_str()
+            .or_else(|| first_layout_split_id(&node["first"]))
+            .or_else(|| first_layout_split_id(&node["second"])),
+        Some("viewport") => node["columns"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find_map(|column| first_layout_split_id(&column["root"])),
+        _ => None,
+    }
+}
+
+fn layout_split_ratio(node: &serde_json::Value, split_id: &str) -> Option<f64> {
+    match node["kind"].as_str() {
+        Some("split") if node["split_id"].as_str() == Some(split_id) => node["ratio"].as_f64(),
+        Some("split") => layout_split_ratio(&node["first"], split_id)
+            .or_else(|| layout_split_ratio(&node["second"], split_id)),
+        Some("viewport") => node["columns"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find_map(|column| layout_split_ratio(&column["root"], split_id)),
+        _ => None,
+    }
+}
+
+#[track_caller]
 fn assert_success(output: &Output) {
     assert!(
         output.status.success(),
@@ -727,6 +1190,63 @@ fn assert_success(output: &Output) {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+fn find_session_database(state: &std::path::Path, session: &str) -> PathBuf {
+    fs::read_dir(state)
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .map(|entry| entry.path().join("workspace-registry.sqlite3"))
+        .filter(|path| path.is_file())
+        .find(|path| {
+            let connection = rusqlite::Connection::open(path).unwrap();
+            let session_id: String = connection
+                .query_row("SELECT value FROM meta WHERE key = 'session_name'", [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            session_id == session
+        })
+        .expect("session database")
+}
+
+#[cfg(unix)]
+fn create_live_terminal_host_record(root: &std::path::Path) -> fs::File {
+    fs::create_dir_all(root).unwrap();
+    fs::set_permissions(root, fs::Permissions::from_mode(0o700)).unwrap();
+    let terminal_id = "0000000000004000800000000000002a";
+    let incarnation = "0000000000004000800000000000002b";
+    let owner_token = "01".repeat(32);
+    let host_start_nonce = "02".repeat(32);
+    let uid = fs::metadata(root).unwrap().uid();
+    let record = cmux_tui_core::terminal_host_runtime::TerminalHostRecord {
+        record_version: 2,
+        terminal_id: terminal_id.to_string(),
+        incarnation: incarnation.to_string(),
+        endpoint: format!("/tmp/cmux-th-{uid}/{terminal_id}.sock"),
+        owner_token,
+        host_pid: std::process::id(),
+        host_start_nonce: host_start_nonce.clone(),
+        workspace_key: String::new(),
+        supports_set_defaults: true,
+        supports_clear_history: true,
+    };
+    let record_path = record.record_path(root);
+    let live_path = record_path.with_extension(format!("{incarnation}-{host_start_nonce}.live"));
+    let live_file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&live_path)
+        .unwrap();
+    assert_eq!(unsafe { libc::flock(live_file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+    let mut record_file =
+        fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&record_path).unwrap();
+    record_file.write_all(&serde_json::to_vec(&record).unwrap()).unwrap();
+    record_file.sync_all().unwrap();
+    live_file
 }
 
 fn unique_temp_dir(name: &str) -> PathBuf {

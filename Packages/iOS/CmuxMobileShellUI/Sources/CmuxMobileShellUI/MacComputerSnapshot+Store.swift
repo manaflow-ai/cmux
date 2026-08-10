@@ -8,7 +8,7 @@ import Foundation
 extension MacComputerSnapshot {
     /// The user's computers as immutable snapshots, sourced from the paired-Mac
     /// backup (`displayPairedMacs`) — the coalesced set the Computers screen
-    /// shows and the one ``CMUXMobileShellStore/forgetMac`` actually removes.
+    /// shows and the one ``CMUXMobileShellStore/hideMac`` filters locally.
     /// Shared by the Computers screen and the disconnected reconnect list so
     /// both surfaces show the same deduplicated computers with the same
     /// presence, color, and customization data.
@@ -26,20 +26,26 @@ extension MacComputerSnapshot {
         let connectionStatuses = store.macConnectionStatuses
         var snapshots = store.displayPairedMacs.map { mac in
             let presenceInstanceTag = instanceTag ?? mac.instanceTag
-            let aliases = store.pairedMacAliasIDs(for: mac.macDeviceID)
+            let aliases = store.pairedMacAliasIDs(
+                for: mac.macDeviceID,
+                instanceTag: mac.instanceTag
+            )
             let summary = store.presenceSummary(
                 for: mac.macDeviceID,
                 instanceTag: presenceInstanceTag
             )
             let presence: DeviceTreePresence? = summary
                 .map { $0.online ? .online : .offline(lastSeenAt: $0.lastSeenAt) }
-            let connectionStatus = connectionStatuses[mac.macDeviceID]
-            let exactConnectionStatus = connectionStatus == .connected
-                && store.connectedMacDeviceID == mac.macDeviceID
-                && mac.instanceTag != nil
-                && store.connectedMacInstanceTag != mac.instanceTag
-                ? nil
-                : connectionStatus
+            // Secondary state is pairing-keyed; the foreground/legacy entry
+            // stays under the bare device key, refined to the exact pairing.
+            let exactConnectionStatus = connectionStatuses[mac.id]
+                ?? MobileShellComposite.exactPairingConnectionStatus(
+                    deviceStatus: connectionStatuses[mac.macDeviceID],
+                    connectedMacDeviceID: store.connectedMacDeviceID,
+                    connectedMacInstanceTag: store.connectedMacInstanceTag,
+                    rowMacDeviceID: mac.macDeviceID,
+                    rowInstanceTag: mac.instanceTag
+                )
             return MacComputerSnapshot(
                 deviceId: mac.macDeviceID,
                 instanceTag: mac.instanceTag,
@@ -54,7 +60,10 @@ extension MacComputerSnapshot {
                     ?? MacBuildChannel().label(bundleID: nil, tag: mac.instanceTag),
                 routeDescription: CmxAttachRoute.deviceTreeRouteDescription(for: mac.routes),
                 lastSeenAt: mac.lastSeenAt,
-                workspaceCount: store.workspaceCount(for: mac.macDeviceID),
+                workspaceCount: store.workspaceCount(
+                    for: mac.macDeviceID,
+                    instanceTag: mac.instanceTag
+                ),
                 aliasIDs: aliases
             )
         }

@@ -55,25 +55,31 @@ extension TerminalSurface {
     /// Exports the surface grid as a mobile render frame (optionally filtered
     /// to changed rows). Set `includeTheme` to `false` for ordinary live ticks
     /// after the caller has cached this surface's theme; replay and invalidation
-    /// snapshots should retain the default complete theme payload.
+    /// snapshots should retain the default complete theme payload. A `.screen`
+    /// anchor exports the active area (independent of this surface's scroll
+    /// position) for consumers that keep their own local viewport/scrollback.
     @MainActor
     public func mobileRenderGridFrame(
         stateSeq: UInt64,
+        renderEpoch: String = "",
+        renderRevision: UInt64 = 0,
         full: Bool = true,
         changedRows: Set<Int>? = nil,
         scrollbackLines: Int = 0,
-        includeTheme: Bool = true
+        includeTheme: Bool = true,
+        anchor: MobileTerminalRenderGridFrame.Anchor = .viewport
     ) -> (frame: MobileTerminalRenderGridFrame, rows: [String])? {
         guard let surface = liveSurfaceForGhosttyAccess(reason: "mobileRenderGrid") else { return nil }
         let surfaceID = id.uuidString
         let exported = surfaceID.withCString { ptr in
-            ghostty_surface_render_grid_json_with_theme(
+            ghostty_surface_render_grid_json_v2(
                 surface,
                 ptr,
                 UInt(surfaceID.utf8.count),
                 stateSeq,
                 UInt(max(0, scrollbackLines)),
-                includeTheme
+                includeTheme,
+                anchor == .screen
             )
         }
         defer { ghostty_string_free(exported) }
@@ -83,6 +89,8 @@ extension TerminalSurface {
         guard var fullFrame = try? JSONDecoder().decode(MobileTerminalRenderGridFrame.self, from: data) else {
             return nil
         }
+        fullFrame.renderEpoch = renderEpoch
+        fullFrame.renderRevision = renderRevision
         if fullFrame.modes.contains(where: { !$0.ansi && $0.code == 5 && $0.on }) {
             // Ghostty exports renderer-effective defaults. Keep the v1 outer
             // fields raw because older iOS clients replay DEC reverse separately.

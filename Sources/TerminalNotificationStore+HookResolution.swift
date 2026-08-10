@@ -19,8 +19,17 @@ extension TerminalNotificationStore {
               ) else {
             return
         }
-        let globalConfigPath = appDelegate.contextContainingTabId(initialTarget.tabId)?
-            .cmuxConfigStore?.globalConfigPath
+        let initialManager = initialTarget.surfaceId.flatMap {
+            appDelegate.notificationSurfaceOwner(
+                surfaceID: $0,
+                preferredTabID: initialTarget.tabId
+            )?.tabManager
+        }
+            ?? appDelegate.tabManagerFor(tabId: initialTarget.tabId)
+            ?? appDelegate.tabManager
+        let globalConfigPath = initialManager.flatMap {
+            appDelegate.mainWindowContext(for: $0)?.cmuxConfigStore?.globalConfigPath
+        }
             ?? CmuxConfigStore.defaultGlobalConfigPath()
         let policyRequestId = beginDesktopNotificationHookResolution(
             tabId: initialTarget.tabId,
@@ -42,8 +51,18 @@ extension TerminalNotificationStore {
         guard let target = appDelegate.agentNotificationDeliveryTarget(
                 claimedTabId: tabId,
                 surfaceId: surfaceId
-              ),
-              let owningManager = appDelegate.tabManagerFor(tabId: target.tabId) ?? appDelegate.tabManager else {
+              ) else {
+            return
+        }
+        let owningManager = target.surfaceId.flatMap {
+            appDelegate.notificationSurfaceOwner(
+                surfaceID: $0,
+                preferredTabID: target.tabId
+            )?.tabManager
+        }
+            ?? appDelegate.tabManagerFor(tabId: target.tabId)
+            ?? appDelegate.tabManager
+        guard let owningManager else {
             return
         }
         let workspace = owningManager.workspacesById[target.tabId]

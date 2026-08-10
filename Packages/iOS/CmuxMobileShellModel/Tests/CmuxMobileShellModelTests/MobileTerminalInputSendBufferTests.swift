@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 @testable import CmuxMobileShellModel
@@ -50,5 +51,84 @@ import Testing
         #expect(buffer.nextBatch()?.text == "b")
         #expect(buffer.nextBatch() == nil)
         #expect(buffer.enqueue("c", workspaceID: workspaceID, terminalID: terminalID) == .startDraining)
+    }
+
+    @Test func splitsOversizedCoalescedInputAtUnicodeScalarBoundaries() {
+        var buffer = MobileTerminalInputSendBuffer()
+        let workspaceID = MobileWorkspacePreview.ID(rawValue: "workspace-a")
+        let terminalID = MobileTerminalPreview.ID(rawValue: "terminal-a")
+        let text = "abcéé漢漢z"
+
+        #expect(buffer.enqueue("abc", workspaceID: workspaceID, terminalID: terminalID) == .startDraining)
+        #expect(buffer.enqueue("éé漢漢z", workspaceID: workspaceID, terminalID: terminalID) == .queued)
+        #expect(buffer.pendingByteCount == text.utf8.count)
+
+        let first = buffer.nextBatch(maximumByteCount: 4)
+        #expect(first?.text == "abc")
+        #expect(buffer.pendingByteCount == "éé漢漢z".utf8.count)
+        let second = buffer.nextBatch(maximumByteCount: 4)
+        #expect(second?.text == "éé")
+        #expect(buffer.pendingByteCount == "漢漢z".utf8.count)
+        let third = buffer.nextBatch(maximumByteCount: 4)
+        #expect(third?.text == "漢")
+        #expect(buffer.pendingByteCount == "漢z".utf8.count)
+        let fourth = buffer.nextBatch(maximumByteCount: 4)
+        #expect(fourth?.text == "漢z")
+        #expect(buffer.pendingByteCount == 0)
+        #expect([first?.text, second?.text, third?.text, fourth?.text].compactMap { $0 }.joined() == text)
+        #expect(buffer.nextBatch(maximumByteCount: 4) == nil)
+    }
+
+    @Test func emitsWholeScalarWhenCapIsNarrowerThanFirstScalar() {
+        var buffer = MobileTerminalInputSendBuffer()
+        let workspaceID = MobileWorkspacePreview.ID(rawValue: "workspace-a")
+        let terminalID = MobileTerminalPreview.ID(rawValue: "terminal-a")
+
+        #expect(buffer.enqueue("漢z", workspaceID: workspaceID, terminalID: terminalID) == .startDraining)
+        // "漢" is 3 UTF-8 bytes; a 1-byte cap cannot split at a scalar boundary,
+        // so the drain must still make progress by emitting the scalar whole.
+        #expect(buffer.nextBatch(maximumByteCount: 1)?.text == "漢")
+        #expect(buffer.nextBatch(maximumByteCount: 1)?.text == "z")
+        #expect(buffer.pendingByteCount == 0)
+        #expect(buffer.nextBatch(maximumByteCount: 1) == nil)
+    }
+
+    @Test func passesThroughExactCapAndSmallChunks() {
+        var buffer = MobileTerminalInputSendBuffer()
+        let workspaceID = MobileWorkspacePreview.ID(rawValue: "workspace-a")
+        let terminalID = MobileTerminalPreview.ID(rawValue: "terminal-a")
+
+        #expect(buffer.enqueue("éé", workspaceID: workspaceID, terminalID: terminalID) == .startDraining)
+        #expect(buffer.nextBatch(maximumByteCount: 4)?.text == "éé")
+        #expect(buffer.pendingByteCount == 0)
+        #expect(buffer.enqueue("漢", workspaceID: workspaceID, terminalID: terminalID) == .queued)
+        #expect(buffer.nextBatch(maximumByteCount: 4)?.text == "漢")
+        #expect(buffer.pendingByteCount == 0)
+        #expect(buffer.nextBatch(maximumByteCount: 4) == nil)
+    }
+
+    @Test func coalescedChunkRetainsNewestSendOperation() {
+        var buffer = MobileTerminalInputSendBuffer()
+        let workspaceID = MobileWorkspacePreview.ID(rawValue: "workspace-a")
+        let terminalID = MobileTerminalPreview.ID(rawValue: "terminal-a")
+        let firstOperationID = UUID()
+        let secondOperationID = UUID()
+
+        #expect(buffer.enqueue(
+            "first\r",
+            workspaceID: workspaceID,
+            terminalID: terminalID,
+            sendStatusOperationID: firstOperationID
+        ) == .startDraining)
+        #expect(buffer.enqueue(
+            "second\r",
+            workspaceID: workspaceID,
+            terminalID: terminalID,
+            sendStatusOperationID: secondOperationID
+        ) == .queued)
+
+        let batch = buffer.nextBatch()
+        #expect(batch?.text == "first\rsecond\r")
+        #expect(batch?.sendStatusOperationID == secondOperationID)
     }
 }

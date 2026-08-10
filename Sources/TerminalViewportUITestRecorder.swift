@@ -93,7 +93,7 @@ final class TerminalViewportUITestRecorder {
             : initialWindowSizeText
 
         if hideSidebar {
-            context.sidebarState.isVisible = false
+            context.sidebarState.setVisible(false)
         }
         if hideRightSidebar {
             context.fileExplorerState?.setVisible(false)
@@ -136,7 +136,7 @@ final class TerminalViewportUITestRecorder {
         for context in contextProvider() {
             guard let window = context.window else { continue }
             guard let workspace = context.tabManager.selectedWorkspace ?? context.tabManager.tabs.first else { continue }
-            guard let terminalPanel = workspace.focusedTerminalPanel
+            guard let terminalPanel = workspace.focusedTerminalInputTarget()?.panel
                     ?? workspace.panels.values.compactMap({ $0 as? TerminalPanel }).first else {
                 continue
             }

@@ -509,25 +509,58 @@ pub fn ghostty_config_paths() -> Vec<PathBuf> {
     candidates
 }
 
-/// Candidate Ghostty executables, in the order cmux-tui should probe them.
+/// A Ghostty config resolver and the resources that must accompany it.
 ///
-/// `GHOSTTY_BIN` is useful for packaged and development installations; the
-/// remaining paths cover the standard CLI and macOS app bundles.
-pub fn ghostty_binary_paths() -> Vec<PathBuf> {
-    let mut candidates = Vec::new();
-    if let Some(path) = env_path("GHOSTTY_BIN") {
-        push_unique(&mut candidates, path);
-    }
-    if let Some(path) = find_on_path(&["ghostty"]) {
-        push_unique(&mut candidates, path);
-    }
-    push_unique(&mut candidates, PathBuf::from("/Applications/Ghostty.app/Contents/MacOS/ghostty"));
-    push_unique(
-        &mut candidates,
-        PathBuf::from("/Applications/cmux.app/Contents/Resources/bin/ghostty"),
+/// The executable and resource directory are kept together because a helper
+/// embedded in another app bundle cannot infer `Contents/Resources/ghostty`
+/// from its own location the way Ghostty.app can.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GhosttyInstallation {
+    pub binary: PathBuf,
+    pub resources_dir: Option<PathBuf>,
+}
+
+/// Candidate Ghostty installations, in the order cmux-tui should probe them.
+///
+/// An explicit `GHOSTTY_BIN` remains authoritative. Otherwise, prefer the
+/// standalone CLI helper and resources shipped beside this exact cmux-tui
+/// executable, then the intact pinned dogfood app, before considering a PATH
+/// or system Ghostty. The package-local helper must be built with Ghostty's
+/// `cli-helper` target; copying a macOS app executable without its Frameworks
+/// directory is not sufficient. Failed candidates are skipped by the config
+/// resolver. This keeps a packaged cmux frontend from silently resolving its
+/// theme with an unrelated Ghostty installation.
+pub fn ghostty_installations() -> Vec<GhosttyInstallation> {
+    let current_exe = std::env::current_exe().ok();
+    let explicit_binary = env_path("GHOSTTY_BIN");
+    let explicit_resources = env_path("GHOSTTY_RESOURCES_DIR");
+    let home = home_dir();
+    let path_binary = find_on_path(&["ghostty"]);
+    let mut candidates = ghostty_installation_candidates(
+        explicit_binary,
+        explicit_resources,
+        current_exe.as_deref(),
+        home.as_deref(),
+        path_binary,
     );
-    candidates.retain(|path| is_executable_file(path));
+    candidates.retain(|candidate| is_executable_file(&candidate.binary));
+    for candidate in &mut candidates {
+        candidate.resources_dir =
+            candidate.resources_dir.take().filter(|path| path.is_dir()).or_else(|| {
+                candidate
+                    .binary
+                    .canonicalize()
+                    .ok()
+                    .and_then(|path| ghostty_resources_for_binary(&path))
+                    .filter(|path| path.is_dir())
+            });
+    }
     candidates
+}
+
+/// Compatibility view for callers that only need executable paths.
+pub fn ghostty_binary_paths() -> Vec<PathBuf> {
+    ghostty_installations().into_iter().map(|candidate| candidate.binary).collect()
 }
 
 /// Theme directories in Ghostty's resolution order.
@@ -542,15 +575,176 @@ pub fn ghostty_theme_dirs() -> Vec<PathBuf> {
     } else if let Some(home) = home_dir() {
         push_unique(&mut candidates, home.join(".config").join("ghostty").join("themes"));
     }
-    push_unique(
-        &mut candidates,
-        PathBuf::from("/Applications/Ghostty.app/Contents/Resources/ghostty/themes"),
-    );
-    push_unique(
-        &mut candidates,
-        PathBuf::from("/Applications/cmux.app/Contents/Resources/ghostty/themes"),
-    );
+    let current_exe = std::env::current_exe().ok();
+    for installation in ghostty_installation_candidates(
+        env_path("GHOSTTY_BIN"),
+        env_path("GHOSTTY_RESOURCES_DIR"),
+        current_exe.as_deref(),
+        home_dir().as_deref(),
+        find_on_path(&["ghostty"]),
+    ) {
+        if let Some(path) = installation.resources_dir {
+            push_unique(&mut candidates, path.join("themes"));
+        }
+    }
     candidates
+}
+
+fn ghostty_installation_candidates(
+    explicit_binary: Option<PathBuf>,
+    explicit_resources: Option<PathBuf>,
+    current_exe: Option<&Path>,
+    home: Option<&Path>,
+    path_binary: Option<PathBuf>,
+) -> Vec<GhosttyInstallation> {
+    let mut candidates = Vec::new();
+
+    if let Some(binary) = explicit_binary.as_ref() {
+        push_unique_installation(
+            &mut candidates,
+            binary.clone(),
+            explicit_resources.clone().or_else(|| ghostty_resources_for_binary(binary)),
+        );
+    }
+
+    if let Some(current_exe) = current_exe {
+        for candidate in packaged_ghostty_installations(current_exe) {
+            push_unique_installation(&mut candidates, candidate.binary, candidate.resources_dir);
+        }
+    }
+
+    if let Some(home) = home {
+        push_app_installation(
+            &mut candidates,
+            &home.join("Applications").join("Ghostty-cmux-pinned.app"),
+        );
+    }
+    push_app_installation(&mut candidates, Path::new("/Applications/Ghostty-cmux-pinned.app"));
+
+    // `GHOSTTY_RESOURCES_DIR` is commonly inherited from the terminal that
+    // launched cmux, so it is a resource hint rather than proof that a helper
+    // matches this build. Only use a binary inferred from it after package-local
+    // and explicitly pinned installations.
+    if let Some(resources) = explicit_resources.as_ref() {
+        for binary in ghostty_binaries_for_resources(resources) {
+            push_unique_installation(&mut candidates, binary, Some(resources.clone()));
+        }
+    }
+    push_unique_installation(
+        &mut candidates,
+        PathBuf::from("/Applications/cmux.app/Contents/Resources/bin/ghostty"),
+        Some(PathBuf::from("/Applications/cmux.app/Contents/Resources/ghostty")),
+    );
+
+    if let Some(binary) = path_binary {
+        push_unique_installation(
+            &mut candidates,
+            binary.clone(),
+            ghostty_resources_for_binary(&binary),
+        );
+    }
+    push_app_installation(&mut candidates, Path::new("/Applications/Ghostty.app"));
+    candidates
+}
+
+fn packaged_ghostty_installations(current_exe: &Path) -> Vec<GhosttyInstallation> {
+    let mut candidates = Vec::new();
+    let Some(executable_dir) = current_exe.parent() else { return candidates };
+
+    // macOS app bundle: cmux-tui is installed in Contents/Helpers while a
+    // standalone Ghostty `cli-helper` build and resources live in
+    // Contents/Resources. Do not copy Ghostty.app's MacOS executable here: it
+    // has app-relative framework dependencies that are absent in this layout.
+    if executable_dir.file_name().is_some_and(|name| name == "Helpers" || name == "MacOS")
+        && let Some(contents) = executable_dir.parent()
+        && contents.file_name().is_some_and(|name| name == "Contents")
+    {
+        let resources = contents.join("Resources");
+        push_unique_installation(
+            &mut candidates,
+            resources.join("bin").join("ghostty"),
+            Some(resources.join("ghostty")),
+        );
+    }
+
+    // Flat release artifact: cmux-tui, bin/ghostty, and ghostty/ share a root.
+    push_unique_installation(
+        &mut candidates,
+        executable_dir.join("bin").join("ghostty"),
+        Some(executable_dir.join("ghostty")),
+    );
+
+    // Conventional prefix: bin/cmux-tui + bin/ghostty + share/ghostty.
+    if executable_dir.file_name().is_some_and(|name| name == "bin")
+        && let Some(prefix) = executable_dir.parent()
+    {
+        push_unique_installation(
+            &mut candidates,
+            executable_dir.join("ghostty"),
+            Some(prefix.join("share").join("ghostty")),
+        );
+    }
+    candidates
+}
+
+fn ghostty_binaries_for_resources(resources: &Path) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    let Some(parent) = resources.parent() else { return candidates };
+    if parent.file_name().is_some_and(|name| name == "Resources") {
+        push_unique(&mut candidates, parent.join("bin").join("ghostty"));
+        if let Some(contents) = parent.parent()
+            && contents.file_name().is_some_and(|name| name == "Contents")
+        {
+            push_unique(&mut candidates, contents.join("MacOS").join("ghostty"));
+        }
+    } else if parent.file_name().is_some_and(|name| name == "share") {
+        if let Some(prefix) = parent.parent() {
+            push_unique(&mut candidates, prefix.join("bin").join("ghostty"));
+        }
+    } else {
+        push_unique(&mut candidates, parent.join("bin").join("ghostty"));
+    }
+    candidates
+}
+
+fn ghostty_resources_for_binary(binary: &Path) -> Option<PathBuf> {
+    let binary_dir = binary.parent()?;
+    if binary_dir.file_name().is_some_and(|name| name == "MacOS") {
+        let contents = binary_dir.parent()?;
+        if contents.file_name().is_some_and(|name| name == "Contents") {
+            return Some(contents.join("Resources").join("ghostty"));
+        }
+    }
+    if binary_dir.file_name().is_some_and(|name| name == "bin") {
+        let parent = binary_dir.parent()?;
+        if parent.file_name().is_some_and(|name| name == "Resources") {
+            return Some(parent.join("ghostty"));
+        }
+        return Some(parent.join("share").join("ghostty"));
+    }
+    None
+}
+
+fn push_app_installation(candidates: &mut Vec<GhosttyInstallation>, app: &Path) {
+    push_unique_installation(
+        candidates,
+        app.join("Contents").join("MacOS").join("ghostty"),
+        Some(app.join("Contents").join("Resources").join("ghostty")),
+    );
+}
+
+fn push_unique_installation(
+    candidates: &mut Vec<GhosttyInstallation>,
+    binary: PathBuf,
+    resources_dir: Option<PathBuf>,
+) {
+    if let Some(existing) = candidates.iter_mut().find(|candidate| candidate.binary == binary) {
+        if existing.resources_dir.is_none() {
+            existing.resources_dir = resources_dir;
+        }
+        return;
+    }
+    candidates.push(GhosttyInstallation { binary, resources_dir });
 }
 
 /// Persistent profile directory for launched Chrome/Chromium sessions.
@@ -590,11 +784,11 @@ pub fn chrome_user_data_dir() -> Option<PathBuf> {
     }
 }
 
-pub fn restrict_directory(path: &Path) -> std::io::Result<()> {
+pub fn restrict_directory(path: &Path) -> io::Result<()> {
     restrict_permissions(path, 0o700)
 }
 
-pub fn restrict_file(path: &Path) -> std::io::Result<()> {
+pub fn restrict_file(path: &Path) -> io::Result<()> {
     restrict_permissions(path, 0o600)
 }
 
@@ -809,6 +1003,78 @@ pub fn home_dir() -> Option<PathBuf> {
         home.push(path);
         Some(home)
     })
+}
+
+/// Convert a terminal-reported OSC 7 working directory into a local path.
+///
+/// Shells normally report `file://host/path`. A URI from another host cannot
+/// name a safe local spawn directory, so callers should fall back to the
+/// surface's original working directory when this returns `None`.
+pub fn terminal_pwd_to_local_path(value: &str) -> Option<PathBuf> {
+    let plain = Path::new(value);
+    if terminal_pwd_path_is_safe(plain) {
+        return Some(plain.to_owned());
+    }
+
+    let mut url = url::Url::parse(value).ok()?;
+    if url.scheme() != "file" {
+        return None;
+    }
+    if let Some(host) = url.host_str()
+        && !terminal_pwd_host_is_local(host)
+    {
+        return None;
+    }
+    if url.host_str().is_some() {
+        url.set_host(Some("localhost")).ok()?;
+    }
+    url.to_file_path().ok().filter(|path| terminal_pwd_path_is_safe(path))
+}
+
+fn terminal_pwd_path_is_safe(path: &Path) -> bool {
+    if !path.is_absolute() {
+        return false;
+    }
+    #[cfg(windows)]
+    {
+        path.to_str().is_some_and(windows_path_is_rooted_local_drive)
+    }
+    #[cfg(not(windows))]
+    {
+        true
+    }
+}
+
+/// Windows namespaces can make an "absolute" path name a network share or
+/// device. OSC 7 inheritance only needs ordinary drive-rooted directories.
+#[cfg(any(windows, test))]
+fn windows_path_is_rooted_local_drive(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    bytes.first().is_some_and(|byte| byte.is_ascii_alphabetic())
+        && bytes.get(1) == Some(&b':')
+        && bytes.get(2).is_some_and(|separator| matches!(*separator, b'\\' | b'/'))
+}
+
+fn terminal_pwd_host_is_local(host: &str) -> bool {
+    host.eq_ignore_ascii_case("localhost")
+        || host == "127.0.0.1"
+        || host == "::1"
+        || local_hostname().is_some_and(|local| host.eq_ignore_ascii_case(&local))
+}
+
+#[cfg(unix)]
+fn local_hostname() -> Option<String> {
+    let mut hostname = [0_u8; 256];
+    if unsafe { libc::gethostname(hostname.as_mut_ptr().cast(), hostname.len()) } != 0 {
+        return None;
+    }
+    let end = hostname.iter().position(|byte| *byte == 0).unwrap_or(hostname.len());
+    std::str::from_utf8(&hostname[..end]).ok().filter(|value| !value.is_empty()).map(str::to_owned)
+}
+
+#[cfg(windows)]
+fn local_hostname() -> Option<String> {
+    std::env::var("COMPUTERNAME").ok().filter(|value| !value.is_empty())
 }
 
 fn env_path(name: &str) -> Option<PathBuf> {
@@ -1033,7 +1299,7 @@ fn sync_created_directory_parent(path: &Path) -> std::io::Result<()> {
 }
 
 #[cfg(unix)]
-fn restrict_permissions(path: &Path, mode: u32) -> std::io::Result<()> {
+fn restrict_permissions(path: &Path, mode: u32) -> io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
 
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))

@@ -36,6 +36,8 @@ extension TerminalController {
         "debug.empty_panel.count",
         "debug.empty_panel.reset",
         "debug.notification.focus",
+        "debug.notification.mode",
+        "debug.notification.emit",
         "debug.flash.count",
         "debug.flash.reset",
         "debug.canvas.command_scroll_hint",

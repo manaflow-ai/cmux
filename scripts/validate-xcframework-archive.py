@@ -3,6 +3,7 @@
 from pathlib import PurePosixPath
 import sys
 import tarfile
+from typing import BinaryIO, Optional, Tuple
 
 
 ROOTS = {
@@ -20,6 +21,18 @@ def normalize(name: str) -> str:
 def is_safe_member(name: str) -> bool:
     path = PurePosixPath(name)
     return not path.is_absolute() and ".." not in path.parts
+
+
+def contains_marker(stream: BinaryIO, markers: Tuple[bytes, ...]) -> Optional[bytes]:
+    longest_marker = max(len(marker) for marker in markers)
+    overlap = b""
+    while chunk := stream.read(1024 * 1024):
+        data = overlap + chunk
+        for marker in markers:
+            if marker in data:
+                return marker
+        overlap = data[-(longest_marker - 1) :]
+    return None
 
 
 def main() -> None:

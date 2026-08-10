@@ -37,7 +37,7 @@ class SettingsUITestCase: XCTestCase {
     // MARK: - Launch / window
 
     func makeLaunchedApp() -> XCUIApplication {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += settingsLaunchArguments
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         launchAndActivate(app)
