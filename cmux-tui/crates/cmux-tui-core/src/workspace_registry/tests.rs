@@ -5372,6 +5372,102 @@ fn journal_agent_legacy_upgrade_reads_only_indexed_agent_events() {
 }
 
 #[test]
+fn journal_agent_rebuild_skips_indexed_archived_non_agent_segments() {
+    let root = temp_root("journal-agent-indexed-archive");
+    let session = "journal-agent-indexed-archive";
+    let database = root.join(session_storage_component(session)).join(WORKSPACE_REGISTRY_FILE);
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, session).unwrap();
+        commit_terminal_topology(&mut registry, "journal-agent-indexed-archive-topology");
+        let through = registry.session_journal_after(0, 32).unwrap().head_sequence;
+        registry
+            .create_journal_checkpoint(
+                through,
+                1,
+                &json!({
+                    "session_snapshot":{"cursor":{"revision":"1"}},
+                    "journal_extensions":{"producers":[],"hooks":[]},
+                }),
+                &[],
+                "client_indexed_archive",
+                "journal_agent_indexed_archive_checkpoint",
+            )
+            .unwrap();
+        let plan = match registry
+            .begin_journal_segment_seal(
+                through,
+                "client_indexed_archive",
+                "journal_agent_indexed_archive_segment",
+            )
+            .unwrap()
+        {
+            JournalSegmentSealStart::Prepare(plan) => plan,
+            JournalSegmentSealStart::Replay(_) => {
+                panic!("first non-agent segment seal unexpectedly replayed")
+            }
+        };
+        let reader = SessionJournalReader::open(&database).unwrap();
+        let prepared = plan.prepare(&reader).unwrap();
+        registry
+            .commit_journal_segment_seal(
+                prepared,
+                "client_indexed_archive",
+                "journal_agent_indexed_archive_segment",
+            )
+            .unwrap()
+            .expect("non-agent segment boundary remained stable");
+        drop(reader);
+
+        let ingress = crate::agent_hook_journal_ingress(
+            "pi",
+            "agent_start",
+            Some(terminal_id.as_str()),
+            json!({"context":{"session_id":"indexed-archive-session"}}),
+        )
+        .unwrap();
+        let validated = crate::journal_kernel::ValidatedJournalIngress {
+            class: JournalClass::Observation,
+            replay: JournalReplayPolicy::Advisory,
+            sensitivity: JournalSensitivity::Sensitive,
+        };
+        registry
+            .append_journal_ingress(
+                &ingress,
+                &validated,
+                "client_indexed_archive",
+                "journal_agent_indexed_archive_start",
+            )
+            .unwrap();
+    }
+
+    Connection::open(&database)
+        .unwrap()
+        .execute_batch(
+            "DROP TRIGGER journal_segments_reject_update;
+             UPDATE journal_segments SET content = X'00';
+             CREATE TRIGGER journal_segments_reject_update
+             BEFORE UPDATE ON journal_segments
+             BEGIN SELECT RAISE(ABORT, 'journal segments are immutable'); END;
+             DELETE FROM resource_agent_projections;
+             DELETE FROM meta
+             WHERE key IN (
+               'agent_projection_journal_sequence_v1',
+               'agent_projection_journal_candidate_sequence_v1'
+             );",
+        )
+        .unwrap();
+
+    let reopened = WorkspaceRegistry::open(&root, session).unwrap();
+    let agent = reopened.public_projections().unwrap().agents.remove(0);
+    assert_eq!(agent.state, "working");
+    assert_eq!(agent.source, "hook");
+    assert_eq!(agent.source_session.as_deref(), Some("indexed-archive-session"));
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn journal_agent_legacy_upgrade_keeps_later_stored_socket_projection() {
     let root = temp_root("journal-agent-upgrade-stored-socket");
     let session = "journal-agent-upgrade-stored-socket";
@@ -5604,7 +5700,7 @@ fn journal_agent_append_applies_a_contiguous_projection_prefix() {
 }
 
 #[test]
-fn journal_agent_new_socket_session_replaces_old_hook_session() {
+fn journal_agent_future_socket_from_different_session_preserves_hook_session() {
     let mut registry = WorkspaceRegistry::in_memory("journal-agent-socket-transition").unwrap();
     commit_terminal_topology(&mut registry, "journal-agent-socket-transition-topology");
     let terminal_id = terminal_resource(TERMINAL_ONE);
@@ -5661,14 +5757,14 @@ fn journal_agent_new_socket_session_replaces_old_hook_session() {
         if source_session == "old-hook-session" {
             assert_eq!(agent.source, "hook");
         } else {
-            assert_eq!(agent.source, "socket");
-            assert_eq!(agent.source_session.as_deref(), Some("new-socket-session"));
+            assert_eq!(agent.source, "hook");
+            assert_eq!(agent.source_session.as_deref(), Some("old-hook-session"));
         }
     }
 }
 
 #[test]
-fn journal_agent_socket_replaces_hook_when_session_identity_is_missing() {
+fn journal_agent_socket_with_missing_session_preserves_hook_identity() {
     let mut registry =
         WorkspaceRegistry::in_memory("journal-agent-socket-missing-session").unwrap();
     commit_terminal_topology(&mut registry, "journal-agent-socket-missing-session-topology");
@@ -5715,7 +5811,7 @@ fn journal_agent_socket_replaces_hook_when_session_identity_is_missing() {
         )
         .unwrap();
     let agent = registry.public_projections().unwrap().agents.remove(0);
-    assert_eq!(agent.source, "socket");
+    assert_eq!(agent.source, "hook");
     assert!(agent.source_session.is_none());
 }
 
