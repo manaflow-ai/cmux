@@ -5221,9 +5221,7 @@ impl BrowserSurface {
             self.close_taps();
             if let Some(session) = self.session.lock().unwrap().take() {
                 if session.runtime.source() == BrowserSource::Provider {
-                    session
-                        .runtime
-                        .close_surface_detached(&session.target_id, &session.session_id);
+                    session.runtime.close_surface_detached(&session.target_id, &session.session_id);
                 } else {
                     session.runtime.unregister(&session.target_id, &session.session_id);
                 }
