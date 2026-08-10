@@ -4856,7 +4856,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         } else {
             mobileWorkspaceListObservers[id] = MobileWorkspaceListObserver(
                 tabManager: tabManager,
-                notificationStore: notificationStore,
+                sidebarUnread: notificationStore.sidebarUnread,
                 configStore: configStore
             )
         }

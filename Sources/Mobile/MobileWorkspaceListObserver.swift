@@ -17,11 +17,9 @@ private let mobileWorkspaceObserverLog = Logger(subsystem: "dev.cmux", category:
 @MainActor
 final class MobileWorkspaceListObserver {
     private weak var tabManager: TabManager?
-    /// The app-global notification store, source of each workspace's last-activity
-    /// preview line. Weak because the store is app-global and outlives this
-    /// observer; the weak reference keeps the observer from extending the store's
-    /// lifetime, mirroring how `tabManager` is held.
-    private weak var notificationStore: TerminalNotificationStore?
+    /// The authoritative unread snapshot that supplies each workspace's
+    /// last-activity preview and unread state.
+    private let sidebarUnread: SidebarUnreadModel?
     /// Per-window config supplies the effective group icon rendered by the Mac
     /// row when the group itself has no explicit icon.
     private weak var configStore: CmuxConfigStore?
@@ -43,6 +41,12 @@ final class MobileWorkspaceListObserver {
     private var subscriptionsChangeObserver: NSObjectProtocol?
     private var pipelinesAttached = false
     private var lastSummaryHash: Int = 0
+    /// Delivery is injected so tests can observe actual publications without
+    /// reaching into hash-deduplication state.
+    private let workspaceUpdateEmitter: @MainActor () -> Void
+    /// Cancellable suspension is injected for deterministic burst tests. The
+    /// emission gate owns when this sleeper is used.
+    private let emissionSleep: @Sendable (Duration) async throws -> Void
     /// Throttle window with `latest: true`. First event in a burst emits
     /// immediately (iPhone gets the change in milliseconds), subsequent
     /// events within the window collapse to one trailing emit carrying the
@@ -73,12 +77,24 @@ final class MobileWorkspaceListObserver {
 
     init(
         tabManager: TabManager,
-        notificationStore: TerminalNotificationStore? = nil,
-        configStore: CmuxConfigStore? = nil
+        sidebarUnread: SidebarUnreadModel? = nil,
+        configStore: CmuxConfigStore? = nil,
+        workspaceUpdateEmitter: (@MainActor () -> Void)? = nil,
+        emissionSleep: @escaping @Sendable (Duration) async throws -> Void = { duration in
+            try await ContinuousClock().sleep(for: duration)
+        }
     ) {
         self.tabManager = tabManager
-        self.notificationStore = notificationStore
+        self.sidebarUnread = sidebarUnread
         self.configStore = configStore
+        self.workspaceUpdateEmitter = workspaceUpdateEmitter ?? {
+            MobileHostService.shared.emitEvent(topic: "workspace.updated", payload: [:])
+            // v2 phones get per-record deltas instead of the empty invalidation
+            // above. Same tick, same throttle; a no-op diff emits nothing, and the
+            // call returns immediately when no phone subscribed to the delta topic.
+            MobileStateSyncHost.shared.broadcastIfSubscribed()
+        }
+        self.emissionSleep = emissionSleep
         #if DEBUG
         cmuxDebugLog("mobile.observer init tabs=\(tabManager.tabs.count)")
         #endif
@@ -188,8 +204,8 @@ final class MobileWorkspaceListObserver {
         // equality-guarded snapshot. Its synchronous post-mutation publication
         // means this observer never needs to reconcile a legacy willSet stream
         // with the notification indexes on a timer.
-        if let notificationStore {
-            unreadIndicatorsObservation = notificationStore.sidebarUnread.observeSummaryChanges(
+        if let sidebarUnread {
+            unreadIndicatorsObservation = sidebarUnread.observeSummaryChanges(
                 owner: self
             ) { observer, _ in
                 observer.emitIfNeeded(force: false)
@@ -238,7 +254,7 @@ final class MobileWorkspaceListObserver {
     private func currentPreviewSignatures(for tabs: [Workspace]) -> [UUID: Int] {
         Self.previewSignatures(
             for: tabs,
-            unreadSnapshot: notificationStore?.sidebarUnread.snapshot
+            unreadSnapshot: sidebarUnread?.snapshot
         )
     }
 
@@ -376,11 +392,7 @@ final class MobileWorkspaceListObserver {
         #if DEBUG
         cmuxDebugLog("mobile.observer EMIT workspace.updated hash=\(hash) tabs=\(tabManager.tabs.count) force=\(force)")
         #endif
-        MobileHostService.shared.emitEvent(topic: "workspace.updated", payload: [:])
-        // v2 phones get per-record deltas instead of the empty invalidation
-        // above. Same tick, same throttle; a no-op diff emits nothing, and the
-        // call returns immediately when no phone subscribed to the delta topic.
-        MobileStateSyncHost.shared.broadcastIfSubscribed()
+        workspaceUpdateEmitter()
     }
 
     /// Stable hash of the iOS-facing shape: workspace ids + titles + their
