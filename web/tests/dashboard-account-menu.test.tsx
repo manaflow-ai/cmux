@@ -384,4 +384,67 @@ describe("dashboard account menu", () => {
     });
     expect(routerPush).not.toHaveBeenCalled();
   });
+
+  test("prevents a second organization switch while the first is pending", async () => {
+    searchTeam = "team-2";
+    organizationQuery = {
+      data: {
+        selectedTeamId: "team-2",
+        teams: [
+          {
+            id: "team-2",
+            name: "Team Two",
+            personal: false,
+            permissions: { use: true, manageAccounts: false },
+          },
+          {
+            id: "team-3",
+            name: "Team Three",
+            personal: false,
+            permissions: { use: true, manageAccounts: false },
+          },
+        ],
+      },
+      isPending: false,
+      isError: false,
+    };
+    let finishFirstSwitch: (() => void) | undefined;
+    const firstSwitch = new Promise<void>((resolve) => {
+      finishFirstSwitch = resolve;
+    });
+    const guardedSetSelectedTeam = mock(() => firstSwitch);
+    currentUser = {
+      id: "user-lawrence",
+      displayName: "Lawrence",
+      primaryEmail: "lawrence@example.com",
+      signOut: async () => undefined,
+      selectedTeam: { id: "team-2" },
+      useTeams: () => [
+        { id: "team-2", displayName: "Team Two" },
+        { id: "team-3", displayName: "Team Three" },
+      ],
+      setSelectedTeam: guardedSetSelectedTeam,
+    };
+    renderToStaticMarkup(<DashboardAccountMenu />);
+
+    const first = handlers.switchOrganization?.({
+      id: "team-2",
+      displayName: "Team Two",
+    });
+    const second = handlers.switchOrganization?.({
+      id: "team-3",
+      displayName: "Team Three",
+    });
+    await second;
+
+    expect(guardedSetSelectedTeam).toHaveBeenCalledTimes(1);
+    finishFirstSwitch?.();
+    await first;
+    expect(routerPush).toHaveBeenCalledWith(
+      "/dashboard/coderouter?team=team-2",
+    );
+    expect(routerPush).not.toHaveBeenCalledWith(
+      "/dashboard/coderouter?team=team-3",
+    );
+  });
 });
