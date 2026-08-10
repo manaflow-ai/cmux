@@ -2556,14 +2556,10 @@ fn tombstone_resource_tab(
         }
     }
     tombstone_resource_tab_row(transaction, tab_id, revision)?;
-    if close_content {
-        match content_kind.as_str() {
-            "terminal" => {
-                tombstone_resource_terminal(transaction, &content_id, None, revision)?;
-            }
-            "browser" => tombstone_resource_browser(transaction, &content_id, revision)?,
-            other => anyhow::bail!("stored tab {tab_id} has invalid content kind {other:?}"),
-        }
+    if close_content && content_kind == "browser" {
+        tombstone_resource_browser(transaction, &content_id, revision)?;
+    } else if !matches!(content_kind.as_str(), "terminal" | "browser") {
+        anyhow::bail!("stored tab {tab_id} has invalid content kind {content_kind:?}");
     }
     Ok(())
 }
