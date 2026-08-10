@@ -29,26 +29,25 @@ final class SimulatorFramePresentationPipeline<Presented: Sendable> {
     }
 
     private let decoder: @Sendable (MobileSimulatorFrameEvent) async -> Presented?
-    private let onEvent: @MainActor (Event) -> Void
+    private let eventContinuation: AsyncStream<Event>.Continuation
     private var decodeTask: Task<Void, Never>?
     private var pendingFrame: MobileSimulatorFrameEvent?
     private var generation: UInt64 = 0
-    private var idleWaiters: [CheckedContinuation<Void, Never>] = []
 
+    let events: AsyncStream<Event>
     private(set) var presented: Presentation?
     private(set) var progress = Progress()
 
-    init(
-        decoder: @escaping @Sendable (MobileSimulatorFrameEvent) async -> Presented?,
-        onEvent: @escaping @MainActor (Event) -> Void = { _ in }
-    ) {
+    init(decoder: @escaping @Sendable (MobileSimulatorFrameEvent) async -> Presented?) {
+        let (events, eventContinuation) = AsyncStream.makeStream(of: Event.self)
         self.decoder = decoder
-        self.onEvent = onEvent
+        self.events = events
+        self.eventContinuation = eventContinuation
     }
 
     /// Accepts the newest absolute frame while keeping at most one decode
     /// active and one replaceable frame waiting behind it.
-    func submit(_ frame: MobileSimulatorFrameEvent) {
+    func submit(_ frame: MobileSimulatorFrameEvent, allowDuplicateSequence: Bool = false) {
         if progress.panelID != frame.panelID {
             generation &+= 1
             progress = Progress(panelID: frame.panelID, receivedSequence: frame.sequence)
@@ -57,7 +56,8 @@ final class SimulatorFramePresentationPipeline<Presented: Sendable> {
             progress.pendingSequence = frame.sequence
             decodeTask?.cancel()
         } else {
-            guard progress.receivedSequence.map({ frame.sequence > $0 }) ?? true else { return }
+            let isNewerSequence = progress.receivedSequence.map { frame.sequence > $0 } ?? true
+            guard allowDuplicateSequence || isNewerSequence else { return }
             progress.receivedSequence = frame.sequence
             pendingFrame = frame
             progress.pendingSequence = frame.sequence
@@ -73,16 +73,6 @@ final class SimulatorFramePresentationPipeline<Presented: Sendable> {
         progress = Progress()
         presented = nil
         decodeTask?.cancel()
-        if decodeTask == nil {
-            resumeIdleWaiters()
-        }
-    }
-
-    func waitUntilIdleForTesting() async {
-        guard decodeTask != nil || pendingFrame != nil else { return }
-        await withCheckedContinuation { continuation in
-            idleWaiters.append(continuation)
-        }
     }
 
     private func startPendingDecodeIfPossible() {
@@ -117,31 +107,20 @@ final class SimulatorFramePresentationPipeline<Presented: Sendable> {
                 progress.presentedSequence = frame.sequence
                 progress.failedSequence = nil
                 progress.consecutiveFailureCount = 0
-                onEvent(.presented(frame))
+                eventContinuation.yield(.presented(frame))
             } else {
                 progress.failedSequence = frame.sequence
                 progress.consecutiveFailureCount += 1
-                onEvent(.decodeFailed(frame))
+                eventContinuation.yield(.decodeFailed(frame))
                 if progress.consecutiveFailureCount == 3 {
-                    onEvent(.presentationStalled(frame))
+                    eventContinuation.yield(.presentationStalled(frame))
                     progress.consecutiveFailureCount = 0
                 }
             }
         } else {
-            onEvent(.discarded(frame))
+            eventContinuation.yield(.discarded(frame))
         }
         startPendingDecodeIfPossible()
-        if decodeTask == nil, pendingFrame == nil {
-            resumeIdleWaiters()
-        }
-    }
-
-    private func resumeIdleWaiters() {
-        let waiters = idleWaiters
-        idleWaiters.removeAll()
-        for waiter in waiters {
-            waiter.resume()
-        }
     }
 }
 #endif

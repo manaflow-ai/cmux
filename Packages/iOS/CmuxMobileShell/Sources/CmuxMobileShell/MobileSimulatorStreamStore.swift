@@ -49,8 +49,8 @@ public final class MobileSimulatorStreamSurfaceState: Identifiable {
         case locked
         /// The stream stopped producing events past the staleness threshold
         /// while the connection still looks healthy; the shell is re-requesting
-        /// the stream. Sticky until a fresh frame arrives so the recovering
-        /// pane cannot masquerade as live.
+        /// the stream. Sticky until a decoded frame is presented so an
+        /// undecodable payload cannot make the recovering pane look live.
         case stalled
     }
 
@@ -70,6 +70,9 @@ public final class MobileSimulatorStreamSurfaceState: Identifiable {
     public var connectionStatus: ConnectionStatus
     public var streamStatus: StreamStatus
     public private(set) var latestFrame: MobileSimulatorFrameEvent?
+    /// Monotonic receipt token updated for every accepted frame, including
+    /// cached replays whose sequence matches the current frame.
+    public private(set) var latestFrameReceiptRevision: UInt64 = 0
     public var isControlHandshakePending: Bool {
         streamStatus == .starting && ownerConnectionID == nil && !isOwnedByCurrentConnection
     }
@@ -173,6 +176,7 @@ public final class MobileSimulatorStreamSurfaceState: Identifiable {
             )
         }
         latestFrame = frame
+        latestFrameReceiptRevision &+= 1
         if streamStatus != .stalled {
             streamStatus = .streaming
         }

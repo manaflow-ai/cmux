@@ -2553,7 +2553,7 @@ actor MobileHostConnection {
             } else {
                 selectedTransport = .control
             }
-            subscribe(
+            await subscribe(
                 streamID: streamID,
                 topics: topics,
                 transport: selectedTransport,
@@ -2696,7 +2696,7 @@ actor MobileHostConnection {
         topics: Set<String>,
         transport: MobileHostEventTransport = .control,
         clientID: String? = nil
-    ) {
+    ) async {
         let previousTopics = subscriptions[streamID]?.topics
         subscriptions[streamID] = EventSubscription(
             topics: topics,
@@ -2715,6 +2715,12 @@ actor MobileHostConnection {
         )
         idleTimeoutTask?.cancel()
         idleTimeoutTask = nil
+        if currentSubscribedTopics().contains(MobileHostEventTopicPolicy.simulatorFrameTopic) {
+            let simulatorPanelIDs = eventQueue.takeSimulatorFrameReplayAfterDrainRequests()
+            if !simulatorPanelIDs.isEmpty {
+                await requestSimulatorFrameReplay(id, simulatorPanelIDs)
+            }
+        }
     }
 
     /// Remove a subscription by id. Returns true if it existed.

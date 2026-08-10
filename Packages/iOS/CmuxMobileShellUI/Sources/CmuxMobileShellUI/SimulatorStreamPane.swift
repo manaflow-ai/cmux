@@ -59,39 +59,7 @@ struct SimulatorStreamPane: View {
         self.actions = actions
         self.reconnect = reconnect
         _framePresenter = State(initialValue: SimulatorFramePresentationPipeline(
-            decoder: SimulatorPresentedImage.decode,
-            onEvent: { event in
-                let frame: MobileSimulatorFrameEvent
-                let diagnostic: DiagnosticSimulatorFrameLifecycle
-                switch event {
-                case .presented(let presentedFrame):
-                    frame = presentedFrame
-                    diagnostic = .imageDecoded
-                case .decodeFailed(let failedFrame):
-                    frame = failedFrame
-                    diagnostic = .imageDecodeFailed
-                case .discarded(let discardedFrame):
-                    frame = discardedFrame
-                    diagnostic = .staleIgnored
-                case .presentationStalled(let stalledFrame):
-                    frame = stalledFrame
-                    diagnostic = .imageDecodeFailed
-                }
-                Task {
-                    if case .presented = event {
-                        await actions.presentationSucceeded(frame.panelID)
-                    }
-                    if case .presentationStalled = event {
-                        await actions.presentationStalled(frame.panelID)
-                    }
-                    await actions.frameDiagnostic(
-                        frame.panelID,
-                        diagnostic,
-                        frame.sequence,
-                        frame.dataBase64.utf8.count
-                    )
-                }
-            }
+            decoder: SimulatorPresentedImage.decode
         ))
     }
 
@@ -121,12 +89,22 @@ struct SimulatorStreamPane: View {
         .background(Color(red: 0.055, green: 0.063, blue: 0.075).ignoresSafeArea())
         .task(id: state.latestFrame.map { SimulatorStreamFrameIdentity(
             panelID: $0.panelID,
-            sequence: $0.sequence
+            sequence: $0.sequence,
+            receiptRevision: state.latestFrameReceiptRevision
         ) }) {
             guard let frame = state.latestFrame else { return }
-            framePresenter.submit(frame)
+            framePresenter.submit(
+                frame,
+                allowDuplicateSequence: state.streamStatus == .stalled
+            )
         }
         .onDisappear { framePresenter.cancel() }
+        .task {
+            for await event in framePresenter.events {
+                guard !Task.isCancelled else { return }
+                await handlePresentationEvent(event)
+            }
+        }
         .task {
             for await input in pointerPipe.makeStream() {
                 await actions.pointer(input)
@@ -493,10 +471,38 @@ struct SimulatorStreamPane: View {
         Task { await actions.button(input) }
     }
 
+    private func handlePresentationEvent(
+        _ event: SimulatorFramePresentationPipeline<SimulatorPresentedImage>.Event
+    ) async {
+        let frame: MobileSimulatorFrameEvent
+        let diagnostic: DiagnosticSimulatorFrameLifecycle
+        switch event {
+        case .presented(let presentedFrame):
+            frame = presentedFrame
+            diagnostic = .imageDecoded
+            await actions.presentationSucceeded(frame.panelID)
+        case .decodeFailed(let failedFrame):
+            frame = failedFrame
+            diagnostic = .imageDecodeFailed
+        case .discarded(let discardedFrame):
+            frame = discardedFrame
+            diagnostic = .staleIgnored
+        case .presentationStalled(let stalledFrame):
+            await actions.presentationStalled(stalledFrame.panelID)
+            return
+        }
+        await actions.frameDiagnostic(
+            frame.panelID,
+            diagnostic,
+            frame.sequence,
+            frame.dataBase64.utf8.count
+        )
+    }
 }
 
 private struct SimulatorStreamFrameIdentity: Hashable {
     let panelID: String
     let sequence: UInt64
+    let receiptRevision: UInt64
 }
 #endif
