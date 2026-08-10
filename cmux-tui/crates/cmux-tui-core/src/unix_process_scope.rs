@@ -1515,9 +1515,14 @@ mod tests {
     #[test]
     fn mac_process_scope_denies_descendant_creation() {
         let mut scope = UnixProcessScope::prepare().unwrap();
-        let mut command = UnixProcessScope::suspended_command("/bin/sh");
+        let helper = std::env::current_exe().unwrap();
+        let mut command = UnixProcessScope::suspended_command(helper.as_os_str());
         command
-            .args(["-c", "(/usr/bin/true)"])
+            .args([
+                "--exact",
+                "unix_process_scope::tests::mac_process_scope_descendant_probe",
+                "--ignored",
+            ])
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null());
@@ -1525,6 +1530,24 @@ mod tests {
         let mut child = command.spawn().unwrap();
         scope.bind(child.id()).unwrap();
         let status = child.wait().unwrap();
-        assert!(!status.success(), "the macOS process sandbox allowed a hook descendant");
+        assert!(status.success(), "the macOS process sandbox allowed a hook descendant");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "run only as the child of mac_process_scope_denies_descendant_creation"]
+    fn mac_process_scope_descendant_probe() {
+        // SAFETY: the child exits immediately without touching shared Rust state.
+        let descendant = unsafe { libc::fork() };
+        if descendant == 0 {
+            // SAFETY: _exit terminates the fork child without running Rust destructors.
+            unsafe { libc::_exit(0) };
+        }
+        if descendant > 0 {
+            let mut status = 0;
+            // SAFETY: descendant is the child PID returned by fork.
+            unsafe { libc::waitpid(descendant, &mut status, 0) };
+            panic!("the macOS process sandbox allowed a descendant");
+        }
     }
 }
