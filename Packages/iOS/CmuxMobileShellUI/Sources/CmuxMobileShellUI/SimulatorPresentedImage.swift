@@ -11,7 +11,7 @@ struct SimulatorPresentedImage: @unchecked Sendable {
 
     static func decode(_ frame: MobileSimulatorFrameEvent) async -> SimulatorPresentedImage? {
         let base64 = frame.dataBase64
-        let task = Task.detached(priority: .userInitiated) {
+        let task = Task<SimulatorPresentedImage?, Never>.detached(priority: .userInitiated) {
             guard !Task.isCancelled,
                   let data = Data(base64Encoded: base64),
                   let image = UIImage(data: data) else { return nil }
