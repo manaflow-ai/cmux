@@ -5015,6 +5015,88 @@ fn journal_agent_projection_cursor_advances_and_replays_only_a_suffix() {
 }
 
 #[test]
+fn journal_agent_projection_rebuild_is_bounded_and_resumable() {
+    const EVENT_COUNT: usize = 1_025;
+
+    let root = temp_root("journal-agent-bounded-rebuild");
+    let session = "journal-agent-bounded-rebuild";
+    let database = root.join(session_storage_component(session)).join(WORKSPACE_REGISTRY_FILE);
+    let head_sequence = {
+        let mut registry = WorkspaceRegistry::open(&root, session).unwrap();
+        commit_terminal_topology(&mut registry, "journal-agent-bounded-rebuild-topology");
+        let producer = JournalProducer { kind: "test".into(), id: "bounded-rebuild".into() };
+        let payload = json!({});
+        let tx = registry.connection.unchecked_transaction().unwrap();
+        let mut head_sequence = 0;
+        for index in 0..EVENT_COUNT {
+            let event_id = format!("event_agent_bounded_rebuild_{index:04}");
+            head_sequence = session_journal::append_journal_record(
+                &tx,
+                &session_journal::JournalAppend {
+                    event_id: &event_id,
+                    schema_version: 1,
+                    kind: "agent.unknown",
+                    class: JournalClass::Observation,
+                    replay: JournalReplayPolicy::Advisory,
+                    occurred_at_ms: index as u64,
+                    producer: &producer,
+                    authority: None,
+                    causation_id: None,
+                    correlation_id: None,
+                    causation_depth: 0,
+                    subjects: &[],
+                    sensitivity: JournalSensitivity::Metadata,
+                    payload: &payload,
+                    content: None,
+                    resource_revision: None,
+                    previous_resource_revision: None,
+                },
+            )
+            .unwrap();
+        }
+        tx.commit().unwrap();
+        head_sequence
+    };
+
+    Connection::open(&database)
+        .unwrap()
+        .execute("DELETE FROM meta WHERE key = 'agent_projection_journal_sequence_v1'", [])
+        .unwrap();
+
+    let reopened = WorkspaceRegistry::open(&root, session).unwrap();
+    let first_cursor = reopened
+        .connection
+        .query_row(
+            "SELECT value FROM meta WHERE key = 'agent_projection_journal_sequence_v1'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap()
+        .parse::<u64>()
+        .unwrap();
+    assert!(
+        first_cursor < head_sequence,
+        "one open must not scan the complete journal when the rebuild exceeds one page"
+    );
+    drop(reopened);
+
+    let reopened_again = WorkspaceRegistry::open(&root, session).unwrap();
+    let resumed_cursor = reopened_again
+        .connection
+        .query_row(
+            "SELECT value FROM meta WHERE key = 'agent_projection_journal_sequence_v1'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap()
+        .parse::<u64>()
+        .unwrap();
+    assert_eq!(resumed_cursor, head_sequence);
+    drop(reopened_again);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn journal_agent_legacy_upgrade_reads_only_indexed_agent_events() {
     let root = temp_root("journal-agent-indexed-upgrade");
     let session = "journal-agent-indexed-upgrade";
@@ -5691,6 +5773,76 @@ fn journal_agent_late_hook_does_not_reopen_final_socket_session() {
     let agent = registry.public_projections().unwrap().agents.remove(0);
     assert_eq!(agent.state, "done");
     assert_eq!(agent.source, "socket");
+    assert_eq!(agent.source_session.as_deref(), Some("shared-session"));
+}
+
+#[test]
+fn journal_agent_explicit_start_reopens_final_same_session_identity() {
+    let mut registry = WorkspaceRegistry::in_memory("journal-agent-restart-same-session").unwrap();
+    commit_terminal_topology(&mut registry, "journal-agent-restart-same-session-topology");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let validated = crate::journal_kernel::ValidatedJournalIngress {
+        class: JournalClass::Observation,
+        replay: JournalReplayPolicy::Advisory,
+        sensitivity: JournalSensitivity::Sensitive,
+    };
+    let start = crate::agent_hook_journal_ingress(
+        "pi",
+        "SessionStart",
+        Some(terminal_id.as_str()),
+        json!({"session_id":"shared-session"}),
+    )
+    .unwrap();
+    registry
+        .append_journal_ingress(
+            &start,
+            &validated,
+            "client_restart_same_session",
+            "journal_agent_restart_same_session_start",
+        )
+        .unwrap();
+
+    let result = json!({
+        "id":agent_resource(&terminal_id),
+        "session_id":registry.session_id(),
+        "terminal_id":terminal_id,
+        "state":"done",
+        "source":"socket",
+        "updated_at_ms":unix_epoch_ms().unwrap().saturating_add(1_000).to_string(),
+        "source_session":"shared-session",
+        "extra":{"provider":"pi"},
+    });
+    registry
+        .commit_agent_projection(
+            &WorkspaceMutation::new("journal-agent-restart-same-session-final", "socket-test")
+                .unwrap(),
+            &json!({"source_session":"shared-session"}),
+            Some(1),
+            &terminal_id,
+            &result,
+            &json!([]),
+        )
+        .unwrap();
+
+    let restart = crate::agent_hook_journal_ingress(
+        "pi",
+        "SessionStart",
+        Some(terminal_id.as_str()),
+        json!({"session_id":"shared-session"}),
+    )
+    .unwrap();
+    registry
+        .append_journal_ingress(
+            &restart,
+            &validated,
+            "client_restart_same_session",
+            "journal_agent_restart_same_session_again",
+        )
+        .unwrap();
+
+    let agent = registry.public_projections().unwrap().agents.remove(0);
+    assert_eq!(agent.state, "idle");
+    assert_eq!(agent.source, "hook");
     assert_eq!(agent.source_session.as_deref(), Some("shared-session"));
 }
 
