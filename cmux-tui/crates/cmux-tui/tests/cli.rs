@@ -2546,14 +2546,14 @@ exit 0
 #[test]
 fn plain_launch_attaches_to_existing_local_session() {
     let server = HeadlessServer::start("plain-launch-attach");
-    let registered_path = server.dir.join("tui-client-registered");
-    let mut registered = TestFifoSignal::create(&registered_path);
+    let ready_path = server.dir.join("tui-initial-workspace-ready");
+    let mut ready = TestFifoSignal::create(&ready_path);
     let mut tui = PtyChild::start_with_env(
         &["--socket", server.socket.to_str().unwrap()],
-        &[("CMUX_TUI_TEST_CLIENT_REGISTERED_SIGNAL", registered_path.as_os_str())],
+        &[("CMUX_TUI_TEST_INITIAL_WORKSPACE_READY_SIGNAL", ready_path.as_os_str())],
     );
 
-    registered.receive(Duration::from_secs(10));
+    ready.receive(Duration::from_secs(10));
     if let Some(status) = tui.child.try_wait().unwrap() {
         panic!("plain launch exited instead of attaching: {status}");
     }
@@ -2565,7 +2565,7 @@ fn plain_launch_attaches_to_existing_local_session() {
             .unwrap()
             .iter()
             .any(|client| client["client_kind"].as_str() == Some("tui")),
-        "plain launch registration signal preceded server client state"
+        "plain launch readiness signal preceded server client state"
     );
 }
 
@@ -3036,6 +3036,8 @@ fn daemon_handoff_cleans_local_ptys_before_forcing_a_blocked_interactive_driver_
     fs::create_dir_all(&dir).unwrap();
     let socket = dir.join("mux.sock");
     let pid_file = dir.join("local-pty.pid");
+    let pid_published_path = dir.join("local-pty-published");
+    let mut pid_published = TestFifoSignal::create(&pid_published_path);
     let mut server = PtyChild::start_with_env(
         &["--socket", socket.to_str().unwrap(), "--ephemeral"],
         &[
@@ -3044,8 +3046,11 @@ fn daemon_handoff_cleans_local_ptys_before_forcing_a_blocked_interactive_driver_
         ],
     );
     wait_for_socket_path(&socket);
-    let command =
-        format!("trap '' HUP TERM; echo $$ > {}; while :; do sleep 1; done", pid_file.display());
+    let command = format!(
+        "trap '' HUP TERM; echo $$ > {}; printf 1 > {}; while :; do sleep 1; done",
+        pid_file.display(),
+        pid_published_path.display()
+    );
     let run = raw_cli_command(
         &socket,
         serde_json::json!({
@@ -3058,7 +3063,8 @@ fn daemon_handoff_cleans_local_ptys_before_forcing_a_blocked_interactive_driver_
     .output()
     .unwrap();
     assert_success(&run);
-    let local_pid = wait_for_pid_file(&pid_file, Duration::from_secs(5));
+    pid_published.receive(Duration::from_secs(5));
+    let local_pid = fs::read_to_string(&pid_file).unwrap().trim().parse().unwrap();
     let identity = json_socket_request(&socket, serde_json::json!({"id": 1, "cmd": "identify"}));
 
     let response = json_socket_request(
@@ -3206,10 +3212,13 @@ fn cancelled_published_host_is_terminated_through_its_record() {
     );
     let direct_pid_file = server.dir.join("published-direct.pid");
     let descendant_pid_file = server.dir.join("published-descendant.pid");
+    let pids_published_path = server.dir.join("published-pids-ready");
+    let mut pids_published = TestFifoSignal::create(&pids_published_path);
     let command = format!(
-        "echo $$ > {}; trap '' HUP; (trap '' HUP; while :; do sleep 1; done) & echo $! > {}; wait",
+        "echo $$ > {}; trap '' HUP; (trap '' HUP; while :; do sleep 1; done) & echo $! > {}; printf 1 > {}; wait",
         direct_pid_file.display(),
-        descendant_pid_file.display()
+        descendant_pid_file.display(),
+        pids_published_path.display()
     );
     let mut create = raw_cli_command(
         &server.socket,
@@ -3226,8 +3235,9 @@ fn cancelled_published_host_is_terminated_through_its_record() {
     .unwrap();
     let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&server.state, "main");
     published.receive(Duration::from_secs(5));
-    let direct_pid = wait_for_pid_file(&direct_pid_file, Duration::from_secs(5));
-    let descendant_pid = wait_for_pid_file(&descendant_pid_file, Duration::from_secs(5));
+    pids_published.receive(Duration::from_secs(5));
+    let direct_pid = fs::read_to_string(&direct_pid_file).unwrap().trim().parse().unwrap();
+    let descendant_pid = fs::read_to_string(&descendant_pid_file).unwrap().trim().parse().unwrap();
     assert!(!terminal_host_pids(&host_root).is_empty());
 
     let stop = cli(&server, &["--json", "server", "stop"]);

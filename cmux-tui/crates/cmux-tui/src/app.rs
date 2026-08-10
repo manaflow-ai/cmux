@@ -7796,6 +7796,12 @@ fn run_with_machine_updates_inner(
         ensure_initial_for_machine_ui(&session, initial_size, machine_ui.as_ref()),
         machine_ui.as_ref(),
     )?;
+    #[cfg(debug_assertions)]
+    if initial_workspace_error.is_none()
+        && let Some(signal) = std::env::var_os("CMUX_TUI_TEST_INITIAL_WORKSPACE_READY_SIGNAL")
+    {
+        std::fs::write(signal, b"1")?;
+    }
     let encoder = KeyEncoder::new()?;
     let (tx, rx) = sync_channel::<AppEvent>(APP_EVENT_CAPACITY);
     let host_input = HostInputRuntime::new();
