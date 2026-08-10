@@ -1,12 +1,16 @@
+#[cfg(unix)]
+use std::collections::VecDeque;
 use std::fs;
 #[cfg(unix)]
 use std::io::{BufRead, BufReader, Read, Write};
+#[cfg(unix)]
+use std::net::Shutdown;
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
 #[cfg(unix)]
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt, symlink};
 #[cfg(unix)]
-use std::os::unix::net::UnixListener;
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::mpsc;
@@ -325,6 +329,150 @@ fn lifecycle_cli(args: &[&str]) -> Output {
 }
 
 #[cfg(unix)]
+fn accept_with_timeout(listener: &UnixListener, timeout: Duration) -> std::io::Result<UnixStream> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "server did not receive the lifecycle connection",
+            ));
+        };
+        let timeout_ms = i32::try_from(remaining.as_millis().max(1)).unwrap_or(i32::MAX);
+        let mut descriptor = libc::pollfd {
+            fd: listener.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        // SAFETY: descriptor contains one valid listener fd and remains alive
+        // for the complete poll call.
+        let ready = unsafe { libc::poll(&mut descriptor, 1, timeout_ms) };
+        if ready > 0 {
+            return listener.accept().map(|(stream, _)| stream);
+        }
+        if ready == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "server did not receive the lifecycle connection",
+            ));
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::Interrupted {
+            return Err(error);
+        }
+    }
+}
+
+#[cfg(unix)]
+struct ServerEventSubscription {
+    writer: Box<dyn transport::Stream>,
+    receiver: mpsc::Receiver<Result<serde_json::Value, String>>,
+    reader_thread: Option<std::thread::JoinHandle<()>>,
+    pending: VecDeque<serde_json::Value>,
+}
+
+#[cfg(unix)]
+impl ServerEventSubscription {
+    fn start(path: &std::path::Path) -> Self {
+        let stream = transport::connect(path).unwrap();
+        let mut writer = stream.try_clone_box().unwrap();
+        let (sender, receiver) = mpsc::channel();
+        let reader_thread = std::thread::spawn(move || {
+            for line in BufReader::new(stream).lines() {
+                let value = line
+                    .map_err(|error| error.to_string())
+                    .and_then(|line| serde_json::from_str(&line).map_err(|error| error.to_string()));
+                if sender.send(value).is_err() {
+                    break;
+                }
+            }
+        });
+        writeln!(writer, r#"{{"id":1,"cmd":"subscribe"}}"#).unwrap();
+        writer.flush().unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut pending = VecDeque::new();
+        loop {
+            let remaining = deadline
+                .checked_duration_since(Instant::now())
+                .expect("server did not acknowledge the readiness subscription");
+            let message = receiver
+                .recv_timeout(remaining)
+                .expect("server did not acknowledge the readiness subscription")
+                .expect("readiness subscription returned invalid JSON");
+            if message["id"].as_u64() == Some(1) {
+                assert_eq!(message["ok"], true, "readiness subscription failed: {message}");
+                break;
+            }
+            pending.push_back(message);
+        }
+
+        Self { writer, receiver, reader_thread: Some(reader_thread), pending }
+    }
+
+    fn next_before(&mut self, deadline: Instant) -> serde_json::Value {
+        if let Some(message) = self.pending.pop_front() {
+            return message;
+        }
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .expect("interactive owner did not register its TUI client");
+        self.receiver
+            .recv_timeout(remaining)
+            .expect("interactive owner did not register its TUI client")
+            .expect("readiness subscription returned invalid JSON")
+    }
+}
+
+#[cfg(unix)]
+impl Drop for ServerEventSubscription {
+    fn drop(&mut self) {
+        let _ = self.writer.shutdown(Shutdown::Both);
+        if let Some(reader_thread) = self.reader_thread.take() {
+            let _ = reader_thread.join();
+        }
+    }
+}
+
+#[cfg(unix)]
+fn has_tui_client(socket: &std::path::Path) -> bool {
+    let clients = lifecycle_cli(&[
+        "--json",
+        "--socket",
+        socket.to_str().unwrap(),
+        "client",
+        "list",
+    ]);
+    clients.status.success()
+        && json_output(&clients).as_array().is_some_and(|clients| {
+            clients.iter().any(|client| client["client_kind"].as_str() == Some("tui"))
+        })
+}
+
+#[cfg(unix)]
+fn wait_for_tui_client(socket: &std::path::Path, owner: &mut PtyChild) {
+    let mut events = ServerEventSubscription::start(socket);
+    if has_tui_client(socket) {
+        return;
+    }
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Some(status) = owner.child.try_wait().unwrap() {
+            panic!("interactive owner exited before shutdown: {status}");
+        }
+        let event = events.next_before(deadline);
+        if matches!(
+            event["event"].as_str(),
+            Some("client-attached" | "client-changed")
+        ) && event["kind"].as_str() == Some("tui")
+        {
+            return;
+        }
+        assert_ne!(event["event"], "overflow", "readiness subscription overflowed");
+    }
+}
+
+#[cfg(unix)]
 struct SocketFileGuard(PathBuf);
 
 #[cfg(unix)]
@@ -491,22 +639,10 @@ fn explicit_session_overrides_an_inherited_socket_route() {
     let _ = fs::remove_file(&socket);
     let _socket_guard = SocketFileGuard(socket.clone());
     let listener = UnixListener::bind(&socket).unwrap();
-    listener.set_nonblocking(true).unwrap();
     let expected_session = session.clone();
     let thread = std::thread::spawn(move || {
-        let deadline = Instant::now() + Duration::from_secs(5);
-        let stream = loop {
-            match listener.accept() {
-                Ok((stream, _)) => break stream,
-                Err(error)
-                    if error.kind() == std::io::ErrorKind::WouldBlock
-                        && Instant::now() < deadline =>
-                {
-                    std::thread::sleep(Duration::from_millis(10));
-                }
-                Err(error) => panic!("explicit session route was not used: {error}"),
-            }
-        };
+        let stream = accept_with_timeout(&listener, Duration::from_secs(5))
+            .unwrap_or_else(|error| panic!("explicit session route was not used: {error}"));
         let mut reader = BufReader::new(stream.try_clone().unwrap());
         let mut writer = stream;
         let mut request = String::new();
@@ -2212,6 +2348,28 @@ impl PtyChild {
         });
         Self { child: spawned.child, output_drain: Some(output_drain) }
     }
+
+    fn wait_for_exit(&mut self, timeout: Duration) -> Option<cmux_pty::ExitStatus> {
+        let mut killer = self.child.clone_killer();
+        std::thread::scope(|scope| {
+            let (sender, receiver) = mpsc::sync_channel(1);
+            let child = &mut self.child;
+            scope.spawn(move || {
+                let _ = sender.send(child.wait());
+            });
+            match receiver.recv_timeout(timeout) {
+                Ok(status) => Some(status.unwrap()),
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    let _ = killer.kill();
+                    let _ = receiver.recv();
+                    None
+                }
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    panic!("interactive owner exit waiter disconnected")
+                }
+            }
+        })
+    }
 }
 
 #[cfg(unix)]
@@ -2354,26 +2512,7 @@ fn session_shutdown_exits_an_interactive_local_owner() {
         socket_arg,
     ]);
     wait_for_socket_path(&socket);
-
-    let ready_deadline = Instant::now() + Duration::from_secs(10);
-    loop {
-        if let Some(status) = owner.child.try_wait().unwrap() {
-            panic!("interactive owner exited before shutdown: {status}");
-        }
-        let clients = lifecycle_cli(&["--json", "--socket", socket_arg, "client", "list"]);
-        if clients.status.success()
-            && json_output(&clients).as_array().is_some_and(|clients| {
-                clients.iter().any(|client| client["client_kind"].as_str() == Some("tui"))
-            })
-        {
-            break;
-        }
-        assert!(
-            Instant::now() < ready_deadline,
-            "interactive owner did not register its TUI client"
-        );
-        std::thread::sleep(Duration::from_millis(25));
-    }
+    wait_for_tui_client(&socket, &mut owner);
 
     let shutdown = lifecycle_cli(&[
         "--json",
@@ -2386,18 +2525,10 @@ fn session_shutdown_exits_an_interactive_local_owner() {
     assert_success(&shutdown);
     assert_eq!(json_output(&shutdown)["value"]["accepted"], true);
 
-    let exit_deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        if let Some(status) = owner.child.try_wait().unwrap() {
-            assert!(status.success(), "interactive owner exited unsuccessfully: {status}");
-            break;
-        }
-        assert!(
-            Instant::now() < exit_deadline,
-            "interactive owner remained alive after session shutdown"
-        );
-        std::thread::sleep(Duration::from_millis(25));
-    }
+    let status = owner
+        .wait_for_exit(Duration::from_secs(5))
+        .expect("interactive owner remained alive after session shutdown");
+    assert!(status.success(), "interactive owner exited unsuccessfully: {status}");
 }
 
 #[cfg(unix)]
