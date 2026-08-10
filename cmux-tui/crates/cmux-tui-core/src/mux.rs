@@ -19911,11 +19911,24 @@ mod tests {
         wait_for_kitty_image_budget(&mux);
 
         let gate = Arc::new((Mutex::new(false), Condvar::new()));
+        let block_next_operation = Arc::new(AtomicBool::new(true));
         let (started_sender, started_receiver) = std::sync::mpsc::sync_channel(1);
         let (finished_sender, finished_receiver) = std::sync::mpsc::sync_channel(1);
         *mux.kitty_image_budget_operation.lock().unwrap() = Some(Arc::new({
             let gate = gate.clone();
-            move |_surface, _limits, _deadline| {
+            let block_next_operation = block_next_operation.clone();
+            move |surface, limits, _deadline| {
+                // Resource retirement can issue one cleanup update and a
+                // later survivor rebalance. Block only the operation whose
+                // ignored deadline this test measures.
+                if !block_next_operation.swap(false, Ordering::AcqRel) {
+                    return surface.set_kitty_graphics_limits(
+                        limits.image_bytes,
+                        limits.inflight_bytes,
+                        limits.images,
+                        limits.placements,
+                    );
+                }
                 let _ = started_sender.try_send(());
                 let (released, changed) = &*gate;
                 let mut released = released.lock().unwrap();
