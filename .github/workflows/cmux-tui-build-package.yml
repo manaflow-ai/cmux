@@ -477,6 +477,18 @@ jobs:
           cd ../cmux-tui
           cargo build -p cmux-tui --bin cmux-tui --release --locked --target x86_64-pc-windows-gnu
 
+      - name: Verify long Windows state path
+        shell: bash
+        run: |
+          python cmux-tui/scripts/smoke-windows-long-state-path.py \
+            --binary cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe
+
+      - name: Verify Windows terminal process exit
+        shell: bash
+        run: |
+          python cmux-tui/scripts/smoke-windows-process-wait.py \
+            --binary cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe
+
       - name: Set up Python for ConPTY verification
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
