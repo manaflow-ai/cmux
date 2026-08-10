@@ -5419,6 +5419,58 @@ fn journal_agent_socket_replaces_hook_when_session_identity_is_missing() {
 }
 
 #[test]
+fn journal_agent_stale_socket_does_not_replace_hook_without_session_identity() {
+    let mut registry = WorkspaceRegistry::in_memory("journal-agent-stale-unknown-socket").unwrap();
+    commit_terminal_topology(&mut registry, "journal-agent-stale-unknown-socket-topology");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let ingress = crate::agent_hook_journal_ingress(
+        "pi",
+        "agent_start",
+        Some(terminal_id.as_str()),
+        json!({}),
+    )
+    .unwrap();
+    let validated = crate::journal_kernel::ValidatedJournalIngress {
+        class: JournalClass::Observation,
+        replay: JournalReplayPolicy::Advisory,
+        sensitivity: JournalSensitivity::Sensitive,
+    };
+    registry
+        .append_journal_ingress(
+            &ingress,
+            &validated,
+            "client_stale_unknown_socket",
+            "journal_agent_stale_unknown_hook",
+        )
+        .unwrap();
+
+    let result = json!({
+        "id":agent_resource(&terminal_id),
+        "session_id":registry.session_id(),
+        "terminal_id":terminal_id,
+        "state":"working",
+        "source":"socket",
+        "updated_at_ms":"1",
+        "source_session":null,
+        "extra":{"provider":"socket-test"},
+    });
+    registry
+        .commit_agent_projection(
+            &WorkspaceMutation::new("journal-agent-stale-unknown-socket", "socket-test").unwrap(),
+            &json!({"source_session":null}),
+            Some(1),
+            &terminal_id,
+            &result,
+            &json!([]),
+        )
+        .unwrap();
+
+    let agent = registry.public_projections().unwrap().agents.remove(0);
+    assert_eq!(agent.source, "hook");
+    assert!(agent.source_session.is_none());
+}
+
+#[test]
 fn journal_agent_delayed_socket_report_does_not_replace_active_hook_session() {
     let mut registry = WorkspaceRegistry::in_memory("journal-agent-delayed-socket").unwrap();
     commit_terminal_topology(&mut registry, "journal-agent-delayed-socket-topology");
@@ -5513,6 +5565,60 @@ fn journal_agent_final_socket_report_overrides_same_session_hook_state() {
             &json!([]),
         )
         .unwrap();
+    let agent = registry.public_projections().unwrap().agents.remove(0);
+    assert_eq!(agent.state, "done");
+    assert_eq!(agent.source, "socket");
+    assert_eq!(agent.source_session.as_deref(), Some("shared-session"));
+}
+
+#[test]
+fn journal_agent_final_socket_without_provider_overrides_same_session_hook_state() {
+    let mut registry = WorkspaceRegistry::in_memory("journal-agent-final-providerless-socket")
+        .unwrap();
+    commit_terminal_topology(&mut registry, "journal-agent-final-providerless-socket-topology");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let ingress = crate::agent_hook_journal_ingress(
+        "pi",
+        "AgentStart",
+        Some(terminal_id.as_str()),
+        json!({"session_id":"shared-session"}),
+    )
+    .unwrap();
+    let validated = crate::journal_kernel::ValidatedJournalIngress {
+        class: JournalClass::Observation,
+        replay: JournalReplayPolicy::Advisory,
+        sensitivity: JournalSensitivity::Sensitive,
+    };
+    registry
+        .append_journal_ingress(
+            &ingress,
+            &validated,
+            "client_final_providerless_socket",
+            "journal_agent_final_providerless_socket_hook",
+        )
+        .unwrap();
+    let result = json!({
+        "id":agent_resource(&terminal_id),
+        "session_id":registry.session_id(),
+        "terminal_id":terminal_id,
+        "state":"done",
+        "source":"socket",
+        "updated_at_ms":unix_epoch_ms().unwrap().saturating_add(1_000).to_string(),
+        "source_session":"shared-session",
+        "extra":{},
+    });
+    registry
+        .commit_agent_projection(
+            &WorkspaceMutation::new("journal-agent-final-providerless-socket", "socket-test")
+                .unwrap(),
+            &json!({"source_session":"shared-session"}),
+            Some(1),
+            &terminal_id,
+            &result,
+            &json!([]),
+        )
+        .unwrap();
+
     let agent = registry.public_projections().unwrap().agents.remove(0);
     assert_eq!(agent.state, "done");
     assert_eq!(agent.source, "socket");
