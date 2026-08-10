@@ -151,23 +151,6 @@ extension WorkspaceDetailView {
         )
         .id(simulator.id)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onDisappear {
-            // Panel-scoped: when switching simulator A -> B, A's onDisappear
-            // fires AFTER B was activated, so the unconditional deactivate
-            // would clear B's fresh selection. The stop targets only this
-            // pane's panel and is a no-op on the Mac if it was already
-            // stopped by the selection switch.
-            simulatorStreamStore.deactivate(
-                panelID: simulator.id,
-                in: workspace.rpcWorkspaceID.rawValue
-            )
-            Task {
-                await store.stopMobileSimulatorStream(
-                    panelID: simulator.id,
-                    workspaceID: workspace.rpcWorkspaceID.rawValue
-                )
-            }
-        }
     }
     #endif
 }
