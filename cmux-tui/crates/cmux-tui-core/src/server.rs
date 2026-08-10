@@ -5600,6 +5600,20 @@ fn surface_public_content_id(mux: &Mux, surface: SurfaceId) -> Option<String> {
     })
 }
 
+fn surface_public_terminal_id(mux: &Mux, surface: SurfaceId) -> Option<TerminalPublicId> {
+    mux.with_state(|state| {
+        state
+            .surfaces
+            .get(&surface)
+            .and_then(|surface| surface.resource_identity())
+            .and_then(|identity| match &identity.content_id {
+                ContentPublicId::Terminal(terminal_id) => Some(terminal_id.clone()),
+                ContentPublicId::Browser(_) => None,
+            })
+            .or_else(|| state.terminal_catalog_by_runtime.get(&surface).cloned())
+    })
+}
+
 fn resource_client_cell_pixels_set(
     mux: &Arc<Mux>,
     requesting_client: u64,
@@ -5613,14 +5627,7 @@ fn resource_client_cell_pixels_set(
     let mut resized_terminals = update
         .resizes
         .into_iter()
-        .filter_map(|(surface, _, _)| {
-            let surface = mux.surface(surface)?;
-            let identity = surface.resource_identity()?;
-            let ContentPublicId::Terminal(terminal_id) = &identity.content_id else {
-                return None;
-            };
-            Some(terminal_id.clone())
-        })
+        .filter_map(|(surface, _, _)| surface_public_terminal_id(mux, surface))
         .collect::<Vec<_>>();
     resized_terminals.sort_by(|left, right| left.as_str().cmp(right.as_str()));
     resized_terminals.dedup();

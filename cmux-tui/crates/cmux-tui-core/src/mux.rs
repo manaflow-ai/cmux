@@ -8911,12 +8911,16 @@ impl Mux {
         let Some(terminal_id) = state.terminal_catalog_by_runtime.get(&runtime) else {
             return state.surfaces.contains_key(&runtime).then_some(runtime).into_iter().collect();
         };
-        state
+        let mut placements = state
             .placements_of_content(&ContentPublicId::Terminal(terminal_id.clone()))
             .iter()
             .copied()
             .filter(|placement| state.surfaces.contains_key(placement))
-            .collect()
+            .collect::<Vec<_>>();
+        if placements.is_empty() {
+            placements.push(runtime);
+        }
+        placements
     }
 
     fn cell_pixel_report_targets(&self, runtime: SurfaceId) -> Vec<SurfaceId> {
