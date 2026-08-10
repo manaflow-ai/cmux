@@ -160,6 +160,9 @@ public struct CMUXMobileRootScene: View {
         do {
             #if DEBUG
             if UITestConfig.mockDataEnabled {
+                // Manual-pair UI tests can relaunch the app after connecting.
+                // Their loopback port is unique to the fixture and survives
+                // that relaunch, while every other mock launch stays isolated.
                 let storeID = UITestConfig.addDevicePort.flatMap { port in
                     Int(port).map { "manual-\($0)" }
                 } ?? UUID().uuidString
