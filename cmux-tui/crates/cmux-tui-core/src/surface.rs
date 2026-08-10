@@ -1300,6 +1300,8 @@ impl TerminalResource {
         Some((path, crate::terminal_host_runtime::TerminalHostExitRecord::new(identity, exit)))
     }
 
+    /// Release parser and render graphics after the runtime can no longer
+    /// publish output. This does not contact an exited terminal host.
     pub(crate) fn release_kitty_graphics_for_retirement(&self) -> anyhow::Result<()> {
         self.inner.kitty_graphics_retired.store(true, Ordering::Release);
         Surface::apply_local_kitty_graphics_limits(&self.inner, KittyGraphicsLimits::disabled())
@@ -4063,13 +4065,6 @@ impl Surface {
         Ok(())
     }
 
-    /// Release parser and render graphics after the runtime can no longer
-    /// publish output. This does not contact an exited terminal host.
-    pub(crate) fn release_kitty_graphics_for_retirement(&self) -> anyhow::Result<()> {
-        let Some(terminal) = self.terminal_resource() else { return Ok(()) };
-        terminal.release_kitty_graphics_for_retirement()
-    }
-
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn set_kitty_graphics_limits(
         &self,
@@ -5061,13 +5056,6 @@ impl Surface {
                     anyhow::anyhow!("terminal host did not exit before the close deadline")
                 })?;
         }
-    }
-
-    #[cfg(unix)]
-    pub(crate) fn terminal_host_exit_sidecar(
-        &self,
-    ) -> Option<(PathBuf, crate::terminal_host_runtime::TerminalHostExitRecord)> {
-        self.terminal_resource()?.terminal_host_exit_sidecar()
     }
 
     /// Process-stable identity for hosted terminals. Surface ids remain
