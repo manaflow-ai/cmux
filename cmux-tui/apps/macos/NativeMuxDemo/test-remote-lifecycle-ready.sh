@@ -26,13 +26,40 @@ fi
 source "$READY_HELPER"
 
 LOG="$TEST_ROOT/launcher.log"
+POLL_REQUEST="$TEST_ROOT/poll-request"
+POLL_RELEASE="$TEST_ROOT/poll-release"
+mkfifo "$POLL_REQUEST" "$POLL_RELEASE"
+
+await_poll() {
+  IFS= read -r _ <"$POLL_REQUEST"
+}
+
+release_poll() {
+  printf 'continue\n' >"$POLL_RELEASE"
+}
+
+# Drive the helper by its poll boundary so this test does not use wall time.
+# shellcheck disable=SC2329 # Called by the sourced readiness helper.
+sleep() {
+  local poll_seconds="$1"
+  printf '%s\n' "$poll_seconds" >"$POLL_REQUEST"
+  IFS= read -r _ <"$POLL_RELEASE"
+}
+
 : >"$LOG"
 (
-  sleep 0.06
+  for _ in 1 2 3 4 5; do
+    await_poll
+    release_poll
+  done
+  await_poll
   echo "Starting the PTY-owning Iroh daemon on test-host..."
-  sleep 0.02
+  release_poll
+  await_poll
+  release_poll
+  await_poll
   echo "Ready. Remote PTY is on test-host."
-  sleep 0.05
+  release_poll
 ) >>"$LOG" &
 CHILD_PID=$!
 if ! cmux_wait_for_remote_demo_ready "$LOG" "$CHILD_PID" 20 5 0.01; then
@@ -41,6 +68,7 @@ if ! cmux_wait_for_remote_demo_ready "$LOG" "$CHILD_PID" 20 5 0.01; then
 fi
 wait "$CHILD_PID"
 CHILD_PID=""
+unset -f sleep
 
 : >"$LOG"
 sleep 1 &
@@ -73,14 +101,13 @@ wait "$CHILD_PID" 2>/dev/null || true
 CHILD_PID=""
 
 : >"$LOG"
-sleep 0.01 &
+true &
 CHILD_PID=$!
-sleep 0.03
+wait "$CHILD_PID"
 set +e
 cmux_wait_for_remote_demo_ready "$LOG" "$CHILD_PID" 10 10 0.01
 STATUS=$?
 set -e
-wait "$CHILD_PID" 2>/dev/null || true
 CHILD_PID=""
 if [[ "$STATUS" != "10" ]]; then
   echo "An early launcher exit returned $STATUS instead of status 10." >&2
