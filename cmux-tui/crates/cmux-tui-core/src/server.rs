@@ -19245,6 +19245,14 @@ mod tests {
             Ok(())
         }
 
+        fn send_ordered_terminal(
+            &self,
+            _text: Arc<BudgetedText>,
+            _stream: &OutboundStream,
+        ) -> std::io::Result<()> {
+            Ok(())
+        }
+
         fn is_open(&self) -> bool {
             self.open.load(Ordering::Acquire)
         }
