@@ -72,10 +72,28 @@ import Testing
 
         #expect(configuration?.eligibility.rawValue == raw)
         #expect(configuration?.identifier == "migration-run")
+        #expect(configuration?.presentsWorkspaceSettingsBeforeMigration == false)
         #expect(
             configuration?.defaultsSuiteName
                 == "dev.cmux.uitest.autoConnectMigration.migration-run"
         )
+    }
+
+    @Test func autoConnectMigrationFixtureParsesInitialSettingsDeferralBehindMockGate() {
+        let configuration = AutoConnectMigrationUITestConfiguration(environment: [
+            "CMUX_UITEST_MOCK_DATA": "1",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": "migration-run",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_INITIAL_SETTINGS": " 1 ",
+        ])
+
+        #expect(configuration?.presentsWorkspaceSettingsBeforeMigration == true)
+        #expect(AutoConnectMigrationUITestConfiguration(environment: [
+            "CMUX_UITEST_MOCK_DATA": "0",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": "migration-run",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_INITIAL_SETTINGS": "1",
+        ]) == nil)
     }
 
     @Test func autoConnectMigrationFixtureRejectsUnsafeOrIncompleteInputs() {

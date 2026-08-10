@@ -13,6 +13,9 @@ public struct AutoConnectMigrationUITestConfiguration: Equatable, Sendable {
     public let eligibility: Eligibility
     /// A per-test identifier used to isolate all migration-owned defaults.
     public let identifier: String
+    /// Whether Settings should own the root modal slot before migration
+    /// eligibility is checked.
+    public let presentsWorkspaceSettingsBeforeMigration: Bool
 
     /// Parses a DEBUG-only migration fixture from explicit process inputs.
     ///
@@ -32,6 +35,9 @@ public struct AutoConnectMigrationUITestConfiguration: Equatable, Sendable {
         }
         self.eligibility = eligibility
         self.identifier = identifier
+        self.presentsWorkspaceSettingsBeforeMigration =
+            environment["CMUX_UITEST_AUTOCONNECT_MIGRATION_INITIAL_SETTINGS"]?
+                .trimmingCharacters(in: .whitespacesAndNewlines) == "1"
     }
 
     /// A stable suite shared across relaunches of one UI-test fixture.

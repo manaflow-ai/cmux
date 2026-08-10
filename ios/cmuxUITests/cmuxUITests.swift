@@ -425,9 +425,9 @@ final class cmuxUITests: XCTestCase {
     }
 
     /// A migrating BETA install sees the explanation once, can follow its
-    /// recovery route to the existing picker, and retains Tailscale on relaunch.
+    /// recovery route to the existing picker, and retains each selection.
     @MainActor
-    func testAutoConnectMigrationIntroductionOpensFocusedConnectionSettingsAndPersistsTailscale() throws {
+    func testAutoConnectMigrationIntroductionPersistsTailscaleAndAutoConnectAcrossRelaunches() throws {
         let fixtureID = UUID().uuidString
         let environment = [
             "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
@@ -481,6 +481,158 @@ final class cmuxUITests: XCTestCase {
         ]
         XCTAssertTrue(retainedTailscale.waitForExistence(timeout: 4))
         XCTAssertTrue(retainedTailscale.isSelected)
+
+        let automatic = relaunched.descendants(matching: .any)[
+            "MobileSettingsConnectionMethodAutomatic"
+        ]
+        XCTAssertTrue(automatic.waitForExistence(timeout: 4))
+        automatic.tap()
+        relaunched.terminate()
+
+        let secondRelaunch = launchApp(mockData: true, environment: environment)
+        defer { secondRelaunch.terminate() }
+        XCTAssertFalse(
+            secondRelaunch.descendants(matching: .any)["MobileAutoConnectMigrationSheet"]
+                .waitForExistence(timeout: 2)
+        )
+        let secondSettings = secondRelaunch.buttons["MobileWorkspaceSettingsMenu"]
+        XCTAssertTrue(secondSettings.waitForExistence(timeout: 8))
+        secondSettings.tap()
+        let secondPicker = secondRelaunch.descendants(matching: .any)[
+            "MobileSettingsConnectionMethod"
+        ]
+        XCTAssertTrue(secondPicker.waitForExistence(timeout: 4))
+        XCTAssertTrue(secondPicker.isHittable)
+        secondPicker.tap()
+        let retainedAutomatic = secondRelaunch.descendants(matching: .any)[
+            "MobileSettingsConnectionMethodAutomatic"
+        ]
+        XCTAssertTrue(retainedAutomatic.waitForExistence(timeout: 4))
+        XCTAssertTrue(retainedAutomatic.isSelected)
+    }
+
+    /// Continuing acknowledges the notice without changing the default method,
+    /// and the same fixture never sees the notice again.
+    @MainActor
+    func testAutoConnectMigrationContinueKeepsAutoConnectAndDoesNotRepeat() throws {
+        let fixtureID = UUID().uuidString
+        let environment = [
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": fixtureID,
+        ]
+        let app = launchApp(mockData: true, environment: environment)
+        defer { app.terminate() }
+
+        let sheet = app.descendants(matching: .any)["MobileAutoConnectMigrationSheet"]
+        XCTAssertTrue(sheet.waitForExistence(timeout: 8))
+        let continueButton = app.buttons["MobileAutoConnectMigrationContinue"]
+        XCTAssertTrue(continueButton.isHittable)
+        continueButton.tap()
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 4))
+
+        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 8))
+        settings.tap()
+        let picker = app.descendants(matching: .any)["MobileSettingsConnectionMethod"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 4))
+        XCTAssertTrue(picker.isHittable)
+        picker.tap()
+        let automatic = app.descendants(matching: .any)[
+            "MobileSettingsConnectionMethodAutomatic"
+        ]
+        XCTAssertTrue(automatic.waitForExistence(timeout: 4))
+        XCTAssertTrue(automatic.isSelected)
+        app.terminate()
+
+        let relaunched = launchApp(mockData: true, environment: environment)
+        defer { relaunched.terminate() }
+        XCTAssertFalse(
+            relaunched.descendants(matching: .any)["MobileAutoConnectMigrationSheet"]
+                .waitForExistence(timeout: 2)
+        )
+        XCTAssertTrue(
+            relaunched.buttons["MobileWorkspaceSettingsMenu"].waitForExistence(timeout: 8)
+        )
+    }
+
+    /// Terminating with the notice visible cannot consume its one-time state.
+    @MainActor
+    func testAutoConnectMigrationTerminationWhileVisibleRepeatsOnRelaunch() throws {
+        let environment = [
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": UUID().uuidString,
+        ]
+        let app = launchApp(mockData: true, environment: environment)
+        defer { app.terminate() }
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileAutoConnectMigrationSheet"]
+                .waitForExistence(timeout: 8)
+        )
+        app.terminate()
+
+        let relaunched = launchApp(mockData: true, environment: environment)
+        defer { relaunched.terminate() }
+        XCTAssertTrue(
+            relaunched.descendants(matching: .any)["MobileAutoConnectMigrationSheet"]
+                .waitForExistence(timeout: 8)
+        )
+    }
+
+    /// A real drag from the sheet chrome takes SwiftUI's interactive-dismissal
+    /// path and acknowledges the notice once.
+    @MainActor
+    func testAutoConnectMigrationInteractiveSwipeDismissalDoesNotRepeat() throws {
+        let environment = [
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": UUID().uuidString,
+        ]
+        let app = launchApp(mockData: true, environment: environment)
+        defer { app.terminate() }
+
+        let sheet = app.descendants(matching: .any)["MobileAutoConnectMigrationSheet"]
+        XCTAssertTrue(sheet.waitForExistence(timeout: 8))
+        let dragIndicator = sheet.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.5, dy: 0.02)
+        )
+        let bottom = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95))
+        dragIndicator.press(forDuration: 0.05, thenDragTo: bottom)
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 4))
+        app.terminate()
+
+        let relaunched = launchApp(mockData: true, environment: environment)
+        defer { relaunched.terminate() }
+        XCTAssertFalse(
+            relaunched.descendants(matching: .any)["MobileAutoConnectMigrationSheet"]
+                .waitForExistence(timeout: 2)
+        )
+        XCTAssertTrue(
+            relaunched.buttons["MobileWorkspaceSettingsMenu"].waitForExistence(timeout: 8)
+        )
+    }
+
+    /// A child sheet owns the real modal slot first. Its dismissal must trigger
+    /// the existing retry path and then present the pending migration.
+    @MainActor
+    func testAutoConnectMigrationDefersUntilWorkspaceSettingsDismisses() throws {
+        let app = launchApp(mockData: true, environment: [
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": UUID().uuidString,
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_INITIAL_SETTINGS": "1",
+        ])
+        defer { app.terminate() }
+
+        let settings = app.descendants(matching: .any)["MobileSettingsView"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 8))
+        let migration = app.descendants(matching: .any)["MobileAutoConnectMigrationSheet"]
+        XCTAssertFalse(migration.exists)
+
+        let done = app.buttons["MobileSettingsDone"]
+        XCTAssertTrue(done.waitForExistence(timeout: 4))
+        XCTAssertTrue(done.isHittable)
+        done.tap()
+        XCTAssertTrue(settings.waitForNonExistence(timeout: 4))
+        XCTAssertTrue(migration.waitForExistence(timeout: 8))
     }
 
     /// The same deterministic shell can prove an ineligible fresh-install

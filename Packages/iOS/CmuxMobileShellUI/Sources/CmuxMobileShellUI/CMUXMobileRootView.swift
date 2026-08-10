@@ -36,7 +36,7 @@ struct CMUXMobileRootView: View {
     @State private var isAwaitingOnboardingReconnectStart = false
     @State private var onboardingMacDiscoveryKeepAlive = OnboardingMacDiscoveryKeepAlive()
     /// The shared iOS modal slot for root sheets and shell-owned child sheets.
-    @State private var rootPresentation = MobileRootPresentationState()
+    @State private var rootPresentation: MobileRootPresentationState
     #endif
     @State private var pendingAttachURL: String?
     @State private var didAuthenticateWithAttachTicket = false
@@ -69,6 +69,15 @@ struct CMUXMobileRootView: View {
         self.onboardingStore = onboardingStore
         self.signOutHook = signOutHook
         self.startupConnectionCoordinator = startupConnectionCoordinator
+        var initialRootPresentation = MobileRootPresentationState()
+        #if DEBUG
+        if AutoConnectMigrationUITestConfiguration(
+            environment: ProcessInfo.processInfo.environment
+        )?.presentsWorkspaceSettingsBeforeMigration == true {
+            initialRootPresentation.apply(.presentChild(.workspaceSettings))
+        }
+        #endif
+        _rootPresentation = State(initialValue: initialRootPresentation)
     }
     #else
     init(
