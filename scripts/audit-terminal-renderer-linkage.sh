@@ -227,7 +227,16 @@ while IFS= read -r archive; do
   strings -a "$archive" > "$archive_strings"
   grep -E '^_ghostty_' "$archive_defined" | sort -u > "$archive_ghostty"
 
-  forbidden_undefined="$(grep -E "$banned_process_regex|$banned_ghostty_regex" "$archive_undefined" || true)"
+  # Zig 0.16 emits its compile-time-only Threaded table in the monolithic ZCU
+  # object. The linked probe below proves that dead stripping removes those
+  # unused process sections. Process references in every other member fail.
+  forbidden_process="$(
+    grep -E "$banned_process_regex" "$archive_undefined" \
+      | grep -Ev ':libghostty-scene-renderer_zcu\.o:' \
+      || true
+  )"
+  forbidden_ghostty="$(grep -E "$banned_ghostty_regex" "$archive_undefined" || true)"
+  forbidden_undefined="$forbidden_process$forbidden_ghostty"
   [[ -z "$forbidden_undefined" ]] || fail_with_matches \
     "scene archive contains forbidden process/runtime references: $archive" \
     "$forbidden_undefined"
@@ -268,7 +277,54 @@ container_count="$(wc -l < "$ARCHIVES_LIST" | tr -d ' ')"
 archive_count="$(wc -l < "$AUDIT_ARCHIVES" | tr -d ' ')"
 abi_count="$(wc -l < "$DECLARED_ABI" | tr -d ' ')"
 if [[ "$ARCHIVE_ONLY" == true ]]; then
-  echo "Renderer archive audit passed: containers=$container_count architecture_archives=$archive_count declared_scene_abi=$abi_count"
+  PROBE_SOURCE="$TEMP_DIR/scene-link-probe.c"
+  PROBE_BINARY="$TEMP_DIR/scene-link-probe"
+  PROBE_ARCHIVE="$(head -n 1 "$ARCHIVES_LIST")"
+  {
+    printf '#include <stdint.h>\n'
+    printf '#include "ghostty_scene.h"\n'
+    printf 'static void (*volatile scene_symbols[])(void) = {\n'
+    sed -E 's/^_(.*)$/    (void (*)(void)) \&\1,/' "$DECLARED_ABI"
+    printf '};\n'
+    printf 'int main(void) {\n'
+    printf '    uintptr_t value = 0;\n'
+    printf '    for (unsigned long i = 0; i < sizeof(scene_symbols) / sizeof(scene_symbols[0]); ++i) value ^= (uintptr_t) scene_symbols[i];\n'
+    printf '    return value == 0;\n'
+    printf '}\n'
+  } > "$PROBE_SOURCE"
+  clang \
+    -O2 \
+    -Wl,-dead_strip \
+    -I "$HEADERS_DIR" \
+    "$PROBE_SOURCE" \
+    "$PROBE_ARCHIVE" \
+    -framework Foundation \
+    -framework Carbon \
+    -framework CoreFoundation \
+    -framework CoreGraphics \
+    -framework CoreText \
+    -framework CoreVideo \
+    -framework QuartzCore \
+    -framework IOSurface \
+    -framework Metal \
+    -lc++ \
+    -o "$PROBE_BINARY"
+
+  PROBE_SYMBOLS="$TEMP_DIR/probe-symbols.txt"
+  PROBE_LOADS="$TEMP_DIR/probe-loads.txt"
+  nm -a "$PROBE_BINARY" > "$PROBE_SYMBOLS"
+  otool -L "$PROBE_BINARY" > "$PROBE_LOADS"
+  probe_forbidden="$(grep -Ei "$banned_process_regex|$banned_ghostty_regex|$banned_terminal_regex|$banned_dynamic_loader_regex|$banned_swift_bundle_loader_regex" "$PROBE_SYMBOLS" || true)"
+  [[ -z "$probe_forbidden" ]] || fail_with_matches \
+    "linked scene archive probe retains forbidden runtime symbols" \
+    "$probe_forbidden"
+  probe_loads="$(sed -n '2,$p' "$PROBE_LOADS" | grep -Ei 'Ghostty(SceneRenderer)?Kit|libghostty' || true)"
+  [[ -z "$probe_loads" ]] || fail_with_matches \
+    "linked scene archive probe dynamically loads a Ghostty library" \
+    "$probe_loads"
+
+  probe_size="$(stat -f '%z' "$PROBE_BINARY")"
+  echo "Renderer archive audit passed: containers=$container_count architecture_archives=$archive_count declared_scene_abi=$abi_count linked_probe_bytes=$probe_size"
 else
   FINAL_GHOSTTY="$TEMP_DIR/final-ghostty.txt"
   grep -E '^_ghostty_' "$DEFINED" | sort -u > "$FINAL_GHOSTTY"
