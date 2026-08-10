@@ -2192,7 +2192,6 @@ final class cmuxUITests: XCTestCase {
             XCTAssertEqual(prompt.value as? String, "Keep this draft")
             XCTAssertTrue(imageCard.exists)
             XCTAssertTrue(fileCard.exists)
-            dismissKeyboard(in: app)
         }
 
         let sourceMenu = app.buttons["MobileTaskComposerAttachmentButton"]
@@ -2202,7 +2201,6 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Files"].waitForExistence(timeout: 2))
         XCTAssertFalse(app.descendants(matching: .any)["MobileAttachmentPreview"].exists)
         prompt.tap()
-        dismissKeyboard(in: app)
 
         fileRemove.tap()
         XCTAssertTrue(fileCard.waitForNonExistence(timeout: 3))
