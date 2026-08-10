@@ -1842,6 +1842,7 @@ pub struct Mux {
     terminal_adoptions: Mutex<HashSet<String>>,
     terminal_exit_detaches: Arc<TerminalExitDetachTracker>,
     terminal_adoption_insert_failures: AtomicU64,
+    server_lifecycle_ready: AtomicBool,
     shutting_down: AtomicBool,
     pub(crate) control_clients: crate::server::ClientRegistry,
     pub(crate) surface_operation_admission: Arc<crate::server::ServerSurfaceOperationAdmission>,
@@ -2183,6 +2184,7 @@ impl Mux {
                     .and_then(|value| value.parse().ok())
                     .unwrap_or(0),
             ),
+            server_lifecycle_ready: AtomicBool::new(false),
             shutting_down: AtomicBool::new(false),
             control_clients: crate::server::ClientRegistry::new(),
             surface_operation_admission: Arc::new(
@@ -7498,6 +7500,16 @@ impl Mux {
         if let Some(runtime) = self.browser_runtime.lock().unwrap().take() {
             runtime.shutdown();
         }
+    }
+
+    /// Publish that every owner needed by canonical server lifecycle commands
+    /// is installed. Ordinary control clients may connect before this point.
+    pub fn mark_server_lifecycle_ready(&self) {
+        self.server_lifecycle_ready.store(true, Ordering::Release);
+    }
+
+    pub fn server_lifecycle_ready(&self) -> bool {
+        self.server_lifecycle_ready.load(Ordering::Acquire)
     }
 
     /// Validate the target daemon and atomically reserve its handoff. Unless

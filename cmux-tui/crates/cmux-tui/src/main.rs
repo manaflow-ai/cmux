@@ -1783,7 +1783,11 @@ fn run_server(
     let _provider_management = provider_management_listener
         .map(|listener| cmux_tui_core::provider_management::serve(listener, mux.clone()))
         .transpose()?;
-    let owner_event_loop = start_local_owner_event_loop(&mux);
+    let owner_event_loop = if args.headless {
+        start_headless_local_owner_event_loop(&mux)
+    } else {
+        start_local_owner_event_loop(&mux)
+    };
     let pending_server =
         match cmux_tui_core::server::serve_paused(mux.clone(), Some(socket_path.clone())) {
             Ok(server) => server,
@@ -1861,17 +1865,7 @@ fn run_server(
     if let Some(server) = &websocket_server {
         eprintln!("cmux-tui: WebSocket control at ws://{}", server.local_addr());
     }
-    let served_socket = match pending_server.mark_ready() {
-        Ok(served_socket) => served_socket,
-        Err(error) => {
-            #[cfg(unix)]
-            if let Some(runtime) = remote_runtime {
-                let _ = runtime.shutdown();
-            }
-            mux.shutdown();
-            return Err(error);
-        }
-    };
+    let served_socket = pending_server.into_bound_path();
     let served_mux_cleanup = ServedMuxCleanup::new(mux.clone(), served_socket);
 
     let machine_runtime = (config.machine_sidebar.enabled
@@ -1885,6 +1879,7 @@ fn run_server(
         )
     });
     let result = if args.headless {
+        mux.mark_server_lifecycle_ready();
         #[cfg(unix)]
         {
             run_headless(&mux, &socket_path, || {
@@ -1935,6 +1930,17 @@ fn local_owner_reload_events(mux: &Mux) -> cmux_tui_core::MuxEventReceiver {
 }
 
 fn start_local_owner_event_loop(mux: &Arc<Mux>) -> LocalOwnerEventLoop {
+    start_local_owner_event_loop_with_completion(mux, false)
+}
+
+fn start_headless_local_owner_event_loop(mux: &Arc<Mux>) -> LocalOwnerEventLoop {
+    start_local_owner_event_loop_with_completion(mux, true)
+}
+
+fn start_local_owner_event_loop_with_completion(
+    mux: &Arc<Mux>,
+    complete_reload: bool,
+) -> LocalOwnerEventLoop {
     let weak_mux = Arc::downgrade(mux);
     let events = local_owner_reload_events(mux);
     let stop = events.clone();
@@ -1946,7 +1952,9 @@ fn start_local_owner_event_loop(mux: &Arc<Mux>) -> LocalOwnerEventLoop {
                     let request = mux.begin_config_reload_application();
                     let config = config::load();
                     session::apply_config_to_local_owner(&mux, &config);
-                    mux.complete_config_reload_application(request);
+                    if complete_reload {
+                        mux.complete_config_reload_application(request);
+                    }
                 }
             });
         }

@@ -515,7 +515,10 @@ struct CreateSurfaceWithReceiptRequest {
 #[derive(Deserialize)]
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 enum Command {
-    Identify,
+    Identify {
+        #[serde(default)]
+        lifecycle: bool,
+    },
     /// Gracefully hand this daemon's durable session to a replacement.
     /// The caller must fence the request with values from this daemon's
     /// `identify` response.
@@ -4442,32 +4445,37 @@ fn validate_resource_client_label(
     Ok(Some(value))
 }
 
-/// A bound local server that does not accept clients until it is marked ready.
+/// A bound local server whose lifecycle endpoint is not ready yet.
 pub struct PendingServer {
     path: Option<PathBuf>,
-    ready: Option<std::sync::mpsc::SyncSender<()>>,
+    mux: Arc<Mux>,
+    shutdown: Arc<AtomicBool>,
 }
 
 impl PendingServer {
-    /// Allow the server to accept clients and transfer socket cleanup to the caller.
+    /// Publish lifecycle readiness and transfer socket cleanup to the caller.
     pub fn mark_ready(mut self) -> anyhow::Result<PathBuf> {
-        let ready = self.ready.take().expect("pending server readiness is available");
-        if ready.send(()).is_err() {
-            anyhow::bail!("local control server stopped before readiness");
-        }
+        self.mux.mark_server_lifecycle_ready();
         Ok(self.path.take().expect("pending server path is available"))
+    }
+
+    /// Transfer socket cleanup while another startup owner publishes readiness.
+    pub fn into_bound_path(mut self) -> PathBuf {
+        self.path.take().expect("pending server path is available")
     }
 }
 
 impl Drop for PendingServer {
     fn drop(&mut self) {
         if let Some(path) = self.path.take() {
+            self.shutdown.store(true, Ordering::Release);
+            let _ = transport::connect(&path);
             cleanup(&path);
         }
     }
 }
 
-/// Bind the socket but wait for explicit readiness before accepting clients.
+/// Bind the socket and accept protocol clients before lifecycle readiness.
 pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PendingServer> {
     let path = path.unwrap_or_else(|| default_socket_path(&mux.session));
     if let Some(dir) = path.parent() {
@@ -4491,16 +4499,18 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
     }
     let active_connections = Arc::new(AtomicU64::new(0));
     let render_service = Arc::new(RenderService::new());
-    let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(1);
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let server_shutdown = shutdown.clone();
+    let server_mux = mux.clone();
 
     let server = std::thread::Builder::new().name("mux-server".into()).spawn(move || {
-        if ready_rx.recv().is_err() {
-            return;
-        }
         loop {
             let Ok(stream) = listener.accept() else { continue };
+            if server_shutdown.load(Ordering::Acquire) {
+                break;
+            }
             let Some(permit) = claim_connection(&active_connections) else { continue };
-            let mux = mux.clone();
+            let mux = server_mux.clone();
             let render_service = render_service.clone();
             let _ = std::thread::Builder::new().name("mux-conn".into()).spawn(move || {
                 handle_connection_with_permit(mux, stream, render_service, Some(permit));
@@ -4511,7 +4521,7 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
         cleanup(&path);
         return Err(error.into());
     }
-    Ok(PendingServer { path: Some(path), ready: Some(ready_tx) })
+    Ok(PendingServer { path: Some(path), mux, shutdown })
 }
 
 /// Bind the socket and serve connections on background threads.
@@ -9198,7 +9208,7 @@ fn handle_command_with_cancellation(
     cancellation: Option<&AtomicBool>,
 ) -> anyhow::Result<Value> {
     match cmd {
-        Command::Identify => {
+        Command::Identify { lifecycle: _ } => {
             let (registry_id, generation) = mux.registry_identity();
             Ok(json!({
                 "app": "cmux-tui",
@@ -9214,6 +9224,7 @@ fn handle_command_with_cancellation(
                 "workspace_revision": mux.with_state(|state| state.workspace_revision),
                 "terminal_revision": mux.terminal_registry_snapshot()?.revision,
                 "daemon_handoff": 1,
+                "lifecycle_ready": mux.server_lifecycle_ready(),
             }))
         }
         Command::ShutdownDaemon { pid, generation, force } => {
@@ -15539,7 +15550,13 @@ mod tests {
     #[test]
     fn identify_and_ping_return_build_metadata() {
         let mux = test_mux();
-        let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
+        let identity = handle_command(
+            &mux,
+            0,
+            Command::Identify { lifecycle: false },
+            &test_writer(),
+        )
+        .unwrap();
         assert_eq!(identity["app"].as_str(), Some("cmux-tui"));
         assert_eq!(identity["version"].as_str(), Some(env!("CARGO_PKG_VERSION")));
         assert_eq!(identity["protocol"].as_u64(), Some(PROTOCOL_VERSION as u64));
@@ -18528,7 +18545,13 @@ mod tests {
     #[test]
     fn identify_advertises_additive_capabilities() {
         let mux = test_mux();
-        let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
+        let identity = handle_command(
+            &mux,
+            0,
+            Command::Identify { lifecycle: false },
+            &test_writer(),
+        )
+        .unwrap();
 
         let capabilities = identity["capabilities"].as_array().expect("capabilities");
         for expected in [

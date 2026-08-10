@@ -64,7 +64,11 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     };
     let mut connection = BufReader::new(stream);
     let deadline = Instant::now() + Duration::from_secs(10);
-    let identity = match exchange(&mut connection, json!({"id":1,"cmd":"identify"}), deadline) {
+    let identity = match exchange(
+        &mut connection,
+        json!({"id":1,"cmd":"identify","lifecycle":true}),
+        deadline,
+    ) {
         Ok(identity) => identity,
         Err(_) => {
             return local_error(
@@ -81,6 +85,14 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             crate::localization::catalog().local_server.wrong_owner,
             global.output,
             1,
+        );
+    }
+    if identity["lifecycle_ready"].as_bool() == Some(false) {
+        return local_error(
+            "server.unavailable",
+            crate::localization::catalog().local_server.starting,
+            global.output,
+            3,
         );
     }
     let actual_session = identity["session"].as_str().unwrap_or_default();

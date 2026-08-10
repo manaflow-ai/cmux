@@ -8008,6 +8008,10 @@ fn run_with_machine_updates_inner(
         return Err(terminal_restore.restore_after_error(error));
     }
 
+    if let Some(owner) = app.owner_mux.as_ref() {
+        owner.mark_server_lifecycle_ready();
+    }
+
     let result = app.event_loop(&mut terminal, rx);
     app.shutdown_background_workers();
     app.cancel_pointer_interaction();
