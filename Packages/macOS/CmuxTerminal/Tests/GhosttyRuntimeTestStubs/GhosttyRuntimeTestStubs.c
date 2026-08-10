@@ -458,13 +458,13 @@ void ghostty_surface_request_process_termination(void *surface) {
 }
 void ghostty_surface_free_text(void *surface, ghostty_text_s *text) {
     (void)surface;
+    pthread_mutex_lock(&cmux_test_surface_read_mutex);
+    cmux_test_surface_free_text_call_count += 1;
+    pthread_mutex_unlock(&cmux_test_surface_read_mutex);
     if (text == NULL || text->text == NULL) return;
 
     free((void *)text->text);
     memset(text, 0, sizeof(*text));
-    pthread_mutex_lock(&cmux_test_surface_read_mutex);
-    cmux_test_surface_free_text_call_count += 1;
-    pthread_mutex_unlock(&cmux_test_surface_read_mutex);
 }
 float ghostty_surface_font_size(void *surface) {
     return surface == cmux_test_font_surface
