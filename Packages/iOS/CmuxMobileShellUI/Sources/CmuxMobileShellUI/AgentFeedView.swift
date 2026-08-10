@@ -53,48 +53,56 @@ struct AgentFeedView: View {
                 .accessibilityIdentifier("MobileAgentFeedEmpty")
             } else {
                 ScrollViewReader { proxy in
-                    List {
-                        ForEach(visibleItems) { item in
-                            AgentFeedRow(
-                            item: item,
-                            isExpanded: expandedIDs.contains(item.id),
-                            draft: drafts[item.id] ?? "",
-                            mutationState: mutationStates[item.id] ?? .idle,
-                            interactionsEnabled: interactionsEnabled(for: item),
-                            planFeedback: planFeedback[item.id] ?? "",
-                            questionSelections: questionSelections[item.id] ?? [:],
-                            otherAnswers: otherAnswers[item.id] ?? [:],
-                            actions: AgentFeedRowActions(
-                                setExpanded: { setExpanded($0, id: item.id) },
-                                setDraft: { actions.setDraft(item.id, $0) },
-                                setPlanFeedback: { planFeedback[item.id] = $0 },
-                                setQuestionSelection: { question, selection in
-                                    questionSelections[item.id, default: [:]][question] = selection
-                                },
-                                setOtherAnswer: { question, value in
-                                    otherAnswers[item.id, default: [:]][question] = value
-                                },
-                                reply: { actions.reply(item) },
-                                decide: { actions.decide(item, $0) },
-                                open: { actions.open(item) }
-                            )
-                        )
-                            .equatable()
-                            .onScrollVisibilityChange(threshold: 0.01) { isVisible in
-                                visibilityTracker.setVisible(isVisible, id: item.id)
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(visibleItems) { item in
+                                AgentFeedRow(
+                                    item: item,
+                                    isExpanded: expandedIDs.contains(item.id),
+                                    draft: drafts[item.id] ?? "",
+                                    mutationState: mutationStates[item.id] ?? .idle,
+                                    interactionsEnabled: interactionsEnabled(for: item),
+                                    planFeedback: planFeedback[item.id] ?? "",
+                                    questionSelections: questionSelections[item.id] ?? [:],
+                                    otherAnswers: otherAnswers[item.id] ?? [:],
+                                    actions: AgentFeedRowActions(
+                                        setExpanded: { setExpanded($0, id: item.id) },
+                                        setDraft: { actions.setDraft(item.id, $0) },
+                                        setPlanFeedback: { planFeedback[item.id] = $0 },
+                                        setQuestionSelection: { question, selection in
+                                            questionSelections[item.id, default: [:]][question] = selection
+                                        },
+                                        setOtherAnswer: { question, value in
+                                            otherAnswers[item.id, default: [:]][question] = value
+                                        },
+                                        reply: { actions.reply(item) },
+                                        decide: { actions.decide(item, $0) },
+                                        open: { actions.open(item) }
+                                    )
+                                )
+                                .equatable()
+                                .padding(.horizontal)
+                                .id(item.id)
+                                .onAppear {
+                                    guard item.id == visibleItems.first?.id else { return }
+                                    actions.recordTopRowAppearance(item.id)
+                                }
+                                Divider().padding(.leading)
                             }
-                            .onAppear {
-                                guard item.id == visibleItems.first?.id else { return }
-                                actions.recordTopRowAppearance(item.id)
+                            if hasMoreItems {
+                                loadOlderControl.padding(.horizontal)
                             }
                         }
-                        if hasMoreItems {
-                            loadOlderControl
-                        }
+                        .scrollTargetLayout()
                     }
-                    .listStyle(.plain)
                     .refreshable { actions.refresh() }
                     .accessibilityIdentifier("MobileAgentFeedList")
+                    .onScrollTargetVisibilityChange(
+                        idType: MobileAgentFeedItemID.self,
+                        threshold: 0.01
+                    ) { visibleIDs in
+                        visibilityTracker.replaceVisibleIDs(visibleIDs)
+                    }
                     .overlay(alignment: .top) {
                         if unseenItemCount > 0 {
                             Button {
@@ -218,12 +226,8 @@ struct AgentFeedView: View {
 private final class AgentFeedVisibilityTracker {
     private(set) var visibleIDs: Set<MobileAgentFeedItemID> = []
 
-    func setVisible(_ isVisible: Bool, id: MobileAgentFeedItemID) {
-        if isVisible {
-            visibleIDs.insert(id)
-        } else {
-            visibleIDs.remove(id)
-        }
+    func replaceVisibleIDs(_ ids: [MobileAgentFeedItemID]) {
+        visibleIDs = Set(ids)
     }
 
     func topVisibleID(orderedBy ids: [MobileAgentFeedItemID]) -> MobileAgentFeedItemID? {
