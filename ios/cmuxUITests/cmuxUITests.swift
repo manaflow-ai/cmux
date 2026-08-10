@@ -2156,7 +2156,16 @@ final class cmuxUITests: XCTestCase {
             )
             XCTAssertTrue(app.buttons["MobileTaskComposerMachineMenu"].exists)
             XCTAssertTrue(app.buttons["MobileTaskComposerDirectory"].exists)
-            XCTAssertFalse(app.buttons["MobileTaskComposerModelPill"].exists)
+            XCTAssertLessThanOrEqual(
+                app.buttons.matching(identifier: "MobileTaskComposerAgentPill").count,
+                1,
+                "Task Options must not add a second provider entry point"
+            )
+            XCTAssertLessThanOrEqual(
+                app.buttons.matching(identifier: "MobileTaskComposerModelPill").count,
+                1,
+                "Task Options must not add a second model entry point"
+            )
             XCTAssertFalse(app.buttons["MobileTaskComposerAgentMenu"].exists)
 
             tap(app.buttons["MobileTaskComposerOptionsDoneButton"], in: app)
@@ -2923,8 +2932,16 @@ final class cmuxUITests: XCTestCase {
             machine.frame.minY,
             "Workspace name should lead the Task Options context controls"
         )
-        XCTAssertFalse(app.buttons["MobileTaskComposerAgentPill"].exists)
-        XCTAssertFalse(app.buttons["MobileTaskComposerModelPill"].exists)
+        XCTAssertLessThanOrEqual(
+            app.buttons.matching(identifier: "MobileTaskComposerAgentPill").count,
+            1,
+            "Task Options must not add a second provider entry point"
+        )
+        XCTAssertLessThanOrEqual(
+            app.buttons.matching(identifier: "MobileTaskComposerModelPill").count,
+            1,
+            "Task Options must not add a second model entry point"
+        )
 
         try typeText("Release checklist", into: workspaceName, in: app)
         tap(app.buttons["MobileTaskComposerOptionsDoneButton"], in: app)
