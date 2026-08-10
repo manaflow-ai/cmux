@@ -98,11 +98,12 @@ extension Workspace {
             )
         } else if let directionalSplit,
                   let tabId = surfaceIdFromPanelId(panelId),
-                  let newPaneId = bonsplitController.splitPane(
+                  let newPaneId = splitPaneMovingTab(
                       sourcePaneId,
                       orientation: directionalSplit.orientation,
                       movingTab: tabId,
-                      insertFirst: directionalSplit.insertFirst
+                      insertFirst: directionalSplit.insertFirst,
+                      focusIntent: .activateMovedTab
                   ) {
             bonsplitController.focusPane(newPaneId)
             bonsplitController.selectTab(tabId)

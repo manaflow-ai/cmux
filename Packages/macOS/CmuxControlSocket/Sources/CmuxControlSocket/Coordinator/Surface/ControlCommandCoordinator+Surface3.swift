@@ -388,6 +388,16 @@ extension ControlCommandCoordinator {
         if hasNonNull(params, "surface_id"), requestedSurfaceID == nil {
             return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
         }
+        let terminalLifecycleID = uuid(params, "terminal_lifecycle_id")
+        if hasNonNull(params, "terminal_lifecycle_id"), terminalLifecycleID == nil {
+            return .err(
+                code: "invalid_params",
+                message: context?
+                    .controlSurfaceInvalidTerminalLifecycleIDError()
+                    ?? "Terminal session is out of date; restart the shell and try again",
+                data: nil
+            )
+        }
         let rawState = rawString(params, "state")
             ?? rawString(params, "shell_state")
             ?? rawString(params, "activity")
@@ -399,6 +409,7 @@ extension ControlCommandCoordinator {
         let resolution = context?.controlSurfaceReportShellState(
             workspaceID: workspaceID,
             requestedSurfaceID: requestedSurfaceID,
+            terminalLifecycleID: terminalLifecycleID,
             stateRawValue: stateRawValue
         ) ?? .pending
         switch resolution {

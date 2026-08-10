@@ -161,10 +161,11 @@ extension TerminalController {
         }
 
         let orientation: SplitOrientation = orientationIsHorizontal ? .horizontal : .vertical
-        guard let newPaneId = tab.bonsplitController.splitPane(
+        guard let newPaneId = tab.splitPaneMovingTab(
             orientation: orientation,
             movingTab: bonsplitTabId,
-            insertFirst: insertFirst
+            insertFirst: insertFirst,
+            focusIntent: .preserveCurrent
         ) else {
             return .splitFailed
         }
