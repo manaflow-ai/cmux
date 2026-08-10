@@ -3805,8 +3805,7 @@ impl ClientRegistry {
             Some(DaemonHandoffReservation::Pending(requester))
                 if requester == requesting_client =>
             {
-                state.daemon_handoff =
-                    Some(DaemonHandoffReservation::Committed(requesting_client));
+                state.daemon_handoff = Some(DaemonHandoffReservation::Committed(requesting_client));
                 Ok(())
             }
             _ => anyhow::bail!("daemon handoff reservation changed before commit"),
@@ -3815,9 +3814,7 @@ impl ClientRegistry {
 
     pub(crate) fn cancel_daemon_handoff(&self, requesting_client: u64) {
         let mut state = self.state.lock().unwrap();
-        if state.daemon_handoff
-            == Some(DaemonHandoffReservation::Pending(requesting_client))
-        {
+        if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(requesting_client)) {
             state.daemon_handoff = None;
         }
     }

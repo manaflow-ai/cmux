@@ -561,10 +561,7 @@ fn server_lifecycle_start_rejects_output_modes_without_starting_an_owner() {
     assert_eq!(quiet.status.code(), Some(2));
     assert!(quiet.stdout.is_empty());
     let quiet_error = String::from_utf8(quiet.stderr).unwrap();
-    assert!(
-        quiet_error.contains("server start does not support output modes"),
-        "{quiet_error}"
-    );
+    assert!(quiet_error.contains("server start does not support output modes"), "{quiet_error}");
     assert!(!socket.exists());
 
     fs::remove_dir_all(dir).unwrap();
