@@ -199,10 +199,11 @@ public final class LifecycleTest {
                 }
             }
         })) {
-            try (CmuxClient client = CmuxClient.builder()
+            CmuxClient client = CmuxClient.builder()
                     .socketPath(harness.socket())
                     .timeout(Duration.ofSeconds(30))
-                    .build()) {
+                    .build();
+            try {
                 AtomicReference<Throwable> outcome = new AtomicReference<>();
                 Thread reader = new Thread(() -> {
                     try {
@@ -224,6 +225,8 @@ public final class LifecycleTest {
                 check(readReady, "client entered command read wait");
                 check(!reader.isAlive(), "client close unblocks command read");
                 check(outcome.get() instanceof CmuxTransportException, "client close transport error");
+            } finally {
+                client.close();
             }
             harness.finish();
         }
