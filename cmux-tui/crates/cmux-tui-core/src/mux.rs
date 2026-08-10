@@ -19270,8 +19270,8 @@ mod tests {
         *mux.kitty_image_budget_operation.lock().unwrap() = Some(Arc::new({
             let attempts = attempts.clone();
             move |surface, limits, _deadline| {
-                attempts.fetch_add(1, Ordering::AcqRel);
                 if surface.id == first_id {
+                    attempts.fetch_add(1, Ordering::AcqRel);
                     anyhow::bail!("injected persistent Kitty quota failure");
                 }
                 surface.set_kitty_graphics_limits(
@@ -19293,9 +19293,10 @@ mod tests {
             !mux.kitty_image_budget.lock().unwrap().worker_running,
             "Kitty quota worker retried a permanent failure forever"
         );
-        assert!(
-            attempts.load(Ordering::Acquire) <= 4,
-            "Kitty quota worker exceeded its retry budget"
+        assert_eq!(
+            attempts.load(Ordering::Acquire),
+            usize::try_from(KITTY_IMAGE_BUDGET_RETRY_MAX_ATTEMPTS).unwrap(),
+            "Kitty quota worker did not exhaust its exact retry budget"
         );
 
         let started = Instant::now();
