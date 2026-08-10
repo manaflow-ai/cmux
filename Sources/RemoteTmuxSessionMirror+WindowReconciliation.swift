@@ -76,7 +76,7 @@ extension RemoteTmuxSessionMirror {
                     onRequestSeed: { [weak connection] in
                         connection?.seedPane(paneId: tmuxPaneId)
                     },
-                    backendProvenance: self?.backendProvenance(
+                    backendProvenance: self.backendProvenance(
                         windowID: windowId,
                         paneID: tmuxPaneId,
                         role: .nestedPane
