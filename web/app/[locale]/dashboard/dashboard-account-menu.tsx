@@ -6,8 +6,9 @@ import {
   UserAvatar,
   useUser,
 } from "@stackframe/stack";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useLocale, useTranslations } from "next-intl";
+import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
 import { Link, useRouter } from "@/i18n/navigation";
@@ -115,6 +116,10 @@ type OrganizationCatalog = {
     readonly id: string;
     readonly name: string;
     readonly personal: boolean;
+    readonly permissions: {
+      readonly use: boolean;
+      readonly manageAccounts: boolean;
+    };
   }[];
 };
 
@@ -122,7 +127,7 @@ function DashboardOrganizationSwitcher() {
   const user = useUser({ or: "throw" });
   const teams = user.useTeams();
   const router = useRouter();
-  const queryClient = useQueryClient();
+  const searchParams = useSearchParams();
   const t = useTranslations("dashboard.accountMenu");
   const organizationQueryKey = [
     "coderouter-organizations",
@@ -148,26 +153,25 @@ function DashboardOrganizationSwitcher() {
     );
   }
 
-  const authorizedIds = new Set(data.teams.map((team) => team.id));
-  const selectableTeams = teams.filter((team) => authorizedIds.has(team.id));
-  const personal = data.teams.find((team) => team.personal);
-  const selectedTeamId =
-    personal && user.selectedTeam === null
-      ? personal.id
-      : user.selectedTeam && authorizedIds.has(user.selectedTeam.id)
-      ? user.selectedTeam.id
-      : data.selectedTeamId ?? data.teams[0]?.id;
+  // The dashboard supports both route users and account-only managers.
+  const permittedCatalogTeams = data.teams.filter(
+    (team) => team.permissions.use || team.permissions.manageAccounts,
+  );
+  const permittedIds = new Set(permittedCatalogTeams.map((team) => team.id));
+  const selectableTeams = teams.filter((team) => permittedIds.has(team.id));
+  const personal = permittedCatalogTeams.find((team) => team.personal);
+  const requestedTeamId = searchParams.get("team");
+  // Match the CodeRouter page: the explicit deep link is authoritative, with
+  // a deterministic first-permitted fallback when it is absent or stale.
+  const selectedTeamId = requestedTeamId && permittedIds.has(requestedTeamId)
+    ? requestedTeamId
+    : permittedCatalogTeams[0]?.id;
   const switchOrganization = async (
     team: (typeof selectableTeams)[number] | null,
   ) => {
     const organizationId = team?.id ?? personal?.id;
     if (!organizationId) return;
     await user.setSelectedTeam(team);
-    queryClient.setQueryData<OrganizationCatalog>(
-      organizationQueryKey,
-      (current) =>
-        current ? { ...current, selectedTeamId: organizationId } : current,
-    );
     router.push(
       `/dashboard/coderouter?team=${
         encodeURIComponent(organizationId)
@@ -226,6 +230,9 @@ function parseOrganizationCatalog(value: unknown): OrganizationCatalog | null {
       !validOrganizationText(raw.id) ||
       !validOrganizationText(raw.name) ||
       typeof raw.personal !== "boolean" ||
+      !isPlainRecord(raw.permissions) ||
+      typeof raw.permissions.use !== "boolean" ||
+      typeof raw.permissions.manageAccounts !== "boolean" ||
       seen.has(raw.id)
     ) {
       return null;
@@ -235,6 +242,10 @@ function parseOrganizationCatalog(value: unknown): OrganizationCatalog | null {
       id: raw.id,
       name: raw.name,
       personal: raw.personal,
+      permissions: {
+        use: raw.permissions.use,
+        manageAccounts: raw.permissions.manageAccounts,
+      },
     });
   }
   if (selectedTeamId !== null && !seen.has(selectedTeamId)) return null;
