@@ -846,6 +846,42 @@ final class cmuxUITests: XCTestCase {
                     .intersection(app.frame.standardized)
             }
 
+            func rawGeometrySnapshot() throws -> String {
+                let appFrame = app.frame
+                let windowFrame = try XCTUnwrap(
+                    waitForUsableFrame(of: window, timeout: 2)
+                )
+                let viewportFrame = try XCTUnwrap(
+                    waitForUsableFrame(of: viewportProbe, timeout: 2)
+                )
+                let titleFrame = try XCTUnwrap(waitForUsableFrame(of: title, timeout: 2))
+                let bodyFrame = try XCTUnwrap(waitForUsableFrame(of: body, timeout: 2))
+                let guidanceFrame = try XCTUnwrap(
+                    waitForUsableFrame(of: guidance, timeout: 2)
+                )
+                let continueFrame = try XCTUnwrap(
+                    waitForUsableFrame(of: continueButton, timeout: 2)
+                )
+                let settingsFrame = try XCTUnwrap(
+                    waitForUsableFrame(of: finalButton, timeout: 2)
+                )
+                let visibleIntersection = visibleViewportFrame(
+                    viewportFrame,
+                    windowFrame: windowFrame
+                )
+                return [
+                    "app=\(appFrame)",
+                    "window=\(windowFrame)",
+                    "viewportProbe=\(viewportFrame)",
+                    "visibleIntersection=\(visibleIntersection)",
+                    "title=\(titleFrame)",
+                    "body=\(bodyFrame)",
+                    "guidance=\(guidanceFrame)",
+                    "continueButton=\(continueFrame)",
+                    "settingsButton=\(settingsFrame)",
+                ].joined(separator: "; ")
+            }
+
             func assertDeclaredBottomPadding(scrollingIfNeeded: Bool) throws {
                 if scrollingIfNeeded {
                     for _ in 0..<8 {
@@ -1024,6 +1060,17 @@ final class cmuxUITests: XCTestCase {
                 frame.width > frame.height
             })
             capture("landscape-initial")
+            if localization.languageCode == "ja" {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+                let beforeSwipe = try rawGeometrySnapshot()
+                viewportProbe.swipeUp()
+                RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+                let afterSwipe = try rawGeometrySnapshot()
+                XCTFail(
+                    "AUTOCONNECT_LAYOUT_DIAGNOSTIC before { \(beforeSwipe) } "
+                        + "after { \(afterSwipe) }"
+                )
+            }
             let landscapeViewportFrame: CGRect
             if try allContentFitsInScrollViewport() {
                 landscapeViewportFrame = try assertIntrinsicLayout("landscape")
