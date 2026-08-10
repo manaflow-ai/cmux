@@ -32,8 +32,10 @@ font resolution at `3fbdd078d`.
     replay scratch state.
   - Fixes the formatter replay mismatch reported by the cmux Valgrind tests.
 - Artifact:
-  - Pending. Keep `scripts/ghosttykit-checksums.txt` unchanged until the hosted
-    GhosttyKit build publishes and verifies the archive for `f76c132e5`.
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-f76c132e526f124fe4aaebd39f516751656844bc-crashsubdir-cmux-crash-sentry-off-v1
+  - The hosted build published the 129,284,050-byte archive and verified SHA-256
+    `af9f8f12e6f41ffe00b5b65f150bb887b19dc752e47d20d3c351696c803509af`,
+    which is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Hangul NFC/NFD canonical font resolution
 
