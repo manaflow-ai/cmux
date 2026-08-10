@@ -8,7 +8,7 @@ import Foundation
 import SwiftUI
 
 /// Deterministic host for accessibility UI tests. It presents the production
-/// composer as a real sheet, including its iPad presentation behavior.
+/// composer through its real presenter, including iPad keyboard behavior.
 public struct TaskComposerAccessibilityPreviewView: View {
     @State private var isPresented = false
     @State private var draftWasPersistedAtSubmit: Bool?
@@ -24,6 +24,7 @@ public struct TaskComposerAccessibilityPreviewView: View {
     private let presentsDirectoryPermissionFailure: Bool
     private let presentsDirectoryScrollStress: Bool
     private let holdsSubmissionInPreparation: Bool
+    private let advertisesTaskAttachments: Bool
     @State private var directoryPaginationRecoveryPreview: TaskComposerDirectoryPaginationRecoveryPreview?
 
     /// Creates the preview with isolated, in-memory task state so repeated UI
@@ -35,7 +36,9 @@ public struct TaskComposerAccessibilityPreviewView: View {
     /// `CMUX_UITEST_TASK_DIRECTORY_PICKER_PREVIEW=1` to present the production
     /// directory picker with deterministic filesystem results. Set
     /// `CMUX_UITEST_TASK_DIRECTORY_PAGINATION_RECOVERY_PREVIEW=1` to make the
-    /// first page-2 request fail and its exact retry succeed.
+    /// first page-2 request fail and its exact retry succeed. Set
+    /// `CMUX_UITEST_TASK_COMPOSER_ATTACHMENTS=1` to advertise the attachment
+    /// capability and render the fully populated composer row.
     public init() {
         let environment = ProcessInfo.processInfo.environment
         let presentsDirectoryPaginationRecovery = environment[
@@ -89,6 +92,9 @@ public struct TaskComposerAccessibilityPreviewView: View {
         self.holdsSubmissionInPreparation = environment[
             "CMUX_UITEST_TASK_COMPOSER_HOLD_PREPARATION"
         ] == "1"
+        self.advertisesTaskAttachments = environment[
+            "CMUX_UITEST_TASK_COMPOSER_ATTACHMENTS"
+        ] == "1"
         _directoryPaginationRecoveryPreview = State(
             initialValue: presentsDirectoryPaginationRecovery
                 ? TaskComposerDirectoryPaginationRecoveryPreview()
@@ -134,6 +140,7 @@ public struct TaskComposerAccessibilityPreviewView: View {
                             Self.stablePreviewMac,
                             Self.backupPreviewMac,
                         ],
+                        taskAttachmentsCapabilityOverride: advertisesTaskAttachments ? true : nil,
                         submitTaskComposer: { macDeviceID, _, spec, willStartCreate in
                             let attemptNumber = submissionAttempts.count + 1
                             submittedMacDeviceID = macDeviceID
