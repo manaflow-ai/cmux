@@ -92,8 +92,25 @@ final class AgentFeedUITests: XCTestCase {
         )
         XCTAssertEqual(XCTWaiter.wait(for: [complete], timeout: 8), .completed)
         let value = try XCTUnwrap(metrics.value as? String)
-        XCTAssertTrue(value.contains("frames=130"))
-        XCTAssertFalse(value.contains("visibility=0;"))
+        print("AgentFeedPerformanceMetrics: \(value)")
+        let fields = Dictionary(uniqueKeysWithValues: value.split(separator: ";").compactMap { component in
+            let pair = component.split(separator: "=", maxSplits: 1).map(String.init)
+            guard pair.count == 2 else { return nil }
+            return (pair[0], pair[1])
+        })
+        let frames = try XCTUnwrap(fields["frames"].flatMap(Int.init), value)
+        let frameP95 = try XCTUnwrap(fields["frame_p95_ms"].flatMap(Double.init), value)
+        let frameStalls = try XCTUnwrap(fields["frame_ge250"].flatMap(Int.init), value)
+        let visibility = try XCTUnwrap(fields["visibility"].flatMap(Int.init), value)
+        let visibilityP95 = try XCTUnwrap(fields["visibility_p95_ms"].flatMap(Double.init), value)
+        let visibilityStalls = try XCTUnwrap(fields["visibility_ge250"].flatMap(Int.init), value)
+
+        XCTAssertEqual(frames, 130, value)
+        XCTAssertEqual(visibility, 100, value)
+        XCTAssertLessThanOrEqual(frameP95, 33, value)
+        XCTAssertLessThanOrEqual(visibilityP95, 250, value)
+        XCTAssertEqual(frameStalls, 0, value)
+        XCTAssertEqual(visibilityStalls, 0, value)
     }
 
     @MainActor
