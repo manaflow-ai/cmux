@@ -11,6 +11,9 @@ mock.module("@stackframe/stack", () => ({
       profile, security, sessions, teams, and invitations
     </section>
   ),
+  useUser: () => null,
+  UserAvatar: () => <span data-testid="avatar" />,
+  SelectedTeamSwitcher: () => <span data-testid="team-switcher" />,
 }));
 
 mock.module("next/navigation", () => ({

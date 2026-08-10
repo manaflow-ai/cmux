@@ -9,6 +9,7 @@ let currentUser: {
 } | null = null;
 
 mock.module("@stackframe/stack", () => ({
+  AccountSettings: () => <section data-testid="stack-account-settings" />,
   useUser: () => currentUser,
   UserAvatar: ({ size }: { size: number }) => (
     <span data-testid="avatar" data-size={size} />

@@ -1,7 +1,11 @@
 "use client";
 
 import { Menu } from "@base-ui-components/react/menu";
-import { UserAvatar, useUser } from "@stackframe/stack";
+import {
+  SelectedTeamSwitcher,
+  UserAvatar,
+  useUser,
+} from "@stackframe/stack";
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
@@ -12,6 +16,7 @@ const menuItemClass =
 
 export function DashboardAccountMenu() {
   const t = useTranslations("dashboard.accountMenu");
+  const nav = useTranslations("dashboard.nav");
   const locale = useLocale();
   const user = useUser({ or: "return-null" });
   const [signOutPending, setSignOutPending] = useState(false);
@@ -53,6 +58,17 @@ export function DashboardAccountMenu() {
               {user.displayName ? (
                 <div className="truncate text-xs text-muted">{user.primaryEmail}</div>
               ) : null}
+            </div>
+            <div className="border-b border-border px-2.5 py-2">
+              <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted">
+                {nav("team")}
+              </div>
+              <SelectedTeamSwitcher
+                triggerClassName="min-h-9 w-full border border-border bg-background px-2 text-left text-sm hover:bg-code-bg"
+                urlMap={(team) =>
+                  `/dashboard/coderouter?organization=${encodeURIComponent(team.id)}`
+                }
+              />
             </div>
             <Menu.Item render={<Link href="/dashboard/team" />} className={menuItemClass}>
               <SettingsIcon />
