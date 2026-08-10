@@ -115,6 +115,8 @@ extension TerminalSurface {
     /// Live surfaces delegate to Ghostty's native font-size action. Suspended or
     /// deferred surfaces update their durable lineage directly so the change is
     /// applied when their runtime is created again.
+    /// Input attribution belongs to the initiating UI boundary because one
+    /// workspace action can invoke this mutation for many background surfaces.
     ///
     /// - Parameters:
     ///   - deltaRuntimePoints: Point-size change after global magnification.
@@ -379,6 +381,7 @@ extension TerminalSurface {
     /// that action's baseline during normal config reloads, so reset does not
     /// need a full surface-config update. Suspended or deferred surfaces clear
     /// their durable override so future runtimes follow terminal configuration.
+    /// Input attribution remains the responsibility of the initiating UI.
     ///
     /// - Parameter configuredRuntimePoints: Current configured size after
     ///   global magnification.
@@ -501,20 +504,17 @@ extension TerminalSurface {
             guard !previousLineage.isExplicitOverride else {
                 return .alreadySatisfied
             }
-            didReceiveExplicitInput()
             claimExplicitFontSizeOwnership(
                 atRuntimePoints: targetRuntimePoints,
                 previousLineage: previousLineage,
                 magnificationPercent: magnificationPercent
             )
-            didAcceptExplicitInput()
             return .applied
         }
 
         let previousFittedRuntimePoints =
             nextFitState.fittedRuntimePointSize
         nextFitState.updateDurableBase(to: targetRuntimePoints)
-        didReceiveExplicitInput()
         if nextFitState.fittedRuntimePointSize
                 != previousFittedRuntimePoints,
            !performMobileViewportFontPointSizeAction(
@@ -534,7 +534,6 @@ extension TerminalSurface {
                 isExplicitOverride: true
             )
         )
-        didAcceptExplicitInput()
         return .applied
     }
 
@@ -559,7 +558,6 @@ extension TerminalSurface {
             return .alreadySatisfied
         }
 
-        didReceiveExplicitInput()
         if nextFitState.fittedRuntimePointSize
                 != previousFitState.fittedRuntimePointSize,
            !performMobileViewportFontPointSizeAction(
@@ -573,7 +571,6 @@ extension TerminalSurface {
         if !alreadyFollowsTarget {
             recordCurrentFontSizeLineage(targetLineage)
         }
-        didAcceptExplicitInput()
         return .applied
     }
 

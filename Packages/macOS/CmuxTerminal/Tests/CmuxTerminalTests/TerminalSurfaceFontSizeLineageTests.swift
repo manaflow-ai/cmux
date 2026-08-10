@@ -1491,7 +1491,7 @@ private func setFontBindingResult(_ result: Bool)
         }
 
         #expect(surface.adjustFontSize(byRuntimePoints: -1))
-        #expect(acceptedInputCount == 1)
+        #expect(acceptedInputCount == 0)
         #expect(
             try #require(surface.fontSizeLineageSnapshot())
                 == TerminalFontSizeLineage(
@@ -1537,7 +1537,7 @@ private func setFontBindingResult(_ result: Bool)
         }
 
         #expect(surface.adjustFontSize(byRuntimePoints: -6))
-        #expect(acceptedInputCount == 1)
+        #expect(acceptedInputCount == 0)
         #expect(
             try #require(surface.fontSizeLineageSnapshot())
                 == TerminalFontSizeLineage(
@@ -1587,7 +1587,7 @@ private func setFontBindingResult(_ result: Bool)
         }
 
         #expect(surface.adjustFontSize(byRuntimePoints: -1))
-        #expect(acceptedInputCount == 1)
+        #expect(acceptedInputCount == 0)
         #expect(
             try #require(surface.fontSizeLineageSnapshot())
                 == TerminalFontSizeLineage(
@@ -1626,7 +1626,7 @@ private func setFontBindingResult(_ result: Bool)
         }
 
         #expect(surface.resetFontSize(toConfiguredRuntimePoints: 14))
-        #expect(acceptedInputCount == 1)
+        #expect(acceptedInputCount == 0)
         #expect(
             try #require(surface.fontSizeLineageSnapshot())
                 == TerminalFontSizeLineage(
