@@ -54,6 +54,22 @@ public final class MobileConnectionMethodStore {
         }
     }
 
+    /// Applies a connection-method request and reports whether Tailscale pairing
+    /// must be presented for the active Mac.
+    /// - Parameters:
+    ///   - requestedMethod: The method selected by the user.
+    ///   - hasAuthorizedTailscaleRoute: Whether the active Mac already has an
+    ///     exact device-local Tailscale grant.
+    /// - Returns: `true` when the caller must present Tailscale pairing.
+    @discardableResult
+    public func request(
+        _ requestedMethod: MobileConnectionMethod,
+        hasAuthorizedTailscaleRoute: Bool
+    ) -> Bool {
+        method = requestedMethod
+        return requestedMethod == .tailscale && !hasAuthorizedTailscaleRoute
+    }
+
     /// Observes connection-method changes, beginning with the current method.
     ///
     /// Each subscriber owns an independent stream. Cancelling iteration removes

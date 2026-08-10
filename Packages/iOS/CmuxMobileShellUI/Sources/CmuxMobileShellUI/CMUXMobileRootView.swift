@@ -505,7 +505,12 @@ struct CMUXMobileRootView: View {
             isAuthenticated: isAuthenticated,
             connectionPhase: onboardingConnectionPhase,
             connectionMethod: connectionMethodStore?.method ?? .automatic,
-            onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
+            onSelectConnectionMethod: {
+                requestConnectionMethod(
+                    $0,
+                    startPairingScanner: showOnboardingPairingScanner
+                )
+            },
             onReachedConnection: markOnboardingReadyToConnect,
             onSkip: completeOnboarding,
             onRetryConnection: retryAutomaticConnection,
@@ -528,7 +533,12 @@ struct CMUXMobileRootView: View {
                 ? .fallback
                 : .searching,
             connectionMethod: connectionMethodStore?.method ?? .automatic,
-            onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
+            onSelectConnectionMethod: {
+                requestConnectionMethod(
+                    $0,
+                    startPairingScanner: showOnboardingPairingScanner
+                )
+            },
             onReachedConnection: markOnboardingReadyToConnect,
             onSkip: completeOnboarding,
             onRetryConnection: {},
@@ -664,6 +674,19 @@ struct CMUXMobileRootView: View {
 
     private func showOnboardingPairingScanner() {
         presentAddDevice(.scanner(entry: .onboardingFallback))
+    }
+
+    private func requestConnectionMethod(
+        _ method: MobileConnectionMethod,
+        startPairingScanner: () -> Void
+    ) {
+        guard let connectionMethodStore else { return }
+        if connectionMethodStore.request(
+            method,
+            hasAuthorizedTailscaleRoute: store.activeMacHasAuthorizedTailscaleRoute
+        ) {
+            startPairingScanner()
+        }
     }
 
     private func presentAddDevice(_ presentation: PairingPresentation) {

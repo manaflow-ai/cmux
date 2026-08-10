@@ -9,6 +9,7 @@ import SwiftUI
 /// each Mac's Tailscale destination.
 struct MobileConnectionMethodSection: View {
     @Bindable var store: MobileConnectionMethodStore
+    let hasAuthorizedTailscaleRoute: Bool
     let startPairingScanner: (() -> Void)?
 
     var body: some View {
@@ -18,7 +19,7 @@ struct MobileConnectionMethodSection: View {
                     "mobile.settings.connectionMethod",
                     defaultValue: "Connection Method"
                 ),
-                selection: $store.method
+                selection: methodSelection
             ) {
                 Text(L10n.string(
                     "mobile.settings.connectionMethod.automatic",
@@ -49,6 +50,20 @@ struct MobileConnectionMethodSection: View {
         } footer: {
             Text(footerText)
         }
+    }
+
+    private var methodSelection: Binding<MobileConnectionMethod> {
+        Binding(
+            get: { store.method },
+            set: { method in
+                if store.request(
+                    method,
+                    hasAuthorizedTailscaleRoute: hasAuthorizedTailscaleRoute
+                ) {
+                    startPairingScanner?()
+                }
+            }
+        )
     }
 
     private var footerText: String {
