@@ -4442,11 +4442,14 @@ pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
         }
     }
     let listener = transport::listen(&path)?;
-    platform::restrict_file(&path)?;
+    if let Err(error) = platform::restrict_file(&path) {
+        cleanup(&path);
+        return Err(error.into());
+    }
     let active_connections = Arc::new(AtomicU64::new(0));
     let render_service = Arc::new(RenderService::new());
 
-    std::thread::Builder::new().name("mux-server".into()).spawn(move || {
+    let server = std::thread::Builder::new().name("mux-server".into()).spawn(move || {
         loop {
             let Ok(stream) = listener.accept() else { continue };
             let Some(permit) = claim_connection(&active_connections) else { continue };
@@ -4456,7 +4459,11 @@ pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
                 handle_connection_with_permit(mux, stream, render_service, Some(permit));
             });
         }
-    })?;
+    });
+    if let Err(error) = server {
+        cleanup(&path);
+        return Err(error.into());
+    }
     Ok(path)
 }
 

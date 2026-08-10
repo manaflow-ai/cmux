@@ -1092,6 +1092,9 @@ fn server_start_has_cli_routing_flag(args: &[String]) -> bool {
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
+            option if option == "--relay-ticket" || option.starts_with("--relay-ticket=") => {
+                return false;
+            }
             "--session"
             | "--socket"
             | "--machine"
@@ -1112,7 +1115,6 @@ fn server_start_has_cli_routing_flag(args: &[String]) -> bool {
             | "--remote-resume-lease-seconds"
             | "--relay"
             | "--relay-slot"
-            | "--relay-ticket"
             | "--relay-ticket-file"
             | "--relay-ticket-command"
             | "--relay-ticket-command-arg"
@@ -1559,6 +1561,37 @@ impl Drop for ServedMuxCleanup {
     }
 }
 
+struct LocalOwnerEventLoop {
+    stop: Option<cmux_tui_core::MuxEventReceiver>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl LocalOwnerEventLoop {
+    fn finish(mut self) -> anyhow::Result<()> {
+        self.stop_and_join()
+    }
+
+    #[cfg(test)]
+    fn stop_handle(&self) -> cmux_tui_core::MuxEventReceiver {
+        self.stop.as_ref().expect("owner event loop is active").clone()
+    }
+
+    fn stop_and_join(&mut self) -> anyhow::Result<()> {
+        if let Some(stop) = self.stop.take() {
+            stop.close();
+        }
+        self.thread.take().map_or(Ok(()), |thread| {
+            thread.join().map_err(|_| anyhow::anyhow!("local owner event loop panicked"))
+        })
+    }
+}
+
+impl Drop for LocalOwnerEventLoop {
+    fn drop(&mut self) {
+        let _ = self.stop_and_join();
+    }
+}
+
 fn run_server(
     args: Args,
     provider_workspace_authority: Option<ProviderWorkspaceAuthority>,
@@ -1693,36 +1726,11 @@ fn run_server(
     let _provider_management = provider_management_listener
         .map(|listener| cmux_tui_core::provider_management::serve(listener, mux.clone()))
         .transpose()?;
-    let websocket_server = match ws_addr {
-        Some(addr) => {
-            let addr = addr
-                .parse()
-                .map_err(|error| anyhow::anyhow!("invalid WebSocket address: {error}"))?;
-            Some(cmux_tui_core::server::serve_websocket(
-                mux.clone(),
-                addr,
-                ws_token,
-                args.ws_insecure_bind,
-            )?)
-        }
-        None => None,
-    };
-    if let Some(server) = &websocket_server {
-        eprintln!("cmux-tui: WebSocket control at ws://{}", server.local_addr());
-    }
-    let served_socket = match cmux_tui_core::server::serve(mux.clone(), Some(socket_path.clone())) {
-        Ok(served_socket) => served_socket,
-        Err(error) => {
-            mux.shutdown();
-            cmux_tui_core::server::cleanup(&socket_path);
-            return Err(error);
-        }
-    };
-    let served_mux_cleanup = ServedMuxCleanup::new(mux.clone(), served_socket);
+    let owner_event_loop = start_local_owner_event_loop(&mux);
 
     #[cfg(unix)]
     let remote_runtime = if args.remote {
-        let runtime = remote_runtime::start_daemon_runtime(
+        let runtime = match remote_runtime::start_daemon_runtime(
             socket_path.clone(),
             remote_runtime::DaemonRuntimeOptions {
                 session: args.session.clone(),
@@ -1738,7 +1746,13 @@ fn run_server(
                 resume_lease: std::time::Duration::from_secs(args.remote_resume_lease_seconds),
                 replaceable_sidecar: false,
             },
-        )?;
+        ) {
+            Ok(runtime) => runtime,
+            Err(error) => {
+                mux.shutdown();
+                return Err(error);
+            }
+        };
         eprintln!(
             "cmux-tui: remote daemon {}, link {}, admin {}",
             runtime.info().daemon_fingerprint,
@@ -1753,6 +1767,48 @@ fn run_server(
         None
     };
 
+    let websocket_server = match (|| -> anyhow::Result<_> {
+        Ok(match ws_addr {
+            Some(addr) => {
+                let addr = addr
+                    .parse()
+                    .map_err(|error| anyhow::anyhow!("invalid WebSocket address: {error}"))?;
+                Some(cmux_tui_core::server::serve_websocket(
+                    mux.clone(),
+                    addr,
+                    ws_token,
+                    args.ws_insecure_bind,
+                )?)
+            }
+            None => None,
+        })
+    })() {
+        Ok(server) => server,
+        Err(error) => {
+            #[cfg(unix)]
+            if let Some(runtime) = remote_runtime {
+                let _ = runtime.shutdown();
+            }
+            mux.shutdown();
+            return Err(error);
+        }
+    };
+    if let Some(server) = &websocket_server {
+        eprintln!("cmux-tui: WebSocket control at ws://{}", server.local_addr());
+    }
+    let served_socket = match cmux_tui_core::server::serve(mux.clone(), Some(socket_path.clone())) {
+        Ok(served_socket) => served_socket,
+        Err(error) => {
+            #[cfg(unix)]
+            if let Some(runtime) = remote_runtime {
+                let _ = runtime.shutdown();
+            }
+            mux.shutdown();
+            return Err(error);
+        }
+    };
+    let served_mux_cleanup = ServedMuxCleanup::new(mux.clone(), served_socket);
+
     let machine_runtime = (config.machine_sidebar.enabled
         || !config.machine_sidebar.create_sources.is_empty()
         || !config.machines.is_empty())
@@ -1763,7 +1819,6 @@ fn run_server(
             config.machine_sidebar.create_sources.clone(),
         )
     });
-    let (owner_event_stop, owner_event_thread) = start_local_owner_event_loop(&mux);
     let result = if args.headless {
         #[cfg(unix)]
         {
@@ -1789,9 +1844,7 @@ fn run_server(
             Err(error) => Err(error),
         }
     };
-    owner_event_stop.close();
-    let owner_event_result =
-        owner_event_thread.join().map_err(|_| anyhow::anyhow!("local owner event loop panicked"));
+    let owner_event_result = owner_event_loop.finish();
     #[cfg(unix)]
     let remote_shutdown_result = remote_runtime.map_or(Ok(()), |runtime| runtime.shutdown());
     drop(websocket_server);
@@ -1818,7 +1871,7 @@ fn local_owner_reload_events(mux: &Mux) -> cmux_tui_core::MuxEventReceiver {
 
 fn start_local_owner_event_loop(
     mux: &Arc<Mux>,
-) -> (cmux_tui_core::MuxEventReceiver, std::thread::JoinHandle<()>) {
+) -> LocalOwnerEventLoop {
     let weak_mux = Arc::downgrade(mux);
     let events = local_owner_reload_events(mux);
     let stop = events.clone();
@@ -1833,7 +1886,7 @@ fn start_local_owner_event_loop(
             });
         }
     });
-    (stop, thread)
+    LocalOwnerEventLoop { stop: Some(stop), thread: Some(thread) }
 }
 
 #[cfg(not(unix))]
@@ -2376,11 +2429,12 @@ mod tests {
     #[test]
     fn local_owner_event_loop_stop_wakes_without_a_mux_event() {
         let mux = Arc::new(Mux::new("owner-event-stop", SurfaceOptions::default()));
-        let (stop, thread) = start_local_owner_event_loop(&mux);
+        let event_loop = start_local_owner_event_loop(&mux);
+        let stop = event_loop.stop_handle();
         let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
 
         stop.close();
-        std::thread::spawn(move || done_tx.send(thread.join()).unwrap());
+        std::thread::spawn(move || done_tx.send(event_loop.finish()).unwrap());
         let stopped_without_event = match done_rx.recv_timeout(Duration::from_secs(1)) {
             Ok(result) => {
                 result.unwrap();

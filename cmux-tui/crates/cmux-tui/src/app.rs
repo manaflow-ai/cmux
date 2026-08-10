@@ -195,6 +195,7 @@ enum AppEvent {
         event: Box<AppEvent>,
     },
     Mux(MuxEvent),
+    OwnerConfigReloadRequested,
     MuxTitlesReady,
     MuxSubscriptionRecovered {
         recovery_generation: u64,
@@ -363,6 +364,60 @@ impl SessionEventWorker {
 }
 
 impl Drop for SessionEventWorker {
+    fn drop(&mut self) {
+        self.stop_and_join();
+    }
+}
+
+struct OwnerReloadWorker {
+    stop: Option<cmux_tui_core::MuxEventReceiver>,
+    cancelled: Arc<AtomicBool>,
+    thread: Option<JoinHandle<()>>,
+}
+
+impl OwnerReloadWorker {
+    fn spawn(mux: &Mux, tx: SyncSender<AppEvent>) -> std::io::Result<Self> {
+        let events = mux.subscribe_config_reload();
+        let stop = events.clone();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let worker_cancelled = cancelled.clone();
+        let thread = std::thread::Builder::new().name("owner-config-reload".into()).spawn(move || {
+            while !worker_cancelled.load(Ordering::Acquire) {
+                let Ok(event) = events.recv() else { return };
+                if !matches!(event, MuxEvent::ConfigReloadRequested) {
+                    continue;
+                }
+                let mut app_event = AppEvent::OwnerConfigReloadRequested;
+                loop {
+                    if worker_cancelled.load(Ordering::Acquire) {
+                        return;
+                    }
+                    match tx.try_send(app_event) {
+                        Ok(()) => break,
+                        Err(TrySendError::Full(returned)) => {
+                            app_event = returned;
+                            std::thread::park_timeout(Duration::from_millis(1));
+                        }
+                        Err(TrySendError::Disconnected(_)) => return,
+                    }
+                }
+            }
+        })?;
+        Ok(Self { stop: Some(stop), cancelled, thread: Some(thread) })
+    }
+
+    fn stop_and_join(&mut self) {
+        self.cancelled.store(true, Ordering::Release);
+        if let Some(stop) = self.stop.take() {
+            stop.close();
+        }
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+impl Drop for OwnerReloadWorker {
     fn drop(&mut self) {
         self.stop_and_join();
     }
@@ -6303,6 +6358,7 @@ pub struct App {
     /// The local mux owned by this process. Unlike `session`, this does not
     /// change when the machine controller replaces the presented session.
     owner_mux: Option<Arc<Mux>>,
+    owner_reload_worker: Option<OwnerReloadWorker>,
     session_event_worker: Option<SessionEventWorker>,
     session_generation: u64,
     app_events: SyncSender<AppEvent>,
@@ -7595,6 +7651,10 @@ fn run_with_machine_updates_inner(
     )?;
     let encoder = KeyEncoder::new()?;
     let (tx, rx) = sync_channel::<AppEvent>(APP_EVENT_CAPACITY);
+    let owner_reload_worker = owner_mux
+        .as_deref()
+        .map(|mux| OwnerReloadWorker::spawn(mux, tx.clone()))
+        .transpose()?;
     let host_input = HostInputRuntime::new();
     let browser_failure_tx = tx.clone();
     let browser_control_tx = tx.clone();
@@ -7767,6 +7827,7 @@ fn run_with_machine_updates_inner(
     let mut app = App {
         session,
         owner_mux,
+        owner_reload_worker,
         session_event_worker: Some(session_event_worker),
         session_generation,
         app_events: tx,
@@ -9068,6 +9129,9 @@ impl App {
         }
         if let Some(mut session_events) = self.session_event_worker.take() {
             session_events.stop_and_join();
+        }
+        if let Some(mut owner_reload) = self.owner_reload_worker.take() {
+            owner_reload.stop_and_join();
         }
     }
 
@@ -12675,7 +12739,8 @@ impl App {
                 });
                 Ok(RenderAction::Draw)
             }
-            AppEvent::Mux(MuxEvent::ConfigReloadRequested) => {
+            AppEvent::Mux(MuxEvent::ConfigReloadRequested)
+            | AppEvent::OwnerConfigReloadRequested => {
                 self.reload_config();
                 Ok(RenderAction::Draw)
             }
@@ -38808,8 +38873,10 @@ mod tests {
         let owner = Mux::new("owner-shutdown-source", cmux_tui_core::SurfaceOptions::default());
         let initial = crate::session::test_remote_session_with_browser_pointer_range(7, 1, 1);
         let replacement = crate::session::test_remote_session_with_browser_pointer_range(8, 2, 2);
-        let mut app = test_app(initial);
+        let (mut app, events) = test_app_with_events(initial);
         app.owner_mux = Some(owner.clone());
+        app.owner_reload_worker =
+            Some(OwnerReloadWorker::spawn(&owner, app.app_events.clone()).unwrap());
         let (session, event_worker, mux_titles, mux_recovery_generation) = prepare_ordered_session(
             replacement,
             app.pty_input.sender(),
@@ -38834,6 +38901,17 @@ mod tests {
             },
             true,
         );
+
+        owner.emit(MuxEvent::ConfigReloadRequested);
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let reload = loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            let event = events.recv_timeout(remaining).expect("owner reload was not delivered");
+            if matches!(event, AppEvent::OwnerConfigReloadRequested) {
+                break event;
+            }
+        };
+        app.handle(reload).unwrap();
 
         assert!(!app.session.daemon_shutdown_requested());
         assert!(!app.owner_shutdown_requested());
@@ -38862,6 +38940,7 @@ mod tests {
         let app = App {
             session,
             owner_mux: None,
+            owner_reload_worker: None,
             session_event_worker: None,
             session_generation: 1,
             app_events: events,
