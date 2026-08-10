@@ -2565,19 +2565,21 @@ final class cmuxUITests: XCTestCase {
         let port = try await server.start()
         defer { server.stop() }
 
-        let app = try launchConnectedApp(
-            port: port,
-            additionalLaunchArguments: [
-                "-UIPreferredContentSizeCategoryName",
-                "UICTContentSizeCategoryAccessibilityXXXL",
-            ]
-        )
+        let app = launchApp(mockData: true, environment: [
+            "CMUX_UITEST_ATTACH_URL": try attachURL(port: port).absoluteString,
+        ], launchArguments: [
+            "-UIPreferredContentSizeCategoryName",
+            "UICTContentSizeCategoryAccessibilityXXXL",
+        ])
         defer { app.terminate() }
 
-        let backButton = app.buttons["MobileWorkspaceBackButton"]
-        XCTAssertTrue(backButton.waitForExistence(timeout: 4))
-        backButton.tap()
+        waitForWorkspaceShell(in: app)
         let composerButton = app.buttons["MobileTaskComposerButton"]
+        if !composerButton.waitForExistence(timeout: 4) {
+            let backButton = app.buttons["MobileWorkspaceBackButton"]
+            XCTAssertTrue(backButton.waitForExistence(timeout: 4))
+            backButton.tap()
+        }
         XCTAssertTrue(composerButton.waitForExistence(timeout: 4))
         composerButton.tap()
 
@@ -5196,15 +5198,11 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchConnectedApp(
-        port: UInt16,
-        assertStatusRows: Bool = true,
-        additionalLaunchArguments: [String] = []
-    ) throws -> XCUIApplication {
+    private func launchConnectedApp(port: UInt16, assertStatusRows: Bool = true) throws -> XCUIApplication {
         let attachURL = try attachURL(port: port)
         let app = launchApp(mockData: true, environment: [
             "CMUX_UITEST_ATTACH_URL": attachURL.absoluteString,
-        ], launchArguments: additionalLaunchArguments)
+        ])
         waitForWorkspaceShell(in: app)
         try openSelectedWorkspaceIfNeeded(app)
         if assertStatusRows {
@@ -5215,10 +5213,7 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchConnectedAppViaManualPairing(
-        port: UInt16,
-        additionalLaunchArguments: [String] = []
-    ) throws -> XCUIApplication {
+    private func launchConnectedAppViaManualPairing(port: UInt16) throws -> XCUIApplication {
         let portText = String(port)
         guard let finalPortDigit = portText.last else {
             throw URLError(.badURL)
@@ -5227,7 +5222,7 @@ final class cmuxUITests: XCTestCase {
             "CMUX_UITEST_ADD_DEVICE_PORT": String(portText.dropLast()),
         ], launchArguments: [
             "-cmux.mobile.taskComposerEnabled", "YES",
-        ] + additionalLaunchArguments)
+        ])
         let pairingForm = app.otherElements["MobileAddDeviceForm"]
         XCTAssertTrue(pairingForm.waitForExistence(timeout: 8))
 
