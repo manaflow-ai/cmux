@@ -20730,6 +20730,51 @@ mod tests {
     }
 
     #[test]
+    fn replayed_host_close_does_not_acquire_public_resource_effects() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let host = mux
+            .resource_terminal_host_identity(&surface)
+            .expect("test terminal has a host identity");
+        let public_id = match surface.resource_identity().unwrap().content_id {
+            ContentPublicId::Terminal(public_id) => public_id,
+            ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
+        };
+        let mutation = WorkspaceMutation::new("lost-host-close-reply", "legacy-client").unwrap();
+        let resource_revision = mux.with_state(|state| state.resource_revision);
+
+        let host_close = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .close_terminal(&mutation, None, None, &host.terminal_id, Some(&host.incarnation))
+            .unwrap();
+        assert!(!host_close.replayed);
+        assert_eq!(
+            mux.workspace_registry.lock().unwrap().terminal_resource_id(&host.terminal_id).unwrap(),
+            Some(public_id.clone())
+        );
+
+        let retry = mux
+            .close_terminal_with_mutation(
+                &host.terminal_id,
+                Some(&host.incarnation),
+                None,
+                None,
+                &mutation,
+            )
+            .unwrap();
+
+        assert_eq!(retry.terminal_revision, host_close.revision);
+        assert_eq!(mux.with_state(|state| state.resource_revision), resource_revision);
+        assert!(mux.surface(surface.id).is_some());
+        assert_eq!(
+            mux.workspace_registry.lock().unwrap().terminal_resource_id(&host.terminal_id).unwrap(),
+            Some(public_id)
+        );
+    }
+
+    #[test]
     fn failed_browser_surface_attach_kills_worker() {
         let mux = test_mux();
         let opts = mux.surface_options.lock().unwrap().clone();
