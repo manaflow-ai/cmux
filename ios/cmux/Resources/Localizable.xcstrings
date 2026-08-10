@@ -4557,13 +4557,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Notifications"
+            "value": "Feed"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "通知"
+            "value": "フィード"
           }
         }
       }
@@ -4982,13 +4982,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Notifications"
+            "value": "Feed"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "通知"
+            "value": "フィード"
           }
         }
       }
