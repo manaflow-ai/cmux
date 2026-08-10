@@ -2951,6 +2951,16 @@ impl WorkspaceRegistry {
         Ok(commit)
     }
 
+    pub(crate) fn replay_terminal_close(
+        &self,
+        mutation: &WorkspaceMutation,
+        terminal_id: &str,
+        expected_incarnation: Option<&str>,
+    ) -> anyhow::Result<Option<TerminalRegistryCommit>> {
+        let fingerprint = terminal_close_fingerprint(mutation, terminal_id, expected_incarnation)?;
+        terminal_replay(&self.connection, mutation, &fingerprint)
+    }
+
     /// Commit the legacy host close and its public resource tombstone in one
     /// SQLite transaction. The mux installs the matching runtime projection
     /// only after this method returns successfully.

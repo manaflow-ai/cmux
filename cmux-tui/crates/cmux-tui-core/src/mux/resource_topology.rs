@@ -2228,6 +2228,21 @@ impl Mux {
         let _creation_fence = self.resource_creation_execution.lock().unwrap();
         let notifications = self.surface_notifications();
         let mut registry = self.workspace_registry.lock().unwrap();
+        if let Some(terminal) =
+            registry.replay_terminal_close(mutation, terminal_id, expected_incarnation)?
+        {
+            let result = TerminalCloseResult {
+                surface: None,
+                terminal_id: terminal_id.to_string(),
+                terminal_incarnation: terminal.result["incarnation"].as_str().map(str::to_string),
+                already_closed: terminal.result["already_closed"].as_bool().unwrap_or(false),
+                terminal_revision: terminal.revision,
+            };
+            drop(registry);
+            drop(_creation_fence);
+            drop(_creation_handoff);
+            return Ok(Some(result));
+        }
         let Some(public_id) = registry.terminal_resource_id(terminal_id)? else {
             return Ok(None);
         };
