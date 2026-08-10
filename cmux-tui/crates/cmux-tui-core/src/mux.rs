@@ -18441,6 +18441,9 @@ mod tests {
                 !budget.entries.contains_key(&second_runtime),
             )
         };
+        second.set_kitty_graphics_limits(1_024, 1_024, 1, 1).unwrap();
+        let closed_limits =
+            second.with_terminal(|terminal| terminal.kitty_graphics_limits().unwrap()).unwrap();
 
         {
             let mut state = mux
@@ -18460,6 +18463,11 @@ mod tests {
         }
 
         assert!(stopped, "Kitty quota worker retried pool admission forever");
+        assert_eq!(
+            closed_limits,
+            KittyGraphicsLimits::disabled(),
+            "a retained closed terminal kept graphics memory after releasing its quota"
+        );
         assert!(
             survivor_blocked,
             "pool admission exhaustion did not fail closed for the live surface"
