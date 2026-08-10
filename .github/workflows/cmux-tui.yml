@@ -492,6 +492,52 @@ jobs:
           test "$("$CMUX_ZIG" version)" = "${{ steps.zig-sdk-version.outputs.version }}"
           bash cmux-tui/bindings/conformance/e2e.sh --require python,typescript,rust,go,java
 
+  native-frontend:
+    name: native frontend package
+    needs: validate-inputs
+    if: inputs.mode == 'full'
+    runs-on: blacksmith-6vcpu-macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.commit }}
+
+      - name: Require exact checkout
+        env:
+          EXACT_COMMIT: ${{ inputs.commit }}
+        run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
+
+      - name: Init ghostty submodule
+        run: git submodule update --init --depth 1 ghostty
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Download pinned GhosttyKit
+        run: ./scripts/download-prebuilt-ghosttykit.sh
+
+      - name: Build native terminal client library
+        working-directory: cmux-tui
+        run: |
+          cargo build --locked \
+            --target-dir target/native-mux-demo/rust-build \
+            -p cmux-terminal-client \
+            --no-default-features \
+            --features native-renderer
+
+      - name: Test NativeMuxDemo package
+        run: |
+          swift test \
+            --package-path cmux-tui/apps/macos/NativeMuxDemo \
+            --scratch-path cmux-tui/target/native-mux-demo/swift-build
+
+      - name: Test native remote helpers
+        run: |
+          cmux-tui/apps/macos/NativeMuxDemo/test-remote-command.sh
+          cmux-tui/apps/macos/NativeMuxDemo/test-remote-lifecycle-ready.sh
+
   build-artifacts:
     name: release-path dogfood artifacts
     needs: validate-inputs
@@ -521,6 +567,7 @@ jobs:
       - valgrind-leak-check
       - test
       - bindings-e2e
+      - native-frontend
       - build-artifacts
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 5
@@ -531,6 +578,7 @@ jobs:
       VALGRIND_RESULT: ${{ needs.valgrind-leak-check.result }}
       TEST_RESULT: ${{ needs.test.result }}
       BINDINGS_RESULT: ${{ needs.bindings-e2e.result }}
+      NATIVE_FRONTEND_RESULT: ${{ needs.native-frontend.result }}
       ARTIFACT_RESULT: ${{ needs.build-artifacts.result }}
     steps:
       - name: Require selected verification jobs
@@ -552,4 +600,5 @@ jobs:
             require_success "web frontend" "$WEB_RESULT"
             require_success "Valgrind" "$VALGRIND_RESULT"
             require_success "binding end-to-end tests" "$BINDINGS_RESULT"
+            require_success "native frontend package" "$NATIVE_FRONTEND_RESULT"
           fi
