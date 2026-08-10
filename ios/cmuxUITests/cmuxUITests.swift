@@ -2013,7 +2013,10 @@ final class cmuxUITests: XCTestCase {
         let unavailableRow = app.descendants(matching: .any)[
             "MobileNotificationFeedRow-build-mac-input-needed"
         ].firstMatch
-        XCTAssertTrue(unavailableRow.waitForExistence(timeout: 3))
+        for _ in 0..<6 where !unavailableRow.isHittable {
+            feedList.swipeUp(velocity: .slow)
+        }
+        XCTAssertTrue(unavailableRow.isHittable)
         let unavailableValue = try XCTUnwrap(unavailableRow.value as? String)
         XCTAssertTrue(unavailableValue.contains("Workspace: Cloud Builder"))
         XCTAssertTrue(unavailableValue.contains("Computer: Build Mac · Unavailable"))
@@ -2143,7 +2146,9 @@ final class cmuxUITests: XCTestCase {
                 thenHoldForDuration: 0.05
             )
         }
-        let planFeedback = app.textFields["MobileNotificationFeedExitPlanFeedback"]
+        let planFeedback = app.descendants(matching: .any)[
+            "MobileNotificationFeedExitPlanFeedback"
+        ].firstMatch
         for _ in 0..<12 where !planFeedback.isHittable {
             dragFeed(up: true)
         }
@@ -2159,7 +2164,9 @@ final class cmuxUITests: XCTestCase {
             "MobileNotificationFeedRow-studio-agent-question"
         ].firstMatch
         XCTAssertTrue(questionRow.waitForExistence(timeout: 3))
-        let notes = app.textFields["MobileNotificationFeedQuestionCustom-1"]
+        let notes = app.descendants(matching: .any)[
+            "MobileNotificationFeedQuestionCustom-1"
+        ].firstMatch
         for _ in 0..<12 where !notes.isHittable {
             dragFeed(up: true)
         }
@@ -2195,7 +2202,9 @@ final class cmuxUITests: XCTestCase {
         let reply = app.buttons["MobileNotificationFeedReply-macbook-agent-finished"]
         XCTAssertTrue(reply.waitForExistence(timeout: 3))
         reply.tap()
-        let replyField = app.textFields["MobileNotificationFeedReplyField-macbook-agent-finished"]
+        let replyField = app.descendants(matching: .any)[
+            "MobileNotificationFeedReplyField-macbook-agent-finished"
+        ].firstMatch
         XCTAssertTrue(replyField.waitForExistence(timeout: 3))
         replyField.tap()
         replyField.typeText("Please prepare the handoff")
