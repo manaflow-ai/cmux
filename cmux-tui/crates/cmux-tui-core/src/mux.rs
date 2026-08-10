@@ -20625,10 +20625,8 @@ mod tests {
 
     #[test]
     fn journal_agent_writer_publishes_after_cache_update() {
-        let root = std::env::temp_dir().join(format!(
-            "cmux-agent-publish-order-{}",
-            WorkspacePublicId::random().unwrap()
-        ));
+        let root = std::env::temp_dir()
+            .join(format!("cmux-agent-publish-order-{}", WorkspacePublicId::random().unwrap()));
         let session = "journal-agent-publish-order";
         let registry = WorkspaceRegistry::open(&root, session).unwrap();
         let mux = Mux::from_workspace_registry(
