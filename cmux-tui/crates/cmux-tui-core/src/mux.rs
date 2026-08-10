@@ -20785,13 +20785,7 @@ mod tests {
             .workspace_registry
             .lock()
             .unwrap()
-            .close_terminal(
-                &mutation,
-                None,
-                None,
-                &host.terminal_id,
-                Some(&host.incarnation),
-            )
+            .close_terminal(&mutation, None, None, &host.terminal_id, Some(&host.incarnation))
             .unwrap();
         assert!(!terminal.replayed);
         assert!(mux.surface(surface.id).is_some());
@@ -20809,10 +20803,7 @@ mod tests {
         assert_eq!(terminal.revision, repaired.terminal_revision);
         assert!(repaired.surface.is_some());
         assert!(mux.surface(surface.id).is_none());
-        assert_eq!(
-            mux.with_state(|state| state.resource_revision),
-            resource_revision + 1
-        );
+        assert_eq!(mux.with_state(|state| state.resource_revision), resource_revision + 1);
         let terminal = mux.resolve_terminal(&host.terminal_id).unwrap().unwrap().terminal;
         assert_eq!(terminal.lifecycle, TerminalLifecycle::Tombstoned);
     }
