@@ -1,4 +1,5 @@
 import CmuxMobileShellModel
+import CmuxMobileRPC
 import CmuxMobileSupport
 import Foundation
 import Testing
@@ -44,6 +45,30 @@ import Testing
         await store.submitComposer()
 
         #expect(store.terminalSendStatus(forTerminalID: terminalID) == .failed)
+    }
+
+    @Test func textPasteFailureUsesTerminalErrorHandling() async throws {
+        let router = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(router: router)
+        let terminalID = RoutingHostRouter.terminalA
+        let code = "invalid_params"
+        let message = "terminal paste rejected for /Users/private/project"
+        let expectedError = MobileShellConnectionError.rpcError(code, message)
+        let expectedCategory = MobilePairingFailureCategory.classify(
+            error: expectedError,
+            route: store.activeRoute
+        )
+        store.selectTerminal(MobileTerminalPreview.ID(rawValue: terminalID))
+        store.terminalInputText = "keep me"
+        await router.setTerminalPasteError(code: code, message: message)
+
+        #expect(await store.submitComposer() == false)
+
+        #expect(await router.recordedPastes().map(\.text) == ["keep me"])
+        #expect(store.terminalInputText == "keep me")
+        #expect(store.connectionError == expectedCategory.message)
+        #expect(store.connectionErrorGuidance == expectedCategory.guidance)
+        #expect(store.connectionError != "The attachment couldn’t be sent. Try again.")
     }
 
     @Test func restoredFailedDraftKeepsFailureSettlement() async throws {

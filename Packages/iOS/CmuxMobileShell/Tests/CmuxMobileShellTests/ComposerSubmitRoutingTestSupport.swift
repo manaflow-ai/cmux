@@ -70,6 +70,7 @@ actor RoutingHostRouter {
     private var workspaceCreates: [WorkspaceCreateRecord] = []
     /// Reject the Nth (0-based) and later paste_image requests; `nil` accepts all.
     private var rejectPasteImageFromIndex: Int?
+    private var terminalPasteError: (code: String?, message: String)?
     private var holdFirstPasteImage = false
     private var firstPasteImageHeld = false
     private var firstPasteImageContinuation: CheckedContinuation<Void, Never>?
@@ -103,6 +104,10 @@ actor RoutingHostRouter {
     /// acknowledged attachments.
     func rejectPasteImage(fromIndex index: Int) {
         rejectPasteImageFromIndex = index
+    }
+
+    func setTerminalPasteError(code: String?, message: String) {
+        terminalPasteError = (code, message)
     }
 
     /// Park the FIRST paste_image response until ``releaseFirstPasteImage()``,
@@ -499,6 +504,13 @@ actor RoutingHostRouter {
             let surfaceID = info.surfaceID ?? ""
             let text = info.text ?? ""
             pastes.append(PasteRecord(surfaceID: surfaceID, text: text))
+            if let terminalPasteError {
+                return try? Self.errorFrame(
+                    id: id,
+                    code: terminalPasteError.code,
+                    message: terminalPasteError.message
+                )
+            }
             return try? Self.resultFrame(id: id, result: [:])
         case "terminal.input":
             return await terminalInputResponse(info)
