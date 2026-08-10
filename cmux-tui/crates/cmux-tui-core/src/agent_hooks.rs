@@ -1007,6 +1007,22 @@ mod tests {
     }
 
     #[test]
+    fn journal_agent_oversized_opaque_identifier_is_rejected_without_truncation() {
+        let shared_prefix = "a".repeat(MAX_OPAQUE_IDENTIFIER_BYTES);
+        for suffix in ["x", "y"] {
+            let ingress = agent_hook_journal_ingress(
+                "pi",
+                "agent_start",
+                None,
+                json!({"session_id":format!("{shared_prefix}{suffix}")}),
+            )
+            .unwrap();
+            assert!(ingress.payload["normalized"].get("agent_session_id").is_none());
+            assert!(ingress.payload["native"]["identifiers"].get("agent_session_id").is_none());
+        }
+    }
+
+    #[test]
     fn dedicated_question_and_plan_tools_are_semantic_events() {
         let question = agent_hook_journal_ingress(
             "claude-code",

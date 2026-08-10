@@ -5015,6 +5015,163 @@ fn journal_agent_projection_cursor_advances_and_replays_only_a_suffix() {
 }
 
 #[test]
+fn journal_agent_append_applies_a_contiguous_projection_prefix() {
+    let root = temp_root("journal-agent-contiguous-projection");
+    let session = "journal-agent-contiguous-projection";
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, session).unwrap();
+        commit_terminal_topology(&mut registry, "journal-agent-contiguous-topology");
+        let ingress = crate::agent_hook_journal_ingress(
+            "pi",
+            "agent_start",
+            Some(terminal_id.as_str()),
+            json!({"context":{"session_id":"pi-contiguous-session"}}),
+        )
+        .unwrap();
+        let validated = crate::journal_kernel::ValidatedJournalIngress {
+            class: JournalClass::Observation,
+            replay: JournalReplayPolicy::Advisory,
+            sensitivity: JournalSensitivity::Sensitive,
+        };
+        registry
+            .append_journal_ingress(
+                &ingress,
+                &validated,
+                "client_contiguous",
+                "journal_agent_contiguous_start",
+            )
+            .unwrap();
+
+        let subjects = vec![JournalSubject {
+            kind: "terminal".into(),
+            id: terminal_id.to_string(),
+        }];
+        let payload = json!({
+            "format":"cmux.agent-recovery.v1",
+            "outcome":"classified_interrupted",
+            "source_session":"pi-contiguous-session",
+            "provider":"pi",
+        });
+        let producer =
+            JournalProducer { kind: "recovery_policy".into(), id: "agent-recovery-v1".into() };
+        let tx = registry.connection.unchecked_transaction().unwrap();
+        session_journal::append_journal_record(
+            &tx,
+            &session_journal::JournalAppend {
+                event_id: "event_agent_contiguous_recovery",
+                schema_version: 1,
+                kind: "agent.session.interrupted",
+                class: JournalClass::State,
+                replay: JournalReplayPolicy::Required,
+                occurred_at_ms: 42,
+                producer: &producer,
+                authority: None,
+                causation_id: None,
+                correlation_id: None,
+                causation_depth: 0,
+                subjects: &subjects,
+                sensitivity: JournalSensitivity::Sensitive,
+                payload: &payload,
+                content: None,
+                resource_revision: None,
+                previous_resource_revision: None,
+            },
+        )
+        .unwrap();
+        tx.commit().unwrap();
+
+        let later = crate::agent_hook_journal_ingress(
+            "pi",
+            "agent_start",
+            None,
+            json!({"context":{"session_id":"pi-other-session"}}),
+        )
+        .unwrap();
+        registry
+            .append_journal_ingress(
+                &later,
+                &validated,
+                "client_contiguous",
+                "journal_agent_contiguous_later",
+            )
+            .unwrap();
+    }
+
+    let reopened = WorkspaceRegistry::open(&root, session).unwrap();
+    let agents = reopened.public_projections().unwrap().agents;
+    assert_eq!(agents.len(), 1);
+    assert_eq!(agents[0].terminal_id, terminal_id);
+    assert_eq!(agents[0].state, "interrupted");
+    assert_eq!(agents[0].source_session.as_deref(), Some("pi-contiguous-session"));
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn journal_agent_new_socket_session_replaces_old_hook_session() {
+    let mut registry = WorkspaceRegistry::in_memory("journal-agent-socket-transition").unwrap();
+    commit_terminal_topology(&mut registry, "journal-agent-socket-transition-topology");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let ingress = crate::agent_hook_journal_ingress(
+        "pi",
+        "agent_start",
+        Some(terminal_id.as_str()),
+        json!({"context":{"session_id":"old-hook-session"}}),
+    )
+    .unwrap();
+    let validated = crate::journal_kernel::ValidatedJournalIngress {
+        class: JournalClass::Observation,
+        replay: JournalReplayPolicy::Advisory,
+        sensitivity: JournalSensitivity::Sensitive,
+    };
+    registry
+        .append_journal_ingress(
+            &ingress,
+            &validated,
+            "client_socket_transition",
+            "journal_agent_socket_hook",
+        )
+        .unwrap();
+
+    let session_id = registry.session_id().clone();
+    let agent_id = agent_resource(&terminal_id);
+    for (revision, source_session) in [(1, "old-hook-session"), (2, "new-socket-session")] {
+        let result = json!({
+            "id":agent_id,
+            "session_id":session_id,
+            "terminal_id":terminal_id,
+            "state":"working",
+            "source":"socket",
+            "updated_at_ms":revision.to_string(),
+            "source_session":source_session,
+            "extra":{"provider":"socket-test"},
+        });
+        registry
+            .commit_agent_projection(
+                &WorkspaceMutation::new(
+                    format!("journal-agent-socket-transition-{revision}"),
+                    "socket-test",
+                )
+                .unwrap(),
+                &json!({"source_session":source_session}),
+                Some(revision),
+                &terminal_id,
+                &result,
+                &json!([]),
+            )
+            .unwrap();
+        let agent = registry.public_projections().unwrap().agents.remove(0);
+        if source_session == "old-hook-session" {
+            assert_eq!(agent.source, "hook");
+        } else {
+            assert_eq!(agent.source, "socket");
+            assert_eq!(agent.source_session.as_deref(), Some("new-socket-session"));
+        }
+    }
+}
+
+#[test]
 fn journal_agent_plugin_report_cannot_write_projection() {
     let root = temp_root("journal-agent-untrusted-report");
     let session = "journal-agent-untrusted-report";
