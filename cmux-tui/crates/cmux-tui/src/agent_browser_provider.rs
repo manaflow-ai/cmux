@@ -297,7 +297,7 @@ fn resolve_page_target_snapshot(
         })
         .collect::<BTreeMap<_, _>>();
     anyhow::ensure!(!targets.is_empty(), "cmux-browser has not published any browser tabs yet");
-    let selected = select_workspace_target(&topology, &targets, scope)?;
+    let selected = select_workspace_target(topology, &targets, scope)?;
     let endpoint = provider
         .get("endpoint")
         .and_then(Value::as_str)

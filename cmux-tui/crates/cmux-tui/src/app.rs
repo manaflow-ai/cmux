@@ -21469,6 +21469,11 @@ mod tests {
     #[test]
     fn frontend_journal_queue_keeps_only_the_latest_event_of_each_type() {
         let queue = FrontendJournalQueue::default();
+        let event_id = |event: &FrontendJournalEvent| match event {
+            FrontendJournalEvent::Focus { event_id, .. }
+            | FrontendJournalEvent::Resize { event_id, .. }
+            | FrontendJournalEvent::Viewport { event_id, .. } => event_id.as_str(),
+        };
         let session = Session::Local(Mux::new(
             "frontend-journal-bounded-coalescing",
             SurfaceOptions::default(),
@@ -21516,9 +21521,9 @@ mod tests {
         queue.push(session.clone(), focus("focus-latest"));
 
         assert_eq!(queue.pending_count(), 3);
-        assert_eq!(queue.take().unwrap().event.event_id(), "resize-latest");
-        assert_eq!(queue.take().unwrap().event.event_id(), "viewport-latest");
-        assert_eq!(queue.take().unwrap().event.event_id(), "focus-latest");
+        assert_eq!(event_id(&queue.take().unwrap().event), "resize-latest");
+        assert_eq!(event_id(&queue.take().unwrap().event), "viewport-latest");
+        assert_eq!(event_id(&queue.take().unwrap().event), "focus-latest");
 
         queue.push(session.clone(), focus("focus-retry"));
         queue.push(
@@ -21534,10 +21539,10 @@ mod tests {
             },
         );
         let failed = queue.take().unwrap();
-        assert_eq!(failed.event.event_id(), "focus-retry");
+        assert_eq!(event_id(&failed.event), "focus-retry");
         queue.retry(failed);
         assert_eq!(
-            queue.take().unwrap().event.event_id(),
+            event_id(&queue.take().unwrap().event),
             "resize-ready",
             "a delayed retry must not block another coalesced event type"
         );
