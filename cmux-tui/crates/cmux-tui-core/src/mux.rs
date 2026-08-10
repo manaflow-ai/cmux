@@ -14926,15 +14926,17 @@ fn terminal_content_placements(
 ) -> Vec<SurfaceId> {
     let content_id = ContentPublicId::Terminal(terminal_id.clone());
     let matches_live_surface = |candidate: &Arc<Surface>| {
-        if candidate.terminal_public_id() != Some(terminal_id) {
-            return false;
+        let host_matches = expected_host.is_some_and(|(expected_id, expected_incarnation)| {
+            mux.resource_terminal_host_identity(candidate).is_some_and(|identity| {
+                terminal_host_matches(&identity, expected_id, expected_incarnation)
+            })
+        });
+        match candidate.terminal_public_id() {
+            Some(candidate_id) => {
+                candidate_id == terminal_id && (expected_host.is_none() || host_matches)
+            }
+            None => host_matches,
         }
-        let Some((expected_id, expected_incarnation)) = expected_host else {
-            return true;
-        };
-        mux.resource_terminal_host_identity(candidate).is_some_and(|identity| {
-            terminal_host_matches(&identity, expected_id, expected_incarnation)
-        })
     };
     let mut targets = state
         .placements_of_content(&content_id)
@@ -20864,6 +20866,37 @@ mod tests {
         assert!(error.to_string().contains("terminal_incarnation_mismatch"));
         assert!(mux.surface(new_surface_id).is_some());
         assert_eq!(mux.with_state(|state| state.resource_revision), resource_revision);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminal_placement_discovery_accepts_a_host_only_surface() {
+        let mux = test_mux();
+        let surface = Surface::spawn_with_resource_identity(
+            mux.next_id(),
+            mux.surface_options.lock().unwrap().clone(),
+            Arc::downgrade(&mux),
+            None,
+        )
+        .unwrap();
+        assert!(surface.terminal_public_id().is_none());
+        let host = mux.resource_terminal_host_identity(&surface).unwrap();
+        let public_id = restore_terminal_id(901);
+        insert_surface_checked(&mut mux.state.lock().unwrap(), surface.clone()).unwrap();
+
+        let placements = {
+            let state = mux.state.lock().unwrap();
+            terminal_content_placements(
+                &mux,
+                &state,
+                &public_id,
+                Some((&host.terminal_id, Some(&host.incarnation))),
+            )
+        };
+
+        assert_eq!(placements, vec![surface.id]);
+        mux.unregister_kitty_image_surface(&surface).unwrap();
+        surface.kill();
     }
 
     #[test]
