@@ -2895,26 +2895,32 @@ struct TerminalBackendTopologyCoordinatorTests {
         #expect(await service.claimCallSnapshot().count == 1)
     }
 
-    @Test @MainActor
+    @Test(.timeLimit(.minutes(1))) @MainActor
     func nativeBrowserClaimsUseBoundedConcurrency() async throws {
         let authority = makeAuthority()
         let surfaceIDs = (0..<40).map { _ in SurfaceID(rawValue: UUID()) }
         let service = RecordingNativeBrowserService(authority: authority)
-        await service.setClaimDelay(nanoseconds: 10_000_000)
+        await service.setBlocksClaims(true)
         let runtime = TerminalBackendNativeBrowserRuntimeCoordinator(
             service: service,
             presentationRegistry: TerminalBackendNativeBrowserPresentationRegistry(),
             maximumConcurrentClaimCount: 16
         )
 
-        try await runtime.claimBeforeProjection(
-            authority: authority,
-            surfaceIDs: surfaceIDs,
-            projector: RecordingTopologyProjector()
-        )
+        let claimTask = Task {
+            try await runtime.claimBeforeProjection(
+                authority: authority,
+                surfaceIDs: surfaceIDs,
+                projector: RecordingTopologyProjector()
+            )
+        }
+        defer { claimTask.cancel() }
 
-        #expect(await service.claimCallSnapshot().count == surfaceIDs.count)
+        try await service.waitForActiveClaimCount(16)
         #expect(await service.maximumConcurrentClaimCount() == 16)
+        await service.releaseClaims()
+        try await claimTask.value
+        #expect(await service.claimCallSnapshot().count == surfaceIDs.count)
     }
 
     @Test @MainActor
@@ -4327,7 +4333,11 @@ private actor RecordingNativeBrowserService:
     private var sourceUpdateCalls: [SourceUpdateCall] = []
     private var activeClaimCount = 0
     private var maximumActiveClaimCount = 0
-    private var claimDelayNanoseconds: UInt64 = 0
+    private var blocksClaims = false
+    private var claimContinuations: [UUID: CheckedContinuation<Void, any Error>] = [:]
+    private var activeClaimCountWaiters: [
+        UUID: (count: Int, continuation: CheckedContinuation<Void, any Error>)
+    ] = [:]
     private var blocksFirstSourceUpdate = false
     private var firstSourceUpdateContinuation: CheckedContinuation<Void, Never>?
     private var failsSourceUpdates = false
@@ -4352,9 +4362,15 @@ private actor RecordingNativeBrowserService:
         ))
         activeClaimCount += 1
         maximumActiveClaimCount = max(maximumActiveClaimCount, activeClaimCount)
+        let identifiers = activeClaimCountWaiters.compactMap { identifier, waiter in
+            waiter.count <= activeClaimCount ? identifier : nil
+        }
+        for identifier in identifiers {
+            activeClaimCountWaiters.removeValue(forKey: identifier)?.continuation.resume()
+        }
         defer { activeClaimCount -= 1 }
-        if claimDelayNanoseconds > 0 {
-            try await Task.sleep(nanoseconds: claimDelayNanoseconds)
+        if blocksClaims {
+            try await waitForClaimRelease()
         }
         let resolvedSource = retainedSources[surfaceID] ?? sourceURL
         if let resolvedSource {
@@ -4401,8 +4417,62 @@ private actor RecordingNativeBrowserService:
         )
     }
 
-    func setClaimDelay(nanoseconds: UInt64) {
-        claimDelayNanoseconds = nanoseconds
+    func setBlocksClaims(_ blocks: Bool) {
+        blocksClaims = blocks
+    }
+
+    func waitForActiveClaimCount(_ expectedCount: Int) async throws {
+        guard activeClaimCount < expectedCount else { return }
+        let identifier = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                if Task.isCancelled {
+                    continuation.resume(throwing: CancellationError())
+                } else if activeClaimCount >= expectedCount {
+                    continuation.resume()
+                } else {
+                    activeClaimCountWaiters[identifier] = (expectedCount, continuation)
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelActiveClaimCountWaiter(identifier) }
+        }
+    }
+
+    func releaseClaims() {
+        blocksClaims = false
+        let continuations = claimContinuations
+        claimContinuations.removeAll(keepingCapacity: false)
+        for continuation in continuations.values { continuation.resume() }
+    }
+
+    private func waitForClaimRelease() async throws {
+        let identifier = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                if Task.isCancelled {
+                    continuation.resume(throwing: CancellationError())
+                } else if blocksClaims {
+                    claimContinuations[identifier] = continuation
+                } else {
+                    continuation.resume()
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelClaimContinuation(identifier) }
+        }
+    }
+
+    private func cancelClaimContinuation(_ identifier: UUID) {
+        claimContinuations.removeValue(forKey: identifier)?.resume(
+            throwing: CancellationError()
+        )
+    }
+
+    private func cancelActiveClaimCountWaiter(_ identifier: UUID) {
+        activeClaimCountWaiters.removeValue(forKey: identifier)?.continuation.resume(
+            throwing: CancellationError()
+        )
     }
 
     func setBlocksFirstSourceUpdate(_ blocks: Bool) {

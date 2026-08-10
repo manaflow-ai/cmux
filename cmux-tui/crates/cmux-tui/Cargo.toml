@@ -34,3 +34,4 @@ ghostty-config.workspace = true
 
 [dev-dependencies]
 fs2.workspace = true
+wait-timeout.workspace = true

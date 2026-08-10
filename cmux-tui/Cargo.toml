@@ -51,6 +51,7 @@ smallvec = "1"
 getrandom = "0.3"
 uuid = { version = "1", features = ["serde", "v4", "v5"] }
 fs2 = "0.4.3"
+wait-timeout = "0.2.1"
 
 [profile.release]
 lto = "thin"

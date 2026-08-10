@@ -14269,10 +14269,21 @@ mod tests {
         unsafe {
             libc::signal(libc::SIGHUP, libc::SIG_IGN);
         }
-        let original_parent = unsafe { libc::getppid() };
-        let deadline = Instant::now() + Duration::from_secs(10);
-        while unsafe { libc::getppid() } == original_parent && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(10));
+        let address = std::env::var("CMUX_TEST_PARENT_LIFETIME_ADDRESS").unwrap();
+        let mut lifetime = std::net::TcpStream::connect(address).unwrap();
+        lifetime.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        let mut ready = [0_u8; 1];
+        std::io::Read::read_exact(&mut lifetime, &mut ready).unwrap();
+        assert_eq!(ready, [1]);
+        let mut end = [0_u8; 1];
+        match std::io::Read::read(&mut lifetime, &mut end) {
+            Ok(0) => {}
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::BrokenPipe
+                ) => {}
+            result => panic!("parent lifetime channel stayed open: {result:?}"),
         }
         std::fs::write(marker, b"parent-exited").unwrap();
     }
@@ -14284,6 +14295,15 @@ mod tests {
         };
         let root = std::path::PathBuf::from(root);
         let target_exit_marker = root.join("target-exited");
+        let lifetime_listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let lifetime_address = lifetime_listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let (mut lifetime, _) = lifetime_listener.accept().unwrap();
+            std::io::Write::write_all(&mut lifetime, &[1]).unwrap();
+            loop {
+                std::thread::park();
+            }
+        });
         let store = StateStore::new(root.join("store"));
         let mux = Mux::recover_from_state_store("main", SurfaceOptions::default(), &store).unwrap();
         let executable = std::env::current_exe().unwrap();
@@ -14301,10 +14321,16 @@ mod tests {
                         "mux::tests::initial_input_non_reader_entrypoint".to_string(),
                         "--nocapture".to_string(),
                     ]),
-                    env: vec![(
-                        "CMUX_TEST_NON_READER_EXIT_MARKER".to_string(),
-                        target_exit_marker.to_string_lossy().into_owned(),
-                    )],
+                    env: vec![
+                        (
+                            "CMUX_TEST_NON_READER_EXIT_MARKER".to_string(),
+                            target_exit_marker.to_string_lossy().into_owned(),
+                        ),
+                        (
+                            "CMUX_TEST_PARENT_LIFETIME_ADDRESS".to_string(),
+                            lifetime_address.to_string(),
+                        ),
+                    ],
                     initial_input: Some(canonical_safe_initial_input(1024 * 1024)),
                     ..TerminalLaunchRequest::default()
                 },
@@ -18663,14 +18689,23 @@ mod tests {
     }
 
     fn wait_for_surface_uuid(mux: &Mux, uuid: SurfaceUuid, present: bool) {
+        if mux.with_state(|state| state.surface_id_by_uuid(uuid).is_some()) == present {
+            return;
+        }
+        let subscription = topology_subscription(mux, mux.canonical_topology_revision());
+        if mux.with_state(|state| state.surface_id_by_uuid(uuid).is_some()) == present {
+            return;
+        }
         let deadline = Instant::now() + Duration::from_secs(5);
-        while Instant::now() < deadline {
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            subscription.receiver.recv_timeout(remaining).unwrap_or_else(|error| {
+                panic!("surface {uuid} presence did not become {present}: {error}")
+            });
             if mux.with_state(|state| state.surface_id_by_uuid(uuid).is_some()) == present {
                 return;
             }
-            std::thread::sleep(Duration::from_millis(10));
         }
-        panic!("surface {uuid} presence did not become {present}");
     }
 
     #[test]

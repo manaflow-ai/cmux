@@ -8,10 +8,10 @@ internal actor BackendServiceReadinessDeadline {
     private var state = State.pending
 
     /// Claims a completed handshake after sampling time inside this actor.
-    func complete(
-        clock: ContinuousClock,
-        before absoluteDeadline: ContinuousClock.Instant
-    ) -> Bool {
+    func complete<C: Clock>(
+        clock: C,
+        before absoluteDeadline: C.Instant
+    ) -> Bool where C.Duration == Duration {
         guard case .pending = state else { return false }
         guard clock.now < absoluteDeadline else { return false }
         state = .completed
