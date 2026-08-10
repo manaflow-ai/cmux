@@ -249,6 +249,36 @@ struct MobileTaskAttachmentStoreTests {
         #expect(try Data(contentsOf: resolved) == Data("linked".utf8))
     }
 
+    @Test func completedAttachmentLookupRejectsOperationDirectorySymlinkEscape() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let operationID = UUID()
+        let uploadID = UUID()
+        let completed = try fixture.complete(
+            operationID: operationID,
+            uploadID: uploadID,
+            fileName: "escaped.txt",
+            contents: "escaped"
+        )
+        let completedURL = URL(fileURLWithPath: try #require(completed.path))
+        let operationURL = completedURL.deletingLastPathComponent()
+        let outsideOperationURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-operation-outside-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: outsideOperationURL) }
+        try FileManager.default.moveItem(at: operationURL, to: outsideOperationURL)
+        try FileManager.default.createSymbolicLink(
+            at: operationURL,
+            withDestinationURL: outsideOperationURL
+        )
+
+        #expect(throws: MobileTaskAttachmentStoreError.self) {
+            try fixture.store.completedAttachmentURL(
+                operationID: operationID,
+                uploadID: uploadID
+            )
+        }
+    }
+
     @Test func batchLookupFailsBeforeReturningAnyPathWhenLaterReferenceIsInvalid() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
