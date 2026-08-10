@@ -536,6 +536,47 @@ fn server_lifecycle_start_rejects_inline_relay_ticket_without_echoing_secret() {
 }
 
 #[test]
+fn server_lifecycle_start_rejects_output_modes_without_starting_an_owner() {
+    let dir = unique_temp_dir("server-start-output-mode");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("mux.sock");
+
+    for mode in ["--json", "--jsonl"] {
+        let output = lifecycle_cli(&[
+            mode,
+            "server",
+            "start",
+            "--socket",
+            socket.to_str().unwrap(),
+        ]);
+        assert_eq!(output.status.code(), Some(2));
+        let diagnostic: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
+        assert_eq!(diagnostic["code"], "usage.invalid");
+        assert!(
+            diagnostic["message"]
+                .as_str()
+                .unwrap()
+                .contains("server start does not support output modes")
+        );
+        assert!(!socket.exists());
+    }
+
+    let quiet = lifecycle_cli(&[
+        "server",
+        "start",
+        "--quiet",
+        "--socket",
+        socket.to_str().unwrap(),
+    ]);
+    assert_eq!(quiet.status.code(), Some(2));
+    assert!(quiet.stdout.is_empty());
+    assert!(quiet.stderr.is_empty());
+    assert!(!socket.exists());
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn local_and_authenticated_remote_namespaces_do_not_cross_target() {
     let remote_help = lifecycle_cli(&["remote", "--help"]);
     assert_success(&remote_help);

@@ -16303,6 +16303,22 @@ mod tests {
         assert!(retry_writer.is_open());
     }
 
+    #[test]
+    fn daemon_handoff_requester_disconnect_releases_the_reservation() {
+        let mux = test_mux();
+        let requester = mux.control_clients.register(ClientTransport::Unix, test_writer());
+        mux.begin_daemon_handoff(requester, DaemonHandoffRequest::unfenced(false)).unwrap();
+        assert!(mux.control_clients.daemon_handoff_pending());
+
+        assert!(disconnect_client(&mux, requester, false));
+        assert!(!mux.control_clients.daemon_handoff_pending());
+
+        let retry_writer = test_writer();
+        let retry = mux.control_clients.register(ClientTransport::Unix, retry_writer.clone());
+        assert!(mux.control_clients.contains(retry));
+        assert!(retry_writer.is_open());
+    }
+
     #[cfg(unix)]
     #[test]
     fn pane_and_screen_close_detach_views_without_closing_terminal_hosts() {
