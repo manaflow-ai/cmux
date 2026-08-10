@@ -40,6 +40,10 @@ extension TaskComposerSheet {
     }
 
     func stageSelectedPhotos(_ items: [PhotosPickerItem]) {
+        let availableCount = remainingAttachmentCount
+        if items.count > availableCount {
+            attachmentAlertMessage = Self.attachmentCountFailureMessage
+        }
         attachmentStagingTask?.cancel()
         let generation = UUID()
         attachmentStagingGeneration = generation
@@ -50,7 +54,7 @@ extension TaskComposerSheet {
                     attachmentStagingTask = nil
                 }
             }
-            for item in items.prefix(remainingAttachmentCount) {
+            for item in items.prefix(availableCount) {
                 guard !Task.isCancelled,
                       attachmentStagingGeneration == generation else { return }
                 do {
