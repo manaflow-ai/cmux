@@ -1892,7 +1892,7 @@ impl RemoteSession {
         self.request(client_info)?;
         #[cfg(debug_assertions)]
         if let Some(signal) = std::env::var_os("CMUX_TUI_TEST_CLIENT_REGISTERED_SIGNAL") {
-            std::fs::write(signal, b"1")?;
+            fs::write(signal, b"1")?;
         }
         if subscribe {
             self.prime_local_subscription();

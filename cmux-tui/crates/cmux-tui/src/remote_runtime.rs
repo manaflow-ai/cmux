@@ -83,16 +83,14 @@ struct DaemonCleanupPause {
     expected_state_dir: PathBuf,
     expected_phase: DaemonCleanupPausePhase,
     reached: mpsc::SyncSender<()>,
-    resume: std::sync::Mutex<mpsc::Receiver<()>>,
+    resume: Mutex<mpsc::Receiver<()>>,
 }
 
 #[cfg(test)]
-static DAEMON_CLEANUP_PAUSES: std::sync::Mutex<Vec<Arc<DaemonCleanupPause>>> =
-    std::sync::Mutex::new(Vec::new());
+static DAEMON_CLEANUP_PAUSES: Mutex<Vec<Arc<DaemonCleanupPause>>> = Mutex::new(Vec::new());
 
 #[cfg(test)]
-static STATE_DIRECTORY_SYNC_FAILURES: std::sync::Mutex<Vec<(PathBuf, usize)>> =
-    std::sync::Mutex::new(Vec::new());
+static STATE_DIRECTORY_SYNC_FAILURES: Mutex<Vec<(PathBuf, usize)>> = Mutex::new(Vec::new());
 
 #[cfg(test)]
 struct DaemonCleanupPauseHandle {
@@ -110,7 +108,7 @@ impl DaemonCleanupPauseHandle {
             expected_state_dir,
             expected_phase,
             reached: reached_tx,
-            resume: std::sync::Mutex::new(resume_rx),
+            resume: Mutex::new(resume_rx),
         });
         let mut installed =
             DAEMON_CLEANUP_PAUSES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -726,8 +724,6 @@ pub fn start_client_runtime(options: ClientRuntimeOptions) -> anyhow::Result<Cli
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let (finished_tx, finished_rx) = watch::channel(false);
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
-    let completion = Arc::new(RuntimeThreadCompletion::default());
-    let worker_completion = completion.clone();
     let thread = thread::Builder::new()
         .name("cmux-remote-client".into())
         .spawn(move || {
@@ -1867,6 +1863,8 @@ fn start_daemon_runtime_with_timeout(
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let owner_shutdown = shutdown_tx.clone();
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+    let completion = Arc::new(RuntimeThreadCompletion::default());
+    let worker_completion = completion.clone();
     let thread = thread::Builder::new()
         .name(format!("cmux-remote-{}", options.session))
         .spawn(move || {
@@ -3177,7 +3175,7 @@ mod tests {
 
     #[derive(Default)]
     struct FakeReconnectRouteAttempt {
-        requests: std::sync::Mutex<Vec<ConnectRequest>>,
+        requests: Mutex<Vec<ConnectRequest>>,
     }
 
     #[async_trait]
@@ -3224,7 +3222,7 @@ mod tests {
 
     #[derive(Default)]
     struct AuthRecordingReconnectRouteAttempt {
-        auth: std::sync::Mutex<Vec<AuthKind>>,
+        auth: Mutex<Vec<AuthKind>>,
     }
 
     #[async_trait]

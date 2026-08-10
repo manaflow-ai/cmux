@@ -13557,6 +13557,7 @@ impl Mux {
                 surface.kill();
             }
         }
+        #[cfg(unix)]
         let runtime_identities = terminal_runtimes
             .iter()
             .filter_map(|runtime| self.resource_terminal_host_identity(runtime))
@@ -13566,6 +13567,7 @@ impl Mux {
             self.purge_terminal_runtime_side_tables(&runtime);
             self.terminate_terminal_runtime(&runtime);
         }
+        #[cfg(unix)]
         let host_cleanup = host_cleanup
             .into_iter()
             .filter(|(_, record)| {

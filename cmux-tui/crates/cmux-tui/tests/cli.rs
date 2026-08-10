@@ -2,6 +2,8 @@
 use std::ffi::CStr;
 use std::fs;
 #[cfg(unix)]
+use std::fs::File;
+#[cfg(unix)]
 use std::io::{BufRead, BufReader, Read, Write};
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
@@ -84,6 +86,12 @@ fn wait_for_child_exit(
     }
     observer.join().unwrap();
     child.wait().unwrap()
+}
+
+#[cfg(unix)]
+fn native_pty_child(child: &mut (dyn cmux_pty::Child + Send + Sync)) -> &mut Child {
+    let child: &mut dyn cmux_pty::Child = child;
+    child.downcast_mut::<Child>().expect("cmux-pty Unix test child is a native process")
 }
 
 struct HeadlessServer {
@@ -250,18 +258,6 @@ impl HeadlessServer {
 }
 
 #[cfg(unix)]
-fn wait_for_child_exit(child: &mut Child, timeout: Duration) -> bool {
-    let deadline = Instant::now() + timeout;
-    while Instant::now() < deadline {
-        if child.try_wait().unwrap().is_some() {
-            return true;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    false
-}
-
-#[cfg(unix)]
 fn wait_for_processes_to_exit(pids: &[u32], timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
@@ -326,7 +322,7 @@ fn server_establishes_shutdown_ownership_before_publishing_its_listener() {
         // SAFETY: path is a valid, NUL-terminated path in the test directory.
         assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
     }
-    let (ready_sender, ready_receiver) = std::sync::mpsc::sync_channel(1);
+    let (ready_sender, ready_receiver) = mpsc::sync_channel(1);
     let ready_marker = marker.clone();
     let ready_reader = std::thread::spawn(move || {
         use std::io::Read as _;
@@ -2905,7 +2901,7 @@ fn server_shutdown_exits_when_the_interactive_driver_cannot_progress() {
     assert_eq!(response, serde_json::json!({}));
 
     let status = wait_for_child_exit(
-        &mut server.child,
+        native_pty_child(server.child.as_mut()),
         Duration::from_secs(3),
         "server remained alive after acknowledging shutdown",
     );
@@ -3023,7 +3019,7 @@ fn daemon_handoff_cleans_local_ptys_before_forcing_a_blocked_interactive_driver_
     assert_eq!(response["accepted"], true);
 
     let status = wait_for_child_exit(
-        &mut server.child,
+        native_pty_child(server.child.as_mut()),
         Duration::from_secs(3),
         "server remained alive after acknowledging daemon handoff",
     );
@@ -3928,7 +3924,11 @@ fn graceful_shutdown_stops_server_owned_sidebar_process() {
     let server_pid = libc::pid_t::try_from(server.child.id()).unwrap();
     // SAFETY: this PID is the live child owned by the test fixture.
     assert_eq!(unsafe { libc::kill(server_pid, libc::SIGINT) }, 0);
-    let server_stopped = wait_for_child_exit(&mut server.child, Duration::from_secs(10));
+    let server_status = wait_for_child_exit(
+        &mut server.child,
+        Duration::from_secs(10),
+        "SIGINT did not complete graceful server shutdown",
+    );
     let owned_processes_stopped = wait_for_processes_to_exit(&owned_pids, Duration::from_secs(5));
 
     // Keep lifecycle regressions leak-free. Every captured process group and
@@ -3954,7 +3954,7 @@ fn graceful_shutdown_stops_server_owned_sidebar_process() {
         }
     }
 
-    assert!(server_stopped, "SIGINT did not complete graceful server shutdown");
+    assert!(server_status.success(), "SIGINT server shutdown exited with {server_status}");
     assert!(
         !used_durable_host,
         "server-owned sidebar process entered the durable terminal-host registry"
@@ -4931,6 +4931,7 @@ fn create_live_terminal_host_record(root: &std::path::Path) -> fs::File {
         host_start_nonce: host_start_nonce.clone(),
         workspace_key: String::new(),
         supports_set_defaults: true,
+        supports_terminate_only: false,
         supports_clear_history: true,
         supports_terminate_ack: false,
     };
