@@ -562,13 +562,7 @@ fn public_command_payload_preserves_relay_ticket_argument() {
 
 #[test]
 fn public_resource_value_preserves_relay_ticket_literal() {
-    let output = lifecycle_cli(&[
-        "workspace",
-        "current",
-        "rename",
-        "--name",
-        "--relay-ticket",
-    ]);
+    let output = lifecycle_cli(&["workspace", "current", "rename", "--name", "--relay-ticket"]);
     let diagnostic = String::from_utf8(output.stderr).unwrap();
 
     assert_ne!(output.status.code(), Some(2), "{diagnostic}");
