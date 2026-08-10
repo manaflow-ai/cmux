@@ -227,6 +227,19 @@ CARGO_HOME="$shared_cargo_home" RUSTUP_HOME="$shared_rustup_home" \
   "/Users/ci-console|$GITHUB_REPOSITORY_ID|$shared_cargo_home|$shared_rustup_home" ] \
   || { echo "FAIL: configured shared toolchain homes were not forwarded"; exit 1; }
 
+shared_zig="$TMP_DIR/shared-zig"
+shared_zig_capture="$TMP_DIR/shared-zig.capture"
+: > "$shared_zig"
+chmod +x "$shared_zig"
+# shellcheck disable=SC2016 # expanded by the console-user child shell
+shared_zig_probe='printf "%s\n" "$CMUX_ZIG" > "$1"'
+CMUX_ZIG="$shared_zig" PATH="$FAKE_BIN:$PATH" \
+  bash "$ROOT_DIR/scripts/ci/run-in-console-session.sh" \
+    /bin/bash -c "$shared_zig_probe" \
+    bash "$shared_zig_capture"
+[ "$(cat "$shared_zig_capture")" = "$shared_zig" ] \
+  || { echo "FAIL: verified Zig path was not forwarded"; exit 1; }
+
 APP_HOST_EXECUTABLE="$DERIVED_DATA_PATH/Build/Products/Debug/cmux DEV.app/Contents/MacOS/cmux DEV"
 mkdir -p "$(dirname "$APP_HOST_EXECUTABLE")"
 : > "$APP_HOST_EXECUTABLE"

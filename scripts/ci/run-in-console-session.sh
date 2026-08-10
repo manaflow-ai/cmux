@@ -206,7 +206,7 @@ if [ -n "$console_user" ] && [ "$console_user" != "root" ] \
   # value for an unset var (that would defeat a `${VAR:-default}` downstream).
   # HOME is set explicitly to the console user's home.
   forward=(PATH DEVELOPER_DIR GITHUB_WORKSPACE RUNNER_TEMP \
-    CMUX_DERIVED_DATA_PATH CMUX_TAG CMUX_SKIP_ZIG_BUILD \
+    CMUX_DERIVED_DATA_PATH CMUX_TAG CMUX_SKIP_ZIG_BUILD CMUX_ZIG \
     CMUX_UNIT_TEST_TIMEOUT_SECONDS \
     CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS \
     CMUX_XCODEBUILD_NONINTERACTIVE_POST_TEST_TIMEOUT_SECONDS \

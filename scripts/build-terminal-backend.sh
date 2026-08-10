@@ -161,7 +161,7 @@ build_target() {
     && ! rustup target list --installed | grep -qx "$target"; then
     rustup target add "$target"
   fi
-  env -u SDKROOT \
+  env \
     ZIG="$ZIG_BIN" \
     CMUX_GHOSTTY_SRC="$REPO_ROOT/ghostty" \
     CMUX_TUI_BUILD_FINGERPRINT="$FINGERPRINT" \
@@ -180,7 +180,7 @@ build_target() {
 
 mkdir -p "$(dirname "$OUTPUT_PATH")"
 if [[ -z "$ARCHITECTURES" ]]; then
-  env -u SDKROOT \
+  env \
     ZIG="$ZIG_BIN" \
     CMUX_GHOSTTY_SRC="$REPO_ROOT/ghostty" \
     CMUX_TUI_BUILD_FINGERPRINT="$FINGERPRINT" \
