@@ -1681,8 +1681,16 @@ mod tests {
         let started = Instant::now();
         let (exit_code, error) = execute_delivery(&delivery, &attempt);
 
-        assert_eq!(exit_code, Some(0), "{error:?}");
-        assert_eq!(error, None);
+        #[cfg(target_os = "macos")]
+        {
+            assert!(exit_code.is_some_and(|code| code != 0), "{error:?}");
+            assert!(error.is_some(), "the macOS process sandbox allowed a hook descendant");
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            assert_eq!(exit_code, Some(0), "{error:?}");
+            assert_eq!(error, None);
+        }
         assert!(started.elapsed() < Duration::from_secs(1));
     }
 
