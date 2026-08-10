@@ -130,29 +130,26 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             global.output,
         ),
         ServerAction::ReloadConfig => {
-            let result = match exchange(
-                &mut connection,
-                json!({"id":2,"cmd":"reload-config"}),
-                deadline,
-            ) {
-                Ok(result) => result,
-                Err(ExchangeError::Rejected) => {
-                    return local_error(
-                        "server.reload_failed",
-                        crate::localization::catalog().local_server.reload_rejected,
-                        global.output,
-                        1,
-                    );
-                }
-                Err(_) => {
-                    return local_error(
-                        "server.reload_failed",
-                        crate::localization::catalog().local_server.communication_failed,
-                        global.output,
-                        3,
-                    );
-                }
-            };
+            let result =
+                match exchange(&mut connection, json!({"id":2,"cmd":"reload-config"}), deadline) {
+                    Ok(result) => result,
+                    Err(ExchangeError::Rejected) => {
+                        return local_error(
+                            "server.reload_failed",
+                            crate::localization::catalog().local_server.reload_rejected,
+                            global.output,
+                            1,
+                        );
+                    }
+                    Err(_) => {
+                        return local_error(
+                            "server.reload_failed",
+                            crate::localization::catalog().local_server.communication_failed,
+                            global.output,
+                            3,
+                        );
+                    }
+                };
             let Some(reloaded) = result["reloaded"].as_bool() else {
                 return local_error(
                     "server.invalid_response",
@@ -277,11 +274,7 @@ fn read_response(
 ) -> Result<Option<Value>, ExchangeError> {
     require_time_remaining(connection, deadline)?;
     let mut bytes = Vec::new();
-    match connection
-        .by_ref()
-        .take((RESPONSE_LIMIT + 2) as u64)
-        .read_until(b'\n', &mut bytes)
-    {
+    match connection.by_ref().take((RESPONSE_LIMIT + 2) as u64).read_until(b'\n', &mut bytes) {
         Ok(0) => return Ok(None),
         Ok(_) => {}
         Err(error)
@@ -301,9 +294,7 @@ fn read_response(
     if bytes.last() == Some(&b'\r') {
         bytes.pop();
     }
-    serde_json::from_slice(&bytes)
-        .map(Some)
-        .map_err(|_| ExchangeError::InvalidResponse)
+    serde_json::from_slice(&bytes).map(Some).map_err(|_| ExchangeError::InvalidResponse)
 }
 
 fn require_time_remaining(

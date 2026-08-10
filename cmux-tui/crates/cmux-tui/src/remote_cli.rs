@@ -3580,13 +3580,8 @@ mod tests {
         .unwrap();
 
         let error = run_remote_stop(
-            &[
-                "--session",
-                session,
-                "--state-dir",
-                directory.path().to_string_lossy().as_ref(),
-            ]
-            .map(str::to_string),
+            &["--session", session, "--state-dir", directory.path().to_string_lossy().as_ref()]
+                .map(str::to_string),
         )
         .expect_err("remote stop terminated an embedded server");
 

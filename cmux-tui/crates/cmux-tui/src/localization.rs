@@ -974,20 +974,15 @@ impl LocalServerMessages {
         self.with_suggestion(self.unknown_scope.replace("{scope}", scope), suggestion)
     }
 
-    pub(crate) fn unknown_server_action(
-        &self,
-        action: &str,
-        suggestion: Option<&str>,
-    ) -> String {
-        self.with_suggestion(
-            self.unknown_server_action.replace("{action}", action),
-            suggestion,
-        )
+    pub(crate) fn unknown_server_action(&self, action: &str, suggestion: Option<&str>) -> String {
+        self.with_suggestion(self.unknown_server_action.replace("{action}", action), suggestion)
     }
 
     fn with_suggestion(&self, message: String, suggestion: Option<&str>) -> String {
         match suggestion {
-            Some(candidate) => format!("{message} {}", self.suggestion.replace("{candidate}", candidate)),
+            Some(candidate) => {
+                format!("{message} {}", self.suggestion.replace("{candidate}", candidate))
+            }
             None => message,
         }
     }

@@ -5549,8 +5549,7 @@ fn resource_client_metadata_update(
     let (target, session_id) = resolve_resource_client(mux, requesting_client, &request.selectors)?;
     let name = request.fields.get("name").map(|value| value.as_str().map(str::to_string));
     let kind = request.fields.get("kind").map(|value| value.as_str().map(str::to_string));
-    let (name, kind) =
-        mux.control_clients.set_resource_info(target, name, kind)?;
+    let (name, kind) = mux.control_clients.set_resource_info(target, name, kind)?;
     mux.emit(MuxEvent::ClientChanged { client: target, name, kind });
     let record = mux
         .control_clients
@@ -11828,16 +11827,10 @@ mod tests {
 
         fn flush_control(&self, _timeout: Duration) -> std::io::Result<()> {
             self.entered.send(()).map_err(|_| {
-                std::io::Error::new(
-                    std::io::ErrorKind::BrokenPipe,
-                    "flush blocker observer closed",
-                )
+                std::io::Error::new(std::io::ErrorKind::BrokenPipe, "flush blocker observer closed")
             })?;
             self.release.lock().unwrap().recv().map_err(|_| {
-                std::io::Error::new(
-                    std::io::ErrorKind::BrokenPipe,
-                    "flush blocker release closed",
-                )
+                std::io::Error::new(std::io::ErrorKind::BrokenPipe, "flush blocker release closed")
             })
         }
 
@@ -15089,15 +15082,9 @@ mod tests {
             assert!(Instant::now() < deadline, "flush barrier was not queued");
             std::thread::yield_now();
         }
-        assert!(matches!(
-            done_rx.try_recv(),
-            Err(std::sync::mpsc::TryRecvError::Empty)
-        ));
+        assert!(matches!(done_rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)));
         assert_eq!(outbound.try_pop().unwrap(), response.to_string());
-        assert!(matches!(
-            done_rx.try_recv(),
-            Err(std::sync::mpsc::TryRecvError::Empty)
-        ));
+        assert!(matches!(done_rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)));
 
         assert_eq!(outbound.try_pop(), None);
         done_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap();
@@ -16119,8 +16106,7 @@ mod tests {
             MessageWriter::new(QueuedSink { outbound: accepted_outbound.clone(), control: None });
         let local =
             accepted.control_clients.register(ClientTransport::Unix, accepted_writer.clone());
-        let interactive =
-            accepted.control_clients.register(ClientTransport::Unix, test_writer());
+        let interactive = accepted.control_clients.register(ClientTransport::Unix, test_writer());
         let (_, generation) = accepted.registry_identity();
         assert!(handle_message(
             &accepted,
@@ -16153,8 +16139,7 @@ mod tests {
         let mux = test_mux();
         let (writer, outbound, flush_entered, release_flush) = blocking_flush_writer();
         let requester = mux.control_clients.register(ClientTransport::Unix, writer.clone());
-        let interactive =
-            mux.control_clients.register(ClientTransport::Unix, test_writer());
+        let interactive = mux.control_clients.register(ClientTransport::Unix, test_writer());
         let (_, generation) = mux.registry_identity();
         let request = json!({
             "id": 97,

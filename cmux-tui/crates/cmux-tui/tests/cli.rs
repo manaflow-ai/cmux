@@ -339,11 +339,8 @@ fn accept_with_timeout(listener: &UnixListener, timeout: Duration) -> std::io::R
             ));
         };
         let timeout_ms = i32::try_from(remaining.as_millis().max(1)).unwrap_or(i32::MAX);
-        let mut descriptor = libc::pollfd {
-            fd: listener.as_raw_fd(),
-            events: libc::POLLIN,
-            revents: 0,
-        };
+        let mut descriptor =
+            libc::pollfd { fd: listener.as_raw_fd(), events: libc::POLLIN, revents: 0 };
         // SAFETY: descriptor contains one valid listener fd and remains alive
         // for the complete poll call.
         let ready = unsafe { libc::poll(&mut descriptor, 1, timeout_ms) };
@@ -379,9 +376,9 @@ impl ServerEventSubscription {
         let (sender, receiver) = mpsc::channel();
         let reader_thread = std::thread::spawn(move || {
             for line in BufReader::new(stream).lines() {
-                let value = line
-                    .map_err(|error| error.to_string())
-                    .and_then(|line| serde_json::from_str(&line).map_err(|error| error.to_string()));
+                let value = line.map_err(|error| error.to_string()).and_then(|line| {
+                    serde_json::from_str(&line).map_err(|error| error.to_string())
+                });
                 if sender.send(value).is_err() {
                     break;
                 }
@@ -436,13 +433,8 @@ impl Drop for ServerEventSubscription {
 
 #[cfg(unix)]
 fn has_tui_client(socket: &std::path::Path) -> bool {
-    let clients = lifecycle_cli(&[
-        "--json",
-        "--socket",
-        socket.to_str().unwrap(),
-        "client",
-        "list",
-    ]);
+    let clients =
+        lifecycle_cli(&["--json", "--socket", socket.to_str().unwrap(), "client", "list"]);
     clients.status.success()
         && json_output(&clients).as_array().is_some_and(|clients| {
             clients.iter().any(|client| client["client_kind"].as_str() == Some("tui"))
@@ -461,10 +453,8 @@ fn wait_for_tui_client(socket: &std::path::Path, owner: &mut PtyChild) {
             panic!("interactive owner exited before shutdown: {status}");
         }
         let event = events.next_before(deadline);
-        if matches!(
-            event["event"].as_str(),
-            Some("client-attached" | "client-changed")
-        ) && event["kind"].as_str() == Some("tui")
+        if matches!(event["event"].as_str(), Some("client-attached" | "client-changed"))
+            && event["kind"].as_str() == Some("tui")
         {
             return;
         }
@@ -516,8 +506,7 @@ fn server_lifecycle_help_and_typos_do_not_fall_back_to_startup_help() {
     assert!(error.contains("Did you mean `stop`?"), "{error}");
     assert!(!error.trim_start().starts_with('{'), "{error}");
 
-    let misplaced_start_option =
-        lifecycle_cli(&["--term", "xterm-256color", "server", "start"]);
+    let misplaced_start_option = lifecycle_cli(&["--term", "xterm-256color", "server", "start"]);
     assert_eq!(misplaced_start_option.status.code(), Some(2));
     let error = String::from_utf8(misplaced_start_option.stderr).unwrap();
     assert!(error.contains("after `server start`"), "{error}");
@@ -622,10 +611,7 @@ fn local_server_lifecycle_rejects_machine_before_socket_access() {
         let output = lifecycle_cli(args);
         assert_eq!(output.status.code(), Some(2));
         let error = String::from_utf8(output.stderr).unwrap();
-        assert!(
-            error.contains("--machine cannot target a local server"),
-            "{error}"
-        );
+        assert!(error.contains("--machine cannot target a local server"), "{error}");
     }
 }
 
@@ -748,13 +734,8 @@ fn uvx_spelling_server_stop_is_absent_idempotent_with_stable_output_modes() {
     assert_eq!(json_output(&json)["status"], "not_running");
     assert_eq!(json_output(&json)["session"], "absent");
 
-    let socket_only = lifecycle_cli(&[
-        "--json",
-        "server",
-        "stop",
-        "--socket",
-        socket.to_str().unwrap(),
-    ]);
+    let socket_only =
+        lifecycle_cli(&["--json", "server", "stop", "--socket", socket.to_str().unwrap()]);
     assert_success(&socket_only);
     assert_eq!(json_output(&socket_only)["status"], "not_running");
     assert_eq!(json_output(&socket_only)["session"], serde_json::Value::Null);
@@ -2505,23 +2486,13 @@ fn session_shutdown_exits_an_interactive_local_owner() {
     let dir = TestTempDir::create("interactive-session-shutdown");
     let socket = dir.path().join("mux.sock");
     let socket_arg = socket.to_str().unwrap();
-    let mut owner = PtyChild::start(&[
-        "--session",
-        "interactive-session-shutdown",
-        "--socket",
-        socket_arg,
-    ]);
+    let mut owner =
+        PtyChild::start(&["--session", "interactive-session-shutdown", "--socket", socket_arg]);
     wait_for_socket_path(&socket);
     wait_for_tui_client(&socket, &mut owner);
 
-    let shutdown = lifecycle_cli(&[
-        "--json",
-        "--socket",
-        socket_arg,
-        "session",
-        "current",
-        "shutdown",
-    ]);
+    let shutdown =
+        lifecycle_cli(&["--json", "--socket", socket_arg, "session", "current", "shutdown"]);
     assert_success(&shutdown);
     assert_eq!(json_output(&shutdown)["value"]["accepted"], true);
 

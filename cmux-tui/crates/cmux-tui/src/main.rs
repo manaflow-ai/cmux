@@ -358,10 +358,7 @@ fn usage_for_platform(catalog: &localization::Catalog, supports_machine_agent: b
         &format!("{}\n", catalog.local_server.startup_lifecycle_usage),
     );
     if supports_machine_agent {
-        usage.replace(
-            "  {machine_agent_usage}\n",
-            &format!("  {}\n", catalog.machine_agent.usage),
-        )
+        usage.replace("  {machine_agent_usage}\n", &format!("  {}\n", catalog.machine_agent.usage))
     } else {
         usage.replace("  {machine_agent_usage}\n", "")
     }
@@ -1723,9 +1720,8 @@ fn run_server(
         }
     };
     owner_event_stop.close();
-    let owner_event_result = owner_event_thread
-        .join()
-        .map_err(|_| anyhow::anyhow!("local owner event loop panicked"));
+    let owner_event_result =
+        owner_event_thread.join().map_err(|_| anyhow::anyhow!("local owner event loop panicked"));
     #[cfg(unix)]
     if let Some(runtime) = remote_runtime {
         runtime.shutdown()?;
@@ -2233,30 +2229,19 @@ mod tests {
 
     #[test]
     fn public_cli_routing_skips_private_process_option_values() {
-        let strings = |values: &[&str]| {
-            values.iter().map(|value| (*value).to_string()).collect::<Vec<_>>()
-        };
-        assert!(is_cli_invocation(&strings(&[
-            "--relay-slot",
-            "server",
-            "workspace",
-            "list",
-        ])));
-        assert!(!is_cli_invocation(&strings(&[
-            "--relay-slot",
-            "routing-key",
-            "--headless",
-        ])));
+        let strings =
+            |values: &[&str]| values.iter().map(|value| (*value).to_string()).collect::<Vec<_>>();
+        assert!(is_cli_invocation(&strings(&["--relay-slot", "server", "workspace", "list",])));
+        assert!(!is_cli_invocation(&strings(&["--relay-slot", "routing-key", "--headless",])));
     }
 
     #[test]
     fn local_owner_event_dispatches_reload_to_the_shared_mutation_path() {
         let applied = std::cell::Cell::new(false);
 
-        dispatch_local_owner_event(
-            &cmux_tui_core::MuxEvent::ConfigReloadRequested,
-            || applied.set(true),
-        );
+        dispatch_local_owner_event(&cmux_tui_core::MuxEvent::ConfigReloadRequested, || {
+            applied.set(true)
+        });
 
         assert!(applied.get());
     }
@@ -2271,10 +2256,7 @@ mod tests {
         }
         mux.emit(cmux_tui_core::MuxEvent::ConfigReloadRequested);
 
-        assert!(matches!(
-            events.recv().unwrap(),
-            cmux_tui_core::MuxEvent::ConfigReloadRequested
-        ));
+        assert!(matches!(events.recv().unwrap(), cmux_tui_core::MuxEvent::ConfigReloadRequested));
         assert!(!events.overflowed());
     }
 

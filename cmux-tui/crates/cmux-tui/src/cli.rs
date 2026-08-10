@@ -101,26 +101,22 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             }
             CommandPlan::RawCommand(command) => raw::run(global, command),
         },
-        Err(failure) => {
-            wire::print_local_error(
-                &serde_json::json!({
-                    "code":"usage.invalid",
-                    "message":failure.error.to_string(),
-                    "details":{},
-                    "retryable":false,
-                }),
-                failure.output,
-                2,
-            )
-        }
+        Err(failure) => wire::print_local_error(
+            &serde_json::json!({
+                "code":"usage.invalid",
+                "message":failure.error.to_string(),
+                "details":{},
+                "retryable":false,
+            }),
+            failure.output,
+            2,
+        ),
     }
 }
 
 fn parse(args: &[String]) -> Result<ParsedCommand, ParseFailure> {
-    let (global, command_args) = parse_globals(args).map_err(|(error, output)| ParseFailure {
-        error,
-        output,
-    })?;
+    let (global, command_args) =
+        parse_globals(args).map_err(|(error, output)| ParseFailure { error, output })?;
     let output = global.output;
     parse_command(global, command_args).map_err(|error| ParseFailure { error, output })
 }
@@ -208,9 +204,7 @@ fn edit_distance(left: &str, right: &str) -> usize {
     previous[right.len()]
 }
 
-fn parse_globals(
-    args: &[String],
-) -> Result<(GlobalArgs, Vec<String>), (UsageError, OutputMode)> {
+fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), (UsageError, OutputMode)> {
     let mut global = GlobalArgs::default();
     let mut command = Vec::new();
     let mut index = 0;
@@ -286,9 +280,9 @@ fn set_output_mode(
 }
 
 fn print_scope_help(scope: Option<&str>) {
-    let text = scope.map(scope_help).unwrap_or_else(|| {
-        Cow::Owned(root_help(&crate::localization::catalog().local_server))
-    });
+    let text = scope
+        .map(scope_help)
+        .unwrap_or_else(|| Cow::Owned(root_help(&crate::localization::catalog().local_server)));
     let mut stdout = io::stdout().lock();
     let _ = stdout.write_all(text.as_bytes());
     let _ = stdout.flush();
@@ -417,8 +411,7 @@ fn session_help(
 ) -> String {
     format!(
         "{SESSION_HELP_PREFIX}{}\n{}\n{SESSION_HELP_SUFFIX}",
-        local_server.session_stop_help,
-        messages.help,
+        local_server.session_stop_help, messages.help,
     )
 }
 
@@ -605,7 +598,8 @@ mod tests {
         let english_catalog = crate::localization::catalog_for_locale("en_US.UTF-8");
         let japanese_catalog = crate::localization::catalog_for_locale("ja_JP.UTF-8");
         let english = session_help(&english_catalog.session_reset, &english_catalog.local_server);
-        let japanese = session_help(&japanese_catalog.session_reset, &japanese_catalog.local_server);
+        let japanese =
+            session_help(&japanese_catalog.session_reset, &japanese_catalog.local_server);
         assert!(english.contains("creation <correlation-key> resolve"));
         assert!(english.contains("session <name> reset-state"));
         assert!(japanese.contains("session <name> reset-state"));
