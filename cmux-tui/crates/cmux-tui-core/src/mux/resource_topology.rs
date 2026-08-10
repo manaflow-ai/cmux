@@ -2372,18 +2372,18 @@ impl Mux {
         Ok(self.finish_resource_close(committed))
     }
 
-    /// Route the legacy host close through the same projected topology owner
-    /// as `terminal.close`. `None` means the host has no live public resource,
-    /// so the caller may use the host-only compatibility path.
+    /// Close the host and its public topology through one owner. A host with
+    /// no public resource uses the same creation fence and exact host indexes,
+    /// so a late resource adoption cannot race the compatibility cleanup.
     #[allow(clippy::too_many_arguments)]
-    pub(super) fn commit_legacy_terminal_close(
+    pub(super) fn commit_terminal_close(
         &self,
         terminal_id: &str,
         expected_incarnation: Option<&str>,
         expected_generation: Option<&str>,
         expected_terminal_revision: Option<u64>,
         mutation: &WorkspaceMutation,
-    ) -> anyhow::Result<Option<TerminalCloseResult>> {
+    ) -> anyhow::Result<TerminalCloseResult> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let _creation_fence = self.resource_creation_execution.lock().unwrap();
         let mut registry = self.workspace_registry.lock().unwrap();
@@ -2400,10 +2400,86 @@ impl Mux {
             drop(registry);
             drop(_creation_fence);
             drop(_creation_handoff);
-            return Ok(Some(result));
+            return Ok(result);
         }
         let Some(public_id) = registry.terminal_resource_id(terminal_id)? else {
-            return Ok(None);
+            let terminal = registry.close_terminal(
+                mutation,
+                expected_generation,
+                expected_terminal_revision,
+                terminal_id,
+                expected_incarnation,
+            )?;
+            let newly_closed =
+                !terminal.replayed
+                    && !terminal.result["already_closed"].as_bool().unwrap_or(false);
+            if newly_closed {
+                self.emit_terminal_registry_changed(&registry, terminal.revision);
+            }
+            let closed_incarnation =
+                terminal.result["incarnation"].as_str().map(str::to_owned);
+            let mut state = self.state.lock().unwrap();
+            let catalog_public_ids = terminal_catalog_public_ids_by_host(
+                self,
+                &state,
+                terminal_id,
+                closed_incarnation.as_deref(),
+            );
+            let targets = terminal_host_placements(
+                self,
+                &state,
+                terminal_id,
+                closed_incarnation.as_deref(),
+            );
+            let target = targets.first().copied();
+            let changed_screens = unique_screen_ids(
+                targets.iter().filter_map(|surface| surface_screen_id(&state, *surface)),
+            );
+            let (runtime, removed, _) = remove_terminal_catalogs_and_targets_from_state(
+                self,
+                &mut state,
+                &catalog_public_ids,
+                &targets,
+            );
+            let empty_revision =
+                state.workspaces.is_empty().then_some(state.workspace_revision);
+            drop(state);
+            drop(registry);
+            drop(_creation_fence);
+            drop(_creation_handoff);
+            for surface in removed {
+                self.purge_surface_side_tables(surface.id);
+            }
+            let had_runtime = runtime.is_some();
+            if let Some(runtime) = runtime {
+                self.purge_terminal_runtime_side_tables(&runtime);
+                self.terminate_terminal_runtime(&runtime);
+            }
+            if target.is_some() {
+                self.emit(MuxEvent::TreeChanged);
+            }
+            for screen in changed_screens {
+                self.emit(MuxEvent::LayoutChanged(screen));
+            }
+            if !had_runtime {
+                self.terminate_discovered_terminal_host(
+                    terminal_id,
+                    closed_incarnation.as_deref(),
+                );
+            }
+            if newly_closed {
+                self.notify_terminal_exit_waiters(catalog_public_ids.first().cloned());
+            }
+            self.emit_empty_if_current(empty_revision);
+            return Ok(TerminalCloseResult {
+                surface: target,
+                terminal_id: terminal_id.to_string(),
+                terminal_incarnation: closed_incarnation,
+                already_closed: terminal.result["already_closed"]
+                    .as_bool()
+                    .unwrap_or(terminal.replayed),
+                terminal_revision: terminal.revision,
+            });
         };
         let mut state = self.state.lock().unwrap();
         let durable_host = registry.terminal_host_id(&public_id)?.ok_or_else(|| {
@@ -2518,7 +2594,7 @@ impl Mux {
                 drop(registry);
                 drop(_creation_fence);
                 drop(_creation_handoff);
-                return Ok(Some(result));
+                return Ok(result);
             }
             TerminalResourceCloseCommit::Committed { terminal, resource } => (terminal, resource),
         };
@@ -2543,13 +2619,13 @@ impl Mux {
         if !had_runtime {
             self.terminate_discovered_terminal_host(terminal_id, closed_incarnation.as_deref());
         }
-        Ok(Some(TerminalCloseResult {
+        Ok(TerminalCloseResult {
             surface: target,
             terminal_id: terminal_id.to_string(),
             terminal_incarnation: closed_incarnation,
             already_closed: terminal.result["already_closed"].as_bool().unwrap_or(false),
             terminal_revision: terminal.revision,
-        }))
+        })
     }
 
     pub(super) fn terminal_exit_detach_projection_locked(
