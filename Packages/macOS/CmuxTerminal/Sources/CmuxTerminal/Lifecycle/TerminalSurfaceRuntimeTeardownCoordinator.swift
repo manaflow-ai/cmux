@@ -5,28 +5,6 @@ public import CmuxTerminalCore
 internal import CMUXDebugLog
 #endif
 
-private enum TerminalSurfaceRuntimeTeardownSubmission: Sendable {
-    case enqueue(
-        request: TerminalSurfaceRuntimeTeardownRequest,
-        executionLane: TerminalSurfaceRuntimeTeardownExecutionLane,
-        isolatedHibernationReservation: TerminalSurfaceRuntimeTeardownReservation?,
-        ingressReservation: TerminalSurfaceRuntimeTeardownIngressReservation
-    )
-    case cancel(
-        ticketID: UUID,
-        result: AsyncStream<Bool>.Continuation,
-        ingressReservation: TerminalSurfaceRuntimeTeardownIngressReservation
-    )
-    case cancelAll(
-        ingressReservation: TerminalSurfaceRuntimeTeardownIngressReservation
-    )
-}
-
-private struct TerminalSurfaceRuntimeActiveTeardown: Sendable {
-    let ticketID: UUID
-    let task: Task<Void, Never>
-}
-
 /// Coordinates native `ghostty_surface_free` calls off the close/deinit paths.
 ///
 /// Close/deinit frees use two independently startable utility slots. Each slot

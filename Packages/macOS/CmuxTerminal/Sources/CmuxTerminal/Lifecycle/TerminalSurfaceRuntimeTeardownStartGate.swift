@@ -2,7 +2,9 @@ internal import os
 
 /// Safety: the lock protects every state transition and the stored continuation.
 /// The single waiter and idempotent start move that continuation out at most
-/// once, and resume it only after releasing the lock.
+/// once, and resume it only after releasing the lock. The coordinator must
+/// store the prepared Task before `start()` releases it; actor suspension at
+/// this boundary could break that order.
 final class TerminalSurfaceRuntimeTeardownStartGate: @unchecked Sendable {
   private enum State {
     case pending

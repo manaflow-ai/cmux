@@ -1,13 +1,5 @@
 import Foundation
 
-struct TerminalSurfaceRuntimeTeardownIngressReservation: Sendable {
-    let id: UUID
-
-    init(id: UUID = UUID()) {
-        self.id = id
-    }
-}
-
 struct TerminalSurfaceRuntimeOwnershipAdmissionState {
     var reservationIDs: Set<UUID> = []
     /// Ingress slots held by live owners or by ordered control submissions.

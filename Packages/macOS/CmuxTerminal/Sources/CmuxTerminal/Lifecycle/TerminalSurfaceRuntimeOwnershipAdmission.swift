@@ -8,6 +8,8 @@ typealias TerminalSurfaceRuntimeOwnershipRecovery =
 ///
 /// Creation, public teardown, and deinit cannot suspend while transferring a
 /// native pointer, so this ledger uses one short unfair-lock critical section.
+/// An actor would make creation and deinit await while they hold sole pointer
+/// custody, so the lock is the explicit synchronous isolation boundary.
 /// Each ownership reservation also holds one submission-ingress slot until the
 /// teardown submission is dequeued or the unused ownership is released.
 /// Native work never runs under the lock. A fully stalled close pool degrades
