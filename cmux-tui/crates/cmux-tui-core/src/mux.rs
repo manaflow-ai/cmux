@@ -19208,11 +19208,20 @@ mod tests {
         wait_for_kitty_image_budget(&mux);
 
         let attempts = Arc::new(AtomicUsize::new(0));
+        let first_id = first.id;
         *mux.kitty_image_budget_operation.lock().unwrap() = Some(Arc::new({
             let attempts = attempts.clone();
-            move |_surface, _limits, _deadline| {
+            move |surface, limits, _deadline| {
                 attempts.fetch_add(1, Ordering::AcqRel);
-                anyhow::bail!("injected persistent Kitty quota failure")
+                if surface.id == first_id {
+                    anyhow::bail!("injected persistent Kitty quota failure");
+                }
+                surface.set_kitty_graphics_limits(
+                    limits.image_bytes,
+                    limits.inflight_bytes,
+                    limits.images,
+                    limits.placements,
+                )
             }
         }));
 
