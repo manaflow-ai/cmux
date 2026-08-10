@@ -365,6 +365,185 @@ import CmuxTerminalCore
         }
     }
 
+    @Test func overflowedCreationRetriesInAdmissionOrder() async throws {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
+            maximumRuntimeSurfaceOwnerCount: 2
+        )
+        let saturation = try saturateRuntimeOwnershipRecovery(coordinator)
+        defer { releaseRuntimeOwnershipSaturation(saturation, from: coordinator) }
+        let registry = FakeSurfaceRegistry()
+        let scheduler = RecordingRestoreSpawnScheduler()
+        let fixtures = (0..<2).map { _ in
+            makeSurfaceFixture(
+                registry: registry,
+                scheduler: scheduler,
+                runtimeTeardown: coordinator
+            )
+        }
+
+        for (index, fixture) in fixtures.enumerated() {
+            fixture.surface.createSurface(for: fixture.nativeView)
+            scheduler.runScheduledOperation(at: index)
+            try #require(
+                fixture.surface.runtimeSurfaceAdmissionDeferredCreationSource
+                    == .scheduledRestore
+            )
+        }
+
+        coordinator.cancelRuntimeSurfaceOwnership(saturation.owners[0])
+        await scheduler.waitForScheduledCount(4)
+
+        #expect(
+            scheduler.scheduledSurfaceIds == [
+                fixtures[0].surface.id,
+                fixtures[1].surface.id,
+                fixtures[0].surface.id,
+                fixtures[1].surface.id,
+            ]
+        )
+    }
+
+    @Test func overflowStoreSurvivesImmediateRecoveryCapacityRelease() async throws {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
+            maximumRuntimeSurfaceOwnerCount: 2
+        )
+        let saturation = try saturateRuntimeOwnershipRecovery(coordinator)
+        defer { releaseRuntimeOwnershipSaturation(saturation, from: coordinator) }
+        let scheduler = RecordingRestoreSpawnScheduler()
+        let fixture = makeSurfaceFixture(
+            registry: FakeSurfaceRegistry(),
+            scheduler: scheduler,
+            runtimeTeardown: coordinator
+        )
+
+        fixture.surface.createSurface(for: fixture.nativeView)
+        scheduler.runScheduledOperation()
+        try #require(
+            fixture.surface.runtimeSurfaceAdmissionDeferredCreationSource
+                == .scheduledRestore
+        )
+
+        coordinator.cancelRuntimeSurfaceOwnershipRecovery(
+            saturation.recoveryIDs[0]
+        )
+        coordinator.cancelRuntimeSurfaceOwnership(saturation.owners[0])
+        await scheduler.waitForScheduledCount(2)
+
+        #expect(
+            scheduler.scheduledSurfaceIds == [
+                fixture.surface.id,
+                fixture.surface.id,
+            ]
+        )
+    }
+
+    @Test func repeatedOverflowForOneSurfaceCoalescesAndPromotesSource() async throws {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
+            maximumRuntimeSurfaceOwnerCount: 2
+        )
+        let saturation = try saturateRuntimeOwnershipRecovery(coordinator)
+        defer { releaseRuntimeOwnershipSaturation(saturation, from: coordinator) }
+        let registry = FakeSurfaceRegistry()
+        let scheduler = RecordingRestoreSpawnScheduler()
+        let repeated = makeSurfaceFixture(
+            registry: registry,
+            scheduler: scheduler,
+            runtimeTeardown: coordinator
+        )
+        let sentinel = makeSurfaceFixture(
+            registry: registry,
+            scheduler: scheduler,
+            runtimeTeardown: coordinator
+        )
+
+        repeated.surface.createSurface(for: repeated.nativeView)
+        scheduler.runScheduledOperation(at: 0)
+        repeated.surface.createSurface(
+            for: repeated.nativeView,
+            source: .inputDemand
+        )
+        try #require(
+            repeated.surface.runtimeSurfaceAdmissionDeferredCreationSource
+                == .inputDemand
+        )
+        sentinel.surface.createSurface(for: sentinel.nativeView)
+        scheduler.runScheduledOperation(at: 1)
+        try #require(
+            sentinel.surface.runtimeSurfaceAdmissionDeferredCreationSource
+                == .scheduledRestore
+        )
+
+        coordinator.cancelRuntimeSurfaceOwnership(saturation.owners[0])
+        await scheduler.waitForScheduledCount(3)
+
+        #expect(
+            repeated.surface.debugRuntimeSurfaceCreateAttemptCountForTesting()
+                == 3
+        )
+        #expect(
+            scheduler.scheduledSurfaceIds == [
+                repeated.surface.id,
+                sentinel.surface.id,
+                sentinel.surface.id,
+            ]
+        )
+    }
+
+    @Test func deinitializedOverflowSurfaceIsNotRetried() async throws {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
+            maximumRuntimeSurfaceOwnerCount: 2
+        )
+        let saturation = try saturateRuntimeOwnershipRecovery(coordinator)
+        defer { releaseRuntimeOwnershipSaturation(saturation, from: coordinator) }
+        let registry = FakeSurfaceRegistry()
+        let scheduler = RecordingRestoreSpawnScheduler()
+        var deadFixture: (
+            surface: TerminalSurface?,
+            nativeView: FakeTerminalSurfaceNativeView
+        ) = {
+            let fixture = makeSurfaceFixture(
+                registry: registry,
+                scheduler: scheduler,
+                runtimeTeardown: coordinator
+            )
+            return (Optional(fixture.surface), fixture.nativeView)
+        }()
+        let deadSurfaceID = try #require(deadFixture.surface?.id)
+        weak var weakDeadSurface = deadFixture.surface
+
+        deadFixture.surface?.createSurface(for: deadFixture.nativeView)
+        scheduler.runScheduledOperation(at: 0)
+        try #require(
+            deadFixture.surface?.runtimeSurfaceAdmissionDeferredCreationSource
+                == .scheduledRestore
+        )
+        deadFixture.surface = nil
+        try #require(weakDeadSurface == nil)
+
+        let sentinel = makeSurfaceFixture(
+            registry: registry,
+            scheduler: scheduler,
+            runtimeTeardown: coordinator
+        )
+        sentinel.surface.createSurface(for: sentinel.nativeView)
+        scheduler.runScheduledOperation(at: 1)
+        try #require(
+            sentinel.surface.runtimeSurfaceAdmissionDeferredCreationSource
+                == .scheduledRestore
+        )
+
+        coordinator.cancelRuntimeSurfaceOwnership(saturation.owners[0])
+        await scheduler.waitForScheduledCount(3)
+
+        #expect(
+            scheduler.scheduledSurfaceIds.filter { $0 == deadSurfaceID }.count
+                == 1
+        )
+        #expect(
+            scheduler.scheduledSurfaceIds.last == sentinel.surface.id
+        )
+    }
+
     @Test func configurationReloadDefersAndPromotesRuntimeCreation() {
         let nativeView = FakeTerminalSurfaceNativeView(
             frame: NSRect(x: 0, y: 0, width: 800, height: 600)
@@ -577,6 +756,7 @@ import CmuxTerminalCore
         scheduler: RecordingRestoreSpawnScheduler,
         nativeView: FakeTerminalSurfaceNativeView,
         paneHost: FakeTerminalSurfacePaneHost,
+        registry: any TerminalSurfaceRegistering = FakeSurfaceRegistry(),
         engine: FakeTerminalEngine = FakeTerminalEngine(),
         runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator =
             TerminalSurfaceRuntimeTeardownCoordinator(),
@@ -592,7 +772,7 @@ import CmuxTerminalCore
             configTemplate: nil,
             runtimeSpawnPolicy: runtimeSpawnPolicy,
             dependencies: TerminalSurfaceRuntimeDependencies(
-                registry: FakeSurfaceRegistry(),
+                registry: registry,
                 engine: engine,
                 viewProvider: FakeTerminalSurfaceViewProvider(surfaceView: nativeView, paneHost: paneHost),
                 spawnPolicy: FakeSpawnPolicyProvider(),
@@ -607,5 +787,66 @@ import CmuxTerminalCore
                 scrollbackReplayEnvironmentKey: "CMUX_TEST_SCROLLBACK_REPLAY"
             )
         )
+    }
+
+    private func makeSurfaceFixture(
+        registry: any TerminalSurfaceRegistering,
+        scheduler: RecordingRestoreSpawnScheduler,
+        runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator
+    ) -> (
+        surface: TerminalSurface,
+        nativeView: FakeTerminalSurfaceNativeView
+    ) {
+        let nativeView = FakeTerminalSurfaceNativeView(
+            frame: NSRect(x: 0, y: 0, width: 800, height: 600)
+        )
+        let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
+        let surface = makeSurface(
+            scheduler: scheduler,
+            nativeView: nativeView,
+            paneHost: paneHost,
+            registry: registry,
+            runtimeTeardown: runtimeTeardown
+        )
+        surface.agentCommandShimInstallCompleted = true
+        return (surface, nativeView)
+    }
+
+    private func saturateRuntimeOwnershipRecovery(
+        _ coordinator: TerminalSurfaceRuntimeTeardownCoordinator
+    ) throws -> (
+        owners: [TerminalSurfaceRuntimeOwnershipReservation],
+        recoveryIDs: [UUID]
+    ) {
+        let owners = try (0..<2).map { _ in
+            try #require(coordinator.reserveRuntimeSurfaceOwnership())
+        }
+        let recoveryIDs = (0..<2).map { _ in UUID() }
+        for recoveryID in recoveryIDs {
+            #expect(
+                coordinator.reserveRuntimeSurfaceOwnership(
+                    recoveryID: recoveryID,
+                    onRecovery: { reservation in
+                        coordinator.cancelRuntimeSurfaceOwnership(reservation)
+                    }
+                ) == .deferred
+            )
+        }
+        return (owners, recoveryIDs)
+    }
+
+    private func releaseRuntimeOwnershipSaturation(
+        _ saturation: (
+            owners: [TerminalSurfaceRuntimeOwnershipReservation],
+            recoveryIDs: [UUID]
+        ),
+        from coordinator: TerminalSurfaceRuntimeTeardownCoordinator
+    ) {
+        for recoveryID in saturation.recoveryIDs {
+            coordinator.cancelRuntimeSurfaceOwnershipRecovery(recoveryID)
+        }
+        for owner in saturation.owners {
+            coordinator.cancelRuntimeSurfaceOwnership(owner)
+        }
     }
 }
