@@ -2334,11 +2334,7 @@ impl Surface {
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
-                runtime: Mutex::new(PtyRuntime::Local {
-                    writer,
-                    master: Some(master),
-                    killer,
-                }),
+                runtime: Mutex::new(PtyRuntime::Local { writer, master: Some(master), killer }),
                 lifetime,
                 supports_clear_history_key_fallback: AtomicBool::new(
                     supports_clear_history_key_fallback,
