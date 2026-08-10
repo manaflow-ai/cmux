@@ -17,7 +17,7 @@ struct DockTerminalPointerFocusTests {
     func pointerDownActivatesOwningDockPaneWithoutPortalCallback() async throws {
 #if DEBUG
         try await AppContextSerialGate.withExclusiveAppContext {
-            try exercisePointerDownActivation()
+            try await exercisePointerDownActivation()
         }
 #else
         Issue.record("Ghostty pointer-focus coverage is only available in DEBUG")
@@ -36,7 +36,7 @@ struct DockTerminalPointerFocusTests {
     }
 
 #if DEBUG
-    private func exercisePointerDownActivation() throws {
+    private func exercisePointerDownActivation() async throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         let manager = TabManager(autoWelcomeIfNeeded: false)
@@ -140,6 +140,7 @@ struct DockTerminalPointerFocusTests {
         #expect(secondPanel.hostedView.debugRenderStats().isActive)
 
         dock.installAttentionRouting(for: secondPanel)
+        await startAndWaitForLiveSurface(secondPanel.surface)
         let runtimeSurface = try #require(secondPanel.surface.surface)
         Data("\u{1b}[?1000h".utf8).withUnsafeBytes { rawBuffer in
             guard let baseAddress = rawBuffer.baseAddress?
@@ -360,6 +361,21 @@ struct DockTerminalPointerFocusTests {
             RunLoop.current.run(until: Date.now.addingTimeInterval(0.01))
         }
         return nil
+    }
+
+    private func startAndWaitForLiveSurface(_ surface: TerminalSurface) async {
+        guard !surface.hasLiveSurface else { return }
+        let previousOnRuntimeReady = surface.onRuntimeReady
+        defer { surface.onRuntimeReady = previousOnRuntimeReady }
+        let readiness = AsyncStream<Void> { continuation in
+            surface.onRuntimeReady = {
+                previousOnRuntimeReady?()
+                continuation.yield()
+                continuation.finish()
+            }
+        }
+        surface.requestInputDemandSurfaceStartIfNeeded()
+        for await _ in readiness { break }
     }
 
     private func mouseDownEvent(
