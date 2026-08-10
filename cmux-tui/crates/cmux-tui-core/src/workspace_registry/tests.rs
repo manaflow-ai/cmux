@@ -5043,10 +5043,8 @@ fn journal_agent_append_applies_a_contiguous_projection_prefix() {
             )
             .unwrap();
 
-        let subjects = vec![JournalSubject {
-            kind: "terminal".into(),
-            id: terminal_id.to_string(),
-        }];
+        let subjects =
+            vec![JournalSubject { kind: "terminal".into(), id: terminal_id.to_string() }];
         let payload = json!({
             "format":"cmux.agent-recovery.v1",
             "outcome":"classified_interrupted",

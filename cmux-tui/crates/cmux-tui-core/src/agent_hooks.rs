@@ -672,9 +672,7 @@ fn normalized_provider_string(field: &str, value: &str) -> Option<String> {
         | "native_parent_agent_id"
         | "native_root_agent_id"
         | "root_agent_session_id"
-        | "parent_agent_session_id" => {
-            safe_opaque_identifier(value).then(|| value.to_string())
-        }
+        | "parent_agent_session_id" => safe_opaque_identifier(value).then(|| value.to_string()),
         "cwd" | "transcript_path" => {
             let value = truncate_utf8(value, NORMALIZED_TEXT_BYTES);
             safe_checkpoint_path(&value).then_some(value)
