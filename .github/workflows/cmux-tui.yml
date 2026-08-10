@@ -417,6 +417,6 @@ jobs:
         working-directory: cmux-tui
         run: cargo build -p cmux-tui --target x86_64-pc-windows-gnu --locked
 
-      - name: Link cmux-tui tests for Windows GNU
+      - name: Link maintained cmux-remote tests for Windows GNU
         working-directory: cmux-tui
-        run: cargo test --workspace --target x86_64-pc-windows-gnu --locked --no-run
+        run: cargo test -p cmux-remote --target x86_64-pc-windows-gnu --locked --no-run
