@@ -2378,6 +2378,26 @@ impl Mux {
                 == [(terminal_id.to_string(), planned_incarnation.map(str::to_owned))],
             "terminal close plan changed host identity"
         );
+        // A tabless terminal has no tab row from which the full projection
+        // can infer its deletion. Remove its live catalog receipt before
+        // computing the durable tombstone, even if an older partial plan left
+        // that receipt behind.
+        let (retained_runtime, retained_views, retained_split_change) =
+            remove_terminal_content_from_state(self, &mut plan.state, &public_id, &[]);
+        anyhow::ensure!(
+            retained_views.is_empty() && !retained_split_change,
+            "tabless terminal cleanup changed a view"
+        );
+        if let Some(retained_runtime) = retained_runtime {
+            if let Some(planned_runtime) = plan.terminal_runtime.as_ref() {
+                anyhow::ensure!(
+                    retained_runtime.shares_terminal_runtime(planned_runtime),
+                    "terminal close plan retained a different catalog runtime"
+                );
+            } else {
+                plan.terminal_runtime = Some(retained_runtime);
+            }
+        }
         let mut projection =
             self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
         if !projection.patch.changes.iter().any(|change| {
@@ -2450,7 +2470,10 @@ impl Mux {
                 terminal_revision: terminal_commit.revision,
             });
         }
-        let effects = plan.install(&mut state, resource.revision, None);
+        let resource_replayed = resource.replayed;
+        let installed_resource_revision =
+            if resource_replayed { current_resource_revision } else { resource.revision };
+        let effects = plan.install(&mut state, installed_resource_revision, None);
         drop(state);
         drop(registry);
         drop(_creation_fence);
@@ -2458,7 +2481,7 @@ impl Mux {
         self.finish_resource_close(CommittedResourceClose {
             commit: resource,
             effects,
-            publish_resource: true,
+            publish_resource: !resource_replayed,
         });
         if !had_runtime {
             self.terminate_discovered_terminal_host(terminal_id, closed_incarnation.as_deref());

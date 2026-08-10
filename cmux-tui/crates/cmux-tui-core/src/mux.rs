@@ -20902,6 +20902,40 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn explicit_terminal_close_removes_a_tabless_live_receipt() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let host = mux.resource_terminal_host_identity(&surface).unwrap();
+        let public_id = surface.terminal_public_id().cloned().unwrap();
+
+        assert!(mux.close_surface(surface.id).unwrap());
+        mux.with_state(|state| {
+            assert!(state.terminal_catalog.contains_key(&public_id));
+            assert!(
+                state
+                    .placements_of_content(&ContentPublicId::Terminal(public_id.clone()))
+                    .is_empty()
+            );
+        });
+        let before_revision = mux.with_state(|state| state.resource_revision);
+
+        mux.close_terminal(&host.terminal_id, &host.incarnation).unwrap();
+
+        mux.with_state(|state| {
+            assert!(!state.terminal_catalog.contains_key(&public_id));
+            assert_eq!(state.resource_revision, before_revision + 1);
+        });
+        let durable_public_id = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .terminal_resource_id(&host.terminal_id)
+            .unwrap();
+        assert_eq!(durable_public_id, None);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn explicit_terminal_close_repairs_a_partial_index_without_closing_a_stale_entry() {
         let mux = test_mux();
         let first = mux.new_workspace(None, Some((80, 24))).unwrap();
