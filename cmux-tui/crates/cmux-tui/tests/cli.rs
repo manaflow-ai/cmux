@@ -520,6 +520,21 @@ fn server_lifecycle_help_and_typos_do_not_fall_back_to_startup_help() {
 }
 
 #[test]
+fn server_lifecycle_start_rejects_inline_relay_ticket_without_echoing_secret() {
+    let secret = "inline-server-start-secret-marker";
+    for args in [
+        &["server", "start", "--relay-ticket", secret][..],
+        &["--json", "server", "start", "--relay-ticket", secret][..],
+    ] {
+        let output = lifecycle_cli(args);
+        assert_eq!(output.status.code(), Some(2));
+        let diagnostic = String::from_utf8(output.stderr).unwrap();
+        assert!(diagnostic.contains("inline relay tickets are not accepted"), "{diagnostic}");
+        assert!(!diagnostic.contains(secret), "{diagnostic}");
+    }
+}
+
+#[test]
 fn local_and_authenticated_remote_namespaces_do_not_cross_target() {
     let remote_help = lifecycle_cli(&["remote", "--help"]);
     assert_success(&remote_help);
