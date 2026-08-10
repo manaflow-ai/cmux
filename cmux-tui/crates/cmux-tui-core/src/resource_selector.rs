@@ -323,6 +323,15 @@ pub(crate) fn resolve_resource_selectors(
     if target == ResourceTarget::Terminal && target_pane.is_none() {
         let terminal_id =
             target_terminal.as_ref().expect("resolved terminal target omitted its public identity");
+        if let Some(tab) = supplied_tab {
+            return Err(wrong_parent(
+                "target",
+                terminal_id.as_str(),
+                "tab",
+                public_tab_id(state, tab)?.to_string(),
+                None,
+            ));
+        }
         if let Some(pane) = supplied_pane {
             return Err(wrong_parent(
                 "target",
