@@ -36,6 +36,7 @@ const routerRefresh = mock(() => undefined);
 const setQueryData = mock(() => undefined);
 const invalidateQueries = mock(async () => undefined);
 let organizationQueryKey: readonly unknown[] | undefined;
+let organizationQueryNetworkMode: string | undefined;
 let searchTeam: string | null = null;
 
 mock.module("@stackframe/stack", () => ({
@@ -70,8 +71,12 @@ mock.module("@stackframe/stack", () => ({
 }));
 
 mock.module("@tanstack/react-query", () => ({
-  useQuery: (options: { queryKey: readonly unknown[] }) => {
+  useQuery: (options: {
+    queryKey: readonly unknown[];
+    networkMode?: string;
+  }) => {
     organizationQueryKey = options.queryKey;
+    organizationQueryNetworkMode = options.networkMode;
     return organizationQuery;
   },
   useQueryClient: () => ({ setQueryData, invalidateQueries }),
@@ -201,6 +206,7 @@ describe("dashboard account menu", () => {
       "coderouter-organizations",
       "user-lawrence",
     ]);
+    expect(organizationQueryNetworkMode).toBe("always");
 
     const invokeSwitch = handlers.switchOrganization as
       | ((
@@ -468,5 +474,11 @@ describe("dashboard account menu", () => {
     expect(routerPush).not.toHaveBeenCalledWith(
       "/dashboard/coderouter?team=team-3",
     );
+  });
+
+  test("bounds operations that never settle", async () => {
+    await expect(
+      __test.withDeadline(new Promise<void>(() => undefined), 1),
+    ).rejects.toThrow("timed out");
   });
 });
