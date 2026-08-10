@@ -56,6 +56,29 @@ private actor FailingChatEventSource: ChatEventSource {
     func answer(optionIndex: Int, sessionID: String) async throws {}
 }
 
+/// Fails once and records the stable attachment identities seen by each attempt.
+private actor AttachmentRetryIdentityEventSource: ChatEventSource {
+    struct SendError: Error {}
+    private var attempts: [[UUID]] = []
+
+    func history(sessionID: String, beforeSeq: Int?, limit: Int) async throws -> ChatHistoryPage {
+        ChatHistoryPage(messages: [], hasMore: false)
+    }
+
+    func events(sessionID: String) async -> AsyncStream<ChatSessionEvent> {
+        AsyncStream { $0.finish() }
+    }
+
+    func send(text: String, attachments: [ChatOutboundAttachment], sessionID: String) async throws {
+        attempts.append(attachments.map(\.uploadID))
+        if attempts.count == 1 { throw SendError() }
+    }
+
+    func recordedAttempts() -> [[UUID]] { attempts }
+    func interrupt(sessionID: String, hard: Bool) async throws {}
+    func answer(optionIndex: Int, sessionID: String) async throws {}
+}
+
 /// A `ChatEventSource` whose `send` suspends until released, so tests can
 /// observe the optimistic `.sending` state deterministically.
 private actor GatedChatEventSource: ChatEventSource {
@@ -453,6 +476,25 @@ struct ChatConversationStoreTests {
         await store.retry(pendingID: item.id)
         #expect(Self.pendingItems(store.rows).first?.delivery == .delivered)
         #expect(store.lastErrorDescription == nil)
+    }
+
+    @Test("attachment retry reuses its upload identity")
+    func attachmentRetryReusesUploadIdentity() async {
+        let source = AttachmentRetryIdentityEventSource()
+        let store = Self.makeStore(source: source)
+        let attachment = ChatOutboundAttachment(data: Data([0x89]), format: .png)
+
+        await store.send(text: "retry this file", attachments: [attachment])
+        guard let pending = Self.pendingItems(store.rows).first,
+              case .failed = pending.delivery else {
+            return Issue.record("expected first attachment delivery to fail")
+        }
+        await store.retry(pendingID: pending.id)
+
+        let attempts = await source.recordedAttempts()
+        #expect(attempts.count == 2)
+        #expect(attempts[0] == [attachment.uploadID])
+        #expect(attempts[1] == attempts[0])
     }
 
     @Test("retry while the agent is working re-queues instead of delivering")

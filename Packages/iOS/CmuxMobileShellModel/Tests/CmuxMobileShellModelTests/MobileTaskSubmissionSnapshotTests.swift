@@ -425,6 +425,22 @@ import Testing
         #expect(plan.ranges == expected)
     }
 
+    @Test func eightMiBPayloadUsesThreeBoundedUploadFrames() {
+        let eightMiB = 8 * 1024 * 1024
+        let threeMiB = 3 * 1024 * 1024
+        let plan = MobileTaskAttachmentChunkPlan(
+            totalByteCount: eightMiB,
+            chunkByteCount: threeMiB
+        )
+
+        #expect(plan.ranges == [
+            0..<threeMiB,
+            threeMiB..<(2 * threeMiB),
+            (2 * threeMiB)..<eightMiB,
+        ])
+        #expect(plan.ranges.allSatisfy { $0.count <= threeMiB })
+    }
+
     private func expectIdentityPreserved(
         from before: MobileTaskSubmissionSnapshot?,
         to after: MobileTaskSubmissionSnapshot?
