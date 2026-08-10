@@ -219,7 +219,17 @@ public final class MobileSimulatorStreamStore {
         panelID: String,
         in workspaceID: String
     ) -> MobileSimulatorStreamSurfaceState? {
-        guard let state = statesByPanel[panelID] else { return nil }
+        guard let state = statesByPanel[panelID] else {
+            #if DEBUG
+            NSLog(
+                "cmux.simulator.lifecycle store.activate.missing workspace=%@ panel=%@ active=%@",
+                workspaceID,
+                panelID,
+                activePanelByWorkspace[workspaceID] ?? "nil"
+            )
+            #endif
+            return nil
+        }
         activePanelByWorkspace[workspaceID] = panelID
         state.connectionStatus = currentConnectionStatus
         // Re-selecting a stalled or view-only panel must not hide its truthful
@@ -228,13 +238,32 @@ public final class MobileSimulatorStreamStore {
         if state.streamStatus != .stalled, state.streamStatus != .locked {
             state.streamStatus = .starting
         }
+        #if DEBUG
+        NSLog(
+            "cmux.simulator.lifecycle store.activate workspace=%@ panel=%@ active=%@",
+            workspaceID,
+            panelID,
+            activePanelByWorkspace[workspaceID] ?? "nil"
+        )
+        #endif
         return state
     }
 
     public func deactivate(in workspaceID: String) {
+        #if DEBUG
+        let previousPanelID = activePanelByWorkspace[workspaceID]
+        #endif
         if let panelID = activePanelByWorkspace.removeValue(forKey: workspaceID) {
             statesByPanel[panelID]?.streamStatus = .idle
         }
+        #if DEBUG
+        NSLog(
+            "cmux.simulator.lifecycle store.deactivate.workspace workspace=%@ panel=%@ active=%@",
+            workspaceID,
+            previousPanelID ?? "nil",
+            activePanelByWorkspace[workspaceID] ?? "nil"
+        )
+        #endif
     }
 
     /// Deactivates only when `panelID` is still the workspace's active panel.
@@ -242,9 +271,27 @@ public final class MobileSimulatorStreamStore {
     /// activated (SwiftUI unmounts the old identity last), so the
     /// unconditional form would tear down the replacement's selection.
     public func deactivate(panelID: String, in workspaceID: String) {
-        guard activePanelByWorkspace[workspaceID] == panelID else { return }
+        guard activePanelByWorkspace[workspaceID] == panelID else {
+            #if DEBUG
+            NSLog(
+                "cmux.simulator.lifecycle store.deactivate.panel.skipped workspace=%@ panel=%@ active=%@",
+                workspaceID,
+                panelID,
+                activePanelByWorkspace[workspaceID] ?? "nil"
+            )
+            #endif
+            return
+        }
         activePanelByWorkspace[workspaceID] = nil
         statesByPanel[panelID]?.streamStatus = .idle
+        #if DEBUG
+        NSLog(
+            "cmux.simulator.lifecycle store.deactivate.panel workspace=%@ panel=%@ active=%@",
+            workspaceID,
+            panelID,
+            activePanelByWorkspace[workspaceID] ?? "nil"
+        )
+        #endif
     }
 
     public func simulatorStreamWillStart(panelID: String) {
