@@ -90,6 +90,9 @@ private func requireTeardownTicket(
         let recorder = FreedSurfaceRecorder()
         let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         defer { surface.deallocate() }
+        let runtimeReservation = try #require(
+            coordinator.reserveRuntimeSurfaceOwnership()
+        )
 
         let ticket = try requireTeardownTicket(
             coordinator.enqueueRuntimeTeardown(
@@ -98,6 +101,9 @@ private func requireTeardownTicket(
                 reason: "test",
                 surface: surface,
                 callbackContext: nil,
+                manualIOContext: nil,
+                byteTeeLease: nil,
+                runtimeOwnershipReservation: runtimeReservation,
                 freeSurface: { pointer in
                     recorder.record(UInt(bitPattern: pointer))
                 }
@@ -287,6 +293,9 @@ private func requireTeardownTicket(
             releaseFirstFree.signal()
             firstFreeStarted.continuation.finish()
         }
+        let firstReservation = try #require(
+            coordinator.reserveRuntimeSurfaceOwnership()
+        )
 
         let firstTicket = try requireTeardownTicket(
             coordinator.enqueueRuntimeTeardown(
@@ -295,6 +304,9 @@ private func requireTeardownTicket(
                 reason: "test.stuckClose",
                 surface: surfaces[0],
                 callbackContext: nil,
+                manualIOContext: nil,
+                byteTeeLease: nil,
+                runtimeOwnershipReservation: firstReservation,
                 freeSurface: { _ in
                     firstFreeStarted.continuation.yield()
                     releaseFirstFree.wait()
@@ -359,6 +371,9 @@ private func requireTeardownTicket(
         let isolatedReservation = try #require(
             await coordinator.reserveIsolatedHibernationTeardown()
         )
+        let runtimeReservations = try (0..<surfaces.count).map { _ in
+            try #require(coordinator.reserveRuntimeSurfaceOwnership())
+        }
         let admittedTicket = try requireTeardownTicket(
             coordinator.enqueueRuntimeTeardown(
                 id: UUID(),
@@ -368,6 +383,7 @@ private func requireTeardownTicket(
                 callbackContext: nil,
                 manualIOContext: nil,
                 byteTeeLease: nil,
+                runtimeOwnershipReservation: runtimeReservations[0],
                 executionLane: .isolatedHibernation,
                 isolatedHibernationReservation: isolatedReservation,
                 freeSurface: { _ in }
@@ -387,6 +403,9 @@ private func requireTeardownTicket(
             reason: "test.dropNewestIngressSubmission",
             surface: surfaces[1],
             callbackContext: nil,
+            manualIOContext: nil,
+            byteTeeLease: nil,
+            runtimeOwnershipReservation: runtimeReservations[1],
             freeSurface: { _ in }
         )
         #expect(droppedTicket == nil)
@@ -485,6 +504,9 @@ private func requireTeardownTicket(
             releaseFree.signal()
             freeStarted.continuation.finish()
         }
+        let runtimeReservation = try #require(
+            coordinator.reserveRuntimeSurfaceOwnership()
+        )
 
         let ticket = try requireTeardownTicket(
             coordinator.enqueueRuntimeTeardown(
@@ -493,6 +515,9 @@ private func requireTeardownTicket(
                 reason: "test.cancelledDuringRun",
                 surface: surface,
                 callbackContext: nil,
+                manualIOContext: nil,
+                byteTeeLease: nil,
+                runtimeOwnershipReservation: runtimeReservation,
                 freeSurface: { _ in
                     freeStarted.continuation.yield()
                     releaseFree.wait()
@@ -519,6 +544,9 @@ private func requireTeardownTicket(
         defer { for surface in surfaces { surface.deallocate() } }
         let recorder = TeardownLifetimeRecorder()
         let lease = LifetimeRecordingByteTeeLease(recorder: recorder)
+        let runtimeReservations = try (0..<surfaces.count).map { _ in
+            try #require(coordinator.reserveRuntimeSurfaceOwnership())
+        }
 
         let ticket = try requireTeardownTicket(
             coordinator.enqueueRuntimeTeardown(
@@ -529,6 +557,7 @@ private func requireTeardownTicket(
                 callbackContext: nil,
                 manualIOContext: nil,
                 byteTeeLease: lease,
+                runtimeOwnershipReservation: runtimeReservations[0],
                 freeSurface: { _ in recorder.record("free") }
             )
         )
@@ -547,6 +576,9 @@ private func requireTeardownTicket(
                 reason: "test.slotReused",
                 surface: surfaces[1],
                 callbackContext: nil,
+                manualIOContext: nil,
+                byteTeeLease: nil,
+                runtimeOwnershipReservation: runtimeReservations[1],
                 freeSurface: { _ in }
             )
         )
@@ -569,6 +601,9 @@ private func requireTeardownTicket(
             releaseFrees.signal()
             freeStarted.continuation.finish()
         }
+        let runtimeReservations = try (0..<2).map { _ in
+            try #require(coordinator.reserveRuntimeSurfaceOwnership())
+        }
 
         let firstTicket = try requireTeardownTicket(
             coordinator.enqueueRuntimeTeardown(
@@ -577,6 +612,9 @@ private func requireTeardownTicket(
                 reason: "test.firstStuckClose",
                 surface: surfaces[0],
                 callbackContext: nil,
+                manualIOContext: nil,
+                byteTeeLease: nil,
+                runtimeOwnershipReservation: runtimeReservations[0],
                 freeSurface: { _ in
                     freeStarted.continuation.yield()
                     releaseFrees.wait()
@@ -590,6 +628,9 @@ private func requireTeardownTicket(
                 reason: "test.secondStuckClose",
                 surface: surfaces[1],
                 callbackContext: nil,
+                manualIOContext: nil,
+                byteTeeLease: nil,
+                runtimeOwnershipReservation: runtimeReservations[1],
                 freeSurface: { _ in
                     freeStarted.continuation.yield()
                     releaseFrees.wait()
@@ -604,15 +645,7 @@ private func requireTeardownTicket(
         #expect(await coordinator.debugPendingTeardownCount == 2)
         #expect(coordinator.debugRuntimeSurfaceOwnerCount == 2)
 
-        let rejectedTicket = coordinator.enqueueRuntimeTeardown(
-            id: UUID(),
-            workspaceId: UUID(),
-            reason: "test.closeAfterBothWorkersStalled",
-            surface: surfaces[2],
-            callbackContext: nil,
-            freeSurface: { _ in }
-        )
-        #expect(rejectedTicket == nil)
+        #expect(coordinator.reserveRuntimeSurfaceOwnership() == nil)
         #expect(coordinator.debugRuntimeSurfaceOwnerCount == 2)
 
         let recovery = AsyncStream<
@@ -640,6 +673,9 @@ private func requireTeardownTicket(
         #expect(await secondTicket.wait(timeout: .seconds(1)))
         #expect(coordinator.debugRuntimeSurfaceOwnerCount == 0)
         #expect(await !coordinator.debugCloseTeardownDegraded)
+        let recoveredTicketReservation = try #require(
+            coordinator.reserveRuntimeSurfaceOwnership()
+        )
         let recoveredTicket = try requireTeardownTicket(
             coordinator.enqueueRuntimeTeardown(
                 id: UUID(),
@@ -647,6 +683,9 @@ private func requireTeardownTicket(
                 reason: "test.closeAfterWorkerRecovery",
                 surface: surfaces[2],
                 callbackContext: nil,
+                manualIOContext: nil,
+                byteTeeLease: nil,
+                runtimeOwnershipReservation: recoveredTicketReservation,
                 freeSurface: { _ in }
             )
         )
@@ -906,6 +945,9 @@ private func requireTeardownTicket(
             queuedIsolatedSurface.deallocate()
             closeSurface.deallocate()
         }
+        let runtimeReservations = try (0..<3).map { _ in
+            try #require(coordinator.reserveRuntimeSurfaceOwnership())
+        }
         let isolatedFreeStarted = AsyncStream<Void>.makeStream()
         let releaseIsolatedFree = DispatchSemaphore(value: 0)
         let secondIsolatedFreeCount = OSAllocatedUnfairLock(initialState: 0)
@@ -927,6 +969,7 @@ private func requireTeardownTicket(
                 callbackContext: nil,
                 manualIOContext: nil,
                 byteTeeLease: nil,
+                runtimeOwnershipReservation: runtimeReservations[0],
                 executionLane: .isolatedHibernation,
                 isolatedHibernationReservation: isolatedReservation,
                 freeSurface: { _ in
@@ -951,6 +994,7 @@ private func requireTeardownTicket(
                 callbackContext: nil,
                 manualIOContext: nil,
                 byteTeeLease: nil,
+                runtimeOwnershipReservation: runtimeReservations[1],
                 executionLane: .isolatedHibernation,
                 isolatedHibernationReservation: secondReservation,
                 freeSurface: { _ in
@@ -965,6 +1009,9 @@ private func requireTeardownTicket(
                 reason: "test.boundedClose",
                 surface: closeSurface,
                 callbackContext: nil,
+                manualIOContext: nil,
+                byteTeeLease: nil,
+                runtimeOwnershipReservation: runtimeReservations[2],
                 freeSurface: { _ in
                     closeFreeCount.withLock { $0 += 1 }
                 }
@@ -1003,6 +1050,9 @@ private func requireTeardownTicket(
             releaseIsolatedFree.signal()
             isolatedFreeStarted.continuation.finish()
         }
+        let runtimeReservations = try (0..<surfaces.count).map { _ in
+            try #require(coordinator.reserveRuntimeSurfaceOwnership())
+        }
         let staleReservation = try #require(
             await coordinator.reserveIsolatedHibernationTeardown()
         )
@@ -1019,6 +1069,7 @@ private func requireTeardownTicket(
                 callbackContext: nil,
                 manualIOContext: nil,
                 byteTeeLease: nil,
+                runtimeOwnershipReservation: runtimeReservations[0],
                 executionLane: .isolatedHibernation,
                 isolatedHibernationReservation: blockingReservation,
                 freeSurface: { _ in
@@ -1039,6 +1090,7 @@ private func requireTeardownTicket(
                 callbackContext: nil,
                 manualIOContext: nil,
                 byteTeeLease: nil,
+                runtimeOwnershipReservation: runtimeReservations[1],
                 executionLane: .isolatedHibernation,
                 isolatedHibernationReservation: staleReservation,
                 freeSurface: { _ in
@@ -1055,12 +1107,15 @@ private func requireTeardownTicket(
         #expect(await blockingTicket.wait(timeout: .seconds(1)))
     }
 
-    @Test func byteTeeCallbackOwnerIsReleasedOnlyAfterNativeFreeReturns() async {
+    @Test func byteTeeCallbackOwnerIsReleasedOnlyAfterNativeFreeReturns() async throws {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
         let recorder = TeardownLifetimeRecorder()
         let lease = LifetimeRecordingByteTeeLease(recorder: recorder)
         let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         defer { surface.deallocate() }
+        let runtimeReservation = try #require(
+            coordinator.reserveRuntimeSurfaceOwnership()
+        )
 
         coordinator.enqueueRuntimeTeardown(
             id: UUID(),
@@ -1070,6 +1125,7 @@ private func requireTeardownTicket(
             callbackContext: nil,
             manualIOContext: nil,
             byteTeeLease: lease,
+            runtimeOwnershipReservation: runtimeReservation,
             freeSurface: { _ in
                 recorder.record("surface.free")
             }

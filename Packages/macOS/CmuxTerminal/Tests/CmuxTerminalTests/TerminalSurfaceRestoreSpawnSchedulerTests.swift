@@ -198,6 +198,9 @@ import CmuxTerminalCore
             UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         }
         defer { for retainedSurface in retainedSurfaces { retainedSurface.deallocate() } }
+        let runtimeReservations = try (0..<retainedSurfaces.count).map { _ in
+            try #require(coordinator.reserveRuntimeSurfaceOwnership())
+        }
         let freeStarted = AsyncStream<Void>.makeStream()
         let releaseFrees = DispatchSemaphore(value: 0)
         defer {
@@ -213,6 +216,9 @@ import CmuxTerminalCore
                 reason: "test.creationRetry.\(index)",
                 surface: retainedSurface,
                 callbackContext: nil,
+                manualIOContext: nil,
+                byteTeeLease: nil,
+                runtimeOwnershipReservation: runtimeReservations[index],
                 freeSurface: { _ in
                     freeStarted.continuation.yield()
                     releaseFrees.wait()
@@ -276,6 +282,9 @@ import CmuxTerminalCore
                 retainedSurface.deallocate()
             }
         }
+        let runtimeReservations = try (0..<retainedSurfaces.count).map { _ in
+            try #require(coordinator.reserveRuntimeSurfaceOwnership())
+        }
         let freeStarted = AsyncStream<Void>.makeStream()
         let releaseFrees = DispatchSemaphore(value: 0)
         defer {
@@ -293,6 +302,9 @@ import CmuxTerminalCore
                 reason: "test.pacedCreationRetry.\(index)",
                 surface: retainedSurface,
                 callbackContext: nil,
+                manualIOContext: nil,
+                byteTeeLease: nil,
+                runtimeOwnershipReservation: runtimeReservations[index],
                 freeSurface: { _ in
                     freeStarted.continuation.yield()
                     releaseFrees.wait()

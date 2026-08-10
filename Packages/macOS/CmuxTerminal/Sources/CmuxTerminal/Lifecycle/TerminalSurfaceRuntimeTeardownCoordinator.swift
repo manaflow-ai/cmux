@@ -185,45 +185,6 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         request.read()
     }
 
-    /// Queues a native-surface free from any isolation (the surface model's
-    /// `deinit` is nonisolated and cannot await).
-    ///
-    /// - Parameters:
-    ///   - id: The owning surface id.
-    ///   - workspaceId: The owning workspace id.
-    ///   - reason: The teardown reason, for diagnostics.
-    ///   - surface: The native surface pointer, already removed from all
-    ///     main-thread owner state.
-    ///   - callbackContext: The retained callback context released on the
-    ///     main actor after the free completes.
-    ///   - freeSurface: The free operation; defaults to
-    ///     `ghostty_surface_free`.
-    /// - Returns: A ticket that completes after the native free and userdata
-    ///   releases, or `nil` when bounded ownership admission is unavailable.
-    ///   On `nil`, the caller retains the native pointer and callback userdata.
-    @discardableResult
-    public nonisolated func enqueueRuntimeTeardown(
-        id: UUID,
-        workspaceId: UUID,
-        reason: String,
-        surface: ghostty_surface_t,
-        callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?,
-        freeSurface: @escaping @Sendable (ghostty_surface_t) -> Void = { surface in
-            ghostty_surface_free(surface)
-        }
-    ) -> TerminalSurfaceRuntimeTeardownTicket? {
-        enqueueRuntimeTeardown(
-            id: id,
-            workspaceId: workspaceId,
-            reason: reason,
-            surface: surface,
-            callbackContext: callbackContext,
-            manualIOContext: nil,
-            byteTeeLease: nil,
-            freeSurface: freeSurface
-        )
-    }
-
     /// Queues a native-surface free that also transports the surface's other
     /// retained callback userdata.
     ///
@@ -250,9 +211,9 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     ///   - freeSurface: The free operation; defaults to
     ///     `ghostty_surface_free`.
     /// - Returns: A ticket that completes after the native free and userdata
-    ///   releases, or `nil` when bounded ownership admission is degraded or
-    ///   exhausted. On `nil`, the caller retains the native pointer and its
-    ///   callback userdata.
+    ///   releases, or `nil` when the supplied ownership reservation is invalid
+    ///   or the bounded submission ingress rejects the request. On `nil`, the
+    ///   caller retains the native pointer and its callback userdata.
     @discardableResult
     nonisolated func enqueueRuntimeTeardown(
         id: UUID,
@@ -263,7 +224,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         manualIOContext: Unmanaged<TerminalManualIOWriteBox>?,
         byteTeeLease: (any TerminalByteTeeLease)?,
         runtimeOwnershipReservation:
-            TerminalSurfaceRuntimeOwnershipReservation? = nil,
+            TerminalSurfaceRuntimeOwnershipReservation,
         executionLane: TerminalSurfaceRuntimeTeardownExecutionLane = .boundedClose,
         isolatedHibernationReservation:
             TerminalSurfaceRuntimeTeardownReservation? = nil,
@@ -271,13 +232,10 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             ghostty_surface_free(surface)
         }
     ) -> TerminalSurfaceRuntimeTeardownTicket? {
-        let admittedRuntimeOwnership: TerminalSurfaceRuntimeOwnershipReservation
-        if let existing = runtimeOwnershipReservation {
-            guard runtimeOwnershipAdmission.contains(existing) else { return nil }
-            admittedRuntimeOwnership = existing
-        } else {
-            guard let admitted = runtimeOwnershipAdmission.reserve() else { return nil }
-            admittedRuntimeOwnership = admitted
+        guard runtimeOwnershipAdmission.contains(
+            runtimeOwnershipReservation
+        ) else {
+            return nil
         }
         let completion = TerminalSurfaceRuntimeTeardownCompletion()
         let ticket = TerminalSurfaceRuntimeTeardownTicket(completion: completion)
@@ -290,7 +248,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             callbackContext: callbackContext,
             manualIOContext: manualIOContext,
             byteTeeLease: byteTeeLease,
-            runtimeOwnershipReservation: admittedRuntimeOwnership,
+            runtimeOwnershipReservation: runtimeOwnershipReservation,
             freeSurface: freeSurface,
             completion: completion
         )
@@ -303,10 +261,10 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         case .enqueued:
             return ticket
         case .dropped, .terminated:
-            runtimeOwnershipAdmission.release(admittedRuntimeOwnership)
+            runtimeOwnershipAdmission.release(runtimeOwnershipReservation)
             return nil
         @unknown default:
-            runtimeOwnershipAdmission.release(admittedRuntimeOwnership)
+            runtimeOwnershipAdmission.release(runtimeOwnershipReservation)
             return nil
         }
     }

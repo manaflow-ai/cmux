@@ -328,11 +328,14 @@ import Testing
         #expect(weakBox == nil, "manual IO write box must still be released after the native free")
     }
 
-    @Test func coordinatorReleasesTransportedTeeLeaseOnlyAfterFreeCompletes() async {
+    @Test func coordinatorReleasesTransportedTeeLeaseOnlyAfterFreeCompletes() async throws {
         let recorder = TeardownOrderRecorder()
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
         let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         defer { surface.deallocate() }
+        let runtimeReservation = try #require(
+            coordinator.reserveRuntimeSurfaceOwnership()
+        )
 
         coordinator.enqueueRuntimeTeardown(
             id: UUID(),
@@ -342,6 +345,7 @@ import Testing
             callbackContext: nil,
             manualIOContext: nil,
             byteTeeLease: RecordingTerminalByteTeeLease(recorder: recorder),
+            runtimeOwnershipReservation: runtimeReservation,
             freeSurface: { _ in
                 recorder.record(.nativeFree)
             }
