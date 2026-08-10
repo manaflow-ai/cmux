@@ -175,11 +175,32 @@ struct MobileAttachmentAccessibilityFixtures {
             image,
             [
                 kCGImageDestinationLossyCompressionQuality: 0.82,
-                kCGImagePropertyOrientation: 6,
+                kCGImagePropertyTIFFDictionary: [
+                    kCGImagePropertyTIFFOrientation: CGImagePropertyOrientation.right.rawValue,
+                ] as CFDictionary,
             ] as CFDictionary
         )
         guard CGImageDestinationFinalize(destination) else { return Data() }
-        return data as Data
+        let imageData = data as Data
+        assert(hasExpectedOrientationMetadata(in: imageData, width: width, height: height))
+        return imageData
+    }
+
+    private func hasExpectedOrientationMetadata(in data: Data, width: Int, height: Int) -> Bool {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let copiedProperties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) else {
+            return false
+        }
+        let properties = copiedProperties as NSDictionary
+        guard let tiffProperties = properties[kCGImagePropertyTIFFDictionary] as? NSDictionary else {
+            return false
+        }
+        let expectedOrientation = Int(CGImagePropertyOrientation.right.rawValue)
+        return (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue == width
+            && (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue == height
+            && (properties[kCGImagePropertyOrientation] as? NSNumber)?.intValue == expectedOrientation
+            && (tiffProperties[kCGImagePropertyTIFFOrientation] as? NSNumber)?.intValue
+                == expectedOrientation
     }
 }
 #endif
