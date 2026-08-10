@@ -315,6 +315,13 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         )
         await flushPortalReconciliationPasses()
 
+        // A detached geometry pass hides the hosted view regardless of the
+        // entry's visibility flag. Reattach and synchronize again: only the
+        // hidden intent persisted by reconciliation prevents a stale reveal.
+        container.addSubview(host)
+        #expect(TerminalWindowPortalRegistry.isHostedView(panel.hostedView, boundTo: host))
+        TerminalWindowPortalRegistry.synchronizeForAnchor(host, syncLayout: false)
+
         #expect(
             panel.hostedView.isHidden,
             "A detached current host must persist its hidden intent before the authoritative rebind"
@@ -409,16 +416,20 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
     }
 
     private func flushPortalReconciliationPasses() async {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            RunLoop.main.perform(inModes: [.common]) {
-                continuation.resume()
-            }
-        }
+        await flushPortalReconciliationTurn()
         for _ in 0..<4 {
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                 DispatchQueue.main.async {
                     continuation.resume()
                 }
+            }
+        }
+    }
+
+    private func flushPortalReconciliationTurn() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            RunLoop.main.perform(inModes: [.common]) {
+                continuation.resume()
             }
         }
     }
