@@ -4,7 +4,7 @@ import CmuxMobileSupport
 import SwiftUI
 
 struct AgentFeedRowActions {
-    let toggleExpanded: @MainActor () -> Void
+    let setExpanded: @MainActor (Bool) -> Void
     let setDraft: @MainActor (String) -> Void
     let setPlanFeedback: @MainActor (String) -> Void
     let setQuestionSelection: @MainActor (String, Set<String>) -> Void
@@ -24,6 +24,7 @@ struct AgentFeedRow: View, Equatable {
     let questionSelections: [String: Set<String>]
     let otherAnswers: [String: String]
     let actions: AgentFeedRowActions
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.item == rhs.item
@@ -38,48 +39,64 @@ struct AgentFeedRow: View, Equatable {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Button(action: actions.toggleExpanded) {
-                AgentFeedRowHeader(item: item, isExpanded: isExpanded)
+            DisclosureGroup(
+                isExpanded: Binding(
+                    get: { isExpanded },
+                    set: { newValue in actions.setExpanded(newValue) }
+                )
+            ) {
+                actionArea
+            } label: {
+                VStack(alignment: .leading, spacing: 10) {
+                    AgentFeedRowHeader(item: item)
+                    AgentFeedContext(item: item, isExpanded: isExpanded)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .buttonStyle(.plain)
-            .frame(minHeight: 44)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityIdentifier("MobileAgentFeedExpand-\(suffix)")
 
-            AgentFeedContext(item: item, isExpanded: isExpanded)
+            footer
+        }
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("MobileAgentFeedCard-\(suffix)")
+    }
 
-            if isExpanded {
-                actionArea
+    @ViewBuilder
+    private var footer: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 4) {
+                mutationCaption
+                openAgentControl
             }
-
+        } else {
             HStack {
                 mutationCaption
                 Spacer()
-                if item.wire.workspaceID != nil, item.wire.surfaceID != nil {
-                    Button(action: actions.open) {
-                        Label(
-                            AgentFeedL10n.string("mobile.agentFeed.openAgent", defaultValue: "Open Agent"),
-                            systemImage: "terminal"
-                        )
-                    }
-                    .frame(minHeight: 44)
-                    .buttonStyle(.borderless)
-                    .disabled(!interactionsEnabled)
-                    .accessibilityIdentifier("MobileAgentFeedOpenAgent-\(suffix)")
-                } else {
-                    Text(AgentFeedL10n.string("mobile.agentFeed.targetUnavailable", defaultValue: "Agent location unavailable"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                openAgentControl
             }
         }
-        .padding(.vertical, 8)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(accessibilityLabel)
-        .accessibilityIdentifier("MobileAgentFeedCard-\(suffix)")
-        .accessibilityAction(named: isExpanded
-            ? AgentFeedL10n.string("mobile.agentFeed.card.collapse", defaultValue: "Collapse details")
-            : AgentFeedL10n.string("mobile.agentFeed.card.expand", defaultValue: "Expand details")) {
-            actions.toggleExpanded()
+    }
+
+    @ViewBuilder
+    private var openAgentControl: some View {
+        if item.wire.workspaceID != nil, item.wire.surfaceID != nil {
+            Button(action: actions.open) {
+                Label(
+                    AgentFeedL10n.string("mobile.agentFeed.openAgent", defaultValue: "Open Agent"),
+                    systemImage: "terminal"
+                )
+            }
+            .frame(minHeight: 44)
+            .buttonStyle(.borderless)
+            .disabled(!interactionsEnabled)
+            .accessibilityIdentifier("MobileAgentFeedOpenAgent-\(suffix)")
+        } else {
+            Text(AgentFeedL10n.string("mobile.agentFeed.targetUnavailable", defaultValue: "Agent location unavailable"))
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -269,14 +286,10 @@ struct AgentFeedRow: View, Equatable {
     }
 
     private var suffix: String { "\(item.macDeviceID)-\(item.wire.id.uuidString)" }
-    private var accessibilityLabel: String {
-        [AgentFeedCopy.sourceLabel(item.wire.source), AgentFeedCopy.statusLabel(item.wire.status), item.macDisplayName, item.wire.title].compactMap { $0 }.formatted()
-    }
 }
 
 private struct AgentFeedRowHeader: View {
     let item: MobileAgentFeedItem
-    let isExpanded: Bool
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
@@ -303,8 +316,6 @@ private struct AgentFeedRowHeader: View {
             }
             Spacer(minLength: 8)
             if !dynamicTypeSize.isAccessibilitySize { relativeTime }
-            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                .padding(.top, 3)
         }
     }
 
@@ -346,12 +357,19 @@ private struct AgentFeedRowHeader: View {
 private struct AgentFeedContext: View {
     let item: MobileAgentFeedItem
     let isExpanded: Bool
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            if let title = item.wire.title { Text(title).font(.subheadline.weight(.semibold)) }
+            if let title = item.wire.title {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             Text(AgentFeedCopy.payloadSummary(item.wire.payload))
                 .font(.subheadline)
-                .lineLimit(isExpanded ? nil : 4)
+                .lineLimit(isExpanded || dynamicTypeSize.isAccessibilitySize ? nil : 4)
+                .fixedSize(horizontal: false, vertical: true)
             if case .resolved(let decision) = item.wire.status,
                let decision = AgentFeedCopy.decisionLabel(decision) {
                 Text(
@@ -366,8 +384,15 @@ private struct AgentFeedContext: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
             }
-            if let cwd = item.wire.cwd { Text(cwd).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
+            if let cwd = item.wire.cwd {
+                Text(cwd)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+                    .fixedSize(horizontal: false, vertical: dynamicTypeSize.isAccessibilitySize)
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

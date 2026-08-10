@@ -82,7 +82,7 @@ struct AgentFeedView: View {
                                 questionSelections: questionSelections[item.id] ?? [:],
                                 otherAnswers: otherAnswers[item.id] ?? [:],
                                 actions: AgentFeedRowActions(
-                                    toggleExpanded: { toggleExpanded(item.id) },
+                                    setExpanded: { setExpanded($0, id: item.id) },
                                     setDraft: { actions.setDraft(item.id, $0) },
                                     setPlanFeedback: { planFeedback[item.id] = $0 },
                                     setQuestionSelection: { question, selection in
@@ -125,8 +125,12 @@ struct AgentFeedView: View {
         }
     }
 
-    private func toggleExpanded(_ id: MobileAgentFeedItemID) {
-        if expandedIDs.contains(id) { expandedIDs.remove(id) } else { expandedIDs.insert(id) }
+    private func setExpanded(_ isExpanded: Bool, id: MobileAgentFeedItemID) {
+        if isExpanded {
+            expandedIDs.insert(id)
+        } else {
+            expandedIDs.remove(id)
+        }
     }
 
     private func interactionsEnabled(for item: MobileAgentFeedItem) -> Bool {

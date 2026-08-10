@@ -113,6 +113,17 @@ final class AgentFeedUITests: XCTestCase {
         let filter = app.descendants(matching: .any)["MobileAgentFeedFilter"]
         XCTAssertTrue(filter.exists)
         XCTAssertTrue(filter.isHittable)
+        let suffix = "macbook-00000000-0000-0000-0000-000000000101"
+        let expand = app.buttons["MobileAgentFeedExpand-\(suffix)"]
+        XCTAssertTrue(expand.exists)
+        XCTAssertTrue(expand.isHittable)
+        expand.tap()
+        let deny = app.buttons["MobileAgentFeedPermission-deny-\(suffix)"]
+        XCTAssertTrue(deny.waitForExistence(timeout: 3))
+        makeHittable(deny, in: app)
+        deny.tap()
+        XCTAssertTrue(app.staticTexts["Resolved: Deny"].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.descendants(matching: .any)["MobileAgentFeedPreviewAgentDestination"].exists)
         app.terminate()
     }
 
