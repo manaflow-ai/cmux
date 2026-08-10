@@ -1119,8 +1119,8 @@ struct DockRuntimeParityTests {
         }
     }
 
-    @Test("Mark Oldest atomically replaces window Dock visual-BEL unread")
-    func markOldestAtomicallyReplacesWindowDockVisualBellUnread() async throws {
+    @Test("Unread notification mutations atomically replace window Dock visual-BEL unread")
+    func unreadNotificationMutationsAtomicallyReplaceWindowDockVisualBellUnread() async throws {
         try await withAppContext { appDelegate, _, _, windowID in
             let notificationStore = TerminalNotificationStore.shared
             let previousNotificationStore = appDelegate.notificationStore
@@ -1173,6 +1173,28 @@ struct DockRuntimeParityTests {
                     surfaceId: panel.id
                 ) == notificationID
             )
+
+            #expect(observer.publicationCount == 1)
+            #expect(observer.totalUnreadCounts == [1])
+            #expect(unreadProjection.unreadPanelIDs == [panel.id])
+            #expect(!notificationStore.hasManualUnread(
+                forTabId: windowID,
+                surfaceId: panel.id
+            ))
+            #expect(notificationStore.hasUnreadNotification(
+                forTabId: windowID,
+                surfaceId: panel.id
+            ))
+
+            notificationStore.markRead(id: notificationID)
+            #expect(notificationStore.markWindowDockSurfaceUnread(
+                windowId: windowID,
+                surfaceId: panel.id
+            ))
+            observer.publicationCount = 0
+            observer.totalUnreadCounts = []
+
+            notificationStore.markUnread(id: notificationID)
 
             #expect(observer.publicationCount == 1)
             #expect(observer.totalUnreadCounts == [1])

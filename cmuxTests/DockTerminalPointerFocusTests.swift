@@ -41,6 +41,8 @@ struct DockTerminalPointerFocusTests {
         let appDelegate = AppDelegate()
         let manager = TabManager(autoWelcomeIfNeeded: false)
         let fileExplorerState = FileExplorerState()
+        let notificationStore = TerminalNotificationStore.shared
+        let previousNotificationStore = appDelegate.notificationStore
         let windowId = UUID()
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
@@ -52,6 +54,8 @@ struct DockTerminalPointerFocusTests {
         window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
 
         AppDelegate.shared = appDelegate
+        appDelegate.notificationStore = notificationStore
+        notificationStore.markRead(forTabId: windowId)
         appDelegate.tabManager = manager
         appDelegate.registerMainWindow(
             window,
@@ -63,6 +67,8 @@ struct DockTerminalPointerFocusTests {
         )
         window.makeKeyAndOrderFront(nil)
         defer {
+            notificationStore.markRead(forTabId: windowId)
+            appDelegate.notificationStore = previousNotificationStore
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
             manager.tabs.forEach { $0.teardownAllPanels() }
             window.orderOut(nil)
@@ -132,6 +138,31 @@ struct DockTerminalPointerFocusTests {
         #expect(window.firstResponder === surfaceView)
         #expect(appDelegate.focusedDockStoreForShortcut(preferredWindow: window) === dock)
         #expect(secondPanel.hostedView.debugRenderStats().isActive)
+
+        dock.installAttentionRouting(for: secondPanel)
+        dock.focusPanel(firstPanel.id)
+        #expect(window.makeFirstResponder(mainSurfaceView))
+        appDelegate.noteMainPanelKeyboardFocusIntent(
+            workspaceId: mainWorkspace.id,
+            panelId: mainPanel.id,
+            in: window
+        )
+        #expect(notificationStore.markWindowDockSurfaceUnread(
+            windowId: windowId,
+            surfaceId: secondPanel.id
+        ))
+
+        surfaceView.rightMouseDown(with: try mouseDownEvent(
+            type: .rightMouseDown,
+            at: pointInWindow,
+            window: window
+        ))
+
+        #expect(dock.focusedPanelId == secondPanel.id)
+        #expect(!notificationStore.hasManualUnread(
+            forTabId: windowId,
+            surfaceId: secondPanel.id
+        ))
     }
 
     private func exerciseDockSelectionAndRestoration() throws {
@@ -318,9 +349,13 @@ struct DockTerminalPointerFocusTests {
         return nil
     }
 
-    private func mouseDownEvent(at point: NSPoint, window: NSWindow) throws -> NSEvent {
+    private func mouseDownEvent(
+        type: NSEvent.EventType = .leftMouseDown,
+        at point: NSPoint,
+        window: NSWindow
+    ) throws -> NSEvent {
         try #require(NSEvent.mouseEvent(
-            with: .leftMouseDown,
+            with: type,
             location: point,
             modifierFlags: [],
             timestamp: ProcessInfo.processInfo.systemUptime,

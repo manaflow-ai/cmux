@@ -201,6 +201,7 @@ struct AppDelegateSurfaceShortcutRoutingTests {
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
             let workspace = try #require(manager.selectedWorkspace)
             let foregroundPanelId = try #require(workspace.focusedPanelId)
+            let foregroundPanel = try #require(workspace.terminalPanel(for: foregroundPanelId))
             let backgroundPanel = try #require(workspace.newTerminalSplit(
                 from: foregroundPanelId,
                 orientation: .horizontal,
@@ -215,13 +216,30 @@ struct AppDelegateSurfaceShortcutRoutingTests {
 
             window.makeKeyAndOrderFront(nil)
             window.displayIfNeeded()
+            foregroundPanel.hostedView.setVisibleInUI(true)
+            foregroundPanel.hostedView.setActive(true)
             backgroundPanel.hostedView.setVisibleInUI(true)
             backgroundPanel.hostedView.setActive(false)
+            await startAndWaitForLiveSurface(foregroundPanel.surface)
             await startAndWaitForLiveSurface(backgroundPanel.surface)
+            #expect(foregroundPanel.surface.hasLiveSurface)
             #expect(backgroundPanel.surface.hasLiveSurface)
 
+            let configuredRuntimePoints = GhosttyApp.shared
+                .terminalFontConfigurationSnapshot()
+                .configuredRuntimePoints
+            let mobileFitState = MobileViewportFontFitState(
+                baseRuntimePointSize: configuredRuntimePoints,
+                fittedRuntimePointSize: TerminalFontSizePolicy.minimumRuntimePoints
+            )
+            foregroundPanel.surface.mobileViewportFontFitState = mobileFitState
+            backgroundPanel.surface.mobileViewportFontFitState = mobileFitState
+
             workspace.focusPanel(foregroundPanelId)
+            #expect(window.makeFirstResponder(foregroundPanel.hostedView.surfaceView))
+            workspace.markPanelUnread(foregroundPanelId)
             workspace.markPanelUnread(backgroundPanel.id)
+            #expect(workspace.manualUnreadPanelIds.contains(foregroundPanelId))
             #expect(workspace.manualUnreadPanelIds.contains(backgroundPanel.id))
 
 #if DEBUG
@@ -233,6 +251,10 @@ struct AppDelegateSurfaceShortcutRoutingTests {
             #expect(
                 backgroundPanel.surface.fontSizeLineageSnapshot()?.isExplicitOverride == true,
                 "The workspace-wide shortcut must reach the live background terminal"
+            )
+            #expect(
+                !workspace.manualUnreadPanelIds.contains(foregroundPanelId),
+                "The originating terminal must accept its handled shortcut"
             )
             #expect(
                 workspace.manualUnreadPanelIds.contains(backgroundPanel.id),
