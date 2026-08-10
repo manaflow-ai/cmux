@@ -19,6 +19,20 @@ extension MobileShellComposite {
         }.value
     }
 
+    /// Ends the selected simulator stream because its workspace route is no
+    /// longer visible. Selection and wire teardown share this composite-owned
+    /// boundary so child view remounts never imply user navigation intent.
+    public func stopActiveMobileSimulatorStream(in workspaceID: String) {
+        guard let panelID = simulatorStreamStore?.activeState(in: workspaceID)?.id else { return }
+        simulatorStreamStore?.deactivate(in: workspaceID)
+        _ = enqueueMobileSimulatorStreamOperation(panelID: panelID) { [weak self] in
+            await self?.performMobileSimulatorStreamStop(
+                panelID: panelID,
+                workspaceID: workspaceID
+            )
+        }
+    }
+
     private func performMobileSimulatorStreamStart(panelID: String, workspaceID: String) async {
         recordSimulatorStream(
             panelID: panelID,

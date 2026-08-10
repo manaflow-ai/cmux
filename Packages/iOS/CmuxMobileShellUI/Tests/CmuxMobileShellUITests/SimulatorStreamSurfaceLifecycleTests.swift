@@ -1,10 +1,7 @@
 #if canImport(UIKit)
 import CMUXMobileCore
-import CmuxMobileBrowser
-import CmuxMobileBrowserStream
 import CmuxMobileShell
 import CmuxMobileShellModel
-import CmuxMobileToast
 import CmuxMobileWorkspace
 import SwiftUI
 import Testing
@@ -34,8 +31,7 @@ import Testing
             workspaces: [workspace],
             simulatorStreamStore: simulatorStore
         )
-        let defaults = try #require(UserDefaults(suiteName: UUID().uuidString))
-        let root = WorkspaceDetailView(
+        let detail = WorkspaceDetailView(
             host: "Mac",
             connectionStatus: .connected,
             workspace: workspace,
@@ -53,13 +49,11 @@ import Testing
             backButtonConfiguration: nil,
             signOut: nil
         )
-        .environment(BrowserSurfaceStore())
-        .environment(BrowserStreamStore())
-        .environment(simulatorStore)
-        .environment(MobileDisplaySettings(defaults: defaults, environment: [:]))
-        .environment(ToastCenter(defaults: defaults))
-        .onAppear { lifecycle.record(.appeared) }
-        .onDisappear { lifecycle.record(.disappeared) }
+        let simulator = try #require(simulatorStore.activeState(in: workspaceID))
+        let root = SimulatorStreamSurfaceLifecycleHarness(
+            content: detail.simulatorStreamContent(simulator),
+            lifecycle: lifecycle
+        )
         let controller = UIHostingController(rootView: root)
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
 
@@ -152,6 +146,17 @@ import Testing
             ownerConnectionID: "phone",
             isOwnedByCurrentConnection: true
         )
+    }
+}
+
+private struct SimulatorStreamSurfaceLifecycleHarness<Content: View>: View {
+    let content: Content
+    let lifecycle: SimulatorStreamTestLifecycle
+
+    var body: some View {
+        content
+            .onAppear { lifecycle.record(.appeared) }
+            .onDisappear { lifecycle.record(.disappeared) }
     }
 }
 
