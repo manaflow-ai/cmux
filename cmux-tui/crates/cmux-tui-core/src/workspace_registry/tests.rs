@@ -5573,8 +5573,8 @@ fn journal_agent_final_socket_report_overrides_same_session_hook_state() {
 
 #[test]
 fn journal_agent_final_socket_without_provider_overrides_same_session_hook_state() {
-    let mut registry = WorkspaceRegistry::in_memory("journal-agent-final-providerless-socket")
-        .unwrap();
+    let mut registry =
+        WorkspaceRegistry::in_memory("journal-agent-final-providerless-socket").unwrap();
     commit_terminal_topology(&mut registry, "journal-agent-final-providerless-socket-topology");
     let terminal_id = terminal_resource(TERMINAL_ONE);
     let ingress = crate::agent_hook_journal_ingress(
