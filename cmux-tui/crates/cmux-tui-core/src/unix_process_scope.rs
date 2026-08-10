@@ -269,11 +269,7 @@ impl UnixProcessScope {
         #[cfg(target_os = "macos")]
         let mut command = {
             let mut command = Command::new("/usr/bin/sandbox-exec");
-            command.args([
-                "-p",
-                "(version 1) (allow default) (deny process-fork)",
-                "/bin/sh",
-            ]);
+            command.args(["-p", "(version 1) (allow default) (deny process-fork)", "/bin/sh"]);
             command
         };
         #[cfg(not(target_os = "macos"))]
