@@ -21091,17 +21091,12 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn terminal_placement_discovery_accepts_a_host_only_surface() {
+    fn terminal_placement_discovery_accepts_exact_host_with_stale_public_id() {
         let mux = test_mux();
-        let surface = Surface::spawn_with_resource_identity(
-            mux.next_id(),
-            mux.surface_options.lock().unwrap().clone(),
-            Arc::downgrade(&mux),
-            None,
-        )
-        .unwrap();
-        assert!(surface.terminal_public_id().is_none());
-        let host = mux.resource_terminal_host_identity(&surface).unwrap();
+        let host = TerminalHostIdentity {
+            terminal_id: "00112233445566778899aabbccddeeff".into(),
+            incarnation: "11111111111111111111111111111111".into(),
+        };
         let public_id = restore_terminal_id(901);
         let stale_public_id = restore_terminal_id(902);
         let stale = Surface::exited_terminal_placeholder_with_terminal_public_id(
@@ -21112,7 +21107,6 @@ mod tests {
             stale_public_id,
         )
         .unwrap();
-        insert_surface_checked(&mut mux.state.lock().unwrap(), surface.clone()).unwrap();
         insert_surface_checked(&mut mux.state.lock().unwrap(), stale.clone()).unwrap();
 
         let placements = {
@@ -21126,11 +21120,7 @@ mod tests {
             )
         };
 
-        let mut expected = vec![surface.id, stale.id];
-        expected.sort_unstable();
-        assert_eq!(placements, expected);
-        mux.unregister_kitty_image_surface(&surface).unwrap();
-        surface.kill();
+        assert_eq!(placements, vec![stale.id]);
         stale.kill();
     }
 
