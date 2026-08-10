@@ -14917,15 +14917,10 @@ fn register_terminal_placement_checked(
     if surface.resource_identity().is_none() || surface.terminal_public_id().is_none() {
         return Ok(());
     }
-    let runtime_id = surface
-        .terminal_runtime_id()
-        .context("terminal placement requires a PTY runtime")?;
+    let runtime_id =
+        surface.terminal_runtime_id().context("terminal placement requires a PTY runtime")?;
     anyhow::ensure!(
-        state
-            .terminal_placements_by_runtime
-            .entry(runtime_id)
-            .or_default()
-            .insert(surface.id),
+        state.terminal_placements_by_runtime.entry(runtime_id).or_default().insert(surface.id),
         "duplicate terminal runtime placement"
     );
     Ok(())

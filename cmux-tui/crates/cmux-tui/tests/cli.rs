@@ -2393,10 +2393,8 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
     let mut enter_submitted = false;
     for attempt in 0..3 {
         let key = format!("matrix-terminal-enter-{attempt}");
-        let send_key = json_cli(
-            &server,
-            &["terminal", &terminal, "keys", "enter", "--idempotency-key", &key],
-        );
+        let send_key =
+            json_cli(&server, &["terminal", &terminal, "keys", "enter", "--idempotency-key", &key]);
         if !send_key.status.success() {
             assert_eq!(send_key.status.code(), Some(1));
             let error = json_error(&send_key);
