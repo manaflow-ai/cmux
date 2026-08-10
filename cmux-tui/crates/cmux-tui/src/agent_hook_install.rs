@@ -9,9 +9,9 @@ use std::os::unix::process::CommandExt;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Output, Stdio};
 #[cfg(not(unix))]
 use std::process::Command;
+use std::process::{Child, Output, Stdio};
 use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
