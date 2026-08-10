@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 const BUILD_COMMIT_ENV: &str = "CMUX_TUI_BUILD_COMMIT";
+const BUILD_FINGERPRINT_ENV: &str = "CMUX_TUI_BUILD_FINGERPRINT";
 const BUILD_IDENTITY_ENV: &str = "CMUX_TUI_BUILD_IDENTITY";
 const DIRTY_SEPARATOR: &[u8] = b"\0cmux-tui-untracked\0";
 
@@ -12,15 +13,17 @@ const _: () = cmux_tui_source_watch::ACTIVE;
 
 fn main() {
     println!("cargo:rerun-if-env-changed={BUILD_COMMIT_ENV}");
+    println!("cargo:rerun-if-env-changed={BUILD_FINGERPRINT_ENV}");
 
     let manifest_dir =
         PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is unset"));
-    let identity = env::var(BUILD_COMMIT_ENV)
+    let identity = env::var(BUILD_FINGERPRINT_ENV)
         .ok()
         .filter(|value| !value.is_empty())
+        .or_else(|| env::var(BUILD_COMMIT_ENV).ok().filter(|value| !value.is_empty()))
         .unwrap_or_else(|| source_revision(&manifest_dir));
     if identity.bytes().any(|byte| byte.is_ascii_control()) {
-        panic!("{BUILD_COMMIT_ENV} contains a control character");
+        panic!("build identity contains a control character");
     }
     println!("cargo:rustc-env={BUILD_IDENTITY_ENV}={identity}");
 }

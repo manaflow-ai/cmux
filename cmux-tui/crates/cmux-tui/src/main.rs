@@ -787,6 +787,10 @@ fn version_string() -> String {
     }
 }
 
+fn requested_build_identity(args: &[String]) -> Option<&'static str> {
+    (args == ["--build-id"]).then_some(cmux_remote::ssh_bootstrap::BUILD_IDENTITY)
+}
+
 #[cfg(unix)]
 fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\"'\"'"))
@@ -1157,6 +1161,10 @@ fn validate_provider_process_args(args: &Args) -> anyhow::Result<()> {
 
 fn main() {
     let raw_args = std::env::args().skip(1).collect::<Vec<_>>();
+    if let Some(build_identity) = requested_build_identity(&raw_args) {
+        println!("{build_identity}");
+        return;
+    }
     #[cfg(unix)]
     if raw_args.first().map(String::as_str) == Some("__agent-browser-provider") {
         std::process::exit(agent_browser_provider::run());
@@ -2203,6 +2211,18 @@ mod tests {
 
     fn args(values: &[&str]) -> Args {
         parse_args_result(values.iter().map(|value| value.to_string())).unwrap()
+    }
+
+    #[test]
+    fn packaged_build_identity_is_an_exact_private_invocation() {
+        let build_identity = requested_build_identity(&["--build-id".to_owned()]);
+
+        assert_eq!(build_identity, Some(cmux_remote::ssh_bootstrap::BUILD_IDENTITY));
+        assert_eq!(
+            requested_build_identity(&["--build-id".to_owned(), "extra".to_owned()]),
+            None
+        );
+        assert!(!usage().contains("--build-id"));
     }
 
     #[cfg(unix)]

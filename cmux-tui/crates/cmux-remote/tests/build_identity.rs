@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const BUILD_COMMIT_ENV: &str = "CMUX_TUI_BUILD_COMMIT";
+const BUILD_FINGERPRINT_ENV: &str = "CMUX_TUI_BUILD_FINGERPRINT";
 const BUILD_IDENTITY_PREFIX: &str = "cargo:rustc-env=CMUX_TUI_BUILD_IDENTITY=";
 
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
@@ -123,10 +124,24 @@ impl BuildFixture {
     }
 
     fn run_output(&self, override_identity: Option<&str>) -> Output {
+        self.run_output_with_fingerprint(override_identity, None)
+    }
+
+    fn run_output_with_fingerprint(
+        &self,
+        override_identity: Option<&str>,
+        packaged_fingerprint: Option<&str>,
+    ) -> Output {
         let mut command = Command::new(&self.executable);
-        command.env("CARGO_MANIFEST_DIR", &self.manifest_dir).env_remove(BUILD_COMMIT_ENV);
+        command
+            .env("CARGO_MANIFEST_DIR", &self.manifest_dir)
+            .env_remove(BUILD_COMMIT_ENV)
+            .env_remove(BUILD_FINGERPRINT_ENV);
         if let Some(identity) = override_identity {
             command.env(BUILD_COMMIT_ENV, identity);
+        }
+        if let Some(fingerprint) = packaged_fingerprint {
+            command.env(BUILD_FINGERPRINT_ENV, fingerprint);
         }
         command.output().unwrap()
     }
@@ -233,6 +248,24 @@ fn release_override_remains_exact_and_stable_for_dirty_sources() {
     assert_eq!(fixture.identity(Some("release-build-identity")), "release-build-identity");
     fixture.write_source("dirty state two\n");
     assert_eq!(fixture.identity(Some("release-build-identity")), "release-build-identity");
+}
+
+#[test]
+fn packaged_fingerprint_outranks_source_commit() {
+    let fixture = BuildFixture::new();
+    let output = fixture.run_output_with_fingerprint(
+        Some("source-commit"),
+        Some("packaged-content-fingerprint"),
+    );
+    assert_success("run build.rs with packaged fingerprint", &output);
+    let identity = String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .find_map(|line| line.strip_prefix(BUILD_IDENTITY_PREFIX))
+        .expect("build script did not emit a build identity")
+        .to_owned();
+
+    assert_eq!(identity, "packaged-content-fingerprint");
 }
 
 #[test]

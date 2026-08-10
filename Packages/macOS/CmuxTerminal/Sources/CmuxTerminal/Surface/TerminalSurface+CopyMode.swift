@@ -54,7 +54,7 @@ extension TerminalSurface {
     public func toggleKeyboardCopyMode() -> Bool {
         didReceiveExplicitInput()
         if let externalRuntime {
-            let operation: TerminalExternalCopyModeOperation = externalRuntime.snapshot.copyModeActive
+            let operation: TerminalExternalCopyModeOperation = keyboardCopyModeActive
                 ? .exit
                 : .enter
             let handled = externalRuntime.enqueue(

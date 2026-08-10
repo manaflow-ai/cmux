@@ -122,6 +122,50 @@ struct TerminalSurfaceExternalRuntimeTests {
         #expect(fixture.surface.surface == nil)
     }
 
+    @Test func externalSurfaceKeepsCanonicalTerminalLifecycleIdentity() {
+        let surfaceID = UUID()
+        let first = makeFixture(
+            surfaceID: surfaceID,
+            terminalLifecycleID: surfaceID
+        )
+        let second = makeFixture(
+            surfaceID: surfaceID,
+            terminalLifecycleID: surfaceID
+        )
+        defer {
+            first.surface.detachExternalPresentationPreservingCanonicalTerminal()
+            second.surface.detachExternalPresentationPreservingCanonicalTerminal()
+        }
+
+        #expect(first.surface.terminalLifecycleId == surfaceID)
+        #expect(second.surface.terminalLifecycleId == surfaceID)
+    }
+
+    @Test func rapidExternalCopyModeTogglesUseAcceptedLocalState() {
+        let fixture = makeFixture()
+        defer { fixture.surface.detachExternalPresentationPreservingCanonicalTerminal() }
+
+        #expect(fixture.surface.toggleKeyboardCopyMode())
+        #expect(fixture.surface.toggleKeyboardCopyMode())
+
+        #expect(fixture.runtime.mutations == [
+            .copyMode(operation: .enter, adjustment: nil, count: 1),
+            .copyMode(operation: .exit, adjustment: nil, count: 1),
+        ])
+        #expect(!fixture.surface.keyboardCopyModeActive)
+    }
+
+    @Test func externalSurfaceRejectsEmbeddedManualIOWithoutTrap() {
+        let fixture = makeFixture()
+        defer { fixture.surface.detachExternalPresentationPreservingCanonicalTerminal() }
+
+        fixture.surface.setManualIONoReflow(true)
+        fixture.surface.processRemoteOutput(Data("remote output".utf8))
+
+        #expect(fixture.runtime.mutations.isEmpty)
+        #expect(fixture.surface.hasLiveSurface)
+    }
+
     @Test func canonicalProjectionOwnsCloseCommitAndPresentationRetirement() {
         let explicitlyClosed = makeFixture()
         let closeLease = explicitlyClosed.runtime.leases[0]
@@ -282,6 +326,8 @@ struct TerminalSurfaceExternalRuntimeTests {
     )
 
     private func makeFixture(
+        surfaceID: UUID = UUID(),
+        terminalLifecycleID: UUID? = nil,
         initialInput: String? = nil,
         runtime: FakeExternalTerminalRuntime? = nil,
         configTemplate: CmuxSurfaceConfigTemplate? = nil,
@@ -301,6 +347,8 @@ struct TerminalSurfaceExternalRuntimeTests {
         )
         let resolvedRuntime = runtime ?? FakeExternalTerminalRuntime(snapshot: Self.liveSnapshot)
         let surface = TerminalSurface(
+            id: surfaceID,
+            terminalLifecycleId: terminalLifecycleID ?? surfaceID,
             tabId: UUID(),
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: configTemplate,

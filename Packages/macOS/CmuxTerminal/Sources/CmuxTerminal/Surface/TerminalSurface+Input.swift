@@ -553,7 +553,7 @@ extension TerminalSurface {
     /// plain shell panes false.
     @MainActor
     public func setManualIONoReflow(_ value: Bool) {
-        precondition(externalRuntime == nil, "Remote MANUAL-I/O is unavailable for external terminal runtimes")
+        guard externalRuntime == nil else { return }
         guard manualIONoReflow != value else { return }
         manualIONoReflow = value
     }
@@ -562,7 +562,7 @@ extension TerminalSurface {
     /// runtime is not live yet, buffer a bounded tail and flush it on creation.
     @MainActor
     public func processRemoteOutput(_ data: Data) {
-        precondition(externalRuntime == nil, "Remote MANUAL-I/O output cannot be injected into an external terminal runtime")
+        guard externalRuntime == nil else { return }
         guard !data.isEmpty else { return }
         guard let surface = liveSurfaceForGhosttyAccess(reason: "remoteOutput") else {
             pendingRemoteOutput.append(data)

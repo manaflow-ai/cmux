@@ -250,6 +250,7 @@ final class TerminalPanel: Panel, ObservableObject {
     /// teardown queue, restore scheduler, runtime filesystem, or session ports.
     convenience init(
         externalRequest request: TerminalPanelCreationRequest,
+        terminalLifecycleID: UUID,
         presentationDependencies: TerminalSurfacePresentationDependencies,
         externalRuntime: any TerminalExternalRuntime
     ) {
@@ -265,6 +266,7 @@ final class TerminalPanel: Panel, ObservableObject {
         }
         let surface = TerminalSurface(
             id: request.id,
+            terminalLifecycleId: terminalLifecycleID,
             tabId: request.workspaceId,
             context: request.context,
             configTemplate: request.configTemplate,

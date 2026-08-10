@@ -589,6 +589,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     @MainActor
     public convenience init(
         id: UUID = UUID(),
+        terminalLifecycleId: UUID,
         tabId: UUID,
         context: ghostty_surface_context_e,
         configTemplate: CmuxSurfaceConfigTemplate?,
@@ -605,6 +606,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     ) {
         self.init(
             id: id,
+            terminalLifecycleId: terminalLifecycleId,
             tabId: tabId,
             context: context,
             configTemplate: configTemplate,
@@ -630,6 +632,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     @MainActor
     private init(
         id: UUID,
+        terminalLifecycleId: UUID? = nil,
         tabId: UUID,
         context: ghostty_surface_context_e,
         configTemplate: CmuxSurfaceConfigTemplate?,
@@ -663,7 +666,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
                 )
             }
         self.id = id
-        self.terminalLifecycleId = UUID()
+        self.terminalLifecycleId = terminalLifecycleId ?? UUID()
         self.tabId = tabId
         self.surfaceContext = context
         self.configTemplate = configTemplate
@@ -693,6 +696,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.registry = presentationDependencies.registry
         self.embeddedRuntime = embeddedRuntime
         self.externalRuntime = externalRuntime
+        self.keyboardCopyModeActive = externalRuntime?.snapshot.copyModeActive ?? false
         self.spawnPolicyProvider = presentationDependencies.spawnPolicy
         self.hibernationRecorder = presentationDependencies.hibernationRecorder
         self.requiresRestoreSpawnPacing = runtimeSpawnPolicy == .pacedSessionRestore
