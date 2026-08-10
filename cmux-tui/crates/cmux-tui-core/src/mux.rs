@@ -6740,147 +6740,57 @@ impl Mux {
         if let Some(incarnation) = terminal_incarnation {
             validate_terminal_hex(incarnation, "invalid_terminal_incarnation")?;
         }
-        let (replay, replayed_resource_revision) = {
+        let replayed = {
             let registry = self.workspace_registry.lock().unwrap();
-            let replay = registry.validate_terminal_close_request(
-                mutation,
-                expected_generation,
-                expected_revision,
-                terminal_id,
-                terminal_incarnation,
-            )?;
-            let resource_revision =
-                replay.as_ref().map(|_| registry.resource_revision()).transpose()?;
-            (replay, resource_revision)
-        };
-        if let Some(commit) = replay {
-            let replayed_incarnation = commit.result["incarnation"].as_str().map(str::to_owned);
-            let (public_id, removed, runtime, changed_screens, empty_revision) = {
-                let mut state = self.state.lock().unwrap();
-                if let Some(revision) = replayed_resource_revision {
-                    state.resource_revision = revision;
-                }
-                let public_id = state.terminal_catalog.iter().find_map(|(public_id, surface)| {
-                    self.resource_terminal_host_identity(surface)
-                        .is_some_and(|identity| identity.terminal_id == terminal_id)
-                        .then(|| public_id.clone())
-                });
-                let mut targets = public_id
-                    .as_ref()
-                    .map(|public_id| {
-                        state
-                            .placements_of_content(&ContentPublicId::Terminal(public_id.clone()))
-                            .to_vec()
-                    })
-                    .unwrap_or_default();
-                if targets.is_empty() {
-                    targets.extend(state.surfaces.iter().filter_map(|(surface_id, surface)| {
-                        self.resource_terminal_host_identity(surface)
-                            .is_some_and(|identity| identity.terminal_id == terminal_id)
-                            .then_some(*surface_id)
-                    }));
-                }
-                let changed_screens = unique_screen_ids(
-                    targets.iter().filter_map(|surface| surface_screen_id(&state, *surface)),
-                );
-                let (runtime, removed) = if let Some(public_id) = public_id.as_ref() {
-                    let (runtime, removed, _) =
-                        remove_terminal_content_from_state(self, &mut state, public_id);
-                    (runtime, removed)
-                } else {
-                    let mut removed = Vec::with_capacity(targets.len());
-                    let mut split_index_dirty = false;
-                    for target in targets {
-                        let (surface, topology_changed) = remove_surface(self, &mut state, target);
-                        split_index_dirty |= topology_changed;
-                        if let Some(surface) = surface {
-                            removed.push(surface);
-                        }
-                    }
-                    if split_index_dirty {
-                        Self::rebuild_split_screen_index(&mut state);
-                    }
-                    (None, removed)
-                };
-                let empty_revision =
-                    state.workspaces.is_empty().then_some(state.workspace_revision);
-                (public_id, removed, runtime, changed_screens, empty_revision)
-            };
-            self.publish_resource_event();
-            self.notify_terminal_exit_waiters(public_id.clone());
-            let target = removed.first().map(|surface| surface.id);
-            for surface in removed {
-                self.purge_surface_side_tables(surface.id);
-            }
-            let had_runtime = runtime.is_some();
-            if let Some(runtime) = runtime {
-                self.purge_terminal_runtime_side_tables(&runtime);
-                self.terminate_terminal_runtime(&runtime);
-            } else if let Some(public_id) = public_id.as_ref() {
-                self.purge_terminal_side_tables(public_id);
-            }
-            if target.is_some() {
-                self.emit(MuxEvent::TreeChanged);
-            }
-            for screen in changed_screens {
-                self.emit(MuxEvent::LayoutChanged(screen));
-            }
-            if !had_runtime {
-                self.terminate_discovered_terminal_host(
+            registry
+                .validate_terminal_close_request(
+                    mutation,
+                    expected_generation,
+                    expected_revision,
                     terminal_id,
-                    replayed_incarnation.as_deref(),
-                );
-            }
-            self.emit_empty_if_current(empty_revision);
-            return Ok(TerminalCloseResult {
-                surface: target,
-                terminal_id: terminal_id.to_string(),
-                terminal_incarnation: replayed_incarnation,
-                already_closed: commit.result["already_closed"].as_bool().unwrap_or(true),
-                terminal_revision: commit.revision,
-            });
-        }
+                    terminal_incarnation,
+                )?
+                .is_some()
+        };
 
         // A detached terminal is a valid durable state. Close each view with
         // the existing scoped topology transaction first. The final SQLite
         // transaction then has only the terminal host and zero-view terminal
         // resource to tombstone.
-        let mut closed_views = Vec::new();
-        let (commit, terminal_incarnation, closed_public_id, runtime, empty_revision, publish) = loop {
-            let target = {
-                let state = self.state.lock().unwrap();
-                state.surfaces.iter().find_map(|(surface_id, surface)| {
+        let initial_views = {
+            let state = self.state.lock().unwrap();
+            state
+                .surfaces
+                .iter()
+                .filter_map(|(surface_id, surface)| {
                     self.resource_terminal_host_identity(surface)
                         .is_some_and(|identity| identity.terminal_id == terminal_id)
                         .then_some(*surface_id)
                 })
-            };
-            if let Some(target) = target {
-                anyhow::ensure!(
-                    self.close_surface(target)?,
-                    "terminal view {target} has no durable tab"
-                );
+                .collect::<Vec<_>>()
+        };
+        anyhow::ensure!(
+            replayed || expected_revision.is_none() || initial_views.is_empty(),
+            "terminal close with expected revision requires a detached terminal"
+        );
+        let mut closed_views = Vec::with_capacity(initial_views.len());
+        for target in initial_views {
+            if self.close_surface(target)? {
                 closed_views.push(target);
-                continue;
             }
+        }
 
+        let (commit, terminal_incarnation, closed_public_id, runtime, empty_revision, publish) = {
             let mut registry = self.workspace_registry.lock().unwrap();
             let public_id = registry.terminal_resource_id(terminal_id)?;
             let mut state = self.state.lock().unwrap();
-            if let Some(target) = state.surfaces.iter().find_map(|(surface_id, surface)| {
-                self.resource_terminal_host_identity(surface)
-                    .is_some_and(|identity| identity.terminal_id == terminal_id)
-                    .then_some(*surface_id)
-            }) {
-                drop(state);
-                drop(registry);
-                anyhow::ensure!(
-                    self.close_surface(target)?,
-                    "terminal view {target} has no durable tab"
-                );
-                closed_views.push(target);
-                continue;
-            }
+            anyhow::ensure!(
+                !state.surfaces.values().any(|surface| {
+                    self.resource_terminal_host_identity(surface)
+                        .is_some_and(|identity| identity.terminal_id == terminal_id)
+                }),
+                "terminal views changed during close; retry"
+            );
 
             let catalog_public_id = public_id.clone().or_else(|| {
                 state.terminal_catalog.iter().find_map(|(public_id, surface)| {
@@ -6911,8 +6821,8 @@ impl Mux {
             let empty_result = serde_json::json!({});
             let close = registry.close_terminal_with_resource_patch(
                 mutation,
-                None,
-                None,
+                expected_generation,
+                expected_revision,
                 patch.as_ref().map(|_| state.resource_revision),
                 terminal_id,
                 terminal_incarnation,
@@ -6938,14 +6848,14 @@ impl Mux {
                 remove_terminal_content_from_state(self, &mut state, public_id).0
             });
             let empty_revision = state.workspaces.is_empty().then_some(state.workspace_revision);
-            break (
+            (
                 commit,
                 closed_incarnation,
                 catalog_public_id,
                 removed_runtime.or(runtime),
                 empty_revision,
                 publish_resource,
-            );
+            )
         };
         let newly_closed =
             !commit.replayed && !commit.result["already_closed"].as_bool().unwrap_or(false);
