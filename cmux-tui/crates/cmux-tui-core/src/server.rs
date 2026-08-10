@@ -2926,13 +2926,10 @@ impl BoundedOutbound {
     fn recv(&self) -> Option<OutboundItem> {
         let mut state = self.state.lock().unwrap();
         loop {
-            match Self::pop_locked(&mut state) {
-                Some(item) => {
-                    drop(state);
-                    self.changed.notify_all();
-                    return Some(item);
-                }
-                None => {}
+            if let Some(item) = Self::pop_locked(&mut state) {
+                drop(state);
+                self.changed.notify_all();
+                return Some(item);
             }
             if state.closed {
                 return None;
@@ -15130,7 +15127,9 @@ mod tests {
 
         done_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap();
         worker.join().unwrap();
-        assert_eq!(writer.bytes, format!("{response}\n").as_bytes());
+        let mut expected = response.as_bytes().to_vec();
+        expected.push(b'\n');
+        assert_eq!(writer.bytes, expected);
         assert_eq!(writer.flushes, 1);
     }
 
