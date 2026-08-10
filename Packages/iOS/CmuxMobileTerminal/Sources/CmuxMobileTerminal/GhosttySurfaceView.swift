@@ -3510,6 +3510,20 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         viewportReportSettleFrames = 0
     }
 
+    /// Whether this report will release a deferred keyboard-rise shrink.
+    /// The coordinator must retain the last presented IOSurface before sending
+    /// such a report because the Mac can request its replacement replay before
+    /// the viewport RPC returns.
+    public func shouldPreservePresentationForViewportReport(reportID: UInt64) -> Bool {
+        guard reportID == viewportReportID,
+              lastAppliedContainerSize.height > 0 else {
+            return false
+        }
+        let next = viewportSnapshot().containerSize
+        return abs(next.width - lastAppliedContainerSize.width) < 0.5
+            && next.height < lastAppliedContainerSize.height - 0.5
+    }
+
     public func applyViewSize(cols: Int, rows: Int) {
         applyViewSize(cols: cols, rows: rows, confirmedViewportEcho: false)
     }

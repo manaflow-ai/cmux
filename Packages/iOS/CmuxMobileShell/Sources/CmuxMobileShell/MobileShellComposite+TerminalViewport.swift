@@ -32,7 +32,8 @@ extension MobileShellComposite {
         columns: Int,
         rows: Int,
         renderEpoch: String?,
-        renderRevisionFloor: UInt64?
+        renderRevisionFloor: UInt64?,
+        replayRequested: Bool
     )? {
         guard let preparation = prepareTerminalViewport(
             surfaceID: surfaceID,
@@ -91,7 +92,8 @@ extension MobileShellComposite {
         columns: Int,
         rows: Int,
         renderEpoch: String?,
-        renderRevisionFloor: UInt64?
+        renderRevisionFloor: UInt64?,
+        replayRequested: Bool
     )? {
         let preparedWorkspaceID = preparation.workspaceID
         let surfaceID = preparation.surfaceID
@@ -155,8 +157,10 @@ extension MobileShellComposite {
             let previousGrid = effectiveViewportSizesBySurfaceID[surfaceID]
             effectiveViewportSizesBySurfaceID[surfaceID] = effectiveGrid
             let shouldRequestReplay = previousGrid.map { $0 != effectiveGrid } ?? true
+            var replayRequested = false
             if shouldRequestReplay,
                hasTerminalOutputSink(surfaceID: surfaceID) {
+                replayRequested = true
                 let replayBarrierToken: UUID
                 if let prearmedToken = prearmedReplayBarrierToken,
                    terminalReplayBarrierTokensBySurfaceID[surfaceID] == prearmedToken {
@@ -183,6 +187,7 @@ extension MobileShellComposite {
                       terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil,
                       terminalReplayFailureRetryExhausted(surfaceID: surfaceID),
                       hasTerminalOutputSink(surfaceID: surfaceID) {
+                replayRequested = true
                 // A previous resize replay exhausted its retries and preserved
                 // its barrier, and the grid maps already record this geometry
                 // as settled — so no later same-size report would otherwise
@@ -203,7 +208,8 @@ extension MobileShellComposite {
                 columns: grid.columns,
                 rows: grid.rows,
                 renderEpoch: payload.renderEpoch,
-                renderRevisionFloor: payload.renderRevisionFloor
+                renderRevisionFloor: payload.renderRevisionFloor,
+                replayRequested: replayRequested
             )
         } catch {
             guard viewportReportGenerationsBySurfaceID[surfaceID] == requestGeneration else {

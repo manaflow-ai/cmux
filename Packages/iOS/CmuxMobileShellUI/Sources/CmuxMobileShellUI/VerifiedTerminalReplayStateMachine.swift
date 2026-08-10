@@ -17,6 +17,7 @@ final class VerifiedTerminalReplayStateMachine {
     private var phase = Phase.ready
     private var nextTransactionID: UInt64 = 0
     private var activeTransaction: Transaction?
+    private var pendingViewportTransitionID: UInt64?
     private var activeRenderEpoch: String?
     private var retiredRenderEpochs = Set<String>()
     private var lastVerifiedRenderRevision: UInt64 = 0
@@ -92,6 +93,7 @@ final class VerifiedTerminalReplayStateMachine {
             stateSeq: frame.stateSeq,
             expected: expected
         )
+        pendingViewportTransitionID = nil
         activeTransaction = transaction
         phase = .verifying
         return .apply(transaction)
@@ -134,9 +136,34 @@ final class VerifiedTerminalReplayStateMachine {
     /// output that verified transport refused before it could form a frame.
     func rejectUnverifiedOutput() -> UInt64 {
         nextTransactionID &+= 1
+        pendingViewportTransitionID = nil
         activeTransaction = nil
         phase = .recovering
         return nextTransactionID
+    }
+
+    /// Prearms atomic presentation before a viewport RPC can resize the Mac PTY.
+    /// The caller retains the current IOSurface under this token until the RPC
+    /// either confirms that a replacement replay is coming or resolves without one.
+    func beginViewportTransition() -> UInt64 {
+        nextTransactionID &+= 1
+        activeTransaction = nil
+        pendingViewportTransitionID = nextTransactionID
+        phase = .recovering
+        return nextTransactionID
+    }
+
+    /// Releases a prearmed transition only when no replay replaced its token.
+    @discardableResult
+    func cancelViewportTransition(transactionID: UInt64) -> Bool {
+        guard pendingViewportTransitionID == transactionID,
+              activeTransaction == nil,
+              phase != .invalidated else {
+            return false
+        }
+        pendingViewportTransitionID = nil
+        phase = .ready
+        return true
     }
 
     /// Orders viewport acknowledgements against frame captures from the same
@@ -160,6 +187,7 @@ final class VerifiedTerminalReplayStateMachine {
     func invalidate() {
         nextTransactionID &+= 1
         activeTransaction = nil
+        pendingViewportTransitionID = nil
         visibleSnapshot = nil
         activeRenderEpoch = nil
         retiredRenderEpochs.removeAll()

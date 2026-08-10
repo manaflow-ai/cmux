@@ -204,14 +204,14 @@ struct VerifiedTerminalReplayStateMachineTests {
 
         let viewportTransactionID = machine.beginViewportTransition()
         #expect(machine.isFrozen)
-        #expect(machine.visibleSnapshot?.rows.first?.plainText == "last good frame")
+        #expect(machine.visibleSnapshot?.rows.first?.first?.text == "last good frame")
 
         machine.acknowledgeViewport(
             renderEpoch: "epoch-keyboard",
             renderRevisionFloor: 20
         )
         #expect(machine.isFrozen)
-        #expect(machine.visibleSnapshot?.rows.first?.plainText == "last good frame")
+        #expect(machine.visibleSnapshot?.rows.first?.first?.text == "last good frame")
 
         let keyboardHeight = try frame(
             renderEpoch: "epoch-keyboard",
@@ -224,14 +224,14 @@ struct VerifiedTerminalReplayStateMachineTests {
             extractTransaction(from: machine.begin(frame: keyboardHeight))
         )
         #expect(replacement.id != viewportTransactionID)
-        #expect(machine.visibleSnapshot?.rows.first?.plainText == "last good frame")
+        #expect(machine.visibleSnapshot?.rows.first?.first?.text == "last good frame")
         #expect(
             machine.complete(
                 transactionID: replacement.id,
                 observedFrame: keyboardHeight
             ) == .reveal
         )
-        #expect(machine.visibleSnapshot?.rows.first?.plainText == "replacement frame")
+        #expect(machine.visibleSnapshot?.rows.first?.first?.text == "replacement frame")
         #expect(!machine.isFrozen)
     }
 
@@ -245,7 +245,7 @@ struct VerifiedTerminalReplayStateMachineTests {
         #expect(machine.isFrozen)
         #expect(machine.cancelViewportTransition(transactionID: transactionID))
         #expect(!machine.isFrozen)
-        #expect(machine.visibleSnapshot?.rows.first?.plainText == "stable frame")
+        #expect(machine.visibleSnapshot?.rows.first?.first?.text == "stable frame")
     }
 
     @Test("a width change presents only the old or fully verified new grid")

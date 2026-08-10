@@ -364,6 +364,15 @@ extension GhosttySurfaceView {
         return true
     }
 
+    /// Cancels a prearmed viewport freeze only if no replay transaction has
+    /// replaced its ownership token.
+    @discardableResult
+    public func cancelVerifiedReplayPresentation(transactionID: UInt64) -> Bool {
+        guard verifiedReplayFrozenTransactionID == transactionID else { return false }
+        clearVerifiedReplayPresentation()
+        return true
+    }
+
     /// Exports the locally reconstructed Ghostty grid, submits a Metal frame,
     /// and resumes only after that target reaches the presentation tree.
     public func presentVerifiedReplayAndReadBack(

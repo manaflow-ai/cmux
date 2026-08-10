@@ -210,6 +210,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// re-pinning the phone to the stale smaller grid (empty space above
         /// the terminal). Built on attach, torn down on detach.
         var viewportReportScheduler: TerminalViewportReportScheduler?
+        private var viewportFreezeTransactionsByReportID: [UInt64: UInt64] = [:]
         /// Bumped on every mount/unmount transition so a deferred close completion
         /// can tell whether it is still the latest transition. Guards the
         /// close-then-quickly-reopen race: an interrupted close animation still runs
@@ -273,6 +274,18 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             viewportReportScheduler = TerminalViewportReportScheduler(
                 send: { [weak self] report in
                     guard let self, let store = self.store else { return nil }
+                    if surfaceView.shouldPreservePresentationForViewportReport(reportID: report.id) {
+                        let transactionID = self.verifiedReplayState.beginViewportTransition()
+                        if await surfaceView.freezeVerifiedReplayPresentation(
+                            transactionID: transactionID
+                        ) {
+                            self.viewportFreezeTransactionsByReportID[report.id] = transactionID
+                        } else {
+                            _ = self.verifiedReplayState.cancelViewportTransition(
+                                transactionID: transactionID
+                            )
+                        }
+                    }
                     if let preparation = self.preparedViewportReportsByReportID.removeValue(
                         forKey: report.id
                     ) {
@@ -287,6 +300,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 apply: { [weak self, weak surfaceView] report, effectiveGrid in
                     guard let self, let surfaceView else { return }
                     guard let effectiveGrid else {
+                        self.cancelViewportFreeze(for: report.id, on: surfaceView)
                         // No effective grid came back (RPC timed out or
                         // returned nil). Left unhandled, the render stays
                         // pinned to the prior effective grid and looks like a
@@ -313,6 +327,11 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                             rows: effectiveGrid.rows,
                             reportID: report.id
                         )
+                    }
+                    if !effectiveGrid.replayRequested {
+                        self.cancelViewportFreeze(for: report.id, on: surfaceView)
+                    } else {
+                        self.viewportFreezeTransactionsByReportID.removeValue(forKey: report.id)
                     }
                 }
             )
@@ -476,11 +495,23 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             surfaceView.requestViewportReportForMount()
         }
 
+        private func cancelViewportFreeze(
+            for reportID: UInt64,
+            on surfaceView: GhosttySurfaceView
+        ) {
+            guard let transactionID = viewportFreezeTransactionsByReportID.removeValue(
+                forKey: reportID
+            ) else { return }
+            _ = verifiedReplayState.cancelViewportTransition(transactionID: transactionID)
+            _ = surfaceView.cancelVerifiedReplayPresentation(transactionID: transactionID)
+        }
+
         private func stopMountedTasks() {
             clickGeneration &+= 1
             outputStartContinuation?.finish()
             outputStartContinuation = nil
             preparedViewportReportsByReportID.removeAll()
+            viewportFreezeTransactionsByReportID.removeAll()
             outputTask?.cancel()
             outputTask = nil
             verifiedReplayState.invalidate()

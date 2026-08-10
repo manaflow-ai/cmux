@@ -50,11 +50,12 @@ public final class TerminalViewportReportScheduler {
         columns: Int,
         rows: Int,
         renderEpoch: String?,
-        renderRevisionFloor: UInt64?
+        renderRevisionFloor: UInt64?,
+        replayRequested: Bool
     )
 
     private let send: @MainActor (Report) async -> EffectiveGrid?
-    private let apply: @MainActor (Report, EffectiveGrid?) -> Void
+    private let apply: @MainActor (Report, EffectiveGrid?) async -> Void
     private var pending: Report?
     private var draining = false
     /// The drain loop, stored so teardown can cancel it explicitly instead of
@@ -76,7 +77,7 @@ public final class TerminalViewportReportScheduler {
     ///     the report retry).
     public init(
         send: @escaping @MainActor (Report) async -> EffectiveGrid?,
-        apply: @escaping @MainActor (Report, EffectiveGrid?) -> Void
+        apply: @escaping @MainActor (Report, EffectiveGrid?) async -> Void
     ) {
         self.send = send
         self.apply = apply
@@ -108,7 +109,7 @@ public final class TerminalViewportReportScheduler {
                 // echo is stale by construction. Skip it; the loop sends the
                 // newer report next.
                 if self.pending == nil {
-                    self.apply(next, effective)
+                    await self.apply(next, effective)
                 }
             }
             self?.draining = false
