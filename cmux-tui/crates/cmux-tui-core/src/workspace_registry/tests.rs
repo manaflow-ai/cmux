@@ -5171,12 +5171,17 @@ fn journal_agent_new_socket_session_replaces_old_hook_session() {
 
 #[test]
 fn journal_agent_socket_replaces_hook_when_session_identity_is_missing() {
-    let mut registry = WorkspaceRegistry::in_memory("journal-agent-socket-missing-session").unwrap();
+    let mut registry =
+        WorkspaceRegistry::in_memory("journal-agent-socket-missing-session").unwrap();
     commit_terminal_topology(&mut registry, "journal-agent-socket-missing-session-topology");
     let terminal_id = terminal_resource(TERMINAL_ONE);
-    let ingress =
-        crate::agent_hook_journal_ingress("pi", "agent_start", Some(terminal_id.as_str()), json!({}))
-            .unwrap();
+    let ingress = crate::agent_hook_journal_ingress(
+        "pi",
+        "agent_start",
+        Some(terminal_id.as_str()),
+        json!({}),
+    )
+    .unwrap();
     let validated = crate::journal_kernel::ValidatedJournalIngress {
         class: JournalClass::Observation,
         replay: JournalReplayPolicy::Advisory,
@@ -5203,11 +5208,7 @@ fn journal_agent_socket_replaces_hook_when_session_identity_is_missing() {
     });
     registry
         .commit_agent_projection(
-            &WorkspaceMutation::new(
-                "journal-agent-socket-missing-session",
-                "socket-test",
-            )
-            .unwrap(),
+            &WorkspaceMutation::new("journal-agent-socket-missing-session", "socket-test").unwrap(),
             &json!({"source_session":null}),
             Some(1),
             &terminal_id,
