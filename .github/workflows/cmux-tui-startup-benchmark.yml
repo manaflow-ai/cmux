@@ -231,7 +231,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          system_profiler SPHardwareDataType -json > "$ARTIFACT_DIR/runner-hardware.json"
+          system_profiler SPHardwareDataType -json | python3 -c '
+          import json
+          import sys
+
+          source = json.load(sys.stdin).get("SPHardwareDataType", [])
+          allowed = {
+              "chip_type",
+              "machine_model",
+              "machine_name",
+              "number_processors",
+              "physical_memory",
+          }
+          records = [{key: value for key, value in record.items() if key in allowed} for record in source]
+          json.dump({"SPHardwareDataType": records}, sys.stdout, indent=2)
+          print()
+          ' > "$ARTIFACT_DIR/runner-hardware.json"
           {
             sw_vers
             uname -a
@@ -257,9 +272,13 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $metadata = [ordered]@{
-            ComputerSystem = Get-CimInstance Win32_ComputerSystem
-            OperatingSystem = Get-CimInstance Win32_OperatingSystem
-            Processors = @(Get-CimInstance Win32_Processor)
+            ComputerSystem = Get-CimInstance Win32_ComputerSystem |
+              Select-Object Manufacturer, Model, SystemType, TotalPhysicalMemory,
+                NumberOfProcessors, NumberOfLogicalProcessors
+            OperatingSystem = Get-CimInstance Win32_OperatingSystem |
+              Select-Object Caption, Version, BuildNumber, OSArchitecture
+            Processors = @(Get-CimInstance Win32_Processor |
+              Select-Object Name, NumberOfCores, NumberOfLogicalProcessors, MaxClockSpeed)
           }
           $metadata | ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8 "$env:ARTIFACT_DIR/runner-hardware.json"
           @(
