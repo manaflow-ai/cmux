@@ -9041,10 +9041,19 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     ) -> BrowserPanel? {
         // A remote tmux mirror workspace is a 1:1 view of a tmux session (which
         // has no browser concept), so a browser tab inside the mirror tree would
-        // be an orphan the mirror's rebuild() never reconciles. Instead, route to
-        // the single per-session browser split that lives beside the mirror.
+        // be an orphan the mirror's rebuild() never reconciles. Route a generic
+        // browser open (globe on a tmux pane, link-open, etc.) to the single
+        // per-session browser split beside the mirror — BUT allow a real new tab
+        // WITHIN that browser pane (e.g. "open link in a new tab"), which targets
+        // the browser pane itself; otherwise the new-tab request would collapse
+        // into navigating the existing browser.
         if isRemoteTmuxMirror {
-            return openRemoteTmuxSessionBrowser(url: url ?? initialRequest?.url, focus: focus ?? true)
+            let sessionBrowserPane = remoteTmuxSessionBrowserPanelId.flatMap { self.paneId(forPanelId: $0) }
+            if sessionBrowserPane == nil || paneId != sessionBrowserPane {
+                return openRemoteTmuxSessionBrowser(url: url ?? initialRequest?.url, focus: focus ?? true)
+            }
+            // Target is the existing browser pane → fall through to add a normal
+            // browser tab there.
         }
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         // Under an MDM-managed disable no path may create a browser panel,
