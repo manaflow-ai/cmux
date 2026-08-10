@@ -1951,12 +1951,23 @@ mod tests {
                 "descendant fixture did not become ready"
             );
         }
-        let detached_ready = surface.subscribe_terminal_stream_change().unwrap();
         surface.write_bytes(b"ready\n").unwrap();
-        assert!(
-            detached_ready.wait_until(Some(ready_deadline)),
-            "descendant fixture did not publish its pid"
-        );
+        loop {
+            let observed = surface.terminal_stream_revision().unwrap();
+            if surface
+                .with_terminal(|term| term.viewport_text().unwrap().contains("detached-ready"))
+                .unwrap()
+            {
+                break;
+            }
+            assert!(
+                surface
+                    .wait_for_terminal_stream_change(observed, Some(ready_deadline))
+                    .unwrap()
+                    .is_some(),
+                "descendant fixture did not publish its pid"
+            );
+        }
         let descendant_pid = std::fs::read_to_string(&descendant_pid_path)
             .unwrap()
             .trim()
@@ -1982,7 +1993,6 @@ mod tests {
             "terminal reader did not signal descendant cleanup"
         );
         assert!(surface.is_dead(), "terminal reader did not stop after descendant cleanup");
-        drop(detached_ready);
         drop(surface);
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
