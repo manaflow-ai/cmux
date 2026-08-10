@@ -49,8 +49,10 @@ struct AgentFeedPreviewConfiguration {
         switch scenario {
         case .empty:
             return Self(scenario: scenario, items: [], status: .loading, filter: .needsInput, hostEventCount: 0)
-        case .mixed, .japanese, .accessibility:
+        case .mixed, .accessibility:
             return Self(scenario: scenario, items: mixedItems, status: .ready, filter: .allActivity, hostEventCount: 12)
+        case .japanese:
+            return Self(scenario: scenario, items: japaneseItems, status: .ready, filter: .allActivity, hostEventCount: 1)
         case .newActivity:
             return Self(scenario: scenario, items: activityItems, status: .ready, filter: .allActivity, hostEventCount: 36)
         case .reply:
@@ -98,6 +100,36 @@ struct AgentFeedPreviewConfiguration {
             supportedModes: ["once", "always", "deny"]
         )
     )
+
+    static var japaneseItems: [MobileAgentFeedItem] {
+        [item(
+            id: 111,
+            source: "codex",
+            kind: "permissionRequest",
+            title: AgentFeedL10n.string(
+                "mobile.agentFeed.fixture.japanese.title",
+                defaultValue: "Codex is requesting permission"
+            ),
+            payload: .permission(
+                requestID: "permission-111",
+                toolName: AgentFeedL10n.string(
+                    "mobile.agentFeed.fixture.japanese.tool",
+                    defaultValue: "Shell command"
+                ),
+                safeInput: AgentFeedL10n.string(
+                    "mobile.agentFeed.fixture.japanese.input",
+                    defaultValue: "Command: run focused verification"
+                ),
+                supportedModes: ["once", "always", "deny"]
+            ),
+            macDisplayName: AgentFeedL10n.string(
+                "mobile.agentFeed.fixture.japanese.computer",
+                defaultValue: "Development Mac"
+            ),
+            workstreamID: "検証-1",
+            cwd: "/プロジェクト/エージェントフィード"
+        )]
+    }
 
     static let planItem = item(
         id: 102,
@@ -306,7 +338,10 @@ struct AgentFeedPreviewConfiguration {
         status: MobileWorkstreamFeedStatus = .pending,
         payload: MobileWorkstreamFeedPayload,
         macIndex: Int = 0,
-        connectionStatus: MobileMacConnectionStatus = .connected
+        connectionStatus: MobileMacConnectionStatus = .connected,
+        macDisplayName: String? = nil,
+        workstreamID: String? = nil,
+        cwd: String? = "/cmux/worktrees/agent-feed"
     ) -> MobileAgentFeedItem {
         let date = Date(timeIntervalSince1970: 1_800_000_000 - minutesAgo * 60)
         let uuid = UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", id))!
@@ -315,7 +350,7 @@ struct AgentFeedPreviewConfiguration {
         case 1: "mac-studio"
         default: "mac-\(macIndex + 1)"
         }
-        let macDisplayName = switch macIndex {
+        let defaultMacDisplayName = switch macIndex {
         case 0: "MacBook Pro"
         case 1: "Studio"
         default: "Mac \(macIndex + 1)"
@@ -323,16 +358,16 @@ struct AgentFeedPreviewConfiguration {
         return MobileAgentFeedItem(
             macDeviceID: macDeviceID,
             macInstanceTag: "fixture",
-            macDisplayName: macDisplayName,
+            macDisplayName: macDisplayName ?? defaultMacDisplayName,
             connectionStatus: connectionStatus,
             wire: MobileWorkstreamFeedListItem(
                 id: uuid,
-                workstreamID: "\(source)-fixture-\(macIndex + 1)",
+                workstreamID: workstreamID ?? "\(source)-fixture-\(macIndex + 1)",
                 source: source,
                 kind: kind,
                 createdAt: date,
                 updatedAt: date,
-                cwd: "/cmux/worktrees/agent-feed",
+                cwd: cwd,
                 title: title,
                 workspaceID: "workspace-\(macIndex + 1)",
                 surfaceID: "surface-\(id)",

@@ -18,12 +18,15 @@ final class AgentFeedUITests: XCTestCase {
         ]
         makeHittable(permissionExpand, in: app)
         permissionExpand.tap()
-        let allowOnce = app.buttons[
-            "MobileAgentFeedPermission-once-macbook-00000000-0000-0000-0000-000000000101"
+        let deny = app.buttons[
+            "MobileAgentFeedPermission-deny-macbook-00000000-0000-0000-0000-000000000101"
         ]
-        XCTAssertTrue(allowOnce.waitForExistence(timeout: 3))
-        allowOnce.tap()
-        XCTAssertTrue(permissionCard.waitForNonExistence(timeout: 3))
+        XCTAssertTrue(deny.waitForExistence(timeout: 3))
+        XCTAssertTrue(deny.isHittable)
+        deny.tap()
+        XCTAssertTrue(permissionCard.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["Resolved: Deny"].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.descendants(matching: .any)["MobileAgentFeedPreviewAgentDestination"].exists)
 
         let planOpen = app.buttons[
             "MobileAgentFeedOpenAgent-mac-studio-00000000-0000-0000-0000-000000000102"
@@ -73,7 +76,7 @@ final class AgentFeedUITests: XCTestCase {
         var app = launchFixture(scenario: "stress")
         var marker = app.descendants(matching: .any)["AgentFeedScenario-stress"]
         XCTAssertTrue(marker.waitForExistence(timeout: 8))
-        XCTAssertTrue(marker.value as? String == "host events 2400, rendered items 2000")
+        XCTAssertTrue(marker.value as? String == "2400/2000")
         app.terminate()
 
         app = launchFixture(scenario: "offline")
@@ -90,9 +93,37 @@ final class AgentFeedUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchFixture(scenario: String = "mixed") -> XCUIApplication {
+    func testAgentFeedJapaneseLocalizationAndAccessibilityLayout() throws {
+        var app = launchFixture(scenario: "japanese", language: "ja", locale: "ja_JP")
+        XCTAssertTrue(app.navigationBars["フィード"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.tabBars.buttons["フィード"].isSelected)
+        XCTAssertTrue(app.staticTexts["入力が必要"].exists)
+        XCTAssertTrue(app.staticTexts["Codexが権限をリクエストしています"].exists)
+        XCTAssertTrue(app.buttons["エージェントを開く"].exists)
+        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'japanese' OR label CONTAINS 'host='")).firstMatch.exists)
+        app.terminate()
+
+        app = launchFixture(scenario: "accessibility")
+        let source = app.staticTexts["Codex"]
+        let status = app.staticTexts["Needs input"]
+        XCTAssertTrue(source.waitForExistence(timeout: 8))
+        XCTAssertTrue(status.exists)
+        XCTAssertEqual(source.label, "Codex")
+        XCTAssertEqual(status.label, "Needs input")
+        let filter = app.descendants(matching: .any)["MobileAgentFeedFilter"]
+        XCTAssertTrue(filter.exists)
+        XCTAssertTrue(filter.isHittable)
+        app.terminate()
+    }
+
+    @MainActor
+    private func launchFixture(
+        scenario: String = "mixed",
+        language: String = "en",
+        locale: String = "en_US"
+    ) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchArguments = ["-AppleLanguages", "(\(language))", "-AppleLocale", locale]
         app.launchEnvironment["CMUX_UITEST_AGENT_FEED_PREVIEW"] = "1"
         app.launchEnvironment["CMUX_UITEST_AGENT_FEED_SCENARIO"] = scenario
         app.launch()

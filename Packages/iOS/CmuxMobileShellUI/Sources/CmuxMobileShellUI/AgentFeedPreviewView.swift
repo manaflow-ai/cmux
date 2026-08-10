@@ -32,7 +32,7 @@ public struct AgentFeedPreviewView: View {
             searchCoordinator: searchCoordinator,
             notificationUnreadCount: items.lazy.filter(\.isActionable).count
         ) {
-            Text(L10n.string("mobile.agentFeed.fixture.title", defaultValue: "Agent Feed fixture"))
+            Text(AgentFeedL10n.string("mobile.agentFeed.fixture.title", defaultValue: "Agent Feed fixture"))
         } notifications: {
             NavigationStack {
                 scenarioFeed
@@ -46,12 +46,12 @@ public struct AgentFeedPreviewView: View {
                             Text(openedItem?.wire.workspaceID ?? "")
                             Text(openedItem?.wire.surfaceID ?? "")
                         }
-                        .navigationTitle(L10n.string("mobile.agentFeed.fixture.agent", defaultValue: "Agent"))
+                        .navigationTitle(AgentFeedL10n.string("mobile.agentFeed.fixture.agent", defaultValue: "Agent"))
                         .accessibilityIdentifier("MobileAgentFeedPreviewAgentDestination")
                     }
             }
         } workspaceSearch: {
-            Text(L10n.string("mobile.agentFeed.fixture.title", defaultValue: "Agent Feed fixture"))
+            Text(AgentFeedL10n.string("mobile.agentFeed.fixture.title", defaultValue: "Agent Feed fixture"))
         } notificationSearch: {
             scenarioFeed
         }
@@ -68,13 +68,11 @@ public struct AgentFeedPreviewView: View {
     }
 
     private var scenarioMarker: some View {
-        Text("\(scenario.rawValue) · host=\(hostEventCount) · rendered=\(items.count)")
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal)
+        Color.clear
+            .frame(height: 1)
+            .accessibilityElement(children: .ignore)
             .accessibilityIdentifier("AgentFeedScenario-\(scenario.rawValue)")
-            .accessibilityValue("host events \(hostEventCount), rendered items \(items.count)")
+            .accessibilityValue("\(hostEventCount)/\(items.count)")
     }
 
     @ViewBuilder

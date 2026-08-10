@@ -1502,6 +1502,34 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "エージェントフィードのフィクスチャ" } }
       }
     },
+    "mobile.agentFeed.fixture.japanese.computer" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Development Mac" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "開発用Mac" } }
+      }
+    },
+    "mobile.agentFeed.fixture.japanese.input" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Command: run focused verification" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "コマンド: 対象を絞った検証を実行" } }
+      }
+    },
+    "mobile.agentFeed.fixture.japanese.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Codex is requesting permission" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Codexが権限をリクエストしています" } }
+      }
+    },
+    "mobile.agentFeed.fixture.japanese.tool" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Shell command" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "シェルコマンド" } }
+      }
+    },
     "mobile.agentFeed.openAgent" : {
       "extractionState" : "manual",
       "localizations" : {

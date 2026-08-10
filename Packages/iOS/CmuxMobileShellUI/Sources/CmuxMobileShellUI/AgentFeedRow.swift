@@ -57,15 +57,16 @@ struct AgentFeedRow: View, Equatable {
                 if item.wire.workspaceID != nil, item.wire.surfaceID != nil {
                     Button(action: actions.open) {
                         Label(
-                            L10n.string("mobile.agentFeed.openAgent", defaultValue: "Open Agent"),
+                            AgentFeedL10n.string("mobile.agentFeed.openAgent", defaultValue: "Open Agent"),
                             systemImage: "terminal"
                         )
                     }
                     .frame(minHeight: 44)
+                    .buttonStyle(.borderless)
                     .disabled(!interactionsEnabled)
                     .accessibilityIdentifier("MobileAgentFeedOpenAgent-\(suffix)")
                 } else {
-                    Text(L10n.string("mobile.agentFeed.targetUnavailable", defaultValue: "Agent location unavailable"))
+                    Text(AgentFeedL10n.string("mobile.agentFeed.targetUnavailable", defaultValue: "Agent location unavailable"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -76,8 +77,8 @@ struct AgentFeedRow: View, Equatable {
         .accessibilityLabel(accessibilityLabel)
         .accessibilityIdentifier("MobileAgentFeedCard-\(suffix)")
         .accessibilityAction(named: isExpanded
-            ? L10n.string("mobile.agentFeed.card.collapse", defaultValue: "Collapse details")
-            : L10n.string("mobile.agentFeed.card.expand", defaultValue: "Expand details")) {
+            ? AgentFeedL10n.string("mobile.agentFeed.card.collapse", defaultValue: "Collapse details")
+            : AgentFeedL10n.string("mobile.agentFeed.card.expand", defaultValue: "Expand details")) {
             actions.toggleExpanded()
         }
     }
@@ -99,7 +100,7 @@ struct AgentFeedRow: View, Equatable {
                 if let summary { Text(summary).font(.headline) }
                 Text(plan).font(.body).textSelection(.enabled)
                 TextField(
-                    L10n.string("mobile.agentFeed.plan.feedback", defaultValue: "Request changes"),
+                    AgentFeedL10n.string("mobile.agentFeed.plan.feedback", defaultValue: "Request changes"),
                     text: Binding(get: { planFeedback }, set: { actions.setPlanFeedback($0) }),
                     axis: .vertical
                 )
@@ -113,16 +114,17 @@ struct AgentFeedRow: View, Equatable {
             }
         case .question(_, let questions):
             if questions.isEmpty {
-                Text(L10n.string("mobile.agentFeed.question.malformed", defaultValue: "This question could not be displayed. Open the agent to respond."))
+                Text(AgentFeedL10n.string("mobile.agentFeed.question.malformed", defaultValue: "This question could not be displayed. Open the agent to respond."))
                     .foregroundStyle(.secondary)
             } else {
                 VStack(alignment: .leading, spacing: 14) {
                     ForEach(questions) { question in questionView(question) }
-                    Button(L10n.string("mobile.agentFeed.question.submit", defaultValue: "Submit Answers")) {
+                    Button(AgentFeedL10n.string("mobile.agentFeed.question.submit", defaultValue: "Submit Answers")) {
                         actions.decide(.question(selections: encodedQuestionAnswers(questions)))
                     }
                     .disabled(!interactionsEnabled || isSending || !questionsAreValid(questions))
                     .frame(minHeight: 44)
+                    .buttonStyle(.borderless)
                     .accessibilityIdentifier("MobileAgentFeedQuestionSubmit-\(suffix)")
                 }
             }
@@ -141,6 +143,7 @@ struct AgentFeedRow: View, Equatable {
             Button(AgentFeedCopy.permissionModeLabel(mode)) { actions.decide(.permission(mode: mode)) }
                 .disabled(!interactionsEnabled || isSending || !item.wire.status.isPending)
                 .frame(minHeight: 44)
+                .buttonStyle(.borderless)
                 .accessibilityIdentifier("MobileAgentFeedPermission-\(mode)-\(suffix)")
         }
     }
@@ -156,6 +159,7 @@ struct AgentFeedRow: View, Equatable {
             }
             .disabled(!interactionsEnabled || isSending || !item.wire.status.isPending)
             .frame(minHeight: 44)
+            .buttonStyle(.borderless)
             .accessibilityIdentifier("MobileAgentFeedPlan-\(mode)-\(suffix)")
         }
     }
@@ -163,16 +167,17 @@ struct AgentFeedRow: View, Equatable {
     private var replyComposer: some View {
         VStack(alignment: .leading, spacing: 8) {
             TextField(
-                L10n.string("mobile.agentFeed.reply.placeholder", defaultValue: "Reply to this agent"),
+                AgentFeedL10n.string("mobile.agentFeed.reply.placeholder", defaultValue: "Reply to this agent"),
                 text: Binding(get: { draft }, set: { actions.setDraft($0) }),
                 axis: .vertical
             )
             .lineLimit(2...8)
             .disabled(!interactionsEnabled || isSending)
             .accessibilityIdentifier("MobileAgentFeedReplyComposer-\(suffix)")
-            Button(L10n.string("mobile.agentFeed.reply.send", defaultValue: "Send Reply"), action: actions.reply)
+            Button(AgentFeedL10n.string("mobile.agentFeed.reply.send", defaultValue: "Send Reply"), action: actions.reply)
                 .disabled(!interactionsEnabled || isSending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || item.wire.surfaceID == nil)
                 .frame(minHeight: 44)
+                .buttonStyle(.borderless)
                 .accessibilityIdentifier("MobileAgentFeedReplySubmit-\(suffix)")
         }
     }
@@ -207,7 +212,7 @@ struct AgentFeedRow: View, Equatable {
                 .accessibilityIdentifier("MobileAgentFeedQuestion-\(question.id)-\(option.id)-\(suffix)")
             }
             TextField(
-                L10n.string("mobile.agentFeed.question.other", defaultValue: "Other"),
+                AgentFeedL10n.string("mobile.agentFeed.question.other", defaultValue: "Other"),
                 text: Binding(
                     get: { otherAnswers[question.id] ?? "" },
                     set: { actions.setOtherAnswer(question.id, $0) }
@@ -253,11 +258,11 @@ struct AgentFeedRow: View, Equatable {
         switch mutationState {
         case .idle: EmptyView()
         case .sending:
-            Label(L10n.string("mobile.agentFeed.status.sending", defaultValue: "Sending…"), systemImage: "paperplane")
+            Label(AgentFeedL10n.string("mobile.agentFeed.status.sending", defaultValue: "Sending…"), systemImage: "paperplane")
                 .font(.caption)
                 .accessibilityIdentifier("MobileAgentFeedSending-\(suffix)")
         case .failed:
-            Label(L10n.string("mobile.agentFeed.status.failed", defaultValue: "Failed. Try again."), systemImage: "exclamationmark.circle")
+            Label(AgentFeedL10n.string("mobile.agentFeed.status.failed", defaultValue: "Failed. Try again."), systemImage: "exclamationmark.circle")
                 .font(.caption).foregroundStyle(.red)
                 .accessibilityIdentifier("MobileAgentFeedFailed-\(suffix)")
         }
@@ -272,34 +277,69 @@ struct AgentFeedRow: View, Equatable {
 private struct AgentFeedRowHeader: View {
     let item: MobileAgentFeedItem
     let isExpanded: Bool
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     var body: some View {
-        HStack(alignment: .firstTextBaseline) {
+        HStack(alignment: .top, spacing: 10) {
             Image(systemName: item.wire.status.isPending ? "exclamationmark.bubble.fill" : "bubble.left.and.text.bubble.right")
             VStack(alignment: .leading) {
-                HStack {
-                    Text(AgentFeedCopy.sourceLabel(item.wire.source)).font(.headline)
-                    Text(AgentFeedCopy.statusLabel(item.wire.status))
-                        .font(.caption2.weight(.semibold))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(.secondary.opacity(0.12), in: Capsule())
+                if dynamicTypeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: 5) {
+                        sourceLabel
+                        statusLabel
+                    }
+                } else {
+                    HStack {
+                        sourceLabel
+                        statusLabel
+                    }
                 }
-                Text(String(
-                    format: L10n.string(
-                        "mobile.agentFeed.card.computerContext",
-                        defaultValue: "%@ · %@ · %@"
-                    ),
-                    item.macDisplayName,
-                    item.connectionStatus.label,
-                    item.wire.workstreamID
-                ))
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                Text(computerContext)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
+                    .fixedSize(horizontal: false, vertical: dynamicTypeSize.isAccessibilitySize)
+                if dynamicTypeSize.isAccessibilitySize { relativeTime }
             }
-            Spacer()
-            Text(item.wire.createdAt, format: .relative(presentation: .named, unitsStyle: .abbreviated))
-                .font(.caption2).foregroundStyle(.secondary)
+            Spacer(minLength: 8)
+            if !dynamicTypeSize.isAccessibilitySize { relativeTime }
             Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                .padding(.top, 3)
         }
+    }
+
+    private var sourceLabel: some View {
+        Text(AgentFeedCopy.sourceLabel(item.wire.source))
+            .font(.headline)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var statusLabel: some View {
+        Text(AgentFeedCopy.statusLabel(item.wire.status))
+            .font(.caption2.weight(.semibold))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(.secondary.opacity(0.12), in: Capsule())
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var computerContext: String {
+        String(
+            format: AgentFeedL10n.string(
+                "mobile.agentFeed.card.computerContext",
+                defaultValue: "%@ · %@ · %@"
+            ),
+            item.macDisplayName,
+            item.connectionStatus.label,
+            item.wire.workstreamID
+        )
+    }
+
+    private var relativeTime: some View {
+        Text(item.wire.createdAt, format: .relative(presentation: .named, unitsStyle: .abbreviated))
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -316,7 +356,7 @@ private struct AgentFeedContext: View {
                let decision = AgentFeedCopy.decisionLabel(decision) {
                 Text(
                     String(
-                        format: L10n.string(
+                        format: AgentFeedL10n.string(
                             "mobile.agentFeed.card.resolution",
                             defaultValue: "Resolved: %@"
                         ),
@@ -334,24 +374,24 @@ private struct AgentFeedContext: View {
 private struct AgentFeedCopy {
     static func statusLabel(_ status: MobileWorkstreamFeedStatus) -> String {
         switch status {
-        case .pending: L10n.string("mobile.agentFeed.card.pending", defaultValue: "Needs input")
-        case .resolved: L10n.string("mobile.agentFeed.card.resolved", defaultValue: "Resolved")
-        case .expired: L10n.string("mobile.agentFeed.card.expired", defaultValue: "Expired")
-        case .telemetry: L10n.string("mobile.agentFeed.card.activity", defaultValue: "Activity")
-        case .unknown: L10n.string("mobile.agentFeed.card.unknown", defaultValue: "Unknown status")
+        case .pending: AgentFeedL10n.string("mobile.agentFeed.card.pending", defaultValue: "Needs input")
+        case .resolved: AgentFeedL10n.string("mobile.agentFeed.card.resolved", defaultValue: "Resolved")
+        case .expired: AgentFeedL10n.string("mobile.agentFeed.card.expired", defaultValue: "Expired")
+        case .telemetry: AgentFeedL10n.string("mobile.agentFeed.card.activity", defaultValue: "Activity")
+        case .unknown: AgentFeedL10n.string("mobile.agentFeed.card.unknown", defaultValue: "Unknown status")
         }
     }
 
     static func sourceLabel(_ source: String) -> String {
         switch source {
-        case "claude": return L10n.string("mobile.agentFeed.source.claude", defaultValue: "Claude")
-        case "codex": return L10n.string("mobile.agentFeed.source.codex", defaultValue: "Codex")
-        case "opencode": return L10n.string("mobile.agentFeed.source.opencode", defaultValue: "OpenCode")
-        case "hermes-agent": return L10n.string("mobile.agentFeed.source.hermes", defaultValue: "Hermes")
-        case "gemini": return L10n.string("mobile.agentFeed.source.gemini", defaultValue: "Gemini")
+        case "claude": return AgentFeedL10n.string("mobile.agentFeed.source.claude", defaultValue: "Claude")
+        case "codex": return AgentFeedL10n.string("mobile.agentFeed.source.codex", defaultValue: "Codex")
+        case "opencode": return AgentFeedL10n.string("mobile.agentFeed.source.opencode", defaultValue: "OpenCode")
+        case "hermes-agent": return AgentFeedL10n.string("mobile.agentFeed.source.hermes", defaultValue: "Hermes")
+        case "gemini": return AgentFeedL10n.string("mobile.agentFeed.source.gemini", defaultValue: "Gemini")
         default:
             return String(
-                format: L10n.string("mobile.agentFeed.source.other", defaultValue: "Agent: %@"),
+                format: AgentFeedL10n.string("mobile.agentFeed.source.other", defaultValue: "Agent: %@"),
                 source
             )
         }
@@ -363,30 +403,30 @@ private struct AgentFeedCopy {
         case .exitPlan(_, let plan, _, _): return plan
         case .question(_, let questions): return questions.map(\.prompt).formatted()
         case .toolUse(let name, _):
-            return String(format: L10n.string("mobile.agentFeed.activity.toolUse", defaultValue: "Using %@"), name)
+            return String(format: AgentFeedL10n.string("mobile.agentFeed.activity.toolUse", defaultValue: "Using %@"), name)
         case .toolResult(let name, let result, let isError):
             return isError
                 ? String(
-                    format: L10n.string("mobile.agentFeed.activity.toolError", defaultValue: "%@ failed: %@"),
+                    format: AgentFeedL10n.string("mobile.agentFeed.activity.toolError", defaultValue: "%@ failed: %@"),
                     name,
                     result
                 )
                 : result
         case .message(let text, _): return text
-        case .stop(let reason): return reason ?? L10n.string("mobile.agentFeed.activity.turnComplete", defaultValue: "Turn complete. Reply to continue.")
-        case .todos: return L10n.string("mobile.agentFeed.activity.todos", defaultValue: "Task list updated")
-        case .lifecycle: return L10n.string("mobile.agentFeed.activity.lifecycle", defaultValue: "Session activity")
-        case .unknown: return L10n.string("mobile.agentFeed.activity.unknown", defaultValue: "Agent activity")
+        case .stop(let reason): return reason ?? AgentFeedL10n.string("mobile.agentFeed.activity.turnComplete", defaultValue: "Turn complete. Reply to continue.")
+        case .todos: return AgentFeedL10n.string("mobile.agentFeed.activity.todos", defaultValue: "Task list updated")
+        case .lifecycle: return AgentFeedL10n.string("mobile.agentFeed.activity.lifecycle", defaultValue: "Session activity")
+        case .unknown: return AgentFeedL10n.string("mobile.agentFeed.activity.unknown", defaultValue: "Agent activity")
         }
     }
 
     static func permissionModeLabel(_ mode: String) -> String {
         switch mode {
-        case "once": L10n.string("mobile.agentFeed.permission.once", defaultValue: "Allow Once")
-        case "always": L10n.string("mobile.agentFeed.permission.always", defaultValue: "Always Allow")
-        case "all": L10n.string("mobile.agentFeed.permission.all", defaultValue: "Allow All")
-        case "bypass": L10n.string("mobile.agentFeed.permission.bypass", defaultValue: "Bypass")
-        default: L10n.string("mobile.agentFeed.permission.deny", defaultValue: "Deny")
+        case "once": AgentFeedL10n.string("mobile.agentFeed.permission.once", defaultValue: "Allow Once")
+        case "always": AgentFeedL10n.string("mobile.agentFeed.permission.always", defaultValue: "Always Allow")
+        case "all": AgentFeedL10n.string("mobile.agentFeed.permission.all", defaultValue: "Allow All")
+        case "bypass": AgentFeedL10n.string("mobile.agentFeed.permission.bypass", defaultValue: "Bypass")
+        default: AgentFeedL10n.string("mobile.agentFeed.permission.deny", defaultValue: "Deny")
         }
     }
 
@@ -405,11 +445,11 @@ private struct AgentFeedCopy {
 
     static func planModeLabel(_ mode: String) -> String {
         switch mode {
-        case "ultraplan": L10n.string("mobile.agentFeed.plan.ultraplan", defaultValue: "Ultraplan")
-        case "bypassPermissions": L10n.string("mobile.agentFeed.plan.bypass", defaultValue: "Bypass Permissions")
-        case "autoAccept": L10n.string("mobile.agentFeed.plan.autoAccept", defaultValue: "Auto-Accept")
-        case "manual": L10n.string("mobile.agentFeed.plan.manual", defaultValue: "Manual")
-        default: L10n.string("mobile.agentFeed.plan.deny", defaultValue: "Deny")
+        case "ultraplan": AgentFeedL10n.string("mobile.agentFeed.plan.ultraplan", defaultValue: "Ultraplan")
+        case "bypassPermissions": AgentFeedL10n.string("mobile.agentFeed.plan.bypass", defaultValue: "Bypass Permissions")
+        case "autoAccept": AgentFeedL10n.string("mobile.agentFeed.plan.autoAccept", defaultValue: "Auto-Accept")
+        case "manual": AgentFeedL10n.string("mobile.agentFeed.plan.manual", defaultValue: "Manual")
+        default: AgentFeedL10n.string("mobile.agentFeed.plan.deny", defaultValue: "Deny")
         }
     }
 }
