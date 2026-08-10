@@ -1458,6 +1458,7 @@ fn browser_capture_scale_applies_to_metrics_screencast_and_input() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
     let (seen_tx, seen_rx) = mpsc::channel();
+    let (transport_closed_tx, transport_closed_rx) = mpsc::sync_channel(1);
 
     let server = thread::spawn(move || {
         let (stream, _) = listener.accept().unwrap();
@@ -1509,6 +1510,7 @@ fn browser_capture_scale_applies_to_metrics_screencast_and_input() {
                 method => panic!("unexpected CDP method {method}"),
             }
         }
+        transport_closed_tx.send(()).unwrap();
     });
 
     let opts = SurfaceOptions { browser_max_capture_megapixels: 0.01, ..Default::default() };
@@ -1525,6 +1527,7 @@ fn browser_capture_scale_applies_to_metrics_screencast_and_input() {
     let surface = mux
         .new_browser_tab("example.test".to_string(), None, Some((100, 100)))
         .expect("browser tab");
+    let retained_surface_id = surface.id;
     let _provider = browser_provider(
         &socket_path,
         format!("ws://{addr}/devtools/browser/fake"),
@@ -1571,6 +1574,10 @@ fn browser_capture_scale_applies_to_metrics_screencast_and_input() {
 
     mux.shutdown().unwrap();
     server::cleanup(&socket_path);
+    transport_closed_rx
+        .recv_timeout(test_duration(Duration::from_secs(10)))
+        .expect("CDP transport remained open after browser runtime shutdown");
+    assert_eq!(surface.id, retained_surface_id);
     server.join().unwrap();
 }
 
