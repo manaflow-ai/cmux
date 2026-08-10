@@ -4767,7 +4767,8 @@ fn serve_websocket_with_tracking_cloner(
     let accepted_stream_mode = Arc::new(AtomicU64::new(0));
     let thread_shutdown = shutdown.clone();
     let thread_connections = connections.clone();
-    let thread_active_connections = active_connections.clone();
+    #[cfg(test)]
+    let observed_active_connections = active_connections.clone();
     #[cfg(test)]
     let thread_accept_attempts = accept_attempts.clone();
     #[cfg(all(test, target_os = "macos"))]
@@ -4803,7 +4804,7 @@ fn serve_websocket_with_tracking_cloner(
             if thread_shutdown.load(Ordering::Acquire) {
                 break;
             }
-            let Some(permit) = claim_connection(&thread_active_connections) else { continue };
+            let Some(permit) = claim_connection(&active_connections) else { continue };
             let id = next_connection.fetch_add(1, Ordering::Relaxed);
             let tracked = match tracking_cloner(&stream) {
                 Ok(tracked) => tracked,
@@ -4847,7 +4848,7 @@ fn serve_websocket_with_tracking_cloner(
         #[cfg(test)]
         accept_attempts,
         #[cfg(test)]
-        active_connections,
+        active_connections: observed_active_connections,
         #[cfg(all(test, target_os = "macos"))]
         accepted_stream_mode,
     })
