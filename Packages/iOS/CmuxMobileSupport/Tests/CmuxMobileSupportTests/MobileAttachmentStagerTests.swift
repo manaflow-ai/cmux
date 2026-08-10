@@ -68,6 +68,45 @@ struct MobileAttachmentStagerTests {
         #expect(try Data(contentsOf: second.localFileURL) == Data("two".utf8))
     }
 
+    @Test func rejectsHundredMegabyteFileBeforeCreatingAStagedCopy() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let source = fixture.source.appendingPathComponent("hundred-megabytes.bin")
+        FileManager.default.createFile(atPath: source.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: source)
+        try handle.truncate(atOffset: 100 * 1024 * 1024)
+        try handle.close()
+
+        await #expect(throws: MobileAttachmentStager.StagingError.fileTooLarge) {
+            try await fixture.stager.stage(
+                sourceURL: source,
+                kind: .file,
+                originalFileName: source.lastPathComponent
+            )
+        }
+        #expect(try FileManager.default.contentsOfDirectory(at: fixture.staged).isEmpty)
+    }
+
+    @Test func cancellationBeforeStagingLeavesNoAppOwnedFile() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let source = fixture.source.appendingPathComponent("cancelled.txt")
+        try Data("never copied".utf8).write(to: source)
+
+        let staging = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await fixture.stager.stage(
+                sourceURL: source,
+                kind: .file,
+                originalFileName: source.lastPathComponent
+            )
+        }
+        await #expect(throws: CancellationError.self) {
+            try await staging.value
+        }
+        #expect(try FileManager.default.contentsOfDirectory(at: fixture.staged).isEmpty)
+    }
+
     private struct Fixture {
         let root: URL
         let source: URL
