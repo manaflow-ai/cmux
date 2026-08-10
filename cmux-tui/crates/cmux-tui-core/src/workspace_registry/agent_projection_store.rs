@@ -160,8 +160,7 @@ fn replay_agent_projection_journal_page(
          )",
         params![
             i64::try_from(sequence).context("agent rebuild cursor exceeds SQLite range")?,
-            i64::try_from(target_sequence)
-                .context("agent rebuild target exceeds SQLite range")?,
+            i64::try_from(target_sequence).context("agent rebuild target exceeds SQLite range")?,
             i64::try_from(AGENT_PROJECTION_JOURNAL_REBUILD_PAGE_SIZE)
                 .context("agent rebuild page size exceeds SQLite range")?,
         ],
@@ -185,10 +184,8 @@ fn replay_agent_projection_journal_page(
             ],
             |row| row.get::<_, i64>(0),
         )?;
-        rows.map(|row| {
-            u64::try_from(row?).context("agent rebuild sequence is negative")
-        })
-        .collect::<anyhow::Result<Vec<_>>>()?
+        rows.map(|row| u64::try_from(row?).context("agent rebuild sequence is negative"))
+            .collect::<anyhow::Result<Vec<_>>>()?
     };
     let last_sequence = projection_sequences.last().copied();
     let page_is_full = projection_sequences.len() == AGENT_PROJECTION_JOURNAL_REBUILD_PAGE_SIZE;

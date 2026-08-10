@@ -19630,11 +19630,8 @@ mod tests {
         started_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
 
         {
-            let mut state = pool
-                .inner
-                .state
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let mut state =
+                pool.inner.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
             state.worker_count = CELL_PIXEL_FANOUT_MAX_WORKERS;
         }
         assert!(pool.submit(Box::new(move || order_sender.send("queued").unwrap())));
@@ -19642,11 +19639,7 @@ mod tests {
 
         assert_eq!(order_receiver.recv_timeout(Duration::from_secs(1)).unwrap(), "queued");
         assert_eq!(order_receiver.recv_timeout(Duration::from_secs(1)).unwrap(), "continuation");
-        pool.inner
-            .state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .worker_count = 1;
+        pool.inner.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).worker_count = 1;
     }
 
     #[test]
