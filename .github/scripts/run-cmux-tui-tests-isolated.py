@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -114,11 +115,35 @@ def test_binaries(cargo_messages: Path, workspace_root: Path) -> list[TestBinary
     return selected
 
 
-def tests_in(binary: TestBinary) -> list[str]:
+def test_environment(binary: TestBinary) -> dict[str, str]:
+    environment = os.environ.copy()
+    if sys.platform != "darwin":
+        return environment
+
+    profile_root = binary.path.parent.parent
+    library_dirs = sorted(
+        path.resolve()
+        for path in (profile_root / "build").glob(
+            "ghostty-vt-sys-*/out/ghostty-vt/lib"
+        )
+        if (path / "libghostty-vt.dylib").is_file()
+    )
+    if not library_dirs:
+        return environment
+
+    search_path = [str(path) for path in library_dirs]
+    if inherited := environment.get("DYLD_LIBRARY_PATH"):
+        search_path.append(inherited)
+    environment["DYLD_LIBRARY_PATH"] = os.pathsep.join(search_path)
+    return environment
+
+
+def tests_in(binary: TestBinary, environment: dict[str, str]) -> list[str]:
     result = subprocess.run(
         [str(binary.path), "--list"],
         check=True,
         cwd=binary.package_root,
+        env=environment,
         stdout=subprocess.PIPE,
         text=True,
     )
@@ -138,7 +163,8 @@ def main() -> int:
     binaries = test_binaries(args.cargo_messages, workspace_root)
     total = 0
     for binary in binaries:
-        tests = tests_in(binary)
+        environment = test_environment(binary)
+        tests = tests_in(binary, environment)
         if not tests:
             print(f"No tests in {binary.target_name}; skipping its empty harness")
             continue
@@ -152,6 +178,7 @@ def main() -> int:
                 [str(binary.path), test_name, "--exact", "--test-threads=1"],
                 check=True,
                 cwd=binary.package_root,
+                env=environment,
             )
             total += 1
     if total == 0:
