@@ -13,7 +13,10 @@ struct NotificationFeedPermissionControls: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            decisionCaption("mobile.notificationFeed.permission.caption", "Permission required", design: design)
+            decisionCaption(
+                L10n.string("mobile.notificationFeed.permission.caption", defaultValue: "Permission required"),
+                design: design
+            )
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
                     ForEach(MobileFeedPermissionMode.allCases, id: \.rawValue) { mode in
@@ -67,7 +70,10 @@ struct NotificationFeedExitPlanControls: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            decisionCaption("mobile.notificationFeed.exitPlan.caption", "Plan ready", design: design)
+            decisionCaption(
+                L10n.string("mobile.notificationFeed.exitPlan.caption", defaultValue: "Plan ready"),
+                design: design
+            )
             Picker(
                 L10n.string("mobile.notificationFeed.exitPlan.mode", defaultValue: "Run mode"),
                 selection: $selectedMode
@@ -132,7 +138,10 @@ struct NotificationFeedQuestionControls: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            decisionCaption("mobile.notificationFeed.question.caption", "Agent question", design: design)
+            decisionCaption(
+                L10n.string("mobile.notificationFeed.question.caption", defaultValue: "Agent question"),
+                design: design
+            )
             ForEach(Array(prompts.enumerated()), id: \.offset) { index, prompt in
                 VStack(alignment: .leading, spacing: 6) {
                     if let header = prompt.header, !header.isEmpty {
@@ -233,8 +242,8 @@ struct NotificationFeedQuestionControls: View {
 }
 
 @ViewBuilder
-private func decisionCaption(_ key: String, _ fallback: String, design: MobileNotificationFeedDesign) -> some View {
-    Label(L10n.string(key, defaultValue: fallback), systemImage: design == .commandCenter ? "bolt.fill" : "hand.tap.fill")
+private func decisionCaption(_ title: String, design: MobileNotificationFeedDesign) -> some View {
+    Label(title, systemImage: design == .commandCenter ? "bolt.fill" : "hand.tap.fill")
         .font(.caption.weight(.semibold))
         .foregroundStyle(design == .commandCenter ? .orange : .secondary)
 }
