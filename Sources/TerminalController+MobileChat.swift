@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import CmuxControlSocket
 import CmuxTerminal
 import Foundation
 
