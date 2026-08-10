@@ -1926,6 +1926,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let foregroundKey = foregroundMacKey
         workspacesByMac = workspacesByMac.filter { $0.key == foregroundKey }; pruneStableMacColorSlots(keepingForegroundKey: foregroundKey.canonicalMacDeviceID)
         retainForegroundNotificationFeedSnapshot()
+        resetAgentFeedForScopeChange()
         // Restore memo: invalidate so the next read re-restores for the new
         // (account, team) scope, and a suspended old-team restore can't resume.
         // Invalidate the shared boundary synchronously first; actor cleanup is

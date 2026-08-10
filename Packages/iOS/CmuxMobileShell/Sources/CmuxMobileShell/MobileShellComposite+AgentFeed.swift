@@ -177,6 +177,16 @@ extension MobileShellComposite {
     }
 
     func resetAgentFeed() {
+        let scopeKey = agentFeedCacheScopeKey
+        resetAgentFeedForScopeChange()
+        if let scopeKey {
+            Task { await agentFeedCacheStore.clear(scopeKey: scopeKey) }
+        }
+    }
+
+    /// Drops old-team in-memory rows without deleting that team's scoped cache,
+    /// so switching back can restore it while the new team never sees it.
+    func resetAgentFeedForScopeChange() {
         for task in agentFeedRefreshTasksByMac.values { task.cancel() }
         agentFeedRefreshTasksByMac = [:]
         agentFeedSnapshotsByMac = [:]
@@ -185,9 +195,6 @@ extension MobileShellComposite {
         agentFeedDrafts = [:]
         agentFeedMutationStates = [:]
         agentFeedStatus = .idle
-        if let scopeKey = agentFeedCacheScopeKey {
-            Task { await agentFeedCacheStore.clear(scopeKey: scopeKey) }
-        }
         agentFeedCacheScopeKey = nil
     }
 
