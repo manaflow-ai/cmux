@@ -1146,7 +1146,7 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    func testWorkspaceSearchIsMinimizedAndPreservesQueryAcrossRefresh() throws {
+    func testWorkspaceSearchRestoresPresentationQueryAndResultsAfterWorkspaceDetailAndRefresh() throws {
         guard #available(iOS 26.0, *) else {
             throw XCTSkip("The detached workspace search control requires iOS 26.")
         }
@@ -1220,7 +1220,19 @@ final class cmuxUITests: XCTestCase {
         tap(backButton, in: app)
         XCTAssertNotNil(waitForVisibleElement(in: workspaceListTables, app: app, timeout: 3))
         XCTAssertTrue(minimizedSearch.waitForExistence(timeout: 3))
-        XCTAssertTrue(waitForKeyboardDismissal(in: app))
+        XCTAssertTrue(
+            searchField.waitForExistence(timeout: 3),
+            "Returning from workspace detail must restore the expanded Search presentation."
+        )
+        XCTAssertEqual(
+            searchField.value as? String,
+            "Docs",
+            "Returning from workspace detail must restore the exact search query."
+        )
+        XCTAssertTrue(
+            app.keyboards.firstMatch.waitForExistence(timeout: 3),
+            "Returning from workspace detail must restore Search focus and its keyboard."
+        )
         XCTAssertTrue(waitForHittable(docsRow, timeout: 3))
         XCTAssertTrue(waitForNotHittable(mainRow, timeout: 3))
 
@@ -1228,7 +1240,7 @@ final class cmuxUITests: XCTestCase {
             NSPredicate(format: "identifier == %@", "MobileWorkspaceListPreviewRefresh")
         )
         guard let previewRefresh = waitForVisibleElement(in: previewRefreshButtons, app: app, timeout: 3) else {
-            XCTFail("Visible preview refresh trigger disappeared after leaving Search")
+            XCTFail("Visible preview refresh trigger disappeared after returning to Search")
             return
         }
         tap(previewRefresh, in: app)
