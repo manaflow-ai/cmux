@@ -1131,4 +1131,48 @@ mod tests {
     async fn oversized_ssh_stderr_kills_and_reaps_ssh() {
         assert_oversized_output_is_bounded("stderr").await;
     }
+
+    #[cfg(target_os = "macos")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn binary_upload_waits_for_the_process_creation_barrier() {
+        use std::fs;
+
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("cmux-tui");
+        fs::write(&source, b"test binary").unwrap();
+        let mut config = SshBootstrapConfig::defaults("host");
+        config.ssh_binary = "/usr/bin/true".into();
+        config.timeout = Duration::from_secs(5);
+        let bootstrap = SshBootstrapper::new(config).unwrap();
+        let (held_sender, held_receiver) = std::sync::mpsc::channel();
+        let (release_sender, release_receiver) = std::sync::mpsc::channel();
+        let holder = std::thread::spawn(move || {
+            let _barrier = cmux_tui_process::ProcessCreationGuard::acquire();
+            held_sender.send(()).unwrap();
+            release_receiver.recv().unwrap();
+        });
+        held_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("process creation barrier was not acquired");
+
+        let (started_sender, started_receiver) = tokio::sync::oneshot::channel();
+        let mut upload = tokio::spawn(async move {
+            started_sender.send(()).unwrap();
+            bootstrap.run_remote_with_input("ignored", &source).await
+        });
+        started_receiver.await.unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(250), &mut upload).await.is_err(),
+            "SSH upload spawned a child while descriptor creation held the shared barrier"
+        );
+        release_sender.send(()).unwrap();
+        holder.join().unwrap();
+
+        let output = tokio::time::timeout(Duration::from_secs(5), upload)
+            .await
+            .expect("SSH upload did not resume after the process barrier was released")
+            .unwrap()
+            .unwrap();
+        assert_eq!(output.status, 0);
+    }
 }

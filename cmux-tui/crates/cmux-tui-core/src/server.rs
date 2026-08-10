@@ -4654,6 +4654,8 @@ pub struct WebSocketServer {
     thread: Option<JoinHandle<()>>,
     #[cfg(test)]
     accept_attempts: Arc<AtomicU64>,
+    #[cfg(test)]
+    active_connections: Arc<AtomicU64>,
     #[cfg(all(test, target_os = "macos"))]
     accepted_stream_mode: Arc<AtomicU64>,
 }
@@ -4719,6 +4721,24 @@ pub fn serve_websocket(
     token: Option<String>,
     allow_insecure_bind: bool,
 ) -> anyhow::Result<WebSocketServer> {
+    serve_websocket_with_tracking_cloner(
+        mux,
+        addr,
+        token,
+        allow_insecure_bind,
+        Arc::new(cmux_tui_process::tcp::clone_stream),
+    )
+}
+
+type WebSocketTrackingCloner = Arc<dyn Fn(&TcpStream) -> std::io::Result<TcpStream> + Send + Sync>;
+
+fn serve_websocket_with_tracking_cloner(
+    mux: Arc<Mux>,
+    addr: SocketAddr,
+    token: Option<String>,
+    allow_insecure_bind: bool,
+    tracking_cloner: WebSocketTrackingCloner,
+) -> anyhow::Result<WebSocketServer> {
     // WebSocket has no TLS here. Remote deployments must explicitly opt in and
     // should put cmux-tui behind a TLS-terminating reverse proxy.
     if !addr.ip().is_loopback() && !allow_insecure_bind {
@@ -4747,6 +4767,7 @@ pub fn serve_websocket(
     let accepted_stream_mode = Arc::new(AtomicU64::new(0));
     let thread_shutdown = shutdown.clone();
     let thread_connections = connections.clone();
+    let thread_active_connections = active_connections.clone();
     #[cfg(test)]
     let thread_accept_attempts = accept_attempts.clone();
     #[cfg(all(test, target_os = "macos"))]
@@ -4782,9 +4803,9 @@ pub fn serve_websocket(
             if thread_shutdown.load(Ordering::Acquire) {
                 break;
             }
-            let Some(permit) = claim_connection(&active_connections) else { continue };
+            let Some(permit) = claim_connection(&thread_active_connections) else { continue };
             let id = next_connection.fetch_add(1, Ordering::Relaxed);
-            if let Ok(tracked) = cmux_tui_process::tcp::clone_stream(&stream) {
+            if let Ok(tracked) = tracking_cloner(&stream) {
                 thread_connections.lock().unwrap().insert(id, tracked);
             }
             let mux = mux.clone();
@@ -4823,6 +4844,8 @@ pub fn serve_websocket(
         thread: Some(thread),
         #[cfg(test)]
         accept_attempts,
+        #[cfg(test)]
+        active_connections,
         #[cfg(all(test, target_os = "macos"))]
         accepted_stream_mode,
     })
@@ -11515,6 +11538,7 @@ mod tests {
             connections: Arc::new(Mutex::new(HashMap::new())),
             thread: Some(listener_thread),
             accept_attempts: Arc::new(AtomicU64::new(0)),
+            active_connections: Arc::new(AtomicU64::new(0)),
             #[cfg(target_os = "macos")]
             accepted_stream_mode: Arc::new(AtomicU64::new(0)),
         };
@@ -11546,6 +11570,7 @@ mod tests {
             connections: Arc::new(Mutex::new(HashMap::new())),
             thread: Some(listener_thread),
             accept_attempts: Arc::new(AtomicU64::new(0)),
+            active_connections: Arc::new(AtomicU64::new(0)),
             #[cfg(target_os = "macos")]
             accepted_stream_mode: Arc::new(AtomicU64::new(0)),
         };
@@ -11559,6 +11584,46 @@ mod tests {
         assert!(retained, "pending WebSocket shutdown discarded listener ownership");
         assert!(second, "WebSocket listener did not complete after release");
         assert!(server.thread.is_none(), "completed WebSocket listener retained its join handle");
+    }
+
+    #[test]
+    fn websocket_worker_requires_a_registered_shutdown_owner() {
+        let mux = Mux::new("websocket-tracking-clone-test", SurfaceOptions::default());
+        let (clone_attempted, observed_clone_attempt) = std::sync::mpsc::channel();
+        let tracking_cloner: WebSocketTrackingCloner = Arc::new(move |_| {
+            clone_attempted.send(()).unwrap();
+            Err(std::io::Error::other("injected tracking clone failure"))
+        });
+        let mut server = serve_websocket_with_tracking_cloner(
+            mux.clone(),
+            "127.0.0.1:0".parse().unwrap(),
+            None,
+            false,
+            tracking_cloner,
+        )
+        .unwrap();
+        let client = cmux_tui_process::tcp::connect_stream_timeout(
+            &server.local_addr,
+            Duration::from_secs(1),
+        )
+        .unwrap();
+        observed_clone_attempt
+            .recv_timeout(Duration::from_secs(1))
+            .expect("WebSocket listener did not attempt to register the accepted connection");
+
+        assert!(
+            server.shutdown_until(Instant::now() + Duration::from_secs(1)).unwrap(),
+            "WebSocket listener did not finish after rejecting the untracked connection"
+        );
+        let active_connections = server.active_connections.load(Ordering::Acquire);
+        drop(client);
+        drop(server);
+        let _ = mux.shutdown();
+
+        assert_eq!(
+            active_connections, 0,
+            "WebSocket worker started without a registered shutdown owner"
+        );
     }
 
     #[cfg(target_os = "macos")]

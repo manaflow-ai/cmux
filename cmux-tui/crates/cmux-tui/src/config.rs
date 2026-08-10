@@ -5549,6 +5549,43 @@ mod tests {
         assert!(!stdout.contains("CMUX_PROVIDER_WORKSPACE_AUTHORITY="), "{stdout}");
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn ghostty_config_helper_waits_for_the_process_creation_barrier() {
+        let barrier = cmux_tui_process::ProcessCreationGuard::acquire();
+        let (started_sender, started_receiver) = std::sync::mpsc::channel();
+        let (result_sender, result_receiver) = std::sync::mpsc::channel();
+        let helper = std::thread::spawn(move || {
+            let mut command = Command::new("/usr/bin/printf");
+            command
+                .arg("foreground=#010203\nbackground=#040506\n")
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null());
+            started_sender.send(()).unwrap();
+            let result = ghostty_defaults_from_helper_command(command, Duration::from_secs(5));
+            result_sender.send(result).unwrap();
+        });
+        started_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("config helper worker did not reach process creation");
+
+        assert!(
+            matches!(
+                result_receiver.recv_timeout(Duration::from_millis(250)),
+                Err(mpsc::RecvTimeoutError::Timeout)
+            ),
+            "Ghostty config helper spawned while descriptor creation held the shared barrier"
+        );
+        drop(barrier);
+        let result = result_receiver
+            .recv_timeout(Duration::from_secs(5))
+            .expect("config helper did not resume after the process barrier was released");
+        helper.join().unwrap();
+
+        assert!(matches!(result, GhosttyHelperDefaults::Resolved(_)));
+    }
+
     #[cfg(unix)]
     #[test]
     fn ghostty_config_helper_cleanup_reaps_killed_child() {
