@@ -2182,6 +2182,12 @@ final class cmuxUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(imageRemove.frame.height, 44)
         XCTAssertGreaterThanOrEqual(fileRemove.frame.width, 44)
         XCTAssertGreaterThanOrEqual(fileRemove.frame.height, 44)
+        keepAttachmentGeometry(
+            named: "task-classic-attachment-geometry",
+            firstCard: imageCard,
+            secondCard: fileCard
+        )
+        keepScreenshot(named: "task-classic-attachments", app: app)
 
         for card in [imageCard, fileCard] {
             card.tap()
@@ -2236,6 +2242,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertEqual(toggle.value as? String, "classic")
         XCTAssertTrue(app.buttons["MobileAttachmentCard.0"].exists)
         XCTAssertTrue(app.buttons["MobileAttachmentCard.1"].exists)
+        keepScreenshot(named: "task-classic-attachments-before-layout-switch", app: app)
 
         toggle.tap()
         let composerLayout = NSPredicate(format: "value == %@", "composer")
@@ -2245,6 +2252,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.buttons["MobileAttachmentCard.0"].exists)
         XCTAssertTrue(app.buttons["MobileAttachmentCard.1"].exists)
         XCTAssertTrue(app.buttons["MobileTaskComposerAttachmentButton"].exists)
+        keepScreenshot(named: "task-minimal-attachments-after-layout-switch", app: app)
 
         toggle.tap()
         let classicLayout = NSPredicate(format: "value == %@", "classic")
@@ -2281,6 +2289,7 @@ final class cmuxUITests: XCTestCase {
         sourceMenu.tap()
         XCTAssertTrue(app.buttons["写真"].waitForExistence(timeout: 2))
         XCTAssertTrue(app.buttons["ファイル"].exists)
+        keepScreenshot(named: "task-attachments-japanese-source-menu", app: app)
         app.textFields["MobileTaskComposerPrompt"]
             .coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
             .tap()
@@ -2316,6 +2325,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(remove.frame.width, 44)
         XCTAssertGreaterThanOrEqual(remove.frame.height, 44)
         XCTAssertTrue(app.buttons["MobileTaskComposerAttachmentButton"].isHittable)
+        keepScreenshot(named: "task-attachments-accessibility-xxxl", app: app)
 
         card.tap()
         let preview = app.descendants(matching: .any)["MobileAttachmentPreview"]
@@ -2339,6 +2349,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertEqual(app.buttons["MobileAttachmentRemove.0"].label, "Remove empty file.txt")
         XCTAssertEqual(unsupportedCard.label, "Preview unsupported.cmuxfixture")
         XCTAssertEqual(app.buttons["MobileAttachmentRemove.1"].label, "Remove unsupported.cmuxfixture")
+        keepScreenshot(named: "task-attachment-edge-cases", app: app)
 
         unsupportedCard.tap()
         XCTAssertTrue(app.descendants(matching: .any)["MobileAttachmentPreview"].waitForExistence(timeout: 4))
@@ -2364,6 +2375,7 @@ final class cmuxUITests: XCTestCase {
         let sourceMenu = app.buttons["MobileTaskComposerAttachmentButton"]
         XCTAssertTrue(sourceMenu.exists)
         XCTAssertFalse(sourceMenu.isEnabled)
+        keepScreenshot(named: "task-attachment-max-count", app: app)
     }
 
     @MainActor
@@ -2392,6 +2404,12 @@ final class cmuxUITests: XCTestCase {
         let fileCard = app.buttons["MobileAttachmentCard.1"]
         XCTAssertTrue(imageCard.waitForExistence(timeout: 3))
         XCTAssertTrue(fileCard.exists)
+        keepAttachmentGeometry(
+            named: "agent-chat-attachment-geometry",
+            firstCard: imageCard,
+            secondCard: fileCard
+        )
+        keepScreenshot(named: "agent-chat-attachments", app: app)
         imageCard.tap()
         let preview = app.descendants(matching: .any)["MobileAttachmentPreview"]
         XCTAssertTrue(preview.waitForExistence(timeout: 4))
@@ -2438,6 +2456,14 @@ final class cmuxUITests: XCTestCase {
         XCTAssertLessThanOrEqual(send.frame.maxX, container.frame.maxX)
         XCTAssertLessThanOrEqual(send.frame.maxY, container.frame.maxY)
         XCTAssertLessThan(attach.frame.maxX, container.frame.minX)
+        keepAttachmentGeometry(
+            named: "terminal-attachment-container-geometry",
+            firstCard: imageCard,
+            secondCard: fileCard,
+            container: container,
+            field: field
+        )
+        keepScreenshot(named: "terminal-attachments-inside-field-container", app: app)
 
         imageCard.tap()
         let preview = app.descendants(matching: .any)["MobileAttachmentPreview"]
@@ -2450,6 +2476,51 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(fileCard.waitForNonExistence(timeout: 3))
         XCTAssertEqual(field.value as? String, capturedDraft)
         XCTAssertFalse(app.staticTexts["MobileComposerSendFailure"].exists)
+    }
+
+    @MainActor
+    func testTerminalComposerAttachmentsScrollInConstrainedWidth() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TERMINAL_PREVIEW": "1",
+            "CMUX_UITEST_TERMINAL_ATTACHMENT_COMPOSER": "1",
+            "CMUX_UITEST_TERMINAL_ATTACHMENT_FIXTURE": "overflow",
+        ])
+        defer { app.terminate() }
+
+        let container = app.descendants(matching: .any)["MobileComposerFieldContainer"]
+        let strip = app.scrollViews["MobileAttachmentCardStrip"]
+        let field = app.textFields["MobileComposerField"]
+        let send = app.buttons["MobileComposerSend"]
+        let attach = app.buttons["MobileComposerAttach"]
+        let firstCard = app.buttons["MobileAttachmentCard.0"]
+        let secondCard = app.buttons["MobileAttachmentCard.1"]
+        let lastCard = app.buttons["MobileAttachmentCard.3"]
+        XCTAssertTrue(container.waitForExistence(timeout: 8))
+        XCTAssertLessThanOrEqual(container.frame.width, 440)
+        XCTAssertTrue(strip.exists)
+        XCTAssertTrue(field.exists)
+        XCTAssertTrue(send.exists)
+        XCTAssertTrue(attach.exists)
+        XCTAssertTrue(firstCard.exists)
+        XCTAssertTrue(secondCard.exists)
+        XCTAssertEqual(secondCard.frame.minX - firstCard.frame.maxX, 6, accuracy: 1)
+        XCTAssertFalse(lastCard.isHittable)
+
+        strip.swipeLeft()
+        XCTAssertTrue(lastCard.waitForExistence(timeout: 2))
+        XCTAssertTrue(waitForHittable(lastCard, timeout: 3))
+        XCTAssertTrue(send.isHittable)
+        XCTAssertTrue(attach.isHittable)
+        XCTAssertLessThanOrEqual(send.frame.maxX, container.frame.maxX)
+        XCTAssertLessThanOrEqual(field.frame.maxX, send.frame.minX)
+        keepAttachmentGeometry(
+            named: "terminal-constrained-attachment-geometry",
+            firstCard: firstCard,
+            secondCard: secondCard,
+            container: container,
+            field: field
+        )
+        keepScreenshot(named: "terminal-attachments-constrained-width", app: app)
     }
 
     /// The Composer pill scroller must clip between its neighboring controls;
@@ -5396,6 +5467,38 @@ final class cmuxUITests: XCTestCase {
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
+    }
+
+    private func keepScreenshot(named name: String, app: XCUIApplication) {
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    private func keepAttachmentGeometry(
+        named name: String,
+        firstCard: XCUIElement,
+        secondCard: XCUIElement,
+        container: XCUIElement? = nil,
+        field: XCUIElement? = nil
+    ) {
+        var lines = [
+            "firstCard=\(firstCard.frame)",
+            "secondCard=\(secondCard.frame)",
+            "visibleGap=\(secondCard.frame.minX - firstCard.frame.maxX)",
+        ]
+        if let container {
+            lines.append("container=\(container.frame)")
+        }
+        if let field {
+            lines.append("field=\(field.frame)")
+            lines.append("cardFieldLeadingDelta=\(firstCard.frame.minX - field.frame.minX)")
+        }
+        let attachment = XCTAttachment(string: lines.joined(separator: "\n"))
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     @MainActor
