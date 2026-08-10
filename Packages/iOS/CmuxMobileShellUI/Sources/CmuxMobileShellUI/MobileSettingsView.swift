@@ -41,6 +41,9 @@ struct MobileSettingsView: View {
     /// `isEnabled` as a non-observable `UserDefaults` read, so reading it
     /// directly in `body` would not re-render when it flips.
     @State private var notificationsEnabled = false
+#if DEBUG
+    @State private var debugReplyScheduled: Bool?
+#endif
     @State private var showingOnboarding = false
     @State private var showingSetupHelp = false
     #if DEBUG
@@ -392,7 +395,12 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsTerminalScrollback")
                 }
 
+                // Release builds keep the section to the single agent-alerts
+                // toggle the app always had; the delivery-status diagnostics,
+                // Mac forwarding controls, and test actions are a dev surface
+                // and stay DEBUG-only.
                 Section(L10n.string("mobile.settings.notifications", defaultValue: "Push Alerts")) {
+#if DEBUG
                     MobilePushSettingsContent(
                         readiness: pushCoordinator.readiness(
                             macStatus: store?.phonePushMacStatus,
@@ -407,6 +415,47 @@ struct MobileSettingsView: View {
                         onMacMutation: updateMacPhonePush,
                         onSendTest: sendPhonePushTest
                     )
+                    Button {
+                        Task { @MainActor in
+                            debugReplyScheduled = await pushCoordinator
+                                .debugScheduleLocalReplyNotification()
+                        }
+                    } label: {
+                        Text(L10n.string(
+                            "mobile.settings.debugReplyTest",
+                            defaultValue: "Test Inline Reply (Local)"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsDebugReplyTestButton")
+                    if let debugReplyScheduled {
+                        Text(L10n.string(
+                            debugReplyScheduled
+                                ? "mobile.settings.debugReplyTest.scheduled"
+                                : "mobile.settings.debugReplyTest.failed",
+                            defaultValue: debugReplyScheduled
+                                ? "Scheduled: lock the phone; the notification fires in 5 seconds."
+                                : "Couldn't schedule: open a workspace and select a terminal first."
+                        ))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    }
+#else
+                    Toggle(
+                        L10n.string(
+                            "mobile.notifications.phoneEnabled",
+                            defaultValue: "Allow Push Alerts on This iPhone"
+                        ),
+                        isOn: Binding(
+                            get: { notificationsEnabled },
+                            set: { enabled in
+                                Task { @MainActor in
+                                    notificationsEnabled = await updatePhonePushEnabled(enabled)
+                                }
+                            }
+                        )
+                    )
+                    .accessibilityIdentifier("MobileSettingsNotifications")
+#endif
                 }
 
                 Section {
@@ -433,6 +482,8 @@ struct MobileSettingsView: View {
                             : "When off, cmux does not send iPhone or iPad product analytics."
                     ))
                 }
+
+                MobileSettingsDiagnosticsSection()
 
                 MobileSettingsLegalSupportSection()
 
@@ -694,5 +745,49 @@ struct MobileSettingsView: View {
         )
     }
     #endif
+}
+
+/// App-wide log sharing. Lives at the settings top level, not the Iroh
+/// screen: the app log covers every feature (simulator, browser, composer,
+/// lifecycle), and the network log covers all connection diagnostics, not
+/// one transport.
+private struct MobileSettingsDiagnosticsSection: View {
+    var body: some View {
+        Section {
+            if let url = AppLog.defaultAppLogFileURL,
+               FileManager.default.fileExists(atPath: url.path) {
+                ShareLink(item: url) {
+                    Label(
+                        L10n.string(
+                            "mobile.settings.diagnostics.shareAppLog",
+                            defaultValue: "Share App Log"
+                        ),
+                        systemImage: "doc.text"
+                    )
+                }
+                .accessibilityIdentifier("MobileSettingsShareAppLog")
+            }
+            if let url = AppLog.defaultNetworkLogFileURL,
+               FileManager.default.fileExists(atPath: url.path) {
+                ShareLink(item: url) {
+                    Label(
+                        L10n.string(
+                            "mobile.settings.diagnostics.shareNetworkLog",
+                            defaultValue: "Share Network Log"
+                        ),
+                        systemImage: "network"
+                    )
+                }
+                .accessibilityIdentifier("MobileSettingsShareNetworkLog")
+            }
+        } header: {
+            Text(L10n.string("mobile.settings.diagnostics", defaultValue: "Diagnostics"))
+        } footer: {
+            Text(L10n.string(
+                "mobile.settings.diagnostics.footer",
+                defaultValue: "The App Log records in-app activity; the Network Log records connection diagnostics. Terminal contents and credentials are never written."
+            ))
+        }
+    }
 }
 #endif

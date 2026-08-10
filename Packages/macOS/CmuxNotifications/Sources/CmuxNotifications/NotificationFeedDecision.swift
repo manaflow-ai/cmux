@@ -4,5 +4,8 @@ public enum NotificationFeedDecision: Sendable, Equatable {
     case permission(NotificationFeedPermissionMode)
 
     /// An exit-plan decision.
-    case exitPlan(NotificationFeedExitPlanMode)
+    case exitPlan(NotificationFeedExitPlanMode, feedback: String?)
+
+    /// A question decision carrying the selected option ids or a custom answer.
+    case question(selections: [String])
 }

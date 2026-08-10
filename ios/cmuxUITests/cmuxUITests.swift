@@ -1210,19 +1210,68 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(waitForHittable(docsRow, timeout: 3))
         XCTAssertTrue(waitForNotHittable(mainRow, timeout: 3))
 
+        // Selecting a result ends the search session (committing the query)
+        // and pushes the detail inside the search tab behind a system back
+        // control. Whether the system keeps its bottom search control over the
+        // pushed detail is platform chrome, deliberately not asserted.
         tap(docsRow, in: app)
         let workspaceDetail = app.descendants(matching: .any)["FixtureWorkspaceDetail"]
-        XCTAssertTrue(workspaceDetail.waitForExistence(timeout: 3))
-        XCTAssertTrue(minimizedSearch.waitForNonExistence(timeout: 3))
+        guard workspaceDetail.waitForExistence(timeout: 3) else {
+            return XCTFail("Search-stack detail never appeared after tapping the result")
+        }
 
-        let backButton = app.buttons["MobileWorkspaceBackButton"]
-        XCTAssertTrue(waitForHittable(backButton, timeout: 3))
-        tap(backButton, in: app)
-        XCTAssertNotNil(waitForVisibleElement(in: workspaceListTables, app: app, timeout: 3))
-        XCTAssertTrue(minimizedSearch.waitForExistence(timeout: 3))
-        XCTAssertTrue(waitForKeyboardDismissal(in: app))
-        XCTAssertTrue(waitForHittable(docsRow, timeout: 3))
-        XCTAssertTrue(waitForNotHittable(mainRow, timeout: 3))
+        let systemBack = app.navigationBars.buttons.element(boundBy: 0)
+        guard waitForHittable(systemBack, timeout: 3) else {
+            return XCTFail("No hittable system back control on the search-stack detail")
+        }
+        tap(systemBack, in: app)
+        guard waitForVisibleElement(in: workspaceListTables, app: app, timeout: 3) != nil else {
+            return XCTFail("Workspaces list did not return after popping the detail")
+        }
+        // Popping the detail finishes the search round on the Workspaces tab
+        // with the query cleared and the bottom search control collapsed.
+        guard waitForKeyboardDismissal(in: app) else {
+            return XCTFail("Keyboard stayed up after popping back from the search detail")
+        }
+        guard workspacesTab.waitForExistence(timeout: 3) else {
+            return XCTFail("Workspaces tab pill missing after popping the search detail")
+        }
+        XCTAssertTrue(
+            workspacesTab.isSelected,
+            "Popping the search-opened workspace must land on the Workspaces tab"
+        )
+        guard minimizedSearch.waitForExistence(timeout: 3) else {
+            return XCTFail("Minimized search control missing after finishing the search round")
+        }
+        guard waitForHittable(docsRow, timeout: 3) else {
+            return XCTFail("Workspaces list missing rows after finishing the search round")
+        }
+        guard waitForHittable(mainRow, timeout: 3) else {
+            return XCTFail("Query must be cleared after finishing the search round")
+        }
+
+        // An explicit submit still commits the query as the Workspaces filter;
+        // that committed filter must survive a list refresh.
+        tap(minimizedSearch, in: app)
+        guard waitForHittable(searchField, timeout: 3) else {
+            return XCTFail("Search field missing when reactivating search for submit")
+        }
+        guard focusTextInput(searchField, in: app) else {
+            return XCTFail("Could not focus the search field for submit")
+        }
+        searchField.typeText("Docs\n")
+        guard waitForVisibleElement(in: workspaceListTables, app: app, timeout: 3) != nil else {
+            return XCTFail("Workspaces root list missing after submitting the query")
+        }
+        guard minimizedSearch.waitForExistence(timeout: 3) else {
+            return XCTFail("Minimized search control missing after submitting the query")
+        }
+        guard waitForHittable(docsRow, timeout: 3) else {
+            return XCTFail("Committed-filter match missing after submit")
+        }
+        guard waitForNotHittable(mainRow, timeout: 3) else {
+            return XCTFail("Committed query filter not applied after submit")
+        }
 
         let previewRefreshButtons = app.buttons.matching(
             NSPredicate(format: "identifier == %@", "MobileWorkspaceListPreviewRefresh")
@@ -1676,6 +1725,106 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(workspaceList.waitForExistence(timeout: 3))
         XCTAssertTrue(searchButton.waitForExistence(timeout: 3))
         XCTAssertEqual(searchMatches.count, 1)
+    }
+
+    /// Regression for the "stuck after selecting a search result" wedge (the
+    /// workspaces list stranded with no tab bar, no search field, and a stale
+    /// query filter): selecting a workspace from the search tab's results must
+    /// open the detail inside the search tab and pop back to the live results.
+    /// The old flow deactivated search, transitioned to the Workspaces tab, and
+    /// pushed onto that off-window stack mid search-dismissal, which could
+    /// record the push without performing it.
+    @MainActor
+    func testWorkspaceSearchSelectionOpensDetailInsideSearchTab() throws {
+        guard #available(iOS 26.0, *) else {
+            throw XCTSkip("The detached workspace search control requires iOS 26.")
+        }
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS": "1",
+        ])
+        defer { app.terminate() }
+
+        let workspaceList = app.descendants(matching: .any)["MobileWorkspaceList"]
+        XCTAssertTrue(workspaceList.waitForExistence(timeout: 8))
+
+        let searchButton = app.tabBars.buttons
+            .matching(NSPredicate(format: "label == %@", "Search"))
+            .firstMatch
+        XCTAssertTrue(searchButton.waitForExistence(timeout: 3))
+        tap(searchButton, in: app)
+
+        let searchField = app.searchFields["Search workspaces"]
+        XCTAssertTrue(waitForHittable(searchField, timeout: 3))
+        XCTAssertTrue(focusTextInput(searchField, in: app))
+        searchField.typeText("Docs")
+
+        let docsRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-docs"]
+        let mainRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
+        XCTAssertTrue(waitForHittable(docsRow, timeout: 3))
+        XCTAssertTrue(waitForNotHittable(mainRow, timeout: 3))
+        tap(docsRow, in: app)
+
+        let workspaceDetail = app.descendants(matching: .any)["FixtureWorkspaceDetail"]
+        XCTAssertTrue(workspaceDetail.waitForExistence(timeout: 3))
+
+        // Pop back. The detail sits inside the search tab's stack behind the
+        // system back control; the old cross-tab flow used the custom
+        // workspaces back button, so accept either to keep the pop itself
+        // out of the regression's scope.
+        let customBack = app.buttons["MobileWorkspaceBackButton"]
+        if customBack.waitForExistence(timeout: 1) {
+            tap(customBack, in: app)
+        } else {
+            let systemBack = app.navigationBars.buttons.element(boundBy: 0)
+            XCTAssertTrue(waitForHittable(systemBack, timeout: 3))
+            tap(systemBack, in: app)
+        }
+        XCTAssertTrue(workspaceList.waitForExistence(timeout: 3))
+
+        // Popping back finishes the search round on the Workspaces tab: the
+        // full unfiltered list, no query left silently applied, and no
+        // selected (tinted) search control suggesting a search is still live.
+        let workspacesTab = app.tabBars.buttons["Workspaces"]
+        XCTAssertTrue(workspacesTab.waitForExistence(timeout: 3))
+        XCTAssertTrue(
+            workspacesTab.isSelected,
+            "Popping the search-opened workspace must land on the Workspaces tab"
+        )
+        XCTAssertTrue(
+            waitForHittable(docsRow, timeout: 3),
+            "Workspaces list missing rows after finishing the search round"
+        )
+        XCTAssertTrue(
+            waitForHittable(mainRow, timeout: 3),
+            "Query must be cleared after finishing the search round, not left filtering the list"
+        )
+
+        // Any visible search affordance belongs to the bottom edge (the
+        // regression showed the field pinned to the top with the keyboard up).
+        let restoredSearchControl = app.tabBars.buttons
+            .matching(NSPredicate(format: "label == %@", "Search"))
+            .firstMatch
+        XCTAssertTrue(
+            restoredSearchControl.waitForExistence(timeout: 3),
+            "Bottom search control missing after popping the search detail"
+        )
+        if let controlFrame = waitForUsableFrame(of: restoredSearchControl, timeout: 3) {
+            XCTAssertGreaterThan(
+                controlFrame.midY,
+                app.frame.midY,
+                "Search control must sit at the bottom after popping, got \(controlFrame)"
+            )
+        } else {
+            XCTFail("Bottom search control had no usable frame after popping")
+        }
+        if searchField.exists, let fieldFrame = waitForUsableFrame(of: searchField, timeout: 1) {
+            XCTAssertGreaterThan(
+                fieldFrame.midY,
+                app.frame.midY,
+                "Search field must not re-present at the top after popping, got \(fieldFrame)"
+            )
+        }
     }
 
     @MainActor
@@ -7424,6 +7573,92 @@ final class cmuxUITests: XCTestCase {
                 "cycle \(cycle): rapid double-toggle left surface(\(surface["composerActive"] ?? "?")) and store(\(store["isComposerPresented"] ?? "?")) desynced. surface=\(surface) store=\(store)"
             )
             assertDockCoherent(in: app, cycle: cycle)
+        }
+    }
+
+    /// Reversing a keyboard dismissal before it settles must keep the Shortcut and
+    /// Composer bars in one visual dock. The surface samples their presentation-layer
+    /// seam every display frame; any transient separation remains observable after the
+    /// animation settles through `dockMaxInternalPresentationGap`.
+    @MainActor
+    func testTerminalDockStaysUnifiedAcrossRapidKeyboardReversals() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+
+        let composerField = app.descendants(matching: .any)[Composer.field]
+        XCTAssertTrue(
+            composerField.waitForExistence(timeout: 4),
+            "Rapid reversal coverage requires the Composer bar to be mounted"
+        )
+        let initialDock = waitForDock(in: app, describe: "composer and shortcut bars are both visible") {
+            guard $0["composerActive"] == "1",
+                  let composerMinY = $0["composerMinY"].flatMap(Double.init),
+                  let composerMaxY = $0["composerMaxY"].flatMap(Double.init) else { return false }
+            return composerMaxY - composerMinY > 1
+        }
+        XCTAssertEqual(initialDock["composerActive"], "1")
+
+        surface.tap()
+        guard let initialKeyboard = waitForSoftwareKeyboardKeyPlane(
+            in: app,
+            minimumOverlap: 120,
+            timeout: 4
+        ) else { return }
+        assertTerminalDockPinnedToSoftwareKeyboard(
+            surfaceDock(in: app),
+            surface: surface,
+            keyboard: initialKeyboard,
+            context: "rapid-reversal baseline"
+        )
+        let composerKeyboardInset = initialKeyboard.frame.minY - composerField.frame.maxY
+
+        let hideKeyboardButton = app.buttons["terminal.inputAccessory.hideKeyboard"]
+        XCTAssertTrue(hideKeyboardButton.waitForExistence(timeout: 4))
+
+        for cycle in 1...10 {
+            hideKeyboardButton.tap()
+            if app.keyboards.firstMatch.exists {
+                XCTAssertEqual(
+                    app.keyboards.firstMatch.frame.minY - composerField.frame.maxY,
+                    composerKeyboardInset,
+                    accuracy: 2,
+                    "The whole dock detached while keyboard dismissal was still visible in cycle \(cycle)"
+                )
+            }
+            surface.tap()
+
+            guard let keyboard = waitForSoftwareKeyboardKeyPlane(
+                in: app,
+                minimumOverlap: 120,
+                timeout: 4
+            ) else { return }
+            let dock = surfaceDock(in: app)
+            XCTAssertEqual(
+                keyboard.frame.minY - composerField.frame.maxY,
+                composerKeyboardInset,
+                accuracy: 2,
+                "The whole dock detached from the keyboard after rapid reversal \(cycle)"
+            )
+            assertTerminalDockPinnedToSoftwareKeyboard(
+                dock,
+                surface: surface,
+                keyboard: keyboard,
+                context: "rapid reversal \(cycle)"
+            )
+            guard let maximumGap = dock["dockMaxInternalPresentationGap"].flatMap(Double.init) else {
+                XCTFail("Missing per-frame dock seam metric after rapid reversal \(cycle). dock=\(dock)")
+                return
+            }
+            XCTAssertLessThanOrEqual(
+                maximumGap,
+                1,
+                "Shortcut and Composer bars separated during rapid reversal \(cycle). dock=\(dock)"
+            )
         }
     }
 
