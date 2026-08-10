@@ -18,7 +18,7 @@ public final class TerminalSurfaceLaunchResolver {
     private let ambientEnvironment: [String: String]
     private let defaultShellArguments: DefaultShellArguments
     private let resolvedUserShell: @MainActor () -> String?
-    private let hasUserGhosttyCommand: @MainActor () -> Bool
+    private let userGhosttyCommand: @MainActor () -> String?
     private let agentCommandShimInstallDeadline: Duration
     private let agentCommandShimInstallDeadlineClock: any Clock<Duration>
 
@@ -31,7 +31,7 @@ public final class TerminalSurfaceLaunchResolver {
         self.init(
             userGhosttyShellIntegrationMode: dependencies.userGhosttyShellIntegrationMode,
             resolvedUserShell: dependencies.resolvedUserShell,
-            hasUserGhosttyCommand: dependencies.hasUserGhosttyCommand,
+            userGhosttyCommand: dependencies.userGhosttyCommand,
             spawnPolicyProvider: dependencies.spawnPolicyProvider,
             runtimeFilesystem: dependencies.runtimeFilesystem,
             sessionPortBase: dependencies.sessionPortBase,
@@ -48,7 +48,7 @@ public final class TerminalSurfaceLaunchResolver {
     public init(
         userGhosttyShellIntegrationMode: @escaping @MainActor () -> String,
         resolvedUserShell: @escaping @MainActor () -> String? = { nil },
-        hasUserGhosttyCommand: @escaping @MainActor () -> Bool = { false },
+        userGhosttyCommand: @escaping @MainActor () -> String? = { nil },
         spawnPolicyProvider: any TerminalSurfaceSpawnPolicyProviding,
         runtimeFilesystem: TerminalSurfaceRuntimeFilesystem,
         sessionPortBase: Int,
@@ -62,7 +62,7 @@ public final class TerminalSurfaceLaunchResolver {
     ) {
         self.userGhosttyShellIntegrationMode = userGhosttyShellIntegrationMode
         self.resolvedUserShell = resolvedUserShell
-        self.hasUserGhosttyCommand = hasUserGhosttyCommand
+        self.userGhosttyCommand = userGhosttyCommand
         self.spawnPolicyProvider = spawnPolicyProvider
         self.runtimeFilesystem = runtimeFilesystem
         self.sessionPortBase = sessionPortBase
@@ -251,17 +251,17 @@ public final class TerminalSurfaceLaunchResolver {
 
         let workingDirectory = request.workingDirectory?.nilIfEmpty
             ?? baseConfig.workingDirectory?.nilIfEmpty
-        let command = TerminalLaunchCommandPolicy().resolve(
+        let configuredLaunchForm = TerminalLaunchCommandPolicy().resolve(
             initialCommand: request.initialCommand?.nilIfEmpty,
             surfaceCommand: baseConfig.command?.nilIfEmpty,
-            hasUserGhosttyCommand: hasUserGhosttyCommand(),
+            userGhosttyCommand: userGhosttyCommand(),
             managedShellCommand: managedShellCommand,
             resolvedShell: resolvedShell
         )
         let initialInput = request.runtimeInitialInput?.nilIfEmpty
             ?? request.initialInput?.nilIfEmpty
             ?? baseConfig.initialInput?.nilIfEmpty
-        let launchForm = command.flatMap(TerminalSurfaceLaunchForm.init(command:))
+        let launchForm = configuredLaunchForm
             ?? TerminalSurfaceLaunchForm(arguments: defaultShellArguments())
             ?? .fallbackLoginShell
         return TerminalSurfaceResolvedLaunch(

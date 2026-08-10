@@ -13,7 +13,6 @@ jobs:
     timeout-minutes: 35
     env:
       GHOSTTYKIT_CRASH_REPORT_SUBDIR: cmux/crash
-      GHOSTTYKIT_BUILD_FLAVOR: crashsubdir-cmux-crash-sentry-off-v1
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -36,8 +35,13 @@ jobs:
         id: ghostty-sha
         run: |
           SHA=$(git -C ghostty rev-parse HEAD)
+          BUILD_FLAVOR="$(
+            ./scripts/ghosttykit-build-flavor.sh "$GHOSTTYKIT_CRASH_REPORT_SUBDIR"
+          )"
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "GHOSTTYKIT_BUILD_FLAVOR=$BUILD_FLAVOR" >> "$GITHUB_ENV"
           echo "Ghostty SHA: $SHA"
+          echo "GhosttyKit build flavor: $BUILD_FLAVOR"
 
       - name: Check if xcframework release already exists
         id: check-release

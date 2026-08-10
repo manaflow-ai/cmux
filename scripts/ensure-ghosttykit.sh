@@ -86,7 +86,9 @@ GHOSTTYKIT_CRASH_REPORT_SUBDIR="${CMUX_GHOSTTYKIT_CRASH_REPORT_SUBDIR:-cmux/cras
 # cmux owns process-wide crash capture through Sentry Cocoa. Linking Ghostty's
 # native Sentry as well creates a second global crash handler and starts its
 # environment-reading init thread during Ghostty locale mutation.
-GHOSTTYKIT_BUILD_FLAVOR="crashsubdir-$(printf '%s' "$GHOSTTYKIT_CRASH_REPORT_SUBDIR" | tr '/=' '--')-sentry-off-v1"
+GHOSTTYKIT_BUILD_FLAVOR="$(
+  "$PROJECT_DIR/scripts/ghosttykit-build-flavor.sh" "$GHOSTTYKIT_CRASH_REPORT_SUBDIR"
+)"
 GHOSTTY_CLEAN_KEY="${GHOSTTY_SHA}-${GHOSTTYKIT_BUILD_FLAVOR}"
 GHOSTTY_KEY="$GHOSTTY_CLEAN_KEY"
 UNTRACKED_FILES="$(git -C ghostty ls-files --others --exclude-standard)"

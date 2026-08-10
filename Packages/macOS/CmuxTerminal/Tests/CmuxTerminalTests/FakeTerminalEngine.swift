@@ -15,7 +15,7 @@ final class FakeTerminalEngine: TerminalEngineHosting {
         return nil
     }
     var userGhosttyShellIntegrationMode: String { "none" }
-    var hasUserGhosttyCommand: Bool { false }
+    var userGhosttyCommand: String? { nil }
     var resolvedUserShell: String? { nil }
     var terminalFontConfigurationGeneration: UInt64 = 0
     var terminalFontConfigurationRuntimePoints: Float32 = 12

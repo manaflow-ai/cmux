@@ -109,7 +109,7 @@ struct TerminalSurfaceLaunchResolverTests {
         let resolver = makeResolver(
             defaultArguments: ["/usr/bin/login", "-flp", "tester"],
             resolvedUserShell: "/opt/homebrew/bin/fish",
-            hasUserGhosttyCommand: true
+            userGhosttyCommand: "direct: /usr/local/bin/nu --login"
         )
 
         let resolved = resolver.resolve(
@@ -128,7 +128,7 @@ struct TerminalSurfaceLaunchResolverTests {
         )
 
         #expect(resolved.command == nil)
-        #expect(resolved.arguments == ["/usr/bin/login", "-flp", "tester"])
+        #expect(resolved.arguments == ["/usr/local/bin/nu", "--login"])
         #expect(resolved.environment["SHELL"] == "/opt/homebrew/bin/fish")
     }
 
@@ -200,7 +200,7 @@ struct TerminalSurfaceLaunchResolverTests {
     private func makeResolver(
         defaultArguments: [String],
         resolvedUserShell: String? = nil,
-        hasUserGhosttyCommand: Bool = false,
+        userGhosttyCommand: String? = nil,
         runtimeFilesystem: TerminalSurfaceRuntimeFilesystem? = nil,
         resourceURL: URL? = nil,
         agentCommandShimInstallDeadline: Duration = .seconds(5),
@@ -209,7 +209,7 @@ struct TerminalSurfaceLaunchResolverTests {
         TerminalSurfaceLaunchResolver(
             userGhosttyShellIntegrationMode: { "none" },
             resolvedUserShell: { resolvedUserShell },
-            hasUserGhosttyCommand: { hasUserGhosttyCommand },
+            userGhosttyCommand: { userGhosttyCommand },
             spawnPolicyProvider: FakeSpawnPolicyProvider(),
             runtimeFilesystem: runtimeFilesystem ?? TerminalSurfaceRuntimeFilesystem(
                 agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp"),

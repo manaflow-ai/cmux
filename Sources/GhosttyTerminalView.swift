@@ -464,8 +464,8 @@ class GhosttyApp {
         resolvedUserShell: {
             GhosttyApp.shared.resolvedUserShell
         },
-        hasUserGhosttyCommand: {
-            GhosttyApp.shared.hasUserGhosttyCommand
+        userGhosttyCommand: {
+            GhosttyApp.shared.userGhosttyCommand
         }
     )
 
@@ -518,7 +518,7 @@ class GhosttyApp {
     private var pendingAppearanceSynchronization: PendingAppearanceSynchronization?
     private(set) var usesHostLayerBackground = false
     private(set) var userGhosttyShellIntegrationMode: String = "detect"
-    private(set) var hasUserGhosttyCommand = false
+    private(set) var userGhosttyCommand: String?
     private(set) var resolvedUserShell: String?
 
     func storedShortcut(
@@ -1115,7 +1115,7 @@ class GhosttyApp {
             // If the user config is invalid, prefer a minimal fallback configuration so
             // cmux still launches with working terminals.
             ghostty_config_free(primaryConfig)
-            hasUserGhosttyCommand = false
+            userGhosttyCommand = nil
 
             guard let fallbackConfig = ghostty_config_new() else {
                 #if DEBUG
@@ -1346,10 +1346,10 @@ class GhosttyApp {
         if appearanceSummary.shouldApplyDefaultAppearance, !appearanceSummary.hasExplicitTerminalColorDirective {
             loadCmuxDefaultAppearanceConfig(config, preferredColorScheme: preferredColorScheme)
         }
-        hasUserGhosttyCommand = GhosttyConfig.load(
+        userGhosttyCommand = GhosttyConfig.load(
             preferredColorScheme: preferredColorScheme,
             useCache: false
-        ).command != nil
+        ).command
     }
 
     func loadDefaultConfigFilesWithLegacyFallback(
@@ -1357,7 +1357,7 @@ class GhosttyApp {
         preferredColorScheme: GhosttyConfig.ColorSchemePreference = GhosttyConfig.currentColorSchemePreference(),
         conditionalThemeColorScheme: GhosttyConfig.ColorSchemePreference? = nil
     ) -> Bool {
-        hasUserGhosttyCommand = false
+        userGhosttyCommand = nil
         // Surface-only reloads may use a terminal-derived scheme for background
         // handling, while Ghostty split-theme pairs follow app appearance.
         let themeColorScheme = conditionalThemeColorScheme ?? preferredColorScheme

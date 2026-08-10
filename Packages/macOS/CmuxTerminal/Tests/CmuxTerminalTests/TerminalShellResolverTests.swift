@@ -62,40 +62,60 @@ struct TerminalShellResolverTests {
 
     @Test
     func resolvedShellBecomesTheDefaultSurfaceCommand() {
-        let command = TerminalLaunchCommandPolicy().resolve(
+        let launchForm = TerminalLaunchCommandPolicy().resolve(
             initialCommand: nil,
             surfaceCommand: nil,
-            hasUserGhosttyCommand: false,
+            userGhosttyCommand: nil,
             managedShellCommand: nil,
             resolvedShell: "/run/current-system/sw/bin/fish"
         )
 
-        #expect(command == "/run/current-system/sw/bin/fish")
+        #expect(launchForm?.command == "/run/current-system/sw/bin/fish")
+        #expect(launchForm?.arguments == nil)
     }
 
     @Test
-    func explicitGhosttyCommandIsInheritedWithoutSurfaceOverride() {
-        let command = TerminalLaunchCommandPolicy().resolve(
+    func explicitGhosttyShellCommandKeepsItsShellLaunchForm() {
+        let launchForm = TerminalLaunchCommandPolicy().resolve(
             initialCommand: nil,
             surfaceCommand: nil,
-            hasUserGhosttyCommand: true,
+            userGhosttyCommand: "shell: exec /usr/local/bin/nu --login",
             managedShellCommand: "/run/current-system/sw/bin/fish --init-command source",
             resolvedShell: "/run/current-system/sw/bin/fish"
         )
 
-        #expect(command == nil)
+        #expect(launchForm?.command == "exec /usr/local/bin/nu --login")
+        #expect(launchForm?.arguments == nil)
+    }
+
+    @Test
+    func explicitGhosttyDirectCommandKeepsItsArgumentLaunchForm() {
+        let launchForm = TerminalLaunchCommandPolicy().resolve(
+            initialCommand: nil,
+            surfaceCommand: nil,
+            userGhosttyCommand: " direct: /usr/local/bin/nu --login ",
+            managedShellCommand: nil,
+            resolvedShell: "/bin/zsh"
+        )
+
+        #expect(launchForm?.command == nil)
+        #expect(launchForm?.arguments == ["/usr/local/bin/nu", "--login"])
     }
 
     @Test
     func managedFishCommandWinsOverPlainResolvedShell() {
-        let command = TerminalLaunchCommandPolicy().resolve(
+        let launchForm = TerminalLaunchCommandPolicy().resolve(
             initialCommand: nil,
             surfaceCommand: nil,
-            hasUserGhosttyCommand: false,
+            userGhosttyCommand: nil,
             managedShellCommand: "/run/current-system/sw/bin/fish --init-command source",
             resolvedShell: "/run/current-system/sw/bin/fish"
         )
 
-        #expect(command == "/run/current-system/sw/bin/fish --init-command source")
+        #expect(
+            launchForm?.command
+                == "/run/current-system/sw/bin/fish --init-command source"
+        )
+        #expect(launchForm?.arguments == nil)
     }
 }

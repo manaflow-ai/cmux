@@ -198,6 +198,9 @@ jobs:
       - name: Validate GhosttyKit checksum verification
         run: ./tests/test_ci_ghosttykit_checksum_verification.sh
 
+      - name: Validate GhosttyKit build flavor
+        run: ./tests/test_ghosttykit_build_flavor.sh
+
       - name: Validate Zig install without sudo
         run: ./tests/test_install_zig_ci_no_sudo.sh
 
