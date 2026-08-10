@@ -344,6 +344,7 @@ final class SettingsWindowPresenter: NSObject {
             name: NSWindow.willCloseNotification,
             object: window
         )
+        configureSpaceBehavior(of: window)
         installWindowController(for: window)
         settingsWindow = window
     }
@@ -358,6 +359,7 @@ final class SettingsWindowPresenter: NSObject {
         window.isRestorable = false
         window.minSize = Self.minimumSize
         window.contentMinSize = Self.minimumSize
+        configureSpaceBehavior(of: window)
         window.adoptCmuxPeerWindowLevel()
         if !window.setFrameUsingName(Self.frameAutosaveName) {
             window.center()
@@ -398,6 +400,8 @@ final class SettingsWindowPresenter: NSObject {
             // waits out the transition via `awaitVisibility(of:timeout:)`.
             window.deminiaturize(nil)
         }
+        // Reassert for identifier-adopted and long-lived windows.
+        configureSpaceBehavior(of: window)
         window.adoptCmuxPeerWindowLevel()
         clampToVisibleAreaIfNeeded(window)
         window.orderFrontRegardless()
