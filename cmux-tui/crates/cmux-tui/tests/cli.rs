@@ -1110,7 +1110,7 @@ fn explicit_socket_keeps_state_in_platform_root() {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    let server = HeadlessServer { child, socket, state, dir };
+    let server = HeadlessServer { child, socket, state, dir, shutdown_owner_diagnostic: None };
     server.wait_for_socket();
 
     let registry_exists = || {
