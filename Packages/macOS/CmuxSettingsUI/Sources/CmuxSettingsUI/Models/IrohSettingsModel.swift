@@ -54,16 +54,11 @@ final class IrohSettingsModel {
         }
     }
 
-    #if DEBUG
-    func setDebugRelayOnly(_ enabled: Bool) {
+    func setPathPreference(_ preference: CmxIrohPathPreference) {
         mutate { controller in
-            guard let debugController = controller as? any CmxIrohDebugSettingsControlling else {
-                return
-            }
-            try await debugController.setIrohDebugRelayOnly(enabled)
+            try await controller.setIrohPathPreference(preference)
         }
     }
-    #endif
 
     func upsertCustomRelay(_ relay: CmxIrohCustomRelayDraft, deviceSecret: String?) async -> Bool {
         await mutateAndWait { controller in
@@ -115,10 +110,14 @@ final class IrohSettingsModel {
         diagnosticReloadGeneration &+= 1
         let generation = diagnosticReloadGeneration
         let report = await controller.irohDiagnosticReport()
+        let exportText: String
+        if report.events.isEmpty {
+            exportText = ""
+        } else {
+            exportText = await report.humanReadableText()
+        }
         guard generation == diagnosticReloadGeneration else { return }
         diagnosticReport = report
-        diagnosticExportText = report.events.isEmpty
-            ? ""
-            : String(decoding: report.compactExport(), as: UTF8.self)
+        diagnosticExportText = exportText
     }
 }

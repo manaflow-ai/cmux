@@ -332,7 +332,7 @@ extension ControlCommandCoordinator {
         _ node: ControlSystemTreePaneNode,
         refs: SystemTreePaneRefs
     ) -> JSONValue {
-        .object([
+        var item: [String: JSONValue] = [
             "id": .string(node.paneID.uuidString),
             "ref": refs.paneRef,
             "index": .int(Int64(node.index)),
@@ -343,7 +343,11 @@ extension ControlCommandCoordinator {
             "selected_surface_ref": refs.selectedSurfaceRef,
             "surface_count": .int(Int64(node.surfaceIDs.count)),
             "surfaces": .array(zip(node.surfaces, refs.surfaces).map { pair in systemTreeSurfacePayload(pair.0, refs: pair.1) }),
-        ])
+        ]
+        if let dockScope = node.dockScopeRawValue {
+            item["dock_scope"] = .string(dockScope)
+        }
+        return .object(item)
     }
 
     /// The `system.tree` surface node payload (browser surfaces emit their URL
@@ -367,6 +371,9 @@ extension ControlCommandCoordinator {
             "tty": orNull(node.tty),
         ]
         item["url"] = node.isBrowser ? .string(node.url ?? "") : .null
+        if let dockScope = node.dockScopeRawValue {
+            item["dock_scope"] = .string(dockScope)
+        }
         return .object(item)
     }
 }

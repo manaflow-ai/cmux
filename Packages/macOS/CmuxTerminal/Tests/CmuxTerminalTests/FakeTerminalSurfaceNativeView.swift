@@ -14,6 +14,7 @@ final class FakeTerminalSurfaceNativeView: NSView {
     func toggleKeyboardCopyMode() -> Bool { false }
     func applyWindowBackgroundIfActive() {}
     func forceRefreshSurface() -> Bool { true }
+    func runtimeSurfaceDidBecomeReady() {}
 }
 
 extension FakeTerminalSurfaceNativeView: @preconcurrency TerminalSurfaceHosting {}

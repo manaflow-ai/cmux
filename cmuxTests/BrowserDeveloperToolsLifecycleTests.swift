@@ -19,6 +19,7 @@ extension BrowserDeveloperToolsVisibilityPersistenceTests {
             backing: .buffered,
             defer: false
         )
+        mainWindow.isReleasedWhenClosed = false
         let inspectorWindow = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
             styleMask: [.titled, .closable],
@@ -117,6 +118,7 @@ extension BrowserDeveloperToolsVisibilityPersistenceTests {
             backing: .buffered,
             defer: false
         )
+        inspectorWindow.isReleasedWhenClosed = false
         inspectorWindow.title = "Web Inspector — example.com"
         let frontendWebView = WKInspectorProbeWebView(
             frame: inspectorWindow.contentView?.bounds ?? .zero,
@@ -192,6 +194,7 @@ extension BrowserDeveloperToolsVisibilityPersistenceTests {
             backing: .buffered,
             defer: false
         )
+        inspectorWindow.isReleasedWhenClosed = false
         inspectorWindow.title = "Web Inspector — example.com"
         let frontendWebView = WKInspectorProbeWebView(
             frame: inspectorWindow.contentView?.bounds ?? .zero,
@@ -204,7 +207,7 @@ extension BrowserDeveloperToolsVisibilityPersistenceTests {
         inspectorWindow.makeKey()
         XCTAssertTrue(browserPanel.showDeveloperTools())
         XCTAssertEqual(inspector.closeCount, 0)
-        XCTAssertTrue(inspectorWindow.isKeyWindow)
+        assertRoutingFocusedWindow(inspectorWindow)
         let handled = NSApp.sendAction(NSSelectorFromString("__close"), to: nil, from: nil)
         spinRunLoopOneTick()
         XCTAssertTrue(handled)
@@ -244,6 +247,7 @@ extension BrowserDeveloperToolsVisibilityPersistenceTests {
             backing: .buffered,
             defer: false
         )
+        inspectorWindow.isReleasedWhenClosed = false
         inspectorWindow.title = "Inspector Localized — example.com"
         let frontendWebView = WKInspectorProbeWebView(
             frame: inspectorWindow.contentView?.bounds ?? .zero,
@@ -256,7 +260,7 @@ extension BrowserDeveloperToolsVisibilityPersistenceTests {
         inspectorWindow.makeKey()
         XCTAssertTrue(browserPanel.showDeveloperTools())
         XCTAssertEqual(inspector.closeCount, 0)
-        XCTAssertTrue(inspectorWindow.isKeyWindow)
+        assertRoutingFocusedWindow(inspectorWindow)
         let menuItem = NSMenuItem(
             title: "Close",
             action: NSSelectorFromString("close:"),
@@ -301,6 +305,7 @@ extension BrowserDeveloperToolsVisibilityPersistenceTests {
             backing: .buffered,
             defer: false
         )
+        inspectorWindow.isReleasedWhenClosed = false
         inspectorWindow.title = "Web Inspector — example.com"
         let frontendWebView = WKInspectorProbeWebView(
             frame: inspectorWindow.contentView?.bounds ?? .zero,
@@ -313,7 +318,7 @@ extension BrowserDeveloperToolsVisibilityPersistenceTests {
         inspectorWindow.makeKey()
         XCTAssertTrue(browserPanel.showDeveloperTools())
         XCTAssertEqual(inspector.closeCount, 0)
-        XCTAssertTrue(inspectorWindow.isKeyWindow)
+        assertRoutingFocusedWindow(inspectorWindow)
         let event = try XCTUnwrap(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
@@ -374,6 +379,7 @@ extension BrowserDeveloperToolsVisibilityPersistenceTests {
             backing: .buffered,
             defer: false
         )
+        inspectorWindow.isReleasedWhenClosed = false
         inspectorWindow.title = "Inspector Localized — example.com"
         let frontendWebView = WKInspectorProbeWebView(
             frame: inspectorWindow.contentView?.bounds ?? .zero,
@@ -386,7 +392,7 @@ extension BrowserDeveloperToolsVisibilityPersistenceTests {
         inspectorWindow.makeKey()
         XCTAssertTrue(browserPanel.showDeveloperTools())
         XCTAssertEqual(inspector.closeCount, 0)
-        XCTAssertTrue(inspectorWindow.isKeyWindow)
+        assertRoutingFocusedWindow(inspectorWindow)
         let event = try XCTUnwrap(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
@@ -428,6 +434,7 @@ extension BrowserDeveloperToolsVisibilityPersistenceTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         defer { closeWindow(window) }
         guard let contentView = window.contentView else {
             XCTFail("Expected window content view")

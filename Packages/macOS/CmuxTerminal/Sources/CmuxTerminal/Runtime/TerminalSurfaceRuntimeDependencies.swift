@@ -19,6 +19,34 @@ public struct TerminalSurfacePresentationDependencies {
     /// The agent-hibernation input recorder.
     public let hibernationRecorder: any AgentHibernationRecording
 
+    /// The serialized native-surface free queue.
+    public let runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator
+
+    /// The paced native-surface creation queue for restored terminal sessions.
+    public let restoreSpawnScheduler: any TerminalSurfaceRuntimeSpawnScheduling
+
+    /// Filesystem probes and writers used by runtime creation.
+    public let runtimeFilesystem: TerminalSurfaceRuntimeFilesystem
+
+    /// The bounded grace period runtime creation waits for the optional
+    /// Claude command-shim install before spawning without it.
+    ///
+    /// The shim is a PATH convenience; a hung install must never starve PTY
+    /// spawn (issue #9769). Defaults to five seconds.
+    public let claudeCommandShimInstallDeadline: Duration
+
+    /// The clock driving ``claudeCommandShimInstallDeadline``; injectable so
+    /// tests control the deadline deterministically.
+    public let claudeCommandShimInstallDeadlineClock: any Clock<Duration>
+
+    /// The first port of the per-session `CMUX_PORT` allocation
+    /// (snapshotted once per app session by the composition root).
+    public let sessionPortBase: Int
+
+    /// The per-workspace port range size (snapshotted once per app session
+    /// by the composition root).
+    public let sessionPortRangeSize: Int
+
     /// The environment key carrying one-shot session scrollback replay; the
     /// surface strips it after the first runtime spawn.
     public let scrollbackReplayEnvironmentKey: String
@@ -104,28 +132,28 @@ public struct TerminalSurfaceRuntimeDependencies {
         runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator,
         restoreSpawnScheduler: any TerminalSurfaceRuntimeSpawnScheduling,
         runtimeFilesystem: TerminalSurfaceRuntimeFilesystem,
+        claudeCommandShimInstallDeadline: Duration = .seconds(5),
+        claudeCommandShimInstallDeadlineClock: any Clock<Duration> = ContinuousClock(),
         sessionPortBase: Int,
         sessionPortRangeSize: Int,
         scrollbackReplayEnvironmentKey: String,
         globalFontMagnificationPercent: @escaping @Sendable () -> Int = { 100 }
     ) {
-        presentation = TerminalSurfacePresentationDependencies(
-            registry: registry,
-            viewProvider: viewProvider,
-            spawnPolicy: spawnPolicy,
-            hibernationRecorder: hibernationRecorder,
-            scrollbackReplayEnvironmentKey: scrollbackReplayEnvironmentKey,
-            globalFontMagnificationPercent: globalFontMagnificationPercent
-        )
-        embeddedRuntime = TerminalSurfaceEmbeddedRuntimeDependencies(
-            engine: engine,
-            byteTee: byteTee,
-            rendererRealization: rendererRealization,
-            runtimeTeardown: runtimeTeardown,
-            restoreSpawnScheduler: restoreSpawnScheduler,
-            runtimeFilesystem: runtimeFilesystem,
-            sessionPortBase: sessionPortBase,
-            sessionPortRangeSize: sessionPortRangeSize
-        )
+        self.registry = registry
+        self.engine = engine
+        self.viewProvider = viewProvider
+        self.spawnPolicy = spawnPolicy
+        self.byteTee = byteTee
+        self.rendererRealization = rendererRealization
+        self.hibernationRecorder = hibernationRecorder
+        self.runtimeTeardown = runtimeTeardown
+        self.restoreSpawnScheduler = restoreSpawnScheduler
+        self.runtimeFilesystem = runtimeFilesystem
+        self.claudeCommandShimInstallDeadline = claudeCommandShimInstallDeadline
+        self.claudeCommandShimInstallDeadlineClock = claudeCommandShimInstallDeadlineClock
+        self.sessionPortBase = sessionPortBase
+        self.sessionPortRangeSize = sessionPortRangeSize
+        self.scrollbackReplayEnvironmentKey = scrollbackReplayEnvironmentKey
+        self.globalFontMagnificationPercent = globalFontMagnificationPercent
     }
 }

@@ -11,17 +11,14 @@ Requirements:
 - Method names are snake_case and map 1:1 to implemented command names.
 - Preserve server error strings in `CommandError`.
 - Distinguish command errors, connection errors, protocol errors, and timeouts.
-- Resolve the default socket from `XDG_RUNTIME_DIR`, then `TMPDIR`, then `/tmp`; ignore empty values. On Darwin, fall back to `/tmp/cmux-tui-<uid>/<session>.sock` when the first candidate exceeds 103 filesystem bytes. Never truncate a path.
+- Resolve the default socket with `XDG_RUNTIME_DIR`, then `TMPDIR`, then `/tmp`, matching `spec/transports.md`, with explicit socket and `CMUX_TUI_SOCKET` overrides.
 - Use separate sockets for command requests, subscribe streams, and attach streams.
 - Provide `CmuxClient.request(cmd, **params) -> dict` as the raw JSON response entry point.
 - Implement `subscribe()` as an iterator over event objects.
 - Implement `attach_surface(surface)` as an iterator over attach event objects.
-- Implement `topology_snapshot()` with UUID-backed dataclasses and `subscribe_topology()` as a dedicated iterator.
-- Construct `IdentifyResult.topology_cursor` only from `canonical_topology_revision` plus both authority UUIDs.
-- Return `TopologyResnapshotRequired` for immediate recovery, authority mismatch, revision gaps, and terminal slow-consumer recovery.
-- Support protocol v5 attach streams and reject protocol v6 attach streams unless `resized` replay handling is implemented.
-- Include consumer-side methods for `move_tab(surface, pane, index)` and `move_workspace(workspace, index)`.
-- Do not implement proposed commands such as `wait-for`, `run`, `send-key`, `copy`, `ids`, `notify`, `list-agents`, or `report-agent` as active protocol methods.
+- Support byte attach streams from protocol 5, including the protocol-v5 fallback shape; browser attach streams from protocol 6; and render attach streams from protocol 7. Handle `resized` replay only where that event is available.
+- Include typed methods for every command in `spec/inventory.json` that belongs to the selected profile, including `read_scrollback`, `wait_for`, `run`, `send_key`, `copy`, `ids`, `notify`, `list_agents`, and `report_agent`.
+- Keep proposed vNext primitives out of the active protocol client until their protocol version lands.
 
 Public API shape:
 

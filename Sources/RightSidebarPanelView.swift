@@ -125,7 +125,7 @@ struct RightSidebarPanelView: View {
     @State private var focusShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State private var closeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State private var hasMountedRightSidebarContent = false
-    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     private let alwaysShowShortcutHints = ShortcutHintDebugSettings().alwaysShowHints
     private let closeShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintX
     private let closeShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintY
@@ -424,7 +424,8 @@ struct RightSidebarPanelView: View {
                 mode: fileExplorerState.mode,
                 rootDirectory: nil,
                 windowAppearance: windowAppearance,
-                rightSidebarOwnsInputFocus: fileExplorerState.rightSidebarOwnsInputFocus
+                rightSidebarOwnsInputFocus: fileExplorerState.rightSidebarOwnsInputFocus,
+                unreadSource: TerminalNotificationStore.shared.sidebarUnread
             )
             .id("dock.window.\(dock.workspaceId.uuidString)")
         } else {

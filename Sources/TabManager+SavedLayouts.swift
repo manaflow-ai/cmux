@@ -31,8 +31,8 @@ extension TabManager {
             select: focus,
             onProjected: configureWorkspace
         )
-        if case .created(let workspace) = outcome {
-            configureWorkspace(workspace)
+        if let color = layout.workspace.color {
+            setTabColor(tabId: workspace.id, color: color)
         }
         return outcome
     }

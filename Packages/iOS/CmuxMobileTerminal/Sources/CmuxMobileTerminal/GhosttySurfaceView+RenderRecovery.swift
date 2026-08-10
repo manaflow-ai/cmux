@@ -44,11 +44,44 @@ extension GhosttySurfaceView {
             pending.continuation.resume(returning: nil)
         }
 
+        // Viewport anchoring is best-effort; a timeout must not replace an
+        // otherwise healthy surface or turn replay into another recovery loop.
+        if let pending = pendingVerifiedReplayViewportAnchorCapture,
+           now - pending.startedAt >= Self.visibleSnapshotTimeout {
+            pendingVerifiedReplayViewportAnchorCapture = nil
+            pending.continuation.resume(returning: nil)
+        }
+
+        if let pending = pendingVerifiedReplayViewportAnchorRestore,
+           now - pending.startedAt >= Self.visibleSnapshotTimeout {
+            pendingVerifiedReplayViewportAnchorRestore = nil
+            viewportRestoreGate.withLock { $0.activeRestoreTicket = nil }
+            pending.continuation.resume(returning: false)
+        }
+
         if let pending = pendingCopyableTextRead,
            now - pending.startedAt >= Self.copyableTextTimeout {
             pendingCopyableTextRead = nil
             pending.cancel()
             pending.continuation.resume(returning: nil)
+        }
+
+        if let pending = pendingVerifiedReplayPresentation,
+           now - pending.startedAt >= effectiveOutputApplyTimeout {
+            let failureReason = verifiedReplayPendingFenceFailureReason() ?? "pending_missing"
+            pendingVerifiedReplayPresentation = nil
+            clearVerifiedReplayPresentation()
+            let elapsedMs = Int((now - pending.startedAt) * 1000)
+            MobileDebugLog.anchormux(
+                "verified_replay.TIMEOUT elapsedMs=\(elapsedMs) reason=\(failureReason)"
+            )
+            let recovered = recoverRenderPipeline(
+                reason: "verified_replay_timeout",
+                stalledMs: elapsedMs,
+                replay: .callerWillRequestReplay
+            )
+            pending.continuation.resume(returning: nil)
+            return recovered
         }
         return false
     }
@@ -159,6 +192,7 @@ extension GhosttySurfaceView {
               surface != nil else {
             return false
         }
+        clearVerifiedReplayPresentation()
         guard !renderPipelineRecoveryPaused else {
             return pauseRenderPipelineRecovery(reason: reason, stalledMs: stalledMs)
         }
@@ -188,7 +222,6 @@ extension GhosttySurfaceView {
             pendingSurfaceFreeCount += 1
             enqueueSurfaceFree(
                 oldSurface,
-                bridge: oldBridge,
                 generation: surfaceGeneration,
                 on: oldQueue
             ) { [weak self] in
@@ -214,10 +247,12 @@ extension GhosttySurfaceView {
         lastRenderLayoutViewportHeight = nil
         lastRenderHasSourceLayoutViewport = false
         lastAppliedContentScale = 0
+        resetLastAppliedContainerSize()
 
         surfaceGeneration &+= 1
         outputQueueGeneration &+= 1
         outputQueue = GhosttySurfaceWorkQueue(generation: outputQueueGeneration)
+        resetScrollStateForSurfaceReplacement()
         scrollToBottomInFlight = false
         bridge = GhosttySurfaceBridge()
         bridge.attach(to: self)

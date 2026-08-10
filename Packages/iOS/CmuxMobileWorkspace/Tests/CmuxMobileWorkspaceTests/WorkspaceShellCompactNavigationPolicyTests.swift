@@ -28,6 +28,42 @@ import Testing
         #expect(path == [MobileWorkspacePreview.ID(rawValue: "workspace-created")])
     }
 
+    @Test func composerSuccessFromEmptyPathPushesCreatedWorkspace() {
+        let path = policy.pathForCompletedCreate(
+            currentPath: [MobileWorkspacePreview.ID](),
+            selectedWorkspaceID: .init(rawValue: "workspace-created"),
+            existingWorkspaceIDs: [.init(rawValue: "workspace-a")],
+            succeeded: true
+        )
+
+        #expect(path == [MobileWorkspacePreview.ID(rawValue: "workspace-created")])
+    }
+
+    @Test func composerFailureClearsPendingIntentWithoutPushing() {
+        let path = policy.pathForCompletedCreate(
+            currentPath: [MobileWorkspacePreview.ID](),
+            selectedWorkspaceID: .init(rawValue: "workspace-created"),
+            existingWorkspaceIDs: [.init(rawValue: "workspace-a")],
+            succeeded: false
+        )
+
+        #expect(path == nil)
+    }
+
+    @Test func composerSuccessRetargetsExistingNonemptyPath() {
+        let path = policy.pathForCompletedCreate(
+            currentPath: [MobileWorkspacePreview.ID(rawValue: "workspace-open")],
+            selectedWorkspaceID: MobileWorkspacePreview.ID(rawValue: "workspace-created"),
+            existingWorkspaceIDs: [
+                MobileWorkspacePreview.ID(rawValue: "workspace-a"),
+                MobileWorkspacePreview.ID(rawValue: "workspace-open"),
+            ],
+            succeeded: true
+        )
+
+        #expect(path == [MobileWorkspacePreview.ID(rawValue: "workspace-created")])
+    }
+
     @Test func doesNotTreatExistingSelectionAsCreatedWorkspace() {
         let path = policy.pathForCreatedWorkspaceSelection(
             currentPath: [MobileWorkspacePreview.ID](),

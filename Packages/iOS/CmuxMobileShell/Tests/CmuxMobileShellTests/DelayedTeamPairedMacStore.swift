@@ -4,11 +4,19 @@ import Foundation
 @testable import CmuxMobileShell
 
 actor DelayedTeamPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshing {
+    func authorizeUserTailscaleRoutes(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?,
+        routes: [CmxAttachRoute]
+    ) async throws {}
+
     private var recordsByTeam: [String: [MobilePairedMac]]
     private let blockedTeams: Set<String>
     private var startedTeams: Set<String> = []
     private var startWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
-    private var blockers: [String: CheckedContinuation<Void, Never>] = [:]
+    private var blockers: [String: [CheckedContinuation<Void, Never>]] = [:]
     private var upsertCount = 0
     private var loadAllCount = 0
     private var recordReplacement: (
@@ -16,6 +24,8 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshi
         teamKey: String,
         records: [MobilePairedMac]
     )?
+    private var loadAllFailuresRemaining = 0
+    private var loadAllFailureCalls: Set<Int> = []
     private var upsertWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
     private var gatedUpsertIDs: Set<String> = []
     private var upsertStartedIDs: Set<String> = []
@@ -147,11 +157,21 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshi
 
     func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
         loadAllCount += 1
+        let failsByCount = loadAllFailuresRemaining > 0
+        if failsByCount || loadAllFailureCalls.remove(loadAllCount) != nil {
+            if failsByCount {
+                loadAllFailuresRemaining -= 1
+            }
+            throw NSError(
+                domain: "DelayedTeamPairedMacStore.loadAll",
+                code: 1
+            )
+        }
         let key = teamID ?? ""
         markStarted(key)
         if blockedTeams.contains(key) {
             await withCheckedContinuation { continuation in
-                blockers[key] = continuation
+                blockers[key, default: []].append(continuation)
             }
         }
         let result: [MobilePairedMac]
@@ -262,7 +282,14 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshi
 
     func release(teamID: String?) {
         let key = teamID ?? ""
-        blockers.removeValue(forKey: key)?.resume()
+        guard var queued = blockers[key], !queued.isEmpty else { return }
+        let blocker = queued.removeFirst()
+        if queued.isEmpty {
+            blockers.removeValue(forKey: key)
+        } else {
+            blockers[key] = queued
+        }
+        blocker.resume()
     }
 
     func waitUntilUpsertCount(_ count: Int) async {
@@ -290,6 +317,14 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshi
 
     func currentLoadAllCount() -> Int {
         loadAllCount
+    }
+
+    func failNextLoadAll(_ count: Int = 1) {
+        loadAllFailuresRemaining += count
+    }
+
+    func failLoadAll(call: Int) {
+        loadAllFailureCalls.insert(call)
     }
 
     func gateUpsert(macDeviceID: String) {

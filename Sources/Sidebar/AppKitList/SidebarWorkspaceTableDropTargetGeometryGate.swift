@@ -1,14 +1,14 @@
 import AppKit
 import CmuxFoundation
 
-/// Builds sidebar drop geometry only while an AppKit drag requests it.
+/// Builds bonsplit drop geometry only while an AppKit drag requests it.
+/// Workspace reorder drops resolve their targets synchronously per
+/// `validateDrop` in `SidebarWorkspaceTableController` and never touch this.
 @MainActor
 final class SidebarWorkspaceTableDropTargetGeometryGate {
     let bonsplitTargetBridge = SidebarBonsplitTabWorkspaceDropOverlay.TargetBridge()
 
     private weak var containerView: SidebarWorkspaceTableContainerView?
-    private var isWorkspaceDragSessionActive = false
-    private var isReorderTargetCollectionActive = false
     private var isBonsplitTargetCollectionActive = false
 
 #if DEBUG
@@ -20,38 +20,22 @@ final class SidebarWorkspaceTableDropTargetGeometryGate {
     }
 
     @discardableResult
-    func setWorkspaceDragSessionActive(
-        _ isActive: Bool,
-        rows: [SidebarWorkspaceTableRowConfiguration]
-    ) -> Bool {
-        let wasActive = hasActiveDrag
-        isWorkspaceDragSessionActive = isActive
-        return handleActivityChange(wasActive: wasActive, rows: rows)
-    }
-
-    @discardableResult
-    func setReorderTargetCollectionActive(
-        _ isActive: Bool,
-        rows: [SidebarWorkspaceTableRowConfiguration]
-    ) -> Bool {
-        let wasActive = hasActiveDrag
-        isReorderTargetCollectionActive = isActive
-        return handleActivityChange(wasActive: wasActive, rows: rows)
-    }
-
-    @discardableResult
     func setBonsplitTargetCollectionActive(
         _ isActive: Bool,
         rows: [SidebarWorkspaceTableRowConfiguration]
     ) -> Bool {
-        let wasActive = hasActiveDrag
+        guard isBonsplitTargetCollectionActive != isActive else { return false }
         isBonsplitTargetCollectionActive = isActive
-        return handleActivityChange(wasActive: wasActive, rows: rows)
+        if isActive {
+            return refreshIfActive(rows: rows)
+        }
+        clearTargets()
+        return false
     }
 
     @discardableResult
     func refreshIfActive(rows: [SidebarWorkspaceTableRowConfiguration]) -> Bool {
-        guard hasActiveDrag, let container = containerView else { return false }
+        guard isBonsplitTargetCollectionActive, let container = containerView else { return false }
 #if DEBUG
         computationProbe?()
 #endif
@@ -64,18 +48,7 @@ final class SidebarWorkspaceTableDropTargetGeometryGate {
 
         let lower = max(0, visibleRange.location)
         let upper = min(rows.count, visibleRange.location + visibleRange.length)
-        let visibleIndexes = lower..<upper
-        container.reorderDropView.targets = visibleIndexes.map { row in
-            let configuration = rows[row]
-            return SidebarWorkspaceReorderDropOverlay.Target(
-                workspaceId: configuration.workspaceId,
-                groupId: configuration.groupId,
-                isGroupHeader: configuration.isGroupHeader,
-                frame: table.convert(table.rect(ofRow: row), to: container.reorderDropView)
-            )
-        }
-        container.reorderDropView.targetsDidUpdate()
-        bonsplitTargetBridge.updateTargets(visibleIndexes.map { row in
+        bonsplitTargetBridge.updateTargets((lower..<upper).map { row in
             let configuration = rows[row]
             return SidebarDropPlanner.WorkspaceDropTarget(
                 workspaceId: configuration.workspaceId,
@@ -86,28 +59,7 @@ final class SidebarWorkspaceTableDropTargetGeometryGate {
         return true
     }
 
-    private var hasActiveDrag: Bool {
-        isWorkspaceDragSessionActive
-            || isReorderTargetCollectionActive
-            || isBonsplitTargetCollectionActive
-    }
-
-    private func handleActivityChange(
-        wasActive: Bool,
-        rows: [SidebarWorkspaceTableRowConfiguration]
-    ) -> Bool {
-        guard wasActive != hasActiveDrag else { return false }
-        if hasActiveDrag {
-            return refreshIfActive(rows: rows)
-        }
-        clearTargets()
-        return false
-    }
-
     private func clearTargets() {
-        guard let container = containerView else { return }
-        container.reorderDropView.targets = []
-        container.reorderDropView.targetsDidUpdate()
         bonsplitTargetBridge.updateTargets([])
     }
 }

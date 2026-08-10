@@ -26,7 +26,11 @@ extension TerminalSurface {
     @MainActor
     @discardableResult
     public func performInternalBindingAction(_ action: String) -> Bool {
-        performBindingAction(action)
+        fontSizeActionObservationSuppressionDepth += 1
+        defer {
+            fontSizeActionObservationSuppressionDepth -= 1
+        }
+        return performBindingAction(action)
     }
 
     /// Performs a user-initiated Ghostty binding action after notifying the pane host.

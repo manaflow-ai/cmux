@@ -1,85 +1,53 @@
-# cmux Go Client
+# cmux Go SDK
 
-Stdlib-only Go client for the cmux-tui Unix-socket JSON-lines protocol.
+Package `cmux` exposes the typed `cmux.protocol/2` resource API. Package
+`cmux/raw` preserves the private protocol-v11 API.
 
-Import path remains unchanged:
-
-```go
-import "github.com/manaflow-ai/cmux/cmux-tui/bindings/go"
-```
-
-## Build
+Install the released nested module with its semantic-version tag:
 
 ```bash
-cd cmux-tui/bindings/go
-go build ./...
+go get github.com/manaflow-ai/cmux/cmux-tui/bindings/go@v1.0.0
 ```
-
-## Usage
 
 ```go
-ctx := context.Background()
-client, err := cmux.NewClient(cmux.Options{})
+client, err := cmux.NewClient(ctx, cmux.ClientOptions{})
 if err != nil {
-    panic(err)
+	log.Fatal(err)
 }
-defer client.Close()
-surface, err := client.NewWorkspace(ctx, cmux.NewWorkspaceOptions{})
-if err != nil {
-    panic(err)
-}
-text := "echo hello\r"
-_ = client.Send(ctx, surface.Surface, cmux.SendOptions{Text: &text})
-screen, _ := client.ReadScreen(ctx, surface.Surface)
-fmt.Println(screen.Text)
+defer client.Close(context.Background())
+
+session := client.
+	Machine(cmux.SelectCurrent[cmux.MachineID]()).
+	Session(cmux.SelectCurrent[cmux.SessionID]())
+workspace := session.Workspace(cmux.SelectCurrent[cmux.WorkspaceID]())
+result, err := workspace.Run(ctx, cmux.WorkspaceRunOptions{
+	Command: cmux.Exact("printf", "hello\n"),
+})
+
+agent, err := session.ReportAgent(ctx, cmux.AgentReportOptions{
+	TerminalID: result.Value.Terminal,
+	State:      cmux.AgentStateWorking,
+	Source:     cmux.AgentReportSourceSocket,
+})
 ```
 
-`client.ProcessInfo(ctx, surface.Surface)` returns the daemon-owned PID, exact
-argv array, current cwd, and canonical PTY name.
+`Exact` preserves argv without shell interpretation. `Shell` requests explicit
+server-side shell execution. Resource handles do not own remote resources.
+Only `Client` and typed streams require explicit close or cancellation.
+`Session.ReportAgent` publishes the first agent state for a terminal and
+returns the typed agent snapshot without requiring an earlier agent listing.
 
-On the trusted local socket, `client.EnsureTerminal(...)` creates or reconnects
-one stable terminal UUID. `EnsureTerminalOptions.WaitAfterCommand` retains its
-final VT state after child exit until explicit close and is creation-only.
-`client.ReparentTerminal(...)` moves the same identity without replacing its PTY
-or child process.
+Mutations use caller-provided idempotency keys or keys generated from 128 bits
+of secure random data. The client never retries mutations. `Decimal` encodes
+the full unsigned 64-bit range as a canonical JSON string. Renderer grants
+redact their values from formatted output.
 
-## Protocol v8 topology
+Each `frame` item from `Browser.Attach` includes `PointerFrameSeq *Decimal`.
+`nil` means the frame cannot authorize pointer input. Pass a non-nil frame's
+exact value to `BrowserInputMouseOptions.PointerFrameSeq` or
+`BrowserInputWheelOptions.PointerFrameSeq`; both inputs always encode the token
+as an unsigned decimal string.
 
-```go
-snapshot, err := client.TopologySnapshot(ctx)
-if err != nil {
-    return err
-}
-outcome, err := client.SubscribeTopology(ctx, snapshot.Cursor())
-if err != nil {
-    return err
-}
-if outcome.ResnapshotRequired != nil {
-    snapshot, err = client.TopologySnapshot(ctx)
-} else {
-    event, err := outcome.Subscribed.Recv(ctx)
-    if err != nil {
-        return err
-    }
-    _ = event
-    defer outcome.Subscribed.Close()
-}
-```
-
-`IdentifyResult.TopologyCursor()` uses `CanonicalTopologyRevision`; the legacy
-`TopologyRevision` remains separately available. UUID fields use the strict
-stdlib-only `UUID` value type. Subscribe response and delta fence failures
-return `TopologyResnapshotRequired`. `Ping(ctx)` returns the complete optional
-authority shape for compatibility with protocol-v6 and protocol-v7 servers.
-
-`NewClient` uses `CMUX_TUI_SOCKET` when set, then legacy `CMUX_MUX_SOCKET`, then
-the default session socket path.
-
-Default derivation uses `XDG_RUNTIME_DIR`, then `TMPDIR`, then `/tmp`; empty values are ignored. On Darwin, paths over 103 filesystem bytes fall back to `/tmp/cmux-tui-<uid>` and are never truncated.
-
-## E2E
-
-```bash
-cd cmux-tui/bindings/go
-CMUX_TUI_SOCKET=/path/to/session.sock go run ./cmd/e2e
-```
+`ClientOptions.DialContext` supports injected transports and tests. The default
+transport uses a Unix session socket, with a Windows-compatible build fallback
+that requires injection.

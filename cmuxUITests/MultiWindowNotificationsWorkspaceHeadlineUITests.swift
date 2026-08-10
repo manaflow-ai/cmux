@@ -2,7 +2,7 @@ import XCTest
 
 extension MultiWindowNotificationsUITests {
     func runNotificationsPopoverShowsWorkspaceAsHeadline() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"] = dataPath
         app.launchEnvironment["CMUX_TAG"] = launchTag

@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import CMUXMobileCore
+import CmuxMobileTerminalKit
 import Foundation
 import UIKit
 
@@ -9,6 +10,12 @@ import UIKit
 /// surface coordinator; harnesses and tests provide scripted conformers.
 @MainActor
 public protocol GhosttySurfaceViewDelegate: AnyObject {
+    /// The UIKit view entered or left a window.
+    ///
+    /// A host must use this boundary to start and stop any remote output or
+    /// viewport ownership. SwiftUI can retain a representable after removing
+    /// its view from the window, so dismantle alone is not a mount boundary.
+    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didChangeWindowAttachment isAttached: Bool)
     /// Bytes the phone wants to send TO the PTY (typing, paste, mouse
     /// reports). The host forwards them to the Mac, which writes them into
     /// its libghostty surface and down the shared PTY.
@@ -24,6 +31,13 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
     /// (sign = direction), `col`/`row` is the grid cell under the finger (so
     /// alt-screen mouse-wheel reports at the right cell). Optional.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int)
+    /// Resolves immediate input ownership from a generation-stamped artifact cache.
+    /// Hosts defer when the cache is missing, stale, or contains a candidate.
+    func ghosttySurfaceView(
+        _ surfaceView: GhosttySurfaceView,
+        inputPolicyForTapAtCol col: Int,
+        row: Int
+    ) -> TerminalInputTapIntent
     /// Forward a tap to the Mac's real surface as a left click at the given grid
     /// cell, so TUIs with mouse reporting (lazygit/htop/fzf) receive the click.
     /// The Mac's libghostty self-gates: a normal screen treats it as a harmless
@@ -79,8 +93,18 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
 /// Default no-op implementations for the optional delegate requirements, so
 /// hosts only implement the surfaces they actually route.
 public extension GhosttySurfaceViewDelegate {
+    /// Default no-op so hosts without window-scoped resources can ignore it.
+    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didChangeWindowAttachment isAttached: Bool) {}
     /// Default no-op so hosts without remote scroll forwarding can ignore it.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int) {}
+    /// Default to immediate input for hosts without artifact-path interception.
+    func ghosttySurfaceView(
+        _ surfaceView: GhosttySurfaceView,
+        inputPolicyForTapAtCol col: Int,
+        row: Int
+    ) -> TerminalInputTapIntent {
+        .immediateInput
+    }
     /// Default terminal disposition so hosts without remote click forwarding retain input focus.
     func ghosttySurfaceView(
         _ surfaceView: GhosttySurfaceView,

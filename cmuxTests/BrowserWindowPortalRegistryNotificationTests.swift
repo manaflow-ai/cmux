@@ -171,6 +171,51 @@ struct BrowserWindowPortalRegistryNotificationTests {
         )
     }
 
+    @Test func visiblePortalPreservesExternalRenderHostUntilRestore() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let contentView = try #require(window.contentView)
+        let anchor = NSView(frame: NSRect(x: 24, y: 24, width: 360, height: 220))
+        contentView.addSubview(anchor)
+
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        defer { BrowserWindowPortalRegistry.detach(webView: webView) }
+        BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+
+        let portalHost = try #require(webView.cmuxBrowserViewportAttachmentSuperview)
+        let renderHost = BrowserOffscreenRenderHost(
+            webView: webView,
+            viewportSize: NSSize(width: 393, height: 852)
+        )
+        defer { renderHost.restore() }
+        let offscreenHost = try #require(webView.cmuxBrowserViewportAttachmentSuperview)
+
+        #expect(webView.cmuxBrowserViewportExternalRenderHostIsActive)
+        #expect(offscreenHost !== portalHost)
+        #expect(
+            webView.cmuxBrowserViewportAttachmentWindow?.identifier?.rawValue ==
+                "cmux.browserVisualAutomationRender"
+        )
+
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        #expect(webView.cmuxBrowserViewportAttachmentSuperview === offscreenHost)
+
+        renderHost.resize(to: NSSize(width: 852, height: 393))
+        #expect(offscreenHost.bounds.size == NSSize(width: 852, height: 393))
+
+        #expect(renderHost.restore())
+        #expect(!webView.cmuxBrowserViewportExternalRenderHostIsActive)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        #expect(webView.cmuxBrowserViewportAttachmentSuperview === portalHost)
+    }
+
     @Test func browserPanelCloseDetachesPortalAndDismissesSuggestionsWhileCallbacksRetainPanel() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),

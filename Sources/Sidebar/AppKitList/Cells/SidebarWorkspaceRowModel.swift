@@ -19,10 +19,15 @@ struct SidebarWorkspaceRowModel: Equatable {
     // authoritative and reconciles on the next configure.
     var isActive: Bool
     var isMultiSelected: Bool
+    /// Whether the workspace already has a user-owned custom title; baseline
+    /// input for the inline-rename commit policy (committing an unchanged
+    /// automatic title must not convert it into a user title, which would
+    /// freeze auto-naming).
+    let hasUserCustomTitle: Bool
     let canCloseWorkspace: Bool
     let accessibilityWorkspaceCount: Int
-    let unreadCount: Int
-    let latestNotificationText: String?
+    var unreadCount: Int
+    var latestNotificationText: String?
     let showsAgentActivity: Bool
     let rowSpacing: CGFloat
     let isBeingDragged: Bool
@@ -37,6 +42,20 @@ struct SidebarWorkspaceRowModel: Equatable {
     let globalFontMagnificationPercent: Int
     let isChecklistExpanded: Bool
     let checklistAddFieldActivationToken: Int
+    /// Whether the container presents this row's checklist popover
+    /// (`checklistPopoverWorkspaceId == workspaceId`) — container-owned, like
+    /// the legacy row's `isChecklistPopoverPresented`, so context-menu and
+    /// palette "Add Checklist Item…" requests can open the popover.
+    let isChecklistPopoverPresented: Bool
+    /// The checklist item currently in tap-to-edit, container-owned so the
+    /// prototype height measurement sees the same edit-field swap as the
+    /// live cell.
+    let editingChecklistItemId: UUID?
+    /// `WorkspaceTodoFeature.isEnabled`, projected at model-build time so a
+    /// remote rollout / local opt-in flip changes the model (and therefore
+    /// reconfigures and re-measures rows) instead of being read as a live
+    /// global inside the cell where nothing observes it.
+    let todoControlsEnabled: Bool
     /// Parity with legacy SidebarMetadataRows / markdown blocks: collapsed
     /// shows 3 entries / 1 block with a Show more toggle; expansion state is
     /// container-owned so the toggle re-measures heights through the normal
@@ -55,6 +74,8 @@ struct SidebarWorkspaceRowModel: Equatable {
 @MainActor
 struct SidebarAppKitRowActions {
     let commands: SidebarWorkspaceRowCommands
+    let onOpenStatusURL: (URL) -> Void
+    let onOpenWorkspaceDescriptionURL: (URL) -> Void
     let onOpenPullRequest: (URL) -> Void
     let onOpenPort: (Int) -> Void
     let onToggleChecklistExpansion: () -> Void
@@ -65,6 +86,28 @@ struct SidebarAppKitRowActions {
     let checklistRemoveItem: (UUID) -> Void
     let checklistAddItem: (String) -> Void
     let checklistEditItem: (UUID, String) -> Void
+    /// Moves one item toward a new 0-based position (within its completion
+    /// partition; used by the checklist popover's todo-pane parity actions).
+    let checklistMoveItem: (UUID, Int) -> Void
+    /// Opens the workspace's todo pane (checklist popover footer).
+    let checklistOpenPane: () -> Void
+    let checklistAddAttachments: (UUID) -> Void
+    let checklistRemoveAttachment: (UUID, UUID) -> Void
+    let checklistOpenAttachments: (UUID, UUID?) -> Void
+    /// Container write for `isChecklistPopoverPresented` (mirrors the legacy
+    /// `onChecklistPopoverPresentedChange` action).
+    let onChecklistPopoverPresentedChange: (Bool) -> Void
+    /// Container write for `editingChecklistItemId` (`nil` ends editing).
+    let onBeginChecklistItemEdit: (UUID?) -> Void
+    /// Ends the edit session for ONE item — a no-op when the container has
+    /// already moved on to another item (an old editor's teardown commit
+    /// must not clear a newly selected item's session).
+    let onEndChecklistItemEdit: (UUID) -> Void
+    /// Applies a manual status override to this row's workspace (`nil`
+    /// returns the status to automatic).
+    let applyTodoStatus: (WorkspaceTaskStatus?) -> Void
+    /// Opts this row's workspace out of the status feature (None).
+    let hideTodoStatus: () -> Void
     let commitRename: (String) -> Void
 }
 

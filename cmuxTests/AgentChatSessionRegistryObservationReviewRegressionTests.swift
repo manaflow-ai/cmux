@@ -63,7 +63,7 @@ struct AgentChatSessionRegistryObservationReviewRegressionTests {
                     nil
                 }
             },
-            codexRolloutPath: { _ in nil }
+            codexRolloutPaths: { _ in [] }
         )
 
         let session = try #require(observed.first)
@@ -126,7 +126,7 @@ struct AgentChatSessionRegistryObservationReviewRegressionTests {
         let observed = AgentChatSessionRegistry.scanObservedAgentSessions(
             in: snapshot,
             processArgumentsAndEnvironment: details,
-            codexRolloutPath: { _ in nil }
+            codexRolloutPaths: { _ in [] }
         )
         let livePID = AgentChatSessionRegistry.liveAgentPID(
             in: snapshot,
@@ -196,7 +196,7 @@ struct AgentChatSessionRegistryObservationReviewRegressionTests {
         let observed = AgentChatSessionRegistry.scanObservedAgentSessions(
             in: snapshot,
             processArgumentsAndEnvironment: details,
-            codexRolloutPath: { _ in nil }
+            codexRolloutPaths: { _ in [] }
         )
         let livePID = AgentChatSessionRegistry.liveAgentPID(
             in: snapshot,
@@ -263,7 +263,7 @@ struct AgentChatSessionRegistryObservationReviewRegressionTests {
         let observed = AgentChatSessionRegistry.scanObservedAgentSessions(
             in: snapshot,
             processArgumentsAndEnvironment: details,
-            codexRolloutPath: { _ in nil }
+            codexRolloutPaths: { _ in [] }
         )
         let livePID = AgentChatSessionRegistry.liveAgentPID(
             in: snapshot,
@@ -297,7 +297,7 @@ struct AgentChatSessionRegistryObservationReviewRegressionTests {
             )
         }
 
-        let observed = AgentChatSessionRegistry.scanObservedAgentSessions(in: snapshot, processArgumentsAndEnvironment: details, codexRolloutPath: { _ in nil })
+        let observed = AgentChatSessionRegistry.scanObservedAgentSessions(in: snapshot, processArgumentsAndEnvironment: details, codexRolloutPaths: { _ in [] })
         let liveParentPID = AgentChatSessionRegistry.liveAgentPID(
             in: snapshot,
             surfaceID: surfaceID.uuidString,
@@ -355,7 +355,7 @@ struct AgentChatSessionRegistryObservationReviewRegressionTests {
         let observed = AgentChatSessionRegistry.scanObservedAgentSessions(
             in: snapshot,
             processArgumentsAndEnvironment: details,
-            codexRolloutPath: { _ in nil }
+            codexRolloutPaths: { _ in [] }
         )
         let livePID = AgentChatSessionRegistry.liveAgentPID(
             in: snapshot,
@@ -397,7 +397,7 @@ struct AgentChatSessionRegistryObservationReviewRegressionTests {
         let observed = AgentChatSessionRegistry.scanObservedAgentSessions(
             in: snapshot,
             processArgumentsAndEnvironment: { _ in nil },
-            codexRolloutPath: { _ in nil }
+            codexRolloutPaths: { _ in [] }
         )
 
         let session = try #require(observed.first)
@@ -437,7 +437,7 @@ struct AgentChatSessionRegistryObservationReviewRegressionTests {
                     detailReads.increment()
                     return CmuxTopProcessArguments(arguments: ["claude.exe"], environment: [:])
                 },
-                codexRolloutPath: { _ in nil }
+                codexRolloutPaths: { _ in [] }
             )
         }
         scan.cancel()

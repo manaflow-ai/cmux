@@ -196,7 +196,7 @@ struct CmxIrohLANDiscoveryTests {
     }
 
     @Test
-    func resolverRejectsAddressOwnedByOverlappingInterfaces() throws {
+    func resolverAcceptsCallbackInterfaceWhenSubnetOverlapsAnotherInterface() throws {
         let rendezvous = makeRendezvous()
         let binding = try makeBinding()
         let advertisement = try #require(CmxIrohLANAdvertisementBuilder().advertisements(
@@ -207,24 +207,25 @@ struct CmxIrohLANDiscoveryTests {
             at: date
         ).first)
 
-        #expect(throws: CmxIrohLANDiscoveryError.invalidInterface) {
-            _ = try CmxIrohLANDiscoveryResolver().resolve(
-                service(advertisement),
-                rendezvous: rendezvous,
-                authenticatedBindings: [binding],
-                expectedMacDeviceID: binding.deviceID,
-                expectedEndpointID: binding.endpointID,
-                networkPathSnapshot: .init(
-                    generation: 1,
-                    activeNetworkProfiles: []
-                ),
-                interfaces: [
-                    try interface(4, "192.168.1.22", "255.255.255.0"),
-                    try interface(5, "192.168.1.33", "255.255.255.0"),
-                ],
-                at: date
-            )
-        }
+        let resolved = try CmxIrohLANDiscoveryResolver().resolve(
+            service(advertisement),
+            rendezvous: rendezvous,
+            authenticatedBindings: [binding],
+            expectedMacDeviceID: binding.deviceID,
+            expectedEndpointID: binding.endpointID,
+            networkPathSnapshot: .init(
+                generation: 1,
+                activeNetworkProfiles: []
+            ),
+            interfaces: [
+                try interface(4, "192.168.1.22", "255.255.255.0"),
+                try interface(5, "192.168.1.33", "255.255.255.0"),
+            ],
+            at: date
+        )
+
+        #expect(resolved.interfaceIndex == 4)
+        #expect(resolved.pathHints.map(\.value) == ["192.168.1.10:50906"])
     }
 
     @Test

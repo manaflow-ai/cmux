@@ -52,29 +52,31 @@ import Testing
         #expect(failure == .unsupportedRoute)
     }
 
-    @Test func callerCancellationSuppressesCloseInducedFailureAndRetryConnects() async throws {
+    @Test func abandonedDialEmitsCancelledOutcomeAndRetryConnects() async throws {
         let transport = FirstConnectClosedErrorThenSucceedsTransport()
         let (events, continuation) = AsyncStream<MobileRPCTransportConnectEvent>.makeStream()
+        let cancellationSignal = MobileRPCConnectCancellationSignal()
         let session = MobileCoreRPCSession(
             makeTransport: { transport },
             diagnosticTransport: .debugLoopback,
             transportConnectObserver: { event in
                 _ = continuation.yield(event)
+                Task { await cancellationSignal.record(event) }
             }
         )
         let first = try MobileCoreRPCClient.requestData(
             method: "mobile.host.status",
-            id: "cancelled-closed-connect"
+            id: "abandoned-connect"
         )
         let second = try MobileCoreRPCClient.requestData(
             method: "mobile.host.status",
-            id: "retry-after-closed-connect"
+            id: "retry-after-abandoned-connect"
         )
         let deadline = DispatchTime.now().uptimeNanoseconds + 60 * 1_000_000_000
         let firstTask = Task {
             try await session.send(
                 payload: first,
-                requestID: "cancelled-closed-connect",
+                requestID: "abandoned-connect",
                 deadlineUptimeNanoseconds: deadline
             )
         }
@@ -89,37 +91,35 @@ import Testing
             Issue.record("Expected CancellationError, got \(error)")
         }
         await transport.waitUntilFirstConnectFinished()
+        #expect(await cancellationSignal.waitUntilObserved())
 
         let data = try await session.send(
             payload: second,
-            requestID: "retry-after-closed-connect",
+            requestID: "retry-after-abandoned-connect",
             deadlineUptimeNanoseconds: deadline
         )
         let response = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
         #expect(response["status"] == "ok")
-        #expect(await transport.connectCount() == 2)
-        #expect(try await transport.sentRequests().map(\.id) == ["retry-after-closed-connect"])
 
         continuation.finish()
         let recorded = await collect(events)
-        #expect(recorded.count == 3)
-        guard recorded.count == 3 else {
+        #expect(recorded.count == 4)
+        guard recorded.count == 4 else {
             await session.tearDown(error: .connectionClosed)
             return
         }
-        guard case let .attempt(firstAttemptID, firstTransport) = recorded[0],
-              case let .attempt(secondAttemptID, secondTransport) = recorded[1],
-              case let .connected(connectedID, connectedTransport, _) = recorded[2] else {
-            Issue.record("Expected attempt, attempt, connected with no failure")
+        guard case let .attempt(firstAttemptID, _) = recorded[0],
+              case let .failed(abandonedID, abandonedTransport, abandonedFailure, _) = recorded[1],
+              case let .attempt(secondAttemptID, _) = recorded[2],
+              case let .connected(connectedID, _, _) = recorded[3] else {
+            Issue.record("Expected attempt, failed(cancelled), attempt, connected")
             await session.tearDown(error: .connectionClosed)
             return
         }
-        #expect(firstAttemptID > 0)
-        #expect(secondAttemptID > 0)
-        #expect(firstTransport == .debugLoopback)
-        #expect(secondTransport == .debugLoopback)
+        #expect(abandonedID == firstAttemptID)
+        #expect(abandonedTransport == .debugLoopback)
+        #expect(abandonedFailure == .cancelled)
         #expect(connectedID == secondAttemptID)
-        #expect(connectedTransport == .debugLoopback)
         await session.tearDown(error: .connectionClosed)
     }
 
@@ -128,6 +128,11 @@ import Testing
         #expect(MobileShellConnectionError.connectionClosed.diagnosticFailureKind == .connectionClosed)
         #expect(MobileShellConnectionError.requestTimedOut.diagnosticFailureKind == .timedOut)
         #expect(MobileShellConnectionError.transportWriteTimedOut.diagnosticFailureKind == .timedOut)
+        #expect(MobileShellConnectionError.connectAttemptGated.diagnosticFailureKind == .routeGated)
+        #expect(
+            MobileShellConnectionError.routeCleanupBlocked.diagnosticFailureKind
+                == .admissionDenied
+        )
         #expect(MobileShellConnectionError.insecureManualRoute.diagnosticFailureKind == .unsupportedRoute)
         #expect(MobileShellConnectionError.attachTicketExpired.diagnosticFailureKind == .credentialUnavailable)
         #expect(
@@ -152,5 +157,28 @@ import Testing
             events.append(event)
         }
         return events
+    }
+}
+
+private actor MobileRPCConnectCancellationSignal {
+    private var observed = false
+
+    func record(_ event: MobileRPCTransportConnectEvent) {
+        guard case let .failed(_, _, failure, _) = event,
+              failure == .cancelled else {
+            return
+        }
+        observed = true
+    }
+
+    func waitUntilObserved(
+        timeout: Duration = .seconds(2)
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while !observed, clock.now < deadline {
+            await Task.yield()
+        }
+        return observed
     }
 }

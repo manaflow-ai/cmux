@@ -40,16 +40,17 @@ extension SocketACLReloadRegressionTests {
     func malformedAutomationSectionPreservesManagedPassword(section: String) throws {
         let defaults = UserDefaults.standard
         let originalDefaults = capturedSocketDefaults(defaults)
-        let originalAppearance = defaults.object(forKey: AppearanceSettings.appearanceModeKey)
+        let preferredEditorKey = AppCatalogSection().preferredEditor.userDefaultsKey
+        let originalPreferredEditor = defaults.object(forKey: preferredEditorKey)
         let directory = lifecycleTemporaryDirectory(prefix: "scfa")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let configURL = directory.appendingPathComponent("cmux.json")
         defer {
             restoreSocketDefaults(originalDefaults, in: defaults)
-            if let originalAppearance {
-                defaults.set(originalAppearance, forKey: AppearanceSettings.appearanceModeKey)
+            if let originalPreferredEditor {
+                defaults.set(originalPreferredEditor, forKey: preferredEditorKey)
             } else {
-                defaults.removeObject(forKey: AppearanceSettings.appearanceModeKey)
+                defaults.removeObject(forKey: preferredEditorKey)
             }
             try? FileManager.default.removeItem(at: directory)
         }
@@ -64,13 +65,14 @@ extension SocketACLReloadRegressionTests {
         )
         #expect(defaults.string(forKey: SocketControlSettings.appStorageKey) == SocketControlMode.password.rawValue)
 
-        defaults.set("system", forKey: AppearanceSettings.appearanceModeKey)
-        try "{\"app\":{\"appearance\":\"dark\"},\"automation\":\(section)}"
+        // Keep this socket-policy test independent of live renderer observers.
+        defaults.set("code", forKey: preferredEditorKey)
+        try "{\"app\":{\"preferredEditor\":\"vim\"},\"automation\":\(section)}"
             .write(to: configURL, atomically: true, encoding: .utf8)
         store.reload()
 
         #expect(defaults.string(forKey: SocketControlSettings.appStorageKey) == SocketControlMode.password.rawValue)
-        #expect(defaults.string(forKey: AppearanceSettings.appearanceModeKey) == "dark")
+        #expect(defaults.string(forKey: preferredEditorKey) == "vim")
     }
 
     @Test(arguments: [SocketControlMode.cmuxOnly, .off])
@@ -355,6 +357,29 @@ extension SocketACLReloadRegressionTests {
 
         #expect(controller.tabManager === tabManager)
         #expect(controller.socketServer.transport.pathIdentity(at: socketPath) == listenerIdentity)
+    }
+
+    @Test func socketPathMarkersKeepLegacyExternalClientDiscoveryLive() throws {
+        let fileManager = FileManager.default
+        let currentDirectory = CmuxStateDirectory.url(
+            homeDirectory: fileManager.homeDirectoryForCurrentUser
+        )
+        let legacyDirectory = try #require(
+            CmuxStateDirectory.legacyApplicationSupportURL(fileManager: fileManager)
+        )
+        let markerPaths = SocketControlSettings.lastSocketPathFiles(
+            bundleIdentifier: "com.cmuxterm.app",
+            environment: [:],
+            fileManager: fileManager
+        )
+
+        #expect(markerPaths.contains(
+            currentDirectory.appendingPathComponent("last-socket-path").path
+        ))
+        #expect(markerPaths.contains(
+            legacyDirectory.appendingPathComponent("last-socket-path").path
+        ))
+        #expect(markerPaths.contains(SocketPathMarkerFiles.stableTmpPath))
     }
 
     private func capturedSocketDefaults(_ defaults: UserDefaults) -> [(String, Any?)] {

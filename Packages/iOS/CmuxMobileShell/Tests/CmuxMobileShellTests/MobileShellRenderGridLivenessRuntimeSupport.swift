@@ -27,4 +27,5 @@ struct LivenessTestRuntime: MobileSyncRuntime {
     var pairingAttemptTimeoutNanoseconds: UInt64 = 8 * 1_000_000_000
     var supportsServerPushEvents: Bool = true
     var livenessProbeTimeoutNanoseconds: UInt64 = 200_000_000
+    var reconnectAttemptDeadlineNanoseconds: UInt64 = 30 * 1_000_000_000
 }

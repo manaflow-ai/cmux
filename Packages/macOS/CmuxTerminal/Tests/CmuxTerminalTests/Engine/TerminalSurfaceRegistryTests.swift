@@ -125,25 +125,54 @@ struct TerminalSurfaceRegistryTests {
         #expect(Set(ids) == Set(surfaces.map(\.id.uuidString)))
     }
 
-    @Test func inProcessRendererSnapshotHasNoExternalTerminalCountSlope() {
+    @Test func incrementalTraversalIsLazyAndWeak() {
         let registry = TerminalSurfaceRegistry()
-        let native = FakeSurface()
-        let external = (0..<2_048).map { _ in
-            FakeSurface(isExternallyManaged: true)
-        }
-        registry.register(native)
-        for surface in external {
+        let retained = (0..<5).map { _ in FakeSurface() }
+        for surface in retained {
             registry.register(surface)
         }
+        var released: FakeSurface? = FakeSurface()
+        registry.register(released!)
 
-        #expect(registry.allSurfaces().count == external.count + 1)
-        let rendererSurfaces = registry.allInProcessRendererSurfaces()
-        #expect(rendererSurfaces.count == 1)
-        #expect(rendererSurfaces.first === native)
+        let traversal = registry.makeIncrementalTraversal()
+        released = nil
 
-        registry.unregister(native)
-        #expect(registry.allInProcessRendererSurfaces().isEmpty)
-        #expect(registry.allSurfaces().count == external.count)
+        var traversedIds: Set<UUID> = []
+        while let surface = traversal.next() {
+            traversedIds.insert(surface.id)
+        }
+        #expect(traversedIds == Set(retained.map(\.id)))
+    }
+
+    @Test func incrementalTraversalHasFixedRegistrationCutoff() {
+        let registry = TerminalSurfaceRegistry()
+        let initial = (0..<4).map { _ in FakeSurface() }
+        for surface in initial {
+            registry.register(surface)
+        }
+        let traversal = registry.makeIncrementalTraversal()
+        let first = traversal.next()
+        let late = FakeSurface()
+        registry.register(late)
+
+        var traversedIds = Set(first.map { [$0.id] } ?? [])
+        while let surface = traversal.next() {
+            traversedIds.insert(surface.id)
+        }
+        #expect(
+            traversedIds
+                == Set(initial.map(\.id))
+        )
+
+        let nextTraversal = registry.makeIncrementalTraversal()
+        var nextTraversedIds: Set<UUID> = []
+        while let surface = nextTraversal.next() {
+            nextTraversedIds.insert(surface.id)
+        }
+        #expect(
+            nextTraversedIds
+                == Set((initial + [late]).map(\.id))
+        )
     }
 
     @Test func runtimeSurfaceOwnershipFollowsOwnerIdGuard() throws {

@@ -148,40 +148,26 @@ extension CmuxConfigExecutor {
         }
 
         let resolvedCwd = CmuxConfigStore.resolveCwd(wsDef.cwd, relativeTo: baseCwd)
-        if wsDef.layout != nil,
-           let mutationCoordinator = tabManager.terminalClientComposition
-            .terminalBackendTopologyMutationCoordinator {
-            mutationCoordinator.reportFailure(for: .splitPane)
-            return false
-        }
-        let configureWorkspace: @MainActor (Workspace) -> Void = { newWorkspace in
-            newWorkspace.setCustomTitle(workspaceName)
-            if let color = wsDef.color {
-                newWorkspace.setCustomColor(color)
-            }
-
-            if let existingWorkspaceToClose,
-               existingWorkspaceToClose.id != newWorkspace.id {
-                tabManager.closeWorkspace(existingWorkspaceToClose)
-            }
-
-            if let layout = wsDef.layout {
-                newWorkspace.applyCustomLayout(
-                    layout,
-                    baseCwd: resolvedCwd,
-                    setupCommand: wsDef.setup
-                )
-            } else if let setup = wsDef.setup {
-                newWorkspace.sendConfigSetupCommand(setup)
-            }
-        }
-        let outcome = tabManager.requestAddWorkspace(
+        let newWorkspace = tabManager.addWorkspace(
+            title: workspaceName,
+            titleSource: .auto,
             workingDirectory: resolvedCwd,
             workspaceEnvironment: wsDef.env ?? [:],
-            onProjected: configureWorkspace
+            applyCreationTitleAsCustomTitle: false
         )
-        if case .created(let workspace) = outcome {
-            configureWorkspace(workspace)
+        tabManager.setCustomTitle(tabId: newWorkspace.id, title: workspaceName, source: .auto)
+        if let color = wsDef.color {
+            tabManager.setTabColor(tabId: newWorkspace.id, color: color)
+        }
+
+        if let existingWorkspaceToClose, existingWorkspaceToClose.id != newWorkspace.id {
+            tabManager.closeWorkspace(existingWorkspaceToClose)
+        }
+
+        if let layout = wsDef.layout {
+            newWorkspace.applyCustomLayout(layout, baseCwd: resolvedCwd, setupCommand: wsDef.setup)
+        } else if let setup = wsDef.setup {
+            newWorkspace.sendConfigSetupCommand(setup)
         }
         if case .failed = outcome { return false }
         return true

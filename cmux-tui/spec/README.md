@@ -1,67 +1,98 @@
-# cmux-tui Programmability Contract
+# cmux-tui programmability contracts
 
-This directory is the source of truth for the cmux-tui control protocol, the generated `cmux-tui` command surface, plugin contracts, and future generated language bindings. Protocol version 8 remains the preferred baseline. The server also implements an explicitly negotiated protocol-v9 terminal-control extension, as defined by `cmux-tui-core/src/server.rs` and `terminal-control-v9.md`.
+cmux-tui has one stable public resource protocol and several explicitly
+separate internal or privileged protocols.
 
-The spec is intentionally stricter than prose docs. Implemented commands and events describe the current server behavior exactly, including awkward result shapes and no-op cases. Proposed commands, events, transports, and config are marked `proposed` and are not part of the implemented protocol.
+## Public API
 
-## Versioning
-
-The spec version tracks the mux protocol version.
-
-| Change type | Version rule |
-| --- | --- |
-| Clarification that does not change wire behavior | Patch level of the spec text only |
-| Additive command, event, field, CLI flag, binding helper, or transport option | Minor protocol version, unless a named capability gates a baseline-compatible extension |
-| Removal, rename, incompatible type change, changed error semantics, or changed ordering guarantee | Major protocol version |
-
-Protocol v8 is the preferred implemented baseline. Protocol v9 is implemented only for registered clients that negotiate it. Proposed additions in this directory target the next minor protocol unless a later spec assigns a named capability to a baseline-compatible extension.
-
-Protocol v8 retains protocol-v7 command defaults and payloads. `attach-surface.mode` still defaults to `"bytes"`, and `subscribe.tree_events` still defaults to `"coarse"`, so legacy clients retain their prior attach and tree-event behavior. The server reports `identify.protocol == 8`, `protocol_min == 6`, and `protocol_max == 9`. A client stays on v8 unless it sends `register-client` and negotiates v9. Clients must require a named capability before using a capability-gated extension.
-
-Protocol-v9 terminal mutation requires the complete capability set in
-`terminal-control-v9.md`. Input and geometry have independent leases, TTLs,
-renewal, transfer, and revocation sequences. Input additionally has bounded
-automation delegation, atomic lifecycle groups, terminal-wide order, and
-acknowledged idempotent receipts. The order is daemon-assigned per canonical
-terminal and shared by GUI, TUI, and delegated automation clients.
-
-`terminal-activity-v1` gates persisted, content-free activity facts and durable receipts keyed by registered stable client UUID plus terminal UUID. One reader acknowledging a terminal never clears another reader's unread state.
-
-`presentation-registry-v1` gates `open-presentation`, `update-presentation`, `close-presentation`, and `list-presentations`. Open, close, and list began in protocol v7; protocol v8 adds generation-fenced updates and UUID entity fields. Protocol-v7 numeric entity fields remain accepted and returned alongside the UUID fields.
-
-`durable-session-identity-v1` means `session_id` is loaded from the versioned daemon state store while `daemon_instance_id` remains process-local. `topology-revision-v1` preserves monotonic legacy `topology_revision` on identity, liveness, and legacy tree snapshot responses. Protocol-v8 identity and liveness responses also expose `canonical_topology_revision`, the structural cursor used by topology snapshot and resume.
-
-`canonical-topology-snapshot-v1`, `stable-entity-uuid-v1`, and `topology-resume-v1` gate protocol-v8 topology synchronization. They add an atomic canonical snapshot, stable UUIDs alongside legacy numeric IDs, and a bounded revisioned resume stream. Clients using this path must still handle an explicit resnapshot requirement.
-
-`projection-state-reconnect-v1` gates daemon-lifetime logical-window placement for registered protocol-v9 clients. The mapping from a stable frontend window UUID to canonical workspace and selected-screen UUIDs survives frontend disconnect, but it is outside canonical topology revisions and disk checkpoints. Claims are fenced by stable client, frontend process, connection, claim UUID, and generation. Live renderer presentations and terminal-control leases remain connection-owned.
-
-`ensure-terminals-v1` gates bounded, ordered cold-terminal materialization in one canonical topology and persistence transaction. Clients that do not observe the capability must use ordered singular `ensure-terminal` calls.
-
-Generated clients must inspect `identify.protocol` before using features newer than the connected server. Bindings may expose proposed APIs behind version checks, but they must not send proposed commands to an older server unless the caller explicitly opts into probing.
-
-## Generation Model
-
-The CLI and language bindings are generated from this spec. Hand-written adapters may exist for bootstrapping, but generated output is authoritative once generation lands.
-
-The acceptance gate is the conformance suite described in `bindings.md`. A generated CLI or binding is conformant only when it can replay the fixture request/response pairs, event transcripts, and end-to-end scenario against a real headless mux server.
-
-The generator must preserve the wire command names, parameter names, result shapes, and error handling rules in `commands.md`. Language-specific APIs may be idiomatic, but they must map 1:1 to the command schema.
-
-## File Map
+`cmux.protocol/2` is the compatibility boundary for the noun-first CLI and
+high-level SDKs:
 
 | File | Purpose |
 | --- | --- |
-| `commands.md` | Command contract, CLI mapping for each command, examples, and compatibility notes |
-| `events.md` | Subscribe and attach event payloads, ordering guarantees, and proposed filters |
-| `render.md` | Protocol-v7 authoritative styled-cell attach, deltas, scrollback, sizing guidance, and draft open questions |
-| `terminal-control-v9.md` | Opt-in terminal input and geometry ownership, ordering, retries, and v8 migration |
-| `transports.md` | Implemented Unix socket and WebSocket transports plus proposed HTTP and SSE transports |
-| `frontends.md` | Canonical connection, synchronization, terminal streaming, and agent/notification guide for frontend authors |
-| `cli.md` | Generated `cmux-tui <verb>` conventions, exit codes, stdin rules, verb table, and examples |
-| `bindings.md` | Language binding style sheets and conformance suite contract |
-| `plugins.md` | Sidebar plugin PTY, manifest, lifecycle, focus, and config contract |
-| `persistence.md` | Canonical checkpoint, journal, redacted launch recipe, replay, compaction, and daemon-restart contract |
+| [`resource-api-v2.md`](resource-api-v2.md) | IDs, selectors, envelopes, mutations, streams, limits, and lifecycle rules |
+| [`resource-api-v2.json`](resource-api-v2.json) | JSON Schema for request, response, and stream envelopes |
+| [`resource-operations-v2.json`](resource-operations-v2.json) | Normative catalog of 113 transported and six local operations |
+| [`resource-operations-v2.schema.json`](resource-operations-v2.schema.json) | JSON Schema for the operation catalog |
+| [`resource-operations-v2.md`](resource-operations-v2.md) | Human-readable operation inventory |
+| [`cli.md`](cli.md) | Noun-first public CLI |
+| [`bindings.md`](bindings.md) | Seven handwritten SDK facades and generated raw layers |
+| [`plugins.md`](plugins.md) | Sidebar view and local plugin contract |
 
-## Implemented Inventory
+The operation catalog is authoritative for every operation's class, selector
+scopes, parameter presence, result type, structured errors, stream items, and
+stream end. Unknown fields are rejected except at named extension points.
 
-Protocol v8 implements the socket commands listed in `commands.md` and the event names listed in `events.md`. Events include both topology and legacy subscribe streams, attach-stream events, and the implemented `empty` and `detached` lifecycle events.
+Public IDs are typed opaque strings. Internal mux positions, storage keys,
+numeric identities, and private renderer lifecycle values cannot cross this
+boundary.
+
+## Raw and implementation protocols
+
+The authenticated remote daemon has an independent protocol version.
+[`remote-daemon.md`](remote-daemon.md) and [`remote-rpc.md`](remote-rpc.md)
+define remote protocol 5; `mux-control` carries private control protocol 11
+inside that authenticated session.
+
+Protocol v11 is the current private mux implementation protocol. It remains
+documented for cmux frontends and compatibility adapters:
+
+| File | Purpose |
+| --- | --- |
+| [`commands.md`](commands.md) | Raw protocol-v11 commands |
+| [`events.md`](events.md) | Raw events and attachment messages |
+| [`render.md`](render.md) | Styled render model used by private frontends |
+| [`transports.md`](transports.md) | Unix socket, WebSocket, and relay framing |
+| [`frontends.md`](frontends.md) | Private frontend synchronization |
+| [`programmability.md`](programmability.md) | Implementation inventory and ownership |
+| [`native-frontend.md`](native-frontend.md) | Native TUI integration boundaries |
+
+Private protocol-v11 compatibility does not imply `cmux.protocol/2`
+compatibility. High-level SDK packages expose it only through a path named
+`raw`.
+
+The remote daemon, machine-provider, provider-management, terminal-host, and
+machine-agent protocols each have their own version and authority boundary:
+
+| File | Version domain |
+| --- | --- |
+| [`remote-daemon.md`](remote-daemon.md) | Authenticated remote transport and service protocol |
+| [`remote-rpc.md`](remote-rpc.md) | Workspace RPC envelopes, including patch application |
+| [`machine-provider.md`](machine-provider.md) | Dynamic provider control and stream |
+| [`provider-management.md`](provider-management.md) | Root-only provider authority |
+| [`terminal-host.md`](terminal-host.md) | Terminal host process |
+| [`machine-agent.md`](machine-agent.md) | Outbound machine registration and relay |
+
+Clients must negotiate each domain independently.
+
+## Inventory and checks
+
+[`inventory.json`](inventory.json) records raw server commands, events, TUI
+actions, menu actions, feature families, and secondary protocol messages.
+[`inventory.schema.json`](inventory.schema.json) defines that index.
+[`sdk-schema.json`](sdk-schema.json) drives only raw protocol-v11 generation.
+
+Run the contract checks from the repository root:
+
+```bash
+python3 cmux-tui/scripts/test_check_spec_inventory.py
+python3 cmux-tui/scripts/check-spec-inventory.py
+python3 cmux-tui/scripts/test_check_resource_api_boundary.py
+python3 cmux-tui/scripts/check-resource-api-boundary.py
+python3 cmux-tui/bindings/codegen/generate.py --check
+```
+
+A change to any operation, field, class, public ID, raw command, serialized
+event, native action, menu action, or secondary protocol entry updates its
+machine-readable catalog and normative prose in the same commit.
+
+## Versioning
+
+`cmux.protocol/2` may receive backward-compatible optional additions while it
+is version 2. Removing an operation, changing field presence or type, changing
+selector behavior, or weakening ordering and idempotency semantics requires a
+new public protocol version.
+
+Private protocol v11 follows its own negotiation and capability rules. Public
+SDKs do not infer private capability support and private frontends do not infer
+the public resource version.

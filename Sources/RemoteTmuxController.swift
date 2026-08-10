@@ -315,58 +315,11 @@ final class RemoteTmuxController {
         // failed connection doesn't leave an orphaned empty mirror workspace in
         // the sidebar.
         let connection = try attach(host: host, sessionName: sessionName)
-        if let mutationCoordinator = tabManager.terminalClientComposition
-                .terminalBackendTopologyMutationCoordinator,
-           let registry = tabManager.terminalClientComposition.remoteTmuxSurfaceRegistry {
-            let producerID = UUID()
-            let bootstrap = { [weak self, weak tabManager, weak connection] in
-                guard let self, let tabManager, let connection,
-                      self.sessionMirrors[key] == nil,
-                      let windowID = connection.windowOrder.first,
-                      let window = connection.windowsByID[windowID],
-                      let tmuxPaneID = window.paneIDsInOrder.first,
-                      let leaf = window.layout.leavesByPaneID[tmuxPaneID],
-                      let rawSessionID = connection.sessionId ?? sessionId,
-                      let tmuxSessionID = UInt64(exactly: rawSessionID) else { return }
-                if let token = self.pendingMirrorWorkspaceObserverTokens.removeValue(
-                    forKey: key
-                ) {
-                    connection.removeObserver(token)
-                }
-                self.createPersistentMirrorWorkspace(
-                    key: key,
-                    host: host,
-                    sessionName: sessionName,
-                    sessionID: sessionId,
-                    connection: connection,
-                    initialTmuxPaneID: tmuxPaneID,
-                    initialTmuxWindowID: windowID,
-                    producerID: producerID,
-                    tmuxSessionID: tmuxSessionID,
-                    initialColumns: leaf.width,
-                    initialRows: leaf.height,
-                    tabManager: tabManager,
-                    mutationCoordinator: mutationCoordinator,
-                    registry: registry
-                )
-            }
-            let token = connection.addObserver(
-                onTopologyChanged: bootstrap,
-                onExit: { [weak self, weak connection] in
-                    guard let self, let connection,
-                          let token = self.pendingMirrorWorkspaceObserverTokens
-                            .removeValue(forKey: key) else { return }
-                    connection.removeObserver(token)
-                }
-            )
-            pendingMirrorWorkspaceObserverTokens[key] = token
-            bootstrap()
-            return true
-        }
-        let workspace = tabManager.addLocalWorkspace(
-            title: sessionName,
+        let workspace = tabManager.addWorkspace(
+            title: sessionName, titleSource: .auto,
             select: false,
-            autoWelcomeIfNeeded: false
+            autoWelcomeIfNeeded: false,
+            applyCreationTitleAsCustomTitle: false
         )
         installMirrorWorkspaceState(
             workspace,
@@ -413,7 +366,9 @@ final class RemoteTmuxController {
             backendTmuxSessionID: backendTmuxSessionID,
             restoredSurfaces: restoredSurfaces,
             onControlPaneRemoved: TerminalController.remoteTmuxControlPaneRemovalHandler(),
-            onControlSurfaceRemoved: TerminalController.remoteTmuxControlSurfaceRemovalHandler()
+            onControlSurfaceRemoved: TerminalController.remoteTmuxControlSurfaceRemovalHandler(
+                workspaceID: workspace.id
+            )
         )
         sessionMirrors[key] = mirror
         if let backendProducerID {

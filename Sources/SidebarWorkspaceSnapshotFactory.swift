@@ -24,7 +24,7 @@ struct SidebarWorkspaceSnapshotFactory {
                 : nil
         let compactGitBranchSummaryText: String? = {
             guard detailVisibility.showsBranchDirectory,
-                  !settings.usesVerticalBranchLayout,
+                  settings.branchDirectory.branchLayout == .inline,
                   settings.showsGitBranch,
                   let orderedPanelIds else {
                 return nil
@@ -33,7 +33,7 @@ struct SidebarWorkspaceSnapshotFactory {
         }()
         let compactDirectoryCandidates: [String] = {
             guard detailVisibility.showsBranchDirectory,
-                  !settings.usesVerticalBranchLayout,
+                  settings.branchDirectory.branchLayout == .inline,
                   let orderedPanelIds else {
                 return []
             }
@@ -45,7 +45,7 @@ struct SidebarWorkspaceSnapshotFactory {
         )
         let branchDirectoryLines: [SidebarWorkspaceSnapshotBuilder.VerticalBranchDirectoryLine] = {
             guard detailVisibility.showsBranchDirectory,
-                  settings.usesVerticalBranchLayout,
+                  settings.branchDirectory.branchLayout == .vertical,
                   let orderedPanelIds else {
                 return []
             }
@@ -131,7 +131,7 @@ struct SidebarWorkspaceSnapshotFactory {
     ) -> SidebarWorkspaceSnapshotBuilder.PresentationKey {
         SidebarWorkspaceSnapshotBuilder.PresentationKey(
             showsWorkspaceDescription: settings.showsWorkspaceDescription,
-            usesVerticalBranchLayout: settings.usesVerticalBranchLayout,
+            usesVerticalBranchLayout: settings.branchDirectory.branchLayout == .vertical,
             showsGitBranch: settings.showsGitBranch,
             usesViewportAwarePath: settings.usesLastSegmentPath,
             showsAgentActivity: showsAgentActivity,

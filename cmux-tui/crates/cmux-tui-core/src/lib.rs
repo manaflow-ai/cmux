@@ -19,58 +19,67 @@ mod launch_gate;
 mod model;
 mod mux;
 mod pairing;
-mod presentation;
-mod private_runtime;
-mod projection_state;
-mod remote_tmux_producer;
-pub mod renderer_control;
-pub mod renderer_supervisor;
-mod semantic_scene;
+pub mod provider_management;
+pub mod resource;
+mod resource_api;
+mod resource_mutation;
+mod resource_router;
+mod resource_selector;
 mod short_id;
-mod state_store;
+mod sidebar_resource;
 mod surface;
-mod terminal_activity;
-mod terminal_authority;
-mod topology;
+mod workspace_registry;
 
 pub mod layout;
 pub mod platform;
 pub mod server;
+pub mod terminal_host;
+pub mod terminal_host_protocol;
+pub mod terminal_host_runtime;
 
-pub use browser::{TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_url};
+pub use browser::{BrowserFailure, TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_url};
 pub use event_bus::{MuxEventBroadcaster, MuxEventReceiver};
 pub use identity::{
     DaemonInstanceId, PaneUuid, PresentationId, ScreenUuid, SessionId, SurfaceUuid, WorkspaceUuid,
 };
 pub use layout::{
-    LayoutResult, Rect, SplitEdge, SplitResize, directional_neighbor, layout_screen,
-    split_for_pane_edge, split_sides,
+    DEFAULT_VIEWPORT_PANE_WIDTH, ExactSplitResize, ExactViewportSplitResize, LayoutResult,
+    MAX_VIEWPORT_PANE_WIDTH, MIN_VIEWPORT_PANE_WIDTH, Rect, SplitEdge, SplitResize,
+    ViewportColumnRect, ViewportLayoutResult, VirtualRect, directional_neighbor,
+    exact_split_for_pane_edge, exact_split_for_pane_edge_with_viewport, layout_screen,
+    layout_screen_with_viewport, split_for_pane_edge, split_sides, zellij_default_pane_layout,
 };
-pub use model::{Node, Pane, Screen, State, Workspace};
+pub use model::{Node, Pane, Screen, State, ViewportColumn, Workspace};
 pub use mux::{
-    AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, CanonicalSnapshot,
-    CellPixelUpdate, CellPixelUpdateFailure, Direction, LayoutLeafSpec, LayoutSpec, Mux, MuxEvent,
-    NotificationEvent, RunPlacement, SidebarPluginOptions, SidebarPluginStatus,
-    SurfaceNotification, SurfaceResizeReporter, TreeDelta, TreeDeltaKind, ZoomMode, ZoomState,
+    AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, CellPixelUpdate,
+    CellPixelUpdateFailure, Direction, GraphicsStatus, LayoutLeafSpec, LayoutRatioError,
+    LayoutSpec, LayoutUndoError, LayoutUndoResult, Mux, MuxEvent, NotificationEvent,
+    NotificationLevel, ProviderWorkspaceAuthority, ProviderWorkspaceAuthorityStatus,
+    ProviderWorkspaceAuthorityUpdateError, ResourceNotification, RunPlacement,
+    SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification, SurfaceResizeReporter,
+    TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceMutationResult, WorkspacePlacement,
+    ZoomMode, ZoomState,
 };
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
-pub use presentation::{Presentation, PresentationScroll, PresentationView, PresentationZoom};
-pub use renderer_supervisor::{
-    RendererSupervisor, RendererSupervisorConfig, RendererSupervisorError, RendererSupervisorEvent,
-    RendererWorkerState, RendererWorkerStatus,
-};
-pub use semantic_scene::{
-    SEMANTIC_SCENE_EVENT_CAPACITY, SEMANTIC_SCENE_MAX_EVENT_CAPACITY, SemanticSceneAttachError,
-    SemanticSceneAttachment, SemanticSceneAttachmentOptions, SemanticSceneCaptureOptions,
-    SemanticSceneControl, SemanticSceneEvent, SemanticSceneFailure, SemanticSceneFrame,
-    SemanticScenePresentationIdentity, SemanticSceneReceiver, SemanticSceneTerminalIdentity,
-};
+pub use resource_api::{ResourceMachineRequest, ResourceMachineService};
+pub use resource_selector::{ResolvedResourcePath, ResourceSelectors, ResourceTarget};
 pub use short_id::assign_short_ids;
-pub use state_store::{STATE_STORE_VERSION, StateRecovery, StateStore, StateStoreError};
+pub use surface::apply_terminal_color_overrides;
 pub use surface::{
     AttachFrame, AttachFrameReceiver, AttachStream, BrowserAttachState, BrowserFrame,
-    BrowserFrameStream, BrowserSource, BrowserStatus, DefaultColors, RenderAttachFrame,
-    RenderAttachStream, Surface, SurfaceKind, SurfaceOptions, SurfaceRenderFrame, TerminalColors,
+    BrowserFrameStream, BrowserFrameUpdate, BrowserSource, BrowserStatus,
+    CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR, CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR,
+    CLEAR_HISTORY_PRESERVATION_ERROR, CLEAR_HISTORY_STREAM_TIMEOUT_ERROR, ClearHistoryDelivery,
+    ClearHistoryFailure, DefaultColors, GuardedMouseEncode, PointerSemanticProbe,
+    PointerSnapshotProbe, RenderAttachFrame, RenderAttachStream, Surface, SurfaceKind,
+    SurfaceOptions, SurfaceRenderFrame, TerminalColors, TerminalHostConnectionState,
+    TerminalPointerSnapshot,
+};
+pub use workspace_registry::{
+    FrontendProjection, PersistentSessionStateReset, PersistentSessionStateResetPreview,
+    PersistentSessionStateResetter, ProjectionCommit, RegistryCommit, RegistryEvent,
+    RegistrySnapshot, RegistryWorkspace, UnsupportedWorkspaceRegistrySchema, WorkspaceMutation,
+    WorkspaceRegistry,
 };
 pub use terminal_activity::{
     LEGACY_TERMINAL_ACTIVITY_READER_UUID, NotificationLevel, TerminalActivityFact,
@@ -81,6 +90,7 @@ pub use topology::{
     TopologyOperation, TopologyResume, TopologySnapshot, TopologySubscription, TopologyTargets,
 };
 
+pub use cmux_remote_protocol::REMOTE_SESSION_MESSAGE_MAX_BYTES;
 pub use cmux_tui_cdp::BrowserMode;
 pub use ghostty_vt::{CursorShape, Rgb};
 
@@ -91,6 +101,7 @@ pub fn launch_gate_entrypoint(args: &[String]) -> Option<anyhow::Result<()>> {
 
 pub type SurfaceId = u64;
 pub type PaneId = u64;
+pub type SplitId = u64;
 pub type ScreenId = u64;
 pub type WorkspaceId = u64;
 
