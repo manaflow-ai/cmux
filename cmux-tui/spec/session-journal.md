@@ -522,6 +522,13 @@ into the environment. Execution uses an absolute `argv`, an empty inherited
 environment, no shell, and bounded timeout and concurrency. Shell evaluation
 is not supported.
 
+The hook process scope uses a kernel fence before any hook instruction runs.
+Linux descendants inherit a seccomp rule that rejects `setsid` and `setpgid`,
+so they cannot leave the scope's process group. macOS denies `process-fork`, so
+a macOS hook executable must do its work in one process and cannot start a
+subprocess. These restrictions make timeout and shutdown cleanup independent
+of environment variables or inherited file descriptors that a hook can clear.
+
 The dispatcher stores a materialized cursor per hook manifest version. It
 appends these outcomes:
 
@@ -583,7 +590,11 @@ runtime generation and uses `cmux.terminal-output-gap.v1` with reason
 required kind as unsupported, so it cannot report a fully reducible tail that
 can contain missing source bytes. The daemon always attempts the final terminal
 barrier, closes both journal admission lanes, drains accepted records, and joins
-the journal writer before shutdown returns.
+the journal writer through a fixed shutdown deadline. If an already admitted
+SQLite commit does not finish inside that final deadline, shutdown detaches the
+writer instead of waiting without a limit. The transaction continues to own the
+registry and its atomic idempotency receipt until SQLite returns; a later retry
+therefore observes the committed receipt or performs the request once.
 
 Live restoration will consume this inert complete model. Process adoption,
 fresh process spawning, browser reconnect, and agent resume are explicit

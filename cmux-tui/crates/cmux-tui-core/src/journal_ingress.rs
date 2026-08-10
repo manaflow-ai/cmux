@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::io;
 use std::mem::size_of;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, TrySendError, sync_channel};
@@ -22,6 +23,7 @@ const TERMINAL_OUTPUT_BATCH_BYTES: usize = 256 * 1024;
 const JOURNAL_TERMINAL_FAILURE_RETRY_ATTEMPTS: usize = 6;
 const JOURNAL_DURABLE_WAIT: Duration = Duration::from_secs(2);
 const JOURNAL_COMMIT_RESULT_WAIT: Duration = Duration::from_secs(1);
+const JOURNAL_WRITER_SHUTDOWN_WAIT: Duration = Duration::from_secs(1);
 const JOURNAL_SQLITE_RETRY_SLICE: Duration = Duration::from_millis(100);
 const COMMIT_PENDING: u8 = 0;
 const COMMIT_ADMITTED: u8 = 1;
@@ -294,7 +296,38 @@ pub(crate) struct JournalIngressSender {
     durable_sender: Option<SyncSender<QueuedJournalEvent>>,
     wake_sender: Option<SyncSender<()>>,
     state: Arc<JournalIngressState>,
-    writer: Mutex<Option<std::thread::JoinHandle<()>>>,
+    writer: Mutex<Option<JournalWriter>>,
+}
+
+pub(crate) struct JournalWriter {
+    thread: std::thread::JoinHandle<()>,
+    finished: Receiver<()>,
+}
+
+impl JournalWriter {
+    fn spawn(name: &str, task: impl FnOnce() + Send + 'static) -> io::Result<Self> {
+        let (finished_sender, finished) = sync_channel(1);
+        let thread = std::thread::Builder::new().name(name.into()).spawn(move || {
+            task();
+            let _ = finished_sender.send(());
+        })?;
+        Ok(Self { thread, finished })
+    }
+
+    fn join_until(self, deadline: Instant) -> anyhow::Result<()> {
+        let wait = deadline.saturating_duration_since(Instant::now());
+        match self.finished.recv_timeout(wait) {
+            Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => self
+                .thread
+                .join()
+                .map_err(|_| anyhow::anyhow!("session journal writer panicked during shutdown")),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(anyhow::anyhow!(
+                "session journal writer did not stop within {} ms; an admitted commit remains \
+                 owned by the detached writer and its idempotency receipt will resolve recovery",
+                wait.as_millis()
+            )),
+        }
+    }
 }
 
 pub(crate) struct JournalIngressReceivers {
@@ -590,6 +623,10 @@ impl JournalIngressSender {
     }
 
     pub(crate) fn close_and_join(&self) -> anyhow::Result<()> {
+        self.close_and_join_until(Instant::now() + JOURNAL_WRITER_SHUTDOWN_WAIT)
+    }
+
+    fn close_and_join_until(&self, deadline: Instant) -> anyhow::Result<()> {
         self.state.close_admission();
         if let Some(wake) = &self.wake_sender {
             match wake.try_send(()) {
@@ -598,12 +635,10 @@ impl JournalIngressSender {
             }
         }
         let Some(writer) = self.writer.lock().unwrap().take() else { return Ok(()) };
-        writer
-            .join()
-            .map_err(|_| anyhow::anyhow!("session journal writer panicked during shutdown"))
+        writer.join_until(deadline)
     }
 
-    pub(crate) fn install_writer(&self, writer: std::thread::JoinHandle<()>) -> anyhow::Result<()> {
+    pub(crate) fn install_writer(&self, writer: JournalWriter) -> anyhow::Result<()> {
         let mut installed = self.writer.lock().unwrap();
         anyhow::ensure!(installed.is_none(), "session journal writer is already installed");
         *installed = Some(writer);
@@ -739,9 +774,7 @@ pub(crate) fn start(
 ) -> anyhow::Result<()> {
     let Some(receivers) = receivers else { return Ok(()) };
     let weak = Arc::downgrade(mux);
-    let writer = std::thread::Builder::new()
-        .name("mux-session-journal-writer".into())
-        .spawn(move || run(weak, receivers))?;
+    let writer = JournalWriter::spawn("mux-session-journal-writer", move || run(weak, receivers))?;
     mux.install_journal_writer(writer)
 }
 
@@ -2081,6 +2114,31 @@ mod tests {
                 .to_string()
                 .contains("admission is closed")
         );
+    }
+
+    #[test]
+    fn writer_shutdown_deadline_detaches_a_stalled_writer() {
+        let (sender, _receivers) = JournalIngressSender::new(true);
+        let (entered, entered_receiver) = sync_channel(1);
+        let (release, release_receiver) = sync_channel(1);
+        let (completed, completion_receiver) = sync_channel(1);
+        let writer = JournalWriter::spawn("stalled-journal-writer-test", move || {
+            entered.send(()).unwrap();
+            release_receiver.recv().unwrap();
+            completed.send(()).unwrap();
+        })
+        .unwrap();
+        sender.install_writer(writer).unwrap();
+        entered_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let deadline = Instant::now() + Duration::from_millis(100);
+        let started = Instant::now();
+        let error = sender.close_and_join_until(deadline).unwrap_err();
+
+        assert!(error.to_string().contains("did not stop within"));
+        assert!(started.elapsed() < Duration::from_secs(1));
+        release.send(()).unwrap();
+        completion_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
     }
 
     #[test]

@@ -6,7 +6,7 @@ use std::io::Write;
 use std::mem::size_of;
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
-#[cfg(unix)]
+#[cfg(all(test, unix))]
 use std::os::unix::process::CommandExt;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -900,8 +900,6 @@ fn execute_delivery_with_shutdown(
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    #[cfg(unix)]
-    command.process_group(0);
     #[cfg(windows)]
     command.creation_flags(CREATE_SUSPENDED);
     if let Some(session_id) = session_id {

@@ -1,7 +1,9 @@
 //! Bounded Unix process cleanup for short-lived child commands.
 //!
-//! A process group covers normal descendants. Two command-local identities
-//! cover daemon detach behavior: an environment marker survives
+//! Linux installs an inherited seccomp fence that prevents a hook from leaving
+//! its assigned process group. macOS executes hooks in a kernel sandbox that
+//! prevents descendant creation. Two command-local identities provide a
+//! defense-in-depth ownership path: an environment marker survives
 //! `closefrom(2)`, and an inherited file marker survives environment
 //! replacement. One process-wide tracker scans all active scopes together at
 //! a fixed maximum rate, follows known parent-child lineage, and records exact
@@ -153,6 +155,8 @@ pub struct UnixProcessScope {
     track_before_finalization: bool,
     #[cfg(test)]
     final_scan_gate: Option<FinalScanTestGate>,
+    #[cfg(test)]
+    kernel_group_fence: bool,
 }
 
 /// A signal from the kernel that an owned child is waitable. The observer
@@ -256,6 +260,8 @@ impl UnixProcessScope {
             track_before_finalization: true,
             #[cfg(test)]
             final_scan_gate: None,
+            #[cfg(test)]
+            kernel_group_fence: true,
         })
     }
 
@@ -266,7 +272,16 @@ impl UnixProcessScope {
         #[cfg(target_os = "macos")]
         let mut command = {
             let mut command = Command::new("/usr/bin/sandbox-exec");
-            command.args(["-p", "(version 1) (allow default) (deny process-fork)", "/bin/sh"]);
+            command
+                .args([
+                    "-p",
+                    "(version 1) (allow default) (deny process-fork)",
+                    "/bin/sh",
+                    "-c",
+                    "kill -STOP $$; exec \"$@\"",
+                    "cmux-process-scope",
+                ])
+                .arg(program);
             command
         };
         #[cfg(not(target_os = "macos"))]
@@ -281,14 +296,25 @@ impl UnixProcessScope {
     pub fn configure(&self, command: &mut Command) {
         command.env(PROCESS_SCOPE_ENV, &self.marker);
         let marker_fd = self._marker_fd.as_raw_fd();
-        // SAFETY: the closure calls only async-signal-safe fcntl(2) operations
-        // between fork and exec and does not allocate.
+        #[cfg(all(test, target_os = "linux"))]
+        let kernel_group_fence = self.kernel_group_fence;
+        #[cfg(all(not(test), target_os = "linux"))]
+        let kernel_group_fence = true;
+        // SAFETY: the closure calls only async-signal-safe syscalls between
+        // fork and exec and does not allocate.
         unsafe {
             command.pre_exec(move || {
+                if libc::setpgid(0, 0) != 0 {
+                    return Err(io::Error::last_os_error());
+                }
                 let flags = libc::fcntl(marker_fd, libc::F_GETFD);
                 if flags < 0 || libc::fcntl(marker_fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC) < 0
                 {
                     return Err(io::Error::last_os_error());
+                }
+                #[cfg(target_os = "linux")]
+                if kernel_group_fence {
+                    install_linux_process_group_fence()?;
                 }
                 Ok(())
             });
@@ -360,6 +386,7 @@ impl UnixProcessScope {
         let (reached, reached_receiver) = mpsc::sync_channel(1);
         let (resume, resume_receiver) = mpsc::sync_channel(1);
         self.track_before_finalization = false;
+        self.kernel_group_fence = false;
         self.final_scan_gate = Some(FinalScanTestGate {
             reached,
             resume: Arc::new(Mutex::new(resume_receiver)),
@@ -439,9 +466,11 @@ impl UnixProcessScope {
             return;
         }
         // Stop the exact pidfd-owned root before addressing its numeric process
-        // group. While that root is stopped and alive, its PID/PGID cannot be
-        // reused by an unrelated process between verification and killpg(2).
-        if pidfd_send_signal(pidfd, libc::SIGSTOP).is_err() {
+        // group. A waitable root can reject SIGSTOP, but its unreaped PID still
+        // reserves the numeric PGID through this operation.
+        if pidfd_send_signal(pidfd, libc::SIGSTOP).is_err()
+            && process_identity(root.pid) != Some(root)
+        {
             return;
         }
         if let Ok(group) = libc::pid_t::try_from(root.pid) {
@@ -506,6 +535,76 @@ fn wait_for_suspended_child(pid: u32) -> io::Result<()> {
             return Err(error);
         }
     }
+}
+
+#[cfg(target_os = "linux")]
+const fn linux_bpf_statement(code: u32, value: u32) -> libc::sock_filter {
+    libc::sock_filter { code: code as u16, jt: 0, jf: 0, k: value }
+}
+
+#[cfg(target_os = "linux")]
+const fn linux_bpf_jump(code: u32, value: u32, equal: u8, not_equal: u8) -> libc::sock_filter {
+    libc::sock_filter { code: code as u16, jt: equal, jf: not_equal, k: value }
+}
+
+/// Install a kernel-enforced process-group fence before the controlled shell
+/// runs. The filter is inherited across fork and exec and cannot be removed
+/// after `PR_SET_NO_NEW_PRIVS`. It leaves ordinary child creation available,
+/// but rejects the two syscalls that can move a hook or descendant out of the
+/// process group owned by this scope.
+#[cfg(target_os = "linux")]
+fn install_linux_process_group_fence() -> io::Result<()> {
+    const SECCOMP_DATA_NR_OFFSET: u32 = 0;
+    const SECCOMP_DATA_ARCH_OFFSET: u32 = 4;
+    const X32_SYSCALL_BIT: u32 = 0x4000_0000;
+    #[cfg(target_arch = "x86_64")]
+    const AUDIT_ARCH: u32 = 0xc000_003e;
+    #[cfg(target_arch = "aarch64")]
+    const AUDIT_ARCH: u32 = 0xc000_00b7;
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    compile_error!("cmux-tui process scopes require a Linux seccomp audit architecture");
+
+    let denied = libc::SECCOMP_RET_ERRNO | u32::try_from(libc::EPERM).unwrap_or(1);
+    let mut filter = [
+        linux_bpf_statement(libc::BPF_LD | libc::BPF_W | libc::BPF_ABS, SECCOMP_DATA_ARCH_OFFSET),
+        linux_bpf_jump(libc::BPF_JMP | libc::BPF_JEQ | libc::BPF_K, AUDIT_ARCH, 1, 0),
+        linux_bpf_statement(libc::BPF_RET | libc::BPF_K, libc::SECCOMP_RET_KILL_PROCESS),
+        linux_bpf_statement(libc::BPF_LD | libc::BPF_W | libc::BPF_ABS, SECCOMP_DATA_NR_OFFSET),
+        linux_bpf_statement(libc::BPF_ALU | libc::BPF_AND | libc::BPF_K, !X32_SYSCALL_BIT),
+        linux_bpf_jump(
+            libc::BPF_JMP | libc::BPF_JEQ | libc::BPF_K,
+            u32::try_from(libc::SYS_setsid).unwrap_or(u32::MAX),
+            0,
+            1,
+        ),
+        linux_bpf_statement(libc::BPF_RET | libc::BPF_K, denied),
+        linux_bpf_jump(
+            libc::BPF_JMP | libc::BPF_JEQ | libc::BPF_K,
+            u32::try_from(libc::SYS_setpgid).unwrap_or(u32::MAX),
+            0,
+            1,
+        ),
+        linux_bpf_statement(libc::BPF_RET | libc::BPF_K, denied),
+        linux_bpf_statement(libc::BPF_RET | libc::BPF_K, libc::SECCOMP_RET_ALLOW),
+    ];
+    let program = libc::sock_fprog {
+        len: u16::try_from(filter.len()).unwrap_or(u16::MAX),
+        filter: filter.as_mut_ptr(),
+    };
+    if unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if unsafe {
+        libc::prctl(
+            libc::PR_SET_SECCOMP,
+            libc::SECCOMP_MODE_FILTER,
+            std::ptr::from_ref(&program),
+        )
+    } != 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
 }
 
 impl Drop for UnixProcessScope {

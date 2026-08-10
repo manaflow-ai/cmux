@@ -4688,7 +4688,7 @@ impl Mux {
 
     pub(crate) fn install_journal_writer(
         &self,
-        writer: std::thread::JoinHandle<()>,
+        writer: crate::journal_ingress::JournalWriter,
     ) -> anyhow::Result<()> {
         self.journal_ingress.install_writer(writer)
     }
