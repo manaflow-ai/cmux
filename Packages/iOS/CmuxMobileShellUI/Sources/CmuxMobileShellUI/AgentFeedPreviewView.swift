@@ -79,7 +79,7 @@ public struct AgentFeedPreviewView: View {
             .frame(height: 1)
             .accessibilityElement(children: .ignore)
             .accessibilityIdentifier("AgentFeedScenario-\(scenario.rawValue)")
-            .accessibilityValue("\(hostEventCount)/\(items.count)")
+            .accessibilityValue(Text(verbatim: "\(hostEventCount)/\(items.count)"))
     }
 
     @ViewBuilder
@@ -97,6 +97,17 @@ public struct AgentFeedPreviewView: View {
                 }
             }
             .accessibilityIdentifier("AgentFeedFixtureInjectNewActivity")
+        case .stress:
+            if canLoadStressHistory {
+                Button(
+                    AgentFeedL10n.string(
+                        "mobile.agentFeed.history.loadOlder",
+                        defaultValue: "Load Older"
+                    ),
+                    action: loadOlder
+                )
+                .accessibilityIdentifier("AgentFeedFixtureLoadOlder")
+            }
         case .reply:
             if mutationStates.values.contains(.sending) {
                 Button("Acknowledge reply") {
@@ -125,9 +136,7 @@ public struct AgentFeedPreviewView: View {
             mutationStates: mutationStates,
             hasMoreItems: (scenario == .stress && items.count < AgentFeedPreviewConfiguration.stressRetainedItemLimit)
                 || scenario == .offline,
-            canLoadOlder: scenario == .stress
-                && status == .ready
-                && items.count < AgentFeedPreviewConfiguration.stressRetainedItemLimit,
+            canLoadOlder: canLoadStressHistory,
             isLoadingOlder: false,
             actions: AgentFeedActions(
                 setDraft: { id, value in drafts[id] = value },
@@ -142,8 +151,7 @@ public struct AgentFeedPreviewView: View {
     }
 
     private func loadOlder() {
-        guard scenario == .stress,
-              items.count < AgentFeedPreviewConfiguration.stressRetainedItemLimit else { return }
+        guard canLoadStressHistory else { return }
         let allItems = AgentFeedPreviewConfiguration.stressItems
         let end = min(
             items.count + 300,
@@ -151,6 +159,12 @@ public struct AgentFeedPreviewView: View {
             allItems.count
         )
         items = Array(allItems.prefix(end))
+    }
+
+    private var canLoadStressHistory: Bool {
+        scenario == .stress
+            && status == .ready
+            && items.count < AgentFeedPreviewConfiguration.stressRetainedItemLimit
     }
 
     private func resolve(_ item: MobileAgentFeedItem, action: MobileAgentFeedAction) {

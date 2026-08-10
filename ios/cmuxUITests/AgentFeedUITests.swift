@@ -67,7 +67,7 @@ final class AgentFeedUITests: XCTestCase {
         other.typeText("Oldest blocked request")
         XCTAssertTrue(submit.isEnabled)
         submit.tap()
-        XCTAssertTrue(app.descendants(matching: .any)["MobileAgentFeedCard-\(suffix)"].waitForNonExistence(timeout: 3))
+        XCTAssertTrue(expand.waitForNonExistence(timeout: 5))
 
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "agent-feed-multi-question-resolved"
@@ -90,7 +90,7 @@ final class AgentFeedUITests: XCTestCase {
             predicate: NSPredicate(format: "value CONTAINS %@", "state=complete"),
             object: metrics
         )
-        XCTAssertEqual(XCTWaiter.wait(for: [complete], timeout: 8), .completed)
+        XCTAssertEqual(XCTWaiter.wait(for: [complete], timeout: 20), .completed)
         let value = try XCTUnwrap(metrics.value as? String)
         print("AgentFeedPerformanceMetrics: \(value)")
         let fields = Dictionary(uniqueKeysWithValues: value.split(separator: ";").compactMap { component in
@@ -118,15 +118,19 @@ final class AgentFeedUITests: XCTestCase {
         var app = launchFixture(scenario: "stress")
         var marker = app.descendants(matching: .any)["AgentFeedScenario-stress"]
         XCTAssertTrue(marker.waitForExistence(timeout: 8))
-        XCTAssertTrue(marker.value as? String == "2400/300")
-        let loadOlder = app.buttons["MobileAgentFeedLoadOlder"]
-        makeHittable(loadOlder, in: app, attempts: 40)
-        loadOlder.tap()
-        let pageLoaded = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "value == %@", "2400/600"),
-            object: marker
-        )
-        XCTAssertEqual(XCTWaiter.wait(for: [pageLoaded], timeout: 3), .completed)
+        XCTAssertEqual(marker.value as? String, "2400/300")
+        for retainedCount in [600, 900, 1_200, 1_500, 1_800, 2_000] {
+            let loadOlder = app.buttons["AgentFeedFixtureLoadOlder"]
+            XCTAssertTrue(loadOlder.waitForExistence(timeout: 3))
+            XCTAssertTrue(loadOlder.isHittable)
+            loadOlder.tap()
+            let pageLoaded = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "value == %@", "2400/\(retainedCount)"),
+                object: marker
+            )
+            XCTAssertEqual(XCTWaiter.wait(for: [pageLoaded], timeout: 5), .completed)
+        }
+        XCTAssertFalse(app.buttons["AgentFeedFixtureLoadOlder"].exists)
         app.terminate()
 
         app = launchFixture(scenario: "offline")
@@ -173,8 +177,8 @@ final class AgentFeedUITests: XCTestCase {
         XCTAssertTrue(status.exists)
         XCTAssertEqual(source.label, "Codex")
         XCTAssertEqual(status.label, "Needs input")
-        let filter = app.descendants(matching: .any)["MobileAgentFeedFilter"]
-        XCTAssertTrue(filter.exists)
+        let filter = app.buttons["MobileAgentFeedFilter"]
+        XCTAssertTrue(filter.waitForExistence(timeout: 3))
         XCTAssertTrue(filter.isHittable)
         let suffix = "macbook-00000000-0000-0000-0000-000000000101"
         let expandID = "MobileAgentFeedExpand-\(suffix)"

@@ -40,7 +40,6 @@ struct AgentFeedView: View {
             filterControl
             .padding(.horizontal)
             .padding(.vertical, 8)
-            .accessibilityIdentifier("MobileAgentFeedFilter")
 
             if visibleItems.isEmpty {
                 ContentUnavailableView(
@@ -196,6 +195,7 @@ struct AgentFeedView: View {
             Text(AgentFeedL10n.string("mobile.agentFeed.filter.all", defaultValue: "All Activity"))
                 .tag(MobileAgentFeedFilter.allActivity)
         }
+        .accessibilityIdentifier("MobileAgentFeedFilter")
     }
 }
 
