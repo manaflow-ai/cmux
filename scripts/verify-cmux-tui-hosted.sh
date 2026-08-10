@@ -96,7 +96,7 @@ do
   fi
 done
 if [[ "$remote_matches_repo" != true ]]; then
-  echo "error: upstream remote $remote targets $remote_url, not github.com/$REPO" >&2
+  echo "error: upstream remote $remote does not target github.com/$REPO" >&2
   exit 1
 fi
 

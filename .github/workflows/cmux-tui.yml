@@ -507,7 +507,7 @@ jobs:
       checkout_ref: ${{ inputs.commit }}
 
   hosted-verification:
-    name: hosted verification
+    name: ${{ inputs.mode == 'full' && 'hosted verification' || 'focused hosted verification' }}
     if: always()
     needs:
       - validate-inputs

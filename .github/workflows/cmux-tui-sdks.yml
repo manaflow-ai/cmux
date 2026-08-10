@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - "cmux-tui/**"
+      - ".github/actions/setup-cmux-tui-rust/**"
       - ".github/workflows/cmux-tui-nightly.yml"
       - ".github/workflows/cmux-tui-release-cut.yml"
       - ".github/workflows/cmux-tui-release.yml"
@@ -26,6 +27,7 @@ on:
   pull_request:
     paths:
       - "cmux-tui/**"
+      - ".github/actions/setup-cmux-tui-rust/**"
       - ".github/workflows/cmux-tui-nightly.yml"
       - ".github/workflows/cmux-tui-release-cut.yml"
       - ".github/workflows/cmux-tui-release.yml"
