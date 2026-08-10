@@ -222,7 +222,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                 );
             }
             if let Err(message) = wait_for_close(&mut connection, deadline) {
-                return local_error("server.stop_incomplete", message, global.output, 3);
+                return local_error("server.stop_incomplete", &message, global.output, 3);
             }
             print_success(
                 json!({
