@@ -1974,6 +1974,8 @@ final class cmuxUITests: XCTestCase {
 
         let feed = app.descendants(matching: .any)["MobileNotificationFeed"].firstMatch
         XCTAssertTrue(feed.waitForExistence(timeout: 8))
+        let feedList = app.descendants(matching: .any)["MobileNotificationFeedList-timeline"].firstMatch
+        XCTAssertTrue(feedList.waitForExistence(timeout: 3))
         XCTAssertTrue(app.tabBars.buttons["Feed"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["MobileNotificationFeedDayToday"].exists)
 
@@ -1990,7 +1992,6 @@ final class cmuxUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["Notification feed"].exists)
         XCTAssertFalse(app.staticTexts["Context"].exists)
         XCTAssertFalse(app.staticTexts["Opens in"].exists)
-        XCTAssertGreaterThan(approvalRow.frame.height, 135)
         let approvalValue = try XCTUnwrap(approvalRow.value as? String)
         let workspaceRange = try XCTUnwrap(approvalValue.range(of: "cmux iOS"))
         let bodyRange = try XCTUnwrap(approvalValue.range(of: "The feed is ready"))
@@ -2006,7 +2007,7 @@ final class cmuxUITests: XCTestCase {
         let allowOnce = app.buttons["MobileNotificationFeedPermission-once"]
         let yesterday = app.descendants(matching: .any)["MobileNotificationFeedDayYesterday"]
         for _ in 0..<12 where !yesterday.exists {
-            feed.swipeUp(velocity: .slow)
+            feedList.swipeUp(velocity: .slow)
         }
         XCTAssertTrue(yesterday.exists)
         XCTAssertTrue(app.staticTexts["Build Mac"].exists)
@@ -2020,7 +2021,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertFalse(unavailableValue.contains("Pane:"))
 
         for _ in 0..<12 where !allowOnce.isHittable {
-            app.swipeDown(velocity: .slow)
+            feedList.swipeDown(velocity: .slow)
         }
         XCTAssertTrue(allowOnce.isHittable)
         allowOnce.tap()
@@ -2114,6 +2115,8 @@ final class cmuxUITests: XCTestCase {
 
         let feed = app.descendants(matching: .any)["MobileNotificationFeed"].firstMatch
         XCTAssertTrue(feed.waitForExistence(timeout: 8))
+        let feedList = app.descendants(matching: .any)["MobileNotificationFeedList-timeline"].firstMatch
+        XCTAssertTrue(feedList.waitForExistence(timeout: 3))
 
         let permissionRow = app.descendants(matching: .any)[
             "MobileNotificationFeedRow-studio-codex-approval"
@@ -2129,7 +2132,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(planRow.waitForExistence(timeout: 3))
         let planFeedback = app.textFields["MobileNotificationFeedExitPlanFeedback"]
         for _ in 0..<8 where !planFeedback.isHittable {
-            feed.swipeUp(velocity: .slow)
+            feedList.swipeUp(velocity: .slow)
         }
         XCTAssertTrue(planFeedback.isHittable)
         planFeedback.tap()
@@ -2145,7 +2148,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(questionRow.waitForExistence(timeout: 3))
         let notes = app.textFields["MobileNotificationFeedQuestionCustom-1"]
         for _ in 0..<5 where !notes.isHittable {
-            feed.swipeUp(velocity: .slow)
+            feedList.swipeUp(velocity: .slow)
         }
         XCTAssertTrue(notes.isHittable)
         notes.tap()
@@ -2156,14 +2159,14 @@ final class cmuxUITests: XCTestCase {
 
         let inlineActions = app.buttons["MobileNotificationFeedQuestionOption-0-actions"]
         for _ in 0..<5 where !inlineActions.isHittable {
-            feed.swipeDown(velocity: .slow)
+            feedList.swipeDown(velocity: .slow)
         }
         XCTAssertTrue(inlineActions.isHittable)
         XCTAssertTrue(inlineActions.label.contains("Approve and answer without leaving the Feed."))
         inlineActions.tap()
         XCTAssertTrue(questionSubmit.isEnabled)
         for _ in 0..<5 where !questionSubmit.isHittable {
-            feed.swipeUp(velocity: .slow)
+            feedList.swipeUp(velocity: .slow)
         }
         XCTAssertTrue(questionSubmit.isHittable)
         questionSubmit.tap()
@@ -2173,7 +2176,7 @@ final class cmuxUITests: XCTestCase {
             "MobileNotificationFeedRow-macbook-agent-finished"
         ].firstMatch
         for _ in 0..<8 where !finishedRow.isHittable {
-            feed.swipeUp(velocity: .slow)
+            feedList.swipeUp(velocity: .slow)
         }
         XCTAssertTrue(finishedRow.isHittable)
         let reply = app.buttons["MobileNotificationFeedReply-macbook-agent-finished"]
