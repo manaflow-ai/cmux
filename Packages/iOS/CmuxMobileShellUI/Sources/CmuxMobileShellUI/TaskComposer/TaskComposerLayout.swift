@@ -125,6 +125,8 @@ struct TaskComposerLayout: View {
 
             HStack(spacing: 10) {
                 optionsButton
+                    .fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(1)
 
                 if showsAttachmentButton {
                     TaskComposerAttachmentPickerMenu(
@@ -133,6 +135,8 @@ struct TaskComposerLayout: View {
                         choosePhotos: chooseAttachmentPhotos,
                         chooseFiles: chooseAttachmentFiles
                     )
+                    .fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(1)
                 }
 
                 ScrollView(.horizontal) {
@@ -145,10 +149,17 @@ struct TaskComposerLayout: View {
                     }
                 }
                 .scrollIndicators(.hidden)
-                .frame(maxWidth: .infinity)
+                // The pills are the row's only compressible region. A zero
+                // minimum lets the fixed 44pt edge controls claim their space
+                // before this viewport receives the remaining width.
+                .frame(minWidth: 0, maxWidth: .infinity)
+                .layoutPriority(0)
+                .clipped()
                 .accessibilityIdentifier("MobileTaskComposerPillScroller")
 
                 submitButton
+                    .fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(1)
             }
             .padding(.horizontal, 16)
             .frame(height: 44)
