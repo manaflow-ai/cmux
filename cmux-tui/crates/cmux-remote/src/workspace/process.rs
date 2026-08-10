@@ -2827,7 +2827,7 @@ mod tests {
         );
         options.env.insert("PIDFILE".into(), pid_file.to_string_lossy().into_owned());
         let spawn_manager = manager.clone();
-        let (started_sender, started_receiver) = tokio::sync::oneshot::channel();
+        let (started_sender, started_receiver) = oneshot::channel();
         let mut spawn = tokio::spawn(async move {
             started_sender.send(()).unwrap();
             spawn_manager.spawn(root, options).await

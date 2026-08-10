@@ -328,7 +328,7 @@ fn surface_exit_detaches_terminal_view_and_emits_event() {
         assert_eq!(state.workspaces.len(), 1);
         assert!(state.workspaces[0].screens.is_empty());
     });
-    mux.shutdown();
+    let _ = mux.shutdown();
 }
 
 #[test]

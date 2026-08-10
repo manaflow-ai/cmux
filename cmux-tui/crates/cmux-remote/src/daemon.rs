@@ -1720,7 +1720,7 @@ mod tests {
         let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
         let (release, holder) = hold_process_creation_barrier();
 
-        let (started_sender, started_receiver) = tokio::sync::oneshot::channel();
+        let (started_sender, started_receiver) = oneshot::channel();
         let mut bind = tokio::spawn(async move {
             started_sender.send(()).unwrap();
             serve_direct_websocket(daemon, "127.0.0.1:0".parse().unwrap(), 128 * 1024, false).await
@@ -1751,7 +1751,7 @@ mod tests {
             LimitedTcpListener { inner: listener, permits: Arc::new(Semaphore::new(1)) };
         let (release, holder) = hold_process_creation_barrier();
 
-        let (started_sender, started_receiver) = tokio::sync::oneshot::channel();
+        let (started_sender, started_receiver) = oneshot::channel();
         let mut accept = tokio::spawn(async move {
             started_sender.send(()).unwrap();
             listener.accept().await
