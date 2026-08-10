@@ -211,10 +211,18 @@ impl Fixture {
                 let args = headless_args(&session, &socket, Some(state));
                 let mut server = RunningHeadless::start(common, args, &socket, false, deadline)?;
                 server.wait_ready(deadline)?;
-                json_cli(common, &socket, &["terminal", terminal_id, "close"], deadline)?;
+                let topology = json_cli(common, &socket, &["terminal", "list"], deadline)?;
+                evidence.socket_rpcs += 1;
+                match restored_cleanup_plan(&topology, terminal_id)? {
+                    RestoredCleanupPlan::CloseOwnedTerminal => {
+                        json_cli(common, &socket, &["terminal", terminal_id, "close"], deadline)?;
+                        evidence.socket_rpcs += 1;
+                    }
+                    RestoredCleanupPlan::AlreadyQuiescent => {}
+                }
                 server.shutdown_and_wait(common, deadline)?;
                 evidence.readiness_lines += 1;
-                evidence.socket_rpcs += 2;
+                evidence.socket_rpcs += 1;
                 evidence.process_exits += 1;
             }
             _ => {}
@@ -2087,6 +2095,25 @@ fn terminal_list_contains_id(value: &Value, expected: &str) -> bool {
     })
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RestoredCleanupPlan {
+    CloseOwnedTerminal,
+    AlreadyQuiescent,
+}
+
+fn restored_cleanup_plan(value: &Value, owned_terminal_id: &str) -> Result<RestoredCleanupPlan> {
+    let terminals = value.as_array().context("restored cleanup terminal list was not an array")?;
+    match terminals.as_slice() {
+        [] => Ok(RestoredCleanupPlan::AlreadyQuiescent),
+        [terminal] if terminal.get("id").and_then(Value::as_str) == Some(owned_terminal_id) => {
+            Ok(RestoredCleanupPlan::CloseOwnedTerminal)
+        }
+        _ => bail!(
+            "restored cleanup terminal list was neither empty nor the exact owned terminal {owned_terminal_id:?}: {value}"
+        ),
+    }
+}
+
 fn find_named_file(root: &Path, name: &str) -> Result<Option<PathBuf>> {
     for entry in fs::read_dir(root)? {
         let entry = entry?;
@@ -2160,6 +2187,60 @@ mod tests {
             &serde_json::json!([{"id": "term:other", "terminal_id": "term:exact"}]),
             "term:exact"
         ));
+    }
+
+    #[test]
+    fn restored_cleanup_closes_the_exact_owned_terminal() {
+        let value = serde_json::json!([
+            {"id": "term:owned", "workspace_ref": "workspace:one"}
+        ]);
+
+        assert_eq!(
+            restored_cleanup_plan(&value, "term:owned").unwrap(),
+            RestoredCleanupPlan::CloseOwnedTerminal
+        );
+    }
+
+    #[test]
+    fn restored_cleanup_accepts_an_empty_terminal_list_as_quiescent() {
+        assert_eq!(
+            restored_cleanup_plan(&serde_json::json!([]), "term:owned").unwrap(),
+            RestoredCleanupPlan::AlreadyQuiescent
+        );
+    }
+
+    #[test]
+    fn restored_cleanup_rejects_a_mismatched_terminal_topology() {
+        assert!(
+            restored_cleanup_plan(&serde_json::json!([{"id": "term:other"}]), "term:owned")
+                .is_err()
+        );
+        assert!(
+            restored_cleanup_plan(
+                &serde_json::json!([{"id": "term:owned"}, {"id": "term:other"}]),
+                "term:owned"
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn restored_cleanup_rejects_invalid_terminal_shapes() {
+        assert!(
+            restored_cleanup_plan(
+                &serde_json::json!({"terminals": [{"id": "term:owned"}]}),
+                "term:owned"
+            )
+            .is_err()
+        );
+        assert!(
+            restored_cleanup_plan(
+                &serde_json::json!([{"terminal_id": "term:owned"}]),
+                "term:owned"
+            )
+            .is_err()
+        );
+        assert!(restored_cleanup_plan(&serde_json::json!([{"id": 7}]), "term:owned").is_err());
     }
 
     #[test]
