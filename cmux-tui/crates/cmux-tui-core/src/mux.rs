@@ -19758,7 +19758,7 @@ mod tests {
         assert!(mux.surface(first.id).is_none());
         let events = mux.resource_events_after(close_revision).unwrap();
         assert_eq!(events.batches.len(), 1);
-        assert!(events.batches[0].changes.iter().any(|change| {
+        assert!(events.batches[0].changes.as_array().unwrap().iter().any(|change| {
             change["kind"] == "delete"
                 && change["resource"] == "terminal"
                 && change["id"] == terminal.as_str()
