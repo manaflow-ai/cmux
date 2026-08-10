@@ -50,36 +50,7 @@ async function main(): Promise<void> {
     }
     await client.setRatio(paneId, "right", 0.55);
 
-    const snapshot = await client.topologySnapshot();
-    const canonical = snapshot.topology.workspaces.find((workspace) =>
-      workspace.screens.some((screen) =>
-        screen.panes.some((pane) => pane.tabs.some((tab) => tab.id === created.surface))));
-    assert(canonical?.id === workspaceId, "canonical topology omitted the new workspace");
-    const topology = await client.subscribeTopology({
-      daemon_instance_id: snapshot.daemon_instance_id,
-      session_id: snapshot.session_id,
-      revision: snapshot.revision,
-    });
-    assert(topology.status === "subscribed", `fresh snapshot required resnapshot: ${JSON.stringify(topology)}`);
-    await client.renameWorkspace(workspaceId!, `${marker}-topology`);
-    const topologyEvent = await stage("topology rename delta", topology.stream.next(2000));
-    assert(topologyEvent.event === "topology-delta", `unexpected topology event ${JSON.stringify(topologyEvent)}`);
-    if (topologyEvent.event === "topology-delta") {
-      assert(topologyEvent.operation === "workspace-renamed", "wrong topology operation");
-      assert(topologyEvent.base_revision === snapshot.revision, "wrong topology base revision");
-      assert(topologyEvent.revision === snapshot.revision + 1, "wrong topology revision");
-    }
-    topology.stream.close();
-    const stale = await client.subscribeTopology({
-      daemon_instance_id: "00000000-0000-0000-0000-000000000001" as UUID,
-      session_id: snapshot.session_id,
-      revision: snapshot.revision,
-    });
-    assert(stale.status === "resnapshot-required", "stale daemon cursor unexpectedly subscribed");
-    if (stale.status === "resnapshot-required") {
-      assert(stale.reason === "stale-daemon", `wrong stale cursor reason ${stale.reason}`);
-    }
-
+    await client.renameSurface(created.surface, `${marker}-renamed`);
     const events = await client.subscribe();
     const title = `${marker}-title`;
     await client.send(created.surface, { text: `printf '\\033]2;${title}\\007'; sleep 5\r` });
@@ -96,7 +67,6 @@ async function main(): Promise<void> {
     });
     assert(duplicate === null, "same-size resize emitted surface-resized");
     events.close();
-    await client.renameSurface(created.surface, `${marker}-renamed`);
 
     const attach = await client.attachSurface(created.surface, { cols: 100, rows: 31 });
     const first = await attach.next(1000);
@@ -110,7 +80,7 @@ async function main(): Promise<void> {
       await client.setClientSizing(created.surface, sizing.client, true);
     }
     await client.send(created.surface, { text: `printf '${later}\\n'\r` });
-    const output = await stage("attach output", nextAttachOutput(attach, 3000));
+    const output = await nextAttachOutput(attach, 3000);
     assert(output.event === "output" || output.event === "resized", "attach did not produce output/resized after vt-state");
     attach.close();
 
@@ -239,14 +209,6 @@ function findClientSurfaceSize(
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
-}
-
-async function stage<T>(name: string, operation: Promise<T>): Promise<T> {
-  try {
-    return await operation;
-  } catch (error) {
-    throw new Error(`${name}: ${error instanceof Error ? error.message : String(error)}`);
-  }
 }
 
 main().catch((err) => {

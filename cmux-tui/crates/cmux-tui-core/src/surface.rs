@@ -1127,6 +1127,8 @@ impl std::fmt::Debug for MouseSelectionAutoscrollState {
 pub struct SurfaceMeta {
     pub id: SurfaceId,
     pub uuid: crate::SurfaceUuid,
+    /// Public tab/content identities. Auxiliary surfaces have no identity.
+    pub(crate) resource_identity: Option<TabResourceIdentity>,
     /// User-assigned tab name (rename tab); shared by every surface kind.
     pub(crate) name: Mutex<Option<String>>,
     pub(crate) selection: Mutex<Option<String>>,
@@ -1195,21 +1197,77 @@ type DeferredCellPixelAckTestHook = Arc<dyn Fn() + Send + Sync>;
 
 pub struct PtySurface {
     pub(crate) meta: SurfaceMeta,
-    term: Mutex<Terminal>,
-    mouse_encoders: Mutex<MouseEncoders>,
+    terminal: Arc<PtyTerminalRuntime>,
+    viewport: Mutex<TerminalViewportState>,
+}
+
+#[derive(Default)]
+struct TerminalViewportState {
+    primary: Option<TrackedScreenPoint>,
+    alternate: Option<TrackedScreenPoint>,
+}
+
+impl TerminalViewportState {
+    fn anchor(&self, screen: Screen) -> Option<&TrackedScreenPoint> {
+        match screen {
+            Screen::Primary => self.primary.as_ref(),
+            Screen::Alternate => self.alternate.as_ref(),
+        }
+    }
+
+    fn anchor_mut(&mut self, screen: Screen) -> &mut Option<TrackedScreenPoint> {
+        match screen {
+            Screen::Primary => &mut self.primary,
+            Screen::Alternate => &mut self.alternate,
+        }
+    }
+}
+
+impl Deref for PtySurface {
+    type Target = PtyTerminalRuntime;
+
+    fn deref(&self) -> &Self::Target {
+        &self.terminal
+    }
+}
+
+/// Content runtime shared by every view placement of one terminal.
+///
+/// A [`PtySurface`] is a lightweight placement carrying tab-local metadata.
+/// This object owns the process, terminal emulator, ordered input/output, and
+/// canonical geometry. Keeping the two identities distinct makes a terminal
+/// projectable into any number of panes without cloning its PTY or VT state.
+pub struct PtyTerminalRuntime {
+    event_surface_id: SurfaceId,
+    /// Stable public content identity. This belongs to the terminal runtime,
+    /// while `SurfaceMeta::resource_identity` belongs to one view placement.
+    terminal_public_id: Option<TerminalPublicId>,
+    /// Stable protocol-v8 terminal identity.
+    semantic_identity: SemanticSceneTerminalIdentity,
+    term: Mutex<Box<Terminal>>,
+    stream_progress: Box<TerminalStreamProgress>,
     interaction: Mutex<TerminalInteractionState>,
     input_authority: Arc<InputAuthority>,
-    writer: Mutex<Box<dyn Write + Send>>,
-    master: Mutex<Box<dyn MasterPty + Send>>,
-    killer: Mutex<Box<dyn ChildKiller + Send>>,
-    /// Present only when Ghostty state is fed by an external producer and no
-    /// local PTY or child process exists.
+    /// Present only for a protocol-v8 parser runtime with no local child.
     external: Option<Arc<ExternalTerminalRuntime>>,
+    mouse_encoders: Mutex<Box<MouseEncoders>>,
+    runtime: Mutex<PtyRuntime>,
+    /// Explicit lifecycle authority for this process. Session content may
+    /// survive a daemon replacement through a durable host; daemon-owned
+    /// auxiliaries must terminate with the backend that created them.
+    lifetime: PtyLifetime,
+    supports_clear_history_key_fallback: AtomicBool,
+    host_identity: Option<crate::terminal_host_runtime::TerminalHostIdentity>,
+    #[cfg(unix)]
+    host_exit_record_path: Option<PathBuf>,
     pid: Option<u32>,
     command: Vec<String>,
     tty_name: Option<PathBuf>,
-    cwd: Option<String>,
     wait_after_command: bool,
+    cwd: Option<String>,
+    exit: Mutex<Option<TerminalExit>>,
+    local_pty_drained: AtomicBool,
+    exit_notified: AtomicBool,
     dead: AtomicBool,
     /// The daemon is intentionally dropping its compatibility proxy while
     /// leaving the terminal host alive for a later daemon to adopt.
@@ -1251,26 +1309,18 @@ pub struct PtySurface {
     last_attach_colors: Mutex<Option<Box<TerminalColors>>>,
     /// Single consume-once Ghostty render state shared by the local TUI and
     /// every protocol-v7 render attachment.
-    render: Mutex<RenderHub>,
-    /// Per-renderer semantic encoders. Every attachment owns an independent
-    /// canonical cache because overflow can invalidate only that consumer.
+    render: Arc<Mutex<RenderHub>>,
+    /// Per-renderer semantic encoders with independent canonical caches.
     semantic_scenes: Mutex<SemanticSceneHub>,
     semantic_attachment_count: AtomicUsize,
-    semantic_identity: SemanticSceneTerminalIdentity,
-    /// Byte-stream reset generation. Mutated only while `term` is held so a
-    /// replay snapshot and its declared boundary cannot observe torn state.
     attach_generation: AtomicU64,
-    /// Total canonical output bytes applied during this runtime. This cursor
-    /// never resets across compatibility replay generations.
     attach_sequence: AtomicU64,
-    render_generation: AtomicU64,
     accessibility_content_revision: AtomicU64,
     accessibility_viewport_revision: AtomicU64,
     accessibility_focus_revision: AtomicU64,
-    /// AX reads are opt-in. Once requested for a rendered terminal, retain a
-    /// short exact-sequence history until the semantic renderer detaches.
     accessibility_demanded: AtomicBool,
     accessibility_frames: Mutex<VecDeque<TerminalAccessibilitySnapshot>>,
+    render_generation: AtomicU64,
     frame_requests: SyncSender<u64>,
     #[cfg(test)]
     frame_producer_before_upgrade: FrameProducerTestHook,
