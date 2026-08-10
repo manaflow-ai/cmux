@@ -131,7 +131,11 @@ class _Stream(Iterator[AnyEvent]):
         ignored = 0
         while not self._closed:
             try:
-                value = self._conn.recv(before_wait=before_wait)
+                value = (
+                    self._conn.recv()
+                    if before_wait is None
+                    else self._conn._recv(before_wait=before_wait)
+                )
             except CmuxConnectionError:
                 if self._closed:
                     raise StopIteration

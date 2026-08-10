@@ -142,6 +142,19 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
   return { promise, resolve };
 }
 
+function trackSettlement(promise: Promise<unknown>): () => boolean {
+  let settled = false;
+  void promise.then(
+    () => {
+      settled = true;
+    },
+    () => {
+      settled = true;
+    },
+  );
+  return () => settled;
+}
+
 class TrackingAbortSignal {
   aborted = false;
   added = 0;
@@ -179,22 +192,30 @@ class TrackingAbortSignal {
   }
 }
 
-test("streams wait indefinitely by default and support explicit idle timeouts", async () => {
+test("streams wait indefinitely by default and support explicit idle timeouts", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
   const quiet = new CmuxStream<{ event: string }>(undefined, () => undefined);
   const pending = quiet.next();
+  const pendingSettled = trackSettlement(pending);
+  context.mock.timers.tick(6);
+  await Promise.resolve();
+  assert.equal(pendingSettled(), false);
   assert.equal(quiet.idleTimeoutMs, undefined);
   quiet.push({ event: "ready" });
   assert.deepEqual(await pending, { event: "ready" });
   quiet.close();
 
   const finite = new CmuxStream<{ event: string }>(5, () => undefined);
-  await assert.rejects(() => finite.next(), CmuxTimeoutError);
+  const timed = finite.next();
+  context.mock.timers.tick(5);
+  await assert.rejects(() => timed, CmuxTimeoutError);
   finite.push({ event: "after-timeout" });
   assert.deepEqual(await finite.next({ timeoutMs: 20 }), { event: "after-timeout" });
   finite.close();
 });
 
-test("client command timeout does not become a stream idle timeout", async () => {
+test("client command timeout does not become a stream idle timeout", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
   let connection: ScriptedTransport | undefined;
   const transport = new ScriptedTransport((request, current) => {
     connection = current;
@@ -207,6 +228,10 @@ test("client command timeout does not become a stream idle timeout", async () =>
   const client = new CmuxClient({ transport, timeoutMs: 5 });
   const stream = await client.subscribe();
   const pending = stream.next();
+  const pendingSettled = trackSettlement(pending);
+  context.mock.timers.tick(6);
+  await Promise.resolve();
+  assert.equal(pendingSettled(), false);
   assert.equal(stream.idleTimeoutMs, undefined);
   connection?.emit({ event: "tree-changed" });
   assert.deepEqual(await pending, { event: "tree-changed" });
@@ -274,7 +299,9 @@ test("pending read listeners are removed on timeout and close", async () => {
   assert.equal(closed.removed, 1);
 });
 
-test("AbortSignal cancels a pending stream open and releases shared subscription state", async () => {
+test("AbortSignal cancels a pending stream open and releases shared subscription state", {
+  timeout: 1_000,
+}, async () => {
   let subscriptions = 0;
   const firstSubscriptionSent = deferred();
   const transport = new ScriptedTransport((request, connection) => {
@@ -305,7 +332,9 @@ test("AbortSignal cancels a pending stream open and releases shared subscription
   await client.close();
 });
 
-test("AbortSignal cancels the identification phase of a browser stream open", async () => {
+test("AbortSignal cancels the identification phase of a browser stream open", {
+  timeout: 1_000,
+}, async () => {
   let requests = 0;
   const firstRequestSent = deferred();
   const transport = new ScriptedTransport(() => {

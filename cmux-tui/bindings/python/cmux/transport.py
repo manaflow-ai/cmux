@@ -192,7 +192,10 @@ class JsonLineConnection:
                 raise CmuxConnectionError("socket write made no progress")
             remaining_bytes = remaining_bytes[sent:]
 
-    def recv(
+    def recv(self) -> dict[str, Any]:
+        return self._recv()
+
+    def _recv(
         self,
         *,
         before_wait: Optional[Callable[[], None]] = None,
