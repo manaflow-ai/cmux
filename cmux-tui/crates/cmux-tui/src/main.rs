@@ -1065,12 +1065,6 @@ fn validate_provider_process_args(args: &Args) -> anyhow::Result<()> {
 }
 
 fn rewrite_server_start(args: &mut Vec<String>) {
-    if args
-        .iter()
-        .any(|arg| matches!(arg.as_str(), "-h" | "--help" | "--json" | "--jsonl" | "--quiet"))
-    {
-        return;
-    }
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
@@ -1080,7 +1074,11 @@ fn rewrite_server_start(args: &mut Vec<String>) {
                 }
                 index += 2;
             }
+            "-h" | "--help" | "--json" | "--jsonl" | "--quiet" => return,
             "server" if args.get(index + 1).map(String::as_str) == Some("start") => {
+                if server_start_has_cli_routing_flag(&args[index + 2..]) {
+                    return;
+                }
                 args.drain(index..index + 2);
                 args.insert(0, "--headless".to_string());
                 return;
@@ -1088,6 +1086,49 @@ fn rewrite_server_start(args: &mut Vec<String>) {
             _ => return,
         }
     }
+}
+
+fn server_start_has_cli_routing_flag(args: &[String]) -> bool {
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--session"
+            | "--socket"
+            | "--machine"
+            | "--terminal"
+            | "--state"
+            | "--machine-provider"
+            | "--cloud-host"
+            | "--cloud-user"
+            | "--cloud-port"
+            | "--cloud-identity"
+            | "--ws"
+            | "--ws-token"
+            | "--remote-ws"
+            | "--remote-http"
+            | "--remote-state-dir"
+            | "--remote-link-socket"
+            | "--remote-admin-socket"
+            | "--remote-resume-lease-seconds"
+            | "--relay"
+            | "--relay-slot"
+            | "--relay-ticket-file"
+            | "--relay-ticket-command"
+            | "--relay-ticket-command-arg"
+            | "--advertise"
+            | "--term" => index += 2,
+            "--machine-provider-command" => {
+                index += 1;
+                while index < args.len() && args[index] != "--" {
+                    index += 1;
+                }
+                index += 1;
+            }
+            "-h" | "--help" | "--json" | "--jsonl" | "--quiet" => return true,
+            _ => index += 1,
+        }
+    }
+    false
 }
 
 fn is_cli_invocation(args: &[String]) -> bool {
@@ -2235,6 +2276,31 @@ mod tests {
             |values: &[&str]| values.iter().map(|value| (*value).to_string()).collect::<Vec<_>>();
         assert!(is_cli_invocation(&strings(&["--relay-slot", "server", "workspace", "list",])));
         assert!(!is_cli_invocation(&strings(&["--relay-slot", "routing-key", "--headless",])));
+    }
+
+    #[test]
+    fn server_start_routing_skips_private_process_option_values() {
+        for value in ["--help", "--json", "--jsonl", "--quiet"] {
+            let mut values = [
+                "server",
+                "start",
+                "--relay-ticket-command",
+                "ticket-helper",
+                "--relay-ticket-command-arg",
+                value,
+            ]
+            .map(str::to_string)
+            .to_vec();
+
+            rewrite_server_start(&mut values);
+
+            assert_eq!(values[0], "--headless");
+            assert_eq!(values.last().map(String::as_str), Some(value));
+        }
+
+        let mut quiet = ["server", "start", "--quiet"].map(str::to_string).to_vec();
+        rewrite_server_start(&mut quiet);
+        assert_eq!(quiet, ["server", "start", "--quiet"]);
     }
 
     #[test]
