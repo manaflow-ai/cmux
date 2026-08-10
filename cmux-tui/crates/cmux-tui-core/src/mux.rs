@@ -19916,7 +19916,6 @@ mod tests {
         let (finished_sender, finished_receiver) = std::sync::mpsc::sync_channel(1);
         *mux.kitty_image_budget_operation.lock().unwrap() = Some(Arc::new({
             let gate = gate.clone();
-            let block_next_operation = block_next_operation.clone();
             move |surface, limits, _deadline| {
                 // Resource retirement can issue one cleanup update and a
                 // later survivor rebalance. Block only the operation whose
