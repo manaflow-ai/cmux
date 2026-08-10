@@ -2157,14 +2157,12 @@ fn metadata_identity(metadata: &fs::Metadata) -> String {
 fn sqlite_filesystem_path(path: &Path) -> anyhow::Result<Cow<'_, Path>> {
     #[cfg(windows)]
     {
-        let parent = path
-            .parent()
-            .ok_or_else(|| anyhow::anyhow!("workspace state path has no parent"))?;
+        let parent =
+            path.parent().ok_or_else(|| anyhow::anyhow!("workspace state path has no parent"))?;
         let file_name = path
             .file_name()
             .ok_or_else(|| anyhow::anyhow!("workspace state path has no file name"))?;
-        let parent = fs::canonicalize(parent)
-            .context("resolve workspace state directory")?;
+        let parent = fs::canonicalize(parent).context("resolve workspace state directory")?;
         Ok(Cow::Owned(parent.join(file_name)))
     }
     #[cfg(not(windows))]
@@ -2173,18 +2171,11 @@ fn sqlite_filesystem_path(path: &Path) -> anyhow::Result<Cow<'_, Path>> {
     }
 }
 
-fn open_registry_database_with_flags(
-    path: &Path,
-    flags: OpenFlags,
-) -> anyhow::Result<Connection> {
+fn open_registry_database_with_flags(path: &Path, flags: OpenFlags) -> anyhow::Result<Connection> {
     let path = sqlite_filesystem_path(path)?;
     #[cfg(windows)]
     {
-        Ok(Connection::open_with_flags_and_vfs(
-            path.as_ref(),
-            flags,
-            "win32-longpath",
-        )?)
+        Ok(Connection::open_with_flags_and_vfs(path.as_ref(), flags, "win32-longpath")?)
     }
     #[cfg(not(windows))]
     {
@@ -4973,8 +4964,7 @@ fn ensure_missing_pepper_can_migrate(root: &Path, pepper_path: &Path) -> anyhow:
         if !database.try_exists()? {
             continue;
         }
-        let connection = open_registry_database_read_only(&database)
-            .with_context(|| {
+        let connection = open_registry_database_read_only(&database).with_context(|| {
             format!("inspect registry before recreating missing pepper {}", database.display())
         })?;
         let schema = meta_value(&connection, "schema_version")?
