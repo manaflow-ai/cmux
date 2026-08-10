@@ -62,6 +62,15 @@ func expectThrowsError<T>(
     }
 }
 
+private final class ExecutableContentsTrackingFileManager: FileManager {
+    private(set) var contentReadPaths: [String] = []
+
+    override func contents(atPath path: String) -> Data? {
+        contentReadPaths.append(path)
+        return super.contents(atPath: path)
+    }
+}
+
 @Suite(.serialized)
 struct AgentExecutableResolverTests {
     @Test
@@ -365,7 +374,7 @@ struct AgentExecutableResolverTests {
     }
 
     @Test
-    func testSkipsCmuxClaudeCommandShim() throws {
+    func testSkipsCmuxAgentCommandShim() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
                 "AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
@@ -479,6 +488,32 @@ struct AgentExecutableResolverTests {
             plan.arguments,
             ["serve", "--hostname", "127.0.0.1", "--port", "0", "--print-logs"]
         )
+    }
+
+    @Test
+    func testOpenCodeResolutionDoesNotReadExecutableContents() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let executable = bin.appendingPathComponent("opencode")
+        try "#!/bin/sh\nexit 0\n".write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        let fileManager = ExecutableContentsTrackingFileManager()
+        let resolver = AgentExecutableResolver(
+            environment: ["PATH": bin.path, "HOME": root.path],
+            fileManager: fileManager,
+            bundleResourceURL: root.appendingPathComponent("Resources", isDirectory: true),
+            includeStandardSearchDirectories: false
+        )
+
+        let plan = try resolver.resolve(.opencode)
+
+        expectEqual(plan.executableURL.path, executable.standardizedFileURL.path)
+        expectTrue(fileManager.contentReadPaths.isEmpty)
     }
 
     @Test

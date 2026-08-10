@@ -154,6 +154,10 @@ extension DockSplitStore {
         inPane paneId: PaneID,
         excludingStableIdentities: Set<UUID>
     ) -> UUID? {
+        let snapshot = Workspace.repairedLegacyHermesSessionPanelSnapshot(
+            snapshot,
+            workspaceId: workspaceId
+        )
         guard let terminalSnapshot = snapshot.terminal else { return nil }
         let policy = Workspace.makeSessionRestorePolicyService()
         let restorableAgent = Workspace.restorableAgentForSessionRestore(
