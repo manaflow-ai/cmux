@@ -15042,7 +15042,10 @@ mod tests {
                 "session":"current",
                 "stream_id":second_stream,
                 "cursor":cursor,
-                "filter":{"kinds":["workspace.rename"]},
+                "filter":{
+                    "kinds":["workspace.rename"],
+                    "max_sensitivity":"sensitive",
+                },
             }),
             None,
         );
@@ -15597,6 +15600,7 @@ mod tests {
                     "machine":"current",
                     "session":"current",
                     "stream_id":stream_id,
+                    "filter":{"max_sensitivity":"sensitive"},
                 }),
                 None,
             );
