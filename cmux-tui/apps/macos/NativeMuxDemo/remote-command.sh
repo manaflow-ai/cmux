@@ -28,7 +28,8 @@ cmux_remote_run() {
   stderr_file="$(mktemp "$CMUX_REMOTE_TEMP_ROOT/remote-command.XXXXXX")"
   wrapped="$rendered; cmux_remote_status=\$?; printf '\\036%s:%s\\037' '$marker' \"\$cmux_remote_status\" >&2; exit \"\$cmux_remote_status\""
 
-  if "${CMUX_REMOTE_SSH_BINARY:-ssh}" "${CMUX_REMOTE_SSH_OPTIONS[@]}" \
+  if "${CMUX_REMOTE_SSH_BINARY:-ssh}" \
+    ${CMUX_REMOTE_SSH_OPTIONS[@]+"${CMUX_REMOTE_SSH_OPTIONS[@]}"} \
     "$CMUX_REMOTE_HOST" "$wrapped" 2>"$stderr_file"; then
     ssh_status=0
   else
