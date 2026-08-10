@@ -7773,6 +7773,19 @@ final class SimulatorDiscoverabilityUITests: XCTestCase {
     }
 
     @MainActor
+    func testRendererFailureRetriesThroughProductionOverlay() throws {
+        let failed = launchFixture(mode: "one", state: "renderer-failed")
+        XCTAssertTrue(
+            failed.otherElements["MobileTerminalRendererFailure"].waitForExistence(timeout: 8)
+        )
+        let retry = failed.buttons["MobileTerminalRendererRetry"]
+        XCTAssertTrue(retry.waitForExistence(timeout: 4))
+        retry.tap()
+        XCTAssertTrue(failed.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8))
+        XCTAssertFalse(failed.otherElements["MobileTerminalRendererFailure"].exists)
+    }
+
+    @MainActor
     private func launchFixture(mode: String, state: String = "inactive") -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]

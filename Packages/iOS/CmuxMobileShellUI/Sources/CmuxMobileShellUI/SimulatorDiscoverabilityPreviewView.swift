@@ -28,7 +28,8 @@ public struct SimulatorDiscoverabilityPreviewView: View {
             state == "disconnected" ? .disconnected : .connected
         )
 
-        if state != "inactive", let first = descriptors.first {
+        let simulatorStateSelected = !["inactive", "renderer-failed"].contains(state)
+        if simulatorStateSelected, let first = descriptors.first {
             _ = streamStore.activate(panelID: first.panelID, in: workspaceID)
             if state == "locked" {
                 streamStore.state(for: first.panelID)?.markLockedByOtherConnection()
@@ -57,9 +58,12 @@ public struct SimulatorDiscoverabilityPreviewView: View {
         shellStore.selectedWorkspaceID = workspace.id
         shellStore.selectedTerminalID = terminalID
 
+        let fixtureRuntimeOwner = state == "renderer-failed"
+            ? Self.makeRetryableRendererFailureOwner()
+            : terminalRuntimeOwner
         _session = State(initialValue: MobileShellUISession(
             store: shellStore,
-            terminalRuntimeOwner: terminalRuntimeOwner
+            terminalRuntimeOwner: fixtureRuntimeOwner
         ))
     }
 
@@ -102,5 +106,20 @@ public struct SimulatorDiscoverabilityPreviewView: View {
             )
         }
     }
+
+    /// Starts failed, then resolves the already process-owned runtime when the
+    /// production Retry button invokes the owner's normal recovery path.
+    private static func makeRetryableRendererFailureOwner() -> GhosttyRuntimeOwner {
+        var shouldFail = true
+        return GhosttyRuntimeOwner {
+            if shouldFail {
+                shouldFail = false
+                throw RendererPreviewFailure()
+            }
+            return try GhosttyRuntime.shared()
+        }
+    }
 }
+
+private struct RendererPreviewFailure: Error {}
 #endif
