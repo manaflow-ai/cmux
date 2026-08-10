@@ -32,9 +32,6 @@ use ghostty_vt::{
 use serde::Deserialize;
 use serde_json::{Map, json};
 
-pub(crate) use remote::{
-    REMOTE_CONTROL_MESSAGE_MAX_BYTES, read_bounded_json_line, read_json_line_with_progress,
-};
 pub use remote::{
     RemoteMessageReader, RemoteMessageWriter, RemoteSession, RemoteSurface, RemoteTransport,
     RemoteTransportAbort,
@@ -260,6 +257,17 @@ pub struct ClientSizeInfo {
     pub rows: Option<u16>,
     #[serde(default = "default_true")]
     pub size_participating: bool,
+}
+
+/// Canonical agent presence projected into sidebar views. Keeping this
+/// transport-neutral lets local and remote sessions render identically.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct AgentInfo {
+    pub surface: SurfaceId,
+    pub state: String,
+    pub source: String,
+    pub session: Option<String>,
+    pub updated_at_ms: u64,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -624,6 +632,23 @@ impl Session {
                 })
             }
             Session::Remote(remote) => remote.cached_tree(),
+        }
+    }
+
+    pub fn agents(&self) -> Vec<AgentInfo> {
+        match self {
+            Session::Local(mux) => mux
+                .list_agents(None, None)
+                .into_iter()
+                .map(|agent| AgentInfo {
+                    surface: agent.surface,
+                    state: agent.state.as_str().to_string(),
+                    source: agent.source.as_str().to_string(),
+                    session: agent.session,
+                    updated_at_ms: agent.updated_at_ms,
+                })
+                .collect(),
+            Session::Remote(remote) => remote.cached_agents(),
         }
     }
 

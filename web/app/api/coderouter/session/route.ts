@@ -13,8 +13,6 @@ import {
   reportCoderouterFailure,
 } from "../../../../services/coderouter/observability";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 type SessionDependencies = {
   readonly resolveContext: typeof resolveCodeRouterRequestContext;

@@ -67,8 +67,10 @@ pub use surface::{
 };
 pub use surface::{apply_terminal_color_overrides, terminal_color_override_full_state};
 pub use workspace_registry::{
-    FrontendProjection, ProjectionCommit, RegistryCommit, RegistryEvent, RegistrySnapshot,
-    RegistryWorkspace, UnsupportedWorkspaceRegistrySchema, WorkspaceMutation, WorkspaceRegistry,
+    FrontendProjection, PersistentSessionStateReset, PersistentSessionStateResetPreview,
+    PersistentSessionStateResetter, ProjectionCommit, RegistryCommit, RegistryEvent,
+    RegistrySnapshot, RegistryWorkspace, UnsupportedWorkspaceRegistrySchema, WorkspaceMutation,
+    WorkspaceRegistry,
 };
 
 pub use cmux_remote_protocol::REMOTE_SESSION_MESSAGE_MAX_BYTES;

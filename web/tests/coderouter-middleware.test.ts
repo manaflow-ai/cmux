@@ -3,6 +3,17 @@ import { NextRequest } from "next/server";
 import middleware from "../proxy";
 
 describe("coderouter middleware", () => {
+  test("serves the same dedicated landing page on cmux.com/coderouter", () => {
+    const response = middleware(
+      new NextRequest("https://cmux.com/coderouter", {
+        headers: { host: "cmux.com" },
+      }),
+    );
+
+    expect(response.headers.get("x-middleware-rewrite")).toBeNull();
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+  });
+
   test("serves a dedicated landing page on coderouter.dev", () => {
     const response = middleware(
       new NextRequest("https://coderouter.dev/", {

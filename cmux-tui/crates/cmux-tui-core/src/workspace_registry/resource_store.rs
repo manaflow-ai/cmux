@@ -2555,6 +2555,20 @@ fn tombstone_resource_tab(
             other => anyhow::bail!("stored tab {tab_id} has invalid content kind {other:?}"),
         }
     }
+    tombstone_resource_tab_row(transaction, tab_id, revision)?;
+    if close_content && content_kind == "browser" {
+        tombstone_resource_browser(transaction, &content_id, revision)?;
+    } else if !matches!(content_kind.as_str(), "terminal" | "browser") {
+        anyhow::bail!("stored tab {tab_id} has invalid content kind {content_kind:?}");
+    }
+    Ok(())
+}
+
+fn tombstone_resource_tab_row(
+    transaction: &Transaction<'_>,
+    tab_id: &str,
+    revision: i64,
+) -> anyhow::Result<()> {
     transaction.execute(
         "UPDATE resource_tabs
          SET position = NULL, updated_revision = ?1, deleted_revision = ?1
@@ -2567,13 +2581,7 @@ fn tombstone_resource_tab(
          WHERE active_tab_id = ?2 AND deleted_revision IS NULL",
         params![revision, tab_id],
     )?;
-    tombstone_resource_identity(transaction, tab_id, revision)?;
-    if close_content && content_kind == "browser" {
-        tombstone_resource_browser(transaction, &content_id, revision)?;
-    } else if !matches!(content_kind.as_str(), "terminal" | "browser") {
-        anyhow::bail!("stored tab {tab_id} has invalid content kind {content_kind:?}");
-    }
-    Ok(())
+    tombstone_resource_identity(transaction, tab_id, revision)
 }
 
 fn tombstone_resource_terminal(
@@ -2601,7 +2609,7 @@ fn tombstone_resource_terminal(
     }
     let tabs = live_tabs_for_content(transaction, public_id)?;
     for tab in tabs {
-        tombstone_resource_tab(transaction, &tab, revision, false)?;
+        tombstone_resource_tab_row(transaction, &tab, revision)?;
     }
     transaction.execute(
         "UPDATE resource_terminals
@@ -2632,7 +2640,7 @@ fn tombstone_resource_browser(
     }
     let tabs = live_tabs_for_content(transaction, public_id)?;
     for tab in tabs {
-        tombstone_resource_tab(transaction, &tab, revision, false)?;
+        tombstone_resource_tab_row(transaction, &tab, revision)?;
     }
     transaction.execute(
         "UPDATE resource_browsers

@@ -377,7 +377,7 @@ class GhosttyApp {
     /// namespace enum).
     static let terminalPasteboard = TerminalPasteboardService()
 
-    /// The process-wide serialized native-surface free queue (was the
+    /// The process-wide bounded native-surface free queue (was the
     /// `TerminalSurfaceRuntimeTeardownCoordinator.shared` actor singleton).
     static let terminalSurfaceRuntimeTeardown = TerminalSurfaceRuntimeTeardownCoordinator()
 
@@ -3335,9 +3335,14 @@ class GhosttyApp {
             let title = action.action.set_title.title
                 .flatMap { String(cString: $0) } ?? ""
             if let tabId = surfaceView.tabId,
-               let sourceSurface = surfaceView.terminalSurface {
+               let sourceSurface = surfaceView.terminalSurface,
+               let terminalLifecycleID = callbackContext?.terminalLifecycleID {
                 surfaceView.titleUpdateIngress.submit(
-                    tabId: tabId, surfaceId: sourceSurface.id, sourceSurface: sourceSurface, title: title
+                    tabId: tabId,
+                    surfaceId: sourceSurface.id,
+                    sourceSurface: sourceSurface,
+                    terminalLifecycleID: terminalLifecycleID,
+                    title: title
                 )
             }
             return true
@@ -3438,17 +3443,31 @@ class GhosttyApp {
                     return true
                 }
                 let preferredColorScheme = self.effectiveTerminalColorSchemePreference
-                surfaceView.terminalSurface?.hostedView.reapplySurfaceColorSchemeAfterGhosttyConfigReload(
-                    preferredColorScheme: preferredColorScheme
-                )
-                self.reloadSurfaceConfiguration(
-                    target.target.surface,
+                GhosttySurfaceConfigurationRefresh.applyConfigurationReload(
+                    to: target.target.surface,
                     soft: soft,
                     source: source,
-                    preferredColorScheme: preferredColorScheme
+                    redrawReason: "surface.reloadConfig",
+                    reloadSurfaceConfiguration: { surface, soft, source in
+                        self.reloadSurfaceConfiguration(
+                            surface,
+                            soft: soft,
+                            source: source,
+                            preferredColorScheme: preferredColorScheme
+                        )
+                    },
+                    applySurfaceColorScheme: {
+                        surfaceView.terminalSurface?.hostedView.reapplySurfaceColorSchemeAfterGhosttyConfigReload(
+                            preferredColorScheme: preferredColorScheme
+                        )
+                    },
+                    refreshHostBackground: {
+                        surfaceView.terminalSurface?.hostedView.refreshHostBackgroundAfterGhosttyConfigReload()
+                    },
+                    forceRefresh: { reason in
+                        surfaceView.terminalSurface?.forceRefresh(reason: reason)
+                    }
                 )
-                surfaceView.terminalSurface?.hostedView.refreshHostBackgroundAfterGhosttyConfigReload()
-                surfaceView.terminalSurface?.forceRefresh(reason: "surface.reloadConfig")
                 return true
             }
         case GHOSTTY_ACTION_KEY_SEQUENCE:
