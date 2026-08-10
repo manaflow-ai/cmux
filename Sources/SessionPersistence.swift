@@ -1893,10 +1893,41 @@ extension SessionWindowSnapshot {
     }
 }
 
+/// Persisted sidebar placement for a remote tmux mirror workspace, keyed by the
+/// controller's stable `connectionKey` (host connection hash + session name).
+/// Mirror workspaces themselves are not restorable (their SSH session can't be
+/// resumed cold), but this lightweight record lets a *reconnected* mirror return
+/// to its prior group and sidebar order across reconnects and app restarts.
+struct RemoteTmuxSidebarPlacementSnapshot: Codable, Sendable, Equatable {
+    var connectionKey: String
+    /// Absolute index among the window's workspaces at capture time.
+    var sidebarIndex: Int
+    /// Group membership + definition, present when the mirror was grouped.
+    var group: RemoteTmuxSidebarGroupPlacementSnapshot? = nil
+}
+
+struct RemoteTmuxSidebarGroupPlacementSnapshot: Codable, Sendable, Equatable {
+    /// Original group id; reused to rejoin the group if it still exists, or to
+    /// recreate a dissolved (mirror-only) group deterministically across siblings.
+    var id: UUID
+    var name: String
+    var isCollapsed: Bool
+    var isPinned: Bool? = nil
+    var customColor: String? = nil
+    var iconSymbol: String? = nil
+    /// 0-based index of this mirror among the group's members in tab order.
+    var memberIndex: Int
+    /// 0-based index of the group among all groups (sidebar section order).
+    var groupOrderIndex: Int? = nil
+}
+
 struct SessionTabManagerSnapshot: Codable, Sendable {
     var selectedWorkspaceIndex: Int?
     var workspaces: [SessionWorkspaceSnapshot]
     var workspaceGroups: [SessionWorkspaceGroupSnapshot]? = nil
+    /// Sidebar placement memory for remote tmux mirrors (groups/order lost on
+    /// reconnect). Optional-with-nil-default so older manifests decode cleanly.
+    var remoteTmuxSidebarPlacements: [RemoteTmuxSidebarPlacementSnapshot]? = nil
 }
 
 struct SessionWindowSnapshot: Codable, Sendable {

@@ -6210,10 +6210,44 @@ extension TabManager {
                 }
             return snapshots.isEmpty ? nil : snapshots
         }()
+        // Remote tmux mirrors are NOT restorable, but we record their sidebar
+        // group + order (keyed by the stable connectionKey) so a later reconnect
+        // returns each mirror to its prior group and position. Read from the
+        // UNFILTERED tabs since mirrors are excluded from `restorableTabs`.
+        let remoteTmuxSidebarPlacements: [RemoteTmuxSidebarPlacementSnapshot]? = {
+            let groupOrderIndexById = Dictionary(
+                workspaceGroups.enumerated().map { ($1.id, $0) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            var placements: [RemoteTmuxSidebarPlacementSnapshot] = []
+            for (index, tab) in tabs.enumerated() where tab.isRemoteTmuxMirror {
+                guard let key = tab.remoteTmuxMirrorIdentity else { continue }
+                var group: RemoteTmuxSidebarGroupPlacementSnapshot?
+                if let gid = tab.groupId,
+                   let g = workspaceGroups.first(where: { $0.id == gid }) {
+                    let members = tabs.filter { $0.groupId == gid }.map(\.id)
+                    group = RemoteTmuxSidebarGroupPlacementSnapshot(
+                        id: g.id,
+                        name: g.name,
+                        isCollapsed: g.isCollapsed,
+                        isPinned: g.isPinned,
+                        customColor: g.customColor,
+                        iconSymbol: g.iconSymbol,
+                        memberIndex: members.firstIndex(of: tab.id) ?? 0,
+                        groupOrderIndex: groupOrderIndexById[gid]
+                    )
+                }
+                placements.append(
+                    RemoteTmuxSidebarPlacementSnapshot(connectionKey: key, sidebarIndex: index, group: group)
+                )
+            }
+            return placements.isEmpty ? nil : placements
+        }()
         return SessionTabManagerSnapshot(
             selectedWorkspaceIndex: selectedWorkspaceIndex,
             workspaces: workspaceSnapshots,
-            workspaceGroups: groupSnapshots
+            workspaceGroups: groupSnapshots,
+            remoteTmuxSidebarPlacements: remoteTmuxSidebarPlacements
         )
     }
 
@@ -6281,6 +6315,12 @@ extension TabManager {
 
         isRestoringSessionSnapshot = true
         defer { isRestoringSessionSnapshot = false }
+        // Seed the remote-tmux sidebar placement memory so a reconnect after this
+        // restart returns each mirror to its remembered group + order. Mirrors are
+        // not restored here (their SSH session can't resume cold); only the
+        // placement metadata is loaded.
+        AppDelegate.shared?.remoteTmuxController
+            .ingestPersistedSidebarPlacements(snapshot.remoteTmuxSidebarPlacements)
         let previousTabs = tabs
         for tab in previousTabs {
             unwireClosedBrowserTracking(for: tab)

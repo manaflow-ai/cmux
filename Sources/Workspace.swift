@@ -5862,6 +5862,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// Bound action for this mirror's outbound window-order mutation boundary.
     var remoteTmuxWindowOrderSync: (([UUID], ((Bool) -> Void)?) -> Bool)?
 
+    /// Stable identity of the mirrored remote tmux session (the controller's
+    /// `connectionKey` = host connection hash + session name). Unlike `id`, this
+    /// survives disconnect/reconnect and app restarts, so it keys the persisted
+    /// sidebar group/placement memory that lets a reconnected mirror return to
+    /// its prior group and order. Nil for non-mirror workspaces.
+    var remoteTmuxMirrorIdentity: String?
+
     /// Per-window multi-pane renderers, keyed by mirrored window-tab panel id.
     private(set) var remoteTmuxWindowMirrors: [UUID: RemoteTmuxWindowMirror] = [:]
 

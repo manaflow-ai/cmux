@@ -31,6 +31,17 @@ final class RemoteTmuxController {
     private var connectionsByHostSession: [String: RemoteTmuxControlConnection] = [:]
     private var connectionObserverTokensByHostSession: [String: RemoteTmuxControlConnection.ObserverToken] = [:]
 
+    /// Remembered sidebar group + order for mirrors, keyed by `connectionKey`.
+    /// Seeded from the session snapshot on restore and refreshed when a mirror
+    /// disconnects, so a reconnect returns the mirror to its prior placement
+    /// across reconnects and app restarts. See ``applySidebarPlacement`` /
+    /// ``captureSidebarPlacement`` at the end of this file.
+    var sidebarPlacementByConnectionKey: [String: RemoteTmuxSidebarPlacementSnapshot] = [:]
+    /// Maps an original (dissolved) group id to the group recreated for it during
+    /// reconnect, so multiple sessions from one mirror-only group rejoin a single
+    /// recreated group instead of each spawning its own.
+    var recreatedGroupIdByOriginalId: [UUID: UUID] = [:]
+
     init() {}
 
     /// Synchronous read of the `remoteTmux` beta flag for AppKit/socket paths
@@ -317,6 +328,7 @@ final class RemoteTmuxController {
             "CMUX_WORKSPACE_ID": workspace.id.uuidString,
             "CMUX_TAB_ID": workspace.id.uuidString,
         ])
+        workspace.remoteTmuxMirrorIdentity = key
         workspace.remoteTmuxWindowOrderSync = { [weak self, weak workspace] orderedPanelIds, verification in
             guard let self, let workspace else { return false }
             return self.handleMirrorWindowsReordered(
@@ -337,6 +349,8 @@ final class RemoteTmuxController {
                 workspaceID: workspace.id
             )
         )
+        // Return the reconnected mirror to its remembered sidebar group + order.
+        applySidebarPlacement(connectionKey: key, workspace: workspace, manager: tabManager)
         return true
     }
 
@@ -394,6 +408,13 @@ final class RemoteTmuxController {
                 sessionMirrors[newKey] = mirror
             }
 
+            // Keep the sidebar placement memory and the workspace stamp keyed to
+            // the renamed session so a later reconnect still finds the placement.
+            if var placement = sidebarPlacementByConnectionKey.removeValue(forKey: oldKey) {
+                placement.connectionKey = newKey
+                sidebarPlacementByConnectionKey[newKey] = placement
+            }
+            mirror.mirroredWorkspace?.remoteTmuxMirrorIdentity = newKey
         }
     }
 
@@ -612,6 +633,7 @@ final class RemoteTmuxController {
         let manager = mirrorWorkspace?.owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: workspaceId)
         let workspace = mirrorWorkspace ?? manager?.tabs.first(where: { $0.id == workspaceId })
         if let manager, let workspace {
+            captureSidebarPlacement(connectionKey: key, workspace: workspace, manager: manager)
             switch reason {
             case .sessionEnded:
                 // Preserve a usable owning window when the remote disappears.
@@ -807,5 +829,86 @@ final class RemoteTmuxController {
     /// connection.
     static func connectionKey(host: RemoteTmuxHost, sessionName: String) -> String {
         "\(host.connectionHash)\u{1}\(sessionName)"
+    }
+}
+
+// MARK: - Sidebar placement memory (groups + order across reconnect / restart)
+
+extension RemoteTmuxController {
+    /// Seeds the placement memory from a restored session snapshot. Existing
+    /// in-session entries (from a live disconnect capture) take precedence.
+    func ingestPersistedSidebarPlacements(_ placements: [RemoteTmuxSidebarPlacementSnapshot]?) {
+        guard let placements else { return }
+        for placement in placements where sidebarPlacementByConnectionKey[placement.connectionKey] == nil {
+            sidebarPlacementByConnectionKey[placement.connectionKey] = placement
+        }
+    }
+
+    /// Records a mirror's current sidebar group + order before it leaves the
+    /// sidebar (disconnect/detach), keyed by the stable `connectionKey`.
+    func captureSidebarPlacement(connectionKey: String, workspace: Workspace, manager: TabManager) {
+        guard let sidebarIndex = manager.tabs.firstIndex(where: { $0.id == workspace.id }) else { return }
+        var group: RemoteTmuxSidebarGroupPlacementSnapshot?
+        if let gid = workspace.groupId,
+           let g = manager.workspaceGroups.first(where: { $0.id == gid }) {
+            let members = manager.tabs.filter { $0.groupId == gid }.map(\.id)
+            group = RemoteTmuxSidebarGroupPlacementSnapshot(
+                id: g.id,
+                name: g.name,
+                isCollapsed: g.isCollapsed,
+                isPinned: g.isPinned,
+                customColor: g.customColor,
+                iconSymbol: g.iconSymbol,
+                memberIndex: members.firstIndex(of: workspace.id) ?? 0,
+                groupOrderIndex: manager.workspaceGroups.firstIndex(where: { $0.id == gid })
+            )
+        }
+        sidebarPlacementByConnectionKey[connectionKey] = RemoteTmuxSidebarPlacementSnapshot(
+            connectionKey: connectionKey,
+            sidebarIndex: sidebarIndex,
+            group: group
+        )
+    }
+
+    /// Returns a reconnected mirror to its remembered group + sidebar order.
+    /// Rejoins the original group when it still exists, otherwise recreates a
+    /// dissolved (mirror-only) group once and remaps siblings onto it.
+    func applySidebarPlacement(connectionKey: String, workspace: Workspace, manager: TabManager) {
+        guard let placement = sidebarPlacementByConnectionKey[connectionKey] else { return }
+
+        if let groupPlacement = placement.group {
+            let liveGroupId = manager.workspaceGroups.first(where: { $0.id == groupPlacement.id })?.id
+                ?? recreatedGroupIdByOriginalId[groupPlacement.id].flatMap { recreatedId in
+                    manager.workspaceGroups.contains(where: { $0.id == recreatedId }) ? recreatedId : nil
+                }
+            if let groupId = liveGroupId {
+                manager.addWorkspaceToGroup(workspaceId: workspace.id, groupId: groupId)
+            } else if let newGroupId = manager.createWorkspaceGroup(
+                name: groupPlacement.name,
+                childWorkspaceIds: [workspace.id],
+                selectAnchor: false,
+                collapseSidebarSelection: false
+            ) {
+                recreatedGroupIdByOriginalId[groupPlacement.id] = newGroupId
+                if groupPlacement.isCollapsed {
+                    manager.setWorkspaceGroupCollapsed(groupId: newGroupId, isCollapsed: true)
+                }
+                if groupPlacement.isPinned == true {
+                    manager.setWorkspaceGroupPinned(groupId: newGroupId, isPinned: true)
+                }
+                if let color = groupPlacement.customColor {
+                    manager.setWorkspaceGroupColor(groupId: newGroupId, hex: color)
+                }
+                if let icon = groupPlacement.iconSymbol {
+                    _ = manager.setWorkspaceGroupIcon(groupId: newGroupId, symbol: icon)
+                }
+            }
+        }
+
+        // Best-effort absolute order: place the mirror back at its remembered
+        // index (clamped). Group-aware reordering keeps it within its section.
+        guard !manager.tabs.isEmpty else { return }
+        let clampedIndex = max(0, min(placement.sidebarIndex, manager.tabs.count - 1))
+        _ = manager.reorderWorkspace(tabId: workspace.id, toIndex: clampedIndex)
     }
 }
