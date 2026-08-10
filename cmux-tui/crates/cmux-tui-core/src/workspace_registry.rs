@@ -54,10 +54,12 @@ pub use resource_store::{
     ResourceEventPage, ResourcePatch, ResourcePatchCommit, ResourceTopologySnapshot,
 };
 use resource_store::{
-    apply_resource_patch, create_resource_schema, initialize_resource_mutation_retention,
+    apply_resource_patch, commit_resource_patch_in_transaction, create_resource_schema,
+    initialize_resource_mutation_retention,
     migrate_resource_agent_projections, migrate_resource_browser_metadata,
     migrate_resource_mutations_to_session_scope, migrate_resource_tabs_to_multiview,
     resource_tabs_has_legacy_content_uniqueness, validate_resource_invariants,
+    validate_resource_patch,
 };
 
 const SCHEMA_VERSION: i64 = 9;
@@ -322,6 +324,12 @@ pub struct TerminalRegistryCommit {
     pub revision: u64,
     pub result: Value,
     pub replayed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct TerminalResourceCloseCommit {
+    pub terminal: TerminalRegistryCommit,
+    pub resource: Option<ResourcePatchCommit>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2828,106 +2836,83 @@ impl WorkspaceRegistry {
         });
         let fingerprint = canonical_json(&fingerprint_value)?;
         let tx = self.connection.transaction()?;
-        if let Some(replay) = terminal_replay(&tx, mutation, &fingerprint)? {
-            return Ok(replay);
-        }
-        if let Some(expected) = expected_generation
-            && expected != self.generation
-        {
-            anyhow::bail!(
-                "terminal generation conflict: expected {expected}, current {}",
-                self.generation
-            );
-        }
-        let current_revision = transaction_terminal_revision(&tx)?;
-        if let Some(expected) = expected_revision
-            && expected != current_revision
-        {
-            anyhow::bail!(
-                "terminal revision conflict: expected {expected}, current {current_revision}"
-            );
-        }
-        let Some(terminal) = read_terminal(&tx, terminal_id)? else {
-            anyhow::bail!("unknown terminal {terminal_id}; it may not have been adopted yet");
-        };
-        if let Some(expected) = expected_incarnation
-            && terminal.incarnation.as_deref() != Some(expected)
-        {
-            anyhow::bail!("terminal_incarnation_mismatch");
-        }
-
-        if terminal.lifecycle == TerminalLifecycle::Tombstoned {
-            let result = serde_json::json!({
-                "terminal_id": terminal_id,
-                "incarnation": terminal.incarnation,
-                "closed": true,
-                "already_closed": true,
-            });
-            let result_json = canonical_json(&result)?;
-            tx.execute(
-                "INSERT INTO terminal_mutations(
-                   origin, mutation_id, fingerprint, result_json, committed_revision
-                 ) VALUES(?1, ?2, ?3, ?4, ?5)",
-                params![
-                    mutation.origin,
-                    mutation.id,
-                    fingerprint,
-                    result_json,
-                    i64::try_from(current_revision)
-                        .context("terminal revision exceeds SQLite integer range")?,
-                ],
-            )?;
-            tx.commit()?;
-            return Ok(TerminalRegistryCommit {
-                revision: current_revision,
-                result,
-                replayed: false,
-            });
-        }
-
-        let revision = current_revision
-            .checked_add(1)
-            .ok_or_else(|| anyhow::anyhow!("terminal revision exhausted"))?;
-        let sqlite_revision =
-            i64::try_from(revision).context("terminal revision exceeds SQLite integer range")?;
-        let result = serde_json::json!({
-            "terminal_id": terminal_id,
-            "incarnation": terminal.incarnation,
-            "closed": true,
-            "already_closed": false,
-        });
-        let result_json = canonical_json(&result)?;
-        tx.execute(
-            "UPDATE terminal_hosts
-             SET lifecycle = 'tombstoned', updated_revision = ?1, deleted_revision = ?1
-             WHERE terminal_id = ?2",
-            params![sqlite_revision, terminal_id],
-        )?;
-        tx.execute(
-            "UPDATE meta SET value = ?1 WHERE key = 'terminal_revision'",
-            [revision.to_string()],
-        )?;
-        tx.execute(
-            "INSERT INTO terminal_mutations(
-               origin, mutation_id, fingerprint, result_json, committed_revision
-             ) VALUES(?1, ?2, ?3, ?4, ?5)",
-            params![mutation.origin, mutation.id, fingerprint, result_json, sqlite_revision],
-        )?;
-        tx.execute(
-            "INSERT INTO terminal_events(
-               revision, kind, terminal_id, workspace_key, origin, mutation_id, result_json
-             ) VALUES(?1, 'terminal-closed', ?2, ?3, ?4, ?5, ?6)",
-            params![
-                sqlite_revision,
-                terminal_id,
-                terminal.workspace_key,
-                mutation.origin,
-                mutation.id,
-                result_json,
-            ],
+        let commit = close_terminal_in_transaction(
+            &tx,
+            &self.generation,
+            mutation,
+            expected_generation,
+            expected_revision,
+            terminal_id,
+            expected_incarnation,
+            &fingerprint,
         )?;
         tx.commit()?;
-        Ok(TerminalRegistryCommit { revision, result, replayed: false })
+        Ok(commit)
+    }
+
+    /// Atomically closes a protocol terminal and its public resource
+    /// projection. A failed resource write leaves the terminal live, so no
+    /// reader can observe a resource terminal whose host is already gone.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn close_terminal_with_resource_patch(
+        &mut self,
+        mutation: &WorkspaceMutation,
+        expected_generation: Option<&str>,
+        expected_terminal_revision: Option<u64>,
+        expected_resource_revision: Option<u64>,
+        terminal_id: &str,
+        expected_incarnation: Option<&str>,
+        patch: Option<&ResourcePatch>,
+        result: &Value,
+        deltas: &Value,
+    ) -> anyhow::Result<TerminalResourceCloseCommit> {
+        validate_identifier("mutation id", &mutation.id)?;
+        validate_identifier("mutation origin", &mutation.origin)?;
+        validate_terminal_identity("terminal id", terminal_id)?;
+        if let Some(incarnation) = expected_incarnation {
+            validate_terminal_identity("terminal incarnation", incarnation)?;
+        }
+        if let Some(patch) = patch {
+            validate_resource_patch(patch)?;
+        }
+        let fingerprint_value = serde_json::json!({
+            "op": "close-terminal",
+            "terminal_id": terminal_id,
+            "incarnation": expected_incarnation,
+        });
+        let fingerprint = canonical_json(&fingerprint_value)?;
+        let result_json = canonical_json(result)?;
+        let deltas_json = canonical_json(deltas)?;
+        let tx = self.connection.transaction()?;
+        let terminal = close_terminal_in_transaction(
+            &tx,
+            &self.generation,
+            mutation,
+            expected_generation,
+            expected_terminal_revision,
+            terminal_id,
+            expected_incarnation,
+            &fingerprint,
+        )?;
+        let resource = patch
+            .map(|patch| {
+                commit_resource_patch_in_transaction(
+                    &tx,
+                    &self.generation,
+                    mutation,
+                    "terminal.close",
+                    &fingerprint,
+                    expected_generation,
+                    expected_resource_revision,
+                    patch,
+                    result,
+                    &result_json,
+                    &deltas_json,
+                )
+            })
+            .transpose()?;
+        tx.commit()?;
+        Ok(TerminalResourceCloseCommit { terminal, resource })
     }
 
     /// Tombstone every hosted tab in one pane/screen as one SQLite unit. All
@@ -4023,6 +4008,114 @@ fn validate_terminal_batch_close(
         );
     }
     Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn close_terminal_in_transaction(
+    transaction: &Transaction<'_>,
+    generation: &str,
+    mutation: &WorkspaceMutation,
+    expected_generation: Option<&str>,
+    expected_revision: Option<u64>,
+    terminal_id: &str,
+    expected_incarnation: Option<&str>,
+    fingerprint: &str,
+) -> anyhow::Result<TerminalRegistryCommit> {
+    if let Some(replay) = terminal_replay(transaction, mutation, fingerprint)? {
+        return Ok(replay);
+    }
+    if let Some(expected) = expected_generation
+        && expected != generation
+    {
+        anyhow::bail!("terminal generation conflict: expected {expected}, current {generation}");
+    }
+    let current_revision = transaction_terminal_revision(transaction)?;
+    if let Some(expected) = expected_revision
+        && expected != current_revision
+    {
+        anyhow::bail!(
+            "terminal revision conflict: expected {expected}, current {current_revision}"
+        );
+    }
+    let Some(terminal) = read_terminal(transaction, terminal_id)? else {
+        anyhow::bail!("unknown terminal {terminal_id}; it may not have been adopted yet");
+    };
+    if let Some(expected) = expected_incarnation
+        && terminal.incarnation.as_deref() != Some(expected)
+    {
+        anyhow::bail!("terminal_incarnation_mismatch");
+    }
+
+    if terminal.lifecycle == TerminalLifecycle::Tombstoned {
+        let result = serde_json::json!({
+            "terminal_id": terminal_id,
+            "incarnation": terminal.incarnation,
+            "closed": true,
+            "already_closed": true,
+        });
+        let result_json = canonical_json(&result)?;
+        transaction.execute(
+            "INSERT INTO terminal_mutations(
+               origin, mutation_id, fingerprint, result_json, committed_revision
+             ) VALUES(?1, ?2, ?3, ?4, ?5)",
+            params![
+                mutation.origin,
+                mutation.id,
+                fingerprint,
+                result_json,
+                i64::try_from(current_revision)
+                    .context("terminal revision exceeds SQLite integer range")?,
+            ],
+        )?;
+        return Ok(TerminalRegistryCommit {
+            revision: current_revision,
+            result,
+            replayed: false,
+        });
+    }
+
+    let revision = current_revision
+        .checked_add(1)
+        .ok_or_else(|| anyhow::anyhow!("terminal revision exhausted"))?;
+    let sqlite_revision =
+        i64::try_from(revision).context("terminal revision exceeds SQLite integer range")?;
+    let result = serde_json::json!({
+        "terminal_id": terminal_id,
+        "incarnation": terminal.incarnation,
+        "closed": true,
+        "already_closed": false,
+    });
+    let result_json = canonical_json(&result)?;
+    transaction.execute(
+        "UPDATE terminal_hosts
+         SET lifecycle = 'tombstoned', updated_revision = ?1, deleted_revision = ?1
+         WHERE terminal_id = ?2",
+        params![sqlite_revision, terminal_id],
+    )?;
+    transaction.execute(
+        "UPDATE meta SET value = ?1 WHERE key = 'terminal_revision'",
+        [revision.to_string()],
+    )?;
+    transaction.execute(
+        "INSERT INTO terminal_mutations(
+           origin, mutation_id, fingerprint, result_json, committed_revision
+         ) VALUES(?1, ?2, ?3, ?4, ?5)",
+        params![mutation.origin, mutation.id, fingerprint, result_json, sqlite_revision],
+    )?;
+    transaction.execute(
+        "INSERT INTO terminal_events(
+           revision, kind, terminal_id, workspace_key, origin, mutation_id, result_json
+         ) VALUES(?1, 'terminal-closed', ?2, ?3, ?4, ?5, ?6)",
+        params![
+            sqlite_revision,
+            terminal_id,
+            terminal.workspace_key,
+            mutation.origin,
+            mutation.id,
+            result_json,
+        ],
+    )?;
+    Ok(TerminalRegistryCommit { revision, result, replayed: false })
 }
 
 fn close_terminals_in_transaction(

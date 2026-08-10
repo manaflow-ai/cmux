@@ -375,7 +375,9 @@ jobs:
         shell: bash
         run: |
           if [[ "$MODE" == "full" ]]; then
-            cargo test --workspace --exclude cmux-tui-core --locked
+            # Integration tests own PTYs and process-wide status state. Keep
+            # those resources isolated from tests in the same binary.
+            cargo test --workspace --exclude cmux-tui-core --locked -- --test-threads=1
             mkdir -p target
             cargo test -p cmux-tui-core --locked --no-run --message-format=json \
               > target/cmux-tui-core-test-binaries.jsonl

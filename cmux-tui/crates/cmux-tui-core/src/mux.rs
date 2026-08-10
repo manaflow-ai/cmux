@@ -6740,27 +6740,19 @@ impl Mux {
         if let Some(incarnation) = terminal_incarnation {
             validate_terminal_hex(incarnation, "invalid_terminal_incarnation")?;
         }
-        let (commit, terminal_incarnation, public_id, notify_public_id) = {
+        let (
+            commit,
+            terminal_incarnation,
+            notify_public_id,
+            target,
+            removed,
+            runtime,
+            changed_screens,
+            empty_revision,
+            publish_resource,
+        ) = {
             let mut registry = self.workspace_registry.lock().unwrap();
             let public_id = registry.terminal_resource_id(terminal_id)?;
-            let commit = registry.close_terminal(
-                mutation,
-                expected_generation,
-                expected_revision,
-                terminal_id,
-                terminal_incarnation,
-            )?;
-            let newly_closed =
-                !commit.replayed && !commit.result["already_closed"].as_bool().unwrap_or(false);
-            if newly_closed {
-                self.emit_terminal_registry_changed(&registry, commit.revision);
-            }
-            let incarnation =
-                registry.terminal_record(terminal_id)?.and_then(|terminal| terminal.incarnation);
-            (commit, incarnation, public_id.clone(), newly_closed.then_some(public_id).flatten())
-        };
-        self.notify_terminal_exit_waiters(notify_public_id);
-        let (target, removed, runtime, changed_screens, empty_revision) = {
             let mut state = self.state.lock().unwrap();
             let catalog_public_id = public_id.or_else(|| {
                 state.terminal_catalog.iter().find_map(|(public_id, surface)| {
@@ -6773,10 +6765,7 @@ impl Mux {
                 .as_ref()
                 .and_then(|public_id| state.terminal_catalog.get(public_id))
                 .cloned();
-            // The durable close has committed. From this point cleanup must
-            // finish even if an in-memory host incarnation was stale; leaving
-            // a live runtime behind would contradict the terminal tombstone.
-            let content_id = catalog_public_id.map(ContentPublicId::Terminal);
+            let content_id = catalog_public_id.clone().map(ContentPublicId::Terminal);
             let mut targets = content_id
                 .as_ref()
                 .map(|content_id| state.placements_of_content(content_id).to_vec())
@@ -6792,26 +6781,83 @@ impl Mux {
             let changed_screens = unique_screen_ids(
                 targets.iter().filter_map(|surface| surface_screen_id(&state, *surface)),
             );
-            let removed = if let Some(runtime) = runtime.as_ref() {
-                remove_terminal_runtime_from_state(self, &mut state, runtime).0
+            let mut projected = state.clone();
+            let removed = if let Some(public_id) = catalog_public_id.as_ref() {
+                remove_terminal_content_from_state(self, &mut projected, public_id).1
             } else {
                 let mut removed = Vec::with_capacity(targets.len());
                 let mut split_index_dirty = false;
                 for target in targets {
-                    let (surface, topology_changed) = remove_surface(self, &mut state, target);
+                    let (surface, topology_changed) =
+                        remove_surface(self, &mut projected, target);
                     split_index_dirty |= topology_changed;
                     if let Some(surface) = surface {
                         removed.push(surface);
                     }
                 }
                 if split_index_dirty {
-                    Self::rebuild_split_screen_index(&mut state);
+                    Self::rebuild_split_screen_index(&mut projected);
                 }
                 removed
             };
-            let empty_revision = state.workspaces.is_empty().then_some(state.workspace_revision);
-            (target, removed, runtime, changed_screens, empty_revision)
+            let projection = catalog_public_id
+                .is_some()
+                .then(|| {
+                    self.resource_effect_projection_locked(
+                        &registry,
+                        &mut projected,
+                        serde_json::json!({}),
+                    )
+                })
+                .transpose()?;
+            let empty_deltas = Value::Array(Vec::new());
+            let empty_result = serde_json::json!({});
+            let close = registry.close_terminal_with_resource_patch(
+                mutation,
+                expected_generation,
+                expected_revision,
+                projection.as_ref().map(|_| state.resource_revision),
+                terminal_id,
+                terminal_incarnation,
+                projection.as_ref().map(|projection| &projection.patch),
+                projection
+                    .as_ref()
+                    .map_or(&empty_result, |projection| &projection.result),
+                projection
+                    .as_ref()
+                    .map_or(&empty_deltas, |projection| &projection.changes),
+            )?;
+            let commit = close.terminal;
+            let newly_closed =
+                !commit.replayed && !commit.result["already_closed"].as_bool().unwrap_or(false);
+            if newly_closed {
+                self.emit_terminal_registry_changed(&registry, commit.revision);
+            }
+            let incarnation =
+                registry.terminal_record(terminal_id)?.and_then(|terminal| terminal.incarnation);
+            let publish_resource = close.resource.as_ref().is_some_and(|commit| !commit.replayed);
+            if let Some(resource) = close.resource {
+                projected.resource_revision = resource.revision;
+            }
+            let empty_revision =
+                projected.workspaces.is_empty().then_some(projected.workspace_revision);
+            *state = projected;
+            (
+                commit,
+                incarnation,
+                newly_closed.then_some(catalog_public_id).flatten(),
+                target,
+                removed,
+                runtime,
+                changed_screens,
+                empty_revision,
+                publish_resource,
+            )
         };
+        self.notify_terminal_exit_waiters(notify_public_id);
+        if publish_resource {
+            self.publish_resource_event();
+        }
         for surface in removed {
             self.purge_surface_side_tables(surface.id);
         }

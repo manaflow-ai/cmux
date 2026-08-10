@@ -781,65 +781,21 @@ impl WorkspaceRegistry {
         let result_json = canonical_json(result)?;
         let deltas_json = canonical_json(deltas)?;
         let tx = self.connection.transaction()?;
-        if let Some(replayed) = resource_patch_replay(&tx, mutation, operation, &fingerprint)? {
-            return Ok(replayed);
-        }
-        if let Some(expected) = expected_generation
-            && expected != self.generation
-        {
-            anyhow::bail!(
-                "resource generation conflict: expected {expected}, current {}",
-                self.generation
-            );
-        }
-        let previous_revision = transaction_resource_revision(&tx)?;
-        if let Some(expected) = expected_revision
-            && expected != previous_revision
-        {
-            anyhow::bail!(
-                "resource revision conflict: expected {expected}, current {previous_revision}"
-            );
-        }
-        let revision = previous_revision
-            .checked_add(1)
-            .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
-        let sqlite_revision =
-            i64::try_from(revision).context("resource revision exceeds SQLite range")?;
-
-        apply_resource_patch(&tx, patch, sqlite_revision)?;
-        tx.execute(
-            "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
-            [revision.to_string()],
+        let commit = commit_resource_patch_in_transaction(
+            &tx,
+            &self.generation,
+            mutation,
+            operation,
+            &fingerprint,
+            expected_generation,
+            expected_revision,
+            patch,
+            result,
+            &result_json,
+            &deltas_json,
         )?;
-        tx.execute(
-            "INSERT INTO resource_mutations(
-               origin, idempotency_key, operation, fingerprint, result_json, committed_revision
-             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
-            params![
-                mutation.origin,
-                mutation.id,
-                operation,
-                fingerprint,
-                result_json,
-                sqlite_revision,
-            ],
-        )?;
-        tx.execute(
-            "INSERT INTO resource_events(
-               revision, previous_revision, origin, idempotency_key, deltas_json
-             ) VALUES(?1, ?2, ?3, ?4, ?5)",
-            params![
-                sqlite_revision,
-                i64::try_from(previous_revision)
-                    .context("resource revision exceeds SQLite range")?,
-                mutation.origin,
-                mutation.id,
-                deltas_json,
-            ],
-        )?;
-        prune_resource_events(&tx)?;
         tx.commit()?;
-        Ok(ResourcePatchCommit { revision, result: result.clone(), replayed: false })
+        Ok(commit)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1051,6 +1007,78 @@ pub struct RegistryBrowser {
     pub status: RegistryBrowserStatus,
     pub cols: u16,
     pub rows: u16,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn commit_resource_patch_in_transaction(
+    transaction: &Transaction<'_>,
+    generation: &str,
+    mutation: &WorkspaceMutation,
+    operation: &str,
+    fingerprint: &str,
+    expected_generation: Option<&str>,
+    expected_revision: Option<u64>,
+    patch: &ResourcePatch,
+    result: &Value,
+    result_json: &str,
+    deltas_json: &str,
+) -> anyhow::Result<ResourcePatchCommit> {
+    if let Some(replayed) = resource_patch_replay(transaction, mutation, operation, fingerprint)? {
+        return Ok(replayed);
+    }
+    if let Some(expected) = expected_generation
+        && expected != generation
+    {
+        anyhow::bail!(
+            "resource generation conflict: expected {expected}, current {generation}"
+        );
+    }
+    let previous_revision = transaction_resource_revision(transaction)?;
+    if let Some(expected) = expected_revision
+        && expected != previous_revision
+    {
+        anyhow::bail!(
+            "resource revision conflict: expected {expected}, current {previous_revision}"
+        );
+    }
+    let revision = previous_revision
+        .checked_add(1)
+        .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
+    let sqlite_revision =
+        i64::try_from(revision).context("resource revision exceeds SQLite range")?;
+
+    apply_resource_patch(transaction, patch, sqlite_revision)?;
+    transaction.execute(
+        "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+        [revision.to_string()],
+    )?;
+    transaction.execute(
+        "INSERT INTO resource_mutations(
+           origin, idempotency_key, operation, fingerprint, result_json, committed_revision
+         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            mutation.origin,
+            mutation.id,
+            operation,
+            fingerprint,
+            result_json,
+            sqlite_revision,
+        ],
+    )?;
+    transaction.execute(
+        "INSERT INTO resource_events(
+           revision, previous_revision, origin, idempotency_key, deltas_json
+         ) VALUES(?1, ?2, ?3, ?4, ?5)",
+        params![
+            sqlite_revision,
+            i64::try_from(previous_revision).context("resource revision exceeds SQLite range")?,
+            mutation.origin,
+            mutation.id,
+            deltas_json,
+        ],
+    )?;
+    prune_resource_events(transaction)?;
+    Ok(ResourcePatchCommit { revision, result: result.clone(), replayed: false })
 }
 
 impl RegistryBrowser {
