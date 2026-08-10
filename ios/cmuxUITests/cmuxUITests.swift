@@ -1077,6 +1077,10 @@ final class cmuxUITests: XCTestCase {
             }
 
             try reveal(
+                title,
+                named: "the migration title"
+            )
+            try reveal(
                 app.staticTexts["MobileAutoConnectMigrationBody"],
                 named: "the Auto-Connect explanation"
             )
