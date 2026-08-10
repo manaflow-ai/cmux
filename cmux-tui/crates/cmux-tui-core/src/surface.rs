@@ -1185,7 +1185,7 @@ type DeferredCellPixelAckTestHook = Arc<dyn Fn() + Send + Sync>;
 pub struct PtySurface {
     pub(crate) meta: SurfaceMeta,
     terminal: Arc<TerminalResource>,
-    viewport: Mutex<TerminalViewportState>,
+    viewport: Arc<Mutex<TerminalViewportState>>,
 }
 
 #[derive(Default)]
@@ -1224,6 +1224,7 @@ impl Deref for PtySurface {
 /// surfaces can project this resource without becoming its lifetime owner.
 pub struct TerminalResource {
     inner: Arc<PtyTerminalRuntime>,
+    compatibility_viewport: Arc<Mutex<TerminalViewportState>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1240,7 +1241,10 @@ impl TerminalEventTarget {
 
 impl TerminalResource {
     fn new(runtime: PtyTerminalRuntime) -> Self {
-        Self { inner: Arc::new(runtime) }
+        Self {
+            inner: Arc::new(runtime),
+            compatibility_viewport: Arc::new(Mutex::new(TerminalViewportState::default())),
+        }
     }
 
     pub fn public_id(&self) -> Option<&TerminalPublicId> {
@@ -1322,7 +1326,7 @@ impl TerminalResource {
                 selection: Mutex::new(None),
             },
             terminal: self.clone(),
-            viewport: Mutex::new(TerminalViewportState::default()),
+            viewport: Arc::new(Mutex::new(TerminalViewportState::default())),
         })))
     }
 
@@ -1337,7 +1341,7 @@ impl TerminalResource {
                 selection: Mutex::new(None),
             },
             terminal: self.clone(),
-            viewport: Mutex::new(TerminalViewportState::default()),
+            viewport: self.compatibility_viewport.clone(),
         }))
     }
 }
@@ -2340,7 +2344,7 @@ impl Surface {
                 #[cfg(test)]
                 frame_producer_before_upgrade,
             })),
-            viewport: Mutex::new(TerminalViewportState::default()),
+            viewport: Arc::new(Mutex::new(TerminalViewportState::default())),
         }));
 
         if let Some(reservation) = kitty_reservation
@@ -2749,7 +2753,7 @@ impl Surface {
                 #[cfg(test)]
                 frame_producer_before_upgrade,
             })),
-            viewport: Mutex::new(TerminalViewportState::default()),
+            viewport: Arc::new(Mutex::new(TerminalViewportState::default())),
         }));
         Self::install_deferred_cell_pixel_handler(&surface, &control_responses);
         spawn_frame_producer(&surface, frame_rx)?;
@@ -3692,7 +3696,7 @@ impl Surface {
                 #[cfg(test)]
                 frame_producer_before_upgrade,
             })),
-            viewport: Mutex::new(TerminalViewportState::default()),
+            viewport: Arc::new(Mutex::new(TerminalViewportState::default())),
         }));
         spawn_frame_producer(&surface, frame_rx)?;
         Ok(surface)
@@ -3909,7 +3913,7 @@ impl Surface {
                 frame_requests,
                 frame_producer_before_upgrade,
             })),
-            viewport: Mutex::new(TerminalViewportState::default()),
+            viewport: Arc::new(Mutex::new(TerminalViewportState::default())),
         }));
         if let Some(reservation) = kitty_reservation {
             reservation.commit(&surface, initial_kitty_limits)?;
