@@ -15185,7 +15185,7 @@ fn remove_terminal_catalogs_and_targets_from_state(
     terminal_ids: &[TerminalPublicId],
     targets: &[SurfaceId],
 ) -> (Option<Arc<Surface>>, Vec<Arc<Surface>>, bool) {
-    let mut runtime = None;
+    let mut runtime: Option<Arc<Surface>> = None;
     let mut removed = Vec::new();
     let mut split_index_dirty = false;
     if terminal_ids.is_empty() {
@@ -20445,14 +20445,16 @@ mod tests {
         let error = {
             let registry = mux.workspace_registry.lock().unwrap();
             let state = mux.state.lock().unwrap();
-            mux.terminal_exit_detach_projection_locked(
+            match mux.terminal_exit_detach_projection_locked(
                 &registry,
                 &state,
                 &old_host.terminal_id,
                 Some(&old_host.incarnation),
                 &public_id,
-            )
-            .unwrap_err()
+            ) {
+                Err(error) => error,
+                Ok(_) => panic!("stale terminal exit unexpectedly produced a projection"),
+            }
         };
 
         assert!(error.to_string().contains("runtime changed hosts or incarnations"));
@@ -21088,7 +21090,7 @@ mod tests {
         assert!(mux.close_surface(surface.id).unwrap());
         let current_revision = mux.with_state(|state| state.resource_revision);
         let mutation = WorkspaceMutation::new("remove-terminal-resource-row", "test").unwrap();
-        let fingerprint = json!({
+        let fingerprint = serde_json::json!({
             "operation":"test.remove-terminal-resource-row",
             "terminal":public_id.clone(),
         });
@@ -21108,8 +21110,8 @@ mod tests {
                         expected_incarnation: Some(host.incarnation.clone()),
                     }],
                 },
-                &json!({}),
-                &json!([]),
+                &serde_json::json!({}),
+                &serde_json::json!([]),
             )
             .unwrap();
         mux.state.lock().unwrap().resource_revision = commit.revision;

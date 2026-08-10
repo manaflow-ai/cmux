@@ -99,8 +99,8 @@ impl TerminalIndexProjection {
             }
         }
 
-        for public_id in public_ids.clone() {
-            if let Some(runtime) = state.terminal_catalog.get(&public_id) {
+        for public_id in &public_ids {
+            if let Some(runtime) = state.terminal_catalog.get(public_id) {
                 if let Some(runtime_id) = runtime.terminal_runtime_id() {
                     runtime_ids.insert(runtime_id);
                 }
