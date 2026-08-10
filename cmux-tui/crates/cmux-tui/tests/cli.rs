@@ -2510,7 +2510,23 @@ fn assert_subscribe_reports_tree_changed(server: &HeadlessServer) {
     });
     writeln!(writer, r#"{{"id":1,"cmd":"subscribe"}}"#).unwrap();
 
-    std::thread::sleep(Duration::from_millis(200));
+    // The server registers the subscription before it writes this response.
+    // Waiting for that protocol event removes the race without guessing how
+    // long registration takes on the current host.
+    let registration_deadline = Instant::now() + Duration::from_secs(10);
+    let mut lines = Vec::new();
+    loop {
+        let remaining = registration_deadline.saturating_duration_since(Instant::now());
+        let line = rx
+            .recv_timeout(remaining)
+            .expect("subscribe did not acknowledge registration before the deadline");
+        lines.push(line.clone());
+        let value: serde_json::Value = serde_json::from_str(&line).unwrap();
+        if value["id"].as_u64() == Some(1) {
+            assert_eq!(value["ok"], true, "subscribe registration failed: {value}");
+            break;
+        }
+    }
     let tab = json_cli(server, &["tab", "create", "terminal"]);
     if !tab.status.success() {
         let mut lines = Vec::new();
@@ -2526,7 +2542,6 @@ fn assert_subscribe_reports_tree_changed(server: &HeadlessServer) {
     assert_success(&tab);
 
     let deadline = Instant::now() + Duration::from_secs(10);
-    let mut lines = Vec::new();
     while Instant::now() < deadline {
         if let Ok(line) = rx.recv_timeout(Duration::from_millis(250)) {
             lines.push(line.clone());
