@@ -5501,16 +5501,16 @@ fn journal_agent_legacy_upgrade_keeps_later_stored_socket_projection() {
             "id":agent_resource(&terminal_id),
             "session_id":registry.session_id(),
             "terminal_id":terminal_id,
-            "state":"idle",
+            "state":"done",
             "source":"socket",
             "updated_at_ms":socket_updated_at.to_string(),
-            "source_session":"new-socket-session",
-            "extra":{"provider":"socket-test"},
+            "source_session":"old-hook-session",
+            "extra":{"provider":"pi"},
         });
         registry
             .commit_agent_projection(
                 &WorkspaceMutation::new("journal-agent-upgrade-socket", "socket-test").unwrap(),
-                &json!({"source_session":"new-socket-session"}),
+                &json!({"source_session":"old-hook-session"}),
                 Some(1),
                 &terminal_id,
                 &result,
@@ -5525,9 +5525,9 @@ fn journal_agent_legacy_upgrade_keeps_later_stored_socket_projection() {
 
     let reopened = WorkspaceRegistry::open(&root, session).unwrap();
     let agent = reopened.public_projections().unwrap().agents.remove(0);
-    assert_eq!(agent.state, "idle");
+    assert_eq!(agent.state, "done");
     assert_eq!(agent.source, "socket");
-    assert_eq!(agent.source_session.as_deref(), Some("new-socket-session"));
+    assert_eq!(agent.source_session.as_deref(), Some("old-hook-session"));
     drop(reopened);
     fs::remove_dir_all(root).unwrap();
 }
