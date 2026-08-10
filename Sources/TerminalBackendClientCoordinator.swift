@@ -407,9 +407,6 @@ actor TerminalBackendClientCoordinator:
     private var frontendRecoveryStartCount = 0
     private let rendererWorkerExitMonitor: any TerminalBackendRendererWorkerExitMonitoring
     private var rendererWorkerExitLedger = TerminalBackendRendererWorkerExitLedger()
-    private var rendererWorkerExitCountWaiters: [
-        UUID: (expectedCount: Int, continuation: CheckedContinuation<Void, Never>)
-    ] = [:]
     private let monotonicNowNanoseconds: @Sendable () -> UInt64
 
     private static let terminalInputOwnerTTLMilliseconds: UInt64 = 30_000
@@ -2354,7 +2351,6 @@ actor TerminalBackendClientCoordinator:
                 return nil
             case .unverifiable:
                 rendererWorkerExitLedger.remove(identity)
-                resolveRendererWorkerExitCountWaiters()
                 throw BackendProtocolError.peerIdentityMismatch
             }
         case .existing:
@@ -2362,7 +2358,6 @@ actor TerminalBackendClientCoordinator:
         case .conflict:
             throw BackendProtocolError.peerIdentityMismatch
         }
-        resolveRendererWorkerExitCountWaiters()
         return rendererWorkerIsLive(identity) ? identity : nil
     }
 
@@ -2444,9 +2439,7 @@ actor TerminalBackendClientCoordinator:
     private func rendererWorkerDidExit(
         _ identity: TerminalBackendRendererWorkerProcessIdentity
     ) {
-        if rendererWorkerExitLedger.markExited(identity) {
-            resolveRendererWorkerExitCountWaiters()
-        }
+        _ = rendererWorkerExitLedger.markExited(identity)
     }
 
     private func rendererWorkerIsLive(
@@ -2467,27 +2460,6 @@ actor TerminalBackendClientCoordinator:
 
     var debugRendererWorkerExitWaiterCount: Int {
         rendererWorkerExitLedger.activeFenceCount
-    }
-
-    func debugWaitForRendererWorkerExitWaiterCount(_ expectedCount: Int) async {
-        guard rendererWorkerExitLedger.activeFenceCount != expectedCount else { return }
-        await withCheckedContinuation { continuation in
-            if rendererWorkerExitLedger.activeFenceCount == expectedCount {
-                continuation.resume()
-            } else {
-                rendererWorkerExitCountWaiters[UUID()] = (expectedCount, continuation)
-            }
-        }
-    }
-
-    private func resolveRendererWorkerExitCountWaiters() {
-        let currentCount = rendererWorkerExitLedger.activeFenceCount
-        let satisfied = rendererWorkerExitCountWaiters.filter {
-            $0.value.expectedCount == currentCount
-        }
-        for identifier in satisfied.keys {
-            rendererWorkerExitCountWaiters.removeValue(forKey: identifier)?.continuation.resume()
-        }
     }
 
     func debugRegisterRendererWorker(
