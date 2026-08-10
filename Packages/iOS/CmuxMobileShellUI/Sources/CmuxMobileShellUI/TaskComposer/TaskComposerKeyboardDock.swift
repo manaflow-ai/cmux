@@ -38,9 +38,6 @@ final class TaskComposerKeyboardDockViewController<Canvas: View, Accessory: View
 
     private let canvasHostingController: UIHostingController<Canvas>
     private let accessoryHostingController: UIHostingController<Accessory>
-    #if DEBUG
-    private var lastLoggedGeometry: String?
-    #endif
 
     init(canvas: Canvas, accessory: Accessory) {
         canvasHostingController = UIHostingController(rootView: canvas)
@@ -89,23 +86,6 @@ final class TaskComposerKeyboardDockViewController<Canvas: View, Accessory: View
 
         canvasHostingController.didMove(toParent: self)
         accessoryHostingController.didMove(toParent: self)
-    }
-
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        #if DEBUG
-        let guideFrame = view.keyboardLayoutGuide.layoutFrame
-        let viewInWindow = view.convert(view.bounds, to: view.window)
-        let guideInWindow = view.convert(guideFrame, to: view.window)
-        let geometry = "view=\(view.bounds) safe=\(view.safeAreaInsets) "
-            + "viewInWindow=\(viewInWindow) guide=\(guideFrame) "
-            + "guideInWindow=\(guideInWindow) "
-            + "accessory=\(accessoryHostingController.view.frame) "
-            + "accessorySafe=\(accessoryHostingController.view.safeAreaInsets)"
-        guard geometry != lastLoggedGeometry else { return }
-        lastLoggedGeometry = geometry
-        print("MPILL_DOCK_GEOMETRY \(geometry)")
-        #endif
     }
 }
 #endif
