@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { stripeSubscriptions } from "../db/schema";
 import enMessages from "../messages/en.json";
 import jaMessages from "../messages/ja.json";
+import { fallbackContentLocales } from "../i18n/locale-availability";
 import { createNextNavigationMock } from "./helpers/next-navigation-mock";
 import { withAccountMutationLeaseSupport } from
   "./helpers/account-mutation-db-mock";
@@ -68,6 +69,10 @@ mock.module("../db/client", () => ({
 const { default: PricingPage } = await import("../app/[locale]/pricing/page");
 
 describe("localized pricing page", () => {
+  test("publishes pricing only in its fully authored English and Japanese catalogs", () => {
+    expect(fallbackContentLocales).toEqual(["en", "ja"]);
+  });
+
   test("limits the Team-only benefit to aggregate CodeRouter for now", () => {
     expect(enMessages.pricing.team.features).toEqual([
       "Team-wide CodeRouter with anonymous aggregate usage and cost analytics",
