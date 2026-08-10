@@ -2762,6 +2762,7 @@ pub struct Mux {
     discovered_terminal_termination_requests: Mutex<Vec<(String, Option<String>)>>,
     #[cfg(test)]
     terminal_host_cleanup_hook: Mutex<Option<Arc<dyn Fn() -> bool + Send + Sync>>>,
+    #[cfg(test)]
     resource_close_cleanup: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     browser_runtime: BrowserRuntimeSlot,
     active_render_attachments: Arc<AtomicUsize>,
@@ -3132,6 +3133,7 @@ impl Mux {
             discovered_terminal_termination_requests: Mutex::new(Vec::new()),
             #[cfg(test)]
             terminal_host_cleanup_hook: Mutex::new(None),
+            #[cfg(test)]
             resource_close_cleanup: Mutex::new(None),
             browser_runtime: BrowserRuntimeSlot::default(),
             active_render_attachments: Arc::new(AtomicUsize::new(0)),
@@ -8367,14 +8369,6 @@ impl Mux {
         &self,
     ) -> Vec<(String, Option<String>)> {
         std::mem::take(&mut *self.discovered_terminal_termination_requests.lock().unwrap())
-    }
-
-    fn prepare_terminal_host_cleanup(
-        &self,
-        terminals: &[(String, Option<String>)],
-    ) -> anyhow::Result<TerminalHostRecords> {
-        let root = self.surface_options.lock().unwrap().terminal_host_root.clone();
-        self.prepare_terminal_host_cleanup_at_root(root.as_deref(), terminals)
     }
 
     fn prepare_terminal_host_cleanup_at_root(
@@ -16237,65 +16231,6 @@ fn acknowledge_exact_terminal_host_exit(
 }
 
 #[cfg(unix)]
-fn acknowledge_terminal_exit_sidecar(
-    record_path: &Path,
-    terminal_id: &str,
-    incarnation: Option<&str>,
-) -> bool {
-    let exit_path = record_path.with_extension("exit");
-    let exit = match crate::terminal_host_runtime::terminal_host_exit_record(record_path) {
-        Ok(Some((_, exit))) => exit,
-        Ok(None) => return !exit_path.exists(),
-        Err(_) => return false,
-    };
-    if exit.terminal_id != terminal_id
-        || incarnation.is_some_and(|expected| exit.incarnation != expected)
-    {
-        return false;
-    }
-    match crate::terminal_host_runtime::acknowledge_terminal_host_exit_record(&exit_path, &exit) {
-        Ok(true) => true,
-        Ok(false) => !exit_path.exists(),
-        Err(_) => false,
-    }
-}
-
-#[cfg(unix)]
-fn schedule_terminal_host_record_cleanup(
-    record: crate::terminal_host_runtime::TerminalHostRecord,
-    record_path: std::path::PathBuf,
-) {
-    let fallback_record = record.clone();
-    let fallback_path = record_path.clone();
-    let name = format!("terminal-clean-{}", record.terminal_id);
-    if std::thread::Builder::new()
-        .name(name)
-        .spawn(move || retry_terminal_host_record_cleanup(record, record_path))
-        .is_err()
-    {
-        // Thread exhaustion cannot turn a durable close into a permanent
-        // orphan. The request may remain blocked, but the exact host keeps
-        // being reconciled until it accepts termination or proves itself dead.
-        retry_terminal_host_record_cleanup(fallback_record, fallback_path);
-    }
-}
-
-#[cfg(unix)]
-fn retry_terminal_host_record_cleanup(
-    record: crate::terminal_host_runtime::TerminalHostRecord,
-    record_path: std::path::PathBuf,
-) {
-    let mut delay = Duration::from_millis(25);
-    loop {
-        std::thread::sleep(delay);
-        if cleanup_terminal_host_record(&record, &record_path) {
-            return;
-        }
-        delay = (delay * 2).min(Duration::from_secs(5));
-    }
-}
-
-#[cfg(unix)]
 fn terminal_host_record_liveness(
     record_path: &Path,
     record: &crate::terminal_host_runtime::TerminalHostRecord,
@@ -21796,7 +21731,7 @@ mod tests {
         }
         assert_eq!(surface.size(), (80, 40));
         mux.set_client_resize_before_apply(None);
-        mux.shutdown();
+        let _ = mux.shutdown();
     }
 
     fn projected_terminal_view(mux: &Arc<Mux>, source: &Arc<Surface>) -> Arc<Surface> {
@@ -22060,7 +21995,7 @@ mod tests {
                 exited.insert(surface);
             }
         }
-        mux.shutdown();
+        let _ = mux.shutdown();
     }
 
     #[test]
@@ -26398,10 +26333,7 @@ mod tests {
         }
 
         let (result_tx, result_rx) = std::sync::mpsc::sync_channel(1);
-        let close = std::thread::spawn({
-            let mux = mux.clone();
-            move || result_tx.send(mux.close_pane(pane)).unwrap()
-        });
+        let close = std::thread::spawn(move || result_tx.send(mux.close_pane(pane)).unwrap());
         assert!(
             shutdown_gate.wait_until_entered(
                 SHUTDOWN_FANOUT_WORKERS,
@@ -28455,7 +28387,7 @@ mod tests {
                 && change["resource"] == "terminal"
                 && change["id"] == terminal_public_id.as_str()
         }));
-        mux.shutdown();
+        let _ = mux.shutdown();
         drop(mux);
 
         let reopened = Mux::open_persistent(session, options, &root).unwrap();
@@ -28555,7 +28487,7 @@ mod tests {
         assert_eq!(exited.surface, None);
         assert_eq!(exited.terminal.lifecycle, TerminalLifecycle::Exited);
         assert_eq!(exited.terminal.exit.unwrap()["outcome"]["reason"], "persisted-exit");
-        reopened.shutdown();
+        let _ = reopened.shutdown();
         drop(reopened);
         std::fs::remove_dir_all(root).unwrap();
     }

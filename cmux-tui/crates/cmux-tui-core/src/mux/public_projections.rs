@@ -187,7 +187,7 @@ mod tests {
         assert_eq!(restored.notification_ledger[0].terminal_id.as_ref(), Some(&terminal));
         assert_eq!(restored.notification_ledger[0].surface, Some(runtime.id));
         assert!(restored.terminal_notifications[&terminal].unread);
-        mux.shutdown();
+        let _ = mux.shutdown();
     }
 
     #[test]

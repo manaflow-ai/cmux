@@ -2730,7 +2730,6 @@ impl Surface {
             mux,
             None,
             None,
-            None,
             PtyLifetime::DaemonOwned,
             cell_pixels,
         )
@@ -2746,7 +2745,6 @@ impl Surface {
             id,
             opts,
             mux,
-            None,
             None,
             Some(TabResourceIdentity::terminal(None)?),
             PtyLifetime::SessionOwned,
@@ -2767,8 +2765,7 @@ impl Surface {
             id,
             opts,
             mux,
-            Some(terminal_id),
-            Some(publication_guard),
+            Some((terminal_id, publication_guard)),
             identity,
             PtyLifetime::SessionOwned,
             cell_pixels,
@@ -2789,7 +2786,6 @@ impl Surface {
             opts,
             mux,
             None,
-            None,
             resource_identity,
             PtyLifetime::SessionOwned,
             cell_pixels,
@@ -2800,8 +2796,10 @@ impl Surface {
         id: SurfaceId,
         opts: SurfaceOptions,
         mux: Weak<Mux>,
-        terminal_id: Option<crate::terminal_host::TerminalId>,
-        publication_guard: Option<crate::PublicationGuard>,
+        terminal_host_ownership: Option<(
+            crate::terminal_host::TerminalId,
+            crate::PublicationGuard,
+        )>,
         resource_identity: Option<TabResourceIdentity>,
         lifetime: PtyLifetime,
         cell_pixels: (u16, u16),
@@ -2829,8 +2827,8 @@ impl Surface {
         {
             let default_colors = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
             let launch_cancelled = || mux.upgrade().is_none_or(|mux| mux.is_shutting_down());
-            let attachment = match (terminal_id, publication_guard) {
-                (Some(terminal_id), Some(publication_guard)) => {
+            let attachment = match terminal_host_ownership {
+                Some((terminal_id, publication_guard)) => {
                     crate::terminal_host_runtime::launch_terminal_host_with_identity_cancellable(
                         &opts,
                         &root,
@@ -2841,7 +2839,7 @@ impl Surface {
                         &launch_cancelled,
                     )?
                 }
-                (None, None) => crate::terminal_host_runtime::launch_terminal_host_cancellable(
+                None => crate::terminal_host_runtime::launch_terminal_host_cancellable(
                     &opts,
                     &root,
                     default_colors,
@@ -2849,7 +2847,6 @@ impl Surface {
                     initial_kitty_limits,
                     &launch_cancelled,
                 )?,
-                _ => anyhow::bail!("terminal-host identity and publication ownership diverged"),
             };
             return Self::spawn_hosted(
                 id,
@@ -2865,7 +2862,7 @@ impl Surface {
                 },
             );
         }
-        let _ = (terminal_id, publication_guard);
+        let _ = terminal_host_ownership;
         let reaper = reserve_local_child_reaper().context("reserve bounded PTY session cleanup")?;
         let initial_geometry = PtyGeometry {
             cols: opts.cols,
@@ -5929,7 +5926,7 @@ impl Surface {
                 if let Some(mux) = pty.mux.upgrade() {
                     #[cfg(unix)]
                     if let Some(identity) = terminate_fallback {
-                        mux.terminate_discovered_terminal_host(
+                        let _ = mux.terminate_discovered_terminal_host(
                             &identity.terminal_id,
                             Some(&identity.incarnation),
                         );

@@ -109,6 +109,141 @@ private func requireTeardownTicket(
         #expect(recorder.freed == [UInt(bitPattern: surface)])
     }
 
+    @MainActor
+    @Test func nativeFreeWorkersUseDedicatedThreadsAndStayBoundedByAdmittedSlots() async throws {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let surfaces = (0..<5).map { _ in
+            UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        }
+        defer { for surface in surfaces { surface.deallocate() } }
+        let runtimeReservations = try (0..<surfaces.count).map { _ in
+            try #require(coordinator.reserveRuntimeSurfaceOwnership())
+        }
+        let isolatedReservations = [
+            try #require(await coordinator.reserveIsolatedHibernationTeardown()),
+            try #require(await coordinator.reserveIsolatedHibernationTeardown()),
+        ]
+        let workerStarted = AsyncStream<Int>.makeStream()
+        let releaseWorkers = (0..<surfaces.count).map { _ in
+            DispatchSemaphore(value: 0)
+        }
+        let workerState = OSAllocatedUnfairLock(
+            initialState: (
+                active: 0,
+                maximumActive: 0,
+                observedCurrentTask: false,
+                startsByIndex: [Int: Int]()
+            )
+        )
+        defer {
+            for releaseWorker in releaseWorkers {
+                releaseWorker.signal()
+            }
+            workerStarted.continuation.finish()
+        }
+
+        var tickets: [TerminalSurfaceRuntimeTeardownTicket] = []
+        for index in 0..<4 {
+            let executionLane: TerminalSurfaceRuntimeTeardownExecutionLane =
+                index < 2 ? .boundedClose : .isolatedHibernation
+            let isolatedReservation =
+                index < 2 ? nil : isolatedReservations[index - 2]
+            tickets.append(
+                try requireTeardownTicket(
+                    coordinator.enqueueRuntimeTeardown(
+                        id: UUID(),
+                        workspaceId: UUID(),
+                        reason: "test.dedicatedWorker.\(index)",
+                        surface: surfaces[index],
+                        callbackContext: nil,
+                        manualIOContext: nil,
+                        byteTeeLease: nil,
+                        runtimeOwnershipReservation: runtimeReservations[index],
+                        executionLane: executionLane,
+                        isolatedHibernationReservation: isolatedReservation,
+                        freeSurface: { _ in
+                            let hasCurrentTask = withUnsafeCurrentTask { $0 != nil }
+                            workerState.withLock { state in
+                                state.active += 1
+                                state.maximumActive = max(
+                                    state.maximumActive,
+                                    state.active
+                                )
+                                state.observedCurrentTask =
+                                    state.observedCurrentTask || hasCurrentTask
+                                state.startsByIndex[index, default: 0] += 1
+                            }
+                            workerStarted.continuation.yield(index)
+                            releaseWorkers[index].wait()
+                            workerState.withLock { $0.active -= 1 }
+                        }
+                    )
+                )
+            )
+        }
+
+        var workerStartedIterator = workerStarted.stream.makeAsyncIterator()
+        var firstStartedIndices = Set<Int>()
+        while firstStartedIndices.count < 4 {
+            firstStartedIndices.insert(
+                try #require(await workerStartedIterator.next())
+            )
+        }
+        #expect(firstStartedIndices == Set(0..<4))
+        #expect(await coordinator.reserveIsolatedHibernationTeardown() == nil)
+
+        let fifthTicket = try requireTeardownTicket(
+            coordinator.enqueueRuntimeTeardown(
+                id: UUID(),
+                workspaceId: UUID(),
+                reason: "test.dedicatedWorker.4",
+                surface: surfaces[4],
+                callbackContext: nil,
+                manualIOContext: nil,
+                byteTeeLease: nil,
+                runtimeOwnershipReservation: runtimeReservations[4],
+                freeSurface: { _ in
+                    let hasCurrentTask = withUnsafeCurrentTask { $0 != nil }
+                    workerState.withLock { state in
+                        state.active += 1
+                        state.maximumActive = max(
+                            state.maximumActive,
+                            state.active
+                        )
+                        state.observedCurrentTask =
+                            state.observedCurrentTask || hasCurrentTask
+                        state.startsByIndex[4, default: 0] += 1
+                    }
+                    workerStarted.continuation.yield(4)
+                    releaseWorkers[4].wait()
+                    workerState.withLock { $0.active -= 1 }
+                }
+            )
+        )
+        tickets.append(fifthTicket)
+
+        releaseWorkers[0].signal()
+        let fifthStartedIndex = try #require(
+            await workerStartedIterator.next()
+        )
+        #expect(fifthStartedIndex == 4)
+        for index in 1..<releaseWorkers.count {
+            releaseWorkers[index].signal()
+        }
+        for ticket in tickets {
+            #expect(await ticket.wait(timeout: nil))
+        }
+
+        let finalWorkerState = workerState.withLock { $0 }
+        #expect(finalWorkerState.active == 0)
+        #expect(finalWorkerState.maximumActive == 4)
+        #expect(finalWorkerState.observedCurrentTask == false)
+        #expect(
+            finalWorkerState.startsByIndex
+                == Dictionary(uniqueKeysWithValues: (0..<5).map { ($0, 1) })
+        )
+    }
+
     @Test func teardownsForMultipleSurfacesAllFree() async throws {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
         let recorder = FreedSurfaceRecorder()

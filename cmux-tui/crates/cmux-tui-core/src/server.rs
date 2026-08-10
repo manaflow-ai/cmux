@@ -4704,10 +4704,10 @@ impl Drop for WebSocketServer {
     fn drop(&mut self) {
         self.shutdown.store(true, Ordering::Release);
         let _ = self.try_close_connections();
-        if let Some(thread) = self.thread.take() {
-            if thread.is_finished() {
-                let _ = thread.join();
-            }
+        if let Some(thread) = self.thread.take()
+            && thread.is_finished()
+        {
+            let _ = thread.join();
         }
     }
 }
@@ -12736,7 +12736,7 @@ mod tests {
         assert!(response.get("result").is_none());
 
         disconnect_client(&mux, client, false);
-        mux.shutdown();
+        let _ = mux.shutdown();
     }
 
     #[test]
@@ -13339,7 +13339,7 @@ mod tests {
         assert!(disconnect_client(&first, client, false));
         drop(scheduler);
         drop(writer);
-        first.shutdown();
+        let _ = first.shutdown();
         let shutdown_deadline = Instant::now() + Duration::from_secs(10);
         while Arc::strong_count(&first) > 1 && Instant::now() < shutdown_deadline {
             std::thread::sleep(Duration::from_millis(10));
@@ -13372,7 +13372,7 @@ mod tests {
         assert_eq!(response["result"]["exited_at"], "4567890");
 
         assert!(disconnect_client(&reopened, client, false));
-        reopened.shutdown();
+        let _ = reopened.shutdown();
         drop(scheduler);
         drop(writer);
         drop(reopened);
@@ -16801,7 +16801,7 @@ mod tests {
             1
         );
         assert!(disconnect_client(&mux, second_client, true));
-        mux.shutdown();
+        let _ = mux.shutdown();
     }
 
     #[test]
@@ -16878,7 +16878,7 @@ mod tests {
         assert_eq!(replay["surface"].as_u64(), Some(created));
         assert!(disconnect_client(&mux, replay_client, true));
         mux.close_surface(created).unwrap();
-        mux.shutdown();
+        let _ = mux.shutdown();
     }
 
     #[test]
@@ -16968,7 +16968,7 @@ mod tests {
 
         assert_eq!(response["outcome"], "superseded");
         assert_eq!(response["accepted"], false);
-        mux.shutdown();
+        let _ = mux.shutdown();
     }
 
     #[test]

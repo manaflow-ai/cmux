@@ -421,16 +421,22 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         isolatedHibernationReservation:
             TerminalSurfaceRuntimeTeardownReservation?
     ) {
-        let prepared = executionLane.prepare {
-            self.freeNativeSurface(request)
-            await self.finishTeardown(
-                request,
-                executionLane: executionLane,
-                executionSlot: executionSlot,
-                isolatedHibernationReservation:
-                    isolatedHibernationReservation
-            )
-        }
+        // This method is reachable only after one of two close slots or two
+        // isolated-hibernation slots is admitted, which caps worker threads at 4.
+        let prepared = executionLane.prepare(
+            operation: {
+                self.freeNativeSurface(request)
+            },
+            completion: {
+                await self.finishTeardown(
+                    request,
+                    executionLane: executionLane,
+                    executionSlot: executionSlot,
+                    isolatedHibernationReservation:
+                        isolatedHibernationReservation
+                )
+            }
+        )
         let active = TerminalSurfaceRuntimeActiveTeardown(
             ticketID: request.ticketID,
             task: prepared.task

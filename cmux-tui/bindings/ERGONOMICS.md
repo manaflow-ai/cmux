@@ -2,7 +2,7 @@
 
 The seven public SDKs expose handwritten resource handles over the reviewed
 113-operation `cmux.protocol/2` catalog. The raw protocol inventory is a
-separate compatibility surface with 97 commands and 45 events. Deterministic
+separate compatibility surface with 98 commands and 46 events. Deterministic
 generation is limited to those private protocol-11 models under each package's
 explicit `raw` namespace. Consumers do not run a generator or install a
 generator runtime.
@@ -75,7 +75,7 @@ and secret redaction.
 The exact-binary live matrix adds one isolated create, run, exit, restart, and
 cleanup flow per language. TypeScript repeats it over authenticated WebSocket,
 for eight live transport runs. The separate raw protocol-11 suite runs 266
-compatibility checks over its 97 commands and 45 events.
+compatibility checks over its 98 commands and 46 events.
 
 Each package suite also opens a stream with a short request deadline, leaves it
 idle past that deadline, then delivers and cancels normally. This separates

@@ -52,8 +52,6 @@ const MAX_ENV: usize = 1024;
 const MAX_RENDERER_CAPABILITY_TTL: std::time::Duration = std::time::Duration::from_secs(60);
 pub(crate) const CONTROL_RESPONSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 const HOST_HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
-const HOST_CONNECT_RETRY_WINDOW: std::time::Duration = std::time::Duration::from_secs(1);
-const HOST_CONNECT_RETRY_INTERVAL: std::time::Duration = std::time::Duration::from_millis(10);
 const TERMINAL_HOST_PUBLICATION_LOCK_FILE: &str = ".publication.lock";
 // Keep live PTY backpressure independent from the extra headroom needed by
 // one maximum Resized + Colors + targeted acknowledgement transition.
@@ -630,7 +628,6 @@ mod unix {
             .expect("terminal-host process reaper remains alive while registered");
     }
     const HOST_CLIENT_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
-    const HOST_HANDSHAKE_TRANSIENT_RETRIES: usize = 1;
     const HOST_EXIT_PERSIST_RETRY_MIN: Duration = Duration::from_millis(100);
     const HOST_EXIT_PERSIST_RETRY_MAX: Duration = Duration::from_secs(5);
     const HOST_EXIT_PERSIST_REPORT_INTERVAL: Duration = Duration::from_secs(60);
@@ -4104,6 +4101,7 @@ mod unix {
         normal_cleanup_failures: AtomicUsize,
         #[cfg(test)]
         normal_cleanup_attempts: AtomicUsize,
+        #[cfg(test)]
         fail_next_resize_publication: AtomicBool,
     }
 
@@ -6075,6 +6073,7 @@ mod unix {
             ),
             #[cfg(test)]
             normal_cleanup_attempts: AtomicUsize::new(0),
+            #[cfg(test)]
             fail_next_resize_publication: AtomicBool::new(false),
         });
         HostShared::start_exit_publisher(&shared, exit_publish_receiver)?;

@@ -192,7 +192,6 @@ import CmuxTerminalCore
 
     @Test func runtimeCreationRetriesAfterTeardownAdmissionRecovers() async throws {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
-            closeTeardownTimeout: .milliseconds(50),
             maximumRuntimeSurfaceOwnerCount: 4
         )
         let retainedSurfaces = (0..<2).map { _ in
@@ -267,7 +266,6 @@ import CmuxTerminalCore
 
     @Test func restoredCreationReentersPacingAfterAdmissionRecovers() async throws {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
-            closeTeardownTimeout: .milliseconds(50),
             maximumRuntimeSurfaceOwnerCount: 4
         )
         let retainedSurfaces = (0..<2).map { _ in

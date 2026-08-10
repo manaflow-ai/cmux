@@ -1001,7 +1001,7 @@ mod tests {
         assert_eq!(terminal["tab_id"], Value::Null);
         assert_eq!(terminal["tab_ids"], json!([]));
         assert!(terminal["exit"].is_object());
-        mux.shutdown();
+        let _ = mux.shutdown();
     }
 
     #[test]
