@@ -1376,4 +1376,37 @@ mod tests {
         argv_only.extend_from_slice(b"/bin/tool\0\0CMUX_TUI_PROCESS_SCOPE=abc\0A=1\0");
         assert!(!mac_environment_contains(&argv_only, expected));
     }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn mac_process_scope_runs_the_requested_program() {
+        let mut scope = UnixProcessScope::prepare().unwrap();
+        let mut command = UnixProcessScope::suspended_command("/usr/bin/false");
+        command
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        scope.configure(&mut command);
+        let mut child = command.spawn().unwrap();
+        scope.bind(child.id()).unwrap();
+        let status = child.wait().unwrap();
+        assert!(!status.success(), "the macOS process scope did not run the requested program");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn mac_process_scope_denies_descendant_creation() {
+        let mut scope = UnixProcessScope::prepare().unwrap();
+        let mut command = UnixProcessScope::suspended_command("/bin/sh");
+        command
+            .args(["-c", "(/usr/bin/true) & child=$!; wait \"$child\""])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        scope.configure(&mut command);
+        let mut child = command.spawn().unwrap();
+        scope.bind(child.id()).unwrap();
+        let status = child.wait().unwrap();
+        assert!(!status.success(), "the macOS process sandbox allowed a hook descendant");
+    }
 }
