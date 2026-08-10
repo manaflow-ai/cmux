@@ -10,6 +10,25 @@ let currentUser: {
   useTeams: () => Array<{ id: string; displayName: string }>;
   setSelectedTeam: (team: unknown) => Promise<void>;
 } | null = null;
+let organizationQuery: {
+  data?: {
+    selectedTeamId: string | null;
+    teams: Array<{
+      id: string;
+      name: string;
+      personal: boolean;
+      permissions: { use: boolean; manageAccounts: boolean };
+    }>;
+  };
+  isPending: boolean;
+  isError: boolean;
+} = { data: undefined, isPending: true, isError: false };
+let switchOrganization:
+  | ((team: { id: string; displayName: string } | null) => Promise<void>)
+  | null = null;
+const routerPush = mock(() => undefined);
+const routerReplace = mock(() => undefined);
+const routerRefresh = mock(() => undefined);
 
 mock.module("@stackframe/stack", () => ({
   AccountSettings: () => <section data-testid="stack-account-settings" />,
@@ -20,42 +39,33 @@ mock.module("@stackframe/stack", () => ({
   TeamSwitcher: ({
     teams,
     teamId,
+    onChange,
   }: {
     teams: Array<{ id: string }>;
     teamId?: string;
-  }) => (
-    <span
-      data-testid="team-switcher"
-      data-team-id={teamId}
-      data-team-ids={teams.map((team) => team.id).join(",")}
-    />
-  ),
+    onChange: (
+      team: { id: string; displayName: string } | null,
+    ) => Promise<void>;
+  }) => {
+    switchOrganization = onChange;
+    return (
+      <span
+        data-testid="team-switcher"
+        data-team-id={teamId}
+        data-team-ids={teams.map((team) => team.id).join(",")}
+      />
+    );
+  },
 }));
 
 mock.module("@tanstack/react-query", () => ({
-  useQuery: () => ({
-    data: {
-      selectedTeamId: "team-2",
-      teams: [
-        {
-          id: "team-2",
-          name: "Authorized",
-          personal: false,
-          permissions: { use: true, manageAccounts: false },
-        },
-      ],
-    },
-  }),
+  useQuery: () => organizationQuery,
 }));
 
 mock.module("next/navigation", () => ({
   redirect: (target: string) => {
     throw new Error(`redirect:${target}`);
   },
-  useRouter: () => ({
-    push: () => undefined,
-    refresh: () => undefined,
-  }),
 }));
 
 mock.module("@base-ui-components/react/menu", () => ({
@@ -92,6 +102,11 @@ mock.module("@/i18n/navigation", () => ({
   }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => (
     <a href={href} {...props}>{children}</a>
   ),
+  useRouter: () => ({
+    push: routerPush,
+    replace: routerReplace,
+    refresh: routerRefresh,
+  }),
 }));
 
 const { DashboardAccountMenu } = await import(
@@ -99,7 +114,26 @@ const { DashboardAccountMenu } = await import(
 );
 
 describe("dashboard account menu", () => {
-  test("matches the chatmux identity row and exposes working account actions", () => {
+  test("matches the chatmux identity row and switches only authorized organizations", async () => {
+    organizationQuery = {
+      data: {
+        selectedTeamId: "team-2",
+        teams: [
+          {
+            id: "team-2",
+            name: "Authorized",
+            personal: false,
+            permissions: { use: true, manageAccounts: false },
+          },
+        ],
+      },
+      isPending: false,
+      isError: false,
+    };
+    switchOrganization = null;
+    routerPush.mockClear();
+    routerRefresh.mockClear();
+    const setSelectedTeam = mock(async () => undefined);
     currentUser = {
       displayName: "Lawrence",
       primaryEmail: "lawrence@example.com",
@@ -109,7 +143,7 @@ describe("dashboard account menu", () => {
         { id: "team-1", displayName: "Not authorized" },
         { id: "team-2", displayName: "Authorized" },
       ],
-      setSelectedTeam: async () => undefined,
+      setSelectedTeam,
     };
     const html = renderToStaticMarkup(<DashboardAccountMenu />);
 
@@ -123,6 +157,19 @@ describe("dashboard account menu", () => {
     expect(html).toContain('data-team-ids="team-2"');
     expect(html).not.toContain("Not authorized");
     expect(html).toContain("signOut");
+
+    await switchOrganization?.({
+      id: "team-2",
+      displayName: "Authorized",
+    });
+    expect(setSelectedTeam).toHaveBeenCalledWith({
+      id: "team-2",
+      displayName: "Authorized",
+    });
+    expect(routerPush).toHaveBeenCalledWith(
+      "/dashboard/coderouter?team=team-2",
+    );
+    expect(routerRefresh).toHaveBeenCalledTimes(1);
   });
 
   test("uses the unlocalized auth handler and names the compact sign-in link", () => {
@@ -133,5 +180,25 @@ describe("dashboard account menu", () => {
     expect(html).toContain('href="/handler/sign-in?');
     expect(html).toContain("dashboard");
     expect(html).not.toContain("/en/handler/sign-in");
+  });
+
+  test("shows account settings instead of an endless loader after catalog failure", () => {
+    organizationQuery = {
+      data: undefined,
+      isPending: false,
+      isError: true,
+    };
+    currentUser = {
+      displayName: "Lawrence",
+      primaryEmail: "lawrence@example.com",
+      signOut: async () => undefined,
+      selectedTeam: null,
+      useTeams: () => [],
+      setSelectedTeam: async () => undefined,
+    };
+    const html = renderToStaticMarkup(<DashboardAccountMenu />);
+
+    expect(html).toContain('href="/dashboard/team"');
+    expect(html).not.toContain("animate-pulse");
   });
 });
