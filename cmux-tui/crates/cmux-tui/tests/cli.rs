@@ -393,7 +393,7 @@ impl ServerEventSubscription {
             let remaining = deadline
                 .checked_duration_since(Instant::now())
                 .expect("server did not acknowledge the readiness subscription");
-            let message = receiver
+            let message: serde_json::Value = receiver
                 .recv_timeout(remaining)
                 .expect("server did not acknowledge the readiness subscription")
                 .expect("readiness subscription returned invalid JSON");
@@ -1119,7 +1119,7 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
     }
 
     #[cfg(unix)]
-    fn accept_with_deadline(listener: &UnixListener) -> std::os::unix::net::UnixStream {
+    fn accept_with_deadline(listener: &UnixListener) -> UnixStream {
         listener.set_nonblocking(true).unwrap();
         let deadline = Instant::now() + Duration::from_secs(15);
         loop {

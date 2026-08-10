@@ -15082,9 +15082,9 @@ mod tests {
             assert!(Instant::now() < deadline, "flush barrier was not queued");
             std::thread::yield_now();
         }
-        assert!(matches!(done_rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)));
+        assert!(matches!(done_rx.try_recv(), Err(TryRecvError::Empty)));
         assert_eq!(outbound.try_pop().unwrap(), response.to_string());
-        assert!(matches!(done_rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)));
+        assert!(matches!(done_rx.try_recv(), Err(TryRecvError::Empty)));
 
         assert_eq!(outbound.try_pop(), None);
         done_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap();
@@ -16149,10 +16149,8 @@ mod tests {
         })
         .to_string();
         let worker_mux = mux.clone();
-        let worker_writer = writer.clone();
-        let worker = std::thread::spawn(move || {
-            handle_message(&worker_mux, requester, &request, &worker_writer)
-        });
+        let worker =
+            std::thread::spawn(move || handle_message(&worker_mux, requester, &request, &writer));
 
         flush_entered
             .recv_timeout(Duration::from_secs(2))
@@ -16289,8 +16287,7 @@ mod tests {
     fn daemon_handoff_rejects_clients_registered_after_the_fence() {
         let mux = test_mux();
         let requester_writer = test_writer();
-        let requester =
-            mux.control_clients.register(ClientTransport::Unix, requester_writer.clone());
+        let requester = mux.control_clients.register(ClientTransport::Unix, requester_writer);
         mux.begin_daemon_handoff(requester, DaemonHandoffRequest::unfenced(false)).unwrap();
 
         let late_writer = test_writer();

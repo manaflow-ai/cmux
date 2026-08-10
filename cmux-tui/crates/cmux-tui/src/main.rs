@@ -472,12 +472,9 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         term: None,
     };
     let mut args = args.into_iter().peekable();
-    match args.peek().map(|s| s.as_str()) {
-        Some("attach") => {
-            out.attach = true;
-            args.next();
-        }
-        _ => {}
+    if let Some("attach") = args.peek().map(|s| s.as_str()) {
+        out.attach = true;
+        args.next();
     }
     while let Some(arg) = args.next() {
         match arg.as_str() {

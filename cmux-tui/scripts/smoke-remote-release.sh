@@ -26,7 +26,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-"$BIN" daemon \
+"$BIN" server start \
   --session release-smoke \
   --socket "$RUN_DIR/mux.sock" \
   --remote-state-dir "$RUN_DIR/daemon-state" \
