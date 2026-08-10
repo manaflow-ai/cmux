@@ -1450,7 +1450,7 @@ pub(crate) struct TerminalJournalGap {
 enum PtyRuntime {
     Local {
         writer: Box<dyn Write + Send>,
-        master: Box<dyn MasterPty + Send>,
+        master: Option<Box<dyn MasterPty + Send>>,
         killer: Box<dyn ChildKiller + Send>,
     },
     #[cfg(unix)]
@@ -1963,6 +1963,23 @@ fn publish_local_exit_if_ready(surface: &Arc<Surface>) {
     }
 }
 
+#[cfg(windows)]
+fn close_local_terminal_master_after_exit(surface: &Arc<Surface>) {
+    let Some(pty) = surface.as_pty() else { return };
+    let master = {
+        let mut runtime = pty.runtime.lock().unwrap();
+        let PtyRuntime::Local { master, .. } = &mut *runtime;
+        master.take()
+    };
+    // portable-pty's ConPTY reader keeps a separate output handle. Closing
+    // the master closes the pseudoconsole, which lets that reader drain the
+    // final bytes and then observe EOF.
+    drop(master);
+}
+
+#[cfg(not(windows))]
+fn close_local_terminal_master_after_exit(_surface: &Arc<Surface>) {}
+
 fn terminal_public_id_from_resource_identity(
     identity: &TabResourceIdentity,
     invalid_context: &str,
@@ -2317,7 +2334,11 @@ impl Surface {
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
-                runtime: Mutex::new(PtyRuntime::Local { writer, master, killer }),
+                runtime: Mutex::new(PtyRuntime::Local {
+                    writer,
+                    master: Some(master),
+                    killer,
+                }),
                 lifetime,
                 supports_clear_history_key_fallback: AtomicBool::new(
                     supports_clear_history_key_fallback,
@@ -2514,6 +2535,7 @@ impl Surface {
                 if let Some(pty) = surface.as_pty() {
                     *pty.exit.lock().unwrap() = Some(exit);
                 }
+                close_local_terminal_master_after_exit(&surface);
                 publish_local_exit_if_ready(&surface);
             }
         })?;
@@ -4046,10 +4068,10 @@ impl Surface {
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
                 runtime: Mutex::new(PtyRuntime::Local {
                     writer: Box::new(std::io::sink()),
-                    master: Box::new(TestMasterPty {
+                    master: Some(Box::new(TestMasterPty {
                         size: Mutex::new(initial_pty_size),
                         control: test_master_control.clone(),
-                    }),
+                    })),
                     killer: Box::new(TestChildKiller),
                 }),
                 lifetime,
@@ -4811,12 +4833,13 @@ impl Surface {
                     let PtyRuntime::Local { writer, master, .. } = &mut *runtime else {
                         unreachable!("a local PTY runtime cannot become hosted")
                     };
+                    let Some(master) = master.as_deref() else {
+                        return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
+                            "terminal process has exited"
+                        )));
+                    };
                     drop(term);
-                    return write_clear_history_fallback(
-                        master.as_ref(),
-                        writer.as_mut(),
-                        &encoded,
-                    );
+                    return write_clear_history_fallback(master, writer.as_mut(), &encoded);
                 }
                 ClearHistoryTransition::Noop => return Ok(()),
                 ClearHistoryTransition::Cleared(clear) => {
@@ -5171,7 +5194,7 @@ impl Surface {
         let PtyRuntime::Local { master, .. } = &*runtime else {
             panic!("test PTY surface uses a local runtime");
         };
-        master.get_size().unwrap()
+        master.as_deref().expect("test PTY master is open").get_size().unwrap()
     }
 
     #[cfg(test)]
@@ -6455,7 +6478,7 @@ impl PtySurface {
         let mut term = self.term.lock().unwrap();
         let runtime = (!hosted_mirror).then(|| self.runtime.lock().unwrap());
         let master = match runtime.as_deref() {
-            Some(PtyRuntime::Local { master, .. }) => Some(master.as_ref()),
+            Some(PtyRuntime::Local { master, .. }) => master.as_deref(),
             #[cfg(unix)]
             Some(PtyRuntime::Hosted(_)) => None,
             #[cfg(unix)]
@@ -8897,10 +8920,10 @@ mod tests {
                 panic!("test surface unexpectedly uses a terminal host");
             };
             *writer = Box::new(write_end);
-            *master = Box::new(FdMasterPty {
+            *master = Some(Box::new(FdMasterPty {
                 file: master_file,
                 size: Mutex::new(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }),
-            });
+            }));
         }
 
         let input = KeyInput {
