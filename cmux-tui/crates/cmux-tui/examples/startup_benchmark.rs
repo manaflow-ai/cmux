@@ -23,31 +23,42 @@ fn run() -> Result<()> {
     let args = Args::parse()?;
     fs::create_dir_all(&args.output_dir)
         .with_context(|| format!("create {}", args.output_dir.display()))?;
-    let baseline = Target::new(
-        TargetKind::Baseline,
-        args.baseline_binary.clone(),
-        args.baseline_source.clone(),
-        args.baseline_sha.clone(),
-        args.baseline_binary_sha256.clone(),
-        args.baseline_launcher.clone(),
-    )?;
-    let candidate = Target::new(
-        TargetKind::Candidate,
-        args.candidate_binary.clone(),
-        args.candidate_source.clone(),
-        args.candidate_sha.clone(),
-        args.candidate_binary_sha256.clone(),
-        args.candidate_launcher.clone(),
-    )?;
 
     if let Some(scenario) = args.profile_only {
-        let target = match args.profile_target.context("profile target missing")? {
-            TargetKind::Baseline => baseline,
-            TargetKind::Candidate => candidate,
-        };
+        let kind = args.profile_target.context("profile target missing")?;
+        let target = target_from_args(&args, kind)?;
         return run_profile(&args, target, scenario);
     }
+    let baseline = target_from_args(&args, TargetKind::Baseline)?;
+    let candidate = target_from_args(&args, TargetKind::Candidate)?;
     run_comparison(args, baseline, candidate)
+}
+
+fn target_from_args(args: &Args, kind: TargetKind) -> Result<Target> {
+    let (binary, source, sha, binary_sha256, launcher) = match kind {
+        TargetKind::Baseline => (
+            &args.baseline_binary,
+            &args.baseline_source,
+            &args.baseline_sha,
+            &args.baseline_binary_sha256,
+            &args.baseline_launcher,
+        ),
+        TargetKind::Candidate => (
+            &args.candidate_binary,
+            &args.candidate_source,
+            &args.candidate_sha,
+            &args.candidate_binary_sha256,
+            &args.candidate_launcher,
+        ),
+    };
+    Target::new(
+        kind,
+        binary.clone(),
+        source.clone(),
+        sha.clone(),
+        binary_sha256.clone(),
+        launcher.clone(),
+    )
 }
 
 fn run_profile(args: &Args, target: Target, scenario: Scenario) -> Result<()> {
