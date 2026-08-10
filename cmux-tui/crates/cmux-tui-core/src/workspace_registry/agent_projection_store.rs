@@ -614,11 +614,17 @@ fn merge_projection(
     let Some(current) = current else {
         return next;
     };
-    let same_verified_identity = current.source_session.is_some()
+    let same_session_identity = current.source_session.is_some()
         && current.source_session == next.source_session
+        && (current.provider == next.provider
+            || current.provider.is_none()
+            || next.provider.is_none());
+    let same_provider_without_session = current.source_session.is_none()
+        && next.source_session.is_none()
         && current.provider.is_some()
-        && current.provider == next.provider;
-    if same_verified_identity {
+        && current.provider == next.provider
+        && next.updated_at_ms >= current.updated_at_ms;
+    if same_session_identity || same_provider_without_session {
         if current.source == "hook" && next.source == "socket" {
             if matches!(next.state.as_str(), "done" | "interrupted") {
                 return next;
@@ -637,7 +643,6 @@ fn merge_projection(
     if next.begins_session
         || (current_is_final && next_is_active)
         || newer_socket_activity
-        || current.source_session.is_none()
     {
         return next;
     }
