@@ -9,7 +9,7 @@ use std::os::unix::process::CommandExt;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Child, Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
@@ -689,20 +689,57 @@ fn run_hermes_command(binary: &Path, args: &[&str]) -> anyhow::Result<Output> {
     run_hermes_command_with_timeout(binary, args, HERMES_COMMAND_TIMEOUT)
 }
 
+type HermesOutputReader = std::thread::JoinHandle<io::Result<Vec<u8>>>;
+
+#[cfg(unix)]
+fn cleanup_hermes_start_failure(
+    child: &mut Child,
+    tree: &mut UnixProcessScope,
+    child_exit: &mut Option<UnixChildExitSignal>,
+    reader: Option<HermesOutputReader>,
+) {
+    tree.terminate();
+    let _ = child.kill();
+    if let Some(child_exit) = child_exit.take() {
+        child_exit.finish();
+    }
+    let _ = child.wait();
+    if let Some(reader) = reader {
+        let _ = reader.join();
+    }
+}
+
+#[cfg(windows)]
+fn cleanup_hermes_start_failure(
+    child: &mut Child,
+    job: &HermesWindowsJob,
+    reader: Option<HermesOutputReader>,
+) {
+    job.terminate();
+    let _ = child.kill();
+    let _ = child.wait();
+    if let Some(reader) = reader {
+        let _ = reader.join();
+    }
+}
+
 fn run_hermes_command_with_timeout(
     binary: &Path,
     args: &[&str],
     timeout: Duration,
 ) -> anyhow::Result<Output> {
     let deadline = Instant::now() + timeout;
+    #[cfg(unix)]
+    let mut tree = UnixProcessScope::prepare().context("prepare Hermes process scope")?;
+    #[cfg(unix)]
+    let mut command = UnixProcessScope::suspended_command(binary);
+    #[cfg(not(unix))]
     let mut command = Command::new(binary);
     command.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     #[cfg(unix)]
     command.process_group(0);
     #[cfg(windows)]
     command.creation_flags(CREATE_SUSPENDED);
-    #[cfg(unix)]
-    let mut tree = UnixProcessScope::prepare().context("prepare Hermes process scope")?;
     #[cfg(unix)]
     tree.configure(&mut command);
     let mut child = command.spawn().with_context(|| format!("run {}", binary.display()))?;
@@ -732,14 +769,52 @@ fn run_hermes_command_with_timeout(
             return Err(error).context("isolate Hermes process tree");
         }
     };
-    let stdout = child.stdout.take().context("Hermes stdout pipe is unavailable")?;
-    let stderr = child.stderr.take().context("Hermes stderr pipe is unavailable")?;
-    let stdout = std::thread::Builder::new()
+    let stdout_pipe = match child.stdout.take() {
+        Some(stdout) => stdout,
+        None => {
+            #[cfg(unix)]
+            cleanup_hermes_start_failure(&mut child, &mut tree, &mut child_exit, None);
+            #[cfg(windows)]
+            cleanup_hermes_start_failure(&mut child, &job, None);
+            anyhow::bail!("Hermes stdout pipe is unavailable");
+        }
+    };
+    let stderr_pipe = match child.stderr.take() {
+        Some(stderr) => stderr,
+        None => {
+            #[cfg(unix)]
+            cleanup_hermes_start_failure(&mut child, &mut tree, &mut child_exit, None);
+            #[cfg(windows)]
+            cleanup_hermes_start_failure(&mut child, &job, None);
+            anyhow::bail!("Hermes stderr pipe is unavailable");
+        }
+    };
+    let stdout = match std::thread::Builder::new()
         .name("hermes-command-stdout".into())
-        .spawn(move || read_hermes_output(stdout, deadline))?;
-    let stderr = std::thread::Builder::new()
+        .spawn(move || read_hermes_output(stdout_pipe, deadline))
+    {
+        Ok(stdout) => stdout,
+        Err(error) => {
+            #[cfg(unix)]
+            cleanup_hermes_start_failure(&mut child, &mut tree, &mut child_exit, None);
+            #[cfg(windows)]
+            cleanup_hermes_start_failure(&mut child, &job, None);
+            return Err(error).context("start Hermes stdout reader");
+        }
+    };
+    let stderr = match std::thread::Builder::new()
         .name("hermes-command-stderr".into())
-        .spawn(move || read_hermes_output(stderr, deadline))?;
+        .spawn(move || read_hermes_output(stderr_pipe, deadline))
+    {
+        Ok(stderr) => stderr,
+        Err(error) => {
+            #[cfg(unix)]
+            cleanup_hermes_start_failure(&mut child, &mut tree, &mut child_exit, Some(stdout));
+            #[cfg(windows)]
+            cleanup_hermes_start_failure(&mut child, &job, Some(stdout));
+            return Err(error).context("start Hermes stderr reader");
+        }
+    };
     #[cfg(unix)]
     let status = match child_exit.as_ref().expect("Unix child exit observer").wait_until(deadline) {
         Ok(true) => {

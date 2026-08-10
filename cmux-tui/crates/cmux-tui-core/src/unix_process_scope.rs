@@ -11,6 +11,7 @@
 //! the inactive scope and advances through bounded scan chunks.
 
 use std::collections::{HashMap, HashSet};
+use std::ffi::OsStr;
 use std::fs::OpenOptions;
 use std::io;
 #[cfg(target_os = "macos")]
@@ -76,6 +77,29 @@ struct ScopeRegistration {
     root: ProcessIdentity,
     tracked: Arc<Mutex<TrackedProcesses>>,
     tracked_changed: Arc<Condvar>,
+    #[cfg(test)]
+    track_before_finalization: bool,
+    #[cfg(test)]
+    final_scan_gate: Option<FinalScanTestGate>,
+}
+
+#[cfg(test)]
+#[derive(Clone)]
+struct FinalScanTestGate {
+    reached: mpsc::SyncSender<()>,
+    resume: Arc<Mutex<mpsc::Receiver<()>>>,
+    used: Arc<std::sync::atomic::AtomicBool>,
+}
+
+#[cfg(test)]
+impl FinalScanTestGate {
+    fn pause_once(&self) {
+        if self.used.swap(true, std::sync::atomic::Ordering::AcqRel) {
+            return;
+        }
+        let _ = self.reached.send(());
+        let _ = self.resume.lock().unwrap().recv();
+    }
 }
 
 #[derive(Clone, Copy, Default)]
@@ -127,6 +151,10 @@ pub struct UnixProcessScope {
     tracked_changed: Arc<Condvar>,
     tracker: Option<ScopeTracker>,
     terminated: bool,
+    #[cfg(test)]
+    track_before_finalization: bool,
+    #[cfg(test)]
+    final_scan_gate: Option<FinalScanTestGate>,
 }
 
 /// A signal from the kernel that an owned child is waitable. The observer
@@ -140,12 +168,12 @@ pub struct UnixChildExitSignal {
 impl UnixChildExitSignal {
     /// Start one blocking kernel wait for an owned child without reaping it.
     pub fn observe(pid: u32) -> io::Result<Self> {
-        let pid = libc::pid_t::try_from(pid)
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "child pid is out of range"))?;
+        let pid = libc::pid_t::try_from(pid).map_err(|_| {
+            io::Error::new(io::ErrorKind::InvalidInput, "child pid is out of range")
+        })?;
         let (sender, result) = mpsc::sync_channel(1);
-        let observer = std::thread::Builder::new()
-            .name("cmux-child-exit".into())
-            .spawn(move || {
+        let observer =
+            std::thread::Builder::new().name("cmux-child-exit".into()).spawn(move || {
                 let _ = sender.send(wait_for_child_exit_without_reaping(pid));
             })?;
         Ok(Self { result, observer: Some(observer) })
@@ -227,7 +255,22 @@ impl UnixProcessScope {
             tracked_changed: Arc::new(Condvar::new()),
             tracker: None,
             terminated: false,
+            #[cfg(test)]
+            track_before_finalization: true,
+            #[cfg(test)]
+            final_scan_gate: None,
         })
+    }
+
+    /// Build a command whose controlled launcher stops before it executes the
+    /// requested program. `bind` registers the stopped root and then releases
+    /// it, so user code cannot detach before scope ownership exists.
+    pub fn suspended_command(program: impl AsRef<OsStr>) -> Command {
+        let mut command = Command::new("/bin/sh");
+        command
+            .args(["-c", "kill -STOP $$; exec \"$@\"", "cmux-process-scope"])
+            .arg(program);
+        command
     }
 
     /// Select this command as the only child that receives the scope
@@ -253,6 +296,7 @@ impl UnixProcessScope {
     /// Record the exact root identity and start holder discovery while the
     /// command still owns its execution budget.
     pub fn bind(&mut self, root: u32) -> io::Result<()> {
+        wait_for_suspended_child(root)?;
         self.root = Some(process_identity(root).ok_or_else(|| {
             io::Error::new(io::ErrorKind::NotFound, "process scope root is unavailable")
         })?);
@@ -260,7 +304,8 @@ impl UnixProcessScope {
         {
             self.root_pidfd = Some(pidfd_open(root)?);
         }
-        self.start_tracker()
+        self.start_tracker()?;
+        self.resume_root()
     }
 
     /// Kill the original group and every recorded descendant within the
@@ -298,8 +343,46 @@ impl UnixProcessScope {
             root,
             tracked: self.tracked.clone(),
             tracked_changed: self.tracked_changed.clone(),
+            #[cfg(test)]
+            track_before_finalization: self.track_before_finalization,
+            #[cfg(test)]
+            final_scan_gate: self.final_scan_gate.clone(),
         })?;
         self.tracker = Some(ScopeTracker { registration, registry });
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn final_scan_gate_for_test(
+        &mut self,
+    ) -> (mpsc::Receiver<()>, mpsc::SyncSender<()>) {
+        let (reached, reached_receiver) = mpsc::sync_channel(1);
+        let (resume, resume_receiver) = mpsc::sync_channel(1);
+        self.track_before_finalization = false;
+        self.final_scan_gate = Some(FinalScanTestGate {
+            reached,
+            resume: Arc::new(Mutex::new(resume_receiver)),
+            used: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        });
+        (reached_receiver, resume)
+    }
+
+    fn resume_root(&self) -> io::Result<()> {
+        let root = self.root.ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "process scope is unbound")
+        })?;
+        if process_identity(root.pid) != Some(root) {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "stopped process scope root is unavailable",
+            ));
+        }
+        let pid = libc::pid_t::try_from(root.pid).map_err(|_| {
+            io::Error::new(io::ErrorKind::InvalidInput, "process scope root is out of range")
+        })?;
+        if unsafe { libc::kill(pid, libc::SIGCONT) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
         Ok(())
     }
 
@@ -438,6 +521,30 @@ impl UnixProcessScope {
     }
 }
 
+fn wait_for_suspended_child(pid: u32) -> io::Result<()> {
+    let pid = libc::pid_t::try_from(pid)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "child pid is out of range"))?;
+    loop {
+        let mut status = 0;
+        let waited = unsafe { libc::waitpid(pid, &mut status, libc::WUNTRACED) };
+        if waited == pid {
+            if libc::WIFSTOPPED(status) && libc::WSTOPSIG(status) == libc::SIGSTOP {
+                return Ok(());
+            }
+            return Err(io::Error::other(
+                "process scope launcher exited before its ownership fence",
+            ));
+        }
+        if waited < 0 {
+            let error = io::Error::last_os_error();
+            if error.kind() == io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(error);
+        }
+    }
+}
+
 impl Drop for UnixProcessScope {
     fn drop(&mut self) {
         self.terminate();
@@ -533,6 +640,7 @@ impl ProcessScopeTracker {
                     None => state
                         .scopes
                         .iter()
+                        .filter(|(_, scope)| scope_tracks_before_finalization(scope))
                         .map(|(registration, scope)| (*registration, scope.clone()))
                         .collect::<Vec<_>>(),
                 };
@@ -559,8 +667,10 @@ impl ProcessScopeTracker {
                             progress.cursor = next;
                         }
                     }
-                    if scan_complete && let Some(progress) = state.finalizing.remove(&registration)
+                    if scan_complete
+                        && let Some(progress) = state.finalizing.get_mut(&registration)
                     {
+                        let progress = std::mem::take(progress);
                         completed = state
                             .scopes
                             .get(&registration)
@@ -568,17 +678,31 @@ impl ProcessScopeTracker {
                             .map(|scope| (scope, progress.snapshots, progress.matches));
                     }
                 }
+                #[cfg(test)]
+                if let Some((scope, _, _)) = completed.as_ref()
+                    && let Some(gate) = scope.final_scan_gate.as_ref()
+                {
+                    gate.pause_once();
+                }
                 for (scope, identity) in scan.matches {
                     record_tracked_process(&scopes[scope], identity);
                 }
                 if let Some((scope, snapshots, mut matches)) = completed {
                     let snapshots = snapshots.into_values().collect::<Vec<_>>();
                     include_lineage_matches(std::slice::from_ref(&scope), &snapshots, &mut matches);
+                    matches.retain(|(_, identity)| {
+                        *identity != scope.root && identity.pid != std::process::id()
+                    });
+                    let found_owned_process = !matches.is_empty();
                     for (_, identity) in matches {
                         record_tracked_process(&scope, identity);
                     }
                     let mut state = self.state.lock().unwrap();
-                    if state.scopes.remove(&registration).is_some() {
+                    if found_owned_process && state.scopes.contains_key(&registration) {
+                        state.revision = state.revision.wrapping_add(1);
+                        self.changed.notify_one();
+                    } else if state.scopes.remove(&registration).is_some() {
+                        state.finalizing.remove(&registration);
                         state.revision = state.revision.wrapping_add(1);
                         self.changed.notify_all();
                     }
@@ -594,6 +718,17 @@ impl ProcessScopeTracker {
                 .wait_timeout_while(state, TRACK_INTERVAL, |state| state.revision == revision)
                 .unwrap();
         }
+    }
+}
+
+fn scope_tracks_before_finalization(_scope: &ScopeRegistration) -> bool {
+    #[cfg(test)]
+    {
+        _scope.track_before_finalization
+    }
+    #[cfg(not(test))]
+    {
+        true
     }
 }
 
@@ -1226,13 +1361,7 @@ fn mac_process_snapshot(pid: u32) -> Option<ProcessSnapshot> {
     let mut info = std::mem::MaybeUninit::<MacBsdInfoWithUniqueId>::zeroed();
     let size = libc::c_int::try_from(size_of::<MacBsdInfoWithUniqueId>()).ok()?;
     let written = unsafe {
-        libc::proc_pidinfo(
-            pid_int,
-            PROC_PIDT_BSDINFOWITHUNIQID,
-            0,
-            info.as_mut_ptr().cast(),
-            size,
-        )
+        libc::proc_pidinfo(pid_int, PROC_PIDT_BSDINFOWITHUNIQID, 0, info.as_mut_ptr().cast(), size)
     };
     if written != size {
         return None;
@@ -1244,10 +1373,7 @@ fn mac_process_snapshot(pid: u32) -> Option<ProcessSnapshot> {
     let started = (u128::from(info.bsd.pbi_start_tvsec) << 64)
         | (u128::from(info.bsd.pbi_start_tvusec) << 32)
         | u128::from(info.unique.id_version as u32);
-    Some(ProcessSnapshot {
-        identity: ProcessIdentity { pid, started },
-        parent: info.bsd.pbi_ppid,
-    })
+    Some(ProcessSnapshot { identity: ProcessIdentity { pid, started }, parent: info.bsd.pbi_ppid })
 }
 
 #[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
