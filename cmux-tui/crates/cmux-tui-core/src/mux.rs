@@ -8241,7 +8241,7 @@ impl Mux {
                 .surface
                 .as_ref()
                 .and_then(Weak::upgrade)
-                .is_some_and(|registered| Arc::ptr_eq(&registered, &terminal));
+                .is_some_and(|registered| Arc::ptr_eq(&registered, terminal));
             let desired = if entry.removing || !entry.owns_quota {
                 KittyGraphicsLimits::disabled()
             } else {
