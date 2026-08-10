@@ -1233,16 +1233,16 @@ final class cmuxUITests: XCTestCase {
         guard searchField.waitForExistence(timeout: 3) else {
             return XCTFail("Search field missing after popping back from the detail")
         }
-        guard waitForSearchFieldValue(searchField, "Docs", timeout: 3) else {
-            return XCTFail(
-                "Restored search field must carry the query from before the push, got \(String(describing: searchField.value))"
-            )
-        }
         guard waitForHittable(docsRow, timeout: 3) else {
             return XCTFail("Matching row missing from the restored search results")
         }
         guard waitForNotHittable(mainRow, timeout: 3) else {
-            return XCTFail("Query filter lost on the restored search results")
+            return XCTFail("Query filter lost on the restored search results (coordinator wiped)")
+        }
+        guard waitForSearchFieldValue(searchField, "Docs", timeout: 3) else {
+            return XCTFail(
+                "Rows stayed filtered but the field shows \(String(describing: searchField.value)) — display seeding gap"
+            )
         }
 
         // An explicit submit still commits the query as the Workspaces filter;
@@ -1782,8 +1782,16 @@ final class cmuxUITests: XCTestCase {
             "Search field missing after popping back to the search results"
         )
         XCTAssertTrue(
+            waitForHittable(docsRow, timeout: 3),
+            "Matching row missing from the restored search results"
+        )
+        XCTAssertTrue(
+            waitForNotHittable(mainRow, timeout: 3),
+            "Query filter lost on the restored search results (coordinator wiped)"
+        )
+        XCTAssertTrue(
             waitForSearchFieldValue(searchField, "Docs", timeout: 3),
-            "Restored search field must carry the query from before the push, got \(String(describing: searchField.value))"
+            "Rows filter state above; field shows \(String(describing: searchField.value)) — display seeding gap if rows passed"
         )
         guard let fieldFrame = waitForUsableFrame(of: searchField, timeout: 3) else {
             return XCTFail("Restored search field had no usable frame")
@@ -1792,14 +1800,6 @@ final class cmuxUITests: XCTestCase {
             fieldFrame.midY,
             app.frame.midY,
             "Search field must restore at the bottom after popping, got \(fieldFrame)"
-        )
-        XCTAssertTrue(
-            waitForHittable(docsRow, timeout: 3),
-            "Matching row missing from the restored search results"
-        )
-        XCTAssertTrue(
-            waitForNotHittable(mainRow, timeout: 3),
-            "Query filter lost on the restored search results"
         )
     }
 
