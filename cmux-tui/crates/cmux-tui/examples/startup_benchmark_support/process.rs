@@ -3,17 +3,21 @@ use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use cmux_pty::{PtyCommand, PtySize};
 use rusqlite::Connection;
 use serde_json::Value;
 use wait_timeout::ChildExt;
 
-use super::{duration_ns, Evidence, RunResult, Scenario, TargetKind};
+use super::lifecycle::FixtureRoot;
+use super::{
+    Evidence, LifecycleRecorder, PhaseMetric, RunPhases, RunResult, Scenario, TargetKind,
+    duration_ns,
+};
 
 const EVENT_TIMEOUT: Duration = Duration::from_secs(30);
 const PROCESS_TIMEOUT: Duration = Duration::from_secs(30);
@@ -77,8 +81,13 @@ pub enum Fixture {
 }
 
 impl Fixture {
-    pub fn new(target: Target, scenario: Scenario, wrap_measured_process: bool) -> Result<Self> {
-        let mut common = Common::new(target, scenario, wrap_measured_process)?;
+    pub fn new(
+        target: Target,
+        scenario: Scenario,
+        wrap_measured_process: bool,
+        fixture_parent: &Path,
+    ) -> Result<Self> {
+        let mut common = Common::new(target, scenario, wrap_measured_process, fixture_parent)?;
         match scenario {
             Scenario::Cold => Ok(Self::Cold(common)),
             Scenario::Headless => Ok(Self::Headless(common)),
@@ -188,10 +197,24 @@ impl Fixture {
             }
             _ => {}
         }
+        self.common_mut().root.mark_quiescent();
         Ok(evidence)
     }
 
+    pub fn defer_root(&mut self, recorder: &mut LifecycleRecorder) -> Result<PhaseMetric> {
+        self.common_mut().root.defer(recorder)
+    }
+
     fn common(&self) -> &Common {
+        match self {
+            Self::Cold(common) | Self::Headless(common) => common,
+            Self::Warm { common, .. }
+            | Self::Restored { common, .. }
+            | Self::Incompatible { common, .. } => common,
+        }
+    }
+
+    fn common_mut(&mut self) -> &mut Common {
         match self {
             Self::Cold(common) | Self::Headless(common) => common,
             Self::Warm { common, .. }
@@ -217,7 +240,7 @@ pub fn run_sample(fixture: &mut Fixture) -> Result<RunResult> {
 
 struct Common {
     target: Target,
-    root: TemporaryRoot,
+    root: FixtureRoot,
     config: PathBuf,
     next_id: u64,
     wrap_measured_process: bool,
@@ -225,12 +248,17 @@ struct Common {
 }
 
 impl Common {
-    fn new(target: Target, scenario: Scenario, wrap_measured_process: bool) -> Result<Self> {
-        let root = TemporaryRoot::new()?;
-        let config = root.path.join("config.json");
+    fn new(
+        target: Target,
+        scenario: Scenario,
+        wrap_measured_process: bool,
+        fixture_parent: &Path,
+    ) -> Result<Self> {
+        let root = FixtureRoot::new(fixture_parent)?;
+        let config = root.path().join("config.json");
         fs::write(&config, b"{}")?;
         for directory in ["home", "config", "data", "cache", "state", "tmp"] {
-            fs::create_dir_all(root.path.join(directory))?;
+            fs::create_dir_all(root.path().join(directory))?;
         }
         Ok(Self {
             target,
@@ -243,7 +271,7 @@ impl Common {
     }
 
     fn path(&self, name: &str) -> PathBuf {
-        self.root.path.join(name)
+        self.root.path().join(name)
     }
 
     fn next_path(&mut self, stem: &str) -> Result<(PathBuf, u64)> {
@@ -266,7 +294,7 @@ impl Common {
         for (key, value) in self.environment() {
             command.env(key, value);
         }
-        command.current_dir(&self.root.path);
+        command.current_dir(self.root.path());
     }
 
     fn apply_pty_env(&self, command: &mut PtyCommand) {
@@ -277,7 +305,7 @@ impl Common {
         for (key, value) in self.environment() {
             command.env(key, value);
         }
-        command.cwd(&self.root.path);
+        command.cwd(self.root.path());
     }
 
     fn environment(&self) -> Vec<(String, String)> {
@@ -349,19 +377,6 @@ fn copy_base_environment(mut set: impl FnMut(String, String)) {
     }
 }
 
-struct TemporaryRoot {
-    _directory: tempfile::TempDir,
-    path: PathBuf,
-}
-
-impl TemporaryRoot {
-    fn new() -> Result<Self> {
-        let directory = tempfile::Builder::new().prefix("ct").tempdir()?;
-        let path = directory.path().to_path_buf();
-        Ok(Self { _directory: directory, path })
-    }
-}
-
 fn run_cold(common: &mut Common) -> Result<RunResult> {
     let (run, id) = common.next_path("cold")?;
     let socket = run.join("mux.sock");
@@ -426,7 +441,7 @@ fn run_pty(
     let observed_at = match event_receiver.recv_timeout(EVENT_TIMEOUT) {
         Ok(PtyEvent::Marker(at)) => at,
         Ok(PtyEvent::Ended) => {
-            let (_, reader) = runtime.finish(false, PROCESS_TIMEOUT)?;
+            let (_, reader, _) = runtime.finish(false, PROCESS_TIMEOUT)?;
             bail!("PTY ended before render marker: {}", String::from_utf8_lossy(&reader.output));
         }
         Ok(PtyEvent::Failed(error)) => {
@@ -436,11 +451,15 @@ fn run_pty(
             return runtime.fail(anyhow!("render marker deadline expired: {error}"));
         }
     };
-    if let Some(socket) = ping_socket {
+    let validation = if let Some(socket) = ping_socket {
+        let validation_started = Instant::now();
         if let Err(error) = assert_ping(common, socket) {
             return runtime.fail(error.context("validate interactive process socket readiness"));
         }
-    }
+        PhaseMetric::completed(validation_started.elapsed())?
+    } else {
+        PhaseMetric::default()
+    };
     let detach = (|| -> Result<()> {
         let mut writer = writer.lock().map_err(|_| anyhow!("PTY writer lock poisoned"))?;
         writer.write_all(b"\x02d")?;
@@ -450,15 +469,16 @@ fn run_pty(
     if let Err(error) = detach {
         return runtime.fail(error.context("detach interactive benchmark process"));
     }
-    let (status, reader) = runtime.finish(false, PROCESS_TIMEOUT)?;
+    let (status, reader, completion) = runtime.finish(false, PROCESS_TIMEOUT)?;
     if !status.success() {
         bail!(
             "interactive process exited with {status}: {}",
             String::from_utf8_lossy(&reader.output)
         );
     }
+    let measured_event = observed_at.duration_since(started);
     Ok(RunResult {
-        duration_ns: duration_ns(observed_at.duration_since(started))?,
+        duration_ns: duration_ns(measured_event)?,
         evidence: Evidence {
             render_markers: 1,
             frame_completions: 1,
@@ -477,6 +497,13 @@ fn run_pty(
             },
             ..Evidence::default()
         },
+        phases: RunPhases {
+            measured_event: PhaseMetric::completed(measured_event)?,
+            validation,
+            process_exit: PhaseMetric::completed(completion.process_exit)?,
+            thread_join: PhaseMetric::completed(completion.thread_join)?,
+            ..RunPhases::default()
+        },
     })
 }
 
@@ -487,9 +514,11 @@ fn run_headless(common: &mut Common) -> Result<RunResult> {
     let args = headless_args(&session, &socket, None);
     let mut server = RunningHeadless::start(common, args, &socket, common.wrap_measured_process)?;
     server.wait_ready()?;
+    let validation_started = Instant::now();
     assert_ping(common, &socket)?;
+    let validation = validation_started.elapsed();
     let duration = server.started.elapsed();
-    server.shutdown_and_wait(common)?;
+    let completion = server.shutdown_and_wait(common)?;
     Ok(RunResult {
         duration_ns: duration_ns(duration)?,
         evidence: Evidence {
@@ -497,6 +526,13 @@ fn run_headless(common: &mut Common) -> Result<RunResult> {
             socket_rpcs: 2,
             process_exits: 1,
             ..Evidence::default()
+        },
+        phases: RunPhases {
+            measured_event: PhaseMetric::completed(duration)?,
+            validation: PhaseMetric::completed(validation)?,
+            process_exit: PhaseMetric::completed(completion.process_exit)?,
+            thread_join: PhaseMetric::completed(completion.thread_join)?,
+            ..RunPhases::default()
         },
     })
 }
@@ -508,12 +544,14 @@ fn run_restored(common: &mut Common, state: &Path, terminal_id: &str) -> Result<
     let args = headless_args(&session, &socket, Some(state));
     let mut server = RunningHeadless::start(common, args, &socket, common.wrap_measured_process)?;
     server.wait_ready()?;
+    let validation_started = Instant::now();
     let topology = json_cli(common, &socket, &["terminal", "list"])?;
     if !json_contains_string(&topology, terminal_id) {
         bail!("restored terminal list omitted saved terminal {terminal_id}");
     }
+    let validation = validation_started.elapsed();
     let duration = server.started.elapsed();
-    server.shutdown_and_wait(common)?;
+    let completion = server.shutdown_and_wait(common)?;
     Ok(RunResult {
         duration_ns: duration_ns(duration)?,
         evidence: Evidence {
@@ -522,6 +560,13 @@ fn run_restored(common: &mut Common, state: &Path, terminal_id: &str) -> Result<
             restored_topologies: 1,
             process_exits: 1,
             ..Evidence::default()
+        },
+        phases: RunPhases {
+            measured_event: PhaseMetric::completed(duration)?,
+            validation: PhaseMetric::completed(validation)?,
+            process_exit: PhaseMetric::completed(completion.process_exit)?,
+            thread_join: PhaseMetric::completed(completion.thread_join)?,
+            ..RunPhases::default()
         },
     })
 }
@@ -541,6 +586,7 @@ fn run_incompatible(
     if captured.status.success() {
         bail!("incompatible state unexpectedly started successfully");
     }
+    let validation_started = Instant::now();
     let stderr = String::from_utf8_lossy(&captured.stderr);
     let expected = format!("cmux-tui: {expected}");
     validate_primary_diagnostic(&stderr, &expected)?;
@@ -552,9 +598,17 @@ fn run_incompatible(
     if stored != INCOMPATIBLE_SCHEMA.to_string() {
         bail!("schema rejection changed stored schema to {stored}");
     }
+    let validation = validation_started.elapsed();
     Ok(RunResult {
         duration_ns: duration_ns(captured.duration)?,
         evidence: Evidence { schema_rejections: 1, process_exits: 1, ..Evidence::default() },
+        phases: RunPhases {
+            measured_event: PhaseMetric::completed(captured.duration)?,
+            validation: PhaseMetric::completed(validation)?,
+            process_exit: PhaseMetric::completed(captured.duration)?,
+            thread_join: PhaseMetric::completed(captured.thread_join_duration)?,
+            ..RunPhases::default()
+        },
     })
 }
 
@@ -591,6 +645,11 @@ struct RunningHeadless {
     started: Instant,
     events: mpsc::Receiver<StreamEvent>,
     reader: Option<thread::JoinHandle<std::io::Result<Vec<u8>>>>,
+}
+
+struct CompletionTimings {
+    process_exit: Duration,
+    thread_join: Duration,
 }
 
 impl RunningHeadless {
@@ -642,16 +701,20 @@ impl RunningHeadless {
         }
     }
 
-    fn shutdown_and_wait(&mut self, common: &Common) -> Result<()> {
+    fn shutdown_and_wait(&mut self, common: &Common) -> Result<CompletionTimings> {
+        let exit_started = Instant::now();
         json_cli(common, &self.socket, &["session", "current", "shutdown"])?;
         let child = self.child.as_mut().context("headless process already reaped")?;
         let status = wait_child(child, PROCESS_TIMEOUT)?;
+        let process_exit = exit_started.elapsed();
+        let join_started = Instant::now();
         let output = self.join_reader()?;
+        let thread_join = join_started.elapsed();
         self.child = None;
         if !status.success() {
             bail!("headless process exited with {status}: {}", String::from_utf8_lossy(&output));
         }
-        Ok(())
+        Ok(CompletionTimings { process_exit, thread_join })
     }
 
     fn join_reader(&mut self) -> Result<Vec<u8>> {
@@ -750,7 +813,8 @@ impl PtyRuntime {
         &mut self,
         terminate: bool,
         timeout: Duration,
-    ) -> Result<(cmux_pty::ExitStatus, PtyReadResult)> {
+    ) -> Result<(cmux_pty::ExitStatus, PtyReadResult, CompletionTimings)> {
+        let exit_started = Instant::now();
         let mut kill_error = if terminate { self.killer.kill().err() } else { None };
         let mut timed_out = false;
         let status = match self.status_receiver.recv_timeout(timeout) {
@@ -781,6 +845,8 @@ impl PtyRuntime {
                 };
             }
         };
+        let process_exit = exit_started.elapsed();
+        let join_started = Instant::now();
         self.status_thread
             .take()
             .context("PTY wait thread already joined")?
@@ -792,13 +858,18 @@ impl PtyRuntime {
             .context("PTY reader thread already joined")?
             .join()
             .map_err(|_| anyhow!("PTY reader panicked"))??;
+        let thread_join = join_started.elapsed();
         if let Some(error) = kill_error {
             return Err(error).context("kill interactive process during cleanup");
         }
         if timed_out {
             bail!("interactive process exceeded {timeout:?} after detach and was killed");
         }
-        Ok((status.context("wait for interactive process")?, reader))
+        Ok((
+            status.context("wait for interactive process")?,
+            reader,
+            CompletionTimings { process_exit, thread_join },
+        ))
     }
 
     fn fail<T>(&mut self, error: anyhow::Error) -> Result<T> {
@@ -970,6 +1041,7 @@ struct Captured {
     stdout: Vec<u8>,
     stderr: Vec<u8>,
     duration: Duration,
+    thread_join_duration: Duration,
 }
 
 fn run_captured(mut command: Command) -> Result<Captured> {
@@ -982,9 +1054,11 @@ fn run_captured(mut command: Command) -> Result<Captured> {
     let stderr_reader = thread::spawn(move || read_bounded(stderr));
     let status = wait_child(&mut child, PROCESS_TIMEOUT);
     let duration = started.elapsed();
+    let join_started = Instant::now();
     let stdout = stdout_reader.join().map_err(|_| anyhow!("stdout reader panicked"))??;
     let stderr = stderr_reader.join().map_err(|_| anyhow!("stderr reader panicked"))??;
-    Ok(Captured { status: status?, stdout, stderr, duration })
+    let thread_join_duration = join_started.elapsed();
+    Ok(Captured { status: status?, stdout, stderr, duration, thread_join_duration })
 }
 
 fn read_bounded(mut reader: impl Read) -> std::io::Result<Vec<u8>> {
@@ -1208,21 +1282,24 @@ mod tests {
     #[test]
     fn incompatible_error_requires_the_exact_primary_diagnostic() {
         let expected = "cmux-tui: saved state is incompatible";
-        assert!(validate_primary_diagnostic(
-            "cmux-tui: saved state is incompatible\r\nrecovery",
-            expected
-        )
-        .is_ok());
-        assert!(validate_primary_diagnostic(
-            "cmux-tui: saved state is incompatible with details\n",
-            expected
-        )
-        .is_err());
-        assert!(validate_primary_diagnostic(
-            "prefix cmux-tui: saved state is incompatible\n",
-            expected
-        )
-        .is_err());
+        assert!(
+            validate_primary_diagnostic(
+                "cmux-tui: saved state is incompatible\r\nrecovery",
+                expected
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_primary_diagnostic(
+                "cmux-tui: saved state is incompatible with details\n",
+                expected
+            )
+            .is_err()
+        );
+        assert!(
+            validate_primary_diagnostic("prefix cmux-tui: saved state is incompatible\n", expected)
+                .is_err()
+        );
     }
 
     #[test]
@@ -1260,6 +1337,8 @@ mod tests {
     fn zig_manifest_parser_rejects_malformed_and_missing_values() {
         assert!(parse_minimum_zig_version(".minimum_zig_version = \"0.16\",").is_err());
         assert!(parse_minimum_zig_version(".minimum_zig_version = 0.16.0,").is_err());
+        assert!(parse_minimum_zig_version(".minimum_zig_version = \"0.16.0-dev.1\",").is_err());
+        assert!(parse_minimum_zig_version(".minimum_zig_version = \"0.16.0+build.1\",").is_err());
         assert!(parse_minimum_zig_version(".{};").is_err());
     }
 }

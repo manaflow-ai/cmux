@@ -1,17 +1,19 @@
 mod args;
+mod lifecycle;
 mod process;
 mod report;
 
 use std::str::FromStr;
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use serde::Serialize;
 
 pub use args::Args;
-pub use process::{run_sample, Fixture, Target};
+pub use lifecycle::{LifecycleRecorder, PhaseMetric, RunPhases, SampleKind};
+pub use process::{Fixture, Target, run_sample};
 pub use report::{
-    now_unix_ms, ComparisonReport, HostMetadata, Pair, ProfileReport, SampleSet, ScenarioReport,
-    SignedSummary, TargetMetadata,
+    ComparisonReport, HostMetadata, Pair, ProfileReport, SampleSet, ScenarioReport, SignedSummary,
+    TargetMetadata, now_unix_ms,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -151,6 +153,7 @@ impl Evidence {
 pub struct RunResult {
     pub duration_ns: u64,
     pub evidence: Evidence,
+    pub phases: RunPhases,
 }
 
 fn duration_ns(duration: std::time::Duration) -> Result<u64> {

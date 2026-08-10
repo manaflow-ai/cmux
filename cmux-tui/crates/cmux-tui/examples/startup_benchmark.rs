@@ -1,13 +1,15 @@
 mod startup_benchmark_support;
 
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::Path;
+use std::time::{Duration, Instant};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use startup_benchmark_support::{
-    now_unix_ms, run_sample, Args, ComparisonReport, Evidence, Fixture, HostMetadata, Pair,
-    ProfileReport, SampleSet, Scenario, ScenarioReport, SignedSummary, Target, TargetKind,
-    TargetMetadata,
+    Args, ComparisonReport, Evidence, Fixture, HostMetadata, LifecycleRecorder, Pair, PhaseMetric,
+    ProfileReport, RunPhases, SampleKind, SampleSet, Scenario, ScenarioReport, SignedSummary,
+    Target, TargetKind, TargetMetadata, now_unix_ms, run_sample,
 };
 
 fn main() {
@@ -41,30 +43,35 @@ fn run() -> Result<()> {
             TargetKind::Baseline => baseline,
             TargetKind::Candidate => candidate,
         };
-        return run_profile(&args.output_dir, &args.platform_label, target, scenario);
+        return run_profile(&args, target, scenario);
     }
     run_comparison(args, baseline, candidate)
 }
 
-fn run_profile(
-    output_dir: &Path,
-    platform_label: &str,
-    target: Target,
-    scenario: Scenario,
-) -> Result<()> {
+fn run_profile(args: &Args, target: Target, scenario: Scenario) -> Result<()> {
     let metadata = TargetMetadata::collect(&target)?;
-    let mut fixture = Fixture::new(target.clone(), scenario, true)
+    let mut lifecycle =
+        LifecycleRecorder::new(args.fixture_parent.clone(), args.output_dir.clone())?;
+    let prepare_started = std::time::Instant::now();
+    let mut fixture = Fixture::new(target.clone(), scenario, true, lifecycle.fixture_parent())
         .with_context(|| format!("prepare {} {scenario:?} profile", target.kind.as_str()))?;
+    let prepare = PhaseMetric::completed(prepare_started.elapsed())?;
     let mut evidence = fixture.setup_evidence();
-    let result = run_sample(&mut fixture)
+    let mut result = run_sample(&mut fixture)
         .with_context(|| format!("run {} {scenario:?} profile", target.kind.as_str()))?;
     evidence.add(&result.evidence);
     evidence.samples_completed += 1;
+    let cleanup_started = std::time::Instant::now();
     evidence.add(&fixture.cleanup()?);
+    let fixture_cleanup = PhaseMetric::completed(cleanup_started.elapsed())?;
+    let root_deferral = fixture.defer_root(&mut lifecycle)?;
+    result.phases.prepare = prepare;
+    result.phases.fixture_cleanup = fixture_cleanup;
+    result.phases.root_deferral = root_deferral;
     let report = ProfileReport {
         schema_version: 2,
         generated_at_unix_ms: now_unix_ms(),
-        platform_label: platform_label.to_string(),
+        platform_label: args.platform_label.clone(),
         target: target.kind,
         scenario,
         duration_ns: result.duration_ns,
@@ -73,17 +80,35 @@ fn run_profile(
         binary: metadata,
     };
     let name = format!("startup-profile-{}-{}.json", target.kind.as_str(), scenario.as_str());
-    write_json(&output_dir.join(name), &report)
+    let report_path = args.output_dir.join(name);
+    write_json(&report_path, &report)?;
+    lifecycle.record_profile(target.kind, scenario, &result.phases)?;
+    lifecycle.persist_final(
+        &[report_path],
+        &format!("startup-lifecycle-{}-{}.json", target.kind.as_str(), scenario.as_str()),
+    )
 }
 
 fn run_comparison(args: Args, baseline: Target, candidate: Target) -> Result<()> {
     let baseline_metadata = TargetMetadata::collect(&baseline)?;
     let candidate_metadata = TargetMetadata::collect(&candidate)?;
+    let mut lifecycle =
+        LifecycleRecorder::new(args.fixture_parent.clone(), args.output_dir.clone())?;
+    let suite_deadline = Instant::now()
+        .checked_add(Duration::from_secs(u64::try_from(args.suite_deadline_seconds)?))
+        .context("benchmark suite deadline overflow")?;
     let mut scenarios = Vec::new();
     for scenario in Scenario::ALL {
         scenarios.push(
-            compare_scenario(&args, baseline.clone(), candidate.clone(), scenario)
-                .with_context(|| format!("compare {} startup", scenario.as_str()))?,
+            compare_scenario(
+                &args,
+                baseline.clone(),
+                candidate.clone(),
+                scenario,
+                suite_deadline,
+                &mut lifecycle,
+            )
+            .with_context(|| format!("compare {} startup", scenario.as_str()))?,
         );
     }
     let report = ComparisonReport {
@@ -98,9 +123,11 @@ fn run_comparison(args: Args, baseline: Target, candidate: Target) -> Result<()>
         candidate: candidate_metadata,
         scenarios,
     };
-    write_json(&args.output_dir.join("startup-benchmark.json"), &report)?;
-    fs::write(args.output_dir.join("startup-benchmark.md"), render_markdown(&report))?;
-    Ok(())
+    let json_path = args.output_dir.join("startup-benchmark.json");
+    let markdown_path = args.output_dir.join("startup-benchmark.md");
+    write_json(&json_path, &report)?;
+    write_bytes(&markdown_path, render_markdown(&report).as_bytes())?;
+    lifecycle.persist_final(&[json_path, markdown_path], "startup-lifecycle.json")
 }
 
 fn compare_scenario(
@@ -108,14 +135,18 @@ fn compare_scenario(
     baseline: Target,
     candidate: Target,
     scenario: Scenario,
+    suite_deadline: Instant,
+    lifecycle: &mut LifecycleRecorder,
 ) -> Result<ScenarioReport> {
-    let mut baseline = ScenarioTarget::new(baseline, scenario)?;
-    let mut candidate = ScenarioTarget::new(candidate, scenario)?;
+    let mut baseline = ScenarioTarget::new(baseline, scenario, lifecycle)?;
+    let mut candidate = ScenarioTarget::new(candidate, scenario, lifecycle)?;
 
     for index in 0..args.warmups {
+        ensure_suite_deadline(suite_deadline, scenario, SampleKind::Warmup, index)?;
         let first = if index % 2 == 0 { TargetKind::Baseline } else { TargetKind::Candidate };
-        run_pair(first, &mut baseline, &mut candidate)
+        run_pair(first, SampleKind::Warmup, index, &mut baseline, &mut candidate, lifecycle)
             .with_context(|| format!("warmup pair {index}"))?;
+        ensure_suite_deadline(suite_deadline, scenario, SampleKind::Warmup, index)?;
         baseline.evidence.warmups_completed += 1;
         candidate.evidence.warmups_completed += 1;
     }
@@ -124,9 +155,12 @@ fn compare_scenario(
     let mut candidate_values = Vec::with_capacity(args.samples);
     let mut pairs = Vec::with_capacity(args.samples);
     for index in 0..args.samples {
+        ensure_suite_deadline(suite_deadline, scenario, SampleKind::Measured, index)?;
         let first = if index % 2 == 0 { TargetKind::Baseline } else { TargetKind::Candidate };
-        let (baseline_result, candidate_result) = run_pair(first, &mut baseline, &mut candidate)
-            .with_context(|| format!("measured pair {index}"))?;
+        let (baseline_result, candidate_result) =
+            run_pair(first, SampleKind::Measured, index, &mut baseline, &mut candidate, lifecycle)
+                .with_context(|| format!("measured pair {index}"))?;
+        ensure_suite_deadline(suite_deadline, scenario, SampleKind::Measured, index)?;
         baseline.evidence.samples_completed += 1;
         candidate.evidence.samples_completed += 1;
         let baseline_ns = baseline_result.duration_ns;
@@ -143,8 +177,8 @@ fn compare_scenario(
             candidate_minus_baseline_ns: delta,
         });
     }
-    baseline.finish()?;
-    candidate.finish()?;
+    baseline.finish(lifecycle)?;
+    candidate.finish(lifecycle)?;
     let baseline_evidence = baseline.evidence;
     let candidate_evidence = candidate.evidence;
     validate_evidence(scenario, args, &baseline_evidence)?;
@@ -160,6 +194,22 @@ fn compare_scenario(
     })
 }
 
+fn ensure_suite_deadline(
+    deadline: Instant,
+    scenario: Scenario,
+    kind: SampleKind,
+    index: usize,
+) -> Result<()> {
+    if Instant::now() >= deadline {
+        bail!(
+            "benchmark suite deadline expired at the boundary of {} {} pair {index}",
+            scenario.as_str(),
+            kind.as_str(),
+        );
+    }
+    Ok(())
+}
+
 struct ScenarioTarget {
     target: Target,
     scenario: Scenario,
@@ -168,29 +218,55 @@ struct ScenarioTarget {
 }
 
 impl ScenarioTarget {
-    fn new(target: Target, scenario: Scenario) -> Result<Self> {
+    fn new(target: Target, scenario: Scenario, lifecycle: &mut LifecycleRecorder) -> Result<Self> {
+        let prepare_started = std::time::Instant::now();
         let fixture =
             matches!(scenario, Scenario::Warm | Scenario::Restored | Scenario::Incompatible)
-                .then(|| Fixture::new(target.clone(), scenario, false))
+                .then(|| Fixture::new(target.clone(), scenario, false, lifecycle.fixture_parent()))
                 .transpose()?;
+        if fixture.is_some() {
+            lifecycle.record_fixture(
+                target.kind,
+                scenario,
+                "prepare",
+                RunPhases {
+                    prepare: PhaseMetric::completed(prepare_started.elapsed())?,
+                    ..RunPhases::default()
+                },
+            );
+        }
         let evidence = fixture.as_ref().map(Fixture::setup_evidence).unwrap_or_default();
         Ok(Self { target, scenario, fixture, evidence })
     }
 
-    fn run(&mut self) -> Result<startup_benchmark_support::RunResult> {
+    fn run(
+        &mut self,
+        recorder: &mut LifecycleRecorder,
+    ) -> Result<startup_benchmark_support::RunResult> {
         if let Some(fixture) = self.fixture.as_mut() {
             let result = run_sample(fixture)?;
             self.evidence.add(&result.evidence);
             return Ok(result);
         }
 
-        let mut fixture = Fixture::new(self.target.clone(), self.scenario, false)?;
+        let prepare_started = std::time::Instant::now();
+        let mut fixture =
+            Fixture::new(self.target.clone(), self.scenario, false, recorder.fixture_parent())?;
+        let prepare = PhaseMetric::completed(prepare_started.elapsed())?;
         self.evidence.add(&fixture.setup_evidence());
         let result = run_sample(&mut fixture);
+        let cleanup_started = std::time::Instant::now();
         let cleanup = fixture.cleanup();
+        let cleanup_duration = cleanup_started.elapsed();
+        let root_deferral = if cleanup.is_ok() { Some(fixture.defer_root(recorder)) } else { None };
+        let root_deferral = root_deferral.transpose()?;
         let result = match (result, cleanup) {
-            (Ok(result), Ok(cleanup)) => {
+            (Ok(mut result), Ok(cleanup)) => {
                 self.evidence.add(&cleanup);
+                result.phases.prepare = prepare;
+                result.phases.fixture_cleanup = PhaseMetric::completed(cleanup_duration)?;
+                result.phases.root_deferral = root_deferral
+                    .context("root deferral was not attempted after successful cleanup")?;
                 result
             }
             (Err(error), Ok(_)) => return Err(error),
@@ -203,9 +279,18 @@ impl ScenarioTarget {
         Ok(result)
     }
 
-    fn finish(&mut self) -> Result<()> {
+    fn finish(&mut self, recorder: &mut LifecycleRecorder) -> Result<()> {
         if let Some(fixture) = self.fixture.as_mut() {
+            let cleanup_started = std::time::Instant::now();
             self.evidence.add(&fixture.cleanup()?);
+            let fixture_cleanup = PhaseMetric::completed(cleanup_started.elapsed())?;
+            let root_deferral = fixture.defer_root(recorder)?;
+            recorder.record_fixture(
+                self.target.kind,
+                self.scenario,
+                "cleanup-and-defer",
+                RunPhases { fixture_cleanup, root_deferral, ..RunPhases::default() },
+            );
         }
         Ok(())
     }
@@ -213,21 +298,33 @@ impl ScenarioTarget {
 
 fn run_pair(
     first: TargetKind,
+    kind: SampleKind,
+    index: usize,
     baseline: &mut ScenarioTarget,
     candidate: &mut ScenarioTarget,
+    recorder: &mut LifecycleRecorder,
 ) -> Result<(startup_benchmark_support::RunResult, startup_benchmark_support::RunResult)> {
-    match first {
+    let (baseline_result, candidate_result) = match first {
         TargetKind::Baseline => {
-            let baseline = baseline.run().context("run baseline")?;
-            let candidate = candidate.run().context("run candidate")?;
+            let baseline = baseline.run(recorder).context("run baseline")?;
+            let candidate = candidate.run(recorder).context("run candidate")?;
             Ok((baseline, candidate))
         }
         TargetKind::Candidate => {
-            let candidate = candidate.run().context("run candidate")?;
-            let baseline = baseline.run().context("run baseline")?;
+            let candidate = candidate.run(recorder).context("run candidate")?;
+            let baseline = baseline.run(recorder).context("run baseline")?;
             Ok((baseline, candidate))
         }
-    }
+    }?;
+    recorder.record_pair(
+        baseline.scenario,
+        kind,
+        index,
+        first,
+        &baseline_result.phases,
+        &candidate_result.phases,
+    )?;
+    Ok((baseline_result, candidate_result))
 }
 
 fn validate_evidence(scenario: Scenario, args: &Args, evidence: &Evidence) -> Result<()> {
@@ -277,7 +374,17 @@ fn validate_evidence(scenario: Scenario, args: &Args, evidence: &Evidence) -> Re
 fn write_json(path: &Path, value: &impl serde::Serialize) -> Result<()> {
     let mut json = serde_json::to_vec_pretty(value)?;
     json.push(b'\n');
-    fs::write(path, json).with_context(|| format!("write {}", path.display()))
+    write_bytes(path, &json)
+}
+
+fn write_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .with_context(|| format!("create {}", path.display()))?;
+    file.write_all(bytes).with_context(|| format!("write {}", path.display()))?;
+    file.sync_all().with_context(|| format!("flush {}", path.display()))
 }
 
 fn render_markdown(report: &ComparisonReport) -> String {

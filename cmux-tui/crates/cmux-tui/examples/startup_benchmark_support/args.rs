@@ -15,7 +15,9 @@ pub struct Args {
     pub candidate_sha: String,
     pub warmups: usize,
     pub samples: usize,
+    pub suite_deadline_seconds: usize,
     pub output_dir: PathBuf,
+    pub fixture_parent: PathBuf,
     pub platform_label: String,
     pub profile_only: Option<Scenario>,
     pub profile_target: Option<TargetKind>,
@@ -35,7 +37,9 @@ impl Args {
             candidate_sha: String::new(),
             warmups: 10,
             samples: 50,
+            suite_deadline_seconds: 3_600,
             output_dir: PathBuf::new(),
+            fixture_parent: PathBuf::new(),
             platform_label: String::new(),
             profile_only: None,
             profile_target: None,
@@ -53,7 +57,11 @@ impl Args {
                 "--candidate-sha" => args.candidate_sha = parser.value(&key, inline)?,
                 "--warmups" => args.warmups = parser.number(&key, inline)?,
                 "--samples" => args.samples = parser.number(&key, inline)?,
+                "--suite-deadline-seconds" => {
+                    args.suite_deadline_seconds = parser.number(&key, inline)?
+                }
                 "--output-dir" => args.output_dir = parser.path(&key, inline)?,
+                "--fixture-parent" => args.fixture_parent = parser.path(&key, inline)?,
                 "--platform-label" => args.platform_label = parser.value(&key, inline)?,
                 "--profile-only" => args.profile_only = Some(parser.value(&key, inline)?.parse()?),
                 "--profile-target" => {
@@ -91,6 +99,10 @@ impl Args {
         if self.output_dir.as_os_str().is_empty() {
             bail!("--output-dir is required");
         }
+        if self.suite_deadline_seconds == 0 {
+            bail!("--suite-deadline-seconds must be positive");
+        }
+        self.fixture_parent = canonical_directory(&self.fixture_parent, "--fixture-parent")?;
         if self.platform_label.trim().is_empty() {
             bail!("--platform-label is required");
         }

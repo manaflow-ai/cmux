@@ -56,16 +56,19 @@ jobs:
           - platform: macos-blacksmith
             runner: blacksmith-6vcpu-macos-15
             timeout_minutes: 90
+            suite_deadline_seconds: 3600
             rust_target: ""
             binary_suffix: ""
           - platform: linux-azure
             runner: ubuntu-24.04
             timeout_minutes: 90
+            suite_deadline_seconds: 3600
             rust_target: ""
             binary_suffix: ""
           - platform: windows-azure
             runner: windows-latest
             timeout_minutes: 180
+            suite_deadline_seconds: 9000
             rust_target: x86_64-pc-windows-gnu
             binary_suffix: .exe
     env:
@@ -73,6 +76,7 @@ jobs:
       CANDIDATE_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.event.pull_request.head.sha }}
       WARMUPS: ${{ github.event_name == 'workflow_dispatch' && inputs.warmups || '10' }}
       SAMPLES: ${{ github.event_name == 'workflow_dispatch' && inputs.samples || '50' }}
+      SUITE_DEADLINE_SECONDS: ${{ matrix.suite_deadline_seconds }}
       RUST_TARGET: ${{ matrix.rust_target }}
       BINARY_SUFFIX: ${{ matrix.binary_suffix }}
       PLATFORM_LABEL: ${{ matrix.platform }}
@@ -169,7 +173,7 @@ jobs:
           set -euo pipefail
           baseline_version="$(bash "$BASELINE_SOURCE/scripts/ghostty-zig-version.sh")"
           candidate_version="$(bash "$CANDIDATE_SOURCE/scripts/ghostty-zig-version.sh")"
-          version_pattern='^[0-9]+\.[0-9]+\.[0-9]+[0-9A-Za-z.+-]*$'
+          version_pattern='^[0-9]+\.[0-9]+\.[0-9]+$'
           [[ "$baseline_version" =~ $version_pattern ]]
           [[ "$candidate_version" =~ $version_pattern ]]
           printf 'baseline=%s\n' "$baseline_version" >> "$GITHUB_OUTPUT"
@@ -239,7 +243,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$ARTIFACT_DIR/profiles"
+          mkdir -p "$ARTIFACT_DIR/profiles" "$RUNNER_TEMP/cmux-startup-fixtures"
           {
             printf 'CMUX_BENCHMARK_RUN_ID=%s\n' "$GITHUB_RUN_ID"
             printf 'CMUX_BENCHMARK_RUN_ATTEMPT=%s\n' "$GITHUB_RUN_ATTEMPT"
@@ -251,6 +255,7 @@ jobs:
             printf 'CMUX_BENCHMARK_WORKFLOW_REF=%s\n' "$GITHUB_WORKFLOW_REF"
             printf 'BASELINE_TARGET_ROOT=%s\n' "$RUNNER_TEMP/cmux-startup-a"
             printf 'CANDIDATE_TARGET_ROOT=%s\n' "$RUNNER_TEMP/cmux-startup-b"
+            printf 'FIXTURE_PARENT=%s\n' "$RUNNER_TEMP/cmux-startup-fixtures"
           } >> "$GITHUB_ENV"
 
       - name: Capture common runner metadata
@@ -391,6 +396,89 @@ jobs:
               "${harness_args[@]}"
           )
 
+      - name: Package profile attribution binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import shutil
+
+          artifact_root = pathlib.Path(os.environ["ARTIFACT_DIR"])
+          package_root = artifact_root / "binaries"
+          rust_target = os.environ["RUST_TARGET"]
+          binary_name = f"cmux-tui{os.environ['BINARY_SUFFIX']}"
+
+          def digest(path):
+              sha256 = hashlib.sha256()
+              with path.open("rb") as source:
+                  for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                      sha256.update(chunk)
+              return sha256.hexdigest()
+
+          def record(path):
+              return {
+                  "path": path.relative_to(artifact_root).as_posix(),
+                  "sha256": digest(path),
+                  "size_bytes": path.stat().st_size,
+              }
+
+          targets = {}
+          for target, root_variable in (
+              ("baseline", "BASELINE_TARGET_ROOT"),
+              ("candidate", "CANDIDATE_TARGET_ROOT"),
+          ):
+              release = pathlib.Path(os.environ[root_variable])
+              if rust_target:
+                  release /= rust_target
+              release /= "release"
+              source_binary = release / binary_name
+              if not source_binary.is_file():
+                  raise SystemExit(f"profile attribution binary is missing: {source_binary}")
+
+              target_root = package_root / target
+              target_root.mkdir(parents=True, exist_ok=True)
+              packaged_binary = target_root / binary_name
+              shutil.copy2(source_binary, packaged_binary)
+
+              sidecars = []
+              for suffix in (".dSYM", ".pdb", ".dwp", ".debug"):
+                  candidate = source_binary.with_suffix(suffix)
+                  if candidate.exists() and candidate not in sidecars:
+                      sidecars.append(candidate)
+              appended_dsym = source_binary.with_name(f"{source_binary.name}.dSYM")
+              if appended_dsym.exists() and appended_dsym not in sidecars:
+                  sidecars.append(appended_dsym)
+
+              symbols = []
+              for sidecar in sidecars:
+                  destination = target_root / sidecar.name
+                  if sidecar.is_dir():
+                      shutil.copytree(sidecar, destination)
+                      symbols.extend(record(path) for path in sorted(destination.rglob("*")) if path.is_file())
+                  elif sidecar.is_file():
+                      shutil.copy2(sidecar, destination)
+                      symbols.append(record(destination))
+
+              targets[target] = {
+                  "binary": record(packaged_binary),
+                  "symbols": symbols,
+              }
+
+          manifest = {
+              "schema_version": 1,
+              "purpose": "offline attribution of native cmux-tui startup profiles",
+              "targets": targets,
+          }
+          (artifact_root / "profile-attribution.json").write_text(
+              json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
       - name: Test candidate benchmark harness
         shell: bash
         run: |
@@ -444,7 +532,9 @@ jobs:
             --candidate-sha "$CANDIDATE_SHA" \
             --warmups "$WARMUPS" \
             --samples "$SAMPLES" \
+            --suite-deadline-seconds "$SUITE_DEADLINE_SECONDS" \
             --output-dir "$ARTIFACT_DIR" \
+            --fixture-parent "$FIXTURE_PARENT" \
             --platform-label "$PLATFORM_LABEL"
 
           test -s "$ARTIFACT_DIR/startup-benchmark.json"
@@ -464,6 +554,7 @@ jobs:
           import math
           import os
           import pathlib
+          import re
           import sys
 
           path = pathlib.Path(sys.argv[1])
@@ -569,7 +660,179 @@ jobs:
               binary = pathlib.Path(get(f"{target}.binary"))
               digest = hashlib.sha256(binary.read_bytes()).hexdigest()
               if digest != get(f"{target}.binary_sha256"):
-                  raise SystemExit(f"{target} binary hash does not match the uploaded binary")
+                  raise SystemExit(f"{target} binary hash does not match the measured binary")
+
+          artifact_root = path.parent
+          attribution_path = artifact_root / "profile-attribution.json"
+          attribution = json.loads(attribution_path.read_text(encoding="utf-8"))
+          if attribution.get("schema_version") != 1:
+              raise SystemExit(
+                  f"unsupported profile attribution schema: {attribution.get('schema_version')!r}"
+              )
+          if attribution.get("purpose") != "offline attribution of native cmux-tui startup profiles":
+              raise SystemExit("profile attribution manifest has the wrong purpose")
+          attribution_targets = attribution.get("targets")
+          if not isinstance(attribution_targets, dict) or set(attribution_targets) != {
+              "baseline",
+              "candidate",
+          }:
+              raise SystemExit("profile attribution manifest has the wrong targets")
+
+          listed_artifacts = set()
+
+          def validate_artifact(entry, context):
+              if not isinstance(entry, dict) or set(entry) != {"path", "sha256", "size_bytes"}:
+                  raise SystemExit(f"{context} has an invalid artifact record: {entry!r}")
+              if (
+                  not isinstance(entry["path"], str)
+                  or not isinstance(entry["sha256"], str)
+                  or len(entry["sha256"]) != 64
+                  or any(character not in "0123456789abcdef" for character in entry["sha256"])
+                  or not isinstance(entry["size_bytes"], int)
+                  or isinstance(entry["size_bytes"], bool)
+                  or entry["size_bytes"] <= 0
+              ):
+                  raise SystemExit(f"{context} has invalid artifact metadata: {entry!r}")
+              relative = pathlib.PurePosixPath(entry["path"])
+              if relative.is_absolute() or ".." in relative.parts or not relative.parts:
+                  raise SystemExit(f"{context} has an unsafe artifact path: {entry['path']!r}")
+              if relative.as_posix() in listed_artifacts:
+                  raise SystemExit(f"{context} duplicates artifact path: {entry['path']!r}")
+              artifact = artifact_root.joinpath(*relative.parts)
+              if artifact.is_symlink() or not artifact.is_file():
+                  raise SystemExit(f"{context} artifact is missing or is a symlink: {artifact}")
+              if entry["size_bytes"] != artifact.stat().st_size:
+                  raise SystemExit(f"{context} artifact size does not match: {artifact}")
+              digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
+              if entry["sha256"] != digest:
+                  raise SystemExit(f"{context} artifact hash does not match: {artifact}")
+              listed_artifacts.add(relative.as_posix())
+              return entry
+
+          for target in ("baseline", "candidate"):
+              target_manifest = attribution_targets[target]
+              if not isinstance(target_manifest, dict) or set(target_manifest) != {
+                  "binary",
+                  "symbols",
+              }:
+                  raise SystemExit(f"{target} has an invalid profile attribution record")
+              binary_entry = validate_artifact(target_manifest["binary"], f"{target} binary")
+              expected_binary_path = f"binaries/{target}/cmux-tui{os.environ['BINARY_SUFFIX']}"
+              if binary_entry["path"] != expected_binary_path:
+                  raise SystemExit(
+                      f"{target} packaged binary path is {binary_entry['path']!r}, "
+                      f"expected {expected_binary_path!r}"
+                  )
+              if binary_entry["sha256"] != get(f"{target}.binary_sha256"):
+                  raise SystemExit(f"{target} packaged binary is not the measured binary")
+              symbols = target_manifest["symbols"]
+              if not isinstance(symbols, list):
+                  raise SystemExit(f"{target} symbols are not a list")
+              for index, symbol in enumerate(symbols):
+                  validate_artifact(symbol, f"{target} symbol {index}")
+
+          packaged_files = {
+              artifact.relative_to(artifact_root).as_posix()
+              for artifact in (artifact_root / "binaries").rglob("*")
+              if artifact.is_file()
+          }
+          if packaged_files != listed_artifacts:
+              raise SystemExit(
+                  "profile attribution manifest does not list every packaged file: "
+                  f"listed={sorted(listed_artifacts)!r} packaged={sorted(packaged_files)!r}"
+              )
+
+          lifecycle_path = artifact_root / "startup-lifecycle.json"
+          lifecycle = json.loads(lifecycle_path.read_text(encoding="utf-8"))
+          if lifecycle.get("schema_version") != 1:
+              raise SystemExit(f"unsupported lifecycle schema: {lifecycle.get('schema_version')!r}")
+          if lifecycle.get("fixture_parent_name") != "cmux-startup-fixtures":
+              raise SystemExit(
+                  f"wrong fixture parent name: {lifecycle.get('fixture_parent_name')!r}"
+              )
+          if lifecycle.get("report_written_before_reclamation") is not True:
+              raise SystemExit("lifecycle evidence was published before the benchmark report")
+
+          deferred_roots = lifecycle.get("deferred_roots")
+          expected_root_count = 2 * (2 * (expected_warmups + expected_samples) + 3)
+          if not isinstance(deferred_roots, list) or len(deferred_roots) != expected_root_count:
+              actual_root_count = len(deferred_roots) if isinstance(deferred_roots, list) else deferred_roots
+              raise SystemExit(f"wrong deferred root count: {actual_root_count!r}")
+          if len(set(deferred_roots)) != len(deferred_roots) or any(
+              not isinstance(root, str) or re.fullmatch(r"r-[0-9]{10}-[0-9]{20}", root) is None
+              for root in deferred_roots
+          ):
+              raise SystemExit("deferred fixture roots are not unique fixed-width root names")
+
+          lifecycle_pairs = lifecycle.get("pairs")
+          expected_pair_count = 5 * (expected_warmups + expected_samples)
+          if not isinstance(lifecycle_pairs, list) or len(lifecycle_pairs) != expected_pair_count:
+              raise SystemExit("lifecycle evidence has an incomplete pair set")
+          checkpoint_files = sorted((artifact_root / "lifecycle-checkpoints").glob("*.json"))
+          if len(checkpoint_files) != expected_pair_count:
+              raise SystemExit("lifecycle evidence has an incomplete durable checkpoint set")
+          checkpoints = [json.loads(checkpoint.read_text(encoding="utf-8")) for checkpoint in checkpoint_files]
+          if sorted(checkpoints, key=lambda value: json.dumps(value, sort_keys=True)) != sorted(
+              lifecycle_pairs, key=lambda value: json.dumps(value, sort_keys=True)
+          ):
+              raise SystemExit("durable lifecycle checkpoints do not match final lifecycle evidence")
+
+          persistent = {"warm", "restored", "incompatible"}
+          validation = {"cold": 1, "warm": 0, "headless": 1, "restored": 1, "incompatible": 1}
+          observed_pair_keys = set()
+          for pair in lifecycle_pairs:
+              scenario = pair.get("scenario")
+              kind = pair.get("kind")
+              index = pair.get("index")
+              first = pair.get("first")
+              if scenario not in {"cold", "warm", "headless", "restored", "incompatible"}:
+                  raise SystemExit(f"unknown lifecycle scenario: {scenario!r}")
+              limit = expected_warmups if kind == "warmup" else expected_samples if kind == "measured" else -1
+              if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < limit:
+                  raise SystemExit(f"invalid lifecycle pair index: {pair!r}")
+              expected_first = "baseline" if index % 2 == 0 else "candidate"
+              if first != expected_first:
+                  raise SystemExit(f"wrong lifecycle pair order: {pair!r}")
+              key = (scenario, kind, index)
+              if key in observed_pair_keys:
+                  raise SystemExit(f"duplicate lifecycle pair: {key!r}")
+              observed_pair_keys.add(key)
+              for target in ("baseline", "candidate"):
+                  target_record = pair.get(target)
+                  if not isinstance(target_record, dict) or target_record.get("target") != target:
+                      raise SystemExit(f"wrong lifecycle target record: {target_record!r}")
+                  phases = target_record.get("phases")
+                  expected_counts = {
+                      "prepare": 0 if scenario in persistent else 1,
+                      "measured_event": 1,
+                      "validation": validation[scenario],
+                      "process_exit": 1,
+                      "thread_join": 1,
+                      "fixture_cleanup": 0 if scenario in persistent else 1,
+                      "root_deferral": 0 if scenario in persistent else 1,
+                      "final_reclaim": 0,
+                  }
+                  if not isinstance(phases, dict) or set(phases) != set(expected_counts):
+                      raise SystemExit(f"incomplete lifecycle phases: {phases!r}")
+                  for phase, count in expected_counts.items():
+                      metric = phases[phase]
+                      if (
+                          not isinstance(metric, dict)
+                          or metric.get("count") != count
+                          or not isinstance(metric.get("wall_ns"), int)
+                          or isinstance(metric.get("wall_ns"), bool)
+                          or metric["wall_ns"] < 0
+                          or (count == 0 and metric["wall_ns"] != 0)
+                      ):
+                          raise SystemExit(
+                              f"invalid lifecycle metric for {scenario} {target} {phase}: {metric!r}"
+                          )
+
+          fixture_records = lifecycle.get("fixtures")
+          if not isinstance(fixture_records, list) or len(fixture_records) != 12:
+              raise SystemExit("persistent fixture lifecycle evidence is incomplete")
+          if lifecycle.get("profiles") != []:
+              raise SystemExit("comparison lifecycle evidence unexpectedly contains profiles")
 
           event_names = {
               "cold": "PTY process spawn to unique session marker followed by frame-end cursor visibility",
@@ -776,6 +1039,7 @@ jobs:
               --warmups "$WARMUPS" \
               --samples "$SAMPLES" \
               --output-dir "$output_dir" \
+              --fixture-parent "$FIXTURE_PARENT" \
               --platform-label "$PLATFORM_LABEL" \
               --profile-only cold \
               --profile-target "$target"
@@ -865,6 +1129,7 @@ jobs:
               --warmups "$WARMUPS" \
               --samples "$SAMPLES" \
               --output-dir "$output_dir" \
+              --fixture-parent "$FIXTURE_PARENT" \
               --platform-label "$PLATFORM_LABEL" \
               --profile-only cold \
               --profile-target "$target" \
@@ -935,6 +1200,7 @@ jobs:
             "--warmups", $env:WARMUPS,
             "--samples", $env:SAMPLES,
             "--output-dir", $profileRoot,
+            "--fixture-parent", $env:FIXTURE_PARENT,
             "--platform-label", $env:PLATFORM_LABEL,
             "--profile-only", "cold"
           )
@@ -967,7 +1233,7 @@ jobs:
           Invoke-WprProfile "candidate"
           exit 0
 
-      - name: Upload startup evidence
+      - name: Upload startup evidence before fixture reclamation
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -975,4 +1241,102 @@ jobs:
           path: ${{ env.ARTIFACT_DIR }}/
           if-no-files-found: warn
           include-hidden-files: true
+          retention-days: 30
+
+      - name: Reclaim deferred fixture roots
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import re
+          import subprocess
+          import sys
+          import time
+
+          artifact_root = pathlib.Path(os.environ["ARTIFACT_DIR"])
+          result_path = artifact_root / "startup-reclamation-result.json"
+          runner_temp = pathlib.Path(os.environ["RUNNER_TEMP"]).resolve()
+          fixture_parent = pathlib.Path(os.environ["FIXTURE_PARENT"]).resolve()
+          expected_parent = (runner_temp / "cmux-startup-fixtures").resolve()
+          started = time.monotonic_ns()
+          status = "refused"
+          detail = ""
+          deferred_root_count = 0
+          final_reclaim_count = 0
+
+          same_path = os.path.normcase(str(fixture_parent)) == os.path.normcase(str(expected_parent))
+          if not same_path:
+              detail = f"fixture parent {fixture_parent} is not exact expected path {expected_parent}"
+          elif not fixture_parent.exists():
+              status = "already-absent"
+          else:
+              children = list(fixture_parent.iterdir())
+              valid = all(
+                  child.is_dir()
+                  and not child.is_symlink()
+                  and re.fullmatch(r"r-[0-9]{10}-[0-9]{20}", child.name) is not None
+                  for child in children
+              )
+              if not valid:
+                  detail = "fixture parent contains an unexpected entry; reclamation refused"
+              else:
+                  deferred_root_count = len(children)
+                  worker = """
+          import os
+          import pathlib
+          import shutil
+          import sys
+
+          parent = pathlib.Path(sys.argv[1]).resolve()
+          runner = pathlib.Path(sys.argv[2]).resolve()
+          expected = (runner / 'cmux-startup-fixtures').resolve()
+          if os.path.normcase(str(parent)) != os.path.normcase(str(expected)):
+              raise SystemExit('cleanup path changed after validation')
+          shutil.rmtree(parent)
+          """
+                  try:
+                      completed = subprocess.run(
+                          [sys.executable, "-c", worker, str(fixture_parent), str(runner_temp)],
+                          capture_output=True,
+                          text=True,
+                          timeout=30,
+                          check=False,
+                      )
+                      if completed.returncode == 0:
+                          status = "reclaimed"
+                          final_reclaim_count = deferred_root_count
+                      else:
+                          status = "failed"
+                          detail = (completed.stderr or completed.stdout).strip()
+                  except subprocess.TimeoutExpired:
+                      status = "deadline-exceeded"
+                      detail = "recursive deletion exceeded 30 seconds and the worker was terminated"
+
+          result = {
+              "schema_version": 1,
+              "status": status,
+              "detail": detail,
+              "deferred_root_count": deferred_root_count,
+              "final_reclaim_count": final_reclaim_count,
+              "wall_ns": time.monotonic_ns() - started,
+              "evidence_uploaded_before_reclamation": True,
+          }
+          artifact_root.mkdir(parents=True, exist_ok=True)
+          result_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          print(json.dumps(result, sort_keys=True))
+          PY
+          exit 0
+
+      - name: Upload fixture reclamation result
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-tui-startup-${{ matrix.platform }}-reclamation
+          path: ${{ env.ARTIFACT_DIR }}/startup-reclamation-result.json
+          if-no-files-found: warn
           retention-days: 30
