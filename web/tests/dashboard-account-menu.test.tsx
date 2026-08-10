@@ -33,6 +33,8 @@ const handlers: {
 const routerPush = mock(() => undefined);
 const routerReplace = mock(() => undefined);
 const routerRefresh = mock(() => undefined);
+const setQueryData = mock(() => undefined);
+const invalidateQueries = mock(async () => undefined);
 let organizationQueryKey: readonly unknown[] | undefined;
 let searchTeam: string | null = null;
 
@@ -72,6 +74,7 @@ mock.module("@tanstack/react-query", () => ({
     organizationQueryKey = options.queryKey;
     return organizationQuery;
   },
+  useQueryClient: () => ({ setQueryData, invalidateQueries }),
 }));
 
 mock.module("next/navigation", () => ({
@@ -161,6 +164,8 @@ describe("dashboard account menu", () => {
     searchTeam = "team-2";
     routerPush.mockClear();
     routerRefresh.mockClear();
+    setQueryData.mockClear();
+    invalidateQueries.mockClear();
     const setSelectedTeam = mock(async () => undefined);
     currentUser = {
       id: "user-lawrence",
@@ -211,6 +216,8 @@ describe("dashboard account menu", () => {
       "/dashboard/coderouter?team=team-2",
     );
     expect(routerRefresh).toHaveBeenCalledTimes(1);
+    expect(setQueryData).toHaveBeenCalled();
+    expect(invalidateQueries).toHaveBeenCalled();
   });
 
   test("uses the unlocalized auth handler and names the compact sign-in link", () => {
@@ -337,5 +344,41 @@ describe("dashboard account menu", () => {
         permissions: { use: true, manageAccounts: false },
       }],
     })).toBeNull();
+  });
+
+  test("does not navigate when Stack rejects an organization switch", async () => {
+    searchTeam = "team-2";
+    organizationQuery = {
+      data: {
+        selectedTeamId: "team-2",
+        teams: [{
+          id: "team-2",
+          name: "Team",
+          personal: false,
+          permissions: { use: true, manageAccounts: false },
+        }],
+      },
+      isPending: false,
+      isError: false,
+    };
+    routerPush.mockClear();
+    currentUser = {
+      id: "user-lawrence",
+      displayName: "Lawrence",
+      primaryEmail: "lawrence@example.com",
+      signOut: async () => undefined,
+      selectedTeam: { id: "team-2" },
+      useTeams: () => [{ id: "team-2", displayName: "Team" }],
+      setSelectedTeam: async () => {
+        throw new Error("Stack unavailable");
+      },
+    };
+    renderToStaticMarkup(<DashboardAccountMenu />);
+
+    await handlers.switchOrganization?.({
+      id: "team-2",
+      displayName: "Team",
+    });
+    expect(routerPush).not.toHaveBeenCalled();
   });
 });
