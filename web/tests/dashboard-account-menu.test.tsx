@@ -130,7 +130,8 @@ describe("dashboard account menu", () => {
         ],
       },
       isPending: false,
-      isError: false,
+      // A failed background refetch must not hide previously cached data.
+      isError: true,
     };
     delete handlers.switchOrganization;
     routerPush.mockClear();

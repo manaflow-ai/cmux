@@ -82,15 +82,31 @@ describe("localized pricing page", () => {
       enMessages.pricing.compare.rows.map((row) => row.label),
     ).not.toContain("Centralized admin and shared team rules");
     expect(
+      jaMessages.pricing.compare.rows.map((row) => row.label),
+    ).not.toContain("一元請求とシート管理");
+    expect(
+      jaMessages.pricing.compare.rows.map((row) => row.label),
+    ).not.toContain("一元管理と共有チームルール");
+    expect(
       enMessages.pricing.faq.items.at(-1)?.a,
     ).toBe(
       "Yes. Team is $35/user/mo, or $28/user/mo when billed annually, and adds shared CodeRouter with anonymous aggregate usage and cost analytics.",
+    );
+    expect(
+      jaMessages.pricing.faq.items.at(-1)?.a,
+    ).toBe(
+      "はい。Team は月払いで $35/ユーザー/月、年払いでは $28/ユーザー/月で、匿名の集計使用量・コスト分析付き共有 CodeRouter が追加されます。",
     );
     expect(
       enMessages.pricing.compare.rows.find(
         (row) => row.label === "Cloud agents on Cloud VMs",
       )?.team,
     ).toBe("20 hrs/mo, then usage-based");
+    expect(
+      jaMessages.pricing.compare.rows.find(
+        (row) => row.label === "Cloud VM 上のクラウドエージェント",
+      )?.team,
+    ).toBe("20時間/月、以降は従量課金");
   });
 
   beforeEach(() => {

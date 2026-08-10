@@ -216,6 +216,19 @@ describe("CodeRouter team metrics", () => {
     expect(failures).toEqual(["malformed_response"]);
   });
 
+  test("classifies a null endpoint JSON root as a malformed response", async () => {
+    const failures: string[] = [];
+    const result = await metricsTest.queryCoderouterTeamMetrics("team-private", {
+      config: () => config,
+      fetch: mock(async () => Response.json(null)) as typeof fetch,
+      now: () => new Date("2026-08-08T12:00:00.000Z"),
+      reportFailure: (reason) => failures.push(reason),
+    });
+
+    expect(result).toEqual({ kind: "unavailable" });
+    expect(failures).toEqual(["malformed_response"]);
+  });
+
   test("rejects a 31st UTC day instead of silently truncating", async () => {
     const result = await metricsTest.queryCoderouterTeamMetrics("team-1", {
       config: () => config,
