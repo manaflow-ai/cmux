@@ -25,6 +25,8 @@ struct AgentFeedRow: View, Equatable {
     let otherAnswers: [String: String]
     let actions: AgentFeedRowActions
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.agentFeedLocalizer) private var localizer
+    private var copy: AgentFeedRowCopy { AgentFeedRowCopy(localizer: localizer) }
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.item == rhs.item
@@ -48,8 +50,8 @@ struct AgentFeedRow: View, Equatable {
                 actionArea
             } label: {
                 VStack(alignment: .leading, spacing: 10) {
-                    AgentFeedRowHeader(item: item)
-                    AgentFeedContext(item: item, isExpanded: isExpanded)
+                    AgentFeedRowHeader(item: item, localizer: localizer)
+                    AgentFeedContext(item: item, isExpanded: isExpanded, localizer: localizer)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityElement(children: .ignore)
@@ -87,7 +89,7 @@ struct AgentFeedRow: View, Equatable {
         if item.wire.workspaceID != nil, item.wire.surfaceID != nil {
             Button(action: actions.open) {
                 Label(
-                    AgentFeedL10n.string("mobile.agentFeed.openAgent", defaultValue: "Open Agent"),
+                    localizer.string("mobile.agentFeed.openAgent", defaultValue: "Open Agent"),
                     systemImage: "terminal"
                 )
             }
@@ -96,7 +98,7 @@ struct AgentFeedRow: View, Equatable {
             .disabled(!interactionsEnabled)
             .accessibilityIdentifier("MobileAgentFeedOpenAgent-\(suffix)")
         } else {
-            Text(AgentFeedL10n.string("mobile.agentFeed.targetUnavailable", defaultValue: "Agent location unavailable"))
+            Text(localizer.string("mobile.agentFeed.targetUnavailable", defaultValue: "Agent location unavailable"))
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -119,7 +121,7 @@ struct AgentFeedRow: View, Equatable {
                 if let summary { Text(summary).font(.headline) }
                 Text(plan).font(.body).textSelection(.enabled)
                 TextField(
-                    AgentFeedL10n.string("mobile.agentFeed.plan.feedback", defaultValue: "Request changes"),
+                    localizer.string("mobile.agentFeed.plan.feedback", defaultValue: "Request changes"),
                     text: Binding(get: { planFeedback }, set: { actions.setPlanFeedback($0) }),
                     axis: .vertical
                 )
@@ -133,12 +135,12 @@ struct AgentFeedRow: View, Equatable {
             }
         case .question(_, let questions):
             if questions.isEmpty {
-                Text(AgentFeedL10n.string("mobile.agentFeed.question.malformed", defaultValue: "This question could not be displayed. Open the agent to respond."))
+                Text(localizer.string("mobile.agentFeed.question.malformed", defaultValue: "This question could not be displayed. Open the agent to respond."))
                     .foregroundStyle(.secondary)
             } else {
                 VStack(alignment: .leading, spacing: 14) {
                     ForEach(questions) { question in questionView(question) }
-                    Button(AgentFeedL10n.string("mobile.agentFeed.question.submit", defaultValue: "Submit Answers")) {
+                    Button(localizer.string("mobile.agentFeed.question.submit", defaultValue: "Submit Answers")) {
                         actions.decide(.question(selections: encodedQuestionAnswers(questions)))
                     }
                     .disabled(!interactionsEnabled || isSending || !questionsAreValid(questions))
@@ -159,7 +161,7 @@ struct AgentFeedRow: View, Equatable {
     @ViewBuilder
     private func permissionButtons(_ modes: [String]) -> some View {
         ForEach(modes, id: \.self) { mode in
-            Button(AgentFeedCopy.permissionModeLabel(mode)) { actions.decide(.permission(mode: mode)) }
+            Button(copy.permissionModeLabel(mode)) { actions.decide(.permission(mode: mode)) }
                 .disabled(!interactionsEnabled || isSending || !item.wire.status.isPending)
                 .frame(minHeight: 44)
                 .buttonStyle(.borderless)
@@ -170,7 +172,7 @@ struct AgentFeedRow: View, Equatable {
     @ViewBuilder
     private var planButtons: some View {
         ForEach(["ultraplan", "bypassPermissions", "autoAccept", "manual", "deny"], id: \.self) { mode in
-            Button(AgentFeedCopy.planModeLabel(mode)) {
+            Button(copy.planModeLabel(mode)) {
                 actions.decide(.exitPlan(
                     mode: mode,
                     feedback: planFeedback.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : planFeedback
@@ -186,14 +188,14 @@ struct AgentFeedRow: View, Equatable {
     private var replyComposer: some View {
         VStack(alignment: .leading, spacing: 8) {
             TextField(
-                AgentFeedL10n.string("mobile.agentFeed.reply.placeholder", defaultValue: "Reply to this agent"),
+                localizer.string("mobile.agentFeed.reply.placeholder", defaultValue: "Reply to this agent"),
                 text: Binding(get: { draft }, set: { actions.setDraft($0) }),
                 axis: .vertical
             )
             .lineLimit(2...8)
             .disabled(!interactionsEnabled || isSending)
             .accessibilityIdentifier("MobileAgentFeedReplyComposer-\(suffix)")
-            Button(AgentFeedL10n.string("mobile.agentFeed.reply.send", defaultValue: "Send Reply"), action: actions.reply)
+            Button(localizer.string("mobile.agentFeed.reply.send", defaultValue: "Send Reply"), action: actions.reply)
                 .disabled(!interactionsEnabled || isSending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || item.wire.surfaceID == nil)
                 .frame(minHeight: 44)
                 .buttonStyle(.borderless)
@@ -231,7 +233,7 @@ struct AgentFeedRow: View, Equatable {
                 .accessibilityIdentifier("MobileAgentFeedQuestion-\(question.id)-\(option.id)-\(suffix)")
             }
             TextField(
-                AgentFeedL10n.string("mobile.agentFeed.question.other", defaultValue: "Other"),
+                localizer.string("mobile.agentFeed.question.other", defaultValue: "Other"),
                 text: Binding(
                     get: { otherAnswers[question.id] ?? "" },
                     set: { actions.setOtherAnswer(question.id, $0) }
@@ -277,11 +279,11 @@ struct AgentFeedRow: View, Equatable {
         switch mutationState {
         case .idle: EmptyView()
         case .sending:
-            Label(AgentFeedL10n.string("mobile.agentFeed.status.sending", defaultValue: "Sending…"), systemImage: "paperplane")
+            Label(localizer.string("mobile.agentFeed.status.sending", defaultValue: "Sending…"), systemImage: "paperplane")
                 .font(.caption)
                 .accessibilityIdentifier("MobileAgentFeedSending-\(suffix)")
         case .failed:
-            Label(AgentFeedL10n.string("mobile.agentFeed.status.failed", defaultValue: "Failed. Try again."), systemImage: "exclamationmark.circle")
+            Label(localizer.string("mobile.agentFeed.status.failed", defaultValue: "Failed. Try again."), systemImage: "exclamationmark.circle")
                 .font(.caption).foregroundStyle(.red)
                 .accessibilityIdentifier("MobileAgentFeedFailed-\(suffix)")
         }
@@ -291,16 +293,16 @@ struct AgentFeedRow: View, Equatable {
 
     private var disclosureAccessibilityLabel: String {
         [
-            AgentFeedCopy.sourceLabel(item.wire.source),
-            AgentFeedCopy.statusLabel(item.wire.status),
+            copy.sourceLabel(item.wire.source),
+            copy.statusLabel(item.wire.status),
             item.macDisplayName,
             item.connectionStatus.label,
             item.wire.workstreamID,
-            AgentFeedCopy.workspaceRouteLabel(item.wire.workspaceID),
-            AgentFeedCopy.surfaceRouteLabel(item.wire.surfaceID),
+            copy.workspaceRouteLabel(item.wire.workspaceID),
+            copy.surfaceRouteLabel(item.wire.surfaceID),
             item.wire.title,
-            AgentFeedCopy.payloadSummary(item.wire.payload),
-            AgentFeedCopy.resolutionLabel(item.wire.status),
+            copy.payloadSummary(item.wire.payload),
+            copy.resolutionLabel(item.wire.status),
             item.wire.createdAt.formatted(.relative(presentation: .named, unitsStyle: .abbreviated)),
         ]
         .compactMap { $0 }
@@ -310,7 +312,9 @@ struct AgentFeedRow: View, Equatable {
 
 private struct AgentFeedRowHeader: View {
     let item: MobileAgentFeedItem
+    let localizer: AgentFeedLocalizer
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    private var copy: AgentFeedRowCopy { AgentFeedRowCopy(localizer: localizer) }
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -340,13 +344,13 @@ private struct AgentFeedRowHeader: View {
     }
 
     private var sourceLabel: some View {
-        Text(AgentFeedCopy.sourceLabel(item.wire.source))
+        Text(copy.sourceLabel(item.wire.source))
             .font(.headline)
             .fixedSize(horizontal: false, vertical: true)
     }
 
     private var statusLabel: some View {
-        Text(AgentFeedCopy.statusLabel(item.wire.status))
+        Text(copy.statusLabel(item.wire.status))
             .font(.caption2.weight(.semibold))
             .padding(.horizontal, 6)
             .padding(.vertical, 3)
@@ -355,7 +359,7 @@ private struct AgentFeedRowHeader: View {
     }
 
     private var computerContext: String {
-        AgentFeedL10n.string(
+        localizer.string(
             "mobile.agentFeed.card.computerContext",
             defaultValue: "\(item.macDisplayName) · \(item.connectionStatus.label) · \(item.wire.workstreamID)"
         )
@@ -372,7 +376,9 @@ private struct AgentFeedRowHeader: View {
 private struct AgentFeedContext: View {
     let item: MobileAgentFeedItem
     let isExpanded: Bool
+    let localizer: AgentFeedLocalizer
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    private var copy: AgentFeedRowCopy { AgentFeedRowCopy(localizer: localizer) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -381,11 +387,11 @@ private struct AgentFeedContext: View {
                     .font(.subheadline.weight(.semibold))
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Text(AgentFeedCopy.payloadSummary(item.wire.payload))
+            Text(copy.payloadSummary(item.wire.payload))
                 .font(.subheadline)
                 .lineLimit(isExpanded || dynamicTypeSize.isAccessibilitySize ? nil : 4)
                 .fixedSize(horizontal: false, vertical: true)
-            if let resolution = AgentFeedCopy.resolutionLabel(item.wire.status) {
+            if let resolution = copy.resolutionLabel(item.wire.status) {
                 Text(resolution)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
@@ -397,11 +403,11 @@ private struct AgentFeedContext: View {
                     .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
                     .fixedSize(horizontal: false, vertical: dynamicTypeSize.isAccessibilitySize)
             }
-            Text(AgentFeedCopy.workspaceRouteLabel(item.wire.workspaceID))
+            Text(copy.workspaceRouteLabel(item.wire.workspaceID))
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
-            Text(AgentFeedCopy.surfaceRouteLabel(item.wire.surfaceID))
+            Text(copy.surfaceRouteLabel(item.wire.surfaceID))
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
@@ -410,18 +416,17 @@ private struct AgentFeedContext: View {
     }
 }
 
-private let AgentFeedCopy = AgentFeedRowCopy()
-
 private struct AgentFeedRowCopy {
+    let localizer: AgentFeedLocalizer
     func workspaceRouteLabel(_ workspaceID: String?) -> String {
-        AgentFeedL10n.string(
+        localizer.string(
             "mobile.agentFeed.card.workspaceID",
             defaultValue: "Workspace ID: \(routeValue(workspaceID))"
         )
     }
 
     func surfaceRouteLabel(_ surfaceID: String?) -> String {
-        AgentFeedL10n.string(
+        localizer.string(
             "mobile.agentFeed.card.surfaceID",
             defaultValue: "Surface ID: \(routeValue(surfaceID))"
         )
@@ -429,7 +434,7 @@ private struct AgentFeedRowCopy {
 
     private func routeValue(_ value: String?) -> String {
         guard let value, !value.isEmpty else {
-            return AgentFeedL10n.string(
+            return localizer.string(
                 "mobile.agentFeed.card.routeUnavailable",
                 defaultValue: "Unavailable"
             )
@@ -439,23 +444,23 @@ private struct AgentFeedRowCopy {
 
     func statusLabel(_ status: MobileWorkstreamFeedStatus) -> String {
         switch status {
-        case .pending: AgentFeedL10n.string("mobile.agentFeed.card.pending", defaultValue: "Needs input")
-        case .resolved: AgentFeedL10n.string("mobile.agentFeed.card.resolved", defaultValue: "Resolved")
-        case .expired: AgentFeedL10n.string("mobile.agentFeed.card.expired", defaultValue: "Expired")
-        case .telemetry: AgentFeedL10n.string("mobile.agentFeed.card.activity", defaultValue: "Activity")
-        case .unknown: AgentFeedL10n.string("mobile.agentFeed.card.unknown", defaultValue: "Unknown status")
+        case .pending: localizer.string("mobile.agentFeed.card.pending", defaultValue: "Needs input")
+        case .resolved: localizer.string("mobile.agentFeed.card.resolved", defaultValue: "Resolved")
+        case .expired: localizer.string("mobile.agentFeed.card.expired", defaultValue: "Expired")
+        case .telemetry: localizer.string("mobile.agentFeed.card.activity", defaultValue: "Activity")
+        case .unknown: localizer.string("mobile.agentFeed.card.unknown", defaultValue: "Unknown status")
         }
     }
 
     func sourceLabel(_ source: String) -> String {
         switch source {
-        case "claude": return AgentFeedL10n.string("mobile.agentFeed.source.claude", defaultValue: "Claude")
-        case "codex": return AgentFeedL10n.string("mobile.agentFeed.source.codex", defaultValue: "Codex")
-        case "opencode": return AgentFeedL10n.string("mobile.agentFeed.source.opencode", defaultValue: "OpenCode")
-        case "hermes-agent": return AgentFeedL10n.string("mobile.agentFeed.source.hermes", defaultValue: "Hermes")
-        case "gemini": return AgentFeedL10n.string("mobile.agentFeed.source.gemini", defaultValue: "Gemini")
+        case "claude": return localizer.string("mobile.agentFeed.source.claude", defaultValue: "Claude")
+        case "codex": return localizer.string("mobile.agentFeed.source.codex", defaultValue: "Codex")
+        case "opencode": return localizer.string("mobile.agentFeed.source.opencode", defaultValue: "OpenCode")
+        case "hermes-agent": return localizer.string("mobile.agentFeed.source.hermes", defaultValue: "Hermes")
+        case "gemini": return localizer.string("mobile.agentFeed.source.gemini", defaultValue: "Gemini")
         default:
-            return AgentFeedL10n.string(
+            return localizer.string(
                 "mobile.agentFeed.source.other",
                 defaultValue: "Agent: \(source)"
             )
@@ -468,29 +473,29 @@ private struct AgentFeedRowCopy {
         case .exitPlan(_, let plan, _, _): return plan
         case .question(_, let questions): return questions.map(\.prompt).formatted()
         case .toolUse(let name, _):
-            return AgentFeedL10n.string("mobile.agentFeed.activity.toolUse", defaultValue: "Using \(name)")
+            return localizer.string("mobile.agentFeed.activity.toolUse", defaultValue: "Using \(name)")
         case .toolResult(let name, let result, let isError):
             return isError
-                ? AgentFeedL10n.string(
+                ? localizer.string(
                     "mobile.agentFeed.activity.toolError",
                     defaultValue: "\(name) failed: \(result)"
                 )
                 : result
         case .message(let text, _): return text
-        case .stop(let reason): return reason ?? AgentFeedL10n.string("mobile.agentFeed.activity.turnComplete", defaultValue: "Turn complete. Reply to continue.")
-        case .todos: return AgentFeedL10n.string("mobile.agentFeed.activity.todos", defaultValue: "Task list updated")
-        case .lifecycle: return AgentFeedL10n.string("mobile.agentFeed.activity.lifecycle", defaultValue: "Session activity")
-        case .unknown: return AgentFeedL10n.string("mobile.agentFeed.activity.unknown", defaultValue: "Agent activity")
+        case .stop(let reason): return reason ?? localizer.string("mobile.agentFeed.activity.turnComplete", defaultValue: "Turn complete. Reply to continue.")
+        case .todos: return localizer.string("mobile.agentFeed.activity.todos", defaultValue: "Task list updated")
+        case .lifecycle: return localizer.string("mobile.agentFeed.activity.lifecycle", defaultValue: "Session activity")
+        case .unknown: return localizer.string("mobile.agentFeed.activity.unknown", defaultValue: "Agent activity")
         }
     }
 
     func permissionModeLabel(_ mode: String) -> String {
         switch mode {
-        case "once": AgentFeedL10n.string("mobile.agentFeed.permission.once", defaultValue: "Allow Once")
-        case "always": AgentFeedL10n.string("mobile.agentFeed.permission.always", defaultValue: "Always Allow")
-        case "all": AgentFeedL10n.string("mobile.agentFeed.permission.all", defaultValue: "Allow All")
-        case "bypass": AgentFeedL10n.string("mobile.agentFeed.permission.bypass", defaultValue: "Bypass")
-        default: AgentFeedL10n.string("mobile.agentFeed.permission.deny", defaultValue: "Deny")
+        case "once": localizer.string("mobile.agentFeed.permission.once", defaultValue: "Allow Once")
+        case "always": localizer.string("mobile.agentFeed.permission.always", defaultValue: "Always Allow")
+        case "all": localizer.string("mobile.agentFeed.permission.all", defaultValue: "Allow All")
+        case "bypass": localizer.string("mobile.agentFeed.permission.bypass", defaultValue: "Bypass")
+        default: localizer.string("mobile.agentFeed.permission.deny", defaultValue: "Deny")
         }
     }
 
@@ -510,7 +515,7 @@ private struct AgentFeedRowCopy {
     func resolutionLabel(_ status: MobileWorkstreamFeedStatus) -> String? {
         guard case .resolved(let decision) = status,
               let decision = decisionLabel(decision) else { return nil }
-        return AgentFeedL10n.string(
+        return localizer.string(
             "mobile.agentFeed.card.resolution",
             defaultValue: "Resolved: \(decision)"
         )
@@ -518,11 +523,11 @@ private struct AgentFeedRowCopy {
 
     func planModeLabel(_ mode: String) -> String {
         switch mode {
-        case "ultraplan": AgentFeedL10n.string("mobile.agentFeed.plan.ultraplan", defaultValue: "Ultraplan")
-        case "bypassPermissions": AgentFeedL10n.string("mobile.agentFeed.plan.bypass", defaultValue: "Bypass Permissions")
-        case "autoAccept": AgentFeedL10n.string("mobile.agentFeed.plan.autoAccept", defaultValue: "Auto-Accept")
-        case "manual": AgentFeedL10n.string("mobile.agentFeed.plan.manual", defaultValue: "Manual")
-        default: AgentFeedL10n.string("mobile.agentFeed.plan.deny", defaultValue: "Deny")
+        case "ultraplan": localizer.string("mobile.agentFeed.plan.ultraplan", defaultValue: "Ultraplan")
+        case "bypassPermissions": localizer.string("mobile.agentFeed.plan.bypass", defaultValue: "Bypass Permissions")
+        case "autoAccept": localizer.string("mobile.agentFeed.plan.autoAccept", defaultValue: "Auto-Accept")
+        case "manual": localizer.string("mobile.agentFeed.plan.manual", defaultValue: "Manual")
+        default: localizer.string("mobile.agentFeed.plan.deny", defaultValue: "Deny")
         }
     }
 }

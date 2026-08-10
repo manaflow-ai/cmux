@@ -102,27 +102,28 @@ struct AgentFeedPreviewConfiguration {
     )
 
     static var japaneseItems: [MobileAgentFeedItem] {
-        [item(
+        let localizer = AgentFeedLocalizer()
+        return [item(
             id: 111,
             source: "codex",
             kind: "permissionRequest",
-            title: AgentFeedL10n.string(
+            title: localizer.string(
                 "mobile.agentFeed.fixture.japanese.title",
                 defaultValue: "Codex is requesting permission"
             ),
             payload: .permission(
                 requestID: "permission-111",
-                toolName: AgentFeedL10n.string(
+                toolName: localizer.string(
                     "mobile.agentFeed.fixture.japanese.tool",
                     defaultValue: "Shell command"
                 ),
-                safeInput: AgentFeedL10n.string(
+                safeInput: localizer.string(
                     "mobile.agentFeed.fixture.japanese.input",
                     defaultValue: "Command: run focused verification"
                 ),
                 supportedModes: ["once", "always", "deny"]
             ),
-            macDisplayName: AgentFeedL10n.string(
+            macDisplayName: localizer.string(
                 "mobile.agentFeed.fixture.japanese.computer",
                 defaultValue: "Development Mac"
             ),

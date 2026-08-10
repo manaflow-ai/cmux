@@ -5,6 +5,7 @@ import SwiftUI
 
 /// Deterministic production-view fixture for Agent Feed UI and interaction tests.
 public struct AgentFeedPreviewView: View {
+    @Environment(\.agentFeedLocalizer) private var localizer
     private let scenario: AgentFeedPreviewScenario
     private let hostEventCount: Int
     @State private var selectedTab: MobilePrimaryTab = .notifications
@@ -32,7 +33,7 @@ public struct AgentFeedPreviewView: View {
             searchCoordinator: searchCoordinator,
             notificationUnreadCount: items.lazy.filter(\.isActionable).count
         ) {
-            Text(AgentFeedL10n.string("mobile.agentFeed.fixture.title", defaultValue: "Agent Feed fixture"))
+            Text(localizer.string("mobile.agentFeed.fixture.title", defaultValue: "Agent Feed fixture"))
         } notifications: {
             NavigationStack {
                 scenarioFeed
@@ -46,12 +47,12 @@ public struct AgentFeedPreviewView: View {
                             Text(openedItem?.wire.workspaceID ?? "")
                             Text(openedItem?.wire.surfaceID ?? "")
                         }
-                        .navigationTitle(AgentFeedL10n.string("mobile.agentFeed.fixture.agent", defaultValue: "Agent"))
+                        .navigationTitle(localizer.string("mobile.agentFeed.fixture.agent", defaultValue: "Agent"))
                         .accessibilityIdentifier("MobileAgentFeedPreviewAgentDestination")
                     }
             }
         } workspaceSearch: {
-            Text(AgentFeedL10n.string("mobile.agentFeed.fixture.title", defaultValue: "Agent Feed fixture"))
+            Text(localizer.string("mobile.agentFeed.fixture.title", defaultValue: "Agent Feed fixture"))
         } notificationSearch: {
             scenarioFeed
         }
@@ -100,7 +101,7 @@ public struct AgentFeedPreviewView: View {
         case .stress:
             if canLoadStressHistory {
                 Button(
-                    AgentFeedL10n.string(
+                    localizer.string(
                         "mobile.agentFeed.history.loadOlder",
                         defaultValue: "Load Older"
                     ),

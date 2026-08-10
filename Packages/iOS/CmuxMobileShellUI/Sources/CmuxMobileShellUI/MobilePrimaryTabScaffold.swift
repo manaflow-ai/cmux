@@ -11,6 +11,7 @@ struct MobilePrimaryTabScaffold<
     WorkspaceSearch: View,
     NotificationSearch: View
 >: View {
+    @Environment(\.agentFeedLocalizer) private var agentFeedLocalizer
     @Binding var selection: MobilePrimaryTab
     @Bindable var searchCoordinator: MobilePrimarySearchCoordinator
     let notificationUnreadCount: Int
@@ -193,7 +194,7 @@ struct MobilePrimaryTabScaffold<
             notifications
         } label: {
             Label(
-                AgentFeedL10n.string("mobile.tabs.feed", defaultValue: "Feed"),
+                agentFeedLocalizer.string("mobile.tabs.feed", defaultValue: "Feed"),
                 systemImage: "text.bubble"
             )
             .accessibilityIdentifier("MobilePrimaryTabFeed")

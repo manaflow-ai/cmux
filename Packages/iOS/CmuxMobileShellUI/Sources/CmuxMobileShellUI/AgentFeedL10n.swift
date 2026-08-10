@@ -2,7 +2,7 @@ import CmuxMobileSupport
 import Foundation
 import SwiftUI
 
-struct AgentFeedLocalizer: Sendable {
+struct AgentFeedLocalizer {
     let bundle: Bundle
 
     init(bundle: Bundle = .module) {
@@ -24,5 +24,3 @@ extension EnvironmentValues {
         set { self[AgentFeedLocalizerKey.self] = newValue }
     }
 }
-
-let AgentFeedL10n = AgentFeedLocalizer()
