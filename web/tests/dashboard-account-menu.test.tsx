@@ -255,6 +255,28 @@ describe("dashboard account menu", () => {
     expect(html).not.toContain("animate-pulse");
   });
 
+  test("shows account settings when no CodeRouter organizations are permitted", () => {
+    organizationQuery = {
+      data: { selectedTeamId: null, teams: [] },
+      isPending: false,
+      isError: false,
+    };
+    searchTeam = null;
+    currentUser = {
+      id: "user-lawrence",
+      displayName: "Lawrence",
+      primaryEmail: "lawrence@example.com",
+      signOut: async () => undefined,
+      selectedTeam: null,
+      useTeams: () => [],
+      setSelectedTeam: async () => undefined,
+    };
+    const html = renderToStaticMarkup(<DashboardAccountMenu />);
+
+    expect(html).toContain('href="/dashboard/team"');
+    expect(html).not.toContain('data-testid="team-switcher"');
+  });
+
   test("keeps a null Stack selection on the authorized personal organization", () => {
     organizationQuery = {
       data: {
