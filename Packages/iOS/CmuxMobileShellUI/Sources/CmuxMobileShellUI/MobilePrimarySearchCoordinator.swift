@@ -21,8 +21,6 @@ final class MobilePrimarySearchCoordinator {
     private var platformSearchingScope: MobilePrimarySearchScope?
     private var workspaceNativeSearchText = ""
     private var notificationNativeSearchText = ""
-    private var pendingRestoredQueryScope: MobilePrimarySearchScope?
-    private var swallowOneEmptyEditScope: MobilePrimarySearchScope?
     private let searchQueryBounds = MobileSearchQueryBounds()
 
     init(initialScope: MobilePrimarySearchScope = .workspaces) {
@@ -47,26 +45,6 @@ final class MobilePrimarySearchCoordinator {
         }
     }
 
-    /// Re-presents the search field carrying the scope's committed query, for
-    /// restoring a session that was ended around a pushed detail.
-    ///
-    /// SwiftUI only pushes the bound text into the platform field when it
-    /// observes the binding change, and the fresh field of a programmatic
-    /// presentation starts (and self-clears to) empty. So the field presents
-    /// with an EMPTY binding (both sides agree), the destination keeps
-    /// filtering by the committed query for the duration, and the query is
-    /// injected as an observable binding change once the platform reports the
-    /// search active — with a one-shot guard for the field's late stale clear.
-    func restorePresentation(for scope: MobilePrimarySearchScope) {
-        self.scope = scope
-        let committed = committedSearchText(for: scope)
-        pendingRestoredQueryScope = committed.isEmpty ? nil : scope
-        setPresentation(true)
-        if pendingRestoredQueryScope != nil {
-            setNativeSearchText("", for: scope)
-        }
-    }
-
     func commitSubmit() -> MobilePrimaryTab {
         let submittedScope = scope
         commitNativeDraft(for: submittedScope)
@@ -85,13 +63,6 @@ final class MobilePrimarySearchCoordinator {
         if isSearching {
             activate(scope: scope)
             platformSearchingScope = scope
-            if pendingRestoredQueryScope == scope {
-                // The platform search is live: inject the restored query as a
-                // fresh binding change so SwiftUI pushes it into the field.
-                pendingRestoredQueryScope = nil
-                syncNativeSearchText(fromCommittedQueryFor: scope)
-                swallowOneEmptyEditScope = scope
-            }
         } else if phase == .active(scope) {
             guard platformSearchingScope == scope else { return }
             commitNativeDraft(for: scope)
@@ -123,19 +94,6 @@ final class MobilePrimarySearchCoordinator {
             }
             return
         }
-        if pendingRestoredQueryScope == scope, !value.isEmpty {
-            // The user typed before the restoration completed; their edit wins.
-            pendingRestoredQueryScope = nil
-        }
-        if swallowOneEmptyEditScope == scope {
-            swallowOneEmptyEditScope = nil
-            if value.isEmpty {
-                // The presenting field's stale self-clear arriving after the
-                // restored query was injected; the injected query stands.
-                syncNativeSearchText(fromCommittedQueryFor: scope)
-                return
-            }
-        }
         setNativeSearchText(value, for: scope)
     }
 
@@ -150,11 +108,6 @@ final class MobilePrimarySearchCoordinator {
 
     func searchDestinationText(for scope: MobilePrimarySearchScope) -> String {
         if phase == .active(scope), isPresented {
-            // Mid-restoration the binding is deliberately empty; the results
-            // keep filtering by the query being restored.
-            if pendingRestoredQueryScope == scope {
-                return committedSearchText(for: scope)
-            }
             return nativeSearchText(for: scope)
         }
         return committedSearchText(for: scope)
@@ -234,8 +187,6 @@ final class MobilePrimarySearchCoordinator {
     private func beginDeactivation(for scope: MobilePrimarySearchScope) {
         phase = .deactivating(scope)
         platformSearchingScope = nil
-        pendingRestoredQueryScope = nil
-        swallowOneEmptyEditScope = nil
         syncNativeSearchText(fromCommittedQueryFor: scope)
     }
 

@@ -47,19 +47,13 @@ struct MobilePrimaryTabScaffold<
                     primaryTabs
 
                     Tab(value: MobilePrimaryTab.search, role: .search) {
-                        // Scoped to the search tab's content: a TabView-level
-                        // searchable is inherited by every tab's navigation bar,
-                        // which rendered a second, top search field on the
-                        // workspaces and notifications tabs.
+                        // The search FIELD is attached by each scope's content
+                        // to its NavigationStack root (see
+                        // MobilePrimarySearchFieldModifier); attached out here,
+                        // the platform cannot run its push-minimize/pop-restore
+                        // lifecycle and a restored field re-hosts in the top
+                        // navigation bar.
                         searchDestination
-                            .searchable(
-                                text: activeSearchText,
-                                isPresented: searchPresentation,
-                                prompt: activeSearchPrompt
-                            )
-                            .onSubmit(of: .search) {
-                                selection = searchCoordinator.commitSubmit()
-                            }
                     }
                     .accessibilityIdentifier("MobilePrimaryTabSearch")
                 }
@@ -110,15 +104,6 @@ struct MobilePrimaryTabScaffold<
         )
     }
 
-    private var searchPresentation: Binding<Bool> {
-        Binding(
-            get: { searchCoordinator.isPresented },
-            set: { presented in
-                searchCoordinator.setPresentation(presented)
-            }
-        )
-    }
-
     @ViewBuilder
     private var searchDestination: some View {
         switch searchCoordinator.scope {
@@ -136,40 +121,6 @@ struct MobilePrimaryTabScaffold<
                     update: updateSearchLifecycle
                 ))
                 .environment(\.mobilePrimarySearchDestination, true)
-        }
-    }
-
-    private var activeSearchText: Binding<String> {
-        let scope = searchCoordinator.scope
-        let activationGeneration = searchCoordinator.activationGeneration
-        return Binding(
-            get: { searchCoordinator.nativeSearchText(for: scope) },
-            set: { value in
-                searchCoordinator.updateNativeSearchText(
-                    value,
-                    for: scope,
-                    activationGeneration: activationGeneration
-                )
-            }
-        )
-    }
-
-    private var activeSearchPrompt: Text {
-        switch searchCoordinator.scope {
-        case .workspaces:
-            Text(
-                L10n.string(
-                    "mobile.workspaces.search.placeholder",
-                    defaultValue: "Search workspaces"
-                )
-            )
-        case .notifications:
-            Text(
-                L10n.string(
-                    "mobile.notificationFeed.search.placeholder",
-                    defaultValue: "Search notifications"
-                )
-            )
         }
     }
 

@@ -178,7 +178,6 @@ public struct WorkspaceListLayoutPreviewView: View {
     @State private var fixtureRoute: FixtureWorkspaceRoute?
     // Mirrors the shell: search results push onto the search tab's own stack.
     @State private var searchFixturePath: [MobileWorkspacePreview.ID] = []
-    @State private var searchSelectionRestoresSearchOnPop = false
 
     private var scrollMetricsEnabled: Bool {
         ProcessInfo.processInfo.environment["CMUX_UITEST_SCROLL_METRICS"] == "1"
@@ -573,19 +572,19 @@ public struct WorkspaceListLayoutPreviewView: View {
                             ) { searchText in
                                 workspaceListFixture(searchText: searchText)
                             }
-                            // Mirrors the shell: a tapped search result pushes
-                            // inside the search tab with the system back button.
+                            // Mirrors the shell: the field is rooted inside the
+                            // stack so the platform minimizes it across a push
+                            // and restores it (bottom placement, query intact)
+                            // when the detail pops.
+                            .modifier(MobilePrimarySearchFieldModifier(
+                                searchCoordinator: primarySearchCoordinator,
+                                scope: .workspaces,
+                                submit: {
+                                    selectedPrimaryTab = primarySearchCoordinator.commitSubmit()
+                                }
+                            ))
                             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                                 fixtureWorkspaceDetail(for: workspaceID)
-                                    // Mirrors the shell: restore the search
-                                    // session only after the pop completes.
-                                    .onDisappear {
-                                        guard searchSelectionRestoresSearchOnPop else { return }
-                                        searchSelectionRestoresSearchOnPop = false
-                                        guard selectedPrimaryTab == .search,
-                                              searchFixturePath.isEmpty else { return }
-                                        primarySearchCoordinator.restorePresentation(for: .workspaces)
-                                    }
                             }
                         }
                     } notificationSearch: {
@@ -600,7 +599,6 @@ public struct WorkspaceListLayoutPreviewView: View {
         .onChange(of: selectedPrimaryTab) { oldValue, newValue in
             if oldValue == .search, newValue != .search {
                 searchFixturePath = []
-                searchSelectionRestoresSearchOnPop = false
             }
         }
         .overlay(alignment: .topLeading) {
@@ -640,11 +638,6 @@ public struct WorkspaceListLayoutPreviewView: View {
         selectedWorkspaceID = id
         if showsTabScaffold,
            selectedPrimaryTab == .search || primarySearchCoordinator.isPresented {
-            // Mirrors the shell: the session ends across the push (kept
-            // presented it re-anchors to the top on pop) and is restored
-            // from the commit when the detail pops.
-            primarySearchCoordinator.deactivateCurrentSearch()
-            searchSelectionRestoresSearchOnPop = true
             if searchFixturePath.last != id {
                 searchFixturePath = [id]
             }
