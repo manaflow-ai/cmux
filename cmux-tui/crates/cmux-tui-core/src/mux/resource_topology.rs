@@ -2846,7 +2846,7 @@ impl Mux {
                 .context("terminal runtime omitted its durable host identity")?;
             anyhow::ensure!(
                 terminal_host_matches(&identity, terminal_id, terminal_incarnation),
-                "terminal runtime changed incarnations before close"
+                "terminal_incarnation_mismatch"
             );
         }
         let placements = terminal_content_placements(

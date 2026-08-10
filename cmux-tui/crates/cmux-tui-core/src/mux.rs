@@ -19728,7 +19728,8 @@ mod tests {
         let mut wrong_incarnation = host.incarnation.clone();
         let replacement = if wrong_incarnation.starts_with('0') { "1" } else { "0" };
         wrong_incarnation.replace_range(0..1, replacement);
-        assert!(mux.close_terminal(&host.terminal_id, &wrong_incarnation).is_err());
+        let error = mux.close_terminal(&host.terminal_id, &wrong_incarnation).unwrap_err();
+        assert!(error.to_string().contains("terminal_incarnation_mismatch"));
         assert!(mux.surface(first.id).is_some());
         assert!(mux.surface(second.id).is_some());
         assert!(mux.surface(unrelated.id).is_some());
