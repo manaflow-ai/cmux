@@ -20674,14 +20674,15 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(
-            observed_receiver.recv_timeout(Duration::from_secs(1)).unwrap(),
-            Some(AgentState::Working),
-            "journal listeners must not wake before the agent cache contains the commit"
-        );
+        let observed = observed_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
         mux.shutdown();
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
+        assert_eq!(
+            observed,
+            Some(AgentState::Working),
+            "journal listeners must not wake before the agent cache contains the commit"
+        );
     }
 
     #[test]
