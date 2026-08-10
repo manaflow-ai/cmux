@@ -3,10 +3,11 @@
 //! A process group covers normal descendants. Two command-local identities
 //! cover daemon detach behavior: an environment marker survives
 //! `closefrom(2)`, and an inherited file marker survives environment
-//! replacement. One process-wide tracker scans all active scopes together,
-//! follows known parent-child lineage, and records exact process identities
-//! before cleanup. An expired command deadline never starts a process-table
-//! scan.
+//! replacement. One process-wide tracker scans all active scopes together at
+//! a fixed maximum rate, follows known parent-child lineage, and records exact
+//! process identities before cleanup. Each scan has process and descriptor
+//! work limits. Cleanup requests one tracker-owned final scan when its budget
+//! permits; an expired command deadline never starts a process-table scan.
 
 use std::collections::{HashMap, HashSet};
 use std::fs::OpenOptions;
@@ -22,9 +23,10 @@ use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 const CLEANUP_DEADLINE: Duration = Duration::from_millis(250);
-const TRACK_INTERVAL: Duration = Duration::from_millis(20);
-const TRACK_SETTLE: Duration = Duration::from_millis(10);
+const TRACK_INTERVAL: Duration = Duration::from_millis(100);
 const MAX_TRACKED_PROCESSES: usize = 256;
+const MAX_SCAN_PROCESSES: usize = 16_384;
+const MAX_SCAN_FILE_DESCRIPTORS: usize = 65_536;
 const PROCESS_SCOPE_ENV: &str = "CMUX_TUI_PROCESS_SCOPE";
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
@@ -78,6 +80,7 @@ struct ProcessScopeTrackerState {
     next_registration: u64,
     revision: u64,
     scopes: HashMap<u64, ScopeRegistration>,
+    finalizing: HashSet<u64>,
 }
 
 #[derive(Default)]
@@ -171,22 +174,10 @@ impl UnixProcessScope {
         }
         self.terminated = true;
         self.terminate_root_group();
-
-        // Give the already-running tracker a short in-budget window to record
-        // a child that detached immediately before cleanup. When the deadline
-        // is already expired, this loop performs one bounded signal pass only.
-        let settle_deadline = deadline.min(Instant::now() + TRACK_SETTLE);
-        loop {
-            self.signal_tracked();
-            let remaining = settle_deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                break;
-            }
-            std::thread::sleep(remaining.min(TRACK_INTERVAL));
-        }
+        self.signal_tracked();
         if let Some(tracker) = self.tracker.take() {
             self.deactivate_and_signal_tracked();
-            tracker.registry.unregister(tracker.registration);
+            tracker.registry.finalize(tracker.registration, deadline);
         } else {
             self.deactivate_and_signal_tracked();
         }
@@ -353,8 +344,38 @@ impl ProcessScopeTracker {
     fn unregister(&self, registration: u64) {
         let mut state = self.state.lock().unwrap();
         if state.scopes.remove(&registration).is_some() {
+            state.finalizing.remove(&registration);
             state.revision = state.revision.wrapping_add(1);
-            self.changed.notify_one();
+            self.changed.notify_all();
+        }
+    }
+
+    /// Ask the shared tracker to own one final complete scan while this scope
+    /// is still registered. The caller waits only inside its cleanup budget.
+    /// If that budget expires, the tracker retains the inactive registration,
+    /// kills late matches, and removes it after the scan completes.
+    fn finalize(&self, registration: u64, deadline: Instant) {
+        if Instant::now() >= deadline {
+            self.unregister(registration);
+            return;
+        }
+        let mut state = self.state.lock().unwrap();
+        if !state.scopes.contains_key(&registration) {
+            return;
+        }
+        state.finalizing.insert(registration);
+        state.revision = state.revision.wrapping_add(1);
+        self.changed.notify_one();
+        while state.scopes.contains_key(&registration) {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return;
+            }
+            let (next, timeout) = self.changed.wait_timeout(state, remaining).unwrap();
+            state = next;
+            if timeout.timed_out() && state.scopes.contains_key(&registration) {
+                return;
+            }
         }
     }
 
@@ -372,20 +393,53 @@ impl ProcessScopeTracker {
     }
 
     fn run(&self) {
+        let mut last_scan = Instant::now()
+            .checked_sub(TRACK_INTERVAL)
+            .unwrap_or_else(Instant::now);
         loop {
-            let (revision, scopes) = {
+            let (revision, registrations, finalizing) = {
                 let mut state = self.state.lock().unwrap();
                 while state.scopes.is_empty() {
                     state = self.changed.wait(state).unwrap();
                 }
-                (state.revision, state.scopes.values().cloned().collect::<Vec<_>>())
+                let remaining = TRACK_INTERVAL.saturating_sub(last_scan.elapsed());
+                if !remaining.is_zero() {
+                    let (next, _) = self.changed.wait_timeout(state, remaining).unwrap();
+                    state = next;
+                    if state.scopes.is_empty() {
+                        continue;
+                    }
+                }
+                (
+                    state.revision,
+                    state
+                        .scopes
+                        .iter()
+                        .map(|(registration, scope)| (*registration, scope.clone()))
+                        .collect::<Vec<_>>(),
+                    state.finalizing.clone(),
+                )
             };
+            let scopes = registrations.iter().map(|(_, scope)| scope.clone()).collect::<Vec<_>>();
 
             for (scope, identity) in scan_registered_processes(&scopes) {
                 record_tracked_process(&scopes[scope], identity);
             }
+            last_scan = Instant::now();
 
-            let state = self.state.lock().unwrap();
+            let mut state = self.state.lock().unwrap();
+            let mut finalized = false;
+            for (registration, _) in &registrations {
+                if finalizing.contains(registration) {
+                    state.scopes.remove(registration);
+                    state.finalizing.remove(registration);
+                    finalized = true;
+                }
+            }
+            if finalized {
+                state.revision = state.revision.wrapping_add(1);
+                self.changed.notify_all();
+            }
             let _ = self
                 .changed
                 .wait_timeout_while(state, TRACK_INTERVAL, |state| state.revision == revision)
@@ -581,6 +635,7 @@ fn scan_registered_processes(
 ) -> HashSet<(usize, ProcessIdentity)> {
     use std::os::unix::fs::MetadataExt as _;
 
+    let earliest_start = scopes.iter().map(|scope| scope.root.started).min().unwrap_or(0);
     let expected = scopes
         .iter()
         .map(|scope| marker_environment_entry(&scope.marker))
@@ -595,7 +650,8 @@ fn scan_registered_processes(
     let Ok(processes) = std::fs::read_dir("/proc") else { return HashSet::new() };
     let mut snapshots = Vec::new();
     let mut matches = HashSet::new();
-    for process in processes.flatten() {
+    let mut remaining_file_descriptors = MAX_SCAN_FILE_DESCRIPTORS;
+    for process in processes.flatten().take(MAX_SCAN_PROCESSES) {
         let Some(pid) = process.file_name().to_str().and_then(|value| value.parse::<u32>().ok())
         else {
             continue;
@@ -607,6 +663,9 @@ fn scan_registered_processes(
             continue;
         };
         snapshots.push(snapshot);
+        if snapshot.identity.started < earliest_start {
+            continue;
+        }
         if let Ok(environment) = std::fs::read(process.path().join("environ")) {
             for entry in environment.split(|byte| *byte == 0) {
                 for (scope, expected) in expected.iter().enumerate() {
@@ -616,8 +675,11 @@ fn scan_registered_processes(
                 }
             }
         }
-        if let Ok(fds) = std::fs::read_dir(process.path().join("fd")) {
-            for fd in fds.flatten() {
+        if remaining_file_descriptors != 0
+            && let Ok(fds) = std::fs::read_dir(process.path().join("fd"))
+        {
+            for fd in fds.flatten().take(remaining_file_descriptors) {
+                remaining_file_descriptors -= 1;
                 let Some(marker) = std::fs::metadata(fd.path()).ok().map(|metadata| FileMarker {
                     device: metadata.dev(),
                     inode: metadata.ino(),
@@ -683,12 +745,21 @@ fn scan_registered_processes(
             markers
         },
     );
+    let earliest_start = scopes.iter().map(|scope| scope.root.started).min().unwrap_or(0);
     let mut snapshots = Vec::new();
     let mut matches = HashSet::new();
-    for pid in pids.into_iter().take(written / size_of::<libc::pid_t>()) {
+    let mut remaining_file_descriptors = MAX_SCAN_FILE_DESCRIPTORS;
+    for pid in pids
+        .into_iter()
+        .take(written / size_of::<libc::pid_t>())
+        .take(MAX_SCAN_PROCESSES)
+    {
         let Ok(pid) = u32::try_from(pid) else { continue };
         let Some(snapshot) = mac_process_snapshot(pid) else { continue };
         snapshots.push(snapshot);
+        if snapshot.identity.started < earliest_start {
+            continue;
+        }
         if let Some(process_arguments) = mac_process_arguments(pid, &mut arguments) {
             for (scope, expected) in expected.iter().enumerate() {
                 if mac_environment_contains(process_arguments, expected) {
@@ -696,7 +767,7 @@ fn scan_registered_processes(
                 }
             }
         }
-        for marker in mac_process_file_markers(pid) {
+        for marker in mac_process_file_markers(pid, &mut remaining_file_descriptors) {
             if let Some(scope_indexes) = file_markers.get(&marker) {
                 for scope in scope_indexes {
                     matches.insert((*scope, snapshot.identity));
@@ -726,7 +797,10 @@ struct VnodeFdInfo {
 }
 
 #[cfg(target_os = "macos")]
-fn mac_process_file_markers(pid: u32) -> Vec<FileMarker> {
+fn mac_process_file_markers(pid: u32, remaining: &mut usize) -> Vec<FileMarker> {
+    if *remaining == 0 {
+        return Vec::new();
+    }
     const PROC_PIDFDVNODEINFO: libc::c_int = 1;
     let Ok(pid_int) = libc::c_int::try_from(pid) else { return Vec::new() };
     let bytes =
@@ -744,7 +818,8 @@ fn mac_process_file_markers(pid: u32) -> Vec<FileMarker> {
         libc::proc_pidinfo(pid_int, libc::PROC_PIDLISTFDS, 0, fds.as_mut_ptr().cast(), capacity)
     };
     let Ok(written) = usize::try_from(written) else { return Vec::new() };
-    let count = written / size_of::<libc::proc_fdinfo>();
+    let count = (written / size_of::<libc::proc_fdinfo>()).min(*remaining);
+    *remaining -= count;
     // SAFETY: proc_pidinfo initialized `count` entries within the allocation.
     unsafe {
         fds.set_len(count.min(fds.capacity()));

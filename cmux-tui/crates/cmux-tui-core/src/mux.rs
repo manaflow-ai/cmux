@@ -1922,6 +1922,7 @@ pub struct Mux {
     journal_kernel: Arc<crate::journal_kernel::JournalKernel>,
     journal_ingress: crate::journal_ingress::JournalIngressSender,
     journal_hook_dispatcher_started: AtomicBool,
+    journal_hook_runtime: Arc<crate::journal_hooks::JournalHookRuntime>,
     /// Wake-only signal for durable journal subscribers. Consumers always
     /// reread SQLite by cursor, so missed or coalesced notifications are safe.
     journal_event_epoch: Mutex<u64>,
@@ -2281,6 +2282,7 @@ impl Mux {
             journal_kernel,
             journal_ingress,
             journal_hook_dispatcher_started: AtomicBool::new(false),
+            journal_hook_runtime: Arc::new(crate::journal_hooks::JournalHookRuntime::default()),
             journal_event_epoch: Mutex::new(0),
             journal_event_changed: Condvar::new(),
             #[cfg(test)]
@@ -4960,6 +4962,10 @@ impl Mux {
         self.journal_hook_dispatcher_started
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .is_ok()
+    }
+
+    pub(crate) fn journal_hook_runtime(&self) -> Arc<crate::journal_hooks::JournalHookRuntime> {
+        self.journal_hook_runtime.clone()
     }
 
     pub(crate) fn release_journal_hook_dispatcher(&self) {
@@ -8296,20 +8302,40 @@ impl Mux {
 
     pub fn shutdown(&self) {
         self.shutting_down.store(true, Ordering::Release);
+        self.journal_kernel.wake_waiters();
+        let hook_deadline = Instant::now() + crate::journal_hooks::SHUTDOWN_WAIT;
+        if !self.journal_hook_runtime.shutdown_until(hook_deadline) {
+            eprintln!("cmux-tui: journal hook workers did not stop before the shutdown deadline");
+        }
         let surfaces = unique_surface_runtimes(&self.state.lock().unwrap());
         let terminal_reader_deadline = Instant::now() + TERMINAL_READER_SHUTDOWN_TIMEOUT;
-        for surface in &surfaces {
-            surface.shutdown_for_daemon(terminal_reader_deadline);
-        }
+        let terminal_gaps = surfaces
+            .iter()
+            .filter_map(|surface| surface.shutdown_for_daemon(terminal_reader_deadline))
+            .collect::<Vec<_>>();
         for surface in surfaces {
             surface.finish_terminal_reader(terminal_reader_deadline);
+        }
+        let mut terminal_gap_failed = false;
+        for gap in terminal_gaps {
+            if let Err(error) = self.journal_ingress.send_durable(
+                crate::journal_ingress::JournalIngressEvent::TerminalOutputGap {
+                    terminal_id: gap.terminal_id,
+                    generation: gap.generation,
+                    occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
+                    reason: "detach_fence_failed",
+                },
+            ) {
+                terminal_gap_failed = true;
+                eprintln!("cmux-tui: record terminal output gap during shutdown: {error:#}");
+            }
         }
         // Each terminal reader has drained or its journal capture gate has
         // closed between updates. An update that crossed the shared reader
         // deadline was still preserved before this point. Fence the terminal
         // ingress lane while this Mux still owns the registry; the closed gate
         // prevents a timed-out reader from inserting output after the barrier.
-        if let Err(error) = self.flush_terminal_journal() {
+        if !terminal_gap_failed && let Err(error) = self.flush_terminal_journal() {
             eprintln!("cmux-tui: flush terminal journal during shutdown: {error:#}");
         }
         if let Some(runtime) = self.browser_runtime.lock().unwrap().take() {
@@ -15089,7 +15115,7 @@ impl Drop for Mux {
         if let Ok(state) = self.state.get_mut() {
             let deadline = Instant::now() + TERMINAL_READER_SHUTDOWN_TIMEOUT;
             for surface in unique_surface_runtimes(state) {
-                surface.shutdown_for_daemon(deadline);
+                let _ = surface.shutdown_for_daemon(deadline);
             }
         }
         if let Ok(runtime) = self.browser_runtime.get_mut()

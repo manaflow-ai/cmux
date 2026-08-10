@@ -574,6 +574,14 @@ old host cannot fence output at daemon shutdown. New protocol-v4 hosts use the
 normal durable output path, and the compatibility mode ends when the old
 terminal exits.
 
+If a protocol-v4 host does not return its detach receipt before the shared
+shutdown deadline, the old daemon appends a required `terminal.output.gap`
+record after its reader stops and before the terminal ingress barrier. The
+record names the terminal runtime generation and uses
+`cmux.terminal-output-gap.v1` with reason `detach_fence_failed`. A restore
+preview treats this required kind as unsupported, so it cannot report a fully
+reducible tail that can contain missing source bytes.
+
 Live restoration will consume this inert complete model. Process adoption,
 fresh process spawning, browser reconnect, and agent resume are explicit
 post-replay actions with their own journal outcomes. A partially supported

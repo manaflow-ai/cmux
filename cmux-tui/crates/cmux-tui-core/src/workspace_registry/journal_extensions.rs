@@ -804,6 +804,9 @@ impl WorkspaceRegistry {
                 }
                 | crate::journal_ingress::JournalIngressEvent::TerminalResize {
                     terminal_id, ..
+                }
+                | crate::journal_ingress::JournalIngressEvent::TerminalOutputGap {
+                    terminal_id, ..
                 } => Some(terminal_id.as_str().to_string()),
                 crate::journal_ingress::JournalIngressEvent::Frontend { .. }
                 | crate::journal_ingress::JournalIngressEvent::Producer { .. }
@@ -1109,6 +1112,23 @@ impl WorkspaceRegistry {
                             "rows":rows,
                             "cell_width":cell_width,
                             "cell_height":cell_height,
+                        }),
+                        None,
+                    ),
+                    crate::journal_ingress::JournalIngressEvent::TerminalOutputGap {
+                        terminal_id,
+                        generation,
+                        occurred_at_ms,
+                        reason,
+                    } => (
+                        terminal_id,
+                        generation,
+                        *occurred_at_ms,
+                        "terminal.output.gap",
+                        JournalClass::State,
+                        json!({
+                            "format":"cmux.terminal-output-gap.v1",
+                            "reason":reason,
                         }),
                         None,
                     ),

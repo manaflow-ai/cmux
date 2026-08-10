@@ -11,7 +11,8 @@ use std::os::unix::process::CommandExt;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex, Weak, mpsc};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Condvar, Mutex, Weak, mpsc};
 use std::time::{Duration, Instant};
 
 use regex::bytes::{Regex, RegexBuilder};
@@ -51,6 +52,71 @@ const MIN_DELIVERY_WORKERS: usize = 4;
 const MAX_DELIVERY_WORKERS: usize = 32;
 const IDLE_WAIT: Duration = Duration::from_secs(30);
 const ACTIVE_WAIT: Duration = Duration::from_secs(1);
+pub(crate) const SHUTDOWN_WAIT: Duration = Duration::from_secs(2);
+
+#[derive(Default)]
+struct JournalHookRuntimeState {
+    running: bool,
+    shutdown: bool,
+}
+
+/// Session-owned cancellation and completion fence for the dispatcher and all
+/// hook workers. Mux shutdown sets cancellation before it closes any journal
+/// source and waits for this runtime to release every active process scope.
+#[derive(Default)]
+pub(crate) struct JournalHookRuntime {
+    cancelled: AtomicBool,
+    state: Mutex<JournalHookRuntimeState>,
+    changed: Condvar,
+}
+
+impl JournalHookRuntime {
+    fn begin(&self) -> bool {
+        let mut state = self.state.lock().unwrap();
+        if state.shutdown || state.running {
+            return false;
+        }
+        state.running = true;
+        self.cancelled.store(false, Ordering::Release);
+        true
+    }
+
+    fn finish(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.running = false;
+        self.changed.notify_all();
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn shutdown_until(&self, deadline: Instant) -> bool {
+        self.cancelled.store(true, Ordering::Release);
+        let mut state = self.state.lock().unwrap();
+        state.shutdown = true;
+        while state.running {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return false;
+            }
+            let (next, timeout) = self.changed.wait_timeout(state, remaining).unwrap();
+            state = next;
+            if timeout.timed_out() && state.running {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+struct JournalHookRuntimeGuard(Arc<JournalHookRuntime>);
+
+impl Drop for JournalHookRuntimeGuard {
+    fn drop(&mut self) {
+        self.0.finish();
+    }
+}
 
 #[cfg(windows)]
 struct WindowsHookJob {
@@ -188,6 +254,7 @@ struct DeliveryWorkers {
     sender: mpsc::Sender<DeliveryJob>,
     completions: mpsc::Receiver<DeliveryCompletion>,
     capacity: usize,
+    handles: Vec<std::thread::JoinHandle<()>>,
 }
 
 struct CompiledHook {
@@ -222,7 +289,7 @@ struct CompiledHookRegex {
 /// Starts one session-owned dispatcher. The dispatcher keeps only a weak mux
 /// reference, so it cannot prolong the session lifetime.
 pub(crate) fn start(mux: &Arc<Mux>) -> anyhow::Result<()> {
-    if !mux.shared_journal_enabled() {
+    if !mux.shared_journal_enabled() || mux.daemon_shutdown_requested() {
         return Ok(());
     }
     if !mux.journal_hook_states()?.iter().any(|state| state.enabled)
@@ -230,13 +297,22 @@ pub(crate) fn start(mux: &Arc<Mux>) -> anyhow::Result<()> {
     {
         return Ok(());
     }
+    let runtime = mux.journal_hook_runtime();
+    if !runtime.begin() {
+        mux.release_journal_hook_dispatcher();
+        return Ok(());
+    }
     let weak = Arc::downgrade(mux);
-    let spawned =
-        std::thread::Builder::new().name("mux-session-journal-hooks".into()).spawn(move || {
+    let thread_runtime = runtime.clone();
+    let spawned = std::thread::Builder::new().name("mux-session-journal-hooks".into()).spawn(
+        move || {
+            let _runtime_guard = JournalHookRuntimeGuard(thread_runtime.clone());
             let mut claim = DispatcherClaim::new(weak.clone());
-            run_dispatcher(weak, &mut claim);
-        });
+            run_dispatcher(weak, &mut claim, thread_runtime);
+        },
+    );
     if let Err(error) = spawned {
+        runtime.finish();
         mux.release_journal_hook_dispatcher();
         return Err(error.into());
     }
@@ -280,6 +356,7 @@ fn delivery_worker_count(available_parallelism: usize) -> usize {
 
 fn start_delivery_workers(
     journal: &Arc<crate::journal_kernel::JournalKernel>,
+    runtime: &Arc<JournalHookRuntime>,
 ) -> anyhow::Result<DeliveryWorkers> {
     let requested = delivery_worker_count(
         std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get),
@@ -288,27 +365,33 @@ fn start_delivery_workers(
     let job_rx = Arc::new(Mutex::new(job_rx));
     let (completion_tx, completion_rx) = mpsc::channel::<DeliveryCompletion>();
     let mut capacity = 0;
+    let mut handles = Vec::with_capacity(requested);
     for index in 0..requested {
         let jobs = job_rx.clone();
         let completions = completion_tx.clone();
         let journal = journal.clone();
+        let runtime = runtime.clone();
         let spawned = std::thread::Builder::new()
             .name(format!("journal-hook-worker-{index}"))
-            .spawn(move || run_delivery_worker(&jobs, &completions, &journal));
+            .spawn(move || run_delivery_worker(&jobs, &completions, &journal, &runtime));
         match spawned {
-            Ok(_) => capacity += 1,
+            Ok(handle) => {
+                capacity += 1;
+                handles.push(handle);
+            }
             Err(error) if capacity == 0 => return Err(error.into()),
             Err(_) => break,
         }
     }
     drop(completion_tx);
-    Ok(DeliveryWorkers { sender: job_tx, completions: completion_rx, capacity })
+    Ok(DeliveryWorkers { sender: job_tx, completions: completion_rx, capacity, handles })
 }
 
 fn run_delivery_worker(
     jobs: &Mutex<mpsc::Receiver<DeliveryJob>>,
     completions: &mpsc::Sender<DeliveryCompletion>,
     journal: &crate::journal_kernel::JournalKernel,
+    runtime: &JournalHookRuntime,
 ) {
     loop {
         let job = match jobs.lock().unwrap().recv() {
@@ -316,7 +399,7 @@ fn run_delivery_worker(
             Err(_) => return,
         };
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            execute_delivery(&job.delivery, &job.attempt)
+            execute_delivery_with_shutdown(&job.delivery, &job.attempt, &runtime.cancelled)
         }))
         .unwrap_or_else(|_| (None, Some("hook worker panicked".into())));
         let result = JournalHookDeliveryResult {
@@ -332,9 +415,15 @@ fn run_delivery_worker(
     }
 }
 
-fn run_dispatcher(mux: Weak<Mux>, claim: &mut DispatcherClaim) {
+fn run_dispatcher(
+    mux: Weak<Mux>,
+    claim: &mut DispatcherClaim,
+    runtime: Arc<JournalHookRuntime>,
+) {
     let Some(initial_mux) = mux.upgrade() else { return };
-    let Ok(workers) = start_delivery_workers(&initial_mux.shared_journal_handle()) else {
+    let Ok(mut workers) =
+        start_delivery_workers(&initial_mux.shared_journal_handle(), &runtime)
+    else {
         return;
     };
     drop(initial_mux);
@@ -347,6 +436,22 @@ fn run_dispatcher(mux: Weak<Mux>, claim: &mut DispatcherClaim) {
     loop {
         let Some(mux) = mux.upgrade() else { return };
         epoch = mux.shared_journal_epoch().max(epoch);
+
+        if runtime.is_cancelled() || mux.daemon_shutdown_requested() {
+            drop(mux);
+            workers.shutdown();
+            if let Some(mux) = claim.mux.upgrade() {
+                completed.extend(workers.completions.try_iter());
+                let results = completed
+                    .into_iter()
+                    .map(|completion| completion.result)
+                    .collect::<Vec<_>>();
+                if let Err(error) = mux.finish_journal_hook_deliveries(&results) {
+                    eprintln!("cmux-tui: finish canceled journal hooks during shutdown: {error:#}");
+                }
+            }
+            return;
+        }
 
         while let Ok(completion) = workers.completions.try_recv() {
             completed.push(completion);
@@ -428,7 +533,19 @@ fn run_dispatcher(mux: Weak<Mux>, claim: &mut DispatcherClaim) {
                     if let Ok(attempts) = mux.start_journal_hook_deliveries(&deliveries) {
                         for ((key, delivery), attempt) in selected.into_iter().zip(attempts) {
                             active.insert(key.clone());
-                            if let Err(error) = workers.sender.send(DeliveryJob {
+                            if runtime.is_cancelled() || mux.daemon_shutdown_requested() {
+                                completed.push(DeliveryCompletion {
+                                    key,
+                                    result: JournalHookDeliveryResult {
+                                        delivery,
+                                        attempt: attempt.attempt,
+                                        exit_code: None,
+                                        error: Some(
+                                            "hook canceled during daemon shutdown".into(),
+                                        ),
+                                    },
+                                });
+                            } else if let Err(error) = workers.sender.send(DeliveryJob {
                                 key: key.clone(),
                                 delivery: delivery.clone(),
                                 attempt: attempt.clone(),
@@ -453,6 +570,19 @@ fn run_dispatcher(mux: Weak<Mux>, claim: &mut DispatcherClaim) {
         let journal = mux.shared_journal_handle();
         drop(mux);
         epoch = journal.wait(epoch, wait);
+    }
+}
+
+impl DeliveryWorkers {
+    fn shutdown(&mut self) {
+        let (closed, _) = mpsc::channel();
+        let sender = std::mem::replace(&mut self.sender, closed);
+        drop(sender);
+        for handle in self.handles.drain(..) {
+            if handle.join().is_err() {
+                eprintln!("cmux-tui: journal hook worker panicked during shutdown");
+            }
+        }
     }
 }
 
@@ -698,10 +828,14 @@ impl CompiledHookRegex {
     }
 }
 
-fn execute_delivery(
+fn execute_delivery_with_shutdown(
     delivery: &JournalHookDelivery,
     attempt: &JournalHookAttempt,
+    cancelled: &AtomicBool,
 ) -> (Option<i32>, Option<String>) {
+    if cancelled.load(Ordering::Acquire) {
+        return hook_shutdown_result();
+    }
     let argv = &delivery.manifest.exec.argv;
     let Some((program, arguments)) = argv.split_first() else {
         return (None, Some("hook argv is empty".into()));
@@ -806,12 +940,39 @@ fn execute_delivery(
     let timeout = Duration::from_millis(delivery.manifest.exec.timeout_ms);
     #[cfg(unix)]
     {
-        let result = execute_hook_child_unix(&mut child, stdin, &input, process_group, timeout);
+        let result = execute_hook_child_unix(
+            &mut child,
+            stdin,
+            &input,
+            process_group,
+            timeout,
+            cancelled,
+        );
         tree.terminate();
         result
     }
     #[cfg(windows)]
-    execute_hook_child_portable(&mut child, stdin, &input, process_group, timeout, &job)
+    execute_hook_child_portable(
+        &mut child,
+        stdin,
+        &input,
+        process_group,
+        timeout,
+        &job,
+        cancelled,
+    )
+}
+
+#[cfg(test)]
+fn execute_delivery(
+    delivery: &JournalHookDelivery,
+    attempt: &JournalHookAttempt,
+) -> (Option<i32>, Option<String>) {
+    execute_delivery_with_shutdown(delivery, attempt, &AtomicBool::new(false))
+}
+
+fn hook_shutdown_result() -> (Option<i32>, Option<String>) {
+    (None, Some("hook canceled during daemon shutdown".into()))
 }
 
 #[cfg(unix)]
@@ -821,6 +982,7 @@ fn execute_hook_child_unix(
     input: &[u8],
     process_group: u32,
     timeout: Duration,
+    cancelled: &AtomicBool,
 ) -> (Option<i32>, Option<String>) {
     let fd = stdin.as_raw_fd();
     let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
@@ -837,6 +999,10 @@ fn execute_hook_child_unix(
     let deadline = Instant::now() + timeout;
     let mut offset = 0;
     while offset < input.len() {
+        if cancelled.load(Ordering::Acquire) {
+            terminate_hook_child(child);
+            return hook_shutdown_result();
+        }
         match child.try_wait() {
             Ok(Some(status)) => return hook_exit_result(status, process_group),
             Ok(None) => {}
@@ -861,8 +1027,11 @@ fn execute_hook_child_unix(
             }
             Ok(written) => offset += written,
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                if let Err(error) = wait_hook_stdin_writable(fd, deadline) {
+                if let Err(error) = wait_hook_stdin_writable(fd, deadline, cancelled) {
                     terminate_hook_child(child);
+                    if cancelled.load(Ordering::Acquire) {
+                        return hook_shutdown_result();
+                    }
                     return (None, Some(format!("write hook event: {error}")));
                 }
             }
@@ -878,7 +1047,7 @@ fn execute_hook_child_unix(
         }
     }
     drop(stdin);
-    wait_for_hook_exit(child, process_group, deadline, timeout)
+    wait_for_hook_exit(child, process_group, deadline, timeout, cancelled)
 }
 
 #[cfg(unix)]
@@ -899,8 +1068,18 @@ fn hook_stdin_closed_result(
 }
 
 #[cfg(unix)]
-fn wait_hook_stdin_writable(fd: std::os::fd::RawFd, deadline: Instant) -> std::io::Result<()> {
+fn wait_hook_stdin_writable(
+    fd: std::os::fd::RawFd,
+    deadline: Instant,
+    cancelled: &AtomicBool,
+) -> std::io::Result<()> {
     loop {
+        if cancelled.load(Ordering::Acquire) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                "hook canceled during daemon shutdown",
+            ));
+        }
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "hook timed out"));
@@ -929,6 +1108,7 @@ fn execute_hook_child_portable(
     process_group: u32,
     timeout: Duration,
     job: &WindowsHookJob,
+    cancelled: &AtomicBool,
 ) -> (Option<i32>, Option<String>) {
     let deadline = Instant::now() + timeout;
     let input = input.to_vec();
@@ -947,6 +1127,11 @@ fn execute_hook_child_portable(
         };
 
     loop {
+        if cancelled.load(Ordering::Acquire) {
+            job.terminate_and_wait(child);
+            let _ = writer.join();
+            return hook_shutdown_result();
+        }
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             job.terminate_and_wait(child);
@@ -956,7 +1141,14 @@ fn execute_hook_child_portable(
         match write_result_receiver.recv_timeout(remaining.min(Duration::from_millis(10))) {
             Ok(Ok(())) => {
                 let _ = writer.join();
-                return wait_for_hook_exit_windows(child, process_group, deadline, timeout, job);
+                return wait_for_hook_exit_windows(
+                    child,
+                    process_group,
+                    deadline,
+                    timeout,
+                    job,
+                    cancelled,
+                );
             }
             Ok(Err(error)) => {
                 let _ = writer.join();
@@ -992,19 +1184,28 @@ fn wait_for_hook_exit_windows(
     deadline: Instant,
     timeout: Duration,
     job: &WindowsHookJob,
+    cancelled: &AtomicBool,
 ) -> (Option<i32>, Option<String>) {
-    match child.wait_timeout(deadline.saturating_duration_since(Instant::now())) {
-        Ok(Some(status)) => {
-            job.terminate_descendants();
-            hook_exit_result(status, process_group)
-        }
-        Ok(None) => {
+    loop {
+        if cancelled.load(Ordering::Acquire) {
             job.terminate_and_wait(child);
-            (None, Some(format!("hook timed out after {} ms", timeout.as_millis())))
+            return hook_shutdown_result();
         }
-        Err(error) => {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
             job.terminate_and_wait(child);
-            (None, Some(format!("wait for hook executable: {error}")))
+            return (None, Some(format!("hook timed out after {} ms", timeout.as_millis())));
+        }
+        match child.wait_timeout(remaining.min(Duration::from_millis(50))) {
+            Ok(Some(status)) => {
+                job.terminate_descendants();
+                return hook_exit_result(status, process_group);
+            }
+            Ok(None) => {}
+            Err(error) => {
+                job.terminate_and_wait(child);
+                return (None, Some(format!("wait for hook executable: {error}")));
+            }
         }
     }
 }
@@ -1015,16 +1216,25 @@ fn wait_for_hook_exit(
     process_group: u32,
     deadline: Instant,
     timeout: Duration,
+    cancelled: &AtomicBool,
 ) -> (Option<i32>, Option<String>) {
-    match child.wait_timeout(deadline.saturating_duration_since(Instant::now())) {
-        Ok(Some(status)) => hook_exit_result(status, process_group),
-        Ok(None) => {
+    loop {
+        if cancelled.load(Ordering::Acquire) {
             terminate_hook_child(child);
-            (None, Some(format!("hook timed out after {} ms", timeout.as_millis())))
+            return hook_shutdown_result();
         }
-        Err(error) => {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
             terminate_hook_child(child);
-            (None, Some(format!("wait for hook executable: {error}")))
+            return (None, Some(format!("hook timed out after {} ms", timeout.as_millis())));
+        }
+        match child.wait_timeout(remaining.min(Duration::from_millis(50))) {
+            Ok(Some(status)) => return hook_exit_result(status, process_group),
+            Ok(None) => {}
+            Err(error) => {
+                terminate_hook_child(child);
+                return (None, Some(format!("wait for hook executable: {error}")));
+            }
         }
     }
 }
@@ -1229,8 +1439,20 @@ mod tests {
             let executable = std::env::current_exe().unwrap();
             let test_name = "journal_hooks::tests::unix_hook_tree_kills_a_descendant_that_created_a_new_session";
             let mut command = Command::new("/bin/sh");
+            let launch = if mode == "close-fds-and-clear-environment" {
+                // Both discovery markers are deliberately removed. Keep one
+                // known ancestor present until the shared tracker records the
+                // detached child through lineage.
+                "\"$1\" --exact \"$2\" --nocapture & wait"
+            } else {
+                // Exit the intermediate shell immediately. The detached child
+                // is reparented before cleanup, so the final tracker-owned scan
+                // must find its one remaining ownership marker without a test
+                // wait for background tracking.
+                "\"$1\" --exact \"$2\" --nocapture &"
+            };
             command
-                .args(["-c", "\"$1\" --exact \"$2\" --nocapture & wait", "cmux-journal-hook-test"])
+                .args(["-c", launch, "cmux-journal-hook-test"])
                 .arg(&executable)
                 .arg(test_name)
                 .env(HELPER, mode)
@@ -1251,10 +1473,15 @@ mod tests {
             let mut detached = [0_u8; size_of::<u32>()];
             signal.read_exact(&mut detached).unwrap();
             let detached = u32::from_ne_bytes(detached);
-            assert!(
-                tree.wait_until_tracked_for_test(detached, Instant::now() + Duration::from_secs(5)),
-                "detached hook {detached} did not enter the process scope"
-            );
+            if mode == "close-fds-and-clear-environment" {
+                assert!(
+                    tree.wait_until_tracked_for_test(
+                        detached,
+                        Instant::now() + Duration::from_secs(5),
+                    ),
+                    "detached hook {detached} did not enter the process scope"
+                );
+            }
 
             tree.terminate();
             let _ = child.kill();
@@ -1268,6 +1495,64 @@ mod tests {
             );
             let _ = std::fs::remove_dir_all(root);
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn journal_hook_shutdown_cancels_an_active_detached_process_scope() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-jh-shutdown-{}-{:x}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let signal_path = root.join("detached.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&signal_path).unwrap();
+        let executable = std::env::current_exe().unwrap();
+        let test_name =
+            "journal_hooks::tests::unix_hook_tree_kills_a_descendant_that_created_a_new_session";
+        let mut hook = manifest();
+        hook.exec.argv = vec![
+            "/bin/sh".into(),
+            "-c".into(),
+            "CMUX_TEST_DETACHED_JOURNAL_HOOK=close-fds \
+             CMUX_TEST_DETACHED_JOURNAL_HOOK_SIGNAL=\"$3\" \
+             \"$1\" --exact \"$2\" --nocapture & wait"
+                .into(),
+            "cmux-journal-hook-shutdown".into(),
+            executable.to_string_lossy().into_owned(),
+            test_name.into(),
+            signal_path.to_string_lossy().into_owned(),
+        ];
+        hook.exec.timeout_ms = 30_000;
+        let delivery = JournalHookDelivery {
+            manifest: hook,
+            event: document("plugin.test.shutdown", json!({})).record,
+            attempt: 0,
+        };
+        let attempt = JournalHookAttempt { attempt: 1, causation_id: "event_started".into() };
+        let runtime = Arc::new(JournalHookRuntime::default());
+        assert!(runtime.begin());
+        let worker_runtime = runtime.clone();
+        let worker = std::thread::spawn(move || {
+            let _guard = JournalHookRuntimeGuard(worker_runtime.clone());
+            execute_delivery_with_shutdown(&delivery, &attempt, &worker_runtime.cancelled)
+        });
+        let (mut signal, _) = listener.accept().unwrap();
+        let mut detached = [0_u8; size_of::<u32>()];
+        signal.read_exact(&mut detached).unwrap();
+
+        assert!(runtime.shutdown_until(Instant::now() + SHUTDOWN_WAIT));
+        let (status, error) = worker.join().unwrap();
+        assert_eq!(status, None);
+        assert!(error.unwrap().contains("daemon shutdown"));
+        signal.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let mut trailing = [0_u8; 1];
+        assert_eq!(signal.read(&mut trailing).unwrap(), 0);
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[cfg(windows)]
@@ -1296,6 +1581,7 @@ mod tests {
             process_group,
             timeout,
             &job,
+            &AtomicBool::new(false),
         );
 
         assert_eq!(status, None);

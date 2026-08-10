@@ -140,6 +140,15 @@ pub(crate) enum JournalIngressEvent {
         cell_width: u16,
         cell_height: u16,
     },
+    /// Durable evidence that the terminal host could not prove a complete
+    /// source drain before daemon handoff. This record stays in the terminal
+    /// lane after all bytes accepted by the old reader and before its barrier.
+    TerminalOutputGap {
+        terminal_id: Arc<TerminalPublicId>,
+        generation: Arc<str>,
+        occurred_at_ms: u64,
+        reason: &'static str,
+    },
     Frontend {
         principal_id: String,
         occurred_at_ms: u64,
@@ -159,6 +168,7 @@ impl JournalIngressEvent {
             Self::TerminalBarrier => 0,
             Self::TerminalOutput { bytes, .. } => bytes.len(),
             Self::TerminalResize { .. } => 64,
+            Self::TerminalOutputGap { .. } => 128,
             Self::Frontend { event, .. } => match event {
                 FrontendJournalEvent::Focus { .. } => 512,
                 FrontendJournalEvent::Resize { .. } => 256,
@@ -403,7 +413,8 @@ impl JournalIngressSender {
     pub(crate) fn send(&self, event: JournalIngressEvent) {
         debug_assert!(matches!(
             &event,
-            JournalIngressEvent::TerminalOutput { .. } | JournalIngressEvent::TerminalResize { .. }
+            JournalIngressEvent::TerminalOutput { .. }
+                | JournalIngressEvent::TerminalResize { .. }
         ));
         let Some(sender) = &self.terminal_sender else { return };
         match event {
@@ -438,7 +449,8 @@ impl JournalIngressSender {
     ) -> Result<(), JournalIngressTrySendError> {
         debug_assert!(matches!(
             &event,
-            JournalIngressEvent::TerminalOutput { .. } | JournalIngressEvent::TerminalResize { .. }
+            JournalIngressEvent::TerminalOutput { .. }
+                | JournalIngressEvent::TerminalResize { .. }
         ));
         let Some(sender) = &self.terminal_sender else { return Ok(()) };
         if let Some(error) = self.state.failure() {
@@ -469,7 +481,10 @@ impl JournalIngressSender {
         if let Some(error) = self.state.failure() {
             anyhow::bail!(error);
         }
-        let sender = if matches!(&event, JournalIngressEvent::TerminalBarrier) {
+        let sender = if matches!(
+            &event,
+            JournalIngressEvent::TerminalBarrier | JournalIngressEvent::TerminalOutputGap { .. }
+        ) {
             &self.terminal_sender
         } else {
             &self.durable_sender

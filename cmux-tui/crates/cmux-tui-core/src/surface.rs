@@ -1441,6 +1441,11 @@ pub struct PtyTerminalRuntime {
     frame_producer_before_upgrade: FrameProducerTestHook,
 }
 
+pub(crate) struct TerminalJournalGap {
+    pub(crate) terminal_id: Arc<TerminalPublicId>,
+    pub(crate) generation: Arc<str>,
+}
+
 enum PtyRuntime {
     Local {
         writer: Box<dyn Write + Send>,
@@ -5478,16 +5483,17 @@ impl Surface {
         }
     }
 
-    pub(crate) fn shutdown_for_daemon(&self, deadline: Instant) {
+    pub(crate) fn shutdown_for_daemon(&self, deadline: Instant) -> Option<TerminalJournalGap> {
         if self.as_pty().is_some_and(|pty| pty.lifetime == PtyLifetime::DaemonOwned) {
             self.kill();
-            return;
+            return None;
         }
         #[cfg(unix)]
         if let Some(pty) = self.as_pty() {
             let runtime = pty.runtime.lock().unwrap();
             if let PtyRuntime::Hosted(host) = &*runtime {
                 pty.owner_detaching.store(true, Ordering::Release);
+                let mut gap = None;
                 if host.supports_journal_detach_fence()
                     && let Err(error) = host.detach_for_daemon_shutdown_until(deadline)
                 {
@@ -5495,15 +5501,20 @@ impl Surface {
                         "cmux-tui: terminal host {} detach fence failed: {error:#}",
                         pty.event_surface_id
                     );
+                    gap = pty.terminal_public_id.clone().map(|terminal_id| TerminalJournalGap {
+                        terminal_id,
+                        generation: pty.journal_generation.clone(),
+                    });
                 }
                 host.disconnect();
-                return;
+                return gap;
             }
             if matches!(&*runtime, PtyRuntime::ExitedHosted) {
-                return;
+                return None;
             }
         }
         self.disconnect_for_daemon_shutdown();
+        None
     }
 
     pub(crate) fn persist_host_workspace(&self, workspace_key: &str) -> anyhow::Result<()> {

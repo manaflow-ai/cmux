@@ -7429,6 +7429,65 @@ mod unix {
         }
 
         #[test]
+        fn detach_fence_reports_a_delayed_receipt_after_output_as_a_failure() {
+            let (record_path, record, lease) = record_fixture("detach-delayed-ack");
+            let root = record_path.parent().unwrap().to_path_buf();
+            let (client, mut host) = UnixStream::pair().unwrap();
+            let control_responses = Arc::new(ControlResponses::new());
+            let attachment = HostAttachment {
+                record,
+                record_path,
+                snapshot: HostSnapshot {
+                    cols: 80,
+                    rows: 24,
+                    cell_pixels: DEFAULT_CELL_PIXELS,
+                    replay: Vec::new(),
+                    kitty_image_aliases: Vec::new(),
+                    kitty_state: test_kitty_state(),
+                    sequence_boundary: 0,
+                    colors: TerminalColorOverrides::default(),
+                    pid: None,
+                    command: Vec::new(),
+                    cwd: None,
+                },
+                protocol_version: PROTOCOL_VERSION,
+                smart_renderer: true,
+                reader: None,
+                writer: Arc::new(Mutex::new(client)),
+                control_responses: control_responses.clone(),
+                next_request: AtomicU64::new(2),
+                viewer_size: Mutex::new(None),
+                launch_process: None,
+                launch_activation_pending: false,
+            };
+            let (output_queued, output_seen) = sync_channel(1);
+            let (release_ack, ack_release) = sync_channel(1);
+            let responder = thread::spawn(move || {
+                let request = read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+                assert_eq!(request.kind, MessageKind::Detach);
+                let mut output = Frame::new(MessageKind::Output, b"before-timeout".to_vec());
+                output.sequence = 1;
+                write_frame(&mut host, &output).unwrap();
+                output_queued.send(()).unwrap();
+                ack_release.recv().unwrap();
+                let mut response = Frame::new(MessageKind::DetachAck, Vec::new());
+                response.request_id = request.request_id;
+                assert!(!control_responses.resolve(&response));
+            });
+
+            let deadline = Instant::now() + Duration::from_millis(100);
+            let result = attachment.detach_for_daemon_shutdown_until(deadline);
+            output_seen.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert!(result.unwrap_err().to_string().contains("timed out"));
+            release_ack.send(()).unwrap();
+            responder.join().unwrap();
+
+            drop(attachment);
+            drop(lease);
+            let _ = fs::remove_dir_all(root);
+        }
+
+        #[test]
         fn cell_pixel_commit_is_broadcast_to_live_renderer_taps_before_ack() {
             let host = test_host_shared();
             let (renderer_socket, _renderer_peer) = UnixStream::pair().unwrap();

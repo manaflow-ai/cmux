@@ -4707,7 +4707,7 @@ fn terminal_journal_persists_exact_output_and_geometry_in_order() {
             bytes: output.to_vec(),
         },
         crate::journal_ingress::JournalIngressEvent::TerminalResize {
-            terminal_id: journal_terminal_id,
+            terminal_id: journal_terminal_id.clone(),
             generation: "incarnation-one".into(),
             occurred_at_ms: 43,
             cols: 120,
@@ -4715,19 +4715,30 @@ fn terminal_journal_persists_exact_output_and_geometry_in_order() {
             cell_width: 9,
             cell_height: 18,
         },
+        crate::journal_ingress::JournalIngressEvent::TerminalOutputGap {
+            terminal_id: journal_terminal_id,
+            generation: "incarnation-one".into(),
+            occurred_at_ms: 44,
+            reason: "detach_fence_failed",
+        },
     ];
     let appended =
         registry.append_journal_ingress_events(&events.iter().collect::<Vec<_>>()).unwrap();
-    assert_eq!(appended.len(), 2);
+    assert_eq!(appended.len(), 3);
 
     let records = registry
         .session_journal_after(0, 32)
         .unwrap()
         .records
         .into_iter()
-        .filter(|record| matches!(record.kind.as_str(), "terminal.output" | "terminal.resized"))
+        .filter(|record| {
+            matches!(
+                record.kind.as_str(),
+                "terminal.output" | "terminal.resized" | "terminal.output.gap"
+            )
+        })
         .collect::<Vec<_>>();
-    assert_eq!(records.len(), 2);
+    assert_eq!(records.len(), 3);
     let output_record = &records[0];
     assert_eq!(output_record.kind, "terminal.output");
     assert_eq!(output_record.replay, JournalReplayPolicy::Required);
@@ -4748,6 +4759,13 @@ fn terminal_journal_persists_exact_output_and_geometry_in_order() {
     assert_eq!(resize_record.payload["rows"], 40);
     assert_eq!(resize_record.payload["cell_width"], 9);
     assert_eq!(resize_record.payload["cell_height"], 18);
+
+    let gap_record = &records[2];
+    assert_eq!(gap_record.kind, "terminal.output.gap");
+    assert_eq!(gap_record.replay, JournalReplayPolicy::Required);
+    assert!(gap_record.terminal_output.is_none());
+    assert_eq!(gap_record.payload["format"], "cmux.terminal-output-gap.v1");
+    assert_eq!(gap_record.payload["reason"], "detach_fence_failed");
 
     let pane = pane_id(1);
     let screen = screen_id(1);
