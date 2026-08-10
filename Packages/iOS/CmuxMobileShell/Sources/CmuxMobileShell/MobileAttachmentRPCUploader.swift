@@ -77,21 +77,33 @@ actor MobileAttachmentRPCUploader {
             let response = try await client.sendRequest(request)
             let object = try JSONSerialization.jsonObject(with: response) as? [String: Any]
             guard let object,
-                  object["received_bytes"] as? Int == offset + chunk.count else {
+                  let receivedBytes = object["received_bytes"] as? Int else {
                 throw MobileShellConnectionError.invalidResponse
             }
-            offset += chunk.count
-            progress?(byteCount == 0 ? 1 : Double(offset) / Double(byteCount))
-            if isLast {
-                guard let path = object["path"] as? String, path.hasPrefix("/") else {
-                    throw MobileShellConnectionError.invalidResponse
-                }
+            // The host's durable completion record is authoritative. A retry
+            // starts at offset zero with the same identities; when the upload
+            // already completed, the host immediately returns its full-byte
+            // receipt instead of accepting this first chunk again.
+            if receivedBytes == byteCount,
+               let path = object["path"] as? String,
+               path.hasPrefix("/") {
+                progress?(1)
                 return Receipt(
                     operationID: operationID,
                     uploadID: uploadID,
                     hostPath: path
                 )
             }
+            let nextOffset = offset + chunk.count
+            // An incomplete response must acknowledge exactly this chunk. A
+            // first-time final chunk is complete only with the absolute path
+            // handled above; accepting a bare final byte count would lose the
+            // host reference needed by the delivery call.
+            guard receivedBytes == nextOffset, !isLast else {
+                throw MobileShellConnectionError.invalidResponse
+            }
+            offset = nextOffset
+            progress?(Double(offset) / Double(byteCount))
         } while offset < byteCount
         throw MobileShellConnectionError.invalidResponse
     }
