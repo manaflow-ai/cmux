@@ -10,8 +10,6 @@ import Testing
         "notification.feed.mark_unread",
         "notification.feed.mark_all_read",
         "workstream.feed.list",
-        "workstream.feed.action",
-        "workstream.feed.reply",
     ])
     func feedRequestsUseAccountAuthorizationWithoutWorkspaceTicketScope(method: String) async throws {
         let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 58_465)
@@ -58,5 +56,43 @@ import Testing
         if method == "workstream.feed.list" {
             #expect(frame.cursor == "00000000-0000-0000-0000-000000000300")
         }
+    }
+
+    @Test(arguments: ["workstream.feed.action", "workstream.feed.reply"])
+    func feedMutationsPreserveMatchingScopedTicket(method: String) async throws {
+        let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 58_465)
+        let transport = QueuedCancellationProbeTransport()
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
+            stackAccessToken: "test-stack-token"
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-main",
+            terminalID: "surface-main",
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(60),
+            authToken: "ticket-secret"
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let request = try MobileCoreRPCClient.requestData(method: method, params: [
+            "workspace_id": "workspace-main",
+            "surface_id": "surface-main",
+        ])
+
+        let task = Task { try await client.sendRequest(request) }
+        let sent = try await transport.waitForSentRequestCount(1)
+        task.cancel()
+        _ = try? await task.value
+
+        let frame = try #require(sent.first)
+        #expect(frame.attachToken == "ticket-secret")
+        #expect(frame.stackAccessToken == "test-stack-token")
     }
 }

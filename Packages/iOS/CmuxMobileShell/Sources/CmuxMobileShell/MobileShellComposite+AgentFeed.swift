@@ -106,12 +106,16 @@ extension MobileShellComposite {
         guard agentFeedMutationStates[item.id] != .sending,
               item.wire.status.isPending,
               let requestID = item.wire.payload.requestID,
+              let workspaceID = item.wire.workspaceID,
+              let surfaceID = item.wire.surfaceID,
               let target = agentFeedTarget(for: ownerKey(for: item)) else { return }
         agentFeedMutationStates[item.id] = .sending
         var params: [String: Any] = [
             "item_id": item.wire.id.uuidString,
             "request_id": requestID,
         ]
+        params["workspace_id"] = workspaceID
+        params["surface_id"] = surfaceID
         switch action {
         case .permission(let mode):
             params["kind"] = "permission"; params["mode"] = mode

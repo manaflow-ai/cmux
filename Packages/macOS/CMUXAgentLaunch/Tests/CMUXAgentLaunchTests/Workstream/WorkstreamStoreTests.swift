@@ -139,6 +139,31 @@ struct WorkstreamStoreTests {
         }
     }
 
+    @Test("mobile first page overlays newly ingested ring rows")
+    func mobileHistoryIncludesLiveTail() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-mobile-live-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        try await persistence.append(WorkstreamItem(
+            workstreamId: "persisted",
+            source: .codex,
+            kind: .assistantMessage,
+            payload: .assistantMessage(text: "persisted")
+        ))
+        let store = WorkstreamStore(persistence: persistence, ringCapacity: 10)
+        await store.start()
+        store.ingest(WorkstreamEvent(
+            sessionId: "live",
+            hookEventName: .notification,
+            source: "codex"
+        ))
+
+        let page = try await store.historyPage(endingBefore: nil, limit: 10)
+
+        #expect(page.items.map(\.workstreamId) == ["persisted", "live"])
+    }
+
     @Test("mobile in-memory history rejects a cursor invalidated by ring eviction")
     func mobileInMemoryHistoryRejectsEvictedCursor() async throws {
         let store = WorkstreamStore(ringCapacity: 4)

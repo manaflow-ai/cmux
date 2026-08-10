@@ -507,8 +507,6 @@ final class FeedCoordinator: @unchecked Sendable {
         }
         let attentionTarget = waiter?.attentionTarget
         waiter?.decision = decision
-        mobileRevision &+= 1
-        let revision = mobileRevision
         waiter?.semaphore.signal()
         waiterLock.unlock()
 
@@ -524,23 +522,23 @@ final class FeedCoordinator: @unchecked Sendable {
                 if let resolvedItemId = itemId ?? Self.findItemId(for: requestId, in: store.items) {
                     store.markResolved(resolvedItemId, decision: decision)
                 }
+                FeedCoordinator.shared.waiterLock.lock()
+                FeedCoordinator.shared.mobileRevision &+= 1
+                let revision = FeedCoordinator.shared.mobileRevision
+                FeedCoordinator.shared.waiterLock.unlock()
+                FeedCoordinator.shared.cancelNotification(requestId: requestId)
+                MobileHostService.emitEvent(
+                    topic: "workstream.feed.changed",
+                    payload: ["revision": revision]
+                )
             }
         }
         if Thread.isMainThread {
             resolve()
-        } else if requiresLiveWaiter {
-            // Mobile acknowledgements are authoritative: publish success only
-            // after the exact card is resolved in the store the next list reads.
-            DispatchQueue.main.sync(execute: resolve)
         } else {
+            precondition(!requiresLiveWaiter, "Mobile replies must resolve on the main actor")
             DispatchQueue.main.async(execute: resolve)
         }
-
-        cancelNotification(requestId: requestId)
-        MobileHostService.emitEvent(
-            topic: "workstream.feed.changed",
-            payload: ["revision": revision]
-        )
         return .delivered
     }
 
@@ -555,9 +553,12 @@ final class FeedCoordinator: @unchecked Sendable {
     /// Resolves exactly one immutable feed item. Both ids must match the same
     /// pending card, preventing identical request ids in other sessions or Mac
     /// connections from crossing the action boundary.
+    @MainActor
     func deliverMobileReply(
         itemId: UUID,
         requestId: String,
+        workspaceId: String,
+        surfaceId: String,
         decision: WorkstreamDecision
     ) -> MobileReplyOutcome {
         guard let item = snapshot(pendingOnly: false).first(where: { $0.id == itemId }) else {
@@ -572,6 +573,13 @@ final class FeedCoordinator: @unchecked Sendable {
             return .notFound
         case .pending:
             break
+        }
+        guard item.workspaceId.map({ $0 == workspaceId }) ?? true,
+              item.surfaceId.map({ $0 == surfaceId }) ?? true,
+              let target = target(for: item.workstreamId),
+              target.workspaceId == workspaceId,
+              target.surfaceId == surfaceId else {
+            return .notFound
         }
         guard Self.mobileDecisionIsValid(decision, for: item, requestId: requestId) else {
             return .invalidAction
@@ -1090,13 +1098,31 @@ enum FeedJumpResolver {
     }
 
     static func lookup(agent: String, sessionId: String) -> Target? {
+        sessions(agent: agent)[sessionId]
+    }
+
+    static func targets(for workstreamIds: [String]) -> [String: Target] {
+        let parsed = workstreamIds.compactMap { workstreamId in
+            parse(workstreamId).map { (workstreamId, $0.agent, $0.sessionId) }
+        }
+        let sessionsByAgent = Dictionary(
+            uniqueKeysWithValues: Set(parsed.map { $0.1 }).map { ($0, sessions(agent: $0)) }
+        )
+        return parsed.reduce(into: [:]) { result, entry in
+            if let target = sessionsByAgent[entry.1]?[entry.2] {
+                result[entry.0] = target
+            }
+        }
+    }
+
+    private static func sessions(agent: String) -> [String: Target] {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let file = home
             .appendingPathComponent(".cmuxterm", isDirectory: true)
             .appendingPathComponent("\(agent)-hook-sessions.json", isDirectory: false)
         guard let data = try? Data(contentsOf: file),
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { return nil }
+        else { return [:] }
         // Stores have a consistent shape: top-level `sessions` dict keyed
         // by sessionId. Tolerate older flat layouts too.
         let sessions: [String: Any]
@@ -1105,12 +1131,13 @@ enum FeedJumpResolver {
         } else {
             sessions = root
         }
-        guard let entry = sessions[sessionId] as? [String: Any],
-              let workspaceId = entry["workspaceId"] as? String,
-              let surfaceId = entry["surfaceId"] as? String,
-              !workspaceId.isEmpty, !surfaceId.isEmpty
-        else { return nil }
-        return Target(workspaceId: workspaceId, surfaceId: surfaceId)
+        return sessions.reduce(into: [:]) { result, pair in
+            guard let entry = pair.value as? [String: Any],
+                  let workspaceId = entry["workspaceId"] as? String,
+                  let surfaceId = entry["surfaceId"] as? String,
+                  !workspaceId.isEmpty, !surfaceId.isEmpty else { return }
+            result[pair.key] = Target(workspaceId: workspaceId, surfaceId: surfaceId)
+        }
     }
 
     /// Dispatches a workspace-select + surface-focus intent. Posts

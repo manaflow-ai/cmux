@@ -178,18 +178,38 @@ public final class WorkstreamStore {
         }
         let page = try await persistence.loadPage(endingBefore: endOffset, limit: boundedLimit)
         let currentByID = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
-        let pageItems = page.items.map { currentByID[$0.id] ?? $0 }
-        let nextCursor = page.hasMoreBefore
-            ? pageItems.first.flatMap { item in
-                page.itemStartOffsets.first.map {
-                    Self.historyCursor(version: "p1", position: $0, itemID: item.id)
-                }
+        var pageItems = page.items.map { currentByID[$0.id] ?? $0 }
+        var droppedPersistedItems = false
+        if cursor == nil {
+            let persistedIDs = Set(pageItems.map(\.id))
+            let liveTailStart = page.items.last
+                .flatMap { persisted in items.firstIndex(where: { $0.id == persisted.id }) }
+                .map { items.index(after: $0) }
+                ?? items.startIndex
+            let liveCandidates = items[liveTailStart...].filter { !persistedIDs.contains($0.id) }
+            let liveLimit = pageItems.isEmpty ? boundedLimit : max(0, boundedLimit - 1)
+            let liveTail = liveCandidates.suffix(liveLimit)
+            pageItems.append(contentsOf: liveTail)
+            if pageItems.count > boundedLimit {
+                let overflow = pageItems.count - boundedLimit
+                droppedPersistedItems = overflow > 0 && !page.items.isEmpty
+                pageItems.removeFirst(overflow)
+            }
+        }
+        let firstPersisted = pageItems.first.flatMap { first in
+            page.items.firstIndex(where: { $0.id == first.id }).flatMap { index in
+                page.itemStartOffsets.indices.contains(index) ? page.itemStartOffsets[index] : nil
+            }.map { (first, $0) }
+        }
+        let nextCursor = (page.hasMoreBefore || droppedPersistedItems)
+            ? firstPersisted.map { item, offset in
+                Self.historyCursor(version: "p1", position: offset, itemID: item.id)
             }
             : nil
         return HistoryPage(
             items: pageItems,
             nextCursor: nextCursor,
-            hasMore: page.hasMoreBefore
+            hasMore: nextCursor != nil
         )
     }
 

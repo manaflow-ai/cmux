@@ -14282,9 +14282,10 @@ class TerminalController {
         } catch {
             return .err(code: "internal_error", message: "Unable to load Feed history", data: nil)
         }
+        let liveTargets = FeedJumpResolver.targets(for: history.page.items.map(\.workstreamId))
         let items = history.page.items.map { item -> [String: Any] in
             var payload = FeedSocketEncoding.itemDict(item)
-            let liveTarget = FeedCoordinator.shared.target(for: item.workstreamId)
+            let liveTarget = liveTargets[item.workstreamId]
             if let workspaceID = liveTarget?.workspaceId ?? item.workspaceId {
                 payload["workspace_id"] = workspaceID
             }
@@ -14308,6 +14309,8 @@ class TerminalController {
         guard let itemRaw = params["item_id"] as? String,
               let itemId = UUID(uuidString: itemRaw),
               let requestId = params["request_id"] as? String,
+              let workspaceId = params["workspace_id"] as? String,
+              let surfaceId = params["surface_id"] as? String,
               let kind = params["kind"] as? String else {
             return .err(code: "invalid_params", message: "Missing feed action identity", data: nil)
         }
@@ -14336,6 +14339,8 @@ class TerminalController {
         let outcome = FeedCoordinator.shared.deliverMobileReply(
             itemId: itemId,
             requestId: requestId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
             decision: decision
         )
         guard outcome == .delivered else {

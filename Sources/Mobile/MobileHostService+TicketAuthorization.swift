@@ -111,8 +111,7 @@ extension MobileHostService {
                 terminalSelection: terminalSelection.value
             )
         case "notification.feed.list", "notification.feed.mark_read", "notification.feed.mark_unread",
-             "notification.feed.mark_all_read", "workstream.feed.list",
-             "workstream.feed.action", "workstream.feed.reply":
+             "notification.feed.mark_all_read", "workstream.feed.list":
             // The Stack same-account check (or admitted Iroh peer identity) is
             // the authority for the account-wide feed, just as it is for the
             // account-wide workspace list. An attach ticket only narrows
@@ -120,6 +119,12 @@ extension MobileHostService {
             // narrow this read model would make it less capable than a tokenless
             // persisted pairing from the same authenticated account.
             return nil
+        case "workstream.feed.action", "workstream.feed.reply":
+            return ticketTerminalAuthorizationError(
+                authorization: authorization,
+                workspaceSelection: workspaceSelection.value,
+                terminalSelection: terminalSelection.value
+            )
         case "mobile.events.subscribe":
             // Subscription payloads are revision-only invalidations. The
             // request already passed connection/account authorization, and the
