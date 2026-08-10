@@ -84,6 +84,7 @@ extension GhosttySurfaceView {
             return false
         }
         localViewportState.inFlight = nil
+        handleNativePixelScrollViewportPresented(row: inFlight.row)
         delegate?.ghosttySurfaceView(
             self,
             didPresentLocalScrollbackViewportRow: inFlight.row

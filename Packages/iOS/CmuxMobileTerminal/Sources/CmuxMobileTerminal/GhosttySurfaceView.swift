@@ -29,8 +29,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// This remains separate from ``terminalTheme``, which includes dynamic
     /// reverse-video and OSC colors used by surrounding UIKit chrome.
     public var terminalConfigTheme: TerminalTheme = .monokai
-    /// Verified sessions keep the Mac as the sole owner of terminal scroll state.
-    public var scrollPresentationAuthority: TerminalScrollPresentationAuthority = .legacyMirror
+    /// Chooses the local or verified path that owns terminal scroll presentation.
+    public var scrollPresentationAuthority: TerminalScrollPresentationAuthority = .legacyMirror {
+        didSet {
+            guard scrollPresentationAuthority != oldValue else { return }
+            lastScrollMechanicsOffsetY = nil
+            handleScrollPresentationAuthorityChange()
+            setNeedsLayout()
+        }
+    }
     /// The renderer's current cell size in UIKit points.
     ///
     /// A zero component means Ghostty has not completed its first geometry pass.
@@ -247,7 +254,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var scrollMechanicsIsRecentering = false
     private var lastScrollMechanicsOffsetY: CGFloat?
     private var lastScrollMechanicsTouchPoint: CGPoint = .zero
-    private lazy var scrollMechanicsView: UIScrollView = {
+    lazy var scrollMechanicsView: UIScrollView = {
         let view = UIScrollView()
         view.backgroundColor = .clear
         view.isOpaque = false
@@ -1788,6 +1795,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private func layoutScrollMechanicsView() {
         scrollMechanicsView.frame = bounds
+        if configureNativePixelScrollRange(scrollView: scrollMechanicsView) {
+            return
+        }
         scrollMechanicsView.contentSize = CGSize(
             width: max(bounds.width, 1),
             height: max(Self.scrollMechanicsContentHeight, bounds.height * 8)
@@ -1846,6 +1856,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// so a layout pass cannot erase local pixel scrolling.
     var localScrollbackPresentationTranslationY: CGFloat = 0
     var localScrollbackRendererBaseFrame: CGRect?
+    var nativePixelScrollBoundary: TerminalScrollBoundary?
+    var nativePixelScrollState: TerminalPixelScrollState?
+    var nativePixelScrollPresentedRow: UInt64?
+    var nativePixelScrollCellHeight: CGFloat = 0
+    var nativePixelScrollLastRequestedRow: UInt64?
+    var nativePixelScrollHasRequestedViewport = false
+    var nativePixelScrollIsConfiguring = false
 
     /// Drops scroll work tied to a surface generation that will no longer run.
     func resetScrollStateForSurfaceReplacement() {
@@ -1855,6 +1872,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         localViewportState = LocalViewportState()
         localScrollbackPresentationTranslationY = 0
         localScrollbackRendererBaseFrame = nil
+        resetNativePixelScrollState(clearBoundary: true)
     }
 
     /// Map a touch point to a grid cell (shared effective grid with the Mac), so
@@ -2265,6 +2283,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     func handleScrollBoundaryChange(_ boundary: TerminalScrollBoundary) {
+        handleNativePixelScrollBoundaryChange(boundary)
         delegate?.ghosttySurfaceView(self, didUpdateScrollBoundary: boundary)
     }
 
@@ -4245,6 +4264,13 @@ extension GhosttySurfaceView: UIScrollViewDelegate {
     public func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard scrollView === scrollMechanicsView,
               !scrollMechanicsIsRecentering else {
+            return
+        }
+
+        if scrollPresentationAuthority.usesBoundedPixelViewport {
+            if handleNativePixelScroll(scrollView: scrollView) {
+                noteArtifactChipScrollActivity()
+            }
             return
         }
 
