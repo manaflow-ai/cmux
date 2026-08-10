@@ -43,11 +43,26 @@ struct MobilePairingScannerSheet: View {
                 } else {
                     switch authorizationStatus {
                     case .authorized:
-                        QRCodeScannerView { code in
-                            dismiss()
-                            onCode(code)
+                        ZStack(alignment: .bottom) {
+                            QRCodeScannerView { code in
+                                dismiss()
+                                onCode(code)
+                            }
+                            .ignoresSafeArea(edges: .bottom)
+
+                            Text(Self.guidanceText)
+                                .font(.footnote.weight(.medium))
+                                .multilineTextAlignment(.center)
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 10)
+                                .background(
+                                    .black.opacity(0.72),
+                                    in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                )
+                                .padding(16)
+                                .accessibilityIdentifier("MobilePairingScannerGuidance")
                         }
-                        .ignoresSafeArea(edges: .bottom)
                     case .notDetermined:
                         ProgressView()
                             .accessibilityIdentifier("MobilePairingScannerPermissionProgress")
@@ -165,3 +180,15 @@ struct MobilePairingScannerSheet: View {
     }
 }
 #endif
+
+extension MobilePairingScannerSheet {
+    static var guidanceText: String {
+        L10n.string(
+            "mobile.pairing.scannerInstruction",
+            defaultValue: """
+            On your Mac, open Tailscale Pairing in cmux to show the QR. \
+            Install Tailscale on both devices and connect them to the same Tailscale network first.
+            """
+        )
+    }
+}

@@ -1,15 +1,9 @@
-import { cloudDb } from "../../../../../../db/client";
-import { jsonResponse } from "../../../../../../services/vms/routeHelpers";
-import type {
-  SubrouterCredentialLeaseOutcome,
-} from "../../../../../../services/subrouter/client";
 import { readBoundedJsonRecord } from "../../../../../../services/subrouter/boundedJson";
 import { resolveSubrouterRequestContext } from "../../../../../../services/subrouter/requestContext";
 import { subrouterErrorResponse } from "../../../../../../services/subrouter/routeHelpers";
-import { getTenantForTeam } from "../../../../../../services/subrouter/tenants";
+import type { SubrouterCredentialLeaseOutcome } from "../../../../../../services/subrouter/types";
+import { jsonResponse } from "../../../../../../services/vms/routeHelpers";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 type RouteContext = {
   readonly params: Promise<{ readonly leaseId: string }>;
@@ -57,12 +51,10 @@ export async function POST(
   }
 
   try {
-    const tenant = await getTenantForTeam(
-      cloudDb(),
-      context.team.teamId,
-      { tenantKeySecret: context.config.tenantKeySecret },
+    const tenant = await context.client.exchangeTeam(
+      context.accessToken,
+      context.team,
     );
-    if (!tenant) return jsonResponse({ error: "lease_not_found" }, 404);
     const result = await context.client.reportCredentialLease(
       tenant.tenantKey,
       leaseId,
@@ -72,7 +64,7 @@ export async function POST(
       },
     );
     return jsonResponse(result);
-  } catch (err) {
-    return subrouterErrorResponse(err);
+  } catch (error) {
+    return subrouterErrorResponse(error);
   }
 }

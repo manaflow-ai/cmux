@@ -135,6 +135,31 @@
     "faqFeatureA": "Vogliamo saperlo. Apri una <issuesLink>issue</issuesLink> o una <prLink>pull request</prLink> su GitHub, oppure <mailLink>scrivici</mailLink>."
   },
   "dashboard": {
+    "nav": {
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "panoramica",
+      "team": "team"
+    },
+    "home": {
+      "coderouterName": "coderouter",
+      "coderouterDescription": "Instrada le richieste LLM tra gli account dei provider con failover e pianificazione basata sull’utilizzo.",
+      "coderouterLink": "apri coderouter"
+    },
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "Gestisci gli account IA condivisi e instrada le richieste con coderouter.",
+      "title": "coderouter",
+      "description": "coderouter instrada le richieste LLM tra gli account dei provider con failover e pianificazione basata sull’utilizzo."
+    },
+    "accountMenu": {
+      "label": "Menu account",
+      "settings": "Impostazioni",
+      "billing": "Fatturazione",
+      "signOut": "Esci",
+      "signingOut": "Uscita…",
+      "signOutError": "Impossibile uscire. Riprova.",
+      "signIn": "Accedi"
+    },
     "aiAccounts": {
       "metaTitle": "Account IA — cmux",
       "metaDescription": "Gestisci gli account dei provider IA del team per cmux.",
@@ -867,6 +892,8 @@
       "concepts": "Concetti",
       "anchorTitle": "Workspace di ancoraggio",
       "anchorDesc": "Ogni gruppo è di proprietà di esattamente un workspace chiamato ancoraggio. L'intestazione del gruppo nella barra laterale è la rappresentazione dell'ancoraggio — non c'è una riga separata per esso. Cliccando sull'area del nome dell'intestazione si mettono a fuoco i pannelli dell'ancoraggio; cliccando sul chevron si alterna la compressione.",
+      "anchorNew": "L'ancoraggio di un gruppo è sempre un workspace completamente nuovo al momento della creazione; né il raggruppamento di una selezione né la creazione di un gruppo promuovono mai uno dei workspace esistenti ad ancoraggio. (La chiusura successiva dell'ancoraggio promuove invece il primo membro rimasto del gruppo; vedi sotto.) La directory di lavoro dell'ancoraggio viene ereditata dal primo workspace selezionato quando si raggruppa una selezione, oppure dal workspace attivo quando si crea tramite CLI senza --cwd.",
+      "anchorClose": "La chiusura del workspace di ancoraggio chiude solo quel workspace e promuove il primo membro rimasto del gruppo (quello che compare per primo tra quelli ancora presenti nell'ordine del gruppo) a nuovo ancoraggio, lasciando intatti il gruppo e gli altri membri (il membro promosso mostra quindi il nome del gruppo come intestazione). Quando l'ancoraggio è l'unico workspace del gruppo, il gruppo viene rimosso. Per trasformare un gruppo in workspace non raggruppati usa Separa aree di lavoro; per chiudere tutti i workspace di un gruppo usa Elimina gruppo.",
       "identityTitle": "Identità del gruppo",
       "identityDesc": "Un gruppo ha un nome, un'icona (un SF Symbol, predefinito folder.fill) e un colore personalizzato opzionale. Questi sono indipendenti dalle personalizzazioni proprie del workspace di ancoraggio. Il colore e l'icona dell'ancoraggio vengono inizializzati dal gruppo alla creazione, ma possono divergere in seguito.",
       "pinningTitle": "Fissaggio",
@@ -1405,7 +1432,16 @@
     "changelog": {
       "title": "Changelog",
       "metaDescription": "Note di rilascio e cronologia delle versioni di cmux. Nuove funzionalità, correzioni di bug e modifiche per il terminale macOS nativo.",
-      "metaTitle": "Registro modifiche"
+      "metaTitle": "Registro modifiche",
+      "versionTitle": "cmux {version} · Registro modifiche",
+      "releaseNavLabel": "Versioni vicine a cmux {version}",
+      "sections": {
+        "added": "Aggiunte",
+        "changed": "Modifiche",
+        "fixed": "Correzioni",
+        "removed": "Rimozioni",
+        "contributors": "Collaboratori"
+      }
     },
     "navItems": {
       "gettingStarted": "Per iniziare",
@@ -3560,7 +3596,6 @@
     "title": "cmux per {platform}",
     "tagline": "Un browser Chromium e uno spazio di lavoro per agenti, progettati insieme.",
     "logoAlt": "Icona dell’app cmux",
-    "portableCta": "ZIP portatile",
     "featuresTitle": "Progettato per il lavoro con agenti",
     "features": {
       "chromium": {
@@ -3582,7 +3617,7 @@
     },
     "installTitle": "Installazione",
     "releaseTitle": "Versioni e aggiornamenti",
-    "releaseBody": "Questi link puntano sempre all’ultima versione stabile su <github>GitHub Releases</github>. cmux verifica i manifesti di aggiornamento firmati prima di installare un aggiornamento.",
+    "releaseBody": "Questi link puntano sempre all’ultima versione nightly su <github>GitHub Releases</github>. cmux verifica i manifesti di aggiornamento firmati prima di installare un aggiornamento.",
     "sourceLink": "Visualizza il sorgente su GitHub",
     "otherPlatform": "cmux per {platform}",
     "macLink": "Terminale cmux per Mac",
@@ -3592,6 +3627,7 @@
       "metaDescription": "Scarica cmux per Windows x64: un browser Chromium e uno spazio di lavoro per agenti, gratuito e open source, con schede per attività e superfici terminale.",
       "subtitle": "Una build x64 nativa con schede Chromium, spazi di lavoro cmux e le familiari convenzioni da tastiera di Windows.",
       "primaryCta": "Scarica il programma di installazione (.exe)",
+      "secondaryCta": "ZIP portatile",
       "requirements": "Windows 10 o versioni successive · x64",
       "installBody": "Esegui il programma di installazione e segui le indicazioni di Windows. Scegli lo ZIP portatile se preferisci conservare cmux in una cartella senza un’installazione a livello di sistema."
     },
@@ -3600,9 +3636,10 @@
       "metaTitle": "Scarica cmux per Linux",
       "metaDescription": "Scarica cmux per Linux x64: un browser Chromium e uno spazio di lavoro per agenti, gratuito e open source, con schede per attività e superfici terminale.",
       "subtitle": "Una build x64 nativa con schede Chromium, spazi di lavoro cmux e superfici terminale integrate.",
-      "primaryCta": "Scarica .deb",
-      "requirements": "Debian o Ubuntu · x64",
-      "installBody": "Scarica il pacchetto Debian e installalo con il gestore pacchetti. Scegli lo ZIP portatile per un’installazione per utente e gli aggiornamenti nell’app."
+      "primaryCta": "Scarica il programma di installazione con aggiornamenti automatici (.run)",
+      "secondaryCta": "Pacchetto Debian (.deb)",
+      "requirements": "Linux · x64",
+      "installBody": "Esegui una volta il programma di installazione per utente. Installa cmux in ~/.local senza privilegi di root e abilita gli aggiornamenti firmati nell’app. Se vuoi che gli aggiornamenti siano gestiti dal tuo gestore pacchetti, scegli invece il pacchetto Debian."
     }
   },
   "emails": {

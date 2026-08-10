@@ -528,20 +528,23 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     }
 
     func testFocusHistoryMenuSnapshotCarriesFocusedTimestamp() throws {
-        let manager = TabManager()
-        let startedAt = Date()
+        let initialWorkspaceFocusedAt = Date(timeIntervalSince1970: 1_000)
+        var now = initialWorkspaceFocusedAt
+        let manager = TabManager(focusHistoryNow: { now })
 
+        now = Date(timeIntervalSince1970: 2_000)
         _ = manager.addWorkspace(select: true)
+        // Focus records are written from the `.ghosttyDidFocusSurface` broadcast, which
+        // `FocusSurfaceBroadcaster` always delivers on a later main-queue turn. Let both the
+        // initial and the added workspace's focus land before snapshotting.
+        drainMainQueue()
 
         let snapshot = manager.focusHistoryMenuSnapshot(direction: .back)
-        let endedAt = Date()
         let item = try XCTUnwrap(snapshot.items.first)
 
-        // The recorded focus timestamp is stamped while `addWorkspace` runs, so it must fall
-        // within the causal interval bounded by the reads before and after that call. Asserting
-        // the closed [startedAt, endedAt] interval removes the prior ±1s wall-clock fudge.
-        XCTAssertGreaterThanOrEqual(item.focusedAt.timeIntervalSince1970, startedAt.timeIntervalSince1970)
-        XCTAssertLessThanOrEqual(item.focusedAt.timeIntervalSince1970, endedAt.timeIntervalSince1970)
+        // A `.back` snapshot lists where focus would return to, so its first item carries the
+        // timestamp recorded for the initial workspace rather than the later workspace.
+        XCTAssertEqual(item.focusedAt, initialWorkspaceFocusedAt)
     }
 
     func testReopenClosedItemRestoresClosedPanelSnapshot() throws {

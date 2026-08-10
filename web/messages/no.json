@@ -135,6 +135,31 @@
     "faqFeatureA": "Vi vil gjerne høre det. Åpne et <issuesLink>issue</issuesLink> eller en <prLink>pull request</prLink> på GitHub, eller <mailLink>send oss en e-post</mailLink>."
   },
   "dashboard": {
+    "nav": {
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "oversikt",
+      "team": "team"
+    },
+    "home": {
+      "coderouterName": "coderouter",
+      "coderouterDescription": "Rute LLM-forespørsler mellom leverandørkontoer med reservebytte og bruksbevisst planlegging.",
+      "coderouterLink": "åpne coderouter"
+    },
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "Administrer delte AI-kontoer og rute forespørsler med coderouter.",
+      "title": "coderouter",
+      "description": "coderouter ruter LLM-forespørsler mellom leverandørkontoer med reservebytte og bruksbevisst planlegging."
+    },
+    "accountMenu": {
+      "label": "Kontomeny",
+      "settings": "Innstillinger",
+      "billing": "Fakturering",
+      "signOut": "Logg ut",
+      "signingOut": "Logger ut…",
+      "signOutError": "Kunne ikke logge ut. Prøv igjen.",
+      "signIn": "Logg inn"
+    },
     "aiAccounts": {
       "metaTitle": "AI-kontoer — cmux",
       "metaDescription": "Administrer teamets AI-leverandørkontoer for cmux.",
@@ -867,6 +892,8 @@
       "concepts": "Konsepter",
       "anchorTitle": "Ankerarbeidsområde",
       "anchorDesc": "Hver gruppe eies av nøyaktig ett arbeidsområde kalt ankeret. Gruppeoverskriften i sidefeltet er ankerets representasjon — det finnes ingen egen rad for det. Å klikke på navneområdet i overskriften gir fokus til ankerets paneler; å klikke på vinkelpilen veksler sammenlegging.",
+      "anchorNew": "En gruppes anker er alltid et helt nytt arbeidsområde når gruppen opprettes. Verken gruppering av et utvalg eller oppretting av en gruppe gjør et av de eksisterende arbeidsområdene dine til anker. (Hvis ankeret lukkes senere, blir gruppens første gjenværende medlem forfremmet; se nedenfor.) Ankerets arbeidskatalog arves fra det første valgte arbeidsområdet når et utvalg grupperes, eller fra det aktive arbeidsområdet ved oppretting via CLI uten --cwd.",
+      "anchorClose": "Når ankerarbeidsområdet lukkes, lukkes bare dette arbeidsområdet, og gruppens første gjenværende medlem (det første som fortsatt finnes i grupperekkefølgen) blir det nye ankeret. Dermed forblir gruppen og de andre medlemmene intakte (det forfremmede medlemmet viser deretter gruppenavnet som overskrift). Når ankeret er gruppens eneste arbeidsområde, fjernes gruppen. Bruk Oppløs arbeidsområder for å gjøre en gruppe om til ugrupperte arbeidsområder; bruk Slett gruppe for å lukke alle arbeidsområdene i en gruppe.",
       "identityTitle": "Gruppeidentitet",
       "identityDesc": "En gruppe har et navn, et ikon (et SF Symbol, standard folder.fill) og en valgfri tilpasset farge. Disse er uavhengige av ankerarbeidsområdets egne tilpasninger. Ankerets farge og ikon hentes fra gruppen ved opprettelse, men de kan avvike etterpå.",
       "pinningTitle": "Festing",
@@ -1405,7 +1432,16 @@
     "changelog": {
       "title": "Endringslogg",
       "metaDescription": "cmux utgivelsesnotater og versjonshistorikk. Nye funksjoner, feilrettinger og endringer for den native macOS-terminalen.",
-      "metaTitle": "Endringslogg"
+      "metaTitle": "Endringslogg",
+      "versionTitle": "cmux {version} · Endringslogg",
+      "releaseNavLabel": "Utgivelser rundt cmux {version}",
+      "sections": {
+        "added": "Lagt til",
+        "changed": "Endret",
+        "fixed": "Rettet",
+        "removed": "Fjernet",
+        "contributors": "Bidragsytere"
+      }
     },
     "navItems": {
       "gettingStarted": "Kom i gang",
@@ -3557,7 +3593,6 @@
     "title": "cmux for {platform}",
     "tagline": "En Chromium-nettleser og et arbeidsområde for agenter, bygget som én helhet.",
     "logoAlt": "cmux-appikon",
-    "portableCta": "Portabel ZIP",
     "featuresTitle": "Bygget for agentbasert arbeid",
     "features": {
       "chromium": {
@@ -3579,7 +3614,7 @@
     },
     "installTitle": "Installer",
     "releaseTitle": "Versjoner og oppdateringer",
-    "releaseBody": "Disse lenkene peker alltid til den nyeste stabile versjonen på <github>GitHub Releases</github>. cmux verifiserer signerte oppdateringsmanifest før en oppdatering installeres.",
+    "releaseBody": "Disse lenkene peker alltid til den nyeste nightly-versjonen på <github>GitHub Releases</github>. cmux verifiserer signerte oppdateringsmanifest før en oppdatering installeres.",
     "sourceLink": "Se kildekoden på GitHub",
     "otherPlatform": "cmux for {platform}",
     "macLink": "cmux-terminal for Mac",
@@ -3589,6 +3624,7 @@
       "metaDescription": "Last ned cmux for Windows x64: en gratis Chromium-nettleser med åpen kildekode og et arbeidsområde for agenter med oppgavebaserte faner og terminalflater.",
       "subtitle": "En innebygd x64-versjon med Chromium-faner, cmux-arbeidsområder og kjente Windows-tastaturkonvensjoner.",
       "primaryCta": "Last ned installasjonsprogram (.exe)",
+      "secondaryCta": "Portabel ZIP",
       "requirements": "Windows 10 eller nyere · x64",
       "installBody": "Kjør installasjonsprogrammet og følg Windows-instruksjonene. Velg den portable ZIP-filen hvis du vil beholde cmux i en mappe uten systemomfattende installasjon."
     },
@@ -3597,9 +3633,10 @@
       "metaTitle": "Last ned cmux for Linux",
       "metaDescription": "Last ned cmux for Linux x64: en gratis Chromium-nettleser med åpen kildekode og et arbeidsområde for agenter med oppgavebaserte faner og terminalflater.",
       "subtitle": "En innebygd x64-versjon med Chromium-faner, cmux-arbeidsområder og integrerte terminalflater.",
-      "primaryCta": "Last ned .deb",
-      "requirements": "Debian eller Ubuntu · x64",
-      "installBody": "Last ned Debian-pakken og installer den med pakkebehandleren. Velg den portable ZIP-filen for installasjon per bruker og oppdateringer i appen."
+      "primaryCta": "Last ned installasjonsprogram med automatiske oppdateringer (.run)",
+      "secondaryCta": "Debian-pakke (.deb)",
+      "requirements": "Linux · x64",
+      "installBody": "Kjør installasjonsprogrammet for brukeren én gang. Det installerer cmux under ~/.local uten root-tilgang og aktiverer signerte oppdateringer i appen. Velg Debian-pakken i stedet hvis du vil at oppdateringene skal administreres av pakkebehandleren."
     }
   },
   "emails": {

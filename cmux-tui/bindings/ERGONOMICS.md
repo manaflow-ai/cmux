@@ -1,9 +1,9 @@
 # SDK ergonomics findings
 
 The seven public SDKs expose handwritten resource handles over the reviewed
-112-operation `cmux.protocol/1` catalog. The raw protocol inventory is a
-separate compatibility surface with 92 commands and 45 events. Deterministic
-generation is limited to those private protocol-10 models under each package's
+113-operation `cmux.protocol/2` catalog. The raw protocol inventory is a
+separate compatibility surface with 97 commands and 45 events. Deterministic
+generation is limited to those private protocol-11 models under each package's
 explicit `raw` namespace. Consumers do not run a generator or install a
 generator runtime.
 
@@ -50,6 +50,10 @@ The standalone consumers found defects that shape-only tests missed:
    after acknowledgement, while open, bounded-poll, control, and cancellation
    deadlines remain explicit. All seven SDKs have delayed-event regressions
    that wait beyond the open deadline before delivering the first item.
+9. Terminal multiview added `tab_ids` within protocol 1, exposing a version-skew
+   failure when a new SDK decoded an older server's `tab_id`-only snapshot. All
+   seven high-level decoders now synthesize the legacy singleton or empty list
+   only when `tab_ids` is absent, while rejecting explicit malformed arrays.
 
 These fixes are structural. They remove duplicate state publication, invalid
 wire states, and public JSON escape hatches instead of hiding them in example
@@ -61,7 +65,7 @@ implemented public behavior. None remains protocol work.
 
 ## Conformance evidence
 
-The 112 public operations are the API inventory. The public fake-server matrix
+The 113 public operations are the API inventory. The public fake-server matrix
 is test inventory: 20 cases in each language, 140 cases total. It checks exact
 envelopes, decimal preservation, mutation replay, indeterminate effects,
 revision conflicts, duplicate-name ambiguity, bounded stream overflow,
@@ -70,8 +74,8 @@ and secret redaction.
 
 The exact-binary live matrix adds one isolated create, run, exit, restart, and
 cleanup flow per language. TypeScript repeats it over authenticated WebSocket,
-for eight live transport runs. The separate raw protocol-10 suite runs 266
-compatibility checks over its 92 commands and 45 events.
+for eight live transport runs. The separate raw protocol-11 suite runs 266
+compatibility checks over its 97 commands and 45 events.
 
 Each package suite also opens a stream with a short request deadline, leaves it
 idle past that deadline, then delivers and cancels normally. This separates

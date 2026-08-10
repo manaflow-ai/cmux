@@ -98,9 +98,11 @@ public actor CmxIrohHostRuntime {
     var registrationRefreshTask: Task<Void, Never>?
     var registrationRenewalTask: Task<Void, Never>?
     var registrationRefreshPending = false
+    var registrationRefreshPendingForcesPublication = false
     var registrationRefreshEnabled = false
     var registrationRefreshFailureCount = 0
     var localBinding: CmxIrohBrokerBindingMetadata?
+    var lastRegistrationRefreshState: CmxIrohRegistrationPublicationState?
     var managedRelayURLs: Set<String>
     var currentEndpointRelayProfile: CmxIrohEndpointRelayProfile?
     var endpointAttestation: CmxIrohEndpointAttestationResponse?
@@ -168,6 +170,7 @@ public actor CmxIrohHostRuntime {
         lifecycleRevision &+= 1
         let revision = lifecycleRevision
         registrationRefreshPending = false
+        registrationRefreshPendingForcesPublication = false
         registrationRefreshEnabled = false
         registrationRefreshFailureCount = 0
         currentSnapshot = CmxIrohHostRuntimeSnapshot(
@@ -419,7 +422,7 @@ public actor CmxIrohHostRuntime {
         connection: any CmxIrohConnection,
         runtimeGeneration: UInt64,
         lifecycleRevision revision: UInt64,
-        markAdmitted: @escaping CmxIrohEndpointServer.AdmissionMarker
+        markAdmitted: CmxIrohEndpointServer.AdmissionMarker
     ) async throws {
         try requireCurrent(revision)
         guard let admissionController,
@@ -485,7 +488,13 @@ public actor CmxIrohHostRuntime {
             publishSelectedPathChange()
         }
         await handleTransport(
-            CmxIrohAdmittedServerSession(peer: peer, session: session),
+            CmxIrohAdmittedServerSession(
+                peer: peer,
+                session: session,
+                promoteUsableSession: {
+                    await markAdmitted.markUsable()
+                }
+            ),
             isCurrent
         )
     }

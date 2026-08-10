@@ -25,7 +25,7 @@ pub enum CmuxError {
         message: String,
         id: Option<Value>,
     },
-    /// Structured `cmux.protocol/1` operation failure.
+    /// Structured `cmux.protocol/2` operation failure.
     Protocol {
         code: String,
         message: String,
@@ -645,6 +645,14 @@ mod tests {
     use std::thread;
     use std::time::Instant;
 
+    static SUBSCRIBE_METADATA: CommandMetadata = CommandMetadata {
+        name: "subscribe",
+        since: 1,
+        capability: None,
+        authority: "control",
+        stream: Some(crate::StreamMetadata { kind: "subscribe", terminal_event: None }),
+    };
+
     fn temp_socket(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
             "cmux-sdk-{name}-{}-{}.sock",
@@ -669,35 +677,35 @@ mod tests {
 
     #[test]
     fn close_handle_unblocks_a_reader() {
-        let (path, server) = spawn_stream_server("close", |mut stream| {
+        let (release_server_tx, release_server_rx) = std::sync::mpsc::channel();
+        let (path, server) = spawn_stream_server("close", move |mut stream| {
             let mut request = String::new();
             BufReader::new(stream.try_clone().unwrap()).read_line(&mut request).unwrap();
             let id = serde_json::from_str::<Value>(&request).unwrap()["id"].clone();
             writeln!(stream, "{}", serde_json::json!({"id": id, "ok": true, "data": {}})).unwrap();
-            thread::sleep(Duration::from_millis(100));
+            release_server_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         });
         let mut client = CmuxClient::connect(
             ClientConfig::from_socket_path(&path).with_timeout(Duration::from_secs(5)),
         )
         .unwrap();
-        let metadata: &'static CommandMetadata = Box::leak(Box::new(CommandMetadata {
-            name: "subscribe",
-            since: 1,
-            capability: None,
-            authority: "control",
-            stream: Some(crate::StreamMetadata { kind: "subscribe", terminal_event: None }),
-        }));
-        let stream = client.execute_stream(metadata, &serde_json::json!({})).unwrap();
+        let stream = client.execute_stream(&SUBSCRIBE_METADATA, &serde_json::json!({})).unwrap();
         let closer = stream.closer();
+        let (reader_started_tx, reader_started_rx) = std::sync::mpsc::channel();
+        let (reader_result_tx, reader_result_rx) = std::sync::mpsc::channel();
         let reader = thread::spawn(move || {
             let mut stream = stream;
-            stream.recv()
+            reader_started_tx.send(()).unwrap();
+            reader_result_tx.send(stream.recv()).unwrap();
         });
-        thread::sleep(Duration::from_millis(30));
+        reader_started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         closer.close();
-        assert!(matches!(reader.join().unwrap(), Err(CmuxError::Closed)));
+        let result = reader_result_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        release_server_tx.send(()).unwrap();
+        reader.join().unwrap();
         server.join().unwrap();
         let _ = std::fs::remove_file(path);
+        assert!(matches!(result, Err(CmuxError::Closed)));
     }
 
     #[test]
@@ -710,14 +718,8 @@ mod tests {
             writeln!(stream, "{}", serde_json::json!({"id": id, "ok": true, "data": {}})).unwrap();
         });
         let mut client = CmuxClient::connect(ClientConfig::from_socket_path(&path)).unwrap();
-        let metadata: &'static CommandMetadata = Box::leak(Box::new(CommandMetadata {
-            name: "subscribe",
-            since: 1,
-            capability: None,
-            authority: "control",
-            stream: Some(crate::StreamMetadata { kind: "subscribe", terminal_event: None }),
-        }));
-        let mut stream = client.execute_stream(metadata, &serde_json::json!({})).unwrap();
+        let mut stream =
+            client.execute_stream(&SUBSCRIBE_METADATA, &serde_json::json!({})).unwrap();
         assert_eq!(stream.buffered_len(), 1);
         assert_eq!(stream.recv().unwrap().wire_name(), Some("tree-changed"));
         server.join().unwrap();
@@ -735,14 +737,7 @@ mod tests {
         let mut client =
             CmuxClient::connect(ClientConfig::from_socket_path(&path).with_max_queued_events(1))
                 .unwrap();
-        let metadata: &'static CommandMetadata = Box::leak(Box::new(CommandMetadata {
-            name: "subscribe",
-            since: 1,
-            capability: None,
-            authority: "control",
-            stream: Some(crate::StreamMetadata { kind: "subscribe", terminal_event: None }),
-        }));
-        let result = client.execute_stream(metadata, &serde_json::json!({}));
+        let result = client.execute_stream(&SUBSCRIBE_METADATA, &serde_json::json!({}));
         assert!(matches!(result, Err(CmuxError::QueueOverflow { limit: 1 })));
         server.join().unwrap();
         let _ = std::fs::remove_file(path);

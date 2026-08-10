@@ -258,17 +258,43 @@ final class MobileHostService {
     nonisolated static func identityStatusPayload(
         routes: [CmxAttachRoute],
         additionalCapabilities: Set<String> = [],
+        phonePushDefaults: UserDefaults = .standard,
+        phonePushAdmission: PhonePushAdmission = .unknown,
+        phonePushQueuePersistenceStatus: PhonePushQueuePersistenceStatus =
+            .unknown,
+        phonePushAPIBaseURL: URL = AuthEnvironment.vmAPIBaseURL,
         now: Date = Date()
     ) -> [String: Any] {
         var payload = publicStatusPayload(routes: [], now: now)
         payload["routes"] = routes.mobileHostJSONObjects(for: .authenticated, at: now)
-        if !additionalCapabilities.isEmpty {
-            payload["capabilities"] = mobileHostCapabilities
-                + additionalCapabilities.sorted()
-        }
+        payload["capabilities"] = applyingDebugCapabilitySuppressions(
+            mobileHostCapabilities
+                + additionalCapabilities
+                    .union([
+                        phonePushStatusCapability,
+                        phonePushSettingsCapability,
+                        phonePushTestCapability,
+                    ])
+                    .sorted()
+        )
         payload["terminal_theme_revision_epoch"] = terminalThemeRevisionEpoch
         payload["mac_device_id"] = MobileHostIdentity.deviceID()
         payload["mac_instance_tag"] = MobileHostIdentity.instanceTag()
+        payload["phone_push"] = [
+            "forwarding_enabled": PhonePushConfiguration.forwardingEnabled(
+                in: phonePushDefaults
+            ),
+            "mode": PhoneForwardingMode.fromDefaults(phonePushDefaults).rawValue,
+            "admission": phonePushAdmission.rawValue,
+            "queue_persistence": phonePushQueuePersistenceStatus.rawValue,
+            "hide_content": phonePushDefaults.bool(
+                forKey: PhonePushSettings.hideContentKey
+            ),
+            "api_origin": canonicalPhonePushAPIBaseURL(phonePushAPIBaseURL),
+            // Reaching this payload means `verifiedStackCaller` already proved
+            // the presented token belongs to the Mac's current Stack account.
+            "account_scope": "verified_same_account",
+        ]
         if let displayName = MobileHostIdentity.instanceDisplayName() {
             payload["mac_display_name"] = displayName
         }
@@ -280,6 +306,14 @@ final class MobileHostService {
             payload["mac_app_build"] = appBuild
         }
         return payload
+    }
+
+    nonisolated private static func canonicalPhonePushAPIBaseURL(_ url: URL) -> String {
+        var value = url.absoluteString
+        while value.hasSuffix("/") {
+            value.removeLast()
+        }
+        return value
     }
 
     /// The `mobile.host.status` reply for a network caller.
@@ -317,7 +351,20 @@ final class MobileHostService {
         if !verified {
             mobileHostLog.error("mobile host status identity withheld: stack verification failed")
         }
-        return MobileHostPublicStatusCache.result(includeIdentity: verified)
+        guard verified else {
+            return MobileHostPublicStatusCache.result(includeIdentity: false)
+        }
+        let phonePushStatus = await MainActor.run {
+            (
+                PhonePushClient.shared.currentAdmission(),
+                PhonePushClient.shared.queuePersistenceStatus
+            )
+        }
+        return MobileHostPublicStatusCache.result(
+            includeIdentity: true,
+            phonePushAdmission: phonePushStatus.0,
+            phonePushQueuePersistenceStatus: phonePushStatus.1
+        )
     }
 
     private let callbackQueue = DispatchQueue(label: "dev.cmux.mobile.host-listener")
@@ -346,6 +393,7 @@ final class MobileHostService {
     private var readinessWaiters: [CheckedContinuation<MobileHostServiceStatus, Never>] = []
     private var readinessTimeoutTask: Task<Void, Never>?
     let mobileBrowserStreamCoordinator = MobileBrowserStreamCoordinator()
+    let mobileSimulatorStreamCoordinator = MobileSimulatorStreamCoordinator()
     #if DEBUG
     private var debugAcceptedStackAuthToken: String?
     #endif
@@ -506,6 +554,8 @@ final class MobileHostService {
         switch topic {
         case MobileHostEventTopicPolicy.renderGridTopic, "terminal.bytes":
             return payload["surface_id"] as? String
+        case MobileHostEventTopicPolicy.simulatorFrameTopic:
+            return payload["panel_id"] as? String
         default:
             return nil
         }
@@ -564,6 +614,13 @@ final class MobileHostService {
                 )
             }
             #endif
+            if topic == MobileHostEventTopicPolicy.simulatorFrameTopic,
+               !result.simulatorFrameShedPanelIDs.isEmpty {
+                MobileSimulatorDiagnostics.recordFrameQueueShed(
+                    panelIDStrings: result.simulatorFrameShedPanelIDs,
+                    shedByteCount: result.shedByteCount
+                )
+            }
             resyncSurfaceIDs.formUnion(result.renderGridResyncSurfaceIDs)
             if result.startDrain {
                 Task { await connection.drainQueuedEvents() }
@@ -1198,6 +1255,7 @@ final class MobileHostService {
         authorization: MobileHostConnectionAuthorizationContext,
         artifactTransfers: MobileHostIrohArtifactTransferRegistry? = nil,
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
+        promoteUsableSession: @escaping @Sendable () async -> Bool = { true },
         isCurrent: @escaping @Sendable () async -> Bool
     ) async -> CmxIrohAdmittedConnectionExit {
         let expectedExit = CmxIrohAdmittedConnectionExit(
@@ -1227,13 +1285,17 @@ final class MobileHostService {
                 )
             },
             onAuthorizedRequest: { request in
-                await Self.retireSupersededIrohConnections(
-                    newestConnectionID: id
-                )
                 guard let clientID = Self.clientID(from: request.params) else {
                     return
                 }
                 await MobileHostService.shared.recordClientID(clientID, for: id)
+            },
+            onUsableSession: {
+                guard await promoteUsableSession() else { return false }
+                await Self.retireSupersededIrohConnections(
+                    newestConnectionID: id
+                )
+                return true
             },
             handleRequest: { request in
                 if request.method == "mobile.host.status" {
@@ -1262,6 +1324,7 @@ final class MobileHostService {
             },
             onClose: { id in
                 await MobileHostService.shared.mobileBrowserStreamCoordinator.connectionClosed(id)
+                await MobileHostService.shared.mobileSimulatorStreamCoordinator.connectionClosed(id)
                 MobileHostConnectionRegistry.shared.remove(id: id)
                 await MobileHostService.shared.removeConnection(id: id)
             }
@@ -1311,11 +1374,19 @@ final class MobileHostService {
         case .stackBearer:
             return await stackStatus(request)
         case .irohAdmission:
+            let phonePushStatus = await MainActor.run {
+                (
+                    PhonePushClient.shared.currentAdmission(),
+                    PhonePushClient.shared.queuePersistenceStatus
+                )
+            }
             return MobileHostPublicStatusCache.result(
                 includeIdentity: true,
                 additionalCapabilities: supportsArtifactLane
                     ? Set([irohArtifactLaneCapability])
-                    : Set()
+                    : Set(),
+                phonePushAdmission: phonePushStatus.0,
+                phonePushQueuePersistenceStatus: phonePushStatus.1
             )
         }
     }
@@ -1436,7 +1507,8 @@ final class MobileHostService {
 
     /// The registry is lock-protected and connection close is actor-isolated,
     /// so Iroh handoff never needs to queue behind unrelated AppKit work on the
-    /// main actor. This path runs before every authorized RPC.
+    /// main actor. This path runs only after the replacement has delivered its
+    /// workspace list and usable event-subscription responses.
     nonisolated private static func retireSupersededIrohConnections(
         newestConnectionID: UUID
     ) async {
@@ -1882,6 +1954,7 @@ actor MobileHostConnection {
     private let idleTimeoutNanoseconds: UInt64
     private let authorizeRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?
     private let onAuthorizedRequest: @Sendable (MobileHostRPCRequest) async -> Void
+    private let onUsableSession: @Sendable () async -> Bool
     private let handleRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
     private let onClose: @Sendable (UUID) async -> Void
     private let responseWorkQuota = MobileHostRPCWorkQuota()
@@ -1929,6 +2002,7 @@ actor MobileHostConnection {
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
         onAuthorizedRequest: @escaping @Sendable (MobileHostRPCRequest) async -> Void,
+        onUsableSession: @escaping @Sendable () async -> Bool = { true },
         handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
         onClose: @escaping @Sendable (UUID) async -> Void
     ) {
@@ -1942,6 +2016,7 @@ actor MobileHostConnection {
         self.eventSendStallTimeoutNanoseconds = eventSendStallTimeoutNanoseconds
         self.authorizeRequest = authorizeRequest
         self.onAuthorizedRequest = onAuthorizedRequest
+        self.onUsableSession = onUsableSession
         self.handleRequest = handleRequest
         self.onClose = onClose
     }
@@ -1955,6 +2030,7 @@ actor MobileHostConnection {
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
         onAuthorizedRequest: @escaping @Sendable (MobileHostRPCRequest) async -> Void,
+        onUsableSession: @escaping @Sendable () async -> Bool = { true },
         handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
         onClose: @escaping @Sendable (UUID) async -> Void
     ) {
@@ -1967,6 +2043,7 @@ actor MobileHostConnection {
         self.eventSendStallTimeoutNanoseconds = eventSendStallTimeoutNanoseconds
         self.authorizeRequest = authorizeRequest
         self.onAuthorizedRequest = onAuthorizedRequest
+        self.onUsableSession = onUsableSession
         self.handleRequest = handleRequest
         self.onClose = onClose
     }
@@ -2326,7 +2403,7 @@ actor MobileHostConnection {
                 return
             }
             if await sendResponse(response.data) {
-                recordReadinessContribution(response.readinessContribution)
+                await recordReadinessContribution(response.readinessContribution)
             }
         case let .failure(error):
             guard !isClosed, !Task.isCancelled else {
@@ -2543,7 +2620,7 @@ actor MobileHostConnection {
 
     private func recordReadinessContribution(
         _ contribution: UsableSessionReadinessContribution?
-    ) {
+    ) async {
         guard let contribution, !isClosed else { return }
         switch contribution {
         case .workspaceList(let count):
@@ -2556,10 +2633,10 @@ actor MobileHostConnection {
             )
             usableEventSubscription = isLive(candidate) ? candidate : nil
         }
-        publishUsableSessionIfReady()
+        await publishUsableSessionIfReady()
     }
 
-    private func publishUsableSessionIfReady() {
+    private func publishUsableSessionIfReady() async {
         guard let workspaceCount = usableWorkspaceCount,
               let subscription = usableEventSubscription,
               isLive(subscription),
@@ -2567,6 +2644,7 @@ actor MobileHostConnection {
               !isClosed else {
             return
         }
+        guard await onUsableSession(), !isClosed else { return }
         didPublishUsableSession = true
         CmuxEventBus.shared.publish(
             name: "mobile.rpc.ready",
@@ -2697,6 +2775,13 @@ actor MobileHostConnection {
         if !result.renderGridResyncSurfaceIDs.isEmpty {
             MobileTerminalRenderObserver.requestRenderGridFullResync(
                 surfaceIDStrings: result.renderGridResyncSurfaceIDs
+            )
+        }
+        if topic == MobileHostEventTopicPolicy.simulatorFrameTopic,
+           !result.simulatorFrameShedPanelIDs.isEmpty {
+            MobileSimulatorDiagnostics.recordFrameQueueShed(
+                panelIDStrings: result.simulatorFrameShedPanelIDs,
+                shedByteCount: result.shedByteCount
             )
         }
         if result.startDrain {

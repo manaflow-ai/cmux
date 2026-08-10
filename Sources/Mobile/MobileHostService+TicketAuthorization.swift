@@ -39,6 +39,7 @@ extension MobileHostService {
 
         switch request.method {
         case "mobile.workspace.list", "workspace.list", "mobile.workspace.changes.summary",
+             "mobile.task.models.list",
              "mobile.directory.list", "mobile.directory.search":
             // List-shaped reads may span the Mac's workspaces; same-account
             // Stack authorization remains the authoritative data-plane gate.
@@ -47,6 +48,16 @@ extension MobileHostService {
             // Cursor-based read of the same Mac-scoped list state as
             // `mobile.workspace.list`; carries no workspace/terminal selection.
             return nil
+        case "mobile.simulator.list":
+            return nil
+        case "mobile.simulator.stream.start", "mobile.simulator.stream.stop",
+             "mobile.simulator.input.pointer",
+             "mobile.simulator.input.text",
+             "mobile.simulator.input.button":
+            return ticketWorkspaceAuthorizationError(
+                authorization: authorization,
+                workspaceSelection: workspaceSelection.value
+            )
         case "mobile.workspace.changes.files",
              "mobile.workspace.changes.file_diff",
              "mobile.workspace.changes.file_stat",
@@ -61,6 +72,10 @@ extension MobileHostService {
             guard request.params["group_id"] == nil || request.params["group_id"] is NSNull else {
                 return ticketMacScopedWorkspaceMutationAuthorizationError(authorization: authorization)
             }
+            return nil
+        case "mobile.task.attachment.upload":
+            // Task uploads share the Mac-scoped authorization class of the
+            // workspace.create operation they precede.
             return nil
         case "workspace.move":
             return ticketMacScopedWorkspaceMutationAuthorizationError(
@@ -112,7 +127,7 @@ extension MobileHostService {
             return nil
         case "mobile.events.unsubscribe", "mobile.events.probe":
             return nil
-        case "mobile.host.status":
+        case "mobile.host.status", "phone_push.status.get":
             return nil
         default:
             return scopedTicketError

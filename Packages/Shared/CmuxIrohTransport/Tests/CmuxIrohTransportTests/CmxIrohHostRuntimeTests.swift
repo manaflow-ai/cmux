@@ -348,6 +348,8 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
     private let subsequentRegistrationHook: (@Sendable () async -> Void)?
     private let relayIssueHook: (@Sendable () async -> Void)?
     private let embedDiscoveryStartingAtRegistrationCount: Int?
+    private let embeddedRegistrationDiscovery: CmxIrohDiscoveryResponse?
+    private let embeddedRegistrationDiscoveryIsComplete: Bool?
     private let registrationRevision: UInt64?
     private var preflightErrors: [CmxIrohBrokerCooldownError]
     private var subsequentRegistrationErrors: [CmxIrohTrustBrokerClientError]
@@ -375,6 +377,8 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
         relayIssueHook: (@Sendable () async -> Void)? = nil,
         embedDiscoveryInRegistration: Bool = false,
         embedDiscoveryStartingAtRegistrationCount: Int? = nil,
+        embeddedRegistrationDiscovery: CmxIrohDiscoveryResponse? = nil,
+        embeddedRegistrationDiscoveryIsComplete: Bool? = nil,
         registrationRevision: UInt64? = nil,
         preflightErrors: [CmxIrohBrokerCooldownError] = [],
         subsequentRegistrationErrors: [CmxIrohTrustBrokerClientError] = []
@@ -391,6 +395,9 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
             embedDiscoveryInRegistration
                 ? 1
                 : embedDiscoveryStartingAtRegistrationCount
+        self.embeddedRegistrationDiscovery = embeddedRegistrationDiscovery
+        self.embeddedRegistrationDiscoveryIsComplete =
+            embeddedRegistrationDiscoveryIsComplete
         self.registrationRevision = registrationRevision
         self.preflightErrors = preflightErrors
         self.subsequentRegistrationErrors = subsequentRegistrationErrors
@@ -432,14 +439,17 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
         let embedsDiscovery = embedDiscoveryStartingAtRegistrationCount
             .map { registrationCount >= $0 }
             ?? false
+        let embeddedDiscovery = embeddedRegistrationDiscovery
+            ?? (embedsDiscovery ? discoveryResponses[0] : nil)
         return CmxIrohRegistrationResponse(
             revision: registrationRevision
-                ?? (embedsDiscovery ? discoveryResponses[0].revision : nil),
+                ?? embeddedDiscovery?.revision,
             binding: binding,
             relay: .unavailable,
-            discovery: embedsDiscovery
-                ? discoveryResponses[0]
-                : nil
+            discovery: embeddedDiscovery,
+            discoveryComplete: embeddedRegistrationDiscovery == nil
+                ? (embedsDiscovery ? true : nil)
+                : embeddedRegistrationDiscoveryIsComplete
         )
     }
 

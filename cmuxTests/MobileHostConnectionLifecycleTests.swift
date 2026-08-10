@@ -125,7 +125,7 @@ extension MobileHostAuthorizationTests {
         #expect(registry.count == 0)
     }
 
-    @Test func testNewestAuthorizedIrohConnectionSupersedesOlderOverlap() async throws {
+    @Test func testNewestUsableIrohConnectionSupersedesOlderOverlap() async throws {
         let service = MobileHostService.shared
         service.debugResetMobileLifecycleStateForTesting()
         let registry = MobileHostConnectionRegistry.shared
@@ -160,8 +160,18 @@ extension MobileHostAuthorizationTests {
         #expect(registry.count == 2)
         #expect(await second.observedCloseCount() == 0)
 
-        try await second.enqueue(Self.mobileHostSubscribeFrame(id: "second"))
+        try await second.enqueue(Self.mobileHostStatusFrame(id: "second-status"))
         _ = await second.waitForSentBufferCount(1)
+        #expect(registry.count == 2)
+        #expect(await first.observedCloseCount() == 0)
+
+        try await second.enqueue(Self.mobileHostWorkspaceListFrame(id: "second-workspaces"))
+        _ = await second.waitForSentBufferCount(2)
+        #expect(registry.count == 2)
+        #expect(await first.observedCloseCount() == 0)
+
+        try await second.enqueue(Self.mobileHostTerminalSubscribeFrame(id: "second-events"))
+        _ = await second.waitForSentBufferCount(3)
         await waitForMobileHostConnectionCount(1)
         await first.waitForCloseCount(1)
 

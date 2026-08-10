@@ -478,6 +478,7 @@ public final class ResourceApiTest {
         Snapshots.TerminalSnapshot terminal = Client.decodeTerminal(Map.of(
             "id", "term_" + HEX,
             "tab_id", "tab_" + HEX,
+            "tab_ids", List.of("tab_" + HEX),
             "title", "done",
             "cols", 80,
             "rows", 24,
@@ -496,11 +497,39 @@ public final class ResourceApiTest {
                     Results.TerminalExitCode,
             "terminal snapshot exposes typed lifecycle and exit"
         );
+        Snapshots.TerminalSnapshot legacyTerminal = Client.decodeTerminal(Map.of(
+            "id", "term_" + HEX,
+            "tab_id", "tab_" + HEX,
+            "title", "legacy",
+            "cols", 80,
+            "rows", 24,
+            "running", true,
+            "lifecycle", "running"
+        ));
+        require(
+            legacyTerminal.tabIds().equals(List.of(legacyTerminal.tabId().orElseThrow())),
+            "protocol-one terminal tab_id expands to tabIds"
+        );
+        Map<String, Object> legacyDetachedFields = new LinkedHashMap<>();
+        legacyDetachedFields.put("id", "term_" + HEX);
+        legacyDetachedFields.put("tab_id", null);
+        legacyDetachedFields.put("title", "legacy detached");
+        legacyDetachedFields.put("cols", 80);
+        legacyDetachedFields.put("rows", 24);
+        legacyDetachedFields.put("running", true);
+        legacyDetachedFields.put("lifecycle", "running");
+        Snapshots.TerminalSnapshot legacyDetached =
+            Client.decodeTerminal(legacyDetachedFields);
+        require(
+            legacyDetached.tabId().isEmpty() && legacyDetached.tabIds().isEmpty(),
+            "protocol-one detached terminal expands to empty tabIds"
+        );
         expect(
             IllegalArgumentException.class,
             () -> Client.decodeTerminal(Map.of(
                 "id", "term_" + HEX,
                 "tab_id", "tab_" + HEX,
+                "tab_ids", List.of("tab_" + HEX),
                 "title", "bad",
                 "cols", 80,
                 "rows", 24,
@@ -2786,7 +2815,7 @@ public final class ResourceApiTest {
             Map<String, Object> result
         ) {
             return new LinkedHashMap<>(Map.of(
-                "protocol", "cmux.protocol/1",
+                "protocol", "cmux.protocol/2",
                 "type", "response",
                 "id", id,
                 "ok", true,
@@ -2954,7 +2983,7 @@ public final class ResourceApiTest {
                 if (cancelableStream) {
                     if (malformedKnownItemBeforeCancelEnd) {
                         inbound.add(Map.of(
-                            "protocol", "cmux.protocol/1",
+                            "protocol", "cmux.protocol/2",
                             "type", "stream_item",
                             "stream_id", openStreamId,
                             "sequence", "0",
@@ -2975,7 +3004,7 @@ public final class ResourceApiTest {
                     }
                     if (malformedKnownItemAfterCancelEnd) {
                         inbound.add(Map.of(
-                            "protocol", "cmux.protocol/1",
+                            "protocol", "cmux.protocol/2",
                             "type", "stream_item",
                             "stream_id", openStreamId,
                             "sequence", "1",
@@ -2992,7 +3021,7 @@ public final class ResourceApiTest {
                             "revision", "1"
                         );
                         inbound.add(Map.of(
-                            "protocol", "cmux.protocol/1",
+                            "protocol", "cmux.protocol/2",
                             "type", "stream_item",
                             "stream_id", openStreamId,
                             "sequence", "1",
@@ -3124,7 +3153,7 @@ public final class ResourceApiTest {
                                 Map.of()
                             ));
                             inbound.add(Map.of(
-                                "protocol", "cmux.protocol/1",
+                                "protocol", "cmux.protocol/2",
                                 "type", "stream_item",
                                 "stream_id", streamId,
                                 "sequence", "0",
@@ -3152,7 +3181,7 @@ public final class ResourceApiTest {
                         }
                         case MALFORMED_CORRELATED_RESPONSE -> {
                             inbound.add(Map.of(
-                                "protocol", "cmux.protocol/1",
+                                "protocol", "cmux.protocol/2",
                                 "type", "response",
                                 "id", id,
                                 "ok", "invalid",
@@ -3310,7 +3339,7 @@ public final class ResourceApiTest {
                             index <= Client.MAX_STREAM_MESSAGES;
                             index++) {
                         inbound.add(Map.of(
-                            "protocol", "cmux.protocol/1",
+                            "protocol", "cmux.protocol/2",
                             "type", "stream_item",
                             "stream_id", streamId,
                             "sequence", String.valueOf(index),
@@ -3569,7 +3598,7 @@ public final class ResourceApiTest {
             String marker
         ) {
             Map<String, Object> item = new LinkedHashMap<>();
-            item.put("protocol", "cmux.protocol/1");
+            item.put("protocol", "cmux.protocol/2");
             item.put("type", "stream_item");
             item.put("stream_id", streamId);
             item.put("sequence", "18446744073709551615");
@@ -3586,7 +3615,7 @@ public final class ResourceApiTest {
             }
             inbound.add(item);
             inbound.add(Map.of(
-                "protocol", "cmux.protocol/1",
+                "protocol", "cmux.protocol/2",
                 "type", "stream_end",
                 "stream_id", streamId,
                 "reason", "completed"
@@ -3598,7 +3627,7 @@ public final class ResourceApiTest {
             CancelEndMode mode
         ) {
             Map<String, Object> end = new LinkedHashMap<>();
-            end.put("protocol", "cmux.protocol/1");
+            end.put("protocol", "cmux.protocol/2");
             end.put("type", "stream_end");
             end.put(
                 "stream_id",
@@ -3709,7 +3738,7 @@ public final class ResourceApiTest {
             Map<String, Object> error
         ) {
             Map<String, Object> value = new LinkedHashMap<>();
-            value.put("protocol", "cmux.protocol/1");
+            value.put("protocol", "cmux.protocol/2");
             value.put("type", "response");
             value.put("id", id);
             value.put("ok", ok);

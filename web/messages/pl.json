@@ -135,6 +135,31 @@
     "faqFeatureA": "Chcemy to usłyszeć. Otwórz <issuesLink>zgłoszenie</issuesLink> lub <prLink>pull request</prLink> na GitHub albo <mailLink>napisz do nas</mailLink>."
   },
   "dashboard": {
+    "nav": {
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "przegląd",
+      "team": "zespół"
+    },
+    "home": {
+      "coderouterName": "coderouter",
+      "coderouterDescription": "Kieruj żądania LLM między kontami dostawców z przełączaniem awaryjnym i planowaniem według użycia.",
+      "coderouterLink": "otwórz coderouter"
+    },
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "Zarządzaj współdzielonymi kontami AI i kieruj żądania za pomocą coderouter.",
+      "title": "coderouter",
+      "description": "coderouter kieruje żądania LLM między kontami dostawców z przełączaniem awaryjnym i planowaniem według użycia."
+    },
+    "accountMenu": {
+      "label": "Menu konta",
+      "settings": "Ustawienia",
+      "billing": "Rozliczenia",
+      "signOut": "Wyloguj się",
+      "signingOut": "Wylogowywanie…",
+      "signOutError": "Nie udało się wylogować. Spróbuj ponownie.",
+      "signIn": "Zaloguj się"
+    },
     "aiAccounts": {
       "metaTitle": "Konta AI — cmux",
       "metaDescription": "Zarządzaj kontami dostawców AI zespołu w cmux.",
@@ -868,6 +893,8 @@
       "concepts": "Koncepty",
       "anchorTitle": "Kotwicowy workspace",
       "anchorDesc": "Każda grupa należy do dokładnie jednego workspace'a zwanego kotwicą. Nagłówek grupy w pasku bocznym jest reprezentacją kotwicy — nie ma dla niej osobnego wiersza. Kliknięcie obszaru nazwy w nagłówku ustawia fokus na panelach kotwicy; kliknięcie strzałki przełącza zwinięcie.",
+      "anchorNew": "Kotwicą grupy jest w chwili jej tworzenia zawsze zupełnie nowy workspace; ani grupowanie zaznaczenia, ani tworzenie grupy nigdy nie powodują awansu żadnego z istniejących workspace'ów do roli kotwicy. (Późniejsze zamknięcie kotwicy awansuje jednak pierwszego pozostałego członka grupy; zobacz poniżej). Katalog roboczy kotwicy jest dziedziczony z pierwszego zaznaczonego workspace'a podczas grupowania zaznaczenia lub z aktywnego workspace'a podczas tworzenia przez CLI bez --cwd.",
+      "anchorClose": "Zamknięcie kotwicowego workspace'a zamyka tylko ten workspace i awansuje pierwszego pozostałego członka grupy (pierwszego, który nadal znajduje się w kolejności grupy) do roli nowej kotwicy. Dzięki temu grupa i jej pozostali członkowie pozostają nienaruszeni (awansowany członek wyświetla następnie nazwę grupy jako nagłówek). Gdy kotwica jest jedynym workspace'em w grupie, grupa zostaje usunięta. Aby przekształcić grupę w niezgrupowane workspace'y, użyj „Rozgrupuj przestrzenie”; aby zamknąć wszystkie workspace'y w grupie, użyj „Usuń grupę”.",
       "identityTitle": "Tożsamość grupy",
       "identityDesc": "Grupa ma nazwę, ikonę (SF Symbol, domyślnie folder.fill) oraz opcjonalny niestandardowy kolor. Są one niezależne od własnych dostosowań kotwicowego workspace'a. Kolor i ikona kotwicy są przy tworzeniu inicjowane z grupy, ale później mogą się różnić.",
       "pinningTitle": "Przypinanie",
@@ -1407,7 +1434,16 @@
     "changelog": {
       "title": "Dziennik zmian",
       "metaDescription": "Notatki wydań i historia wersji cmux. Nowe funkcje, poprawki błędów i zmiany dla natywnego terminala macOS.",
-      "metaTitle": "Historia zmian"
+      "metaTitle": "Historia zmian",
+      "versionTitle": "cmux {version} · Historia zmian",
+      "releaseNavLabel": "Wydania w pobliżu cmux {version}",
+      "sections": {
+        "added": "Dodano",
+        "changed": "Zmieniono",
+        "fixed": "Naprawiono",
+        "removed": "Usunięto",
+        "contributors": "Współtwórcy"
+      }
     },
     "navItems": {
       "gettingStarted": "Szybki start",
@@ -3560,7 +3596,6 @@
     "title": "cmux dla {platform}",
     "tagline": "Przeglądarka Chromium i przestrzeń robocza dla agentów, stworzone jako jedna całość.",
     "logoAlt": "Ikona aplikacji cmux",
-    "portableCta": "Przenośny ZIP",
     "featuresTitle": "Stworzone do pracy z agentami",
     "features": {
       "chromium": {
@@ -3582,7 +3617,7 @@
     },
     "installTitle": "Instalacja",
     "releaseTitle": "Wydania i aktualizacje",
-    "releaseBody": "Te linki zawsze prowadzą do najnowszego stabilnego wydania w <github>GitHub Releases</github>. cmux weryfikuje podpisane manifesty aktualizacji przed zainstalowaniem aktualizacji.",
+    "releaseBody": "Te linki zawsze prowadzą do najnowszego wydania nightly w <github>GitHub Releases</github>. cmux weryfikuje podpisane manifesty aktualizacji przed zainstalowaniem aktualizacji.",
     "sourceLink": "Zobacz kod źródłowy na GitHubie",
     "otherPlatform": "cmux dla {platform}",
     "macLink": "Terminal cmux dla Maca",
@@ -3592,6 +3627,7 @@
       "metaDescription": "Pobierz cmux dla Windows x64: bezpłatną przeglądarkę Chromium i przestrzeń roboczą dla agentów typu open source, z kartami według zadań i powierzchniami terminala.",
       "subtitle": "Natywna kompilacja x64 z kartami Chromium, przestrzeniami roboczymi cmux i znanymi skrótami klawiaturowymi Windows.",
       "primaryCta": "Pobierz instalator (.exe)",
+      "secondaryCta": "Przenośny ZIP",
       "requirements": "Windows 10 lub nowszy · x64",
       "installBody": "Uruchom instalator i postępuj zgodnie z komunikatami Windows. Wybierz przenośny ZIP, jeśli wolisz przechowywać cmux w folderze bez instalacji w całym systemie."
     },
@@ -3600,9 +3636,10 @@
       "metaTitle": "Pobierz cmux dla Linux",
       "metaDescription": "Pobierz cmux dla Linux x64: bezpłatną przeglądarkę Chromium i przestrzeń roboczą dla agentów typu open source, z kartami według zadań i powierzchniami terminala.",
       "subtitle": "Natywna kompilacja x64 z kartami Chromium, przestrzeniami roboczymi cmux i zintegrowanymi powierzchniami terminala.",
-      "primaryCta": "Pobierz .deb",
-      "requirements": "Debian lub Ubuntu · x64",
-      "installBody": "Pobierz pakiet Debiana i zainstaluj go za pomocą menedżera pakietów. Wybierz przenośny ZIP, aby zainstalować aplikację dla jednego użytkownika i korzystać z aktualizacji w aplikacji."
+      "primaryCta": "Pobierz instalator z automatycznymi aktualizacjami (.run)",
+      "secondaryCta": "Pakiet Debiana (.deb)",
+      "requirements": "Linux · x64",
+      "installBody": "Uruchom raz instalator dla bieżącego użytkownika. Zainstaluje cmux w ~/.local bez uprawnień roota i włączy podpisane aktualizacje w aplikacji. Jeśli chcesz, aby aktualizacjami zarządzał menedżer pakietów, wybierz zamiast niego pakiet Debiana."
     }
   },
   "emails": {

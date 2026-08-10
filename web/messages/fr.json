@@ -135,6 +135,31 @@
     "faqFeatureA": "Nous voulons l'entendre. Ouvrez une <issuesLink>issue</issuesLink> ou une <prLink>pull request</prLink> sur GitHub, ou <mailLink>écrivez-nous</mailLink>."
   },
   "dashboard": {
+    "nav": {
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "aperçu",
+      "team": "équipe"
+    },
+    "home": {
+      "coderouterName": "coderouter",
+      "coderouterDescription": "Acheminez les requêtes LLM entre les comptes fournisseurs avec basculement et planification selon l’utilisation.",
+      "coderouterLink": "ouvrir coderouter"
+    },
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "Gérez les comptes d’IA partagés et acheminez les requêtes avec coderouter.",
+      "title": "coderouter",
+      "description": "coderouter achemine les requêtes LLM entre les comptes fournisseurs avec basculement et planification selon l’utilisation."
+    },
+    "accountMenu": {
+      "label": "Menu du compte",
+      "settings": "Réglages",
+      "billing": "Facturation",
+      "signOut": "Se déconnecter",
+      "signingOut": "Déconnexion…",
+      "signOutError": "Impossible de se déconnecter. Réessayez.",
+      "signIn": "Se connecter"
+    },
     "aiAccounts": {
       "metaTitle": "Comptes IA — cmux",
       "metaDescription": "Gérez les comptes de fournisseurs d'IA de l'équipe pour cmux.",
@@ -867,6 +892,8 @@
       "concepts": "Concepts",
       "anchorTitle": "Espace de travail d'ancrage",
       "anchorDesc": "Chaque groupe est détenu par exactement un espace de travail appelé l'ancrage. L'en-tête du groupe dans la barre latérale est la représentation de l'ancrage — il n'y a pas de ligne distincte pour celui-ci. Cliquer sur la zone du nom de l'en-tête met le focus sur les panneaux de l'ancrage ; cliquer sur le chevron bascule le repliement.",
+      "anchorNew": "L'ancrage d'un groupe est toujours un espace de travail entièrement nouveau au moment de la création ; ni le regroupement d'une sélection ni la création d'un groupe ne promeuvent jamais l'un de vos espaces de travail existants au rôle d'ancrage. (La fermeture ultérieure d'un ancrage promeut toutefois le premier membre restant du groupe ; voir ci-dessous.) Le répertoire de travail de l'ancrage est hérité du premier espace de travail sélectionné lors du regroupement d'une sélection, ou de l'espace de travail actif lors de la création via la CLI sans --cwd.",
+      "anchorClose": "La fermeture de l'espace de travail d'ancrage ferme uniquement cet espace de travail et promeut le premier membre restant du groupe (le premier encore présent dans l'ordre du groupe) comme nouvel ancrage. Le groupe et ses autres membres restent ainsi intacts (le membre promu affiche alors le nom du groupe comme en-tête). Lorsque l'ancrage est le seul espace de travail du groupe, le groupe est supprimé. Pour transformer un groupe en espaces de travail non groupés, utilisez Dissocier les espaces de travail ; pour fermer tous les espaces de travail d'un groupe, utilisez Supprimer le groupe.",
       "identityTitle": "Identité du groupe",
       "identityDesc": "Un groupe possède un nom, une icône (un SF Symbol, par défaut folder.fill) et une couleur personnalisée facultative. Ceux-ci sont indépendants des personnalisations propres à l'espace de travail d'ancrage. La couleur et l'icône de l'ancrage sont initialisées à partir du groupe lors de la création, mais elles peuvent ensuite diverger.",
       "pinningTitle": "Épinglage",
@@ -1408,7 +1435,16 @@
     "changelog": {
       "title": "Changelog",
       "metaDescription": "Notes de version et historique des versions de cmux. Nouvelles fonctionnalités, corrections de bugs et changements pour le terminal macOS natif.",
-      "metaTitle": "Journal des modifications"
+      "metaTitle": "Journal des modifications",
+      "versionTitle": "cmux {version} · Journal des modifications",
+      "releaseNavLabel": "Versions proches de cmux {version}",
+      "sections": {
+        "added": "Ajouts",
+        "changed": "Modifications",
+        "fixed": "Corrections",
+        "removed": "Suppressions",
+        "contributors": "Contributeurs"
+      }
     },
     "navItems": {
       "gettingStarted": "Premiers pas",
@@ -3562,7 +3598,6 @@
     "title": "cmux pour {platform}",
     "tagline": "Un navigateur Chromium et un espace de travail pour agents, conçus ensemble.",
     "logoAlt": "Icône de l’application cmux",
-    "portableCta": "ZIP portable",
     "featuresTitle": "Conçu pour le travail avec des agents",
     "features": {
       "chromium": {
@@ -3584,7 +3619,7 @@
     },
     "installTitle": "Installation",
     "releaseTitle": "Versions et mises à jour",
-    "releaseBody": "Ces liens pointent toujours vers la dernière version stable sur <github>GitHub Releases</github>. cmux vérifie les manifestes de mise à jour signés avant d’installer une mise à jour.",
+    "releaseBody": "Ces liens pointent toujours vers la dernière version nightly sur <github>GitHub Releases</github>. cmux vérifie les manifestes de mise à jour signés avant d’installer une mise à jour.",
     "sourceLink": "Voir le code source sur GitHub",
     "otherPlatform": "cmux pour {platform}",
     "macLink": "Terminal cmux pour Mac",
@@ -3594,6 +3629,7 @@
       "metaDescription": "Téléchargez cmux pour Windows x64 : un navigateur Chromium et un espace de travail pour agents, gratuits et open source, avec des onglets par tâche et des surfaces de terminal.",
       "subtitle": "Une version x64 native avec des onglets Chromium, des espaces de travail cmux et les conventions clavier familières de Windows.",
       "primaryCta": "Télécharger le programme d’installation (.exe)",
+      "secondaryCta": "ZIP portable",
       "requirements": "Windows 10 ou version ultérieure · x64",
       "installBody": "Exécutez le programme d’installation et suivez les instructions de Windows. Choisissez le ZIP portable si vous préférez conserver cmux dans un dossier sans installation à l’échelle du système."
     },
@@ -3602,9 +3638,10 @@
       "metaTitle": "Télécharger cmux pour Linux",
       "metaDescription": "Téléchargez cmux pour Linux x64 : un navigateur Chromium et un espace de travail pour agents, gratuits et open source, avec des onglets par tâche et des surfaces de terminal.",
       "subtitle": "Une version x64 native avec des onglets Chromium, des espaces de travail cmux et des surfaces de terminal intégrées.",
-      "primaryCta": "Télécharger le .deb",
-      "requirements": "Debian ou Ubuntu · x64",
-      "installBody": "Téléchargez le paquet Debian et installez-le avec votre gestionnaire de paquets. Choisissez le ZIP portable pour une installation par utilisateur et les mises à jour dans l’application."
+      "primaryCta": "Télécharger le programme d’installation avec mise à jour automatique (.run)",
+      "secondaryCta": "Paquet Debian (.deb)",
+      "requirements": "Linux · x64",
+      "installBody": "Exécutez une seule fois le programme d’installation pour votre compte utilisateur. Il installe cmux dans ~/.local sans droits root et active les mises à jour signées dans l’application. Si vous souhaitez que votre gestionnaire de paquets gère les mises à jour, choisissez plutôt le paquet Debian."
     }
   },
   "emails": {

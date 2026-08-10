@@ -72,7 +72,7 @@ jobs:
           fi
           # The conventions lint (free-function ban, namespace-type rule, ...)
           # covers every package, so it runs for any Packages/ change too.
-          if grep -Eq '^(ios/|Packages/|Sources/Mobile/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint-namespace-types-baseline\.txt$)' /tmp/changed-files.txt; then
+          if grep -Eq '^(ios/|Packages/|Sources/Mobile/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint-ios-package-conventions-baseline\.txt$|scripts/lint-namespace-types-baseline\.txt$)' /tmp/changed-files.txt; then
             echo "should_lint=true" >> "$GITHUB_OUTPUT"
           else
             echo "No package-owned files changed; skipping conventions lint."
@@ -99,8 +99,8 @@ jobs:
           # namespace-enums) plus the repo-wide namespace-type rule (no
           # all-static "namespace" types in any package). Exits non-zero on any
           # unjustified ERROR; sanctioned exceptions carry a lint:allow /
-          # TRANSITIONAL / carve-out marker, and pre-existing namespace-type
-          # debt is grandfathered in scripts/lint-namespace-types-baseline.txt.
+          # TRANSITIONAL / carve-out marker, and pre-existing debt is
+          # grandfathered in the lint baseline files under scripts/.
           ./scripts/lint-ios-package-conventions.sh
 
   mobile-core-package:
@@ -161,6 +161,10 @@ jobs:
       - name: Run CmuxMobilePairedMac package tests
         run: |
           swift test --package-path Packages/iOS/CmuxMobilePairedMac
+
+      - name: Run CmuxMobileChanges package tests
+        run: |
+          swift test --package-path Packages/iOS/CmuxMobileChanges
 
       - name: Run CmuxMobileShell package tests
         run: |

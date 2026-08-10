@@ -5,7 +5,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
-/** Lossless protocol-v1 screen layout values. */
+/** Lossless protocol-v2 screen layout values. */
 public final class Layout {
     public sealed interface Node permits Leaf, Split, Stack, Viewport {
         String kind();
