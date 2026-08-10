@@ -7623,6 +7623,15 @@ impl Mux {
         if let Some(incarnation) = terminal_incarnation {
             validate_terminal_hex(incarnation, "invalid_terminal_incarnation")?;
         }
+        if let Some(result) = self.commit_legacy_terminal_close(
+            terminal_id,
+            terminal_incarnation,
+            expected_generation,
+            expected_revision,
+            mutation,
+        )? {
+            return Ok(result);
+        }
         let (commit, terminal_incarnation, public_id, notify_public_id) = {
             let mut registry = self.workspace_registry.lock().unwrap();
             let public_id = registry.terminal_resource_id(terminal_id)?;
@@ -20718,6 +20727,118 @@ mod tests {
         );
         assert!(mux.surface_notification(first.id).is_none());
         assert!(mux.surface(first.id).is_none());
+    }
+
+    #[test]
+    fn replayed_host_close_does_not_acquire_public_resource_effects() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let host = mux
+            .resource_terminal_host_identity(&surface)
+            .expect("test terminal has a host identity");
+        let public_id = match &surface.resource_identity().unwrap().content_id {
+            ContentPublicId::Terminal(public_id) => public_id.clone(),
+            ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
+        };
+        let mutation = WorkspaceMutation::new("lost-host-close-reply", "legacy-client").unwrap();
+        let resource_revision = mux.with_state(|state| state.resource_revision);
+
+        let host_close = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .close_terminal(&mutation, None, None, &host.terminal_id, Some(&host.incarnation))
+            .unwrap();
+        assert!(!host_close.replayed);
+        assert_eq!(
+            mux.workspace_registry.lock().unwrap().terminal_resource_id(&host.terminal_id).unwrap(),
+            Some(public_id.clone())
+        );
+
+        let retry = mux
+            .close_terminal_with_mutation(
+                &host.terminal_id,
+                Some(&host.incarnation),
+                None,
+                None,
+                &mutation,
+            )
+            .unwrap();
+
+        assert_eq!(retry.terminal_revision, host_close.revision);
+        assert_eq!(mux.with_state(|state| state.resource_revision), resource_revision);
+        assert!(mux.surface(surface.id).is_some());
+        assert_eq!(
+            mux.workspace_registry.lock().unwrap().terminal_resource_id(&host.terminal_id).unwrap(),
+            Some(public_id)
+        );
+    }
+
+    #[test]
+    fn replayed_resource_close_does_not_acquire_terminal_effects() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let host = mux
+            .resource_terminal_host_identity(&surface)
+            .expect("test terminal has a host identity");
+        let public_id = match &surface.resource_identity().unwrap().content_id {
+            ContentPublicId::Terminal(public_id) => public_id.clone(),
+            ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
+        };
+        let host_close = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .close_terminal(
+                &WorkspaceMutation::new("closed-host", "legacy-client").unwrap(),
+                None,
+                None,
+                &host.terminal_id,
+                Some(&host.incarnation),
+            )
+            .unwrap();
+        let mutation =
+            WorkspaceMutation::new("lost-resource-close-reply", "resource-client").unwrap();
+        let fingerprint = serde_json::json!({
+            "op":"close-terminal",
+            "terminal_id":host.terminal_id,
+            "incarnation":host.incarnation,
+        });
+        let resource_revision = mux.with_state(|state| state.resource_revision);
+        let resource_close = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .commit_resource_patch(
+                &mutation,
+                "terminal.close",
+                &fingerprint,
+                None,
+                Some(resource_revision),
+                &ResourcePatch { changes: Vec::new() },
+                &serde_json::json!({}),
+                &serde_json::json!([]),
+            )
+            .unwrap();
+
+        let retry = mux
+            .close_terminal_with_mutation(
+                &host.terminal_id,
+                Some(&host.incarnation),
+                None,
+                None,
+                &mutation,
+            )
+            .unwrap();
+
+        assert!(retry.already_closed);
+        assert_eq!(retry.terminal_revision, host_close.revision);
+        assert_eq!(mux.with_state(|state| state.resource_revision), resource_close.revision);
+        assert!(mux.surface(surface.id).is_some());
+        assert_eq!(
+            mux.workspace_registry.lock().unwrap().terminal_resource_id(&host.terminal_id).unwrap(),
+            Some(public_id)
+        );
     }
 
     #[test]
