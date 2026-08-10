@@ -654,6 +654,15 @@ struct WorkspaceDetailView: View {
         .onChange(of: terminalPickerLiveMembership) { _, _ in syncTerminalPickerRows() }
     }
 
+    var simulatorPickerValue: SimulatorPickerMenuValue {
+        SimulatorPickerMenuValue(
+            supportsSimulatorStream: store.supportsSimulatorStream,
+            rows: simulatorStreamStore.panels(in: workspace.rpcWorkspaceID.rawValue)
+                .map(SimulatorStreamPickerRow.init),
+            activePanelID: activeSimulatorStream?.id
+        )
+    }
+
     #if canImport(UIKit)
     #if DEBUG
     private func copyDebugLogsFromMenu() {
@@ -929,7 +938,7 @@ struct WorkspaceDetailView: View {
         Task { await store.startMobileBrowserStream(panelID: panelID) }
     }
 
-    private func selectSimulatorStreamFromToolbar(_ panelID: String) {
+    func selectSimulatorStreamFromToolbar(_ panelID: String) {
         dismissTerminalKeyboardForChrome()
         browserStore.closeBrowser(for: workspace.id.rawValue)
         stopActiveBrowserStream()

@@ -7677,6 +7677,81 @@ final class cmuxUITests: XCTestCase {
     }
 }
 
+final class SimulatorDiscoverabilityUITests: XCTestCase {
+    override func setUpWithError() throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+    }
+
+    @MainActor
+    func testOneAndTwoPanelChromeSupportsOneTapAndExplicitSelection() throws {
+        let one = launchFixture(mode: "one")
+        let onePicker = one.buttons["MobileSimulatorPicker"]
+        XCTAssertTrue(onePicker.waitForExistence(timeout: 8))
+        XCTAssertGreaterThanOrEqual(onePicker.frame.width, 44)
+        XCTAssertGreaterThanOrEqual(onePicker.frame.height, 44)
+        onePicker.tap()
+        XCTAssertTrue(one.otherElements["SimulatorStreamPane"].waitForExistence(timeout: 4))
+        XCTAssertEqual(onePicker.value as? String, "iPhone A")
+        one.terminate()
+
+        let two = launchFixture(mode: "two")
+        let twoPicker = two.buttons["MobileSimulatorPicker"]
+        XCTAssertTrue(twoPicker.waitForExistence(timeout: 8))
+        twoPicker.tap()
+        XCTAssertEqual(twoPicker.value as? String, "iPhone A")
+
+        let terminalPicker = two.buttons["MobileTerminalDropdown"]
+        XCTAssertTrue(terminalPicker.waitForExistence(timeout: 4))
+        terminalPicker.tap()
+        let panelB = two.buttons["SimulatorStreamMenuItem-sim-b"]
+        XCTAssertTrue(panelB.waitForExistence(timeout: 4))
+        panelB.tap()
+        XCTAssertEqual(twoPicker.value as? String, "iPhone B")
+    }
+
+    @MainActor
+    func testUnsupportedAndEmptyWorkspacesHideSimulatorChrome() throws {
+        for mode in ["unsupported", "zero"] {
+            let app = launchFixture(mode: mode)
+            XCTAssertTrue(app.buttons["MobileTerminalDropdown"].waitForExistence(timeout: 8))
+            XCTAssertFalse(app.buttons["MobileSimulatorPicker"].exists)
+            app.terminate()
+        }
+    }
+
+    @MainActor
+    func testStreamEdgeStatesRemainVisibleFromWorkspaceChrome() throws {
+        for fixture in [
+            (state: "disconnected", overlay: "SimulatorStreamDisconnectedOverlay"),
+            (state: "locked", overlay: "SimulatorStreamLockedOverlay"),
+            (state: "stalled", overlay: "SimulatorStreamStalledOverlay"),
+        ] {
+            let app = launchFixture(mode: "one", state: fixture.state)
+            XCTAssertTrue(app.buttons["MobileSimulatorPicker"].waitForExistence(timeout: 8))
+            XCTAssertTrue(
+                app.otherElements[fixture.overlay].waitForExistence(timeout: 4),
+                "Expected \(fixture.overlay) for \(fixture.state)"
+            )
+            app.terminate()
+        }
+    }
+
+    @MainActor
+    private func launchFixture(mode: String, state: String = "inactive") -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchEnvironment = [
+            "CMUX_UITEST_MOCK_DATA": "0",
+            "CMUX_UITEST_SIMULATOR_DISCOVERABILITY": mode,
+            "CMUX_UITEST_SIMULATOR_DISCOVERABILITY_STATE": state,
+            "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1",
+        ]
+        app.launch()
+        return app
+    }
+}
+
 /// Shared definition of the deterministic color-band test pattern, used by
 /// both the mock host (to emit it) and the render test (to verify it).
 private enum MockColorBands {

@@ -116,7 +116,15 @@ extension WorkspaceDetailView {
 
     @ViewBuilder
     var toolbarTrailingCluster: some View {
+        let simulatorPicker = simulatorPickerValue
         HStack(spacing: 8) {
+            if simulatorPicker.isVisible {
+                SimulatorPickerControl(
+                    value: simulatorPicker,
+                    selectPanel: selectSimulatorStreamFromToolbar,
+                    terminalTheme: store.activeTerminalTheme
+                )
+            }
             if shouldShowChatToggle {
                 chatToggleButton
                     .frame(width: 44, height: 44)
@@ -125,8 +133,15 @@ extension WorkspaceDetailView {
             terminalPickerToolbarButton
                 .frame(width: 44, height: 44)
         }
-        .frame(width: shouldShowChatToggle ? 96 : 44, height: 44, alignment: .trailing)
+        .frame(
+            width: 44
+                + (shouldShowChatToggle ? 52 : 0)
+                + (simulatorPicker.isVisible ? 52 : 0),
+            height: 44,
+            alignment: .trailing
+        )
         .animation(.snappy(duration: 0.25), value: shouldShowChatToggle)
+        .animation(.snappy(duration: 0.25), value: simulatorPicker.isVisible)
     }
 
     var chatToggleButton: some View {

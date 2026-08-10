@@ -724,6 +724,59 @@ final class CmuxConfigDecodingTests: XCTestCase {
     }
 
     @MainActor
+    func testMissingSurfaceTabBarConfigurationUsesDiscoverableSimulatorDefault() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store = CmuxConfigStore(
+            globalConfigPath: root.appendingPathComponent("missing-global.json").path,
+            localConfigPath: root.appendingPathComponent("missing-local.json").path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        XCTAssertEqual(
+            store.surfaceTabBarButtons.map(\.id),
+            [
+                CmuxSurfaceTabBarBuiltInAction.newTerminal.configID,
+                CmuxSurfaceTabBarBuiltInAction.newBrowser.configID,
+                CmuxSurfaceTabBarBuiltInAction.newSimulator.configID,
+                CmuxSurfaceTabBarBuiltInAction.splitRight.configID,
+                CmuxSurfaceTabBarBuiltInAction.splitDown.configID,
+            ]
+        )
+    }
+
+    @MainActor
+    func testExplicitSurfaceTabBarConfigurationRemainsAuthoritative() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let configURL = root.appendingPathComponent("cmux.json")
+        try #"{"ui":{"surfaceTabBar":{"buttons":["cmux.newTerminal"]}}}"#
+            .write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: configURL.path,
+            localConfigPath: root.appendingPathComponent("missing-local.json").path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        XCTAssertEqual(
+            store.surfaceTabBarButtons.map(\.id),
+            [CmuxSurfaceTabBarBuiltInAction.newTerminal.configID]
+        )
+    }
+
+    @MainActor
     func testConfigStoreParsesGlobalCmuxJSONCSettingsAndActionSections() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",

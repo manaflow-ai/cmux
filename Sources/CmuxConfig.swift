@@ -944,6 +944,7 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
     static let defaults: [CmuxSurfaceTabBarButton] = [
         .newTerminal,
         .newBrowser,
+        .newSimulator,
         .splitRight,
         .splitDown
     ]
@@ -2067,6 +2068,7 @@ final class CmuxConfigStore: ObservableObject {
         }) ?? [
             .builtIn(.newTerminal),
             .builtIn(.newBrowser),
+            .builtIn(.newSimulator),
             .builtIn(.splitRight),
             .builtIn(.splitDown)
         ]

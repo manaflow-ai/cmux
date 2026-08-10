@@ -323,6 +323,15 @@ public struct CMUXMobileRootScene: View {
         #if DEBUG
         if UITestConfig.taskComposerPreviewEnabled {
             TaskComposerAccessibilityPreviewView()
+        } else if let simulatorMode = ProcessInfo.processInfo.environment[
+            "CMUX_UITEST_SIMULATOR_DISCOVERABILITY"
+        ] {
+            SimulatorDiscoverabilityPreviewView(
+                mode: simulatorMode,
+                state: ProcessInfo.processInfo.environment[
+                    "CMUX_UITEST_SIMULATOR_DISCOVERABILITY_STATE"
+                ] ?? "inactive"
+            )
         } else if UITestConfig.notificationFeedPreviewEnabled {
             NotificationFeedPreviewView()
         } else if UITestConfig.workspaceListLayoutPreviewEnabled {
