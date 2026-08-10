@@ -29,6 +29,23 @@ public struct UITestConfig {
         value(for: "CMUX_UITEST_ADD_DEVICE_PORT")
     }
 
+    /// A process-stable identifier for the otherwise ephemeral UI-test paired
+    /// Mac database. Tests that relaunch the app can opt into one database
+    /// without sharing state with another test or Simulator.
+    public static var pairedMacStoreID: String? {
+        pairedMacStoreID(from: ProcessInfo.processInfo.environment)
+    }
+
+    /// Resolves a safe filename component for the UI-test paired Mac database.
+    public static func pairedMacStoreID(from env: [String: String]) -> String? {
+        guard let value = value(for: "CMUX_UITEST_PAIRED_MAC_STORE_ID", env: env) else {
+            return nil
+        }
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+        guard value.unicodeScalars.allSatisfy(allowed.contains) else { return nil }
+        return value
+    }
+
     /// The attach URL to auto-open, if injected.
     public static var attachURL: String? {
         value(for: "CMUX_UITEST_ATTACH_URL")

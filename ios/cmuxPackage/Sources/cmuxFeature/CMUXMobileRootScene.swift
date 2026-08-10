@@ -160,9 +160,10 @@ public struct CMUXMobileRootScene: View {
         do {
             #if DEBUG
             if UITestConfig.mockDataEnabled {
+                let storeID = UITestConfig.pairedMacStoreID ?? UUID().uuidString
                 let databaseURL = FileManager.default.temporaryDirectory
                     .appendingPathComponent(
-                        "cmux-uitest-paired-macs-\(UUID().uuidString).sqlite3"
+                        "cmux-uitest-paired-macs-\(storeID).sqlite3"
                     )
                 return try MobilePairedMacStore(databaseURL: databaseURL)
             }
