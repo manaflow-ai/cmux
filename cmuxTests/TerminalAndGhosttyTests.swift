@@ -6270,8 +6270,14 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
 
 
 final class TerminalOpenURLTargetResolutionTests: XCTestCase {
+    private let linkRouter = TerminalLinkRouter(
+        hostNormalizer: TerminalBrowserHostNormalizer()
+    )
+
     func testResolvesHTTPSAsEmbeddedBrowser() throws {
-        let target = try XCTUnwrap(resolveTerminalOpenURLTarget("https://example.com/path?q=1"))
+        let target = try XCTUnwrap(
+            linkRouter.resolveOpenURLTarget("https://example.com/path?q=1")
+        )
         switch target {
         case let .embeddedBrowser(url):
             XCTAssertEqual(url.scheme, "https")
@@ -6283,7 +6289,7 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
     }
 
     func testResolvesBareDomainAsEmbeddedBrowser() throws {
-        let target = try XCTUnwrap(resolveTerminalOpenURLTarget("example.com/docs"))
+        let target = try XCTUnwrap(linkRouter.resolveOpenURLTarget("example.com/docs"))
         switch target {
         case let .embeddedBrowser(url):
             XCTAssertEqual(url.scheme, "https")
@@ -6295,7 +6301,7 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
     }
 
     func testResolvesFileSchemeAsExternal() throws {
-        let target = try XCTUnwrap(resolveTerminalOpenURLTarget("file:///tmp/cmux.txt"))
+        let target = try XCTUnwrap(linkRouter.resolveOpenURLTarget("file:///tmp/cmux.txt"))
         switch target {
         case let .external(url):
             XCTAssertTrue(url.isFileURL)
@@ -6306,7 +6312,7 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
     }
 
     func testResolvesAbsolutePathAsExternalFileURL() throws {
-        let target = try XCTUnwrap(resolveTerminalOpenURLTarget("/tmp/cmux-path.txt"))
+        let target = try XCTUnwrap(linkRouter.resolveOpenURLTarget("/tmp/cmux-path.txt"))
         switch target {
         case let .external(url):
             XCTAssertTrue(url.isFileURL)
@@ -6317,7 +6323,9 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
     }
 
     func testResolvesNonWebSchemeAsExternal() throws {
-        let target = try XCTUnwrap(resolveTerminalOpenURLTarget("mailto:test@example.com"))
+        let target = try XCTUnwrap(
+            linkRouter.resolveOpenURLTarget("mailto:test@example.com")
+        )
         switch target {
         case let .external(url):
             XCTAssertEqual(url.scheme, "mailto")
@@ -6327,7 +6335,7 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
     }
 
     func testResolvesHostlessHTTPSAsExternal() throws {
-        let target = try XCTUnwrap(resolveTerminalOpenURLTarget("https:///tmp/cmux.txt"))
+        let target = try XCTUnwrap(linkRouter.resolveOpenURLTarget("https:///tmp/cmux.txt"))
         switch target {
         case let .external(url):
             XCTAssertEqual(url.scheme, "https")

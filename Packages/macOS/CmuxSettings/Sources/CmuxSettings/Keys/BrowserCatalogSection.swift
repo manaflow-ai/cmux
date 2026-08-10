@@ -52,6 +52,13 @@ public struct BrowserCatalogSection: SettingCatalogSection {
         userDefaultsKey: "browserAskWhereToSaveDownloads"
     )
 
+    /// Whether deliberate pointer gestures may activate hyperlinks in terminal output.
+    public let terminalHyperlinkActivationEnabled = DefaultsKey<Bool>(
+        id: "browser.terminalHyperlinkActivationEnabled",
+        defaultValue: true,
+        userDefaultsKey: "browserTerminalHyperlinkActivationEnabled"
+    )
+
     public let openTerminalLinksInCmuxBrowser = DefaultsKey<Bool>(
         id: "browser.openTerminalLinksInCmuxBrowser",
         defaultValue: true,

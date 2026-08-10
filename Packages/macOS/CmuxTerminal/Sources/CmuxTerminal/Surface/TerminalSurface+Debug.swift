@@ -179,6 +179,7 @@ extension TerminalSurface {
     /// Test-only helper to deterministically simulate a released runtime surface.
     @MainActor
     public func releaseSurfaceForTesting() {
+        attachedView?.runtimeSurfaceWillInvalidate()
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
 
