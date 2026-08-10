@@ -286,7 +286,7 @@ jobs:
 
   test:
     name: test (${{ matrix.os }})
-    runs-on: ${{ matrix.os == 'macos' && 'blacksmith-6vcpu-macos-15' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ matrix.os == 'macos' && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || (vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') }}
     timeout-minutes: 40
     strategy:
       fail-fast: false
