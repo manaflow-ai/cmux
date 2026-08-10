@@ -12,33 +12,28 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `3fbdd078d`, which resolves fonts for
-decomposed (NFD) Hangul grapheme clusters through their canonically composed
-syllable so NFC and NFD Korean text select the same face. It landed on fork
-main in merge `d462c1d97`
-(https://github.com/manaflow-ai/ghostty/pull/185) together with its
-regression-test commit `0316a8de8`. It builds on fork main `7350263b4`, the
-merge of https://github.com/manaflow-ai/ghostty/pull/184 (bounded embedded
-surface process teardown), on top of `9513174f2`, which reapplied the VT
-stream-boundary visibility change (originally the branch gitlink
-`11aa609d7`) on fork main. The VT query exposes whether the VT parser is at
-a ground-state stream boundary; cmux uses that contract to retain incomplete
-escape-sequence bytes across distributed snapshot handoff.
-That line builds on `19d03fa4d`, which suppresses empty opener stderr diagnostics on
-top of `f0f8273b7`, the iOS startup locale/crash-reporting order fix. That
-commit follows `88357634c`, the fork-main
-merge of https://github.com/manaflow-ai/ghostty/pull/175. That previous merge combines
-the initial cmux theme-picker render fix at `5068b3a37` with terminal-owned
-semantic-prompt row lifecycle enforcement through `2d6e944e3` from
-https://github.com/manaflow-ai/ghostty/pull/176.
-The earlier integration combines the hidden-renderer reclamation and
-retry-deadline line through `4d6f0014f` with the resolved font-binding action
-callbacks originally ending at `80d7fb35a`.
-https://github.com/manaflow-ai/ghostty/pull/171 reapplied the font callback
-commits on current fork main and clarified the callback's non-reentrant
-contract. PR 172 then recorded the original font branch as ancestry without
-changing the integrated tree, so the final pin descends from both former
-gitlinks (`cd1f8e012` and `80d7fb35a`).
+The submodule pinned by this branch is `f76c132e5`, the fork-main merge of
+https://github.com/manaflow-ai/ghostty/pull/191. Its `533c27ae1` fix preserves
+saved cursors while formatter replay restores the active cursor after margins,
+origin mode, and tabstop state. The pin includes the prior fork changes below,
+including VT stream-boundary visibility at `9513174f2` and Hangul canonical
+font resolution at `3fbdd078d`.
+
+### VT formatter cursor restoration after margins
+
+- Pull request:
+  - https://github.com/manaflow-ai/ghostty/pull/191
+- Commit: `533c27ae1` (Preserve saved cursors during formatter replay)
+- File: `src/terminal/formatter.zig`
+- Summary:
+  - Restores the active cursor after terminal-wide state during VT formatter
+    replay and derives CUP coordinates from the emitted margins and origin mode.
+  - Preserves application-owned saved cursors instead of using DECSC/DECRC as
+    replay scratch state.
+  - Fixes the formatter replay mismatch reported by the cmux Valgrind tests.
+- Artifact:
+  - Pending. Keep `scripts/ghosttykit-checksums.txt` unchanged until the hosted
+    GhosttyKit build publishes and verifies the archive for `f76c132e5`.
 
 ### Hangul NFC/NFD canonical font resolution
 
