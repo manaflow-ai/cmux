@@ -2117,6 +2117,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		F27B00000000000000000001 /* SurfaceResumeRunPromptBatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = F27B00000000000000000002 /* SurfaceResumeRunPromptBatch.swift */; };
 		A5001303 /* SurfaceSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001301 /* SurfaceSearchOverlay.swift */; };
 		C51A73B40000000000000002 /* SurfaceTabBarButtonConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A73B40000000000000001 /* SurfaceTabBarButtonConfiguration.swift */; };
+		A73BC001A73BC001A73BC001 /* SurfaceTabColorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A73BC002A73BC002A73BC002 /* SurfaceTabColorTests.swift */; };
 		F2100000000000000000000F /* SyntheticKeyEventFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1100000000000000000000F /* SyntheticKeyEventFactory.swift */; };
 		A7206A010000000000000001 /* SystemAppearanceObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7206A020000000000000001 /* SystemAppearanceObserver.swift */; };
 		A7206F010000000000000001 /* SystemAppearanceObserverEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7206F020000000000000001 /* SystemAppearanceObserverEnvironment.swift */; };
@@ -4721,6 +4722,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		F27B00000000000000000002 /* SurfaceResumeRunPromptBatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeRunPromptBatch.swift; sourceTree = "<group>"; };
 		A5001301 /* SurfaceSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/SurfaceSearchOverlay.swift; sourceTree = "<group>"; };
 		C51A73B40000000000000001 /* SurfaceTabBarButtonConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceTabBarButtonConfiguration.swift; sourceTree = "<group>"; };
+		A73BC002A73BC002A73BC002 /* SurfaceTabColorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceTabColorTests.swift; sourceTree = "<group>"; };
 		F1100000000000000000000F /* SyntheticKeyEventFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyntheticKeyEventFactory.swift; sourceTree = "<group>"; };
 		A7206A020000000000000001 /* SystemAppearanceObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemAppearanceObserver.swift; sourceTree = "<group>"; };
 		A7206F020000000000000001 /* SystemAppearanceObserverEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemAppearanceObserverEnvironment.swift; sourceTree = "<group>"; };
@@ -7815,6 +7817,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				604500100000000000000004 /* WindowTitleTemplateTests.swift */,
 				D1FFC0DE000000000000C001 /* DiffCommentStoreTests.swift */,
 				C9A57002C9A57002C9A57002 /* WorkspaceGroupTests.swift */,
+				A73BC002A73BC002A73BC002 /* SurfaceTabColorTests.swift */,
 				9164A0029164A0029164A002 /* WorkspaceGroupNumberedSelectionTests.swift */,
 				C9A57402C9A57402C9A57402 /* WorkspaceGroupMoveToMenuStateTests.swift */,
 				FEED49850000000000000002 /* FeedEventClassificationTests.swift */,
@@ -10918,6 +10921,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				842300000000000000000007 /* SurfaceResumeAgentBindingGenerationTests.swift in Sources */,
 				F6572012A1B2C3D4E5F60718 /* SurfaceResumeBindingCodexUpdateCheckTests.swift in Sources */,
 				842300000000000000000001 /* SurfaceResumeExitedAgentLivenessTests.swift in Sources */,
+				A73BC001A73BC001A73BC001 /* SurfaceTabColorTests.swift in Sources */,
 				A7206B010000000000000001 /* SystemAppearanceObserverTests.swift in Sources */,
 				FBE660ABA1854983B84368C6 /* SystemWideHotkeyShortcutPolicyTests.swift in Sources */,
 				F8120F5386FBE726864D340B /* TabManagerBackgroundWorkspaceMountBoundTests.swift in Sources */,

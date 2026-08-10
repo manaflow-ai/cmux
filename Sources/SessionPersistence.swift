@@ -1673,6 +1673,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var customTitle: String?
     /// Provenance of `customTitle`; absent provenance restores as user-set for compatibility.
     var customTitleSource: Workspace.CustomTitleSource? = nil
+    var customColor: String? = nil
     var directory: String?
     var directoryIsTrustedRemoteReport: Bool? = nil
     var directoryRequiresRemoteTrust: Bool? = nil

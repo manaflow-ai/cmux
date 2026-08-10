@@ -10,7 +10,7 @@ extension ControlCommandCoordinator {
         "close_left", "close_right", "close_others",
         "new_terminal_right", "new_browser_right",
         "reload", "duplicate", "move_to_new_workspace", "detach_to_workspace", "detach_to_new_workspace",
-        "pin", "unpin", "mark_read", "mark_unread", "toggle_full_width_tab",
+        "pin", "unpin", "mark_read", "mark_unread", "toggle_full_width_tab", "set_color", "clear_color",
     ]
 
     /// `surface.action` / `tab.action` — run one surface-tab mutation.
@@ -68,6 +68,8 @@ extension ControlCommandCoordinator {
             )
         case .invalidTitle:
             return .err(code: "invalid_params", message: "Missing or invalid title", data: nil)
+        case .invalidColor:
+            return .err(code: "invalid_params", message: "Invalid color. Use a named color or #RRGGBB.", data: nil)
         case .invalidURL(let rawURL):
             return .err(
                 code: "invalid_params",

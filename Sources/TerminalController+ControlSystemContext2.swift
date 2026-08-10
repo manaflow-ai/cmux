@@ -145,6 +145,26 @@ extension TerminalController {
             workspace.setPanelCustomTitle(panelId: panelId, title: nil)
             return finish(.none)
 
+        case "set_color":
+            guard let raw = moveParams["color"]?.foundationObject as? String else {
+                return .invalidColor
+            }
+            let input = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            let paletteColor = WorkspaceTabColorSettings.palette().first {
+                $0.name.caseInsensitiveCompare(input) == .orderedSame
+            }?.hex
+            guard let color = paletteColor ?? WorkspaceTabColorSettings.normalizedHex(input),
+                  workspace.setSurfaceColor(panelId: panelId, color: color) else {
+                return .invalidColor
+            }
+            return finish(.none)
+
+        case "clear_color":
+            guard workspace.setSurfaceColor(panelId: panelId, color: nil) else {
+                return .tabNotFound(surfaceID: surfaceId)
+            }
+            return finish(.none)
+
         case "pin":
             workspace.setPanelPinned(panelId: panelId, pinned: true)
             return finish(.pinned(true))
