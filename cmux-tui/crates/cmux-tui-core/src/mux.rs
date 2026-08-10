@@ -21190,6 +21190,71 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn multi_catalog_terminal_cleanup_removes_each_durable_placement() {
+        let mux = test_mux();
+        let source = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let projected = projected_terminal_view(&mux, &source);
+        let primary_id = source.terminal_public_id().cloned().unwrap();
+        let secondary_id = restore_terminal_id(901);
+        assert_ne!(primary_id, secondary_id);
+        let host = mux.resource_terminal_host_identity(&source).unwrap();
+        let secondary_content = ContentPublicId::Terminal(secondary_id.clone());
+        let projected_tab = mux.with_state(|state| {
+            state.resource_indexes.tab_ids[&projected.id].clone()
+        });
+
+        {
+            let mut state = mux.state.lock().unwrap();
+            let detached = state.surfaces.remove(&projected.id).unwrap();
+            unregister_terminal_placement(&mut state, &detached);
+            unregister_terminal_host_placement(&mux, &mut state, &detached);
+            let primary_content = ContentPublicId::Terminal(primary_id.clone());
+            state
+                .resource_indexes
+                .content_placements
+                .get_mut(&primary_content)
+                .unwrap()
+                .retain(|placement| *placement != projected.id);
+            state
+                .resource_indexes
+                .content_ids
+                .insert(projected.id, secondary_content.clone());
+            state
+                .resource_indexes
+                .content_placements
+                .insert(secondary_content.clone(), vec![projected.id]);
+            state.terminal_catalog.insert(secondary_id.clone(), source.clone());
+            state
+                .terminal_catalog_by_host
+                .get_mut(&host.terminal_id)
+                .unwrap()
+                .insert(secondary_id.clone());
+        }
+
+        let terminal_ids = vec![primary_id.clone(), secondary_id.clone()];
+        {
+            let mut state = mux.state.lock().unwrap();
+            remove_terminal_catalogs_and_targets_from_state(
+                &mux,
+                &mut state,
+                &terminal_ids,
+                &[source.id],
+            );
+        }
+
+        mux.with_state(|state| {
+            assert!(!state.terminal_catalog.contains_key(&primary_id));
+            assert!(!state.terminal_catalog.contains_key(&secondary_id));
+            assert!(!state.resource_indexes.tabs.contains_key(&projected_tab));
+            assert!(!state.resource_indexes.tab_ids.contains_key(&projected.id));
+            assert!(!state.resource_indexes.content_ids.contains_key(&projected.id));
+            assert!(state.placements_of_content(&secondary_content).is_empty());
+            assert!(state.pane_of(projected.id).is_none());
+        });
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn unguarded_terminal_close_uses_the_registry_incarnation() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
