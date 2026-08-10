@@ -5122,10 +5122,7 @@ fn journal_agent_legacy_upgrade_keeps_later_stored_socket_projection() {
     }
     Connection::open(&database)
         .unwrap()
-        .execute(
-            "DELETE FROM meta WHERE key = 'agent_projection_journal_sequence_v1'",
-            [],
-        )
+        .execute("DELETE FROM meta WHERE key = 'agent_projection_journal_sequence_v1'", [])
         .unwrap();
 
     let reopened = WorkspaceRegistry::open(&root, session).unwrap();
@@ -5435,7 +5432,8 @@ fn journal_agent_tool_start_resumes_blocked_terminal_owner() {
 
 #[test]
 fn journal_agent_late_or_unidentified_event_keeps_active_session_identity() {
-    let mut registry = WorkspaceRegistry::in_memory("journal-agent-active-session-identity").unwrap();
+    let mut registry =
+        WorkspaceRegistry::in_memory("journal-agent-active-session-identity").unwrap();
     commit_terminal_topology(&mut registry, "journal-agent-active-session-topology");
     let terminal_id = terminal_resource(TERMINAL_ONE);
     let validated = crate::journal_kernel::ValidatedJournalIngress {
@@ -5449,21 +5447,13 @@ fn journal_agent_late_or_unidentified_event_keeps_active_session_identity() {
         ("journal_agent_session_a_late_end", "AgentEnd", Some("session-a")),
         ("journal_agent_unidentified_late_end", "AgentEnd", None),
     ] {
-        let native = source_session.map_or_else(|| json!({}), |session| json!({"session_id":session}));
-        let ingress = crate::agent_hook_journal_ingress(
-            "codex",
-            event,
-            Some(terminal_id.as_str()),
-            native,
-        )
-        .unwrap();
+        let native =
+            source_session.map_or_else(|| json!({}), |session| json!({"session_id":session}));
+        let ingress =
+            crate::agent_hook_journal_ingress("codex", event, Some(terminal_id.as_str()), native)
+                .unwrap();
         registry
-            .append_journal_ingress(
-                &ingress,
-                &validated,
-                "client_active_session",
-                idempotency_key,
-            )
+            .append_journal_ingress(&ingress, &validated, "client_active_session", idempotency_key)
             .unwrap();
     }
     let agent = registry.public_projections().unwrap().agents.remove(0);
@@ -5642,10 +5632,7 @@ fn journal_agent_prejournal_projection_migrates_once_and_survives_reopen() {
             .unwrap();
         registry
             .connection
-            .execute(
-                "DELETE FROM meta WHERE key = 'agent_projection_journal_sequence_v1'",
-                [],
-            )
+            .execute("DELETE FROM meta WHERE key = 'agent_projection_journal_sequence_v1'", [])
             .unwrap();
         value
     };
