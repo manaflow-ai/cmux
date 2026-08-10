@@ -11195,6 +11195,30 @@ mod tests {
     use std::sync::mpsc::TryRecvError;
     use std::time::Duration;
 
+    struct TestSocketDir(PathBuf);
+
+    impl TestSocketDir {
+        fn create(name: &str) -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "cmux-tui-server-{name}-{}-{}",
+                std::process::id(),
+                uuid::Uuid::new_v4()
+            ));
+            std::fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TestSocketDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
     #[test]
     fn default_socket_path_preserves_compatible_runtime_dir() {
         let runtime_dir = PathBuf::from("/tmp/cmux-tui-compat");
@@ -16527,6 +16551,25 @@ mod tests {
     }
 
     #[test]
+    fn daemon_handoff_ack_commit_holds_the_requester_removal_lock() {
+        let mux = test_mux();
+        let requester = mux.control_clients.register(ClientTransport::Unix, test_writer());
+        mux.begin_daemon_handoff(requester, DaemonHandoffRequest::unfenced(false)).unwrap();
+
+        mux.commit_daemon_handoff_after_ack(requester, || {
+            assert!(matches!(
+                mux.control_clients.state.try_lock(),
+                Err(std::sync::TryLockError::WouldBlock)
+            ));
+            Ok(())
+        })
+        .unwrap();
+
+        assert!(disconnect_client(&mux, requester, false));
+        assert!(mux.control_clients.daemon_handoff_pending());
+    }
+
+    #[test]
     fn committed_daemon_handoff_requester_disconnect_keeps_the_fence() {
         let mux = test_mux();
         let requester = mux.control_clients.register(ClientTransport::Unix, test_writer());
@@ -18676,16 +18719,49 @@ mod tests {
     }
 
     #[test]
-    fn reload_config_returns_path_and_emits_request() {
+    fn reload_config_waits_for_owner_application_before_returning() {
         let mux = test_mux();
         let events = mux.subscribe();
-        let data = handle_command(&mux, 0, Command::ReloadConfig, &test_writer()).unwrap();
-        assert_eq!(data["reloaded"].as_bool(), Some(true));
-        assert!(data.get("path").is_some());
+        let worker_mux = mux.clone();
+        let (result_tx, result_rx) = std::sync::mpsc::sync_channel(1);
+        let worker = std::thread::spawn(move || {
+            result_tx
+                .send(handle_command(&worker_mux, 0, Command::ReloadConfig, &test_writer()))
+                .unwrap();
+        });
         assert!(matches!(
             events.recv_timeout(Duration::from_secs(1)),
             Ok(MuxEvent::ConfigReloadRequested)
         ));
+        assert!(matches!(result_rx.try_recv(), Err(TryRecvError::Empty)));
+
+        let target = mux.begin_config_reload_application();
+        mux.complete_config_reload_application(target);
+        let data = result_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap();
+        worker.join().unwrap();
+        assert_eq!(data["reloaded"].as_bool(), Some(true));
+        assert!(data.get("path").is_some());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn paused_server_binds_before_it_accepts_control_clients() {
+        let dir = TestSocketDir::create("paused-readiness");
+        let path = dir.path().join("mux.sock");
+        let mux = test_mux();
+        let pending = serve_paused(mux.clone(), Some(path.clone())).unwrap();
+        let mut stream = transport::connect(&path).unwrap();
+        writeln!(stream, r#"{{"id":1,"cmd":"identify"}}"#).unwrap();
+        stream.flush().unwrap();
+
+        assert!(mux.control_clients.client_ids().is_empty());
+
+        let served = pending.mark_ready().unwrap();
+        let mut response = String::new();
+        BufReader::new(stream).read_line(&mut response).unwrap();
+        assert_eq!(served, path);
+        assert_eq!(serde_json::from_str::<Value>(&response).unwrap()["ok"], true);
+        cleanup(&served);
     }
 
     #[test]

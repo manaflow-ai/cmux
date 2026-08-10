@@ -577,8 +577,8 @@ fn server_lifecycle_start_rejects_output_modes_without_starting_an_owner() {
 #[cfg(unix)]
 #[test]
 fn failed_remote_server_start_removes_its_served_socket() {
-    let dir = unique_temp_dir("failed-server-start-cleanup");
-    fs::create_dir_all(&dir).unwrap();
+    let dir = TestTempDir::create("failed-server-start-cleanup");
+    let dir = dir.path();
     let socket = dir.join("mux.sock");
     let invalid_state_root = dir.join("state-root-is-a-file");
     fs::write(&invalid_state_root, "not a directory").unwrap();
@@ -595,7 +595,6 @@ fn failed_remote_server_start_removes_its_served_socket() {
 
     assert!(!output.status.success(), "invalid remote state root unexpectedly started a server");
     assert!(!socket.exists(), "failed startup left its served socket behind");
-    fs::remove_dir_all(dir).unwrap();
 }
 
 #[cfg(unix)]
@@ -851,8 +850,8 @@ fn uvx_spelling_server_stop_is_absent_idempotent_with_stable_output_modes() {
 #[cfg(unix)]
 #[test]
 fn absent_server_stop_serializes_a_non_utf8_inherited_socket_path() {
-    let dir = unique_temp_dir("server-stop-non-utf8-socket");
-    fs::create_dir_all(&dir).unwrap();
+    let dir = TestTempDir::create("server-stop-non-utf8-socket");
+    let dir = dir.path();
     let socket = dir.join(std::ffi::OsString::from_vec(b"mux-\xff.sock".to_vec()));
     let output = Command::new(bin())
         .args(["--json", "server", "stop"])
@@ -865,7 +864,6 @@ fn absent_server_stop_serializes_a_non_utf8_inherited_socket_path() {
     let result = json_output(&output);
     assert_eq!(result["status"], "not_running");
     assert_eq!(result["socket"], socket.to_string_lossy().as_ref());
-    fs::remove_dir_all(dir).unwrap();
 }
 
 #[cfg(unix)]
@@ -2474,8 +2472,19 @@ impl PtyChild {
             Ok(status) => Some(status.unwrap()),
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 let _ = killer.kill();
-                if receiver.recv_timeout(Duration::from_secs(5)).is_err() {
-                    let _ = self.output_drain.take();
+                match receiver.recv_timeout(Duration::from_secs(5)) {
+                    Ok(Ok(_)) => {}
+                    Ok(Err(error)) => {
+                        panic!("interactive owner did not exit cleanly after kill: {error}");
+                    }
+                    Err(mpsc::RecvTimeoutError::Timeout) => {
+                        let _ = self.output_drain.take();
+                        panic!("interactive owner did not exit after kill");
+                    }
+                    Err(mpsc::RecvTimeoutError::Disconnected) => {
+                        let _ = self.output_drain.take();
+                        panic!("interactive owner exit waiter disconnected after kill");
+                    }
                 }
                 None
             }
