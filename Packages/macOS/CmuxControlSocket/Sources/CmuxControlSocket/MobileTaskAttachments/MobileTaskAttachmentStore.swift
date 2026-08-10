@@ -180,7 +180,13 @@ public struct MobileTaskAttachmentStore {
                     throw storageFailure("Could not create attachment staging file")
                 }
             }
-            let currentBytes = try fileSize(at: stagedFileURL)
+            var currentBytes = try fileSize(at: stagedFileURL)
+            if request.offset == 0, currentBytes > 0 {
+                let handle = try FileHandle(forWritingTo: stagedFileURL)
+                defer { try? handle.close() }
+                try handle.truncate(atOffset: 0)
+                currentBytes = 0
+            }
             guard currentBytes == request.offset else {
                 throw invalidParams("Attachment chunks must use contiguous offsets")
             }

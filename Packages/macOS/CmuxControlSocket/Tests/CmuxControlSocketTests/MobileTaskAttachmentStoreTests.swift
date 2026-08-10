@@ -87,6 +87,46 @@ struct MobileTaskAttachmentStoreTests {
         #expect(try Data(contentsOf: URL(fileURLWithPath: path)) == Data("newer".utf8))
     }
 
+    @Test func retryFromZeroStillRejectsChangedMetadata() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let operationID = UUID()
+        let uploadID = UUID()
+
+        _ = try fixture.store.upload(.init(
+            operationID: operationID,
+            uploadID: uploadID,
+            fileName: "notes.txt",
+            totalBytes: 5,
+            offset: 0,
+            dataBase64: Data("he".utf8).base64EncodedString(),
+            isLast: false
+        ))
+        #expect(throws: MobileTaskAttachmentStoreError.self) {
+            try fixture.store.upload(.init(
+                operationID: operationID,
+                uploadID: uploadID,
+                fileName: "changed.txt",
+                totalBytes: 5,
+                offset: 0,
+                dataBase64: Data("ne".utf8).base64EncodedString(),
+                isLast: false
+            ))
+        }
+
+        let completed = try fixture.store.upload(.init(
+            operationID: operationID,
+            uploadID: uploadID,
+            fileName: "notes.txt",
+            totalBytes: 5,
+            offset: 2,
+            dataBase64: Data("llo".utf8).base64EncodedString(),
+            isLast: true
+        ))
+        let path = try #require(completed.path)
+        #expect(try Data(contentsOf: URL(fileURLWithPath: path)) == Data("hello".utf8))
+    }
+
     @Test func duplicateNamesReceiveNumericSuffixes() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }

@@ -593,14 +593,20 @@ struct TerminalComposerView: View {
                     stagingTask.task = nil
                 }
             }
-            for item in items.prefix(Self.maxAttachmentCount - pendingAttachments.count) {
+            for item in items {
                 guard !Task.isCancelled,
                       stagingTask.generation == stagingGeneration,
                       sessionGeneration == store.currentSessionGeneration else { break }
                 do {
                     guard let imported = try await item.loadTransferable(
                         type: MobileImportedImageFile.self
-                    ) else { continue }
+                    ) else {
+                        attachmentError = L10n.string(
+                            "mobile.attachment.error.unreadable",
+                            defaultValue: "The selected file couldn’t be read."
+                        )
+                        continue
+                    }
                     defer { try? FileManager.default.removeItem(at: imported.url) }
                     let attachment = try await MobileAttachmentStager().stage(
                         sourceURL: imported.url,
@@ -609,14 +615,11 @@ struct TerminalComposerView: View {
                     )
                     guard !Task.isCancelled,
                           stagingTask.generation == stagingGeneration,
-                          sessionGeneration == store.currentSessionGeneration,
-                          store.addPendingAttachment(
-                              attachment,
-                              forTerminalID: terminalID
-                          ) != nil else {
+                          sessionGeneration == store.currentSessionGeneration else {
                         try? FileManager.default.removeItem(at: attachment.localFileURL)
                         continue
                     }
+                    admitStagedAttachment(attachment)
                 } catch is CancellationError {
                     break
                 } catch {
@@ -638,13 +641,6 @@ struct TerminalComposerView: View {
             )
             return
         }
-        let remainingCount = Self.maxAttachmentCount - pendingAttachments.count
-        if urls.count > remainingCount {
-            attachmentError = L10n.string(
-                "mobile.attachment.error.count",
-                defaultValue: "You can attach up to 10 files."
-            )
-        }
         let sessionGeneration = store.currentSessionGeneration
         stagingTask.task?.cancel()
         let stagingGeneration = UUID()
@@ -657,7 +653,7 @@ struct TerminalComposerView: View {
                     stagingTask.task = nil
                 }
             }
-            for url in urls.prefix(remainingCount) {
+            for url in urls {
                 guard !Task.isCancelled,
                       stagingTask.generation == stagingGeneration,
                       sessionGeneration == store.currentSessionGeneration else { break }
@@ -669,14 +665,11 @@ struct TerminalComposerView: View {
                     )
                     guard !Task.isCancelled,
                           stagingTask.generation == stagingGeneration,
-                          sessionGeneration == store.currentSessionGeneration,
-                          store.addPendingAttachment(
-                        attachment,
-                        forTerminalID: terminalID
-                    ) != nil else {
+                          sessionGeneration == store.currentSessionGeneration else {
                         try? FileManager.default.removeItem(at: attachment.localFileURL)
                         continue
                     }
+                    admitStagedAttachment(attachment)
                 } catch is CancellationError {
                     break
                 } catch {
@@ -698,6 +691,48 @@ struct TerminalComposerView: View {
             "mobile.taskComposer.attachments.unreadable",
             defaultValue: "The selected file couldn’t be read."
         )
+    }
+
+    /// The single Photos/Files handoff into the shell's atomic draft owner.
+    private func admitStagedAttachment(_ attachment: MobileStagedAttachment) {
+        switch store.admitPendingAttachment(attachment, forTerminalID: terminalID) {
+        case .accepted:
+            return
+        case let .rejected(reason):
+            try? FileManager.default.removeItem(at: attachment.localFileURL)
+            if let message = attachmentAdmissionErrorMessage(reason) {
+                attachmentError = message
+            }
+        }
+    }
+
+    private func attachmentAdmissionErrorMessage(
+        _ reason: MobileAttachmentAdmissionRejectionReason
+    ) -> String? {
+        switch reason {
+        case .itemSizeLimit:
+            return L10n.string(
+                "mobile.attachment.error.itemSize",
+                defaultValue: "Each attachment must be 32 MB or smaller."
+            )
+        case .perTerminalCountLimit:
+            return L10n.string(
+                "mobile.attachment.error.terminalCount",
+                defaultValue: "You can attach up to 10 files to this terminal."
+            )
+        case .perTerminalTotalBytesLimit:
+            return L10n.string(
+                "mobile.attachment.error.terminalTotalSize",
+                defaultValue: "Attachments in this terminal can use up to 32 MB in total."
+            )
+        case .globalCapacity:
+            return L10n.string(
+                "mobile.attachment.error.globalCapacity",
+                defaultValue: "Attachment capacity is full. Send or remove an attachment and try again."
+            )
+        case .missingTerminal:
+            return nil
+        }
     }
 
 }

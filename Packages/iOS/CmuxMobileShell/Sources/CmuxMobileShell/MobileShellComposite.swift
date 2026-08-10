@@ -24,6 +24,27 @@ private let mobileShellLog = Logger(
 /// consumer binds to ``MobileShellComposite`` directly.
 public typealias CMUXMobileShellStore = MobileShellComposite
 
+/// Why an exact-byte attachment was not admitted to a terminal draft.
+public enum MobileAttachmentAdmissionRejectionReason: Sendable, Equatable {
+    case itemSizeLimit
+    case perTerminalCountLimit
+    case perTerminalTotalBytesLimit
+    case globalCapacity
+    case missingTerminal
+}
+
+/// Atomic result of asking the shell owner to add an attachment to a draft.
+public enum MobileAttachmentAdmissionResult: Sendable, Equatable {
+    case accepted(MobilePendingAttachment.ID)
+    case rejected(MobileAttachmentAdmissionRejectionReason)
+
+    /// The admitted identity, or `nil` when the request was rejected.
+    public var acceptedID: MobilePendingAttachment.ID? {
+        guard case let .accepted(id) = self else { return nil }
+        return id
+    }
+}
+
 /// The decomposed home object the iOS shell views bind to.
 ///
 /// Holds the connection lifecycle, network-recovery state machine,
@@ -7364,11 +7385,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func addPendingAttachment(_ data: Data, format: String, forTerminalID terminalID: String? = nil) -> MobilePendingAttachment.ID? {
         guard !data.isEmpty else { return nil }
         let attachment = MobilePendingAttachment(data: data, format: format)
-        guard let result = addPendingAttachment(
+        guard let result = admitPendingAttachment(
             attachment,
             forTerminalID: terminalID,
             usesLegacyImageLimit: true
-        ) else {
+        ).acceptedID else {
             try? FileManager.default.removeItem(at: attachment.localFileURL)
             return nil
         }
@@ -7381,7 +7402,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         _ stagedAttachment: MobileStagedAttachment,
         forTerminalID terminalID: String? = nil
     ) -> MobilePendingAttachment.ID? {
-        addPendingAttachment(
+        admitPendingAttachment(stagedAttachment, forTerminalID: terminalID).acceptedID
+    }
+
+    /// Atomically admits an exact-byte attachment or reports why it was rejected.
+    ///
+    /// The caller retains ownership of a rejected staged file and must remove it
+    /// when it no longer intends to retry.
+    public func admitPendingAttachment(
+        _ stagedAttachment: MobileStagedAttachment,
+        forTerminalID terminalID: String? = nil
+    ) -> MobileAttachmentAdmissionResult {
+        admitPendingAttachment(
             MobilePendingAttachment(stagedAttachment),
             forTerminalID: terminalID,
             usesLegacyImageLimit: false
@@ -7389,29 +7421,38 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     @discardableResult
-    private func addPendingAttachment(
+    private func admitPendingAttachment(
         _ attachment: MobilePendingAttachment,
         forTerminalID terminalID: String?,
         usesLegacyImageLimit: Bool
-    ) -> MobilePendingAttachment.ID? {
+    ) -> MobileAttachmentAdmissionResult {
         guard (!usesLegacyImageLimit || attachment.byteCount > 0),
-              let key = terminalID ?? selectedTerminalID?.rawValue else { return nil }
+              let key = terminalID ?? selectedTerminalID?.rawValue else {
+            return .rejected(.missingTerminal)
+        }
         // Reject any add for a terminal that is not in the current topology, so a
         // closed/recreated/stale id can never accrue orphaned bytes the user can no
         // longer see or send. This is the single validated path: both the base
         // call and the session-guarded variant funnel through here.
-        guard terminalExistsInTopology(key) else { return nil }
+        guard terminalExistsInTopology(key) else { return .rejected(.missingTerminal) }
         // A single image larger than the per-image cap is rejected outright.
         let itemLimit = usesLegacyImageLimit && attachment.kind == .image
             ? TaskComposerAttachment.maximumImageBytes
             : TaskComposerAttachment.maximumFileBytes
-        guard attachment.byteCount <= itemLimit else { return nil }
+        guard attachment.byteCount >= 0,
+              attachment.byteCount <= itemLimit else {
+            return .rejected(.itemSizeLimit)
+        }
         let existing = pendingAttachmentsByTerminalID[key] ?? []
         // Count cap, computed against the CURRENT staged set (atomic on @MainActor).
-        guard existing.count < Self.maxPendingAttachmentCount else { return nil }
+        guard existing.count < Self.maxPendingAttachmentCount else {
+            return .rejected(.perTerminalCountLimit)
+        }
         // Total-byte budget, likewise against the current set.
         let currentBytes = existing.reduce(0) { $0 + $1.byteCount }
-        guard currentBytes + attachment.byteCount <= Self.maxPendingAttachmentTotalBytes else { return nil }
+        guard currentBytes + attachment.byteCount <= Self.maxPendingAttachmentTotalBytes else {
+            return .rejected(.perTerminalTotalBytesLimit)
+        }
         // GLOBAL caps, summed across ALL terminals' staged sets (not just the
         // target's). The per-terminal checks above bound one draft, but each live
         // terminal keeps its own per-terminal budget, so without a global cap
@@ -7425,10 +7466,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             globalCount += list.count
             for item in list { globalBytes += item.byteCount }
         }
-        guard globalCount < Self.maxPendingAttachmentCountAllTerminals else { return nil }
-        guard globalBytes + attachment.byteCount <= Self.maxPendingAttachmentTotalBytesAllTerminals else { return nil }
+        guard globalCount < Self.maxPendingAttachmentCountAllTerminals else {
+            return .rejected(.globalCapacity)
+        }
+        guard globalBytes + attachment.byteCount <= Self.maxPendingAttachmentTotalBytesAllTerminals else {
+            return .rejected(.globalCapacity)
+        }
         pendingAttachmentsByTerminalID[key, default: []].append(attachment)
-        return attachment.id
+        return .accepted(attachment.id)
     }
 
     /// A token identifying the current signed-in session. Capture it before an

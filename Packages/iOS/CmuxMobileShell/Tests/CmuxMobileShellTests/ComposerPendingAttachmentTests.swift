@@ -394,6 +394,25 @@ import Testing
         #expect(result == .rejected(.globalCapacity))
     }
 
+    @Test func typedAdmissionReportsGlobalByteCapacity() {
+        let composite = Self.makeMultiTerminalComposite(terminalCount: 3)
+        let first = Self.stagedAttachment(
+            byteCount: MobileShellComposite.maxPendingAttachmentTotalBytes
+        )
+        let second = Self.stagedAttachment(
+            byteCount: MobileShellComposite.maxPendingAttachmentTotalBytes
+        )
+        let overflow = Self.stagedAttachment()
+        let attachments = [first, second, overflow]
+        defer { attachments.forEach { try? FileManager.default.removeItem(at: $0.localFileURL) } }
+        #expect(composite.admitPendingAttachment(first, forTerminalID: "term-0").acceptedID != nil)
+        #expect(composite.admitPendingAttachment(second, forTerminalID: "term-1").acceptedID != nil)
+
+        let result = composite.admitPendingAttachment(overflow, forTerminalID: "term-2")
+
+        #expect(result == .rejected(.globalCapacity))
+    }
+
     @Test func typedAdmissionReportsMissingTerminal() {
         let composite = Self.makeComposite()
         let attachment = Self.stagedAttachment()
