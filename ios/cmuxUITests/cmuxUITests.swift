@@ -2179,7 +2179,9 @@ final class cmuxUITests: XCTestCase {
             XCTAssertEqual(refreshedModel.value as? String, "GPT-5.5")
 
             try typeText("Verify canonical controls", into: prompt, in: app)
-            XCTAssertTrue(submit.isEnabled)
+            let submitReady = NSPredicate(format: "enabled == true")
+            expectation(for: submitReady, evaluatedWith: submit)
+            waitForExpectations(timeout: 3)
             tap(submit, in: app)
             let submittedCommand = app.staticTexts["MobileTaskComposerSubmittedInitialCommand"]
             XCTAssertTrue(submittedCommand.waitForExistence(timeout: 4))
@@ -2588,7 +2590,9 @@ final class cmuxUITests: XCTestCase {
         let create = app.buttons["MobileTaskComposerSubmitButton"]
         XCTAssertTrue(create.waitForExistence(timeout: 3))
         XCTAssertEqual(create.label, "Start Task")
-        XCTAssertFalse(create.isEnabled)
+        let initialAgentNeedsPrompt = NSPredicate(format: "enabled == false")
+        expectation(for: initialAgentNeedsPrompt, evaluatedWith: create)
+        waitForExpectations(timeout: 3)
         XCTAssertTrue(app.buttons["MobileTaskComposerModelPill"].exists)
 
         selectTaskComposerAgent(named: "Shell", in: app)
