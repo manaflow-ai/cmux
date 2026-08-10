@@ -20,7 +20,7 @@ use base64::Engine;
 use cmux_tui_core::{
     BrowserFrame, BrowserSource, BrowserStatus, ClearHistoryDelivery, ClearHistoryFailure,
     DEFAULT_VIEWPORT_PANE_WIDTH, Direction, GraphicsStatus, GuardedMouseEncode, LayoutUndoError,
-    LayoutUndoResult, MAX_VIEWPORT_PANE_WIDTH, MIN_VIEWPORT_PANE_WIDTH, MuxEvent, Node,
+    LayoutUndoResult, MAX_VIEWPORT_PANE_WIDTH, MIN_VIEWPORT_PANE_WIDTH, Mux, MuxEvent, Node,
     PairingChallenge, PaneId, PointerSemanticProbe, PointerSnapshotProbe, Rect, ScreenId, SplitDir,
     SplitEdge, SplitId, SurfaceId, SurfaceKind, TerminalPointerSnapshot, ViewportColumn,
     ViewportLayoutResult, VirtualRect, WorkspaceId, ZoomMode, exact_split_for_pane_edge,
@@ -6300,6 +6300,9 @@ impl GraphicsSceneCache {
 
 pub struct App {
     pub session: OrderedSession,
+    /// The local mux owned by this process. Unlike `session`, this does not
+    /// change when the machine controller replaces the presented session.
+    owner_mux: Option<Arc<Mux>>,
     session_event_worker: Option<SessionEventWorker>,
     session_generation: u64,
     app_events: SyncSender<AppEvent>,
@@ -7510,6 +7513,7 @@ pub fn run_with_machine_updates(
     session_label: String,
     default_colors: cmux_tui_core::DefaultColors,
     surface_only: Option<SurfaceId>,
+    owner_mux: Option<Arc<Mux>>,
     machine_ui: Option<MachineUiState>,
     machine_controller: Option<Box<dyn MachineController>>,
 ) -> anyhow::Result<RunOutcome> {
@@ -7532,6 +7536,7 @@ pub fn run_with_machine_updates(
             session_label,
             default_colors,
             surface_only,
+            owner_mux,
             machine_ui,
             machine_controller,
         )
@@ -7555,6 +7560,7 @@ fn run_with_machine_updates_inner(
     session_label: String,
     default_colors: cmux_tui_core::DefaultColors,
     surface_only: Option<SurfaceId>,
+    owner_mux: Option<Arc<Mux>>,
     machine_ui: Option<MachineUiState>,
     machine_controller: Option<Box<dyn MachineController>>,
 ) -> anyhow::Result<RunOutcome> {
@@ -7760,6 +7766,7 @@ fn run_with_machine_updates_inner(
     let machine_presented = machine_ui.as_ref().and_then(|machine| machine.snapshot.active);
     let mut app = App {
         session,
+        owner_mux,
         session_event_worker: Some(session_event_worker),
         session_generation,
         app_events: tx,
@@ -8298,6 +8305,10 @@ fn should_claim_clear_history_shortcut(
 impl App {
     pub fn is_surface_only(&self) -> bool {
         self.surface_only.is_some()
+    }
+
+    fn owner_shutdown_requested(&self) -> bool {
+        self.owner_mux.as_ref().is_some_and(|mux| mux.daemon_shutdown_requested())
     }
 
     pub fn session_available(&self) -> bool {
@@ -8883,6 +8894,7 @@ impl App {
         while !self.quit
             && !crate::shutdown_requested()
             && !self.session.daemon_shutdown_requested()
+            && !self.owner_shutdown_requested()
         {
             if replay_ready {
                 let replay = self.replay_deferred_input_batch()?;
@@ -38791,6 +38803,23 @@ mod tests {
         worker.stop_and_join();
     }
 
+    #[test]
+    fn local_owner_shutdown_survives_machine_session_replacement() {
+        let owner = Mux::new("owner-shutdown-source", cmux_tui_core::SurfaceOptions::default());
+        let replacement =
+            crate::session::test_remote_session_with_browser_pointer_range(7, 1, 1);
+        let mut app = test_app(replacement);
+        app.owner_mux = Some(owner.clone());
+
+        assert!(!app.session.daemon_shutdown_requested());
+        assert!(!app.owner_shutdown_requested());
+
+        owner.request_daemon_shutdown();
+
+        assert!(!app.session.daemon_shutdown_requested());
+        assert!(app.owner_shutdown_requested());
+    }
+
     fn test_app(session: Session) -> App {
         test_app_with_events(session).0
     }
@@ -38808,6 +38837,7 @@ mod tests {
             OrderedSession::new(session, pty_input.sender(), events.clone(), layout_resize_owner);
         let app = App {
             session,
+            owner_mux: None,
             session_event_worker: None,
             session_generation: 1,
             app_events: events,

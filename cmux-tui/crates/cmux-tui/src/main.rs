@@ -1751,12 +1751,14 @@ fn run_server(
             run_headless(&mux, &socket_path, || false)
         }
     } else if let Some(runtime) = machine_runtime {
-        run_machine_client(runtime)
+        run_machine_client(runtime, mux.clone())
     } else {
         match RemoteSession::connect(&socket_path)
             .context("connect the interactive client to its session server")
         {
-            Ok(remote) => run_tui(Session::Remote(remote), args.session, None),
+            Ok(remote) => {
+                run_tui_with_owner(Session::Remote(remote), args.session, None, Some(mux.clone()))
+            }
             Err(error) => Err(error),
         }
     };
@@ -1831,7 +1833,16 @@ fn run_tui(
     session_label: String,
     surface_only: Option<cmux_tui_core::SurfaceId>,
 ) -> anyhow::Result<()> {
-    match run_tui_once(session, session_label, surface_only, None, None)? {
+    run_tui_with_owner(session, session_label, surface_only, None)
+}
+
+fn run_tui_with_owner(
+    session: Session,
+    session_label: String,
+    surface_only: Option<cmux_tui_core::SurfaceId>,
+    owner_mux: Option<Arc<Mux>>,
+) -> anyhow::Result<()> {
+    match run_tui_once(session, session_label, surface_only, owner_mux, None, None)? {
         app::RunOutcome::Quit => Ok(()),
         app::RunOutcome::Machine(_) => {
             anyhow::bail!("machine request returned without a machine runtime")
@@ -1879,11 +1890,11 @@ fn run_connected_session_client(
     }
 }
 
-fn run_machine_client(runtime: MachineRuntime) -> anyhow::Result<()> {
+fn run_machine_client(runtime: MachineRuntime, owner_mux: Arc<Mux>) -> anyhow::Result<()> {
     let active = runtime.initial_key();
     let connections = MachineConnectionHub::new(runtime.connection_connectors());
     let session = connections.connect(active)?;
-    run_machine_client_with_hub(runtime, session, connections)
+    run_machine_client_with_hub(runtime, session, connections, Some(owner_mux))
 }
 
 fn run_machine_client_with_initial(
@@ -1895,13 +1906,14 @@ fn run_machine_client_with_initial(
     let connections = MachineConnectionHub::new(runtime.connection_connectors());
     connections
         .insert_ready(active, MachineConnection { session: session.clone(), _lease: active_lease });
-    run_machine_client_with_hub(runtime, session, connections)
+    run_machine_client_with_hub(runtime, session, connections, None)
 }
 
 fn run_machine_client_with_hub(
     runtime: MachineRuntime,
     session: Session,
     connections: MachineConnectionHub,
+    owner_mux: Option<Arc<Mux>>,
 ) -> anyhow::Result<()> {
     let active = runtime.initial_key();
     let label = runtime.name(active).unwrap_or("machine").to_string();
@@ -1909,7 +1921,7 @@ fn run_machine_client_with_hub(
     machine_ui.set_connection_phases(connections.phases());
     let controller: Box<dyn MachineController> =
         Box::new(StaticMachineController { runtime, active, connections, pending: None });
-    match run_tui_once(session, label, None, Some(machine_ui), Some(controller))? {
+    match run_tui_once(session, label, None, owner_mux, Some(machine_ui), Some(controller))? {
         app::RunOutcome::Quit => Ok(()),
         app::RunOutcome::Machine(_) => {
             anyhow::bail!("machine request escaped its in-place controller")
@@ -2050,7 +2062,7 @@ fn run_provider_machine_client(
     };
     runtime.sync_connections();
     let controller: Box<dyn MachineController> = Box::new(runtime);
-    match run_tui_once(session, label, None, Some(machine_ui), Some(controller))? {
+    match run_tui_once(session, label, None, None, Some(machine_ui), Some(controller))? {
         app::RunOutcome::Quit => Ok(()),
         app::RunOutcome::Machine(_) => {
             anyhow::bail!("provider request escaped its in-place controller")
@@ -2089,6 +2101,7 @@ fn run_tui_once(
     session: Session,
     session_label: String,
     surface_only: Option<cmux_tui_core::SurfaceId>,
+    owner_mux: Option<Arc<Mux>>,
     machine_ui: Option<MachineUiState>,
     machine_controller: Option<Box<dyn MachineController>>,
 ) -> anyhow::Result<app::RunOutcome> {
@@ -2113,6 +2126,7 @@ fn run_tui_once(
         session_label,
         colors,
         surface_only,
+        owner_mux,
         machine_ui,
         machine_controller,
     )
