@@ -105,8 +105,7 @@ pub(super) fn rebuild_agent_projections_from_journal(
         head_sequence = head_sequence.max(stored.committed_sequence);
         stored_by_sequence.entry(stored.committed_sequence).or_default().push(stored);
     }
-    let projections =
-        agent_projections_from_legacy_agent_index(&tx, stored_by_sequence)?;
+    let projections = agent_projections_from_legacy_agent_index(&tx, stored_by_sequence)?;
     tx.execute("DELETE FROM resource_agent_projections", [])?;
     for projection in projections.into_values() {
         if terminal_is_live(&tx, &projection.terminal_id)? {
