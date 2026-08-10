@@ -1661,7 +1661,7 @@ mod tests {
             pane: Some(pane_id.clone()),
             ..ResourceSelectors::default()
         };
-        super::super::topology::dispatch(
+        let keeper = super::super::topology::dispatch(
             &mux,
             parsed_request(
                 "tab.create_terminal",
@@ -1671,6 +1671,7 @@ mod tests {
             ),
         )
         .unwrap();
+        let keeper_tab = keeper["value"]["id"].as_str().unwrap().to_string();
 
         let destination = public_session_snapshot(&mux).unwrap();
         let workspace_id = destination["workspaces"][0]["id"].as_str().unwrap();
@@ -1744,6 +1745,17 @@ mod tests {
             dispatch(&mux, parsed_request("terminal.screen.read", &selectors, json!({}), None),)
                 .is_ok()
         );
+        let wrong_tab = ResourceSelectors {
+            machine: Some("current".into()),
+            session: Some("current".into()),
+            tab: Some(keeper_tab),
+            terminal: Some(terminal_id.to_string()),
+            ..ResourceSelectors::default()
+        };
+        let error =
+            dispatch(&mux, parsed_request("terminal.screen.read", &wrong_tab, json!({}), None))
+                .unwrap_err();
+        assert_eq!(error.code, "selector.wrong_parent");
 
         let reprojected = dispatch(
             &mux,
