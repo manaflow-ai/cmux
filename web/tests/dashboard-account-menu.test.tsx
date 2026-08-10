@@ -161,7 +161,7 @@ describe("dashboard account menu", () => {
       isError: true,
     };
     delete handlers.switchOrganization;
-    searchTeam = "team-2";
+    searchTeam = " team-2 ";
     routerPush.mockClear();
     routerRefresh.mockClear();
     setQueryData.mockClear();
@@ -191,6 +191,9 @@ describe("dashboard account menu", () => {
     expect(html).toContain('data-testid="team-switcher"');
     expect(html).toContain('data-team-id="team-2"');
     expect(html).toContain('data-team-ids="team-2,team-4"');
+    expect(html.indexOf('data-testid="team-switcher"')).toBeLessThan(
+      html.indexOf('aria-label="label"'),
+    );
     expect(html).not.toContain("Not authorized");
     expect(html).not.toContain("Forbidden");
     expect(html).toContain("signOut");
