@@ -61,6 +61,7 @@ struct ResourceCloseInputs {
     terminal_runtime: Option<Arc<Surface>>,
     terminal_batch: Vec<(String, Option<String>)>,
     terminal_public_id: Option<TerminalPublicId>,
+    allow_missing_terminal_runtime: bool,
 }
 
 struct ResourceClosePlan {
@@ -2830,6 +2831,10 @@ impl Mux {
                     terminal_incarnation.map(str::to_owned),
                 )],
                 terminal_public_id: Some(public_id.clone()),
+                // Protocol close repairs the known gap where durable topology
+                // exists before terminal_catalog is restored. Its caller uses
+                // discovery-based termination when this runtime is absent.
+                allow_missing_terminal_runtime: true,
                 ..Default::default()
             },
             state,
@@ -2851,6 +2856,7 @@ impl Mux {
             terminal_runtime,
             terminal_batch,
             terminal_public_id,
+            allow_missing_terminal_runtime,
         } = inputs;
 
         let mut removed = Vec::new();
@@ -2861,7 +2867,7 @@ impl Mux {
             anyhow::ensure!(
                 match (removed_runtime.as_ref(), terminal_runtime.as_ref()) {
                     (Some(removed), Some(planned)) => removed.shares_terminal_runtime(planned),
-                    (None, None) => true,
+                    (None, None) if allow_missing_terminal_runtime => true,
                     _ => false,
                 },
                 "terminal close lost its catalog runtime"
