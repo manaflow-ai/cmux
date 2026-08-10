@@ -1026,6 +1026,37 @@ struct DockShortcutRoutingTests {
             }
         }
     }
+
+    @Test("Dock browser tab context actions dispatch to their browser")
+    @MainActor
+    func dockBrowserTabContextActionsDispatchToBrowser() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let sourceId = try #require(
+                    harness.dock.newSurface(
+                        kind: .browser,
+                        inPane: harness.rootPane,
+                        focus: true
+                    )
+                )
+                let sourceTabId = try #require(
+                    harness.dock.surfaceId(forPanelId: sourceId)
+                )
+                let panelCountBefore = harness.dock.panels.count
+
+                harness.dock.bonsplitController.requestTabContextAction(
+                    .duplicate,
+                    for: sourceTabId,
+                    inPane: harness.rootPane
+                )
+
+                #expect(harness.dock.panels.count == panelCountBefore + 1)
+                let focusedId = try #require(harness.dock.focusedPanelId)
+                #expect(focusedId != sourceId)
+                #expect(harness.dock.browserPanel(for: focusedId) != nil)
+            }
+        }
+    }
 }
 
 private extension DockShortcutRoutingTests {
