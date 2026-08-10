@@ -343,7 +343,7 @@ describe("dashboard account menu", () => {
         personal: false,
         permissions: { use: true, manageAccounts: false },
       }],
-    })).toBeNull();
+    })).toMatchObject({ selectedTeamId: "missing" });
   });
 
   test("does not navigate when Stack rejects an organization switch", async () => {
