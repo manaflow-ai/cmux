@@ -3864,8 +3864,7 @@ impl ClientRegistry {
                 if requester == requesting_client =>
             {
                 acknowledge()?;
-                state.daemon_handoff =
-                    Some(DaemonHandoffReservation::Committed(requesting_client));
+                state.daemon_handoff = Some(DaemonHandoffReservation::Committed(requesting_client));
                 Ok(())
             }
             _ => anyhow::bail!("daemon handoff reservation changed before commit"),

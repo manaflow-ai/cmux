@@ -7532,8 +7532,7 @@ impl Mux {
         requesting_client: u64,
         acknowledge: impl FnOnce() -> std::io::Result<()>,
     ) -> anyhow::Result<()> {
-        self.control_clients
-            .commit_daemon_handoff_after_ack(requesting_client, acknowledge)
+        self.control_clients.commit_daemon_handoff_after_ack(requesting_client, acknowledge)
     }
 
     pub fn cancel_daemon_handoff(&self, requesting_client: u64) {
