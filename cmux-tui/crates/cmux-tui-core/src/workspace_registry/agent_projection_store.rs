@@ -138,9 +138,7 @@ fn replay_agent_projection_journal_suffix(
     }
 }
 
-fn agent_projection_journal_cursor(
-    connection: &Connection,
-) -> anyhow::Result<Option<u64>> {
+fn agent_projection_journal_cursor(connection: &Connection) -> anyhow::Result<Option<u64>> {
     connection
         .query_row(
             "SELECT value FROM meta WHERE key = ?1",
@@ -148,17 +146,11 @@ fn agent_projection_journal_cursor(
             |row| row.get::<_, String>(0),
         )
         .optional()?
-        .map(|value| {
-            value
-                .parse::<u64>()
-                .context("agent projection journal cursor is invalid")
-        })
+        .map(|value| value.parse::<u64>().context("agent projection journal cursor is invalid"))
         .transpose()
 }
 
-fn agent_projection_journal_candidate(
-    connection: &Connection,
-) -> anyhow::Result<Option<u64>> {
+fn agent_projection_journal_candidate(connection: &Connection) -> anyhow::Result<Option<u64>> {
     connection
         .query_row(
             "SELECT value FROM meta WHERE key = ?1",
@@ -167,9 +159,7 @@ fn agent_projection_journal_candidate(
         )
         .optional()?
         .map(|value| {
-            value
-                .parse::<u64>()
-                .context("agent projection journal candidate sequence is invalid")
+            value.parse::<u64>().context("agent projection journal candidate sequence is invalid")
         })
         .transpose()
 }
@@ -233,10 +223,8 @@ fn append_prejournal_projection_migration(
         "event_agent_projection_migration_{}",
         digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>()
     );
-    let producer = JournalProducer {
-        kind: "migration".into(),
-        id: PREJOURNAL_MIGRATION_PRODUCER_ID.into(),
-    };
+    let producer =
+        JournalProducer { kind: "migration".into(), id: PREJOURNAL_MIGRATION_PRODUCER_ID.into() };
     let subjects = vec![
         JournalSubject { kind: "session".into(), id: session_id },
         JournalSubject { kind: "terminal".into(), id: projection.terminal_id.to_string() },
@@ -321,8 +309,7 @@ fn projection_from_journal_record(
         let trusted_migration = producer.kind == "migration"
             && producer.id == PREJOURNAL_MIGRATION_PRODUCER_ID
             && resource_revision.is_none()
-            && payload.get("format").and_then(Value::as_str)
-                == Some(PREJOURNAL_MIGRATION_FORMAT);
+            && payload.get("format").and_then(Value::as_str) == Some(PREJOURNAL_MIGRATION_FORMAT);
         if !trusted_resource_operation && !trusted_migration {
             return Ok(None);
         }

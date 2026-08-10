@@ -5022,10 +5022,8 @@ fn journal_agent_plugin_report_cannot_write_projection() {
         let mut registry = WorkspaceRegistry::open(&root, session).unwrap();
         commit_terminal_topology(&mut registry, "journal-agent-untrusted-report-topology");
         let terminal_id = terminal_resource(TERMINAL_ONE);
-        let subjects = vec![JournalSubject {
-            kind: "terminal".into(),
-            id: terminal_id.to_string(),
-        }];
+        let subjects =
+            vec![JournalSubject { kind: "terminal".into(), id: terminal_id.to_string() }];
         let report_payload = json!({
             "result":{
                 "id":agent_resource(&terminal_id),
