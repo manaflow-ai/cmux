@@ -111,12 +111,7 @@ impl TerminalIndexProjection {
         }
         for host_id in host_ids.clone() {
             public_ids.extend(
-                state
-                    .terminal_catalog_by_host
-                    .get(&host_id)
-                    .into_iter()
-                    .flatten()
-                    .cloned(),
+                state.terminal_catalog_by_host.get(&host_id).into_iter().flatten().cloned(),
             );
         }
         for public_id in &public_ids {
@@ -199,7 +194,8 @@ impl TerminalIndexProjection {
             .extend(projected.terminal_placements_by_runtime.drain());
         live.terminal_placements_by_host.extend(projected.terminal_placements_by_host.drain());
 
-        projected.terminal_catalog_by_runtime = std::mem::take(&mut live.terminal_catalog_by_runtime);
+        projected.terminal_catalog_by_runtime =
+            std::mem::take(&mut live.terminal_catalog_by_runtime);
         projected.terminal_catalog_by_host = std::mem::take(&mut live.terminal_catalog_by_host);
         projected.terminal_placements_by_runtime =
             std::mem::take(&mut live.terminal_placements_by_runtime);
@@ -2726,10 +2722,8 @@ impl Mux {
                 cleanup_public_ids.push(catalog_public_id);
             }
         }
-        let terminal_hosts = vec![(
-            terminal_id.to_string(),
-            terminal_incarnation.map(str::to_owned),
-        )];
+        let terminal_hosts =
+            vec![(terminal_id.to_string(), terminal_incarnation.map(str::to_owned))];
         let terminal_indexes = TerminalIndexProjection::capture(
             self,
             state,

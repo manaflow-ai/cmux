@@ -20322,9 +20322,7 @@ mod tests {
                 let runtime_id = 1_000_000 + index;
                 let unrelated_public_id = restore_terminal_id(10_000 + index as u128);
                 let unrelated_host = format!("unrelated-terminal-{index}");
-                state
-                    .terminal_catalog_by_runtime
-                    .insert(runtime_id, unrelated_public_id.clone());
+                state.terminal_catalog_by_runtime.insert(runtime_id, unrelated_public_id.clone());
                 state
                     .terminal_catalog_by_host
                     .insert(unrelated_host.clone(), HashSet::from([unrelated_public_id]));
