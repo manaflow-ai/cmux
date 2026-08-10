@@ -5519,6 +5519,75 @@ fn journal_agent_final_socket_report_overrides_same_session_hook_state() {
 }
 
 #[test]
+fn journal_agent_late_hook_does_not_reopen_final_socket_session() {
+    let mut registry = WorkspaceRegistry::in_memory("journal-agent-late-hook").unwrap();
+    commit_terminal_topology(&mut registry, "journal-agent-late-hook-topology");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let validated = crate::journal_kernel::ValidatedJournalIngress {
+        class: JournalClass::Observation,
+        replay: JournalReplayPolicy::Advisory,
+        sensitivity: JournalSensitivity::Sensitive,
+    };
+    let start = crate::agent_hook_journal_ingress(
+        "pi",
+        "AgentStart",
+        Some(terminal_id.as_str()),
+        json!({"session_id":"shared-session"}),
+    )
+    .unwrap();
+    registry
+        .append_journal_ingress(
+            &start,
+            &validated,
+            "client_late_hook",
+            "journal_agent_late_hook_start",
+        )
+        .unwrap();
+
+    let result = json!({
+        "id":agent_resource(&terminal_id),
+        "session_id":registry.session_id(),
+        "terminal_id":terminal_id,
+        "state":"done",
+        "source":"socket",
+        "updated_at_ms":unix_epoch_ms().unwrap().saturating_add(1_000).to_string(),
+        "source_session":"shared-session",
+        "extra":{"provider":"pi"},
+    });
+    registry
+        .commit_agent_projection(
+            &WorkspaceMutation::new("journal-agent-late-hook-final", "socket-test").unwrap(),
+            &json!({"source_session":"shared-session"}),
+            Some(1),
+            &terminal_id,
+            &result,
+            &json!([]),
+        )
+        .unwrap();
+
+    let late_hook = crate::agent_hook_journal_ingress(
+        "pi",
+        "PreToolUse",
+        Some(terminal_id.as_str()),
+        json!({"session_id":"shared-session"}),
+    )
+    .unwrap();
+    registry
+        .append_journal_ingress(
+            &late_hook,
+            &validated,
+            "client_late_hook",
+            "journal_agent_late_hook_activity",
+        )
+        .unwrap();
+
+    let agent = registry.public_projections().unwrap().agents.remove(0);
+    assert_eq!(agent.state, "done");
+    assert_eq!(agent.source, "socket");
+    assert_eq!(agent.source_session.as_deref(), Some("shared-session"));
+}
+
+#[test]
 fn journal_agent_new_activity_replaces_final_session_without_start_hook() {
     let mut registry = WorkspaceRegistry::in_memory("journal-agent-after-final-session").unwrap();
     commit_terminal_topology(&mut registry, "journal-agent-after-final-session-topology");
