@@ -259,7 +259,7 @@ fn decode_terminal_color_overrides(payload: &[u8]) -> Result<Vec<u8>, String> {
         out.extend_from_slice(
             format!("\x1b]{code};rgb:{:02x}/{:02x}/{:02x}\x1b\\", color[0], color[1], color[2])
                 .as_bytes(),
-        )
+        );
     };
     if let Some(c) = fg {
         dynamic(10, c);
@@ -684,7 +684,7 @@ impl ClientState {
             .ok_or_else(|| "terminal keyboard state is not ready".to_string())?;
         self.key_encoder.sync_from_terminal(terminal);
         let mut encoded = Vec::new();
-        self.key_encoder.encode(&input, &mut encoded).map_err(|error| error.to_string())?;
+        self.key_encoder.encode(&input, &mut encoded)?;
         Ok(encoded)
     }
 

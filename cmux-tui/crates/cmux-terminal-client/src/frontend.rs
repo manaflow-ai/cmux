@@ -176,7 +176,7 @@ unsafe fn copy_resource_update_from_state(
         return update.ended;
     };
     update.payload_length = payload.len();
-    if payload.len() > capacity || (payload.len() > 0 && buffer.is_null()) {
+    if payload.len() > capacity || (!payload.is_empty() && buffer.is_null()) {
         return true;
     }
     let payload = queue.pop_front().unwrap();
