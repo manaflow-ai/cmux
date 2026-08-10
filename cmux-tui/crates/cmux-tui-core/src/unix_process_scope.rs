@@ -11,6 +11,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fs::OpenOptions;
 use std::io;
+use std::mem::size_of;
 #[cfg(target_os = "linux")]
 use std::os::fd::FromRawFd;
 use std::os::fd::{AsRawFd, OwnedFd};
@@ -457,7 +458,13 @@ fn file_marker_for_fd(fd: libc::c_int) -> io::Result<FileMarker> {
     }
     // SAFETY: fstat(2) initialized the structure after returning success.
     let stat = unsafe { stat.assume_init() };
-    Ok(FileMarker { device: stat.st_dev as u64, inode: stat.st_ino as u64 })
+    #[cfg(target_os = "macos")]
+    let device = u64::try_from(stat.st_dev)
+        .map_err(|_| io::Error::other("file marker device is out of range"))?;
+    #[cfg(not(target_os = "macos"))]
+    let device = stat.st_dev;
+    let inode = stat.st_ino;
+    Ok(FileMarker { device, inode })
 }
 
 #[cfg(target_os = "linux")]
@@ -656,8 +663,8 @@ fn scan_registered_processes(
     const PROC_ALL_PIDS: u32 = 1;
     let bytes = unsafe { libc::proc_listpids(PROC_ALL_PIDS, 0, std::ptr::null_mut(), 0) };
     let Ok(bytes) = usize::try_from(bytes) else { return HashSet::new() };
-    let mut pids = vec![0 as libc::pid_t; bytes / std::mem::size_of::<libc::pid_t>() + 32];
-    let Ok(capacity) = libc::c_int::try_from(pids.len() * std::mem::size_of::<libc::pid_t>())
+    let mut pids = vec![0 as libc::pid_t; bytes / size_of::<libc::pid_t>() + 32];
+    let Ok(capacity) = libc::c_int::try_from(pids.len() * size_of::<libc::pid_t>())
     else {
         return HashSet::new();
     };
@@ -678,7 +685,7 @@ fn scan_registered_processes(
     );
     let mut snapshots = Vec::new();
     let mut matches = HashSet::new();
-    for pid in pids.into_iter().take(written / std::mem::size_of::<libc::pid_t>()) {
+    for pid in pids.into_iter().take(written / size_of::<libc::pid_t>()) {
         let Ok(pid) = u32::try_from(pid) else { continue };
         let Some(snapshot) = mac_process_snapshot(pid) else { continue };
         snapshots.push(snapshot);
@@ -726,10 +733,10 @@ fn mac_process_file_markers(pid: u32) -> Vec<FileMarker> {
         unsafe { libc::proc_pidinfo(pid_int, libc::PROC_PIDLISTFDS, 0, std::ptr::null_mut(), 0) };
     let Ok(bytes) = usize::try_from(bytes) else { return Vec::new() };
     let mut fds = Vec::<libc::proc_fdinfo>::with_capacity(
-        bytes / std::mem::size_of::<libc::proc_fdinfo>() + 8,
+        bytes / size_of::<libc::proc_fdinfo>() + 8,
     );
     let Ok(capacity) =
-        libc::c_int::try_from(fds.capacity() * std::mem::size_of::<libc::proc_fdinfo>())
+        libc::c_int::try_from(fds.capacity() * size_of::<libc::proc_fdinfo>())
     else {
         return Vec::new();
     };
@@ -737,7 +744,7 @@ fn mac_process_file_markers(pid: u32) -> Vec<FileMarker> {
         libc::proc_pidinfo(pid_int, libc::PROC_PIDLISTFDS, 0, fds.as_mut_ptr().cast(), capacity)
     };
     let Ok(written) = usize::try_from(written) else { return Vec::new() };
-    let count = written / std::mem::size_of::<libc::proc_fdinfo>();
+    let count = written / size_of::<libc::proc_fdinfo>();
     // SAFETY: proc_pidinfo initialized `count` entries within the allocation.
     unsafe {
         fds.set_len(count.min(fds.capacity()));
@@ -747,7 +754,7 @@ fn mac_process_file_markers(pid: u32) -> Vec<FileMarker> {
             return None;
         }
         let mut info = std::mem::MaybeUninit::<VnodeFdInfo>::zeroed();
-        let Ok(size) = libc::c_int::try_from(std::mem::size_of::<VnodeFdInfo>()) else {
+        let Ok(size) = libc::c_int::try_from(size_of::<VnodeFdInfo>()) else {
             return None;
         };
         let written = unsafe {
@@ -775,7 +782,7 @@ fn mac_process_file_markers(pid: u32) -> Vec<FileMarker> {
 fn mac_process_argument_buffer() -> Option<Vec<u8>> {
     let mut mib = [libc::CTL_KERN, libc::KERN_ARGMAX];
     let mut argmax = 0 as libc::c_int;
-    let mut size = std::mem::size_of::<libc::c_int>();
+    let mut size = size_of::<libc::c_int>();
     let result = unsafe {
         libc::sysctl(
             mib.as_mut_ptr(),
@@ -849,7 +856,7 @@ fn process_identity(pid: u32) -> Option<ProcessIdentity> {
 fn mac_process_snapshot(pid: u32) -> Option<ProcessSnapshot> {
     let pid_int = libc::c_int::try_from(pid).ok()?;
     let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::zeroed();
-    let size = libc::c_int::try_from(std::mem::size_of::<libc::proc_bsdinfo>()).ok()?;
+    let size = libc::c_int::try_from(size_of::<libc::proc_bsdinfo>()).ok()?;
     let written = unsafe {
         libc::proc_pidinfo(pid_int, libc::PROC_PIDTBSDINFO, 0, info.as_mut_ptr().cast(), size)
     };

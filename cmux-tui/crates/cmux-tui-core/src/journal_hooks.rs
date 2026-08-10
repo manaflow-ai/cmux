@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 #[cfg(test)]
 use std::io::Read;
 use std::io::Write;
-#[cfg(windows)]
+#[cfg(any(test, windows))]
 use std::mem::size_of;
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
@@ -1248,7 +1248,7 @@ mod tests {
                 .expect("detached hook did not connect its lifecycle signal")
                 .unwrap();
             acceptor.join().unwrap();
-            let mut detached = [0_u8; std::mem::size_of::<u32>()];
+            let mut detached = [0_u8; size_of::<u32>()];
             signal.read_exact(&mut detached).unwrap();
             let detached = u32::from_ne_bytes(detached);
             assert!(

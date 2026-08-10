@@ -4679,7 +4679,7 @@ impl Mux {
     #[cfg(test)]
     pub(crate) fn install_journal_failure_notifier_for_test(
         &self,
-        notifier: std::sync::mpsc::SyncSender<String>,
+        notifier: SyncSender<String>,
     ) {
         self.journal_ingress.install_failure_notifier_for_test(notifier);
     }
@@ -4687,8 +4687,8 @@ impl Mux {
     #[cfg(test)]
     pub(crate) fn install_journal_nonretryable_failure_hook_for_test(
         &self,
-        entered: std::sync::mpsc::SyncSender<()>,
-        release: std::sync::mpsc::Receiver<()>,
+        entered: SyncSender<()>,
+        release: Receiver<()>,
     ) {
         self.journal_ingress.install_nonretryable_failure_hook_for_test(entered, release);
     }

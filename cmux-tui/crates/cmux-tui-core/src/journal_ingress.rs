@@ -1755,6 +1755,7 @@ mod tests {
             "terminal reader did not signal descendant cleanup"
         );
         assert!(surface.is_dead(), "terminal reader did not stop after descendant cleanup");
+        drop(detached_ready);
         drop(surface);
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
