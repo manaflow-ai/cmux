@@ -131,6 +131,14 @@ fn parse_command(
     if command_args[0] == "daemon" {
         return Err(UsageError::new(crate::localization::catalog().local_server.daemon_removed));
     }
+    if command_args.first().map(String::as_str) == Some("server")
+        && command_args.get(1).map(String::as_str) == Some("start")
+        && global.output != OutputMode::Human
+    {
+        return Err(UsageError::new(
+            crate::localization::catalog().local_server.start_rejects_output_mode,
+        ));
+    }
     if command_args[0] == "help" {
         return match command_args.get(1) {
             None => Ok(ParsedCommand::Help(None)),
@@ -289,19 +297,21 @@ fn print_scope_help(scope: Option<&str>) {
 }
 
 fn scope_help(scope: &str) -> Cow<'static, str> {
+    scope_help_for(scope, crate::localization::catalog())
+}
+
+fn scope_help_for(
+    scope: &str,
+    catalog: &'static crate::localization::Catalog,
+) -> Cow<'static, str> {
     match scope {
-        "server" => Cow::Borrowed(crate::localization::catalog().local_server.help),
-        "server start" => Cow::Borrowed(crate::localization::catalog().local_server.start_help),
-        "server status" => Cow::Borrowed(crate::localization::catalog().local_server.status_help),
-        "server stop" => Cow::Borrowed(crate::localization::catalog().local_server.stop_help),
-        "server reload-config" => {
-            Cow::Borrowed(crate::localization::catalog().local_server.reload_config_help)
-        }
+        "server" => Cow::Borrowed(catalog.local_server.help),
+        "server start" => Cow::Borrowed(catalog.local_server.start_help),
+        "server status" => Cow::Borrowed(catalog.local_server.status_help),
+        "server stop" => Cow::Borrowed(catalog.local_server.stop_help),
+        "server reload-config" => Cow::Borrowed(catalog.local_server.reload_config_help),
         "machine" => Cow::Borrowed(MACHINE_HELP),
-        "session" => {
-            let catalog = crate::localization::catalog();
-            Cow::Owned(session_help(&catalog.session_reset, &catalog.local_server))
-        }
+        "session" => Cow::Owned(session_help(&catalog.session_reset, &catalog.local_server)),
         "client" => Cow::Borrowed(CLIENT_HELP),
         "workspace" => Cow::Borrowed(WORKSPACE_HELP),
         "screen" => Cow::Borrowed(SCREEN_HELP),
@@ -316,7 +326,7 @@ fn scope_help(scope: &str) -> Cow<'static, str> {
         "projection" => Cow::Borrowed(PROJECTION_HELP),
         "provider" => Cow::Borrowed(PROVIDER_HELP),
         "raw" => Cow::Borrowed(RAW_HELP),
-        _ => Cow::Owned(root_help(&crate::localization::catalog().local_server)),
+        _ => Cow::Owned(root_help(&catalog.local_server)),
     }
 }
 
@@ -590,12 +600,12 @@ mod tests {
 
     #[test]
     fn every_scope_has_dedicated_help() {
+        let english_catalog = crate::localization::catalog_for_locale("en_US.UTF-8");
         for scope in PUBLIC_SCOPES {
-            let help = scope_help(scope);
+            let help = scope_help_for(scope, english_catalog);
             assert!(help.contains("USAGE"));
             assert!(help.contains(scope));
         }
-        let english_catalog = crate::localization::catalog_for_locale("en_US.UTF-8");
         let japanese_catalog = crate::localization::catalog_for_locale("ja_JP.UTF-8");
         let english = session_help(&english_catalog.session_reset, &english_catalog.local_server);
         let japanese =

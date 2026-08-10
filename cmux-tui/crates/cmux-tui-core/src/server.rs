@@ -2923,21 +2923,14 @@ impl BoundedOutbound {
         }
     }
 
-    fn recv(&self) -> Option<Arc<BudgetedText>> {
+    fn recv(&self) -> Option<OutboundItem> {
         let mut state = self.state.lock().unwrap();
         loop {
             match Self::pop_locked(&mut state) {
-                Some(OutboundItem::Text(text)) => {
+                Some(item) => {
                     drop(state);
                     self.changed.notify_all();
-                    return Some(text);
-                }
-                Some(OutboundItem::Flush(flushed)) => {
-                    drop(state);
-                    self.changed.notify_all();
-                    let _ = flushed.send(());
-                    state = self.state.lock().unwrap();
-                    continue;
+                    return Some(item);
                 }
                 None => {}
             }
@@ -2991,6 +2984,23 @@ impl BoundedOutbound {
         state.control.retain(|item| matches!(item, ControlOutbound::Text(_)));
         drop(state);
         self.changed.notify_all();
+    }
+}
+
+fn write_line_outbound_item<W: Write + ?Sized>(
+    writer: &mut W,
+    item: OutboundItem,
+) -> std::io::Result<()> {
+    match item {
+        OutboundItem::Text(text) => {
+            writer.write_all(text.as_bytes())?;
+            writer.write_all(b"\n")
+        }
+        OutboundItem::Flush(flushed) => {
+            writer.flush()?;
+            let _ = flushed.send(());
+            Ok(())
+        }
     }
 }
 
@@ -3401,7 +3411,7 @@ struct ClientRegistryState {
     attached_by_surface: HashMap<SurfaceId, HashSet<u64>>,
     /// Shares the registry lock with registration so accepting a handoff and
     /// admitting a new owner cannot pass each other.
-    daemon_handoff_pending: bool,
+    daemon_handoff_requester: Option<u64>,
 }
 
 pub(crate) struct ClientRegistry {
@@ -3430,7 +3440,7 @@ impl ClientRegistry {
     fn register(&self, transport: ClientTransport, writer: MessageWriter) -> u64 {
         let client = self.next_id.fetch_add(1, Ordering::Relaxed);
         let mut state = self.state.lock().unwrap();
-        if state.daemon_handoff_pending {
+        if state.daemon_handoff_requester.is_some() {
             drop(state);
             writer.close();
             return client;
@@ -3465,7 +3475,7 @@ impl ClientRegistry {
 
     #[cfg(test)]
     fn daemon_handoff_pending(&self) -> bool {
-        self.state.lock().unwrap().daemon_handoff_pending
+        self.state.lock().unwrap().daemon_handoff_requester.is_some()
     }
 
     fn is_unix(&self, client: u64) -> bool {
@@ -3627,7 +3637,9 @@ impl ClientRegistry {
         capabilities: Option<Vec<String>>,
     ) -> anyhow::Result<(Option<String>, Option<String>)> {
         let mut state = self.state.lock().unwrap();
-        if kind.as_deref() == Some("native-browser") && state.daemon_handoff_pending {
+        if kind.as_deref() == Some("native-browser")
+            && state.daemon_handoff_requester.is_some()
+        {
             anyhow::bail!("daemon handoff is already in progress");
         }
         let record = state
@@ -3662,7 +3674,7 @@ impl ClientRegistry {
         let kind = kind.map(|kind| validate_resource_client_label("kind", kind)).transpose()?;
         let mut state = self.state.lock().unwrap();
         if kind.as_ref().and_then(|kind| kind.as_deref()) == Some("native-browser")
-            && state.daemon_handoff_pending
+            && state.daemon_handoff_requester.is_some()
         {
             return Err(ResourceError::operation_failed(
                 "client.metadata.update",
@@ -3776,15 +3788,15 @@ impl ClientRegistry {
         {
             anyhow::bail!("another native-browser frontend still owns this daemon");
         }
-        if state.daemon_handoff_pending {
+        if state.daemon_handoff_requester.is_some() {
             anyhow::bail!("daemon handoff is already in progress");
         }
-        state.daemon_handoff_pending = true;
+        state.daemon_handoff_requester = Some(requesting_client);
         Ok(())
     }
 
     pub(crate) fn cancel_daemon_handoff(&self) {
-        self.state.lock().unwrap().daemon_handoff_pending = false;
+        self.state.lock().unwrap().daemon_handoff_requester = None;
     }
 
     pub(crate) fn list_json(&self, requesting_client: u64) -> Value {
@@ -4279,6 +4291,9 @@ impl ClientRegistry {
     fn remove(&self, client: u64) -> Option<ClientRecord> {
         let mut state = self.state.lock().unwrap();
         let record = state.clients.remove(&client)?;
+        if state.daemon_handoff_requester == Some(client) {
+            state.daemon_handoff_requester = None;
+        }
         for surface in record.attached.keys() {
             if let Some(clients) = state.attached_by_surface.get_mut(surface) {
                 clients.remove(&client);
@@ -4536,10 +4551,8 @@ fn handle_connection_with_permit(
     let writer_close = writer.clone();
     let Ok(writer_thread) =
         std::thread::Builder::new().name("mux-line-out".into()).spawn(move || {
-            while let Some(text) = writer_outbound.recv() {
-                if write_half.write_all(text.as_bytes()).is_err()
-                    || write_half.write_all(b"\n").is_err()
-                {
+            while let Some(item) = writer_outbound.recv() {
+                if write_line_outbound_item(&mut *write_half, item).is_err() {
                     writer_outbound.close();
                     let _ = write_half.shutdown(Shutdown::Both);
                     break;
@@ -4647,8 +4660,14 @@ fn handle_websocket_connection_with_permit(
     let Ok(writer_thread) =
         std::thread::Builder::new().name("mux-ws-out".into()).spawn(move || {
             let mut writer_stream = writer_stream;
-            while let Some(text) = writer_outbound.recv() {
-                if writer_stream.write_websocket_text(&text).is_err() {
+            while let Some(item) = writer_outbound.recv() {
+                let result = match item {
+                    OutboundItem::Text(text) => writer_stream.write_websocket_text(&text),
+                    OutboundItem::Flush(flushed) => writer_stream.flush().map(|()| {
+                        let _ = flushed.send(());
+                    }),
+                };
+                if result.is_err() {
                     writer_outbound.close();
                     break;
                 }
@@ -15050,6 +15069,46 @@ mod tests {
         let terminal: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
         assert_eq!(terminal["event"], "overflow");
         assert_eq!(outbound.try_pop(), None);
+    }
+
+    #[derive(Default)]
+    struct FlushRecordingWriter {
+        bytes: Vec<u8>,
+        flushes: usize,
+    }
+
+    impl Write for FlushRecordingWriter {
+        fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+            self.bytes.extend_from_slice(buffer);
+            Ok(buffer.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.flushes += 1;
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn control_flush_waits_for_the_line_writer_flush() {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let response = RenderService::new().serialize_control(&json!({"ok": true})).unwrap();
+        outbound.push_control(response.clone()).unwrap();
+        let waiting = outbound.clone();
+        let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+        let worker = std::thread::spawn(move || {
+            done_tx.send(waiting.flush_control(Duration::from_secs(5))).unwrap();
+        });
+        let mut writer = FlushRecordingWriter::default();
+
+        write_line_outbound_item(&mut writer, outbound.recv().unwrap()).unwrap();
+        assert!(matches!(done_rx.try_recv(), Err(TryRecvError::Empty)));
+        write_line_outbound_item(&mut writer, outbound.recv().unwrap()).unwrap();
+
+        done_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap();
+        worker.join().unwrap();
+        assert_eq!(writer.bytes, format!("{response}\n").as_bytes());
+        assert_eq!(writer.flushes, 1);
     }
 
     #[test]

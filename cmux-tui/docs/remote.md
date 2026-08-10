@@ -46,8 +46,9 @@ stop an embedded listener because that action would also terminate the local
 owner and its workspaces. Use `cmux server status|reload-config|stop` for the
 local owner. An absent local stop succeeds, but an absent local status fails.
 
-Bare `cmux-tui` keeps normal tmux-style local behavior. Network behavior begins
-only with `remote connect`, `remote ssh`, `remote forward`, or `remote rpc`.
+Bare `cmux-tui` keeps normal tmux-style local behavior. Outbound remote-client
+behavior begins only with `remote connect`, `remote ssh`, `remote forward`, or
+`remote rpc`.
 
 ## Enroll and revoke devices
 

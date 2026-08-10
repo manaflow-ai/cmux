@@ -1065,7 +1065,9 @@ fn validate_provider_process_args(args: &Args) -> anyhow::Result<()> {
 }
 
 fn rewrite_server_start(args: &mut Vec<String>) {
-    if args.iter().any(|arg| matches!(arg.as_str(), "-h" | "--help")) {
+    if args.iter().any(|arg| {
+        matches!(arg.as_str(), "-h" | "--help" | "--json" | "--jsonl" | "--quiet")
+    }) {
         return;
     }
     let mut index = 0;
@@ -1077,7 +1079,6 @@ fn rewrite_server_start(args: &mut Vec<String>) {
                 }
                 index += 2;
             }
-            "--json" | "--jsonl" | "--quiet" => index += 1,
             "server" if args.get(index + 1).map(String::as_str) == Some("start") => {
                 args.drain(index..index + 2);
                 args.insert(0, "--headless".to_string());
