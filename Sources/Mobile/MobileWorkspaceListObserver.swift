@@ -167,7 +167,7 @@ final class MobileWorkspaceListObserver {
             previewSignatures: currentPreviewSignatures(for: tabManager.tabs)
         )
         lastSummaryHash = initial
-        emitIfNeeded(force: true)
+        _ = emitIfNeeded(force: true)
 
         tabsCancellable = tabManager.tabsPublisher
             .throttle(for: .milliseconds(Self.throttleMilliseconds), scheduler: RunLoop.main, latest: true)
@@ -368,17 +368,17 @@ final class MobileWorkspaceListObserver {
 
     private func requestEmission() {
         emissionCoalescer.request { [weak self] in
-            guard let self, pipelinesAttached else { return }
-            emitIfNeeded(force: false)
+            guard let self, pipelinesAttached else { return false }
+            return emitIfNeeded(force: false)
         }
     }
 
-    private func emitIfNeeded(force: Bool) {
+    private func emitIfNeeded(force: Bool) -> Bool {
         #if DEBUG
         HostLatencyTrace.stamp("host.sync.observe")
         #endif
         let signpost = MobileWorkspaceObserverSignposts.begin("mobile-workspace-emit-if-needed", "force=\(force)"); defer { MobileWorkspaceObserverSignposts.end(signpost) }
-        guard let tabManager else { return }
+        guard let tabManager else { return false }
         let hash = Self.summaryHash(
             for: tabManager.tabs,
             groups: tabManager.workspaceGroups,
@@ -391,7 +391,7 @@ final class MobileWorkspaceListObserver {
             #if DEBUG
             cmuxDebugLog("mobile.observer skip: hash unchanged=\(hash) tabs=\(tabManager.tabs.count)")
             #endif
-            return
+            return false
         }
         lastSummaryHash = hash
         mobileWorkspaceObserverLog.debug("emitting workspace.updated (hash=\(hash, privacy: .public))")
@@ -399,6 +399,7 @@ final class MobileWorkspaceListObserver {
         cmuxDebugLog("mobile.observer EMIT workspace.updated hash=\(hash) tabs=\(tabManager.tabs.count) force=\(force)")
         #endif
         workspaceUpdateEmitter()
+        return true
     }
 
     /// Stable hash of the iOS-facing shape: workspace ids + titles + their

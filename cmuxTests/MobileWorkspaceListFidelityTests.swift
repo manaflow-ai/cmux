@@ -482,10 +482,12 @@ struct MobileWorkspaceListFidelityTests {
             }
         )
         var emittedValues: [String] = []
+        coalescer.request { false }
         for value in ["first", "middle", "latest"] {
             coalescer.request {
                 emittedValues.append(value)
                 events.continuation.yield(value)
+                return true
             }
         }
         #expect(emittedValues == ["first"])

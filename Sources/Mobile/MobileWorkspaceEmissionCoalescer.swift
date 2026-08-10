@@ -2,16 +2,19 @@ import Foundation
 
 /// Caps expensive mobile-workspace emissions while retaining the latest state.
 ///
-/// The leading request runs synchronously. Requests during the bounded window
-/// replace one pending trailing action, so a continuous burst emits at most once
-/// per window and the final authoritative state is never lost.
+/// A leading request that publishes state runs synchronously, then opens the
+/// bounded window. No-op requests leave the leading edge available. Requests
+/// during an open window replace one pending trailing action, so a continuous
+/// burst emits at most once per window and the final authoritative state is
+/// never lost.
 @MainActor
 final class MobileWorkspaceEmissionCoalescer {
     typealias Sleep = @Sendable (Duration) async throws -> Void
+    typealias Action = @MainActor () -> Bool
 
     private let window: Duration
     private let sleep: Sleep
-    private var pendingAction: (@MainActor () -> Void)?
+    private var pendingAction: Action?
     private var windowTask: Task<Void, Never>?
     private var generation: UInt64 = 0
 
@@ -23,10 +26,10 @@ final class MobileWorkspaceEmissionCoalescer {
         self.sleep = sleep
     }
 
-    func request(_ action: @escaping @MainActor () -> Void) {
+    func request(_ action: @escaping Action) {
         guard windowTask != nil else {
+            guard action() else { return }
             startWindow()
-            action()
             return
         }
         pendingAction = action
@@ -75,7 +78,7 @@ final class MobileWorkspaceEmissionCoalescer {
         }
         guard let action = pendingAction else { return }
         pendingAction = nil
+        guard action() else { return }
         startWindow()
-        action()
     }
 }
