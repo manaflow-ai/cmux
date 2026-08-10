@@ -23,9 +23,11 @@ let organizationQuery: {
   isPending: boolean;
   isError: boolean;
 } = { data: undefined, isPending: true, isError: false };
-let switchOrganization:
-  | ((team: { id: string; displayName: string } | null) => Promise<void>)
-  | null = null;
+const handlers: {
+  switchOrganization?: (
+    team: { id: string; displayName: string } | null,
+  ) => Promise<void>;
+} = {};
 const routerPush = mock(() => undefined);
 const routerReplace = mock(() => undefined);
 const routerRefresh = mock(() => undefined);
@@ -47,7 +49,7 @@ mock.module("@stackframe/stack", () => ({
       team: { id: string; displayName: string } | null,
     ) => Promise<void>;
   }) => {
-    switchOrganization = onChange;
+    handlers.switchOrganization = onChange;
     return (
       <span
         data-testid="team-switcher"
@@ -130,7 +132,7 @@ describe("dashboard account menu", () => {
       isPending: false,
       isError: false,
     };
-    switchOrganization = null;
+    delete handlers.switchOrganization;
     routerPush.mockClear();
     routerRefresh.mockClear();
     const setSelectedTeam = mock(async () => undefined);
@@ -158,7 +160,12 @@ describe("dashboard account menu", () => {
     expect(html).not.toContain("Not authorized");
     expect(html).toContain("signOut");
 
-    await switchOrganization?.({
+    const invokeSwitch = handlers.switchOrganization as
+      | ((
+        team: { id: string; displayName: string } | null,
+      ) => Promise<void>)
+      | undefined;
+    await invokeSwitch?.({
       id: "team-2",
       displayName: "Authorized",
     });

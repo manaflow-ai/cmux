@@ -8,10 +8,9 @@ import {
 } from "@stackframe/stack";
 import { useQuery } from "@tanstack/react-query";
 import { useLocale, useTranslations } from "next-intl";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
-import { Link } from "@/i18n/navigation";
+import { Link, useRouter } from "@/i18n/navigation";
 
 const menuItemClass =
   "flex min-h-9 w-full cursor-default select-none items-center gap-2 px-2.5 py-2 text-left text-sm text-foreground no-underline outline-none data-[highlighted]:bg-code-bg";
@@ -87,7 +86,7 @@ export function DashboardAccountMenu() {
                 setSignOutError(false);
                 try {
                   await user.signOut();
-                  router.replace(`/${locale}`);
+                  router.replace("/");
                   router.refresh();
                 } catch {
                   setSignOutPending(false);
@@ -123,28 +122,46 @@ function DashboardOrganizationSwitcher() {
   const user = useUser({ or: "throw" });
   const teams = user.useTeams();
   const router = useRouter();
-  const { data } = useQuery({
+  const t = useTranslations("dashboard.accountMenu");
+  const [selectedOrganizationId, setSelectedOrganizationId] = useState<
+    string | undefined
+  >(undefined);
+  const { data, isPending, isError } = useQuery({
     queryKey: ["coderouter-organizations"],
     queryFn: loadOrganizationCatalog,
     staleTime: 60_000,
   });
 
-  if (!data) {
+  if (isPending) {
     return <div aria-hidden="true" className="h-9 w-full animate-pulse bg-code-bg" />;
+  }
+  if (isError || !data) {
+    return (
+      <Link
+        href="/dashboard/team"
+        className="block min-h-9 border border-border px-2 py-2 text-sm text-muted hover:bg-code-bg hover:text-foreground"
+      >
+        {t("settings")}
+      </Link>
+    );
   }
 
   const authorizedIds = new Set(data.teams.map((team) => team.id));
   const selectableTeams = teams.filter((team) => authorizedIds.has(team.id));
   const personal = data.teams.find((team) => team.personal);
-  const selectedTeamId = data.selectedTeamId ?? data.teams[0]?.id;
+  const selectedTeamId = selectedOrganizationId ??
+    (user.selectedTeam && authorizedIds.has(user.selectedTeam.id)
+      ? user.selectedTeam.id
+      : data.selectedTeamId ?? data.teams[0]?.id);
   const switchOrganization = async (
     team: (typeof selectableTeams)[number] | null,
   ) => {
     const organizationId = team?.id ?? personal?.id;
     if (!organizationId) return;
     await user.setSelectedTeam(team);
+    setSelectedOrganizationId(organizationId);
     router.push(
-      `/dashboard/coderouter?organization=${
+      `/dashboard/coderouter?team=${
         encodeURIComponent(organizationId)
       }`,
     );
