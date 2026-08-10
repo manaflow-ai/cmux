@@ -2476,8 +2476,62 @@ final class cmuxUITests: XCTestCase {
         )
         let options = app.buttons["MobileTaskComposerOptionsButton"]
         let model = app.buttons["MobileTaskComposerModelPill"]
+        let scroller = app.scrollViews["MobileTaskComposerPillScroller"]
+        let create = app.buttons["MobileTaskComposerSubmitButton"]
         XCTAssertTrue(options.waitForExistence(timeout: 3))
         XCTAssertTrue(model.waitForExistence(timeout: 3))
+        XCTAssertTrue(scroller.waitForExistence(timeout: 3))
+        XCTAssertTrue(create.waitForExistence(timeout: 3))
+
+        let windowFrame = app.windows.firstMatch.frame
+        XCTAssertGreaterThanOrEqual(
+            options.frame.minX,
+            windowFrame.minX,
+            "Task Options must remain on-screen at Accessibility XXXL"
+        )
+        XCTAssertLessThanOrEqual(
+            create.frame.maxX,
+            windowFrame.maxX,
+            "The submit control must remain on-screen at Accessibility XXXL"
+        )
+        for control in [options, create] {
+            XCTAssertGreaterThanOrEqual(control.frame.width, 44)
+            XCTAssertGreaterThanOrEqual(control.frame.height, 44)
+        }
+
+        let attachmentButton = app.buttons["MobileTaskComposerAttachmentButton"]
+        let leadingFixedControl: XCUIElement
+        if attachmentButton.exists {
+            XCTAssertGreaterThanOrEqual(attachmentButton.frame.width, 44)
+            XCTAssertGreaterThanOrEqual(attachmentButton.frame.height, 44)
+            XCTAssertGreaterThanOrEqual(attachmentButton.frame.minX, options.frame.maxX)
+            XCTAssertLessThanOrEqual(attachmentButton.frame.maxX, windowFrame.maxX)
+            leadingFixedControl = attachmentButton
+        } else {
+            leadingFixedControl = options
+        }
+        XCTAssertGreaterThanOrEqual(
+            scroller.frame.minX,
+            leadingFixedControl.frame.maxX,
+            "The pill viewport must begin after the fixed leading controls"
+        )
+        XCTAssertLessThanOrEqual(
+            scroller.frame.maxX,
+            create.frame.minX,
+            "The pill viewport must end before the fixed submit control"
+        )
+
+        let modelXBeforeScroll = model.frame.midX
+        scroller.swipeLeft(velocity: .slow)
+        XCTAssertLessThan(
+            model.frame.midX,
+            modelXBeforeScroll,
+            "Overflowing pills must remain horizontally scrollable at Accessibility XXXL"
+        )
+        XCTAssertGreaterThanOrEqual(model.frame.midX, scroller.frame.minX)
+        XCTAssertLessThanOrEqual(model.frame.midX, scroller.frame.maxX)
+        XCTAssertTrue(model.isHittable)
+
         XCTAssertGreaterThanOrEqual(
             prompt.frame.minY,
             app.navigationBars["New Task"].frame.maxY,
@@ -2486,8 +2540,6 @@ final class cmuxUITests: XCTestCase {
         XCTAssertLessThanOrEqual(prompt.frame.maxY, options.frame.minY)
         let keyboard = app.keyboards.firstMatch
         XCTAssertTrue(keyboard.waitForExistence(timeout: 3))
-        let create = app.buttons["MobileTaskComposerSubmitButton"]
-        XCTAssertTrue(create.waitForExistence(timeout: 3))
         XCTAssertLessThanOrEqual(
             create.frame.height,
             80,
