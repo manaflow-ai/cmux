@@ -391,10 +391,11 @@ TEST("Unix transport times out and close unblocks receive") {
         std::call_once(receive_waiting_once, [&] { receive_waiting.set_value(); });
     });
     std::thread reader([&] { read = transport->receive(std::chrono::seconds(30)); });
-    CHECK(receive_ready.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
+    const auto receive_status = receive_ready.wait_for(std::chrono::seconds(2));
     transport->close();
     reader.join();
     peer.join();
+    CHECK(receive_status == std::future_status::ready);
     CHECK(!timed_out);
     CHECK_EQ(timed_out.error().code, cmux::ErrorCode::timeout);
     CHECK(!read);

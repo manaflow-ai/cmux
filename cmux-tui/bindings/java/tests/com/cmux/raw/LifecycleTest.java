@@ -132,9 +132,10 @@ public final class LifecycleTest {
                     }
                 }, "cmux-java-close-unblocks");
                 reader.start();
-                check(readStarted.await(2, TimeUnit.SECONDS), "stream read started");
+                boolean readReady = readStarted.await(2, TimeUnit.SECONDS);
                 stream.close();
                 reader.join(2_000);
+                check(readReady, "stream read started");
                 check(!reader.isAlive(), "close unblocks read");
                 check(outcome.get() instanceof CmuxTransportException, "close reports transport error");
             }
@@ -198,30 +199,32 @@ public final class LifecycleTest {
                 }
             }
         })) {
-            CmuxClient client = CmuxClient.builder()
-                .socketPath(harness.socket())
-                .timeout(Duration.ofSeconds(30))
-                .build();
-            AtomicReference<Throwable> outcome = new AtomicReference<>();
-            Thread reader = new Thread(() -> {
-                try {
-                    client.rawRequest(
-                        Map.of("cmd", "ping"),
-                        readStarted::countDown
-                    );
-                    outcome.set(new AssertionError("command returned without a response"));
-                } catch (CmuxTransportException expected) {
-                    outcome.set(expected);
-                } catch (Throwable error) {
-                    outcome.set(error);
-                }
-            }, "cmux-java-client-close-unblocks");
-            reader.start();
-            check(readStarted.await(2, TimeUnit.SECONDS), "client entered command read wait");
-            client.close();
-            reader.join(2_000);
-            check(!reader.isAlive(), "client close unblocks command read");
-            check(outcome.get() instanceof CmuxTransportException, "client close transport error");
+            try (CmuxClient client = CmuxClient.builder()
+                    .socketPath(harness.socket())
+                    .timeout(Duration.ofSeconds(30))
+                    .build()) {
+                AtomicReference<Throwable> outcome = new AtomicReference<>();
+                Thread reader = new Thread(() -> {
+                    try {
+                        client.rawRequest(
+                            Map.of("cmd", "ping"),
+                            readStarted::countDown
+                        );
+                        outcome.set(new AssertionError("command returned without a response"));
+                    } catch (CmuxTransportException expected) {
+                        outcome.set(expected);
+                    } catch (Throwable error) {
+                        outcome.set(error);
+                    }
+                }, "cmux-java-client-close-unblocks");
+                reader.start();
+                boolean readReady = readStarted.await(2, TimeUnit.SECONDS);
+                client.close();
+                reader.join(2_000);
+                check(readReady, "client entered command read wait");
+                check(!reader.isAlive(), "client close unblocks command read");
+                check(outcome.get() instanceof CmuxTransportException, "client close transport error");
+            }
             harness.finish();
         }
     }

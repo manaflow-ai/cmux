@@ -83,11 +83,10 @@ void wait_for_send(const std::shared_ptr<FakeState>& state) {
     state->ready.wait(lock, [&] { return !state->outgoing.empty(); });
 }
 
-void wait_for_receive(const std::shared_ptr<FakeState>& state) {
+bool wait_for_receive(const std::shared_ptr<FakeState>& state) {
     std::unique_lock lock(state->mutex);
-    const bool waiting = state->ready.wait_for(
+    return state->ready.wait_for(
         lock, std::chrono::seconds(2), [&] { return state->waiting_receivers > 0; });
-    CHECK(waiting);
 }
 
 void wait_for_receive_timeouts(
@@ -546,9 +545,10 @@ TEST("stream close unblocks a pending next") {
     cmux::raw::Result<cmux::raw::Json> next =
         cmux::raw::make_error(cmux::raw::ErrorCode::protocol, "not started");
     std::thread reader([&] { next = event_stream.next(std::chrono::seconds(30)); });
-    wait_for_receive(stream_state);
+    const bool receive_started = wait_for_receive(stream_state);
     event_stream.close();
     reader.join();
+    CHECK(receive_started);
     CHECK(!next);
     CHECK_EQ(next.error().code, cmux::raw::ErrorCode::closed);
 }
