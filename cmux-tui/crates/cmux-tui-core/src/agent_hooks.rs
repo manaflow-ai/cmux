@@ -1020,6 +1020,20 @@ mod tests {
     }
 
     #[test]
+    fn journal_agent_bounded_non_control_opaque_identifier_is_preserved() {
+        let identifier = "tenant:team/user@example.com/日本語";
+        let ingress = agent_hook_journal_ingress(
+            "pi",
+            "agent_start",
+            None,
+            json!({"session_id":identifier}),
+        )
+        .unwrap();
+        assert_eq!(ingress.payload["normalized"]["agent_session_id"], identifier);
+        assert_eq!(ingress.payload["native"]["identifiers"]["agent_session_id"], identifier);
+    }
+
+    #[test]
     fn dedicated_question_and_plan_tools_are_semantic_events() {
         let question = agent_hook_journal_ingress(
             "claude-code",
