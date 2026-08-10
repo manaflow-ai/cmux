@@ -1933,7 +1933,7 @@ fn local_owner_reload_events(mux: &Mux) -> cmux_tui_core::MuxEventReceiver {
 }
 
 fn background_owner_reload_completion(headless: bool) -> Option<bool> {
-    Some(headless)
+    headless.then_some(true)
 }
 
 fn start_local_owner_event_loop(mux: &Arc<Mux>) -> LocalOwnerEventLoop {

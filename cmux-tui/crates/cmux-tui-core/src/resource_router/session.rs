@@ -8,7 +8,9 @@ use super::{
     resource_operation_error, validation_error,
 };
 use crate::resource::{ResourceError, ResourceOperation};
-use crate::{DefaultColors, Mux, MuxEvent, ResourceTarget, Rgb, WorkspaceMutation};
+use crate::{
+    ConfigReloadError, DefaultColors, Mux, MuxEvent, ResourceTarget, Rgb, WorkspaceMutation,
+};
 
 pub(super) fn handles(operation: ResourceOperation) -> bool {
     matches!(
@@ -46,12 +48,18 @@ pub(super) fn dispatch(
 
     let value = match request.envelope.operation {
         ResourceOperation::SessionReloadConfig => {
-            if let Err(error) = mux.request_config_reload() {
-                return effects::commit_known_failure(
-                    mux,
-                    prepared,
-                    resource_operation_error(error),
-                );
+            match mux.request_config_reload() {
+                Ok(()) => {}
+                Err(ConfigReloadError::TimedOut) => {
+                    return Err(effects::mark_indeterminate(mux, prepared));
+                }
+                Err(error) => {
+                    return effects::commit_known_failure(
+                        mux,
+                        prepared,
+                        resource_operation_error(error.into()),
+                    );
+                }
             }
             json!({"reloaded":true,"warnings":[]})
         }

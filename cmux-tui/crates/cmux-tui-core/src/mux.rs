@@ -1739,6 +1739,28 @@ struct ConfigReloadState {
     applied: u64,
 }
 
+/// Describes why an owner did not confirm a requested configuration reload.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConfigReloadError {
+    /// The owner stopped before it could apply the request.
+    OwnerStopped,
+    /// The owner did not confirm the request before the failure deadline.
+    TimedOut,
+}
+
+impl fmt::Display for ConfigReloadError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::OwnerStopped => {
+                "configuration reload owner stopped before applying the request"
+            }
+            Self::TimedOut => "configuration reload owner did not apply the request",
+        })
+    }
+}
+
+impl std::error::Error for ConfigReloadError {}
+
 pub struct Mux {
     /// Serializes durable workspace commits, their in-memory projection, and
     /// publication of revisioned workspace deltas. Lock order is always
@@ -4709,7 +4731,7 @@ impl Mux {
     }
 
     /// Request one owner config reload and wait until the owner applies it.
-    pub fn request_config_reload(&self) -> anyhow::Result<()> {
+    pub fn request_config_reload(&self) -> Result<(), ConfigReloadError> {
         const APPLY_TIMEOUT: Duration = Duration::from_secs(5);
 
         let request = {
@@ -4723,16 +4745,16 @@ impl Mux {
         let mut state = self.config_reload.lock().unwrap();
         while state.applied < request {
             if self.shutting_down.load(Ordering::Acquire) {
-                anyhow::bail!("configuration reload owner stopped before applying the request");
+                return Err(ConfigReloadError::OwnerStopped);
             }
             let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-                anyhow::bail!("configuration reload owner did not apply the request");
+                return Err(ConfigReloadError::TimedOut);
             };
             let (next, timeout) =
                 self.config_reload_changed.wait_timeout(state, remaining).unwrap();
             state = next;
             if timeout.timed_out() && state.applied < request {
-                anyhow::bail!("configuration reload owner did not apply the request");
+                return Err(ConfigReloadError::TimedOut);
             }
         }
         Ok(())

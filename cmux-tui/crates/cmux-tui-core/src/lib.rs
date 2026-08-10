@@ -43,7 +43,8 @@ pub use layout::{
 pub use model::{Node, Pane, Screen, State, ViewportColumn, Workspace};
 pub use mux::{
     AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, CellPixelUpdate,
-    CellPixelUpdateFailure, Direction, GraphicsStatus, LayoutLeafSpec, LayoutRatioError,
+    CellPixelUpdateFailure, ConfigReloadError, Direction, GraphicsStatus, LayoutLeafSpec,
+    LayoutRatioError,
     LayoutSpec, LayoutUndoError, LayoutUndoResult, Mux, MuxEvent, NotificationEvent,
     NotificationLevel, ProviderWorkspaceAuthority, ProviderWorkspaceAuthorityStatus,
     ProviderWorkspaceAuthorityUpdateError, ResourceNotification, RunPlacement,
