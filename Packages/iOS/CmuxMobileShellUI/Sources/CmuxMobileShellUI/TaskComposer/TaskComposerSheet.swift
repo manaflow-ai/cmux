@@ -20,6 +20,8 @@ struct TaskComposerSheet: View {
     @State var selectedModelID: String?
     @State var selectedMacDeviceID: String
     @State var selectedMacInstanceTag: String?
+    @State private var modelRefreshTask: Task<Void, Never>?
+    @State var displayedModels: [MobileTaskAgentModel]
     @State var directory: String
     @State var didEditDirectory = false
     @State var submissionPhase: TaskComposerSubmissionPhase = .idle
@@ -214,6 +216,7 @@ struct TaskComposerSheet: View {
         _selectedModelID = State(initialValue: initialModelID)
         _selectedMacDeviceID = State(initialValue: selectedMacID)
         _selectedMacInstanceTag = State(initialValue: selectedMac?.instanceTag)
+        _displayedModels = State(initialValue: initialDiscoveredModels ?? [])
         _directory = State(initialValue: initialDirectory)
         _didEditDirectory = State(initialValue: canRestoreDraftDirectory && draft?.didEditDirectory == true)
         _submissionIdentity = State(initialValue: MobileTaskSubmissionIdentity(
@@ -250,6 +253,7 @@ struct TaskComposerSheet: View {
             .onDisappear {
                 // Parent-driven dismissal must cancel result application.
                 submitTask?.cancel()
+                modelRefreshTask?.cancel()
                 attachmentStagingTask?.cancel()
                 removeStagedAttachmentFiles()
                 if shouldPersistDraftOnDisappear {
@@ -262,15 +266,6 @@ struct TaskComposerSheet: View {
             }
             .onChange(of: machines.map(\.id)) { _, _ in
                 validateMacSelection()
-            }
-            .task(id: modelRefreshID) {
-                guard let provider = modelRefreshID.provider,
-                      !selectedMacDeviceID.isEmpty else { return }
-                await store.refreshTaskModels(
-                    provider: provider,
-                    macDeviceID: selectedMacDeviceID,
-                    instanceTag: selectedMacInstanceTag
-                )
             }
             .modifier(TaskComposerStartAgainConfirmationModifier(
                 isPresented: $isStartAgainConfirmationPresented,
@@ -315,6 +310,12 @@ struct TaskComposerSheet: View {
         .background(TaskComposerInitialFocusCoordinator(
             isEnabled: !submissionPhase.disablesRequestEditing
         ))
+        // Observe the request identity explicitly so the first provider loads
+        // as the sheet appears and later provider/Mac changes cancel and
+        // replace the in-flight refresh through the same lifecycle path.
+        .onChange(of: modelRefreshID, initial: true) { _, _ in
+            restartModelRefresh()
+        }
     }
 
     private var composerLayout: some View {
@@ -437,6 +438,39 @@ struct TaskComposerSheet: View {
             },
             macPairingID: selectedMacPairingID
         )
+    }
+
+    private func restartModelRefresh() {
+        modelRefreshTask?.cancel()
+        guard let provider = modelRefreshID.provider,
+              !selectedMacDeviceID.isEmpty else {
+            displayedModels = []
+            modelRefreshTask = nil
+            return
+        }
+        let macDeviceID = selectedMacDeviceID
+        let instanceTag = selectedMacInstanceTag
+        let refreshID = modelRefreshID
+        displayedModels = store.discoveredTaskModels(
+            provider: provider,
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ) ?? []
+        modelRefreshTask = Task {
+            await store.refreshTaskModels(
+                provider: provider,
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
+            guard !Task.isCancelled, modelRefreshID == refreshID else { return }
+            if let refreshedModels = store.discoveredTaskModels(
+                provider: provider,
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            ) {
+                displayedModels = refreshedModels
+            }
+        }
     }
 
     private var machineBuildLabelsByID: [String: String] {

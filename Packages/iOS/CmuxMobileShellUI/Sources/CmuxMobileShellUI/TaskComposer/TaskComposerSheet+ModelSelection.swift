@@ -4,9 +4,9 @@ import CmuxMobileShellModel
 extension TaskComposerSheet {
     var modelAvailability: MobileTaskModelAvailability {
         guard let selectedTemplate,
-              let provider = MobileTaskAgentProvider(
+              MobileTaskAgentProvider(
                 command: selectedTemplate.command
-              ) else {
+              ) != nil else {
             return MobileTaskModelAvailability(
                 template: selectedTemplate,
                 discoveredModels: nil
@@ -14,11 +14,7 @@ extension TaskComposerSheet {
         }
         return MobileTaskModelAvailability(
             template: selectedTemplate,
-            discoveredModels: store.discoveredTaskModels(
-                provider: provider,
-                macDeviceID: selectedMacDeviceID,
-                instanceTag: selectedMacInstanceTag
-            )
+            discoveredModels: displayedModels
         )
     }
 
@@ -63,8 +59,10 @@ extension TaskComposerSheet {
 
     func selectModel(_ id: String?) {
         guard !submissionPhase.disablesRequestEditing else { return }
-        guard let selectedTemplate else { return }
-        let validatedID = validatedModelID(id, for: selectedTemplate)
+        // Validate against the exact snapshot rendered in the keyboard dock.
+        // The store can finish or replace a refresh while a UIKit Menu is
+        // open, but a choice the user can see must remain selectable.
+        let validatedID = modelAvailability.validatedModelID(id)
         guard id == nil || validatedID != nil else { return }
         guard selectedModelID != validatedID else { return }
         updateSubmissionRequest(reconcileRecovery: true) {
