@@ -18,6 +18,7 @@ struct MobileAutoConnectMigrationExplanation: View {
                 ))
                 .font(.title.bold())
                 .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("MobileAutoConnectMigrationTitle")
 
                 Text(L10n.string(
                     "mobile.autoConnectMigration.body",
