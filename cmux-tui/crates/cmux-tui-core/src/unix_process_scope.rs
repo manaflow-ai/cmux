@@ -286,8 +286,13 @@ impl UnixProcessScope {
             command
         };
         #[cfg(not(target_os = "macos"))]
-        let mut command = Command::new("/bin/sh");
-        command.args(["-c", "kill -STOP $$; exec \"$@\"", "cmux-process-scope"]).arg(program);
+        let command = {
+            let mut command = Command::new("/bin/sh");
+            command
+                .args(["-c", "kill -STOP $$; exec \"$@\"", "cmux-process-scope"])
+                .arg(program);
+            command
+        };
         command
     }
 

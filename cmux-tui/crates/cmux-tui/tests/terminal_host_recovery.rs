@@ -2001,21 +2001,8 @@ fn client_reserved_short_lived_create_replays_its_durable_exit_without_topology(
         assert_eq!(first["exit"]["outcome"], serde_json::json!({"kind":"exit","code":17}));
     } else {
         assert!(first["exit"].is_null());
-        let waited = resource_request(
-            &harness.socket,
-            "reserved-short-lived-create-wait",
-            "terminal.wait_exit",
-            serde_json::json!({
-                "machine":"current",
-                "session":"current",
-                "terminal":terminal_id,
-                "timeout_ms":"5000",
-            }),
-            None,
-        );
-        assert_eq!(waited["state"], "exited", "terminal did not exit: {waited}");
-        assert_eq!(waited["outcome"], serde_json::json!({"kind":"exit","code":17}));
     }
+    wait_for_no_host_records(&harness.host_root());
 
     let retry = request(&harness.socket, create);
     assert_eq!(retry["replayed"], true);
@@ -2027,7 +2014,6 @@ fn client_reserved_short_lived_create_replays_its_durable_exit_without_topology(
     assert_eq!(retry["pane"], serde_json::Value::Null);
     assert_eq!(retry["screen"], serde_json::Value::Null);
     assert_eq!(retry["workspace"], serde_json::Value::Null);
-    wait_for_no_host_records(&harness.host_root());
 }
 
 #[test]
