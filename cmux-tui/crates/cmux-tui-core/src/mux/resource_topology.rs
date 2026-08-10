@@ -2475,9 +2475,14 @@ impl Mux {
         terminal_public_id: &TerminalPublicId,
     ) -> anyhow::Result<Option<TerminalExitDetachProjection>> {
         let content_id = ContentPublicId::Terminal(terminal_public_id.clone());
-        let targets =
-            terminal_content_placements(self, state, terminal_public_id, Some((terminal_id, None)));
         let has_runtime = state.terminal_catalog.contains_key(terminal_public_id);
+        let targets = terminal_content_placements(
+            self,
+            state,
+            terminal_public_id,
+            Some((terminal_id, None)),
+            !has_runtime,
+        );
         if targets.is_empty() && !has_runtime {
             return Ok(None);
         }
@@ -2864,6 +2869,7 @@ impl Mux {
                     state,
                     &public_id,
                     Some((host.terminal_id.as_str(), Some(host.incarnation.as_str()))),
+                    false,
                 );
                 let screens = unique_screen_ids(
                     placements.iter().filter_map(|surface| surface_screen_id(state, *surface)),
@@ -2904,6 +2910,7 @@ impl Mux {
             state,
             public_id,
             Some((terminal_id, terminal_incarnation)),
+            true,
         );
         let changed_screens = unique_screen_ids(
             placements.iter().filter_map(|surface| surface_screen_id(state, *surface)),

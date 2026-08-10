@@ -14923,6 +14923,7 @@ fn terminal_content_placements(
     state: &State,
     terminal_id: &TerminalPublicId,
     expected_host: Option<(&str, Option<&str>)>,
+    scan_unindexed_host_matches: bool,
 ) -> Vec<SurfaceId> {
     let content_id = ContentPublicId::Terminal(terminal_id.clone());
     let matches_live_surface = |candidate: &Arc<Surface>| {
@@ -14950,9 +14951,21 @@ fn terminal_content_placements(
                 }
         })
         .collect::<Vec<_>>();
-    targets.extend(state.surfaces.iter().filter_map(|(placement, candidate)| {
-        matches_live_surface(candidate).then_some(*placement)
-    }));
+    if let Some(runtime) = state.terminal_catalog.get(terminal_id)
+        && state
+            .surfaces
+            .get(&runtime.id)
+            .is_some_and(|candidate| matches_live_surface(candidate))
+    {
+        targets.push(runtime.id);
+    }
+    if scan_unindexed_host_matches {
+        // Protocol repair and catalog-missing adoption are bounded to one
+        // terminal. Steady-state exit fanout stays on the reverse indexes.
+        targets.extend(state.surfaces.iter().filter_map(|(placement, candidate)| {
+            matches_live_surface(candidate).then_some(*placement)
+        }));
+    }
     targets.sort_unstable();
     targets.dedup();
     targets
@@ -15009,6 +15022,7 @@ fn remove_terminal_runtime_from_state(
         state,
         &terminal_id,
         host.as_ref().map(|host| (host.terminal_id.as_str(), Some(host.incarnation.as_str()))),
+        false,
     );
     let (_, removed, split_index_dirty) =
         remove_terminal_content_from_state(mux, state, &terminal_id, &targets);
@@ -20891,6 +20905,7 @@ mod tests {
                 &state,
                 &public_id,
                 Some((&host.terminal_id, Some(&host.incarnation))),
+                true,
             )
         };
 
