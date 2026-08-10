@@ -325,6 +325,9 @@ fn projection_from_journal_record(
     if producer.kind != "agent_adapter" || producer.id != crate::AGENT_HOOK_PRODUCER_ID {
         return Ok(None);
     }
+    if hook_projection_is_nested_agent(payload) {
+        return Ok(None);
+    }
     let Some(state) = hook_projection_state(kind, payload) else {
         return Ok(None);
     };
@@ -451,7 +454,19 @@ fn hook_projection_state(kind: &str, payload: &Value) -> Option<&'static str> {
     match native_event.as_str() {
         "sessionshutdown" | "agentsettled" | "agentend" => return Some("done"),
         "sessionstart" => return Some("idle"),
-        "beforeagentstart" | "agentstart" | "turnstart" => return Some("working"),
+        "beforeagentstart"
+        | "agentstart"
+        | "turnstart"
+        | "pretooluse"
+        | "beforetool"
+        | "beforeshellexecution"
+        | "beforemcpexecution"
+        | "beforereadfile"
+        | "posttooluse"
+        | "aftertool"
+        | "aftershellexecution"
+        | "aftermcpexecution"
+        | "afterfileedit" => return Some("working"),
         _ => {}
     }
     match kind {
@@ -465,6 +480,18 @@ fn hook_projection_state(kind: &str, payload: &Value) -> Option<&'static str> {
         "agent.session.ended" => Some("done"),
         _ => None,
     }
+}
+
+fn hook_projection_is_nested_agent(payload: &Value) -> bool {
+    let Some(normalized) = payload.get("normalized").and_then(Value::as_object) else {
+        return false;
+    };
+    normalized.get("agent_depth").and_then(Value::as_u64).is_some_and(|depth| depth > 0)
+        || normalized.get("parent_agent_node_id").is_some()
+        || normalized
+            .get("agent_relation")
+            .and_then(Value::as_str)
+            .is_some_and(|relation| relation != "root")
 }
 
 fn lifecycle_key(value: &str) -> String {
@@ -488,6 +515,7 @@ fn merge_projection(
         Some(current)
             if current.source == "hook"
                 && next.source == "socket"
+                && current.source_session.is_some()
                 && current.source_session == next.source_session =>
         {
             current
