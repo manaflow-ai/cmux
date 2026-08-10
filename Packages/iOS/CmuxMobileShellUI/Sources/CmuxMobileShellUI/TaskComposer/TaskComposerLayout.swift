@@ -6,6 +6,7 @@ import UIKit
 
 /// A full-screen prompt canvas with compact task controls above the keyboard.
 struct TaskComposerLayout: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Binding var prompt: String
     let genericPromptPlaceholder: String
     let directory: String
@@ -42,28 +43,42 @@ struct TaskComposerLayout: View {
     @State private var isOptionsPresented = false
 
     var body: some View {
-        promptCanvas
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                accessoryBar
-            }
-            .navigationTitle(navigationTitle)
-            .mobileInlineNavigationTitle()
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(action: cancel) {
-                        Image(systemName: "chevron.left")
+        Group {
+            if horizontalSizeClass == .regular {
+                TaskComposerKeyboardDock(
+                    canvas: promptCanvas,
+                    accessory: accessoryBar
+                )
+                // Keep the controller full-height so UIKit's keyboard guide,
+                // rather than SwiftUI's combined container/keyboard inset,
+                // owns the dock position.
+                .ignoresSafeArea(.container, edges: .bottom)
+                .ignoresSafeArea(.keyboard, edges: .bottom)
+            } else {
+                promptCanvas
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                        accessoryBar
                     }
-                    .disabled(locksDismissal)
-                    .accessibilityLabel(L10n.string(
-                        "mobile.common.cancel",
-                        defaultValue: "Cancel"
-                    ))
-                    .accessibilityIdentifier("MobileTaskComposerCancelButton")
+            }
+        }
+        .navigationTitle(navigationTitle)
+        .mobileInlineNavigationTitle()
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button(action: cancel) {
+                    Image(systemName: "chevron.left")
                 }
+                .disabled(locksDismissal)
+                .accessibilityLabel(L10n.string(
+                    "mobile.common.cancel",
+                    defaultValue: "Cancel"
+                ))
+                .accessibilityIdentifier("MobileTaskComposerCancelButton")
             }
-            .sheet(isPresented: $isOptionsPresented) {
-                optionsSheet()
-            }
+        }
+        .sheet(isPresented: $isOptionsPresented) {
+            optionsSheet()
+        }
     }
 
     private var promptCanvas: some View {
