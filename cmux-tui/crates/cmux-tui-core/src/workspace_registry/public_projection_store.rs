@@ -177,8 +177,8 @@ enum StoredCursorStyle {
 
 impl WorkspaceRegistry {
     /// Reconstruct public auxiliary state while the registry is the sole
-    /// writer. Missing or tombstoned terminals remove notification links, while
-    /// agent reports remain durable historical projections keyed by terminal.
+    /// writer. Missing or tombstoned terminals remove notification links and
+    /// agent projections.
     pub fn public_projections(&self) -> anyhow::Result<RegistryPublicProjections> {
         let live_terminals = self.live_terminal_public_ids()?;
         let notifications = self.durable_notifications(&live_terminals)?;
@@ -285,6 +285,9 @@ impl WorkspaceRegistry {
                       projection.result_json,
                       projection.committed_revision
                FROM resource_agent_projections projection
+               JOIN resource_terminals terminal
+                 ON terminal.public_id = projection.terminal_id
+                AND terminal.deleted_revision IS NULL
                WHERE (?1 IS NULL OR projection.terminal_id = ?1)
              )
              SELECT terminal_id, result_json, committed_revision
@@ -841,7 +844,7 @@ mod tests {
     }
 
     #[test]
-    fn agent_projections_survive_terminal_tombstones() {
+    fn agent_projections_are_deleted_with_terminal_tombstones() {
         let mut registry = WorkspaceRegistry::in_memory("terminal-relationships").unwrap();
         let session = registry.session_id().clone();
         let (terminal, pane, tab) = seed_live_terminal(&mut registry);
@@ -917,9 +920,8 @@ mod tests {
             .unwrap();
 
         let tombstoned = registry.public_projections().unwrap();
-        assert_eq!(registry.resource_agent_projection_count_for_test().unwrap(), 1);
-        assert_eq!(tombstoned.agents.len(), 1);
-        assert_eq!(tombstoned.agents[0].terminal_id, terminal);
+        assert_eq!(registry.resource_agent_projection_count_for_test().unwrap(), 0);
+        assert!(tombstoned.agents.is_empty());
         assert_eq!(tombstoned.notifications.len(), 1);
         assert_eq!(tombstoned.notifications[0].terminal_id, None);
     }
