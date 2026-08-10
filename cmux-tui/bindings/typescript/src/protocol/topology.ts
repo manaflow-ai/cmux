@@ -213,7 +213,7 @@ function canonicalTopology(value: unknown): CanonicalTopology {
 function workspace(value: unknown): CanonicalWorkspace {
   const item = object(value, "canonical workspace");
   return {
-    id: uint(item.id), uuid: uuid(item.uuid), name: text(item.name),
+    id: id(item.id), uuid: uuid(item.uuid), name: text(item.name),
     screens: array(item.screens, screen),
   };
 }
@@ -221,7 +221,7 @@ function workspace(value: unknown): CanonicalWorkspace {
 function screen(value: unknown): CanonicalScreen {
   const item = object(value, "canonical screen");
   return {
-    id: uint(item.id), uuid: uuid(item.uuid), name: nullableText(item.name),
+    id: id(item.id), uuid: uuid(item.uuid), name: nullableText(item.name),
     layout: layout(item.layout), panes: array(item.panes, pane),
   };
 }
@@ -229,7 +229,7 @@ function screen(value: unknown): CanonicalScreen {
 function layout(value: unknown): CanonicalLayout {
   const item = object(value, "canonical layout");
   if (item.type === "leaf") {
-    return { type: "leaf", pane: uint(item.pane), pane_uuid: uuid(item.pane_uuid) };
+    return { type: "leaf", pane: id(item.pane), pane_uuid: uuid(item.pane_uuid) };
   }
   if (item.type === "split" && (item.dir === "right" || item.dir === "down")) {
     return { type: "split", dir: item.dir, ratio: finite(item.ratio), a: layout(item.a), b: layout(item.b) };
@@ -240,7 +240,7 @@ function layout(value: unknown): CanonicalLayout {
 function pane(value: unknown): CanonicalPane {
   const item = object(value, "canonical pane");
   return {
-    id: uint(item.id), uuid: uuid(item.uuid), name: nullableText(item.name),
+    id: id(item.id), uuid: uuid(item.uuid), name: nullableText(item.name),
     tabs: array(item.tabs, tab),
   };
 }
@@ -248,7 +248,7 @@ function pane(value: unknown): CanonicalPane {
 function tab(value: unknown): CanonicalTab {
   const item = object(value, "canonical tab");
   if (item.kind !== "pty" && item.kind !== "browser") throw new Error("invalid canonical tab kind");
-  return { id: uint(item.id), uuid: uuid(item.uuid), kind: item.kind, name: nullableText(item.name) };
+  return { id: id(item.id), uuid: uuid(item.uuid), kind: item.kind, name: nullableText(item.name) };
 }
 
 function targets(value: unknown): TopologyTargets {
@@ -300,6 +300,11 @@ function optionalArray<T>(value: unknown, parse: (item: unknown) => T): T[] {
 function uint(value: unknown): number {
   if (!Number.isSafeInteger(value) || (value as number) < 0) throw new Error(`expected non-negative integer, got ${String(value)}`);
   return value as number;
+}
+function id(value: unknown): Id {
+  if (typeof value === "bigint" && value >= 0n) return value;
+  if (Number.isSafeInteger(value) && (value as number) >= 0) return BigInt(value as number);
+  throw new Error(`expected non-negative terminal identifier, got ${String(value)}`);
 }
 function finite(value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value)) throw new Error("expected finite number");
