@@ -42,11 +42,7 @@ struct ResourceUpdateQueue {
 
 impl ResourceUpdateQueue {
     fn push(&mut self, update: Vec<u8>) -> bool {
-        self.push_bounded(
-            update,
-            RESOURCE_UPDATE_QUEUE_MAX_ITEMS,
-            RESOURCE_UPDATE_QUEUE_MAX_BYTES,
-        )
+        self.push_bounded(update, RESOURCE_UPDATE_QUEUE_MAX_ITEMS, RESOURCE_UPDATE_QUEUE_MAX_BYTES)
     }
 
     fn push_bounded(
