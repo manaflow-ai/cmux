@@ -10380,19 +10380,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return true
         } catch {
             guard generation == connectionGeneration else { return false }
-            let userFacingError = MobileAttachmentTransferError.sanitizing(error)
-            guard !disconnectForAuthorizationFailureIfNeeded(userFacingError) else { return false }
+            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return false }
             handleMacAvailabilityFailureIfCurrent(
-                after: userFacingError,
+                after: error,
                 expectedClient: client,
                 expectedGeneration: generation
             )
-            if let transferError = userFacingError as? MobileAttachmentTransferError {
-                connectionError = transferError.localizedDescription
-                connectionErrorGuidance = nil
-            } else {
-                applyOperationalError(userFacingError)
-            }
+            applyOperationalError(error)
             return false
         }
     }
