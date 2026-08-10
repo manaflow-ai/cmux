@@ -301,40 +301,13 @@ impl WorkspaceRegistry {
             .collect::<Result<Vec<_>, _>>()?;
         let mut agents = Vec::with_capacity(rows.len());
         for (projected_terminal_id, result_json, committed_revision) in rows {
-            let stored: StoredAgent = serde_json::from_str(&result_json).with_context(|| {
-                format!(
-                    "invalid agent projection for terminal {projected_terminal_id:?} at revision {committed_revision}"
-                )
-            })?;
-            anyhow::ensure!(
-                stored.terminal_id.as_str() == projected_terminal_id,
-                "agent {} projection key {} does not match terminal {}",
-                stored.id,
-                projected_terminal_id,
-                stored.terminal_id
-            );
-            anyhow::ensure!(
-                stored.session_id == self.session_id,
-                "agent {} belongs to session {}, expected {}",
-                stored.id,
-                stored.session_id,
-                self.session_id
-            );
-            anyhow::ensure!(
-                stored.id == agent_id(&stored.terminal_id)?,
-                "agent {} does not match terminal {}",
-                stored.id,
-                stored.terminal_id
-            );
-            let _ = stored.extra;
-            agents.push(RegistryAgentProjection {
-                id: stored.id,
-                terminal_id: stored.terminal_id,
-                state: stored.state.as_str().to_string(),
-                source: stored.source.as_str().to_string(),
-                updated_at_ms: stored.updated_at_ms.get(),
-                source_session: stored.source_session,
-            });
+            let projected_terminal_id = TerminalPublicId::parse(projected_terminal_id)?;
+            agents.push(decode_agent_projection(
+                &result_json,
+                &projected_terminal_id,
+                &self.session_id,
+                committed_revision,
+            )?);
         }
         agents.reverse();
         Ok(agents)
@@ -480,6 +453,48 @@ impl WorkspaceRegistry {
             )
             .unwrap();
     }
+}
+
+pub(super) fn decode_agent_projection(
+    result_json: &str,
+    projected_terminal_id: &TerminalPublicId,
+    session_id: &SessionPublicId,
+    committed_revision: i64,
+) -> anyhow::Result<RegistryAgentProjection> {
+    let stored: StoredAgent = serde_json::from_str(result_json).with_context(|| {
+        format!(
+            "invalid agent projection for terminal {projected_terminal_id:?} at revision {committed_revision}"
+        )
+    })?;
+    anyhow::ensure!(
+        &stored.terminal_id == projected_terminal_id,
+        "agent {} projection key {} does not match terminal {}",
+        stored.id,
+        projected_terminal_id,
+        stored.terminal_id
+    );
+    anyhow::ensure!(
+        &stored.session_id == session_id,
+        "agent {} belongs to session {}, expected {}",
+        stored.id,
+        stored.session_id,
+        session_id
+    );
+    anyhow::ensure!(
+        stored.id == agent_id(&stored.terminal_id)?,
+        "agent {} does not match terminal {}",
+        stored.id,
+        stored.terminal_id
+    );
+    let _ = stored.extra;
+    Ok(RegistryAgentProjection {
+        id: stored.id,
+        terminal_id: stored.terminal_id,
+        state: stored.state.as_str().to_string(),
+        source: stored.source.as_str().to_string(),
+        updated_at_ms: stored.updated_at_ms.get(),
+        source_session: stored.source_session,
+    })
 }
 
 fn agent_id(terminal_id: &TerminalPublicId) -> anyhow::Result<AgentPublicId> {

@@ -444,9 +444,15 @@ fn ensure_built_in_agent_producer(transaction: &Transaction<'_>) -> anyhow::Resu
     let manifest = crate::agent_hooks::built_in_agent_producer_manifest();
     let manifest_json = canonical_json(&serde_json::to_value(&manifest)?)?;
     transaction.execute(
-        "INSERT OR IGNORE INTO journal_producers(
+        "INSERT INTO journal_producers(
            producer_id, namespace, manifest_version, manifest_json, installed_at_ms
-         ) VALUES(?1, ?2, ?3, ?4, ?5)",
+         ) VALUES(?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(producer_id) DO UPDATE SET
+           namespace = excluded.namespace,
+           manifest_version = excluded.manifest_version,
+           manifest_json = excluded.manifest_json,
+           installed_at_ms = excluded.installed_at_ms
+         WHERE journal_producers.manifest_version < excluded.manifest_version",
         params![
             manifest.producer_id,
             manifest.namespace,
@@ -455,13 +461,15 @@ fn ensure_built_in_agent_producer(transaction: &Transaction<'_>) -> anyhow::Resu
             i64::try_from(unix_epoch_ms()?)?,
         ],
     )?;
-    let installed = transaction.query_row(
-        "SELECT manifest_json FROM journal_producers WHERE producer_id = ?1",
+    let (installed_version, installed) = transaction.query_row(
+        "SELECT manifest_version, manifest_json
+         FROM journal_producers WHERE producer_id = ?1",
         [crate::AGENT_HOOK_PRODUCER_ID],
-        |row| row.get::<_, String>(0),
+        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
     )?;
     anyhow::ensure!(
-        serde_json::from_str::<JournalProducerManifest>(&installed)? == manifest,
+        installed_version == i64::from(manifest.manifest_version)
+            && serde_json::from_str::<JournalProducerManifest>(&installed)? == manifest,
         "reserved cmux agent producer manifest does not match this binary"
     );
     Ok(())

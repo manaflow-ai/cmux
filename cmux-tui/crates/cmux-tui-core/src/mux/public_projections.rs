@@ -60,19 +60,18 @@ pub(super) fn restore_public_projections(
 
     let mut agent_records = HashMap::with_capacity(projections.agents.len());
     for agent in projections.agents {
-        let previous = agent_records.insert(
-            agent.terminal_id.clone(),
-            TerminalAgentRecord {
-                state: agent_state(&agent.state)?,
-                source: agent_source(&agent.source)?,
-                session: agent.source_session,
-                updated_at_ms: agent.updated_at_ms,
-            },
-        );
+        let terminal_id = agent.terminal_id;
+        let record = terminal_agent_record(
+            &agent.state,
+            &agent.source,
+            agent.source_session,
+            agent.updated_at_ms,
+        )?;
+        let previous = agent_records.insert(terminal_id.clone(), record);
         anyhow::ensure!(
             previous.is_none(),
             "multiple durable agents resolve to terminal {}",
-            agent.terminal_id
+            terminal_id
         );
     }
 
@@ -83,6 +82,20 @@ pub(super) fn restore_public_projections(
         agent_records,
         terminal_notifications,
         notification_ledger,
+    })
+}
+
+pub(super) fn terminal_agent_record(
+    state: &str,
+    source: &str,
+    session: Option<String>,
+    updated_at_ms: u64,
+) -> anyhow::Result<TerminalAgentRecord> {
+    Ok(TerminalAgentRecord {
+        state: agent_state(state)?,
+        source: agent_source(source)?,
+        session,
+        updated_at_ms,
     })
 }
 
@@ -101,6 +114,7 @@ fn agent_state(value: &str) -> anyhow::Result<AgentState> {
         "blocked" => Ok(AgentState::Blocked),
         "idle" => Ok(AgentState::Idle),
         "done" => Ok(AgentState::Done),
+        "interrupted" => Ok(AgentState::Interrupted),
         "unknown" => Ok(AgentState::Unknown),
         other => anyhow::bail!("invalid durable agent state {other:?}"),
     }

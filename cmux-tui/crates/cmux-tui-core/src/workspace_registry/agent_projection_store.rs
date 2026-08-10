@@ -6,6 +6,7 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
 const RECOVERY_FORMAT: &str = "cmux.agent-recovery.v1";
+const PREJOURNAL_MIGRATION_FORMAT: &str = "cmux.agent-projection-migration.v1";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct AgentProjectionRow {
@@ -16,6 +17,7 @@ struct AgentProjectionRow {
     source_session: Option<String>,
     provider: Option<String>,
     committed_sequence: u64,
+    result: Option<Value>,
 }
 
 pub(super) fn apply_agent_projection_journal_record(
@@ -50,8 +52,16 @@ pub(super) fn apply_agent_projection_journal_record(
 pub(super) fn rebuild_agent_projections_from_journal(
     connection: &Connection,
 ) -> anyhow::Result<()> {
-    let projections = derive_agent_projections_from_journal(connection)?;
+    let mut projections = derive_agent_projections_from_journal(connection)?;
     let tx = connection.unchecked_transaction()?;
+    for mut stored in stored_live_projections(&tx)? {
+        let key = stored.terminal_id.to_string();
+        if projections.contains_key(&key) {
+            continue;
+        }
+        stored.committed_sequence = append_prejournal_projection_migration(&tx, &stored)?;
+        projections.insert(key, stored);
+    }
     tx.execute("DELETE FROM resource_agent_projections", [])?;
     for projection in projections.into_values() {
         if terminal_is_live(&tx, &projection.terminal_id)? {
@@ -60,6 +70,66 @@ pub(super) fn rebuild_agent_projections_from_journal(
     }
     tx.commit()?;
     Ok(())
+}
+
+fn append_prejournal_projection_migration(
+    transaction: &Transaction<'_>,
+    projection: &AgentProjectionRow,
+) -> anyhow::Result<u64> {
+    let session_id = transaction.query_row(
+        "SELECT value FROM meta WHERE key = 'session_public_id'",
+        [],
+        |row| row.get::<_, String>(0),
+    )?;
+    let digest = Sha256::digest(
+        format!("{PREJOURNAL_MIGRATION_FORMAT}/{session_id}/{}", projection.terminal_id)
+            .as_bytes(),
+    );
+    let event_id = format!(
+        "event_agent_projection_migration_{}",
+        digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>()
+    );
+    let producer = JournalProducer {
+        kind: "migration".into(),
+        id: "agent-projection-v1".into(),
+    };
+    let subjects = vec![
+        JournalSubject { kind: "session".into(), id: session_id },
+        JournalSubject {
+            kind: "terminal".into(),
+            id: projection.terminal_id.to_string(),
+        },
+    ];
+    let result = projection
+        .result
+        .clone()
+        .context("pre-journal agent projection omitted its exact public result")?;
+    let payload = json!({
+        "format":PREJOURNAL_MIGRATION_FORMAT,
+        "result":result,
+    });
+    session_journal::append_journal_record(
+        transaction,
+        &session_journal::JournalAppend {
+            event_id: &event_id,
+            schema_version: 1,
+            kind: "agent.report",
+            class: JournalClass::State,
+            replay: JournalReplayPolicy::Required,
+            occurred_at_ms: projection.updated_at_ms,
+            producer: &producer,
+            authority: None,
+            causation_id: None,
+            correlation_id: Some(&event_id),
+            causation_depth: 0,
+            subjects: &subjects,
+            sensitivity: JournalSensitivity::Sensitive,
+            payload: &payload,
+            content: None,
+            resource_revision: None,
+            previous_resource_revision: None,
+        },
+    )
 }
 
 fn derive_agent_projections_from_journal(
@@ -137,6 +207,7 @@ fn projection_from_journal_record(
         source_session,
         provider,
         committed_sequence: sequence,
+        result: None,
     }))
 }
 
@@ -189,6 +260,7 @@ fn projection_from_resource_report(
         source_session,
         provider,
         committed_sequence: sequence,
+        result: Some(Value::Object(result.clone())),
     }))
 }
 
@@ -225,6 +297,7 @@ fn projection_from_recovery_event(
         source_session,
         provider,
         committed_sequence: sequence,
+        result: None,
     }))
 }
 
@@ -290,33 +363,57 @@ fn stored_projection(
         return Ok(None);
     };
     let result: Value = serde_json::from_str(&result_json)?;
+    let session_id = SessionPublicId::parse(transaction.query_row(
+        "SELECT value FROM meta WHERE key = 'session_public_id'",
+        [],
+        |row| row.get::<_, String>(0),
+    )?)?;
+    super::public_projection_store::decode_agent_projection(
+        &result_json,
+        terminal_id,
+        &session_id,
+        committed_sequence,
+    )?;
     let committed_sequence =
         u64::try_from(committed_sequence).context("agent projection revision is negative")?;
     projection_from_resource_report(committed_sequence, &json!({"result":result}))
+}
+
+fn stored_live_projections(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<Vec<AgentProjectionRow>> {
+    let terminal_ids = {
+        let mut statement = transaction.prepare(
+            "SELECT projection.terminal_id
+             FROM resource_agent_projections projection
+             JOIN resource_terminals terminal
+               ON terminal.public_id = projection.terminal_id
+             WHERE terminal.deleted_revision IS NULL
+             ORDER BY projection.terminal_id ASC",
+        )?;
+        statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    terminal_ids
+        .into_iter()
+        .map(|terminal_id| {
+            let terminal_id = TerminalPublicId::parse(terminal_id)?;
+            stored_projection(transaction, &terminal_id)?.with_context(|| {
+                format!("agent projection for live terminal {terminal_id} disappeared")
+            })
+        })
+        .collect()
 }
 
 fn upsert_projection(
     transaction: &Transaction<'_>,
     projection: &AgentProjectionRow,
 ) -> anyhow::Result<()> {
-    let session_id = transaction.query_row(
-        "SELECT value FROM meta WHERE key = 'session_public_id'",
-        [],
-        |row| row.get::<_, String>(0),
-    )?;
-    let agent_id = agent_id(&projection.terminal_id)?;
-    let value = json!({
-        "id":agent_id,
-        "session_id":session_id,
-        "terminal_id":projection.terminal_id,
-        "state":projection.state,
-        "source":projection.source,
-        "updated_at_ms":projection.updated_at_ms.to_string(),
-        "source_session":projection.source_session,
-        "extra":{
-            "provider":projection.provider,
-        },
-    });
+    let value = match &projection.result {
+        Some(result) => result.clone(),
+        None => projection_result_value(transaction, projection)?,
+    };
     transaction.execute(
         "INSERT INTO resource_agent_projections(
            terminal_id, result_json, committed_revision
@@ -332,6 +429,30 @@ fn upsert_projection(
         ],
     )?;
     Ok(())
+}
+
+fn projection_result_value(
+    transaction: &Transaction<'_>,
+    projection: &AgentProjectionRow,
+) -> anyhow::Result<Value> {
+    let session_id = transaction.query_row(
+        "SELECT value FROM meta WHERE key = 'session_public_id'",
+        [],
+        |row| row.get::<_, String>(0),
+    )?;
+    let agent_id = agent_id(&projection.terminal_id)?;
+    Ok(json!({
+        "id":agent_id,
+        "session_id":session_id,
+        "terminal_id":projection.terminal_id,
+        "state":projection.state,
+        "source":projection.source,
+        "updated_at_ms":projection.updated_at_ms.to_string(),
+        "source_session":projection.source_session,
+        "extra":{
+            "provider":projection.provider,
+        },
+    }))
 }
 
 fn terminal_is_live(

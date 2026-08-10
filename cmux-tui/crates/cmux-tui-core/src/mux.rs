@@ -4922,24 +4922,62 @@ impl Mux {
         idempotency_key: &str,
     ) -> anyhow::Result<crate::JournalAppendCommit> {
         let validated = self.journal_kernel.validate_ingress(ingress)?;
-        if self.journal_ingress.enabled() {
-            return self.journal_ingress.send_producer(
+        let writer_enabled = self.journal_ingress.enabled();
+        let commit = if writer_enabled {
+            self.journal_ingress.send_producer(
                 ingress.clone(),
                 validated,
                 origin.into(),
                 idempotency_key.into(),
-            );
-        }
-        let commit = self.workspace_registry.lock().unwrap().append_journal_ingress(
-            ingress,
-            &validated,
-            origin,
-            idempotency_key,
-        )?;
-        if !commit.replayed {
+            )?
+        } else {
+            self.workspace_registry.lock().unwrap().append_journal_ingress(
+                ingress,
+                &validated,
+                origin,
+                idempotency_key,
+            )?
+        };
+        self.sync_agent_records_from_journal_ingress(ingress)?;
+        if !writer_enabled && !commit.replayed {
             self.publish_journal_event();
         }
         Ok(commit)
+    }
+
+    fn sync_agent_records_from_journal_ingress(
+        &self,
+        ingress: &crate::JournalIngress,
+    ) -> anyhow::Result<()> {
+        if ingress.producer_id != crate::AGENT_HOOK_PRODUCER_ID {
+            return Ok(());
+        }
+        let terminal_ids = ingress
+            .subjects
+            .iter()
+            .filter(|subject| subject.kind == "terminal")
+            .map(|subject| TerminalPublicId::parse(subject.id.clone()))
+            .collect::<Result<HashSet<_>, _>>()?;
+        if terminal_ids.is_empty() {
+            return Ok(());
+        }
+
+        let registry = self.workspace_registry.lock().unwrap();
+        let mut projections = Vec::with_capacity(terminal_ids.len());
+        for terminal_id in terminal_ids {
+            projections.extend(registry.public_agent_projections(Some(&terminal_id), None)?);
+        }
+        let mut records = self.agent_records.lock().unwrap();
+        for projection in projections {
+            let record = public_projections::terminal_agent_record(
+                &projection.state,
+                &projection.source,
+                projection.source_session,
+                projection.updated_at_ms,
+            )?;
+            records.insert(projection.terminal_id, record);
+        }
+        Ok(())
     }
 
     pub(crate) fn journal_hook_states(
