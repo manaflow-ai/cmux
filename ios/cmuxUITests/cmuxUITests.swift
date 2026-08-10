@@ -1974,8 +1974,6 @@ final class cmuxUITests: XCTestCase {
 
         let feed = app.descendants(matching: .any)["MobileNotificationFeed"].firstMatch
         XCTAssertTrue(feed.waitForExistence(timeout: 8))
-        let feedList = app.collectionViews.firstMatch
-        XCTAssertTrue(feedList.waitForExistence(timeout: 3))
         XCTAssertTrue(app.tabBars.buttons["Feed"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["MobileNotificationFeedDayToday"].exists)
 
@@ -1989,12 +1987,17 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(approvalTitle.waitForExistence(timeout: 3))
         XCTAssertTrue(approvalBody.waitForExistence(timeout: 3))
         XCTAssertTrue(approvalRow.waitForExistence(timeout: 3))
+        let feedList = app.collectionViews.containing(
+            .any,
+            identifier: "MobileNotificationFeedRow-studio-codex-approval"
+        ).firstMatch
+        XCTAssertTrue(feedList.waitForExistence(timeout: 3))
         XCTAssertFalse(app.staticTexts["Notification feed"].exists)
         XCTAssertFalse(app.staticTexts["Context"].exists)
         XCTAssertFalse(app.staticTexts["Opens in"].exists)
         let approvalValue = try XCTUnwrap(approvalRow.value as? String)
         let workspaceRange = try XCTUnwrap(approvalValue.range(of: "cmux iOS"))
-        let bodyRange = try XCTUnwrap(approvalValue.range(of: "The feed is ready"))
+        let bodyRange = try XCTUnwrap(approvalValue.range(of: approvalBody.label))
         let computerRange = try XCTUnwrap(approvalValue.range(of: "Studio"))
         XCTAssertTrue(approvalValue.contains("Workspace: cmux iOS"))
         XCTAssertTrue(approvalValue.contains("Computer: Studio"))
@@ -2115,8 +2118,6 @@ final class cmuxUITests: XCTestCase {
 
         let feed = app.descendants(matching: .any)["MobileNotificationFeed"].firstMatch
         XCTAssertTrue(feed.waitForExistence(timeout: 8))
-        let feedList = app.collectionViews.firstMatch
-        XCTAssertTrue(feedList.waitForExistence(timeout: 3))
 
         let permissionRow = app.descendants(matching: .any)[
             "MobileNotificationFeedRow-studio-codex-approval"
@@ -2130,6 +2131,11 @@ final class cmuxUITests: XCTestCase {
             "MobileNotificationFeedRow-studio-plan-review"
         ].firstMatch
         XCTAssertTrue(planRow.waitForExistence(timeout: 3))
+        let feedList = app.collectionViews.containing(
+            .any,
+            identifier: "MobileNotificationFeedRow-studio-plan-review"
+        ).firstMatch
+        XCTAssertTrue(feedList.waitForExistence(timeout: 3))
         let planFeedback = app.textFields["MobileNotificationFeedExitPlanFeedback"]
         for _ in 0..<8 where !planFeedback.isHittable {
             feedList.swipeUp(velocity: .slow)
