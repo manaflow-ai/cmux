@@ -2505,8 +2505,15 @@ mod tests {
             stream
                 .write_all(&vec![b'x'; MAX_CONTROL_FRAME_BYTES + 1])
                 .expect("write oversized frame");
-            stream.write_all(b"\n").expect("finish oversized frame");
-            stream.flush().expect("flush oversized frame");
+            if let Err(error) = stream.write_all(b"\n").and_then(|()| stream.flush()) {
+                assert!(
+                    matches!(
+                        error.kind(),
+                        io::ErrorKind::BrokenPipe | io::ErrorKind::ConnectionReset
+                    ),
+                    "finish oversized frame: {error}"
+                );
+            }
         });
 
         let (provider, _) = ProviderClient::connect_authenticated(
