@@ -4889,6 +4889,7 @@ fn complete_daemon_shutdown_after_ack(
         return false;
     }
     if mux.commit_daemon_handoff(requesting_client).is_err() {
+        mux.cancel_daemon_handoff(requesting_client);
         return false;
     }
     mux.request_daemon_shutdown();

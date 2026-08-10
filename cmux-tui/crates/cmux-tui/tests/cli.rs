@@ -451,7 +451,7 @@ fn wait_for_tui_client(socket: &std::path::Path, owner: &mut PtyChild) {
     }
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
-        if let Some(status) = owner.child.try_wait().unwrap() {
+        if let Some(status) = owner.child.as_mut().unwrap().try_wait().unwrap() {
             panic!("interactive owner exited before shutdown: {status}");
         }
         let event = events.next_before(deadline);
@@ -2402,7 +2402,7 @@ fn noun_first_ratio_commands_reject_nonfinite_values_before_connecting() {
 
 #[cfg(unix)]
 struct PtyChild {
-    child: Box<dyn cmux_pty::Child + Send + Sync>,
+    child: Option<Box<dyn cmux_pty::Child + Send + Sync>>,
     output_drain: Option<std::thread::JoinHandle<()>>,
 }
 
@@ -2442,37 +2442,40 @@ impl PtyChild {
             let mut buffer = [0; 8192];
             while master.read(&mut buffer).is_ok_and(|read| read > 0) {}
         });
-        Self { child: spawned.child, output_drain: Some(output_drain) }
+        Self { child: Some(spawned.child), output_drain: Some(output_drain) }
     }
 
     fn wait_for_exit(&mut self, timeout: Duration) -> Option<cmux_pty::ExitStatus> {
-        let mut killer = self.child.clone_killer();
-        std::thread::scope(|scope| {
-            let (sender, receiver) = mpsc::sync_channel(1);
-            let child = &mut self.child;
-            scope.spawn(move || {
-                let _ = sender.send(child.wait());
-            });
-            match receiver.recv_timeout(timeout) {
-                Ok(status) => Some(status.unwrap()),
-                Err(mpsc::RecvTimeoutError::Timeout) => {
-                    let _ = killer.kill();
-                    let _ = receiver.recv();
-                    None
+        let mut child = self.child.take().expect("PTY child already has an exit waiter");
+        let mut killer = child.clone_killer();
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let _waiter = std::thread::spawn(move || {
+            let _ = sender.send(child.wait());
+        });
+        match receiver.recv_timeout(timeout) {
+            Ok(status) => Some(status.unwrap()),
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                let _ = killer.kill();
+                if receiver.recv_timeout(Duration::from_secs(5)).is_err() {
+                    let _ = self.output_drain.take();
                 }
-                Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    panic!("interactive owner exit waiter disconnected")
-                }
+                None
             }
-        })
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                let _ = self.output_drain.take();
+                panic!("interactive owner exit waiter disconnected")
+            }
+        }
     }
 }
 
 #[cfg(unix)]
 impl Drop for PtyChild {
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        if let Some(child) = self.child.as_mut() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
         if let Some(output_drain) = self.output_drain.take() {
             let _ = output_drain.join();
         }
@@ -2583,7 +2586,7 @@ fn plain_launch_attaches_to_existing_local_session() {
     let deadline = Instant::now() + Duration::from_secs(10);
 
     while Instant::now() < deadline {
-        if let Some(status) = tui.child.try_wait().unwrap() {
+        if let Some(status) = tui.child.as_mut().unwrap().try_wait().unwrap() {
             panic!("plain launch exited instead of attaching: {status}");
         }
         if plain_tui_is_ready(&server) {
@@ -2683,7 +2686,7 @@ fn explicit_attach_registers_a_full_session_tui_client() {
     let mut tui = PtyChild::start(&["attach", "--socket", server.socket.to_str().unwrap()]);
     let deadline = Instant::now() + Duration::from_secs(10);
     while Instant::now() < deadline {
-        if let Some(status) = tui.child.try_wait().unwrap() {
+        if let Some(status) = tui.child.as_mut().unwrap().try_wait().unwrap() {
             panic!("explicit attach exited unexpectedly: {status}");
         }
         let clients = json_cli(&server, &["client", "list"]);
@@ -2806,7 +2809,7 @@ fn configured_websocket_server_does_not_attach_to_existing_session() {
     let deadline = Instant::now() + Duration::from_secs(10);
 
     while Instant::now() < deadline {
-        if let Some(status) = tui.child.try_wait().unwrap() {
+        if let Some(status) = tui.child.as_mut().unwrap().try_wait().unwrap() {
             assert!(!status.success(), "server launch unexpectedly succeeded");
             return;
         }

@@ -1112,6 +1112,7 @@ fn server_start_has_cli_routing_flag(args: &[String]) -> bool {
             | "--remote-resume-lease-seconds"
             | "--relay"
             | "--relay-slot"
+            | "--relay-ticket"
             | "--relay-ticket-file"
             | "--relay-ticket-command"
             | "--relay-ticket-command-arg"
@@ -1540,6 +1541,24 @@ fn socket_option(fd: std::os::fd::RawFd, option: libc::c_int) -> io::Result<libc
     Ok(value)
 }
 
+struct ServedMuxCleanup {
+    mux: Arc<Mux>,
+    socket_path: PathBuf,
+}
+
+impl ServedMuxCleanup {
+    fn new(mux: Arc<Mux>, socket_path: PathBuf) -> Self {
+        Self { mux, socket_path }
+    }
+}
+
+impl Drop for ServedMuxCleanup {
+    fn drop(&mut self) {
+        self.mux.shutdown();
+        cmux_tui_core::server::cleanup(&self.socket_path);
+    }
+}
+
 fn run_server(
     args: Args,
     provider_workspace_authority: Option<ProviderWorkspaceAuthority>,
@@ -1691,8 +1710,15 @@ fn run_server(
     if let Some(server) = &websocket_server {
         eprintln!("cmux-tui: WebSocket control at ws://{}", server.local_addr());
     }
-    let (owner_event_stop, owner_event_thread) = start_local_owner_event_loop(&mux);
-    cmux_tui_core::server::serve(mux.clone(), Some(socket_path.clone()))?;
+    let served_socket = match cmux_tui_core::server::serve(mux.clone(), Some(socket_path.clone())) {
+        Ok(served_socket) => served_socket,
+        Err(error) => {
+            mux.shutdown();
+            cmux_tui_core::server::cleanup(&socket_path);
+            return Err(error);
+        }
+    };
+    let served_mux_cleanup = ServedMuxCleanup::new(mux.clone(), served_socket);
 
     #[cfg(unix)]
     let remote_runtime = if args.remote {
@@ -1737,6 +1763,7 @@ fn run_server(
             config.machine_sidebar.create_sources.clone(),
         )
     });
+    let (owner_event_stop, owner_event_thread) = start_local_owner_event_loop(&mux);
     let result = if args.headless {
         #[cfg(unix)]
         {
@@ -1766,13 +1793,17 @@ fn run_server(
     let owner_event_result =
         owner_event_thread.join().map_err(|_| anyhow::anyhow!("local owner event loop panicked"));
     #[cfg(unix)]
-    if let Some(runtime) = remote_runtime {
-        runtime.shutdown()?;
-    }
+    let remote_shutdown_result = remote_runtime.map_or(Ok(()), |runtime| runtime.shutdown());
     drop(websocket_server);
-    mux.shutdown();
-    cmux_tui_core::server::cleanup(&socket_path);
-    result.and(owner_event_result)
+    drop(served_mux_cleanup);
+    #[cfg(unix)]
+    {
+        remote_shutdown_result.and(result.and(owner_event_result))
+    }
+    #[cfg(not(unix))]
+    {
+        result.and(owner_event_result)
+    }
 }
 
 fn dispatch_local_owner_event(event: &cmux_tui_core::MuxEvent, reload: impl FnOnce()) {
