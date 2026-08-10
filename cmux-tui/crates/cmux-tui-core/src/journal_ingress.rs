@@ -2188,7 +2188,7 @@ mod tests {
         let (queue_full, queue_full_receiver) = sync_channel(1);
         sender.install_enqueue_full_notifier_for_test(queue_full);
         let blocked_sender = sender.clone();
-        let blocked_terminal = terminal_id.clone();
+        let blocked_terminal = terminal_id;
         let blocked = std::thread::spawn(move || {
             blocked_sender.send(JournalIngressEvent::TerminalResize {
                 terminal_id: blocked_terminal,
@@ -2202,7 +2202,7 @@ mod tests {
         });
         queue_full_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
 
-        let shutdown_sender = sender.clone();
+        let shutdown_sender = sender;
         let (shutdown_completion, shutdown_completed) = sync_channel(1);
         let shutdown = std::thread::spawn(move || {
             shutdown_completion
