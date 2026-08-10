@@ -7702,6 +7702,7 @@ final class SimulatorDiscoverabilityUITests: XCTestCase {
     @MainActor
     func testOneAndTwoPanelChromeSupportsOneTapAndExplicitSelection() throws {
         let one = launchFixture(mode: "one")
+        XCTAssertTrue(one.buttons["MobileTerminalDropdown"].waitForExistence(timeout: 8))
         let onePicker = one.buttons["MobileSimulatorPicker"]
         XCTAssertTrue(onePicker.waitForExistence(timeout: 8))
         XCTAssertGreaterThanOrEqual(onePicker.frame.width, 44)

@@ -19,6 +19,8 @@ public struct CMUXMobileAppView: View {
     @State private var browserStore: BrowserSurfaceStore
     /// Mac browser stream state kept beside the shell store for the app lifetime.
     @State private var browserStreamStore: BrowserStreamStore
+    /// Stable environment handle for the Simulator stream store owned by `store`.
+    @State private var simulatorStreamStore: MobileSimulatorStreamStore
     /// App-lifetime owner for the initial explicit-attach versus saved-Mac
     /// reconnect decision. Root view lifecycle callbacks share this instance.
     @State private var startupConnectionCoordinator = MobileStartupConnectionCoordinator()
@@ -48,6 +50,7 @@ public struct CMUXMobileAppView: View {
         _store = State(initialValue: store)
         _browserStore = State(initialValue: browserStore)
         _browserStreamStore = State(initialValue: browserStreamStore)
+        _simulatorStreamStore = State(initialValue: store.simulatorStreamStore)
         self.onboardingStore = onboardingStore
         self.signOutHook = signOutHook
     }
@@ -67,6 +70,7 @@ public struct CMUXMobileAppView: View {
         _store = State(initialValue: store)
         _browserStore = State(initialValue: browserStore)
         _browserStreamStore = State(initialValue: browserStreamStore)
+        _simulatorStreamStore = State(initialValue: store.simulatorStreamStore)
         self.signOutHook = signOutHook
     }
     #endif
@@ -82,7 +86,7 @@ public struct CMUXMobileAppView: View {
         )
             .environment(browserStore)
             .environment(browserStreamStore)
-            .environment(store.simulatorStreamStore)
+            .environment(simulatorStreamStore)
         #else
         CMUXMobileRootView(
             store: store,
@@ -91,7 +95,7 @@ public struct CMUXMobileAppView: View {
         )
             .environment(browserStore)
             .environment(browserStreamStore)
-            .environment(store.simulatorStreamStore)
+            .environment(simulatorStreamStore)
         #endif
     }
 }

@@ -14,6 +14,7 @@ public struct SimulatorDiscoverabilityPreviewView: View {
     @State private var store: MobileShellComposite
     @State private var browserStore = BrowserSurfaceStore()
     @State private var browserStreamStore = BrowserStreamStore()
+    @State private var simulatorStreamStore: MobileSimulatorStreamStore
 
     /// Creates a fixture with zero, one, two, or unsupported Simulator panels.
     public init(mode: String, state: String) {
@@ -55,13 +56,14 @@ public struct SimulatorDiscoverabilityPreviewView: View {
         shellStore.selectedTerminalID = terminalID
 
         _store = State(initialValue: shellStore)
+        _simulatorStreamStore = State(initialValue: shellStore.simulatorStreamStore)
     }
 
     public var body: some View {
         WorkspaceShellView(store: store, signOut: {}, showAddDevice: nil)
             .environment(browserStore)
             .environment(browserStreamStore)
-            .environment(store.simulatorStreamStore)
+            .environment(simulatorStreamStore)
     }
 
     private static func descriptors(
