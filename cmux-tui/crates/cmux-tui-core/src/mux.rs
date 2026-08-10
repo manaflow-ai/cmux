@@ -8472,10 +8472,6 @@ impl Mux {
         Ok(actual_identity)
     }
 
-    pub(crate) fn commit_daemon_handoff(&self, requesting_client: u64) -> anyhow::Result<()> {
-        self.control_clients.commit_daemon_handoff(requesting_client)
-    }
-
     pub(crate) fn commit_daemon_handoff_after_ack(
         &self,
         requesting_client: u64,

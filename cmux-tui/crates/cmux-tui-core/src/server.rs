@@ -4032,19 +4032,6 @@ impl ClientRegistry {
         Ok(())
     }
 
-    pub(crate) fn commit_daemon_handoff(&self, requesting_client: u64) -> anyhow::Result<()> {
-        let mut state = self.state.lock().unwrap();
-        match state.daemon_handoff {
-            Some(DaemonHandoffReservation::Pending(requester))
-                if requester == requesting_client =>
-            {
-                state.daemon_handoff = Some(DaemonHandoffReservation::Committed(requesting_client));
-                Ok(())
-            }
-            _ => anyhow::bail!("daemon handoff reservation changed before commit"),
-        }
-    }
-
     pub(crate) fn commit_daemon_handoff_after_ack(
         &self,
         requesting_client: u64,
@@ -19606,7 +19593,7 @@ mod tests {
         let mux = test_mux();
         let requester = mux.control_clients.register(ClientTransport::Unix, test_writer());
         mux.begin_daemon_handoff(requester, DaemonHandoffRequest::unfenced(false)).unwrap();
-        mux.commit_daemon_handoff(requester).unwrap();
+        mux.commit_daemon_handoff_after_ack(requester, || Ok(())).unwrap();
         mux.request_daemon_shutdown();
 
         assert!(disconnect_client(&mux, requester, false));
@@ -21784,7 +21771,7 @@ mod tests {
         let dir = TestSocketDir::create("paused-readiness");
         let path = dir.path().join("mux.sock");
         let mux = test_mux();
-        let pending = serve_paused(mux.clone(), Some(path.clone())).unwrap();
+        let pending = serve_paused(mux, Some(path.clone())).unwrap();
         let mut stream = transport::connect(&path).unwrap();
         writeln!(stream, r#"{{"id":1,"cmd":"identify"}}"#).unwrap();
         stream.flush().unwrap();
