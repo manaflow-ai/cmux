@@ -48,6 +48,14 @@ struct NativePixelScrollIntegrationTests {
         }
         #expect(rendererReady)
 
+        // Mounting the real Ghostty surface publishes its initial scrollbar
+        // asynchronously. Let that startup event settle before replacing it
+        // with the deterministic scrollback geometry exercised below.
+        let startupBoundaryReady = await waitUntil(timeout: .seconds(5)) {
+            view.nativePixelScrollBoundary != nil
+        }
+        #expect(startupBoundaryReady)
+
         let cellHeight = view.renderedCellSizeInPoints.height
         #expect(cellHeight > 1)
         let boundary = TerminalScrollBoundary(
