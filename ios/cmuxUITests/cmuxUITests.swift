@@ -760,6 +760,189 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.buttons["MobileWorkspaceSettingsMenu"].waitForExistence(timeout: 8))
     }
 
+    /// Standard Dynamic Type should fit the migration notice to its content on
+    /// both iPhone and iPad, without leaving the final action stranded above a
+    /// large empty region.
+    @MainActor
+    func testAutoConnectMigrationNormalTypeUsesContentFittedSheet() throws {
+        defer { XCUIDevice.shared.orientation = .portrait }
+
+        for localization in [
+            (name: "English", languageCode: "en", locale: "en_US"),
+            (name: "Japanese", languageCode: "ja", locale: "ja_JP"),
+        ] {
+            XCUIDevice.shared.orientation = .portrait
+            let app = launchApp(
+                mockData: true,
+                environment: [
+                    "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+                    "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": UUID().uuidString,
+                ],
+                launchArguments: [
+                    "-UIPreferredContentSizeCategoryName",
+                    "UICTContentSizeCategoryL",
+                ],
+                languageCode: localization.languageCode,
+                localeIdentifier: localization.locale
+            )
+            defer { app.terminate() }
+
+            let sheet = app.descendants(matching: .any)["MobileAutoConnectMigrationSheet"]
+            let content = app.descendants(matching: .any)["MobileAutoConnectMigrationContent"]
+            let title = app.staticTexts["MobileAutoConnectMigrationTitle"]
+            let body = app.staticTexts["MobileAutoConnectMigrationBody"]
+            let guidance = app.staticTexts["MobileAutoConnectMigrationGuidance"]
+            let continueButton = app.buttons["MobileAutoConnectMigrationContinue"]
+            let finalButton = app.buttons["MobileAutoConnectMigrationOpenSettings"]
+            let scrollFallback = app.scrollViews["MobileAutoConnectMigrationScrollView"]
+            let window = app.windows.firstMatch
+
+            func capture(_ layout: String) {
+                let attachment = XCTAttachment(screenshot: app.screenshot())
+                attachment.name = "auto-connect-migration-\(localization.name)-\(layout)"
+                attachment.lifetime = .keepAlways
+                add(attachment)
+            }
+
+            XCTAssertTrue(sheet.waitForExistence(timeout: 8))
+            for element in [content, title, body, guidance, continueButton, finalButton] {
+                XCTAssertTrue(element.waitForExistence(timeout: 4))
+            }
+            XCTAssertTrue(window.exists)
+
+            let localizedElements = [
+                ("content", content),
+                ("title", title),
+                ("body", body),
+                ("guidance", guidance),
+                ("Continue action", continueButton),
+                ("Settings action", finalButton),
+            ]
+
+            func assertDeclaredBottomPadding() throws {
+                let contentFrame = try XCTUnwrap(waitForUsableFrame(of: content, timeout: 4))
+                let finalButtonFrame = try XCTUnwrap(
+                    waitForUsableFrame(of: finalButton, timeout: 4)
+                )
+                let renderedBottomGap = contentFrame.maxY - finalButtonFrame.maxY
+                XCTAssertEqual(
+                    renderedBottomGap,
+                    24,
+                    accuracy: 2,
+                    "The content must retain its declared 24-point bottom padding."
+                )
+                XCTAssertLessThanOrEqual(
+                    renderedBottomGap,
+                    24,
+                    "Rendered bottom space must never exceed the declared padding."
+                )
+            }
+
+            func assertIntrinsicLayout(_ orientation: String) throws -> CGRect {
+                XCTAssertTrue(
+                    scrollFallback.waitForNonExistence(timeout: 4),
+                    "Normal \(localization.name) content unexpectedly used the scroll fallback in \(orientation)."
+                )
+                let sheetFrame = try XCTUnwrap(waitForUsableFrame(of: sheet, timeout: 4))
+                let contentFrame = try XCTUnwrap(waitForUsableFrame(of: content, timeout: 4))
+                let windowFrame = try XCTUnwrap(waitForUsableFrame(of: window, timeout: 4))
+                let containedFrame = sheetFrame.insetBy(dx: -1, dy: -1)
+
+                for (name, element) in localizedElements {
+                    let frame = try XCTUnwrap(waitForUsableFrame(of: element, timeout: 2))
+                    XCTAssertTrue(
+                        containedFrame.contains(frame),
+                        "The \(name) escaped the \(localization.name) sheet in \(orientation)."
+                    )
+                }
+
+                try assertDeclaredBottomPadding()
+
+                let systemBottomGap = sheetFrame.maxY - contentFrame.maxY
+                XCTAssertGreaterThanOrEqual(systemBottomGap, 0)
+                XCTAssertLessThanOrEqual(
+                    systemBottomGap,
+                    72,
+                    "The system sheet left excess space below the padded content."
+                )
+                XCTAssertLessThanOrEqual(
+                    sheetFrame.height - contentFrame.height,
+                    96,
+                    "The sheet occupied unnecessary full-screen height around fitted content."
+                )
+                XCTAssertEqual(sheetFrame.midX, windowFrame.midX, accuracy: 2)
+                return sheetFrame
+            }
+
+            func assertScrollableLandscape() throws -> CGRect {
+                XCTAssertTrue(
+                    scrollFallback.waitForExistence(timeout: 4),
+                    "Normal \(localization.name) content must use the bounded scroll fallback in iPhone landscape."
+                )
+                XCTAssertEqual(
+                    app.scrollViews.matching(
+                        identifier: "MobileAutoConnectMigrationScrollView"
+                    ).count,
+                    1,
+                    "The migration sheet must expose exactly one internal scroll fallback."
+                )
+                let sheetFrame = try XCTUnwrap(waitForUsableFrame(of: sheet, timeout: 4))
+                let scrollFrame = try XCTUnwrap(
+                    waitForUsableFrame(of: scrollFallback, timeout: 4)
+                )
+                let windowFrame = try XCTUnwrap(waitForUsableFrame(of: window, timeout: 4))
+                let containedSheetFrame = sheetFrame.insetBy(dx: -1, dy: -1)
+                XCTAssertTrue(containedSheetFrame.contains(scrollFrame))
+                XCTAssertTrue(windowFrame.insetBy(dx: -1, dy: -1).contains(sheetFrame))
+
+                for (name, element) in localizedElements.dropFirst() {
+                    for _ in 0..<8 where !element.isHittable {
+                        scrollFallback.swipeUp()
+                    }
+                    XCTAssertTrue(
+                        element.isHittable,
+                        "The \(localization.name) \(name) was not reachable in iPhone landscape."
+                    )
+                    let frame = try XCTUnwrap(waitForUsableFrame(of: element, timeout: 2))
+                    XCTAssertTrue(
+                        containedSheetFrame.contains(frame),
+                        "The visible \(localization.name) \(name) escaped the landscape sheet."
+                    )
+                }
+
+                try assertDeclaredBottomPadding()
+                XCTAssertEqual(sheetFrame.midX, windowFrame.midX, accuracy: 2)
+                return sheetFrame
+            }
+
+            let portraitSheetFrame = try assertIntrinsicLayout("portrait")
+            let portraitWindowFrame = window.frame.standardized
+            XCTAssertGreaterThan(portraitWindowFrame.height, portraitWindowFrame.width)
+            capture("portrait")
+
+            XCUIDevice.shared.orientation = .landscapeLeft
+            let landscapeWindowFrame = try XCTUnwrap(waitForFrame(of: window, timeout: 4) { frame in
+                frame.width > frame.height
+            })
+            capture("landscape-initial")
+            let landscapeSheetFrame: CGRect
+            if UIDevice.current.userInterfaceIdiom == .phone {
+                landscapeSheetFrame = try assertScrollableLandscape()
+            } else {
+                landscapeSheetFrame = try assertIntrinsicLayout("iPad landscape")
+            }
+            XCTAssertNotEqual(
+                landscapeSheetFrame.midX,
+                portraitSheetFrame.midX,
+                accuracy: 2,
+                "The fitted sheet did not reposition after rotation."
+            )
+            XCTAssertEqual(landscapeSheetFrame.midX, landscapeWindowFrame.midX, accuracy: 2)
+            capture("landscape-final")
+            app.terminate()
+        }
+    }
+
     /// Accessibility Large must keep the complete explanation and both actions
     /// reachable through the same scroll view in portrait and landscape.
     @MainActor
@@ -5577,10 +5760,17 @@ final class cmuxUITests: XCTestCase {
         mockData: Bool,
         clearAuth: Bool = false,
         environment: [String: String] = [:],
-        launchArguments: [String] = []
+        launchArguments: [String] = [],
+        languageCode: String = "en",
+        localeIdentifier: String = "en_US"
     ) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchArguments += [
+            "-AppleLanguages",
+            "(\(languageCode))",
+            "-AppleLocale",
+            localeIdentifier,
+        ]
         app.launchArguments += launchArguments
         app.launchEnvironment["CMUX_UITEST_MOCK_DATA"] = mockData ? "1" : "0"
         for (key, value) in environment {
