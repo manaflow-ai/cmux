@@ -565,26 +565,27 @@ mod tests {
         let baseline = descriptor_count();
         let process_barrier = cmux_tui_process::ProcessCreationGuard::acquire();
         let (started_sender, started_receiver) = std::sync::mpsc::sync_channel(1);
+        let (result_sender, result_receiver) = std::sync::mpsc::sync_channel(1);
         let worker = thread::spawn(move || {
             let mut command = Command::new("/usr/bin/true");
             command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
             started_sender.send(()).unwrap();
-            spawn_transport_process(&mut command)
+            result_sender.send(spawn_transport_process(&mut command)).unwrap();
         });
         started_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
-        let deadline = Instant::now() + Duration::from_millis(250);
-        let mut observed = baseline;
-        while observed == baseline && Instant::now() < deadline {
-            thread::sleep(Duration::from_millis(5));
-            observed = descriptor_count();
-        }
-
+        assert!(
+            result_receiver.recv_timeout(Duration::from_millis(250)).is_err(),
+            "transport spawn completed while the process barrier was held"
+        );
         assert_eq!(
-            observed, baseline,
+            descriptor_count(),
+            baseline,
             "UnixStream::pair created inheritable descriptors outside the process barrier"
         );
         drop(process_barrier);
-        let (stdin, stdout, process) = worker.join().unwrap().unwrap();
+        let (stdin, stdout, process) =
+            result_receiver.recv_timeout(Duration::from_secs(1)).unwrap().unwrap();
+        worker.join().unwrap();
         drop(stdin);
         drop(stdout);
         drop(process);

@@ -1,7 +1,8 @@
 #![cfg(unix)]
 
-use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::fs::{self, File};
+use std::io::{BufRead, BufReader, Read, Write};
+use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -25,6 +26,28 @@ use cmux_tui_core::terminal_host_runtime::{
     terminal_host_root,
 };
 use ghostty_vt::{Rgb, TerminalColorOverrides};
+
+struct TestFifoSignal(File);
+
+impl TestFifoSignal {
+    fn create(path: &Path) -> Self {
+        let path_name = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()).unwrap();
+        // SAFETY: path_name is a valid, NUL-terminated path in the test directory.
+        assert_eq!(unsafe { libc::mkfifo(path_name.as_ptr(), 0o600) }, 0);
+        Self(fs::OpenOptions::new().read(true).write(true).open(path).unwrap())
+    }
+
+    fn receive(&mut self, timeout: Duration) {
+        let timeout = timeout.as_millis().clamp(1, i32::MAX as u128) as i32;
+        let mut descriptor =
+            libc::pollfd { fd: self.0.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+        // SAFETY: descriptor points to one initialized pollfd for this call.
+        assert_eq!(unsafe { libc::poll(&raw mut descriptor, 1, timeout) }, 1);
+        assert_ne!(descriptor.revents & libc::POLLIN, 0);
+        let mut byte = [0_u8; 1];
+        self.0.read_exact(&mut byte).unwrap();
+    }
+}
 
 fn test_timeout_scale() -> u32 {
     std::env::var("CMUX_TEST_TIMEOUT_SCALE")
@@ -131,6 +154,14 @@ impl RecoveryHarness {
         assert!(self.child.is_none());
         let child = self.daemon_command().spawn().unwrap();
         self.child = Some(child);
+        wait_for_socket(&self.socket);
+    }
+
+    fn restart_with_adoption_signal(&mut self, signal: &Path) {
+        assert!(self.child.is_none());
+        let mut command = self.daemon_command();
+        command.env("CMUX_TUI_TEST_TERMINAL_ADOPTED_SIGNAL", signal);
+        self.child = Some(command.spawn().unwrap());
         wait_for_socket(&self.socket);
     }
 
@@ -663,11 +694,7 @@ fn explicit_terminate_reaps_background_jobs_in_separate_pty_process_groups() {
     host.terminate().unwrap();
     host.disconnect();
     wait_for_no_host_records(&harness.host_root());
-    let deadline = Instant::now() + Duration::from_secs(1);
-    while process_exists(descendant_pid) && Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    let descendant_remained = process_exists(descendant_pid);
+    let descendant_remained = process_is_active(descendant_pid);
     if descendant_remained {
         // SAFETY: the live process and group belong to this isolated fixture.
         let _ = unsafe { libc::killpg(descendant_group, libc::SIGKILL) };
@@ -1649,8 +1676,11 @@ fn terminal_host_survives_sigkill_and_is_adopted_with_io_and_size() {
     assert!(endpoint.exists(), "terminal host socket disappeared with the daemon");
     assert_eq!(wait_for_host_records(&harness.host_root(), 1)[0].1.terminal_id, terminal_id);
 
-    harness.restart();
-    let adopted_surface = wait_for_adopted_terminal(
+    let adoption_signal_path = harness.dir.join("terminal-adopted");
+    let mut adoption_signal = TestFifoSignal::create(&adoption_signal_path);
+    harness.restart_with_adoption_signal(&adoption_signal_path);
+    adoption_signal.receive(Duration::from_secs(15));
+    let adopted_surface = adopted_terminal(
         &harness.socket,
         &terminal_id,
         &incarnation,
@@ -1717,8 +1747,11 @@ fn terminal_host_survives_sigkill_and_is_adopted_with_io_and_size() {
     // A second crash proves the resize landed in the PTY-owning process, not
     // only in the disposable daemon-side Ghostty mirror.
     harness.sigkill();
-    harness.restart();
-    let resized_surface = wait_for_adopted_terminal(
+    let adoption_signal_path = harness.dir.join("resized-terminal-adopted");
+    let mut adoption_signal = TestFifoSignal::create(&adoption_signal_path);
+    harness.restart_with_adoption_signal(&adoption_signal_path);
+    adoption_signal.receive(Duration::from_secs(15));
+    let resized_surface = adopted_terminal(
         &harness.socket,
         &terminal_id,
         &incarnation,
@@ -2099,6 +2132,7 @@ fn daemon_admin_backpressure_reconnects_without_restarting_host_or_renderer() {
     .unwrap();
     let mut renderer_writer = renderer.stream.try_clone().unwrap();
     let drained = Arc::new(AtomicUsize::new(0));
+    let (drain_progress_tx, drain_progress_rx) = std::sync::mpsc::channel();
     let drain_count = drained.clone();
     let drain = std::thread::spawn(move || {
         let mut renderer = renderer;
@@ -2110,7 +2144,9 @@ fn daemon_admin_backpressure_reconnects_without_restarting_host_or_renderer() {
                         renderer.next_sequence = renderer.next_sequence.wrapping_add(1);
                     }
                     if frame.kind == MessageKind::Output {
-                        drain_count.fetch_add(frame.payload.len(), Ordering::AcqRel);
+                        let drained = drain_count.fetch_add(frame.payload.len(), Ordering::AcqRel)
+                            + frame.payload.len();
+                        drain_progress_tx.send(drained).unwrap();
                     }
                 }
                 Ok(None) | Err(ProtocolError::Truncated { .. }) | Err(ProtocolError::Io(_)) => {
@@ -2133,8 +2169,11 @@ fn daemon_admin_backpressure_reconnects_without_restarting_host_or_renderer() {
         .unwrap();
         let expected = chunk * 1_000_000;
         let deadline = Instant::now() + scaled_timeout(Duration::from_secs(15));
-        while drained.load(Ordering::Acquire) < expected && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(10));
+        while drained.load(Ordering::Acquire) < expected {
+            let remaining = deadline
+                .checked_duration_since(Instant::now())
+                .expect("renderer did not drain output before its deadline");
+            drain_progress_rx.recv_timeout(remaining).unwrap();
         }
         assert!(
             drained.load(Ordering::Acquire) >= expected,
@@ -3064,58 +3103,31 @@ fn wait_for_screen(path: &Path, surface: u64, marker: &str) -> String {
 }
 
 fn wait_for_stream_disconnect(stream: &mut UnixStream, timeout: Duration) -> bool {
-    let deadline = Instant::now() + timeout;
-    let previous_timeout = stream.write_timeout().ok().flatten();
-    let disconnected = loop {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            break false;
-        }
-        if stream.set_write_timeout(Some(remaining.min(Duration::from_millis(50)))).is_err() {
-            break true;
-        }
-        // ReleaseViewer is valid and idempotent for this renderer but produces
-        // no host-to-client frame, so it probes only the input half of the
-        // connection while output remains deliberately unread.
-        match write_frame(stream, &Frame::new(MessageKind::ReleaseViewer, Vec::new())) {
-            Ok(()) => {}
-            Err(ProtocolError::Io(error))
-                if matches!(
-                    error.kind(),
-                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                ) => {}
-            Err(_) => break true,
-        }
-        std::thread::sleep(remaining.min(Duration::from_millis(10)));
-    };
-    let _ = stream.set_write_timeout(previous_timeout);
-    disconnected
+    let timeout = timeout.as_millis().clamp(1, i32::MAX as u128) as i32;
+    let mut descriptor = libc::pollfd { fd: stream.as_raw_fd(), events: 0, revents: 0 };
+    // SAFETY: descriptor points to the live renderer socket for this call.
+    match unsafe { libc::poll(&raw mut descriptor, 1, timeout) } {
+        1 => descriptor.revents & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL) != 0,
+        0 => false,
+        _ => panic!("renderer disconnect observer failed: {}", std::io::Error::last_os_error()),
+    }
 }
 
-fn wait_for_adopted_terminal(
-    path: &Path,
-    terminal_id: &str,
-    incarnation: &str,
-    failure: &str,
-) -> u64 {
-    let deadline = Instant::now() + Duration::from_secs(15);
-    loop {
-        let resolved = request(
-            path,
-            serde_json::json!({
-                "cmd": "resolve-terminal",
-                "terminal_id": terminal_id,
-            }),
-        );
-        if resolved["lifecycle"] == "running"
-            && resolved["terminal_incarnation"].as_str() == Some(incarnation)
-            && let Some(surface) = resolved["surface"].as_u64()
-        {
-            return surface;
-        }
-        assert!(Instant::now() < deadline, "{failure}: {resolved}");
-        std::thread::sleep(Duration::from_millis(50));
-    }
+fn adopted_terminal(path: &Path, terminal_id: &str, incarnation: &str, failure: &str) -> u64 {
+    let resolved = request(
+        path,
+        serde_json::json!({
+            "cmd": "resolve-terminal",
+            "terminal_id": terminal_id,
+        }),
+    );
+    assert_eq!(resolved["lifecycle"], "running", "{failure}: {resolved}");
+    assert_eq!(
+        resolved["terminal_incarnation"].as_str(),
+        Some(incarnation),
+        "{failure}: {resolved}"
+    );
+    resolved["surface"].as_u64().unwrap_or_else(|| panic!("{failure}: {resolved}"))
 }
 
 fn wait_for_host_records(root: &Path, expected: usize) -> Vec<(PathBuf, TerminalHostRecord)> {
@@ -3211,6 +3223,15 @@ fn process_exists(pid: libc::pid_t) -> bool {
     // SAFETY: signal 0 performs existence/permission checks only.
     (unsafe { libc::kill(pid, 0) }) == 0
         || std::io::Error::last_os_error().kind() == std::io::ErrorKind::PermissionDenied
+}
+
+fn process_is_active(pid: libc::pid_t) -> bool {
+    let output = Command::new("ps")
+        .args(["-o", "stat=", "-p", &pid.to_string()])
+        .output()
+        .expect("inspect process state");
+    output.status.success()
+        && output.stdout.iter().copied().find(|byte| !byte.is_ascii_whitespace()) != Some(b'Z')
 }
 
 fn wait_for_host_size(root: &Path, cols: u16, rows: u16) {

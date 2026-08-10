@@ -4283,6 +4283,9 @@ pub fn serve_websocket(
                     continue;
                 }
             };
+            if stream.set_nonblocking(false).is_err() {
+                continue;
+            }
             #[cfg(all(test, target_os = "macos"))]
             thread_accepted_stream_mode.store(
                 if tcp_stream_is_nonblocking_for_test(&stream) { 2 } else { 1 },
@@ -10701,52 +10704,56 @@ mod tests {
         const DESCRIPTOR_ENV: &str = "CMUX_TUI_TEST_PUBLICATION_GUARD_FD";
         const TEST_NAME: &str = "server::tests::publication_guard_transfers_across_exec";
 
-        fn wait_for_marker(child: &mut std::process::Child, marker: &Path) -> Result<(), String> {
-            let deadline = Instant::now() + Duration::from_secs(5);
-            loop {
-                if marker.exists() {
-                    return Ok(());
-                }
-                if let Some(status) = child.try_wait().map_err(|error| error.to_string())? {
-                    return Err(format!(
-                        "publication child exited before {}: {status}",
-                        marker.display()
-                    ));
-                }
-                if Instant::now() >= deadline {
-                    return Err(format!("publication child did not create {}", marker.display()));
-                }
-                std::thread::sleep(Duration::from_millis(10));
-            }
-        }
+        struct TestSignal(std::fs::File);
 
-        fn wait_for_child_exit(
-            child: &mut std::process::Child,
-        ) -> Result<std::process::ExitStatus, String> {
-            let deadline = Instant::now() + Duration::from_secs(5);
-            loop {
-                match child.try_wait() {
-                    Ok(Some(status)) => return Ok(status),
-                    Ok(None) if Instant::now() < deadline => {
-                        std::thread::sleep(Duration::from_millis(10));
-                    }
-                    Ok(None) => {
-                        let _ = child.kill();
-                        let _ = child.wait();
-                        return Err("publication child did not exit".to_string());
-                    }
-                    Err(error) => {
-                        let _ = child.kill();
-                        let _ = child.wait();
-                        return Err(error.to_string());
-                    }
+        impl TestSignal {
+            fn open(path: &Path) -> Self {
+                Self(std::fs::OpenOptions::new().read(true).write(true).open(path).unwrap())
+            }
+
+            fn create(path: &Path) -> Self {
+                use std::os::unix::ffi::OsStrExt as _;
+
+                let path_name = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+                // SAFETY: path_name is a valid, null-terminated path owned for this call.
+                assert_eq!(unsafe { libc::mkfifo(path_name.as_ptr(), 0o600) }, 0);
+                Self::open(path)
+            }
+
+            fn send(&mut self) {
+                use std::io::Write as _;
+
+                self.0.write_all(b"ready").unwrap();
+            }
+
+            fn receive_until(&mut self, deadline: Instant) -> Result<(), String> {
+                use std::io::Read as _;
+                use std::os::fd::AsRawFd as _;
+
+                let remaining = deadline
+                    .checked_duration_since(Instant::now())
+                    .ok_or_else(|| "publication signal deadline expired".to_string())?;
+                let timeout = remaining.as_millis().clamp(1, i32::MAX as u128) as i32;
+                let mut descriptor =
+                    libc::pollfd { fd: self.0.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+                // SAFETY: descriptor points to one initialized pollfd for this call.
+                let ready = unsafe { libc::poll(&raw mut descriptor, 1, timeout) };
+                if ready != 1 || descriptor.revents & libc::POLLIN == 0 {
+                    return Err("publication signal was not received before its deadline".into());
                 }
+                let mut byte = [0_u8; 1];
+                self.0.read_exact(&mut byte).map_err(|error| error.to_string())
             }
         }
 
         if let Some(directory) = std::env::var_os(CHILD_ENV) {
             let directory = PathBuf::from(directory);
             let path = directory.join("server.sock");
+            let mut ready = TestSignal::open(&directory.join("ready"));
+            let mut release = TestSignal::open(&directory.join("release"));
+            let mut dropped = TestSignal::open(&directory.join("dropped"));
+            let mut finish = TestSignal::open(&directory.join("finish"));
+            let mut exiting = TestSignal::open(&directory.join("exiting"));
             let descriptor =
                 std::env::var(DESCRIPTOR_ENV).unwrap().parse::<std::os::fd::RawFd>().unwrap();
             // SAFETY: the parent passed the unique descriptor copy prepared
@@ -10759,19 +10766,12 @@ mod tests {
                 )
             }
             .unwrap();
-            std::fs::write(directory.join("ready"), []).unwrap();
-            let deadline = Instant::now() + Duration::from_secs(5);
-            while !directory.join("release").exists() {
-                assert!(Instant::now() < deadline, "parent did not release publication child");
-                std::thread::sleep(Duration::from_millis(10));
-            }
+            ready.send();
+            release.receive_until(Instant::now() + Duration::from_secs(5)).unwrap();
             drop(guard);
-            std::fs::write(directory.join("dropped"), []).unwrap();
-            let deadline = Instant::now() + Duration::from_secs(5);
-            while !directory.join("finish").exists() {
-                assert!(Instant::now() < deadline, "parent did not finish publication child");
-                std::thread::sleep(Duration::from_millis(10));
-            }
+            dropped.send();
+            finish.receive_until(Instant::now() + Duration::from_secs(5)).unwrap();
+            exiting.send();
             return;
         }
 
@@ -10780,6 +10780,11 @@ mod tests {
             .join(format!("cmux-publication-transfer-{}-{sequence:x}", std::process::id()));
         std::fs::create_dir(&directory).unwrap();
         let path = directory.join("server.sock");
+        let mut ready = TestSignal::create(&directory.join("ready"));
+        let mut release = TestSignal::create(&directory.join("release"));
+        let mut dropped = TestSignal::create(&directory.join("dropped"));
+        let mut finish = TestSignal::create(&directory.join("finish"));
+        let mut exiting = TestSignal::create(&directory.join("exiting"));
         let guard =
             PublicationGuard::acquire(&path, Instant::now() + Duration::from_secs(1)).unwrap();
         let mut command = std::process::Command::new(std::env::current_exe().unwrap());
@@ -10793,7 +10798,7 @@ mod tests {
             .stderr(std::process::Stdio::null());
         let mut child = cmux_tui_process::spawn(&mut command).unwrap();
 
-        let ready = wait_for_marker(&mut child, &directory.join("ready"));
+        let ready_result = ready.receive_until(Instant::now() + Duration::from_secs(5));
         drop(guard);
         let competing =
             PublicationGuard::acquire(&path, Instant::now() + Duration::from_millis(150));
@@ -10801,22 +10806,24 @@ mod tests {
             matches!(&competing, Err(error) if error.kind() == std::io::ErrorKind::TimedOut);
         drop(competing);
 
-        std::fs::write(directory.join("release"), []).unwrap();
-        let dropped = wait_for_marker(&mut child, &directory.join("dropped"));
+        release.send();
+        let dropped_result = dropped.receive_until(Instant::now() + Duration::from_secs(5));
         let reacquired = PublicationGuard::acquire(&path, Instant::now() + Duration::from_secs(1));
         let child_released_lock = reacquired.is_ok();
         drop(reacquired);
-        std::fs::write(directory.join("finish"), []).unwrap();
-        let status = wait_for_child_exit(&mut child);
+        finish.send();
+        let exiting_result = exiting.receive_until(Instant::now() + Duration::from_secs(5));
+        let status = child.wait();
 
-        for marker in ["ready", "release", "dropped", "finish"] {
+        for marker in ["ready", "release", "dropped", "finish", "exiting"] {
             let _ = std::fs::remove_file(directory.join(marker));
         }
         let _ = std::fs::remove_file(crate::publication::publication_lock_path(&path).unwrap());
         std::fs::remove_dir(&directory).unwrap();
 
-        ready.unwrap();
-        dropped.unwrap();
+        ready_result.unwrap();
+        dropped_result.unwrap();
+        exiting_result.unwrap();
         let status = status.unwrap();
         assert!(status.success(), "publication child failed: {status}");
         assert!(child_retained_lock, "parent release dropped the child's publication lock");

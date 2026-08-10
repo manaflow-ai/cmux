@@ -21,6 +21,72 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::platform::transport;
 
+#[cfg(unix)]
+struct TestFifoSignal(File);
+
+#[cfg(unix)]
+impl TestFifoSignal {
+    fn create(path: &std::path::Path) -> Self {
+        let path_name = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()).unwrap();
+        // SAFETY: path_name is a valid, NUL-terminated path in the test directory.
+        assert_eq!(unsafe { libc::mkfifo(path_name.as_ptr(), 0o600) }, 0);
+        Self(fs::OpenOptions::new().read(true).write(true).open(path).unwrap())
+    }
+
+    fn send(&mut self) {
+        self.0.write_all(b"1").unwrap();
+    }
+
+    fn receive(&mut self, timeout: Duration) {
+        let timeout = timeout.as_millis().clamp(1, i32::MAX as u128) as i32;
+        let mut descriptor =
+            libc::pollfd { fd: self.0.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+        // SAFETY: descriptor points to one initialized pollfd for this call.
+        assert_eq!(unsafe { libc::poll(&raw mut descriptor, 1, timeout) }, 1);
+        assert_ne!(descriptor.revents & libc::POLLIN, 0);
+        let mut byte = [0_u8; 1];
+        self.0.read_exact(&mut byte).unwrap();
+    }
+}
+
+#[cfg(unix)]
+fn wait_for_child_exit(
+    child: &mut Child,
+    timeout: Duration,
+    failure: &str,
+) -> std::process::ExitStatus {
+    let pid = child.id();
+    let (exited_tx, exited_rx) = mpsc::sync_channel(1);
+    let observer = std::thread::spawn(move || {
+        let mut status = std::mem::MaybeUninit::<libc::siginfo_t>::zeroed();
+        // SAFETY: status points to writable siginfo storage. WNOWAIT observes
+        // this exact child transition without consuming its exit status.
+        let result = unsafe {
+            libc::waitid(
+                libc::P_PID,
+                pid as libc::id_t,
+                status.as_mut_ptr(),
+                libc::WEXITED | libc::WNOWAIT,
+            )
+        };
+        let result = if result == 0 { Ok(()) } else { Err(std::io::Error::last_os_error()) };
+        exited_tx.send(result).unwrap();
+    });
+    match exited_rx.recv_timeout(timeout) {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => panic!("waitid failed: {error}"),
+        Err(_) => {
+            let _ = child.kill();
+            let _ = exited_rx.recv_timeout(Duration::from_secs(1));
+            let _ = child.wait();
+            observer.join().unwrap();
+            panic!("{failure}");
+        }
+    }
+    observer.join().unwrap();
+    child.wait().unwrap()
+}
+
 struct HeadlessServer {
     child: Child,
     socket: PathBuf,
@@ -175,37 +241,40 @@ fn server_establishes_shutdown_ownership_before_publishing_its_listener() {
     fs::create_dir_all(&dir).unwrap();
     let socket = dir.join("mux.sock");
     let marker = dir.join("watchdog-starting");
+    let release = dir.join("watchdog-release");
+    for path in [&marker, &release] {
+        let path = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()).unwrap();
+        // SAFETY: path is a valid, NUL-terminated path in the test directory.
+        assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+    }
+    let (ready_sender, ready_receiver) = std::sync::mpsc::sync_channel(1);
+    let ready_marker = marker.clone();
+    let ready_reader = std::thread::spawn(move || {
+        use std::io::Read as _;
+
+        let mut marker = fs::File::open(ready_marker).unwrap();
+        let mut signal = [0_u8; 1];
+        marker.read_exact(&mut signal).unwrap();
+        ready_sender.send(()).unwrap();
+    });
     let mut child = Command::new(bin())
         .args(["--headless", "--ephemeral", "--socket"])
         .arg(&socket)
         .env("CMUX_TUI_TEST_WATCHDOG_START_FAILURE", &marker)
+        .env("CMUX_TUI_TEST_WATCHDOG_START_FAILURE_RELEASE", &release)
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
 
-    let marker_deadline = Instant::now() + Duration::from_secs(15);
-    while !marker.exists() && Instant::now() < marker_deadline {
-        assert!(
-            child.try_wait().unwrap().is_none(),
-            "server exited before entering the watchdog failure hook"
-        );
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(marker.exists(), "watchdog failure hook was not reached");
+    ready_receiver
+        .recv_timeout(Duration::from_secs(15))
+        .expect("watchdog failure hook was not reached");
+    ready_reader.join().unwrap();
     let listener_was_published = socket.exists();
 
-    let exit_deadline = Instant::now() + Duration::from_secs(5);
-    let status = loop {
-        if let Some(status) = child.try_wait().unwrap() {
-            break status;
-        }
-        if Instant::now() >= exit_deadline {
-            child.kill().unwrap();
-            break child.wait().unwrap();
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    };
+    fs::write(&release, b"release").unwrap();
+    let status = child.wait().unwrap();
     let _ = fs::remove_file(&socket);
     let _ = fs::remove_dir_all(&dir);
 
@@ -251,7 +320,26 @@ fn process_is_active(pid: u32) -> bool {
 
 #[cfg(all(unix, not(target_os = "linux")))]
 fn process_is_active(pid: u32) -> bool {
-    process_exists(pid)
+    let output = Command::new("ps")
+        .args(["-o", "stat=", "-p", &pid.to_string()])
+        .output()
+        .expect("inspect process state");
+    output.status.success()
+        && output.stdout.iter().copied().find(|byte| !byte.is_ascii_whitespace()) != Some(b'Z')
+}
+
+#[cfg(unix)]
+fn process_group_is_active(group: u32) -> bool {
+    let output = Command::new("ps")
+        .args(["-axo", "pgid=,stat="])
+        .output()
+        .expect("inspect process-group state");
+    let group = group.to_string();
+    String::from_utf8_lossy(&output.stdout).lines().any(|line| {
+        let mut fields = line.split_whitespace();
+        fields.next() == Some(group.as_str())
+            && fields.next().is_some_and(|state| !state.starts_with('Z'))
+    })
 }
 
 #[cfg(unix)]
@@ -277,16 +365,117 @@ fn process_group_exists(_pid: u32) -> bool {
 
 #[cfg(unix)]
 fn wait_for_pid_file(path: &std::path::Path, timeout: Duration) -> u32 {
-    let deadline = Instant::now() + timeout;
-    loop {
-        if let Some(pid) =
-            fs::read_to_string(path).ok().and_then(|value| value.trim().parse::<u32>().ok())
-        {
-            return pid;
-        }
-        assert!(Instant::now() < deadline, "PID file was not ready: {}", path.display());
-        std::thread::sleep(Duration::from_millis(10));
+    fn read_pid(path: &std::path::Path) -> Option<u32> {
+        fs::read_to_string(path).ok()?.trim().parse().ok()
     }
+
+    if let Some(pid) = read_pid(path) {
+        return pid;
+    }
+    let deadline = Instant::now() + timeout;
+
+    #[cfg(target_os = "linux")]
+    {
+        let parent = path.parent().unwrap();
+        // SAFETY: inotify_init1 returns a new owned descriptor on success.
+        let descriptor = unsafe { libc::inotify_init1(libc::IN_CLOEXEC) };
+        assert!(descriptor >= 0, "could not create PID publication observer");
+        // SAFETY: descriptor is newly owned by this test.
+        let observer = unsafe { File::from_raw_fd(descriptor) };
+        let parent = std::ffi::CString::new(parent.as_os_str().as_encoded_bytes()).unwrap();
+        // SAFETY: parent is a valid, NUL-terminated directory path.
+        assert!(
+            unsafe {
+                libc::inotify_add_watch(
+                    observer.as_raw_fd(),
+                    parent.as_ptr(),
+                    libc::IN_CREATE | libc::IN_CLOSE_WRITE | libc::IN_MOVED_TO,
+                )
+            } >= 0
+        );
+        loop {
+            if let Some(pid) = read_pid(path) {
+                return pid;
+            }
+            let remaining = deadline
+                .checked_duration_since(Instant::now())
+                .expect("PID file was not published before its deadline");
+            let timeout = remaining.as_millis().clamp(1, i32::MAX as u128) as i32;
+            let mut poll_descriptor =
+                libc::pollfd { fd: observer.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+            // SAFETY: poll_descriptor points to one initialized pollfd for this call.
+            assert_eq!(unsafe { libc::poll(&raw mut poll_descriptor, 1, timeout) }, 1);
+            let mut events = [0_u8; 4_096];
+            // SAFETY: events is writable for its full length.
+            assert!(
+                unsafe {
+                    libc::read(observer.as_raw_fd(), events.as_mut_ptr().cast(), events.len())
+                } > 0
+            );
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let directory = File::open(path.parent().unwrap()).unwrap();
+        // SAFETY: kqueue returns a new owned descriptor on success.
+        let descriptor = unsafe { libc::kqueue() };
+        assert!(descriptor >= 0, "could not create PID publication observer");
+        // SAFETY: descriptor is newly owned by this test.
+        let observer = unsafe { File::from_raw_fd(descriptor) };
+        let change = libc::kevent {
+            ident: directory.as_raw_fd() as libc::uintptr_t,
+            filter: libc::EVFILT_VNODE,
+            flags: (libc::EV_ADD | libc::EV_ENABLE | libc::EV_CLEAR) as u16,
+            fflags: libc::NOTE_WRITE | libc::NOTE_EXTEND | libc::NOTE_RENAME,
+            data: 0,
+            udata: std::ptr::null_mut(),
+        };
+        // SAFETY: change describes the live directory descriptor for this call.
+        assert_eq!(
+            unsafe {
+                libc::kevent(
+                    observer.as_raw_fd(),
+                    &raw const change,
+                    1,
+                    std::ptr::null_mut(),
+                    0,
+                    std::ptr::null(),
+                )
+            },
+            0
+        );
+        loop {
+            if let Some(pid) = read_pid(path) {
+                return pid;
+            }
+            let remaining = deadline
+                .checked_duration_since(Instant::now())
+                .expect("PID file was not published before its deadline");
+            let timeout = libc::timespec {
+                tv_sec: remaining.as_secs() as _,
+                tv_nsec: remaining.subsec_nanos() as _,
+            };
+            let mut event = std::mem::MaybeUninit::<libc::kevent>::uninit();
+            // SAFETY: event points to one writable kevent and timeout lives for this call.
+            assert_eq!(
+                unsafe {
+                    libc::kevent(
+                        observer.as_raw_fd(),
+                        std::ptr::null(),
+                        0,
+                        event.as_mut_ptr(),
+                        1,
+                        &raw const timeout,
+                    )
+                },
+                1
+            );
+        }
+    }
+
+    #[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
+    panic!("PID publication observer is unavailable on this test platform")
 }
 
 #[cfg(unix)]
@@ -313,12 +502,15 @@ impl LegacyServerProcess {
         fs::create_dir_all(&dir).unwrap();
         let socket = dir.join("mux.sock");
         let descendant_pid_file = dir.join("descendant.pid");
+        let ready_path = dir.join("ready");
+        let mut ready = TestFifoSignal::create(&ready_path);
         let mut command = Command::new(std::env::current_exe().unwrap());
         command
             .args(["--ignored", "--exact", "legacy_server_process_helper"])
             .env("CMUX_TUI_TEST_LEGACY_SOCKET", &socket)
             .env("CMUX_TUI_TEST_LEGACY_SCENARIO", scenario)
             .env("CMUX_TUI_TEST_LEGACY_DESCENDANT_PID_FILE", &descendant_pid_file)
+            .env("CMUX_TUI_TEST_LEGACY_READY_SIGNAL", &ready_path)
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
         if let Some(reported_pid) = reported_pid {
@@ -328,20 +520,8 @@ impl LegacyServerProcess {
             command.env("CMUX_TUI_TEST_LEGACY_SURFACE_PID", surface_pid.to_string());
         }
         let child = command.spawn().unwrap();
-        let mut server = Self { child, socket, dir, descendant_pid_file };
-        let deadline = Instant::now() + Duration::from_secs(15);
-        while Instant::now() < deadline {
-            if server.socket.exists() {
-                return server;
-            }
-            if let Some(status) = server.child.try_wait().unwrap() {
-                let mut stderr = String::new();
-                server.child.stderr.take().unwrap().read_to_string(&mut stderr).unwrap();
-                panic!("legacy server helper exited with {status}: {stderr}");
-            }
-            std::thread::sleep(Duration::from_millis(25));
-        }
-        panic!("legacy server helper did not create socket at {}", server.socket.display());
+        ready.receive(Duration::from_secs(15));
+        Self { child, socket, dir, descendant_pid_file }
     }
 
     fn descendant_pid(&self) -> Option<u32> {
@@ -417,18 +597,20 @@ fn legacy_server_process_helper() {
         )
         .unwrap();
         drop(descendant);
-        let deadline = Instant::now() + Duration::from_secs(5);
-        loop {
-            let status = Command::new("ps")
-                .args(["-o", "stat=", "-p", &descendant_pid.to_string()])
-                .output()
-                .unwrap();
-            if String::from_utf8_lossy(&status.stdout).trim_start().starts_with('Z') {
-                break;
-            }
-            assert!(Instant::now() < deadline, "descendant did not become a zombie");
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        let mut status = std::mem::MaybeUninit::<libc::siginfo_t>::zeroed();
+        // SAFETY: status points to writable siginfo storage. WNOWAIT observes
+        // the exact child exit without consuming its zombie status.
+        assert_eq!(
+            unsafe {
+                libc::waitid(
+                    libc::P_PID,
+                    descendant_pid as libc::id_t,
+                    status.as_mut_ptr(),
+                    libc::WEXITED | libc::WNOWAIT,
+                )
+            },
+            0
+        );
     } else if scenario == "dead-owned-surface" {
         let mut command = Command::new("/bin/bash");
         command
@@ -483,6 +665,7 @@ fn legacy_server_process_helper() {
         reparent_on_close = Some(command.spawn().unwrap());
     }
     let listener = transport::listen(&socket).unwrap();
+    fs::write(std::env::var_os("CMUX_TUI_TEST_LEGACY_READY_SIGNAL").unwrap(), b"1").unwrap();
     let serve_identify = |stream: &mut Box<dyn transport::Stream>| {
         let mut reader = BufReader::new(stream.try_clone_box().unwrap());
         let mut request = String::new();
@@ -1496,29 +1679,27 @@ fi
 #[test]
 fn plain_launch_attaches_to_existing_local_session() {
     let server = HeadlessServer::start("plain-launch-attach");
-    let mut tui = PtyChild::start(&["--socket", server.socket.to_str().unwrap()]);
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let registered_path = server.dir.join("tui-client-registered");
+    let mut registered = TestFifoSignal::create(&registered_path);
+    let mut tui = PtyChild::start_with_env(
+        &["--socket", server.socket.to_str().unwrap()],
+        &[("CMUX_TUI_TEST_CLIENT_REGISTERED_SIGNAL", registered_path.as_os_str())],
+    );
 
-    while Instant::now() < deadline {
-        if let Some(status) = tui.child.try_wait().unwrap() {
-            panic!("plain launch exited instead of attaching: {status}");
-        }
-        let clients = json_cli(&server, &["client", "list"]);
-        if clients.status.success() {
-            let clients = json_output(&clients);
-            if clients
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|client| client["client_kind"].as_str() == Some("tui"))
-            {
-                return;
-            }
-        }
-        std::thread::sleep(Duration::from_millis(50));
+    registered.receive(Duration::from_secs(10));
+    if let Some(status) = tui.child.try_wait().unwrap() {
+        panic!("plain launch exited instead of attaching: {status}");
     }
-
-    panic!("plain launch never attached as a TUI client");
+    let clients = json_cli(&server, &["client", "list"]);
+    assert_success(&clients);
+    assert!(
+        json_output(&clients)
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|client| client["client_kind"].as_str() == Some("tui")),
+        "plain launch registration signal preceded server client state"
+    );
 }
 
 #[cfg(target_os = "linux")]
@@ -1552,18 +1733,11 @@ fn plain_launch_preserves_the_existing_session_connect_deadline() {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(3);
-    let status = loop {
-        if let Some(status) = launch.try_wait().unwrap() {
-            break status;
-        }
-        if Instant::now() >= deadline {
-            let _ = launch.kill();
-            let _ = launch.wait();
-            panic!("plain launch exceeded the existing-session connection deadline");
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    };
+    let status = wait_for_child_exit(
+        &mut launch,
+        Duration::from_secs(3),
+        "plain launch exceeded the existing-session connection deadline",
+    );
 
     assert!(!status.success(), "plain launch replaced a live saturated session");
     assert!(socket.exists(), "plain launch unlinked the live saturated session socket");
@@ -1843,22 +2017,14 @@ fn signal_termination_completes_server_shutdown() {
     wait_for_socket_path(&socket);
 
     assert_eq!(unsafe { libc::kill(server.id() as libc::pid_t, libc::SIGTERM) }, 0);
-    let deadline = Instant::now() + Duration::from_secs(3);
-    let status = loop {
-        if let Some(status) = server.try_wait().unwrap() {
-            break Some(status);
-        }
-        if Instant::now() >= deadline {
-            server.kill().unwrap();
-            let _ = server.wait();
-            break None;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    };
+    let status = wait_for_child_exit(
+        &mut server,
+        Duration::from_secs(3),
+        "SIGTERM left the server waiting on an unrequested mux shutdown",
+    );
     let socket_remained = socket.exists();
     fs::remove_dir_all(dir).unwrap();
 
-    let status = status.expect("SIGTERM left the server waiting on an unrequested mux shutdown");
     assert!(status.success(), "signal-driven shutdown exited with {status}");
     assert!(!socket_remained, "signal-driven shutdown retained its control socket");
 }
@@ -1869,7 +2035,8 @@ fn invalid_websocket_startup_returns_after_publishing_the_local_socket() {
     let dir = unique_temp_dir("invalid-websocket-startup");
     fs::create_dir_all(&dir).unwrap();
     let socket = dir.join("mux.sock");
-    let published = dir.join("published");
+    let published_path = dir.join("published");
+    let mut published = TestFifoSignal::create(&published_path);
     let ghostty = dir.join("ghostty");
     fs::write(&ghostty, "#!/bin/sh\nprintf 'background = #272822\\nforeground = #fdfff1\\n'\n")
         .unwrap();
@@ -1879,36 +2046,23 @@ fn invalid_websocket_startup_returns_after_publishing_the_local_socket() {
         .arg(&socket)
         .args(["--ws", "not-an-address"])
         .env("GHOSTTY_BIN", &ghostty)
-        .env("CMUX_TUI_TEST_LOCAL_SOCKET_PUBLISHED_MARKER", &published)
+        .env("CMUX_TUI_TEST_LOCAL_SOCKET_PUBLISHED_MARKER", &published_path)
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
 
-    let publication_deadline = Instant::now() + Duration::from_secs(15);
-    while !published.exists() && Instant::now() < publication_deadline {
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(published.exists(), "invalid WebSocket setup did not publish its local socket");
-
-    let deadline = Instant::now() + Duration::from_secs(3);
-    let status = loop {
-        if let Some(status) = server.try_wait().unwrap() {
-            break Some(status);
-        }
-        if Instant::now() >= deadline {
-            server.kill().unwrap();
-            let _ = server.wait();
-            break None;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    };
+    published.receive(Duration::from_secs(15));
+    let status = wait_for_child_exit(
+        &mut server,
+        Duration::from_secs(3),
+        "invalid WebSocket setup entered the running-server shutdown wait",
+    );
     let socket_remained = socket.exists();
     let mut stderr = String::new();
     server.stderr.take().unwrap().read_to_string(&mut stderr).unwrap();
     fs::remove_dir_all(dir).unwrap();
 
-    let status = status.expect("invalid WebSocket setup entered the running-server shutdown wait");
     assert!(!status.success(), "invalid WebSocket setup unexpectedly succeeded");
     assert!(stderr.contains("invalid WebSocket address"), "{stderr}");
     assert!(!socket_remained, "failed startup retained its local control socket");
@@ -1933,14 +2087,11 @@ fn server_shutdown_exits_when_the_interactive_driver_cannot_progress() {
     let response = json_socket_request(&socket, serde_json::json!({"id": 1, "cmd": "shutdown"}));
     assert_eq!(response, serde_json::json!({}));
 
-    let deadline = Instant::now() + Duration::from_secs(3);
-    let status = loop {
-        if let Some(status) = server.child.try_wait().unwrap() {
-            break status;
-        }
-        assert!(Instant::now() < deadline, "server remained alive after acknowledging shutdown");
-        std::thread::sleep(Duration::from_millis(10));
-    };
+    let status = wait_for_child_exit(
+        &mut server.child,
+        Duration::from_secs(3),
+        "server remained alive after acknowledging shutdown",
+    );
     assert!(status.success(), "server exited with {status}");
     assert!(transport::connect(&socket).is_err());
     drop(server);
@@ -1955,8 +2106,16 @@ fn forced_exit_waits_for_remote_runtime_cleanup() {
     let socket = dir.join("mux.sock");
     let state = dir.join("state");
     let remote_state = dir.join("remote-state");
-    let remote_started = dir.join("remote-started");
-    let remote_shutdown = dir.join("remote-shutdown");
+    let remote_started_path = dir.join("remote-started");
+    let remote_shutdown_started_path = dir.join("remote-shutdown-started");
+    let remote_shutdown_release_path = dir.join("remote-shutdown-release");
+    let remote_shutdown_complete_path = dir.join("remote-shutdown-complete");
+    let server_exit_ready_path = dir.join("server-exit-ready");
+    let mut remote_started = TestFifoSignal::create(&remote_started_path);
+    let mut remote_shutdown_started = TestFifoSignal::create(&remote_shutdown_started_path);
+    let mut remote_shutdown_release = TestFifoSignal::create(&remote_shutdown_release_path);
+    let mut remote_shutdown_complete = TestFifoSignal::create(&remote_shutdown_complete_path);
+    let mut server_exit_ready = TestFifoSignal::create(&server_exit_ready_path);
     let mut server = PtyChild::start_with_env(
         &[
             "--socket",
@@ -1970,44 +2129,34 @@ fn forced_exit_waits_for_remote_runtime_cleanup() {
         &[
             ("CMUX_TUI_TEST_BLOCK_INTERACTIVE_DRIVER", std::ffi::OsStr::new("1")),
             ("CMUX_TUI_TEST_SHUTDOWN_EXIT_GRACE_MS", std::ffi::OsStr::new("100")),
-            ("CMUX_TUI_TEST_REMOTE_RUNTIME_STARTED_MARKER", remote_started.as_os_str()),
-            ("CMUX_TUI_TEST_REMOTE_SHUTDOWN_MARKER", remote_shutdown.as_os_str()),
-            ("CMUX_TUI_TEST_REMOTE_SHUTDOWN_DELAY_MS", std::ffi::OsStr::new("500")),
+            ("CMUX_TUI_TEST_REMOTE_RUNTIME_STARTED_MARKER", remote_started_path.as_os_str()),
+            (
+                "CMUX_TUI_TEST_REMOTE_SHUTDOWN_STARTED_SIGNAL",
+                remote_shutdown_started_path.as_os_str(),
+            ),
+            ("CMUX_TUI_TEST_REMOTE_SHUTDOWN_GATE", remote_shutdown_release_path.as_os_str()),
+            (
+                "CMUX_TUI_TEST_REMOTE_SHUTDOWN_COMPLETE_SIGNAL",
+                remote_shutdown_complete_path.as_os_str(),
+            ),
+            ("CMUX_TUI_TEST_SERVER_EXIT_READY_SIGNAL", server_exit_ready_path.as_os_str()),
         ],
     );
     wait_for_socket_path(&socket);
-    let startup_deadline = Instant::now() + Duration::from_secs(10);
-    while !remote_started.exists() {
-        assert!(
-            server.child.try_wait().unwrap().is_none(),
-            "server exited before starting its remote runtime"
-        );
-        assert!(Instant::now() < startup_deadline, "remote runtime did not start");
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    remote_started.receive(Duration::from_secs(10));
 
     let response = json_socket_request(&socket, serde_json::json!({"id": 1, "cmd": "shutdown"}));
     assert_eq!(response, serde_json::json!({}));
-    std::thread::sleep(Duration::from_millis(250));
-    assert_eq!(
-        fs::read(&remote_shutdown).ok().as_deref(),
-        Some(b"started".as_slice()),
-        "remote runtime cleanup did not enter the process completion fence"
-    );
+    remote_shutdown_started.receive(Duration::from_secs(3));
     assert!(
         server.child.try_wait().unwrap().is_none(),
         "server forced exit before remote runtime cleanup completed"
     );
 
-    let deadline = Instant::now() + Duration::from_secs(5);
-    let status = loop {
-        if let Some(status) = server.child.try_wait().unwrap() {
-            break status;
-        }
-        assert!(Instant::now() < deadline, "server remained alive after remote cleanup");
-        std::thread::sleep(Duration::from_millis(10));
-    };
-    assert_eq!(fs::read(&remote_shutdown).unwrap(), b"complete");
+    remote_shutdown_release.send();
+    remote_shutdown_complete.receive(Duration::from_secs(5));
+    server_exit_ready.receive(Duration::from_secs(5));
+    let status = server.child.wait().unwrap();
     assert!(status.success(), "server exited with {status}");
     drop(server);
     fs::remove_dir_all(dir).unwrap();
@@ -2056,26 +2205,14 @@ fn daemon_handoff_cleans_local_ptys_before_forcing_a_blocked_interactive_driver_
     );
     assert_eq!(response["accepted"], true);
 
-    let deadline = Instant::now() + Duration::from_secs(3);
-    let status = loop {
-        if let Some(status) = server.child.try_wait().unwrap() {
-            break status;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "server remained alive after acknowledging daemon handoff"
-        );
-        std::thread::sleep(Duration::from_millis(10));
-    };
+    let status = wait_for_child_exit(
+        &mut server.child,
+        Duration::from_secs(3),
+        "server remained alive after acknowledging daemon handoff",
+    );
     assert!(status.success(), "server exited with {status}");
     assert!(transport::connect(&socket).is_err());
-    let cleanup_deadline = Instant::now() + Duration::from_secs(3);
-    while (process_exists(local_pid) || process_group_exists(local_pid))
-        && Instant::now() < cleanup_deadline
-    {
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    let cleaned = !process_exists(local_pid) && !process_group_exists(local_pid);
+    let cleaned = !process_is_active(local_pid) && !process_group_is_active(local_pid);
     if !cleaned {
         let local_pid = libc::pid_t::try_from(local_pid).unwrap();
         // SAFETY: local_pid names the isolated PTY session created by this test.
@@ -2092,10 +2229,19 @@ fn daemon_handoff_cleans_local_ptys_before_forcing_a_blocked_interactive_driver_
 #[cfg(unix)]
 #[test]
 fn server_stop_cancels_a_blocked_terminal_host_launch() {
+    let blocked_path = unique_temp_dir("server-stop-blocked-launch").with_extension("blocked");
+    let gate_path = unique_temp_dir("server-stop-blocked-launch").with_extension("gate");
+    let mut blocked = TestFifoSignal::create(&blocked_path);
+    let _gate = TestFifoSignal::create(&gate_path);
+    let blocked_value = blocked_path.to_string_lossy().into_owned();
+    let gate_value = gate_path.to_string_lossy().into_owned();
     let mut server = HeadlessServer::start_with(
         "server-stop-blocked-launch",
         false,
-        &[("CMUX_TUI_TEST_BOOTSTRAP_READY_DELAY_MS", "3000")],
+        &[
+            ("CMUX_TUI_TEST_BOOTSTRAP_READY_STARTED_SIGNAL", &blocked_value),
+            ("CMUX_TUI_TEST_BOOTSTRAP_READY_GATE", &gate_value),
+        ],
     );
     let mut create = raw_cli_command(
         &server.socket,
@@ -2106,7 +2252,7 @@ fn server_stop_cancels_a_blocked_terminal_host_launch() {
     .spawn()
     .unwrap();
     let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&server.state, "main");
-    std::thread::sleep(Duration::from_millis(250));
+    blocked.receive(Duration::from_secs(5));
     assert!(create.try_wait().unwrap().is_none(), "terminal creation did not remain in flight");
 
     let stop_started = Instant::now();
@@ -2121,15 +2267,27 @@ fn server_stop_cancels_a_blocked_terminal_host_launch() {
     assert!(server.child.wait().unwrap().success());
     assert!(!create.wait().unwrap().success());
     assert!(terminal_host_pids(&host_root).is_empty());
+    fs::remove_file(blocked_path).unwrap();
+    fs::remove_file(gate_path).unwrap();
 }
 
 #[cfg(unix)]
 #[test]
 fn server_stop_cancels_a_blocked_terminal_host_launch_write() {
+    let blocked_path =
+        unique_temp_dir("server-stop-blocked-launch-write").with_extension("blocked");
+    let gate_path = unique_temp_dir("server-stop-blocked-launch-write").with_extension("gate");
+    let mut blocked = TestFifoSignal::create(&blocked_path);
+    let _gate = TestFifoSignal::create(&gate_path);
+    let blocked_value = blocked_path.to_string_lossy().into_owned();
+    let gate_value = gate_path.to_string_lossy().into_owned();
     let mut server = HeadlessServer::start_with(
         "server-stop-blocked-launch-write",
         false,
-        &[("CMUX_TUI_TEST_STALL_AFTER_BOOTSTRAP_READY_MS", "3000")],
+        &[
+            ("CMUX_TUI_TEST_LAUNCH_READ_STARTED_SIGNAL", &blocked_value),
+            ("CMUX_TUI_TEST_LAUNCH_READ_GATE", &gate_value),
+        ],
     );
     // Linux caps one execve argument below 128 KiB even when the aggregate
     // ARG_MAX is larger. This still exceeds the bootstrap pipe capacity, so
@@ -2149,7 +2307,7 @@ fn server_stop_cancels_a_blocked_terminal_host_launch_write() {
     .spawn()
     .unwrap();
     let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&server.state, "main");
-    std::thread::sleep(Duration::from_millis(250));
+    blocked.receive(Duration::from_secs(5));
     assert!(create.try_wait().unwrap().is_none(), "terminal creation did not block on Launch");
 
     let stop_started = Instant::now();
@@ -2164,12 +2322,15 @@ fn server_stop_cancels_a_blocked_terminal_host_launch_write() {
         stop_elapsed < Duration::from_secs(2),
         "shutdown waited for the blocked Launch write: {stop_elapsed:?}"
     );
+    fs::remove_file(blocked_path).unwrap();
+    fs::remove_file(gate_path).unwrap();
 }
 
 #[cfg(unix)]
 #[test]
 fn cancelled_published_host_is_terminated_through_its_record() {
     let barrier = unique_temp_dir("server-stop-published-launch").with_extension("barrier");
+    let mut published = TestFifoSignal::create(&barrier);
     let barrier_value = barrier.to_string_lossy().into_owned();
     let mut server = HeadlessServer::start_with(
         "server-stop-published-launch",
@@ -2197,17 +2358,10 @@ fn cancelled_published_host_is_terminated_through_its_record() {
     .spawn()
     .unwrap();
     let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&server.state, "main");
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while (!direct_pid_file.exists()
-        || !descendant_pid_file.exists()
-        || terminal_host_pids(&host_root).is_empty()
-        || !barrier.exists())
-        && Instant::now() < deadline
-    {
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    published.receive(Duration::from_secs(5));
     let direct_pid = wait_for_pid_file(&direct_pid_file, Duration::from_secs(5));
     let descendant_pid = wait_for_pid_file(&descendant_pid_file, Duration::from_secs(5));
+    assert!(!terminal_host_pids(&host_root).is_empty());
 
     let stop = cli(&server, &["--json", "server", "stop"]);
 
@@ -2215,17 +2369,9 @@ fn cancelled_published_host_is_terminated_through_its_record() {
     assert!(server.child.wait().unwrap().success());
     assert!(!create.wait().unwrap().success());
     let _ = fs::remove_file(&barrier);
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while (process_exists(direct_pid)
-        || process_group_exists(direct_pid)
-        || process_exists(descendant_pid))
-        && Instant::now() < deadline
-    {
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(!process_exists(direct_pid));
-    assert!(!process_group_exists(direct_pid));
-    assert!(!process_exists(descendant_pid));
+    assert!(!process_is_active(direct_pid));
+    assert!(!process_group_is_active(direct_pid));
+    assert!(!process_is_active(descendant_pid));
     assert!(terminal_host_pids(&host_root).is_empty());
 }
 
@@ -2254,17 +2400,9 @@ fn server_stop_kills_ephemeral_pty_process_groups() {
 
     assert_success(&stop);
     assert!(server.child.wait().unwrap().success());
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while (process_exists(direct_pid)
-        || process_group_exists(direct_pid)
-        || process_exists(descendant_pid))
-        && Instant::now() < deadline
-    {
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(!process_exists(direct_pid));
-    assert!(!process_group_exists(direct_pid));
-    assert!(!process_exists(descendant_pid));
+    assert!(!process_is_active(direct_pid));
+    assert!(!process_group_is_active(direct_pid));
+    assert!(!process_is_active(descendant_pid));
 }
 
 #[cfg(unix)]
@@ -2309,11 +2447,7 @@ fn server_stop_kills_background_jobs_in_separate_pty_process_groups() {
 
     assert_success(&stop);
     assert!(server.child.wait().unwrap().success());
-    let deadline = Instant::now() + Duration::from_secs(1);
-    while process_exists(descendant_pid) && Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    let descendant_remained = process_exists(descendant_pid);
+    let descendant_remained = process_is_active(descendant_pid);
     if descendant_remained {
         // SAFETY: the live process and group belong to this isolated fixture.
         let _ = unsafe { libc::killpg(descendant_group, libc::SIGKILL) };
@@ -2377,17 +2511,9 @@ fn server_stop_drains_many_hosted_panes_before_acknowledging() {
     assert_success(&stop);
     assert!(stop_started.elapsed() < Duration::from_secs(5));
     assert!(server.child.wait().unwrap().success());
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while Instant::now() < deadline
-        && (host_pids.iter().copied().any(process_exists)
-            || process_exists(first_terminal_pid)
-            || process_group_exists(first_terminal_pid))
-    {
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(!host_pids.iter().copied().any(process_exists));
-    assert!(!process_exists(first_terminal_pid));
-    assert!(!process_group_exists(first_terminal_pid));
+    assert!(!host_pids.iter().copied().any(process_is_active));
+    assert!(!process_is_active(first_terminal_pid));
+    assert!(!process_group_is_active(first_terminal_pid));
     assert!(!server.socket.exists());
 }
 
@@ -2407,11 +2533,7 @@ fn server_stop_falls_back_when_an_older_server_lacks_shutdown_capability() {
     assert_success(&output);
     let status = server.child.wait().unwrap();
     assert_eq!(status.signal(), Some(libc::SIGKILL));
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while process_exists(descendant_pid) && Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(!process_exists(descendant_pid));
+    assert!(!process_is_active(descendant_pid));
 }
 
 #[cfg(unix)]
@@ -2455,11 +2577,7 @@ fn server_stop_waits_for_the_initiating_legacy_client_to_drain() {
     assert_success(&output);
     let status = server.child.wait().unwrap();
     assert_eq!(status.signal(), Some(libc::SIGKILL));
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while process_exists(descendant_pid) && Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(!process_exists(descendant_pid));
+    assert!(!process_is_active(descendant_pid));
 }
 
 #[cfg(unix)]
@@ -2528,18 +2646,9 @@ fn published_host_launch_errors_reap_the_complete_pty_session() {
     let direct_pid = wait_for_pid_file(&direct_pid_file, Duration::from_secs(5));
     let descendant_pid = wait_for_pid_file(&descendant_pid_file, Duration::from_secs(5));
     let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&server.state, "main");
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while (process_exists(direct_pid)
-        || process_group_exists(direct_pid)
-        || process_exists(descendant_pid)
-        || !terminal_host_pids(&host_root).is_empty())
-        && Instant::now() < deadline
-    {
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    let cleaned = !process_exists(direct_pid)
-        && !process_group_exists(direct_pid)
-        && !process_exists(descendant_pid)
+    let cleaned = !process_is_active(direct_pid)
+        && !process_group_is_active(direct_pid)
+        && !process_is_active(descendant_pid)
         && terminal_host_pids(&host_root).is_empty();
 
     let stop = cli(&server, &["--json", "server", "stop"]);
@@ -2572,12 +2681,8 @@ fn legacy_stop_retains_pty_ownership_captured_before_surface_close() {
     assert_success(&output);
     let status = server.child.wait().unwrap();
     assert_eq!(status.signal(), Some(libc::SIGKILL));
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while process_exists(descendant_pid) && Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(10));
-    }
     assert!(
-        !process_exists(descendant_pid),
+        !process_is_active(descendant_pid),
         "surface close reparented a captured PTY job outside the final server tree"
     );
 }
@@ -2598,11 +2703,7 @@ fn server_stop_handles_an_exited_unreaped_legacy_descendant() {
     assert_success(&output);
     let status = server.child.wait().unwrap();
     assert_eq!(status.signal(), Some(libc::SIGKILL));
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while process_exists(descendant_pid) && Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(!process_exists(descendant_pid));
+    assert!(!process_is_active(descendant_pid));
 }
 
 #[cfg(unix)]
@@ -2625,11 +2726,7 @@ fn server_stop_reconciles_an_applied_legacy_close_that_returned_an_error() {
     assert_success(&output);
     let status = server.child.wait().unwrap();
     assert_eq!(status.signal(), Some(libc::SIGKILL));
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while process_exists(descendant_pid) && Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(!process_exists(descendant_pid));
+    assert!(!process_is_active(descendant_pid));
 }
 
 #[cfg(unix)]
@@ -2652,11 +2749,7 @@ fn server_stop_reconnects_after_an_applied_legacy_close_drops_the_control_stream
     assert_success(&output);
     let status = server.child.wait().unwrap();
     assert_eq!(status.signal(), Some(libc::SIGKILL));
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while process_exists(descendant_pid) && Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(!process_exists(descendant_pid));
+    assert!(!process_is_active(descendant_pid));
 }
 
 #[cfg(unix)]
@@ -2675,10 +2768,6 @@ fn server_stop_completes_when_the_last_legacy_surface_exits_with_its_server() {
 
     assert_success(&output);
     assert!(server.child.wait().unwrap().success());
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while process_is_active(descendant_pid) && Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(10));
-    }
     assert!(
         !process_is_active(descendant_pid),
         "last-surface server exit leaked its captured PTY owner"
@@ -2728,11 +2817,7 @@ fn detached_legacy_stop_survives_the_calling_pane_process_exit() {
     assert_eq!(output.status.signal(), Some(libc::SIGKILL));
     let status = server.child.wait().unwrap();
     assert_eq!(status.signal(), Some(libc::SIGKILL));
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while process_exists(descendant_pid) && Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(!process_exists(descendant_pid));
+    assert!(!process_is_active(descendant_pid));
 }
 
 #[cfg(unix)]

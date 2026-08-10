@@ -1725,6 +1725,10 @@ impl RemoteSession {
             client_info["capabilities"] = json!([GUARDED_BROWSER_POINTER_CAPABILITY]);
         }
         self.request(client_info)?;
+        #[cfg(debug_assertions)]
+        if let Some(signal) = std::env::var_os("CMUX_TUI_TEST_CLIENT_REGISTERED_SIGNAL") {
+            std::fs::write(signal, b"1")?;
+        }
         if subscribe {
             self.prime_local_subscription();
             if let Err(error) = self.request(self.subscription_request()) {

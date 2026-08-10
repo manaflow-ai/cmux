@@ -7,9 +7,9 @@ use std::fs::{self, OpenOptions};
 use std::future::Future;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc;
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -337,6 +337,48 @@ pub struct DaemonRuntimeHandle {
     info: DaemonRuntimeInfo,
     shutdown: watch::Sender<bool>,
     thread: Option<thread::JoinHandle<anyhow::Result<()>>>,
+    completion: Arc<RuntimeThreadCompletion>,
+}
+
+#[derive(Default)]
+struct RuntimeThreadCompletion {
+    finished: Mutex<bool>,
+    changed: Condvar,
+}
+
+impl RuntimeThreadCompletion {
+    fn mark_finished(&self) {
+        *self.finished.lock().unwrap() = true;
+        self.changed.notify_all();
+    }
+
+    fn is_finished(&self) -> bool {
+        *self.finished.lock().unwrap()
+    }
+
+    fn wait_until(&self, deadline: std::time::Instant) -> bool {
+        let finished = self.finished.lock().unwrap();
+        if *finished {
+            return true;
+        }
+        let (finished, _) = self
+            .changed
+            .wait_timeout_while(
+                finished,
+                deadline.saturating_duration_since(std::time::Instant::now()),
+                |finished| !*finished,
+            )
+            .unwrap();
+        *finished
+    }
+}
+
+struct RuntimeThreadCompletionGuard(Arc<RuntimeThreadCompletion>);
+
+impl Drop for RuntimeThreadCompletionGuard {
+    fn drop(&mut self) {
+        self.0.mark_finished();
+    }
 }
 
 pub(crate) enum DaemonRuntimeShutdown {
@@ -350,7 +392,7 @@ impl DaemonRuntimeHandle {
     }
 
     pub fn is_finished(&self) -> bool {
-        self.thread.as_ref().is_some_and(thread::JoinHandle::is_finished)
+        self.completion.is_finished()
     }
 
     fn request_shutdown(&self) {
@@ -359,19 +401,15 @@ impl DaemonRuntimeHandle {
 
     pub(crate) fn shutdown_until(&mut self, deadline: std::time::Instant) -> DaemonRuntimeShutdown {
         self.request_shutdown();
-        loop {
-            let Some(worker) = self.thread.as_ref() else {
-                return DaemonRuntimeShutdown::Complete(Err(anyhow!(
-                    "remote daemon runtime thread is absent"
-                )));
-            };
-            if worker.is_finished() {
-                return DaemonRuntimeShutdown::Complete(self.join_runtime_thread());
-            }
-            let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
-                return DaemonRuntimeShutdown::Pending;
-            };
-            thread::sleep(remaining.min(Duration::from_millis(10)));
+        if self.thread.is_none() {
+            return DaemonRuntimeShutdown::Complete(Err(anyhow!(
+                "remote daemon runtime thread is absent"
+            )));
+        }
+        if self.completion.wait_until(deadline) {
+            DaemonRuntimeShutdown::Complete(self.join_runtime_thread())
+        } else {
+            DaemonRuntimeShutdown::Pending
         }
     }
 
@@ -390,6 +428,15 @@ impl DaemonRuntimeHandle {
     #[cfg(test)]
     pub(crate) fn from_test_thread(thread: thread::JoinHandle<anyhow::Result<()>>) -> Self {
         let (shutdown, _) = watch::channel(false);
+        let completion = Arc::new(RuntimeThreadCompletion::default());
+        let worker_completion = completion.clone();
+        let thread = thread::spawn(move || {
+            let _completion = RuntimeThreadCompletionGuard(worker_completion);
+            match thread.join() {
+                Ok(result) => result,
+                Err(_) => Err(anyhow!("remote daemon runtime thread panicked")),
+            }
+        });
         Self {
             info: DaemonRuntimeInfo {
                 session: "test".into(),
@@ -405,28 +452,30 @@ impl DaemonRuntimeHandle {
             },
             shutdown,
             thread: Some(thread),
+            completion,
         }
     }
 
     pub fn shutdown(mut self) -> anyhow::Result<()> {
         #[cfg(debug_assertions)]
-        let shutdown_marker = std::env::var_os("CMUX_TUI_TEST_REMOTE_SHUTDOWN_MARKER");
+        let shutdown_started = std::env::var_os("CMUX_TUI_TEST_REMOTE_SHUTDOWN_STARTED_SIGNAL");
         #[cfg(debug_assertions)]
-        if let Some(marker) = shutdown_marker.as_ref() {
-            let _ = fs::write(marker, b"started");
+        if let Some(signal) = shutdown_started.as_ref() {
+            fs::write(signal, b"1")?;
         }
         #[cfg(debug_assertions)]
-        if let Some(milliseconds) = std::env::var("CMUX_TUI_TEST_REMOTE_SHUTDOWN_DELAY_MS")
-            .ok()
-            .and_then(|value| value.parse::<u64>().ok())
-        {
-            thread::sleep(Duration::from_millis(milliseconds));
+        if let Some(gate) = std::env::var_os("CMUX_TUI_TEST_REMOTE_SHUTDOWN_GATE") {
+            use std::io::Read as _;
+
+            let mut gate = fs::File::open(gate)?;
+            let mut signal = [0_u8; 1];
+            gate.read_exact(&mut signal)?;
         }
         self.request_shutdown();
         let result = self.join_runtime_thread();
         #[cfg(debug_assertions)]
-        if let Some(marker) = shutdown_marker {
-            let _ = fs::write(marker, b"complete");
+        if let Some(signal) = std::env::var_os("CMUX_TUI_TEST_REMOTE_SHUTDOWN_COMPLETE_SIGNAL") {
+            fs::write(signal, b"1")?;
         }
         result
     }
@@ -674,6 +723,8 @@ pub fn start_client_runtime(options: ClientRuntimeOptions) -> anyhow::Result<Cli
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let (finished_tx, finished_rx) = watch::channel(false);
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+    let completion = Arc::new(RuntimeThreadCompletion::default());
+    let worker_completion = completion.clone();
     let thread = thread::Builder::new()
         .name("cmux-remote-client".into())
         .spawn(move || {
@@ -1816,6 +1867,7 @@ fn start_daemon_runtime_with_timeout(
     let thread = thread::Builder::new()
         .name(format!("cmux-remote-{}", options.session))
         .spawn(move || {
+            let _completion = RuntimeThreadCompletionGuard(worker_completion);
             let runtime = build_remote_runtime("cmux-remote-daemon-worker")?;
             let result = runtime.block_on(run_daemon(
                 mux_socket,
@@ -1845,7 +1897,7 @@ fn start_daemon_runtime_with_timeout(
             return Err(anyhow!("remote daemon did not become ready: {error}"));
         }
     };
-    Ok(DaemonRuntimeHandle { info, shutdown: shutdown_tx, thread: Some(thread) })
+    Ok(DaemonRuntimeHandle { info, shutdown: shutdown_tx, thread: Some(thread), completion })
 }
 
 #[allow(clippy::too_many_arguments)]

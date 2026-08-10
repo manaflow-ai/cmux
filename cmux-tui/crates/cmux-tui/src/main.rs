@@ -1827,7 +1827,14 @@ impl ServerProcessShutdownGuard {
         #[cfg(debug_assertions)]
         if let Some(marker) = std::env::var_os("CMUX_TUI_TEST_WATCHDOG_START_FAILURE") {
             std::fs::write(marker, b"starting")?;
-            std::thread::sleep(std::time::Duration::from_millis(500));
+            if let Some(release) = std::env::var_os("CMUX_TUI_TEST_WATCHDOG_START_FAILURE_RELEASE")
+            {
+                use std::io::Read as _;
+
+                let mut release = std::fs::File::open(release)?;
+                let mut signal = [0_u8; 1];
+                release.read_exact(&mut signal)?;
+            }
             return Err(io::Error::other("forced watchdog start failure"));
         }
         let shutdown_watch = mux.watch_shutdown_request();
@@ -2002,7 +2009,12 @@ fn finish_server_process(
     } else {
         server_process.abandon_unpublished();
     }
-    combine_server_and_remote_shutdown_results(result, shutdown_result)
+    let result = combine_server_and_remote_shutdown_results(result, shutdown_result);
+    #[cfg(debug_assertions)]
+    if let Some(signal) = std::env::var_os("CMUX_TUI_TEST_SERVER_EXIT_READY_SIGNAL") {
+        let _ = std::fs::write(signal, b"1");
+    }
+    result
 }
 
 #[cfg(unix)]

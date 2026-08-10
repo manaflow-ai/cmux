@@ -1720,14 +1720,16 @@ mod tests {
         let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
         let (release, holder) = hold_process_creation_barrier();
 
-        let bind = tokio::spawn(serve_direct_websocket(
-            daemon,
-            "127.0.0.1:0".parse().unwrap(),
-            128 * 1024,
-            false,
-        ));
-        tokio::time::sleep(Duration::from_millis(250)).await;
-        let completed_while_barrier_held = bind.is_finished();
+        let (started_sender, started_receiver) = tokio::sync::oneshot::channel();
+        let mut bind = tokio::spawn(async move {
+            started_sender.send(()).unwrap();
+            serve_direct_websocket(daemon, "127.0.0.1:0".parse().unwrap(), 128 * 1024, false).await
+        });
+        started_receiver.await.unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(250), &mut bind).await.is_err(),
+            "direct socket bound while a concurrent process could inherit its descriptor"
+        );
         release.send(()).unwrap();
         holder.join().unwrap();
 
@@ -1737,10 +1739,6 @@ mod tests {
             .unwrap()
             .unwrap();
         server.shutdown().await.unwrap();
-        assert!(
-            !completed_while_barrier_held,
-            "direct socket bound while a concurrent process could inherit its descriptor"
-        );
     }
 
     #[cfg(target_os = "macos")]
@@ -1753,9 +1751,16 @@ mod tests {
             LimitedTcpListener { inner: listener, permits: Arc::new(Semaphore::new(1)) };
         let (release, holder) = hold_process_creation_barrier();
 
-        let accept = tokio::spawn(async move { listener.accept().await });
-        tokio::time::sleep(Duration::from_millis(250)).await;
-        let completed_while_barrier_held = accept.is_finished();
+        let (started_sender, started_receiver) = tokio::sync::oneshot::channel();
+        let mut accept = tokio::spawn(async move {
+            started_sender.send(()).unwrap();
+            listener.accept().await
+        });
+        started_receiver.await.unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(250), &mut accept).await.is_err(),
+            "direct socket accepted while a concurrent process could inherit its descriptor"
+        );
         release.send(()).unwrap();
         holder.join().unwrap();
 
@@ -1765,10 +1770,6 @@ mod tests {
             .unwrap();
         drop(server);
         drop(client);
-        assert!(
-            !completed_while_barrier_held,
-            "direct socket accepted while a concurrent process could inherit its descriptor"
-        );
     }
 
     struct PreludeProbeLink {

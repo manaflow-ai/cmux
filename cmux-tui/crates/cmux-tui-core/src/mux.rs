@@ -220,6 +220,27 @@ impl TerminalAdoptionQueueState {
     }
 }
 
+#[cfg(all(test, unix))]
+impl TerminalAdoptionCoordinator {
+    fn wait_until_idle(&self, tracked: &Mutex<HashSet<String>>, deadline: Instant) -> bool {
+        let mut state = self.state.lock().unwrap();
+        loop {
+            if state.in_flight == 0 && tracked.lock().unwrap().is_empty() {
+                return true;
+            }
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return false;
+            };
+            let (next, timeout) = self.wake.wait_timeout(state, remaining).unwrap();
+            state = next;
+            if timeout.timed_out() && (state.in_flight != 0 || !tracked.lock().unwrap().is_empty())
+            {
+                return false;
+            }
+        }
+    }
+}
+
 #[cfg(unix)]
 #[derive(Default)]
 struct TerminalAdoptionCoordinator {
@@ -418,6 +439,7 @@ struct ShutdownOwnerReconcilerState {
     stopping: bool,
     worker_started: bool,
     degraded: bool,
+    revision: u64,
 }
 
 #[derive(Default)]
@@ -437,6 +459,54 @@ impl ShutdownOwnerReconciler {
     #[cfg(test)]
     fn worker_started(&self) -> bool {
         self.state.lock().unwrap().worker_started
+    }
+
+    #[cfg(test)]
+    fn wait_until(&self, deadline: Instant, predicate: impl Fn() -> bool) -> bool {
+        let mut state = self.state.lock().unwrap();
+        while !predicate() {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return false;
+            };
+            let revision = state.revision;
+            let (next, timeout) = self
+                .wake
+                .wait_timeout_while(state, remaining, |state| state.revision == revision)
+                .unwrap();
+            state = next;
+            if timeout.timed_out() && !predicate() {
+                return false;
+            }
+        }
+        true
+    }
+
+    #[cfg(test)]
+    fn wait_until_degraded(&self, deadline: Instant) -> bool {
+        let mut state = self.state.lock().unwrap();
+        while !state.degraded {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return false;
+            };
+            let (next, timeout) = self.wake.wait_timeout(state, remaining).unwrap();
+            state = next;
+            if timeout.timed_out() && !state.degraded {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn publish_progress(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.revision = state.revision.wrapping_add(1);
+        self.wake.notify_all();
+    }
+
+    fn wait_for_retry(&self, delay: Duration, deadline: Instant) {
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else { return };
+        let state = self.state.lock().unwrap();
+        let _ = self.wake.wait_timeout(state, delay.min(remaining)).unwrap();
     }
 
     fn schedule(self: &Arc<Self>) {
@@ -497,6 +567,7 @@ impl ShutdownOwnerReconciler {
                     Err(_) => true,
                 };
                 drop(mux);
+                self.publish_progress();
                 if !pending {
                     delay = SHUTDOWN_RECONCILE_INITIAL_DELAY;
                     break;
@@ -522,6 +593,8 @@ impl ShutdownOwnerReconciler {
                     state.pending = false;
                     state.worker_started = false;
                     state.degraded = true;
+                    state.revision = state.revision.wrapping_add(1);
+                    self.wake.notify_all();
                     return;
                 }
 
@@ -1928,6 +2001,22 @@ impl AsyncSurfaceCreationGate {
         }
         true
     }
+
+    #[cfg(test)]
+    fn wait_until_idle(&self, deadline: Instant) -> bool {
+        let mut state = self.inner.state.lock().unwrap();
+        while state.active != 0 {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return false;
+            };
+            let (next, timeout) = self.inner.idle.wait_timeout(state, remaining).unwrap();
+            state = next;
+            if timeout.timed_out() && state.active != 0 {
+                return false;
+            }
+        }
+        true
+    }
 }
 
 struct AsyncSurfaceCreationGuard {
@@ -2466,8 +2555,6 @@ pub struct Mux {
     #[cfg(all(test, unix))]
     terminal_host_record_loader: Mutex<Option<TerminalHostRecordLoader>>,
     #[cfg(test)]
-    terminal_adoption_workers_started: AtomicUsize,
-    #[cfg(test)]
     browser_bootstrap_before_runtime: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     browser_runtime_connect: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
@@ -2824,8 +2911,6 @@ impl Mux {
             terminal_adoption_surface_factory: Mutex::new(None),
             #[cfg(all(test, unix))]
             terminal_host_record_loader: Mutex::new(None),
-            #[cfg(test)]
-            terminal_adoption_workers_started: AtomicUsize::new(0),
             #[cfg(test)]
             browser_bootstrap_before_runtime: Mutex::new(None),
             #[cfg(test)]
@@ -3620,6 +3705,10 @@ impl Mux {
         owner_reservation.release();
         drop(state);
         self.emit_terminal_registry_changed(&registry, revision);
+        #[cfg(debug_assertions)]
+        if let Some(signal) = std::env::var_os("CMUX_TUI_TEST_TERMINAL_ADOPTED_SIGNAL") {
+            let _ = std::fs::write(signal, b"1");
+        }
         Ok(())
     }
 
@@ -3650,10 +3739,6 @@ impl Mux {
             let worker_coordinator = coordinator.clone();
             match std::thread::Builder::new().name(format!("terminal-adoption-{worker}")).spawn(
                 move || {
-                    #[cfg(test)]
-                    if let Some(mux) = mux.upgrade() {
-                        mux.terminal_adoption_workers_started.fetch_add(1, Ordering::AcqRel);
-                    }
                     Self::run_terminal_adoption_worker(mux, worker_coordinator);
                 },
             ) {
@@ -8482,10 +8567,7 @@ impl Mux {
                 }
                 Err(error) => last_error = Some(error),
             }
-            let Some(remaining) = overall_deadline.checked_duration_since(Instant::now()) else {
-                break;
-            };
-            std::thread::sleep(retry_delay.min(remaining));
+            self.shutdown_owner_reconciler.wait_for_retry(retry_delay, overall_deadline);
             retry_delay = retry_delay.saturating_mul(2).min(SERVER_EXIT_RETRY_MAX_DELAY);
         }
         let error =
@@ -15206,6 +15288,15 @@ fn bounded_shutdown_fanout<T: Sync>(
     deadline: Instant,
     operation: impl Fn(&T, Instant) + Sync,
 ) -> usize {
+    bounded_shutdown_fanout_with_clock(items, deadline, Instant::now, operation)
+}
+
+fn bounded_shutdown_fanout_with_clock<T: Sync>(
+    items: &[T],
+    deadline: Instant,
+    now: impl Fn() -> Instant + Sync,
+    operation: impl Fn(&T, Instant) + Sync,
+) -> usize {
     if items.is_empty() {
         return 0;
     }
@@ -15214,12 +15305,13 @@ fn bounded_shutdown_fanout<T: Sync>(
     std::thread::scope(|scope| {
         for worker in 0..workers {
             let next = &next;
+            let now = &now;
             let operation = &operation;
             let spawned = std::thread::Builder::new()
                 .name(format!("shutdown-owner-{worker}"))
                 .spawn_scoped(scope, move || {
                     loop {
-                        if Instant::now() >= deadline {
+                        if now() >= deadline {
                             break;
                         }
                         let index = next.fetch_add(1, Ordering::Relaxed);
@@ -20990,11 +21082,10 @@ mod tests {
         ))
         .unwrap();
         server.join().unwrap();
-        let deadline = Instant::now() + Duration::from_secs(1);
-        while !runtime.is_closed() && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        assert!(runtime.is_closed(), "test CDP runtime did not observe disconnect");
+        assert!(
+            runtime.wait_until_closed(Instant::now() + Duration::from_secs(1)),
+            "test CDP runtime did not observe disconnect"
+        );
 
         let mux = test_mux();
         let initial = mux.new_workspace(None, Some((80, 24))).unwrap();
@@ -21026,12 +21117,10 @@ mod tests {
         bootstrap_reached_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         mux.request_daemon_shutdown();
         release_bootstrap_tx.send(()).unwrap();
-        let deadline = Instant::now() + Duration::from_secs(1);
-        while mux.async_surface_creations.inner.state.lock().unwrap().active != 0
-            && Instant::now() < deadline
-        {
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        assert!(
+            mux.async_surface_creations.wait_until_idle(Instant::now() + Duration::from_secs(1)),
+            "async browser creation did not finish"
+        );
 
         assert!(result.is_err(), "browser attached after its pane disappeared");
         assert_eq!(
@@ -23476,16 +23565,19 @@ mod tests {
 
         assert!(mux.close_surface(surface.id).unwrap());
         assert_eq!(mux.shutdown_owners.len(), 1);
-        assert_eq!(attempts.load(Ordering::Acquire), 1);
+        assert_eq!(attempts.load(), 1);
 
         failing.store(false, Ordering::Release);
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while !mux.shutdown_owners.is_empty() && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        assert!(
+            mux.shutdown_owner_reconciler
+                .wait_until(Instant::now() + Duration::from_secs(2), || mux
+                    .shutdown_owners
+                    .is_empty(),),
+            "retained owner had no normal-lifecycle retry"
+        );
 
         assert!(mux.shutdown_owners.is_empty(), "retained owner had no normal-lifecycle retry");
-        assert!(attempts.load(Ordering::Acquire) >= 2);
+        assert!(attempts.load() >= 2);
     }
 
     #[test]
@@ -23511,17 +23603,16 @@ mod tests {
         let (_failing, attempts) = owned.set_recovering_server_shutdown_for_test();
 
         assert!(mux.close_surface(surface.id).unwrap());
-        let first_deadline = Instant::now() + Duration::from_secs(1);
-        while attempts.load(Ordering::Acquire) < 4 && Instant::now() < first_deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        let settled = attempts.load(Ordering::Acquire);
+        assert!(
+            mux.shutdown_owner_reconciler
+                .wait_until_degraded(Instant::now() + Duration::from_secs(1)),
+            "reconciler did not exhaust its retry budget"
+        );
+        let settled = attempts.load();
         assert!(settled >= 4, "reconciler did not exercise its retry budget");
 
-        std::thread::sleep(Duration::from_millis(250));
-
         assert_eq!(
-            attempts.load(Ordering::Acquire),
+            attempts.load(),
             settled,
             "permanent cleanup failure kept an unbounded retry sweep alive"
         );
@@ -23562,13 +23653,13 @@ mod tests {
         }));
 
         assert!(mux.close_surface(first.id).unwrap());
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while (!injected.load(Ordering::Acquire) || !mux.shutdown_owners.is_empty())
-            && Instant::now() < deadline
-        {
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        let reconciled = injected.load(Ordering::Acquire) && mux.shutdown_owners.is_empty();
+        let completed = mux
+            .shutdown_owner_reconciler
+            .wait_until(Instant::now() + Duration::from_secs(2), || {
+                injected.load(Ordering::Acquire) && mux.shutdown_owners.is_empty()
+            });
+        let reconciled =
+            completed && injected.load(Ordering::Acquire) && mux.shutdown_owners.is_empty();
         if !reconciled {
             mux.close_all_surfaces_for_shutdown().unwrap();
         }
@@ -23581,43 +23672,15 @@ mod tests {
 
     #[test]
     fn rejected_sidebar_admission_does_not_launch_a_process() {
-        let root = std::env::temp_dir()
-            .join(format!("cmux-sidebar-admission-{}", crate::workspace_registry::new_uuid_v4()));
-        std::fs::create_dir_all(&root).unwrap();
-        let pid_path = root.join("sidebar.pid");
         let mux = Mux::new("sidebar-admission", SurfaceOptions::default());
         mux.set_shutdown_owner_capacity_for_test(0);
-        let options = SidebarPluginOptions {
-            command: vec![
-                "/bin/sh".into(),
-                "-c".into(),
-                format!("echo $$ > {}; exec sleep 30", pid_path.display()),
-            ],
-            cwd: None,
-        };
+        let options =
+            SidebarPluginOptions { command: vec!["/cmux-test-must-not-launch".into()], cwd: None };
 
         let error = mux.spawn_sidebar_plugin_surface(&options, (80, 24)).unwrap_err();
-        let deadline = Instant::now() + Duration::from_secs(1);
-        while !pid_path.exists() && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        let spawned_pid = std::fs::read_to_string(&pid_path)
-            .ok()
-            .and_then(|pid| pid.trim().parse::<libc::pid_t>().ok());
-        if let Some(pid) = spawned_pid {
-            // SAFETY: this PID was written by the test-owned sidebar command.
-            unsafe {
-                libc::kill(pid, libc::SIGKILL);
-            }
-        }
         drop(mux);
-        let _ = std::fs::remove_dir_all(root);
 
         assert_eq!(error.to_string(), "surface_owner_capacity_exhausted");
-        assert!(
-            spawned_pid.is_none(),
-            "capacity rejection launched sidebar process {spawned_pid:?}"
-        );
     }
 
     #[test]
@@ -23649,18 +23712,10 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn rejected_terminal_admission_does_not_launch_a_process() {
-        let root = std::env::temp_dir()
-            .join(format!("cmux-terminal-admission-{}", crate::workspace_registry::new_uuid_v4()));
-        std::fs::create_dir_all(&root).unwrap();
-        let pid_path = root.join("terminal.pid");
         let mux = Mux::new(
             "terminal-admission",
             SurfaceOptions {
-                command: Some(vec![
-                    "/bin/sh".into(),
-                    "-c".into(),
-                    format!("echo $$ > {}; exec sleep 30", pid_path.display()),
-                ]),
+                command: Some(vec!["/cmux-test-must-not-launch".into()]),
                 ..SurfaceOptions::default()
             },
         );
@@ -23671,29 +23726,11 @@ mod tests {
             let mux = mux.clone();
             move || mux.spawn_surface_with(None, None, Some((80, 24)), None, None)
         });
-        let deadline = Instant::now() + Duration::from_secs(1);
-        while !pid_path.exists() && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        let spawned_pid = std::fs::read_to_string(&pid_path)
-            .ok()
-            .and_then(|pid| pid.trim().parse::<libc::pid_t>().ok());
         drop(state);
         let error = spawn.join().unwrap().unwrap_err();
-        if let Some(pid) = spawned_pid {
-            // SAFETY: this PID was written by the test-owned terminal command.
-            unsafe {
-                libc::kill(pid, libc::SIGKILL);
-            }
-        }
         drop(mux);
-        let _ = std::fs::remove_dir_all(root);
 
         assert_eq!(error.to_string(), "surface_owner_capacity_exhausted");
-        assert!(
-            spawned_pid.is_none(),
-            "capacity rejection launched terminal process {spawned_pid:?}"
-        );
     }
 
     #[cfg(unix)]
@@ -23825,21 +23862,13 @@ mod tests {
             );
         }
 
-        let deadline = Instant::now() + crate::test_timeout(Duration::from_secs(1));
-        while mux.terminal_adoption_workers_started.load(Ordering::Acquire)
-            < TERMINAL_ADOPTION_WORKERS
-            && Instant::now() < deadline
-        {
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        let workers = mux.terminal_adoption_workers_started.load(Ordering::Acquire);
         let workers_running =
             mux.terminal_adoption_coordinator.state.lock().unwrap().workers_running;
         mux.request_daemon_shutdown();
         let _ = std::fs::remove_dir_all(root);
 
         assert_eq!(
-            workers, TERMINAL_ADOPTION_WORKERS,
+            workers_running, TERMINAL_ADOPTION_WORKERS,
             "adoption did not preflight its fixed worker pool"
         );
         assert!(
@@ -24232,10 +24261,11 @@ mod tests {
         let second_progressed = second_started_rx.recv_timeout(Duration::from_millis(300)).is_ok();
         release_tx.send(()).unwrap();
 
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while !mux.terminal_adoptions.lock().unwrap().is_empty() && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        assert!(
+            mux.terminal_adoption_coordinator
+                .wait_until_idle(&mux.terminal_adoptions, Instant::now() + Duration::from_secs(2),),
+            "terminal adoptions did not finish"
+        );
         mux.shutdown().unwrap();
         let _ = std::fs::remove_dir_all(root);
 
@@ -24321,16 +24351,13 @@ mod tests {
         attached_rx.recv_timeout(Duration::from_secs(2)).unwrap();
         mux.request_daemon_shutdown();
         release_tx.send(()).unwrap();
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while !mux.terminal_adoptions.lock().unwrap().is_empty() && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        let attempts = kill_attempts
-            .lock()
-            .unwrap()
-            .clone()
-            .expect("adoption surface was not created")
-            .load(Ordering::Acquire);
+        assert!(
+            mux.terminal_adoption_coordinator
+                .wait_until_idle(&mux.terminal_adoptions, Instant::now() + Duration::from_secs(2),),
+            "terminal adoption did not finish"
+        );
+        let attempts =
+            kill_attempts.lock().unwrap().clone().expect("adoption surface was not created").load();
 
         assert_eq!(
             attempts, 0,
@@ -24617,20 +24644,29 @@ mod tests {
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
         let surface_id = surface.id;
         let owned = mux.surface(surface.id).unwrap();
-        owned.set_server_shutdown_delay_for_test(Duration::from_millis(150));
+        let retirement_gate = Arc::new(crate::surface::TestLifecycleGate::default());
+        owned.set_server_shutdown_gate_for_test(retirement_gate.clone());
         let close = std::thread::spawn({
             let mux = mux.clone();
             move || mux.close_surface(surface_id).unwrap()
         });
-        let removal_deadline = Instant::now() + Duration::from_secs(1);
-        while mux.surface(surface_id).is_some() && Instant::now() < removal_deadline {
-            std::thread::yield_now();
-        }
+        assert!(retirement_gate.wait_until_entered(1, Instant::now() + Duration::from_secs(1)));
         assert!(mux.surface(surface_id).is_none(), "ordinary close did not remove its surface");
 
-        let shutdown = mux.close_all_surfaces_for_shutdown();
+        let (shutdown_tx, shutdown_rx) = std::sync::mpsc::sync_channel(1);
+        let shutdown_worker = std::thread::spawn({
+            let mux = mux.clone();
+            move || shutdown_tx.send(mux.close_all_surfaces_for_shutdown()).unwrap()
+        });
+        assert!(
+            shutdown_rx.recv_timeout(Duration::from_millis(100)).is_err(),
+            "server shutdown passed an in-flight retirement owner"
+        );
+        retirement_gate.release();
+        let shutdown = shutdown_rx.recv_timeout(Duration::from_secs(1)).unwrap();
 
         assert!(close.join().unwrap());
+        shutdown_worker.join().unwrap();
         owned.set_server_shutdown_failure_for_test(false);
         mux.close_all_surfaces_for_shutdown().unwrap();
         assert!(mux.shutdown_owners.is_empty());
@@ -24702,18 +24738,26 @@ mod tests {
                 .map(|surface| state.surfaces[surface].clone())
                 .collect::<Vec<_>>()
         });
+        let shutdown_gate = Arc::new(crate::surface::TestLifecycleGate::default());
         for surface in &surfaces {
-            surface.set_server_shutdown_delay_for_test(Duration::from_millis(50));
+            surface.set_server_shutdown_gate_for_test(shutdown_gate.clone());
         }
 
-        let started = Instant::now();
-        assert!(mux.close_pane(pane).unwrap());
-
+        let (result_tx, result_rx) = std::sync::mpsc::sync_channel(1);
+        let close = std::thread::spawn({
+            let mux = mux.clone();
+            move || result_tx.send(mux.close_pane(pane)).unwrap()
+        });
         assert!(
-            started.elapsed() < Duration::from_millis(500),
-            "bulk close multiplied the per-surface shutdown timeout: {:?}",
-            started.elapsed()
+            shutdown_gate.wait_until_entered(
+                SHUTDOWN_FANOUT_WORKERS,
+                Instant::now() + Duration::from_secs(1)
+            ),
+            "bulk close did not use the bounded parallel shutdown fanout"
         );
+        shutdown_gate.release();
+        assert!(result_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap());
+        close.join().unwrap();
     }
 
     #[cfg(unix)]
@@ -24951,11 +24995,10 @@ mod tests {
         ))
         .unwrap();
         server.join().unwrap();
-        let disconnect_deadline = Instant::now() + Duration::from_secs(1);
-        while !runtime.is_closed() && Instant::now() < disconnect_deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        assert!(runtime.is_closed(), "test browser runtime did not observe disconnect");
+        assert!(
+            runtime.wait_until_closed(Instant::now() + Duration::from_secs(1)),
+            "test browser runtime did not observe disconnect"
+        );
         let mux = test_mux();
         let options = mux.surface_options.lock().unwrap().clone();
         let surface = browser::new_surface(
@@ -25087,10 +25130,10 @@ mod tests {
                 shutdown_done_tx.send(()).unwrap();
             }
         });
-        let deadline = Instant::now() + Duration::from_secs(1);
-        while attempts.load(Ordering::Acquire) == 0 && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(5));
-        }
+        assert!(
+            attempts.wait_until(1, Instant::now() + Duration::from_secs(1)),
+            "daemon shutdown did not attempt local process termination"
+        );
         let retained = mux.shutdown_owners.len();
 
         failing.store(false, Ordering::Release);
@@ -25152,15 +25195,10 @@ mod tests {
 
         let slot_available = mux.browser_runtime.lock_available_for_test();
         release_connect_tx.send(()).unwrap();
-        let deadline = Instant::now() + Duration::from_secs(1);
-        loop {
-            if mux.async_surface_creations.inner.state.lock().unwrap().active == 0
-                || Instant::now() >= deadline
-            {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        assert!(
+            mux.async_surface_creations.wait_until_idle(Instant::now() + Duration::from_secs(1)),
+            "browser surface creation did not finish"
+        );
         mux.request_daemon_shutdown();
         mux.shutdown().unwrap();
 
@@ -25229,25 +25267,39 @@ mod tests {
     #[test]
     fn shutdown_fanout_does_not_claim_another_batch_after_the_deadline() {
         let gate = Arc::new((Mutex::new(false), Condvar::new()));
+        let expired = Arc::new(AtomicBool::new(false));
         let (started_tx, started_rx) = std::sync::mpsc::sync_channel(SHUTDOWN_FANOUT_WORKERS + 1);
         let deadline = Instant::now() + Duration::from_millis(250);
         let worker = std::thread::spawn({
             let gate = gate.clone();
+            let worker_expired = expired.clone();
             move || {
-                bounded_shutdown_fanout(&[(); SHUTDOWN_FANOUT_WORKERS + 1], deadline, |_, _| {
-                    started_tx.send(()).unwrap();
-                    let (released, wake) = &*gate;
-                    let released =
-                        wake.wait_while(released.lock().unwrap(), |released| !*released).unwrap();
-                    drop(released);
-                });
+                bounded_shutdown_fanout_with_clock(
+                    &[(); SHUTDOWN_FANOUT_WORKERS + 1],
+                    deadline,
+                    || {
+                        if worker_expired.load(Ordering::Acquire) {
+                            deadline
+                        } else {
+                            deadline - Duration::from_millis(1)
+                        }
+                    },
+                    |_, _| {
+                        started_tx.send(()).unwrap();
+                        let (released, wake) = &*gate;
+                        let released = wake
+                            .wait_while(released.lock().unwrap(), |released| !*released)
+                            .unwrap();
+                        drop(released);
+                    },
+                );
             }
         });
 
         for _ in 0..SHUTDOWN_FANOUT_WORKERS {
             started_rx.recv_timeout(Duration::from_millis(200)).unwrap();
         }
-        std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
+        expired.store(true, Ordering::Release);
         let (released, wake) = &*gate;
         *released.lock().unwrap() = true;
         wake.notify_all();

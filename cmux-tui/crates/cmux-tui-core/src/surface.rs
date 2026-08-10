@@ -1337,9 +1337,7 @@ struct LocalPtyProcess {
     #[cfg(all(unix, test))]
     normal_cleanup_attempts: AtomicUsize,
     #[cfg(all(unix, test))]
-    normal_cleanup_delay_ms: AtomicU64,
-    #[cfg(all(unix, test))]
-    normal_cleanup_started: AtomicBool,
+    normal_cleanup_gate: Mutex<Option<Arc<TestLifecycleGate>>>,
 }
 
 #[cfg(unix)]
@@ -1449,9 +1447,7 @@ impl LocalPtyProcess {
             #[cfg(all(unix, test))]
             normal_cleanup_attempts: AtomicUsize::new(0),
             #[cfg(all(unix, test))]
-            normal_cleanup_delay_ms: AtomicU64::new(0),
-            #[cfg(all(unix, test))]
-            normal_cleanup_started: AtomicBool::new(false),
+            normal_cleanup_gate: Mutex::new(None),
         })
     }
 
@@ -1703,6 +1699,34 @@ impl LocalPtyProcess {
             .unwrap();
     }
 
+    #[cfg(all(unix, test))]
+    fn wait_for_child_reaped_until(&self, deadline: Instant) -> bool {
+        let state = self.exited.0.lock().unwrap();
+        let (state, _) = self
+            .exited
+            .1
+            .wait_timeout_while(state, deadline.saturating_duration_since(Instant::now()), |_| {
+                !self.child_reaped.load(Ordering::Acquire)
+            })
+            .unwrap();
+        drop(state);
+        self.child_reaped.load(Ordering::Acquire)
+    }
+
+    #[cfg(all(unix, test))]
+    fn wait_for_normal_cleanup_attempts_until(&self, expected: usize, deadline: Instant) -> bool {
+        let state = self.exited.0.lock().unwrap();
+        let (state, _) = self
+            .exited
+            .1
+            .wait_timeout_while(state, deadline.saturating_duration_since(Instant::now()), |_| {
+                self.normal_cleanup_attempts.load(Ordering::Acquire) < expected
+            })
+            .unwrap();
+        drop(state);
+        self.normal_cleanup_attempts.load(Ordering::Acquire) >= expected
+    }
+
     #[cfg(unix)]
     fn signal_terminal_process_session(
         &self,
@@ -1793,10 +1817,9 @@ impl LocalPtyProcess {
         #[cfg(test)]
         {
             self.normal_cleanup_attempts.fetch_add(1, Ordering::AcqRel);
-            self.normal_cleanup_started.store(true, Ordering::Release);
-            let delay_ms = self.normal_cleanup_delay_ms.load(Ordering::Acquire);
-            if delay_ms > 0 {
-                std::thread::sleep(Duration::from_millis(delay_ms));
+            self.exited.1.notify_all();
+            if let Some(gate) = self.normal_cleanup_gate.lock().unwrap().clone() {
+                gate.enter_and_wait();
             }
             if self
                 .normal_cleanup_failures
@@ -3983,19 +4006,19 @@ impl Surface {
     }
 
     #[cfg(test)]
-    pub(crate) fn set_server_shutdown_delay_for_test(&self, delay: Duration) {
+    pub(crate) fn set_server_shutdown_gate_for_test(&self, gate: Arc<TestLifecycleGate>) {
         let Self::Pty(pty) = self else { return };
         let Some(process) = &pty.local_process else { return };
         let LocalProcess::Untracked(killer) = process.as_ref() else { return };
-        *killer.lock().unwrap() = Box::new(TestSlowFailingChildKiller(delay));
+        *killer.lock().unwrap() = Box::new(TestGatedFailingChildKiller(gate));
     }
 
     #[cfg(test)]
     pub(crate) fn set_recovering_server_shutdown_for_test(
         &self,
-    ) -> (Arc<AtomicBool>, Arc<AtomicUsize>) {
+    ) -> (Arc<AtomicBool>, Arc<TestAttemptCounter>) {
         let failing = Arc::new(AtomicBool::new(true));
-        let attempts = Arc::new(AtomicUsize::new(0));
+        let attempts = Arc::new(TestAttemptCounter::default());
         let Self::Pty(pty) = self else { return (failing, attempts) };
         let Some(process) = &pty.local_process else { return (failing, attempts) };
         let LocalProcess::Untracked(killer) = process.as_ref() else {
@@ -5734,18 +5757,58 @@ impl ChildKiller for TestFailingChildKiller {
 }
 
 #[cfg(test)]
-#[derive(Debug)]
-struct TestSlowFailingChildKiller(Duration);
+#[derive(Debug, Default)]
+pub(crate) struct TestLifecycleGate {
+    state: Mutex<(usize, bool)>,
+    changed: Condvar,
+}
 
 #[cfg(test)]
-impl ChildKiller for TestSlowFailingChildKiller {
+impl TestLifecycleGate {
+    fn enter_and_wait(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.0 = state.0.saturating_add(1);
+        self.changed.notify_all();
+        while !state.1 {
+            state = self.changed.wait(state).unwrap();
+        }
+    }
+
+    pub(crate) fn wait_until_entered(&self, expected: usize, deadline: Instant) -> bool {
+        let mut state = self.state.lock().unwrap();
+        while state.0 < expected {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return false;
+            };
+            let (next, timeout) = self.changed.wait_timeout(state, remaining).unwrap();
+            state = next;
+            if timeout.timed_out() && state.0 < expected {
+                return false;
+            }
+        }
+        true
+    }
+
+    pub(crate) fn release(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.1 = true;
+        self.changed.notify_all();
+    }
+}
+
+#[cfg(test)]
+#[derive(Debug)]
+struct TestGatedFailingChildKiller(Arc<TestLifecycleGate>);
+
+#[cfg(test)]
+impl ChildKiller for TestGatedFailingChildKiller {
     fn kill(&mut self) -> std::io::Result<()> {
-        std::thread::sleep(self.0);
-        Err(std::io::Error::other("forced delayed shutdown failure"))
+        self.0.enter_and_wait();
+        Err(std::io::Error::other("forced gated shutdown failure"))
     }
 
     fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
-        Box::new(Self(self.0))
+        Box::new(Self(self.0.clone()))
     }
 }
 
@@ -5753,13 +5816,48 @@ impl ChildKiller for TestSlowFailingChildKiller {
 #[derive(Debug)]
 struct TestRecoveringChildKiller {
     failing: Arc<AtomicBool>,
-    attempts: Arc<AtomicUsize>,
+    attempts: Arc<TestAttemptCounter>,
+}
+
+#[cfg(test)]
+#[derive(Debug, Default)]
+pub(crate) struct TestAttemptCounter {
+    count: Mutex<usize>,
+    changed: Condvar,
+}
+
+#[cfg(test)]
+impl TestAttemptCounter {
+    fn increment(&self) {
+        let mut count = self.count.lock().unwrap();
+        *count = count.saturating_add(1);
+        self.changed.notify_all();
+    }
+
+    pub(crate) fn load(&self) -> usize {
+        *self.count.lock().unwrap()
+    }
+
+    pub(crate) fn wait_until(&self, expected: usize, deadline: Instant) -> bool {
+        let mut count = self.count.lock().unwrap();
+        while *count < expected {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return false;
+            };
+            let (next, timeout) = self.changed.wait_timeout(count, remaining).unwrap();
+            count = next;
+            if timeout.timed_out() && *count < expected {
+                return false;
+            }
+        }
+        true
+    }
 }
 
 #[cfg(test)]
 impl ChildKiller for TestRecoveringChildKiller {
     fn kill(&mut self) -> std::io::Result<()> {
-        self.attempts.fetch_add(1, Ordering::AcqRel);
+        self.attempts.increment();
         if self.failing.load(Ordering::Acquire) {
             Err(std::io::Error::other("forced transient shutdown failure"))
         } else {
@@ -6346,6 +6444,38 @@ mod tests {
 
     use super::*;
 
+    #[cfg(unix)]
+    fn create_test_fifo(path: &std::path::Path) {
+        use std::os::unix::ffi::OsStrExt as _;
+
+        let path = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+        // SAFETY: path is a valid, null-terminated path owned for this call.
+        assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+    }
+
+    #[cfg(unix)]
+    fn wait_for_test_fifo(path: &std::path::Path) {
+        use std::io::Read as _;
+        use std::os::fd::AsRawFd as _;
+
+        let mut signal = std::fs::OpenOptions::new().read(true).write(true).open(path).unwrap();
+        let mut descriptor =
+            libc::pollfd { fd: signal.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+        // SAFETY: descriptor points to one initialized pollfd for this call.
+        assert_eq!(unsafe { libc::poll(&raw mut descriptor, 1, 2_000) }, 1);
+        assert_ne!(descriptor.revents & libc::POLLIN, 0);
+        let mut byte = [0_u8; 1];
+        signal.read_exact(&mut byte).unwrap();
+    }
+
+    #[cfg(unix)]
+    fn signal_test_fifo(path: &std::path::Path) {
+        use std::io::Write as _;
+
+        let mut signal = std::fs::OpenOptions::new().read(true).write(true).open(path).unwrap();
+        signal.write_all(b"ready").unwrap();
+    }
+
     fn append_disabled_kitty_replay_state(payload: &mut Vec<u8>) {
         for _ in 0..4 {
             payload.extend_from_slice(&0u64.to_le_bytes());
@@ -6399,20 +6529,21 @@ mod tests {
         let baseline = descriptor_count();
         let process_barrier = cmux_tui_process::ProcessCreationGuard::acquire();
         let (started_sender, started_receiver) = sync_channel(1);
+        let (result_sender, result_receiver) = sync_channel(1);
         let worker = std::thread::spawn(move || {
             started_sender.send(()).unwrap();
-            Surface::spawn(1, options, Arc::downgrade(&mux))
+            result_sender.send(Surface::spawn(1, options, Arc::downgrade(&mux))).unwrap();
         });
         started_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
-        let deadline = Instant::now() + Duration::from_millis(250);
-        let mut observed = baseline;
-        while observed == baseline && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(5));
-            observed = descriptor_count();
-        }
+        assert!(
+            result_receiver.recv_timeout(Duration::from_millis(250)).is_err(),
+            "PTY spawn completed while the process barrier was held"
+        );
+        let observed = descriptor_count();
 
         drop(process_barrier);
-        let surface = worker.join().unwrap().unwrap();
+        let surface = result_receiver.recv_timeout(Duration::from_secs(1)).unwrap().unwrap();
+        worker.join().unwrap();
         let _ = surface.terminate_for_server_shutdown(Instant::now() + Duration::from_secs(1));
 
         assert_eq!(observed, baseline, "PTY descriptors were created outside the process barrier");
@@ -6439,6 +6570,10 @@ mod tests {
             .join(format!("cmux-local-launcher-env-{}", crate::workspace_registry::new_uuid_v4()));
         std::fs::create_dir_all(&root).unwrap();
         let result = root.join("launcher.txt");
+        let ready = root.join("ready");
+        let hold = root.join("hold");
+        create_test_fifo(&ready);
+        create_test_fifo(&hold);
         let mux = Mux::new_for_test("local-launcher-env", SurfaceOptions::default());
         let options = SurfaceOptions {
             command: Some(vec![
@@ -6446,17 +6581,20 @@ mod tests {
                 "-c".into(),
                 "result=\"$CMUX_TUI_TEST_RESULT\"; \
                  printf '%s' \"${CMUX_TUI_LAUNCHER_COMMAND-unset}\" > \"$result.tmp\"; \
-                 mv \"$result.tmp\" \"$result\"; exec /bin/sleep 60"
+                 mv \"$result.tmp\" \"$result\"; \
+                 printf ready > \"$CMUX_TUI_TEST_READY\"; \
+                 exec /bin/cat \"$CMUX_TUI_TEST_HOLD\""
                     .into(),
             ]),
-            extra_env: vec![("CMUX_TUI_TEST_RESULT".into(), result.to_string_lossy().into_owned())],
+            extra_env: vec![
+                ("CMUX_TUI_TEST_RESULT".into(), result.to_string_lossy().into_owned()),
+                ("CMUX_TUI_TEST_READY".into(), ready.to_string_lossy().into_owned()),
+                ("CMUX_TUI_TEST_HOLD".into(), hold.to_string_lossy().into_owned()),
+            ],
             ..SurfaceOptions::default()
         };
         let surface = Surface::spawn(1, options, Arc::downgrade(&mux)).unwrap();
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while !result.exists() && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        wait_for_test_fifo(&ready);
         let inherited = std::fs::read_to_string(&result).unwrap();
         let _ = surface.terminate_for_server_shutdown(Instant::now() + Duration::from_secs(1));
         let _ = std::fs::remove_dir_all(root);
@@ -6470,9 +6608,14 @@ mod tests {
         let root = std::env::temp_dir()
             .join(format!("cmux-local-spawn-failure-{}", crate::workspace_registry::new_uuid_v4()));
         std::fs::create_dir_all(&root).unwrap();
-        let ready = root.join("ready");
+        let ready = root.join("leader.pid");
         let descendant = root.join("descendant");
-        let _failure = crate::process_session::force_post_spawn_failure_for_test(ready.clone());
+        let signal = root.join("spawn-ready");
+        let leader_hold = root.join("leader-hold");
+        let descendant_hold = root.join("descendant-hold");
+        create_test_fifo(&leader_hold);
+        create_test_fifo(&descendant_hold);
+        let _failure = crate::process_session::force_post_spawn_failure_for_test(signal.clone());
         let mux = Mux::new_for_test("local-spawn-failure", SurfaceOptions::default());
         let options = SurfaceOptions {
             command: Some(vec![
@@ -6480,11 +6623,15 @@ mod tests {
                 "-c".into(),
                 format!(
                     "trap '' HUP TERM; \
-                     (trap '' HUP TERM; exec /bin/sleep 60) & \
+                     (trap '' HUP TERM; exec /bin/cat {}) & \
                      echo $! > {}; \
-                     echo $$ > {}; exec /bin/sleep 60",
+                     echo $$ > {}; \
+                     printf ready > {}; exec /bin/cat {}",
+                    descendant_hold.display(),
                     descendant.display(),
-                    ready.display()
+                    ready.display(),
+                    signal.display(),
+                    leader_hold.display()
                 ),
             ]),
             ..SurfaceOptions::default()
@@ -6507,19 +6654,9 @@ mod tests {
                 libc::waitpid(pid, &raw mut status, 0);
             }
         }
-        let descendant_deadline = Instant::now() + Duration::from_secs(2);
-        let descendant_gone = loop {
-            // SAFETY: signal zero performs a non-mutating liveness probe.
-            if unsafe { libc::kill(descendant_pid, 0) } < 0
-                && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
-            {
-                break true;
-            }
-            if Instant::now() >= descendant_deadline {
-                break false;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        };
+        // SAFETY: signal zero performs a non-mutating liveness probe.
+        let descendant_gone = unsafe { libc::kill(descendant_pid, 0) } < 0
+            && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH);
         if !descendant_gone {
             // SAFETY: the marker names the test's retained-session descendant.
             unsafe {
@@ -6556,9 +6693,16 @@ mod tests {
         drop(reserve_local_child_reaper().unwrap());
         let baseline = crate::process_session::reserved_child_reaper_active_for_test();
         failure.store(true, Ordering::Release);
+        let root = std::env::temp_dir().join(format!(
+            "cmux-local-worker-start-failure-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let hold = root.join("hold");
+        create_test_fifo(&hold);
         let mux = Mux::new_for_test("local-worker-start-failure", SurfaceOptions::default());
         let options = SurfaceOptions {
-            command: Some(vec!["/bin/sleep".into(), "60".into()]),
+            command: Some(vec!["/bin/cat".into(), hold.to_string_lossy().into_owned()]),
             ..SurfaceOptions::default()
         };
 
@@ -6567,16 +6711,13 @@ mod tests {
         assert!(error.to_string().contains(expected_error), "unexpected spawn error: {error:#}");
 
         let deadline = Instant::now() + Duration::from_secs(4);
-        while crate::process_session::reserved_child_reaper_active_for_test() != baseline
-            && Instant::now() < deadline
-        {
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        assert_eq!(
-            crate::process_session::reserved_child_reaper_active_for_test(),
-            baseline,
+        assert!(
+            crate::process_session::wait_for_reserved_child_reaper_active_for_test(
+                baseline, deadline
+            ),
             "failed local worker startup retained a child-reaper reservation"
         );
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[cfg(unix)]
@@ -6720,13 +6861,16 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn local_session_kill_observes_the_waitable_leader_under_its_owner_lock() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-local-owner-observation-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let hold = root.join("hold");
+        create_test_fifo(&hold);
         let mux = Mux::new_for_test("local-owner-observation", SurfaceOptions::default());
         let options = SurfaceOptions {
-            command: Some(vec![
-                "/bin/sh".into(),
-                "-c".into(),
-                "trap '' HUP TERM; while :; do sleep 60; done".into(),
-            ]),
+            command: Some(vec!["/bin/cat".into(), hold.to_string_lossy().into_owned()]),
             ..SurfaceOptions::default()
         };
         let surface = Surface::spawn(1, options, Arc::downgrade(&mux)).unwrap();
@@ -6736,26 +6880,27 @@ mod tests {
         };
         process.termination_started.store(true, Ordering::Release);
 
-        let started = Instant::now();
-        let killed = process
-            .kill_terminal_process_session_until(Instant::now() + Duration::from_secs(1), None)
+        let kill_process = process.clone();
+        let (killed_tx, killed_rx) = sync_channel(1);
+        let killer = std::thread::spawn(move || {
+            let killed = kill_process
+                .kill_terminal_process_session_until(Instant::now() + Duration::from_secs(1), None);
+            killed_tx.send(killed).unwrap();
+        });
+        let killed = killed_rx
+            .recv_timeout(Duration::from_millis(500))
+            .expect("session cleanup waited on the reaper while retaining its owner lock")
             .unwrap();
-        let elapsed = started.elapsed();
+        killer.join().unwrap();
 
         process.group_escalation_complete.store(true, Ordering::Release);
         process.exited.1.notify_all();
         process.wake_reserved_child_reaper();
         let reap_deadline = Instant::now() + Duration::from_secs(2);
-        while !process.child_reaped.load(Ordering::Acquire) && Instant::now() < reap_deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
 
         assert!(killed, "session cleanup could not observe its SIGKILLed leader");
-        assert!(
-            elapsed < Duration::from_millis(500),
-            "session cleanup waited on the reaper while retaining its owner lock: {elapsed:?}"
-        );
-        assert!(process.child_reaped.load(Ordering::Acquire));
+        assert!(process.wait_for_child_reaped_until(reap_deadline));
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[cfg(unix)]
@@ -6822,6 +6967,10 @@ mod tests {
         let pid_path = root.join("descendant.pid");
         let ready_path = root.join("descendant.ready");
         let release_path = root.join("leader.release");
+        let descendant_hold = root.join("descendant.hold");
+        create_test_fifo(&ready_path);
+        create_test_fifo(&release_path);
+        create_test_fifo(&descendant_hold);
         let mux = Mux::new_for_test("local-reap-descendants", SurfaceOptions::default());
         let options = SurfaceOptions {
             command: Some(vec![
@@ -6829,9 +6978,10 @@ mod tests {
                 "-c".into(),
                 format!(
                     "trap '' HUP TERM; terminal=$(tty); \
-                     sleep 30 3<>\"$terminal\" & child=$!; \
-                     : > {ready}; echo $child > {pid}; \
-                     while [ ! -e {release} ]; do sleep 0.01; done; exit 0",
+                     /bin/cat {hold} 3<>\"$terminal\" & child=$!; \
+                     echo $child > {pid}; printf ready > {ready}; \
+                     /bin/cat {release}; exit 0",
+                    hold = descendant_hold.display(),
                     ready = ready_path.display(),
                     pid = pid_path.display(),
                     release = release_path.display(),
@@ -6844,34 +6994,21 @@ mod tests {
             LocalProcess::Owned(process) => process.clone(),
             LocalProcess::Untracked(_) => unreachable!("real PTY process must be tracked"),
         };
-        let start_deadline = Instant::now() + Duration::from_secs(1);
-        while !pid_path.exists() && Instant::now() < start_deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        wait_for_test_fifo(&ready_path);
         let descendant =
             std::fs::read_to_string(&pid_path).unwrap().trim().parse::<libc::pid_t>().unwrap();
         // SAFETY: signal 0 only probes the test-owned PID.
         assert_eq!(unsafe { libc::kill(descendant, 0) }, 0);
-        std::fs::write(&release_path, b"ready").unwrap();
+        signal_test_fifo(&release_path);
         let deadline = Instant::now() + Duration::from_secs(3);
-        while !process.child_reaped.load(Ordering::Acquire) && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        let naturally_reaped = process.child_reaped.load(Ordering::Acquire);
+        let naturally_reaped = process.wait_for_child_reaped_until(deadline);
         // SAFETY: signal 0 only probes the test-owned PID.
         let descendant_alive_before_cleanup = unsafe { libc::kill(descendant, 0) } == 0;
 
         let terminated =
             surface.terminate_for_server_shutdown(Instant::now() + Duration::from_secs(1));
-        let mut descendant_alive = true;
-        let exit_deadline = Instant::now() + Duration::from_secs(1);
-        while descendant_alive && Instant::now() < exit_deadline {
-            // SAFETY: signal 0 only probes the test-owned PID.
-            descendant_alive = unsafe { libc::kill(descendant, 0) } == 0;
-            if descendant_alive {
-                std::thread::sleep(Duration::from_millis(10));
-            }
-        }
+        // SAFETY: signal 0 only probes the test-owned PID.
+        let descendant_alive = unsafe { libc::kill(descendant, 0) } == 0;
         if descendant_alive {
             // SAFETY: this PID was written by the test-owned descendant.
             unsafe {
@@ -6916,14 +7053,8 @@ mod tests {
         std::fs::write(&release_path, b"ready").unwrap();
 
         let retry_deadline = Instant::now() + Duration::from_secs(3);
-        while (!process.child_reaped.load(Ordering::Acquire)
-            || process.normal_cleanup_attempts.load(Ordering::Acquire) < 2)
-            && Instant::now() < retry_deadline
-        {
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        let retried = process.normal_cleanup_attempts.load(Ordering::Acquire) >= 2;
-        let reaped = process.child_reaped.load(Ordering::Acquire);
+        let retried = process.wait_for_normal_cleanup_attempts_until(2, retry_deadline);
+        let reaped = process.wait_for_child_reaped_until(retry_deadline);
         let _ = process.terminate_and_wait(Instant::now() + Duration::from_secs(1));
         let _ = std::fs::remove_dir_all(root);
 
@@ -6973,13 +7104,9 @@ mod tests {
         std::fs::write(&release_path, b"ready").unwrap();
 
         let deadline = Instant::now() + Duration::from_secs(3);
-        while processes
+        let all_attempted = processes
             .iter()
-            .any(|process| process.normal_cleanup_attempts.load(Ordering::Acquire) == 0)
-            && Instant::now() < deadline
-        {
-            std::thread::sleep(Duration::from_millis(10));
-        }
+            .all(|process| process.wait_for_normal_cleanup_attempts_until(1, deadline));
         let dedicated = crate::process_session::dedicated_natural_reap_workers_for_test()
             .saturating_sub(baseline);
 
@@ -6997,6 +7124,7 @@ mod tests {
             dedicated_observers, 0,
             "local child observation bypassed the reserved shared reaper"
         );
+        assert!(all_attempted, "a reserved child did not reach the shared cleanup owner");
     }
 
     #[cfg(unix)]
@@ -7020,31 +7148,28 @@ mod tests {
             LocalProcess::Owned(process) => process.clone(),
             LocalProcess::Untracked(_) => unreachable!("real PTY process must be tracked"),
         };
-        process.normal_cleanup_delay_ms.store(
-            crate::test_timeout(Duration::from_millis(300)).as_millis() as u64,
-            Ordering::Release,
-        );
+        let cleanup_gate = Arc::new(TestLifecycleGate::default());
+        *process.normal_cleanup_gate.lock().unwrap() = Some(cleanup_gate.clone());
         std::fs::write(&release_path, b"ready").unwrap();
         let sweep_deadline = Instant::now() + crate::test_timeout(Duration::from_secs(1));
-        while !process.normal_cleanup_started.load(Ordering::Acquire)
-            && Instant::now() < sweep_deadline
-        {
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        assert!(process.normal_cleanup_started.load(Ordering::Acquire));
+        assert!(cleanup_gate.wait_until_entered(1, sweep_deadline));
 
-        let started = Instant::now();
-        let _ =
-            process.terminate_and_wait(started + crate::test_timeout(Duration::from_millis(50)));
-        let elapsed = started.elapsed();
+        let shutdown_process = process.clone();
+        let (shutdown_tx, shutdown_rx) = sync_channel(1);
+        let shutdown = std::thread::spawn(move || {
+            let result = shutdown_process.terminate_and_wait(
+                Instant::now() + crate::test_timeout(Duration::from_millis(50)),
+            );
+            shutdown_tx.send(result).unwrap();
+        });
+        shutdown_rx
+            .recv_timeout(crate::test_timeout(Duration::from_millis(150)))
+            .expect("explicit shutdown waited behind the natural cleanup sweep");
+        cleanup_gate.release();
+        shutdown.join().unwrap();
         let _ = process
             .terminate_and_wait(Instant::now() + crate::test_timeout(Duration::from_secs(1)));
         let _ = std::fs::remove_dir_all(root);
-
-        assert!(
-            elapsed < crate::test_timeout(Duration::from_millis(150)),
-            "explicit shutdown waited behind the natural cleanup sweep: {elapsed:?}"
-        );
     }
 
     #[test]
@@ -7054,19 +7179,29 @@ mod tests {
             Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
         let locked = surface.clone();
         let (held_tx, held_rx) = sync_channel(1);
+        let (release_tx, release_rx) = sync_channel(1);
         let holder = std::thread::spawn(move || {
             let pty = locked.as_pty().unwrap();
             let _runtime = pty.runtime.lock().unwrap();
             held_tx.send(()).unwrap();
-            std::thread::sleep(Duration::from_millis(150));
+            release_rx.recv().unwrap();
         });
         held_rx.recv_timeout(Duration::from_secs(1)).unwrap();
 
-        let started = Instant::now();
-        assert!(surface.terminate_for_server_shutdown(started + Duration::from_millis(25)));
-        assert!(started.elapsed() < Duration::from_millis(100));
+        let (shutdown_tx, shutdown_rx) = sync_channel(1);
+        let shutdown = std::thread::spawn(move || {
+            shutdown_tx
+                .send(
+                    surface
+                        .terminate_for_server_shutdown(Instant::now() + Duration::from_millis(25)),
+                )
+                .unwrap();
+        });
+        assert!(shutdown_rx.recv_timeout(Duration::from_millis(100)).unwrap());
 
+        release_tx.send(()).unwrap();
         holder.join().unwrap();
+        shutdown.join().unwrap();
     }
 
     #[cfg(unix)]

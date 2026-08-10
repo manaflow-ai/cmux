@@ -2827,10 +2827,17 @@ mod tests {
         );
         options.env.insert("PIDFILE".into(), pid_file.to_string_lossy().into_owned());
         let spawn_manager = manager.clone();
-        let spawn = tokio::spawn(async move { spawn_manager.spawn(root, options).await });
-
-        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-        let spawned_while_barrier_held = pid_file.exists();
+        let (started_sender, started_receiver) = tokio::sync::oneshot::channel();
+        let mut spawn = tokio::spawn(async move {
+            started_sender.send(()).unwrap();
+            spawn_manager.spawn(root, options).await
+        });
+        started_receiver.await.unwrap();
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(250), &mut spawn).await.is_err(),
+            "remote pipe child started while the process barrier was held"
+        );
+        assert!(!pid_file.exists(), "blocked remote pipe child published its pid");
         release_sender.send(()).unwrap();
         barrier_holder.join().unwrap();
 
@@ -2840,10 +2847,6 @@ mod tests {
             .unwrap()
             .unwrap();
         manager.shutdown().await;
-        assert!(
-            !spawned_while_barrier_held,
-            "remote pipe child started while the process barrier was held"
-        );
     }
 
     #[cfg(unix)]

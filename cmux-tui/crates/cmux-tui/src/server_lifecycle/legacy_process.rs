@@ -222,10 +222,8 @@ pub(super) fn terminate_process_tree_until(
     process: ProcessIdentity,
     deadline: Instant,
 ) -> io::Result<()> {
-    retry_process_tree_termination(process, deadline, |_| {
-        let tree = FrozenProcessTree::freeze(process, deadline)?;
-        tree.terminate_until(deadline)
-    })
+    let tree = FrozenProcessTree::freeze(process, deadline)?;
+    tree.terminate_until(deadline)
 }
 
 #[cfg(test)]
@@ -253,9 +251,6 @@ fn retry_process_tree_termination(
         if Instant::now() >= deadline {
             return Err(error);
         }
-        std::thread::sleep(
-            deadline.saturating_duration_since(Instant::now()).min(PROCESS_TREE_RETRY_INTERVAL),
-        );
     }
 }
 
@@ -973,20 +968,11 @@ mod tests {
             }
         }
         drop(tree);
-        let deadline = Instant::now() + Duration::from_millis(250);
-        let mut resumed = false;
-        while Instant::now() < deadline {
-            match stdout.read(&mut output) {
-                Ok(0) => break,
-                Ok(_) => {
-                    resumed = true;
-                    break;
-                }
-                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
-                Err(error) => panic!("failed to read resumed child output: {error}"),
-            }
-            std::thread::sleep(Duration::from_millis(5));
-        }
+        let mut poll_descriptor = libc::pollfd { fd: descriptor, events: libc::POLLIN, revents: 0 };
+        // SAFETY: poll_descriptor points to one initialized pollfd for this call.
+        assert_eq!(unsafe { libc::poll(&raw mut poll_descriptor, 1, 250) }, 1);
+        assert_ne!(poll_descriptor.revents & libc::POLLIN, 0);
+        let resumed = stdout.read(&mut output).unwrap() != 0;
 
         STABLE_HANDLE_CAPTURE_BUDGET.set(None);
         // SAFETY: only the exact test-owned child can still use this unreaped PID.
@@ -1050,8 +1036,8 @@ mod tests {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[test]
     fn captured_session_waits_for_an_unavailable_exact_member_to_exit() {
-        let mut command = Command::new("sleep");
-        command.arg("60").stdout(Stdio::null()).stderr(Stdio::null());
+        let mut command = Command::new("cat");
+        command.stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null());
         unsafe {
             command.pre_exec(|| {
                 if libc::setsid() < 0 {
@@ -1066,14 +1052,27 @@ mod tests {
         let unavailable =
             ProcessIdentity { pid: process.pid, started_at: process.started_at.wrapping_add(1) };
         let session = CapturedSession { id: pid, members: vec![unavailable] };
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
         let reaper = std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(50));
+            release_rx.recv().unwrap();
             child.kill().unwrap();
             child.wait().unwrap()
         });
 
-        let result = session.kill_until_empty(Instant::now() + Duration::from_secs(1));
+        let (result_tx, result_rx) = std::sync::mpsc::sync_channel(1);
+        let waiter = std::thread::spawn(move || {
+            result_tx
+                .send(session.kill_until_empty(Instant::now() + Duration::from_secs(1)))
+                .unwrap();
+        });
+        assert!(
+            result_rx.recv_timeout(Duration::from_millis(50)).is_err(),
+            "captured session completed while its exact member remained alive"
+        );
+        release_tx.send(()).unwrap();
+        let result = result_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         reaper.join().unwrap();
+        waiter.join().unwrap();
 
         assert!(result.unwrap());
     }

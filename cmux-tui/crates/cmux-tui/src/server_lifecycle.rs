@@ -367,6 +367,7 @@ struct LegacyHelperReaperLease {
 impl Drop for LegacyHelperReaperLease {
     fn drop(&mut self) {
         self.active.fetch_sub(1, Ordering::AcqRel);
+        self.pending.1.notify_all();
     }
 }
 
@@ -404,6 +405,7 @@ impl LegacyHelperReaper {
                 (active < LEGACY_HELPER_REAPER_CAPACITY).then_some(active + 1)
             })
             .ok()?;
+        self.pending.1.notify_all();
         Some(LegacyHelperReaperLease { pending: self.pending.clone(), active: self.active.clone() })
     }
 }
@@ -423,6 +425,29 @@ fn active_legacy_helper_reapers_for_test() -> usize {
         .get()
         .and_then(Option::as_ref)
         .map_or(0, |reaper| reaper.active.load(Ordering::Acquire))
+}
+
+#[cfg(all(unix, test))]
+fn wait_for_active_legacy_helper_reapers_for_test(expected: usize, deadline: Instant) -> bool {
+    let Some(reaper) = LEGACY_HELPER_REAPER.get().and_then(Option::as_ref) else {
+        return expected == 0;
+    };
+    let mut pending = reaper.pending.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    while reaper.active.load(Ordering::Acquire) != expected {
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            return false;
+        };
+        let (next, timeout) = reaper
+            .pending
+            .1
+            .wait_timeout(pending, remaining)
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        pending = next;
+        if timeout.timed_out() && reaper.active.load(Ordering::Acquire) != expected {
+            return false;
+        }
+    }
+    true
 }
 
 #[cfg(unix)]
@@ -2110,7 +2135,8 @@ mod tests {
         let (listener, quarantine, path) = quarantined_test_listener("cq-reap");
         let mut helper = Command::new("/bin/sh")
             .arg("-c")
-            .arg("trap '' TERM; printf 'ready\\n'; while :; do sleep 1; done")
+            .arg("trap '' TERM; printf 'ready\\n'; read _")
+            .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
@@ -2123,6 +2149,7 @@ mod tests {
         let logical_now = Arc::new(Mutex::new(logical_start));
         let read_clock = logical_now.clone();
         let advance_clock = logical_now.clone();
+        let baseline = active_legacy_helper_reapers_for_test();
         let reaper = reserve_legacy_helper_reaper().unwrap();
 
         let error = wait_for_child_until_with(
@@ -2141,7 +2168,10 @@ mod tests {
         unsafe {
             libc::kill(helper_pid, libc::SIGKILL);
         }
-        std::thread::sleep(Duration::from_millis(250));
+        assert!(wait_for_active_legacy_helper_reapers_for_test(
+            baseline,
+            Instant::now() + Duration::from_secs(1)
+        ));
         let mut status = 0;
         // SAFETY: this probes whether another owner retained and reaped the
         // exact test child after wait_for_child_until returned.
@@ -2209,7 +2239,8 @@ mod tests {
         let (listener, quarantine, path) = quarantined_test_listener("cq-help");
         let mut helper = Command::new("/bin/sh")
             .arg("-c")
-            .arg("trap '' TERM; printf 'ready\\n'; while :; do sleep 1; done")
+            .arg("trap '' TERM; printf 'ready\\n'; read _")
+            .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
@@ -2233,9 +2264,7 @@ mod tests {
             libc::kill(helper_pid, libc::SIGKILL);
         }
         let deadline = Instant::now() + Duration::from_secs(1);
-        while active_legacy_helper_reapers_for_test() != baseline && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        assert!(wait_for_active_legacy_helper_reapers_for_test(baseline, deadline));
         let restored_after_helper_exit = UnixStream::connect(&path).is_ok();
 
         drop(listener);
@@ -2274,9 +2303,7 @@ mod tests {
         reaper.retain_shutdown_ownership(LegacyHelperChild { child, quarantine });
 
         let deadline = Instant::now() + Duration::from_millis(250);
-        while active_legacy_helper_reapers_for_test() != baseline && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        assert!(wait_for_active_legacy_helper_reapers_for_test(baseline, deadline));
 
         assert_eq!(
             active_legacy_helper_reapers_for_test(),

@@ -33,9 +33,27 @@ impl Drop for ReservedPortableChildReaperLease {
 
 struct PortableChildReapRequest {
     child: Box<dyn portable_pty::Child + Send + Sync>,
-    _lease: ReservedPortableChildReaperLease,
+    lease: Option<ReservedPortableChildReaperLease>,
     next_attempt: Instant,
     retry_delay: Duration,
+}
+
+#[cfg(test)]
+static PORTABLE_REAPER_TEST_SENDER: Mutex<Option<mpsc::Sender<PortableReaperTestEvent>>> =
+    Mutex::new(None);
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PortableReaperTestEvent {
+    Attempt,
+    Complete,
+}
+
+#[cfg(test)]
+fn publish_portable_reaper_test_event(event: PortableReaperTestEvent) {
+    if let Some(sender) = PORTABLE_REAPER_TEST_SENDER.lock().unwrap().as_ref() {
+        let _ = sender.send(event);
+    }
 }
 
 struct StrandedPortableChild {
@@ -100,12 +118,12 @@ fn enqueue_portable_child_cleanup(
     let sender = lease.sender.clone();
     let request = PortableChildReapRequest {
         child,
-        _lease: lease,
+        lease: Some(lease),
         next_attempt: Instant::now(),
         retry_delay: PORTABLE_CHILD_REAP_RETRY_INITIAL,
     };
     if let Err(mpsc::SendError(request)) = sender.send(request) {
-        retain_stranded_portable_child(request.child, Some(request._lease));
+        retain_stranded_portable_child(request.child, request.lease);
     }
 }
 
@@ -160,8 +178,14 @@ fn run_portable_child_reaper(receiver: mpsc::Receiver<PortableChildReapRequest>)
             }
             let mut request = pending.swap_remove(index);
             let _ = request.child.kill();
+            #[cfg(test)]
+            publish_portable_reaper_test_event(PortableReaperTestEvent::Attempt);
             match request.child.try_wait() {
-                Ok(Some(_)) => {}
+                Ok(Some(_)) => {
+                    drop(request.lease.take());
+                    #[cfg(test)]
+                    publish_portable_reaper_test_event(PortableReaperTestEvent::Complete);
+                }
                 Ok(None) | Err(_) => {
                     request.schedule_retry();
                     pending.push(request);
@@ -336,8 +360,25 @@ impl Drop for SpawnedPtyChild {
 mod tests {
     use super::*;
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-    use std::time::{Duration, Instant};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
+
+    struct PortableReaperTestObserver;
+
+    impl PortableReaperTestObserver {
+        fn install() -> (Self, mpsc::Receiver<PortableReaperTestEvent>) {
+            let (sender, receiver) = mpsc::channel();
+            let previous = PORTABLE_REAPER_TEST_SENDER.lock().unwrap().replace(sender);
+            assert!(previous.is_none(), "portable reaper observer was already installed");
+            (Self, receiver)
+        }
+    }
+
+    impl Drop for PortableReaperTestObserver {
+        fn drop(&mut self) {
+            PORTABLE_REAPER_TEST_SENDER.lock().unwrap().take();
+        }
+    }
 
     #[derive(Debug)]
     struct FailedKiller;
@@ -357,7 +398,7 @@ mod tests {
 
     #[derive(Debug)]
     struct BlockingWaitChild {
-        try_waits: Arc<AtomicUsize>,
+        try_waits: usize,
         wait_called: Arc<AtomicBool>,
     }
 
@@ -376,8 +417,8 @@ mod tests {
 
     impl portable_pty::Child for BlockingWaitChild {
         fn try_wait(&mut self) -> std::io::Result<Option<portable_pty::ExitStatus>> {
-            let attempt = self.try_waits.fetch_add(1, Ordering::AcqRel) + 1;
-            Ok((attempt >= 2).then(|| portable_pty::ExitStatus::with_exit_code(1)))
+            self.try_waits = self.try_waits.saturating_add(1);
+            Ok((self.try_waits >= 2).then(|| portable_pty::ExitStatus::with_exit_code(1)))
         }
 
         fn wait(&mut self) -> std::io::Result<portable_pty::ExitStatus> {
@@ -412,10 +453,10 @@ mod tests {
             return;
         }
 
-        let try_waits = Arc::new(AtomicUsize::new(0));
+        let (_observer, events) = PortableReaperTestObserver::install();
         let wait_called = Arc::new(AtomicBool::new(false));
         let child = SpawnedPtyChild::new(Box::new(BlockingWaitChild {
-            try_waits: try_waits.clone(),
+            try_waits: 0,
             wait_called: wait_called.clone(),
         }));
         let (dropped_sender, dropped_receiver) = mpsc::sync_channel(1);
@@ -427,14 +468,18 @@ mod tests {
         dropped_receiver
             .recv_timeout(Duration::from_millis(250))
             .expect("spawned PTY child Drop blocked after kill failed");
-        let deadline = Instant::now() + Duration::from_millis(500);
-        while (try_waits.load(Ordering::Acquire) < 2
-            || portable_child_reaper_active_for_test() != 0)
-            && Instant::now() < deadline
-        {
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        assert!(try_waits.load(Ordering::Acquire) >= 2, "cleanup owner did not retry the child");
+        assert_eq!(
+            events.recv_timeout(Duration::from_millis(500)).unwrap(),
+            PortableReaperTestEvent::Attempt
+        );
+        assert_eq!(
+            events.recv_timeout(Duration::from_secs(1)).unwrap(),
+            PortableReaperTestEvent::Attempt
+        );
+        assert_eq!(
+            events.recv_timeout(Duration::from_secs(1)).unwrap(),
+            PortableReaperTestEvent::Complete
+        );
         assert_eq!(
             portable_child_reaper_active_for_test(),
             0,

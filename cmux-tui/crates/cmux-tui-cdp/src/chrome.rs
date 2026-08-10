@@ -20,10 +20,17 @@ const REAPER_MAX_BACKOFF: Duration = Duration::from_secs(1);
 static FORCE_REAPER_PENDING: AtomicBool = AtomicBool::new(false);
 #[cfg(test)]
 static FORCE_REAPER_WAIT_ERROR: AtomicBool = AtomicBool::new(false);
-#[cfg(test)]
-static REAPER_POLL_ATTEMPTS: AtomicUsize = AtomicUsize::new(0);
 #[cfg(all(test, unix))]
 static REAPER_TEST_LOCK: Mutex<()> = Mutex::new(());
+#[cfg(test)]
+static REAPER_TEST_EVENT_SENDER: Mutex<Option<mpsc::Sender<ReaperTestEvent>>> = Mutex::new(None);
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ReaperTestEvent {
+    Attempt(u32),
+    Complete(u32),
+}
 
 #[cfg(test)]
 thread_local! {
@@ -112,30 +119,24 @@ impl Chrome {
                 }
             });
         if let Err(error) = stderr_worker {
-            if kill_child_until(&mut child, Instant::now() + Duration::from_secs(1)) {
-                if profile_ephemeral {
-                    let _ = std::fs::remove_dir_all(&profile_dir);
-                }
-            } else {
-                reap_child_detached(reaper, child, profile_ephemeral.then(|| profile_dir.clone()));
-            }
+            let _ = reap_child_until(
+                reaper,
+                child,
+                profile_ephemeral.then(|| profile_dir.clone()),
+                Instant::now() + Duration::from_secs(1),
+            );
             return Err(error.into());
         }
 
         let web_socket_url = match rx.recv_timeout(Duration::from_secs(10)) {
             Ok(url) => url,
             Err(_) => {
-                if kill_child_until(&mut child, Instant::now() + Duration::from_secs(1)) {
-                    if profile_ephemeral {
-                        let _ = std::fs::remove_dir_all(&profile_dir);
-                    }
-                } else {
-                    reap_child_detached(
-                        reaper,
-                        child,
-                        profile_ephemeral.then(|| profile_dir.clone()),
-                    );
-                }
+                let _ = reap_child_until(
+                    reaper,
+                    child,
+                    profile_ephemeral.then(|| profile_dir.clone()),
+                    Instant::now() + Duration::from_secs(1),
+                );
                 anyhow::bail!(
                     "Chrome did not publish a DevTools endpoint within 10s (binary: {})",
                     options.binary.display()
@@ -162,25 +163,21 @@ impl Chrome {
 
     pub fn kill_until(&self, deadline: Instant) -> bool {
         let mut slot = self.child.lock().unwrap();
-        let Some(mut child) = slot.take() else { return true };
+        let Some(child) = slot.take() else { return true };
         drop(slot);
-        if kill_child_until(&mut child, deadline) {
-            drop(self.reaper.lock().unwrap().take());
-            return true;
-        }
-        *self.child.lock().unwrap() = Some(child);
-        false
+        let reaper =
+            self.reaper.lock().unwrap().take().expect("live Chrome retains its reaper lease");
+        reap_child_until(
+            reaper,
+            child,
+            self.profile_ephemeral.then(|| self.profile_dir.clone()),
+            deadline,
+        )
     }
 }
 
 impl Drop for Chrome {
     fn drop(&mut self) {
-        if self.kill_until(Instant::now() + Duration::from_secs(1)) {
-            if self.profile_ephemeral {
-                let _ = std::fs::remove_dir_all(&self.profile_dir);
-            }
-            return;
-        }
         let child = self.child.get_mut().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
         if let Some(child) = child {
             reap_child_detached(
@@ -192,8 +189,6 @@ impl Drop for Chrome {
                 child,
                 self.profile_ephemeral.then(|| self.profile_dir.clone()),
             );
-        } else if self.profile_ephemeral {
-            let _ = std::fs::remove_dir_all(&self.profile_dir);
         }
     }
 }
@@ -201,7 +196,8 @@ impl Drop for Chrome {
 struct ReapRequest {
     child: Child,
     profile_dir: Option<PathBuf>,
-    _lease: ChromeReaperLease,
+    completion: Option<mpsc::SyncSender<()>>,
+    lease: Option<ChromeReaperLease>,
     next_attempt: Instant,
     retry_delay: Duration,
 }
@@ -272,12 +268,38 @@ fn chrome_reaper_lease() -> std::io::Result<ChromeReaperLease> {
 }
 
 fn reap_child_detached(reaper: ChromeReaperLease, child: Child, profile_dir: Option<PathBuf>) {
+    reap_child(reaper, child, profile_dir, None);
+}
+
+fn reap_child_until(
+    reaper: ChromeReaperLease,
+    child: Child,
+    profile_dir: Option<PathBuf>,
+    deadline: Instant,
+) -> bool {
+    let (completion_tx, completion_rx) = mpsc::sync_channel(1);
+    reap_child(reaper, child, profile_dir, Some(completion_tx));
+    #[cfg(test)]
+    if FORCE_KILL_TIMEOUT.get() {
+        return false;
+    }
+    let Some(remaining) = deadline.checked_duration_since(Instant::now()) else { return false };
+    completion_rx.recv_timeout(remaining).is_ok()
+}
+
+fn reap_child(
+    reaper: ChromeReaperLease,
+    child: Child,
+    profile_dir: Option<PathBuf>,
+    completion: Option<mpsc::SyncSender<()>>,
+) {
     let sender = reaper.sender.clone();
     sender
         .send(ReapRequest {
             child,
             profile_dir,
-            _lease: reaper,
+            completion,
+            lease: Some(reaper),
             next_attempt: Instant::now(),
             retry_delay: REAPER_INITIAL_BACKOFF,
         })
@@ -318,16 +340,21 @@ fn run_reaper(receiver: mpsc::Receiver<ReapRequest>) {
                 return false;
             }
             request.next_attempt = now + request.retry_delay;
-            request.retry_delay = (request.retry_delay * 2).min(REAPER_MAX_BACKOFF);
+            request.retry_delay = next_reaper_retry_delay(request.retry_delay);
             true
         });
     }
 }
 
+fn next_reaper_retry_delay(current: Duration) -> Duration {
+    (current * 2).min(REAPER_MAX_BACKOFF)
+}
+
 fn poll_reap_request(request: &mut ReapRequest) -> bool {
     #[cfg(test)]
+    publish_reaper_test_event(ReaperTestEvent::Attempt(request.child.id()));
+    #[cfg(test)]
     {
-        REAPER_POLL_ATTEMPTS.fetch_add(1, Ordering::Relaxed);
         if FORCE_REAPER_WAIT_ERROR.load(Ordering::Acquire) {
             let _ = request.child.kill();
             return false;
@@ -344,25 +371,58 @@ fn poll_reap_request(request: &mut ReapRequest) -> bool {
     if let Some(profile_dir) = request.profile_dir.take() {
         let _ = std::fs::remove_dir_all(profile_dir);
     }
+    drop(request.lease.take());
+    if let Some(completion) = request.completion.take() {
+        let _ = completion.send(());
+    }
+    #[cfg(test)]
+    publish_reaper_test_event(ReaperTestEvent::Complete(request.child.id()));
     true
 }
 
-fn kill_child_until(child: &mut Child, deadline: Instant) -> bool {
-    let _ = child.kill();
-    #[cfg(test)]
-    if FORCE_KILL_TIMEOUT.get() {
-        return false;
+#[cfg(test)]
+fn publish_reaper_test_event(event: ReaperTestEvent) {
+    if let Some(sender) = REAPER_TEST_EVENT_SENDER.lock().unwrap().as_ref() {
+        let _ = sender.send(event);
     }
+}
+
+#[cfg(test)]
+struct ReaperTestObserver;
+
+#[cfg(test)]
+impl ReaperTestObserver {
+    fn install() -> (Self, mpsc::Receiver<ReaperTestEvent>) {
+        let (sender, receiver) = mpsc::channel();
+        let previous = REAPER_TEST_EVENT_SENDER.lock().unwrap().replace(sender);
+        assert!(previous.is_none(), "Chrome reaper test observer was already installed");
+        (Self, receiver)
+    }
+}
+
+#[cfg(test)]
+impl Drop for ReaperTestObserver {
+    fn drop(&mut self) {
+        REAPER_TEST_EVENT_SENDER.lock().unwrap().take();
+    }
+}
+
+#[cfg(test)]
+fn wait_for_reaper_test_event(
+    receiver: &mpsc::Receiver<ReaperTestEvent>,
+    expected: ReaperTestEvent,
+) {
+    let deadline = Instant::now() + Duration::from_secs(1);
     loop {
-        match child.try_wait() {
-            Ok(Some(_)) => return true,
-            Ok(None) => {}
-            Err(_) => return false,
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .expect("Chrome reaper did not publish the expected lifecycle event");
+        let event = receiver
+            .recv_timeout(remaining)
+            .expect("Chrome reaper did not publish the expected lifecycle event");
+        if event == expected {
+            return;
         }
-        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-            return false;
-        };
-        std::thread::sleep(remaining.min(Duration::from_millis(10)));
     }
 }
 
@@ -534,9 +594,10 @@ mod tests {
             .stderr(Stdio::null())
             .spawn()
             .unwrap();
-        let (sender, _receiver) = mpsc::channel();
+        let (sender, receiver) = mpsc::channel();
+        let worker = std::thread::spawn(move || run_reaper(receiver));
         let active = Arc::new(AtomicUsize::new(0));
-        let reaper = reserve_reaper_lease(sender, active.clone(), 1).unwrap();
+        let reaper = reserve_reaper_lease(sender.clone(), active.clone(), 1).unwrap();
         let chrome = Chrome {
             child: Mutex::new(Some(child)),
             profile_dir: make_profile_dir().unwrap(),
@@ -551,12 +612,16 @@ mod tests {
             0,
             "a confirmed child retained bounded reaper capacity until Chrome was dropped"
         );
+        drop(chrome);
+        drop(sender);
+        worker.join().unwrap();
     }
 
     #[cfg(unix)]
     #[test]
     fn drop_transfers_an_unconfirmed_child_to_a_reaper() {
         let _guard = REAPER_TEST_LOCK.lock().unwrap();
+        let (_observer, events) = ReaperTestObserver::install();
         unsafe extern "C" {
             fn kill(pid: i32, signal: i32) -> i32;
             fn waitpid(pid: i32, status: *mut i32, options: i32) -> i32;
@@ -579,18 +644,11 @@ mod tests {
         };
 
         FORCE_KILL_TIMEOUT.set(true);
-        drop(chrome);
+        assert!(!chrome.kill_until(Instant::now() + Duration::from_secs(1)));
         FORCE_KILL_TIMEOUT.set(false);
-        let deadline = Instant::now() + Duration::from_secs(1);
-        let reaped = loop {
-            if unsafe { kill(pid, 0) } != 0 {
-                break true;
-            }
-            if Instant::now() >= deadline {
-                break false;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        };
+        drop(chrome);
+        wait_for_reaper_test_event(&events, ReaperTestEvent::Complete(pid as u32));
+        let reaped = unsafe { kill(pid, 0) } != 0;
         if !reaped {
             let mut status = 0;
             unsafe {
@@ -621,6 +679,7 @@ mod tests {
     #[test]
     fn final_reaper_request_survives_a_shutdown_thread_spawn_failure() {
         let _guard = REAPER_TEST_LOCK.lock().unwrap();
+        let (_observer, events) = ReaperTestObserver::install();
         unsafe extern "C" {
             fn kill(pid: i32, signal: i32) -> i32;
             fn waitpid(pid: i32, status: *mut i32, options: i32) -> i32;
@@ -643,16 +702,8 @@ mod tests {
         reap_child_detached(chrome_reaper_lease().unwrap(), child, Some(profile_dir.clone()));
         FORCE_REAPER_SPAWN_FAILURE.set(false);
 
-        let deadline = Instant::now() + Duration::from_secs(1);
-        let cleaned = loop {
-            if unsafe { kill(pid, 0) } != 0 && !profile_dir.exists() {
-                break true;
-            }
-            if Instant::now() >= deadline {
-                break false;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        };
+        wait_for_reaper_test_event(&events, ReaperTestEvent::Complete(pid as u32));
+        let cleaned = unsafe { kill(pid, 0) } != 0 && !profile_dir.exists();
         if !cleaned {
             let mut status = 0;
             unsafe {
@@ -669,6 +720,7 @@ mod tests {
     #[test]
     fn persistent_reaper_backs_off_unconfirmed_children() {
         let _guard = REAPER_TEST_LOCK.lock().unwrap();
+        let (_observer, events) = ReaperTestObserver::install();
         unsafe extern "C" {
             fn kill(pid: i32, signal: i32) -> i32;
             fn waitpid(pid: i32, status: *mut i32, options: i32) -> i32;
@@ -683,16 +735,10 @@ mod tests {
             .unwrap();
         let pid = i32::try_from(child.id()).unwrap();
         FORCE_REAPER_PENDING.store(true, Ordering::Release);
-        REAPER_POLL_ATTEMPTS.store(0, Ordering::Release);
         reap_child_detached(chrome_reaper_lease().unwrap(), child, None);
-        std::thread::sleep(Duration::from_millis(160));
-        let attempts = REAPER_POLL_ATTEMPTS.load(Ordering::Acquire);
+        wait_for_reaper_test_event(&events, ReaperTestEvent::Attempt(pid as u32));
         FORCE_REAPER_PENDING.store(false, Ordering::Release);
-
-        let deadline = Instant::now() + Duration::from_secs(1);
-        while unsafe { kill(pid, 0) } == 0 && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        wait_for_reaper_test_event(&events, ReaperTestEvent::Complete(pid as u32));
         if unsafe { kill(pid, 0) } == 0 {
             let mut status = 0;
             unsafe {
@@ -700,14 +746,15 @@ mod tests {
                 waitpid(pid, &mut status, 0);
             }
         }
-
-        assert!(attempts <= 6, "unconfirmed child was polled {attempts} times in 160ms");
+        assert_eq!(next_reaper_retry_delay(REAPER_INITIAL_BACKOFF), Duration::from_millis(20));
+        assert_eq!(next_reaper_retry_delay(REAPER_MAX_BACKOFF), REAPER_MAX_BACKOFF);
     }
 
     #[cfg(unix)]
     #[test]
     fn terminal_reaper_wait_error_retains_ownership_for_retry() {
         let _guard = REAPER_TEST_LOCK.lock().unwrap();
+        let (_observer, events) = ReaperTestObserver::install();
         unsafe extern "C" {
             fn kill(pid: i32, signal: i32) -> i32;
             fn waitpid(pid: i32, status: *mut i32, options: i32) -> i32;
@@ -723,19 +770,11 @@ mod tests {
         let pid = i32::try_from(child.id()).unwrap();
         let profile_dir = make_profile_dir().unwrap();
         FORCE_REAPER_WAIT_ERROR.store(true, Ordering::Release);
-        REAPER_POLL_ATTEMPTS.store(0, Ordering::Release);
         reap_child_detached(chrome_reaper_lease().unwrap(), child, Some(profile_dir.clone()));
-        let deadline = Instant::now() + Duration::from_millis(200);
-        while REAPER_POLL_ATTEMPTS.load(Ordering::Acquire) == 0 && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        wait_for_reaper_test_event(&events, ReaperTestEvent::Attempt(pid as u32));
         let retained = profile_dir.exists();
         FORCE_REAPER_WAIT_ERROR.store(false, Ordering::Release);
-
-        let cleanup_deadline = Instant::now() + Duration::from_secs(1);
-        while profile_dir.exists() && Instant::now() < cleanup_deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        wait_for_reaper_test_event(&events, ReaperTestEvent::Complete(pid as u32));
         let mut status = 0;
         unsafe {
             kill(pid, 9);

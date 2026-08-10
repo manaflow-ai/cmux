@@ -829,6 +829,7 @@ pub mod transport {
         #[cfg(target_os = "macos")]
         #[test]
         fn deadline_connect_excludes_concurrent_browser_process_creation() {
+            use std::os::unix::ffi::OsStrExt as _;
             use std::os::unix::fs::PermissionsExt as _;
             use std::sync::Arc;
             use std::sync::mpsc;
@@ -847,6 +848,10 @@ pub mod transport {
             let marker_path = root.join("descriptor-state");
             let browser_path = root.join("browser");
             let profile_path = root.join("profile");
+            let hold_path = root.join("browser-hold");
+            let hold_path_c = std::ffi::CString::new(hold_path.as_os_str().as_bytes()).unwrap();
+            // SAFETY: hold_path_c is a valid, NUL-terminated path in the test directory.
+            assert_eq!(unsafe { libc::mkfifo(hold_path_c.as_ptr(), 0o600) }, 0);
             let (descriptor_sender, descriptor_receiver) = mpsc::sync_channel(1);
             let (release_sender, release_receiver) = mpsc::sync_channel(1);
             let release_receiver = Arc::new(std::sync::Mutex::new(release_receiver));
@@ -886,9 +891,10 @@ pub mod transport {
                        printf closed > {}\n\
                      fi\n\
                      printf 'DevTools listening on ws://127.0.0.1:1/devtools/browser/test\\n' >&2\n\
-                     exec /bin/sleep 30\n",
+                     exec /bin/cat < {}\n",
                     marker_path.display(),
-                    marker_path.display()
+                    marker_path.display(),
+                    hold_path.display()
                 ),
             )
             .unwrap();

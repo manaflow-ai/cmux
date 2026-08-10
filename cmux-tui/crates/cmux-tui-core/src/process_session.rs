@@ -63,6 +63,20 @@ pub(crate) fn reserved_child_reaper_active_for_test() -> usize {
 }
 
 #[cfg(test)]
+pub(crate) fn wait_for_reserved_child_reaper_active_for_test(
+    expected: usize,
+    deadline: Instant,
+) -> bool {
+    let Some(slot) = NATURAL_REAPER.get() else { return expected == 0 };
+    let activity = {
+        let slot = slot.lock().unwrap();
+        let Some(reaper) = slot.as_ref() else { return expected == 0 };
+        reaper.activity.clone()
+    };
+    activity.wait_for_active(expected, deadline)
+}
+
+#[cfg(test)]
 pub(crate) fn set_process_session_preflight_failure_for_test(enabled: bool) {
     FORCE_PROCESS_SESSION_PREFLIGHT_FAILURE.set(enabled);
 }
@@ -85,24 +99,51 @@ impl Drop for ForcedPostSpawnFailure {
 pub(crate) fn force_post_spawn_failure_for_test(
     marker: std::path::PathBuf,
 ) -> ForcedPostSpawnFailure {
+    use std::os::unix::ffi::OsStrExt as _;
+
+    let marker_name = std::ffi::CString::new(marker.as_os_str().as_bytes())
+        .expect("post-spawn failure signal path contains a null byte");
+    // SAFETY: marker_name is a valid, null-terminated path owned for this call.
+    let result = unsafe { libc::mkfifo(marker_name.as_ptr(), 0o600) };
+    assert_eq!(
+        result,
+        0,
+        "failed to create post-spawn failure signal FIFO: {}",
+        io::Error::last_os_error()
+    );
     let previous = POST_SPAWN_FAILURE_MARKER.replace(Some(marker));
     ForcedPostSpawnFailure { previous }
 }
 
 #[cfg(test)]
 pub(crate) fn fail_after_pty_spawn_for_test() -> io::Result<()> {
+    use std::io::Read as _;
+    use std::os::fd::AsRawFd as _;
+
     let marker = POST_SPAWN_FAILURE_MARKER.with_borrow(Clone::clone);
     let Some(marker) = marker else { return Ok(()) };
+    let mut signal = std::fs::OpenOptions::new().read(true).write(true).open(marker)?;
     let deadline = Instant::now() + Duration::from_secs(2);
-    let marker_is_ready = || marker.metadata().is_ok_and(|metadata| metadata.len() > 0);
-    while !marker_is_ready() && Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    if !marker_is_ready() {
-        return Err(io::Error::new(
-            io::ErrorKind::TimedOut,
-            "forced post-spawn failure marker was not fully published",
-        ));
+    loop {
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "forced post-spawn failure signal was not published",
+            ));
+        };
+        let timeout = remaining.as_millis().clamp(1, i32::MAX as u128) as i32;
+        let mut descriptor =
+            libc::pollfd { fd: signal.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+        // SAFETY: descriptor points to one initialized pollfd for this call.
+        let ready = unsafe { libc::poll(&raw mut descriptor, 1, timeout) };
+        if ready > 0 && descriptor.revents & libc::POLLIN != 0 {
+            let mut byte = [0_u8; 1];
+            signal.read_exact(&mut byte)?;
+            break;
+        }
+        if ready < 0 && io::Error::last_os_error().kind() != io::ErrorKind::Interrupted {
+            return Err(io::Error::last_os_error());
+        }
     }
     Err(io::Error::other("forced post-spawn PTY initialization failure"))
 }
@@ -190,14 +231,14 @@ impl NaturalReaperActivity {
 
     fn release(&self, owner_attached: bool) {
         self.active.fetch_sub(1, Ordering::AcqRel);
+        let mut state = self.state.lock().unwrap();
         if !owner_attached {
-            let mut state = self.state.lock().unwrap();
             state.unpublished = state
                 .unpublished
                 .checked_sub(1)
                 .expect("unpublished PTY child reaper reservation is balanced");
-            self.changed.notify_all();
         }
+        self.changed.notify_all();
     }
 
     fn set_degraded(&self, owner_attached: bool, degraded: bool) {
@@ -242,6 +283,22 @@ impl NaturalReaperActivity {
             }
         }
         Ok(())
+    }
+
+    #[cfg(test)]
+    fn wait_for_active(&self, expected: usize, deadline: Instant) -> bool {
+        let mut state = self.state.lock().unwrap();
+        while self.active.load(Ordering::Acquire) != expected {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return false;
+            };
+            let (next, timeout) = self.changed.wait_timeout(state, remaining).unwrap();
+            state = next;
+            if timeout.timed_out() && self.active.load(Ordering::Acquire) != expected {
+                return false;
+            }
+        }
+        true
     }
 }
 

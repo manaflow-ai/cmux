@@ -593,6 +593,8 @@ pub struct BrowserRuntime {
     stealth_user_agent: Option<String>,
     routes: Mutex<Routes>,
     closed: AtomicBool,
+    closed_wait: Mutex<()>,
+    closed_changed: Condvar,
 }
 
 #[derive(Default)]
@@ -814,6 +816,8 @@ impl BrowserRuntime {
             stealth_user_agent,
             routes: Mutex::new(Routes::default()),
             closed: AtomicBool::new(false),
+            closed_wait: Mutex::new(()),
+            closed_changed: Condvar::new(),
         });
         start_router(Arc::downgrade(&runtime), event_rx)?;
         runtime.client.set_discover_targets(true)?;
@@ -822,6 +826,22 @@ impl BrowserRuntime {
 
     pub fn is_closed(&self) -> bool {
         self.closed.load(Ordering::Acquire)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn wait_until_closed(&self, deadline: Instant) -> bool {
+        let mut wait = self.closed_wait.lock().unwrap();
+        while !self.is_closed() {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return false;
+            };
+            let (next, timeout) = self.closed_changed.wait_timeout(wait, remaining).unwrap();
+            wait = next;
+            if timeout.timed_out() && !self.is_closed() {
+                return false;
+            }
+        }
+        true
     }
 
     pub fn source(&self) -> BrowserSource {
@@ -1491,6 +1511,7 @@ fn start_router(runtime: Weak<BrowserRuntime>, events: Receiver<CdpEvent>) -> an
 }
 
 fn close_browser_runtime(runtime: &BrowserRuntime, reason: String) {
+    let closed_wait = runtime.closed_wait.lock().unwrap();
     let senders = {
         let mut routes = runtime.routes.lock().unwrap();
         runtime.closed.store(true, Ordering::Release);
@@ -1499,6 +1520,8 @@ fn close_browser_runtime(runtime: &BrowserRuntime, reason: String) {
         routes.by_target.clear();
         senders
     };
+    runtime.closed_changed.notify_all();
+    drop(closed_wait);
     for tx in senders {
         tx.close(reason.clone());
     }
@@ -6785,23 +6808,8 @@ mod tests {
             ws.close(None).unwrap();
             drop(ws);
 
-            listener.set_nonblocking(true).unwrap();
-            let deadline = Instant::now() + Duration::from_secs(1);
-            let reconnect = loop {
-                match listener.accept() {
-                    Ok((stream, _)) => break Some(stream),
-                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                        if Instant::now() >= deadline {
-                            break None;
-                        }
-                        thread::sleep(Duration::from_millis(5));
-                    }
-                    Err(error) => panic!("failed to accept shutdown reconnect: {error}"),
-                }
-            };
-            let Some(stream) = reconnect else { return false };
-            stream.set_nonblocking(false).unwrap();
-            let mut ws = accept(stream).unwrap();
+            let (stream, _) = listener.accept().unwrap();
+            let Ok(mut ws) = accept(stream) else { return false };
             let query = read_ws_json(&mut ws);
             assert_eq!(query["method"], "Target.getTargets");
             write_ws_json(&mut ws, json!({"id": query["id"], "result": {"targetInfos": []}}));
@@ -6821,13 +6829,15 @@ mod tests {
             session_id: "session-1".to_string(),
         });
         let owner = browser.shutdown_owner().unwrap();
-        let deadline = Instant::now() + Duration::from_secs(1);
-        while !runtime.is_closed() && Instant::now() < deadline {
-            thread::yield_now();
-        }
-        assert!(runtime.is_closed(), "initial CDP transport did not close");
+        assert!(
+            runtime.wait_until_closed(Instant::now() + Duration::from_secs(1)),
+            "initial CDP transport did not close"
+        );
 
         let terminated = owner.terminate_until(Instant::now() + Duration::from_millis(500));
+        if !terminated {
+            let _ = TcpStream::connect(addr);
+        }
 
         let runtime_released = runtime.shutdown_until(Instant::now() + Duration::from_millis(100));
         let reconnected = server.join().unwrap();

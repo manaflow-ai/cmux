@@ -4655,25 +4655,36 @@ mod unix {
         }
     }
 
+    #[cfg(debug_assertions)]
+    fn wait_for_test_host_gate(signal_name: &str, gate_name: &str) -> anyhow::Result<()> {
+        if let Some(signal) = std::env::var_os(signal_name) {
+            fs::OpenOptions::new().write(true).open(signal)?.write_all(b"1")?;
+        }
+        if let Some(gate) = std::env::var_os(gate_name) {
+            let mut gate = fs::File::open(gate)?;
+            let mut release = [0_u8; 1];
+            gate.read_exact(&mut release)?;
+        }
+        Ok(())
+    }
+
     pub fn serve_terminal_host_stdio(
         args: &[String],
         reader: &mut impl Read,
         writer: &mut impl Write,
     ) -> anyhow::Result<()> {
         let publication_descriptor = terminal_host_publication_descriptor(args)?;
-        if let Ok(delay) = std::env::var("CMUX_TUI_TEST_BOOTSTRAP_READY_DELAY_MS")
-            && let Ok(delay) = delay.parse::<u64>()
-            && delay > 0
-        {
-            thread::sleep(Duration::from_millis(delay.min(5_000)));
-        }
+        #[cfg(debug_assertions)]
+        wait_for_test_host_gate(
+            "CMUX_TUI_TEST_BOOTSTRAP_READY_STARTED_SIGNAL",
+            "CMUX_TUI_TEST_BOOTSTRAP_READY_GATE",
+        )?;
         let bootstrapped = crate::terminal_host::bootstrap_stdio_once(reader, writer)?;
-        if let Ok(delay) = std::env::var("CMUX_TUI_TEST_STALL_AFTER_BOOTSTRAP_READY_MS")
-            && let Ok(delay) = delay.parse::<u64>()
-            && delay > 0
-        {
-            thread::sleep(Duration::from_millis(delay.min(5_000)));
-        }
+        #[cfg(debug_assertions)]
+        wait_for_test_host_gate(
+            "CMUX_TUI_TEST_LAUNCH_READ_STARTED_SIGNAL",
+            "CMUX_TUI_TEST_LAUNCH_READ_GATE",
+        )?;
         let Some(launch_frame) = read_frame(reader, MAX_LAUNCH_PAYLOAD)? else {
             // Keep the one-frame bootstrap probe useful for compatibility and
             // packaging diagnostics. Production launchers always follow it
@@ -6290,7 +6301,9 @@ mod unix {
             fs::create_dir_all(&root).unwrap();
             let ready = root.join("ready");
             let descendant = root.join("descendant");
-            let _failure = crate::process_session::force_post_spawn_failure_for_test(ready.clone());
+            let signal = root.join("spawn-ready");
+            let _failure =
+                crate::process_session::force_post_spawn_failure_for_test(signal.clone());
             let bootstrap = HostBootstrap {
                 min_version: PROTOCOL_VERSION,
                 max_version: PROTOCOL_VERSION,
@@ -6320,9 +6333,11 @@ mod unix {
                         "trap '' HUP TERM; \
                          (trap '' HUP TERM; exec /bin/sleep 60) & \
                          echo $! > {}; \
-                         echo $$ > {}; exec /bin/sleep 60",
+                         echo $$ > {}; \
+                         printf ready > {}; exec /bin/sleep 60",
                         descendant.display(),
-                        ready.display()
+                        ready.display(),
+                        signal.display()
                     ),
                 ],
                 extra_env: Vec::new(),

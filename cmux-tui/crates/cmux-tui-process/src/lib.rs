@@ -470,10 +470,16 @@ mod tests {
             .recv_timeout(Duration::from_secs(1))
             .expect("process creation barrier was not acquired");
 
-        let connect =
-            tokio::spawn(async move { super::tokio_net::connect_tcp_stream(&[address]).await });
-        tokio::time::sleep(Duration::from_millis(250)).await;
-        let completed_while_barrier_held = connect.is_finished();
+        let (started_sender, started_receiver) = tokio::sync::oneshot::channel();
+        let mut connect = tokio::spawn(async move {
+            started_sender.send(()).unwrap();
+            super::tokio_net::connect_tcp_stream(&[address]).await
+        });
+        started_receiver.await.unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(250), &mut connect).await.is_err(),
+            "TCP connect created a socket while a concurrent process could inherit it"
+        );
         release_sender.send(()).unwrap();
         holder.join().unwrap();
 
@@ -485,9 +491,5 @@ mod tests {
         let (peer, _) = listener.accept().unwrap();
         drop(peer);
         drop(stream);
-        assert!(
-            !completed_while_barrier_held,
-            "TCP connect created a socket while a concurrent process could inherit it"
-        );
     }
 }
