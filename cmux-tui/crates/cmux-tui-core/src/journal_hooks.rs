@@ -485,8 +485,11 @@ fn run_dispatcher(mux: Weak<Mux>, claim: &mut DispatcherClaim, runtime: Arc<Jour
             return;
         }
 
-        if scan_hooks(&mux, &mut hooks, &mut catch_up_reader).is_err() {
+        if scan_hooks(&mux, &mut hooks, &mut catch_up_reader, &runtime).is_err() {
             catch_up_reader = None;
+        }
+        if runtime.is_cancelled() || mux.daemon_shutdown_requested() {
+            continue;
         }
 
         if active.len() < workers.capacity {
@@ -619,14 +622,21 @@ fn scan_hooks(
     mux: &Mux,
     hooks: &mut HashMap<HookVersion, CompiledHook>,
     catch_up_reader: &mut Option<SessionJournalReader>,
+    runtime: &JournalHookRuntime,
 ) -> anyhow::Result<()> {
     loop {
+        if runtime.is_cancelled() || mux.daemon_shutdown_requested() {
+            return Ok(());
+        }
         let mut cursor_groups = BTreeMap::<u64, Vec<HookVersion>>::new();
         for (key, hook) in hooks.iter() {
             cursor_groups.entry(hook.cursor_sequence).or_default().push(key.clone());
         }
         let mut progressed = false;
         for (cursor, keys) in cursor_groups {
+            if runtime.is_cancelled() || mux.daemon_shutdown_requested() {
+                return Ok(());
+            }
             let page = hook_page(mux, cursor, catch_up_reader)?;
             if page.records.is_empty() {
                 continue;

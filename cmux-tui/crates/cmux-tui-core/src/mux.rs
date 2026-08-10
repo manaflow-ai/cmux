@@ -4678,6 +4678,13 @@ impl Mux {
         self.journal_ingress.flush_terminal()
     }
 
+    pub(crate) fn install_journal_writer(
+        &self,
+        writer: std::thread::JoinHandle<()>,
+    ) -> anyhow::Result<()> {
+        self.journal_ingress.install_writer(writer)
+    }
+
     #[cfg(test)]
     pub(crate) fn install_journal_failure_notifier_for_test(&self, notifier: SyncSender<String>) {
         self.journal_ingress.install_failure_notifier_for_test(notifier);
@@ -8306,34 +8313,35 @@ impl Mux {
         }
         let surfaces = unique_surface_runtimes(&self.state.lock().unwrap());
         let terminal_reader_deadline = Instant::now() + TERMINAL_READER_SHUTDOWN_TIMEOUT;
-        let terminal_gaps = surfaces
+        let mut terminal_gaps = surfaces
             .iter()
             .filter_map(|surface| surface.shutdown_for_daemon(terminal_reader_deadline))
             .collect::<Vec<_>>();
         for surface in surfaces {
-            surface.finish_terminal_reader(terminal_reader_deadline);
+            terminal_gaps.extend(surface.finish_terminal_reader(terminal_reader_deadline));
         }
-        let mut terminal_gap_failed = false;
         for gap in terminal_gaps {
             if let Err(error) = self.journal_ingress.send_durable(
                 crate::journal_ingress::JournalIngressEvent::TerminalOutputGap {
                     terminal_id: gap.terminal_id,
                     generation: gap.generation,
                     occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
-                    reason: "detach_fence_failed",
+                    reason: gap.reason,
                 },
             ) {
-                terminal_gap_failed = true;
                 eprintln!("cmux-tui: record terminal output gap during shutdown: {error:#}");
             }
         }
         // Each terminal reader has drained or its journal capture gate has
-        // closed between updates. An update that crossed the shared reader
-        // deadline was still preserved before this point. Fence the terminal
-        // ingress lane while this Mux still owns the registry; the closed gate
-        // prevents a timed-out reader from inserting output after the barrier.
-        if !terminal_gap_failed && let Err(error) = self.flush_terminal_journal() {
+        // closed. An update that exceeded the extra active-update grace has a
+        // durable gap above. Fence the terminal ingress lane while this Mux
+        // still owns the registry; the closed gate prevents a timed-out reader
+        // from inserting output after the barrier.
+        if let Err(error) = self.flush_terminal_journal() {
             eprintln!("cmux-tui: flush terminal journal during shutdown: {error:#}");
+        }
+        if let Err(error) = self.journal_ingress.close_and_join() {
+            eprintln!("cmux-tui: stop session journal writer during shutdown: {error:#}");
         }
         if let Some(runtime) = self.browser_runtime.lock().unwrap().take() {
             runtime.shutdown();

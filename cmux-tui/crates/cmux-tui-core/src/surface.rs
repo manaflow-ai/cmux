@@ -1306,7 +1306,7 @@ impl PtyTerminalRuntime {
         Some(TerminalJournalUpdateGuard { owner: self })
     }
 
-    fn close_terminal_journal_capture_when_idle(&self, deadline: Instant) {
+    fn close_terminal_journal_capture_when_idle(&self, deadline: Instant) -> bool {
         let mut gate = self.journal_capture_gate.lock().unwrap();
         let active_deadline = deadline + Duration::from_secs(2);
         loop {
@@ -1314,7 +1314,7 @@ impl PtyTerminalRuntime {
                 && self.journal_capture_epoch.load(Ordering::Acquire) & 1 == 0
             {
                 self.journal_capture_open.store(false, Ordering::Release);
-                return;
+                return false;
             }
             if Instant::now() >= deadline {
                 if !self.journal_capture_active.load(Ordering::Acquire) {
@@ -1322,7 +1322,7 @@ impl PtyTerminalRuntime {
                     // mutation. Revoke its reservation. The reader checks the
                     // gate before parsing and exits without changing state.
                     self.journal_capture_open.store(false, Ordering::Release);
-                    return;
+                    return false;
                 }
                 let remaining = active_deadline.saturating_duration_since(Instant::now());
                 if remaining.is_zero() {
@@ -1332,9 +1332,9 @@ impl PtyTerminalRuntime {
                     // final barrier, and the daemon is already stopping.
                     self.journal_capture_open.store(false, Ordering::Release);
                     eprintln!(
-                        "cmux-tui: active terminal journal update exceeded shutdown grace; closing capture and stopping without a late journal insert"
+                        "cmux-tui: active terminal journal update exceeded shutdown grace; closing capture and recording an output gap"
                     );
-                    return;
+                    return true;
                 }
                 let (next, _) = self.journal_capture_idle.wait_timeout(gate, remaining).unwrap();
                 gate = next;
@@ -1444,6 +1444,7 @@ pub struct PtyTerminalRuntime {
 pub(crate) struct TerminalJournalGap {
     pub(crate) terminal_id: Arc<TerminalPublicId>,
     pub(crate) generation: Arc<str>,
+    pub(crate) reason: &'static str,
 }
 
 enum PtyRuntime {
@@ -4109,9 +4110,12 @@ impl Surface {
         self.as_pty().map(|pty| pty.journal_capture_epoch.load(Ordering::Acquire))
     }
 
-    pub(crate) fn finish_terminal_reader(&self, deadline: Instant) {
+    pub(crate) fn finish_terminal_reader(
+        &self,
+        deadline: Instant,
+    ) -> Option<TerminalJournalGap> {
         let Some(pty) = self.as_pty() else {
-            return;
+            return None;
         };
         if let Some(reader) = pty.reader_thread.lock().unwrap().take() {
             if pty.reader_completion.wait_until(deadline) {
@@ -4126,9 +4130,17 @@ impl Surface {
         }
         // A reader that is blocked in the PTY has an even capture epoch and
         // does not delay shutdown. Close the gate between updates. If one
-        // update crossed the reader deadline, preserve it before the terminal
-        // ingress barrier instead of discarding parser-accepted bytes.
-        pty.close_terminal_journal_capture_when_idle(deadline);
+        // update crossed the reader deadline, wait through the active-update
+        // grace. Report a gap if that update still did not complete.
+        let output_gap = pty.close_terminal_journal_capture_when_idle(deadline);
+        if !output_gap || !pty.journal_capture_supported {
+            return None;
+        }
+        pty.terminal_public_id.clone().map(|terminal_id| TerminalJournalGap {
+            terminal_id,
+            generation: pty.journal_generation.clone(),
+            reason: "active_update_timeout",
+        })
     }
 
     #[cfg(test)]
@@ -5504,6 +5516,7 @@ impl Surface {
                     gap = pty.terminal_public_id.clone().map(|terminal_id| TerminalJournalGap {
                         terminal_id,
                         generation: pty.journal_generation.clone(),
+                        reason: "detach_fence_failed",
                     });
                 }
                 host.disconnect();

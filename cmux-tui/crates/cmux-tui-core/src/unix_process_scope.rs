@@ -6,8 +6,9 @@
 //! replacement. One process-wide tracker scans all active scopes together at
 //! a fixed maximum rate, follows known parent-child lineage, and records exact
 //! process identities before cleanup. Each scan has process and descriptor
-//! work limits. Cleanup requests one tracker-owned final scan when its budget
-//! permits; an expired command deadline never starts a process-table scan.
+//! work limits. Cleanup always requests one tracker-owned final complete pass;
+//! an expired command deadline returns to the caller while the tracker keeps
+//! the inactive scope and advances through bounded scan chunks.
 
 use std::collections::{HashMap, HashSet};
 use std::fs::OpenOptions;
@@ -75,12 +76,33 @@ struct ScopeRegistration {
     tracked_changed: Arc<Condvar>,
 }
 
+#[derive(Clone, Copy, Default)]
+struct ProcessScanCursor {
+    after_pid: u32,
+    file_descriptors: Option<(u32, libc::c_int)>,
+}
+
+#[derive(Default)]
+struct FinalScanProgress {
+    cursor: ProcessScanCursor,
+    snapshots: HashMap<ProcessIdentity, ProcessSnapshot>,
+    matches: HashSet<(usize, ProcessIdentity)>,
+}
+
+#[derive(Default)]
+struct ProcessScanResult {
+    snapshots: Vec<ProcessSnapshot>,
+    matches: HashSet<(usize, ProcessIdentity)>,
+    next: Option<ProcessScanCursor>,
+}
+
 #[derive(Default)]
 struct ProcessScopeTrackerState {
     next_registration: u64,
     revision: u64,
     scopes: HashMap<u64, ScopeRegistration>,
-    finalizing: HashSet<u64>,
+    finalizing: HashMap<u64, FinalScanProgress>,
+    finalizing_turn: u64,
 }
 
 #[derive(Default)]
@@ -166,8 +188,9 @@ impl UnixProcessScope {
         self.terminate_until(Instant::now() + CLEANUP_DEADLINE);
     }
 
-    /// Kill the original group and every recorded descendant without starting
-    /// process discovery after the caller's absolute deadline.
+    /// Kill the original group and every recorded descendant. The shared
+    /// tracker owns a final complete pass even when the caller's deadline has
+    /// expired; the caller waits only inside its remaining budget.
     pub fn terminate_until(&mut self, deadline: Instant) {
         if self.terminated {
             return;
@@ -353,15 +376,11 @@ impl ProcessScopeTracker {
     /// If that budget expires, the tracker retains the inactive registration,
     /// kills late matches, and removes it after the scan completes.
     fn finalize(&self, registration: u64, deadline: Instant) {
-        if Instant::now() >= deadline {
-            self.unregister(registration);
-            return;
-        }
         let mut state = self.state.lock().unwrap();
         if !state.scopes.contains_key(&registration) {
             return;
         }
-        state.finalizing.insert(registration);
+        state.finalizing.entry(registration).or_default();
         state.revision = state.revision.wrapping_add(1);
         self.changed.notify_one();
         while state.scopes.contains_key(&registration) {
@@ -393,7 +412,7 @@ impl ProcessScopeTracker {
     fn run(&self) {
         let mut last_scan = Instant::now().checked_sub(TRACK_INTERVAL).unwrap_or_else(Instant::now);
         loop {
-            let (revision, registrations, finalizing) = {
+            let (revision, registrations, final_scan) = {
                 let mut state = self.state.lock().unwrap();
                 while state.scopes.is_empty() {
                     state = self.changed.wait(state).unwrap();
@@ -406,36 +425,81 @@ impl ProcessScopeTracker {
                         continue;
                     }
                 }
-                (
-                    state.revision,
-                    state
+                let finalizing = state
+                    .finalizing
+                    .keys()
+                    .copied()
+                    .filter(|registration| *registration > state.finalizing_turn)
+                    .min()
+                    .or_else(|| state.finalizing.keys().copied().min());
+                let final_scan = finalizing.and_then(|registration| {
+                    state.finalizing_turn = registration;
+                    let scope = state.scopes.get(&registration)?.clone();
+                    let cursor = state.finalizing.get(&registration)?.cursor;
+                    Some((registration, cursor, scope))
+                });
+                let registrations = match &final_scan {
+                    Some((registration, _, scope)) => vec![(*registration, scope.clone())],
+                    None => state
                         .scopes
                         .iter()
                         .map(|(registration, scope)| (*registration, scope.clone()))
                         .collect::<Vec<_>>(),
-                    state.finalizing.clone(),
-                )
+                };
+                (state.revision, registrations, final_scan.map(|(id, cursor, _)| (id, cursor)))
             };
             let scopes = registrations.iter().map(|(_, scope)| scope.clone()).collect::<Vec<_>>();
-
-            for (scope, identity) in scan_registered_processes(&scopes) {
-                record_tracked_process(&scopes[scope], identity);
-            }
+            let scan = scan_registered_processes(
+                &scopes,
+                final_scan.map_or_else(ProcessScanCursor::default, |(_, cursor)| cursor),
+            );
             last_scan = Instant::now();
 
-            let mut state = self.state.lock().unwrap();
-            let mut finalized = false;
-            for (registration, _) in &registrations {
-                if finalizing.contains(registration) {
-                    state.scopes.remove(registration);
-                    state.finalizing.remove(registration);
-                    finalized = true;
+            if let Some((registration, _)) = final_scan {
+                let mut completed = None;
+                {
+                    let mut state = self.state.lock().unwrap();
+                    let scan_complete = scan.next.is_none();
+                    if let Some(progress) = state.finalizing.get_mut(&registration) {
+                        progress
+                            .snapshots
+                            .extend(scan.snapshots.iter().map(|snapshot| {
+                                (snapshot.identity, *snapshot)
+                            }));
+                        progress.matches.extend(scan.matches.iter().copied());
+                        if let Some(next) = scan.next {
+                            progress.cursor = next;
+                        }
+                    }
+                    if scan_complete
+                        && let Some(progress) = state.finalizing.remove(&registration)
+                    {
+                        completed = state.scopes.get(&registration).cloned().map(|scope| {
+                            (scope, progress.snapshots, progress.matches)
+                        });
+                    }
+                }
+                for (scope, identity) in scan.matches {
+                    record_tracked_process(&scopes[scope], identity);
+                }
+                if let Some((scope, snapshots, mut matches)) = completed {
+                    let snapshots = snapshots.into_values().collect::<Vec<_>>();
+                    include_lineage_matches(std::slice::from_ref(&scope), &snapshots, &mut matches);
+                    for (_, identity) in matches {
+                        record_tracked_process(&scope, identity);
+                    }
+                    let mut state = self.state.lock().unwrap();
+                    if state.scopes.remove(&registration).is_some() {
+                        state.revision = state.revision.wrapping_add(1);
+                        self.changed.notify_all();
+                    }
+                }
+            } else {
+                for (scope, identity) in scan.matches {
+                    record_tracked_process(&scopes[scope], identity);
                 }
             }
-            if finalized {
-                state.revision = state.revision.wrapping_add(1);
-                self.changed.notify_all();
-            }
+            let state = self.state.lock().unwrap();
             let _ = self
                 .changed
                 .wait_timeout_while(state, TRACK_INTERVAL, |state| state.revision == revision)
@@ -623,9 +687,13 @@ fn include_lineage_matches(
 }
 
 #[cfg(target_os = "linux")]
-fn scan_registered_processes(scopes: &[ScopeRegistration]) -> HashSet<(usize, ProcessIdentity)> {
+fn scan_registered_processes(
+    scopes: &[ScopeRegistration],
+    cursor: ProcessScanCursor,
+) -> ProcessScanResult {
     use std::os::unix::fs::MetadataExt as _;
 
+    let mut result = ProcessScanResult::default();
     let earliest_start = scopes.iter().map(|scope| scope.root.started).min().unwrap_or(0);
     let expected =
         scopes.iter().map(|scope| marker_environment_entry(&scope.marker)).collect::<Vec<_>>();
@@ -636,40 +704,86 @@ fn scan_registered_processes(scopes: &[ScopeRegistration]) -> HashSet<(usize, Pr
             markers
         },
     );
-    let Ok(processes) = std::fs::read_dir("/proc") else { return HashSet::new() };
-    let mut snapshots = Vec::new();
-    let mut matches = HashSet::new();
+    let Ok(processes) = std::fs::read_dir("/proc") else {
+        result.next = Some(cursor);
+        return result;
+    };
+    let mut pids = processes
+        .flatten()
+        .filter_map(|process| {
+            process.file_name().to_str().and_then(|value| value.parse::<u32>().ok())
+        })
+        .collect::<Vec<_>>();
+    pids.sort_unstable();
     let mut remaining_file_descriptors = MAX_SCAN_FILE_DESCRIPTORS;
-    for process in processes.flatten().take(MAX_SCAN_PROCESSES) {
-        let Some(pid) = process.file_name().to_str().and_then(|value| value.parse::<u32>().ok())
-        else {
-            continue;
-        };
-        let Some(snapshot) = std::fs::read_to_string(process.path().join("stat"))
+    let mut inspected_processes = 0_usize;
+    let mut last_completed_pid = cursor.after_pid;
+    let resumed_pid = cursor.file_descriptors.map(|(pid, _)| pid);
+    for pid in pids
+        .into_iter()
+        .filter(|pid| *pid > cursor.after_pid || resumed_pid == Some(*pid))
+    {
+        if inspected_processes >= MAX_SCAN_PROCESSES {
+            result.next = Some(ProcessScanCursor {
+                after_pid: last_completed_pid,
+                file_descriptors: None,
+            });
+            include_lineage_matches(scopes, &result.snapshots, &mut result.matches);
+            return result;
+        }
+        inspected_processes += 1;
+        let process = std::path::PathBuf::from(format!("/proc/{pid}"));
+        let Some(snapshot) = std::fs::read_to_string(process.join("stat"))
             .ok()
             .and_then(|stat| linux_process_snapshot_from_stat(pid, &stat))
         else {
+            last_completed_pid = pid;
             continue;
         };
-        snapshots.push(snapshot);
+        result.snapshots.push(snapshot);
         if snapshot.identity.started < earliest_start {
+            last_completed_pid = pid;
             continue;
         }
-        if let Ok(environment) = std::fs::read(process.path().join("environ")) {
+        if let Ok(environment) = std::fs::read(process.join("environ")) {
             for entry in environment.split(|byte| *byte == 0) {
                 for (scope, expected) in expected.iter().enumerate() {
                     if entry == expected {
-                        matches.insert((scope, snapshot.identity));
+                        result.matches.insert((scope, snapshot.identity));
                     }
                 }
             }
         }
-        if remaining_file_descriptors != 0
-            && let Ok(fds) = std::fs::read_dir(process.path().join("fd"))
-        {
-            for fd in fds.flatten().take(remaining_file_descriptors) {
+        if let Ok(fds) = std::fs::read_dir(process.join("fd")) {
+            let after_fd = cursor
+                .file_descriptors
+                .filter(|(resume_pid, _)| *resume_pid == pid)
+                .map_or(-1, |(_, fd)| fd);
+            let mut fds = fds
+                .flatten()
+                .filter_map(|fd| {
+                    let number = fd
+                        .file_name()
+                        .to_str()
+                        .and_then(|value| value.parse::<libc::c_int>().ok())?;
+                    Some((number, fd.path()))
+                })
+                .filter(|(fd, _)| *fd > after_fd)
+                .collect::<Vec<_>>();
+            fds.sort_unstable_by_key(|(fd, _)| *fd);
+            let mut last_fd = after_fd;
+            for (fd, path) in fds {
+                if remaining_file_descriptors == 0 {
+                    result.next = Some(ProcessScanCursor {
+                        after_pid: last_completed_pid,
+                        file_descriptors: Some((pid, last_fd)),
+                    });
+                    include_lineage_matches(scopes, &result.snapshots, &mut result.matches);
+                    return result;
+                }
                 remaining_file_descriptors -= 1;
-                let Some(marker) = std::fs::metadata(fd.path())
+                last_fd = fd;
+                let Some(marker) = std::fs::metadata(path)
                     .ok()
                     .map(|metadata| FileMarker { device: metadata.dev(), inode: metadata.ino() })
                 else {
@@ -677,14 +791,15 @@ fn scan_registered_processes(scopes: &[ScopeRegistration]) -> HashSet<(usize, Pr
                 };
                 if let Some(scope_indexes) = file_markers.get(&marker) {
                     for scope in scope_indexes {
-                        matches.insert((*scope, snapshot.identity));
+                        result.matches.insert((*scope, snapshot.identity));
                     }
                 }
             }
         }
+        last_completed_pid = pid;
     }
-    include_lineage_matches(scopes, &snapshots, &mut matches);
-    matches
+    include_lineage_matches(scopes, &result.snapshots, &mut result.matches);
+    result
 }
 
 #[cfg(target_os = "linux")]
@@ -708,18 +823,32 @@ fn linux_process_snapshot_from_stat(pid: u32, stat: &str) -> Option<ProcessSnaps
 }
 
 #[cfg(target_os = "macos")]
-fn scan_registered_processes(scopes: &[ScopeRegistration]) -> HashSet<(usize, ProcessIdentity)> {
+fn scan_registered_processes(
+    scopes: &[ScopeRegistration],
+    cursor: ProcessScanCursor,
+) -> ProcessScanResult {
+    let mut result = ProcessScanResult::default();
     const PROC_ALL_PIDS: u32 = 1;
     let bytes = unsafe { libc::proc_listpids(PROC_ALL_PIDS, 0, std::ptr::null_mut(), 0) };
-    let Ok(bytes) = usize::try_from(bytes) else { return HashSet::new() };
+    let Ok(bytes) = usize::try_from(bytes) else {
+        result.next = Some(cursor);
+        return result;
+    };
     let mut pids = vec![0 as libc::pid_t; bytes / size_of::<libc::pid_t>() + 32];
     let Ok(capacity) = libc::c_int::try_from(pids.len() * size_of::<libc::pid_t>()) else {
-        return HashSet::new();
+        result.next = Some(cursor);
+        return result;
     };
     let written =
         unsafe { libc::proc_listpids(PROC_ALL_PIDS, 0, pids.as_mut_ptr().cast(), capacity) };
-    let Ok(written) = usize::try_from(written) else { return HashSet::new() };
-    let Some(mut arguments) = mac_process_argument_buffer() else { return HashSet::new() };
+    let Ok(written) = usize::try_from(written) else {
+        result.next = Some(cursor);
+        return result;
+    };
+    let Some(mut arguments) = mac_process_argument_buffer() else {
+        result.next = Some(cursor);
+        return result;
+    };
     let expected =
         scopes.iter().map(|scope| marker_environment_entry(&scope.marker)).collect::<Vec<_>>();
     let file_markers = scopes.iter().enumerate().fold(
@@ -730,33 +859,72 @@ fn scan_registered_processes(scopes: &[ScopeRegistration]) -> HashSet<(usize, Pr
         },
     );
     let earliest_start = scopes.iter().map(|scope| scope.root.started).min().unwrap_or(0);
-    let mut snapshots = Vec::new();
-    let mut matches = HashSet::new();
+    let mut pids = pids
+        .into_iter()
+        .take(written / size_of::<libc::pid_t>())
+        .filter_map(|pid| u32::try_from(pid).ok())
+        .filter(|pid| *pid != 0)
+        .collect::<Vec<_>>();
+    pids.sort_unstable();
+    pids.dedup();
     let mut remaining_file_descriptors = MAX_SCAN_FILE_DESCRIPTORS;
-    for pid in pids.into_iter().take(written / size_of::<libc::pid_t>()).take(MAX_SCAN_PROCESSES) {
-        let Ok(pid) = u32::try_from(pid) else { continue };
-        let Some(snapshot) = mac_process_snapshot(pid) else { continue };
-        snapshots.push(snapshot);
+    let mut inspected_processes = 0_usize;
+    let mut last_completed_pid = cursor.after_pid;
+    let resumed_pid = cursor.file_descriptors.map(|(pid, _)| pid);
+    for pid in pids
+        .into_iter()
+        .filter(|pid| *pid > cursor.after_pid || resumed_pid == Some(*pid))
+    {
+        if inspected_processes >= MAX_SCAN_PROCESSES {
+            result.next = Some(ProcessScanCursor {
+                after_pid: last_completed_pid,
+                file_descriptors: None,
+            });
+            include_lineage_matches(scopes, &result.snapshots, &mut result.matches);
+            return result;
+        }
+        inspected_processes += 1;
+        let Some(snapshot) = mac_process_snapshot(pid) else {
+            last_completed_pid = pid;
+            continue;
+        };
+        result.snapshots.push(snapshot);
         if snapshot.identity.started < earliest_start {
+            last_completed_pid = pid;
             continue;
         }
         if let Some(process_arguments) = mac_process_arguments(pid, &mut arguments) {
             for (scope, expected) in expected.iter().enumerate() {
                 if mac_environment_contains(process_arguments, expected) {
-                    matches.insert((scope, snapshot.identity));
+                    result.matches.insert((scope, snapshot.identity));
                 }
             }
         }
-        for marker in mac_process_file_markers(pid, &mut remaining_file_descriptors) {
+        let after_fd = cursor
+            .file_descriptors
+            .filter(|(resume_pid, _)| *resume_pid == pid)
+            .map_or(-1, |(_, fd)| fd);
+        let file_scan =
+            mac_process_file_markers(pid, after_fd, &mut remaining_file_descriptors);
+        for marker in file_scan.markers {
             if let Some(scope_indexes) = file_markers.get(&marker) {
                 for scope in scope_indexes {
-                    matches.insert((*scope, snapshot.identity));
+                    result.matches.insert((*scope, snapshot.identity));
                 }
             }
         }
+        if let Some(last_fd) = file_scan.next_fd {
+            result.next = Some(ProcessScanCursor {
+                after_pid: last_completed_pid,
+                file_descriptors: Some((pid, last_fd)),
+            });
+            include_lineage_matches(scopes, &result.snapshots, &mut result.matches);
+            return result;
+        }
+        last_completed_pid = pid;
     }
-    include_lineage_matches(scopes, &snapshots, &mut matches);
-    matches
+    include_lineage_matches(scopes, &result.snapshots, &mut result.matches);
+    result
 }
 
 #[cfg(target_os = "macos")]
@@ -777,33 +945,48 @@ struct VnodeFdInfo {
 }
 
 #[cfg(target_os = "macos")]
-fn mac_process_file_markers(pid: u32, remaining: &mut usize) -> Vec<FileMarker> {
-    if *remaining == 0 {
-        return Vec::new();
-    }
+struct MacFileMarkerScan {
+    markers: Vec<FileMarker>,
+    next_fd: Option<libc::c_int>,
+}
+
+#[cfg(target_os = "macos")]
+fn mac_process_file_markers(
+    pid: u32,
+    after_fd: libc::c_int,
+    remaining: &mut usize,
+) -> MacFileMarkerScan {
     const PROC_PIDFDVNODEINFO: libc::c_int = 1;
-    let Ok(pid_int) = libc::c_int::try_from(pid) else { return Vec::new() };
+    let empty = || MacFileMarkerScan { markers: Vec::new(), next_fd: None };
+    let Ok(pid_int) = libc::c_int::try_from(pid) else { return empty() };
     let bytes =
         unsafe { libc::proc_pidinfo(pid_int, libc::PROC_PIDLISTFDS, 0, std::ptr::null_mut(), 0) };
-    let Ok(bytes) = usize::try_from(bytes) else { return Vec::new() };
+    let Ok(bytes) = usize::try_from(bytes) else { return empty() };
     let mut fds =
         Vec::<libc::proc_fdinfo>::with_capacity(bytes / size_of::<libc::proc_fdinfo>() + 8);
     let Ok(capacity) = libc::c_int::try_from(fds.capacity() * size_of::<libc::proc_fdinfo>())
     else {
-        return Vec::new();
+        return empty();
     };
     let written = unsafe {
         libc::proc_pidinfo(pid_int, libc::PROC_PIDLISTFDS, 0, fds.as_mut_ptr().cast(), capacity)
     };
-    let Ok(written) = usize::try_from(written) else { return Vec::new() };
-    let count = (written / size_of::<libc::proc_fdinfo>()).min(*remaining);
-    *remaining -= count;
+    let Ok(written) = usize::try_from(written) else { return empty() };
+    let count = written / size_of::<libc::proc_fdinfo>();
     // SAFETY: proc_pidinfo initialized `count` entries within the allocation.
     unsafe {
         fds.set_len(count.min(fds.capacity()));
     }
-    fds.into_iter()
-        .filter_map(|fd| {
+    fds.sort_unstable_by_key(|fd| fd.proc_fd);
+    let mut markers = Vec::new();
+    let mut last_fd = after_fd;
+    for fd in fds.into_iter().filter(|fd| fd.proc_fd > after_fd) {
+        if *remaining == 0 {
+            return MacFileMarkerScan { markers, next_fd: Some(last_fd) };
+        }
+        *remaining -= 1;
+        last_fd = fd.proc_fd;
+        let marker = (|| {
             if fd.proc_fdtype != libc::PROX_FDTYPE_VNODE as u32 {
                 return None;
             }
@@ -829,8 +1012,12 @@ fn mac_process_file_markers(pid: u32, remaining: &mut usize) -> Vec<FileMarker> 
                 device: u64::from(info.vnode.vi_stat.vst_dev),
                 inode: info.vnode.vi_stat.vst_ino,
             })
-        })
-        .collect()
+        })();
+        if let Some(marker) = marker {
+            markers.push(marker);
+        }
+    }
+    MacFileMarkerScan { markers, next_fd: None }
 }
 
 #[cfg(target_os = "macos")]
@@ -856,7 +1043,7 @@ fn mac_process_argument_buffer() -> Option<Vec<u8>> {
 }
 
 #[cfg(target_os = "macos")]
-fn mac_process_arguments<'a>(pid: u32, buffer: &'a mut [u8]) -> Option<&'a [u8]> {
+fn mac_process_arguments(pid: u32, buffer: &mut [u8]) -> Option<&[u8]> {
     let pid = libc::c_int::try_from(pid).ok()?;
     let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid];
     let mut size = buffer.len();
@@ -921,8 +1108,11 @@ fn mac_process_snapshot(pid: u32) -> Option<ProcessSnapshot> {
 }
 
 #[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
-fn scan_registered_processes(_scopes: &[ScopeRegistration]) -> HashSet<(usize, ProcessIdentity)> {
-    HashSet::new()
+fn scan_registered_processes(
+    _scopes: &[ScopeRegistration],
+    _cursor: ProcessScanCursor,
+) -> ProcessScanResult {
+    ProcessScanResult::default()
 }
 
 #[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]

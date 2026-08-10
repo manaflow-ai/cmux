@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 use std::mem::size_of;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, TrySendError, sync_channel};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
@@ -292,6 +292,7 @@ pub(crate) struct JournalIngressSender {
     durable_sender: Option<SyncSender<QueuedJournalEvent>>,
     wake_sender: Option<SyncSender<()>>,
     state: Arc<JournalIngressState>,
+    writer: Mutex<Option<std::thread::JoinHandle<()>>>,
 }
 
 pub(crate) struct JournalIngressReceivers {
@@ -309,6 +310,8 @@ pub(crate) enum JournalIngressTrySendError {
 #[derive(Default)]
 struct JournalIngressState {
     failure: Mutex<Option<String>>,
+    enqueue_admission: Mutex<()>,
+    closed: AtomicBool,
     commit_admission: Mutex<()>,
     queue_space_epoch: Mutex<u64>,
     queue_space_changed: Condvar,
@@ -329,6 +332,20 @@ impl JournalIngressState {
         drop(stored_failure);
         self.publish_queue_space();
         failure
+    }
+
+    fn admission_error(&self) -> Option<String> {
+        self.failure().or_else(|| {
+            self.closed
+                .load(Ordering::Acquire)
+                .then(|| "session journal admission is closed".to_string())
+        })
+    }
+
+    fn close_admission(&self) {
+        let _admission = self.enqueue_admission.lock().unwrap();
+        self.closed.store(true, Ordering::Release);
+        self.publish_queue_space();
     }
 
     #[cfg(test)]
@@ -360,7 +377,7 @@ impl JournalIngressState {
     fn wait_for_queue_space_until(&self, observed: u64, deadline: Instant) -> Result<(), String> {
         let mut epoch = self.queue_space_epoch.lock().unwrap();
         while *epoch == observed {
-            if let Some(error) = self.failure() {
+            if let Some(error) = self.admission_error() {
                 return Err(error);
             }
             let remaining = deadline.saturating_duration_since(Instant::now());
@@ -392,7 +409,13 @@ impl JournalIngressSender {
         let state = Arc::new(JournalIngressState::default());
         if !enabled {
             return (
-                Self { terminal_sender: None, durable_sender: None, wake_sender: None, state },
+                Self {
+                    terminal_sender: None,
+                    durable_sender: None,
+                    wake_sender: None,
+                    state,
+                    writer: Mutex::new(None),
+                },
                 None,
             );
         }
@@ -405,6 +428,7 @@ impl JournalIngressSender {
                 durable_sender: Some(durable_sender),
                 wake_sender: Some(wake_sender),
                 state: state.clone(),
+                writer: Mutex::new(None),
             },
             Some(JournalIngressReceivers { terminal, durable, wake, state }),
         )
@@ -451,7 +475,8 @@ impl JournalIngressSender {
             JournalIngressEvent::TerminalOutput { .. } | JournalIngressEvent::TerminalResize { .. }
         ));
         let Some(sender) = &self.terminal_sender else { return Ok(()) };
-        if let Some(error) = self.state.failure() {
+        let _admission = self.state.enqueue_admission.lock().unwrap();
+        if let Some(error) = self.state.admission_error() {
             return Err(JournalIngressTrySendError::Failed { event: Box::new(event), error });
         }
         let space_epoch = self.state.queue_space_epoch();
@@ -476,7 +501,7 @@ impl JournalIngressSender {
     }
 
     pub(crate) fn send_durable(&self, event: JournalIngressEvent) -> anyhow::Result<()> {
-        if let Some(error) = self.state.failure() {
+        if let Some(error) = self.state.admission_error() {
             anyhow::bail!(error);
         }
         let sender = if matches!(
@@ -523,7 +548,7 @@ impl JournalIngressSender {
         origin: String,
         idempotency_key: String,
     ) -> anyhow::Result<crate::JournalAppendCommit> {
-        if let Some(error) = self.state.failure() {
+        if let Some(error) = self.state.admission_error() {
             anyhow::bail!(error);
         }
         let Some(sender) = &self.durable_sender else {
@@ -562,6 +587,30 @@ impl JournalIngressSender {
         self.terminal_sender.is_some()
     }
 
+    pub(crate) fn close_and_join(&self) -> anyhow::Result<()> {
+        self.state.close_admission();
+        if let Some(wake) = &self.wake_sender {
+            match wake.try_send(()) {
+                Ok(()) | Err(TrySendError::Full(())) => {}
+                Err(TrySendError::Disconnected(())) => {}
+            }
+        }
+        let Some(writer) = self.writer.lock().unwrap().take() else { return Ok(()) };
+        writer
+            .join()
+            .map_err(|_| anyhow::anyhow!("session journal writer panicked during shutdown"))
+    }
+
+    pub(crate) fn install_writer(
+        &self,
+        writer: std::thread::JoinHandle<()>,
+    ) -> anyhow::Result<()> {
+        let mut installed = self.writer.lock().unwrap();
+        anyhow::ensure!(installed.is_none(), "session journal writer is already installed");
+        *installed = Some(writer);
+        Ok(())
+    }
+
     #[cfg(test)]
     pub(crate) fn install_failure_notifier_for_test(&self, notifier: SyncSender<String>) {
         *self.state.failure_notifier.lock().unwrap() = Some(notifier);
@@ -581,7 +630,8 @@ impl JournalIngressSender {
         sender: &SyncSender<QueuedJournalEvent>,
         event: QueuedJournalEvent,
     ) -> Result<(), String> {
-        if let Some(error) = self.state.failure() {
+        let _admission = self.state.enqueue_admission.lock().unwrap();
+        if let Some(error) = self.state.admission_error() {
             return Err(error);
         }
         sender.send(event).map_err(|_| self.writer_error())?;
@@ -602,11 +652,15 @@ impl JournalIngressSender {
     ) -> Result<(), String> {
         let mut pending = event;
         loop {
-            if let Some(error) = self.state.failure() {
-                return Err(error);
-            }
             let space_epoch = self.state.queue_space_epoch();
-            match sender.try_send(pending) {
+            let result = {
+                let _admission = self.state.enqueue_admission.lock().unwrap();
+                if let Some(error) = self.state.admission_error() {
+                    return Err(error);
+                }
+                sender.try_send(pending)
+            };
+            match result {
                 Ok(()) => {
                     if let Some(wake) = &self.wake_sender {
                         match wake.try_send(()) {
@@ -628,7 +682,9 @@ impl JournalIngressSender {
     }
 
     fn writer_error(&self) -> String {
-        self.state.failure().unwrap_or_else(|| "session journal writer stopped".into())
+        self.state
+            .admission_error()
+            .unwrap_or_else(|| "session journal writer stopped".into())
     }
 
     fn wait_for_commit_result<T>(
@@ -686,10 +742,10 @@ pub(crate) fn start(
 ) -> anyhow::Result<()> {
     let Some(receivers) = receivers else { return Ok(()) };
     let weak = Arc::downgrade(mux);
-    std::thread::Builder::new()
+    let writer = std::thread::Builder::new()
         .name("mux-session-journal-writer".into())
         .spawn(move || run(weak, receivers))?;
-    Ok(())
+    mux.install_journal_writer(writer)
 }
 
 fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
@@ -877,6 +933,9 @@ fn receive_batch(receivers: &JournalIngressReceivers) -> Option<Vec<QueuedJourna
         }
         if !batch.is_empty() {
             return Some(batch);
+        }
+        if receivers.state.closed.load(Ordering::Acquire) {
+            return None;
         }
         if receivers.wake.recv().is_err() {
             return None;
@@ -1621,15 +1680,19 @@ mod tests {
         let finishing_surface = surface.clone();
         let (finished, finished_receiver) = sync_channel(1);
         let finisher = std::thread::spawn(move || {
-            finishing_surface.finish_terminal_reader(Instant::now() + Duration::from_millis(10));
-            finished.send(()).unwrap();
+            let gap = finishing_surface
+                .finish_terminal_reader(Instant::now() + Duration::from_millis(10));
+            finished.send(gap).unwrap();
         });
         assert!(
             finished_receiver.recv_timeout(Duration::from_millis(100)).is_err(),
             "shutdown discarded an active terminal update at its reader deadline"
         );
         release.send(()).unwrap();
-        finished_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(
+            finished_receiver.recv_timeout(Duration::from_secs(1)).unwrap().is_none(),
+            "a completed active update must not create an output gap"
+        );
         assert!(
             surface.begin_terminal_journal_update_for_test().is_none(),
             "a late terminal update started after the shutdown capture fence"
@@ -1651,7 +1714,8 @@ mod tests {
         let finishing_surface = surface.clone();
         let (finished, finished_receiver) = sync_channel(1);
         let finisher = std::thread::spawn(move || {
-            finishing_surface.finish_terminal_reader(Instant::now() + Duration::from_millis(10));
+            let _ = finishing_surface
+                .finish_terminal_reader(Instant::now() + Duration::from_millis(10));
             finished.send(()).unwrap();
         });
 
@@ -1932,6 +1996,31 @@ mod tests {
         }
         assert_eq!(rebuilt, bytes);
         assert!(receivers.terminal.try_recv().is_err());
+    }
+
+    #[test]
+    fn closed_ingress_rejects_late_terminal_and_durable_events() {
+        let (sender, _receivers) = JournalIngressSender::new(true);
+        sender.close_and_join().unwrap();
+        let terminal_id = Arc::new(public_id("term", 15, TerminalPublicId::parse));
+
+        assert!(matches!(
+            sender.try_send(JournalIngressEvent::TerminalOutput {
+                terminal_id,
+                generation: Arc::from("closed-ingress-generation"),
+                occurred_at_ms: 44,
+                bytes: b"too late".to_vec(),
+            }),
+            Err(JournalIngressTrySendError::Failed { error, .. })
+                if error.contains("admission is closed")
+        ));
+        assert!(
+            sender
+                .send_durable(JournalIngressEvent::TerminalBarrier)
+                .unwrap_err()
+                .to_string()
+                .contains("admission is closed")
+        );
     }
 
     #[test]
