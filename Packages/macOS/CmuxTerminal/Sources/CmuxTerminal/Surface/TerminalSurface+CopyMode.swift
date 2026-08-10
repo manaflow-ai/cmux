@@ -54,16 +54,14 @@ extension TerminalSurface {
     public func toggleKeyboardCopyMode() -> Bool {
         didReceiveExplicitInput()
         if let externalRuntime {
-            let operation: TerminalExternalCopyModeOperation = keyboardCopyModeActive
+            let confirmedCopyModeActive = externalRuntime.snapshot.copyModeActive
+            setKeyboardCopyModeActive(confirmedCopyModeActive)
+            let operation: TerminalExternalCopyModeOperation = confirmedCopyModeActive
                 ? .exit
                 : .enter
-            let handled = externalRuntime.enqueue(
+            return externalRuntime.enqueue(
                 .copyMode(operation: operation, adjustment: nil, count: 1)
             ).accepted
-            if handled {
-                setKeyboardCopyModeActive(operation == .enter)
-            }
-            return handled
         }
         let handled = surfaceView.toggleKeyboardCopyMode()
         if handled {
@@ -72,7 +70,7 @@ extension TerminalSurface {
         return handled
     }
 
-    /// Mirrors the view's copy-mode state and syncs the key-state indicator.
+    /// Mirrors confirmed copy-mode state and syncs the key-state indicator.
     ///
     /// Isolation note: the legacy entry accepted off-main callers with a
     /// Thread.isMainThread check + main-queue hop; every caller (the surface

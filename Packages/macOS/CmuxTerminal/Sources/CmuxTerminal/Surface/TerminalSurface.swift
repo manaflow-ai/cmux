@@ -477,7 +477,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         }
     }
 
-    /// Whether keyboard copy mode is active (mirrors the surface view).
+    /// Whether keyboard copy mode is active in the embedded view or last confirmed external snapshot.
     @Published public internal(set) var keyboardCopyModeActive: Bool = false
 
     /// The needle from the most recently closed find session.
@@ -723,7 +723,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         preparePaneHost(self.paneHost)
         registry.register(
             self,
-            terminalLifecycleID: terminalLifecycleId
+            terminalLifecycleID: self.terminalLifecycleId
         )
         self.externalPresentationLease = externalRuntime?.attachPresentation(
             TerminalExternalPresentation(surfaceID: id, workspaceID: tabId)
