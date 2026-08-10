@@ -2199,11 +2199,17 @@ final class cmuxUITests: XCTestCase {
         let sourceMenu = app.buttons["MobileTaskComposerAttachmentButton"]
         XCTAssertTrue(sourceMenu.waitForExistence(timeout: 2))
         sourceMenu.tap()
-        XCTAssertTrue(app.buttons["Photos"].waitForExistence(timeout: 2))
-        XCTAssertTrue(app.buttons["Files"].waitForExistence(timeout: 2))
+        let photos = app.buttons["Photos"]
+        let files = app.buttons["Files"]
+        XCTAssertTrue(photos.waitForExistence(timeout: 2))
+        XCTAssertTrue(files.waitForExistence(timeout: 2))
         XCTAssertFalse(app.descendants(matching: .any)["MobileAttachmentPreview"].exists)
         XCTAssertEqual(prompt.value as? String, capturedPromptValue)
-        prompt.tap()
+        prompt.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)
+        ).tap()
+        XCTAssertTrue(photos.waitForNonExistence(timeout: 2))
+        XCTAssertTrue(files.waitForNonExistence(timeout: 2))
 
         fileRemove.tap()
         XCTAssertTrue(fileCard.waitForNonExistence(timeout: 3))
