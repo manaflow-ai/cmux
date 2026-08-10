@@ -35,7 +35,7 @@ struct CMUXMobileRootView: View {
     @Bindable private var onboardingStore: MobileOnboardingStore
     @State private var isAwaitingOnboardingReconnectStart = false
     @State private var onboardingMacDiscoveryKeepAlive = OnboardingMacDiscoveryKeepAlive()
-    /// The only iOS root-sheet state, shared by migration, Settings, and pairing.
+    /// The shared iOS modal slot for root sheets and shell-owned child sheets.
     @State private var rootPresentation = MobileRootPresentationState()
     #endif
     @State private var pendingAttachURL: String?
@@ -298,6 +298,9 @@ struct CMUXMobileRootView: View {
                 reconnectStoredMacIfNeeded()
             }
             #if os(iOS)
+            handleRootPresentation(
+                .authenticationChanged(isAuthenticated: isAuthenticated)
+            )
             updateOnboardingMacDiscoveryKeepAlive()
             presentAutoConnectMigrationIfEligible()
             #endif
@@ -393,7 +396,13 @@ struct CMUXMobileRootView: View {
                     showPairingScanner: showPairingScanner,
                     signOut: signOut,
                     setupHelpHighlight: disconnectedSetupHelpHighlight,
-                    store: store
+                    store: store,
+                    settingsPresentation: childSheetPresentation(
+                        for: .disconnectedSettings
+                    ),
+                    setupHelpPresentation: childSheetPresentation(
+                        for: .disconnectedSetupHelp
+                    )
                 )
             case .workspaceShell(let isRestoringStoredMac):
                 // Restoring, connected, and offline-with-saved-Macs are ONE
@@ -410,6 +419,15 @@ struct CMUXMobileRootView: View {
                     signOut: signOut,
                     showAddDevice: showAddDevice,
                     showPairingScanner: showPairingScanner,
+                    settingsPresentation: childSheetPresentation(
+                        for: .workspaceSettings
+                    ),
+                    deviceTreePresentation: childSheetPresentation(
+                        for: .workspaceDeviceTree
+                    ),
+                    taskComposerPresentation: childSheetPresentation(
+                        for: .workspaceTaskComposer
+                    ),
                     reconnectStoredMac: reconnectStoredMacIfNeeded,
                     workspaceListDidBecomeVisible: {
                         await pushCoordinator.workspaceListDidBecomeVisible()
@@ -469,7 +487,7 @@ struct CMUXMobileRootView: View {
     /// Drives one stable sheet host from the root presentation state.
     private var rootPresentationBinding: Binding<Bool> {
         Binding(
-            get: { rootPresentation.isPresented },
+            get: { rootPresentation.isRootSheetPresented },
             set: { isPresented in
                 guard !isPresented else { return }
                 handleRootPresentation(.sheetDidRequestDismissal)
@@ -500,7 +518,7 @@ struct CMUXMobileRootView: View {
             )
         case let .pairing(pairingPresentation):
             pairingSheet(initialPresentation: pairingPresentation)
-        case nil:
+        case .child, .dismissingChild, nil:
             EmptyView()
         }
     }
@@ -514,7 +532,7 @@ struct CMUXMobileRootView: View {
               !authManager.isRestoringSession,
               scenePhase == .active,
               !hasInjectedAttachLaunchRoute,
-              !rootPresentation.isPresented else {
+              rootPresentation.isIdle else {
             return
         }
         handleRootPresentation(.presentAutoConnectMigrationIfIdle)
@@ -529,6 +547,8 @@ struct CMUXMobileRootView: View {
             autoConnectMigrationStore?.acknowledge()
         case .finishPairing:
             finishPairingPresentation()
+        case .retryAutoConnectMigration:
+            presentAutoConnectMigrationIfEligible()
         }
     }
 
@@ -537,6 +557,29 @@ struct CMUXMobileRootView: View {
         presentAutoConnectMigrationIfEligible()
     }
     #endif
+
+    /// Connects one child sheet to the root-owned iOS modal state machine.
+    private func childSheetPresentation(
+        for child: MobileRootPresentationState.ChildPresentation
+    ) -> MobileChildSheetPresentation {
+        #if os(iOS)
+        return MobileChildSheetPresentation(
+            isPresented: Binding(
+                get: { rootPresentation.isPresentingChild(child) },
+                set: { isPresented in
+                    handleRootPresentation(
+                        isPresented ? .presentChild(child) : .dismissChild(child)
+                    )
+                }
+            ),
+            didDismiss: {
+                handleRootPresentation(.childDidDismiss(child))
+            }
+        )
+        #else
+        return MobileChildSheetPresentation()
+        #endif
+    }
 
     /// Which setup gate the disconnected screen's "Trouble connecting?" help marks
     /// as the user's current step. When the host rejected this device on

@@ -26,12 +26,10 @@ struct DisconnectedWorkspaceShellView: View {
     /// (this screen is the terminal not-connected state, reached after a stored
     /// Mac reconnect fails). `nil` in previews.
     var store: CMUXMobileShellStore?
-
-    @State private var showingSettings = false
-    @State private var settingsPairingScannerHandoff = SettingsPairingScannerHandoff()
+    var settingsPresentation = MobileChildSheetPresentation()
+    var setupHelpPresentation = MobileChildSheetPresentation()
 
     #if os(iOS)
-    @State private var isShowingSetupHelp = false
     /// The computer a reconnect attempt is in flight for. Also the re-entry
     /// guard: while non-nil, row taps are ignored.
     @State private var connectingMacID: String?
@@ -86,16 +84,23 @@ struct DisconnectedWorkspaceShellView: View {
                 }
         }
         #if os(iOS)
-        .sheet(isPresented: $isShowingSetupHelp) {
+        .sheet(
+            isPresented: setupHelpPresentation.isPresented,
+            onDismiss: setupHelpPresentation.didDismiss
+        ) {
             // A user on the never-paired/offline screen can reach the same
             // explicit setup-gate guidance shown in onboarding and Settings, so
             // the dead end is never silent. The highlighted gate reflects whether
             // this device has paired a Mac before (offline recovery) or not.
-            SetupHelpView(highlight: setupHelpHighlight) { isShowingSetupHelp = false }
+            SetupHelpView(
+                highlight: setupHelpHighlight,
+                onDone: setupHelpPresentation.dismiss
+            )
         }
-        .sheet(isPresented: $showingSettings, onDismiss: {
-            settingsPairingScannerHandoff.settingsDidDismiss(startScanner: showPairingScanner)
-        }) {
+        .sheet(
+            isPresented: settingsPresentation.isPresented,
+            onDismiss: settingsPresentation.didDismiss
+        ) {
             // Reuse the same Settings sheet the workspace list opens from its
             // Settings button so the no-devices screen's chrome matches. There is no
             // connected computer to forget here, but the store is forwarded so
@@ -103,11 +108,7 @@ struct DisconnectedWorkspaceShellView: View {
             // paired Mac; the sheet also surfaces the account + Sign Out.
             MobileSettingsView(
                 connectedHostName: "",
-                startPairingScanner: {
-                    settingsPairingScannerHandoff.requestScannerAfterDismiss(
-                        isSettingsPresented: $showingSettings
-                    )
-                },
+                startPairingScanner: showPairingScanner,
                 signOut: signOut,
                 store: store
             )
@@ -177,7 +178,7 @@ struct DisconnectedWorkspaceShellView: View {
                 }
                 .accessibilityIdentifier("MobileShowAddDeviceButton")
                 Button {
-                    isShowingSetupHelp = true
+                    setupHelpPresentation.present()
                 } label: {
                     Label(
                         L10n.string("mobile.devices.setupHelp", defaultValue: "Trouble connecting?"),
@@ -218,7 +219,7 @@ struct DisconnectedWorkspaceShellView: View {
             .tint(.blue)
             .accessibilityIdentifier("MobileShowAddDeviceButton")
             Button {
-                isShowingSetupHelp = true
+                setupHelpPresentation.present()
             } label: {
                 Text(L10n.string("mobile.devices.setupHelp", defaultValue: "Trouble connecting?"))
             }
@@ -354,7 +355,7 @@ struct DisconnectedWorkspaceShellView: View {
     private var settingsMenu: some View {
         #if os(iOS)
         Button {
-            showingSettings = true
+            settingsPresentation.present()
         } label: {
             MobileWorkspaceSettingsIcon()
         }

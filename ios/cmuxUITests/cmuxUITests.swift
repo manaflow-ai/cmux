@@ -500,6 +500,70 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.buttons["MobileWorkspaceSettingsMenu"].waitForExistence(timeout: 8))
     }
 
+    /// Accessibility Large must keep the complete explanation and both actions
+    /// reachable through the same scroll view in portrait and landscape.
+    @MainActor
+    func testAutoConnectMigrationAccessibilityLargeScrollsAllContent() throws {
+        defer { XCUIDevice.shared.orientation = .portrait }
+
+        for (name, orientation) in [
+            ("portrait", UIDeviceOrientation.portrait),
+            ("landscape", UIDeviceOrientation.landscapeLeft),
+        ] {
+            XCUIDevice.shared.orientation = orientation
+            let app = launchApp(
+                mockData: true,
+                environment: [
+                    "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+                    "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": UUID().uuidString,
+                ],
+                launchArguments: [
+                    "-UIPreferredContentSizeCategoryName",
+                    "UICTContentSizeCategoryAccessibilityL",
+                ]
+            )
+            defer { app.terminate() }
+
+            let scrollView = app.scrollViews["MobileAutoConnectMigrationScrollView"]
+            XCTAssertTrue(
+                scrollView.waitForExistence(timeout: 8),
+                "Expected the migration scroll view in \(name)."
+            )
+
+            func reveal(_ element: XCUIElement, named elementName: String) {
+                XCTAssertTrue(
+                    element.waitForExistence(timeout: 2),
+                    "Expected \(elementName) in the \(name) accessibility hierarchy."
+                )
+                for _ in 0..<8 where !element.isHittable {
+                    scrollView.swipeUp()
+                }
+                XCTAssertTrue(
+                    element.isHittable,
+                    "Expected \(elementName) to become visibly reachable by scrolling in \(name)."
+                )
+            }
+
+            reveal(
+                app.staticTexts["MobileAutoConnectMigrationBody"],
+                named: "the Auto-Connect explanation"
+            )
+            reveal(
+                app.staticTexts["MobileAutoConnectMigrationGuidance"],
+                named: "the Tailscale guidance"
+            )
+            reveal(
+                app.buttons["MobileAutoConnectMigrationContinue"],
+                named: "Continue with Auto-Connect"
+            )
+            reveal(
+                app.buttons["MobileAutoConnectMigrationOpenSettings"],
+                named: "Open Connection Settings"
+            )
+
+        }
+    }
+
     @MainActor
     func testAddDeviceManualHostValidationUsesStableIdentifiers() throws {
         let invalidHostApp = launchAddDeviceApp(environment: [

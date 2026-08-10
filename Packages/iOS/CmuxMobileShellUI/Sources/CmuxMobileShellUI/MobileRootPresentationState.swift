@@ -1,16 +1,29 @@
-/// The single root-owned iOS sheet state and its presentation transitions.
+/// The single iOS modal owner and its root-sheet and child-sheet transitions.
 ///
-/// Every case shares one SwiftUI sheet host. Replacing one non-`nil`
-/// presentation with another therefore changes the sheet's content in place,
-/// while setting it to `nil` dismisses that one host. Pairing can preempt the
-/// migration introduction without acknowledging it because no queued modal or
-/// second presenter is involved.
+/// Root presentations share one SwiftUI sheet host. Child presentations claim
+/// that same logical modal slot while retaining the sheet modifier nearest
+/// their content. A dismissing child keeps ownership until its `onDismiss`
+/// callback, preventing a root sheet from competing with UIKit's transition.
 struct MobileRootPresentationState: Equatable {
-    /// The content currently owned by the root sheet.
+    /// A child-owned sheet that participates in the shared modal slot.
+    enum ChildPresentation: Equatable {
+        case workspaceSettings
+        case workspaceDeviceTree
+        case workspaceTaskComposer
+        case disconnectedSettings
+        case disconnectedSetupHelp
+    }
+
+    /// The content or transition currently holding the shared modal slot.
     enum Presentation: Equatable {
         case autoConnectMigrationIntroduction
         case connectionSettings
         case pairing(PairingPresentation)
+        case child(ChildPresentation)
+        case dismissingChild(
+            ChildPresentation,
+            pendingPairing: PairingPresentation?
+        )
     }
 
     /// Every presentation mutation accepted by the root coordinator.
@@ -19,6 +32,10 @@ struct MobileRootPresentationState: Equatable {
         case continueWithAutoConnect
         case openConnectionSettings
         case presentPairing(PairingPresentation)
+        case presentChild(ChildPresentation)
+        case dismissChild(ChildPresentation)
+        case childDidDismiss(ChildPresentation)
+        case authenticationChanged(isAuthenticated: Bool)
         case sheetDidRequestDismissal
         case dismissPairing
     }
@@ -28,21 +45,37 @@ struct MobileRootPresentationState: Equatable {
         case none
         case acknowledgeAutoConnectMigration
         case finishPairing
+        case retryAutoConnectMigration
     }
 
-    /// The current sheet content, or `nil` when the root owns no modal.
+    /// The current modal owner or transition, or `nil` when the slot is idle.
     private(set) var presentation: Presentation? = nil
 
-    /// Whether the one root sheet host should be presented.
-    var isPresented: Bool {
-        presentation != nil
+    /// Whether no root or child presentation currently owns the modal slot.
+    var isIdle: Bool {
+        presentation == nil
+    }
+
+    /// Whether the root SwiftUI sheet host should be presented.
+    var isRootSheetPresented: Bool {
+        switch presentation {
+        case .autoConnectMigrationIntroduction, .connectionSettings, .pairing:
+            true
+        case .child, .dismissingChild, nil:
+            false
+        }
+    }
+
+    /// Returns whether the requested child currently owns a visible sheet.
+    func isPresentingChild(_ child: ChildPresentation) -> Bool {
+        presentation == .child(child)
     }
 
     /// Applies one shared presentation action and returns any required side effect.
     ///
-    /// Interactive introduction dismissal acknowledges the migration. Pairing
-    /// preemption only replaces the presentation, so a still-pending migration
-    /// can be presented again after pairing leaves the sheet host.
+    /// Interactive introduction dismissal acknowledges the migration. Child
+    /// dismissal holds the modal slot until `onDismiss`, while auth loss clears
+    /// it immediately without acknowledging a pending migration.
     @discardableResult
     mutating func apply(_ action: Action) -> Effect {
         switch action {
@@ -62,8 +95,55 @@ struct MobileRootPresentationState: Equatable {
             return .acknowledgeAutoConnectMigration
 
         case let .presentPairing(pairingPresentation):
-            presentation = .pairing(pairingPresentation)
+            switch presentation {
+            case let .child(child), let .dismissingChild(child, _):
+                presentation = .dismissingChild(
+                    child,
+                    pendingPairing: pairingPresentation
+                )
+            default:
+                presentation = .pairing(pairingPresentation)
+            }
             return .none
+
+        case let .presentChild(child):
+            guard presentation == nil else { return .none }
+            presentation = .child(child)
+            return .none
+
+        case let .dismissChild(child):
+            guard presentation == .child(child) else { return .none }
+            presentation = .dismissingChild(child, pendingPairing: nil)
+            return .none
+
+        case let .childDidDismiss(child):
+            switch presentation {
+            case let .child(activeChild) where activeChild == child:
+                presentation = nil
+                return .retryAutoConnectMigration
+            case let .dismissingChild(activeChild, pendingPairing)
+                where activeChild == child:
+                if let pendingPairing {
+                    presentation = .pairing(pendingPairing)
+                    return .none
+                }
+                presentation = nil
+                return .retryAutoConnectMigration
+            default:
+                return .none
+            }
+
+        case let .authenticationChanged(isAuthenticated):
+            guard !isAuthenticated else { return .none }
+            let effect: Effect
+            switch presentation {
+            case .pairing, .dismissingChild(_, pendingPairing: .some):
+                effect = .finishPairing
+            default:
+                effect = .none
+            }
+            presentation = nil
+            return effect
 
         case .sheetDidRequestDismissal:
             switch presentation {
@@ -76,7 +156,7 @@ struct MobileRootPresentationState: Equatable {
             case .connectionSettings:
                 presentation = nil
                 return .none
-            case nil:
+            case .child, .dismissingChild, nil:
                 return .none
             }
 
