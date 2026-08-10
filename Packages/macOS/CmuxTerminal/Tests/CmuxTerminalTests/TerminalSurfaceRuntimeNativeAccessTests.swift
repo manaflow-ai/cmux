@@ -1,5 +1,6 @@
 import Dispatch
 import Foundation
+import GhosttyKit
 import GhosttyRuntimeTestStubs
 import os
 import Testing
@@ -32,11 +33,7 @@ import Testing
     @Test func screenTailBorrowIsRejectedAfterTeardownStarts() async {
         let teardownBegun = OSAllocatedUnfairLock(initialState: 0)
         let releaseNativeFree = DispatchSemaphore(value: 0)
-        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
-            beginSurfaceTeardown: { _ in
-                teardownBegun.withLock { $0 += 1 }
-            }
-        )
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
         let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         let runtimeLifecycleId = UUID()
         let nativeAccessGate = TerminalSurfaceRuntimeNativeAccessGate()
@@ -54,9 +51,14 @@ import Testing
             callbackContext: nil,
             manualIOContext: nil,
             byteTeeLease: nil,
-            freeSurface: { _ in
-                _ = releaseNativeFree.wait(timeout: .distantFuture)
-            }
+            nativeTeardown: nativeTeardown(
+                beginSurfaceTeardown: { _ in
+                    teardownBegun.withLock { $0 += 1 }
+                },
+                freeSurface: { _ in
+                    _ = releaseNativeFree.wait(timeout: .distantFuture)
+                }
+            )
         )
         let request = TerminalSurfaceRuntimeScreenTailRequest(
             surface: surface,
@@ -75,11 +77,7 @@ import Testing
     @Test func teardownWaitsForAnActiveScreenTailBorrow() async throws {
         let teardownBegun = OSAllocatedUnfairLock(initialState: 0)
         let nativeFreeCount = OSAllocatedUnfairLock(initialState: 0)
-        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
-            beginSurfaceTeardown: { _ in
-                teardownBegun.withLock { $0 += 1 }
-            }
-        )
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
         let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         let runtimeLifecycleId = UUID()
         let nativeAccessGate = TerminalSurfaceRuntimeNativeAccessGate()
@@ -121,9 +119,14 @@ import Testing
             callbackContext: nil,
             manualIOContext: nil,
             byteTeeLease: nil,
-            freeSurface: { _ in
-                nativeFreeCount.withLock { $0 += 1 }
-            }
+            nativeTeardown: nativeTeardown(
+                beginSurfaceTeardown: { _ in
+                    teardownBegun.withLock { $0 += 1 }
+                },
+                freeSurface: { _ in
+                    nativeFreeCount.withLock { $0 += 1 }
+                }
+            )
         )
 
         #expect(
@@ -267,5 +270,16 @@ import Testing
 
         #expect(cmux_test_ghostty_surface_read_call_count() == 1)
         #expect(teardownBegun.withLock { $0 } == 1)
+    }
+
+    /// Builds a paired fake native teardown without calling Ghostty.
+    private func nativeTeardown(
+        beginSurfaceTeardown: @escaping @Sendable (ghostty_surface_t) -> Void,
+        freeSurface: @escaping @Sendable (ghostty_surface_t) -> Void
+    ) -> TerminalSurfaceRuntimeNativeTeardown {
+        TerminalSurfaceRuntimeNativeTeardown(
+            beginSurfaceTeardown: beginSurfaceTeardown,
+            freeSurface: freeSurface
+        )
     }
 }

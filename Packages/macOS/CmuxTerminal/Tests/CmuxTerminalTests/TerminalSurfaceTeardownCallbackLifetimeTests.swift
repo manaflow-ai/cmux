@@ -318,9 +318,12 @@ import Testing
             callbackContext: nil,
             manualIOContext: nil,
             byteTeeLease: RecordingTerminalByteTeeLease(recorder: recorder),
-            freeSurface: { _ in
-                recorder.record(.nativeFree)
-            }
+            nativeTeardown: TerminalSurfaceRuntimeNativeTeardown(
+                beginSurfaceTeardown: { _ in },
+                freeSurface: { _ in
+                    recorder.record(.nativeFree)
+                }
+            )
         )
 
         let completed = await recorder.waitForEventCount(2)

@@ -726,7 +726,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
                 callbackContext: callbackContext,
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
-                freeSurface: freeSurface
+                nativeTeardown: TerminalSurfaceRuntimeNativeTeardown(
+                    beginSurfaceTeardown: { _ in },
+                    freeSurface: freeSurface
+                )
             )
             return
         }

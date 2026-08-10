@@ -321,7 +321,10 @@ extension TerminalSurface {
                 callbackContext: callbackContext,
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
-                freeSurface: freeSurface
+                nativeTeardown: TerminalSurfaceRuntimeNativeTeardown(
+                    beginSurfaceTeardown: { _ in },
+                    freeSurface: freeSurface
+                )
             )
             return
         }
@@ -424,7 +427,10 @@ extension TerminalSurface {
                 byteTeeLease: teeLease,
                 executionLane: .isolatedHibernation,
                 isolatedHibernationReservation: teardownReservation,
-                freeSurface: freeSurface
+                nativeTeardown: TerminalSurfaceRuntimeNativeTeardown(
+                    beginSurfaceTeardown: { _ in },
+                    freeSurface: freeSurface
+                )
             )
             return true
         }

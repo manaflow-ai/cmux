@@ -1,5 +1,6 @@
 import Dispatch
 import Foundation
+import GhosttyKit
 import os
 import Testing
 @testable import CmuxTerminal
@@ -83,10 +84,12 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             reason: "test",
             surface: surface,
             callbackContext: nil,
-            freeSurface: { pointer in
-                let bits = UInt(bitPattern: pointer)
-                Task { await recorder.record(bits) }
-            }
+            nativeTeardown: nativeTeardown(
+                freeSurface: { pointer in
+                    let bits = UInt(bitPattern: pointer)
+                    Task { await recorder.record(bits) }
+                }
+            )
         )
 
         await recorder.waitForFreeCount(1)
@@ -109,10 +112,12 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
                 reason: "test.batch",
                 surface: surface,
                 callbackContext: nil,
-                freeSurface: { pointer in
-                    let bits = UInt(bitPattern: pointer)
-                    Task { await recorder.record(bits) }
-                }
+                nativeTeardown: nativeTeardown(
+                    freeSurface: { pointer in
+                        let bits = UInt(bitPattern: pointer)
+                        Task { await recorder.record(bits) }
+                    }
+                )
             )
         }
 
@@ -140,10 +145,12 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             reason: "test.stuckClose",
             surface: surfaces[0],
             callbackContext: nil,
-            freeSurface: { _ in
-                stuckFreeStarted.continuation.yield()
-                _ = releaseStuckFree.wait(timeout: .distantFuture)
-            }
+            nativeTeardown: nativeTeardown(
+                freeSurface: { _ in
+                    stuckFreeStarted.continuation.yield()
+                    _ = releaseStuckFree.wait(timeout: .distantFuture)
+                }
+            )
         )
         var stuckFreeIterator = stuckFreeStarted.stream.makeAsyncIterator()
         _ = await stuckFreeIterator.next()
@@ -155,12 +162,14 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
                 reason: "test.laterClose",
                 surface: surface,
                 callbackContext: nil,
-                freeSurface: { pointer in
-                    let bits = UInt(bitPattern: pointer)
-                    freedSurfaceBits.withLock {
-                        _ = $0.insert(bits)
+                nativeTeardown: nativeTeardown(
+                    freeSurface: { pointer in
+                        let bits = UInt(bitPattern: pointer)
+                        freedSurfaceBits.withLock {
+                            _ = $0.insert(bits)
+                        }
                     }
-                }
+                )
             )
         }
 
@@ -182,14 +191,14 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
 
     @Test func allBlockedCloseSlotsStillBeginLaterProcessTeardown() async throws {
         let begunSurfaceBits = OSAllocatedUnfairLock(initialState: Set<UInt>())
-        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
-            beginSurfaceTeardown: { surface in
-                let surfaceBits = UInt(bitPattern: surface)
-                begunSurfaceBits.withLock {
-                    _ = $0.insert(surfaceBits)
-                }
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let beginSurfaceTeardown: @Sendable (ghostty_surface_t) -> Void = {
+            surface in
+            let surfaceBits = UInt(bitPattern: surface)
+            begunSurfaceBits.withLock {
+                _ = $0.insert(surfaceBits)
             }
-        )
+        }
         let surfaces = (0..<3).map { _ in
             UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         }
@@ -210,12 +219,15 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
                 reason: "test.blockedCloseSlot",
                 surface: surface,
                 callbackContext: nil,
-                freeSurface: { pointer in
-                    blockedFreeStarted.continuation.yield(
-                        UInt(bitPattern: pointer)
-                    )
-                    _ = releaseBlockedFrees.wait(timeout: .distantFuture)
-                }
+                nativeTeardown: nativeTeardown(
+                    beginSurfaceTeardown: beginSurfaceTeardown,
+                    freeSurface: { pointer in
+                        blockedFreeStarted.continuation.yield(
+                            UInt(bitPattern: pointer)
+                        )
+                        _ = releaseBlockedFrees.wait(timeout: .distantFuture)
+                    }
+                )
             )
         }
         var blockedFreeIterator = blockedFreeStarted.stream.makeAsyncIterator()
@@ -228,9 +240,12 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             reason: "test.closeBeyondBlockedSlots",
             surface: surfaces[2],
             callbackContext: nil,
-            freeSurface: { _ in
-                laterFreeCount.withLock { $0 += 1 }
-            }
+            nativeTeardown: nativeTeardown(
+                beginSurfaceTeardown: beginSurfaceTeardown,
+                freeSurface: { _ in
+                    laterFreeCount.withLock { $0 += 1 }
+                }
+            )
         )
 
         #expect(
@@ -284,10 +299,12 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             byteTeeLease: nil,
             executionLane: .isolatedHibernation,
             isolatedHibernationReservation: isolatedReservation,
-            freeSurface: { _ in
-                isolatedFreeStarted.continuation.yield()
-                _ = releaseIsolatedFree.wait(timeout: .distantFuture)
-            }
+            nativeTeardown: nativeTeardown(
+                freeSurface: { _ in
+                    isolatedFreeStarted.continuation.yield()
+                    _ = releaseIsolatedFree.wait(timeout: .distantFuture)
+                }
+            )
         )
         var isolatedFreeIterator = isolatedFreeStarted.stream.makeAsyncIterator()
         _ = await isolatedFreeIterator.next()
@@ -306,9 +323,11 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             byteTeeLease: nil,
             executionLane: .isolatedHibernation,
             isolatedHibernationReservation: secondReservation,
-            freeSurface: { _ in
-                secondIsolatedFreeCount.withLock { $0 += 1 }
-            }
+            nativeTeardown: nativeTeardown(
+                freeSurface: { _ in
+                    secondIsolatedFreeCount.withLock { $0 += 1 }
+                }
+            )
         )
         let closeTicket = coordinator.enqueueRuntimeTeardown(
             id: UUID(),
@@ -316,9 +335,11 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             reason: "test.close",
             surface: closeSurface,
             callbackContext: nil,
-            freeSurface: { _ in
-                closeFreeCount.withLock { $0 += 1 }
-            }
+            nativeTeardown: nativeTeardown(
+                freeSurface: { _ in
+                    closeFreeCount.withLock { $0 += 1 }
+                }
+            )
         )
 
         #expect(await closeTicket.wait(timeout: .seconds(1)))
@@ -370,10 +391,12 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             byteTeeLease: nil,
             executionLane: .isolatedHibernation,
             isolatedHibernationReservation: blockingReservation,
-            freeSurface: { _ in
-                isolatedFreeStarted.continuation.yield()
-                _ = releaseIsolatedFree.wait(timeout: .distantFuture)
-            }
+            nativeTeardown: nativeTeardown(
+                freeSurface: { _ in
+                    isolatedFreeStarted.continuation.yield()
+                    _ = releaseIsolatedFree.wait(timeout: .distantFuture)
+                }
+            )
         )
         var isolatedFreeIterator = isolatedFreeStarted.stream.makeAsyncIterator()
         _ = await isolatedFreeIterator.next()
@@ -388,9 +411,11 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             byteTeeLease: nil,
             executionLane: .isolatedHibernation,
             isolatedHibernationReservation: staleReservation,
-            freeSurface: { _ in
-                freeCount.withLock { $0 += 1 }
-            }
+            nativeTeardown: nativeTeardown(
+                freeSurface: { _ in
+                    freeCount.withLock { $0 += 1 }
+                }
+            )
         )
 
         #expect(await ticket.wait(timeout: .seconds(1)))
@@ -416,14 +441,29 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             callbackContext: nil,
             manualIOContext: nil,
             byteTeeLease: lease,
-            freeSurface: { _ in
-                recorder.record("surface.free")
-            }
+            nativeTeardown: nativeTeardown(
+                freeSurface: { _ in
+                    recorder.record("surface.free")
+                }
+            )
         )
 
         for await event in recorder.events where event == "tee.release" {
             break
         }
         #expect(recorder.snapshot() == ["surface.free", "tee.release"])
+    }
+
+    /// Builds a paired fake native teardown without calling Ghostty.
+    private func nativeTeardown(
+        beginSurfaceTeardown: @escaping @Sendable (ghostty_surface_t) -> Void = {
+            _ in
+        },
+        freeSurface: @escaping @Sendable (ghostty_surface_t) -> Void
+    ) -> TerminalSurfaceRuntimeNativeTeardown {
+        TerminalSurfaceRuntimeNativeTeardown(
+            beginSurfaceTeardown: beginSurfaceTeardown,
+            freeSurface: freeSurface
+        )
     }
 }

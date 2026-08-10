@@ -39,23 +39,13 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     private var availableCloseExecutionSlots: Set<Int>
     private let closeTeardownQueues: [DispatchQueue]
     private let isolatedHibernationQueues: [DispatchQueue]
-    private nonisolated let beginSurfaceTeardown:
-        @Sendable (ghostty_surface_t) -> Void
     private nonisolated let screenTailReader =
         TerminalSurfaceRuntimeScreenTailReader()
     private nonisolated let isolatedHibernationAdmission =
         TerminalSurfaceRuntimeTeardownAdmission()
 
     /// Creates the process's teardown coordinator.
-    ///
-    /// - Parameter beginSurfaceTeardown: A non-blocking native request that
-    ///   retires the surface from process routing and starts child shutdown.
-    public init(
-        beginSurfaceTeardown: @escaping @Sendable (ghostty_surface_t) -> Void = {
-            ghostty_surface_request_process_termination($0)
-        }
-    ) {
-        self.beginSurfaceTeardown = beginSurfaceTeardown
+    public init() {
         availableCloseExecutionSlots = Set(
             0..<Self.maximumConcurrentCloseTeardownCount
         )
@@ -108,8 +98,6 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     ///     main-thread owner state.
     ///   - callbackContext: The retained callback context released on the
     ///     main actor after the free completes.
-    ///   - freeSurface: The free operation; defaults to
-    ///     `ghostty_surface_free`.
     /// - Returns: A ticket that completes after the native free and userdata releases.
     @discardableResult
     public nonisolated func enqueueRuntimeTeardown(
@@ -117,10 +105,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         workspaceId: UUID,
         reason: String,
         surface: ghostty_surface_t,
-        callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?,
-        freeSurface: @escaping @Sendable (ghostty_surface_t) -> Void = { surface in
-            ghostty_surface_free(surface)
-        }
+        callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     ) -> TerminalSurfaceRuntimeTeardownTicket {
         enqueueRuntimeTeardown(
             id: id,
@@ -130,7 +115,29 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             callbackContext: callbackContext,
             manualIOContext: nil,
             byteTeeLease: nil,
-            freeSurface: freeSurface
+            nativeTeardown: .ghostty
+        )
+    }
+
+    /// Queues a teardown using a paired native lifecycle implementation.
+    @discardableResult
+    nonisolated func enqueueRuntimeTeardown(
+        id: UUID,
+        workspaceId: UUID,
+        reason: String,
+        surface: ghostty_surface_t,
+        callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?,
+        nativeTeardown: TerminalSurfaceRuntimeNativeTeardown
+    ) -> TerminalSurfaceRuntimeTeardownTicket {
+        enqueueRuntimeTeardown(
+            id: id,
+            workspaceId: workspaceId,
+            reason: reason,
+            surface: surface,
+            callbackContext: callbackContext,
+            manualIOContext: nil,
+            byteTeeLease: nil,
+            nativeTeardown: nativeTeardown
         )
     }
 
@@ -157,8 +164,8 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     ///     released on the main actor after the free completes.
     ///   - byteTeeLease: The retained PTY tee lease, released on the main
     ///     actor after the free completes.
-    ///   - freeSurface: The free operation; defaults to
-    ///     `ghostty_surface_free`.
+    ///   - nativeTeardown: The paired process-shutdown and surface-free
+    ///     operations for this runtime generation.
     /// - Returns: A ticket that completes after the native free and userdata releases.
     @discardableResult
     nonisolated func enqueueRuntimeTeardown(
@@ -174,9 +181,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         executionLane: TerminalSurfaceRuntimeTeardownExecutionLane = .boundedClose,
         isolatedHibernationReservation:
             TerminalSurfaceRuntimeTeardownReservation? = nil,
-        freeSurface: @escaping @Sendable (ghostty_surface_t) -> Void = { surface in
-            ghostty_surface_free(surface)
-        }
+        nativeTeardown: TerminalSurfaceRuntimeNativeTeardown = .ghostty
     ) -> TerminalSurfaceRuntimeTeardownTicket {
         let completion = TerminalSurfaceRuntimeTeardownCompletion()
         let ticket = TerminalSurfaceRuntimeTeardownTicket(completion: completion)
@@ -189,7 +194,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             callbackContext: callbackContext,
             manualIOContext: manualIOContext,
             byteTeeLease: byteTeeLease,
-            freeSurface: freeSurface,
+            nativeTeardown: nativeTeardown,
             completion: completion
         )
         request.nativeAccessGate.requestTeardown {
@@ -197,7 +202,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             // precedes the Task hop. A pending borrow is the only reason to
             // defer termination, because Ghostty forbids surface API calls
             // after the termination request.
-            self.beginSurfaceTeardown(request.surface)
+            request.nativeTeardown.beginSurfaceTeardown(request.surface)
             Task {
                 await self.enqueue(
                     request,
@@ -293,7 +298,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             "workspace=\(request.workspaceToken) reason=\(request.reason)"
         )
 #endif
-        request.freeSurface(request.surface)
+        request.nativeTeardown.freeSurface(request.surface)
     }
 
     private nonisolated func finishFree(
