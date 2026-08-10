@@ -74,6 +74,40 @@ struct WorkstreamStoreTests {
         #expect(!store.hasMorePersistedItems)
     }
 
+    @Test("restored pending items stay expired across older and mobile history pages")
+    func restoredPendingHistoryExpires() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-restored-pending-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        for index in 0..<5 {
+            try await persistence.append(WorkstreamItem(
+                workstreamId: "session-\(index)",
+                source: .claude,
+                kind: .permissionRequest,
+                payload: .permissionRequest(
+                    requestId: "request-\(index)",
+                    toolName: "Bash",
+                    toolInputJSON: "{}",
+                    pattern: nil
+                )
+            ))
+        }
+
+        let store = WorkstreamStore(
+            persistence: persistence,
+            ringCapacity: 10,
+            initialLoadLimit: 2,
+            historyPageSize: 2
+        )
+        await store.start()
+        await store.loadOlderItems()
+        let mobilePage = try await store.historyPage(endingBefore: nil, limit: 5)
+
+        #expect(store.items.allSatisfy { !$0.status.isPending })
+        #expect(mobilePage.items.allSatisfy { !$0.status.isPending })
+    }
+
     @Test("mobile history pages persisted rows by stable item cursor")
     func mobilePersistedHistoryPages() async throws {
         let tmp = FileManager.default.temporaryDirectory
