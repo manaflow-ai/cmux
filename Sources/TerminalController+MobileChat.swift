@@ -279,18 +279,58 @@ extension TerminalController {
                 "session_id": sessionID
             ])
         }
+        let attachmentStore = MobileTaskAttachmentStore(
+            rootURL: MobileTaskAttachmentStore.defaultRootURL(
+                homeDirectory: FileManager.default.homeDirectoryForCurrentUser
+            ),
+            now: Date(),
+            fileManager: FileManager.default
+        )
+        var stagedReferences: [MobileTaskAttachmentReference] = []
+        var stagedIndexes: [Int] = []
+        for (index, attachment) in attachments.enumerated() {
+            if let operationIDString = attachment["operation_id"] as? String,
+               let operationID = UUID(uuidString: operationIDString),
+               let uploadIDString = attachment["upload_id"] as? String,
+               let uploadID = UUID(uuidString: uploadIDString) {
+                stagedReferences.append(.init(operationID: operationID, uploadID: uploadID))
+                stagedIndexes.append(index)
+            } else if let base64 = attachment["data_b64"] as? String,
+                      Data(base64Encoded: base64) != nil {
+                continue
+            } else {
+                return .err(code: "invalid_params", message: "Attachment identity is missing", data: nil)
+            }
+        }
+        let stagedURLs: [URL]
+        do {
+            stagedURLs = try attachmentStore.completedAttachmentURLs(
+                references: stagedReferences
+            )
+        } catch let error as MobileTaskAttachmentStoreError {
+            return .err(code: error.code, message: error.message, data: nil)
+        } catch {
+            return .err(code: "invalid_params", message: "Attachment is unavailable", data: nil)
+        }
+        let stagedURLByIndex = Dictionary(uniqueKeysWithValues: zip(stagedIndexes, stagedURLs))
         let clearResult = clearAgentPrompt(terminalPanel)
         guard clearResult.accepted else {
             return mobileChatInputError(clearResult)
         }
         for (index, attachment) in attachments.enumerated() {
             let result: V2CallResult
-            if let operationID = attachment["operation_id"] as? String,
-               let uploadID = attachment["upload_id"] as? String {
-                var stagedParams = terminalParams
-                stagedParams["operation_id"] = operationID
-                stagedParams["upload_id"] = uploadID
-                result = v2MobileTerminalPasteAttachment(params: stagedParams)
+            if let fileURL = stagedURLByIndex[index] {
+                let sendResult = terminalPanel.surface.sendInputResult(fileURL.path.terminalShellEscaped)
+                switch sendResult {
+                case .sent, .queued:
+                    result = .ok(["file_name": fileURL.lastPathComponent])
+                case .inputQueueFull:
+                    result = .err(code: "input_queue_full", message: Self.terminalInputQueueFullMessage, data: nil)
+                case .surfaceUnavailable:
+                    result = .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: nil)
+                case .processExited:
+                    result = .err(code: "process_exited", message: Self.terminalProcessExitedMessage, data: nil)
+                }
             } else if let base64 = attachment["data_b64"] as? String {
                 // Backward compatibility for older iOS clients. Current clients
                 // always upload bounded chunks before this request.

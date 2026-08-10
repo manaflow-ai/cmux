@@ -1,5 +1,16 @@
 public import Foundation
 
+/// Untrusted wire identities resolved as one batch before any terminal mutation.
+public struct MobileTaskAttachmentReference: Sendable, Equatable {
+    public let operationID: UUID
+    public let uploadID: UUID
+
+    public init(operationID: UUID, uploadID: UUID) {
+        self.operationID = operationID
+        self.uploadID = uploadID
+    }
+}
+
 /// Filesystem-backed staging and finalization for mobile task attachments.
 ///
 /// The store carries no shared runtime state. Upload identity, progress, and
@@ -248,6 +259,18 @@ public struct MobileTaskAttachmentStore {
             throw invalidParams("Attachment path is invalid")
         }
         return candidate
+    }
+
+    /// Resolves every reference in order, throwing before returning any paths.
+    public func completedAttachmentURLs(
+        references: [MobileTaskAttachmentReference]
+    ) throws -> [URL] {
+        try references.map {
+            try completedAttachmentURL(
+                operationID: $0.operationID,
+                uploadID: $0.uploadID
+            )
+        }
     }
 
     private func operationDirectory(for operationID: UUID) -> URL {

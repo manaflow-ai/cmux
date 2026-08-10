@@ -343,6 +343,12 @@ public final class ChatConversationStore {
     ///
     /// - Parameter pendingID: The pending row to discard.
     public func discard(pendingID: String) {
+        guard let item = pending.first(where: { $0.id == pendingID }) else { return }
+        for attachment in item.attachments {
+            if case let .stagedFile(url, _) = attachment.payload {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
         pending.removeAll { $0.id == pendingID }
         reproject()
     }
