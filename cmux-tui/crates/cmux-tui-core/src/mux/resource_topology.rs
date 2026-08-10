@@ -2252,7 +2252,13 @@ impl Mux {
             let catalog_public_id =
                 state.terminal_catalog.iter().find_map(|(public_id, surface)| {
                     self.resource_terminal_host_identity(surface)
-                        .is_some_and(|identity| identity.terminal_id == terminal_id)
+                        .is_some_and(|identity| {
+                            terminal_host_matches(
+                                &identity,
+                                terminal_id,
+                                closed_incarnation.as_deref(),
+                            )
+                        })
                         .then(|| public_id.clone())
                 });
             let runtime = catalog_public_id
@@ -2264,7 +2270,13 @@ impl Mux {
                 .iter()
                 .filter_map(|(surface_id, surface)| {
                     self.resource_terminal_host_identity(surface)
-                        .is_some_and(|identity| identity.terminal_id == terminal_id)
+                        .is_some_and(|identity| {
+                            terminal_host_matches(
+                                &identity,
+                                terminal_id,
+                                closed_incarnation.as_deref(),
+                            )
+                        })
                         .then_some(*surface_id)
                 })
                 .collect::<Vec<_>>();
@@ -2401,12 +2413,28 @@ impl Mux {
             self.emit_terminal_registry_changed(&registry, close.terminal.revision);
         }
         let closed_incarnation = close.terminal.result["incarnation"].as_str().map(str::to_owned);
-        let resource = close.resource.context("terminal close omitted its resource commit")?;
-        let installed_revision =
-            if resource.replayed { current_resource_revision } else { resource.revision };
-        let effects = plan.install(&mut state, installed_revision, None);
         let terminal_commit = close.terminal;
-        let publish_resource = !resource.replayed;
+        let resource = close.resource.context("terminal close omitted its resource commit")?;
+        anyhow::ensure!(
+            resource.replayed == terminal_commit.replayed,
+            "terminal and resource close replay state diverged"
+        );
+        if resource.replayed {
+            drop(state);
+            drop(registry);
+            drop(_creation_fence);
+            drop(_creation_handoff);
+            return Ok(TerminalCloseResult {
+                surface: None,
+                terminal_id: terminal_id.to_string(),
+                terminal_incarnation: closed_incarnation,
+                already_closed: terminal_commit.result["already_closed"]
+                    .as_bool()
+                    .unwrap_or(true),
+                terminal_revision: terminal_commit.revision,
+            });
+        }
+        let effects = plan.install(&mut state, resource.revision, None);
         drop(state);
         drop(registry);
         drop(_creation_fence);
@@ -2414,7 +2442,7 @@ impl Mux {
         self.finish_resource_close(CommittedResourceClose {
             commit: resource,
             effects,
-            publish_resource,
+            publish_resource: true,
         });
         if !had_runtime {
             self.terminate_discovered_terminal_host(terminal_id, closed_incarnation.as_deref());
