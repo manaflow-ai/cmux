@@ -2215,11 +2215,21 @@ final class cmuxUITests: XCTestCase {
             44,
             "The launch action must expose at least a 44-point activation frame"
         )
+        XCTAssertGreaterThanOrEqual(
+            create.frame.width,
+            44,
+            "The launch action must expose at least a 44-point activation frame"
+        )
 
         let agentMenu = app.buttons["MobileTaskComposerAgentPill"]
         XCTAssertTrue(agentMenu.waitForExistence(timeout: 2))
         XCTAssertGreaterThanOrEqual(
             agentMenu.frame.height,
+            44,
+            "The selected agent menu must expose at least a 44-point activation frame"
+        )
+        XCTAssertGreaterThanOrEqual(
+            agentMenu.frame.width,
             44,
             "The selected agent menu must expose at least a 44-point activation frame"
         )
@@ -2236,6 +2246,7 @@ final class cmuxUITests: XCTestCase {
 
         let model = app.buttons["MobileTaskComposerModelPill"]
         XCTAssertTrue(model.waitForExistence(timeout: 2))
+        XCTAssertGreaterThanOrEqual(model.frame.width, 44)
         XCTAssertGreaterThanOrEqual(model.frame.height, 44)
 
         openTaskComposerOptions(in: app)
@@ -2246,6 +2257,7 @@ final class cmuxUITests: XCTestCase {
         ] {
             let control = app.buttons[identifier]
             XCTAssertTrue(control.waitForExistence(timeout: 2))
+            XCTAssertGreaterThanOrEqual(control.frame.width, 44)
             XCTAssertGreaterThanOrEqual(control.frame.height, 44)
         }
     }
@@ -2474,12 +2486,15 @@ final class cmuxUITests: XCTestCase {
             80,
             "The selected agent control must stay compact at accessibility sizes"
         )
+        selectTaskComposerAgent(named: "OpenCode", in: app)
         let options = app.buttons["MobileTaskComposerOptionsButton"]
         let model = app.buttons["MobileTaskComposerModelPill"]
         let scroller = app.scrollViews["MobileTaskComposerPillScroller"]
         let create = app.buttons["MobileTaskComposerSubmitButton"]
         XCTAssertTrue(options.waitForExistence(timeout: 3))
         XCTAssertTrue(model.waitForExistence(timeout: 3))
+        tap(model, in: app)
+        tapMenuItem(app.buttons["Claude Opus 4.8"], in: app)
         XCTAssertTrue(scroller.waitForExistence(timeout: 3))
         XCTAssertTrue(create.waitForExistence(timeout: 3))
 
@@ -5698,7 +5713,11 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(element.waitForExistence(timeout: 4))
         XCTAssertTrue(focusTextInput(element, in: app), "Expected text input to accept keyboard focus: \(element.debugDescription)")
         element.typeText(text)
-        dismissKeyboard(in: app, preferAddDeviceAccessoryDoneButton: isAddDeviceField(element))
+        // Composer controls remain usable above the live keyboard. Pressing a
+        // fallback Return here would append a newline to the multiline prompt.
+        if !element.identifier.hasPrefix("MobileTaskComposer") {
+            dismissKeyboard(in: app, preferAddDeviceAccessoryDoneButton: isAddDeviceField(element))
+        }
     }
 
     @MainActor
@@ -5768,7 +5787,11 @@ final class cmuxUITests: XCTestCase {
         line: UInt = #line
     ) {
         XCTAssertTrue(element.waitForExistence(timeout: 4), file: file, line: line)
-        dismissKeyboard(in: app)
+        // The composer row is intentionally keyboard-pinned and directly
+        // tappable, so keep the draft unchanged while exercising its controls.
+        if !element.identifier.hasPrefix("MobileTaskComposer") {
+            dismissKeyboard(in: app)
+        }
         if element.isHittable {
             element.tap()
             return
