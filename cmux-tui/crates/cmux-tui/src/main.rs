@@ -2219,6 +2219,8 @@ mod remote_args_tests {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
 
     fn args(values: &[&str]) -> Args {
