@@ -14952,7 +14952,7 @@ fn terminal_content_placements(
         })
         .collect::<Vec<_>>();
     if let Some(runtime) = state.terminal_catalog.get(terminal_id)
-        && state.surfaces.get(&runtime.id).is_some_and(|candidate| matches_live_surface(candidate))
+        && state.surfaces.get(&runtime.id).is_some_and(&matches_live_surface)
     {
         targets.push(runtime.id);
     }
