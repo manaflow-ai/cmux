@@ -1116,7 +1116,7 @@ mod tests {
                 b"old".to_vec(),
             ));
         }
-        let terminal = CmuxFrontendTerminal {
+        let mut terminal = CmuxFrontendTerminal {
             runtime: runtime.handle().clone(),
             state: state.clone(),
             updates: Arc::new(ClientUpdates::default()),
@@ -1127,7 +1127,7 @@ mod tests {
             CmuxFrontendRenderEvent { kind: 0, cols: 0, rows: 0, payload_length: 0 };
         assert!(unsafe {
             cmux_frontend_terminal_copy_next_render_event(
-                &terminal,
+                &mut terminal,
                 &mut descriptor,
                 std::ptr::null_mut(),
                 0,
@@ -1150,7 +1150,7 @@ mod tests {
         let mut payload = [0_u8; 3];
         assert!(unsafe {
             cmux_frontend_terminal_copy_next_render_event(
-                &terminal,
+                &mut terminal,
                 &mut descriptor,
                 payload.as_mut_ptr(),
                 payload.len(),
