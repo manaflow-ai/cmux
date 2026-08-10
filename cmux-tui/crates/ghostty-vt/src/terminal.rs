@@ -3291,9 +3291,7 @@ impl Terminal {
             .saturating_mul(usize::from(self.cols()))
             .saturating_add(query.len());
         let mut viewport_matches = Vec::new();
-        viewport_matches
-            .try_reserve_exact(viewport_capacity)
-            .map_err(|_| Error::OutOfMemory)?;
+        viewport_matches.try_reserve_exact(viewport_capacity).map_err(|_| Error::OutOfMemory)?;
         viewport_matches.resize_with(viewport_capacity, || sys::GhosttySelection {
             size: size_of::<sys::GhosttySelection>(),
             ..Default::default()
