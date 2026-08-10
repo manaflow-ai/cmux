@@ -56,6 +56,9 @@ const leaseEventsRoute = await import(
 );
 const logoutRoute = await import("../app/api/subrouter/logout/route");
 const teamsRoute = await import("../app/api/subrouter/teams/route");
+const organizationsRoute = await import(
+  "../app/api/coderouter/organizations/route"
+);
 const exchangeRoute = await import("../app/api/subrouter/exchange/route");
 
 const originalFetch = globalThis.fetch;
@@ -509,6 +512,34 @@ describe("hosted Subrouter account routes", () => {
     );
     expect(teamsResponse.status).toBe(200);
     expect(await teamsResponse.json()).toEqual({
+      selectedTeamId: "team-a",
+      teams: [
+        {
+          id: "team-a",
+          name: "Team A",
+          personal: false,
+          permissions: { use: true, manageAccounts: true },
+        },
+        {
+          id: "team-b",
+          name: "Team B",
+          personal: false,
+          permissions: { use: true, manageAccounts: true },
+        },
+        {
+          id: "user-1",
+          name: "User One",
+          personal: true,
+          permissions: { use: true, manageAccounts: true },
+        },
+      ],
+    });
+
+    const organizationsResponse = await organizationsRoute.GET(
+      request("/api/coderouter/organizations"),
+    );
+    expect(organizationsResponse.status).toBe(200);
+    expect(await organizationsResponse.json()).toEqual({
       selectedTeamId: "team-a",
       teams: [
         {
