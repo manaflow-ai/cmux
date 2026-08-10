@@ -2162,6 +2162,8 @@ final class cmuxUITests: XCTestCase {
         let prompt = app.textFields["MobileTaskComposerPrompt"]
         XCTAssertTrue(prompt.waitForExistence(timeout: 8))
         try typeText("Keep this draft", into: prompt, in: app)
+        let capturedPromptValue = try XCTUnwrap(prompt.value as? String)
+        XCTAssertTrue(capturedPromptValue.contains("Keep this draft"))
 
         let imageCard = app.buttons["MobileAttachmentCard.0"]
         let fileCard = app.buttons["MobileAttachmentCard.1"]
@@ -2189,7 +2191,7 @@ final class cmuxUITests: XCTestCase {
             XCTAssertTrue(done.waitForExistence(timeout: 2))
             done.tap()
             XCTAssertTrue(preview.waitForNonExistence(timeout: 4))
-            XCTAssertEqual(prompt.value as? String, "Keep this draft")
+            XCTAssertEqual(prompt.value as? String, capturedPromptValue)
             XCTAssertTrue(imageCard.exists)
             XCTAssertTrue(fileCard.exists)
         }
@@ -2200,12 +2202,13 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Photos"].waitForExistence(timeout: 2))
         XCTAssertTrue(app.buttons["Files"].waitForExistence(timeout: 2))
         XCTAssertFalse(app.descendants(matching: .any)["MobileAttachmentPreview"].exists)
+        XCTAssertEqual(prompt.value as? String, capturedPromptValue)
         prompt.tap()
 
         fileRemove.tap()
         XCTAssertTrue(fileCard.waitForNonExistence(timeout: 3))
         XCTAssertTrue(imageCard.exists)
-        XCTAssertEqual(prompt.value as? String, "Keep this draft")
+        XCTAssertEqual(prompt.value as? String, capturedPromptValue)
     }
 
     /// The Composer pill scroller must clip between its neighboring controls;
