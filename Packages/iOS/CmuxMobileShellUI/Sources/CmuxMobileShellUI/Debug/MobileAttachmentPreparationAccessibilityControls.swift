@@ -20,11 +20,7 @@ struct MobileAttachmentPreparationAccessibilityControls: View {
                 defaultValue: "Complete attachment preparation"
             ))
             .accessibilityIdentifier("MobileAttachmentPreparationFixtureComplete")
-
-            if fixture.didReturn {
-                Text(verbatim: "returned")
-                    .accessibilityIdentifier("MobileAttachmentPreparationFixtureReturned")
-            }
+            .accessibilityValue(fixture.phase.rawValue)
         }
     }
 }

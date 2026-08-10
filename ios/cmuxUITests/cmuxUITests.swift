@@ -2426,6 +2426,9 @@ final class cmuxUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(cancelPreparing.frame.height, 44)
         XCTAssertFalse(sourceMenu.isEnabled)
         XCTAssertFalse(submit.isEnabled)
+        let complete = app.buttons["MobileAttachmentPreparationFixtureComplete"]
+        XCTAssertTrue(complete.waitForExistence(timeout: 3))
+        waitForAttachmentPreparationFixturePhase("waiting", on: complete)
 
         let cards = app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "MobileAttachmentCard.")
@@ -2465,13 +2468,8 @@ final class cmuxUITests: XCTestCase {
         XCTAssertEqual(cards.count, 1)
         XCTAssertFalse(app.descendants(matching: .any)["MobileTaskComposerSubmittedOperationID-1"].exists)
 
-        let complete = app.buttons["MobileAttachmentPreparationFixtureComplete"]
-        XCTAssertTrue(complete.waitForExistence(timeout: 3))
         complete.tap()
-        let providerReturned = app.descendants(matching: .any)[
-            "MobileAttachmentPreparationFixtureReturned"
-        ]
-        XCTAssertTrue(providerReturned.waitForExistence(timeout: 4))
+        waitForAttachmentPreparationFixturePhase("returned", on: complete)
         XCTAssertEqual(cards.count, 1, "A cancelled generation must reject a late staged result")
         XCTAssertEqual(prompt.value as? String, draft)
         XCTAssertFalse(app.descendants(matching: .any)["MobileTaskComposerSubmittedOperationID-1"].exists)
@@ -2680,6 +2678,9 @@ final class cmuxUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(cancelPreparing.frame.height, 44)
         XCTAssertFalse(sourceMenu.isEnabled)
         XCTAssertFalse(send.isEnabled)
+        let complete = app.buttons["MobileAttachmentPreparationFixtureComplete"]
+        XCTAssertTrue(complete.waitForExistence(timeout: 3))
+        waitForAttachmentPreparationFixturePhase("waiting", on: complete)
 
         let cards = app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "MobileAttachmentCard.")
@@ -2694,13 +2695,8 @@ final class cmuxUITests: XCTestCase {
         XCTAssertEqual(cards.count, 2)
         XCTAssertEqual(table.cells.count, initialMessageCount)
 
-        let complete = app.buttons["MobileAttachmentPreparationFixtureComplete"]
-        XCTAssertTrue(complete.waitForExistence(timeout: 3))
         complete.tap()
-        let providerReturned = app.descendants(matching: .any)[
-            "MobileAttachmentPreparationFixtureReturned"
-        ]
-        XCTAssertTrue(providerReturned.waitForExistence(timeout: 4))
+        waitForAttachmentPreparationFixturePhase("returned", on: complete)
         XCTAssertEqual(cards.count, 2, "A cancelled generation must reject a late staged result")
         XCTAssertEqual(field.value as? String, capturedDraft)
         XCTAssertEqual(table.cells.count, initialMessageCount)
@@ -2790,6 +2786,9 @@ final class cmuxUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(cancelPreparing.frame.height, 44)
         XCTAssertFalse(sourceMenu.isEnabled)
         XCTAssertFalse(send.isEnabled)
+        let complete = app.buttons["MobileAttachmentPreparationFixtureComplete"]
+        XCTAssertTrue(complete.waitForExistence(timeout: 3))
+        waitForAttachmentPreparationFixturePhase("waiting", on: complete)
 
         let cards = app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "MobileAttachmentCard.")
@@ -2804,13 +2803,8 @@ final class cmuxUITests: XCTestCase {
         XCTAssertEqual(cards.count, 2)
         XCTAssertFalse(app.staticTexts["MobileComposerSendFailure"].exists)
 
-        let complete = app.buttons["MobileAttachmentPreparationFixtureComplete"]
-        XCTAssertTrue(complete.waitForExistence(timeout: 3))
         complete.tap()
-        let providerReturned = app.descendants(matching: .any)[
-            "MobileAttachmentPreparationFixtureReturned"
-        ]
-        XCTAssertTrue(providerReturned.waitForExistence(timeout: 4))
+        waitForAttachmentPreparationFixturePhase("returned", on: complete)
         XCTAssertEqual(cards.count, 2, "A cancelled generation must reject a late staged result")
         XCTAssertEqual(field.value as? String, draft)
         XCTAssertFalse(app.staticTexts["MobileComposerSendFailure"].exists)
@@ -8433,6 +8427,26 @@ final class cmuxUITests: XCTestCase {
                 "Shortcut and Composer bars separated during rapid reversal \(cycle). dock=\(dock)"
             )
         }
+    }
+
+    @MainActor
+    private func waitForAttachmentPreparationFixturePhase(
+        _ phase: String,
+        on completeButton: XCUIElement,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", phase),
+            object: completeButton
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [expectation], timeout: 4),
+            .completed,
+            "Attachment preparation fixture did not reach the \(phase) phase",
+            file: file,
+            line: line
+        )
     }
 
     @MainActor

@@ -6,10 +6,16 @@ import Observation
 @MainActor
 @Observable
 final class MobileAttachmentPreparationAccessibilityFixture {
+    enum Phase: String {
+        case starting
+        case waiting
+        case returned
+    }
+
     private let attachment: MobileStagedAttachment
     private var continuation: CheckedContinuation<MobileStagedAttachment?, Never>?
     private var completed = false
-    private(set) var didReturn = false
+    private(set) var phase: Phase = .starting
 
     init(attachment: MobileStagedAttachment) {
         self.attachment = attachment
@@ -22,9 +28,10 @@ final class MobileAttachmentPreparationAccessibilityFixture {
         } else {
             result = await withCheckedContinuation { continuation in
                 self.continuation = continuation
+                self.phase = .waiting
             }
         }
-        didReturn = true
+        phase = .returned
         return result
     }
 
