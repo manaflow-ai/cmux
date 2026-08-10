@@ -2134,14 +2134,31 @@ fn sqlite_filesystem_path(path: &Path) -> anyhow::Result<Cow<'_, Path>> {
     }
 }
 
-fn open_registry_database(path: &Path) -> anyhow::Result<Connection> {
+fn open_registry_database_with_flags(
+    path: &Path,
+    flags: OpenFlags,
+) -> anyhow::Result<Connection> {
     let path = sqlite_filesystem_path(path)?;
-    Ok(Connection::open(path.as_ref())?)
+    #[cfg(windows)]
+    {
+        Ok(Connection::open_with_flags_and_vfs(
+            path.as_ref(),
+            flags,
+            "win32-longpath",
+        )?)
+    }
+    #[cfg(not(windows))]
+    {
+        Ok(Connection::open_with_flags(path.as_ref(), flags)?)
+    }
+}
+
+fn open_registry_database(path: &Path) -> anyhow::Result<Connection> {
+    open_registry_database_with_flags(path, OpenFlags::default())
 }
 
 fn open_registry_database_read_only(path: &Path) -> anyhow::Result<Connection> {
-    let path = sqlite_filesystem_path(path)?;
-    Ok(Connection::open_with_flags(path.as_ref(), OpenFlags::SQLITE_OPEN_READ_ONLY)?)
+    open_registry_database_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
 }
 
 impl std::fmt::Debug for WorkspaceRegistry {
