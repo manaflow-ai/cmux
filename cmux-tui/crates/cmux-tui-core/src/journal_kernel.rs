@@ -376,7 +376,14 @@ impl JournalKernel {
     }
 
     pub(crate) fn install_prepared_producer(&self, producer: PreparedJournalProducer) {
-        self.producers.write().unwrap().insert(producer.producer_id, producer.compiled);
+        let mut producers = self.producers.write().unwrap();
+        if producers
+            .get(&producer.producer_id)
+            .is_some_and(|current| current.manifest_version > producer.compiled.manifest_version)
+        {
+            return;
+        }
+        producers.insert(producer.producer_id, producer.compiled);
     }
 
     pub(crate) fn validate_ingress(

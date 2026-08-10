@@ -437,14 +437,9 @@ fn run_dispatcher(mux: Weak<Mux>, claim: &mut DispatcherClaim, runtime: Arc<Jour
         if runtime.is_cancelled() || mux.daemon_shutdown_requested() {
             drop(mux);
             workers.shutdown();
-            if let Some(mux) = claim.mux.upgrade() {
-                completed.extend(workers.completions.try_iter());
-                let results =
-                    completed.into_iter().map(|completion| completion.result).collect::<Vec<_>>();
-                if let Err(error) = mux.finish_journal_hook_deliveries(&results) {
-                    eprintln!("cmux-tui: finish canceled journal hooks during shutdown: {error:#}");
-                }
-            }
+            // Do not commit a completion after Mux shutdown can close the
+            // journal writer. Executing rows remain durable and a replacement
+            // dispatcher can retry them under the existing at-least-once rule.
             return;
         }
 

@@ -440,6 +440,17 @@ impl JournalIngressState {
         self.wait_for_queue_space_until(observed, Instant::now() + JOURNAL_DURABLE_WAIT)
     }
 
+    fn wait_for_queue_space_change(&self, observed: u64) -> Result<(), String> {
+        let mut epoch = self.queue_space_epoch.lock().unwrap();
+        while *epoch == observed {
+            if let Some(error) = self.admission_error() {
+                return Err(error);
+            }
+            epoch = self.queue_space_changed.wait(epoch).unwrap();
+        }
+        Ok(())
+    }
+
     #[cfg(test)]
     fn notify_enqueue_full_for_test(&self) {
         if let Some(notifier) = self.enqueue_full_notifier.lock().unwrap().take() {
@@ -678,20 +689,33 @@ impl JournalIngressSender {
         sender: &SyncSender<QueuedJournalEvent>,
         event: QueuedJournalEvent,
     ) -> Result<(), String> {
-        let _admission = self.state.enqueue_admission.lock().unwrap();
-        if let Some(error) = self.state.admission_error() {
-            return Err(error);
-        }
-        #[cfg(test)]
-        self.state.notify_enqueue_full_for_test();
-        sender.send(event).map_err(|_| self.writer_error())?;
-        if let Some(wake) = &self.wake_sender {
-            match wake.try_send(()) {
-                Ok(()) | Err(TrySendError::Full(())) => {}
-                Err(TrySendError::Disconnected(())) => {}
+        let mut pending = event;
+        loop {
+            let space_epoch = self.state.queue_space_epoch();
+            let result = {
+                let _admission = self.state.enqueue_admission.lock().unwrap();
+                if let Some(error) = self.state.admission_error() {
+                    return Err(error);
+                }
+                sender.try_send(pending)
+            };
+            match result {
+                Ok(()) => {
+                    if let Some(wake) = &self.wake_sender {
+                        match wake.try_send(()) {
+                            Ok(()) | Err(TrySendError::Full(())) => {}
+                            Err(TrySendError::Disconnected(())) => {}
+                        }
+                    }
+                    return Ok(());
+                }
+                Err(TrySendError::Full(event)) => pending = event,
+                Err(TrySendError::Disconnected(_)) => return Err(self.writer_error()),
             }
+            #[cfg(test)]
+            self.state.notify_enqueue_full_for_test();
+            self.state.wait_for_queue_space_change(space_epoch)?;
         }
-        Ok(())
     }
 
     fn enqueue_until(
@@ -702,9 +726,21 @@ impl JournalIngressSender {
     ) -> Result<(), String> {
         let mut pending = event;
         loop {
+            if Instant::now() >= deadline {
+                return Err(format!(
+                    "timed out after {} ms waiting to queue a durable session journal event",
+                    JOURNAL_DURABLE_WAIT.as_millis()
+                ));
+            }
             let space_epoch = self.state.queue_space_epoch();
             let result = {
                 let _admission = self.state.enqueue_admission.lock().unwrap();
+                if Instant::now() >= deadline {
+                    return Err(format!(
+                        "timed out after {} ms waiting to queue a durable session journal event",
+                        JOURNAL_DURABLE_WAIT.as_millis()
+                    ));
+                }
                 if let Some(error) = self.state.admission_error() {
                     return Err(error);
                 }

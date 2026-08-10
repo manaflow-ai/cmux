@@ -4904,8 +4904,10 @@ impl Mux {
             origin,
             idempotency_key,
         )?;
-        self.journal_kernel.install_prepared_producer(prepared);
         if !commit.replayed {
+            // Installation is version-monotonic, so concurrent successful
+            // updates cannot publish their compiled validators out of order.
+            self.journal_kernel.install_prepared_producer(prepared);
             self.publish_journal_event();
         }
         Ok(commit)

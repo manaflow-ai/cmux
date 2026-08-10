@@ -595,11 +595,7 @@ fn install_linux_process_group_fence() -> io::Result<()> {
         return Err(io::Error::last_os_error());
     }
     if unsafe {
-        libc::prctl(
-            libc::PR_SET_SECCOMP,
-            libc::SECCOMP_MODE_FILTER,
-            std::ptr::from_ref(&program),
-        )
+        libc::prctl(libc::PR_SET_SECCOMP, libc::SECCOMP_MODE_FILTER, std::ptr::from_ref(&program))
     } != 0
     {
         return Err(io::Error::last_os_error());
