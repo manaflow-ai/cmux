@@ -643,9 +643,8 @@ fn merge_projection(
     }
     let same_session_identity = current.source_session.is_some()
         && current.source_session == next.source_session
-        && (current.provider == next.provider
-            || current.provider.is_none()
-            || next.provider.is_none());
+        && current.provider.is_some()
+        && current.provider == next.provider;
     let same_provider_without_session = current.source_session.is_none()
         && next.source_session.is_none()
         && current.provider.is_some()

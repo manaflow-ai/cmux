@@ -283,7 +283,7 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<Vec<RegistryAgentProjection>> {
         // A rebuild commits progress page by page. Do not expose a prefix as
         // the authoritative agent snapshot while the owned Mux worker drains it.
-        if self.agent_projection_rebuild_pending()? {
+        if terminal.is_none() && self.agent_projection_rebuild_pending()? {
             return Ok(Vec::new());
         }
         let mut statement = self.connection.prepare(
