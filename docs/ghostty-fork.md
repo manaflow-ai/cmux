@@ -157,9 +157,12 @@ The final font integration landed in merge commits `23003282d` and
 
 - Pull request:
   - https://github.com/manaflow-ai/ghostty/pull/194
-- Commits:
+- Patch commits:
   - `7ad529298` (test: cover atomic bracketed paste encoding)
   - `f27772d10` (fix: enqueue bracketed paste atomically)
+- Pinned integration commit:
+  - `927793ce1` (merges the atomic-paste branch into fork `main` and retains
+    the `11aa609d7` VT stream-boundary API required by current cmux TUI code)
 - Files:
   - `src/input/paste.zig`
   - `src/Surface.zig`
@@ -175,8 +178,8 @@ The final font integration landed in merge commits `23003282d` and
     ownership changes. Splitting the three segments back into independent
     mailbox messages reintroduces the ordering race.
 - Artifact:
-  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-f27772d1096386e41145d0f9e4149dca30de1b01-crashsubdir-cmux-crash-sentry-off-v1
-  - SHA-256 `28217169337f3b68a2368ce966b190fcc633545b179b8a68356527d4173c8343`
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-927793ce1114f6db817f0646f397565ac529a8ee-crashsubdir-cmux-crash-sentry-off-v1
+  - SHA-256 `823001b17c32dfac482bbbe3c73985a2fb02bbf1b99de905b2eef2321f300756`
     is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Initial cmux theme-picker render
