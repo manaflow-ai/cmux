@@ -5,7 +5,8 @@ use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{
-    Receiver, Sender, SyncSender, TryRecvError, TrySendError, channel, sync_channel,
+    Receiver, RecvTimeoutError, Sender, SyncSender, TryRecvError, TrySendError, channel,
+    sync_channel,
 };
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
@@ -851,6 +852,7 @@ pub struct CdpClient {
 
 struct Inner {
     outbound: Sender<Outbound>,
+    transport_close: Mutex<TransportClose>,
     pending: Mutex<HashMap<u64, PendingCall>>,
     events: Arc<EventQueue>,
     frame_epochs: Mutex<HashMap<String, FrameSession>>,
@@ -1110,6 +1112,13 @@ impl Drop for Inner {
 enum Outbound {
     Message(String),
     Flush(Sender<()>),
+    Close(SyncSender<()>),
+}
+
+enum TransportClose {
+    Open,
+    Closing(Receiver<()>),
+    Closed,
 }
 
 struct DeadlineTcpStream {
@@ -1342,6 +1351,7 @@ impl CdpClient {
         let client = CdpClient {
             inner: Arc::new(Inner {
                 outbound: outbound_tx,
+                transport_close: Mutex::new(TransportClose::Open),
                 pending: Mutex::new(HashMap::new()),
                 events: event_queue,
                 frame_epochs: Mutex::new(HashMap::new()),
@@ -1613,12 +1623,52 @@ impl CdpClient {
         if self.inner.closed.load(Ordering::Acquire) {
             anyhow::bail!("CDP connection is closed");
         }
+        let close = self.inner.transport_close.lock().unwrap();
+        if !matches!(*close, TransportClose::Open) {
+            anyhow::bail!("CDP connection is closing");
+        }
         let (tx, rx) = channel();
         self.inner
             .outbound
             .send(Outbound::Flush(tx))
             .map_err(|_| anyhow::anyhow!("CDP connection is closed"))?;
+        drop(close);
         rx.recv_timeout(timeout).map_err(|_| anyhow::anyhow!("timed out flushing CDP commands"))
+    }
+
+    /// Close the WebSocket transport once and retain its completion receipt
+    /// across deadline expiry so a retry cannot publish a second close owner.
+    pub fn close_until(&self, deadline: Instant) -> bool {
+        let mut close = self.inner.transport_close.lock().unwrap();
+        loop {
+            match &mut *close {
+                TransportClose::Open => {
+                    if self.inner.closed.load(Ordering::Acquire) {
+                        *close = TransportClose::Closed;
+                        return true;
+                    }
+                    let (receipt, receiver) = sync_channel(1);
+                    if self.inner.outbound.send(Outbound::Close(receipt)).is_err() {
+                        *close = TransportClose::Closed;
+                        return true;
+                    }
+                    *close = TransportClose::Closing(receiver);
+                }
+                TransportClose::Closing(receiver) => {
+                    let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                        return false;
+                    };
+                    match receiver.recv_timeout(remaining) {
+                        Ok(()) | Err(RecvTimeoutError::Disconnected) => {
+                            *close = TransportClose::Closed;
+                            return true;
+                        }
+                        Err(RecvTimeoutError::Timeout) => return false,
+                    }
+                }
+                TransportClose::Closed => return true,
+            }
+        }
     }
 
     pub fn page_enable(&self, session_id: &str) -> anyhow::Result<()> {
@@ -2207,6 +2257,10 @@ impl CdpClient {
         if self.inner.closed.load(Ordering::Acquire) {
             anyhow::bail!("CDP connection is closed");
         }
+        let close = self.inner.transport_close.lock().unwrap();
+        if !matches!(*close, TransportClose::Open) {
+            anyhow::bail!("CDP connection is closing");
+        }
         let text = serde_json::to_string(value)?;
         if cdp_debug() {
             eprintln!("cdp-> {text}");
@@ -2215,6 +2269,7 @@ impl CdpClient {
             .outbound
             .send(Outbound::Message(text))
             .map_err(|_| anyhow::anyhow!("CDP connection is closed"))?;
+        drop(close);
         Ok(())
     }
 }
@@ -2258,9 +2313,19 @@ fn reader_loop(
         if inner.closed.load(Ordering::Acquire) {
             break;
         }
-        if let Err(err) = drain_outbound(&mut ws, outbound) {
-            close_inner(&inner, &format!("CDP socket error: {err}"));
-            break;
+        match drain_outbound(&mut ws, outbound) {
+            Ok(OutboundDrain::Continue) => {}
+            Ok(OutboundDrain::Close(receipt)) => {
+                let _ = ws.close(None);
+                let _ = ws.flush();
+                close_inner(&inner, "CDP client shut down");
+                let _ = receipt.send(());
+                break;
+            }
+            Err(err) => {
+                close_inner(&inner, &format!("CDP socket error: {err}"));
+                break;
+            }
         }
         let message = ws.read();
         match message {
@@ -2296,16 +2361,24 @@ fn reader_loop(
 fn drain_outbound(
     ws: &mut WebSocket<DeadlineTcpStream>,
     outbound: &Receiver<Outbound>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<OutboundDrain> {
     loop {
         match outbound.try_recv() {
             Ok(Outbound::Message(text)) => ws.send(Message::Text(text.into()))?,
             Ok(Outbound::Flush(done)) => {
                 let _ = done.send(());
             }
-            Err(TryRecvError::Empty | TryRecvError::Disconnected) => return Ok(()),
+            Ok(Outbound::Close(receipt)) => return Ok(OutboundDrain::Close(receipt)),
+            Err(TryRecvError::Empty | TryRecvError::Disconnected) => {
+                return Ok(OutboundDrain::Continue);
+            }
         }
     }
+}
+
+enum OutboundDrain {
+    Continue,
+    Close(SyncSender<()>),
 }
 
 fn handle_text(inner: &Arc<Inner>, text: &str) {

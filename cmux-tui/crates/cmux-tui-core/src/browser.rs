@@ -1164,8 +1164,9 @@ impl BrowserRuntime {
             true
         };
         close_browser_runtime(self, "browser runtime shut down".to_string());
+        let transport_closed = self.client.close_until(deadline);
         let browser_stopped = self.chrome.as_ref().is_none_or(|chrome| chrome.kill_until(deadline));
-        outbound_flushed && browser_stopped
+        outbound_flushed && transport_closed && browser_stopped
     }
 }
 
