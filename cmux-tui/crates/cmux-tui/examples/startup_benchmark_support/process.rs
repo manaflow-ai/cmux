@@ -11,6 +11,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use cmux_pty::{PtyCommand, PtySize};
 use rusqlite::Connection;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use wait_timeout::ChildExt;
 
 use super::lifecycle::FixtureRoot;
@@ -30,10 +31,12 @@ pub struct Target {
     pub binary: PathBuf,
     pub source: PathBuf,
     pub sha: String,
+    pub expected_binary_sha256: String,
     pub observed_sha: String,
     pub ghostty_sha: String,
     pub zig_version: String,
     pub rust_toolchain: String,
+    pub embedded_identity_verified: bool,
     version: String,
     pub launcher: Vec<String>,
 }
@@ -44,6 +47,7 @@ impl Target {
         binary: PathBuf,
         source: PathBuf,
         sha: String,
+        expected_binary_sha256: String,
         launcher: Vec<String>,
     ) -> Result<Self> {
         let observed_sha = git_sha(&source)?;
@@ -54,20 +58,30 @@ impl Target {
             );
         }
         let ghostty_sha = git_sha(&source.join("ghostty"))?;
+        let observed_binary_sha256 = binary_sha256(&binary)?;
+        if observed_binary_sha256 != expected_binary_sha256 {
+            bail!(
+                "{} binary SHA-256 mismatch: expected {expected_binary_sha256}, observed {observed_binary_sha256}",
+                kind.as_str()
+            );
+        }
         let zig_version = source_zig_version(&source)?;
         let rust_toolchain = source_rust_toolchain(&source)?;
         let version = binary_version(&binary)?;
-        validate_binary_identity(&version, &sha, &ghostty_sha)
-            .with_context(|| format!("validate {} binary identity", kind.as_str()))?;
+        let embedded_identity_verified =
+            validate_binary_identity(&version, &sha, &ghostty_sha, kind == TargetKind::Candidate)
+                .with_context(|| format!("validate {} binary identity", kind.as_str()))?;
         Ok(Self {
             kind,
             binary,
             source,
             sha,
+            expected_binary_sha256,
             observed_sha,
             ghostty_sha,
             zig_version,
             rust_toolchain,
+            embedded_identity_verified,
             version,
             launcher,
         })
@@ -1127,13 +1141,23 @@ fn binary_version(binary: &Path) -> Result<String> {
         .with_context(|| format!("unexpected {} --version output: {output:?}", binary.display()))
 }
 
+fn binary_sha256(binary: &Path) -> Result<String> {
+    let bytes = fs::read(binary).with_context(|| format!("read {}", binary.display()))?;
+    Ok(format!("{:x}", Sha256::digest(bytes)))
+}
+
 fn validate_binary_identity(
     version: &str,
     expected_commit: &str,
     expected_ghostty: &str,
-) -> Result<()> {
-    let (crate_version, metadata) =
-        version.rsplit_once(" (").context("binary version omitted stamped source identities")?;
+    require_stamp: bool,
+) -> Result<bool> {
+    let Some((crate_version, metadata)) = version.rsplit_once(" (") else {
+        if require_stamp {
+            bail!("binary version omitted stamped source identities");
+        }
+        return Ok(false);
+    };
     if crate_version.is_empty() {
         bail!("binary version omitted the crate version");
     }
@@ -1148,7 +1172,7 @@ fn validate_binary_identity(
     if ghostty != expected_ghostty {
         bail!("binary Ghostty commit is {ghostty}, expected {expected_ghostty}");
     }
-    Ok(())
+    Ok(true)
 }
 
 fn source_zig_version(source: &Path) -> Result<String> {
@@ -1375,19 +1399,26 @@ mod tests {
         let commit = "1111111111111111111111111111111111111111";
         let ghostty = "2222222222222222222222222222222222222222";
         let version = format!("0.1.0 ({commit}; ghostty {ghostty})");
-        assert!(validate_binary_identity(&version, commit, ghostty).is_ok());
+        assert_eq!(validate_binary_identity(&version, commit, ghostty, true).unwrap(), true);
         assert!(
             validate_binary_identity(
                 &version,
                 "3333333333333333333333333333333333333333",
                 ghostty,
+                true,
             )
             .is_err()
         );
         assert!(
-            validate_binary_identity(&version, commit, "4444444444444444444444444444444444444444",)
-                .is_err()
+            validate_binary_identity(
+                &version,
+                commit,
+                "4444444444444444444444444444444444444444",
+                true,
+            )
+            .is_err()
         );
-        assert!(validate_binary_identity("0.1.0", commit, ghostty).is_err());
+        assert!(validate_binary_identity("0.1.0", commit, ghostty, true).is_err());
+        assert_eq!(validate_binary_identity("0.1.0", commit, ghostty, false).unwrap(), false);
     }
 }

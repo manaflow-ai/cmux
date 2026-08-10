@@ -18,7 +18,7 @@ The hosted workflow builds the baseline and candidate in separate target directo
 
 The JSON artifact contains samples in run order and sorted order. It reports minimum, mean, population standard deviation, median absolute deviation, p50, p90, p95, p99, and maximum. Paired deltas use candidate minus baseline. Negative deltas mean that the candidate was faster.
 
-The artifact records exact source, Ghostty, binary, required Zig, and Rust toolchain identities for each checkout. It also records the runner image, CPU, physical and logical core counts, memory, kernel, Rust, and Cargo versions. The profile evidence includes both measured binaries, available target symbol files, and a manifest with their SHA-256 hashes and sizes.
+The artifact records exact source, Ghostty, binary, required Zig, and Rust toolchain identities for each checkout. The hosted workflow hashes each binary immediately after its isolated exact-checkout build, and the harness requires that hash before sampling. The candidate must also expose the exact cmux and Ghostty commits in its public version. A legacy baseline without that version stamp remains measurable through the post-build hash, while any baseline stamp that is present must match. The artifact also records the runner image, CPU, physical and logical core counts, memory, kernel, Rust, and Cargo versions. The profile evidence includes both measured binaries, available target symbol files, and a manifest with their SHA-256 hashes and sizes.
 
 Run the workflow from GitHub for comparable evidence. The workflow uploads JSON, Markdown, metadata, diagnostics, exact attribution binaries, available target symbol files, and available native profiles.
 

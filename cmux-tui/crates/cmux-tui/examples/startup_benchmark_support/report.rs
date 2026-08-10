@@ -209,8 +209,10 @@ pub struct TargetMetadata {
     pub rust_toolchain: String,
     pub source: String,
     pub binary: String,
+    pub expected_binary_sha256: String,
     pub binary_sha256: String,
     pub binary_bytes: u64,
+    pub embedded_identity_verified: bool,
 }
 
 impl TargetMetadata {
@@ -227,8 +229,10 @@ impl TargetMetadata {
             rust_toolchain: target.rust_toolchain.clone(),
             source: target.source.display().to_string(),
             binary: target.binary.display().to_string(),
+            expected_binary_sha256: target.expected_binary_sha256.clone(),
             binary_sha256,
             binary_bytes: bytes.len() as u64,
+            embedded_identity_verified: target.embedded_identity_verified,
         })
     }
 }

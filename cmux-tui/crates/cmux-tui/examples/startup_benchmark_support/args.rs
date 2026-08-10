@@ -16,6 +16,8 @@ pub struct Args {
     pub candidate_source: PathBuf,
     pub baseline_sha: String,
     pub candidate_sha: String,
+    pub baseline_binary_sha256: String,
+    pub candidate_binary_sha256: String,
     pub warmups: usize,
     pub samples: usize,
     pub suite_deadline_seconds: usize,
@@ -38,6 +40,8 @@ impl Args {
             candidate_source: PathBuf::new(),
             baseline_sha: String::new(),
             candidate_sha: String::new(),
+            baseline_binary_sha256: String::new(),
+            candidate_binary_sha256: String::new(),
             warmups: 10,
             samples: 50,
             suite_deadline_seconds: 3_600,
@@ -58,6 +62,12 @@ impl Args {
                 "--candidate-source" => args.candidate_source = parser.path(&key, inline)?,
                 "--baseline-sha" => args.baseline_sha = parser.value(&key, inline)?,
                 "--candidate-sha" => args.candidate_sha = parser.value(&key, inline)?,
+                "--baseline-binary-sha256" => {
+                    args.baseline_binary_sha256 = parser.value(&key, inline)?
+                }
+                "--candidate-binary-sha256" => {
+                    args.candidate_binary_sha256 = parser.value(&key, inline)?
+                }
                 "--warmups" => args.warmups = parser.number(&key, inline)?,
                 "--samples" => args.samples = parser.number(&key, inline)?,
                 "--suite-deadline-seconds" => {
@@ -96,6 +106,8 @@ impl Args {
         }
         validate_sha(&self.baseline_sha, "--baseline-sha")?;
         validate_sha(&self.candidate_sha, "--candidate-sha")?;
+        validate_sha256(&self.baseline_binary_sha256, "--baseline-binary-sha256")?;
+        validate_sha256(&self.candidate_binary_sha256, "--candidate-binary-sha256")?;
         if self.baseline_sha == self.candidate_sha {
             bail!("baseline and candidate SHAs must differ");
         }
@@ -137,6 +149,13 @@ fn validate_comparison_counts(warmups: usize, samples: usize) -> Result<()> {
 fn validate_sha(value: &str, option: &str) -> Result<()> {
     if value.len() != 40 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         bail!("{option} must be a 40-character hexadecimal SHA");
+    }
+    Ok(())
+}
+
+fn validate_sha256(value: &str, option: &str) -> Result<()> {
+    if value.len() != 64 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        bail!("{option} must be a 64-character hexadecimal SHA-256");
     }
     Ok(())
 }
@@ -216,5 +235,12 @@ mod tests {
         assert!(validate_comparison_counts(10, 49).is_err());
         assert!(validate_comparison_counts(10, MAX_SAMPLES + 1).is_err());
         assert!(validate_comparison_counts(10, usize::MAX).is_err());
+    }
+
+    #[test]
+    fn binary_attestation_hash_requires_exact_sha256_shape() {
+        assert!(validate_sha256(&"a".repeat(64), "--hash").is_ok());
+        assert!(validate_sha256(&"a".repeat(63), "--hash").is_err());
+        assert!(validate_sha256(&"g".repeat(64), "--hash").is_err());
     }
 }

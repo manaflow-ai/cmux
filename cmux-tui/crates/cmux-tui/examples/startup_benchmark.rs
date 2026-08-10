@@ -28,6 +28,7 @@ fn run() -> Result<()> {
         args.baseline_binary.clone(),
         args.baseline_source.clone(),
         args.baseline_sha.clone(),
+        args.baseline_binary_sha256.clone(),
         args.baseline_launcher.clone(),
     )?;
     let candidate = Target::new(
@@ -35,6 +36,7 @@ fn run() -> Result<()> {
         args.candidate_binary.clone(),
         args.candidate_source.clone(),
         args.candidate_sha.clone(),
+        args.candidate_binary_sha256.clone(),
         args.candidate_launcher.clone(),
     )?;
 
