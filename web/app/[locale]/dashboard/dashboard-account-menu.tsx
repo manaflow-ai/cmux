@@ -152,7 +152,9 @@ function DashboardOrganizationSwitcher() {
   const selectableTeams = teams.filter((team) => authorizedIds.has(team.id));
   const personal = data.teams.find((team) => team.personal);
   const selectedTeamId =
-    user.selectedTeam && authorizedIds.has(user.selectedTeam.id)
+    personal && user.selectedTeam === null
+      ? personal.id
+      : user.selectedTeam && authorizedIds.has(user.selectedTeam.id)
       ? user.selectedTeam.id
       : data.selectedTeamId ?? data.teams[0]?.id;
   const switchOrganization = async (
