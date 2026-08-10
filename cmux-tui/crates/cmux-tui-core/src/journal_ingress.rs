@@ -1588,9 +1588,9 @@ mod tests {
         producer.join().unwrap();
         let records = mux.session_journal_after(0, 1024).unwrap().records;
         assert!(
-            records
-                .iter()
-                .any(|record| record.payload.to_string().contains("admitted-commit-marker")),
+            records.iter().any(|record| {
+                record.correlation_id.as_deref() == Some("admitted_commit_1")
+            }),
             "the caller must observe success for the admitted durable commit"
         );
         drop(mux);
@@ -1666,9 +1666,9 @@ mod tests {
         );
         let records = mux.session_journal_after(0, 1024).unwrap().records;
         assert!(
-            records
-                .iter()
-                .any(|record| record.payload.to_string().contains("indeterminate-commit-marker")),
+            records.iter().any(|record| {
+                record.correlation_id.as_deref() == Some("indeterminate_commit_1")
+            }),
             "an indeterminate result must not claim that the admitted commit failed"
         );
         drop(mux);
