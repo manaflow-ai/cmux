@@ -128,7 +128,13 @@ fn parse_command(
     if command_args.is_empty() {
         return Err(UsageError::new("missing resource scope; use --help to list scopes"));
     }
-    if super::public_command_has_inline_relay_ticket_argument(&command_args) {
+    // Public resource parsing owns option values and forwarded payloads. The
+    // pre-scan is only for startup grammar that reached this parser through a
+    // help or routing flag, including the rewritten `server start` path.
+    if !is_public_scope(&command_args[0])
+        && command_args[0] != "help"
+        && super::has_inline_relay_ticket_argument(&command_args)
+    {
         return Err(UsageError::new(
             crate::localization::catalog().remote_client.inline_relay_ticket_rejected,
         ));
