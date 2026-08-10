@@ -37,11 +37,14 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
     @Test func capturesSurfaceIdentityAtCreation() {
         let controller = FakeSurfaceController()
         let host = FakeSurfaceHost()
+        let terminalLifecycleID = UUID()
         let context = GhosttySurfaceCallbackContext(
             surfaceHost: host,
-            surfaceController: controller
+            surfaceController: controller,
+            terminalLifecycleID: terminalLifecycleID
         )
         #expect(context.surfaceId == controller.surfaceId)
+        #expect(context.terminalLifecycleID == terminalLifecycleID)
         #expect(context.tabId == controller.owningTabId)
     }
 
@@ -51,7 +54,8 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
         var controller: FakeSurfaceController? = FakeSurfaceController()
         let context = GhosttySurfaceCallbackContext(
             surfaceHost: host,
-            surfaceController: controller!
+            surfaceController: controller!,
+            terminalLifecycleID: UUID()
         )
         controller = nil
         #expect(context.tabId == hostTabId)
@@ -63,7 +67,8 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
         let host = FakeSurfaceHost()
         let context = GhosttySurfaceCallbackContext(
             surfaceHost: host,
-            surfaceController: controller
+            surfaceController: controller,
+            terminalLifecycleID: UUID()
         )
         #expect(context.runtimeSurface == pointer)
     }
@@ -75,7 +80,8 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
         var controller: FakeSurfaceController? = FakeSurfaceController()
         let context = GhosttySurfaceCallbackContext(
             surfaceHost: host,
-            surfaceController: controller!
+            surfaceController: controller!,
+            terminalLifecycleID: UUID()
         )
         controller = nil
         #expect(context.runtimeSurface == pointer)
@@ -86,7 +92,8 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
         var host: FakeSurfaceHost? = FakeSurfaceHost()
         let context = GhosttySurfaceCallbackContext(
             surfaceHost: host!,
-            surfaceController: controller!
+            surfaceController: controller!,
+            terminalLifecycleID: UUID()
         )
         controller = nil
         host = nil
@@ -102,6 +109,7 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
         let context = GhosttySurfaceCallbackContext(
             surfaceHost: host,
             surfaceController: controller,
+            terminalLifecycleID: UUID(),
             rendererMailboxDidDrain: { surfaceID in
                 #expect(surfaceID == expectedSurfaceID)
                 _ = callbackCount.advanceRelaxed()
@@ -125,7 +133,8 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
         let host = FakeSurfaceHost()
         let context = GhosttySurfaceCallbackContext(
             surfaceHost: host,
-            surfaceController: controller
+            surfaceController: controller,
+            terminalLifecycleID: UUID()
         )
         let surface = try #require(ghostty_surface_t(bitPattern: 0x11))
         #expect(context.bindRuntimeClipboardSurface(surface, generation: 7))
@@ -184,7 +193,8 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
         let host = FakeSurfaceHost()
         let context = GhosttySurfaceCallbackContext(
             surfaceHost: host,
-            surfaceController: controller
+            surfaceController: controller,
+            terminalLifecycleID: UUID()
         )
         let surface = try #require(ghostty_surface_t(bitPattern: 0x17))
         #expect(context.bindRuntimeClipboardSurface(surface, generation: 9))
@@ -213,7 +223,8 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
         let host = FakeSurfaceHost()
         let context = GhosttySurfaceCallbackContext(
             surfaceHost: host,
-            surfaceController: controller
+            surfaceController: controller,
+            terminalLifecycleID: UUID()
         )
         let surface = try #require(ghostty_surface_t(bitPattern: 0x19))
         #expect(context.bindRuntimeClipboardSurface(surface, generation: 11))
@@ -249,7 +260,8 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
         let host = FakeSurfaceHost()
         let context = GhosttySurfaceCallbackContext(
             surfaceHost: host,
-            surfaceController: controller
+            surfaceController: controller,
+            terminalLifecycleID: UUID()
         )
         let surface = try #require(ghostty_surface_t(bitPattern: 0x1f))
         #expect(context.bindRuntimeClipboardSurface(surface, generation: 13))
@@ -286,7 +298,8 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
         )
         let context = GhosttySurfaceCallbackContext(
             surfaceHost: host,
-            surfaceController: originalController!
+            surfaceController: originalController!,
+            terminalLifecycleID: UUID()
         )
         #expect(
             context.bindRuntimeClipboardSurface(
@@ -337,7 +350,8 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
     func registrationBeforeSurfaceBindingDoesNotReserveAdmission() {
         let context = GhosttySurfaceCallbackContext(
             surfaceHost: FakeSurfaceHost(),
-            surfaceController: FakeSurfaceController()
+            surfaceController: FakeSurfaceController(),
+            terminalLifecycleID: UUID()
         )
         let reservedAdmissionCount = AtomicUInt64Generation()
 
@@ -360,7 +374,8 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
     func attachingTaskAfterInvalidationRejectsAndCancelsIt() async throws {
         let context = GhosttySurfaceCallbackContext(
             surfaceHost: FakeSurfaceHost(),
-            surfaceController: FakeSurfaceController()
+            surfaceController: FakeSurfaceController(),
+            terminalLifecycleID: UUID()
         )
         let surface = try #require(ghostty_surface_t(bitPattern: 0x29))
         #expect(context.bindRuntimeClipboardSurface(surface, generation: 19))
@@ -392,7 +407,8 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
         let host = FakeSurfaceHost()
         let context = GhosttySurfaceCallbackContext(
             surfaceHost: host,
-            surfaceController: controller
+            surfaceController: controller,
+            terminalLifecycleID: UUID()
         )
         context.invalidateRuntimeClipboardRequests(
             completingNativeRequests: false
@@ -418,11 +434,13 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
     func synchronousPasteDispatchReservesReadsAcrossSurfaces() throws {
         let context = GhosttySurfaceCallbackContext(
             surfaceHost: FakeSurfaceHost(),
-            surfaceController: FakeSurfaceController()
+            surfaceController: FakeSurfaceController(),
+            terminalLifecycleID: UUID()
         )
         let secondContext = GhosttySurfaceCallbackContext(
             surfaceHost: FakeSurfaceHost(),
-            surfaceController: FakeSurfaceController()
+            surfaceController: FakeSurfaceController(),
+            terminalLifecycleID: UUID()
         )
         let surface = try #require(ghostty_surface_t(bitPattern: 0x2a))
         let secondSurface = try #require(
@@ -499,6 +517,7 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
         let context = GhosttySurfaceCallbackContext(
             surfaceHost: host,
             surfaceController: controller,
+            terminalLifecycleID: UUID(),
             maximumRuntimeClipboardRequests: 2
         )
         let surface = try #require(ghostty_surface_t(bitPattern: 0x2b))
@@ -532,6 +551,7 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
         let context = GhosttySurfaceCallbackContext(
             surfaceHost: host,
             surfaceController: controller,
+            terminalLifecycleID: UUID(),
             maximumRuntimeClipboardRequests: 1
         )
         let surface = try #require(ghostty_surface_t(bitPattern: 0x35))

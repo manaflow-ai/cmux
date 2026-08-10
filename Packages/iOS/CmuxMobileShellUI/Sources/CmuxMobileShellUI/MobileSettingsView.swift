@@ -88,7 +88,7 @@ struct MobileSettingsView: View {
                     } footer: {
                         Text(L10n.string(
                             "mobile.settings.teamFooter",
-                            defaultValue: "Switches which Stack team's computers and devices this app shows."
+                            defaultValue: "Switches which cmux team's computers and devices this app shows."
                         ))
                     }
                 }

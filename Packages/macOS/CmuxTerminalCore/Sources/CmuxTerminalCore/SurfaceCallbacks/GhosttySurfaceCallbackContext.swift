@@ -63,6 +63,9 @@ public final class GhosttySurfaceCallbackContext {
     /// The stable identity of the surface this context was created for.
     public let surfaceId: UUID
 
+    /// The terminal process generation that owns this callback context.
+    public let terminalLifecycleID: UUID
+
     /// Runs after renderer activity consumes an armed presentation repair.
     private let rendererMailboxDidDrainHandler: @Sendable (UUID) -> Void
 
@@ -82,6 +85,8 @@ public final class GhosttySurfaceCallbackContext {
     /// - Parameters:
     ///   - surfaceHost: The view hosting the surface.
     ///   - surfaceController: The surface model owning the runtime surface.
+    ///   - terminalLifecycleID: The terminal process generation that owns the
+    ///     native runtime surface.
     ///   - rendererMailboxDidDrain: Called with only the stable surface id after
     ///     an armed repair observes renderer activity following a mailbox drain.
     ///   - maximumRuntimeClipboardRequests: Maximum simultaneous native
@@ -89,12 +94,14 @@ public final class GhosttySurfaceCallbackContext {
     public init(
         surfaceHost: any TerminalSurfaceHosting,
         surfaceController: any TerminalSurfaceControlling,
+        terminalLifecycleID: UUID,
         rendererMailboxDidDrain: @escaping @Sendable (UUID) -> Void = { _ in },
         maximumRuntimeClipboardRequests: Int = 32
     ) {
         self.surfaceHost = surfaceHost
         self.surfaceController = surfaceController
         self.surfaceId = surfaceController.surfaceId
+        self.terminalLifecycleID = terminalLifecycleID
         self.rendererMailboxDidDrainHandler = rendererMailboxDidDrain
         self.maximumRuntimeClipboardRequests = max(
             0,

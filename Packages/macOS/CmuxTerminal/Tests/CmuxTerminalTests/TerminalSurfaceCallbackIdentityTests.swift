@@ -13,7 +13,8 @@ struct TerminalSurfaceCallbackIdentityTests {
         let surface = makeSurface()
         let firstContext = GhosttySurfaceCallbackContext(
             surfaceHost: surface.surfaceView,
-            surfaceController: surface
+            surfaceController: surface,
+            terminalLifecycleID: surface.terminalLifecycleId
         )
         surface.surfaceCallbackContext = .passRetained(firstContext)
 
@@ -21,7 +22,8 @@ struct TerminalSurfaceCallbackIdentityTests {
 
         let secondContext = GhosttySurfaceCallbackContext(
             surfaceHost: surface.surfaceView,
-            surfaceController: surface
+            surfaceController: surface,
+            terminalLifecycleID: surface.terminalLifecycleId
         )
         surface.surfaceCallbackContext?.release()
         surface.surfaceCallbackContext = .passRetained(secondContext)
