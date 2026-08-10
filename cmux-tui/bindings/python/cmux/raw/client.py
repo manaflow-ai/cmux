@@ -5,7 +5,7 @@ import weakref
 from collections import deque
 from dataclasses import fields, is_dataclass
 from enum import Enum
-from typing import Any, Deque, Dict, Iterator, Mapping, Optional
+from typing import Any, Callable, Deque, Dict, Iterator, Mapping, Optional
 
 from ._generated.client import GeneratedClientMixin
 from ._generated.codec import (
@@ -115,6 +115,12 @@ class _Stream(Iterator[AnyEvent]):
         return self
 
     def __next__(self) -> AnyEvent:
+        return self._next()
+
+    def _next(
+        self,
+        before_wait: Optional[Callable[[], None]] = None,
+    ) -> AnyEvent:
         if self._closed:
             raise StopIteration
         if self._queue:
@@ -125,7 +131,11 @@ class _Stream(Iterator[AnyEvent]):
         ignored = 0
         while not self._closed:
             try:
-                value = self._conn.recv()
+                value = (
+                    self._conn.recv()
+                    if before_wait is None
+                    else self._conn._recv(before_wait=before_wait)
+                )
             except CmuxConnectionError:
                 if self._closed:
                     raise StopIteration
