@@ -178,11 +178,10 @@ extension MobileShellComposite {
                 macDeviceID: item.macDeviceID,
                 instanceTag: item.macInstanceTag
               ) else { return false }
+        guard let surfaceID = item.wire.surfaceID,
+              workspace(workspaceID, containsSurfaceID: surfaceID) else { return false }
         navigateToWorkspaceForDeeplink(workspaceID, origin: .notificationFeed)
-        if let surfaceID = item.wire.surfaceID,
-           workspace(workspaceID, containsSurfaceID: surfaceID) {
-            selectTerminal(MobileTerminalPreview.ID(rawValue: surfaceID))
-        }
+        selectTerminal(MobileTerminalPreview.ID(rawValue: surfaceID))
         return true
     }
 

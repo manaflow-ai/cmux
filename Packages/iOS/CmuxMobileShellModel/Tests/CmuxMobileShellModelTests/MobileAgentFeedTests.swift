@@ -217,6 +217,7 @@ struct MobileAgentFeedTests {
     }
 
     @Test func aggregationBenchmarkReportsIncreasingInputSizes() throws {
+        var elapsedBySize: [Int: Double] = [:]
         for size in [300, 1_200, 2_400, 4_800] {
             var snapshots = Array(repeating: [MobileAgentFeedItem](), count: 12)
             for index in 0..<size {
@@ -226,14 +227,24 @@ struct MobileAgentFeedTests {
             }
             let clock = ContinuousClock()
             let started = clock.now
-            let output = MobileAgentFeedAggregation().items(from: snapshots)
+            var output: [MobileAgentFeedItem] = []
+            for _ in 0..<30 {
+                output = MobileAgentFeedAggregation().items(from: snapshots)
+            }
             let elapsed = started.duration(to: clock.now)
             let components = elapsed.components
             let milliseconds = Double(components.seconds) * 1_000
                 + Double(components.attoseconds) / 1_000_000_000_000_000
-            print("AGENT_FEED_AGGREGATION_BENCHMARK n=\(size) ms=\(milliseconds) output=\(output.count)")
+            elapsedBySize[size] = milliseconds
+            print("AGENT_FEED_AGGREGATION_BENCHMARK n=\(size) runs=30 ms=\(milliseconds) output=\(output.count)")
             #expect(output.count == min(size, MobileAgentFeedAggregation.maxItemCount))
         }
+        let baseline = try #require(elapsedBySize[1_200])
+        let doubledTwice = try #require(elapsedBySize[4_800])
+        #expect(
+            doubledTwice < baseline * 8,
+            "4x input must remain below 8x runtime; quadratic growth approaches 16x"
+        )
     }
 
     private func item(

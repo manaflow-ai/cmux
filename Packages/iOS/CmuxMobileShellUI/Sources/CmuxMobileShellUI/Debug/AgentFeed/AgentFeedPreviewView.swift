@@ -93,8 +93,8 @@ public struct AgentFeedPreviewView: View {
             Button("Inject 100-event burst") {
                 performanceProbe.start(
                     burst: AgentFeedPreviewConfiguration.injectedActivityBurst()
-                ) { item in
-                    items.insert(item, at: 0)
+                ) { burst in
+                    items.insert(contentsOf: burst.reversed(), at: 0)
                 }
             }
             .accessibilityIdentifier("AgentFeedFixtureInjectNewActivity")

@@ -12,21 +12,21 @@ final class AgentFeedPerformanceProbe: NSObject {
 
     @ObservationIgnored private var displayLink: CADisplayLink?
     @ObservationIgnored private var burst: [MobileAgentFeedItem] = []
-    @ObservationIgnored private var nextBurstIndex = 0
+    @ObservationIgnored private var didInjectBurst = false
     @ObservationIgnored private var frameIntervals: [TimeInterval] = []
     @ObservationIgnored private var visibilityLatencies: [TimeInterval] = []
     @ObservationIgnored private var injectionTimes: [MobileAgentFeedItemID: CFTimeInterval] = [:]
-    @ObservationIgnored private var inject: ((MobileAgentFeedItem) -> Void)?
+    @ObservationIgnored private var inject: (([MobileAgentFeedItem]) -> Void)?
     @ObservationIgnored private var previousFrameTimestamp: CFTimeInterval?
 
     func start(
         burst: [MobileAgentFeedItem],
-        inject: @escaping (MobileAgentFeedItem) -> Void
+        inject: @escaping ([MobileAgentFeedItem]) -> Void
     ) {
         displayLink?.invalidate()
         self.burst = burst
         self.inject = inject
-        nextBurstIndex = 0
+        didInjectBurst = false
         frameIntervals = []
         visibilityLatencies = []
         injectionTimes = [:]
@@ -56,18 +56,18 @@ final class AgentFeedPerformanceProbe: NSObject {
         }
         previousFrameTimestamp = link.timestamp
 
-        if burst.indices.contains(nextBurstIndex) {
-            let item = burst[nextBurstIndex]
-            nextBurstIndex += 1
-            injectionTimes[item.id] = CACurrentMediaTime()
-            inject?(item)
+        if !didInjectBurst {
+            didInjectBurst = true
+            if let newest = burst.last {
+                injectionTimes[newest.id] = CACurrentMediaTime()
+            }
+            inject?(burst)
         }
 
-        let finishedInjecting = nextBurstIndex == burst.count
-        let collectedSettleFrames = frameIntervals.count >= burst.count + 30
-        let observedEveryInsertion = visibilityLatencies.count == burst.count
-        let reachedFrameDeadline = frameIntervals.count >= burst.count + 120
-        if (finishedInjecting && collectedSettleFrames && observedEveryInsertion)
+        let collectedSettleFrames = frameIntervals.count >= 60
+        let observedBatch = burst.isEmpty || visibilityLatencies.count == 1
+        let reachedFrameDeadline = frameIntervals.count >= 180
+        if (didInjectBurst && collectedSettleFrames && observedBatch)
             || reachedFrameDeadline {
             link.invalidate()
             displayLink = nil

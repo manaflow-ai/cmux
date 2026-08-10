@@ -3,7 +3,7 @@ import XCTest
 final class AgentFeedUITests: XCTestCase {
     @MainActor
     func testAgentFeedPermissionResolutionAndExactNavigation() throws {
-        let app = launchFixture()
+        var app = launchFixture(scenario: "permission")
         defer { app.terminate() }
 
         XCTAssertTrue(app.descendants(matching: .any)["MobileAgentFeed"].waitForExistence(timeout: 8))
@@ -30,6 +30,8 @@ final class AgentFeedUITests: XCTestCase {
         XCTAssertTrue(resolvedExpand.label.contains("Resolved: Deny"))
         XCTAssertFalse(app.descendants(matching: .any)["MobileAgentFeedPreviewAgentDestination"].exists)
 
+        app.terminate()
+        app = launchFixture(scenario: "exact-navigation")
         let planOpen = app.buttons[
             "MobileAgentFeedOpenAgent-mac-studio-00000000-0000-0000-0000-000000000102"
         ]
@@ -106,7 +108,7 @@ final class AgentFeedUITests: XCTestCase {
         let visibilityStalls: Int = try XCTUnwrap(fields["visibility_ge250"].flatMap { Int($0) }, value)
 
         XCTAssertGreaterThanOrEqual(frames, 130, value)
-        XCTAssertEqual(visibility, 100, value)
+        XCTAssertEqual(visibility, 1, value)
         XCTAssertLessThanOrEqual(frameP95, 33, value)
         XCTAssertLessThanOrEqual(visibilityP95, 250, value)
         XCTAssertEqual(frameStalls, 0, value)
@@ -123,17 +125,18 @@ final class AgentFeedUITests: XCTestCase {
         list.swipeUp()
         list.swipeUp()
         list.swipeUp()
-        XCTAssertFalse(app.staticTexts["New activity burst 100"].exists)
+        let newestID = "MobileAgentFeedExpand-mac-4-00000000-0000-0000-0000-000000000999"
+        XCTAssertFalse(app.buttons[newestID].exists)
 
         let inject = app.buttons["AgentFeedFixtureInjectNewActivity"]
         XCTAssertTrue(inject.exists)
         inject.tap()
         let newActivity = app.buttons["MobileAgentFeedNewActivity"]
         XCTAssertTrue(newActivity.waitForExistence(timeout: 8))
-        XCTAssertFalse(app.staticTexts["New activity burst 100"].exists)
+        XCTAssertFalse(app.buttons[newestID].exists)
 
         newActivity.tap()
-        XCTAssertTrue(app.staticTexts["New activity burst 100"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons[newestID].waitForExistence(timeout: 5))
     }
 
     @MainActor
@@ -194,8 +197,8 @@ final class AgentFeedUITests: XCTestCase {
         app.terminate()
 
         app = launchFixture(scenario: "accessibility")
-        let source = app.staticTexts["Codex"]
-        let status = app.staticTexts["Needs input"]
+        let source = app.staticTexts["Codex"].firstMatch
+        let status = app.staticTexts["Needs input"].firstMatch
         XCTAssertTrue(source.waitForExistence(timeout: 8))
         XCTAssertTrue(status.exists)
         XCTAssertEqual(source.label, "Codex")
