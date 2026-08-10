@@ -7713,7 +7713,7 @@ pub fn run_with_machine_updates(
     surface_only: Option<SurfaceId>,
     machine_ui: Option<MachineUiState>,
     machine_controller: Option<Box<dyn MachineController>>,
-    config: crate::config::Config,
+    config: Config,
 ) -> anyhow::Result<RunOutcome> {
     type PanicHook = dyn for<'a> Fn(&std::panic::PanicHookInfo<'a>) + Send + Sync + 'static;
     let previous_panic_hook: Arc<PanicHook> = Arc::from(std::panic::take_hook());
@@ -7760,7 +7760,7 @@ fn run_with_machine_updates_inner(
     surface_only: Option<SurfaceId>,
     machine_ui: Option<MachineUiState>,
     machine_controller: Option<Box<dyn MachineController>>,
-    config: crate::config::Config,
+    config: Config,
 ) -> anyhow::Result<RunOutcome> {
     let mut config = config;
     let chrome = ChromeTheme::for_defaults(config.chrome, default_colors);

@@ -118,18 +118,32 @@ pub struct Evidence {
 
 impl Evidence {
     pub fn add(&mut self, other: &Self) {
-        self.warmups_completed += other.warmups_completed;
-        self.samples_completed += other.samples_completed;
-        self.render_markers += other.render_markers;
-        self.frame_completions += other.frame_completions;
-        self.readiness_lines += other.readiness_lines;
-        self.socket_rpcs += other.socket_rpcs;
-        self.restored_topologies += other.restored_topologies;
-        self.schema_rejections += other.schema_rejections;
-        self.process_exits += other.process_exits;
-        self.terminal_probe_responses += other.terminal_probe_responses;
-        self.frame_cursor_shows += other.frame_cursor_shows;
-        self.frame_cursor_hides += other.frame_cursor_hides;
+        let Self {
+            warmups_completed,
+            samples_completed,
+            render_markers,
+            frame_completions,
+            readiness_lines,
+            socket_rpcs,
+            restored_topologies,
+            schema_rejections,
+            process_exits,
+            terminal_probe_responses,
+            frame_cursor_shows,
+            frame_cursor_hides,
+        } = other;
+        self.warmups_completed += *warmups_completed;
+        self.samples_completed += *samples_completed;
+        self.render_markers += *render_markers;
+        self.frame_completions += *frame_completions;
+        self.readiness_lines += *readiness_lines;
+        self.socket_rpcs += *socket_rpcs;
+        self.restored_topologies += *restored_topologies;
+        self.schema_rejections += *schema_rejections;
+        self.process_exits += *process_exits;
+        self.terminal_probe_responses += *terminal_probe_responses;
+        self.frame_cursor_shows += *frame_cursor_shows;
+        self.frame_cursor_hides += *frame_cursor_hides;
     }
 }
 

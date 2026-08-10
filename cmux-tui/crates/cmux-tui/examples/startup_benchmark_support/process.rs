@@ -1,6 +1,6 @@
 use std::env;
 use std::fs;
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::{Arc, Mutex, mpsc};
@@ -228,11 +228,12 @@ impl Common {
         self.root.path.join(name)
     }
 
-    fn next_path(&mut self, stem: &str) -> Result<PathBuf> {
-        let path = self.path(&format!("{stem}-{}", self.next_id));
-        self.next_id += 1;
+    fn next_path(&mut self, stem: &str) -> Result<(PathBuf, u64)> {
+        let id = self.next_id;
+        let path = self.path(&format!("{stem}-{id:020}"));
         fs::create_dir_all(&path)?;
-        Ok(path)
+        self.next_id += 1;
+        Ok((path, id))
     }
 
     fn session_name(&self, scenario: &str) -> String {
@@ -335,9 +336,9 @@ impl TemporaryRoot {
 }
 
 fn run_cold(common: &mut Common) -> Result<RunResult> {
-    let run = common.next_path("cold")?;
+    let (run, id) = common.next_path("cold")?;
     let socket = run.join("mux.sock");
-    let session = format!("{}-{}", common.session_name("cold"), common.next_id);
+    let session = format!("{}-{id:020}", common.session_name("cold"));
     let marker = format!("[{session}] ");
     let args = vec![
         "--ephemeral".into(),
@@ -367,7 +368,7 @@ fn run_pty(
     common: &Common,
     args: Vec<String>,
     marker: String,
-    identity_socket: Option<&Path>,
+    ping_socket: Option<&Path>,
 ) -> Result<RunResult> {
     let pair = cmux_pty::open(PtySize { rows: 24, cols: 80, pixel_width: 640, pixel_height: 384 })?;
     let command = common.pty_command(&args, common.wrap_measured_process)?;
@@ -375,7 +376,7 @@ fn run_pty(
     let mut spawned = pair.spawn(command)?;
     let reader = spawned.master.try_clone_reader()?;
     let writer = Arc::new(Mutex::new(spawned.master.take_writer()?));
-    let mut killer = spawned.child.clone_killer();
+    let killer = spawned.child.clone_killer();
     let (event_sender, event_receiver) = mpsc::channel();
     let writer_for_reader = writer.clone();
     let marker_bytes = marker.into_bytes();
@@ -388,40 +389,41 @@ fn run_pty(
             let status = spawned.child.wait();
             let _ = status_sender.send(status);
         })?;
+    let mut runtime = PtyRuntime {
+        killer,
+        status_receiver,
+        status_thread: Some(status_thread),
+        reader_thread: Some(reader_thread),
+    };
 
     let observed_at = match event_receiver.recv_timeout(EVENT_TIMEOUT) {
         Ok(PtyEvent::Marker(at)) => at,
         Ok(PtyEvent::Ended) => {
-            killer.kill().ok();
-            let reader = reader_thread.join().map_err(|_| anyhow!("PTY reader panicked"))??;
+            let (_, reader) = runtime.finish(false, PROCESS_TIMEOUT)?;
             bail!("PTY ended before render marker: {}", String::from_utf8_lossy(&reader.output));
         }
         Ok(PtyEvent::Failed(error)) => {
-            killer.kill().ok();
-            bail!("PTY reader failed before render marker: {error}");
+            return runtime.fail(anyhow!("PTY reader failed before render marker: {error}"));
         }
         Err(error) => {
-            killer.kill().ok();
-            bail!("render marker deadline expired: {error}");
+            return runtime.fail(anyhow!("render marker deadline expired: {error}"));
         }
     };
-    if let Some(socket) = identity_socket {
-        assert_ping(common, socket)?;
+    if let Some(socket) = ping_socket {
+        if let Err(error) = assert_ping(common, socket) {
+            return runtime.fail(error.context("validate interactive process socket readiness"));
+        }
     }
-    {
+    let detach = (|| -> Result<()> {
         let mut writer = writer.lock().map_err(|_| anyhow!("PTY writer lock poisoned"))?;
         writer.write_all(b"\x02d")?;
         writer.flush()?;
+        Ok(())
+    })();
+    if let Err(error) = detach {
+        return runtime.fail(error.context("detach interactive benchmark process"));
     }
-    let status = match status_receiver.recv_timeout(PROCESS_TIMEOUT) {
-        Ok(status) => status?,
-        Err(error) => {
-            killer.kill()?;
-            bail!("interactive process did not exit after detach: {error}");
-        }
-    };
-    status_thread.join().map_err(|_| anyhow!("PTY wait thread panicked"))?;
-    let reader = reader_thread.join().map_err(|_| anyhow!("PTY reader panicked"))??;
+    let (status, reader) = runtime.finish(false, PROCESS_TIMEOUT)?;
     if !status.success() {
         bail!(
             "interactive process exited with {status}: {}",
@@ -435,7 +437,7 @@ fn run_pty(
             frame_completions: 1,
             process_exits: 1,
             terminal_probe_responses: reader.probe_responses,
-            socket_rpcs: usize::from(identity_socket.is_some()),
+            socket_rpcs: usize::from(ping_socket.is_some()),
             frame_cursor_shows: if reader.cursor_visibility == Some(CursorVisibility::Show) {
                 1
             } else {
@@ -452,9 +454,9 @@ fn run_pty(
 }
 
 fn run_headless(common: &mut Common) -> Result<RunResult> {
-    let run = common.next_path("headless")?;
+    let (run, id) = common.next_path("headless")?;
     let socket = run.join("mux.sock");
-    let session = format!("{}-{}", common.session_name("headless"), common.next_id);
+    let session = format!("{}-{id:020}", common.session_name("headless"));
     let args = headless_args(&session, &socket, None);
     let mut server = RunningHeadless::start(common, args, &socket, common.wrap_measured_process)?;
     server.wait_ready()?;
@@ -473,7 +475,7 @@ fn run_headless(common: &mut Common) -> Result<RunResult> {
 }
 
 fn run_restored(common: &mut Common, state: &Path, terminal_id: &str) -> Result<RunResult> {
-    let run = common.next_path("restored-run")?;
+    let (run, _) = common.next_path("restored-run")?;
     let socket = run.join("mux.sock");
     let session = common.session_name("restored");
     let args = headless_args(&session, &socket, Some(state));
@@ -503,7 +505,7 @@ fn run_incompatible(
     database: &Path,
     expected: &str,
 ) -> Result<RunResult> {
-    let run = common.next_path("incompatible-run")?;
+    let (run, _) = common.next_path("incompatible-run")?;
     let socket = run.join("mux.sock");
     let session = common.session_name("incompatible");
     let args = headless_args(&session, &socket, Some(state));
@@ -700,6 +702,77 @@ struct PtyReadResult {
     cursor_visibility: Option<CursorVisibility>,
 }
 
+struct PtyRuntime {
+    killer: Box<dyn cmux_pty::ChildKiller + Send + Sync>,
+    status_receiver: mpsc::Receiver<io::Result<cmux_pty::ExitStatus>>,
+    status_thread: Option<thread::JoinHandle<()>>,
+    reader_thread: Option<thread::JoinHandle<io::Result<PtyReadResult>>>,
+}
+
+impl PtyRuntime {
+    fn finish(
+        &mut self,
+        terminate: bool,
+        timeout: Duration,
+    ) -> Result<(cmux_pty::ExitStatus, PtyReadResult)> {
+        let mut kill_error = if terminate { self.killer.kill().err() } else { None };
+        let mut timed_out = false;
+        let status = match self.status_receiver.recv_timeout(timeout) {
+            Ok(status) => status,
+            Err(mpsc::RecvTimeoutError::Timeout) if !terminate => {
+                timed_out = true;
+                if let Err(error) = self.killer.kill() {
+                    kill_error = Some(error);
+                }
+                match self.status_receiver.recv_timeout(PROCESS_TIMEOUT) {
+                    Ok(status) => status,
+                    Err(error) => {
+                        let error = anyhow!(error).context("reap interactive process after kill");
+                        return if let Some(kill) = kill_error {
+                            Err(error.context(format!("PTY kill also failed: {kill}")))
+                        } else {
+                            Err(error)
+                        };
+                    }
+                }
+            }
+            Err(error) => {
+                let error = anyhow!(error).context("wait for interactive process exit");
+                return if let Some(kill) = kill_error {
+                    Err(error.context(format!("PTY kill also failed: {kill}")))
+                } else {
+                    Err(error)
+                };
+            }
+        };
+        self.status_thread
+            .take()
+            .context("PTY wait thread already joined")?
+            .join()
+            .map_err(|_| anyhow!("PTY wait thread panicked"))?;
+        let reader = self
+            .reader_thread
+            .take()
+            .context("PTY reader thread already joined")?
+            .join()
+            .map_err(|_| anyhow!("PTY reader panicked"))??;
+        if let Some(error) = kill_error {
+            return Err(error).context("kill interactive process during cleanup");
+        }
+        if timed_out {
+            bail!("interactive process exceeded {timeout:?} after detach and was killed");
+        }
+        Ok((status.context("wait for interactive process")?, reader))
+    }
+
+    fn fail<T>(&mut self, error: anyhow::Error) -> Result<T> {
+        match self.finish(true, PROCESS_TIMEOUT) {
+            Ok(_) => Err(error),
+            Err(cleanup) => Err(error.context(format!("PTY cleanup also failed: {cleanup:#}"))),
+        }
+    }
+}
+
 fn read_pty(
     mut reader: Box<dyn Read + Send>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
@@ -725,14 +798,14 @@ fn read_pty(
             }
             Ok(read) => {
                 append_bounded(&mut output, &buffer[..read]);
-                for response in probes.observe(&output) {
+                for response in probes.observe(&buffer[..read]) {
                     let mut writer = writer.lock().map_err(|_| {
                         std::io::Error::other("terminal response writer lock poisoned")
                     })?;
                     writer.write_all(response)?;
                     writer.flush()?;
                 }
-                if !frame_seen && frame_marker.observe(&output).is_some() {
+                if !frame_seen && frame_marker.observe(&buffer[..read]).is_some() {
                     frame_seen = true;
                     let _ = sender.send(PtyEvent::Marker(Instant::now()));
                 }
@@ -747,36 +820,40 @@ fn read_pty(
 
 struct FrameMarkerTracker {
     marker: Vec<u8>,
-    marker_end: Option<usize>,
+    pending: Vec<u8>,
+    marker_seen: bool,
     visibility: Option<CursorVisibility>,
 }
 
 impl FrameMarkerTracker {
     fn new(marker: Vec<u8>) -> Self {
-        Self { marker, marker_end: None, visibility: None }
+        Self { marker, pending: Vec::new(), marker_seen: false, visibility: None }
     }
 
-    fn observe(&mut self, output: &[u8]) -> Option<CursorVisibility> {
+    fn observe(&mut self, bytes: &[u8]) -> Option<CursorVisibility> {
         if self.visibility.is_some() {
             return self.visibility;
         }
-        if self.marker_end.is_none() {
-            self.marker_end = find(output, &self.marker).map(|offset| offset + self.marker.len());
+        self.pending.extend_from_slice(bytes);
+        if !self.marker_seen {
+            let Some(marker) = find(&self.pending, &self.marker) else {
+                retain_tail(&mut self.pending, self.marker.len().saturating_sub(1));
+                return None;
+            };
+            self.pending.drain(..marker + self.marker.len());
+            self.marker_seen = true;
         }
-        let Some(marker_end) = self.marker_end else {
-            return None;
-        };
-        let Some(after_marker) = output.get(marker_end..) else {
-            return None;
-        };
-        self.visibility = match (find(after_marker, b"\x1b[?25h"), find(after_marker, b"\x1b[?25l"))
-        {
-            (Some(show), Some(hide)) if show < hide => Some(CursorVisibility::Show),
-            (Some(_), Some(_)) => Some(CursorVisibility::Hide),
-            (Some(_), None) => Some(CursorVisibility::Show),
-            (None, Some(_)) => Some(CursorVisibility::Hide),
-            (None, None) => None,
-        };
+        self.visibility =
+            match (find(&self.pending, b"\x1b[?25h"), find(&self.pending, b"\x1b[?25l")) {
+                (Some(show), Some(hide)) if show < hide => Some(CursorVisibility::Show),
+                (Some(_), Some(_)) => Some(CursorVisibility::Hide),
+                (Some(_), None) => Some(CursorVisibility::Show),
+                (None, Some(_)) => Some(CursorVisibility::Hide),
+                (None, None) => None,
+            };
+        if self.visibility.is_none() {
+            retain_tail(&mut self.pending, b"\x1b[?25h".len() - 1);
+        }
         self.visibility
     }
 }
@@ -796,10 +873,12 @@ struct ProbeTracker {
     da1: bool,
     keyboard: bool,
     responses: usize,
+    pending: Vec<u8>,
 }
 
 impl ProbeTracker {
-    fn observe(&mut self, output: &[u8]) -> Vec<&'static [u8]> {
+    fn observe(&mut self, bytes: &[u8]) -> Vec<&'static [u8]> {
+        self.pending.extend_from_slice(bytes);
         let probes: [(&[u8], &[u8], &mut bool); 6] = [
             (b"\x1b]10;?\x1b\\", b"\x1b]10;rgb:eeee/dddd/cccc\x1b\\", &mut self.foreground),
             (b"\x1b]11;?\x1b\\", b"\x1b]11;rgb:1111/2222/3333\x1b\\", &mut self.background),
@@ -812,15 +891,23 @@ impl ProbeTracker {
             (b"\x1b[c", b"\x1b[?1;2c", &mut self.da1),
             (b"\x1b[?u", b"\x1b[?0u", &mut self.keyboard),
         ];
+        let overlap = probes.iter().map(|(request, _, _)| request.len()).max().unwrap_or(1) - 1;
         let mut responses = Vec::new();
         for (request, response, sent) in probes {
-            if !*sent && contains(output, request) {
+            if !*sent && contains(&self.pending, request) {
                 *sent = true;
                 self.responses += 1;
                 responses.push(response);
             }
         }
+        retain_tail(&mut self.pending, overlap);
         responses
+    }
+}
+
+fn retain_tail(bytes: &mut Vec<u8>, keep: usize) {
+    if bytes.len() > keep {
+        bytes.drain(..bytes.len() - keep);
     }
 }
 
@@ -857,11 +944,11 @@ fn run_captured(mut command: Command) -> Result<Captured> {
     let stderr = child.stderr.take().context("stderr pipe missing")?;
     let stdout_reader = thread::spawn(move || read_bounded(stdout));
     let stderr_reader = thread::spawn(move || read_bounded(stderr));
-    let status = wait_child(&mut child, PROCESS_TIMEOUT)?;
+    let status = wait_child(&mut child, PROCESS_TIMEOUT);
     let duration = started.elapsed();
     let stdout = stdout_reader.join().map_err(|_| anyhow!("stdout reader panicked"))??;
     let stderr = stderr_reader.join().map_err(|_| anyhow!("stderr reader panicked"))??;
-    Ok(Captured { status, stdout, stderr, duration })
+    Ok(Captured { status: status?, stdout, stderr, duration })
 }
 
 fn read_bounded(mut reader: impl Read) -> std::io::Result<Vec<u8>> {
@@ -890,32 +977,22 @@ fn assert_ping(common: &Common, socket: &Path) -> Result<()> {
     if value.get("alive").and_then(Value::as_bool) != Some(true) {
         bail!("session ping did not return alive=true: {value}");
     }
-    if value.get("build_commit").and_then(Value::as_str) != Some(common.target.sha.as_str()) {
-        bail!("session ping build_commit did not match {}: {value}", common.target.sha);
-    }
-    if value.get("ghostty_commit").and_then(Value::as_str)
-        != Some(common.target.ghostty_sha.as_str())
-    {
-        bail!("session ping ghostty_commit did not match {}: {value}", common.target.ghostty_sha);
-    }
     Ok(())
 }
 
 fn git_sha(path: &Path) -> Result<String> {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(path)
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .with_context(|| format!("run git in {}", path.display()))?;
-    if !output.status.success() {
+    let mut command = Command::new("git");
+    command.arg("-C").arg(path).args(["rev-parse", "HEAD"]);
+    let captured =
+        run_captured(command).with_context(|| format!("run git in {}", path.display()))?;
+    if !captured.status.success() {
         bail!(
             "git rev-parse failed in {}: {}",
             path.display(),
-            String::from_utf8_lossy(&output.stderr)
+            String::from_utf8_lossy(&captured.stderr)
         );
     }
-    Ok(String::from_utf8(output.stdout)?.trim().to_string())
+    Ok(String::from_utf8(captured.stdout)?.trim().to_string())
 }
 
 fn json_cli(common: &Common, socket: &Path, args: &[&str]) -> Result<Value> {
@@ -984,7 +1061,8 @@ mod tests {
     #[test]
     fn probe_tracker_answers_each_observed_query_once() {
         let mut tracker = ProbeTracker::default();
-        let first = tracker.observe(b"\x1b]10;?\x1b\\ noise \x1b[c");
+        assert!(tracker.observe(b"\x1b]10;?").is_empty());
+        let first = tracker.observe(b"\x1b\\ noise \x1b[c");
         assert_eq!(first.len(), 2);
         assert_eq!(tracker.responses, 2);
         assert!(tracker.observe(b"\x1b]10;?\x1b\\ noise \x1b[c").is_empty());
@@ -994,12 +1072,17 @@ mod tests {
     fn frame_marker_requires_a_later_cursor_visibility_escape_across_reads() {
         let mut tracker = FrameMarkerTracker::new(b"[bench-cold-1] ".to_vec());
         assert_eq!(tracker.observe(b"prefix [bench-cold"), None);
-        assert_eq!(tracker.observe(b"prefix [bench-cold-1] frame bytes"), None);
-        assert_eq!(tracker.observe(b"prefix [bench-cold-1] frame bytes\x1b[?25"), None);
-        assert_eq!(
-            tracker.observe(b"prefix [bench-cold-1] frame bytes\x1b[?25h"),
-            Some(CursorVisibility::Show)
-        );
+        assert_eq!(tracker.observe(b"-1] frame bytes"), None);
+        assert_eq!(tracker.observe(b"\x1b[?25"), None);
+        assert_eq!(tracker.observe(b"h"), Some(CursorVisibility::Show));
+    }
+
+    #[test]
+    fn frame_marker_survives_more_than_the_diagnostic_capture_limit() {
+        let mut tracker = FrameMarkerTracker::new(b"[bench-cold-1] ".to_vec());
+        assert_eq!(tracker.observe(b"[bench-cold-1] "), None);
+        assert_eq!(tracker.observe(&vec![b'x'; MAX_CAPTURE_BYTES + 1]), None);
+        assert_eq!(tracker.observe(b"\x1b[?25l"), Some(CursorVisibility::Hide));
     }
 
     #[test]

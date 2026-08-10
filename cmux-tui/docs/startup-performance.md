@@ -24,6 +24,6 @@ Run the workflow from GitHub for comparable evidence. The workflow uploads JSON,
 
 ## Native profiles
 
-The example has a one-sample profile mode. A launcher prefix can wrap only the measured process and still pass PTY input and output. Linux uses this mode with strace. macOS uses it with xctrace. Windows records the event harness inside a system-wide WPR capture. macOS and Windows profile attempts are non-gating. They record permission or tool diagnostics when a profile is unavailable.
+The example has a one-sample profile mode. A launcher prefix can wrap only the measured process and still pass PTY input and output. Linux uses this mode with strace. macOS records all processes with xctrace while the harness keeps direct PTY ownership. Filter that trace to the exact cmux-tui process and binary recorded in the adjacent profile report. Windows records the event harness inside a system-wide WPR capture. All native profile attempts are non-gating. They record permission or tool diagnostics when a profile is unavailable.
 
-Profile mode still validates the selected source SHA, Ghostty SHA, binary hash, and scenario event. It writes startup-profile-target-scenario.json.
+Profile mode still validates the selected source SHA, Ghostty SHA, binary hash, and scenario event. It writes `startup-profile-<target>-<scenario>.json`.

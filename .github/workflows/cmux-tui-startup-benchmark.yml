@@ -4,18 +4,15 @@ on:
   pull_request:
     paths:
       - .github/workflows/cmux-tui-startup-benchmark.yml
+      - .gitmodules
+      - ghostty
+      - cmux-tui/.cargo/**
       - cmux-tui/Cargo.lock
-      - cmux-tui/crates/cmux-pty/**
-      - cmux-tui/crates/cmux-tui/Cargo.toml
-      - cmux-tui/crates/cmux-tui/examples/startup_benchmark.rs
-      - cmux-tui/crates/cmux-tui/examples/startup_benchmark_support/**
+      - cmux-tui/Cargo.toml
+      # Keep this broad so new local startup dependencies cannot bypass the benchmark.
+      - cmux-tui/crates/**
+      - cmux-tui/vendor/**
       - cmux-tui/docs/startup-performance.md
-      - cmux-tui/crates/cmux-tui/src/app.rs
-      - cmux-tui/crates/cmux-tui/src/config.rs
-      - cmux-tui/crates/cmux-tui/src/host_colors.rs
-      - cmux-tui/crates/cmux-tui/src/main.rs
-      - cmux-tui/crates/cmux-tui/src/remote_cli.rs
-      - cmux-tui/crates/cmux-tui/src/ui/graphics.rs
   workflow_dispatch:
     inputs:
       baseline_sha:
@@ -137,8 +134,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git -C "$BASELINE_SOURCE" submodule update --init --depth 1 ghostty
-          git -C "$CANDIDATE_SOURCE" submodule update --init --depth 1 ghostty
+          init_ghostty() {
+            local source="$1"
+            local expected
+            expected="$(git -C "$source" rev-parse HEAD:ghostty)"
+            if ! git -C "$source" submodule update --init --depth 1 ghostty; then
+              if [[ "$(git -C "$source/ghostty" rev-parse --is-shallow-repository 2>/dev/null)" == "true" ]]; then
+                git -C "$source/ghostty" fetch --unshallow origin
+              fi
+              git -C "$source" submodule update --init ghostty
+            fi
+            test "$(git -C "$source/ghostty" rev-parse HEAD)" = "$expected"
+          }
+          init_ghostty "$BASELINE_SOURCE"
+          init_ghostty "$CANDIDATE_SOURCE"
           printf 'baseline_ghostty=%s\n' "$(git -C "$BASELINE_SOURCE/ghostty" rev-parse HEAD)"
           printf 'candidate_ghostty=%s\n' "$(git -C "$CANDIDATE_SOURCE/ghostty" rev-parse HEAD)"
 
@@ -381,7 +390,7 @@ jobs:
             --warmups "$WARMUPS" \
             --samples "$SAMPLES" \
             --output-dir "$ARTIFACT_DIR" \
-            --platform-label "${{ matrix.platform }}"
+            --platform-label "$PLATFORM_LABEL"
 
           test -s "$ARTIFACT_DIR/startup-benchmark.json"
           test -s "$ARTIFACT_DIR/startup-benchmark.md"
@@ -644,6 +653,10 @@ jobs:
             echo "xcrun unavailable" >> "$diagnostic"
             exit 0
           fi
+          if ! command -v notifyutil >/dev/null 2>&1; then
+            echo "notifyutil unavailable" >> "$diagnostic"
+            exit 0
+          fi
           xcrun xctrace version >> "$diagnostic" 2>&1
           xcrun xctrace list templates > "$profile_root/xctrace-templates.txt" 2>> "$diagnostic"
           if [[ ! -f "$CANDIDATE_TARGET_ROOT/release/examples/startup_benchmark" ]]; then
@@ -657,8 +670,39 @@ jobs:
             local slug="$3"
             local output_dir="$profile_root/$slug"
             local trace="$output_dir/$target.trace"
+            local notification="com.manaflow.cmux.startup-profile.${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}.${target}.${slug}"
+            local notify_log="$output_dir/$target-notification.txt"
+            local xctrace_log="$output_dir/$target-xctrace.txt"
             mkdir -p "$output_dir"
-            local launcher="--${target}-launcher-arg"
+
+            # Register before xctrace starts so the tracing-started event cannot be missed.
+            # The Perl alarm is only a failure deadline for the observable notification.
+            perl -e 'alarm shift; exec @ARGV' 30 notifyutil -1 "$notification" \
+              > "$notify_log" 2>&1 &
+            local notifier_pid=$!
+            xcrun xctrace record \
+              --template "$template" \
+              --output "$trace" \
+              --all-processes \
+              --time-limit 45s \
+              --notify-tracing-started "$notification" \
+              --no-prompt \
+              > "$xctrace_log" 2>&1 &
+            local profiler_pid=$!
+
+            wait "$notifier_pid"
+            local notify_status=$?
+            if [[ "$notify_status" -ne 0 ]]; then
+              kill -INT "$profiler_pid" 2>/dev/null || true
+              wait "$profiler_pid"
+              local trace_status=$?
+              printf '%s %s notify_exit=%s harness_exit=not-run trace_exit=%s trace=%s\n' \
+                "$target" "$template" "$notify_status" "$trace_status" "$trace" \
+                >> "$diagnostic"
+              return
+            fi
+
+            # xctrace observes the direct child without taking ownership of its PTY.
             "$CANDIDATE_TARGET_ROOT/release/examples/startup_benchmark" \
               --baseline-binary "$BASELINE_TARGET_ROOT/release/cmux-tui" \
               --candidate-binary "$CANDIDATE_TARGET_ROOT/release/cmux-tui" \
@@ -669,25 +713,18 @@ jobs:
               --warmups "$WARMUPS" \
               --samples "$SAMPLES" \
               --output-dir "$output_dir" \
-              --platform-label "${{ matrix.platform }}" \
+              --platform-label "$PLATFORM_LABEL" \
               --profile-only cold \
-              --profile-target "$target" \
-              "${launcher}=xcrun" \
-              "${launcher}=xctrace" \
-              "${launcher}=record" \
-              "${launcher}=--template" \
-              "${launcher}=$template" \
-              "${launcher}=--output" \
-              "${launcher}=$trace" \
-              "${launcher}=--target-stdin" \
-              "${launcher}=-" \
-              "${launcher}=--target-stdout" \
-              "${launcher}=-" \
-              "${launcher}=--launch" \
-              "${launcher}=--"
-            local status=$?
-            printf '%s %s exit=%s trace=%s\n' "$target" "$template" "$status" "$trace" \
-              >> "$diagnostic"
+              --profile-target "$target"
+            local harness_status=$?
+
+            kill -INT "$profiler_pid" 2>/dev/null || true
+            # xctrace has its own 45-second deadline if SIGINT does not stop it promptly.
+            wait "$profiler_pid"
+            local trace_status=$?
+            printf '%s %s notify_exit=%s harness_exit=%s trace_exit=%s trace=%s\n' \
+              "$target" "$template" "$notify_status" "$harness_status" "$trace_status" \
+              "$trace" >> "$diagnostic"
           }
 
           run_xctrace_profile baseline "Time Profiler" time-profiler
@@ -765,7 +802,7 @@ jobs:
               --warmups "$WARMUPS" \
               --samples "$SAMPLES" \
               --output-dir "$output_dir" \
-              --platform-label "${{ matrix.platform }}" \
+              --platform-label "$PLATFORM_LABEL" \
               --profile-only cold \
               --profile-target "$target" \
               "${launcher_args[@]}"
@@ -835,7 +872,7 @@ jobs:
             "--warmups", $env:WARMUPS,
             "--samples", $env:SAMPLES,
             "--output-dir", $profileRoot,
-            "--platform-label", "${{ matrix.platform }}",
+            "--platform-label", $env:PLATFORM_LABEL,
             "--profile-only", "cold"
           )
 

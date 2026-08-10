@@ -3,14 +3,18 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::env;
 use std::fs;
-use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::io::Read;
+use std::process::{Command, Stdio};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+use wait_timeout::ChildExt;
 
 use super::{Evidence, Scenario, Target, TargetKind};
+
+const METADATA_COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Debug, Serialize)]
 pub struct ComparisonReport {
@@ -298,8 +302,11 @@ fn platform_metadata() -> (String, Option<u64>, String) {
         .unwrap_or_else(|| "unknown".to_string());
     let memory = fs::read_to_string("/proc/meminfo")
         .ok()
-        .and_then(|text| text.lines().find_map(|line| line.strip_prefix("MemTotal:")))
-        .and_then(|value| value.split_whitespace().next()?.parse::<u64>().ok())
+        .and_then(|text| {
+            text.lines().find_map(|line| {
+                line.strip_prefix("MemTotal:")?.split_whitespace().next()?.parse::<u64>().ok()
+            })
+        })
         .and_then(|kilobytes| kilobytes.checked_mul(1024));
     (cpu, memory, command_text("uname", &["-a"]))
 }
@@ -334,12 +341,28 @@ fn platform_metadata() -> (String, Option<u64>, String) {
 }
 
 fn command_text(program: &str, args: &[&str]) -> String {
-    Command::new(program)
-        .args(args)
-        .output()
-        .ok()
-        .filter(|output| output.status.success())
-        .and_then(|output| String::from_utf8(output.stdout).ok())
+    let mut command = Command::new(program);
+    command.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
+    let Ok(mut child) = command.spawn() else {
+        return "unavailable".to_string();
+    };
+    let status = match child.wait_timeout(METADATA_COMMAND_TIMEOUT) {
+        Ok(Some(status)) => status,
+        Ok(None) | Err(_) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return "unavailable".to_string();
+        }
+    };
+    if !status.success() {
+        return "unavailable".to_string();
+    }
+    let mut output = Vec::new();
+    child
+        .stdout
+        .take()
+        .and_then(|mut stdout| stdout.read_to_end(&mut output).ok())
+        .and_then(|_| String::from_utf8(output).ok())
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "unavailable".to_string())

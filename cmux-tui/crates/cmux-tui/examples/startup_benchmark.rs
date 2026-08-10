@@ -224,6 +224,11 @@ fn validate_evidence(scenario: Scenario, args: &Args, evidence: &Evidence) -> Re
         Scenario::Cold | Scenario::Warm if evidence.terminal_probe_responses < total * 4 => {
             bail!("{} answered too few terminal probes", scenario.as_str())
         }
+        Scenario::Cold | Scenario::Warm
+            if evidence.frame_cursor_shows + evidence.frame_cursor_hides != total =>
+        {
+            bail!("{} observed an invalid frame-end cursor count", scenario.as_str())
+        }
         Scenario::Headless if evidence.readiness_lines < total => {
             bail!("headless observed too few readiness lines")
         }
