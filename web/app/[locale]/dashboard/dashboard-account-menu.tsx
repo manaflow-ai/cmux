@@ -9,7 +9,7 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocale, useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
 import { Link, useRouter } from "@/i18n/navigation";
 
@@ -135,7 +135,23 @@ function DashboardOrganizationSwitcher() {
     readonly organizationId: string;
   };
   const activeSwitchRef = useRef<Promise<void> | null>(null);
+  const activeSwitchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const queuedSwitchRef = useRef<SwitchRequest | null>(null);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      activeSwitchRef.current = null;
+      queuedSwitchRef.current = null;
+      if (activeSwitchTimerRef.current) {
+        clearTimeout(activeSwitchTimerRef.current);
+        activeSwitchTimerRef.current = null;
+      }
+    };
+  }, []);
   const organizationQueryKey = [
     "coderouter-organizations",
     user.id,
@@ -229,14 +245,18 @@ function DashboardOrganizationSwitcher() {
     const operation = user.setSelectedTeam(request.team);
     activeSwitchRef.current = operation;
     const timeout = setTimeout(() => {
+      if (!mountedRef.current) return;
       if (activeSwitchRef.current !== operation) return;
       timedOut = true;
       setSwitchError(true);
     }, ORGANIZATION_SWITCH_TIMEOUT_MS);
+    activeSwitchTimerRef.current = timeout;
 
     void operation.then(() => {
+      if (!mountedRef.current) return;
       if (activeSwitchRef.current !== operation) return;
       clearTimeout(timeout);
+      activeSwitchTimerRef.current = null;
       activeSwitchRef.current = null;
       const queued = queuedSwitchRef.current;
       queuedSwitchRef.current = null;
@@ -257,8 +277,10 @@ function DashboardOrganizationSwitcher() {
         setSwitchPending(false);
       }
     }, () => {
+      if (!mountedRef.current) return;
       if (activeSwitchRef.current !== operation) return;
       clearTimeout(timeout);
+      activeSwitchTimerRef.current = null;
       activeSwitchRef.current = null;
       const queued = queuedSwitchRef.current;
       queuedSwitchRef.current = null;
