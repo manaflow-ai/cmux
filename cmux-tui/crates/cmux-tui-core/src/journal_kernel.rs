@@ -187,6 +187,7 @@ pub(crate) enum SharedJournalRead {
 struct JournalFanoutState {
     epoch: u64,
     requested_epoch: u64,
+    shutdown_requested: bool,
     head_sequence: u64,
     records: VecDeque<Arc<JournalDocument>>,
     record_bytes: usize,
@@ -200,6 +201,7 @@ struct JournalFanoutState {
 pub(crate) struct JournalKernel {
     state: Mutex<JournalFanoutState>,
     changed: Condvar,
+    tailer: Mutex<Option<std::thread::JoinHandle<()>>>,
     enabled: bool,
     producers: RwLock<HashMap<String, Arc<CompiledJournalProducer>>>,
 }
@@ -240,6 +242,7 @@ impl JournalKernel {
                 state: Mutex::new(JournalFanoutState {
                     epoch: 0,
                     requested_epoch: 0,
+                    shutdown_requested: false,
                     head_sequence: 0,
                     records: VecDeque::new(),
                     record_bytes: 0,
@@ -248,6 +251,7 @@ impl JournalKernel {
                     database_reader_count: 0,
                 }),
                 changed: Condvar::new(),
+                tailer: Mutex::new(None),
                 enabled: false,
                 producers: RwLock::new(producers),
             }));
@@ -259,6 +263,7 @@ impl JournalKernel {
             state: Mutex::new(JournalFanoutState {
                 epoch: 0,
                 requested_epoch: 0,
+                shutdown_requested: false,
                 head_sequence,
                 records: VecDeque::new(),
                 record_bytes: 0,
@@ -267,6 +272,7 @@ impl JournalKernel {
                 database_reader_count: 1,
             }),
             changed: Condvar::new(),
+            tailer: Mutex::new(None),
             enabled: true,
             producers: RwLock::new(producers),
         });
@@ -280,9 +286,10 @@ impl JournalKernel {
         head_sequence: u64,
     ) -> anyhow::Result<()> {
         let weak = Arc::downgrade(kernel);
-        std::thread::Builder::new()
+        let tailer = std::thread::Builder::new()
             .name("mux-session-journal-fanout".into())
             .spawn(move || run_tailer(weak, reader, head_sequence))?;
+        *kernel.tailer.lock().unwrap() = Some(tailer);
         Ok(())
     }
 
@@ -320,6 +327,20 @@ impl JournalKernel {
         // observable even when the signal arrives just before wait() locks.
         state.epoch = state.epoch.wrapping_add(1);
         self.changed.notify_all();
+    }
+
+    pub(crate) fn shutdown(&self) {
+        {
+            let mut state = self.state.lock().unwrap();
+            state.shutdown_requested = true;
+            state.epoch = state.epoch.wrapping_add(1);
+            self.changed.notify_all();
+        }
+        if let Some(tailer) = self.tailer.lock().unwrap().take()
+            && tailer.join().is_err()
+        {
+            eprintln!("cmux-tui: session journal tailer panicked during shutdown");
+        }
     }
 
     pub(crate) fn read_after(&self, sequence: u64, limit: usize) -> SharedJournalRead {
@@ -483,6 +504,9 @@ fn run_tailer(weak: Weak<JournalKernel>, reader: SessionJournalReader, mut last_
         let requested_epoch = {
             let mut state = kernel.state.lock().unwrap();
             loop {
+                if state.shutdown_requested {
+                    return;
+                }
                 if state.requested_epoch != observed_request_epoch {
                     break state.requested_epoch;
                 }
@@ -528,6 +552,9 @@ fn run_tailer(weak: Weak<JournalKernel>, reader: SessionJournalReader, mut last_
 
         let Some(kernel) = weak.upgrade() else { break };
         let mut state = kernel.state.lock().unwrap();
+        if state.shutdown_requested {
+            return;
+        }
         state.available = !read_failed;
         if !read_failed {
             for record in appended {
@@ -685,6 +712,7 @@ mod performance_tests {
             state: Mutex::new(JournalFanoutState {
                 epoch: 7,
                 requested_epoch: 0,
+                shutdown_requested: false,
                 head_sequence: 0,
                 records: VecDeque::new(),
                 record_bytes: 0,
@@ -692,6 +720,7 @@ mod performance_tests {
                 database_reader_count: 0,
             }),
             changed: Condvar::new(),
+            tailer: Mutex::new(None),
             enabled: true,
             producers: RwLock::new(HashMap::new()),
         };
@@ -735,6 +764,7 @@ mod performance_tests {
             state: Mutex::new(JournalFanoutState {
                 epoch: 1,
                 requested_epoch: 1,
+                shutdown_requested: false,
                 head_sequence: JOURNAL_FANOUT_CAPACITY as u64,
                 records,
                 record_bytes,
@@ -742,6 +772,7 @@ mod performance_tests {
                 database_reader_count: 0,
             }),
             changed: Condvar::new(),
+            tailer: Mutex::new(None),
             enabled: true,
             producers: RwLock::new(HashMap::new()),
         };

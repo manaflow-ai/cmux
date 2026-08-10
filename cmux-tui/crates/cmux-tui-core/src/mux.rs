@@ -8358,6 +8358,7 @@ impl Mux {
         if let Err(error) = self.journal_ingress.close_and_join() {
             eprintln!("cmux-tui: stop session journal writer during shutdown: {error:#}");
         }
+        self.journal_kernel.shutdown();
         if let Some(runtime) = self.browser_runtime.lock().unwrap().take() {
             runtime.shutdown();
         }
@@ -15138,6 +15139,7 @@ impl Drop for Mux {
                 let _ = surface.shutdown_for_daemon(deadline);
             }
         }
+        self.journal_kernel.shutdown();
         if let Ok(runtime) = self.browser_runtime.get_mut()
             && let Some(runtime) = runtime.take()
         {
