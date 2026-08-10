@@ -75,7 +75,12 @@ fn resolve_preparation(
     match preparation {
         ResourceEffectPreparation::Committed { outcome, revision } => {
             let result = match outcome {
-                ResourceEffectOutcome::Success(value) => {
+                ResourceEffectOutcome::Success(mut value) => {
+                    if operation == "terminal.close" {
+                        mux.terminate_workspace_hosts_from_receipt(&value)
+                            .map_err(resource_operation_error)?;
+                        crate::remove_terminal_host_cleanup_receipt(&mut value);
+                    }
                     mutation_result_for_operation(mux, &operation, value, revision, true)
                 }
                 ResourceEffectOutcome::Failure(error) => Err(error),

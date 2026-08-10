@@ -360,13 +360,64 @@ jobs:
         uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: cargo fmt
+        id: rustfmt-check
         working-directory: cmux-tui
         run: cargo fmt --check
+
+      - name: Prepare hosted rustfmt patch
+        if: ${{ failure() && steps.rustfmt-check.outcome == 'failure' }}
+        working-directory: cmux-tui
+        run: |
+          cargo fmt
+          git diff --binary -- . > "$RUNNER_TEMP/rustfmt.patch"
+          test -s "$RUNNER_TEMP/rustfmt.patch"
+
+      - name: Upload hosted rustfmt patch
+        if: ${{ failure() && steps.rustfmt-check.outcome == 'failure' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rustfmt-${{ runner.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/rustfmt.patch
+          if-no-files-found: error
+          retention-days: 1
 
       - name: cargo clippy
         if: inputs.mode == 'full'
         working-directory: cmux-tui
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: focused Linux journal process-fence test
+        if: runner.os == 'Linux'
+        working-directory: cmux-tui
+        run: >-
+          cargo test -p cmux-tui-core --lib
+          journal_hooks::tests::unix_hook_tree_kills_a_descendant_that_created_a_new_session
+          -- --exact
+
+      - name: focused macOS journal process-fence tests
+        if: runner.os == 'macOS'
+        working-directory: cmux-tui
+        run: cargo test -p cmux-tui-core --lib unix_process_scope::tests::mac_process_scope_
+
+      - name: focused journal writer shutdown test
+        working-directory: cmux-tui
+        run: >-
+          cargo test -p cmux-tui-core --lib
+          journal_ingress::tests::shutdown_returns_when_an_admitted_commit_stays_blocked
+          -- --exact
+
+      - name: focused final journal ownership tests
+        working-directory: cmux-tui
+        run: |
+          cargo test -p cmux-tui-core --lib \
+            journal_ingress::tests::shutdown_closes_admission_while_a_terminal_producer_waits_for_space \
+            -- --exact
+          cargo test -p cmux-tui-core --lib \
+            journal_checkpoint::tests::replaying_an_old_producer_put_keeps_the_current_validator \
+            -- --exact
+          cargo test -p cmux-tui-core --test browser_runtime \
+            socket_browser_attach_streams_frames_input_and_cell_pixels \
+            -- --exact
 
       - name: cargo test
         working-directory: cmux-tui
@@ -483,6 +534,10 @@ jobs:
           ZIG_REQUIRED: ${{ steps.zig-sdk-version.outputs.version }}
           ZIG_FORCE_LOCAL_INSTALL: "1"
         run: ./scripts/install-zig-ci.sh
+
+      - name: Install TypeScript adapter build tools
+        working-directory: cmux-tui/bindings/typescript
+        run: npm ci --no-audit --no-fund
 
       - name: Python conformance fixtures
         run: |

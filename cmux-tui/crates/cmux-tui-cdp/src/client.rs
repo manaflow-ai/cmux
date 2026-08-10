@@ -13,6 +13,8 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 use serde_json::{Value, json};
 use tungstenite::client::IntoClientRequest;
+use tungstenite::http::HeaderValue;
+use tungstenite::http::header::AUTHORIZATION;
 use tungstenite::{Error as WsError, Message, WebSocket, client};
 
 /// Maximum number of pending events in each bounded CDP event queue.
@@ -1246,7 +1248,7 @@ fn resolve_socket_addr_until(
 
 impl CdpClient {
     pub fn connect(web_socket_url: &str, events: SyncSender<CdpEvent>) -> anyhow::Result<Self> {
-        Self::connect_with_timeout(web_socket_url, events, Duration::from_secs(5))
+        Self::connect_with_bearer(web_socket_url, None, events)
     }
 
     pub fn connect_with_timeout(
@@ -1254,10 +1256,32 @@ impl CdpClient {
         events: SyncSender<CdpEvent>,
         timeout: Duration,
     ) -> anyhow::Result<Self> {
+        Self::connect_with_bearer_and_timeout(web_socket_url, None, events, timeout)
+    }
+
+    pub fn connect_with_bearer(
+        web_socket_url: &str,
+        bearer_token: Option<&str>,
+        events: SyncSender<CdpEvent>,
+    ) -> anyhow::Result<Self> {
+        Self::connect_with_bearer_and_timeout(
+            web_socket_url,
+            bearer_token,
+            events,
+            Duration::from_secs(5),
+        )
+    }
+
+    fn connect_with_bearer_and_timeout(
+        web_socket_url: &str,
+        bearer_token: Option<&str>,
+        events: SyncSender<CdpEvent>,
+        timeout: Duration,
+    ) -> anyhow::Result<Self> {
         let deadline = deadline_after(timeout, "CDP connection deadline expired")?;
         let endpoint = WsEndpoint::parse(web_socket_url)?;
         let addr = resolve_socket_addr_until(&endpoint.host, endpoint.port, deadline)?;
-        Self::connect_to_addr_until(web_socket_url, addr, events, deadline, timeout)
+        Self::connect_to_addr_until(web_socket_url, bearer_token, addr, events, deadline, timeout)
     }
 
     pub fn reconnect_with_timeout(
@@ -1280,11 +1304,12 @@ impl CdpClient {
         timeout: Duration,
     ) -> anyhow::Result<Self> {
         let deadline = deadline_after(timeout, "CDP connection deadline expired")?;
-        Self::connect_to_addr_until(web_socket_url, addr, events, deadline, timeout)
+        Self::connect_to_addr_until(web_socket_url, None, addr, events, deadline, timeout)
     }
 
     fn connect_to_addr_until(
         web_socket_url: &str,
+        bearer_token: Option<&str>,
         addr: SocketAddr,
         events: SyncSender<CdpEvent>,
         deadline: Instant,
@@ -1294,7 +1319,12 @@ impl CdpClient {
         let stream = cmux_tui_process::tcp::connect_stream_timeout(&addr, remaining)?;
         let stream = DeadlineTcpStream::new(stream, deadline);
         stream.set_nodelay(true)?;
-        let request = web_socket_url.into_client_request()?;
+        let mut request = web_socket_url.into_client_request()?;
+        if let Some(token) = bearer_token {
+            let value = HeaderValue::from_str(&format!("Bearer {token}"))
+                .map_err(|error| anyhow::anyhow!("invalid CDP bearer token: {error}"))?;
+            request.headers_mut().insert(AUTHORIZATION, value);
+        }
         let (mut ws, _) = client(request, stream)?;
         ws.get_mut().clear_deadline();
         // The reader thread owns the socket and drains queued outbound
@@ -1560,6 +1590,19 @@ impl CdpClient {
             "id": id,
             "method": "Target.closeTarget",
             "params": { "targetId": target_id },
+        });
+        self.send_value(&msg)
+    }
+
+    /// Release one flattened target session without closing the page it
+    /// belongs to. Provider-owned browser tabs outlive cmux-tui renderers, so
+    /// their teardown must detach instead of sending `Target.closeTarget`.
+    pub fn detach_from_target_detached(&self, session_id: &str) -> anyhow::Result<()> {
+        let id = self.inner.next_id.fetch_add(1, Ordering::Relaxed);
+        let msg = json!({
+            "id": id,
+            "method": "Target.detachFromTarget",
+            "params": { "sessionId": session_id },
         });
         self.send_value(&msg)
     }
@@ -2853,7 +2896,7 @@ mod tests {
     use std::thread;
     use std::time::{Duration, Instant};
 
-    use tungstenite::{Message, accept};
+    use tungstenite::{Message, accept, accept_hdr};
 
     use super::*;
 
@@ -2951,6 +2994,45 @@ mod tests {
             }),
             outbound_rx,
         )
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn bearer_auth_is_sent_on_the_websocket_upgrade() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (header_tx, header_rx) = channel();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let _ws = accept_hdr(
+                stream,
+                |request: &tungstenite::handshake::server::Request, response| {
+                    header_tx
+                        .send(
+                            request
+                                .headers()
+                                .get(AUTHORIZATION)
+                                .and_then(|value| value.to_str().ok())
+                                .map(str::to_string),
+                        )
+                        .unwrap();
+                    Ok(response)
+                },
+            )
+            .unwrap();
+        });
+        let (event_tx, _event_rx) = sync_channel(1);
+        let _client = CdpClient::connect_with_bearer(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            Some("test-secret"),
+            event_tx,
+        )
+        .unwrap();
+        assert_eq!(
+            header_rx.recv_timeout(Duration::from_secs(1)).unwrap().as_deref(),
+            Some("Bearer test-secret")
+        );
+        server.join().unwrap();
     }
 
     #[test]

@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use base64::Engine;
 use cmux_tui_core::platform::transport;
 use cmux_tui_core::terminal_host::{
     CAPABILITY_TOKEN_LEN, CapabilityRights, CapabilityToken, ClientHello, ClientRole, TerminalId,
@@ -63,6 +64,15 @@ fn scaled_timeout(timeout: Duration) -> Duration {
 }
 
 const KITTY_REPLAY_STATE_ENCODED_LEN: usize = 52;
+
+fn test_timeout(timeout: Duration) -> Duration {
+    let scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .unwrap_or(1)
+        .clamp(1, 16);
+    timeout.saturating_mul(scale)
+}
 
 struct RecoveryHarness {
     child: Option<Child>,
@@ -316,6 +326,129 @@ fn short_lived_terminal_launch_converges_to_durable_exited_result() {
     assert_eq!(resolved["exit"]["outcome"], serde_json::json!({"kind":"exit","code":23}));
     assert!(resolved["exit"]["exited_at"].as_str().is_some());
     assert!(resolved["exit"]["revision"].as_str().is_some());
+}
+
+#[test]
+fn short_lived_resource_terminal_journals_initial_output_after_its_topology() {
+    let harness = RecoveryHarness::start_with_host_ready_delay("journal-initial-output", 250);
+    let marker = format!("fast-journal-marker-{}", std::process::id());
+    let created = resource_request(
+        &harness.socket,
+        "journal-initial-workspace",
+        "workspace.create",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "name":"Journal initial output",
+            "initial_content":"empty",
+        }),
+        Some("journal-initial-workspace"),
+    );
+    let workspace = created["value"]["workspace_id"].as_str().unwrap();
+    let run = resource_request(
+        &harness.socket,
+        "journal-initial-run",
+        "workspace.run",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "workspace":workspace,
+            "argv":["/bin/sh","-c",format!("printf '{marker}\\n'")],
+        }),
+        Some("journal-initial-run"),
+    );
+    let path = &run["value"];
+    let terminal = path["terminal_id"].as_str().unwrap();
+    resource_request(
+        &harness.socket,
+        "journal-initial-wait",
+        "terminal.wait_exit",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "terminal":terminal,
+            "timeout_ms":"5000",
+        }),
+        None,
+    );
+
+    let stream = transport::connect(&harness.socket).unwrap();
+    stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+    writeln!(
+        writer,
+        "{}",
+        serde_json::json!({
+            "protocol":"cmux.protocol/2",
+            "type":"request",
+            "id":"journal-initial-subscribe",
+            "operation":"session.journal.subscribe",
+            "params":{
+                "machine":"current",
+                "session":"current",
+                "stream_id":"stream_11111111111141118111111111111111",
+                "start":"beginning",
+                "filter":{
+                    "kinds":["workspace.run","terminal.output","terminal.exited"],
+                    "subjects":[{"kind":"terminal","id":terminal}],
+                    "max_sensitivity":"sensitive",
+                },
+            },
+        })
+    )
+    .unwrap();
+
+    let mut line = String::new();
+    reader.read_line(&mut line).unwrap();
+    let opened: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(opened["ok"], true, "journal subscription failed: {opened}");
+
+    let mut run_sequence = None;
+    let mut output_sequence = None;
+    let mut exit_sequence = None;
+    while exit_sequence.is_none() {
+        line.clear();
+        reader.read_line(&mut line).expect("journal stream omitted short-lived terminal output");
+        let envelope: serde_json::Value = serde_json::from_str(&line).unwrap();
+        let record = &envelope["item"];
+        let sequence = record["sequence"].as_str().unwrap().parse::<u64>().unwrap();
+        match record["kind"].as_str().unwrap() {
+            "workspace.run" => run_sequence = Some(sequence),
+            "terminal.output" => {
+                let bytes = base64::engine::general_purpose::STANDARD
+                    .decode(record["payload"]["data"].as_str().unwrap())
+                    .unwrap();
+                assert!(
+                    bytes.windows(marker.len()).any(|window| window == marker.as_bytes()),
+                    "journal output omitted marker: {:?}",
+                    String::from_utf8_lossy(&bytes)
+                );
+                for (kind, id) in [
+                    ("terminal", terminal),
+                    ("tab", path["tab_id"].as_str().unwrap()),
+                    ("pane", path["pane_id"].as_str().unwrap()),
+                    ("screen", path["screen_id"].as_str().unwrap()),
+                    ("workspace", path["workspace_id"].as_str().unwrap()),
+                ] {
+                    assert!(
+                        record["subjects"].as_array().unwrap().iter().any(|subject| {
+                            subject["kind"].as_str() == Some(kind)
+                                && subject["id"].as_str() == Some(id)
+                        }),
+                        "terminal output omitted {kind}:{id}: {record}"
+                    );
+                }
+                output_sequence = Some(sequence);
+            }
+            "terminal.exited" => exit_sequence = Some(sequence),
+            other => panic!("unexpected journal record {other}: {record}"),
+        }
+    }
+    assert!(
+        run_sequence < output_sequence && output_sequence < exit_sequence,
+        "journal order was run={run_sequence:?}, output={output_sequence:?}, exit={exit_sequence:?}"
+    );
 }
 
 #[test]
@@ -2049,6 +2182,16 @@ fn client_reserved_short_lived_create_replays_its_durable_exit_without_topology(
     for field in ["surface", "pane", "screen", "workspace"] {
         assert_eq!(first[field].is_null(), already_exited, "unexpected {field}: {first}");
     }
+    let snapshot = resource_request(
+        &harness.socket,
+        "reserved-short-lived-create-snapshot",
+        "session.snapshot",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
+    let terminals = snapshot["terminals"].as_array().expect("snapshot terminals");
+    assert_eq!(terminals.len(), 1, "unexpected terminal snapshot: {snapshot}");
+    let public_terminal_id = terminals[0]["id"].as_str().expect("durable public terminal id");
     if already_exited {
         assert_eq!(first["exit"]["outcome"], serde_json::json!({"kind":"exit","code":17}));
     } else {
@@ -2060,7 +2203,7 @@ fn client_reserved_short_lived_create_replays_its_durable_exit_without_topology(
             serde_json::json!({
                 "machine":"current",
                 "session":"current",
-                "terminal":terminal_id,
+                "terminal":public_terminal_id,
                 "timeout_ms":"5000",
             }),
             None,
@@ -2068,6 +2211,7 @@ fn client_reserved_short_lived_create_replays_its_durable_exit_without_topology(
         assert_eq!(waited["state"], "exited", "terminal did not exit: {waited}");
         assert_eq!(waited["outcome"], serde_json::json!({"kind":"exit","code":17}));
     }
+    wait_for_no_host_records(&harness.host_root());
 
     let retry = request(&harness.socket, create);
     assert_eq!(retry["replayed"], true);
@@ -2079,7 +2223,6 @@ fn client_reserved_short_lived_create_replays_its_durable_exit_without_topology(
     assert_eq!(retry["pane"], serde_json::Value::Null);
     assert_eq!(retry["screen"], serde_json::Value::Null);
     assert_eq!(retry["workspace"], serde_json::Value::Null);
-    wait_for_no_host_records(&harness.host_root());
 }
 
 #[test]
@@ -3324,7 +3467,7 @@ fn resource_request(
 }
 
 fn wait_for_socket(path: &Path) {
-    let deadline = Instant::now() + Duration::from_secs(15);
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(15));
     while Instant::now() < deadline {
         if transport::connect(path).is_ok() {
             return;
@@ -3350,6 +3493,70 @@ fn wait_for_screen(path: &Path, surface: u64, marker: &str) -> String {
     last
 }
 
+#[cfg(target_os = "macos")]
+fn wait_for_stream_disconnect(stream: &mut UnixStream, timeout: Duration) -> bool {
+    struct Kqueue(libc::c_int);
+
+    impl Drop for Kqueue {
+        fn drop(&mut self) {
+            // SAFETY: this helper owns the kqueue descriptor until drop.
+            unsafe { libc::close(self.0) };
+        }
+    }
+
+    let deadline = Instant::now() + timeout;
+    // SAFETY: kqueue returns a new descriptor owned by this helper.
+    let queue = Kqueue(unsafe { libc::kqueue() });
+    assert!(
+        queue.0 >= 0,
+        "create renderer disconnect observer: {}",
+        std::io::Error::last_os_error()
+    );
+    let change = libc::kevent {
+        ident: stream.as_raw_fd() as libc::uintptr_t,
+        filter: libc::EVFILT_READ,
+        flags: libc::EV_ADD | libc::EV_ENABLE | libc::EV_CLEAR,
+        fflags: 0,
+        data: 0,
+        udata: std::ptr::null_mut(),
+    };
+    // SAFETY: change registers the live renderer socket in the owned kqueue.
+    let registered =
+        unsafe { libc::kevent(queue.0, &change, 1, std::ptr::null_mut(), 0, std::ptr::null()) };
+    assert_eq!(
+        registered,
+        0,
+        "register renderer disconnect observer: {}",
+        std::io::Error::last_os_error()
+    );
+
+    loop {
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            return false;
+        };
+        let timeout = libc::timespec {
+            tv_sec: remaining.as_secs().try_into().unwrap_or(libc::time_t::MAX),
+            tv_nsec: remaining.subsec_nanos().into(),
+        };
+        let mut event = std::mem::MaybeUninit::<libc::kevent>::uninit();
+        // SAFETY: event is writable for one kevent and timeout is valid for this call.
+        match unsafe { libc::kevent(queue.0, std::ptr::null(), 0, event.as_mut_ptr(), 1, &timeout) }
+        {
+            1 => {
+                // SAFETY: kevent initialized exactly one event after returning one.
+                let event = unsafe { event.assume_init() };
+                return event.filter == libc::EVFILT_READ && event.flags & libc::EV_EOF != 0;
+            }
+            0 => return false,
+            _ if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted => {
+                continue;
+            }
+            _ => panic!("renderer disconnect observer failed: {}", std::io::Error::last_os_error()),
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
 fn wait_for_stream_disconnect(stream: &mut UnixStream, timeout: Duration) -> bool {
     let timeout = timeout.as_millis().clamp(1, i32::MAX as u128) as i32;
     let mut descriptor = libc::pollfd { fd: stream.as_raw_fd(), events: 0, revents: 0 };
