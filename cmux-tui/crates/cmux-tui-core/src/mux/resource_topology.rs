@@ -2256,11 +2256,7 @@ impl Mux {
                 .and_then(|public_id| state.terminal_catalog.get(public_id))
                 .filter(|surface| {
                     self.resource_terminal_host_identity(surface).is_some_and(|identity| {
-                        terminal_host_matches(
-                            &identity,
-                            terminal_id,
-                            closed_incarnation.as_deref(),
-                        )
+                        terminal_host_matches(&identity, terminal_id, closed_incarnation.as_deref())
                     })
                 })
                 .cloned();
@@ -2272,12 +2268,7 @@ impl Mux {
                     Some((terminal_id, closed_incarnation.as_deref())),
                 )
             } else {
-                terminal_host_placements(
-                    self,
-                    &state,
-                    terminal_id,
-                    closed_incarnation.as_deref(),
-                )
+                terminal_host_placements(self, &state, terminal_id, closed_incarnation.as_deref())
             };
             let waiter_public_id = resource_public_id.clone().or_else(|| {
                 targets.iter().find_map(|surface_id| {

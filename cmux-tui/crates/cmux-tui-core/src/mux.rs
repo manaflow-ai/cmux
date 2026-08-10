@@ -6123,11 +6123,8 @@ impl Mux {
                     }
                 };
             {
-                let previous = self
-                    .reserved_in_process_terminals
-                    .lock()
-                    .unwrap()
-                    .insert(surface.id, identity);
+                let previous =
+                    self.reserved_in_process_terminals.lock().unwrap().insert(surface.id, identity);
                 debug_assert!(previous.is_none());
             }
             let insert_result =
@@ -14986,13 +14983,14 @@ fn unregister_terminal_host_placement(mux: &Mux, state: &mut State, surface: &Su
     let Some(identity) = mux.resource_terminal_host_identity(surface) else {
         return;
     };
-    let remove_host =
-        if let Some(placements) = state.terminal_placements_by_host.get_mut(&identity.terminal_id) {
-            placements.remove(&surface.id);
-            placements.is_empty()
-        } else {
-            false
-        };
+    let remove_host = if let Some(placements) =
+        state.terminal_placements_by_host.get_mut(&identity.terminal_id)
+    {
+        placements.remove(&surface.id);
+        placements.is_empty()
+    } else {
+        false
+    };
     if remove_host {
         state.terminal_placements_by_host.remove(&identity.terminal_id);
     }
@@ -20296,8 +20294,7 @@ mod tests {
             public_id.clone(),
         )
         .unwrap();
-        insert_surface_checked(&mux, &mut mux.state.lock().unwrap(), new_surface.clone())
-            .unwrap();
+        insert_surface_checked(&mux, &mut mux.state.lock().unwrap(), new_surface.clone()).unwrap();
 
         let error = {
             let registry = mux.workspace_registry.lock().unwrap();

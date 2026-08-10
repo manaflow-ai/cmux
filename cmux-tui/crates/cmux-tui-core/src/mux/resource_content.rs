@@ -208,21 +208,20 @@ impl Mux {
                     placements.insert(surface_id);
                     Some(placements)
                 };
-                let new_host_placements = if let Some(placements) =
-                    state.terminal_placements_by_host.get_mut(&host_id)
-                {
-                    anyhow::ensure!(
-                        !placements.contains(&surface_id),
-                        "terminal projection already has a host placement"
-                    );
-                    placements.try_reserve(1)?;
-                    None
-                } else {
-                    let mut placements = HashSet::new();
-                    placements.try_reserve(1)?;
-                    placements.insert(surface_id);
-                    Some(placements)
-                };
+                let new_host_placements =
+                    if let Some(placements) = state.terminal_placements_by_host.get_mut(&host_id) {
+                        anyhow::ensure!(
+                            !placements.contains(&surface_id),
+                            "terminal projection already has a host placement"
+                        );
+                        placements.try_reserve(1)?;
+                        None
+                    } else {
+                        let mut placements = HashSet::new();
+                        placements.try_reserve(1)?;
+                        placements.insert(surface_id);
+                        Some(placements)
+                    };
                 state
                     .panes
                     .get_mut(&pane)
