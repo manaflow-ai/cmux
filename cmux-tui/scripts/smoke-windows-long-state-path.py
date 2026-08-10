@@ -20,13 +20,15 @@ START_TIMEOUT_SECONDS = 20
 def make_state_path(root: Path) -> Path:
     state = root / "state"
     while len(str(state)) + 121 < STATE_PATH_LENGTH:
-        state /= "x" * 120
+        state /= "界" * 120
     remaining = STATE_PATH_LENGTH - len(str(state)) - 1
     if not 1 <= remaining <= 255:
         raise AssertionError(f"invalid final path segment length: {remaining}")
-    state /= "x" * remaining
+    state /= "界" * remaining
     if len(str(state)) != STATE_PATH_LENGTH:
         raise AssertionError(f"state path length is {len(str(state))}, expected {STATE_PATH_LENGTH}")
+    if len(str(state).encode("utf-8")) <= 1040:
+        raise AssertionError("state path does not cross SQLite's win32 VFS byte limit")
     return state
 
 
@@ -100,6 +102,7 @@ def run() -> None:
                 f"stdout:\n{listing.stdout}\nstderr:\n{listing.stderr}"
             )
         print(f"Windows state path length: {len(str(state_path))}")
+        print(f"Windows state path UTF-8 length: {len(str(state_path).encode('utf-8'))}")
         print(f"Published socket: {socket_path}")
     finally:
         if process.poll() is None:
