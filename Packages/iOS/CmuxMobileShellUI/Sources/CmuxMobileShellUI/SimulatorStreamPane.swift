@@ -35,8 +35,7 @@ struct SimulatorStreamPane: View {
     // `@State`) so a parent that reuses this view identity with a different
     // panel's state observes the new object instead of the first render's.
     private let state: MobileSimulatorStreamSurfaceState
-    @State private var image: UIImage?
-    @State private var imageSequence: UInt64?
+    @State private var framePresenter: SimulatorFramePresentationPipeline<SimulatorPresentedImage>
     @State private var pendingText = ""
     @State private var pointerSequenceActive = false
     @State private var pointerMovedBeyondTapThreshold = false
@@ -59,14 +58,17 @@ struct SimulatorStreamPane: View {
         self.workspaceID = workspaceID
         self.actions = actions
         self.reconnect = reconnect
+        _framePresenter = State(initialValue: SimulatorFramePresentationPipeline(
+            decoder: SimulatorPresentedImage.decode
+        ))
     }
 
     var body: some View {
         VStack(spacing: 0) {
             ZStack {
                 Color(red: 0.055, green: 0.063, blue: 0.075)
-                if let image {
-                    Image(uiImage: image)
+                if let presented = framePresenter.presented {
+                    Image(uiImage: presented.value.image)
                         .resizable()
                         .interpolation(.medium)
                         .scaledToFit()
@@ -85,8 +87,23 @@ struct SimulatorStreamPane: View {
             bottomBar
         }
         .background(Color(red: 0.055, green: 0.063, blue: 0.075).ignoresSafeArea())
-        .task(id: state.latestFrame?.sequence) {
-            await decodeLatestFrame()
+        .task(id: state.latestFrame.map { SimulatorStreamFrameIdentity(
+            panelID: $0.panelID,
+            sequence: $0.sequence,
+            receiptRevision: state.latestFrameReceiptRevision
+        ) }) {
+            guard let frame = state.latestFrame else { return }
+            framePresenter.submit(
+                frame,
+                allowDuplicateSequence: state.streamStatus == .stalled
+            )
+        }
+        .onDisappear { framePresenter.cancel() }
+        .task {
+            for await event in framePresenter.events {
+                guard !Task.isCancelled else { return }
+                await handlePresentationEvent(event)
+            }
         }
         .task {
             for await input in pointerPipe.makeStream() {
@@ -97,7 +114,7 @@ struct SimulatorStreamPane: View {
     }
 
     private var imageSize: CGSize {
-        guard let frame = state.latestFrame else { return .zero }
+        guard let frame = framePresenter.presented?.frame else { return .zero }
         return CGSize(width: frame.pixelWidth, height: frame.pixelHeight)
     }
 
@@ -454,52 +471,38 @@ struct SimulatorStreamPane: View {
         Task { await actions.button(input) }
     }
 
-    private func decodeLatestFrame() async {
-        guard let frame = state.latestFrame, imageSequence != frame.sequence else { return }
-        // Base64 + image decode run off the main actor: at stream frame rate
-        // an inline decode in this MainActor-isolated view would block
-        // scrolling and gesture recognition on every received frame.
-        let base64 = frame.dataBase64
-        let payloadBytes = base64.utf8.count
-        let decoded = await Task.detached(priority: .userInitiated) { () -> UIImage? in
-            guard let data = Data(base64Encoded: base64),
-                  let image = UIImage(data: data) else { return nil }
-            // Force decompression here rather than lazily at first render.
-            return image.preparingForDisplay() ?? image
-        }.value
-        guard let decoded else {
-            Task {
-                await actions.frameDiagnostic(
-                    frame.panelID,
-                    .imageDecodeFailed,
-                    frame.sequence,
-                    payloadBytes
-                )
-            }
+    private func handlePresentationEvent(
+        _ event: SimulatorFramePresentationPipeline<SimulatorPresentedImage>.Event
+    ) async {
+        let frame: MobileSimulatorFrameEvent
+        let diagnostic: DiagnosticSimulatorFrameLifecycle
+        switch event {
+        case .presented(let presentedFrame):
+            frame = presentedFrame
+            diagnostic = .imageDecoded
+            await actions.presentationSucceeded(frame.panelID)
+        case .decodeFailed(let failedFrame):
+            frame = failedFrame
+            diagnostic = .imageDecodeFailed
+        case .discarded(let discardedFrame):
+            frame = discardedFrame
+            diagnostic = .staleIgnored
+        case .presentationStalled(let stalledFrame):
+            await actions.presentationStalled(stalledFrame.panelID)
             return
         }
-        // A newer frame may have superseded this decode while it ran.
-        guard state.latestFrame?.sequence == frame.sequence else {
-            Task {
-                await actions.frameDiagnostic(
-                    frame.panelID,
-                    .staleIgnored,
-                    frame.sequence,
-                    payloadBytes
-                )
-            }
-            return
-        }
-        image = decoded
-        imageSequence = frame.sequence
-        Task {
-            await actions.frameDiagnostic(
-                frame.panelID,
-                .imageDecoded,
-                frame.sequence,
-                payloadBytes
-            )
-        }
+        await actions.frameDiagnostic(
+            frame.panelID,
+            diagnostic,
+            frame.sequence,
+            frame.dataBase64.utf8.count
+        )
     }
+}
+
+private struct SimulatorStreamFrameIdentity: Hashable {
+    let panelID: String
+    let sequence: UInt64
+    let receiptRevision: UInt64
 }
 #endif
