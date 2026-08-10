@@ -1801,6 +1801,33 @@ final class cmuxUITests: XCTestCase {
             app.frame.midY,
             "Search field must restore at the bottom after popping, got \(fieldFrame)"
         )
+
+        // The restored session is a normal editing session: typing narrows the
+        // filter and clearing the field restores the full list.
+        XCTAssertTrue(
+            focusTextInput(searchField, in: app),
+            "Restored search field must accept focus for further editing"
+        )
+        searchField.typeText("2")
+        XCTAssertTrue(
+            waitForSearchFieldValue(searchField, "Docs2", timeout: 3),
+            "Typing in the restored field must extend the query, got \(String(describing: searchField.value))"
+        )
+        XCTAssertTrue(
+            waitForNotHittable(docsRow, timeout: 3),
+            "Extending the restored query must narrow the results"
+        )
+        for _ in 0..<5 {
+            searchField.typeText(XCUIKeyboardKey.delete.rawValue)
+        }
+        XCTAssertTrue(
+            waitForHittable(docsRow, timeout: 3),
+            "Clearing the restored field must restore the full results"
+        )
+        XCTAssertTrue(
+            waitForHittable(mainRow, timeout: 3),
+            "Clearing the restored field must remove the filter entirely"
+        )
     }
 
     @MainActor
