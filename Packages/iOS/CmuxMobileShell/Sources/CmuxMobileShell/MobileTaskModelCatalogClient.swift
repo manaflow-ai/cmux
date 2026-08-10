@@ -66,13 +66,15 @@ public struct MobileTaskModelCatalogClient: Sendable {
         }
 
         var seenIDs: Set<String> = []
-        let models = providerCatalog.models.compactMap { model in
+        var models: [MobileTaskAgentModel] = []
+        models.reserveCapacity(providerCatalog.models.count)
+        for model in providerCatalog.models {
             let id = model.id.trimmingCharacters(in: .whitespacesAndNewlines)
             let label = model.label.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !id.isEmpty, !label.isEmpty, seenIDs.insert(id).inserted else {
-                return nil
+                continue
             }
-            return MobileTaskAgentModel(id: id, displayName: label)
+            models.append(MobileTaskAgentModel(id: id, displayName: label))
         }
         guard !models.isEmpty else {
             throw MobileTaskModelCatalogError.invalidCatalog
