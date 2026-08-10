@@ -7,6 +7,7 @@ final class FakeTerminalSurfacePaneHost: NSView, TerminalSurfacePaneHosting {
     private let attachesThroughSurfaceModel: Bool
     private let onAttach: (() -> Void)?
     private(set) var explicitInputCount = 0
+    private(set) var runtimeSurfaceCreationFailureMessages: [String] = []
 
     init(
         surfaceView: FakeTerminalSurfaceNativeView,
@@ -38,6 +39,10 @@ final class FakeTerminalSurfacePaneHost: NSView, TerminalSurfacePaneHosting {
     func setActive(_ active: Bool) {}
     func syncKeyStateIndicator(text: String?) {}
     func setMobileViewportBorder(size: CGSize?, drawRight: Bool, drawBottom: Bool) {}
+
+    func showRuntimeSurfaceCreationFailure(message: String) {
+        runtimeSurfaceCreationFailureMessages.append(message)
+    }
 
     func terminalSurfaceDidReceiveExplicitInput() {
         explicitInputCount += 1

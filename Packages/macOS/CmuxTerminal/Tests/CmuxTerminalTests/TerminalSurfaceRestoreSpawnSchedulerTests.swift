@@ -525,6 +525,97 @@ import CmuxTerminalCore
         #expect(finalSnapshot.tailID == nil)
     }
 
+    @Test func overflowStoreIsBoundedAndSameIDUpdatesStayCapacityNeutral() {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
+            maximumRuntimeSurfaceOwnerCount: 2
+        )
+        let fixture = makeSurfaceFixture(
+            registry: FakeSurfaceRegistry(),
+            scheduler: RecordingRestoreSpawnScheduler(),
+            runtimeTeardown: coordinator
+        )
+        let firstID = UUID()
+        let secondID = UUID()
+
+        _ = coordinator.registerRuntimeSurfaceOwnershipRecoveryOverflow(
+            surfaceID: firstID,
+            surface: fixture.surface
+        )
+        _ = coordinator.registerRuntimeSurfaceOwnershipRecoveryOverflow(
+            surfaceID: secondID,
+            surface: fixture.surface
+        )
+        _ = coordinator.registerRuntimeSurfaceOwnershipRecoveryOverflow(
+            surfaceID: secondID,
+            surface: fixture.surface
+        )
+        _ = coordinator.registerRuntimeSurfaceOwnershipRecoveryOverflow(
+            surfaceID: UUID(),
+            surface: fixture.surface
+        )
+
+        let snapshot =
+            coordinator.debugRuntimeSurfaceOwnershipRecoveryOverflowSnapshot
+        #expect(snapshot.entryCount == 2)
+        #expect(snapshot.linkedNodeCount == 2)
+        #expect(snapshot.headID == firstID)
+        #expect(snapshot.tailID == secondID)
+    }
+
+    @Test func fullOverflowStoreReportsFailureAndKeepsAdmittedFIFOService() async throws {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
+            maximumRuntimeSurfaceOwnerCount: 2
+        )
+        let saturation = try saturateRuntimeOwnershipRecovery(
+            coordinator,
+            count: 2
+        )
+        defer {
+            releaseRuntimeOwnershipSaturation(saturation, from: coordinator)
+        }
+        let registry = FakeSurfaceRegistry()
+        let scheduler = RecordingRestoreSpawnScheduler()
+        let fixtures = (0..<3).map { _ in
+            makeSurfaceFixture(
+                registry: registry,
+                scheduler: scheduler,
+                runtimeTeardown: coordinator
+            )
+        }
+
+        for (index, fixture) in fixtures.enumerated() {
+            fixture.surface.createSurface(for: fixture.nativeView)
+            scheduler.runScheduledOperation(at: index)
+        }
+
+        let expectedMessage = String(
+            localized: "terminal.surface.runtimeCreation.capacityExceeded",
+            defaultValue:
+                "Unable to start this terminal because too many terminal sessions are still closing."
+        )
+        #expect(
+            fixtures[2].surface
+                .runtimeSurfaceAdmissionDeferredCreationSource == nil
+        )
+        #expect(
+            fixtures[2].paneHost.runtimeSurfaceCreationFailureMessages
+                == [expectedMessage]
+        )
+        let fullSnapshot =
+            coordinator.debugRuntimeSurfaceOwnershipRecoveryOverflowSnapshot
+        #expect(fullSnapshot.entryCount == 2)
+        #expect(fullSnapshot.headID == fixtures[0].surface.id)
+        #expect(fullSnapshot.tailID == fixtures[1].surface.id)
+
+        coordinator.cancelRuntimeSurfaceOwnershipRecovery(
+            saturation.recoveryIDs[0]
+        )
+        coordinator.cancelRuntimeSurfaceOwnership(saturation.owners[0])
+        await scheduler.waitForScheduledCount(4)
+
+        #expect(scheduler.scheduledSurfaceIds.last == fixtures[0].surface.id)
+    }
+
     @Test func lifecycleCancellationSynchronouslyRemovesOverflowEntries() throws {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
             maximumRuntimeSurfaceOwnerCount: 2
@@ -1085,7 +1176,8 @@ import CmuxTerminalCore
         runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator
     ) -> (
         surface: TerminalSurface,
-        nativeView: FakeTerminalSurfaceNativeView
+        nativeView: FakeTerminalSurfaceNativeView,
+        paneHost: FakeTerminalSurfacePaneHost
     ) {
         let nativeView = FakeTerminalSurfaceNativeView(
             frame: NSRect(x: 0, y: 0, width: 800, height: 600)
@@ -1099,7 +1191,7 @@ import CmuxTerminalCore
             runtimeTeardown: runtimeTeardown
         )
         surface.agentCommandShimInstallCompleted = true
-        return (surface, nativeView)
+        return (surface, nativeView, paneHost)
     }
 
     private func saturateRuntimeOwnershipRecovery(
