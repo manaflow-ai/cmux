@@ -1032,6 +1032,56 @@ fn server_reload_rejects_false_acknowledgement() {
 
 #[cfg(unix)]
 #[test]
+fn server_status_rejects_a_malformed_lifecycle_readiness_value() {
+    let dir = unique_temp_dir("server-status-malformed-readiness");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("owned.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let thread = std::thread::spawn(move || {
+        let stream = accept_with_timeout(&listener, Duration::from_secs(5)).unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut writer = stream;
+        let mut request = String::new();
+        reader.read_line(&mut request).unwrap();
+        let identify: serde_json::Value = serde_json::from_str(&request).unwrap();
+        assert_eq!(identify["cmd"], "identify");
+        writeln!(
+            writer,
+            "{}",
+            serde_json::json!({
+                "id": identify["id"],
+                "ok": true,
+                "data": {
+                    "app": "cmux-tui",
+                    "session": "malformed-readiness",
+                    "pid": 4242,
+                    "generation": "generation-a",
+                    "capabilities": [],
+                    "lifecycle_ready": "false"
+                }
+            })
+        )
+        .unwrap();
+    });
+
+    let output = lifecycle_cli(&[
+        "--json",
+        "server",
+        "status",
+        "--session",
+        "malformed-readiness",
+        "--socket",
+        socket.to_str().unwrap(),
+    ]);
+    thread.join().unwrap();
+    assert_eq!(output.status.code(), Some(3));
+    let error: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
+    assert_eq!(error["code"], "server.invalid_identity");
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn server_stop_uses_identify_fence_and_refuses_cross_session_targeting() {
     fn fake_server(listener: UnixListener, identified_session: &'static str, expect_stop: bool) {
         let stream = accept_with_timeout(&listener, Duration::from_secs(5)).unwrap();

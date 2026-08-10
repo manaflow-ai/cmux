@@ -16354,13 +16354,18 @@ mod tests {
             json!({"machine":"current","session":"current","force":true}),
             Some("forced-shutdown"),
         );
-        assert!(
-            handle_connection_message(&mux, local, &forced_request, &local_writer, &scheduler,)
-        );
+        assert!(!handle_connection_message(
+            &mux,
+            local,
+            &forced_request,
+            &local_writer,
+            &scheduler,
+        ));
         // Observing shutdown means the durable result was returned and queued
         // before the owning loop was asked to exit.
         assert!(mux.daemon_shutdown_requested());
         assert!(mux.control_clients.daemon_handoff_pending());
+        assert!(!mux.control_clients.contains(local));
         let accepted = pop_json(&local_outbound);
         assert_eq!(accepted["ok"], true);
         assert_eq!(accepted["result"]["value"]["accepted"], true);
@@ -16448,9 +16453,10 @@ mod tests {
         let client = reopened.control_clients.register(ClientTransport::Unix, writer.clone());
         let scheduler =
             Arc::new(ConnectionSurfaceScheduler::new(reopened.surface_operation_admission.clone()));
-        assert!(handle_connection_message(&reopened, client, &request, &writer, &scheduler,));
+        assert!(!handle_connection_message(&reopened, client, &request, &writer, &scheduler,));
         assert!(reopened.daemon_shutdown_requested());
         assert!(reopened.control_clients.daemon_handoff_pending());
+        assert!(!reopened.control_clients.contains(client));
         let replay = pop_json(&outbound);
         assert_eq!(replay["ok"], true);
         assert_eq!(replay["result"]["value"]["accepted"], true);
@@ -19364,7 +19370,7 @@ mod tests {
             accepted.control_clients.register(ClientTransport::Unix, accepted_writer.clone());
         let interactive = accepted.control_clients.register(ClientTransport::Unix, test_writer());
         let (_, generation) = accepted.registry_identity();
-        assert!(handle_message(
+        assert!(!handle_message(
             &accepted,
             local,
             &json!({
@@ -19386,7 +19392,7 @@ mod tests {
         assert_eq!(response["data"]["accepted"], true);
         assert_eq!(response["data"]["pid"], std::process::id());
         assert_eq!(response["data"]["generation"], generation);
-        assert!(accepted.control_clients.contains(local));
+        assert!(!accepted.control_clients.contains(local));
         assert!(!accepted.control_clients.contains(interactive));
     }
 
@@ -19415,9 +19421,9 @@ mod tests {
         assert!(mux.control_clients.contains(interactive));
 
         release_flush.send(()).unwrap();
-        assert!(worker.join().unwrap());
+        assert!(!worker.join().unwrap());
         assert!(mux.daemon_shutdown_requested());
-        assert!(mux.control_clients.contains(requester));
+        assert!(!mux.control_clients.contains(requester));
         assert!(!mux.control_clients.contains(interactive));
         let response = pop_json(&outbound);
         assert_eq!(response["ok"], true);
@@ -19463,7 +19469,7 @@ mod tests {
         assert!(rejected["error"].as_str().unwrap().contains("generation changed"));
         assert!(!mux.daemon_shutdown_requested());
 
-        assert!(handle_message(
+        assert!(!handle_message(
             &mux,
             requester,
             &json!({
