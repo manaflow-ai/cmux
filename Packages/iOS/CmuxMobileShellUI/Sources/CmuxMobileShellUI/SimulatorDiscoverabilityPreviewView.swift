@@ -28,12 +28,11 @@ public struct SimulatorDiscoverabilityPreviewView: View {
             state == "disconnected" ? .disconnected : .connected
         )
 
-        let simulatorStateSelected = !["inactive", "renderer-failed"].contains(state)
-        if simulatorStateSelected, let first = descriptors.first {
-            _ = streamStore.activate(panelID: first.panelID, in: workspaceID)
+        if let first = descriptors.first {
             if state == "locked" {
                 streamStore.state(for: first.panelID)?.markLockedByOtherConnection()
             } else if state == "stalled" {
+                streamStore.state(for: first.panelID)?.prepareForStreamStart()
                 streamStore.state(for: first.panelID)?.markStreamStale()
             }
         }

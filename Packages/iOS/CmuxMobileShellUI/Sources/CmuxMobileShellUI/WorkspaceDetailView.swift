@@ -45,7 +45,13 @@ struct WorkspaceDetailView: View {
     let signOut: (@MainActor @Sendable () -> Void)?
     @Environment(BrowserSurfaceStore.self) var browserStore
     @Environment(BrowserStreamStore.self) var browserStreamStore
-    @Environment(MobileSimulatorStreamStore.self) var simulatorStreamStore
+    /// Simulator presentation and toolbar actions must read the composite's
+    /// exact store. The environment still supplies that store to descendant
+    /// panes, but using the action owner's reference here prevents navigation
+    /// lifecycle/environment propagation from splitting reads from writes.
+    var simulatorStreamStore: MobileSimulatorStreamStore {
+        store.simulatorStreamStore
+    }
     @Environment(GhosttyRuntimeOwner.self) var terminalRuntimeOwner
     @Environment(MobileDisplaySettings.self) private var displaySettings
     @Environment(ToastCenter.self) private var toasts

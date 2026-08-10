@@ -7710,6 +7710,11 @@ final class SimulatorDiscoverabilityUITests: XCTestCase {
         app.launch()
         launchedApplications.append(app)
 
+        if !app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 4) {
+            let row = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
+            XCTAssertTrue(row.waitForExistence(timeout: 8))
+            row.tap()
+        }
         XCTAssertTrue(app.buttons["MobileTerminalDropdown"].waitForExistence(timeout: 8))
         XCTAssertTrue(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 4))
     }
@@ -7763,7 +7768,9 @@ final class SimulatorDiscoverabilityUITests: XCTestCase {
             (state: "stalled", overlay: "SimulatorStreamStalledOverlay"),
         ] {
             let app = launchFixture(mode: "one", state: fixture.state)
-            XCTAssertTrue(app.buttons["MobileSimulatorPicker"].waitForExistence(timeout: 8))
+            let picker = app.buttons["MobileSimulatorPicker"]
+            XCTAssertTrue(picker.waitForExistence(timeout: 8))
+            picker.tap()
             XCTAssertTrue(
                 app.otherElements[fixture.overlay].waitForExistence(timeout: 4),
                 "Expected \(fixture.overlay) for \(fixture.state)"

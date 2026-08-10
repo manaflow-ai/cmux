@@ -37,6 +37,31 @@ import Testing
         #expect(active?.connectionStatus == .disconnected)
     }
 
+    @Test func selectingViewOnlyPanelPreservesLockedState() {
+        let streamStore = MobileSimulatorStreamStore()
+        let descriptor = MobileSimulatorPanelDescriptor(
+            panelID: "sim-1",
+            workspaceID: "workspace-1",
+            title: "Simulator",
+            selectedDeviceName: "iPhone 17",
+            selectedDeviceState: "Booted",
+            status: "streaming",
+            isReady: true,
+            supportsTouch: true,
+            supportsKeyboard: true,
+            supportsHardwareButtons: true,
+            supportsRotation: true,
+            ownerConnectionID: "other-phone",
+            isOwnedByCurrentConnection: false
+        )
+        streamStore.replaceSimulatorPanels(in: "workspace-1", with: [descriptor])
+        let composite = MobileShellComposite(simulatorStreamStore: streamStore)
+
+        composite.selectMobileSimulatorStream(panelID: "sim-1", workspaceID: "workspace-1")
+
+        #expect(streamStore.activeState(in: "workspace-1")?.streamStatus == .locked)
+    }
+
     /// Toolbar selection activates the panel (forcing `.starting`) before the
     /// start RPC runs. When the preflight guard fails (disconnected, missing
     /// capability, or no client), the optimistic spinner must settle back to
