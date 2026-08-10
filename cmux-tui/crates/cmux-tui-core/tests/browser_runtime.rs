@@ -1782,7 +1782,7 @@ fn provider_disconnect_reconnects_without_closing_canonical_browser_topology() {
 
     mux.close_surface(surface.id).unwrap();
     drop(provider);
-    mux.shutdown();
+    mux.shutdown().unwrap();
     server::cleanup(&socket_path);
     first_server.join().unwrap();
     second_server.join().unwrap();
@@ -1903,7 +1903,7 @@ fn provider_target_revision_reattaches_on_the_same_browser_connection() {
     mux.close_surface(surface.id).unwrap();
     assert_eq!(detached_rx.recv_timeout(Duration::from_secs(10)).unwrap(), "session-second");
     drop(provider);
-    mux.shutdown();
+    mux.shutdown().unwrap();
     server::cleanup(&socket_path);
     cdp_server.join().unwrap();
 }
