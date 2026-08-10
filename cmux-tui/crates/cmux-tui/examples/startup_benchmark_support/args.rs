@@ -118,6 +118,7 @@ impl Args {
             bail!("--suite-deadline-seconds must be positive");
         }
         self.fixture_parent = canonical_directory(&self.fixture_parent, "--fixture-parent")?;
+        validate_fixture_socket_path_budget(&self.fixture_parent)?;
         if self.platform_label.trim().is_empty() {
             bail!("--platform-label is required");
         }
@@ -182,6 +183,27 @@ fn canonical_directory(path: &Path, option: &str) -> Result<PathBuf> {
     Ok(path)
 }
 
+#[cfg(unix)]
+fn validate_fixture_socket_path_budget(parent: &Path) -> Result<()> {
+    use std::os::unix::ffi::OsStrExt;
+
+    const MAX_SOCKET_PATH_BYTES: usize = 103;
+    const LONGEST_RELATIVE_SOCKET_PATH_BYTES: usize = 69;
+    let socket_path_bytes =
+        parent.as_os_str().as_bytes().len() + LONGEST_RELATIVE_SOCKET_PATH_BYTES;
+    if socket_path_bytes > MAX_SOCKET_PATH_BYTES {
+        bail!(
+            "--fixture-parent would require {socket_path_bytes} bytes for the longest control socket path, maximum is {MAX_SOCKET_PATH_BYTES}"
+        );
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn validate_fixture_socket_path_budget(_parent: &Path) -> Result<()> {
+    Ok(())
+}
+
 struct Parser {
     values: std::vec::IntoIter<String>,
 }
@@ -242,5 +264,15 @@ mod tests {
         assert!(validate_sha256(&"a".repeat(64), "--hash").is_ok());
         assert!(validate_sha256(&"a".repeat(63), "--hash").is_err());
         assert!(validate_sha256(&"g".repeat(64), "--hash").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fixture_parent_reserves_the_full_unix_socket_path_budget() {
+        assert!(validate_fixture_socket_path_budget(Path::new("/tmp/cbf")).is_ok());
+        assert!(
+            validate_fixture_socket_path_budget(Path::new(&format!("/tmp/{}", "x".repeat(80))))
+                .is_err()
+        );
     }
 }

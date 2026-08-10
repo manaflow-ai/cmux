@@ -243,7 +243,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$ARTIFACT_DIR/profiles" "$RUNNER_TEMP/cmux-startup-fixtures"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            fixture_parent="$RUNNER_TEMP/cbf"
+          else
+            fixture_parent="/tmp/cbf-${GITHUB_RUN_ID: -8}-$GITHUB_RUN_ATTEMPT"
+          fi
+          mkdir -p "$ARTIFACT_DIR/profiles" "$fixture_parent"
           {
             printf 'CMUX_BENCHMARK_RUN_ID=%s\n' "$GITHUB_RUN_ID"
             printf 'CMUX_BENCHMARK_RUN_ATTEMPT=%s\n' "$GITHUB_RUN_ATTEMPT"
@@ -255,7 +260,7 @@ jobs:
             printf 'CMUX_BENCHMARK_WORKFLOW_REF=%s\n' "$GITHUB_WORKFLOW_REF"
             printf 'BASELINE_TARGET_ROOT=%s\n' "$RUNNER_TEMP/cmux-startup-a"
             printf 'CANDIDATE_TARGET_ROOT=%s\n' "$RUNNER_TEMP/cmux-startup-b"
-            printf 'FIXTURE_PARENT=%s\n' "$RUNNER_TEMP/cmux-startup-fixtures"
+            printf 'FIXTURE_PARENT=%s\n' "$fixture_parent"
           } >> "$GITHUB_ENV"
 
       - name: Capture common runner metadata
@@ -789,7 +794,8 @@ jobs:
           lifecycle = json.loads(lifecycle_path.read_text(encoding="utf-8"))
           if lifecycle.get("schema_version") != 1:
               raise SystemExit(f"unsupported lifecycle schema: {lifecycle.get('schema_version')!r}")
-          if lifecycle.get("fixture_parent_name") != "cmux-startup-fixtures":
+          expected_fixture_parent_name = pathlib.Path(os.environ["FIXTURE_PARENT"]).name
+          if lifecycle.get("fixture_parent_name") != expected_fixture_parent_name:
               raise SystemExit(
                   f"wrong fixture parent name: {lifecycle.get('fixture_parent_name')!r}"
               )
@@ -1314,7 +1320,12 @@ jobs:
           result_path = artifact_root / "startup-reclamation-result.json"
           runner_temp = pathlib.Path(os.environ["RUNNER_TEMP"]).resolve()
           fixture_parent = pathlib.Path(os.environ["FIXTURE_PARENT"]).resolve()
-          expected_parent = (runner_temp / "cmux-startup-fixtures").resolve()
+          if os.environ["RUNNER_OS"] == "Windows":
+              expected_parent = (runner_temp / "cbf").resolve()
+          else:
+              expected_parent = pathlib.Path(
+                  f"/tmp/cbf-{os.environ['GITHUB_RUN_ID'][-8:]}-{os.environ['GITHUB_RUN_ATTEMPT']}"
+              ).resolve()
           started = time.monotonic_ns()
           status = "refused"
           detail = ""
@@ -1353,7 +1364,12 @@ jobs:
 
           parent = pathlib.Path(sys.argv[1]).resolve()
           runner = pathlib.Path(sys.argv[2]).resolve()
-          expected = (runner / 'cmux-startup-fixtures').resolve()
+          if os.environ['RUNNER_OS'] == 'Windows':
+              expected = (runner / 'cbf').resolve()
+          else:
+              expected = pathlib.Path(
+                  f"/tmp/cbf-{os.environ['GITHUB_RUN_ID'][-8:]}-{os.environ['GITHUB_RUN_ATTEMPT']}"
+              ).resolve()
           if os.path.normcase(str(parent)) != os.path.normcase(str(expected)):
               raise SystemExit('cleanup path changed after validation')
           shutil.rmtree(parent)

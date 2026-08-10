@@ -24,6 +24,8 @@ Run the workflow from GitHub for comparable evidence. The workflow uploads JSON,
 
 Each measured process reaches its observable event, validation, exit, reap, and reader-thread join before its fixture root can enter the deferred-reclamation ledger. No fixture deletion runs during timed work. Pair checkpoints are diagnostics only and cannot resume a report on another runner. A complete report still requires all 10 warmups and all 50 measured pairs for every scenario. The report and lifecycle evidence are flushed before hosted cleanup can delete deferred roots.
 
+Unix hosted jobs use a short run-specific fixture parent under `/tmp` so AF_UNIX control paths stay within the platform socket limit. Windows uses a short validated child of the runner temporary directory. Both targets use equal-length roots inside the same parent.
+
 ## Native profiles
 
 The example has a one-sample profile mode. A launcher prefix can wrap only the measured process and still pass PTY input and output. Linux uses this mode with strace. macOS records all processes with xctrace while the harness keeps direct PTY ownership. Filter that trace to the exact cmux-tui process and binary recorded in the adjacent profile report. Windows records the event harness inside a system-wide WPR capture. All native profile attempts are non-gating. They record permission or tool diagnostics when a profile is unavailable.
