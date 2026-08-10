@@ -9,7 +9,13 @@ let cutoverReady = true;
 let hostedControlConfigured = true;
 let hostedExchangeCalls = 0;
 let selectedTeamId: string | null = "team-1";
-let authorizedTeams = [{
+let authorizedTeams: Array<{
+  teamId: string;
+  teamName: string;
+  use: boolean;
+  manageAccounts: boolean;
+  personal?: boolean;
+}> = [{
   teamId: "team-1",
   teamName: "Team One",
   use: true,
@@ -256,6 +262,34 @@ describe("coderouter dashboard", () => {
     });
 
     expect(metricsTeamIds).toEqual(["team-2"]);
+  });
+
+  test("normalizes a null Stack selection to the personal organization", async () => {
+    authorizationAvailable = true;
+    selectedTeamId = null;
+    authorizedTeams = [
+      {
+        teamId: "team-1",
+        teamName: "Team One",
+        use: true,
+        manageAccounts: true,
+        personal: false,
+      },
+      {
+        teamId: "user-1",
+        teamName: "Personal",
+        use: true,
+        manageAccounts: true,
+        personal: true,
+      },
+    ];
+
+    await CoderouterOverviewPage({
+      params: Promise.resolve({ locale: "en" }),
+      searchParams: Promise.resolve({}),
+    });
+
+    expect(metricsTeamIds).toEqual(["user-1"]);
   });
 });
 
