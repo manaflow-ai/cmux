@@ -278,7 +278,6 @@ std::shared_ptr<FakeScenario> make_scenario() {
                     endpoint,
                     request,
                     "{\"id\":\"" + terminal_id +
-                        "\",\"tab_id\":\"" + tab_id +
                         "\",\"tab_ids\":[\"" + tab_id + "\"]" +
                         ",\"title\":\"build\",\"cols\":80,\"rows\":24,"
                         "\"running\":true,\"lifecycle\":\"running\"}");
@@ -287,7 +286,6 @@ std::shared_ptr<FakeScenario> make_scenario() {
                     endpoint,
                     request,
                     "{\"id\":\"" + terminal_id +
-                        "\",\"tab_id\":\"" + tab_id +
                         "\",\"tab_ids\":[\"" + tab_id + "\"]" +
                         ",\"title\":\"build\",\"cols\":100,\"rows\":30,"
                         "\"running\":false,\"lifecycle\":\"exited\","
@@ -365,7 +363,8 @@ std::shared_ptr<FakeScenario> make_scenario() {
             respond(
                 endpoint,
                 request,
-                "{\"stream_id\":\"" + id + "\"}");
+                "{\"stream_id\":\"" + id +
+                    "\",\"attachment_lease\":\"terminal-lease\"}");
             endpoint.incoming.push_back(stream_item(
                 id,
                 2,
@@ -382,16 +381,19 @@ std::shared_ptr<FakeScenario> make_scenario() {
             return {};
         }
         if (op == "terminal.viewer.resize") {
+            CHECK(string_field(input, "attachment_lease") == "terminal-lease");
             CHECK(uint_field(input, "cols") == 100);
             CHECK(uint_field(input, "rows") == 30);
             respond(
                 endpoint,
                 request,
-                "{\"accepted\":true,\"size\":{\"cols\":100,\"rows\":30}}");
+                "{\"accepted\":true,\"size\":{\"cols\":100,\"rows\":30},"
+                "\"outcome\":\"applied\"}");
             return {};
         }
         if (op == "terminal.viewer.release") {
-            respond(endpoint, request);
+            CHECK(string_field(input, "attachment_lease") == "terminal-lease");
+            respond(endpoint, request, "{\"outcome\":\"applied\"}");
             return {};
         }
         if (op == "stream.cancel") {
@@ -451,9 +453,8 @@ void test_terminal_selection_prefers_focused_opaque_tab() {
     cmux::ResourceSnapshot snapshot;
     cmux::TerminalSnapshot other_terminal;
     other_terminal.id = other;
-    other_terminal.tab_id = parsed_id<cmux::TabId>(
-        "tab_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-    other_terminal.tab_ids = {*other_terminal.tab_id};
+    other_terminal.tab_ids = {parsed_id<cmux::TabId>(
+        "tab_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")};
     other_terminal.title = "other";
     other_terminal.cols = 80;
     other_terminal.rows = 24;
@@ -463,8 +464,7 @@ void test_terminal_selection_prefers_focused_opaque_tab() {
 
     cmux::TerminalSnapshot focused_terminal = other_terminal;
     focused_terminal.id = focused;
-    focused_terminal.tab_id = parsed_id<cmux::TabId>(tab_id);
-    focused_terminal.tab_ids = {*focused_terminal.tab_id};
+    focused_terminal.tab_ids = {parsed_id<cmux::TabId>(tab_id)};
     snapshot.terminals.push_back(focused_terminal);
 
     cmux::TabSnapshot tab;

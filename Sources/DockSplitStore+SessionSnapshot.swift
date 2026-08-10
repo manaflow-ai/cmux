@@ -17,6 +17,7 @@ extension DockSplitStore {
             return PIDPresence.current(pid: pid_t($0))
         }
     ) -> SessionSplitContainerSnapshot {
+        flushPendingTerminalTitleUpdates()
         let notificationStore = resolvedNotificationStore()
         let layoutCodec = SessionSplitContainerLayoutCodec(controller: bonsplitController)
         let rawLayout = layoutCodec.snapshot(panelIdForTabId: { [self] in surfaceIdToPanelId[$0] })
@@ -115,6 +116,7 @@ extension DockSplitStore {
         panelId: UUID,
         restorableAgentIndex: RestorableAgentSessionIndex?
     ) -> SessionPanelSnapshot? {
+        flushPendingTerminalTitleUpdate(panelId: panelId)
         let transfer = detachedSurfaceTransfersByPanelId[panelId]
         let observationWorkspaceId =
             transfer?.sessionRestoreWorkspaceId ?? workspaceId
@@ -196,8 +198,11 @@ extension DockSplitStore {
         guard let panel = panels[panelId] else { return nil }
         let transfer = detachedSurfaceTransfersByPanelId[panelId]
         let tab = surfaceId(forPanelId: panelId).flatMap { bonsplitController.tab($0) }
-        let tabTitle = tab?.title
-        let customTitle = transfer?.customTitle ?? (tab?.hasCustomTitle == true ? tabTitle : nil)
+        let titleMetadata = resolvedDockTitleMetadata(
+            panel: panel,
+            transfer: transfer,
+            tab: tab
+        )
         let directory = sessionWorkingDirectory(panel: panel, transfer: transfer)
         let isManuallyUnread = scope == .global
             ? notificationStore?.hasManualUnread(
@@ -345,9 +350,9 @@ extension DockSplitStore {
             id: panelId,
             stableSurfaceId: panel.stableSurfaceId,
             type: panel.panelType,
-            title: tabTitle ?? panel.displayTitle,
-            customTitle: customTitle,
-            customTitleSource: transfer?.customTitleSource ?? (customTitle == nil ? nil : .user),
+            title: titleMetadata.title,
+            customTitle: titleMetadata.customTitle,
+            customTitleSource: titleMetadata.customTitleSource,
             directory: directory,
             directoryIsTrustedRemoteReport: transfer?.directoryIsTrustedRemoteReport,
             isPinned: false,
