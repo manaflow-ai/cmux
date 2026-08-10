@@ -28,9 +28,8 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     /// Largest batch that can own independently startable native-free slots.
     public static let maximumIsolatedHibernationTeardownCount = 2
 
-    private nonisolated let submissionContinuation:
-        AsyncStream<TerminalSurfaceRuntimeTeardownSubmission>.Continuation
-    private var submissionTask: Task<Void, Never>?
+    private nonisolated let submissionDrain:
+        TerminalSurfaceRuntimeTeardownSubmissionDrain
 #if DEBUG
     // Readable at internal scope in DEBUG so the debug-only extension in
     // TerminalSurfaceRuntimeTeardownCoordinator+Debug.swift can report the
@@ -61,56 +60,32 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
 
     /// Creates the process's teardown coordinator.
     public init() {
-        let submissions = AsyncStream<
-            TerminalSurfaceRuntimeTeardownSubmission
-        >.makeStream(
-            bufferingPolicy: .bufferingOldest(
+        submissionDrain = TerminalSurfaceRuntimeTeardownSubmissionDrain(
+            maximumBufferedOperationCount:
                 Self.maximumRuntimeSurfaceOwnerCount
-            )
         )
-        submissionContinuation = submissions.continuation
-        submissionTask = nil
         runtimeOwnershipAdmission = TerminalSurfaceRuntimeOwnershipAdmission(
             maximumOwnerCount: Self.maximumRuntimeSurfaceOwnerCount
         )
         availableCloseExecutionSlots = Set(
             0..<Self.maximumConcurrentCloseTeardownCount
         )
-        submissionTask = Task { [weak self] in
-            for await submission in submissions.stream {
-                guard let self else { return }
-                await self.receive(submission)
-            }
-        }
     }
 
     init(maximumRuntimeSurfaceOwnerCount: Int) {
-        let submissions = AsyncStream<
-            TerminalSurfaceRuntimeTeardownSubmission
-        >.makeStream(
-            bufferingPolicy: .bufferingOldest(
+        submissionDrain = TerminalSurfaceRuntimeTeardownSubmissionDrain(
+            maximumBufferedOperationCount:
                 maximumRuntimeSurfaceOwnerCount
-            )
         )
-        submissionContinuation = submissions.continuation
-        submissionTask = nil
         runtimeOwnershipAdmission = TerminalSurfaceRuntimeOwnershipAdmission(
             maximumOwnerCount: maximumRuntimeSurfaceOwnerCount
         )
         availableCloseExecutionSlots = Set(
             0..<Self.maximumConcurrentCloseTeardownCount
         )
-        submissionTask = Task { [weak self] in
-            for await submission in submissions.stream {
-                guard let self else { return }
-                await self.receive(submission)
-            }
-        }
     }
 
     deinit {
-        submissionContinuation.finish()
-        submissionTask?.cancel()
         for active in activeCloseTeardownsBySlot.values {
             active.task.cancel()
         }
@@ -241,7 +216,10 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             isolatedHibernationReservation: isolatedHibernationReservation,
             ingressReservation: ingressReservation
         )
-        switch submissionContinuation.yield(submission) {
+        let yieldResult = submissionDrain.yield { [self] in
+            await receive(submission)
+        }
+        switch yieldResult {
         case .enqueued:
             return ticket
         case .dropped, .terminated:
@@ -273,13 +251,15 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         let result = AsyncStream<Bool>.makeStream(
             bufferingPolicy: .bufferingNewest(1)
         )
-        switch submissionContinuation.yield(
-            .cancel(
-                ticketID: ticketID,
-                result: result.continuation,
-                ingressReservation: ingressReservation
-            )
-        ) {
+        let submission = TerminalSurfaceRuntimeTeardownSubmission.cancel(
+            ticketID: ticketID,
+            result: result.continuation,
+            ingressReservation: ingressReservation
+        )
+        let yieldResult = submissionDrain.yield { [self] in
+            await receive(submission)
+        }
+        switch yieldResult {
         case .enqueued:
             var iterator = result.stream.makeAsyncIterator()
             return await iterator.next() ?? false
@@ -299,9 +279,13 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             runtimeOwnershipAdmission.reserveControlIngress() else {
             return
         }
-        switch submissionContinuation.yield(
-            .cancelAll(ingressReservation: ingressReservation)
-        ) {
+        let submission = TerminalSurfaceRuntimeTeardownSubmission.cancelAll(
+            ingressReservation: ingressReservation
+        )
+        let yieldResult = submissionDrain.yield { [self] in
+            await receive(submission)
+        }
+        switch yieldResult {
         case .enqueued:
             break
         case .dropped, .terminated:
