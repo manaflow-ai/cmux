@@ -19732,6 +19732,7 @@ mod tests {
             .expect("the terminal host identity remains valid without a view");
         assert_eq!(detached_report.state, AgentState::Blocked);
         assert_eq!(detached_report.session.as_deref(), Some("detached-hook"));
+        let close_revision = mux.with_state(|state| state.resource_revision);
 
         public_request(
             &mux,
@@ -19755,6 +19756,13 @@ mod tests {
         );
         assert!(mux.surface_notification(first.id).is_none());
         assert!(mux.surface(first.id).is_none());
+        let events = mux.resource_events_after(close_revision).unwrap();
+        assert_eq!(events.batches.len(), 1);
+        assert!(events.batches[0].changes.iter().any(|change| {
+            change["kind"] == "delete"
+                && change["resource"] == "terminal"
+                && change["id"] == terminal.as_str()
+        }));
     }
 
     #[test]

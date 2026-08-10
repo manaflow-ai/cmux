@@ -2425,8 +2425,44 @@ impl Mux {
         }
         let mut plan =
             self.resource_close_plan_locked(operation, slots, &registry, &state, &notifications)?;
-        let projection =
+        let mut projection =
             self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
+        if let Some(terminal_id) = plan.closed_terminal_public_id.as_ref() {
+            // The general projection discovers deleted content through its
+            // durable tabs. An explicitly closed terminal can have no tabs,
+            // so add its catalog tombstone and event directly.
+            if !projection.patch.changes.iter().any(|change| {
+                matches!(
+                    change,
+                    ResourceChange::TombstoneTerminal { public_id, .. }
+                        if public_id == terminal_id
+                )
+            }) {
+                projection.patch.changes.push(ResourceChange::TombstoneTerminal {
+                    public_id: terminal_id.clone(),
+                    expected_incarnation: plan
+                        .terminal_batch
+                        .first()
+                        .and_then(|(_, incarnation)| incarnation.clone()),
+                });
+            }
+            let changes = projection
+                .changes
+                .as_array_mut()
+                .context("resource projection changes are not an array")?;
+            if !changes.iter().any(|change| {
+                change["kind"] == "delete"
+                    && change["resource"] == "terminal"
+                    && change["id"] == terminal_id.as_str()
+            }) {
+                changes.push(json!({
+                    "kind":"delete",
+                    "sequence":changes.len(),
+                    "resource":"terminal",
+                    "id":terminal_id,
+                }));
+            }
+        }
         #[cfg(test)]
         if let Some(hook) = self.resource_projection_before_commit.lock().unwrap().clone() {
             hook();
