@@ -29,6 +29,7 @@ on:
         options:
           - macos
           - ios
+          - ios-simulator
       runner:
         description: >-
           macOS runner label to build on. Blacksmith (blacksmith-6vcpu-macos-26),
@@ -115,7 +116,7 @@ jobs:
       # source refs that predate the crate are a no-op (scripts come from
       # inputs.ref, not this workflow's ref). install-rust-ci.sh is idempotent.
       - name: Provision cmux-iroh FFI (iOS)
-        if: ${{ inputs.platform == 'ios' }}
+        if: ${{ inputs.platform == 'ios' || inputs.platform == 'ios-simulator' }}
         run: |
           set -euo pipefail
           if [ -f scripts/ensure-cmux-iroh.sh ]; then
@@ -126,6 +127,42 @@ jobs:
           else
             echo "scripts/ensure-cmux-iroh.sh absent in source ref; skipping iroh FFI provisioning"
           fi
+
+      - name: Build unsigned iOS simulator app
+        if: ${{ inputs.platform == 'ios-simulator' }}
+        env:
+          BUILD_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          slug="$(printf '%s' "$BUILD_TAG" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '-' | sed 's/-\{2,\}/-/g; s/^-//; s/-$//')"
+          bundle_id="dev.cmux.ios.$slug"
+          display_name="cmux DEV $BUILD_TAG"
+          api_base_url="${CMUX_IOS_API_BASE_URL:-${CMUX_DEV_API_BASE_URL:-https://cmux-staging.vercel.app}}"
+          iroh_broker_base_url="${CMUX_IOS_IROH_BROKER_BASE_URL:-${CMUX_IROH_BROKER_BASE_URL:-https://cmux-staging.vercel.app}}"
+          ./scripts/ensure-ghosttykit.sh
+          xcodebuild build \
+            -workspace ios/cmux.xcworkspace \
+            -scheme cmux-ios \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/cmux-ios-sim-dd" \
+            PRODUCT_BUNDLE_IDENTIFIER="$bundle_id" \
+            PRODUCT_DISPLAY_NAME="$display_name" \
+            CMUX_GIT_SHA="$(git rev-parse --short HEAD)" \
+            CMUX_DEV_TAG="$BUILD_TAG" \
+            CMUX_API_BASE_URL="$api_base_url" \
+            CMUX_IROH_BROKER_BASE_URL="$iroh_broker_base_url" \
+            EXCLUDED_SOURCE_FILE_NAMES=Info.plist \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            SWIFT_OPTIMIZATION_LEVEL=-Onone \
+            SWIFT_COMPILATION_MODE=incremental \
+            GCC_OPTIMIZATION_LEVEL=0
+          sim_app="$RUNNER_TEMP/cmux-ios-sim-dd/Build/Products/Debug-iphonesimulator/cmux.app"
+          [ -d "$sim_app" ] || { echo "simulator app not produced: $sim_app" >&2; exit 1; }
+          mkdir -p artifact/simulator
+          ditto "$sim_app" artifact/simulator/cmux.app
 
       # --- iOS: build an UNSIGNED debug archive (signed locally by the caller) ---
       - name: Build unsigned iOS archive
