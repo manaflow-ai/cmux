@@ -360,10 +360,11 @@ private func requireTeardownTicket(
     }
 
     @MainActor
-    @Test func boundedIngressDropsNewestSubmissionWithoutLeakingOwnershipOrWaiter() async throws {
+    @Test func ownershipReservationsKeepIngressCapacityForEveryNativeFree() async throws {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
             maximumRuntimeSurfaceOwnerCount: 2
         )
+        let recorder = FreedSurfaceRecorder()
         let surfaces = (0..<2).map { _ in
             UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         }
@@ -386,37 +387,43 @@ private func requireTeardownTicket(
                 runtimeOwnershipReservation: runtimeReservations[0],
                 executionLane: .isolatedHibernation,
                 isolatedHibernationReservation: isolatedReservation,
-                freeSurface: { _ in }
+                freeSurface: { pointer in
+                    recorder.record(UInt(bitPattern: pointer))
+                }
             )
         )
 
-        // While this test owns MainActor, the consumer either has the admitted
-        // request buffered or waits for MainActor to validate its reservation.
-        // Two owner-free messages therefore fill the two-element buffer in
-        // either schedule.
+        // While this test owns MainActor, the consumer waits for MainActor to
+        // validate the isolated reservation. Control submissions must not use
+        // the ingress capacity already reserved for the second owned surface.
         coordinator.cancelAllRuntimeTeardowns()
         coordinator.cancelAllRuntimeTeardowns()
 
-        let droppedTicket = coordinator.enqueueRuntimeTeardown(
-            id: UUID(),
-            workspaceId: UUID(),
-            reason: "test.dropNewestIngressSubmission",
-            surface: surfaces[1],
-            callbackContext: nil,
-            manualIOContext: nil,
-            byteTeeLease: nil,
-            runtimeOwnershipReservation: runtimeReservations[1],
-            freeSurface: { _ in }
+        let secondTicket = try requireTeardownTicket(
+            coordinator.enqueueRuntimeTeardown(
+                id: UUID(),
+                workspaceId: UUID(),
+                reason: "test.preserveOwnedIngressSubmission",
+                surface: surfaces[1],
+                callbackContext: nil,
+                manualIOContext: nil,
+                byteTeeLease: nil,
+                runtimeOwnershipReservation: runtimeReservations[1],
+                freeSurface: { pointer in
+                    recorder.record(UInt(bitPattern: pointer))
+                }
+            )
         )
-        #expect(droppedTicket == nil)
-        #expect(coordinator.debugRuntimeSurfaceOwnerCount == 1)
 
-        #expect(
-            await coordinator.cancelRuntimeTeardown(ticketID: UUID()) == false
-        )
-        #expect(coordinator.debugRuntimeSurfaceOwnerCount == 1)
-
+        #expect(coordinator.debugRuntimeSurfaceOwnerCount == 2)
         #expect(await admittedTicket.wait(timeout: nil))
+        #expect(await secondTicket.wait(timeout: nil))
+        await recorder.waitForFreeCount(2)
+        #expect(recorder.freed.count == 2)
+        #expect(
+            Set(recorder.freed)
+                == Set(surfaces.map { UInt(bitPattern: $0) })
+        )
         #expect(coordinator.debugRuntimeSurfaceOwnerCount == 0)
     }
 
