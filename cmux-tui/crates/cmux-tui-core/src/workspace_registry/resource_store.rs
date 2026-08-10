@@ -1029,9 +1029,7 @@ pub(super) fn commit_resource_patch_in_transaction(
     if let Some(expected) = expected_generation
         && expected != generation
     {
-        anyhow::bail!(
-            "resource generation conflict: expected {expected}, current {generation}"
-        );
+        anyhow::bail!("resource generation conflict: expected {expected}, current {generation}");
     }
     let previous_revision = transaction_resource_revision(transaction)?;
     if let Some(expected) = expected_revision

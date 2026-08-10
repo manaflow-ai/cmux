@@ -6788,8 +6788,7 @@ impl Mux {
                 let mut removed = Vec::with_capacity(targets.len());
                 let mut split_index_dirty = false;
                 for target in targets {
-                    let (surface, topology_changed) =
-                        remove_surface(self, &mut projected, target);
+                    let (surface, topology_changed) = remove_surface(self, &mut projected, target);
                     split_index_dirty |= topology_changed;
                     if let Some(surface) = surface {
                         removed.push(surface);
@@ -6820,12 +6819,8 @@ impl Mux {
                 terminal_id,
                 terminal_incarnation,
                 projection.as_ref().map(|projection| &projection.patch),
-                projection
-                    .as_ref()
-                    .map_or(&empty_result, |projection| &projection.result),
-                projection
-                    .as_ref()
-                    .map_or(&empty_deltas, |projection| &projection.changes),
+                projection.as_ref().map_or(&empty_result, |projection| &projection.result),
+                projection.as_ref().map_or(&empty_deltas, |projection| &projection.changes),
             )?;
             let commit = close.terminal;
             let newly_closed =
@@ -6836,7 +6831,9 @@ impl Mux {
             let incarnation =
                 registry.terminal_record(terminal_id)?.and_then(|terminal| terminal.incarnation);
             let publish_resource = close.resource.as_ref().is_some_and(|commit| !commit.replayed);
-            if let Some(resource) = close.resource {
+            if let Some(resource) = close.resource
+                && !resource.replayed
+            {
                 projected.resource_revision = resource.revision;
             }
             let empty_revision =

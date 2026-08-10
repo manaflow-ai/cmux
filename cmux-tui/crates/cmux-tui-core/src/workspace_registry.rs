@@ -55,11 +55,10 @@ pub use resource_store::{
 };
 use resource_store::{
     apply_resource_patch, commit_resource_patch_in_transaction, create_resource_schema,
-    initialize_resource_mutation_retention,
-    migrate_resource_agent_projections, migrate_resource_browser_metadata,
-    migrate_resource_mutations_to_session_scope, migrate_resource_tabs_to_multiview,
-    resource_tabs_has_legacy_content_uniqueness, validate_resource_invariants,
-    validate_resource_patch,
+    initialize_resource_mutation_retention, migrate_resource_agent_projections,
+    migrate_resource_browser_metadata, migrate_resource_mutations_to_session_scope,
+    migrate_resource_tabs_to_multiview, resource_tabs_has_legacy_content_uniqueness,
+    validate_resource_invariants, validate_resource_patch,
 };
 
 const SCHEMA_VERSION: i64 = 9;
@@ -4067,11 +4066,7 @@ fn close_terminal_in_transaction(
                     .context("terminal revision exceeds SQLite integer range")?,
             ],
         )?;
-        return Ok(TerminalRegistryCommit {
-            revision: current_revision,
-            result,
-            replayed: false,
-        });
+        return Ok(TerminalRegistryCommit { revision: current_revision, result, replayed: false });
     }
 
     let revision = current_revision
