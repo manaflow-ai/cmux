@@ -19733,7 +19733,13 @@ mod tests {
         assert_eq!(detached_report.state, AgentState::Blocked);
         assert_eq!(detached_report.session.as_deref(), Some("detached-hook"));
 
-        mux.close_terminal(&host.terminal_id, &host.incarnation).unwrap();
+        mux.commit_resource_terminal_close_effect(
+            first.id,
+            "detached-terminal-close",
+            "terminal.close",
+            &json!({"terminal_id":host.terminal_id}),
+        )
+        .unwrap();
         assert!(mux.list_agents(None, None).is_empty());
         assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 0);
         assert_eq!(
