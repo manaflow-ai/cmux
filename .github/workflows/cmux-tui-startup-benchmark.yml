@@ -100,12 +100,12 @@ jobs:
             echo "baseline_sha and candidate_sha must differ" >&2
             exit 1
           fi
-          if [[ ! "$WARMUPS" =~ ^[0-9]+$ ]] || (( WARMUPS < 10 )); then
-            echo "warmups must be an integer of at least 10: $WARMUPS" >&2
+          if [[ ! "$WARMUPS" =~ ^[0-9]+$ ]] || (( WARMUPS < 10 || WARMUPS > 100 )); then
+            echo "warmups must be an integer from 10 through 100: $WARMUPS" >&2
             exit 1
           fi
-          if [[ ! "$SAMPLES" =~ ^[0-9]+$ ]] || (( SAMPLES < 50 )); then
-            echo "samples must be an integer of at least 50: $SAMPLES" >&2
+          if [[ ! "$SAMPLES" =~ ^[0-9]+$ ]] || (( SAMPLES < 50 || SAMPLES > 500 )); then
+            echo "samples must be an integer from 50 through 500: $SAMPLES" >&2
             exit 1
           fi
           if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$GITHUB_SHA" != "$CANDIDATE_SHA" ]]; then

@@ -5,6 +5,9 @@ use anyhow::{Context, Result, bail};
 
 use super::{Scenario, TargetKind};
 
+const MAX_WARMUPS: usize = 100;
+const MAX_SAMPLES: usize = 500;
+
 #[derive(Debug)]
 pub struct Args {
     pub baseline_binary: PathBuf,
@@ -110,12 +113,7 @@ impl Args {
             (Some(_), None) => bail!("--profile-target is required with --profile-only"),
             (None, Some(_)) => bail!("--profile-only is required with --profile-target"),
             (None, None) => {
-                if self.warmups < 10 {
-                    bail!("full comparison requires at least 10 warmups");
-                }
-                if self.samples < 50 {
-                    bail!("full comparison requires at least 50 paired samples");
-                }
+                validate_comparison_counts(self.warmups, self.samples)?;
                 if !self.baseline_launcher.is_empty() || !self.candidate_launcher.is_empty() {
                     bail!("launcher arguments require --profile-only");
                 }
@@ -124,6 +122,16 @@ impl Args {
         }
         Ok(())
     }
+}
+
+fn validate_comparison_counts(warmups: usize, samples: usize) -> Result<()> {
+    if !(10..=MAX_WARMUPS).contains(&warmups) {
+        bail!("full comparison requires 10 through {MAX_WARMUPS} warmups");
+    }
+    if !(50..=MAX_SAMPLES).contains(&samples) {
+        bail!("full comparison requires 50 through {MAX_SAMPLES} paired samples");
+    }
+    Ok(())
 }
 
 fn validate_sha(value: &str, option: &str) -> Result<()> {
@@ -192,5 +200,21 @@ impl Parser {
         self.value(key, inline)?
             .parse()
             .with_context(|| format!("{key} requires a positive integer"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn comparison_counts_are_bounded_before_allocation() {
+        assert!(validate_comparison_counts(10, 50).is_ok());
+        assert!(validate_comparison_counts(MAX_WARMUPS, MAX_SAMPLES).is_ok());
+        assert!(validate_comparison_counts(9, 50).is_err());
+        assert!(validate_comparison_counts(MAX_WARMUPS + 1, 50).is_err());
+        assert!(validate_comparison_counts(10, 49).is_err());
+        assert!(validate_comparison_counts(10, MAX_SAMPLES + 1).is_err());
+        assert!(validate_comparison_counts(10, usize::MAX).is_err());
     }
 }
