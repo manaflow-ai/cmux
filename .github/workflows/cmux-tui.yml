@@ -299,6 +299,26 @@ jobs:
         working-directory: cmux-tui
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
+      - name: focused journal writer shutdown test
+        working-directory: cmux-tui
+        run: >-
+          cargo test -p cmux-tui-core --lib
+          journal_ingress::tests::shutdown_returns_when_an_admitted_commit_stays_blocked
+          -- --exact
+
+      - name: focused Linux journal process-fence test
+        if: runner.os == 'Linux'
+        working-directory: cmux-tui
+        run: >-
+          cargo test -p cmux-tui-core --lib
+          journal_hooks::tests::unix_hook_tree_kills_a_descendant_that_created_a_new_session
+          -- --exact
+
+      - name: focused macOS journal process-fence tests
+        if: runner.os == 'macOS'
+        working-directory: cmux-tui
+        run: cargo test -p cmux-tui-core --lib unix_process_scope::tests::mac_process_scope_
+
       - name: cargo test
         working-directory: cmux-tui
         run: cargo test --workspace --locked
