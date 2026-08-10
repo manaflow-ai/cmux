@@ -8127,7 +8127,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let applyCreatedWorkspace: @MainActor (Workspace) -> Void = { workspace in
                 createdWorkspaceHandler?(workspace)
                 if initialSurface == .browser, focusInitialBrowserAddressBarOnCreate {
-                    focusInitialBrowserAddressBar(in: workspace)
+                    self.focusInitialBrowserAddressBar(in: workspace)
                 }
             }
             let outcome = preferredTabManager.requestAddWorkspace(

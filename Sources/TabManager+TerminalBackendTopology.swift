@@ -145,7 +145,7 @@ extension TabManager: TerminalBackendTopologyProjecting {
                 guard let surfaceID = workspace.backendCanonicalSurfaceID(
                     for: panelID
                 ) else { return nil }
-                TerminalBackendTopologyPlacement(
+                return TerminalBackendTopologyPlacement(
                     workspaceID: workspace.id,
                     surfaceID: surfaceID
                 )
