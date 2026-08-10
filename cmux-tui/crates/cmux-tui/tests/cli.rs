@@ -529,6 +529,7 @@ fn server_lifecycle_start_rejects_inline_relay_ticket_without_echoing_secret() {
         &["--json", "server", "start", "--relay-ticket", secret][..],
         &["server", "start", "--relay-ticket=inline-server-start-secret-marker"][..],
         &["server", "start", "--relay-ticket", "--help"][..],
+        &["server", "start", "--relay-ticket=inline-server-start-secret-marker", "--help"][..],
     ] {
         let output = lifecycle_cli(args);
         assert_eq!(output.status.code(), Some(2));
@@ -592,6 +593,20 @@ fn failed_remote_server_start_removes_its_served_socket() {
     assert!(!output.status.success(), "invalid remote state root unexpectedly started a server");
     assert!(!socket.exists(), "failed startup left its served socket behind");
     fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn refused_second_server_start_preserves_the_live_owner_socket() {
+    let server = HeadlessServer::start("second-server-start-live-socket");
+    let socket = server.socket.to_str().unwrap();
+
+    let second = lifecycle_cli(&["server", "start", "--ephemeral", "--socket", socket]);
+
+    assert!(!second.status.success(), "a second owner unexpectedly started on the live socket");
+    let ping = json_cli(&server, &["session", "current", "ping"]);
+    assert_success(&ping);
+    assert_eq!(json_output(&ping)["alive"], true);
 }
 
 #[test]
