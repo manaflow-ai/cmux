@@ -79,6 +79,51 @@ pub fn is_public_scope(value: &str) -> bool {
     PUBLIC_SCOPES.contains(&value)
 }
 
+pub(super) fn has_inline_relay_ticket_argument(args: &[String]) -> bool {
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            option if option == "--relay-ticket" || option.starts_with("--relay-ticket=") => {
+                return true;
+            }
+            "--session"
+            | "--socket"
+            | "--machine"
+            | "--terminal"
+            | "--state"
+            | "--machine-provider"
+            | "--cloud-host"
+            | "--cloud-user"
+            | "--cloud-port"
+            | "--cloud-identity"
+            | "--ws"
+            | "--ws-token"
+            | "--remote-ws"
+            | "--remote-http"
+            | "--remote-state-dir"
+            | "--remote-link-socket"
+            | "--remote-admin-socket"
+            | "--remote-resume-lease-seconds"
+            | "--relay"
+            | "--relay-slot"
+            | "--relay-ticket-file"
+            | "--relay-ticket-command"
+            | "--relay-ticket-command-arg"
+            | "--advertise"
+            | "--term" => index += 2,
+            "--machine-provider-command" => {
+                index += 1;
+                while index < args.len() && args[index] != "--" {
+                    index += 1;
+                }
+                index += 1;
+            }
+            _ => index += 1,
+        }
+    }
+    false
+}
+
 pub fn run(args: &[String], startup_usage: &str) -> i32 {
     match parse(args) {
         Ok(ParsedCommand::Help(scope)) => {
@@ -127,6 +172,11 @@ fn parse_command(
 ) -> Result<ParsedCommand, UsageError> {
     if command_args.is_empty() {
         return Err(UsageError::new("missing resource scope; use --help to list scopes"));
+    }
+    if has_inline_relay_ticket_argument(&command_args) {
+        return Err(UsageError::new(
+            crate::localization::catalog().remote_client.inline_relay_ticket_rejected,
+        ));
     }
     if command_args[0] == "daemon" {
         return Err(UsageError::new(crate::localization::catalog().local_server.daemon_removed));

@@ -439,7 +439,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
 
 fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
     let args = args.into_iter().collect::<Vec<_>>();
-    if has_inline_relay_ticket_argument(&args) {
+    if cli::has_inline_relay_ticket_argument(&args) {
         return Err(localization::catalog().remote_client.inline_relay_ticket_rejected.to_string());
     }
     let mut out = Args {
@@ -1086,7 +1086,7 @@ fn rewrite_server_start(args: &mut Vec<String>) {
             "-h" | "--help" => return,
             "server" if args.get(index + 1).map(String::as_str) == Some("start") => {
                 let start_args = &args[index + 2..];
-                if (output_mode && !has_inline_relay_ticket_argument(start_args))
+                if (output_mode && !cli::has_inline_relay_ticket_argument(start_args))
                     || server_start_has_cli_routing_flag(start_args)
                 {
                     return;
@@ -1100,53 +1100,8 @@ fn rewrite_server_start(args: &mut Vec<String>) {
     }
 }
 
-fn has_inline_relay_ticket_argument(args: &[String]) -> bool {
-    let mut index = 0;
-    while index < args.len() {
-        match args[index].as_str() {
-            option if option == "--relay-ticket" || option.starts_with("--relay-ticket=") => {
-                return true;
-            }
-            "--session"
-            | "--socket"
-            | "--machine"
-            | "--terminal"
-            | "--state"
-            | "--machine-provider"
-            | "--cloud-host"
-            | "--cloud-user"
-            | "--cloud-port"
-            | "--cloud-identity"
-            | "--ws"
-            | "--ws-token"
-            | "--remote-ws"
-            | "--remote-http"
-            | "--remote-state-dir"
-            | "--remote-link-socket"
-            | "--remote-admin-socket"
-            | "--remote-resume-lease-seconds"
-            | "--relay"
-            | "--relay-slot"
-            | "--relay-ticket-file"
-            | "--relay-ticket-command"
-            | "--relay-ticket-command-arg"
-            | "--advertise"
-            | "--term" => index += 2,
-            "--machine-provider-command" => {
-                index += 1;
-                while index < args.len() && args[index] != "--" {
-                    index += 1;
-                }
-                index += 1;
-            }
-            _ => index += 1,
-        }
-    }
-    false
-}
-
 fn server_start_has_cli_routing_flag(args: &[String]) -> bool {
-    if has_inline_relay_ticket_argument(args) {
+    if cli::has_inline_relay_ticket_argument(args) {
         return false;
     }
     let mut index = 0;
