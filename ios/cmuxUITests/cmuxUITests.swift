@@ -837,16 +837,32 @@ final class cmuxUITests: XCTestCase {
                 ("Settings action", finalButton),
             ]
 
+            func visibleViewportFrame(
+                _ viewportFrame: CGRect,
+                windowFrame: CGRect
+            ) -> CGRect {
+                viewportFrame
+                    .intersection(windowFrame)
+                    .intersection(app.frame.standardized)
+            }
+
             func assertDeclaredBottomPadding(scrollingIfNeeded: Bool) throws {
                 if scrollingIfNeeded {
                     for _ in 0..<8 {
                         let viewportFrame = try XCTUnwrap(
                             waitForUsableFrame(of: viewportProbe, timeout: 2)
                         )
+                        let windowFrame = try XCTUnwrap(
+                            waitForUsableFrame(of: window, timeout: 2)
+                        )
+                        let visibleFrame = visibleViewportFrame(
+                            viewportFrame,
+                            windowFrame: windowFrame
+                        )
                         let finalButtonFrame = try XCTUnwrap(
                             waitForUsableFrame(of: finalButton, timeout: 2)
                         )
-                        if viewportFrame.maxY - finalButtonFrame.maxY >= 22 {
+                        if visibleFrame.maxY - finalButtonFrame.maxY >= 22 {
                             break
                         }
                         viewportProbe.swipeUp()
@@ -862,10 +878,17 @@ final class cmuxUITests: XCTestCase {
                 let viewportFrame = try XCTUnwrap(
                     waitForUsableFrame(of: viewportProbe, timeout: 4)
                 )
+                let windowFrame = try XCTUnwrap(
+                    waitForUsableFrame(of: window, timeout: 4)
+                )
+                let visibleFrame = visibleViewportFrame(
+                    viewportFrame,
+                    windowFrame: windowFrame
+                )
                 let finalButtonFrame = try XCTUnwrap(
                     waitForUsableFrame(of: finalButton, timeout: 4)
                 )
-                let renderedBottomGap = viewportFrame.maxY - finalButtonFrame.maxY
+                let renderedBottomGap = visibleFrame.maxY - finalButtonFrame.maxY
                 XCTAssertEqual(
                     renderedBottomGap,
                     24,
@@ -883,10 +906,17 @@ final class cmuxUITests: XCTestCase {
                 let viewportFrame = try XCTUnwrap(
                     waitForUsableFrame(of: viewportProbe, timeout: 4)
                 )
+                let windowFrame = try XCTUnwrap(
+                    waitForUsableFrame(of: window, timeout: 4)
+                )
+                let visibleFrame = visibleViewportFrame(
+                    viewportFrame,
+                    windowFrame: windowFrame
+                )
                     .insetBy(dx: -1, dy: -1)
                 for (_, element) in localizedElements {
                     guard let frame = waitForUsableFrame(of: element, timeout: 2),
-                          viewportFrame.contains(frame)
+                          visibleFrame.contains(frame)
                     else {
                         return false
                     }
@@ -904,7 +934,11 @@ final class cmuxUITests: XCTestCase {
                     waitForUsableFrame(of: viewportProbe, timeout: 4)
                 )
                 let windowFrame = try XCTUnwrap(waitForUsableFrame(of: window, timeout: 4))
-                let visibleFrame = viewportFrame.insetBy(dx: -1, dy: -1)
+                let visibleFrame = visibleViewportFrame(
+                    viewportFrame,
+                    windowFrame: windowFrame
+                )
+                    .insetBy(dx: -1, dy: -1)
                 var verticalPositions: [CGFloat] = []
 
                 for (name, element) in localizedElements {
@@ -943,7 +977,11 @@ final class cmuxUITests: XCTestCase {
                     waitForUsableFrame(of: viewportProbe, timeout: 4)
                 )
                 let windowFrame = try XCTUnwrap(waitForUsableFrame(of: window, timeout: 4))
-                let visibleFrame = viewportFrame.insetBy(dx: -1, dy: -1)
+                let visibleFrame = visibleViewportFrame(
+                    viewportFrame,
+                    windowFrame: windowFrame
+                )
+                    .insetBy(dx: -1, dy: -1)
                 XCTAssertTrue(windowFrame.insetBy(dx: -1, dy: -1).contains(viewportFrame))
 
                 for (name, element) in localizedElements {
@@ -1035,6 +1073,7 @@ final class cmuxUITests: XCTestCase {
                 identifier: "MobileAutoConnectMigrationViewportProbe"
             )
             let viewportProbe = probes.firstMatch
+            let window = app.windows.firstMatch
             XCTAssertTrue(
                 viewportProbe.waitForExistence(timeout: 4),
                 "Expected the migration viewport probe in \(name)."
@@ -1044,15 +1083,27 @@ final class cmuxUITests: XCTestCase {
                 1,
                 "The migration sheet must expose exactly one viewport probe in \(name)."
             )
+            XCTAssertTrue(window.exists)
+
+            func visibleViewportFrame(timeout: TimeInterval) throws -> CGRect {
+                let viewportFrame = try XCTUnwrap(
+                    waitForUsableFrame(of: viewportProbe, timeout: timeout)
+                )
+                let windowFrame = try XCTUnwrap(
+                    waitForUsableFrame(of: window, timeout: timeout)
+                )
+                return viewportFrame
+                    .intersection(windowFrame)
+                    .intersection(app.frame.standardized)
+            }
 
             func reveal(_ element: XCUIElement, named elementName: String) throws {
                 XCTAssertTrue(
                     element.waitForExistence(timeout: 2),
                     "Expected \(elementName) in the \(name) accessibility hierarchy."
                 )
-                var viewportFrame = try XCTUnwrap(
-                    waitForUsableFrame(of: viewportProbe, timeout: 2)
-                ).insetBy(dx: -1, dy: -1)
+                var viewportFrame = try visibleViewportFrame(timeout: 2)
+                    .insetBy(dx: -1, dy: -1)
                 var elementFrame = try XCTUnwrap(waitForUsableFrame(of: element, timeout: 2))
                 for _ in 0..<8 {
                     if viewportFrame.contains(elementFrame) {
@@ -1066,9 +1117,8 @@ final class cmuxUITests: XCTestCase {
                         },
                         "The migration content did not move while revealing \(elementName) in \(name)."
                     )
-                    viewportFrame = try XCTUnwrap(
-                        waitForUsableFrame(of: viewportProbe, timeout: 2)
-                    ).insetBy(dx: -1, dy: -1)
+                    viewportFrame = try visibleViewportFrame(timeout: 2)
+                        .insetBy(dx: -1, dy: -1)
                 }
                 XCTAssertTrue(
                     viewportFrame.contains(elementFrame),
@@ -1099,9 +1149,7 @@ final class cmuxUITests: XCTestCase {
 
             let finalButton = app.buttons["MobileAutoConnectMigrationOpenSettings"]
             for _ in 0..<8 {
-                let viewportFrame = try XCTUnwrap(
-                    waitForUsableFrame(of: viewportProbe, timeout: 2)
-                )
+                let viewportFrame = try visibleViewportFrame(timeout: 2)
                 let finalButtonFrame = try XCTUnwrap(
                     waitForUsableFrame(of: finalButton, timeout: 2)
                 )
@@ -1116,9 +1164,7 @@ final class cmuxUITests: XCTestCase {
                     "The accessibility content did not move while revealing bottom padding in \(name)."
                 )
             }
-            let viewportFrame = try XCTUnwrap(
-                waitForUsableFrame(of: viewportProbe, timeout: 4)
-            )
+            let viewportFrame = try visibleViewportFrame(timeout: 4)
             let finalButtonFrame = try XCTUnwrap(
                 waitForUsableFrame(of: finalButton, timeout: 4)
             )
