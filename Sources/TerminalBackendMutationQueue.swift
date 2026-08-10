@@ -1,3 +1,5 @@
+import CmuxTerminal
+
 /// Fixed-capacity ring buffer used by the synchronous main-actor ingress.
 ///
 /// Presentation-state mutations converge within the current tail segment.
