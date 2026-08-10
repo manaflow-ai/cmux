@@ -33,8 +33,8 @@ const handlers: {
 const routerPush = mock(() => undefined);
 const routerReplace = mock(() => undefined);
 const routerRefresh = mock(() => undefined);
-const setQueryData = mock(() => undefined);
 let organizationQueryKey: readonly unknown[] | undefined;
+let searchTeam: string | null = null;
 
 mock.module("@stackframe/stack", () => ({
   AccountSettings: () => <section data-testid="stack-account-settings" />,
@@ -72,13 +72,15 @@ mock.module("@tanstack/react-query", () => ({
     organizationQueryKey = options.queryKey;
     return organizationQuery;
   },
-  useQueryClient: () => ({ setQueryData }),
 }));
 
-mock.module("next/navigation", () =>
-  createNextNavigationMock((target: unknown) => {
+mock.module("next/navigation", () => ({
+  ...createNextNavigationMock((target: unknown) => {
     throw new Error(`redirect:${target}`);
-  }));
+  }),
+  useSearchParams: () =>
+    new URLSearchParams(searchTeam ? `team=${encodeURIComponent(searchTeam)}` : ""),
+}));
 
 mock.module("@base-ui-components/react/menu", () => ({
   Menu: {
@@ -137,6 +139,18 @@ describe("dashboard account menu", () => {
             personal: false,
             permissions: { use: true, manageAccounts: false },
           },
+          {
+            id: "team-3",
+            name: "Forbidden",
+            personal: false,
+            permissions: { use: false, manageAccounts: false },
+          },
+          {
+            id: "team-4",
+            name: "Manager",
+            personal: false,
+            permissions: { use: false, manageAccounts: true },
+          },
         ],
       },
       isPending: false,
@@ -144,9 +158,9 @@ describe("dashboard account menu", () => {
       isError: true,
     };
     delete handlers.switchOrganization;
+    searchTeam = "team-2";
     routerPush.mockClear();
     routerRefresh.mockClear();
-    setQueryData.mockClear();
     const setSelectedTeam = mock(async () => undefined);
     currentUser = {
       id: "user-lawrence",
@@ -157,6 +171,8 @@ describe("dashboard account menu", () => {
       useTeams: () => [
         { id: "team-1", displayName: "Not authorized" },
         { id: "team-2", displayName: "Authorized" },
+        { id: "team-3", displayName: "Forbidden" },
+        { id: "team-4", displayName: "Manager" },
       ],
       setSelectedTeam,
     };
@@ -169,8 +185,9 @@ describe("dashboard account menu", () => {
     expect(html).toContain('href="/dashboard/billing"');
     expect(html).toContain('data-testid="team-switcher"');
     expect(html).toContain('data-team-id="team-2"');
-    expect(html).toContain('data-team-ids="team-2"');
+    expect(html).toContain('data-team-ids="team-2,team-4"');
     expect(html).not.toContain("Not authorized");
+    expect(html).not.toContain("Forbidden");
     expect(html).toContain("signOut");
     expect(organizationQueryKey).toEqual([
       "coderouter-organizations",
@@ -194,7 +211,6 @@ describe("dashboard account menu", () => {
       "/dashboard/coderouter?team=team-2",
     );
     expect(routerRefresh).toHaveBeenCalledTimes(1);
-    expect(setQueryData).toHaveBeenCalled();
   });
 
   test("uses the unlocalized auth handler and names the compact sign-in link", () => {
@@ -213,6 +229,7 @@ describe("dashboard account menu", () => {
       isPending: false,
       isError: true,
     };
+    searchTeam = null;
     currentUser = {
       id: "user-lawrence",
       displayName: "Lawrence",
@@ -250,6 +267,7 @@ describe("dashboard account menu", () => {
       isPending: false,
       isError: false,
     };
+    searchTeam = "user-lawrence";
     currentUser = {
       id: "user-lawrence",
       displayName: "Lawrence",
@@ -272,7 +290,12 @@ describe("dashboard account menu", () => {
     })).toBeNull();
     expect(__test.parseOrganizationCatalog({
       selectedTeamId: "missing",
-      teams: [{ id: "team-1", name: "Team", personal: false }],
+      teams: [{
+        id: "team-1",
+        name: "Team",
+        personal: false,
+        permissions: { use: true, manageAccounts: false },
+      }],
     })).toBeNull();
   });
 });

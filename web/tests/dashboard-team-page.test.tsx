@@ -27,7 +27,6 @@ mock.module("next/navigation", () => {
 
 mock.module("@tanstack/react-query", () => ({
   useQuery: () => ({ data: undefined, isPending: true, isError: false }),
-  useQueryClient: () => ({ setQueryData: () => undefined }),
 }));
 
 mock.module("../app/lib/stack", () => ({
