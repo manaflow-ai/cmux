@@ -295,6 +295,24 @@ mod tests {
     }
 
     #[test]
+    fn failed_reload_replays_its_known_failure_receipt() {
+        let mux = Mux::new_for_test("session-reload-failure", SurfaceOptions::default());
+        mux.shutdown();
+        let reload = || {
+            dispatch(
+                &mux,
+                request(ResourceOperation::SessionReloadConfig, "reload-failure", json!({})),
+            )
+            .unwrap_err()
+        };
+
+        let first = reload();
+        let replay = reload();
+        assert_eq!(first.code, "operation.failed");
+        assert_eq!(replay, first);
+    }
+
+    #[test]
     fn creation_resolve_returns_unknown_and_typed_validation_states() {
         let mux = Mux::new_for_test("creation-resolve", SurfaceOptions::default());
         let unknown = dispatch(

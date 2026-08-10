@@ -2521,6 +2521,27 @@ mod tests {
         assert!(stopped_without_event, "owner event loop required a mux event to stop");
     }
 
+    #[test]
+    fn interactive_owner_event_loop_defers_reload_completion_to_the_app() {
+        let mux = Arc::new(Mux::new("interactive-owner-reload", SurfaceOptions::default()));
+        let event_loop = start_local_owner_event_loop(&mux);
+        let worker_mux = mux.clone();
+        let (result_tx, result_rx) = std::sync::mpsc::sync_channel(1);
+        let worker = std::thread::spawn(move || {
+            result_tx.send(worker_mux.request_config_reload()).unwrap();
+        });
+
+        assert!(matches!(
+            result_rx.recv_timeout(Duration::from_millis(100)),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        ));
+        let request = mux.begin_config_reload_application();
+        mux.complete_config_reload_application(request);
+        result_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap();
+        worker.join().unwrap();
+        event_loop.finish().unwrap();
+    }
+
     #[cfg(windows)]
     #[test]
     fn recovery_commands_identify_the_powershell_dialect() {

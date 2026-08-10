@@ -18808,14 +18808,38 @@ mod tests {
         let mut stream = transport::connect(&path).unwrap();
         writeln!(stream, r#"{{"id":1,"cmd":"identify"}}"#).unwrap();
         stream.flush().unwrap();
+        let (response_tx, response_rx) = std::sync::mpsc::sync_channel(1);
+        std::thread::spawn(move || {
+            let mut response = String::new();
+            let result = BufReader::new(stream).read_line(&mut response).map(|_| response);
+            response_tx.send(result).unwrap();
+        });
+        let response = response_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("ordinary protocol identify waited for lifecycle readiness")
+            .unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&response).unwrap()["ok"], true);
 
-        assert!(mux.control_clients.client_ids().is_empty());
+        let mut lifecycle = transport::connect(&path).unwrap();
+        writeln!(lifecycle, r#"{{"id":2,"cmd":"identify","lifecycle":true}}"#).unwrap();
+        lifecycle.flush().unwrap();
+        let mut starting = String::new();
+        BufReader::new(&mut lifecycle).read_line(&mut starting).unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&starting).unwrap()["data"]["lifecycle_ready"],
+            false
+        );
 
         let served = pending.mark_ready().unwrap();
-        let mut response = String::new();
-        BufReader::new(stream).read_line(&mut response).unwrap();
+        writeln!(lifecycle, r#"{{"id":3,"cmd":"identify","lifecycle":true}}"#).unwrap();
+        lifecycle.flush().unwrap();
+        let mut ready = String::new();
+        BufReader::new(lifecycle).read_line(&mut ready).unwrap();
         assert_eq!(served, path);
-        assert_eq!(serde_json::from_str::<Value>(&response).unwrap()["ok"], true);
+        assert_eq!(
+            serde_json::from_str::<Value>(&ready).unwrap()["data"]["lifecycle_ready"],
+            true
+        );
         cleanup(&served);
     }
 
