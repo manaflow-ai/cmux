@@ -1,6 +1,8 @@
 #if os(iOS) && DEBUG
 import CmuxMobileSupport
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 import UIKit
 
 /// App-owned attachment files used only by deterministic accessibility hosts.
@@ -75,6 +77,28 @@ struct MobileAttachmentAccessibilityFixtures {
         }
     }
 
+    func delayedResult() -> MobileStagedAttachment {
+        make(
+            id: "5C5E03D9-8776-4EB1-A975-C58A6CB0A75C",
+            kind: .file,
+            fileName: "late-result.txt",
+            storedName: "late-result.txt",
+            data: Data("late attachment result".utf8)
+        )
+    }
+
+    func orientedLargeImage() -> MobileStagedAttachment {
+        let data = orientedLargeImageData()
+        return make(
+            id: "8E691F0D-C965-4E05-9F08-D7135ADCC2D0",
+            kind: .image,
+            fileName: "oriented-large.jpg",
+            storedName: "oriented-large.jpg",
+            data: data,
+            thumbnailData: distinctiveImageData()
+        )
+    }
+
     private func make(
         id: String,
         kind: MobileStagedAttachment.Kind,
@@ -119,6 +143,43 @@ struct MobileAttachmentAccessibilityFixtures {
             context.fill(CGRect(x: 0, y: 0, width: 48, height: 48))
             context.fill(CGRect(x: 48, y: 48, width: 48, height: 48))
         }
+    }
+
+    private func orientedLargeImageData() -> Data {
+        let width = 6_000
+        let height = 3_000
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+        ) else { return Data() }
+        context.setFillColor(UIColor.systemBlue.cgColor)
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        context.setFillColor(UIColor.systemYellow.cgColor)
+        context.fill(CGRect(x: 0, y: 0, width: width / 2, height: height / 2))
+        guard let image = context.makeImage() else { return Data() }
+
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(
+            data,
+            UTType.jpeg.identifier as CFString,
+            1,
+            nil
+        ) else { return Data() }
+        CGImageDestinationAddImage(
+            destination,
+            image,
+            [
+                kCGImageDestinationLossyCompressionQuality: 0.82,
+                kCGImagePropertyOrientation: 6,
+            ] as CFDictionary
+        )
+        guard CGImageDestinationFinalize(destination) else { return Data() }
+        return data as Data
     }
 }
 #endif

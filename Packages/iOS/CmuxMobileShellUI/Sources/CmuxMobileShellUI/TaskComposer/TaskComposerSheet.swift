@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxAgentChatUI
 import CmuxMobilePairedMac
 import CmuxMobileRPC
 import CmuxMobileShell
@@ -42,6 +43,7 @@ struct TaskComposerSheet: View {
     @State var attachmentStagingTask: Task<Void, Never>?
     @State var attachmentStagingGeneration = UUID()
     @State var attachmentAlertMessage: String?
+    @State var didStartInjectedAttachmentPreparation = false
 
     let sessionGeneration: Int
     private let requestsInitialFocus: Bool
@@ -67,6 +69,7 @@ struct TaskComposerSheet: View {
         _ path: String,
         _ offset: Int
     ) async -> Result<MobileTaskDirectoryListResponse, MobileTaskDirectoryListFailure>)?
+    let attachmentPreparationProvider: MobileAttachmentPreparationProvider?
 
     /// Creates a task composer.
     ///
@@ -97,7 +100,8 @@ struct TaskComposerSheet: View {
             _ instanceTag: String?,
             _ path: String,
             _ offset: Int
-        ) async -> Result<MobileTaskDirectoryListResponse, MobileTaskDirectoryListFailure>)? = nil
+        ) async -> Result<MobileTaskDirectoryListResponse, MobileTaskDirectoryListFailure>)? = nil,
+        attachmentPreparationProvider: MobileAttachmentPreparationProvider? = nil
     ) {
         self.store = store
         _attachments = State(initialValue: initialAttachments)
@@ -114,6 +118,7 @@ struct TaskComposerSheet: View {
         }
         self.searchTaskDirectories = searchTaskDirectories
         self.listTaskDirectories = listTaskDirectories
+        self.attachmentPreparationProvider = attachmentPreparationProvider
         self.submitTaskComposer = submitTaskComposer ?? {
             macDeviceID,
             instanceTag,
@@ -294,9 +299,7 @@ struct TaskComposerSheet: View {
             .onDisappear {
                 // Parent-driven dismissal must cancel result application.
                 submitTask?.cancel()
-                attachmentStagingTask?.cancel()
-                attachmentStagingGeneration = UUID()
-                attachmentStagingTask = nil
+                cancelAttachmentPreparation()
                 removeStagedAttachmentFiles()
                 if shouldPersistDraftOnDisappear {
                     persistDraft()
@@ -308,6 +311,9 @@ struct TaskComposerSheet: View {
             }
             .onChange(of: machines.map(\.id)) { _, _ in
                 validateMacSelection()
+            }
+            .onAppear {
+                startInjectedAttachmentPreparationIfNeeded()
             }
             .task(id: modelRefreshID) {
                 guard let provider = modelRefreshID.provider,
@@ -389,6 +395,7 @@ struct TaskComposerSheet: View {
                         editTemplates: presentTemplateEditor,
                         chooseAttachmentPhotos: presentAttachmentPhotoPicker,
                         chooseAttachmentFiles: presentAttachmentFileImporter,
+                        cancelAttachmentPreparation: cancelAttachmentPreparation,
                         removeAttachment: removeAttachment
                     )
 
@@ -487,6 +494,7 @@ struct TaskComposerSheet: View {
             requestStartAgain: { isStartAgainConfirmationPresented = true },
             chooseAttachmentPhotos: presentAttachmentPhotoPicker,
             chooseAttachmentFiles: presentAttachmentFileImporter,
+            cancelAttachmentPreparation: cancelAttachmentPreparation,
             removeAttachment: removeAttachment
         )
     }

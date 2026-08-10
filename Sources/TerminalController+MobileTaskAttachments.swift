@@ -3,6 +3,53 @@ import CmuxTerminal
 import Foundation
 
 extension TerminalController {
+    static var mobileAttachmentInvalidUploadParametersMessage: String {
+        String(
+            localized: "mobile.attachment.host.invalidUploadParameters",
+            defaultValue: "Missing or invalid attachment upload parameters"
+        )
+    }
+
+    static var mobileAttachmentInvalidIdentityMessage: String {
+        String(
+            localized: "mobile.attachment.host.invalidIdentity",
+            defaultValue: "The attachment identity is missing or invalid."
+        )
+    }
+
+    static var mobileAttachmentInvalidRequestMessage: String {
+        String(
+            localized: "mobile.attachment.host.invalidRequest",
+            defaultValue: "The attachment request is invalid."
+        )
+    }
+
+    static var mobileAttachmentStorageFailedMessage: String {
+        String(
+            localized: "mobile.attachment.host.storageFailed",
+            defaultValue: "The attachment couldn’t be stored."
+        )
+    }
+
+    static var mobileAttachmentUnavailableMessage: String {
+        String(
+            localized: "mobile.attachment.host.unavailable",
+            defaultValue: "The attachment is unavailable."
+        )
+    }
+
+    static func mobileAttachmentStoreProtocolError(
+        _ error: MobileTaskAttachmentStoreError
+    ) -> V2CallResult {
+        .err(
+            code: error.code,
+            message: error.code == "internal_error"
+                ? mobileAttachmentStorageFailedMessage
+                : mobileAttachmentInvalidRequestMessage,
+            data: nil
+        )
+    }
+
     /// Creates the shared-policy attachment store used by every mobile route.
     func mobileTaskAttachmentStore() -> MobileTaskAttachmentStore {
         MobileTaskAttachmentStore(
@@ -27,7 +74,7 @@ extension TerminalController {
               let isLast = params["last"] as? Bool else {
             return .err(
                 code: "invalid_params",
-                message: "Missing or invalid attachment upload parameters",
+                message: Self.mobileAttachmentInvalidUploadParametersMessage,
                 data: nil
             )
         }
@@ -50,11 +97,11 @@ extension TerminalController {
             }
             return .ok(payload)
         } catch let error as MobileTaskAttachmentStoreError {
-            return .err(code: error.code, message: error.message, data: nil)
+            return Self.mobileAttachmentStoreProtocolError(error)
         } catch {
             return .err(
                 code: "internal_error",
-                message: "Could not store task attachment",
+                message: Self.mobileAttachmentStorageFailedMessage,
                 data: nil
             )
         }
@@ -68,7 +115,7 @@ extension TerminalController {
               let uploadID = UUID(uuidString: uploadIDString) else {
             return .err(
                 code: "invalid_params",
-                message: "Missing or invalid staged attachment identity",
+                message: Self.mobileAttachmentInvalidIdentityMessage,
                 data: nil
             )
         }
@@ -87,9 +134,13 @@ extension TerminalController {
                 uploadID: uploadID
             )
         } catch let error as MobileTaskAttachmentStoreError {
-            return .err(code: error.code, message: error.message, data: nil)
+            return Self.mobileAttachmentStoreProtocolError(error)
         } catch {
-            return .err(code: "invalid_params", message: "Attachment is unavailable", data: nil)
+            return .err(
+                code: "invalid_params",
+                message: Self.mobileAttachmentUnavailableMessage,
+                data: nil
+            )
         }
         _ = applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
         let result = terminalPanel.surface.sendInputResult(fileURL.path.terminalShellEscaped)

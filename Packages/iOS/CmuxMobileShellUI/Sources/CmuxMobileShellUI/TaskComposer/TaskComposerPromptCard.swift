@@ -25,6 +25,7 @@ struct TaskComposerPromptCard: View {
     let editTemplates: () -> Void
     let chooseAttachmentPhotos: () -> Void
     let chooseAttachmentFiles: () -> Void
+    let cancelAttachmentPreparation: () -> Void
     let removeAttachment: (UUID) -> Void
 
     @FocusState private var isFocused: Bool
@@ -74,6 +75,7 @@ struct TaskComposerPromptCard: View {
                     attachments: attachments,
                     isDisabled: isDisabled,
                     isPreparing: isPreparingAttachments,
+                    onCancelPreparing: cancelAttachmentPreparation,
                     onPreviewDismiss: { isFocused = true },
                     remove: removeAttachment
                 )
@@ -106,6 +108,7 @@ struct TaskComposerPromptCard: View {
                 TaskComposerAttachmentPickerMenu(
                     style: .paperclip,
                     isDisabled: isDisabled
+                        || isPreparingAttachments
                         || attachments.count >= TaskComposerAttachment.maximumCount,
                     choosePhotos: chooseAttachmentPhotos,
                     chooseFiles: chooseAttachmentFiles

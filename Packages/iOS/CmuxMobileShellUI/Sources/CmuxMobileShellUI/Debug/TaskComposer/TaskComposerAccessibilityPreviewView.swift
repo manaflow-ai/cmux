@@ -27,6 +27,7 @@ public struct TaskComposerAccessibilityPreviewView: View {
     private let holdsSubmissionInPreparation: Bool
     private let attachmentFixtures: [TaskComposerAttachment]
     private let requestsInitialFocus: Bool
+    @State private var attachmentPreparationFixture: MobileAttachmentPreparationAccessibilityFixture?
     @State private var directoryPaginationRecoveryPreview: TaskComposerDirectoryPaginationRecoveryPreview?
 
     /// Creates the preview with isolated, in-memory task state so repeated UI
@@ -104,11 +105,22 @@ public struct TaskComposerAccessibilityPreviewView: View {
             "CMUX_UITEST_TASK_COMPOSER_HOLD_PREPARATION"
         ] == "1"
         let attachmentFixtures = MobileAttachmentAccessibilityFixtures()
-        if environment["CMUX_UITEST_TASK_COMPOSER_MAX_ATTACHMENTS"] == "1" {
+        let preparesAttachment = environment[
+            "CMUX_UITEST_TASK_COMPOSER_PREPARING_ATTACHMENTS"
+        ] == "1"
+        let preparationFixture = preparesAttachment
+            ? MobileAttachmentPreparationAccessibilityFixture(
+                attachment: attachmentFixtures.delayedResult()
+            )
+            : nil
+        _attachmentPreparationFixture = State(initialValue: preparationFixture)
+        if environment["CMUX_UITEST_TASK_COMPOSER_ORIENTED_ATTACHMENT"] == "1" {
+            self.attachmentFixtures = [attachmentFixtures.orientedLargeImage()]
+        } else if environment["CMUX_UITEST_TASK_COMPOSER_MAX_ATTACHMENTS"] == "1" {
             self.attachmentFixtures = attachmentFixtures.maximumCount()
         } else if environment["CMUX_UITEST_TASK_COMPOSER_ATTACHMENT_EDGE_CASES"] == "1" {
             self.attachmentFixtures = attachmentFixtures.edgeCases()
-        } else if environment["CMUX_UITEST_TASK_COMPOSER_ATTACHMENTS"] == "1" {
+        } else if environment["CMUX_UITEST_TASK_COMPOSER_ATTACHMENTS"] == "1" || preparesAttachment {
             self.attachmentFixtures = attachmentFixtures.basic()
         } else {
             self.attachmentFixtures = []
@@ -202,6 +214,9 @@ public struct TaskComposerAccessibilityPreviewView: View {
                         },
                         listTaskDirectories: { _, _, path, offset in
                             await listDirectoriesForPreview(path, offset)
+                        },
+                        attachmentPreparationProvider: attachmentPreparationFixture.map { fixture in
+                            { await fixture.prepare() }
                         }
                     )
                     .overlay(alignment: .top) {
@@ -224,7 +239,13 @@ public struct TaskComposerAccessibilityPreviewView: View {
                         }
                     }
                     .overlay(alignment: .topTrailing) {
-                        if !attachmentFixtures.isEmpty {
+                        VStack(spacing: 4) {
+                            if let attachmentPreparationFixture {
+                                MobileAttachmentPreparationAccessibilityControls(
+                                    fixture: attachmentPreparationFixture
+                                )
+                            }
+                            if !attachmentFixtures.isEmpty {
                             Button {
                                 displaySettings.taskComposerLayoutStyle =
                                     displaySettings.taskComposerLayoutStyle == .classic
@@ -238,8 +259,9 @@ public struct TaskComposerAccessibilityPreviewView: View {
                             .accessibilityLabel(displaySettings.taskComposerLayoutStyle.title)
                             .accessibilityValue(displaySettings.taskComposerLayoutStyle.rawValue)
                             .accessibilityIdentifier("MobileTaskComposerToggleLayoutFixture")
-                            .padding(.trailing, 8)
+                            }
                         }
+                        .padding(.trailing, 8)
                     }
                 }
             }

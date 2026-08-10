@@ -19,6 +19,7 @@ public struct ChatComposerView: View {
     private let onSend: (String, [ChatOutboundAttachment]) -> Void
     private let onInterrupt: (Bool) -> Void
     private let onOpenTerminal: () -> Void
+    private let attachmentPreparationProvider: MobileAttachmentPreparationProvider?
 
     @Binding private var draft: String
     @State private var lastStopTap: Date?
@@ -34,6 +35,7 @@ public struct ChatComposerView: View {
     @State private var attachmentError: String?
     @State private var attachmentStagingTask: Task<Void, Never>?
     @State private var attachmentStagingGeneration = UUID()
+    @State private var didStartInjectedAttachmentPreparation = false
     @State private var dictation = ComposerDictationController()
     #if DEBUG
     @Environment(\.mobileAttachmentAccessibilityFixtures) private var accessibilityAttachmentFixtures
@@ -60,6 +62,7 @@ public struct ChatComposerView: View {
         draft: Binding<String>,
         onSend: @escaping (String, [ChatOutboundAttachment]) -> Void,
         onInterrupt: @escaping (Bool) -> Void,
+        attachmentPreparationProvider: MobileAttachmentPreparationProvider? = nil,
         onOpenTerminal: @escaping () -> Void
     ) {
         self.agentState = agentState
@@ -71,6 +74,7 @@ public struct ChatComposerView: View {
         _draft = draft
         self.onSend = onSend
         self.onInterrupt = onInterrupt
+        self.attachmentPreparationProvider = attachmentPreparationProvider
         self.onOpenTerminal = onOpenTerminal
     }
 
@@ -88,12 +92,10 @@ public struct ChatComposerView: View {
             .background(ChatComposerDebugAutofocusBridge())
             .onAppear { seedAccessibilityAttachmentFixturesIfNeeded() }
             #endif
+            .onAppear { startInjectedAttachmentPreparationIfNeeded() }
             .onDisappear {
                 dictation.cancel()
-                attachmentStagingTask?.cancel()
-                attachmentStagingTask = nil
-                attachmentStagingGeneration = UUID()
-                isStagingAttachments = false
+                cancelAttachmentPreparation()
                 removeUnsentAttachments()
             }
             .onChange(of: isDraftFocused) { _, focused in
@@ -511,6 +513,7 @@ public struct ChatComposerView: View {
             attachments: attachments,
             isDisabled: false,
             isPreparing: isStagingAttachments,
+            onCancelPreparing: cancelAttachmentPreparation,
             onPreviewDismiss: { isDraftFocused = true },
             remove: removeAttachment
         )
@@ -561,6 +564,32 @@ public struct ChatComposerView: View {
         }
     }
 
+    private func startInjectedAttachmentPreparationIfNeeded() {
+        guard !didStartInjectedAttachmentPreparation,
+              let attachmentPreparationProvider else { return }
+        didStartInjectedAttachmentPreparation = true
+        startAttachmentStaging { generation in
+            let attachment = await attachmentPreparationProvider()
+            guard let attachment else { return }
+            guard !Task.isCancelled,
+                  attachmentStagingGeneration == generation else {
+                try? FileManager.default.removeItem(at: attachment.localFileURL)
+                return
+            }
+            appendStagedAttachment(attachment)
+        }
+    }
+
+    private func cancelAttachmentPreparation() {
+        attachmentStagingGeneration = UUID()
+        attachmentStagingTask?.cancel()
+        attachmentStagingTask = nil
+        isStagingAttachments = false
+        pickedItems = []
+        isPhotoPickerPresented = false
+        isFileImporterPresented = false
+    }
+
     private func loadPickedItems(_ items: [PhotosPickerItem], generation: UUID) async {
         for item in items.prefix(MobileStagedAttachment.maximumCount - attachments.count) {
             guard !Task.isCancelled, attachmentStagingGeneration == generation else { return }
@@ -580,7 +609,8 @@ public struct ChatComposerView: View {
             } catch is CancellationError {
                 return
             } catch {
-                guard attachmentStagingGeneration == generation else { return }
+                guard !Task.isCancelled,
+                      attachmentStagingGeneration == generation else { return }
                 attachmentError = attachmentErrorMessage(error)
             }
         }
@@ -588,6 +618,8 @@ public struct ChatComposerView: View {
 
     private func loadPickedFiles(_ result: Result<[URL], any Error>, generation: UUID) async {
         guard case let .success(urls) = result else {
+            guard !Task.isCancelled,
+                  attachmentStagingGeneration == generation else { return }
             attachmentError = attachmentErrorMessage(nil)
             return
         }
@@ -607,7 +639,8 @@ public struct ChatComposerView: View {
             } catch is CancellationError {
                 return
             } catch {
-                guard attachmentStagingGeneration == generation else { return }
+                guard !Task.isCancelled,
+                      attachmentStagingGeneration == generation else { return }
                 attachmentError = attachmentErrorMessage(error)
             }
         }

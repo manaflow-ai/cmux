@@ -80,6 +80,7 @@ public final class ChatConversationStore {
     @ObservationIgnored private let pageSize: Int
     @ObservationIgnored private let maxWindowCount: Int
     @ObservationIgnored private let now: @Sendable () -> Date
+    @ObservationIgnored private let releaseStagedFileURLs: ([URL]) -> Void
     @ObservationIgnored private var pendingCounter = 0
     @ObservationIgnored private var isFlushingQueue = false
     @ObservationIgnored private var endedByUnversionedRemoval = false
@@ -103,6 +104,8 @@ public final class ChatConversationStore {
     ///   - maxWindowCount: Cap on the in-memory message window; older
     ///     messages fall out and become pageable history again.
     ///   - now: Clock seam for tests; defaults to the wall clock.
+    ///   - releaseStagedFileURLs: Releases app-owned files after their final
+    ///     pending owner leaves the store.
     public init(
         descriptor: ChatSessionDescriptor,
         source: any ChatEventSource,
@@ -112,7 +115,12 @@ public final class ChatConversationStore {
         pageSize: Int = 100,
         maxWindowCount: Int = 600,
         now: @escaping @Sendable () -> Date = { Date() },
-        idleSleep: @escaping @Sendable (Duration) async -> Void = { try? await ContinuousClock().sleep(for: $0) }
+        idleSleep: @escaping @Sendable (Duration) async -> Void = { try? await ContinuousClock().sleep(for: $0) },
+        releaseStagedFileURLs: @escaping ([URL]) -> Void = { urls in
+            for url in urls {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
     ) {
         self.descriptor = descriptor
         self.agentState = descriptor.state
@@ -123,6 +131,7 @@ public final class ChatConversationStore {
         self.maxWindowCount = maxWindowCount
         self.now = now
         self.idleSleep = idleSleep
+        self.releaseStagedFileURLs = releaseStagedFileURLs
         self.lastReadSeqAtActivation = lastReadSeq
     }
 
@@ -681,6 +690,7 @@ public final class ChatConversationStore {
     private func reconcilePending(against newMessages: [ChatMessage], onReconciled: (ChatMessage) -> Void = { _ in }) {
         guard !pending.isEmpty else { return }
         var maxReconciledCounter: Int?
+        var removedPending: [ChatPendingOutbound] = []
         for message in newMessages where message.role == .user {
             let index: Int?
             switch message.kind {
@@ -743,7 +753,7 @@ public final class ChatConversationStore {
             }
             if let index {
                 let removed = pending.remove(at: index)
-                releaseStagedFiles(ownedBy: [removed])
+                removedPending.append(removed)
                 onReconciled(message)
                 if let counter = Self.pendingCounter(removed.id) {
                     maxReconciledCounter = max(maxReconciledCounter ?? counter, counter)
@@ -761,7 +771,7 @@ public final class ChatConversationStore {
         // so they keep their own reconcile lifecycle. Only `.delivered` rows
         // (RPC-confirmed) are swept; sending/queued/failed keep their state.
         if let maxReconciledCounter {
-            removePending { item in
+            let stale = pending.filter { item in
                 guard item.delivery == .delivered,
                       item.attachmentCount == 0,
                       !item.text.isEmpty,
@@ -769,7 +779,13 @@ public final class ChatConversationStore {
                       counter < maxReconciledCounter else { return false }
                 return true
             }
+            if !stale.isEmpty {
+                let staleIDs = Set(stale.map(\.id))
+                pending.removeAll { staleIDs.contains($0.id) }
+                removedPending.append(contentsOf: stale)
+            }
         }
+        releaseStagedFiles(ownedBy: removedPending)
     }
 
     /// Parses the monotonic counter from a pending row id (`local-<n>`), used
@@ -810,6 +826,7 @@ public final class ChatConversationStore {
     /// Failed pendings keep their retry row (`isReconcilable` is false).
     private func reconcileTerminalPending(against blocks: [TerminalCommandBlock]) {
         guard !pending.isEmpty else { return }
+        var removedPending: [ChatPendingOutbound] = []
         for block in blocks {
             let command = block.command.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !command.isEmpty else { continue }
@@ -818,9 +835,10 @@ public final class ChatConversationStore {
                     && $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == command
             }) {
                 let removed = pending.remove(at: index)
-                releaseStagedFiles(ownedBy: [removed])
+                removedPending.append(removed)
             }
         }
+        releaseStagedFiles(ownedBy: removedPending)
     }
 
     /// Removes matching rows and releases file-backed payloads no remaining
@@ -835,14 +853,20 @@ public final class ChatConversationStore {
     /// Releases staged payloads after their owning pending rows leave the store.
     /// A shared URL stays alive until its last pending owner is removed.
     private func releaseStagedFiles(ownedBy removed: [ChatPendingOutbound]) {
+        guard !removed.isEmpty else { return }
         let retainedURLs = Set(pending.flatMap { item in
             item.attachments.compactMap(\.localFileURL)
         })
-        let releasedURLs = Set(removed.flatMap { item in
-            item.attachments.compactMap(\.localFileURL)
-        })
-        for url in releasedURLs where !retainedURLs.contains(url) {
-            try? FileManager.default.removeItem(at: url)
+        var seen = Set<URL>()
+        var releasedURLs: [URL] = []
+        for item in removed {
+            for url in item.attachments.compactMap(\.localFileURL)
+            where !retainedURLs.contains(url) && seen.insert(url).inserted {
+                releasedURLs.append(url)
+            }
+        }
+        if !releasedURLs.isEmpty {
+            releaseStagedFileURLs(releasedURLs)
         }
     }
 

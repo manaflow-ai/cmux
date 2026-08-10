@@ -1,4 +1,5 @@
 public import CmuxAgentChat
+internal import CmuxMobileAttachmentTransfer
 public import CmuxMobileRPC
 public import Foundation
 

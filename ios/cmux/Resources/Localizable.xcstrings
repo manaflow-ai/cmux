@@ -1538,8 +1538,8 @@
     "mobile.attachment.error.terminalTotalSize": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Attachments in this terminal can use up to 32 MB in total." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "このターミナルの添付ファイルの合計サイズは32 MBまでです。" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Attachments in this terminal can use up to 64 MB in total." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このターミナルの添付ファイルの合計サイズは64 MBまでです。" } }
       }
     },
     "mobile.attachment.error.title": {
@@ -1547,6 +1547,20 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Couldn’t Add Attachment" } },
         "ja": { "stringUnit": { "state": "translated", "value": "添付ファイルを追加できませんでした" } }
+      }
+    },
+    "mobile.attachment.error.accountMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Sign in to the same cmux account on this device and Mac to send attachments." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "添付ファイルを送信するには、このデバイスとMacで同じcmuxアカウントにサインインしてください。" } }
+      }
+    },
+    "mobile.attachment.error.authorizationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Sign in again to send this attachment." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "この添付ファイルを送信するには、もう一度サインインしてください。" } }
       }
     },
     "mobile.attachment.error.transferFailed": {

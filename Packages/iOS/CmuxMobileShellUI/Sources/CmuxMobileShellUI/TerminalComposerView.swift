@@ -54,6 +54,7 @@ struct TerminalComposerView: View {
     let photoPickerWillPresent: () -> Void
     let photoPickerDidPresent: () -> Void
     let photoPickerDidDismiss: () -> Void
+    let attachmentPreparationProvider: MobileAttachmentPreparationProvider?
     @FocusState private var isFieldFocused: Bool
     /// Photo-picker selection bound to the system `PhotosPicker`. Cleared after
     /// each batch is staged so re-picking the same image fires again.
@@ -63,6 +64,7 @@ struct TerminalComposerView: View {
     @State private var isFileImporterPresented = false
     @State private var attachmentError: String?
     @State private var isStagingAttachments = false
+    @State private var didStartInjectedAttachmentPreparation = false
     /// The in-flight staging task for the current picker batch, if any. A new
     /// picker batch cancels the previous one so stale encode jobs do not pile up
     /// (and keep mutating the store) after the user re-picks or the view's
@@ -84,7 +86,8 @@ struct TerminalComposerView: View {
         inputFocusChanged: @escaping (Bool) -> Void,
         photoPickerWillPresent: @escaping () -> Void,
         photoPickerDidPresent: @escaping () -> Void,
-        photoPickerDidDismiss: @escaping () -> Void
+        photoPickerDidDismiss: @escaping () -> Void,
+        attachmentPreparationProvider: MobileAttachmentPreparationProvider? = nil
     ) {
         self.store = store
         self.terminalID = terminalID
@@ -94,6 +97,7 @@ struct TerminalComposerView: View {
         self.photoPickerWillPresent = photoPickerWillPresent
         self.photoPickerDidPresent = photoPickerDidPresent
         self.photoPickerDidDismiss = photoPickerDidDismiss
+        self.attachmentPreparationProvider = attachmentPreparationProvider
     }
 
     /// Single-line height of the round attach button beside the field. It stays
@@ -181,6 +185,7 @@ struct TerminalComposerView: View {
         }
         .onAppear {
             recordComposerEvent(.composerViewAppear)
+            startInjectedAttachmentPreparationIfNeeded()
             // Focus only when an explicit request preceded this mount (an
             // explicit open after a dismissal, or a terminal switch while the
             // user was mid-compose). A default-open presentation arrives with no
@@ -203,9 +208,7 @@ struct TerminalComposerView: View {
             // propagates into the decode and stops fanning out temp files for a
             // composer the user has already left. Without this, a switch right
             // after a big pick leaves the encode running unobserved.
-            stagingTask.task?.cancel()
-            stagingTask.generation = UUID()
-            isStagingAttachments = false
+            cancelAttachmentPreparation()
             // Never leave the mic hot after the composer leaves the screen; the
             // user navigated away, so hard-cancel (losing the tail is fine).
             dictation.cancel()
@@ -215,9 +218,7 @@ struct TerminalComposerView: View {
             // a terminal switch (rather than recreating it), the `let terminalID`
             // changing must also cancel the prior terminal's in-flight batch so its
             // encode does not stage onto, or burn CPU for, the new terminal.
-            stagingTask.task?.cancel()
-            stagingTask.generation = UUID()
-            isStagingAttachments = false
+            cancelAttachmentPreparation()
             // A terminal switch must stop dictation so the live transcript does not
             // bleed into the incoming terminal's draft. Hard-cancel, not finalize.
             dictation.cancel()
@@ -320,7 +321,9 @@ struct TerminalComposerView: View {
             HStack(alignment: .bottom, spacing: 8) {
                 MobileAttachmentPickerButton(
                     style: .circularPlus,
-                    isDisabled: isSending || pendingAttachments.count >= Self.maxAttachmentCount,
+                    isDisabled: isSending
+                        || isStagingAttachments
+                        || pendingAttachments.count >= Self.maxAttachmentCount,
                     choosePhotos: { presentPhotoPicker() },
                     chooseFiles: {
                         photoPickerWillPresent()
@@ -544,6 +547,7 @@ struct TerminalComposerView: View {
             },
             isDisabled: isSending,
             isPreparing: isStagingAttachments,
+            onCancelPreparing: cancelAttachmentPreparation,
             onPreviewDismiss: {
                 requestInputFocus()
                 isFieldFocused = true
@@ -715,6 +719,50 @@ struct TerminalComposerView: View {
         }
     }
 
+    private func startInjectedAttachmentPreparationIfNeeded() {
+        guard !didStartInjectedAttachmentPreparation,
+              let attachmentPreparationProvider else { return }
+        didStartInjectedAttachmentPreparation = true
+        stagingTask.task?.cancel()
+        let stagingGeneration = UUID()
+        let sessionGeneration = store.currentSessionGeneration
+        stagingTask.generation = stagingGeneration
+        isStagingAttachments = true
+        stagingTask.task = Task { @MainActor in
+            let attachment = await attachmentPreparationProvider()
+            guard let attachment else {
+                if stagingTask.generation == stagingGeneration {
+                    isStagingAttachments = false
+                    stagingTask.task = nil
+                }
+                return
+            }
+            guard !Task.isCancelled,
+                  stagingTask.generation == stagingGeneration,
+                  sessionGeneration == store.currentSessionGeneration else {
+                try? FileManager.default.removeItem(at: attachment.localFileURL)
+                return
+            }
+            admitStagedAttachment(attachment)
+            if stagingTask.generation == stagingGeneration {
+                isStagingAttachments = false
+                stagingTask.task = nil
+            }
+            requestHeightRemeasure()
+        }
+    }
+
+    private func cancelAttachmentPreparation() {
+        stagingTask.generation = UUID()
+        stagingTask.task?.cancel()
+        stagingTask.task = nil
+        isStagingAttachments = false
+        pickerSelection = []
+        isPickerPresented = false
+        isFileImporterPresented = false
+        requestHeightRemeasure()
+    }
+
     private func attachmentStagingErrorMessage(_ error: any Error) -> String {
         if case MobileAttachmentStager.StagingError.fileTooLarge = error {
             return L10n.string(
@@ -763,7 +811,7 @@ struct TerminalComposerView: View {
         case .perTerminalTotalBytesLimit:
             return L10n.string(
                 "mobile.attachment.error.terminalTotalSize",
-                defaultValue: "Attachments in this terminal can use up to 32 MB in total."
+                defaultValue: "Attachments in this terminal can use up to 64 MB in total."
             )
         case .globalCapacity:
             return L10n.string(

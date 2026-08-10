@@ -294,7 +294,11 @@ extension TerminalController {
                       Data(base64Encoded: base64) != nil {
                 continue
             } else {
-                return .err(code: "invalid_params", message: "Attachment identity is missing", data: nil)
+                return .err(
+                    code: "invalid_params",
+                    message: Self.mobileAttachmentInvalidIdentityMessage,
+                    data: nil
+                )
             }
         }
         let stagedURLs: [URL]
@@ -303,9 +307,13 @@ extension TerminalController {
                 references: stagedReferences
             )
         } catch let error as MobileTaskAttachmentStoreError {
-            return .err(code: error.code, message: error.message, data: nil)
+            return Self.mobileAttachmentStoreProtocolError(error)
         } catch {
-            return .err(code: "invalid_params", message: "Attachment is unavailable", data: nil)
+            return .err(
+                code: "invalid_params",
+                message: Self.mobileAttachmentUnavailableMessage,
+                data: nil
+            )
         }
         let stagedURLByIndex = Dictionary(uniqueKeysWithValues: zip(stagedIndexes, stagedURLs))
         let clearResult = clearAgentPrompt(terminalPanel)
@@ -334,7 +342,11 @@ extension TerminalController {
                 imageParams["image_format"] = (attachment["format"] as? String) ?? "png"
                 result = v2MobileTerminalPasteImage(params: imageParams)
             } else {
-                return .err(code: "invalid_params", message: "Attachment identity is missing", data: nil)
+                return .err(
+                    code: "invalid_params",
+                    message: Self.mobileAttachmentInvalidIdentityMessage,
+                    data: nil
+                )
             }
             if case .err = result {
                 return result

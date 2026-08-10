@@ -39,6 +39,7 @@ struct TaskComposerMinimalLayout: View {
     let requestStartAgain: () -> Void
     let chooseAttachmentPhotos: () -> Void
     let chooseAttachmentFiles: () -> Void
+    let cancelAttachmentPreparation: () -> Void
     let removeAttachment: (UUID) -> Void
 
     @State private var isPromptFocused = false
@@ -122,6 +123,7 @@ struct TaskComposerMinimalLayout: View {
                     attachments: attachments,
                     isDisabled: isDisabled,
                     isPreparing: isPreparingAttachments,
+                    onCancelPreparing: cancelAttachmentPreparation,
                     onPreviewDismiss: { isPromptFocused = true },
                     remove: removeAttachment
                 )
@@ -133,6 +135,7 @@ struct TaskComposerMinimalLayout: View {
                     TaskComposerAttachmentPickerMenu(
                         style: .circularPlus,
                         isDisabled: isDisabled
+                            || isPreparingAttachments
                             || attachments.count >= TaskComposerAttachment.maximumCount,
                         choosePhotos: chooseAttachmentPhotos,
                         chooseFiles: chooseAttachmentFiles

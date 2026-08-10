@@ -128,6 +128,7 @@ struct TerminalLayoutPreviewView: View {
 private struct TerminalAttachmentComposerAccessibilityHost: View {
     private static let terminalID = "attachment-fixture-terminal"
     @State private var store: CMUXMobileShellStore
+    @State private var attachmentPreparationFixture: MobileAttachmentPreparationAccessibilityFixture?
 
     init() {
         let terminal = MobileTerminalPreview(
@@ -159,6 +160,15 @@ private struct TerminalAttachmentComposerAccessibilityHost: View {
             store.addPendingAttachment(attachment, forTerminalID: Self.terminalID)
         }
         _store = State(initialValue: store)
+        _attachmentPreparationFixture = State(
+            initialValue: ProcessInfo.processInfo.environment[
+                "CMUX_UITEST_TERMINAL_PREPARING_ATTACHMENTS"
+            ] == "1"
+                ? MobileAttachmentPreparationAccessibilityFixture(
+                    attachment: attachmentFixtures.delayedResult()
+                )
+                : nil
+        )
     }
 
     var body: some View {
@@ -173,12 +183,23 @@ private struct TerminalAttachmentComposerAccessibilityHost: View {
                     inputFocusChanged: { _ in },
                     photoPickerWillPresent: {},
                     photoPickerDidPresent: {},
-                    photoPickerDidDismiss: {}
+                    photoPickerDidDismiss: {},
+                    attachmentPreparationProvider: attachmentPreparationFixture.map { fixture in
+                        { await fixture.prepare() }
+                    }
                 )
                 .frame(maxWidth: 560)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .navigationTitle("Attachment fixture")
+            .overlay(alignment: .topTrailing) {
+                if let attachmentPreparationFixture {
+                    MobileAttachmentPreparationAccessibilityControls(
+                        fixture: attachmentPreparationFixture
+                    )
+                    .padding(.trailing, 8)
+                }
+            }
         }
     }
 }

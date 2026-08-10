@@ -28,6 +28,7 @@ public struct ChatScreen: View {
     private let onOpenTerminal: () -> Void
     private let providesOwnChrome: Bool
     private let runsStoreTask: Bool
+    private let attachmentPreparationProvider: MobileAttachmentPreparationProvider?
 
     /// Creates the screen.
     ///
@@ -56,6 +57,7 @@ public struct ChatScreen: View {
         accessoryShortcuts: [ChatAccessoryShortcut] = [],
         providesOwnChrome: Bool = true,
         runsStoreTask: Bool = true,
+        attachmentPreparationProvider: MobileAttachmentPreparationProvider? = nil,
         onOpenTerminal: @escaping () -> Void
     ) {
         _store = State(initialValue: store)
@@ -64,6 +66,7 @@ public struct ChatScreen: View {
         self.accessoryShortcuts = accessoryShortcuts
         self.providesOwnChrome = providesOwnChrome
         self.runsStoreTask = runsStoreTask
+        self.attachmentPreparationProvider = attachmentPreparationProvider
         self.onOpenTerminal = onOpenTerminal
     }
 
@@ -221,6 +224,7 @@ public struct ChatScreen: View {
                 onInterrupt: { hard in
                     Task { await store.interrupt(hard: hard) }
                 },
+                attachmentPreparationProvider: attachmentPreparationProvider,
                 onOpenTerminal: onOpenTerminal
             )
             #if os(iOS)

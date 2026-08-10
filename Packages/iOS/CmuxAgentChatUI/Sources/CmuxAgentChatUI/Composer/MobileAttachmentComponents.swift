@@ -148,17 +148,20 @@ public struct MobileAttachmentCardStrip: View {
     private let isDisabled: Bool
     private let isPreparing: Bool
     private let progress: [UUID: Double]
+    private let onCancelPreparing: () -> Void
     private let remove: (UUID) -> Void
     private let onPreviewDismiss: () -> Void
     private let layout = MobileAttachmentCardLayout.referenceAligned
-    @State private var preview: MobileStagedAttachment?
-    @ScaledMetric(relativeTo: .body) private var cardSide: CGFloat = MobileAttachmentCardLayout.referenceAligned.side
+    @State private var customPreview: MobileStagedAttachment?
+    @State private var quickLookURL: URL?
+    @State private var quickLookDirectoryURL: URL?
 
     public init(
         attachments: [MobileStagedAttachment],
         isDisabled: Bool,
         isPreparing: Bool = false,
         progress: [UUID: Double] = [:],
+        onCancelPreparing: @escaping () -> Void = {},
         onPreviewDismiss: @escaping () -> Void = {},
         remove: @escaping (UUID) -> Void
     ) {
@@ -166,6 +169,7 @@ public struct MobileAttachmentCardStrip: View {
         self.isDisabled = isDisabled
         self.isPreparing = isPreparing
         self.progress = progress
+        self.onCancelPreparing = onCancelPreparing
         self.onPreviewDismiss = onPreviewDismiss
         self.remove = remove
     }
@@ -178,30 +182,53 @@ public struct MobileAttachmentCardStrip: View {
                 }
                 if isPreparing {
                     HStack(spacing: 8) {
-                        ProgressView()
-                        Text(String.mobileAttachmentLocalized("mobile.attachment.preparing", "Preparing…"))
-                            .font(.subheadline)
+                        HStack(spacing: 8) {
+                            ProgressView()
+                            Text(String.mobileAttachmentLocalized("mobile.attachment.preparing", "Preparing…"))
+                                .font(.subheadline)
+                        }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel(String.mobileAttachmentLocalized("mobile.attachment.preparing", "Preparing…"))
+                        .accessibilityIdentifier("MobileAttachmentPreparing")
+
+                        Button(action: onCancelPreparing) {
+                            Text(String.mobileAttachmentLocalized("mobile.attachment.cancel", "Cancel"))
+                                .font(.subheadline.weight(.semibold))
+                                .frame(minWidth: 44, minHeight: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("MobileAttachmentCancelPreparing")
                     }
-                    .padding(12)
+                    .padding(.leading, 12)
+                    .padding(.trailing, 6)
+                    .padding(.vertical, 6)
                     .background(Color.primary.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel(String.mobileAttachmentLocalized("mobile.attachment.preparing", "Preparing…"))
-                    .accessibilityIdentifier("MobileAttachmentPreparing")
                 }
             }
             .padding(.vertical, 6)
             .padding(.horizontal, 2)
         }
         .scrollIndicators(.hidden)
-        .sheet(item: $preview, onDismiss: onPreviewDismiss) {
+        .sheet(item: $customPreview, onDismiss: onPreviewDismiss) {
             MobileAttachmentPreview(attachment: $0)
+        }
+        .quickLookPreview($quickLookURL)
+        .onChange(of: quickLookURL) { oldValue, newValue in
+            if oldValue != nil, newValue == nil {
+                removeQuickLookPresentationDirectory()
+                onPreviewDismiss()
+            }
+        }
+        .onDisappear {
+            removeQuickLookPresentationDirectory()
         }
         .accessibilityIdentifier("MobileAttachmentCardStrip")
     }
 
     private func card(_ attachment: MobileStagedAttachment, index: Int) -> some View {
         ZStack(alignment: .topTrailing) {
-            Button { preview = attachment } label: {
+            Button { presentPreview(for: attachment) } label: {
                 Group {
                     if attachment.kind == .image {
                         imageCard(attachment)
@@ -248,6 +275,63 @@ public struct MobileAttachmentCardStrip: View {
         }
     }
 
+    private func presentPreview(for attachment: MobileStagedAttachment) {
+        if attachment.kind == .file,
+           attachment.byteCount > 0,
+           QLPreviewController.canPreview(attachment.localFileURL as NSURL) {
+            if let presentation = makeQuickLookPresentation(for: attachment) {
+                quickLookDirectoryURL = presentation.directory
+                quickLookURL = presentation.url
+            } else {
+                quickLookURL = attachment.localFileURL
+            }
+        } else {
+            customPreview = attachment
+        }
+    }
+
+    private func makeQuickLookPresentation(
+        for attachment: MobileStagedAttachment
+    ) -> (directory: URL, url: URL)? {
+        removeQuickLookPresentationDirectory()
+        let rawBasename = URL(fileURLWithPath: attachment.fileName).lastPathComponent
+        guard !rawBasename.isEmpty, rawBasename != ".", rawBasename != ".." else {
+            return nil
+        }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-attachment-preview-\(UUID())",
+            isDirectory: true
+        )
+        let presentedURL = directory.appendingPathComponent(rawBasename, isDirectory: false)
+        do {
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: false
+            )
+            do {
+                try FileManager.default.linkItem(
+                    at: attachment.localFileURL,
+                    to: presentedURL
+                )
+            } catch {
+                try FileManager.default.createSymbolicLink(
+                    at: presentedURL,
+                    withDestinationURL: attachment.localFileURL
+                )
+            }
+            return (directory, presentedURL)
+        } catch {
+            try? FileManager.default.removeItem(at: directory)
+            return nil
+        }
+    }
+
+    private func removeQuickLookPresentationDirectory() {
+        guard let quickLookDirectoryURL else { return }
+        self.quickLookDirectoryURL = nil
+        try? FileManager.default.removeItem(at: quickLookDirectoryURL)
+    }
+
     @ViewBuilder
     private func imageCard(_ attachment: MobileStagedAttachment) -> some View {
         Group {
@@ -262,7 +346,7 @@ public struct MobileAttachmentCardStrip: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .frame(width: cardSide, height: cardSide)
+        .frame(width: layout.side, height: layout.side)
         .background(Color.primary.opacity(0.07))
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
@@ -294,7 +378,8 @@ public struct MobileAttachmentCardStrip: View {
                 .lineLimit(1)
         }
         .padding(10)
-        .frame(width: cardSide, height: cardSide, alignment: .topLeading)
+        .frame(width: layout.side, height: layout.side, alignment: .topLeading)
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .background(Color.primary.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
     }
 
@@ -317,8 +402,6 @@ private struct MobileAttachmentPreview: View {
             Group {
                 if attachment.kind == .image {
                     MobileImageAttachmentPreview(attachment: attachment)
-                } else if QLPreviewController.canPreview(attachment.localFileURL as NSURL) {
-                    QuickLookPreview(url: attachment.localFileURL)
                 } else {
                     ContentUnavailableView(
                         String.mobileAttachmentLocalized("mobile.attachment.preview.unsupported.title", "Preview Unavailable"),
@@ -362,7 +445,7 @@ private struct MobileAttachmentDecodedImage: View {
         }
         .task(id: id) {
             let decoded = await Task.detached(priority: .userInitiated) {
-                MobileAttachmentImageDecoder.decode(data: data)
+                MobileAttachmentImageDecoder().decode(data: data, maxPixelSize: 512)
             }.value
             guard !Task.isCancelled else { return }
             image = decoded
@@ -401,54 +484,26 @@ private struct MobileImageAttachmentPreview: View {
         .task(id: attachment.id) {
             let url = attachment.localFileURL
             let decoded = await Task.detached(priority: .userInitiated) {
-                MobileAttachmentImageDecoder.decode(url: url)
+                MobileAttachmentImageDecoder().decode(
+                    url: url,
+                    maxPixelSize: MobileAttachmentImageDecoder.fullPreviewMaxPixelSize
+                )
             }.value
             guard !Task.isCancelled else { return }
             image = decoded
             didFail = decoded == nil
         }
-    }
-}
-
-private enum MobileAttachmentImageDecoder {
-    static func decode(url: URL) -> CGImage? {
-        guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {
-            return nil
+        #if DEBUG
+        .overlay(alignment: .topLeading) {
+            if let image {
+                Text(verbatim: "\(image.width)x\(image.height)")
+                    .font(.caption2)
+                    .opacity(0.01)
+                    .accessibilityLabel("\(image.width)x\(image.height)")
+                    .accessibilityIdentifier("MobileAttachmentPreviewDecodedPixelSize")
+            }
         }
-        return decode(data: data)
-    }
-
-    static func decode(data: Data) -> CGImage? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
-            return nil
-        }
-        return CGImageSourceCreateImageAtIndex(
-            source,
-            0,
-            [kCGImageSourceShouldCacheImmediately: true] as CFDictionary
-        )
-    }
-}
-
-private struct QuickLookPreview: UIViewControllerRepresentable {
-    let url: URL
-    func makeCoordinator() -> Coordinator { Coordinator(url: url) }
-    func makeUIViewController(context: Context) -> QLPreviewController {
-        let controller = QLPreviewController()
-        controller.dataSource = context.coordinator
-        return controller
-    }
-    func updateUIViewController(_ controller: QLPreviewController, context: Context) {
-        context.coordinator.url = url
-        controller.reloadData()
-    }
-    final class Coordinator: NSObject, QLPreviewControllerDataSource {
-        var url: URL
-        init(url: URL) { self.url = url }
-        func numberOfPreviewItems(in controller: QLPreviewController) -> Int { 1 }
-        func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> any QLPreviewItem {
-            url as NSURL
-        }
+        #endif
     }
 }
 

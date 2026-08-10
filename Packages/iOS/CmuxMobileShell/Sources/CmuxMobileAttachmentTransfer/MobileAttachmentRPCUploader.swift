@@ -1,22 +1,22 @@
-internal import CmuxMobileRPC
-internal import Foundation
+package import CmuxMobileRPC
+package import Foundation
 
 /// Streams one app-owned file to the host's validated attachment store.
-actor MobileAttachmentRPCUploader {
-    struct Receipt: Sendable, Equatable {
-        let operationID: UUID
-        let uploadID: UUID
-        let hostPath: String
+package actor MobileAttachmentRPCUploader {
+    package struct Receipt: Sendable, Equatable {
+        package let operationID: UUID
+        package let uploadID: UUID
+        package let hostPath: String
     }
 
     private static let chunkByteCount = 3 * 1024 * 1024
     private let client: MobileCoreRPCClient
 
-    init(client: MobileCoreRPCClient) {
+    package init(client: MobileCoreRPCClient) {
         self.client = client
     }
 
-    func upload(
+    package func upload(
         fileURL: URL,
         byteCount: Int,
         fileName: String,

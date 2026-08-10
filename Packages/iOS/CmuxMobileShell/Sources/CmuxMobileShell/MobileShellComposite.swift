@@ -1,5 +1,6 @@
 public import CMUXMobileCore
 public import CmuxAgentChat
+internal import CmuxMobileAttachmentTransfer
 internal import CmuxMobileDiagnostics
 public import CmuxMobileBrowserStream
 public import CmuxMobilePairedMac
@@ -744,7 +745,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Enforced in the same atomic add path as the count cap so a run of large
     /// photos (or two racing batches) cannot balloon observable state past the
     /// budget regardless of the count.
-    public nonisolated static let maxPendingAttachmentTotalBytes = 32 * 1024 * 1024
+    public nonisolated static let maxPendingAttachmentTotalBytes = 64 * 1024 * 1024
     /// Per-image encoded-bytes cap. An add whose single image exceeds this is
     /// rejected outright (the view bounds the encode below this, but the store
     /// re-enforces it as the single source of truth).

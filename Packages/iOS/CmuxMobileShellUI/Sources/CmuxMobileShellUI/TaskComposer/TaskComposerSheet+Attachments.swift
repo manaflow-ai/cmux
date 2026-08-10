@@ -24,7 +24,8 @@ extension TaskComposerSheet {
     }
 
     func presentAttachmentPhotoPicker() {
-        guard remainingAttachmentCount > 0 else {
+        guard attachmentStagingTask == nil, remainingAttachmentCount > 0 else {
+            if attachmentStagingTask != nil { return }
             attachmentAlertMessage = Self.attachmentCountFailureMessage
             return
         }
@@ -32,7 +33,8 @@ extension TaskComposerSheet {
     }
 
     func presentAttachmentFileImporter() {
-        guard remainingAttachmentCount > 0 else {
+        guard attachmentStagingTask == nil, remainingAttachmentCount > 0 else {
+            if attachmentStagingTask != nil { return }
             attachmentAlertMessage = Self.attachmentCountFailureMessage
             return
         }
@@ -49,8 +51,8 @@ extension TaskComposerSheet {
         attachmentStagingGeneration = generation
         attachmentStagingTask = Task { @MainActor in
             defer {
-                attachmentPhotoSelection = []
                 if attachmentStagingGeneration == generation {
+                    attachmentPhotoSelection = []
                     attachmentStagingTask = nil
                 }
             }
@@ -82,6 +84,8 @@ extension TaskComposerSheet {
                 } catch is CancellationError {
                     return
                 } catch {
+                    guard !Task.isCancelled,
+                          attachmentStagingGeneration == generation else { return }
                     attachmentAlertMessage = Self.attachmentStagingFailureMessage(
                         error
                     )
@@ -129,12 +133,50 @@ extension TaskComposerSheet {
                 } catch is CancellationError {
                     return
                 } catch {
+                    guard !Task.isCancelled,
+                          attachmentStagingGeneration == generation else { return }
                     attachmentAlertMessage = Self.attachmentStagingFailureMessage(
                         error
                     )
                 }
             }
         }
+    }
+
+    func startInjectedAttachmentPreparationIfNeeded() {
+        guard !didStartInjectedAttachmentPreparation,
+              let attachmentPreparationProvider else { return }
+        didStartInjectedAttachmentPreparation = true
+        attachmentStagingTask?.cancel()
+        let generation = UUID()
+        attachmentStagingGeneration = generation
+        attachmentStagingTask = Task { @MainActor in
+            let attachment = await attachmentPreparationProvider()
+            guard let attachment else {
+                if attachmentStagingGeneration == generation {
+                    attachmentStagingTask = nil
+                }
+                return
+            }
+            guard !Task.isCancelled,
+                  attachmentStagingGeneration == generation else {
+                try? FileManager.default.removeItem(at: attachment.localStagedFileURL)
+                return
+            }
+            appendAttachment(attachment)
+            if attachmentStagingGeneration == generation {
+                attachmentStagingTask = nil
+            }
+        }
+    }
+
+    func cancelAttachmentPreparation() {
+        attachmentStagingGeneration = UUID()
+        attachmentStagingTask?.cancel()
+        attachmentStagingTask = nil
+        attachmentPhotoSelection = []
+        isAttachmentPhotoPickerPresented = false
+        isAttachmentFileImporterPresented = false
     }
 
     func appendAttachment(_ attachment: TaskComposerAttachment) {

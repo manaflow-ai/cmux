@@ -3,7 +3,7 @@ import CmuxMobileRPC
 import Foundation
 import Testing
 
-@testable import CmuxMobileShell
+@testable import CmuxMobileAttachmentTransfer
 
 @Suite("Mobile attachment transfer errors")
 struct MobileAttachmentTransferErrorTests {

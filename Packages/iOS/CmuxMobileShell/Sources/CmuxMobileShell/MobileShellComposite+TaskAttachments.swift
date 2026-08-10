@@ -1,3 +1,4 @@
+internal import CmuxMobileAttachmentTransfer
 internal import CmuxMobileRPC
 public import CmuxMobileShellModel
 public import Foundation

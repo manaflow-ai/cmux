@@ -18,12 +18,24 @@ struct AgentChatDemoScreen: View {
     @State private var contentWidth: CGFloat = 0
     @State private var draft = ""
     private let attachmentFixtures: [MobileStagedAttachment]
+    @State private var attachmentPreparationFixture: MobileAttachmentPreparationAccessibilityFixture?
 
     init(style: AgentChatDemoScreenStyle = .standalone) {
         self.style = style
+        let preparesAttachment = ProcessInfo.processInfo.environment[
+            "CMUX_UITEST_AGENT_CHAT_PREPARING_ATTACHMENTS"
+        ] == "1"
+        let fixtures = MobileAttachmentAccessibilityFixtures()
         self.attachmentFixtures = ProcessInfo.processInfo.environment[
             "CMUX_UITEST_AGENT_CHAT_ATTACHMENTS"
-        ] == "1" ? MobileAttachmentAccessibilityFixtures().basic() : []
+        ] == "1" || preparesAttachment ? fixtures.basic() : []
+        _attachmentPreparationFixture = State(
+            initialValue: preparesAttachment
+                ? MobileAttachmentPreparationAccessibilityFixture(
+                    attachment: fixtures.delayedResult()
+                )
+                : nil
+        )
     }
 
     var body: some View {
@@ -48,6 +60,14 @@ struct AgentChatDemoScreen: View {
                         Button(L10n.string("mobile.common.done", defaultValue: "Done")) { dismiss() }
                             .accessibilityIdentifier("AgentChatDemoDone")
                     }
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                if let attachmentPreparationFixture {
+                    MobileAttachmentPreparationAccessibilityControls(
+                        fixture: attachmentPreparationFixture
+                    )
+                    .padding(.trailing, 8)
                 }
             }
         }
@@ -152,6 +172,9 @@ struct AgentChatDemoScreen: View {
                 store: stack.store,
                 draft: $draft,
                 providesOwnChrome: false,
+                attachmentPreparationProvider: attachmentPreparationFixture.map { fixture in
+                    { await fixture.prepare() }
+                },
                 onOpenTerminal: {}
             )
             .environment(\.mobileAttachmentAccessibilityFixtures, attachmentFixtures)
@@ -162,6 +185,9 @@ struct AgentChatDemoScreen: View {
                 accessoryLeadingShortcuts: previewLeadingShortcuts,
                 accessoryShortcuts: previewScrollableShortcuts(for: stack),
                 providesOwnChrome: false,
+                attachmentPreparationProvider: attachmentPreparationFixture.map { fixture in
+                    { await fixture.prepare() }
+                },
                 onOpenTerminal: {}
             )
             .environment(\.mobileAttachmentAccessibilityFixtures, attachmentFixtures)

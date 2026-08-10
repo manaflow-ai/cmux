@@ -212,7 +212,10 @@ public final class MobileDisplaySettings {
             to: Self.unreadIndicatorLeftShiftRange
         )
         #if DEBUG
-        self.taskComposerLayoutStyle = defaults.string(
+        let explicitTaskComposerLayoutStyle = environment[
+            "CMUX_UITEST_TASK_COMPOSER_LAYOUT"
+        ].flatMap(TaskComposerLayoutStyle.init(rawValue:))
+        self.taskComposerLayoutStyle = explicitTaskComposerLayoutStyle ?? defaults.string(
             forKey: Self.taskComposerLayoutStyleKey
         ).flatMap(TaskComposerLayoutStyle.init(rawValue:))
             ?? Self.debugDefaultTaskComposerLayoutStyle(environment: environment)
