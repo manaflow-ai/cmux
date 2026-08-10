@@ -28,6 +28,9 @@ stream-boundary visibility change (originally the branch gitlink
 `11aa609d7`) on fork main. The VT query exposes whether the VT parser is at
 a ground-state stream boundary; cmux uses that contract to retain incomplete
 escape-sequence bytes across distributed snapshot handoff.
+Because `1f78a79aa` descends from `11aa609d7`, parent-repo gitlink conflicts
+between those pins must retain `1f78a79aa` so the VT boundary export and the
+hard-newline link fix remain available together.
 That line builds on `19d03fa4d`, which suppresses empty opener stderr diagnostics on
 top of `f0f8273b7`, the iOS startup locale/crash-reporting order fix. That
 commit follows `88357634c`, the fork-main
