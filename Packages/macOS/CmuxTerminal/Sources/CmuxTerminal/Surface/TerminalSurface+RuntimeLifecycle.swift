@@ -273,7 +273,7 @@ extension TerminalSurface {
         recordTeardownRequest(reason: "surface.teardown")
         markPortalLifecycleClosed(reason: "teardown")
         backgroundSurfaceStartSource = .normal
-        cancelClaudeCommandShimInstallLifecycle()
+        cancelAgentCommandShimInstallLifecycle()
         closeHeadlessStartupWindowIfNeeded()
 
         let callbackContext = surfaceCallbackContext
@@ -326,14 +326,15 @@ extension TerminalSurface {
         }
 #endif
 
-        Task { @MainActor in
-            // Keep free behavior aligned with deinit: perform the runtime teardown on
-            // the next main-actor turn so SIGHUP delivery is deterministic but non-reentrant.
-            ghostty_surface_free(surfaceToFree)
-            callbackContext?.release()
-            manualIOContext?.release()
-            teeLease?.release()
-        }
+        runtimeTeardown.enqueueRuntimeTeardown(
+            id: id,
+            workspaceId: tabId,
+            reason: "teardown",
+            surface: surfaceToFree,
+            callbackContext: callbackContext,
+            manualIOContext: manualIOContext,
+            byteTeeLease: teeLease
+        )
     }
 
     /// Frees the runtime surface while keeping the model alive for an
@@ -352,10 +353,17 @@ extension TerminalSurface {
         agentHibernationRuntimeTeardownReservation = nil
         _ = fontSizeLineageSnapshot()
         mobileViewportFontFitState = nil
+        if !runtimeSurfaceSuspendedForAgentHibernation {
+            // End the child-process generation at the successful suspension
+            // boundary. The registry advances first, synchronously rejecting
+            // delayed reports before this main-actor model exports the token
+            // to the replacement runtime.
+            advanceTerminalLifecycleForRuntimeReplacement()
+        }
         runtimeSurfaceSuspendedForAgentHibernation = true
         backgroundSurfaceStartQueued = false
         backgroundSurfaceStartSource = .normal
-        cancelClaudeCommandShimInstallLifecycle()
+        cancelAgentCommandShimInstallLifecycle()
         closeHeadlessStartupWindowIfNeeded()
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
@@ -659,13 +667,13 @@ extension TerminalSurface {
         ) {
             return
         }
-        let claudeShimState = claudeCommandShimStateForSurface(view: view, source: source)
-        guard claudeShimState.isReady else { return }
+        let agentShimState = agentCommandShimStateForSurface(view: view, source: source)
+        guard agentShimState.isReady else { return }
         if shouldPaceRuntimeSurfaceCreation(source: source) {
             enqueueRestoredRuntimeSurfaceCreation(for: view)
             return
         }
-        let claudeShim = claudeShimState.shim
+        let agentCommandShims = agentShimState.shims
 #if DEBUG
         runtimeSurfaceCreateAttemptCountForTesting += 1
 #endif
@@ -693,7 +701,7 @@ extension TerminalSurface {
             app: app,
             for: view,
             scaleFactors: scaleFactors,
-            claudeShim: claudeShim
+            agentCommandShims: agentCommandShims
         )
         surface = runtimeSurfaceCreation.createdSurface
         let runtimeInitialInput = runtimeSurfaceCreation.runtimeInitialInput

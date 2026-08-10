@@ -4,25 +4,74 @@ import CmuxTerminalCore
 @testable import CmuxTerminal
 
 final class FakeSurfaceRegistry: @unchecked Sendable, TerminalSurfaceRegistering {
-    private var runtimeSurfaceOwners: [UInt: UUID] = [:]
+    private let backing = TerminalSurfaceRegistry()
 
-    var topologyGeneration: UInt64 { 0 }
-    func register(_ surface: any TerminalSurfacing) {}
-    func unregister(_ surface: any TerminalSurfacing) {}
+    var topologyGeneration: UInt64 { backing.topologyGeneration }
+    func register(
+        _ surface: any TerminalSurfacing,
+        terminalLifecycleID: UUID
+    ) {
+        backing.register(
+            surface,
+            terminalLifecycleID: terminalLifecycleID
+        )
+    }
+    func advanceTerminalLifecycle(
+        for surface: any TerminalSurfacing
+    ) -> UUID {
+        backing.advanceTerminalLifecycle(for: surface)
+    }
+    func unregister(_ surface: any TerminalSurfacing) {
+        backing.unregister(surface)
+    }
     func registerRuntimeSurface(_ surface: ghostty_surface_t, ownerId: UUID) {
-        runtimeSurfaceOwners[UInt(bitPattern: surface)] = ownerId
+        backing.registerRuntimeSurface(surface, ownerId: ownerId)
     }
     func unregisterRuntimeSurface(_ surface: ghostty_surface_t, ownerId: UUID) {
-        let key = UInt(bitPattern: surface)
-        if runtimeSurfaceOwners[key] == ownerId {
-            runtimeSurfaceOwners.removeValue(forKey: key)
-        }
+        backing.unregisterRuntimeSurface(surface, ownerId: ownerId)
     }
     func runtimeSurfaceOwnerId(_ surface: ghostty_surface_t) -> UUID? {
-        runtimeSurfaceOwners[UInt(bitPattern: surface)]
+        backing.runtimeSurfaceOwnerId(surface)
     }
-    func surface(id: UUID) -> (any TerminalSurfacing)? { nil }
-    func isRightSidebarDockSurface(id: UUID) -> Bool { false }
-    func updateFocusPlacement(id: UUID, _ placement: TerminalSurfaceFocusPlacement) {}
-    func allSurfaces() -> [any TerminalSurfacing] { [] }
+    func surface(id: UUID) -> (any TerminalSurfacing)? {
+        backing.surface(id: id)
+    }
+    func terminalLifecycleID(surfaceID: UUID) -> UUID? {
+        backing.terminalLifecycleID(surfaceID: surfaceID)
+    }
+    func surface(
+        terminalLifecycleID: UUID
+    ) -> (any TerminalSurfacing)? {
+        backing.surface(terminalLifecycleID: terminalLifecycleID)
+    }
+    func surface(
+        id: UUID,
+        terminalLifecycleID: UUID
+    ) -> (any TerminalSurfacing)? {
+        backing.surface(
+            id: id,
+            terminalLifecycleID: terminalLifecycleID
+        )
+    }
+    func isCurrentSurface(
+        id: UUID,
+        terminalLifecycleID: UUID?
+    ) -> Bool {
+        backing.isCurrentSurface(
+            id: id,
+            terminalLifecycleID: terminalLifecycleID
+        )
+    }
+    func isRightSidebarDockSurface(id: UUID) -> Bool {
+        backing.isRightSidebarDockSurface(id: id)
+    }
+    func updateFocusPlacement(
+        id: UUID,
+        _ placement: TerminalSurfaceFocusPlacement
+    ) {
+        backing.updateFocusPlacement(id: id, placement)
+    }
+    func allSurfaces() -> [any TerminalSurfacing] {
+        backing.allSurfaces()
+    }
 }

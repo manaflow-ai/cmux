@@ -319,6 +319,8 @@ mod tests {
     fn tab(surface: SurfaceId, title: &str) -> TabView {
         TabView {
             surface,
+            public_id: None,
+            content_id: None,
             terminal_id: None,
             short_id: format!("t{surface}"),
             name: None,
