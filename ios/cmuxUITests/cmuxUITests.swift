@@ -2568,12 +2568,7 @@ final class cmuxUITests: XCTestCase {
         let port = try await server.start()
         defer { server.stop() }
 
-        let app = try launchConnectedAppViaManualPairing(
-            port: port,
-            additionalEnvironment: [
-                "CMUX_UITEST_PAIRED_MAC_STORE_ID": "task-composer-\(UUID().uuidString)",
-            ]
-        )
+        let app = try launchConnectedAppViaManualPairing(port: port)
         app.terminate()
         app.launchArguments += [
             "-UIPreferredContentSizeCategoryName",
@@ -5222,17 +5217,14 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchConnectedAppViaManualPairing(
-        port: UInt16,
-        additionalEnvironment: [String: String] = [:]
-    ) throws -> XCUIApplication {
+    private func launchConnectedAppViaManualPairing(port: UInt16) throws -> XCUIApplication {
         let portText = String(port)
         guard let finalPortDigit = portText.last else {
             throw URLError(.badURL)
         }
-        var environment = additionalEnvironment
-        environment["CMUX_UITEST_ADD_DEVICE_PORT"] = String(portText.dropLast())
-        let app = launchApp(mockData: true, environment: environment, launchArguments: [
+        let app = launchApp(mockData: true, environment: [
+            "CMUX_UITEST_ADD_DEVICE_PORT": String(portText.dropLast()),
+        ], launchArguments: [
             "-cmux.mobile.taskComposerEnabled", "YES",
         ])
         let pairingForm = app.otherElements["MobileAddDeviceForm"]

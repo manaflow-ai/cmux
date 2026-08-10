@@ -61,23 +61,6 @@ import Testing
         #expect(UITestConfig.value(for: "CMUX_UITEST_ADD_DEVICE_HOST", env: env) == nil)
     }
 
-    @Test func pairedMacStoreIDAllowsOnlySafeFilenameComponents() {
-        let valid = [
-            "CMUX_UITEST_MOCK_DATA": "1",
-            "CMUX_UITEST_PAIRED_MAC_STORE_ID": "task-composer_A1-42",
-        ]
-        let invalid = [
-            "CMUX_UITEST_MOCK_DATA": "1",
-            "CMUX_UITEST_PAIRED_MAC_STORE_ID": "../shared",
-        ]
-        #if DEBUG
-        #expect(UITestConfig.pairedMacStoreID(from: valid) == "task-composer_A1-42")
-        #else
-        #expect(UITestConfig.pairedMacStoreID(from: valid) == nil)
-        #endif
-        #expect(UITestConfig.pairedMacStoreID(from: invalid) == nil)
-    }
-
     // MARK: - dogfoodAttachURL (NOT mock-gated)
 
     /// The core P2 fix: the dogfood attach URL must be returned even when mock data
