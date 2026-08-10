@@ -7812,6 +7812,7 @@ mod unix {
             let attachment = result.expect("legacy fallback did not adopt the live shell");
             assert!(saw_legacy);
             assert!(!attachment.is_smart_renderer());
+            assert!(!attachment.supports_journal_detach_fence());
             assert_eq!(attachment.snapshot.replay, b"legacy host survived");
             drop(attachment);
 

@@ -1182,6 +1182,19 @@ mod tests {
                     // scope must retain an independent ownership marker.
                     std::env::remove_var("CMUX_TUI_PROCESS_SCOPE");
                 },
+                "close-fds-and-clear-environment" => {
+                    // A conventional daemon can apply both cleanup steps.
+                    // Lineage tracking must retain it after both discovery
+                    // markers are gone.
+                    for fd in 3..1024 {
+                        unsafe {
+                            libc::close(fd);
+                        }
+                    }
+                    unsafe {
+                        std::env::remove_var("CMUX_TUI_PROCESS_SCOPE");
+                    }
+                }
                 other => panic!("unexpected detached hook helper mode {other}"),
             }
             let session = unsafe { libc::setsid() };
@@ -1193,7 +1206,11 @@ mod tests {
             return;
         }
 
-        for mode in ["close-fds", "clear-environment"] {
+        for mode in [
+            "close-fds",
+            "clear-environment",
+            "close-fds-and-clear-environment",
+        ] {
             let root = std::env::temp_dir().join(format!(
                 "cmux-jh-{}-{:x}",
                 std::process::id(),

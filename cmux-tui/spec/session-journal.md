@@ -568,6 +568,12 @@ External effects are not repeated during replay. Their recorded outcomes
 materialize state. Live-process adoption separately verifies process identity
 and incarnation before reconnecting a terminal host.
 
+Hosts created before the source-ordered detach protocol remain available in a
+compatibility mode. Their live output is not added to the journal because an
+old host cannot fence output at daemon shutdown. New protocol-v4 hosts use the
+normal durable output path, and the compatibility mode ends when the old
+terminal exits.
+
 Live restoration will consume this inert complete model. Process adoption,
 fresh process spawning, browser reconnect, and agent resume are explicit
 post-replay actions with their own journal outcomes. A partially supported

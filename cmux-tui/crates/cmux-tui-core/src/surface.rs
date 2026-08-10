@@ -1359,6 +1359,9 @@ pub struct PtyTerminalRuntime {
     /// while `SurfaceMeta::resource_identity` belongs to one view placement.
     terminal_public_id: Option<Arc<TerminalPublicId>>,
     journal_generation: Arc<str>,
+    /// Legacy terminal hosts remain attachable, but cannot source-fence
+    /// output at daemon shutdown and therefore never enter journal capture.
+    journal_capture_supported: bool,
     /// Even while the emulator and terminal journal agree, odd while one
     /// output frame has updated one side but not yet reached the other.
     journal_capture_epoch: AtomicU64,
@@ -2296,6 +2299,7 @@ impl Surface {
                     "local-{}",
                     crate::workspace_registry::new_uuid_v4()
                 )),
+                journal_capture_supported: true,
                 journal_capture_epoch: AtomicU64::new(0),
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
@@ -2695,11 +2699,6 @@ impl Surface {
             );
         }
         let initial_defaults = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
-        anyhow::ensure!(
-            !mux.upgrade().is_some_and(|mux| mux.terminal_journal_enabled())
-                || attachment.supports_journal_detach_fence(),
-            "legacy terminal host cannot provide journal-safe daemon shutdown"
-        );
         attachment.send_default_colors(initial_defaults)?;
         let mut reader = attachment.take_reader()?;
         if let Ok(delay_ms) = std::env::var("CMUX_TUI_TEST_HOSTED_SPAWN_FAIL_AFTER_CONNECT")
@@ -2748,6 +2747,7 @@ impl Surface {
         let journal_generation = Arc::from(host_identity.incarnation.clone());
         let host_exit_record_path = attachment.exit_record_path();
         let supports_clear_history_key_fallback = attachment.supports_clear_history();
+        let journal_capture_supported = attachment.supports_journal_detach_fence();
         let render_state = RenderState::new()?;
         let (frame_requests, frame_rx) = sync_channel(1);
         #[cfg(test)]
@@ -2763,6 +2763,7 @@ impl Surface {
                 event_surface_id: id,
                 terminal_public_id: terminal_public_id.map(Arc::new),
                 journal_generation,
+                journal_capture_supported,
                 journal_capture_epoch: AtomicU64::new(0),
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
@@ -3491,7 +3492,9 @@ impl Surface {
                             }
                             continue;
                         }
-                        if reconnect_mux.terminal_journal_enabled() {
+                        if reconnect_mux.terminal_journal_enabled()
+                            && pty.journal_capture_supported
+                        {
                             let checkpoint_key = format!(
                                 "host-reconnect:{}:{}:{}",
                                 identity.terminal_id,
@@ -3799,6 +3802,7 @@ impl Surface {
                 event_surface_id: id,
                 terminal_public_id: Some(Arc::new(terminal_public_id)),
                 journal_generation,
+                journal_capture_supported: true,
                 journal_capture_epoch: AtomicU64::new(0),
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
@@ -4022,6 +4026,7 @@ impl Surface {
                 event_surface_id: id,
                 terminal_public_id: terminal_public_id.map(Arc::new),
                 journal_generation: Arc::from(format!("test-{id}")),
+                journal_capture_supported: true,
                 journal_capture_epoch: AtomicU64::new(0),
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
@@ -5483,7 +5488,9 @@ impl Surface {
             let runtime = pty.runtime.lock().unwrap();
             if let PtyRuntime::Hosted(host) = &*runtime {
                 pty.owner_detaching.store(true, Ordering::Release);
-                if let Err(error) = host.detach_for_daemon_shutdown_until(deadline) {
+                if host.supports_journal_detach_fence()
+                    && let Err(error) = host.detach_for_daemon_shutdown_until(deadline)
+                {
                     eprintln!(
                         "cmux-tui: terminal host {} detach fence failed: {error:#}",
                         pty.event_surface_id
@@ -5999,7 +6006,8 @@ impl PtySurface {
     fn journal_target(&self) -> Option<(Arc<Mux>, Arc<TerminalPublicId>)> {
         let terminal_id = self.terminal_public_id.clone()?;
         let mux = self.mux.upgrade()?;
-        mux.terminal_journal_enabled().then_some((mux, terminal_id))
+        (mux.terminal_journal_enabled() && self.journal_capture_supported)
+            .then_some((mux, terminal_id))
     }
 
     fn journal_output_if_open(

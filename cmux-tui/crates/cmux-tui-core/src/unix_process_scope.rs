@@ -1,15 +1,14 @@
 //! Bounded Unix process cleanup for short-lived child commands.
 //!
 //! A process group covers normal descendants. Two command-local identities
-//! cover common daemon detach behavior: an environment marker survives
+//! cover daemon detach behavior: an environment marker survives
 //! `closefrom(2)`, and an inherited file marker survives environment
-//! replacement. A background tracker records holders before cleanup so an
-//! expired command deadline never starts a blocking process-table scan.
+//! replacement. One process-wide tracker scans all active scopes together,
+//! follows known parent-child lineage, and records exact process identities
+//! before cleanup. An expired command deadline never starts a process-table
+//! scan.
 
-#[cfg(target_os = "linux")]
-use std::collections::HashMap;
-#[cfg(not(target_os = "linux"))]
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs::OpenOptions;
 use std::io;
 #[cfg(target_os = "linux")]
@@ -18,12 +17,11 @@ use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::process::CommandExt;
 use std::process::Command;
-use std::sync::mpsc::{SyncSender, sync_channel};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 const CLEANUP_DEADLINE: Duration = Duration::from_millis(250);
-const TRACK_INTERVAL: Duration = Duration::from_millis(2);
+const TRACK_INTERVAL: Duration = Duration::from_millis(20);
 const TRACK_SETTLE: Duration = Duration::from_millis(10);
 const MAX_TRACKED_PROCESSES: usize = 256;
 const PROCESS_SCOPE_ENV: &str = "CMUX_TUI_PROCESS_SCOPE";
@@ -34,14 +32,58 @@ struct ProcessIdentity {
     started: u128,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 struct FileMarker {
     device: u64,
     inode: u64,
 }
 
 struct ScopeTracker {
-    stop: SyncSender<()>,
+    registration: u64,
+    registry: Arc<ProcessScopeTracker>,
+}
+
+struct TrackedProcesses {
+    active: bool,
+    #[cfg(target_os = "linux")]
+    identities: HashMap<ProcessIdentity, OwnedFd>,
+    #[cfg(not(target_os = "linux"))]
+    identities: HashSet<ProcessIdentity>,
+}
+
+impl Default for TrackedProcesses {
+    fn default() -> Self {
+        Self {
+            active: true,
+            #[cfg(target_os = "linux")]
+            identities: HashMap::new(),
+            #[cfg(not(target_os = "linux"))]
+            identities: HashSet::new(),
+        }
+    }
+}
+
+#[derive(Clone)]
+struct ScopeRegistration {
+    marker: String,
+    file_marker: FileMarker,
+    root: ProcessIdentity,
+    tracked: Arc<Mutex<TrackedProcesses>>,
+    tracked_changed: Arc<Condvar>,
+}
+
+#[derive(Default)]
+struct ProcessScopeTrackerState {
+    next_registration: u64,
+    revision: u64,
+    scopes: HashMap<u64, ScopeRegistration>,
+}
+
+#[derive(Default)]
+struct ProcessScopeTracker {
+    state: Mutex<ProcessScopeTrackerState>,
+    changed: Condvar,
+    started: Mutex<bool>,
 }
 
 /// Owns one process group and the private identities used to find descendants
@@ -53,10 +95,7 @@ pub struct UnixProcessScope {
     root: Option<ProcessIdentity>,
     #[cfg(target_os = "linux")]
     root_pidfd: Option<OwnedFd>,
-    #[cfg(target_os = "linux")]
-    tracked: Arc<Mutex<HashMap<ProcessIdentity, OwnedFd>>>,
-    #[cfg(not(target_os = "linux"))]
-    tracked: Arc<Mutex<HashSet<ProcessIdentity>>>,
+    tracked: Arc<Mutex<TrackedProcesses>>,
     tracked_changed: Arc<Condvar>,
     tracker: Option<ScopeTracker>,
     terminated: bool,
@@ -77,10 +116,7 @@ impl UnixProcessScope {
             root: None,
             #[cfg(target_os = "linux")]
             root_pidfd: None,
-            #[cfg(target_os = "linux")]
-            tracked: Arc::new(Mutex::new(HashMap::new())),
-            #[cfg(not(target_os = "linux"))]
-            tracked: Arc::new(Mutex::new(HashSet::new())),
+            tracked: Arc::new(Mutex::new(TrackedProcesses::default())),
             tracked_changed: Arc::new(Condvar::new()),
             tracker: None,
             terminated: false,
@@ -148,64 +184,26 @@ impl UnixProcessScope {
             std::thread::sleep(remaining.min(TRACK_INTERVAL));
         }
         if let Some(tracker) = self.tracker.take() {
-            let _ = tracker.stop.try_send(());
+            self.deactivate_and_signal_tracked();
+            tracker.registry.unregister(tracker.registration);
+        } else {
+            self.deactivate_and_signal_tracked();
         }
     }
 
     fn start_tracker(&mut self) -> io::Result<()> {
-        let marker = self.marker.clone();
-        let file_marker = self.file_marker;
-        let tracked = self.tracked.clone();
-        let tracked_changed = self.tracked_changed.clone();
-        let (stop, stopped) = sync_channel(1);
-        std::thread::Builder::new().name("cmux-process-scope".into()).spawn(move || {
-            loop {
-                let holders = marker_processes(&marker, file_marker);
-                #[cfg(target_os = "linux")]
-                {
-                    let mut tracked = tracked.lock().unwrap();
-                    let mut inserted = false;
-                    for identity in holders {
-                        if tracked.len() >= MAX_TRACKED_PROCESSES {
-                            break;
-                        }
-                        if tracked.contains_key(&identity) {
-                            continue;
-                        }
-                        let Ok(pidfd) = pidfd_open(identity.pid) else { continue };
-                        if process_identity(identity.pid) == Some(identity) {
-                            tracked.insert(identity, pidfd);
-                            inserted = true;
-                        }
-                    }
-                    if inserted {
-                        tracked_changed.notify_all();
-                    }
-                }
-                #[cfg(not(target_os = "linux"))]
-                {
-                    let mut tracked = tracked.lock().unwrap();
-                    let mut inserted = false;
-                    for identity in holders {
-                        if tracked.len() >= MAX_TRACKED_PROCESSES {
-                            break;
-                        }
-                        inserted |= tracked.insert(identity);
-                    }
-                    if inserted {
-                        tracked_changed.notify_all();
-                    }
-                }
-                // macOS has no completion signal for cross-process marker
-                // changes. Keep this cancellable probe within the command's
-                // final deadline through the scope stop signal.
-                match stopped.recv_timeout(TRACK_INTERVAL) {
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
-                    Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-                }
-            }
+        let root = self
+            .root
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "process scope is unbound"))?;
+        let registry = process_scope_tracker();
+        let registration = registry.register(ScopeRegistration {
+            marker: self.marker.clone(),
+            file_marker: self.file_marker,
+            root,
+            tracked: self.tracked.clone(),
+            tracked_changed: self.tracked_changed.clone(),
         })?;
-        self.tracker = Some(ScopeTracker { stop });
+        self.tracker = Some(ScopeTracker { registration, registry });
         Ok(())
     }
 
@@ -213,7 +211,7 @@ impl UnixProcessScope {
     pub(crate) fn wait_until_tracked_for_test(&self, pid: u32, deadline: Instant) -> bool {
         let mut tracked = self.tracked.lock().unwrap();
         loop {
-            if tracked.keys().any(|identity| identity.pid == pid) {
+            if tracked.identities.keys().any(|identity| identity.pid == pid) {
                 return true;
             }
             let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
@@ -221,7 +219,9 @@ impl UnixProcessScope {
             };
             let (next, timeout) = self.tracked_changed.wait_timeout(tracked, remaining).unwrap();
             tracked = next;
-            if timeout.timed_out() && !tracked.keys().any(|identity| identity.pid == pid) {
+            if timeout.timed_out()
+                && !tracked.identities.keys().any(|identity| identity.pid == pid)
+            {
                 return false;
             }
         }
@@ -231,7 +231,7 @@ impl UnixProcessScope {
     pub(crate) fn wait_until_tracked_for_test(&self, pid: u32, deadline: Instant) -> bool {
         let mut tracked = self.tracked.lock().unwrap();
         loop {
-            if tracked.iter().any(|identity| identity.pid == pid) {
+            if tracked.identities.iter().any(|identity| identity.pid == pid) {
                 return true;
             }
             let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
@@ -239,7 +239,9 @@ impl UnixProcessScope {
             };
             let (next, timeout) = self.tracked_changed.wait_timeout(tracked, remaining).unwrap();
             tracked = next;
-            if timeout.timed_out() && !tracked.iter().any(|identity| identity.pid == pid) {
+            if timeout.timed_out()
+                && !tracked.identities.iter().any(|identity| identity.pid == pid)
+            {
                 return false;
             }
         }
@@ -248,7 +250,7 @@ impl UnixProcessScope {
     #[cfg(target_os = "linux")]
     fn signal_tracked(&self) {
         let Ok(tracked) = self.tracked.try_lock() else { return };
-        for (identity, pidfd) in tracked.iter() {
+        for (identity, pidfd) in tracked.identities.iter() {
             if identity.pid != std::process::id() && Some(*identity) != self.root {
                 let _ = pidfd_send_signal(pidfd, libc::SIGKILL);
             }
@@ -258,7 +260,32 @@ impl UnixProcessScope {
     #[cfg(not(target_os = "linux"))]
     fn signal_tracked(&self) {
         let Ok(tracked) = self.tracked.try_lock() else { return };
-        for identity in tracked.iter().copied() {
+        for identity in tracked.identities.iter().copied() {
+            if identity.pid != std::process::id() && Some(identity) != self.root {
+                signal_process(identity);
+            }
+        }
+    }
+
+    /// Close tracker admission and signal the complete handed-off set while
+    /// holding the same mutex used by insertion. An in-flight shared scan
+    /// signals a late match directly instead of inserting it after this pass.
+    #[cfg(target_os = "linux")]
+    fn deactivate_and_signal_tracked(&self) {
+        let mut tracked = self.tracked.lock().unwrap();
+        tracked.active = false;
+        for (identity, pidfd) in tracked.identities.iter() {
+            if identity.pid != std::process::id() && Some(*identity) != self.root {
+                let _ = pidfd_send_signal(pidfd, libc::SIGKILL);
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn deactivate_and_signal_tracked(&self) {
+        let mut tracked = self.tracked.lock().unwrap();
+        tracked.active = false;
+        for identity in tracked.identities.iter().copied() {
             if identity.pid != std::process::id() && Some(identity) != self.root {
                 signal_process(identity);
             }
@@ -302,6 +329,108 @@ impl UnixProcessScope {
 impl Drop for UnixProcessScope {
     fn drop(&mut self) {
         self.terminate();
+    }
+}
+
+fn process_scope_tracker() -> Arc<ProcessScopeTracker> {
+    static TRACKER: OnceLock<Arc<ProcessScopeTracker>> = OnceLock::new();
+    TRACKER.get_or_init(|| Arc::new(ProcessScopeTracker::default())).clone()
+}
+
+impl ProcessScopeTracker {
+    fn register(self: &Arc<Self>, scope: ScopeRegistration) -> io::Result<u64> {
+        self.ensure_started()?;
+        let mut state = self.state.lock().unwrap();
+        state.next_registration = state.next_registration.wrapping_add(1).max(1);
+        let registration = state.next_registration;
+        state.scopes.insert(registration, scope);
+        state.revision = state.revision.wrapping_add(1);
+        self.changed.notify_one();
+        Ok(registration)
+    }
+
+    fn unregister(&self, registration: u64) {
+        let mut state = self.state.lock().unwrap();
+        if state.scopes.remove(&registration).is_some() {
+            state.revision = state.revision.wrapping_add(1);
+            self.changed.notify_one();
+        }
+    }
+
+    fn ensure_started(self: &Arc<Self>) -> io::Result<()> {
+        let mut started = self.started.lock().unwrap();
+        if *started {
+            return Ok(());
+        }
+        let tracker = self.clone();
+        std::thread::Builder::new()
+            .name("cmux-process-scopes".into())
+            .spawn(move || tracker.run())?;
+        *started = true;
+        Ok(())
+    }
+
+    fn run(&self) {
+        loop {
+            let (revision, scopes) = {
+                let mut state = self.state.lock().unwrap();
+                while state.scopes.is_empty() {
+                    state = self.changed.wait(state).unwrap();
+                }
+                (state.revision, state.scopes.values().cloned().collect::<Vec<_>>())
+            };
+
+            for (scope, identity) in scan_registered_processes(&scopes) {
+                record_tracked_process(&scopes[scope], identity);
+            }
+
+            let state = self.state.lock().unwrap();
+            let _ = self
+                .changed
+                .wait_timeout_while(state, TRACK_INTERVAL, |state| state.revision == revision)
+                .unwrap();
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn record_tracked_process(scope: &ScopeRegistration, identity: ProcessIdentity) {
+    if identity == scope.root || identity.pid == std::process::id() {
+        return;
+    }
+    let Ok(pidfd) = pidfd_open(identity.pid) else { return };
+    if process_identity(identity.pid) != Some(identity) {
+        return;
+    }
+    let mut tracked = scope.tracked.lock().unwrap();
+    if !tracked.active {
+        let _ = pidfd_send_signal(&pidfd, libc::SIGKILL);
+        return;
+    }
+    if tracked.identities.len() >= MAX_TRACKED_PROCESSES
+        || tracked.identities.contains_key(&identity)
+    {
+        return;
+    }
+    tracked.identities.insert(identity, pidfd);
+    scope.tracked_changed.notify_all();
+}
+
+#[cfg(not(target_os = "linux"))]
+fn record_tracked_process(scope: &ScopeRegistration, identity: ProcessIdentity) {
+    if identity == scope.root || identity.pid == std::process::id() {
+        return;
+    }
+    let mut tracked = scope.tracked.lock().unwrap();
+    if !tracked.active {
+        signal_process(identity);
+        return;
+    }
+    if tracked.identities.len() >= MAX_TRACKED_PROCESSES {
+        return;
+    }
+    if tracked.identities.insert(identity) {
+        scope.tracked_changed.notify_all();
     }
 }
 
@@ -377,36 +506,127 @@ fn marker_environment_entry(marker: &str) -> Vec<u8> {
     format!("{PROCESS_SCOPE_ENV}={marker}").into_bytes()
 }
 
+#[derive(Clone, Copy)]
+struct ProcessSnapshot {
+    identity: ProcessIdentity,
+    parent: u32,
+}
+
+fn scope_known_identities(scope: &ScopeRegistration) -> Vec<ProcessIdentity> {
+    let tracked = scope.tracked.lock().unwrap();
+    #[cfg(target_os = "linux")]
+    {
+        tracked.identities.keys().copied().collect()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        tracked.identities.iter().copied().collect()
+    }
+}
+
+fn include_lineage_matches(
+    scopes: &[ScopeRegistration],
+    processes: &[ProcessSnapshot],
+    matches: &mut HashSet<(usize, ProcessIdentity)>,
+) {
+    let present = processes
+        .iter()
+        .map(|process| (process.identity.pid, process.identity))
+        .collect::<HashMap<_, _>>();
+    for (scope_index, scope) in scopes.iter().enumerate() {
+        let mut owned = matches
+            .iter()
+            .filter_map(|(index, identity)| (*index == scope_index).then_some(*identity))
+            .collect::<HashSet<_>>();
+        if present.get(&scope.root.pid) == Some(&scope.root) {
+            owned.insert(scope.root);
+        }
+        for identity in scope_known_identities(scope) {
+            if present.get(&identity.pid) == Some(&identity) {
+                owned.insert(identity);
+            }
+        }
+        loop {
+            let mut changed = false;
+            for process in processes {
+                if owned.contains(&process.identity) {
+                    continue;
+                }
+                if present
+                    .get(&process.parent)
+                    .is_some_and(|parent| owned.contains(parent))
+                {
+                    owned.insert(process.identity);
+                    matches.insert((scope_index, process.identity));
+                    changed = true;
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+    }
+}
+
 #[cfg(target_os = "linux")]
-fn marker_processes(marker: &str, file_marker: FileMarker) -> Vec<ProcessIdentity> {
+fn scan_registered_processes(
+    scopes: &[ScopeRegistration],
+) -> HashSet<(usize, ProcessIdentity)> {
     use std::os::unix::fs::MetadataExt as _;
 
-    let expected = marker_environment_entry(marker);
-    let Ok(processes) = std::fs::read_dir("/proc") else { return Vec::new() };
-    let mut identities = Vec::new();
+    let expected = scopes
+        .iter()
+        .map(|scope| marker_environment_entry(&scope.marker))
+        .collect::<Vec<_>>();
+    let file_markers = scopes.iter().enumerate().fold(
+        HashMap::<FileMarker, Vec<usize>>::new(),
+        |mut markers, (index, scope)| {
+            markers.entry(scope.file_marker).or_default().push(index);
+            markers
+        },
+    );
+    let Ok(processes) = std::fs::read_dir("/proc") else { return HashSet::new() };
+    let mut snapshots = Vec::new();
+    let mut matches = HashSet::new();
     for process in processes.flatten() {
         let Some(pid) = process.file_name().to_str().and_then(|value| value.parse::<u32>().ok())
         else {
             continue;
         };
-        let environment_match =
-            std::fs::read(process.path().join("environ")).ok().is_some_and(|environment| {
-                environment.split(|byte| *byte == 0).any(|entry| entry == expected)
-            });
-        let file_match = std::fs::read_dir(process.path().join("fd")).ok().is_some_and(|fds| {
-            fds.flatten().any(|fd| {
-                std::fs::metadata(fd.path()).ok().is_some_and(|metadata| {
-                    metadata.dev() == file_marker.device && metadata.ino() == file_marker.inode
-                })
-            })
-        });
-        if (environment_match || file_match)
-            && let Some(identity) = process_identity(pid)
-        {
-            identities.push(identity);
+        let Some(snapshot) = std::fs::read_to_string(process.path().join("stat"))
+            .ok()
+            .and_then(|stat| linux_process_snapshot_from_stat(pid, &stat))
+        else {
+            continue;
+        };
+        snapshots.push(snapshot);
+        if let Ok(environment) = std::fs::read(process.path().join("environ")) {
+            for entry in environment.split(|byte| *byte == 0) {
+                for (scope, expected) in expected.iter().enumerate() {
+                    if entry == expected {
+                        matches.insert((scope, snapshot.identity));
+                    }
+                }
+            }
+        }
+        if let Ok(fds) = std::fs::read_dir(process.path().join("fd")) {
+            for fd in fds.flatten() {
+                let Some(marker) = std::fs::metadata(fd.path()).ok().map(|metadata| FileMarker {
+                    device: metadata.dev(),
+                    inode: metadata.ino(),
+                }) else {
+                    continue;
+                };
+                if let Some(scope_indexes) = file_markers.get(&marker) {
+                    for scope in scope_indexes {
+                        matches.insert((*scope, snapshot.identity));
+                    }
+                }
+            }
         }
     }
-    identities
+    include_lineage_matches(scopes, &snapshots, &mut matches);
+    matches
 }
 
 #[cfg(target_os = "linux")]
@@ -417,38 +637,68 @@ fn process_identity(pid: u32) -> Option<ProcessIdentity> {
 
 #[cfg(target_os = "linux")]
 fn linux_process_identity_from_stat(pid: u32, stat: &str) -> Option<ProcessIdentity> {
+    Some(linux_process_snapshot_from_stat(pid, stat)?.identity)
+}
+
+#[cfg(target_os = "linux")]
+fn linux_process_snapshot_from_stat(pid: u32, stat: &str) -> Option<ProcessSnapshot> {
     let fields = stat.get(stat.rfind(')')? + 1..)?.split_whitespace().collect::<Vec<_>>();
     // `fields[0]` is field 3 (`state`); process start time is field 22.
+    let parent = fields.get(1)?.parse::<u32>().ok()?;
     let started = fields.get(19)?.parse::<u128>().ok()?;
-    Some(ProcessIdentity { pid, started })
+    Some(ProcessSnapshot { identity: ProcessIdentity { pid, started }, parent })
 }
 
 #[cfg(target_os = "macos")]
-fn marker_processes(marker: &str, file_marker: FileMarker) -> Vec<ProcessIdentity> {
+fn scan_registered_processes(
+    scopes: &[ScopeRegistration],
+) -> HashSet<(usize, ProcessIdentity)> {
     const PROC_ALL_PIDS: u32 = 1;
     let bytes = unsafe { libc::proc_listpids(PROC_ALL_PIDS, 0, std::ptr::null_mut(), 0) };
-    let Ok(bytes) = usize::try_from(bytes) else { return Vec::new() };
+    let Ok(bytes) = usize::try_from(bytes) else { return HashSet::new() };
     let mut pids = vec![0 as libc::pid_t; bytes / std::mem::size_of::<libc::pid_t>() + 32];
     let Ok(capacity) = libc::c_int::try_from(pids.len() * std::mem::size_of::<libc::pid_t>())
     else {
-        return Vec::new();
+        return HashSet::new();
     };
     let written =
         unsafe { libc::proc_listpids(PROC_ALL_PIDS, 0, pids.as_mut_ptr().cast(), capacity) };
-    let Ok(written) = usize::try_from(written) else { return Vec::new() };
-    let Some(mut arguments) = mac_process_argument_buffer() else { return Vec::new() };
-    let expected = marker_environment_entry(marker);
-    let mut identities = Vec::new();
+    let Ok(written) = usize::try_from(written) else { return HashSet::new() };
+    let Some(mut arguments) = mac_process_argument_buffer() else { return HashSet::new() };
+    let expected = scopes
+        .iter()
+        .map(|scope| marker_environment_entry(&scope.marker))
+        .collect::<Vec<_>>();
+    let file_markers = scopes.iter().enumerate().fold(
+        HashMap::<FileMarker, Vec<usize>>::new(),
+        |mut markers, (index, scope)| {
+            markers.entry(scope.file_marker).or_default().push(index);
+            markers
+        },
+    );
+    let mut snapshots = Vec::new();
+    let mut matches = HashSet::new();
     for pid in pids.into_iter().take(written / std::mem::size_of::<libc::pid_t>()) {
         let Ok(pid) = u32::try_from(pid) else { continue };
-        if (mac_process_has_environment_entry(pid, &expected, &mut arguments)
-            || mac_process_holds_file_marker(pid, file_marker))
-            && let Some(identity) = process_identity(pid)
-        {
-            identities.push(identity);
+        let Some(snapshot) = mac_process_snapshot(pid) else { continue };
+        snapshots.push(snapshot);
+        if let Some(process_arguments) = mac_process_arguments(pid, &mut arguments) {
+            for (scope, expected) in expected.iter().enumerate() {
+                if mac_environment_contains(process_arguments, expected) {
+                    matches.insert((scope, snapshot.identity));
+                }
+            }
+        }
+        for marker in mac_process_file_markers(pid) {
+            if let Some(scope_indexes) = file_markers.get(&marker) {
+                for scope in scope_indexes {
+                    matches.insert((*scope, snapshot.identity));
+                }
+            }
         }
     }
-    identities
+    include_lineage_matches(scopes, &snapshots, &mut matches);
+    matches
 }
 
 #[cfg(target_os = "macos")]
@@ -469,36 +719,36 @@ struct VnodeFdInfo {
 }
 
 #[cfg(target_os = "macos")]
-fn mac_process_holds_file_marker(pid: u32, marker: FileMarker) -> bool {
+fn mac_process_file_markers(pid: u32) -> Vec<FileMarker> {
     const PROC_PIDFDVNODEINFO: libc::c_int = 1;
-    let Ok(pid_int) = libc::c_int::try_from(pid) else { return false };
+    let Ok(pid_int) = libc::c_int::try_from(pid) else { return Vec::new() };
     let bytes =
         unsafe { libc::proc_pidinfo(pid_int, libc::PROC_PIDLISTFDS, 0, std::ptr::null_mut(), 0) };
-    let Ok(bytes) = usize::try_from(bytes) else { return false };
+    let Ok(bytes) = usize::try_from(bytes) else { return Vec::new() };
     let mut fds = Vec::<libc::proc_fdinfo>::with_capacity(
         bytes / std::mem::size_of::<libc::proc_fdinfo>() + 8,
     );
     let Ok(capacity) =
         libc::c_int::try_from(fds.capacity() * std::mem::size_of::<libc::proc_fdinfo>())
     else {
-        return false;
+        return Vec::new();
     };
     let written = unsafe {
         libc::proc_pidinfo(pid_int, libc::PROC_PIDLISTFDS, 0, fds.as_mut_ptr().cast(), capacity)
     };
-    let Ok(written) = usize::try_from(written) else { return false };
+    let Ok(written) = usize::try_from(written) else { return Vec::new() };
     let count = written / std::mem::size_of::<libc::proc_fdinfo>();
     // SAFETY: proc_pidinfo initialized `count` entries within the allocation.
     unsafe {
         fds.set_len(count.min(fds.capacity()));
     }
-    fds.into_iter().any(|fd| {
+    fds.into_iter().filter_map(|fd| {
         if fd.proc_fdtype != libc::PROX_FDTYPE_VNODE as u32 {
-            return false;
+            return None;
         }
         let mut info = std::mem::MaybeUninit::<VnodeFdInfo>::zeroed();
         let Ok(size) = libc::c_int::try_from(std::mem::size_of::<VnodeFdInfo>()) else {
-            return false;
+            return None;
         };
         let written = unsafe {
             libc::proc_pidfdinfo(
@@ -510,13 +760,15 @@ fn mac_process_holds_file_marker(pid: u32, marker: FileMarker) -> bool {
             )
         };
         if written != size {
-            return false;
+            return None;
         }
         // SAFETY: proc_pidfdinfo initialized the full structure.
         let info = unsafe { info.assume_init() };
-        u64::from(info.vnode.vi_stat.vst_dev) == marker.device
-            && info.vnode.vi_stat.vst_ino == marker.inode
-    })
+        Some(FileMarker {
+            device: u64::from(info.vnode.vi_stat.vst_dev),
+            inode: info.vnode.vi_stat.vst_ino,
+        })
+    }).collect()
 }
 
 #[cfg(target_os = "macos")]
@@ -542,8 +794,8 @@ fn mac_process_argument_buffer() -> Option<Vec<u8>> {
 }
 
 #[cfg(target_os = "macos")]
-fn mac_process_has_environment_entry(pid: u32, expected: &[u8], buffer: &mut [u8]) -> bool {
-    let Ok(pid) = libc::c_int::try_from(pid) else { return false };
+fn mac_process_arguments<'a>(pid: u32, buffer: &'a mut [u8]) -> Option<&'a [u8]> {
+    let pid = libc::c_int::try_from(pid).ok()?;
     let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid];
     let mut size = buffer.len();
     let result = unsafe {
@@ -556,7 +808,11 @@ fn mac_process_has_environment_entry(pid: u32, expected: &[u8], buffer: &mut [u8
             0,
         )
     };
-    result == 0 && mac_environment_contains(&buffer[..size.min(buffer.len())], expected)
+    if result == 0 {
+        Some(&buffer[..size.min(buffer.len())])
+    } else {
+        None
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -586,6 +842,11 @@ fn mac_environment_contains(arguments: &[u8], expected: &[u8]) -> bool {
 
 #[cfg(target_os = "macos")]
 fn process_identity(pid: u32) -> Option<ProcessIdentity> {
+    Some(mac_process_snapshot(pid)?.identity)
+}
+
+#[cfg(target_os = "macos")]
+fn mac_process_snapshot(pid: u32) -> Option<ProcessSnapshot> {
     let pid_int = libc::c_int::try_from(pid).ok()?;
     let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::zeroed();
     let size = libc::c_int::try_from(std::mem::size_of::<libc::proc_bsdinfo>()).ok()?;
@@ -598,12 +859,17 @@ fn process_identity(pid: u32) -> Option<ProcessIdentity> {
     // SAFETY: proc_pidinfo initialized the full structure.
     let info = unsafe { info.assume_init() };
     let started = (u128::from(info.pbi_start_tvsec) << 64) | u128::from(info.pbi_start_tvusec);
-    Some(ProcessIdentity { pid, started })
+    Some(ProcessSnapshot {
+        identity: ProcessIdentity { pid, started },
+        parent: info.pbi_ppid,
+    })
 }
 
 #[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
-fn marker_processes(_marker: &str, _file_marker: FileMarker) -> Vec<ProcessIdentity> {
-    Vec::new()
+fn scan_registered_processes(
+    _scopes: &[ScopeRegistration],
+) -> HashSet<(usize, ProcessIdentity)> {
+    HashSet::new()
 }
 
 #[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
