@@ -10,7 +10,6 @@ pub(crate) use resource_content::ResourceEffectProjection;
 use public_projections::{RestoredPublicProjections, restore_public_projections};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
-use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, Weak};
@@ -9390,7 +9389,14 @@ impl Mux {
     /// closed so a retry cannot race a new PTY into the session.
     pub fn close_all_surfaces_for_shutdown(&self) -> anyhow::Result<usize> {
         let deadline = Instant::now() + crate::server::SERVER_SHUTDOWN_TIMEOUT;
-        self.close_all_surfaces_for_shutdown_until(deadline)
+        let result = self.close_all_surfaces_for_shutdown_until(deadline);
+        #[cfg(debug_assertions)]
+        if let Err(error) = &result
+            && let Some(path) = std::env::var_os("CMUX_TUI_TEST_SHUTDOWN_OWNER_DIAGNOSTIC")
+        {
+            let _ = std::fs::write(path, format!("{error:#}"));
+        }
+        result
     }
 
     fn close_all_surfaces_for_shutdown_until(&self, deadline: Instant) -> anyhow::Result<usize> {
@@ -9642,15 +9648,6 @@ impl Mux {
         }
         if !failures.is_empty() {
             let diagnostic = failures.join("; ");
-            #[cfg(debug_assertions)]
-            if let Some(path) = std::env::var_os("CMUX_TUI_TEST_SHUTDOWN_OWNER_DIAGNOSTIC") {
-                std::fs::write(&path, diagnostic.as_bytes()).with_context(|| {
-                    format!(
-                        "write test shutdown owner diagnostic to {}",
-                        Path::new(&path).display()
-                    )
-                })?;
-            }
             anyhow::bail!("{diagnostic}");
         }
 
