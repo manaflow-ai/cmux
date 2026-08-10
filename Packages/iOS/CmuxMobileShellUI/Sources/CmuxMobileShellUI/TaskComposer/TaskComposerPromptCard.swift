@@ -105,7 +105,8 @@ struct TaskComposerPromptCard: View {
             if showsAttachmentButton {
                 TaskComposerAttachmentPickerMenu(
                     style: .paperclip,
-                    isDisabled: isDisabled,
+                    isDisabled: isDisabled
+                        || attachments.count >= TaskComposerAttachment.maximumCount,
                     choosePhotos: chooseAttachmentPhotos,
                     chooseFiles: chooseAttachmentFiles
                 )

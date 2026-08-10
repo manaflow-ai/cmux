@@ -132,7 +132,8 @@ struct TaskComposerMinimalLayout: View {
                 if showsAttachmentButton {
                     TaskComposerAttachmentPickerMenu(
                         style: .circularPlus,
-                        isDisabled: isDisabled,
+                        isDisabled: isDisabled
+                            || attachments.count >= TaskComposerAttachment.maximumCount,
                         choosePhotos: chooseAttachmentPhotos,
                         chooseFiles: chooseAttachmentFiles
                     )
