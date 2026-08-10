@@ -16361,13 +16361,9 @@ mod tests {
             json!({"machine":"current","session":"current","force":true}),
             Some("forced-shutdown"),
         );
-        assert!(handle_connection_message(
-            &mux,
-            local,
-            &forced_request,
-            &local_writer,
-            &scheduler,
-        ));
+        assert!(
+            handle_connection_message(&mux, local, &forced_request, &local_writer, &scheduler,)
+        );
         // Observing shutdown means the durable result was returned and queued
         // before the owning loop was asked to exit.
         assert!(mux.daemon_shutdown_requested());
@@ -19471,13 +19467,7 @@ mod tests {
             "name": "must-not-exist",
         })
         .to_string();
-        assert!(!handle_connection_message(
-            &mux,
-            requester,
-            &pipelined,
-            &writer,
-            &scheduler,
-        ));
+        assert!(!handle_connection_message(&mux, requester, &pipelined, &writer, &scheduler,));
         assert_eq!(mux.with_state(|state| state.workspaces.len()), workspace_count);
         assert!(outbound.try_pop().is_none());
     }
