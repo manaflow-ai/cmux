@@ -25382,6 +25382,35 @@ mod tests {
                 .lifecycle,
             TerminalLifecycle::Adopting
         );
+
+        // Hosted spawn commits Running before it publishes the terminal
+        // resource. The same authenticated callback remains pending in that
+        // final publication gap.
+        mux.transition_terminal_lifecycle(
+            "terminal-ready",
+            "test-running-publication-gap",
+            TERMINAL,
+            TerminalLifecycle::Running,
+            Some(INCARNATION),
+            None,
+        )
+        .unwrap();
+        assert!(mux.terminal_host_connection_lost(PENDING_SURFACE, &identity));
+        assert!(mux.terminal_host_reconnected(
+            PENDING_SURFACE,
+            &identity,
+            KittyGraphicsLimits::disabled(),
+        ));
+        assert_eq!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .terminal_record(TERMINAL)
+                .unwrap()
+                .unwrap()
+                .lifecycle,
+            TerminalLifecycle::Running
+        );
     }
 
     #[test]
