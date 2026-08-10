@@ -659,7 +659,7 @@ struct WorkspaceDetailView: View {
 
     var simulatorPickerValue: SimulatorPickerMenuValue {
         let supportsSimulatorStream = store.supportsSimulatorStream
-        SimulatorPickerMenuValue(
+        return SimulatorPickerMenuValue(
             supportsSimulatorStream: supportsSimulatorStream,
             rows: supportsSimulatorStream
                 ? simulatorStreamStore.panels(in: workspace.rpcWorkspaceID.rawValue)
