@@ -13982,10 +13982,9 @@ fn terminal_content_placements(
         let Some((expected_id, expected_incarnation)) = expected_host else {
             return true;
         };
-        mux.resource_terminal_host_identity(candidate)
-            .is_some_and(|identity| {
-                terminal_host_matches(&identity, expected_id, expected_incarnation)
-            })
+        mux.resource_terminal_host_identity(candidate).is_some_and(|identity| {
+            terminal_host_matches(&identity, expected_id, expected_incarnation)
+        })
     };
     let mut targets = state
         .placements_of_content(&content_id)
