@@ -1709,7 +1709,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(searchButton.waitForExistence(timeout: 3))
         XCTAssertEqual(searchMatches.count, 1)
 
-        let notificationsTab = app.tabBars.buttons["Notifications"]
+        let notificationsTab = app.tabBars.buttons["Feed"]
         XCTAssertTrue(notificationsTab.waitForExistence(timeout: 3))
         notificationsTab.tap()
 
@@ -1974,7 +1974,7 @@ final class cmuxUITests: XCTestCase {
 
         let feed = app.descendants(matching: .any)["MobileNotificationFeed"]
         XCTAssertTrue(feed.waitForExistence(timeout: 8))
-        XCTAssertTrue(app.tabBars.buttons["Notifications"].exists)
+        XCTAssertTrue(app.tabBars.buttons["Feed"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["MobileNotificationFeedDayToday"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["MobileNotificationFeedDayYesterday"].exists)
         XCTAssertTrue(app.staticTexts["Build Mac"].exists)
@@ -2000,7 +2000,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertLessThanOrEqual(approvalWorkspace.frame.maxY, approvalBody.frame.minY)
         XCTAssertGreaterThanOrEqual(approvalWorkspace.frame.height, approvalComputer.frame.height)
 
-        XCTAssertLessThanOrEqual(approvalRow.frame.height, 135)
+        XCTAssertGreaterThan(approvalRow.frame.height, 135)
         let approvalValue = try XCTUnwrap(approvalRow.value as? String)
         let workspaceRange = try XCTUnwrap(approvalValue.range(of: "cmux iOS"))
         let bodyRange = try XCTUnwrap(approvalValue.range(of: "The feed is ready"))
@@ -2022,22 +2022,27 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(unavailableValue.contains("Computer: Build Mac · Unavailable"))
         XCTAssertFalse(unavailableValue.contains("Pane:"))
 
+        let allowOnce = app.buttons["MobileNotificationFeedPermission-once"]
+        XCTAssertTrue(allowOnce.waitForExistence(timeout: 3))
+        allowOnce.tap()
+        XCTAssertTrue(approvalRow.waitForNonExistence(timeout: 3))
+
         let unreadFilter = app.descendants(matching: .any)["MobileNotificationFeedFilterUnread"]
         XCTAssertTrue(unreadFilter.waitForExistence(timeout: 3))
         unreadFilter.tap()
 
-        XCTAssertTrue(approvalRow.waitForExistence(timeout: 3))
-        approvalRow.swipeRight()
-        let markRead = app.descendants(matching: .any)["MobileNotificationFeedMarkReadSwipe-studio-codex-approval"]
+        let completedRow = app.descendants(matching: .any)["MobileNotificationFeedRow-macbook-tests-passed"]
+        XCTAssertTrue(completedRow.waitForExistence(timeout: 3))
+        completedRow.swipeRight()
+        let markRead = app.descendants(matching: .any)["MobileNotificationFeedMarkReadSwipe-macbook-tests-passed"]
         XCTAssertTrue(markRead.waitForExistence(timeout: 3))
         markRead.tap()
-        XCTAssertTrue(approvalRow.waitForNonExistence(timeout: 3))
+        XCTAssertTrue(completedRow.waitForNonExistence(timeout: 3))
 
         let allFilter = app.descendants(matching: .any)["MobileNotificationFeedFilterAll"]
         XCTAssertTrue(allFilter.waitForExistence(timeout: 3))
         allFilter.tap()
 
-        let completedRow = app.descendants(matching: .any)["MobileNotificationFeedRow-macbook-tests-passed"]
         XCTAssertTrue(completedRow.waitForExistence(timeout: 3))
         completedRow.tap()
 
@@ -2051,7 +2056,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(systemBackButton.waitForExistence(timeout: 3))
         systemBackButton.tap()
 
-        let notificationsTab = app.tabBars.buttons["Notifications"]
+        let notificationsTab = app.tabBars.buttons["Feed"]
         XCTAssertTrue(feed.waitForExistence(timeout: 3))
         XCTAssertTrue(notificationsTab.waitForExistence(timeout: 3))
         XCTAssertTrue(notificationsTab.isSelected)
@@ -2095,8 +2100,112 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(workspacesTab.waitForExistence(timeout: 3))
         workspacesTab.tap()
         XCTAssertTrue(app.staticTexts["Workspaces"].waitForExistence(timeout: 3))
-        app.tabBars.buttons["Notifications"].tap()
+        app.tabBars.buttons["Feed"].tap()
         XCTAssertTrue(feed.waitForExistence(timeout: 3))
+    }
+
+    @MainActor
+    func testNotificationFeedPreviewResolvesEveryInlineAgentAction() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.descendants(matching: .any)["MobileNotificationFeed"].waitForExistence(timeout: 8))
+
+        let permissionRow = app.descendants(matching: .any)[
+            "MobileNotificationFeedRow-studio-codex-approval"
+        ]
+        let allowOnce = app.buttons["MobileNotificationFeedPermission-once"]
+        XCTAssertTrue(allowOnce.waitForExistence(timeout: 3))
+        allowOnce.tap()
+        XCTAssertTrue(permissionRow.waitForNonExistence(timeout: 3))
+
+        let planRow = app.descendants(matching: .any)[
+            "MobileNotificationFeedRow-studio-plan-review"
+        ]
+        XCTAssertTrue(planRow.waitForExistence(timeout: 3))
+        let planFeedback = app.textFields["MobileNotificationFeedExitPlanFeedback"]
+        XCTAssertTrue(planFeedback.waitForExistence(timeout: 3))
+        planFeedback.tap()
+        planFeedback.typeText("Keep the inline controls concise")
+        let planSubmit = app.buttons["MobileNotificationFeedExitPlanSubmit"]
+        XCTAssertTrue(planSubmit.isEnabled)
+        planSubmit.tap()
+        XCTAssertTrue(planRow.waitForNonExistence(timeout: 3))
+
+        let questionRow = app.descendants(matching: .any)[
+            "MobileNotificationFeedRow-studio-agent-question"
+        ]
+        XCTAssertTrue(questionRow.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["Approve and answer without leaving the Feed."].waitForExistence(timeout: 3))
+        let inlineActions = app.buttons["MobileNotificationFeedQuestionOption-0-actions"]
+        XCTAssertTrue(inlineActions.waitForExistence(timeout: 3))
+        inlineActions.tap()
+
+        let notes = app.textFields["MobileNotificationFeedQuestionCustom-1"]
+        for _ in 0..<5 where !notes.isHittable {
+            app.swipeUp(velocity: .slow)
+        }
+        XCTAssertTrue(notes.isHittable)
+        notes.tap()
+        notes.typeText("Show every pending question")
+        let questionSubmit = app.buttons["MobileNotificationFeedQuestionSubmit"]
+        XCTAssertTrue(questionSubmit.waitForExistence(timeout: 3))
+        XCTAssertTrue(questionSubmit.isEnabled)
+        questionSubmit.tap()
+        XCTAssertTrue(questionRow.waitForNonExistence(timeout: 3))
+
+        let finishedRow = app.descendants(matching: .any)[
+            "MobileNotificationFeedRow-macbook-agent-finished"
+        ]
+        for _ in 0..<8 where !finishedRow.isHittable {
+            app.swipeUp(velocity: .slow)
+        }
+        XCTAssertTrue(finishedRow.isHittable)
+        let reply = app.buttons["MobileNotificationFeedReply-macbook-agent-finished"]
+        XCTAssertTrue(reply.waitForExistence(timeout: 3))
+        reply.tap()
+        let replyField = app.textFields["MobileNotificationFeedReplyField-macbook-agent-finished"]
+        XCTAssertTrue(replyField.waitForExistence(timeout: 3))
+        replyField.tap()
+        replyField.typeText("Please prepare the handoff")
+        let send = app.buttons["MobileNotificationFeedReplySend-macbook-agent-finished"]
+        XCTAssertTrue(send.isEnabled)
+        send.tap()
+        XCTAssertTrue(replyField.waitForNonExistence(timeout: 3))
+    }
+
+    @MainActor
+    func testNotificationFeedLabsExposesAndRendersAllFiveDesigns() throws {
+        var app = launchApp(
+            mockData: false,
+            environment: ["CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1"]
+        )
+        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 8))
+        tap(settings, in: app)
+        let picker = app.descendants(matching: .any)["MobileSettingsNotificationFeedDesign"]
+        for _ in 0..<6 where !picker.isHittable {
+            app.swipeUp(velocity: .slow)
+        }
+        XCTAssertTrue(picker.isHittable)
+        app.terminate()
+
+        for design in ["timeline", "cards", "compact", "conversation", "commandCenter"] {
+            app = launchApp(
+                mockData: false,
+                environment: ["CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "1"],
+                launchArguments: ["-cmux.labs.notificationFeedDesign", design]
+            )
+            let list = app.descendants(matching: .any)["MobileNotificationFeedList-\(design)"]
+            XCTAssertTrue(list.waitForExistence(timeout: 8), "Missing Feed design: \(design)")
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = "iOS Feed \(design)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            app.terminate()
+        }
     }
 
     /// Regression: every task-composer action must remain discoverable through

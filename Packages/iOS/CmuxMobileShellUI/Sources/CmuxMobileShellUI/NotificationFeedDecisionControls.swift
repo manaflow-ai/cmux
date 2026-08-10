@@ -83,6 +83,7 @@ struct NotificationFeedExitPlanControls: View {
                 }
             }
             .pickerStyle(.menu)
+            .accessibilityIdentifier("MobileNotificationFeedExitPlanMode")
             TextField(
                 L10n.string(
                     "mobile.notificationFeed.exitPlan.feedback",
@@ -93,6 +94,7 @@ struct NotificationFeedExitPlanControls: View {
             )
             .lineLimit(1...4)
             .textFieldStyle(.roundedBorder)
+            .accessibilityIdentifier("MobileNotificationFeedExitPlanFeedback")
             Button {
                 submit()
             } label: {
@@ -159,13 +161,23 @@ struct NotificationFeedQuestionControls: View {
                                     Button {
                                         toggle(option.id, at: index, allowsMultiple: prompt.allowsMultipleSelections)
                                     } label: {
-                                        Label(
-                                            option.label,
-                                            systemImage: selections[index]?.contains(option.id) == true
-                                                ? "checkmark.circle.fill" : "circle"
-                                        )
+                                        HStack(alignment: .top, spacing: 6) {
+                                            Image(systemName: selections[index]?.contains(option.id) == true
+                                                ? "checkmark.circle.fill" : "circle")
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text(option.label)
+                                                if let detail = option.detail, !detail.isEmpty {
+                                                    Text(detail)
+                                                        .font(.caption2)
+                                                        .foregroundStyle(.secondary)
+                                                }
+                                            }
+                                        }
                                     }
                                     .buttonStyle(.bordered)
+                                    .accessibilityIdentifier(
+                                        "MobileNotificationFeedQuestionOption-\(index)-\(option.id)"
+                                    )
                                 }
                             }
                         }
@@ -177,6 +189,7 @@ struct NotificationFeedQuestionControls: View {
                     )
                     .lineLimit(1...4)
                     .textFieldStyle(.roundedBorder)
+                    .accessibilityIdentifier("MobileNotificationFeedQuestionCustom-\(index)")
                 }
                 .padding(8)
                 .background(.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))

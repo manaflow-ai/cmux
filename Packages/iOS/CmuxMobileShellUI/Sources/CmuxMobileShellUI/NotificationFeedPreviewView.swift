@@ -162,15 +162,15 @@ public struct NotificationFeedPreviewView: View {
                 return true
             },
             decidePermission: { item, _ in
-                setRead(true, for: item.id)
+                resolve(item.id)
                 return true
             },
             decideExitPlan: { item, _, _ in
-                setRead(true, for: item.id)
+                resolve(item.id)
                 return true
             },
             answerQuestions: { item, _ in
-                setRead(true, for: item.id)
+                resolve(item.id)
                 return true
             },
             refresh: {}
@@ -197,6 +197,10 @@ public struct NotificationFeedPreviewView: View {
         items = items.map { item in
             item.id == id ? item.updating(isRead: isRead) : item
         }
+    }
+
+    private func resolve(_ id: MobileNotificationFeedItemID) {
+        items.removeAll { $0.id == id }
     }
 
     private func consumePendingSearchNavigation(for tab: MobilePrimaryTab) {
@@ -365,7 +369,10 @@ private func makeNotificationFeedPreviewFixtureItems(referenceDate: Date) -> [Mo
                             MobileFeedQuestionOption(
                                 id: "actions",
                                 label: L10n.string("mobile.notificationFeed.preview.question.actions", defaultValue: "Inline actions"),
-                                detail: nil
+                                detail: L10n.string(
+                                    "mobile.notificationFeed.preview.question.actions.detail",
+                                    defaultValue: "Approve and answer without leaving the Feed."
+                                )
                             ),
                             MobileFeedQuestionOption(
                                 id: "density",
@@ -373,6 +380,19 @@ private func makeNotificationFeedPreviewFixtureItems(referenceDate: Date) -> [Mo
                                 detail: nil
                             ),
                         ]
+                    ),
+                    MobileFeedQuestionPrompt(
+                        id: "notes",
+                        header: L10n.string(
+                            "mobile.notificationFeed.preview.question.notes.header",
+                            defaultValue: "Notes"
+                        ),
+                        prompt: L10n.string(
+                            "mobile.notificationFeed.preview.question.notes.prompt",
+                            defaultValue: "Anything else the agent should know?"
+                        ),
+                        allowsMultipleSelections: false,
+                        options: []
                     ),
                 ]
             )
@@ -489,7 +509,8 @@ private func makeNotificationFeedPreviewFixtureItems(referenceDate: Date) -> [Mo
                 defaultValue: "Docs"
             ),
             surfaceTitle: L10n.string("mobile.notificationFeed.preview.surface.agent", defaultValue: "Agent"),
-            connectionStatus: .reconnecting
+            connectionStatus: .connected,
+            interaction: .terminalReply
         ),
     ]
 }

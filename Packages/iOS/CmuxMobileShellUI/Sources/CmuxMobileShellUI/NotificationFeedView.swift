@@ -43,7 +43,7 @@ struct NotificationFeedView: View {
                 loadMoreRows: { projection.extendRowWindow() }
             )
         }
-        .navigationTitle(L10n.string("mobile.notificationFeed.title", defaultValue: "Notifications"))
+        .navigationTitle(L10n.string("mobile.notificationFeed.title", defaultValue: "Feed"))
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
             if projection.sourceUnreadCount > 0 {
@@ -144,7 +144,7 @@ private struct NotificationFeedList: View {
         .refreshable {
             await actions.refresh()
         }
-        .accessibilityIdentifier("MobileNotificationFeedList")
+        .accessibilityIdentifier("MobileNotificationFeedList-\(designRaw)")
     }
 
     private var emptyState: NotificationFeedEmptyState {

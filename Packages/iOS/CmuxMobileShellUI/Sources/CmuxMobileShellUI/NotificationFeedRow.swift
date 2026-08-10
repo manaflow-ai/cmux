@@ -114,8 +114,10 @@ struct NotificationFeedRow: View, Equatable {
             }
         }
         .accessibilityActions {
-            Button(L10n.string("mobile.notificationFeed.open", defaultValue: "Open")) {
-                open()
+            if canOpen {
+                Button(L10n.string("mobile.notificationFeed.open", defaultValue: "Open")) {
+                    open()
+                }
             }
             if canChangeReadState, !item.isRead {
                 Button(L10n.string("mobile.notificationFeed.markRead", defaultValue: "Mark as Read")) {
