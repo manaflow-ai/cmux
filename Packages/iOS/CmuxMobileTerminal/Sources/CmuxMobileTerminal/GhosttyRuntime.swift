@@ -484,20 +484,21 @@ private extension GhosttyRuntime {
     ) {
         guard let config else { return }
         #if os(iOS)
-        setupGhosttyiOSConfigEnvironment()
-        ensureDefaultGhosttyiOSConfig(theme: theme)
-        ghostty_config_load_default_files(config)
+        let configFileURL = ghosttyiOSConfigFileURL
+        ensureDefaultGhosttyiOSConfig(at: configFileURL, theme: theme)
+        configFileURL.path.withCString { path in
+            ghostty_config_load_file(config, path)
+        }
         applyGhosttyiOSDefaults(config, theme: theme)
         #else
         ghostty_config_load_default_files(config)
         #endif
     }
 
-    func setupGhosttyiOSConfigEnvironment() {
-        setenv("XDG_CONFIG_HOME", iOSConfigRootURL.path, 0)
-        if let env = getenv("XDG_CONFIG_HOME") {
-            log.debug("XDG_CONFIG_HOME=\(String(cString: env), privacy: .public)")
-        }
+    var ghosttyiOSConfigFileURL: URL {
+        iOSConfigRootURL
+            .appendingPathComponent("ghostty", isDirectory: true)
+            .appendingPathComponent("config", isDirectory: false)
     }
 
     func applyGhosttyiOSDefaults(_ config: ghostty_config_t, theme: TerminalTheme) {
@@ -555,10 +556,8 @@ private extension GhosttyRuntime {
         }
     }
 
-    func ensureDefaultGhosttyiOSConfig(theme: TerminalTheme) {
-        let configDirectory = iOSConfigRootURL.appendingPathComponent("ghostty", isDirectory: true)
-        let configFile = configDirectory.appendingPathComponent("config", isDirectory: false)
-        guard !fileManager.fileExists(atPath: configFile.path) else { return }
+    func ensureDefaultGhosttyiOSConfig(at configFileURL: URL, theme: TerminalTheme) {
+        guard !fileManager.fileExists(atPath: configFileURL.path) else { return }
 
         let defaultConfig = """
         font-family = Menlo
@@ -571,8 +570,11 @@ private extension GhosttyRuntime {
         """
 
         do {
-            try fileManager.createDirectory(at: configDirectory, withIntermediateDirectories: true)
-            try defaultConfig.write(to: configFile, atomically: true, encoding: .utf8)
+            try fileManager.createDirectory(
+                at: configFileURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try defaultConfig.write(to: configFileURL, atomically: true, encoding: .utf8)
         } catch {
             log.error("ensureDefaultiOSConfig: failed: \(error.localizedDescription, privacy: .public)")
         }
