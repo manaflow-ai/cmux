@@ -10372,12 +10372,16 @@ mod unix {
             let host_hello = read_required_frame(&mut client_stream, "host hello").unwrap();
             assert_eq!(host_hello.kind, MessageKind::HostHello);
             assert_eq!(host_hello.flags, FLAG_TERMINATE_ONLY);
-            write_frame(&mut client_stream, &Frame::new(MessageKind::Terminate, Vec::new()))
-                .unwrap();
+            let mut terminate = Frame::new(MessageKind::Terminate, Vec::new());
+            terminate.request_id = 2;
+            write_frame(&mut client_stream, &terminate).unwrap();
+            let terminate_ack =
+                read_required_frame(&mut client_stream, "terminate acknowledgement").unwrap();
+            assert_eq!(terminate_ack.kind, MessageKind::TerminateAck);
+            assert_eq!(terminate_ack.request_id, terminate.request_id);
             client_stream.shutdown(std::net::Shutdown::Write).unwrap();
 
             server.join().unwrap().unwrap();
-            assert!(host.termination_started.load(Ordering::Acquire));
         }
 
         #[test]

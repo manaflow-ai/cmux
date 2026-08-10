@@ -590,11 +590,17 @@ impl PersistenceCoordinator {
                 }
             }
         }
+        #[cfg(test)]
+        let accepted_submission = sender.is_none() || matches!(immediate.as_ref(), Some(Ok(())));
         if let Some(result) = immediate {
             let _ = sender.expect("immediate persistence waiter is available").send(result);
         }
         if wake_worker {
             self.shared.changed.notify_one();
+        }
+        #[cfg(test)]
+        if accepted_submission {
+            self.hooks.record_accepted_submission(revision);
         }
         PersistenceWaiter { receiver }
     }
@@ -781,6 +787,7 @@ fn take_waiters_through(
 struct PersistenceTestHooks {
     writes_started: std::sync::atomic::AtomicUsize,
     writes_succeeded: std::sync::atomic::AtomicUsize,
+    highest_accepted_submission: std::sync::atomic::AtomicU64,
     fail_next: std::sync::atomic::AtomicUsize,
     fail_next_parent_sync: std::sync::atomic::AtomicUsize,
     panic_next: std::sync::atomic::AtomicUsize,
@@ -788,6 +795,7 @@ struct PersistenceTestHooks {
     blocked: StdMutex<bool>,
     released: Condvar,
     started: Notify,
+    submission_accepted: Notify,
 }
 
 #[cfg(test)]
@@ -821,13 +829,14 @@ impl PersistenceTestHooks {
         {
             return Err(format!("injected persistence failure for revision {revision}"));
         }
-        if let Some(gate) = std::env::var_os("CMUX_TEST_AUTH_PERSISTENCE_GATE") {
-            let gate = PathBuf::from(gate);
-            while !gate.exists() {
-                std::thread::sleep(Duration::from_millis(1));
-            }
-        }
         Ok(())
+    }
+
+    fn record_accepted_submission(&self, revision: u64) {
+        use std::sync::atomic::Ordering;
+
+        self.highest_accepted_submission.fetch_max(revision, Ordering::SeqCst);
+        self.submission_accepted.notify_waiters();
     }
 
     fn after_write(&self, succeeded: bool) {
@@ -863,6 +872,18 @@ impl PersistenceTestHooks {
                 return;
             }
             started.await;
+        }
+    }
+
+    async fn wait_for_accepted_submission(&self, revision: u64) {
+        use std::sync::atomic::Ordering;
+
+        loop {
+            let accepted = self.submission_accepted.notified();
+            if self.highest_accepted_submission.load(Ordering::SeqCst) >= revision {
+                return;
+            }
+            accepted.await;
         }
     }
 }
@@ -2307,8 +2328,14 @@ impl std::error::Error for IdentityError {}
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::io::{BufRead as _, BufReader, Write as _};
+    use std::process::{Child, Command, ExitStatus, Stdio};
+    use std::sync::mpsc::{self, Receiver, RecvTimeoutError, TrySendError};
+    use std::thread::JoinHandle;
+    use std::time::Instant;
 
     use cmux_remote_protocol::{Lane, SessionId};
+    use wait_timeout::ChildExt;
     use zeroize::Zeroizing;
 
     use super::*;
@@ -2316,6 +2343,13 @@ mod tests {
         ClientAuthMode, ClientHandshake, NetworkPeer, accept_secure_link, initiate_secure_link,
     };
     use crate::link::test_support;
+
+    const AUTH_PERSISTENCE_QUEUED_MARKER: &str = "cmux-auth-persistence:revision-2-submitted:v1";
+    const AUTH_PERSISTENCE_RELEASE_MARKER: &str = "cmux-auth-persistence:release-worker:v1";
+    const AUTH_PERSISTENCE_DRAINED_MARKER: &str = "cmux-auth-persistence:worker-drained:v1";
+    const AUTH_PERSISTENCE_CHILD_PHASE_TIMEOUT: Duration = Duration::from_secs(3);
+    // Successful child output is two protocol markers plus six libtest lines.
+    const AUTH_PERSISTENCE_CHILD_OUTPUT_LINES: usize = 8;
 
     struct PersistenceReleaseGuard(Arc<PersistenceTestHooks>);
 
@@ -2330,6 +2364,120 @@ mod tests {
         fn drop(&mut self) {
             self.0.release();
         }
+    }
+
+    struct AuthPersistenceChildOwner {
+        child: Option<Child>,
+        markers: Receiver<String>,
+        output_reader: Option<JoinHandle<std::io::Result<()>>>,
+    }
+
+    impl AuthPersistenceChildOwner {
+        fn new(child: Child) -> Self {
+            let (marker_sender, markers) = mpsc::sync_channel(AUTH_PERSISTENCE_CHILD_OUTPUT_LINES);
+            let mut owner = Self { child: Some(child), markers, output_reader: None };
+            let stdout = owner
+                .child
+                .as_mut()
+                .and_then(|child| child.stdout.take())
+                .expect("persistence child stdout was not piped");
+            let output_reader = std::thread::spawn(move || {
+                for line in BufReader::new(stdout).lines() {
+                    match marker_sender.try_send(line?) {
+                        Ok(()) => {}
+                        Err(TrySendError::Disconnected(_)) => break,
+                        Err(TrySendError::Full(_)) => {
+                            return Err(std::io::Error::other(
+                                "persistence child output exceeded its fixed line capacity",
+                            ));
+                        }
+                    }
+                }
+                Ok(())
+            });
+            owner.output_reader = Some(output_reader);
+            owner
+        }
+
+        fn wait_for_marker(&self, expected: &str, phase: &str) {
+            let deadline = Instant::now() + AUTH_PERSISTENCE_CHILD_PHASE_TIMEOUT;
+            let mut observed = Vec::new();
+            loop {
+                let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                    panic!("persistence child {phase} deadline expired; output: {observed:?}");
+                };
+                match self.markers.recv_timeout(remaining) {
+                    Ok(line) if line == expected => return,
+                    Ok(line) => observed.push(line),
+                    Err(RecvTimeoutError::Timeout) => {
+                        panic!("persistence child {phase} deadline expired; output: {observed:?}");
+                    }
+                    Err(RecvTimeoutError::Disconnected) => {
+                        panic!(
+                            "persistence child output closed before {phase}; output: {observed:?}"
+                        );
+                    }
+                }
+            }
+        }
+
+        fn send_release(&mut self) {
+            let mut stdin = self
+                .child
+                .as_mut()
+                .and_then(|child| child.stdin.take())
+                .expect("persistence child stdin was not piped");
+            writeln!(stdin, "{AUTH_PERSISTENCE_RELEASE_MARKER}").unwrap();
+            stdin.flush().unwrap();
+        }
+
+        fn wait_for_exit(&mut self) -> ExitStatus {
+            let status = self
+                .child
+                .as_mut()
+                .expect("persistence child owner was disarmed before exit")
+                .wait_timeout(AUTH_PERSISTENCE_CHILD_PHASE_TIMEOUT)
+                .expect("failed to wait for persistence child")
+                .unwrap_or_else(|| panic!("persistence child exit deadline expired"));
+            self.child.take();
+            status
+        }
+
+        fn finish_output(&mut self) {
+            self.output_reader
+                .take()
+                .expect("persistence child output reader was already joined")
+                .join()
+                .expect("persistence child output reader panicked")
+                .expect("failed to read persistence child output");
+        }
+    }
+
+    impl Drop for AuthPersistenceChildOwner {
+        fn drop(&mut self) {
+            if let Some(mut child) = self.child.take() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            if let Some(output_reader) = self.output_reader.take() {
+                let _ = output_reader.join();
+            }
+        }
+    }
+
+    fn write_auth_persistence_child_marker(marker: &str) {
+        let stdout = std::io::stdout();
+        let mut stdout = stdout.lock();
+        writeln!(stdout, "{marker}").unwrap();
+        stdout.flush().unwrap();
+    }
+
+    fn wait_for_auth_persistence_release() {
+        let stdin = std::io::stdin();
+        let mut release = String::new();
+        let bytes = BufReader::new(stdin.lock()).read_line(&mut release).unwrap();
+        assert_ne!(bytes, 0, "persistence child release channel closed without a marker");
+        assert_eq!(release.trim_end(), AUTH_PERSISTENCE_RELEASE_MARKER);
     }
 
     #[tokio::test]
@@ -2856,16 +3004,16 @@ mod tests {
         let Some(state_dir) = std::env::var_os("CMUX_TEST_AUTH_PERSISTENCE_STATE") else {
             return;
         };
-        let queued = PathBuf::from(std::env::var_os("CMUX_TEST_AUTH_PERSISTENCE_QUEUED").unwrap());
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
             .enable_all()
             .build()
             .unwrap();
-        let database = runtime.block_on(async {
+        let (database, hooks) = runtime.block_on(async {
             let database = AuthDatabase::load_or_create(state_dir, "child", false).unwrap();
             let hooks = database.persistence.hooks.clone();
-            tokio::spawn({
+            hooks.block();
+            let first = tokio::spawn({
                 let database = database.clone();
                 async move {
                     let _ = database.create_invitation(Duration::from_secs(60), Vec::new()).await;
@@ -2874,62 +3022,59 @@ mod tests {
             tokio::time::timeout(Duration::from_secs(1), hooks.wait_for_started(1))
                 .await
                 .expect("child persistence write did not start");
-            tokio::spawn({
+            let second = tokio::spawn({
                 let database = database.clone();
                 async move {
                     let _ = database.create_invitation(Duration::from_secs(60), Vec::new()).await;
                 }
             });
-            tokio::time::timeout(Duration::from_secs(1), async {
-                loop {
-                    if database.state.lock().await.revision == 2 {
-                        break;
+            tokio::time::timeout(Duration::from_secs(1), hooks.wait_for_accepted_submission(2))
+                .await
+                .expect("child did not submit its second authorization revision");
+            first.abort();
+            second.abort();
+            tokio::time::timeout(AUTH_PERSISTENCE_CHILD_PHASE_TIMEOUT, async {
+                for (name, task) in [("first", first), ("second", second)] {
+                    match task.await {
+                        Ok(_) => {}
+                        Err(error) if error.is_cancelled() => {}
+                        Err(error) => panic!("{name} invitation task failed: {error}"),
                     }
-                    tokio::task::yield_now().await;
                 }
             })
             .await
-            .expect("child did not accept its second authorization revision");
-            fs::write(queued, b"queued").unwrap();
-            database
+            .expect("invitation tasks retained database ownership after cancellation");
+            (database, hooks)
         });
 
-        runtime.shutdown_timeout(Duration::from_millis(10));
+        write_auth_persistence_child_marker(AUTH_PERSISTENCE_QUEUED_MARKER);
+        wait_for_auth_persistence_release();
+        hooks.release();
+        // Both task owners were collected while the worker was blocked, so
+        // runtime drop cannot provide persistence progress or retain ownership.
+        drop(runtime);
         drop(database);
+        write_auth_persistence_child_marker(AUTH_PERSISTENCE_DRAINED_MARKER);
     }
 
     #[test]
     fn auth_persistence_process_exit_joins_queued_revisions() {
-        use std::process::{Command, Stdio};
-
         let temp = tempfile::tempdir().unwrap();
         let state_dir = temp.path().join("state");
-        let gate = temp.path().join("release-write");
-        let queued = temp.path().join("queued");
-        let mut child = Command::new(std::env::current_exe().unwrap())
+        let child = Command::new(std::env::current_exe().unwrap())
             .args(["--exact", "identity::tests::auth_persistence_child_process", "--nocapture"])
             .env("CMUX_TEST_AUTH_PERSISTENCE_STATE", &state_dir)
-            .env("CMUX_TEST_AUTH_PERSISTENCE_GATE", &gate)
-            .env("CMUX_TEST_AUTH_PERSISTENCE_QUEUED", &queued)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .spawn()
             .unwrap();
-        let deadline = std::time::Instant::now() + Duration::from_secs(3);
-        while !queued.exists() {
-            if let Some(status) = child.try_wait().unwrap() {
-                panic!("persistence child exited before queueing its second revision: {status}");
-            }
-            assert!(
-                std::time::Instant::now() < deadline,
-                "persistence child did not queue its second revision"
-            );
-            std::thread::sleep(Duration::from_millis(1));
-        }
-
-        fs::write(&gate, b"release").unwrap();
-        let status = child.wait().unwrap();
+        let mut child = AuthPersistenceChildOwner::new(child);
+        child.wait_for_marker(AUTH_PERSISTENCE_QUEUED_MARKER, "revision-2 submission");
+        child.send_release();
+        child.wait_for_marker(AUTH_PERSISTENCE_DRAINED_MARKER, "persistence drain");
+        let status = child.wait_for_exit();
+        child.finish_output();
         assert!(status.success(), "persistence child failed: {status}");
         let persisted = load_state(&state_dir.join("devices.json")).unwrap();
         assert_eq!(persisted.revision, 2);

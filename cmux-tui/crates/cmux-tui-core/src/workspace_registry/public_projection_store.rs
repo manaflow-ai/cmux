@@ -844,7 +844,7 @@ mod tests {
     }
 
     #[test]
-    fn agent_projections_survive_terminal_tombstones() {
+    fn agent_projections_are_deleted_with_terminal_tombstones() {
         let mut registry = WorkspaceRegistry::in_memory("terminal-relationships").unwrap();
         let session = registry.session_id().clone();
         let (terminal, pane, tab) = seed_live_terminal(&mut registry);
@@ -920,9 +920,8 @@ mod tests {
             .unwrap();
 
         let tombstoned = registry.public_projections().unwrap();
-        assert_eq!(registry.resource_agent_projection_count_for_test().unwrap(), 1);
-        assert_eq!(tombstoned.agents.len(), 1);
-        assert_eq!(tombstoned.agents[0].terminal_id, terminal);
+        assert_eq!(registry.resource_agent_projection_count_for_test().unwrap(), 0);
+        assert!(tombstoned.agents.is_empty());
         assert_eq!(tombstoned.notifications.len(), 1);
         assert_eq!(tombstoned.notifications[0].terminal_id, None);
     }

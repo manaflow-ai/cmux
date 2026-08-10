@@ -3212,9 +3212,15 @@ mod tests {
         let mux = Mux::new("server-publication-test", SurfaceOptions::default());
         let guard = ServerProcessShutdownGuard::start(&mux).unwrap();
 
-        assert!(cmux_tui_core::server::serve(mux, Some(socket_path.clone())).is_err());
-        guard.shutdown().unwrap();
-        guard.complete();
+        let error = finish_server_process(
+            guard,
+            cmux_tui_core::server::serve(mux, Some(socket_path.clone())).map(|_| ()),
+        )
+        .expect_err("duplicate server publication unexpectedly succeeded");
+        assert!(
+            format!("{error:#}").contains("is already in use"),
+            "unexpected server publication error: {error:#}"
+        );
 
         let client = UnixStream::connect(&socket_path)
             .expect("failed publication cleanup unlinked the live server socket");
