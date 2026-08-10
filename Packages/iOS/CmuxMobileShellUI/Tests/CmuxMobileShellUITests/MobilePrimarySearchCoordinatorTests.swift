@@ -3,7 +3,7 @@ import Testing
 
 @MainActor
 @Suite struct MobilePrimarySearchCoordinatorTests {
-    @Test func restorePresentationSurvivesTheInitialEmptyPlatformWrite() {
+    @Test func restorePresentationInjectsTheQueryWhenThePlatformSearchActivates() {
         let coordinator = MobilePrimarySearchCoordinator()
         coordinator.synchronizeSelection(.workspaces)
         coordinator.setPresentation(true)
@@ -17,18 +17,34 @@ import Testing
         #expect(coordinator.workspaces == "docs")
 
         coordinator.restorePresentation(for: .workspaces)
-        // The fresh field of a programmatic presentation pushes one initial
-        // empty value with a valid generation; it must not wipe the query.
+        // The field presents with an empty binding (so SwiftUI and the fresh
+        // platform field agree) while the results keep filtering by the query.
+        #expect(coordinator.activeNativeSearchText() == "")
+        #expect(coordinator.searchDestinationText(for: .workspaces) == "docs")
+
+        // The presenting field's initial self-clear is a harmless no-op.
+        coordinator.updateNativeSearchText(
+            "",
+            for: .workspaces,
+            activationGeneration: coordinator.activationGeneration
+        )
+        #expect(coordinator.searchDestinationText(for: .workspaces) == "docs")
+
+        // Once the platform search activates, the query is injected as an
+        // observable binding change.
+        coordinator.updateLifecycle(scope: .workspaces, isSearching: true)
+        #expect(coordinator.activeNativeSearchText() == "docs")
+        #expect(coordinator.searchDestinationText(for: .workspaces) == "docs")
+
+        // A stale field clear arriving after the injection is swallowed once.
         coordinator.updateNativeSearchText(
             "",
             for: .workspaces,
             activationGeneration: coordinator.activationGeneration
         )
         #expect(coordinator.activeNativeSearchText() == "docs")
-        #expect(coordinator.searchDestinationText(for: .workspaces) == "docs")
 
-        // A second empty write is the user clearing the field and behaves
-        // normally.
+        // A later empty write is the user clearing the field.
         coordinator.updateNativeSearchText(
             "",
             for: .workspaces,
@@ -37,7 +53,7 @@ import Testing
         #expect(coordinator.activeNativeSearchText() == "")
     }
 
-    @Test func restorePresentationAcceptsAnImmediateNonEmptyEdit() {
+    @Test func restorePresentationYieldsToAnImmediateUserEdit() {
         let coordinator = MobilePrimarySearchCoordinator()
         coordinator.synchronizeSelection(.workspaces)
         coordinator.setPresentation(true)
@@ -55,6 +71,10 @@ import Testing
             activationGeneration: coordinator.activationGeneration
         )
         #expect(coordinator.activeNativeSearchText() == "docs2")
+
+        // The abandoned restoration must not clobber the user's edit.
+        coordinator.updateLifecycle(scope: .workspaces, isSearching: true)
+        #expect(coordinator.activeNativeSearchText() == "docs2")
     }
 
     @Test func restorePresentationWithEmptyCommittedQueryActsLikePlainPresentation() {
@@ -68,7 +88,9 @@ import Testing
             for: .workspaces,
             activationGeneration: coordinator.activationGeneration
         )
+        coordinator.updateLifecycle(scope: .workspaces, isSearching: true)
         #expect(coordinator.activeNativeSearchText() == "")
+        #expect(coordinator.searchDestinationText(for: .workspaces) == "")
     }
 
     @Test func activePresentedSearchAcceptsExplicitClear() {
