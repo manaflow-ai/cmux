@@ -629,6 +629,9 @@ struct TerminalComposerView: View {
                     attachmentError = attachmentStagingErrorMessage(error)
                 }
             }
+            guard !Task.isCancelled,
+                  stagingTask.generation == stagingGeneration,
+                  sessionGeneration == store.currentSessionGeneration else { return }
             if didOverflow {
                 attachmentError = attachmentAdmissionErrorMessage(.perTerminalCountLimit)
             }
@@ -685,6 +688,9 @@ struct TerminalComposerView: View {
                     attachmentError = attachmentStagingErrorMessage(error)
                 }
             }
+            guard !Task.isCancelled,
+                  stagingTask.generation == stagingGeneration,
+                  sessionGeneration == store.currentSessionGeneration else { return }
             if didOverflow {
                 attachmentError = attachmentAdmissionErrorMessage(.perTerminalCountLimit)
             }
