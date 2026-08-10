@@ -14952,10 +14952,7 @@ fn terminal_content_placements(
         })
         .collect::<Vec<_>>();
     if let Some(runtime) = state.terminal_catalog.get(terminal_id)
-        && state
-            .surfaces
-            .get(&runtime.id)
-            .is_some_and(|candidate| matches_live_surface(candidate))
+        && state.surfaces.get(&runtime.id).is_some_and(|candidate| matches_live_surface(candidate))
     {
         targets.push(runtime.id);
     }
@@ -20819,10 +20816,7 @@ mod tests {
             let mut state = mux.state.lock().unwrap();
             insert_surface_checked(&mut state, first.clone()).unwrap();
             insert_surface_checked(&mut state, second.clone()).unwrap();
-            state
-                .resource_indexes
-                .content_placements
-                .remove(&ContentPublicId::Terminal(public_id));
+            state.resource_indexes.content_placements.remove(&ContentPublicId::Terminal(public_id));
         }
 
         mux.close_terminal_with_mutation(
@@ -20921,6 +20915,58 @@ mod tests {
         assert!(error.to_string().contains("terminal_incarnation_mismatch"));
         assert!(mux.surface(new_surface_id).is_some());
         assert_eq!(mux.with_state(|state| state.resource_revision), resource_revision);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unguarded_terminal_close_uses_the_registry_incarnation() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let host = mux.resource_terminal_host_identity(&surface).unwrap();
+        let public_id = surface.terminal_public_id().cloned().unwrap();
+        let resource_revision = mux.with_state(|state| state.resource_revision);
+        let runtime_id = surface.terminal_runtime_id().unwrap();
+        {
+            let mut state = mux.state.lock().unwrap();
+            state.surfaces.remove(&surface.id);
+            state.terminal_catalog.remove(&public_id);
+            state.terminal_catalog_by_runtime.remove(&runtime_id);
+        }
+
+        let mut new_incarnation = host.incarnation.clone();
+        let replacement = if new_incarnation.starts_with('0') { "1" } else { "0" };
+        new_incarnation.replace_range(0..1, replacement);
+        let new_surface = Surface::exited_terminal_placeholder_with_terminal_public_id(
+            mux.next_id(),
+            mux.surface_options.lock().unwrap().clone(),
+            Arc::downgrade(&mux),
+            TerminalHostIdentity {
+                terminal_id: host.terminal_id.clone(),
+                incarnation: new_incarnation,
+            },
+            public_id,
+        )
+        .unwrap();
+        let new_surface_id = new_surface.id;
+        insert_surface_checked(&mut mux.state.lock().unwrap(), new_surface).unwrap();
+
+        let error = mux
+            .close_terminal_with_mutation(
+                &host.terminal_id,
+                None,
+                None,
+                None,
+                &WorkspaceMutation::new("unguarded-terminal-close", "test").unwrap(),
+            )
+            .unwrap_err();
+
+        assert!(error.to_string().contains("terminal_incarnation_mismatch"));
+        assert!(mux.surface(new_surface_id).is_some());
+        assert_eq!(mux.with_state(|state| state.resource_revision), resource_revision);
+        assert_eq!(
+            mux.resolve_terminal(&host.terminal_id).unwrap().unwrap().terminal.lifecycle,
+            TerminalLifecycle::Running
+        );
     }
 
     #[cfg(unix)]

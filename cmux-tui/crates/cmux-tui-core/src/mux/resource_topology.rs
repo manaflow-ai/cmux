@@ -2349,11 +2349,14 @@ impl Mux {
                 }),
             )?
             .and_then(|commit| commit.result["incarnation"].as_str().map(str::to_owned));
-        let planned_incarnation = replay_incarnation.as_deref().or(terminal_incarnation);
+        let terminal = registry
+            .terminal_record(terminal_id)?
+            .ok_or_else(|| anyhow::anyhow!("unknown terminal {terminal_id}"))?;
+        let planned_incarnation = replay_incarnation
+            .as_deref()
+            .or(terminal_incarnation)
+            .or(terminal.incarnation.as_deref());
         if let Some(expected) = planned_incarnation {
-            let terminal = registry
-                .terminal_record(terminal_id)?
-                .ok_or_else(|| anyhow::anyhow!("unknown terminal {terminal_id}"))?;
             anyhow::ensure!(
                 terminal.incarnation.as_deref() == Some(expected),
                 "terminal_incarnation_mismatch"
