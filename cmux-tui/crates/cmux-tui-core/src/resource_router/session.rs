@@ -46,7 +46,7 @@ pub(super) fn dispatch(
 
     let value = match request.envelope.operation {
         ResourceOperation::SessionReloadConfig => {
-            mux.emit(MuxEvent::ConfigReloadRequested);
+            mux.request_config_reload().map_err(resource_operation_error)?;
             json!({"reloaded":true,"warnings":[]})
         }
         ResourceOperation::SessionWindowTitleSet => {

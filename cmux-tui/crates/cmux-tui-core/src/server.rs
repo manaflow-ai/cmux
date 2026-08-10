@@ -3853,6 +3853,25 @@ impl ClientRegistry {
         }
     }
 
+    fn commit_daemon_handoff_after_ack(
+        &self,
+        requesting_client: u64,
+        acknowledge: impl FnOnce() -> std::io::Result<()>,
+    ) -> anyhow::Result<()> {
+        let mut state = self.state.lock().unwrap();
+        match state.daemon_handoff {
+            Some(DaemonHandoffReservation::Pending(requester))
+                if requester == requesting_client =>
+            {
+                acknowledge()?;
+                state.daemon_handoff =
+                    Some(DaemonHandoffReservation::Committed(requesting_client));
+                Ok(())
+            }
+            _ => anyhow::bail!("daemon handoff reservation changed before commit"),
+        }
+    }
+
     pub(crate) fn cancel_daemon_handoff(&self, requesting_client: u64) {
         let mut state = self.state.lock().unwrap();
         if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(requesting_client)) {
@@ -4424,8 +4443,33 @@ fn validate_resource_client_label(
     Ok(Some(value))
 }
 
-/// Bind the socket and serve connections on background threads.
-pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
+/// A bound local server that does not accept clients until it is marked ready.
+pub struct PendingServer {
+    path: Option<PathBuf>,
+    ready: Option<std::sync::mpsc::SyncSender<()>>,
+}
+
+impl PendingServer {
+    /// Allow the server to accept clients and transfer socket cleanup to the caller.
+    pub fn mark_ready(mut self) -> anyhow::Result<PathBuf> {
+        let ready = self.ready.take().expect("pending server readiness is available");
+        if ready.send(()).is_err() {
+            anyhow::bail!("local control server stopped before readiness");
+        }
+        Ok(self.path.take().expect("pending server path is available"))
+    }
+}
+
+impl Drop for PendingServer {
+    fn drop(&mut self) {
+        if let Some(path) = self.path.take() {
+            cleanup(&path);
+        }
+    }
+}
+
+/// Bind the socket but wait for explicit readiness before accepting clients.
+pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PendingServer> {
     let path = path.unwrap_or_else(|| default_socket_path(&mux.session));
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
@@ -4448,8 +4492,12 @@ pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
     }
     let active_connections = Arc::new(AtomicU64::new(0));
     let render_service = Arc::new(RenderService::new());
+    let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(1);
 
     let server = std::thread::Builder::new().name("mux-server".into()).spawn(move || {
+        if ready_rx.recv().is_err() {
+            return;
+        }
         loop {
             let Ok(stream) = listener.accept() else { continue };
             let Some(permit) = claim_connection(&active_connections) else { continue };
@@ -4464,7 +4512,12 @@ pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
         cleanup(&path);
         return Err(error.into());
     }
-    Ok(path)
+    Ok(PendingServer { path: Some(path), ready: Some(ready_tx) })
+}
+
+/// Bind the socket and serve connections on background threads.
+pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
+    serve_paused(mux, path)?.mark_ready()
 }
 
 /// A running opt-in WebSocket listener. Dropping it stops accepts and closes clients.
@@ -4891,11 +4944,12 @@ fn complete_daemon_shutdown_after_ack(
     requesting_client: u64,
     writer: &MessageWriter,
 ) -> bool {
-    if writer.flush_control(SHUTDOWN_ACK_FLUSH_TIMEOUT).is_err() {
-        mux.cancel_daemon_handoff(requesting_client);
-        return false;
-    }
-    if mux.commit_daemon_handoff(requesting_client).is_err() {
+    if mux
+        .commit_daemon_handoff_after_ack(requesting_client, || {
+            writer.flush_control(SHUTDOWN_ACK_FLUSH_TIMEOUT)
+        })
+        .is_err()
+    {
         mux.cancel_daemon_handoff(requesting_client);
         return false;
     }
@@ -9286,7 +9340,7 @@ fn handle_command_with_cancellation(
             Ok(json!({}))
         }
         Command::ReloadConfig => {
-            mux.emit(MuxEvent::ConfigReloadRequested);
+            mux.request_config_reload()?;
             Ok(json!({
                 "reloaded": true,
                 "path": platform::config_path().map(|path| path.display().to_string()),
@@ -18751,7 +18805,7 @@ mod tests {
         let mux = test_mux();
         let pending = serve_paused(mux.clone(), Some(path.clone())).unwrap();
         let mut stream = transport::connect(&path).unwrap();
-        writeln!(stream, r#"{{"id":1,"cmd":"identify"}}"#).unwrap();
+        writeln!(stream, r#"{"id":1,"cmd":"identify"}"#).unwrap();
         stream.flush().unwrap();
 
         assert!(mux.control_clients.client_ids().is_empty());

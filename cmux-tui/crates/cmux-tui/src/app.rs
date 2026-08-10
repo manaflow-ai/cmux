@@ -12738,9 +12738,18 @@ impl App {
                 });
                 Ok(RenderAction::Draw)
             }
-            AppEvent::Mux(MuxEvent::ConfigReloadRequested)
-            | AppEvent::OwnerConfigReloadRequested => {
+            AppEvent::Mux(MuxEvent::ConfigReloadRequested) => {
                 self.reload_config();
+                Ok(RenderAction::Draw)
+            }
+            AppEvent::OwnerConfigReloadRequested => {
+                let owner = self.owner_mux.clone();
+                let request = owner.as_ref().map(|mux| mux.begin_config_reload_application());
+                self.reload_config();
+                if let (Some(owner), Some(request)) = (owner, request) {
+                    crate::session::apply_config_to_local_owner(&owner, &self.config);
+                    owner.complete_config_reload_application(request);
+                }
                 Ok(RenderAction::Draw)
             }
             AppEvent::Mux(MuxEvent::WindowTitleRequested(title)) => {

@@ -1780,6 +1780,16 @@ fn run_server(
         .map(|listener| cmux_tui_core::provider_management::serve(listener, mux.clone()))
         .transpose()?;
     let owner_event_loop = start_local_owner_event_loop(&mux);
+    let pending_server = match cmux_tui_core::server::serve_paused(
+        mux.clone(),
+        Some(socket_path.clone()),
+    ) {
+        Ok(server) => server,
+        Err(error) => {
+            mux.shutdown();
+            return Err(error);
+        }
+    };
 
     #[cfg(unix)]
     let remote_runtime = if args.remote {
@@ -1849,7 +1859,7 @@ fn run_server(
     if let Some(server) = &websocket_server {
         eprintln!("cmux-tui: WebSocket control at ws://{}", server.local_addr());
     }
-    let served_socket = match cmux_tui_core::server::serve(mux.clone(), Some(socket_path.clone())) {
+    let served_socket = match pending_server.mark_ready() {
         Ok(served_socket) => served_socket,
         Err(error) => {
             #[cfg(unix)]
@@ -1931,8 +1941,10 @@ fn start_local_owner_event_loop(mux: &Arc<Mux>) -> LocalOwnerEventLoop {
             let mux = weak_mux.upgrade();
             dispatch_local_owner_event(&event, move || {
                 if let Some(mux) = mux {
+                    let request = mux.begin_config_reload_application();
                     let config = config::load();
                     session::apply_config_to_local_owner(&mux, &config);
+                    mux.complete_config_reload_application(request);
                 }
             });
         }

@@ -1733,6 +1733,12 @@ impl Drop for TerminalExitStateQueryGuard<'_> {
 }
 
 /// The multiplexer. Shared by frontends and the control socket server.
+#[derive(Default)]
+struct ConfigReloadState {
+    requested: u64,
+    applied: u64,
+}
+
 pub struct Mux {
     /// Serializes durable workspace commits, their in-memory projection, and
     /// publication of revisioned workspace deltas. Lock order is always
@@ -1740,6 +1746,8 @@ pub struct Mux {
     workspace_registry: Mutex<WorkspaceRegistry>,
     state: Mutex<State>,
     subscribers: MuxEventBroadcaster,
+    config_reload: Mutex<ConfigReloadState>,
+    config_reload_changed: Condvar,
     next_id: AtomicU64,
     next_notification_id: AtomicU64,
     next_active_at: AtomicU64,
@@ -2070,6 +2078,8 @@ impl Mux {
             workspace_registry: Mutex::new(registry),
             state: Mutex::new(state),
             subscribers: MuxEventBroadcaster::default(),
+            config_reload: Mutex::new(ConfigReloadState::default()),
+            config_reload_changed: Condvar::new(),
             next_id: AtomicU64::new(next_id),
             next_notification_id: AtomicU64::new(next_notification_id),
             next_active_at: AtomicU64::new(1),
@@ -4694,6 +4704,49 @@ impl Mux {
 
     pub fn subscribe_config_reload(&self) -> MuxEventReceiver {
         self.subscribers.subscribe_config_reload()
+    }
+
+    /// Request one owner config reload and wait until the owner applies it.
+    pub fn request_config_reload(&self) -> anyhow::Result<()> {
+        const APPLY_TIMEOUT: Duration = Duration::from_secs(5);
+
+        let request = {
+            let mut state = self.config_reload.lock().unwrap();
+            state.requested = state.requested.saturating_add(1);
+            state.requested
+        };
+        self.emit(MuxEvent::ConfigReloadRequested);
+
+        let deadline = Instant::now() + APPLY_TIMEOUT;
+        let mut state = self.config_reload.lock().unwrap();
+        while state.applied < request {
+            if self.shutting_down.load(Ordering::Acquire) {
+                anyhow::bail!("configuration reload owner stopped before applying the request");
+            }
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                anyhow::bail!("configuration reload owner did not apply the request");
+            };
+            let (next, timeout) =
+                self.config_reload_changed.wait_timeout(state, remaining).unwrap();
+            state = next;
+            if timeout.timed_out() && state.applied < request {
+                anyhow::bail!("configuration reload owner did not apply the request");
+            }
+        }
+        Ok(())
+    }
+
+    /// Capture the newest request that the owner is about to apply.
+    pub fn begin_config_reload_application(&self) -> u64 {
+        self.config_reload.lock().unwrap().requested
+    }
+
+    /// Publish completion after the owner applies the captured request.
+    pub fn complete_config_reload_application(&self, request: u64) {
+        let mut state = self.config_reload.lock().unwrap();
+        state.applied = state.applied.max(request);
+        drop(state);
+        self.config_reload_changed.notify_all();
     }
 
     pub fn subscribe_attached_surface(&self, surface: SurfaceId) -> MuxEventReceiver {
@@ -7437,6 +7490,7 @@ impl Mux {
 
     pub fn shutdown(&self) {
         self.shutting_down.store(true, Ordering::Release);
+        self.config_reload_changed.notify_all();
         let surfaces = unique_surface_runtimes(&self.state.lock().unwrap());
         for surface in surfaces {
             surface.shutdown_for_daemon();
@@ -7471,6 +7525,15 @@ impl Mux {
 
     pub(crate) fn commit_daemon_handoff(&self, requesting_client: u64) -> anyhow::Result<()> {
         self.control_clients.commit_daemon_handoff(requesting_client)
+    }
+
+    pub(crate) fn commit_daemon_handoff_after_ack(
+        &self,
+        requesting_client: u64,
+        acknowledge: impl FnOnce() -> std::io::Result<()>,
+    ) -> anyhow::Result<()> {
+        self.control_clients
+            .commit_daemon_handoff_after_ack(requesting_client, acknowledge)
     }
 
     pub fn cancel_daemon_handoff(&self, requesting_client: u64) {
