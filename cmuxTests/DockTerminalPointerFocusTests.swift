@@ -13,7 +13,7 @@ import Testing
 @MainActor
 @Suite("Dock terminal pointer focus", .serialized)
 struct DockTerminalPointerFocusTests {
-    @Test
+    @Test("Pointer-down activates the owning Dock pane without a portal callback")
     func pointerDownActivatesOwningDockPaneWithoutPortalCallback() async throws {
 #if DEBUG
         try await AppContextSerialGate.withExclusiveAppContext {
@@ -21,17 +21,6 @@ struct DockTerminalPointerFocusTests {
         }
 #else
         Issue.record("Ghostty pointer-focus coverage is only available in DEBUG")
-#endif
-    }
-
-    @Test("Dock selection and restoration keep first responder on the selected terminal")
-    func dockSelectionAndRestorationKeepSelectedTerminalFirstResponder() async throws {
-#if DEBUG
-        try await AppContextSerialGate.withExclusiveAppContext {
-            try exerciseDockSelectionAndRestoration()
-        }
-#else
-        Issue.record("Ghostty Dock focus coverage is only available in DEBUG")
 #endif
     }
 
@@ -179,7 +168,7 @@ struct DockTerminalPointerFocusTests {
         ))
     }
 
-    private func exerciseDockSelectionAndRestoration() throws {
+    fileprivate func exerciseDockSelectionAndRestoration() throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         let manager = TabManager(autoWelcomeIfNeeded: false)
@@ -394,5 +383,21 @@ struct DockTerminalPointerFocusTests {
             clickCount: 1,
             pressure: 1
         ))
+    }
+}
+
+@MainActor
+@Suite("Dock terminal selection focus", .serialized)
+struct DockTerminalSelectionFocusTests {
+    @Test("Dock selection and restoration keep first responder on the selected terminal")
+    func dockSelectionAndRestorationKeepSelectedTerminalFirstResponder() async throws {
+#if DEBUG
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try DockTerminalPointerFocusTests()
+                .exerciseDockSelectionAndRestoration()
+        }
+#else
+        Issue.record("Ghostty Dock focus coverage is only available in DEBUG")
+#endif
     }
 }
