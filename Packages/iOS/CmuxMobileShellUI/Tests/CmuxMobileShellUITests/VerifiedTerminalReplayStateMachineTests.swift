@@ -190,6 +190,64 @@ struct VerifiedTerminalReplayStateMachineTests {
         #expect(machine.visibleSnapshot == nil)
     }
 
+    @Test("a shrinking viewport keeps the last verified frame visible until its replay verifies")
+    func viewportShrinkIsAtomicAcrossReplayLatency() throws {
+        let machine = VerifiedTerminalReplayStateMachine()
+        let fullHeight = try frame(
+            renderEpoch: "epoch-keyboard",
+            renderRevision: 20,
+            stateSeq: 5,
+            columns: 41,
+            text: "last good frame"
+        )
+        commit(fullHeight, to: machine)
+
+        let viewportTransactionID = machine.beginViewportTransition()
+        #expect(machine.isFrozen)
+        #expect(machine.visibleSnapshot?.rows.first?.plainText == "last good frame")
+
+        machine.acknowledgeViewport(
+            renderEpoch: "epoch-keyboard",
+            renderRevisionFloor: 20
+        )
+        #expect(machine.isFrozen)
+        #expect(machine.visibleSnapshot?.rows.first?.plainText == "last good frame")
+
+        let keyboardHeight = try frame(
+            renderEpoch: "epoch-keyboard",
+            renderRevision: 21,
+            stateSeq: 5,
+            columns: 41,
+            text: "replacement frame"
+        )
+        let replacement = try #require(
+            extractTransaction(from: machine.begin(frame: keyboardHeight))
+        )
+        #expect(replacement.id != viewportTransactionID)
+        #expect(machine.visibleSnapshot?.rows.first?.plainText == "last good frame")
+        #expect(
+            machine.complete(
+                transactionID: replacement.id,
+                observedFrame: keyboardHeight
+            ) == .reveal
+        )
+        #expect(machine.visibleSnapshot?.rows.first?.plainText == "replacement frame")
+        #expect(!machine.isFrozen)
+    }
+
+    @Test("a viewport transition with no replacement replay releases the retained frame")
+    func unchangedViewportCancelsPrearmedFreeze() throws {
+        let machine = VerifiedTerminalReplayStateMachine()
+        let frame = try frame(renderRevision: 30, stateSeq: 7, text: "stable frame")
+        commit(frame, to: machine)
+
+        let transactionID = machine.beginViewportTransition()
+        #expect(machine.isFrozen)
+        #expect(machine.cancelViewportTransition(transactionID: transactionID))
+        #expect(!machine.isFrozen)
+        #expect(machine.visibleSnapshot?.rows.first?.plainText == "stable frame")
+    }
+
     @Test("a width change presents only the old or fully verified new grid")
     func widthChangeIsAtomic() throws {
         let machine = VerifiedTerminalReplayStateMachine()
