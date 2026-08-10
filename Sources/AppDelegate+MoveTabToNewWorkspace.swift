@@ -140,12 +140,11 @@ extension AppDelegate {
             }
             var ownerReservation: TerminalBackendTopologyWorkspaceOwnerReservation?
             var surfaceReservation: TerminalBackendTopologyCanonicalSurfaceMoveReservation?
+            guard let registry = source.tabManager.terminalBackendTopologyProjectionRegistry else {
+                mutationCoordinator.reportFailure(for: .createWorkspace)
+                return nil
+            }
             do {
-                guard let registry = terminalBackendTopologyProjectionRegistry else {
-                    throw TerminalBackendTopologyProjectionError.projectionFailed(
-                        "canonical workspace move has no projection registry"
-                    )
-                }
                 ownerReservation = try registry.reserveWorkspaceOwner(
                     workspaceID: destinationWorkspaceID,
                     for: targetManager
@@ -163,8 +162,7 @@ extension AppDelegate {
                         )
             } catch {
                 if let ownerReservation {
-                    terminalBackendTopologyProjectionRegistry?
-                        .cancelWorkspaceOwnerReservation(ownerReservation)
+                    registry.cancelWorkspaceOwnerReservation(ownerReservation)
                 }
                 mutationCoordinator.reportFailure(for: .createWorkspace)
                 return nil
@@ -206,7 +204,7 @@ extension AppDelegate {
                         )
                     }
                 },
-                onFailure: { [weak registry = terminalBackendTopologyProjectionRegistry] in
+                onFailure: { [weak registry] in
                     if let surfaceReservation {
                         registry?.cancelCanonicalSurfaceMoveReservation(surfaceReservation)
                     }

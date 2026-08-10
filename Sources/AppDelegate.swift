@@ -8116,7 +8116,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if case .created(let workspace) = outcome {
                 createdWorkspaceHandler?(workspace)
                 if initialSurface == .browser, focusInitialBrowserAddressBarOnCreate {
-                    focusInitialBrowserAddressBar(in: workspace)
+                    self.focusInitialBrowserAddressBar(in: workspace)
                 }
             }
             return outcome.isAccepted
