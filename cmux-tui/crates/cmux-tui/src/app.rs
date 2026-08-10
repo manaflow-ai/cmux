@@ -38869,13 +38869,13 @@ mod tests {
 
     #[test]
     fn local_owner_shutdown_survives_machine_session_replacement() {
-        let owner = Mux::new("owner-shutdown-source", cmux_tui_core::SurfaceOptions::default());
+        let owner = Mux::new("owner-shutdown-source", SurfaceOptions::default());
         let initial = crate::session::test_remote_session_with_browser_pointer_range(7, 1, 1);
         let replacement = crate::session::test_remote_session_with_browser_pointer_range(8, 2, 2);
         let (mut app, events) = test_app_with_events(initial);
         app.owner_mux = Some(owner.clone());
         app.owner_reload_worker =
-            Some(OwnerReloadWorker::spawn(&owner, app.app_events.clone()).unwrap());
+            Some(super::OwnerReloadWorker::spawn(&owner, app.app_events.clone()).unwrap());
         let (session, event_worker, mux_titles, mux_recovery_generation) = prepare_ordered_session(
             replacement,
             app.pty_input.sender(),
