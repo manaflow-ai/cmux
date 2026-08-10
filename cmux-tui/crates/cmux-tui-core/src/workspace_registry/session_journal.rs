@@ -261,6 +261,7 @@ pub(super) fn create_session_journal_schema(transaction: &Transaction<'_>) -> an
          CREATE TABLE IF NOT EXISTS journal_event_index (
            event_id TEXT PRIMARY KEY NOT NULL,
            sequence INTEGER UNIQUE NOT NULL CHECK(sequence > 0),
+           kind TEXT,
            causation_depth INTEGER NOT NULL CHECK(causation_depth >= 0),
            causation_id TEXT,
            causal_hook_id TEXT,
@@ -348,6 +349,7 @@ pub(super) fn ensure_journal_event_index_schema(
     let added_causal_hook_id = !columns.contains("causal_hook_id");
     let added_resource_revision = !columns.contains("resource_revision");
     let added_previous_resource_revision = !columns.contains("previous_resource_revision");
+    let added_kind = !columns.contains("kind");
     if added_causation_id {
         transaction.execute("ALTER TABLE journal_event_index ADD COLUMN causation_id TEXT", [])?;
     }
@@ -364,6 +366,9 @@ pub(super) fn ensure_journal_event_index_schema(
             "ALTER TABLE journal_event_index ADD COLUMN previous_resource_revision INTEGER",
             [],
         )?;
+    }
+    if added_kind {
+        transaction.execute("ALTER TABLE journal_event_index ADD COLUMN kind TEXT", [])?;
     }
     let backfilled = transaction
         .query_row("SELECT 1 FROM meta WHERE key = 'journal_event_index_causation_v1'", [], |_| {
@@ -447,7 +452,10 @@ pub(super) fn ensure_journal_event_index_schema(
            WHERE causal_hook_id IS NOT NULL;
          CREATE UNIQUE INDEX IF NOT EXISTS journal_event_index_by_resource_revision
            ON journal_event_index(resource_revision)
-           WHERE resource_revision IS NOT NULL;",
+           WHERE resource_revision IS NOT NULL;
+         CREATE INDEX IF NOT EXISTS journal_event_index_by_agent_sequence
+           ON journal_event_index(sequence)
+           WHERE kind >= 'agent.' AND kind < 'agent/';",
     )?;
     Ok(())
 }
@@ -830,12 +838,13 @@ pub(super) fn append_journal_record(
     };
     transaction.execute(
         "INSERT INTO journal_event_index(
-           event_id, sequence, causation_depth, causation_id, causal_hook_id,
+           event_id, sequence, kind, causation_depth, causation_id, causal_hook_id,
            resource_revision, previous_resource_revision
-         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
             append.event_id,
             sequence,
+            append.kind,
             i64::from(append.causation_depth),
             append.causation_id,
             causal_hook_id,

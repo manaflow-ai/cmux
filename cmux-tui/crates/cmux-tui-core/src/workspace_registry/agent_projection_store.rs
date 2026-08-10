@@ -143,13 +143,36 @@ fn replay_agent_projection_journal_page(
     target_sequence: u64,
     head_sequence: u64,
 ) -> anyhow::Result<()> {
-    let scanned = {
+    transaction.execute(
+        "UPDATE journal_event_index
+         SET kind = (
+           SELECT kind FROM session_journal
+           WHERE session_journal.sequence = journal_event_index.sequence
+         )
+         WHERE kind IS NULL
+           AND sequence IN (
+           SELECT sequence
+           FROM session_journal INDEXED BY session_journal_by_kind_sequence
+           WHERE kind >= 'agent.' AND kind < 'agent/'
+             AND sequence > ?1 AND sequence <= ?2
+           ORDER BY sequence ASC
+           LIMIT ?3
+         )",
+        params![
+            i64::try_from(sequence).context("agent rebuild cursor exceeds SQLite range")?,
+            i64::try_from(target_sequence)
+                .context("agent rebuild target exceeds SQLite range")?,
+            i64::try_from(AGENT_PROJECTION_JOURNAL_REBUILD_PAGE_SIZE)
+                .context("agent rebuild page size exceeds SQLite range")?,
+        ],
+    )?;
+    let projection_sequences = {
         let mut statement = transaction.prepare(
-            "SELECT event.sequence, active.kind
-             FROM journal_event_index event
-             LEFT JOIN session_journal active ON active.sequence = event.sequence
-             WHERE event.sequence > ?1 AND event.sequence <= ?2
-             ORDER BY event.sequence ASC
+            "SELECT sequence
+             FROM journal_event_index INDEXED BY journal_event_index_by_agent_sequence
+             WHERE kind >= 'agent.' AND kind < 'agent/'
+               AND sequence > ?1 AND sequence <= ?2
+             ORDER BY sequence ASC
              LIMIT ?3",
         )?;
         let rows = statement.query_map(
@@ -160,21 +183,15 @@ fn replay_agent_projection_journal_page(
                 i64::try_from(AGENT_PROJECTION_JOURNAL_REBUILD_PAGE_SIZE)
                     .context("agent rebuild page size exceeds SQLite range")?,
             ],
-            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?)),
+            |row| row.get::<_, i64>(0),
         )?;
         rows.map(|row| {
-            let (sequence, kind) = row?;
-            Ok((u64::try_from(sequence).context("agent rebuild sequence is negative")?, kind))
+            u64::try_from(row?).context("agent rebuild sequence is negative")
         })
         .collect::<anyhow::Result<Vec<_>>>()?
     };
-    let last_sequence = scanned.last().map(|(sequence, _)| *sequence);
-    let projection_sequences = scanned
-        .iter()
-        .filter_map(|(sequence, kind)| {
-            kind.as_deref().is_none_or(|kind| kind.starts_with("agent.")).then_some(*sequence)
-        })
-        .collect::<Vec<_>>();
+    let last_sequence = projection_sequences.last().copied();
+    let page_is_full = projection_sequences.len() == AGENT_PROJECTION_JOURNAL_REBUILD_PAGE_SIZE;
     for record in
         session_journal::query_session_journal_sequences(transaction, &projection_sequences)?
     {
@@ -193,7 +210,7 @@ fn replay_agent_projection_journal_page(
         )?;
     }
     match last_sequence {
-        Some(last_sequence) if last_sequence < target_sequence => {
+        Some(last_sequence) if page_is_full && last_sequence < target_sequence => {
             store_agent_projection_journal_cursor(transaction, last_sequence)?;
         }
         _ => {
@@ -664,9 +681,7 @@ fn merge_projection(
     }
     let current_is_final = matches!(current.state.as_str(), "done" | "interrupted");
     let next_is_active = matches!(next.state.as_str(), "working" | "blocked" | "idle");
-    let newer_socket_activity =
-        next.source == "socket" && next_is_active && next.updated_at_ms > current.updated_at_ms;
-    if (current_is_final && next_is_active) || newer_socket_activity {
+    if current_is_final && next_is_active {
         return next;
     }
     current

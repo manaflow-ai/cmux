@@ -595,6 +595,20 @@ impl DeadlineFanoutPool {
         true
     }
 
+    /// Put a continuation behind work that is already queued. The caller is
+    /// one of this pool's active jobs, so its admission retires as soon as it
+    /// returns and the replacement does not increase steady-state load.
+    fn resubmit_current(&self, job: DeadlineFanoutJob) -> bool {
+        let mut state = self.inner.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if state.shutdown {
+            return false;
+        }
+        state.jobs.push_back(job);
+        state.admitted_jobs = state.admitted_jobs.saturating_add(1);
+        self.inner.changed.notify_one();
+        true
+    }
+
     #[cfg(test)]
     fn worker_count(&self) -> usize {
         self.inner.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).worker_count
@@ -4930,49 +4944,54 @@ impl Mux {
             return Ok(());
         }
         let weak = Arc::downgrade(self);
-        if let Err(error) = std::thread::Builder::new()
-            .name("agent-projection-rebuild".into())
-            .spawn(move || Self::run_agent_projection_rebuild_worker(weak))
+        if !self
+            .deadline_fanout_pool
+            .submit(Box::new(move || Self::run_agent_projection_rebuild_worker(weak)))
         {
             self.agent_projection_rebuild_running.store(false, Ordering::Release);
-            return Err(error.into());
+            anyhow::bail!("could not schedule agent projection rebuild");
         }
         Ok(())
     }
 
     fn run_agent_projection_rebuild_worker(weak: Weak<Self>) {
-        loop {
-            let Some(mux) = weak.upgrade() else { return };
-            if mux.shutting_down.load(Ordering::Acquire) {
-                mux.agent_projection_rebuild_running.store(false, Ordering::Release);
-                return;
+        let Some(mux) = weak.upgrade() else { return };
+        if mux.shutting_down.load(Ordering::Acquire) {
+            mux.agent_projection_rebuild_running.store(false, Ordering::Release);
+            return;
+        }
+        let result = (|| -> anyhow::Result<bool> {
+            let registry = mux.workspace_registry.lock().unwrap();
+            if !registry.continue_agent_projection_rebuild()? {
+                return Ok(false);
             }
-            let result = (|| -> anyhow::Result<bool> {
-                let registry = mux.workspace_registry.lock().unwrap();
-                if !registry.continue_agent_projection_rebuild()? {
-                    return Ok(false);
-                }
-                let projections = registry.public_agent_projections(None, None)?;
-                let restored = public_projections::restore_agent_projections(projections)?;
-                *mux.agent_records.lock().unwrap() = restored;
-                Ok(true)
-            })();
-            match result {
-                Ok(false) => {
-                    drop(mux);
-                    std::thread::yield_now();
-                }
-                Ok(true) => {
-                    mux.agent_projection_rebuild_running.store(false, Ordering::Release);
-                    mux.publish_journal_event();
+            let projections = registry.public_agent_projections(None, None)?;
+            let restored = public_projections::restore_agent_projections(projections)?;
+            *mux.agent_records.lock().unwrap() = restored;
+            Ok(true)
+        })();
+        match result {
+            Ok(false) => {
+                let continuation = Arc::downgrade(&mux);
+                if mux.deadline_fanout_pool.resubmit_current(Box::new(move || {
+                    Self::run_agent_projection_rebuild_worker(continuation);
+                })) {
                     return;
                 }
-                Err(error) => {
-                    mux.agent_projection_rebuild_running.store(false, Ordering::Release);
-                    eprintln!("cmux-tui: rebuild agent projections: {error:#}");
+                mux.agent_projection_rebuild_running.store(false, Ordering::Release);
+                if !mux.shutting_down.load(Ordering::Acquire) {
+                    eprintln!("cmux-tui: could not reschedule agent projection rebuild");
                     mux.request_daemon_shutdown();
-                    return;
                 }
+            }
+            Ok(true) => {
+                mux.agent_projection_rebuild_running.store(false, Ordering::Release);
+                mux.publish_journal_event();
+            }
+            Err(error) => {
+                mux.agent_projection_rebuild_running.store(false, Ordering::Release);
+                eprintln!("cmux-tui: rebuild agent projections: {error:#}");
+                mux.request_daemon_shutdown();
             }
         }
     }
@@ -19591,6 +19610,43 @@ mod tests {
 
         assert!(matches!(results.as_slice(), [DeadlineMapResult::Unscheduled]));
         assert_eq!(calls.load(Ordering::Acquire), 0);
+    }
+
+    #[test]
+    fn journal_agent_rebuild_resubmission_yields_to_queued_work() {
+        let pool = Arc::new(DeadlineFanoutPool::new());
+        let (started_sender, started_receiver) = std::sync::mpsc::sync_channel(1);
+        let (release_sender, release_receiver) = std::sync::mpsc::sync_channel(1);
+        let (order_sender, order_receiver) = std::sync::mpsc::sync_channel(2);
+        let job_pool = pool.clone();
+        let continuation_sender = order_sender.clone();
+        assert!(pool.submit(Box::new(move || {
+            started_sender.send(()).unwrap();
+            release_receiver.recv().unwrap();
+            assert!(job_pool.resubmit_current(Box::new(move || {
+                continuation_sender.send("continuation").unwrap();
+            })));
+        })));
+        started_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        {
+            let mut state = pool
+                .inner
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            state.worker_count = CELL_PIXEL_FANOUT_MAX_WORKERS;
+        }
+        assert!(pool.submit(Box::new(move || order_sender.send("queued").unwrap())));
+        release_sender.send(()).unwrap();
+
+        assert_eq!(order_receiver.recv_timeout(Duration::from_secs(1)).unwrap(), "queued");
+        assert_eq!(order_receiver.recv_timeout(Duration::from_secs(1)).unwrap(), "continuation");
+        pool.inner
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .worker_count = 1;
     }
 
     #[test]
