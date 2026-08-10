@@ -6892,15 +6892,6 @@ extension TabManager {
         return (filtered, remappedSelection)
     }
 
-    private static func isCloudVMSessionRestoreWorkspace(_ snapshot: SessionWorkspaceSnapshot) -> Bool {
-        isManagedCloudVMSessionRestoreWorkspace(snapshot)
-    }
-
-    private static func isManagedCloudVMSessionRestoreWorkspace(_ snapshot: SessionWorkspaceSnapshot) -> Bool {
-        guard let managedCloudVMID = snapshot.remote?.managedCloudVMID else { return false }
-        return !managedCloudVMID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
     /// Swift session snapshots retain only noncanonical presentation overlays.
     /// Canonical terminal and browser placement comes from cmuxd, while a
     /// browser source is recovered only through its private runtime claim.
