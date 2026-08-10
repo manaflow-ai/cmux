@@ -9262,7 +9262,7 @@ impl Mux {
         completion: Option<SurfaceResizeCompletion>,
     ) -> anyhow::Result<(bool, Option<u64>)> {
         let Some(surface) = self.viewer_target_surface(id) else {
-            anyhow::bail!("unknown surface or terminal viewer {id}");
+            anyhow::bail!("unknown surface {id}");
         };
         // Not recorded as a client size here: internal resizes (e.g. the
         // sidebar plugin surface tracking the TUI rect every frame) also land
