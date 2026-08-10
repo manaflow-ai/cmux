@@ -1066,6 +1066,7 @@ fn validate_provider_process_args(args: &Args) -> anyhow::Result<()> {
 
 fn rewrite_server_start(args: &mut Vec<String>) {
     let mut index = 0;
+    let mut output_mode = false;
     while index < args.len() {
         match args[index].as_str() {
             "--socket" | "--session" | "--machine" => {
@@ -1074,9 +1075,16 @@ fn rewrite_server_start(args: &mut Vec<String>) {
                 }
                 index += 2;
             }
-            "-h" | "--help" | "--json" | "--jsonl" | "--quiet" => return,
+            "--json" | "--jsonl" | "--quiet" => {
+                output_mode = true;
+                index += 1;
+            }
+            "-h" | "--help" => return,
             "server" if args.get(index + 1).map(String::as_str) == Some("start") => {
-                if server_start_has_cli_routing_flag(&args[index + 2..]) {
+                let start_args = &args[index + 2..];
+                if (output_mode && !server_start_has_inline_relay_ticket(start_args))
+                    || server_start_has_cli_routing_flag(start_args)
+                {
                     return;
                 }
                 args.drain(index..index + 2);
@@ -1088,13 +1096,58 @@ fn rewrite_server_start(args: &mut Vec<String>) {
     }
 }
 
-fn server_start_has_cli_routing_flag(args: &[String]) -> bool {
+fn server_start_has_inline_relay_ticket(args: &[String]) -> bool {
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
             option if option == "--relay-ticket" || option.starts_with("--relay-ticket=") => {
-                return false;
+                return true;
             }
+            "--session"
+            | "--socket"
+            | "--machine"
+            | "--terminal"
+            | "--state"
+            | "--machine-provider"
+            | "--cloud-host"
+            | "--cloud-user"
+            | "--cloud-port"
+            | "--cloud-identity"
+            | "--ws"
+            | "--ws-token"
+            | "--remote-ws"
+            | "--remote-http"
+            | "--remote-state-dir"
+            | "--remote-link-socket"
+            | "--remote-admin-socket"
+            | "--remote-resume-lease-seconds"
+            | "--relay"
+            | "--relay-slot"
+            | "--relay-ticket-file"
+            | "--relay-ticket-command"
+            | "--relay-ticket-command-arg"
+            | "--advertise"
+            | "--term" => index += 2,
+            "--machine-provider-command" => {
+                index += 1;
+                while index < args.len() && args[index] != "--" {
+                    index += 1;
+                }
+                index += 1;
+            }
+            _ => index += 1,
+        }
+    }
+    false
+}
+
+fn server_start_has_cli_routing_flag(args: &[String]) -> bool {
+    if server_start_has_inline_relay_ticket(args) {
+        return false;
+    }
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
             "--session"
             | "--socket"
             | "--machine"
