@@ -90,8 +90,7 @@ impl FrontendControlState {
     }
 
     fn begin_resource_stream(&self) {
-        self.resource_stream_end_reason
-            .store(RESOURCE_STREAM_END_NONE, Ordering::Release);
+        self.resource_stream_end_reason.store(RESOURCE_STREAM_END_NONE, Ordering::Release);
         self.resource_stream_ended.store(false, Ordering::Release);
     }
 }
@@ -552,9 +551,7 @@ pub unsafe extern "C" fn cmux_frontend_client_copy_resource_update(
 ) -> bool {
     let Some(client) = (unsafe { client.as_ref() }) else { return false };
     let Some(update) = (unsafe { update.as_mut() }) else { return false };
-    unsafe {
-        copy_resource_update_from_state(&client.control_state, update, buffer, capacity)
-    }
+    unsafe { copy_resource_update_from_state(&client.control_state, update, buffer, capacity) }
 }
 
 /// Executes one public resource operation and returns allocated result JSON.
@@ -1031,8 +1028,7 @@ mod tests {
         assert!(state.resource_updates.lock().unwrap().is_empty());
         assert!(!state.resource_updates_overflowed.load(Ordering::Acquire));
         state.push_resource_update(&json!({"type":"stream_item","sequence":257}));
-        state.resource_stream_end_reason
-            .store(RESOURCE_STREAM_END_COMPLETED, Ordering::Release);
+        state.resource_stream_end_reason.store(RESOURCE_STREAM_END_COMPLETED, Ordering::Release);
         state.resource_stream_ended.store(true, Ordering::Release);
         let mut descriptor = CmuxFrontendResourceUpdate {
             payload_length: 0,
@@ -1044,10 +1040,7 @@ mod tests {
             copy_resource_update_from_state(&state, &mut descriptor, std::ptr::null_mut(), 0)
         });
         assert!(descriptor.ended);
-        assert_eq!(
-            descriptor.end_reason,
-            u32::from(RESOURCE_STREAM_END_COMPLETED)
-        );
+        assert_eq!(descriptor.end_reason, u32::from(RESOURCE_STREAM_END_COMPLETED));
         assert!(!descriptor.overflowed);
         let mut payload = vec![0_u8; descriptor.payload_length];
         assert!(unsafe {
@@ -1064,10 +1057,7 @@ mod tests {
     #[test]
     fn resource_control_accepts_v2_and_preserves_stream_end_reason() {
         let state = FrontendControlState::new(Arc::new(ClientUpdates::default()));
-        handle_control_line(
-            &state,
-            br#"{"protocol":"cmux.protocol/1","type":"stream_end"}"#,
-        );
+        handle_control_line(&state, br#"{"protocol":"cmux.protocol/1","type":"stream_end"}"#);
         assert!(!state.resource_stream_ended.load(Ordering::Acquire));
 
         handle_control_line(
