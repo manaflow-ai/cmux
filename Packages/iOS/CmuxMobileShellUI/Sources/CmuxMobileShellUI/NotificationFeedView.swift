@@ -19,6 +19,8 @@ struct NotificationFeedActions {
 /// Production notification-feed presentation. This view owns only UI projection
 /// state; rows receive immutable item snapshots plus ``NotificationFeedActions``.
 struct NotificationFeedView: View {
+    @AppStorage(MobileNotificationFeedDesign.storageKey) private var designRaw =
+        MobileNotificationFeedDesign.timeline.rawValue
     let status: MobileNotificationFeedStatus
     let projection: NotificationFeedProjection
     let refreshesOnAppear: Bool
@@ -39,6 +41,7 @@ struct NotificationFeedView: View {
                 filter: projection.filter,
                 hasSearchQuery: !projection.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                 status: status,
+                design: design,
                 actions: actions,
                 loadMoreRows: { projection.extendRowWindow() }
             )
@@ -67,6 +70,11 @@ struct NotificationFeedView: View {
             await actions.refresh()
         }
         .accessibilityIdentifier("MobileNotificationFeed")
+        .accessibilityValue(design.title)
+    }
+
+    private var design: MobileNotificationFeedDesign {
+        MobileNotificationFeedDesign(rawValue: designRaw) ?? .timeline
     }
 }
 
@@ -94,8 +102,6 @@ private struct NotificationFeedFilterBar: View {
 }
 
 private struct NotificationFeedList: View {
-    @AppStorage(MobileNotificationFeedDesign.storageKey) private var designRaw =
-        MobileNotificationFeedDesign.timeline.rawValue
     let sections: [NotificationFeedDaySection]
     let sourceItemCount: Int
     let isSourceRebuilding: Bool
@@ -104,6 +110,7 @@ private struct NotificationFeedList: View {
     let filter: MobileNotificationFeedFilter
     let hasSearchQuery: Bool
     let status: MobileNotificationFeedStatus
+    let design: MobileNotificationFeedDesign
     let actions: NotificationFeedActions
     let loadMoreRows: @MainActor () -> Void
 
@@ -124,7 +131,7 @@ private struct NotificationFeedList: View {
                         ForEach(section.items) { model in
                             NotificationFeedRow(
                                 model: model,
-                                design: MobileNotificationFeedDesign(rawValue: designRaw) ?? .timeline,
+                                design: design,
                                 actions: actions
                             )
                                 .equatable()
@@ -144,7 +151,7 @@ private struct NotificationFeedList: View {
         .refreshable {
             await actions.refresh()
         }
-        .accessibilityIdentifier("MobileNotificationFeedList-\(designRaw)")
+        .accessibilityIdentifier("MobileNotificationFeedList-\(design.rawValue)")
     }
 
     private var emptyState: NotificationFeedEmptyState {

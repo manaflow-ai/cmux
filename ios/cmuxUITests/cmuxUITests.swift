@@ -1976,8 +1976,6 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(feed.waitForExistence(timeout: 8))
         XCTAssertTrue(app.tabBars.buttons["Feed"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["MobileNotificationFeedDayToday"].exists)
-        XCTAssertTrue(app.descendants(matching: .any)["MobileNotificationFeedDayYesterday"].exists)
-        XCTAssertTrue(app.staticTexts["Build Mac"].exists)
 
         let approvalTitle = app.staticTexts["Codex needs approval"]
         let approvalWorkspace = app.staticTexts["cmux iOS"]
@@ -2013,6 +2011,13 @@ final class cmuxUITests: XCTestCase {
         XCTAssertLessThan(workspaceRange.lowerBound, bodyRange.lowerBound)
         XCTAssertLessThan(bodyRange.lowerBound, computerRange.lowerBound)
 
+        let allowOnce = app.buttons["MobileNotificationFeedPermission-once"]
+        let yesterday = app.descendants(matching: .any)["MobileNotificationFeedDayYesterday"]
+        for _ in 0..<12 where !yesterday.exists {
+            app.swipeUp(velocity: .slow)
+        }
+        XCTAssertTrue(yesterday.exists)
+        XCTAssertTrue(app.staticTexts["Build Mac"].exists)
         let unavailableRow = app.descendants(matching: .any)[
             "MobileNotificationFeedRow-build-mac-input-needed"
         ]
@@ -2022,8 +2027,10 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(unavailableValue.contains("Computer: Build Mac · Unavailable"))
         XCTAssertFalse(unavailableValue.contains("Pane:"))
 
-        let allowOnce = app.buttons["MobileNotificationFeedPermission-once"]
-        XCTAssertTrue(allowOnce.waitForExistence(timeout: 3))
+        for _ in 0..<12 where !allowOnce.isHittable {
+            app.swipeDown(velocity: .slow)
+        }
+        XCTAssertTrue(allowOnce.isHittable)
         allowOnce.tap()
         XCTAssertTrue(approvalRow.waitForNonExistence(timeout: 3))
 
@@ -2126,7 +2133,10 @@ final class cmuxUITests: XCTestCase {
         ]
         XCTAssertTrue(planRow.waitForExistence(timeout: 3))
         let planFeedback = app.textFields["MobileNotificationFeedExitPlanFeedback"]
-        XCTAssertTrue(planFeedback.waitForExistence(timeout: 3))
+        for _ in 0..<8 where !planFeedback.isHittable {
+            app.swipeUp(velocity: .slow)
+        }
+        XCTAssertTrue(planFeedback.isHittable)
         planFeedback.tap()
         planFeedback.typeText("Keep the inline controls concise")
         let planSubmit = app.buttons["MobileNotificationFeedExitPlanSubmit"]
@@ -2192,14 +2202,24 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(picker.isHittable)
         app.terminate()
 
-        for design in ["timeline", "cards", "compact", "conversation", "commandCenter"] {
+        for (design, title) in [
+            ("timeline", "Timeline"),
+            ("cards", "Cards"),
+            ("compact", "Compact"),
+            ("conversation", "Conversation"),
+            ("commandCenter", "Command Center"),
+        ] {
             app = launchApp(
                 mockData: false,
                 environment: ["CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "1"],
                 launchArguments: ["-cmux.labs.notificationFeedDesign", design]
             )
-            let list = app.descendants(matching: .any)["MobileNotificationFeedList-\(design)"]
-            XCTAssertTrue(list.waitForExistence(timeout: 8), "Missing Feed design: \(design)")
+            let feed = app.descendants(matching: .any)["MobileNotificationFeed"]
+            XCTAssertTrue(feed.waitForExistence(timeout: 8), "Missing Feed design: \(design)")
+            XCTAssertTrue(
+                (feed.value as? String)?.contains(title) == true,
+                "Feed did not render design: \(design)"
+            )
             let attachment = XCTAttachment(screenshot: app.screenshot())
             attachment.name = "iOS Feed \(design)"
             attachment.lifetime = .keepAlways
