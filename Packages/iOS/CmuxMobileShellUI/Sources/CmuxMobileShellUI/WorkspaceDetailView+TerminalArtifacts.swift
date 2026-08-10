@@ -128,19 +128,19 @@ private struct TerminalRendererFailureView: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            Text(
-                String(
-                    localized: "mobile.terminal.rendererFailed",
-                    defaultValue: "Terminal renderer failed to start."
-                ))
+            Text(L10n.string(
+                "mobile.terminal.rendererFailed",
+                defaultValue: "Terminal renderer failed to start.",
+                bundle: .module
+            ))
             Button {
                 retry()
             } label: {
-                Text(
-                    String(
-                        localized: "mobile.terminal.rendererRetry",
-                        defaultValue: "Retry"
-                    ))
+                Text(L10n.string(
+                    "mobile.terminal.rendererRetry",
+                    defaultValue: "Retry",
+                    bundle: .module
+                ))
             }
             .buttonStyle(.borderedProminent)
             .accessibilityIdentifier("MobileTerminalRendererRetry")

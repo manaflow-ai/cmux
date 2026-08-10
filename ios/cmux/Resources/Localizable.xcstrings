@@ -10320,23 +10320,6 @@
         }
       }
     },
-    "mobile.terminal.rendererFailed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal renderer failed to start."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ターミナルレンダラーを起動できませんでした。"
-          }
-        }
-      }
-    },
     "mobile.terminal.viewAsText": {
       "extractionState": "manual",
       "localizations": {
