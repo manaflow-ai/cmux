@@ -284,13 +284,23 @@ extension TerminalController {
             return mobileChatInputError(clearResult)
         }
         for (index, attachment) in attachments.enumerated() {
-            guard let base64 = attachment["data_b64"] as? String else {
-                return .err(code: "invalid_params", message: "Attachment missing data_b64", data: nil)
+            let result: V2CallResult
+            if let operationID = attachment["operation_id"] as? String,
+               let uploadID = attachment["upload_id"] as? String {
+                var stagedParams = terminalParams
+                stagedParams["operation_id"] = operationID
+                stagedParams["upload_id"] = uploadID
+                result = v2MobileTerminalPasteAttachment(params: stagedParams)
+            } else if let base64 = attachment["data_b64"] as? String {
+                // Backward compatibility for older iOS clients. Current clients
+                // always upload bounded chunks before this request.
+                var imageParams = terminalParams
+                imageParams["image_base64"] = base64
+                imageParams["image_format"] = (attachment["format"] as? String) ?? "png"
+                result = v2MobileTerminalPasteImage(params: imageParams)
+            } else {
+                return .err(code: "invalid_params", message: "Attachment identity is missing", data: nil)
             }
-            var imageParams = terminalParams
-            imageParams["image_base64"] = base64
-            imageParams["image_format"] = (attachment["format"] as? String) ?? "png"
-            let result = v2MobileTerminalPasteImage(params: imageParams)
             if case .err = result {
                 return result
             }

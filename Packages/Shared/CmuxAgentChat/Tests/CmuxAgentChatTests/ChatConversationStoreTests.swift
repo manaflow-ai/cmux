@@ -490,7 +490,8 @@ struct ChatConversationStoreTests {
         await store.send(text: "retry this file", attachments: [attachment])
         guard let pending = Self.pendingItems(store.rows).first,
               case .failed = pending.delivery else {
-            return Issue.record("expected first attachment delivery to fail")
+            Issue.record("expected first attachment delivery to fail")
+            return
         }
         await store.retry(pendingID: pending.id)
 

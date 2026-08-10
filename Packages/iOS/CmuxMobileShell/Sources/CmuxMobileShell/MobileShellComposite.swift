@@ -5,7 +5,7 @@ public import CmuxMobileBrowserStream
 public import CmuxMobilePairedMac
 public import CmuxMobileRPC
 public import CmuxMobileShellModel
-internal import CmuxMobileSupport
+public import CmuxMobileSupport
 public import CmuxMobileTransport
 public import Foundation
 import Observation
@@ -1781,6 +1781,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // text drafts above: the pending attachments are this user's unsent
         // content, and a reused terminal id under the next account must never
         // surface the previous user's selected photos.
+        removeAllPendingAttachmentFiles()
         pendingAttachmentsByTerminalID = [:]
         // Bump the session token so a photo load+encode already in flight (started
         // under this account) is dropped at its store-mutation re-check instead of
@@ -7361,20 +7362,50 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// total can never exceed the cap. The store is the single source of truth.
     @discardableResult
     public func addPendingAttachment(_ data: Data, format: String, forTerminalID terminalID: String? = nil) -> MobilePendingAttachment.ID? {
-        guard !data.isEmpty, let key = terminalID ?? selectedTerminalID?.rawValue else { return nil }
+        guard !data.isEmpty else { return nil }
+        let attachment = MobilePendingAttachment(data: data, format: format)
+        guard let result = addPendingAttachment(attachment, forTerminalID: terminalID) else {
+            try? FileManager.default.removeItem(at: attachment.localFileURL)
+            return nil
+        }
+        return result
+    }
+
+    /// Stages a shared exact-byte attachment under one terminal draft.
+    @discardableResult
+    public func addPendingAttachment(
+        _ stagedAttachment: MobileStagedAttachment,
+        forTerminalID terminalID: String? = nil
+    ) -> MobilePendingAttachment.ID? {
+        addPendingAttachment(
+            MobilePendingAttachment(stagedAttachment),
+            forTerminalID: terminalID
+        )
+    }
+
+    @discardableResult
+    private func addPendingAttachment(
+        _ attachment: MobilePendingAttachment,
+        forTerminalID terminalID: String?
+    ) -> MobilePendingAttachment.ID? {
+        guard attachment.byteCount > 0,
+              let key = terminalID ?? selectedTerminalID?.rawValue else { return nil }
         // Reject any add for a terminal that is not in the current topology, so a
         // closed/recreated/stale id can never accrue orphaned bytes the user can no
         // longer see or send. This is the single validated path: both the base
         // call and the session-guarded variant funnel through here.
         guard terminalExistsInTopology(key) else { return nil }
         // A single image larger than the per-image cap is rejected outright.
-        guard data.count <= Self.maxPendingAttachmentImageBytes else { return nil }
+        let itemLimit = attachment.kind == .image
+            ? TaskComposerAttachment.maximumImageBytes
+            : TaskComposerAttachment.maximumFileBytes
+        guard attachment.byteCount <= itemLimit else { return nil }
         let existing = pendingAttachmentsByTerminalID[key] ?? []
         // Count cap, computed against the CURRENT staged set (atomic on @MainActor).
         guard existing.count < Self.maxPendingAttachmentCount else { return nil }
         // Total-byte budget, likewise against the current set.
-        let currentBytes = existing.reduce(0) { $0 + $1.data.count }
-        guard currentBytes + data.count <= Self.maxPendingAttachmentTotalBytes else { return nil }
+        let currentBytes = existing.reduce(0) { $0 + $1.byteCount }
+        guard currentBytes + attachment.byteCount <= Self.maxPendingAttachmentTotalBytes else { return nil }
         // GLOBAL caps, summed across ALL terminals' staged sets (not just the
         // target's). The per-terminal checks above bound one draft, but each live
         // terminal keeps its own per-terminal budget, so without a global cap
@@ -7386,11 +7417,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         var globalBytes = 0
         for list in pendingAttachmentsByTerminalID.values {
             globalCount += list.count
-            for item in list { globalBytes += item.data.count }
+            for item in list { globalBytes += item.byteCount }
         }
         guard globalCount < Self.maxPendingAttachmentCountAllTerminals else { return nil }
-        guard globalBytes + data.count <= Self.maxPendingAttachmentTotalBytesAllTerminals else { return nil }
-        let attachment = MobilePendingAttachment(data: data, format: format)
+        guard globalBytes + attachment.byteCount <= Self.maxPendingAttachmentTotalBytesAllTerminals else { return nil }
         pendingAttachmentsByTerminalID[key, default: []].append(attachment)
         return attachment.id
     }
@@ -7453,8 +7483,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let liveTerminalIDs: Set<String> = Set(
             workspaces.flatMap { $0.terminals.map(\.id.rawValue) }
         )
-        pendingAttachmentsByTerminalID = pendingAttachmentsByTerminalID.filter {
-            liveTerminalIDs.contains($0.key)
+        pendingAttachmentsByTerminalID = pendingAttachmentsByTerminalID.filter { entry in
+            let keep = liveTerminalIDs.contains(entry.key)
+            if !keep {
+                for attachment in entry.value {
+                    try? FileManager.default.removeItem(at: attachment.localFileURL)
+                }
+            }
+            return keep
         }
     }
 
@@ -7466,6 +7502,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func removePendingAttachment(id: MobilePendingAttachment.ID, forTerminalID terminalID: String? = nil) {
         guard let key = terminalID ?? selectedTerminalID?.rawValue,
               var list = pendingAttachmentsByTerminalID[key] else { return }
+        if let removed = list.first(where: { $0.id == id }) {
+            try? FileManager.default.removeItem(at: removed.localFileURL)
+        }
         list.removeAll { $0.id == id }
         if list.isEmpty {
             pendingAttachmentsByTerminalID[key] = nil
@@ -7479,7 +7518,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ///   selected terminal.
     public func clearPendingAttachments(forTerminalID terminalID: String? = nil) {
         guard let key = terminalID ?? selectedTerminalID?.rawValue else { return }
+        for attachment in pendingAttachmentsByTerminalID[key] ?? [] {
+            try? FileManager.default.removeItem(at: attachment.localFileURL)
+        }
         pendingAttachmentsByTerminalID[key] = nil
+    }
+
+    private func removeAllPendingAttachmentFiles() {
+        for attachments in pendingAttachmentsByTerminalID.values {
+            for attachment in attachments {
+                try? FileManager.default.removeItem(at: attachment.localFileURL)
+            }
+        }
     }
 
     /// Whether the composer's Send should be enabled: text is non-empty OR at
@@ -7658,9 +7708,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // removal.
             guard pendingAttachments(forTerminalID: submittedTerminalID.rawValue)
                 .contains(where: { $0.id == attachment.id }) else { continue }
-            let sent = await submitTerminalPasteImage(
-                attachment.data,
-                format: attachment.format,
+            let sent = await submitTerminalAttachment(
+                attachment,
                 workspaceID: workspaceID,
                 terminalID: submittedTerminalID
             )
@@ -10305,6 +10354,52 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             workspaceID: workspaceID,
             terminalID: terminalID
         )
+    }
+
+    /// Streams an exact staged file, then asks the host to paste its validated path.
+    @discardableResult
+    func submitTerminalAttachment(
+        _ attachment: MobilePendingAttachment,
+        workspaceID: MobileWorkspacePreview.ID,
+        terminalID: MobileTerminalPreview.ID
+    ) async -> Bool {
+        guard attachment.byteCount > 0, let client = remoteClient else { return false }
+        let generation = connectionGeneration
+        do {
+            let receipt = try await MobileAttachmentRPCUploader(client: client).upload(
+                fileURL: attachment.localFileURL,
+                byteCount: attachment.byteCount,
+                fileName: attachment.fileName,
+                operationID: attachment.operationID,
+                uploadID: attachment.id
+            )
+            let responseData = try await client.sendRequest(
+                MobileCoreRPCClient.requestData(
+                    method: "mobile.terminal.paste_attachment",
+                    params: [
+                        "workspace_id": remoteWorkspaceID(for: workspaceID).rawValue,
+                        "surface_id": terminalID.rawValue,
+                        "operation_id": receipt.operationID.uuidString,
+                        "upload_id": receipt.uploadID.uuidString,
+                        "client_id": clientID,
+                    ]
+                )
+            )
+            if isCurrentRemoteOperation(client: client, generation: generation) {
+                handleTerminalInputResponse(responseData, surfaceID: terminalID.rawValue)
+            }
+            return true
+        } catch {
+            guard generation == connectionGeneration else { return false }
+            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return false }
+            handleMacAvailabilityFailureIfCurrent(
+                after: error,
+                expectedClient: client,
+                expectedGeneration: generation
+            )
+            applyOperationalError(error)
+            return false
+        }
     }
 
     /// Send an image to an explicitly captured terminal. Used by

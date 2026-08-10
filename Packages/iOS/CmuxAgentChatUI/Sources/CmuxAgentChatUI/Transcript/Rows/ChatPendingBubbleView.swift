@@ -88,7 +88,8 @@ public struct ChatPendingBubbleView: View {
     @ViewBuilder
     private func thumbnail(for attachment: ChatOutboundAttachment) -> some View {
         #if canImport(UIKit)
-        if let image = UIImage(data: attachment.data) {
+        let image = attachment.thumbnailData.flatMap(UIImage.init(data:))
+        if let image {
             Image(uiImage: image)
                 .resizable()
                 .scaledToFill()

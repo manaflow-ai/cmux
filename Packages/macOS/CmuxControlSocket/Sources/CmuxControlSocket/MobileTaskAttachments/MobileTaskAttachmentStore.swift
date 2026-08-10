@@ -216,6 +216,40 @@ public struct MobileTaskAttachmentStore {
         }
     }
 
+    /// Resolves a completed upload through its validated operation and upload identities.
+    ///
+    /// Callers use this instead of accepting a client-provided host path. The
+    /// completion record is created only after contiguous chunks reach the
+    /// declared byte count, and the resolved regular file must remain inside
+    /// the operation directory.
+    ///
+    /// - Parameters:
+    ///   - operationID: Upload operation identity.
+    ///   - uploadID: Completed attachment identity.
+    /// - Returns: The validated completed file URL.
+    /// - Throws: ``MobileTaskAttachmentStoreError`` when no safe completed file exists.
+    public func completedAttachmentURL(
+        operationID: UUID,
+        uploadID: UUID
+    ) throws -> URL {
+        let operationURL = operationDirectory(for: operationID)
+        let completedURL = operationURL.appendingPathComponent(".completed", isDirectory: true)
+        guard let result = try completedResult(
+            uploadID: uploadID,
+            operationURL: operationURL,
+            completedURL: completedURL
+        ), let path = result.path else {
+            throw invalidParams("Attachment upload is not complete")
+        }
+        let candidate = URL(fileURLWithPath: path).standardizedFileURL
+        let parent = candidate.deletingLastPathComponent().standardizedFileURL
+        guard parent == operationURL.standardizedFileURL,
+              try candidate.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else {
+            throw invalidParams("Attachment path is invalid")
+        }
+        return candidate
+    }
+
     private func operationDirectory(for operationID: UUID) -> URL {
         rootURL.appendingPathComponent(
             operationID.uuidString.lowercased(),

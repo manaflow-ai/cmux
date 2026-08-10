@@ -278,10 +278,12 @@ public final class ChatConversationStore {
         // goes idle, so the message is delivered cleanly in turn order.
         let queueWhileBusy: Bool
         if case .working = agentState { queueWhileBusy = true } else { queueWhileBusy = false }
+        let operationID = UUID()
+        let normalizedAttachments = attachments.map { $0.withOperationID(operationID) }
         let item = ChatPendingOutbound(
             id: "local-\(pendingCounter)",
             text: trimmed,
-            attachments: attachments,
+            attachments: normalizedAttachments,
             createdAt: now(),
             delivery: queueWhileBusy ? .queued : .sending
         )
