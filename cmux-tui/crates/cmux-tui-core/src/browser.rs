@@ -2181,6 +2181,16 @@ impl BrowserSurface {
         if self.presentation_mode == BrowserPresentationMode::FrontendNative {
             return Ok(self.resize_frontend_native(cols, rows, report));
         }
+        self.resize_reporting_completion(cols, rows, report, None)
+    }
+
+    pub(crate) fn resize_reporting_completion(
+        &self,
+        cols: u16,
+        rows: u16,
+        report: Box<dyn FnOnce(Option<u64>) + Send>,
+        completion: Option<BrowserResizeWaiter>,
+    ) -> anyhow::Result<Option<u64>> {
         let (cols, rows) = (cols.max(1), rows.max(1));
         let Some(queued) = self.reserve_reconfigure(cols, rows) else {
             report(None);
@@ -2223,8 +2233,9 @@ impl BrowserSurface {
         reservation_id
     }
 
-    fn reconfigure_reserved_blocking(&self, queued: QueuedBrowserGeometry) -> anyhow::Result<()> {
-        self.reconfigure_blocking(
+    fn reconfigure_reserved_blocking(&self, queued: QueuedBrowserGeometry) -> BrowserWorkerResult {
+        let invalidation = self.begin_reconfigure_frame_transition();
+        let result = self.reconfigure_blocking(
             queued.geometry.capture_pixels.0,
             queued.geometry.capture_pixels.1,
         );

@@ -31,6 +31,10 @@ tungstenite.workspace = true
 getrandom.workspace = true
 uuid.workspace = true
 fs2.workspace = true
+fs4.workspace = true
+rusqlite.workspace = true
+url.workspace = true
+zeroize.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 uds_windows.workspace = true

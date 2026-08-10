@@ -1,16 +1,29 @@
 //! The multiplexer: owns the session [`State`] and every surface runtime,
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
+mod public_projections;
+mod resource_content;
+mod resource_topology;
+
+pub(crate) use resource_content::ResourceEffectProjection;
+
+use public_projections::{RestoredPublicProjections, restore_public_projections};
+
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
+use std::fmt;
 use std::ops::{Deref, DerefMut};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{Receiver, Sender, TryRecvError};
-use std::sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard};
+use std::path::Path;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::mpsc::{Receiver, Sender, SyncSender, TryRecvError};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, RwLock, RwLockReadGuard, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use anyhow::Context;
+use ghostty_vt::KittyGraphicsLimits;
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
+use zeroize::Zeroize;
 
 use crate::browser::{self, BrowserBootstrap, BrowserPresentationMode, BrowserRuntime};
 use crate::event_bus::{MuxEventBroadcaster, MuxEventReceiver};
@@ -20,7 +33,10 @@ use crate::frontend_native_browser::{
 };
 use crate::identity::EntityIdentityAllocator;
 use crate::layout::{Rect, layout_screen};
-use crate::model::{ChangeState, Node, Pane, Screen, State, Workspace};
+use crate::model::{
+    ChangeState, LayoutColumn, LayoutMutationKey, LayoutResizeOwner, Node, Pane, Screen, State,
+    Workspace,
+};
 use crate::pairing::PairingBroker;
 use crate::presentation::PresentationRegistry;
 use crate::projection_state::ProjectionStateRegistry;
@@ -36,6 +52,16 @@ use crate::renderer_control::{
 use crate::renderer_supervisor::{
     RendererProcessInstanceToken, RendererSupervisor, RendererSupervisorConfig,
     RendererSupervisorError, RendererSupervisorEvent, RendererWorkerState, RendererWorkerStatus,
+};
+use crate::resource::{
+    AgentPublicId, ContentPublicId, FrontendProjectionPublicId, NotificationPublicId,
+    PairingRequestPublicId, PanePublicId, PublicSlotIndexes, ResourceError, ResourceOperation,
+    ScreenPublicId, Selector, SidebarViewPublicId, SplitPublicId, TabPublicId, TabResourceIdentity,
+    TerminalPublicId, WorkspacePublicId,
+};
+use crate::resource_mutation::{ResourceMutationMetrics, ResourceMutationPlan};
+use crate::resource_selector::{
+    ResolvedResourceSlots, ResourceSelectorContext, resolve_resource_selectors,
 };
 use crate::semantic_scene::{
     SemanticSceneAttachmentOptions, SemanticSceneCaptureOptions, SemanticSceneControl,
@@ -60,12 +86,24 @@ use crate::terminal_activity::{
 use crate::terminal_authority::{
     TerminalAuthorityRegistry, TerminalLease, TerminalLeaseClaim, TerminalLeaseKind,
 };
+use crate::terminal_host::TerminalId;
+use crate::terminal_host_protocol::TerminalExit;
+use crate::terminal_host_runtime::TerminalHostIdentity;
+#[cfg(unix)]
+use crate::terminal_host_runtime::TerminalHostLiveness;
 use crate::topology::{TopologyJournal, topology_json};
+use crate::workspace_registry::{
+    FrontendProjection, ProjectionCommit, RegistryBrowser, RegistryBrowserReconnect,
+    RegistryCommit, RegistryLayoutNode, RegistrySnapshot, RegistryTab, RegistryTerminal,
+    RegistryViewport, RegistryWorkspace, ResourceChange, ResourceEffectOutcome,
+    ResourceEffectPreparation, ResourcePatch, ResourcePatchCommit, ResourceTopologySnapshot,
+    TerminalLifecycle, TerminalRegistrySnapshot, WorkspaceMutation, WorkspaceRegistry,
+};
 use crate::{
     DaemonInstanceId, PairingChallenge, PairingDecision, PairingError, PaneId, PanePublicId,
-    PaneUuid, ScreenId, ScreenPublicId, ScreenUuid, SessionId, SplitDir, SurfaceId, SurfaceUuid,
-    TopologyLimits, TopologyOperation, TopologyResume, TopologySnapshot, TopologyTargets,
-    WorkspaceId, WorkspacePublicId, WorkspaceUuid,
+    PaneUuid, ScreenId, ScreenPublicId, ScreenUuid, SessionId, SplitDir, SplitId, SurfaceId,
+    SurfaceKind, SurfaceUuid, TopologyLimits, TopologyOperation, TopologyResume, TopologySnapshot,
+    TopologyTargets, WorkspaceId, WorkspacePublicId, WorkspaceUuid,
 };
 
 pub type SurfaceResizeReporter = Arc<dyn Fn(SurfaceId, (u16, u16), Option<u64>) + Send + Sync>;
@@ -101,6 +139,31 @@ type TerminalReservationHook = Arc<dyn Fn(&str) + Send + Sync>;
 type RestoredViewport = (std::collections::BTreeMap<SplitId, f32>, Option<f32>, Vec<LayoutColumn>);
 
 const TERMINAL_DIMENSION_MAX: u16 = 10_000;
+const WORKSPACE_REGISTRY_LIMIT: usize = 4_096;
+const WORKSPACE_KEY_MAX_BYTES: usize = 256;
+const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
+const PROVIDER_WORKSPACE_AUTHORITY_MIN_BYTES: usize = 32;
+const PROVIDER_WORKSPACE_AUTHORITY_MAX_BYTES: usize = 512;
+const CELL_PIXEL_FANOUT_MAX_WORKERS: usize = 32;
+const DEADLINE_FANOUT_IDLE_TIMEOUT: Duration = Duration::from_millis(250);
+const CELL_PIXEL_RETRY_INITIAL: Duration = Duration::from_millis(25);
+const CELL_PIXEL_RETRY_MAX: Duration = Duration::from_millis(250);
+const CELL_PIXEL_RETRY_MAX_ATTEMPTS: u8 = 4;
+const KITTY_IMAGE_BUDGET_RETRY_INITIAL: Duration = Duration::from_millis(25);
+const KITTY_IMAGE_BUDGET_RETRY_MAX: Duration = Duration::from_secs(1);
+const KITTY_IMAGE_BUDGET_RETRY_MAX_ATTEMPTS: u32 = 4;
+const TERMINAL_HOST_CLOSE_WAIT: Duration = Duration::from_secs(4);
+pub(crate) const RENDER_ATTACHMENT_LIMIT: usize = 64;
+const KITTY_IMAGE_PROCESS_BUDGET_BYTES: u64 = 128 * 1024 * 1024;
+const KITTY_IMAGE_PERSISTENT_COPIES_PER_SURFACE: u64 = 8;
+const KITTY_OBJECT_OWNERS_PER_SURFACE: u64 = 2;
+const KITTY_IMAGE_PROCESS_BUDGET_COUNT: u64 = ghostty_vt::MAX_KITTY_IMAGES;
+const KITTY_PLACEMENT_PROCESS_BUDGET_COUNT: u64 = ghostty_vt::MAX_KITTY_PLACEMENTS;
+const KITTY_IMAGE_BUDGET_OWNER_LIMIT: usize = {
+    let image_limit = KITTY_IMAGE_PROCESS_BUDGET_COUNT / KITTY_OBJECT_OWNERS_PER_SURFACE;
+    let placement_limit = KITTY_PLACEMENT_PROCESS_BUDGET_COUNT / KITTY_OBJECT_OWNERS_PER_SURFACE;
+    if image_limit < placement_limit { image_limit as usize } else { placement_limit as usize }
+};
 const TERMINAL_INITIAL_INPUT_DEADLINE: Duration = Duration::from_secs(30);
 const RENDERER_PRESENTATION_REMOVAL_TIMEOUT: Duration = Duration::from_secs(2);
 const RENDERER_EVENT_DISPATCH_CAPACITY: usize = 256;
@@ -113,6 +176,291 @@ fn terminal_initial_input_deadline() -> Duration {
         return Duration::from_millis(milliseconds.max(1));
     }
     TERMINAL_INITIAL_INPUT_DEADLINE
+}
+
+fn cell_pixel_retry_delay(attempts: u8) -> Duration {
+    let multiplier = 1_u32.checked_shl(u32::from(attempts.saturating_sub(1))).unwrap_or(u32::MAX);
+    CELL_PIXEL_RETRY_INITIAL.saturating_mul(multiplier).min(CELL_PIXEL_RETRY_MAX)
+}
+
+fn kitty_image_budget_capacity(surface_count: usize, current: usize) -> usize {
+    if surface_count == 0 {
+        return 0;
+    }
+    // Keep hysteresis for larger buckets, but always restore the sole
+    // survivor's full share instead of stranding it in the two-surface bucket.
+    if current == 0
+        || surface_count > current
+        || surface_count <= current / 4
+        || (surface_count == 1 && current > 1)
+    {
+        return surface_count.checked_next_power_of_two().unwrap_or(usize::MAX);
+    }
+    current
+}
+
+fn kitty_surface_byte_reservation(image_bytes: u64) -> u64 {
+    image_bytes
+        .saturating_mul(KITTY_IMAGE_PERSISTENT_COPIES_PER_SURFACE)
+        .saturating_add(ghostty_vt::kitty_inflight_replay_limit_for_image_bytes(image_bytes))
+}
+
+fn kitty_image_bytes_for_process_share(process_share: u64) -> u64 {
+    let mut lower = 0;
+    let mut upper = process_share.min(ghostty_vt::MAX_KITTY_IMAGE_BYTES as u64);
+    while lower < upper {
+        let candidate = lower + (upper - lower).div_ceil(2);
+        if kitty_surface_byte_reservation(candidate) <= process_share {
+            lower = candidate;
+        } else {
+            upper = candidate - 1;
+        }
+    }
+    lower
+}
+
+fn kitty_image_limits_for_capacity(capacity: usize) -> KittyGraphicsLimits {
+    if capacity == 0 {
+        return KittyGraphicsLimits::disabled();
+    }
+    let surface_count = u64::try_from(capacity).unwrap_or(u64::MAX);
+    let process_share = KITTY_IMAGE_PROCESS_BUDGET_BYTES.checked_div(surface_count).unwrap_or(0);
+    let image_bytes = kitty_image_bytes_for_process_share(process_share);
+    let inflight_bytes = ghostty_vt::kitty_inflight_replay_limit_for_image_bytes(image_bytes);
+    let object_owners = surface_count.saturating_mul(KITTY_OBJECT_OWNERS_PER_SURFACE);
+    let images = KITTY_IMAGE_PROCESS_BUDGET_COUNT
+        .checked_div(object_owners)
+        .unwrap_or(0)
+        .min(ghostty_vt::MAX_KITTY_IMAGES);
+    let placements = KITTY_PLACEMENT_PROCESS_BUDGET_COUNT
+        .checked_div(object_owners)
+        .unwrap_or(0)
+        .min(ghostty_vt::MAX_KITTY_PLACEMENTS);
+    KittyGraphicsLimits { image_bytes, inflight_bytes, images, placements }
+}
+
+fn kitty_image_limits_within(candidate: KittyGraphicsLimits, ceiling: KittyGraphicsLimits) -> bool {
+    candidate.image_bytes <= ceiling.image_bytes
+        && candidate.inflight_bytes <= ceiling.inflight_bytes
+        && candidate.images <= ceiling.images
+        && candidate.placements <= ceiling.placements
+}
+
+fn kitty_image_limits_exceed(candidate: KittyGraphicsLimits, ceiling: KittyGraphicsLimits) -> bool {
+    !kitty_image_limits_within(candidate, ceiling)
+}
+
+fn kitty_image_limits_enabled(limits: KittyGraphicsLimits) -> bool {
+    limits.image_bytes > 0
+        && limits.inflight_bytes > 0
+        && limits.images > 0
+        && limits.placements > 0
+}
+
+#[derive(Clone)]
+struct KittyImageBudgetEntry {
+    surface: Option<Weak<Surface>>,
+    applied: KittyGraphicsLimits,
+    owns_quota: bool,
+    removing: bool,
+}
+
+#[derive(Default)]
+struct KittyImageBudgetState {
+    entries: HashMap<SurfaceId, KittyImageBudgetEntry>,
+    blocked_surfaces: HashSet<SurfaceId>,
+    capacity: usize,
+    worker_running: bool,
+    expansion_in_flight: bool,
+}
+
+struct PendingKittyImageBudgetOperation {
+    surface_id: SurfaceId,
+    surface: Weak<Surface>,
+    limits: KittyGraphicsLimits,
+    expanding: bool,
+    result: DeadlinePending<anyhow::Result<()>>,
+}
+
+pub(crate) struct KittyImageBudgetReservation {
+    mux: Weak<Mux>,
+    surface: SurfaceId,
+    initial_limits: KittyGraphicsLimits,
+    committed: bool,
+}
+
+impl KittyImageBudgetReservation {
+    pub(crate) fn initial_limits(&self) -> KittyGraphicsLimits {
+        self.initial_limits
+    }
+
+    pub(crate) fn commit(
+        mut self,
+        surface: &Arc<Surface>,
+        applied: KittyGraphicsLimits,
+    ) -> anyhow::Result<()> {
+        if let Some(mux) = self.mux.upgrade() {
+            mux.commit_kitty_image_surface(self.surface, surface, applied)?;
+        }
+        self.committed = true;
+        Ok(())
+    }
+}
+
+impl Drop for KittyImageBudgetReservation {
+    fn drop(&mut self) {
+        if self.committed {
+            return;
+        }
+        if let Some(mux) = self.mux.upgrade() {
+            mux.cancel_kitty_image_surface_reservation(self.surface);
+        }
+    }
+}
+
+pub(crate) struct RenderAttachmentPermit {
+    active: Arc<AtomicUsize>,
+}
+
+impl Drop for RenderAttachmentPermit {
+    fn drop(&mut self) {
+        self.active.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+fn workspace_resource_upsert(
+    sequence: usize,
+    session_id: &str,
+    workspace_id: &WorkspacePublicId,
+    name: &str,
+    index: usize,
+    focused: bool,
+) -> Value {
+    serde_json::json!({
+        "kind":"upsert",
+        "sequence":sequence,
+        "resource":"workspace",
+        "id":workspace_id,
+        "value":{
+            "id":workspace_id,
+            "session_id":session_id,
+            "name":name,
+            "index":index,
+            "focused":focused,
+        },
+    })
+}
+
+/// An opaque per-mux credential provisioned by the external machine
+/// provider. Debug output is deliberately redacted.
+#[derive(PartialEq, Eq)]
+pub struct ProviderWorkspaceAuthority(Box<str>);
+
+impl ProviderWorkspaceAuthority {
+    pub fn new(value: impl Into<String>) -> anyhow::Result<Self> {
+        let mut value = value.into();
+        if !(PROVIDER_WORKSPACE_AUTHORITY_MIN_BYTES..=PROVIDER_WORKSPACE_AUTHORITY_MAX_BYTES)
+            .contains(&value.len())
+            || value.bytes().any(|byte| byte.is_ascii_control())
+        {
+            value.zeroize();
+            anyhow::bail!(
+                "provider workspace authority must be 32 to 512 bytes without control characters"
+            );
+        }
+        Ok(Self(value.into_boxed_str()))
+    }
+
+    pub(crate) fn expose(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
+}
+
+/// Public, non-secret state exposed by the provider management socket.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ProviderWorkspaceAuthorityStatus {
+    pub managed: bool,
+    pub mux_generation: Option<String>,
+    pub authority_generation: u64,
+    pub authority_installed: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderWorkspaceAuthorityUpdateError {
+    Unmanaged,
+    MuxGenerationMismatch,
+    ExpectedGenerationMismatch,
+    GenerationConflict,
+    InvalidGeneration,
+}
+
+impl fmt::Display for ProviderWorkspaceAuthorityUpdateError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Unmanaged => "workspace lifecycle is not provider-managed",
+            Self::MuxGenerationMismatch => "mux generation does not match the running process",
+            Self::ExpectedGenerationMismatch => "authority generation changed concurrently",
+            Self::GenerationConflict => {
+                "authority generation already contains a different credential"
+            }
+            Self::InvalidGeneration => "authority generation must advance by exactly one",
+        })
+    }
+}
+
+impl std::error::Error for ProviderWorkspaceAuthorityUpdateError {}
+
+#[derive(Default)]
+struct ProviderWorkspaceState {
+    managed: bool,
+    mux_generation: Option<Box<str>>,
+    authority_generation: u64,
+    authority: Option<ProviderWorkspaceAuthority>,
+}
+
+impl ProviderWorkspaceState {
+    fn status(&self) -> ProviderWorkspaceAuthorityStatus {
+        ProviderWorkspaceAuthorityStatus {
+            managed: self.managed,
+            mux_generation: self.mux_generation.as_deref().map(str::to_owned),
+            authority_generation: self.authority_generation,
+            authority_installed: self.authority.is_some(),
+        }
+    }
+}
+
+impl fmt::Debug for ProviderWorkspaceAuthority {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("ProviderWorkspaceAuthority([redacted])")
+    }
+}
+
+impl Drop for ProviderWorkspaceAuthority {
+    fn drop(&mut self) {
+        // NUL bytes remain valid UTF-8, so the boxed string can be cleared in
+        // place before its allocation is released.
+        self.0.zeroize();
+    }
+}
+
+fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
+    let mut difference = left.len() ^ right.len();
+    let length = left.len().max(right.len());
+    for index in 0..length {
+        difference |= usize::from(
+            left.get(index).copied().unwrap_or(0) ^ right.get(index).copied().unwrap_or(0),
+        );
+    }
+    difference == 0
+}
+
+fn validate_mux_generation(value: &str) -> anyhow::Result<()> {
+    if value.len() != 32
+        || !value.bytes().all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+    {
+        anyhow::bail!("mux generation must be 32 lowercase hexadecimal characters");
+    }
+    Ok(())
 }
 
 pub(crate) fn clamp_terminal_size(cols: u16, rows: u16) -> (u16, u16) {
@@ -1002,6 +1350,46 @@ pub(crate) struct ReparentTerminalPlacement {
     pub surface_uuid: SurfaceUuid,
 }
 
+#[derive(Debug, Clone)]
+struct TerminalReservationRequest {
+    terminal_id: TerminalId,
+    mutation: WorkspaceMutation,
+    fingerprint: Value,
+    expected_generation: Option<String>,
+    expected_revision: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspacePlacement {
+    pub workspace: WorkspaceId,
+    pub key: String,
+    pub index: usize,
+    pub revision: u64,
+    pub replayed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspaceMutationResult {
+    pub workspace: Option<WorkspaceId>,
+    pub key: String,
+    pub index: Option<usize>,
+    pub revision: u64,
+    pub replayed: bool,
+    pub changed: bool,
+}
+
+#[derive(Clone, Copy)]
+enum TreeCloseTarget {
+    Pane(PaneId),
+    Screen(ScreenId),
+}
+
+enum WorkspaceMutationAuthority<'a> {
+    Ordinary,
+    TrustedProvider,
+    ProviderCredential(&'a str),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AppliedPane {
     pub pane: PaneId,
@@ -1156,6 +1544,12 @@ type SurfaceResizeAcceptance = (bool, Option<u64>);
 type AppliedClientSize = (SurfaceResizeAcceptance, Option<(u16, u16)>, ClientSizeRollback);
 type SurfaceResizeOutcome = Result<(), Arc<str>>;
 type SurfaceResizeCompletion = SyncSender<SurfaceResizeOutcome>;
+
+#[derive(Default)]
+struct LatestClientSize {
+    size: Option<(u16, u16)>,
+    from_report: bool,
+}
 
 struct ClientResizeRequest {
     surface: SurfaceId,
@@ -3308,6 +3702,52 @@ impl RendererSupervisorServing for RendererSupervisor {
 
 /// The multiplexer. Shared by frontends and the control socket server.
 pub struct Mux {
+    /// Serializes durable workspace commits, their in-memory projection, and
+    /// publication of revisioned workspace deltas. Lock order is registry, then state.
+    workspace_registry: Mutex<WorkspaceRegistry>,
+    next_id: AtomicU64,
+    provider_workspace: Mutex<ProviderWorkspaceState>,
+    workspace_lifecycles: Mutex<HashMap<WorkspaceId, Weak<Mutex<()>>>>,
+    pending_workspace_surfaces: Mutex<HashMap<SurfaceId, WorkspaceId>>,
+    active_render_attachments: Arc<AtomicUsize>,
+    deadline_fanout_pool: DeadlineFanoutPool,
+    kitty_image_budget: Mutex<KittyImageBudgetState>,
+    kitty_image_budget_changed: Condvar,
+    #[cfg(debug_assertions)]
+    terminal_host_reconnect_completion_failures: AtomicU64,
+    #[cfg(debug_assertions)]
+    terminal_host_test_disconnect_after_spawn_ms: AtomicU64,
+    #[cfg(test)]
+    kitty_image_budget_operation: Mutex<Option<KittyImageBudgetOperationHook>>,
+    cell_pixel_lifecycle: Mutex<()>,
+    next_cell_pixel_generation: AtomicU64,
+    pending_cell_pixels: Mutex<Option<PendingCellPixelUpdate>>,
+    cell_pixel_retries: Mutex<CellPixelRetryQueue>,
+    #[cfg(test)]
+    cell_pixel_before_publish: Mutex<Option<CellPixelBeforePublishHook>>,
+    #[cfg(test)]
+    cell_pixel_operation: Mutex<Option<CellPixelOperationHook>>,
+    #[cfg(test)]
+    cell_pixel_fanout_timeout: Mutex<Option<Duration>>,
+    durable_terminal_defaults: AtomicBool,
+    placement_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
+    terminal_notifications: Mutex<HashMap<TerminalPublicId, SurfaceNotification>>,
+    notification_ledger: Mutex<VecDeque<ResourceNotification>>,
+    resource_machine_service: OnceLock<Arc<dyn crate::ResourceMachineService>>,
+    resource_event_epoch: Mutex<u64>,
+    resource_event_changed: Condvar,
+    terminal_exit_waiters: TerminalExitWaiters,
+    #[cfg(test)]
+    terminal_exit_state_queries: AtomicU64,
+    resource_creation_handoff: Mutex<()>,
+    resource_creation_execution: Mutex<()>,
+    resource_creation_active: AtomicBool,
+    terminal_adoptions: Mutex<HashSet<String>>,
+    terminal_exit_detaches: Arc<TerminalExitDetachTracker>,
+    terminal_adoption_insert_failures: AtomicU64,
+    pub(crate) daemon_handoff_pending: AtomicBool,
+    shutting_down: AtomicBool,
+    pub(crate) surface_operation_admission: Arc<crate::server::ServerSurfaceOperationAdmission>,
     state: Mutex<CanonicalState>,
     subscribers: MuxEventBroadcaster,
     entity_ids: EntityIdentityAllocator,
@@ -3593,8 +4033,11 @@ impl Mux {
             session,
             surface_options,
             registry,
-            provider_workspace,
+            ProviderWorkspaceState::default(),
             test_surface_runtime,
+            session_id,
+            topology_limits,
+            topology_revision,
         )
         .expect("in-memory workspace registry must load")
     }
@@ -3612,6 +4055,9 @@ impl Mux {
             registry,
             ProviderWorkspaceState::default(),
             false,
+            SessionId::new(),
+            TopologyLimits::default(),
+            0,
         )
     }
 
@@ -3634,6 +4080,9 @@ impl Mux {
                 authority: Some(authority),
             },
             false,
+            SessionId::new(),
+            TopologyLimits::default(),
+            0,
         )
     }
 
@@ -3658,6 +4107,9 @@ impl Mux {
                 authority: None,
             },
             false,
+            SessionId::new(),
+            TopologyLimits::default(),
+            0,
         )
     }
 
@@ -3667,6 +4119,9 @@ impl Mux {
         registry: WorkspaceRegistry,
         provider_workspace: ProviderWorkspaceState,
         #[cfg_attr(not(test), allow(unused_variables))] test_surface_runtime: bool,
+        session_id: SessionId,
+        topology_limits: TopologyLimits,
+        topology_revision: u64,
     ) -> anyhow::Result<Arc<Self>> {
         let snapshot = registry.snapshot()?;
         let topology = registry.resource_topology_snapshot()?;
@@ -3681,27 +4136,28 @@ impl Mux {
             notification_ledger,
         } = restore_public_projections(&state, registry.public_projections()?)?;
         surface_options.browser_session_name = session.clone();
+        Self::rebuild_split_screen_index(&mut state);
         let daemon_instance_id = DaemonInstanceId::new();
-        Arc::new(Mux {
+        let mux = Arc::new(Mux {
+            workspace_registry: Mutex::new(registry),
             state: Mutex::new(CanonicalState::new(
-                State {
-                    workspaces: Vec::new(),
-                    active_workspace: 0,
-                    panes: HashMap::new(),
-                    surfaces: HashMap::new(),
-                },
+                state,
                 daemon_instance_id,
                 session_id,
                 topology_limits,
                 topology_revision,
             )),
             subscribers: MuxEventBroadcaster::default(),
+            next_id: AtomicU64::new(next_id),
             entity_ids: EntityIdentityAllocator::new(),
-            next_notification_id: AtomicU64::new(1),
+            next_notification_id: AtomicU64::new(next_notification_id),
             next_active_at: AtomicU64::new(1),
             next_in_process_resize_owner: AtomicU64::new(1),
             surface_options: Mutex::new(surface_options),
             latest_client_size: Mutex::new(LatestClientSize::default()),
+            provider_workspace: Mutex::new(provider_workspace),
+            workspace_lifecycles: Mutex::new(HashMap::new()),
+            pending_workspace_surfaces: Mutex::new(HashMap::new()),
             terminal_control_lifecycle: RwLock::new(()),
             client_sizing_lifecycle: Mutex::new(()),
             client_sizing: Mutex::new(ClientSizingState::default()),
@@ -3743,13 +4199,69 @@ impl Mux {
             #[cfg(test)]
             resource_close_cleanup: Mutex::new(None),
             browser_runtime: Mutex::new(None),
+            active_render_attachments: Arc::new(AtomicUsize::new(0)),
+            deadline_fanout_pool: DeadlineFanoutPool::new(),
+            kitty_image_budget: Mutex::new(KittyImageBudgetState::default()),
+            kitty_image_budget_changed: Condvar::new(),
+            #[cfg(debug_assertions)]
+            terminal_host_reconnect_completion_failures: AtomicU64::new(
+                std::env::var("CMUX_TUI_TEST_RECONNECT_COMPLETION_FAILURES")
+                    .ok()
+                    .and_then(|value| value.parse().ok())
+                    .unwrap_or(0),
+            ),
+            #[cfg(debug_assertions)]
+            terminal_host_test_disconnect_after_spawn_ms: AtomicU64::new(
+                std::env::var("CMUX_TUI_TEST_DISCONNECT_HOST_AFTER_SPAWN_MS")
+                    .ok()
+                    .and_then(|value| value.parse().ok())
+                    .unwrap_or(0),
+            ),
+            #[cfg(test)]
+            kitty_image_budget_operation: Mutex::new(None),
+            cell_pixel_lifecycle: Mutex::new(()),
+            next_cell_pixel_generation: AtomicU64::new(1),
             frontend_native_browsers: FrontendNativeBrowserRegistry::new(),
             remote_tmux_producers: RemoteTmuxProducerRegistry::new(),
             cell_pixels: Mutex::new((8, 16)),
-            default_colors: Mutex::new((0, DefaultColors::default())),
+            pending_cell_pixels: Mutex::new(None),
+            cell_pixel_retries: Mutex::new(CellPixelRetryQueue::default()),
+            #[cfg(test)]
+            cell_pixel_before_publish: Mutex::new(None),
+            #[cfg(test)]
+            cell_pixel_operation: Mutex::new(None),
+            #[cfg(test)]
+            cell_pixel_fanout_timeout: Mutex::new(None),
+            default_colors: Mutex::new((0, default_colors)),
+            durable_terminal_defaults: AtomicBool::new(has_terminal_defaults),
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
-            agent_records: Mutex::new(HashMap::new()),
+            agent_records: Mutex::new(agent_records),
+            placement_notifications: Mutex::new(HashMap::new()),
+            terminal_notifications: Mutex::new(terminal_notifications),
+            notification_ledger: Mutex::new(notification_ledger),
+            resource_machine_service: OnceLock::new(),
+            resource_event_epoch: Mutex::new(0),
+            resource_event_changed: Condvar::new(),
+            terminal_exit_waiters: TerminalExitWaiters::default(),
+            #[cfg(test)]
+            terminal_exit_state_queries: AtomicU64::new(0),
+            resource_creation_handoff: Mutex::new(()),
+            resource_creation_execution: Mutex::new(()),
+            resource_creation_active: AtomicBool::new(false),
+            terminal_adoptions: Mutex::new(HashSet::new()),
+            terminal_exit_detaches: Arc::new(TerminalExitDetachTracker::default()),
+            terminal_adoption_insert_failures: AtomicU64::new(
+                std::env::var("CMUX_TUI_TEST_ADOPTION_INSERT_FAILURES")
+                    .ok()
+                    .and_then(|value| value.parse().ok())
+                    .unwrap_or(0),
+            ),
+            daemon_handoff_pending: AtomicBool::new(false),
+            shutting_down: AtomicBool::new(false),
             control_clients: crate::server::ClientRegistry::new(),
+            surface_operation_admission: Arc::new(
+                crate::server::ServerSurfaceOperationAdmission::default(),
+            ),
             presentations: PresentationRegistry::new(),
             projection_states: ProjectionStateRegistry::new(),
             terminal_authority: TerminalAuthorityRegistry::new(),
@@ -3797,7 +4309,29 @@ impl Mux {
             session,
             daemon_instance_id,
             session_id,
-        })
+        });
+        mux.materialize_interrupted_resource_workspaces()?;
+        mux.materialize_restored_browsers(&contents)?;
+        #[cfg(unix)]
+        mux.adopt_terminal_hosts()?;
+        {
+            let mut state = mux.state.lock().unwrap();
+            state.rebuild_resource_indexes();
+            for content in &contents {
+                if let Some(surface) = state.surfaces.get(&content.slot) {
+                    surface.set_name(content.name.clone());
+                }
+            }
+        }
+        let recovery_deadline = Instant::now() + Duration::from_secs(15);
+        while mux.reconcile_interrupted_resource_creations()? {
+            if Instant::now() >= recovery_deadline {
+                mux.shutdown();
+                anyhow::bail!("interrupted resource creation did not settle during startup");
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        Ok(mux)
     }
 
     fn restore_persisted_state(

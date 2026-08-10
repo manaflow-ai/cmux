@@ -33,8 +33,10 @@ pub use scene::{
     SceneSectionKind,
 };
 pub use terminal::{
-    Callbacks, NotifyFn, PtyWriteFn, Rgb, Screen, Scrollbar, SearchSelection, SelectionAdjustment,
-    SelectionPoint, SelectionRangeSnapshot, SelectionSnapshot, Terminal, parse_color,
+    Callbacks, ClearHistoryOutcome, KittyGraphicsLimits, KittyImageIdCursors, KittyReplayState,
+    NotifyFn, PtyWriteFn, Rgb, Screen, Scrollbar, SearchSelection, SelectionAdjustment,
+    SelectionPoint, SelectionRangeSnapshot, SelectionSnapshot, Terminal, TerminalColorOverrides,
+    TerminalPointerSemanticSnapshot, TrackedScreenPoint, VtReplay, parse_color,
     parse_palette_entry,
 };
 

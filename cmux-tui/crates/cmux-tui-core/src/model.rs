@@ -5,9 +5,13 @@
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
+use crate::resource::{
+    ContentPublicId, PanePublicId, PublicSlotIndexes, ScreenPublicId, TabPublicId,
+    TerminalPublicId, WorkspacePublicId,
+};
 use crate::{
-    PaneId, PanePublicId, PaneUuid, ScreenId, ScreenPublicId, ScreenUuid, SplitDir, Surface,
-    SurfaceId, SurfaceUuid, WorkspaceId, WorkspacePublicId, WorkspaceUuid,
+    PaneId, PaneUuid, ScreenId, ScreenUuid, SplitDir, SplitId, Surface, SurfaceId, SurfaceUuid,
+    WorkspaceId, WorkspaceUuid,
 };
 
 /// Result of resolving a requested mutation against canonical state.
@@ -20,6 +24,81 @@ pub(crate) enum ChangeState {
     Missing,
     Unchanged,
     Changed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ViewportColumn {
+    Base,
+    Split(SplitId),
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct LayoutColumn {
+    pub(crate) id: SplitId,
+    pub(crate) width: f32,
+    pub(crate) root: Node,
+    pub(crate) zellij_auto_layout: Option<Vec<PaneId>>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ScreenLayoutSnapshot {
+    pub root: Node,
+    pub active_pane: PaneId,
+    pub zoomed_pane: Option<PaneId>,
+    pub zellij_auto_layout: Option<Vec<PaneId>>,
+    pub viewport_splits: BTreeMap<SplitId, f32>,
+    pub viewport_base_width: Option<f32>,
+    pub layout_columns: Vec<LayoutColumn>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LayoutResizeOwner {
+    InProcess(u64),
+    ControlClient(u64),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LayoutMutationKey {
+    Resize { owner: LayoutResizeOwner, transaction: u64 },
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct LayoutUndoEntry {
+    pub before: ScreenLayoutSnapshot,
+    pub after_revision: u64,
+    pub created_panes: Vec<PaneId>,
+    pub coalesce: Option<LayoutMutationKey>,
+}
+
+const LAYOUT_UNDO_LIMIT: usize = 32;
+
+#[derive(Debug, Clone)]
+pub struct StackPanes(Vec<PaneId>);
+
+impl StackPanes {
+    pub fn new(panes: Vec<PaneId>) -> Option<Self> {
+        (!panes.is_empty()).then_some(Self(panes))
+    }
+
+    pub fn as_slice(&self) -> &[PaneId] {
+        &self.0
+    }
+
+    fn iter_mut(&mut self) -> impl Iterator<Item = &mut PaneId> {
+        self.0.iter_mut()
+    }
+
+    fn retain(&mut self, predicate: impl FnMut(&PaneId) -> bool) {
+        self.0.retain(predicate);
+    }
+}
+
+impl std::ops::Deref for StackPanes {
+    type Target = [PaneId];
+
+    fn deref(&self) -> &Self::Target {
+        self.as_slice()
+    }
 }
 
 /// Binary split tree over panes for one screen.
@@ -404,6 +483,33 @@ impl Node {
             (false, _) => ChangeState::Missing,
             (true, false) => ChangeState::Unchanged,
             (true, true) => ChangeState::Changed,
+        }
+    }
+
+    pub(crate) fn set_split_ratio(&mut self, target: SplitId, new_ratio: f32) -> bool {
+        match self {
+            Node::Leaf(_) | Node::Stack { .. } => false,
+            Node::Split { id, ratio, a, b, .. } => {
+                if *id == target {
+                    *ratio = new_ratio;
+                    true
+                } else {
+                    a.set_split_ratio(target, new_ratio) || b.set_split_ratio(target, new_ratio)
+                }
+            }
+        }
+    }
+
+    pub(crate) fn split_ratio(&self, target: SplitId) -> Option<f32> {
+        match self {
+            Node::Leaf(_) | Node::Stack { .. } => None,
+            Node::Split { id, ratio, a, b, .. } => {
+                if *id == target {
+                    Some(*ratio)
+                } else {
+                    a.split_ratio(target).or_else(|| b.split_ratio(target))
+                }
+            }
         }
     }
 }
