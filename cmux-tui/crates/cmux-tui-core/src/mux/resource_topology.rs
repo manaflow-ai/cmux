@@ -2424,9 +2424,8 @@ impl Mux {
         terminal_public_id: &TerminalPublicId,
     ) -> anyhow::Result<Option<TerminalExitDetachProjection>> {
         let content_id = ContentPublicId::Terminal(terminal_public_id.clone());
-        let mut targets = state.placements_of_content(&content_id).to_vec();
-        targets.sort_unstable();
-        targets.dedup();
+        let targets =
+            terminal_content_placements(self, state, terminal_public_id, Some(terminal_id));
         let has_runtime = state.terminal_catalog.contains_key(terminal_public_id);
         if targets.is_empty() && !has_runtime {
             return Ok(None);
@@ -2452,8 +2451,12 @@ impl Mux {
         );
         let selection_before = active_tree_selection(state);
         let mut projected = state.clone();
-        let (runtime, removed, _) =
-            remove_terminal_content_from_state(self, &mut projected, terminal_public_id);
+        let (runtime, removed, _) = remove_terminal_content_from_state(
+            self,
+            &mut projected,
+            terminal_public_id,
+            Some(terminal_id),
+        );
         if let Some(runtime) = runtime.as_ref() {
             let host = self
                 .resource_terminal_host_identity(runtime)
@@ -2810,9 +2813,12 @@ impl Mux {
                 let host = self
                     .resource_terminal_host_identity(&runtime)
                     .context("terminal omitted its durable host identity")?;
-                let placements = state
-                    .placements_of_content(&ContentPublicId::Terminal(public_id.clone()))
-                    .to_vec();
+                let placements = terminal_content_placements(
+                    self,
+                    state,
+                    &public_id,
+                    Some(&host.terminal_id),
+                );
                 let screens = unique_screen_ids(
                     placements.iter().filter_map(|surface| surface_screen_id(state, *surface)),
                 );
@@ -2837,13 +2843,30 @@ impl Mux {
         public_id: &TerminalPublicId,
         state: &State,
     ) -> anyhow::Result<ResourceClosePlan> {
-        let mut placements =
-            state.placements_of_content(&ContentPublicId::Terminal(public_id.clone())).to_vec();
-        placements.extend(state.surfaces.iter().filter_map(|(surface_id, surface)| {
-            self.resource_terminal_host_identity(surface)
-                .is_some_and(|identity| identity.terminal_id == terminal_id)
-                .then_some(*surface_id)
-        }));
+        let belongs_to_terminal = |surface: &Arc<Surface>| {
+            surface.terminal_public_id() == Some(public_id)
+                && self.resource_terminal_host_identity(surface).is_some_and(|identity| {
+                    identity.terminal_id == terminal_id
+                        && terminal_incarnation
+                            .is_none_or(|incarnation| identity.incarnation == incarnation)
+                })
+        };
+        let mut placements = state
+            .placements_of_content(&ContentPublicId::Terminal(public_id.clone()))
+            .iter()
+            .filter_map(|surface_id| {
+                let surface = state.surfaces.get(surface_id)?;
+                belongs_to_terminal(surface).then_some(*surface_id)
+            })
+            .collect::<Vec<_>>();
+        placements.extend(
+            state
+                .surfaces
+                .iter()
+                .filter_map(|(surface_id, surface)| {
+                    belongs_to_terminal(surface).then_some(*surface_id)
+                }),
+        );
         placements.sort_unstable();
         placements.dedup();
         let changed_screens = unique_screen_ids(
@@ -2890,8 +2913,14 @@ impl Mux {
         let mut removed = Vec::new();
         let mut split_index_changed = false;
         if let Some(public_id) = &terminal_public_id {
-            let (removed_runtime, terminal_views, changed) =
-                remove_terminal_content_from_state(self, &mut projected, public_id);
+            let expected_host_id =
+                terminal_batch.first().map(|(terminal_id, _)| terminal_id.as_str());
+            let (removed_runtime, terminal_views, changed) = remove_terminal_content_from_state(
+                self,
+                &mut projected,
+                public_id,
+                expected_host_id,
+            );
             anyhow::ensure!(
                 match (removed_runtime.as_ref(), terminal_runtime.as_ref()) {
                     (Some(removed), Some(planned)) => removed.shares_terminal_runtime(planned),

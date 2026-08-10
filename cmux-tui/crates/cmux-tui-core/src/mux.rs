@@ -13961,24 +13961,47 @@ fn register_terminal_runtime_checked(
 /// exit and explicit close share this path so multiview teardown cannot leave
 /// a reverse catalog entry or a secondary placement behind. The runtime is
 /// optional because restored topology exists before host adoption.
+fn terminal_content_placements(
+    mux: &Mux,
+    state: &State,
+    terminal_id: &TerminalPublicId,
+    expected_host_id: Option<&str>,
+) -> Vec<SurfaceId> {
+    let runtime = state.terminal_catalog.get(terminal_id);
+    let mut targets = state
+        .surfaces
+        .iter()
+        .filter_map(|(placement, candidate)| {
+            if candidate.terminal_public_id() != Some(terminal_id) {
+                return None;
+            }
+            if runtime.is_some_and(|runtime| !candidate.shares_terminal_runtime(runtime)) {
+                return None;
+            }
+            if expected_host_id.is_some_and(|expected| {
+                !mux.resource_terminal_host_identity(candidate)
+                    .is_some_and(|identity| identity.terminal_id == expected)
+            }) {
+                return None;
+            }
+            Some(*placement)
+        })
+        .collect::<Vec<_>>();
+    targets.sort_unstable();
+    targets
+}
+
 fn remove_terminal_content_from_state(
     mux: &Mux,
     state: &mut State,
     terminal_id: &TerminalPublicId,
+    expected_host_id: Option<&str>,
 ) -> (Option<Arc<Surface>>, Vec<Arc<Surface>>, bool) {
+    let targets = terminal_content_placements(mux, state, terminal_id, expected_host_id);
     let runtime = state.terminal_catalog.remove(terminal_id);
     if let Some(runtime_id) = runtime.as_ref().and_then(|runtime| runtime.terminal_runtime_id()) {
         state.terminal_catalog_by_runtime.remove(&runtime_id);
     }
-    let mut targets =
-        state.placements_of_content(&ContentPublicId::Terminal(terminal_id.clone())).to_vec();
-    if let Some(runtime_id) = runtime.as_ref().and_then(|runtime| runtime.terminal_runtime_id()) {
-        targets.extend(state.surfaces.iter().filter_map(|(placement, candidate)| {
-            (candidate.terminal_runtime_id() == Some(runtime_id)).then_some(*placement)
-        }));
-    }
-    targets.sort_unstable();
-    targets.dedup();
     let mut removed = Vec::with_capacity(targets.len());
     let mut split_index_dirty = false;
     for target in targets {
@@ -14012,8 +14035,13 @@ fn remove_terminal_runtime_from_state(
     {
         return (Vec::new(), false);
     }
-    let (_, removed, split_index_dirty) =
-        remove_terminal_content_from_state(mux, state, &terminal_id);
+    let host = mux.resource_terminal_host_identity(runtime);
+    let (_, removed, split_index_dirty) = remove_terminal_content_from_state(
+        mux,
+        state,
+        &terminal_id,
+        host.as_ref().map(|host| host.terminal_id.as_str()),
+    );
     (removed, split_index_dirty)
 }
 
@@ -19659,12 +19687,14 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn explicit_terminal_close_repairs_a_partly_populated_placement_index() {
+    fn explicit_terminal_close_repairs_a_partial_index_without_closing_a_stale_entry() {
         let mux = test_mux();
         let first = mux.new_workspace(None, Some((80, 24))).unwrap();
         let second = projected_terminal_view(&mux, &first);
+        let unrelated = mux.new_workspace(None, Some((80, 24))).unwrap();
         let host = mux.resource_terminal_host_identity(&first).unwrap();
         let public_id = first.terminal_public_id().cloned().unwrap();
+        assert_ne!(unrelated.terminal_public_id(), Some(&public_id));
 
         {
             let mut state = mux.state.lock().unwrap();
@@ -19672,7 +19702,10 @@ mod tests {
             state
                 .resource_indexes
                 .content_placements
-                .insert(ContentPublicId::Terminal(public_id.clone()), vec![first.id]);
+                .insert(
+                    ContentPublicId::Terminal(public_id.clone()),
+                    vec![first.id, unrelated.id],
+                );
             state.terminal_catalog.remove(&public_id);
             state.terminal_catalog_by_runtime.remove(&runtime_id);
         }
@@ -19682,6 +19715,7 @@ mod tests {
         assert!(closed.surface.is_some());
         assert!(mux.surface(first.id).is_none());
         assert!(mux.surface(second.id).is_none());
+        assert!(mux.surface(unrelated.id).is_some());
         assert_eq!(
             mux.resolve_terminal(&host.terminal_id).unwrap().unwrap().terminal.lifecycle,
             TerminalLifecycle::Tombstoned
