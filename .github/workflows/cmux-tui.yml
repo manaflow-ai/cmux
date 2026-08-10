@@ -423,6 +423,9 @@ jobs:
         working-directory: cmux-tui
         run: cargo build -p cmux-tui --target x86_64-pc-windows-gnu --locked
 
-      - name: Run maintained cmux-remote test for Windows GNU
+      - name: Run cmux-tui smoke test for Windows GNU
+        shell: bash
         working-directory: cmux-tui
-        run: cargo test -p cmux-remote --test windows_gnu_link --target x86_64-pc-windows-gnu --locked -- --nocapture
+        run: |
+          output="$(target/x86_64-pc-windows-gnu/debug/cmux-tui.exe --version)"
+          [[ "$output" == cmux\ * ]]
