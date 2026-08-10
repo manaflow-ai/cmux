@@ -1,8 +1,17 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 11, IR 536268a614cad1e011105c31de780ef468c07a01c8f283c722725ee656276072. */
+/* cmux-tui mux protocol 11, IR ff17d4d94ffdb52e884ae924895a3ab2b3a9b41f0bdd01d6531aa9e62eeb298b. */
 
 
 import type * as T from "./types.js";
+
+/** Protocol v11; emission: emitted; streams: subscribe. */
+export type AgentChangedEvent = { event: "agent-changed" } & {
+  "session": (string) | null;
+  "source": T.AgentSource;
+  "state": T.AgentState;
+  "surface": T.Id;
+  "updated_at_ms": bigint;
+};
 
 /** Protocol v5; emission: emitted; streams: subscribe. */
 export type BellEvent = { event: "bell" } & {
@@ -384,6 +393,7 @@ export interface UnknownEvent {
 
 /** Every event emitted by protocol v11. */
 export type KnownCmuxEvent =
+  | AgentChangedEvent
   | BellEvent
   | BrowserStateEvent
   | ClientAttachedEvent
@@ -435,6 +445,7 @@ export type SerializedButNotEmittedEvent =
 
 /** Known subscribe stream events. */
 export type KnownSubscribeEvent =
+  | AgentChangedEvent
   | BellEvent
   | ClientAttachedEvent
   | ClientChangedEvent

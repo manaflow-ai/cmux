@@ -33,9 +33,6 @@ import {
   type PushDeliveryError,
 } from "../../../../services/apns/pushDeliveryService";
 
-export const runtime = "nodejs"; // http2 + node:crypto, not edge
-export const dynamic = "force-dynamic";
-// The default APNs loop is bounded to ~28s. Keep the platform request alive
 // through that loop while staying comfortably below the 120s event TTL.
 export const maxDuration = 45;
 

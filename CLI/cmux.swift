@@ -5317,7 +5317,7 @@ struct CMUXCLI {
             let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId, windowHandle: winId)
             if let sfId { params["surface_id"] = sfId }
             let payload = try client.sendV2(method: "surface.send_text", params: params)
-            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2SendSummary(payload, idFormat: idFormat))
 
         case "send-key":
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
@@ -5336,7 +5336,7 @@ struct CMUXCLI {
             let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId, windowHandle: winId)
             if let sfId { params["surface_id"] = sfId }
             let payload = try client.sendV2(method: "surface.send_key", params: params)
-            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2SendSummary(payload, idFormat: idFormat))
 
         case "send-panel":
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
@@ -5358,7 +5358,7 @@ struct CMUXCLI {
             let sfId = try normalizeSurfaceHandle(panelArg, client: client, workspaceHandle: wsId, windowHandle: winId)
             if let sfId { params["surface_id"] = sfId }
             let payload = try client.sendV2(method: "surface.send_text", params: params)
-            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2SendSummary(payload, idFormat: idFormat))
 
         case "send-key-panel":
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
@@ -5380,12 +5380,13 @@ struct CMUXCLI {
             let sfId = try normalizeSurfaceHandle(panelArg, client: client, workspaceHandle: wsId, windowHandle: winId)
             if let sfId { params["surface_id"] = sfId }
             let payload = try client.sendV2(method: "surface.send_key", params: params)
-            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2SendSummary(payload, idFormat: idFormat))
 
         case "notify":
             let title = optionValue(commandArgs, name: "--title") ?? "Notification"
             let subtitle = optionValue(commandArgs, name: "--subtitle") ?? ""
             let body = optionValue(commandArgs, name: "--body") ?? ""
+            let allowsReply = hasFlag(commandArgs, name: "--reply")
             let explicitWorkspaceArg = optionValue(commandArgs, name: "--workspace")
             let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowId)
             let windowHandle = try normalizeWindowHandle(windowRaw, client: client)
@@ -5412,12 +5413,25 @@ struct CMUXCLI {
                     targetSurface = try explicitSurfaceArg.map { try resolveSurfaceId($0, workspaceId: targetWorkspace, client: client) }
                         ?? resolveSurfaceId(nil, workspaceId: targetWorkspace, client: client)
                 }
-                let payload = notificationPayload(title: title, subtitle: subtitle, body: body)
-                let response = try sendV1Command("notify_target \(targetWorkspace) \(targetSurface) \(payload)", client: client)
-                print(response)
+                if allowsReply {
+                    let payload = try client.sendV2(method: "notification.create_for_target", params: [
+                        "workspace_id": targetWorkspace,
+                        "surface_id": targetSurface,
+                        "title": title,
+                        "subtitle": subtitle,
+                        "body": body,
+                        "reply_shape": "text",
+                    ])
+                    printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
+                } else {
+                    let payload = notificationPayload(title: title, subtitle: subtitle, body: body)
+                    let response = try sendV1Command("notify_target \(targetWorkspace) \(targetSurface) \(payload)", client: client)
+                    print(response)
+                }
                 return
             }
             var params: [String: Any] = ["title": title, "subtitle": subtitle, "body": body]
+            if allowsReply { params["reply_shape"] = "text" }
             let method: String
             if explicitSurfaceArg != nil {
                 method = "notification.create"
@@ -17218,6 +17232,10 @@ struct CMUXCLI {
               cmux send-key-panel --panel surface:2 ctrl+c
             """
         case "notify":
+            let replyHelp = String(
+                localized: "cli.help.notify.reply",
+                defaultValue: "--reply                Allow a free-text inline reply"
+            )
             return """
             Usage: cmux notify [flags]
 
@@ -17227,6 +17245,7 @@ struct CMUXCLI {
               --title <text>         Notification title (default: "Notification")
               --subtitle <text>      Notification subtitle
               --body <text>          Notification body
+              \(replyHelp)
               --workspace <id|ref|index>   Target workspace, except explicit surface UUIDs resolve globally
               --surface <id|ref|index>     Target surface (refs/indexes use workspace/window context)
               --window <id|ref|index>      Window context for workspace/surface refs and indexes
@@ -18303,6 +18322,19 @@ struct CMUXCLI {
             }
         }
         return parts.joined(separator: " ")
+    }
+
+    /// Summary for send verbs: annotates delivery that was queued behind a
+    /// pending terminal runtime spawn instead of written to a live PTY, so a
+    /// queued send is distinguishable from a delivered one (#9769).
+    func v2SendSummary(_ payload: [String: Any], idFormat: CLIIDFormat) -> String {
+        let summary = v2OKSummary(payload, idFormat: idFormat)
+        guard (payload["queued"] as? Bool) == true else { return summary }
+        let suffix = String(
+            localized: "cli.send.queuedSuffix",
+            defaultValue: "queued (terminal starting; input will be sent when its PTY is ready)"
+        )
+        return "\(summary) \(suffix)"
     }
 
     /// Summary for remote-tmux creations whose pane or window arrives asynchronously.
@@ -36526,7 +36558,7 @@ export default CMUXSessionRestore;
           send-key [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <key>
           send-panel --panel <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] <text>
           send-key-panel --panel <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] <key>
-          notify --title <text> [--subtitle <text>] [--body <text>] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
+          notify --title <text> [--subtitle <text>] [--body <text>] [--reply] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
           list-notifications
           dismiss-notification (--id <uuid> | --all-read)
           mark-notification-read (--id <uuid> | --workspace <id|ref|index> [--surface <id|ref|index>] [--window <id|ref|index>] | --all)

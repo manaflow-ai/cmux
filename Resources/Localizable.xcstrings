@@ -1,6 +1,230 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cli.help.notify.reply": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "--reply                Allow a free-text inline reply" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "--reply                自由入力のインライン返信を許可" } }
+      }
+    },
+    "debug.menu.notification.all": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Emit All" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべて送信" } }
+      }
+    },
+    "debug.menu.notification.cli": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "CLI" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "CLI" } }
+      }
+    },
+    "debug.menu.notification.cliReply": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "CLI Reply" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "CLI 返信" } }
+      }
+    },
+    "debug.menu.notification.emit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Emit Notification" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知を送信" } }
+      }
+    },
+    "debug.menu.notification.error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Error" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エラー" } }
+      }
+    },
+    "debug.menu.notification.feedExitPlan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Exit Plan" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィード終了プラン" } }
+      }
+    },
+    "debug.menu.notification.feedPermission": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Permission" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィード権限" } }
+      }
+    },
+    "debug.menu.notification.feedQuestion": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Question" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィード質問" } }
+      }
+    },
+    "debug.menu.notification.feedQuestion4": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Question (4 Options)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィード質問（4つの選択肢）" } }
+      }
+    },
+    "debug.menu.notification.feedQuestionMany": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Question (Many Options)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィード質問（多数の選択肢）" } }
+      }
+    },
+    "debug.menu.notification.feedQuestionMultiple": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Question (Multiple)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィード質問（複数質問）" } }
+      }
+    },
+    "debug.menu.notification.feedQuestionMultiSelect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Question (Multi-select)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィード質問（複数選択）" } }
+      }
+    },
+    "debug.menu.notification.hookFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Hook Failed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フック失敗" } }
+      }
+    },
+    "debug.menu.notification.idle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Idle Reminder" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アイドル通知" } }
+      }
+    },
+    "debug.menu.notification.mode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Notification Debug Mode" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知デバッグモード" } }
+      }
+    },
+    "debug.menu.notification.needsPermission": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Needs Permission" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "権限が必要" } }
+      }
+    },
+    "debug.menu.notification.osc": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "OSC" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "OSC" } }
+      }
+    },
+    "debug.menu.notification.turnComplete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Turn Complete" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターン完了" } }
+      }
+    },
+    "debug.notification.error.invalidKindOrTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unknown kind or no notification target" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明な種類、または通知対象がありません" } }
+      }
+    },
+    "debug.notification.error.missingEnabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pass enabled=true or enabled=false to turn notification debug mode on or off." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "enabled=true または enabled=false を指定して、通知デバッグモードのオン/オフを切り替えてください。" } }
+      }
+    },
+    "debug.notification.error.missingKind": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pass kind=<notification kind> to choose which debug notification to emit." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "kind=<通知の種類> を指定して、発行するデバッグ通知を選んでください。" } }
+      }
+    },
+    "debug.notification.synthetic.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Synthetic %@ notification" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "合成 %@ 通知" } }
+      }
+    },
+    "debug.notification.synthetic.option": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Option %d" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "選択肢 %d" } }
+      }
+    },
+    "debug.notification.synthetic.plan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Inspect the notification and verify the actions." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知を確認し、アクションを検証します。" } }
+      }
+    },
+    "debug.notification.synthetic.question": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Choose a notification debug answer" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知デバッグの回答を選択" } }
+      }
+    },
+    "debug.notification.synthetic.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Notification Debug" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知デバッグ" } }
+      }
+    },
+    "feed.notification.exitPlan.revise": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Revise…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "修正…" } }
+      }
+    },
+    "feed.notification.question.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Other…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "その他…" } }
+      }
+    },
+    "terminal.notification.action.reply": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reply" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "返信" } }
+      }
+    },
+    "terminal.notification.action.replyPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Message the agent…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェントにメッセージ…" } }
+      }
+    },
+    "terminal.notification.action.replySend": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Send" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "送信" } }
+      }
+    },
     "about.appName": {
       "extractionState": "manual",
       "localizations": {
@@ -34832,6 +35056,74 @@
         }
       }
     },
+    "cli.browser.error.diffViewerAllowlistInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid trusted diff viewer allowlist"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信頼済み差分ビューアの許可リストが無効です"
+          }
+        }
+      }
+    },
+    "cli.browser.error.diffViewerAllowlistMissingOrInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or invalid trusted diff viewer allowlist"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信頼済み差分ビューアの許可リストがないか、無効です"
+          }
+        }
+      }
+    },
+    "cli.browser.error.diffViewerSessionInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid trusted diff viewer session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信頼済み差分ビューアのセッションが無効です"
+          }
+        }
+      }
+    },
+    "cli.browser.error.diffViewerSessionMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing trusted diff viewer session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信頼済み差分ビューアのセッションがありません"
+          }
+        }
+      }
+    },
     "cli.browser.error.operationFailed": {
       "extractionState": "manual",
       "localizations": {
@@ -37686,6 +37978,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "（リモート tmux にルーティングされました。新しいウインドウは非同期で反映されます）"
+          }
+        }
+      }
+    },
+    "cli.send.queuedSuffix": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "queued (terminal starting; input will be sent when its PTY is ready)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キュー済み（ターミナル起動中。PTY 生成後に入力が送信されます）"
           }
         }
       }
@@ -98563,6 +98872,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "This page cannot use diff comments."
+          }
+        }
+      }
+    },
+    "diffViewer.error.allowlistTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff viewer allowlist is too large"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差分ビューアの許可リストが大きすぎます"
           }
         }
       }

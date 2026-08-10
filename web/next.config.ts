@@ -56,6 +56,14 @@ const tuiInstallerHeaderRules = [
 
 const nextConfig: NextConfig = {
   poweredByHeader,
+  cacheComponents: true,
+  partialPrefetching: true,
+  experimental: {
+    exposeTestingApiInProductionBuild: process.env.NEXT_INSTANT_TEST === "1",
+    instantInsights: {
+      validationLevel: "warning",
+    },
+  },
   env: {
     CMUX_DOCS_CHANNEL: docsChannel ?? "",
   },

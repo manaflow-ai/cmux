@@ -8,6 +8,7 @@ let authJsonAvailable = true;
 let cutoverReady = true;
 let hostedControlConfigured = true;
 let hostedExchangeCalls = 0;
+const metricsTeamIds: string[] = [];
 
 mock.module("next-intl/server", () => ({
   getTranslations: async (input?: string | { namespace?: string }) =>
@@ -94,6 +95,32 @@ mock.module("../services/subrouter/cutover", () => ({
   hostedSubrouterCutoverReadyForTeam: async () => cutoverReady,
 }));
 
+mock.module("../services/coderouter/teamMetrics", () => ({
+  loadCoderouterTeamMetrics: async (teamId: string) => {
+    metricsTeamIds.push(teamId);
+    return {
+      kind: "ready",
+      periodDays: 30,
+      generatedAt: "2026-08-08T12:00:00.000Z",
+      rateCardVersion: "2026-08-08",
+      totals: {
+        inputTokens: 1_000,
+        cachedInputTokens: 200,
+        outputTokens: 300,
+        totalTokens: 1_300,
+        apiEquivalentUsd: 4.25,
+        pricedTokens: 1_300,
+        unpricedTokens: 0,
+      },
+      daily: [{
+        day: "2026-08-08",
+        totalTokens: 1_300,
+        apiEquivalentUsd: 4.25,
+      }],
+    };
+  },
+}));
+
 mock.module("../db/client", () => ({
   cloudDb: () => ({}),
 }));
@@ -114,6 +141,7 @@ describe("coderouter dashboard", () => {
     cutoverReady = true;
     hostedControlConfigured = true;
     hostedExchangeCalls = 0;
+    metricsTeamIds.length = 0;
   });
 
   test("renders recovery UI when Stack authorization is unavailable", async () => {
@@ -176,6 +204,23 @@ describe("coderouter dashboard", () => {
 
     expect(html).toContain("AI account management isn&#x27;t available yet");
     expect(hostedExchangeCalls).toBe(0);
+  });
+
+  test("renders aggregate metrics only for the authorized selected team", async () => {
+    authorizationAvailable = true;
+
+    const page = await CoderouterOverviewPage({
+      params: Promise.resolve({ locale: "en" }),
+      searchParams: Promise.resolve({ team: "team-1" }),
+    });
+    const html = renderToStaticMarkup(page);
+
+    expect(metricsTeamIds).toEqual(["team-1"]);
+    expect(html).toContain("30-day usage");
+    expect(html).toContain("1.3K");
+    expect(html).toContain("$4.25");
+    expect(html).toContain("No prompts, outputs, account labels, or member identities");
+    expect(html).not.toContain("stack-user");
   });
 });
 

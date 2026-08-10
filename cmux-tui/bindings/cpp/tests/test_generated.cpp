@@ -102,7 +102,7 @@ TEST("generated command and event metadata is exhaustive and unique") {
     const auto commands = cmux::raw::command_metadata();
     const auto events = cmux::raw::event_metadata();
     CHECK_EQ(commands.size(), kExpectedRawCommandCount);
-    CHECK_EQ(events.size(), 45U);
+    CHECK_EQ(events.size(), 46U);
 
     std::set<std::string_view> command_names;
     bool checked_attach_fields = false;
