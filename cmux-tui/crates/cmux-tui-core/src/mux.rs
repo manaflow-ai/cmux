@@ -19020,11 +19020,11 @@ mod tests {
         );
 
         *mux.kitty_image_budget_operation.lock().unwrap() = None;
-        assert!(mux.close_surface(replacement.id).unwrap());
+        close_terminal_runtime_for_test(&mux, &replacement);
         for surface in survivors {
-            assert!(mux.close_surface(surface.id).unwrap());
+            close_terminal_runtime_for_test(&mux, &surface);
         }
-        assert!(mux.close_surface(first.id).unwrap());
+        close_terminal_runtime_for_test(&mux, &first);
         wait_for_kitty_image_budget(&mux);
     }
 
