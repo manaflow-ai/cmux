@@ -105,9 +105,15 @@ enum SearchIndexError: LocalizedError {
 }
 
 actor SearchIndex {
+    private typealias QueryProgressState = (
+        shouldCancel: @Sendable () -> Bool,
+        didInterrupt: Bool
+    )
     private static let schemaVersion = 1
 
     private var database: OpaquePointer?
+    private let queryProgressInstructionInterval: Int32
+    private let shouldCancelQuery: @Sendable () -> Bool
 
     nonisolated static func open(databaseURL: URL = .cmuxSearchDatabaseURL) async throws -> SearchIndex {
         // Actor initializers run on the caller executor, so open SQLite off the MainActor.
@@ -116,7 +122,13 @@ actor SearchIndex {
         }.value
     }
 
-    init(databaseURL: URL = .cmuxSearchDatabaseURL) throws {
+    init(
+        databaseURL: URL = .cmuxSearchDatabaseURL,
+        queryProgressInstructionInterval: Int32 = 1_000,
+        shouldCancelQuery: @escaping @Sendable () -> Bool = { Task.isCancelled }
+    ) throws {
+        self.queryProgressInstructionInterval = max(1, queryProgressInstructionInterval)
+        self.shouldCancelQuery = shouldCancelQuery
         try Self.ensureParentDirectoryExists(for: databaseURL)
 
         var openedDatabase: OpaquePointer?
@@ -182,6 +194,8 @@ actor SearchIndex {
     }
 
     func deletePanel(_ panelID: UUID) throws {
+        try Task.checkCancellation()
+
         try withStatement("DELETE FROM chunks WHERE panel_id = ?1") { statement in
             try bind(panelID.uuidString, at: 1, in: statement)
             try stepDone(statement)
@@ -189,6 +203,8 @@ actor SearchIndex {
     }
 
     func deleteDocument(id: String) throws {
+        try Task.checkCancellation()
+
         try withStatement("DELETE FROM chunks WHERE id = ?1") { statement in
             try bind(id, at: 1, in: statement)
             try stepDone(statement)
@@ -196,10 +212,13 @@ actor SearchIndex {
     }
 
     func deleteAll() throws {
+        try Task.checkCancellation()
         try execute("DELETE FROM chunks")
     }
 
     func search(_ rawQuery: String, limit: Int = 20) throws -> [SearchIndexHit] {
+        try Task.checkCancellation()
+
         let trimmed = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, limit > 0 else { return [] }
         guard let matchQuery = Self.matchQuery(for: trimmed) else { return [] }
@@ -224,26 +243,32 @@ actor SearchIndex {
             LIMIT ?2
             """
 
-        return try withStatement(sql) { statement in
-            try bind(matchQuery, at: 1, in: statement)
-            let limitBindResult = sqlite3_bind_int64(statement, 2, sqlite3_int64(limit))
-            guard limitBindResult == SQLITE_OK else {
-                throw SearchIndexError.bindFailed(
-                    Self.sqliteMessage(database) ?? "bind failed with code \(limitBindResult)"
-                )
-            }
+        return try withQueryCancellation {
+            try withStatement(sql) { statement in
+                try bind(matchQuery, at: 1, in: statement)
+                let limitBindResult = sqlite3_bind_int64(statement, 2, sqlite3_int64(limit))
+                guard limitBindResult == SQLITE_OK else {
+                    throw SearchIndexError.bindFailed(
+                        Self.sqliteMessage(database) ?? "bind failed with code \(limitBindResult)"
+                    )
+                }
 
-            var hits: [SearchIndexHit] = []
-            while true {
-                let stepResult = sqlite3_step(statement)
-                switch stepResult {
-                case SQLITE_ROW:
-                    guard let hit = Self.hit(from: statement) else { continue }
-                    hits.append(hit)
-                case SQLITE_DONE:
-                    return hits
-                default:
-                    throw SearchIndexError.stepFailed(Self.sqliteMessage(database) ?? "step failed with code \(stepResult)")
+                var hits: [SearchIndexHit] = []
+                while true {
+                    try Task.checkCancellation()
+                    let stepResult = sqlite3_step(statement)
+                    try Task.checkCancellation()
+                    switch stepResult {
+                    case SQLITE_ROW:
+                        guard let hit = Self.hit(from: statement) else { continue }
+                        hits.append(hit)
+                    case SQLITE_DONE:
+                        return hits
+                    default:
+                        throw SearchIndexError.stepFailed(
+                            Self.sqliteMessage(database) ?? "step failed with code \(stepResult)"
+                        )
+                    }
                 }
             }
         }
@@ -374,6 +399,50 @@ actor SearchIndex {
         }
         defer { sqlite3_finalize(statement) }
         return try body(statement)
+    }
+
+    private func withQueryCancellation<T>(
+        _ body: () throws -> T
+    ) throws -> T {
+        guard let database else {
+            throw SearchIndexError.executeFailed("database is closed")
+        }
+
+        var progressState: QueryProgressState = (
+            shouldCancel: shouldCancelQuery,
+            didInterrupt: false
+        )
+        return try withUnsafeMutablePointer(to: &progressState) { progressStatePointer in
+            sqlite3_progress_handler(
+                database,
+                queryProgressInstructionInterval,
+                { rawContext in
+                    guard let rawContext else { return 0 }
+                    let statePointer = rawContext.assumingMemoryBound(
+                        to: QueryProgressState.self
+                    )
+                    let shouldCancel = statePointer.pointee.shouldCancel
+                    guard shouldCancel() else { return 0 }
+                    statePointer.pointee.didInterrupt = true
+                    return 1
+                },
+                UnsafeMutableRawPointer(progressStatePointer)
+            )
+            defer {
+                sqlite3_progress_handler(database, 0, nil, nil)
+            }
+
+            do {
+                let result = try body()
+                try Task.checkCancellation()
+                return result
+            } catch {
+                if progressStatePointer.pointee.didInterrupt {
+                    throw CancellationError()
+                }
+                throw error
+            }
+        }
     }
 
     private func bind(_ value: String, at index: Int32, in statement: OpaquePointer) throws {

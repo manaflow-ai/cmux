@@ -38,17 +38,20 @@ extension AppDelegate {
                         : trimmed
                 }()
 
+                let panelTitlesByID = workspace.resolvedPanelTitlesByPanelID()
                 let orderedPanelIDs = workspace.sidebarOrderedPanelIds()
+                let orderedPanelIDSet = Set(orderedPanelIDs)
                 var seenPanelIDs = Set<UUID>()
                 let remainingPanelIDs = workspace.panels.keys
-                    .filter { !orderedPanelIDs.contains($0) }
+                    .filter { !orderedPanelIDSet.contains($0) }
                     .sorted { $0.uuidString < $1.uuidString }
 
                 for panelID in orderedPanelIDs + remainingPanelIDs where seenPanelIDs.insert(panelID).inserted {
                     guard let panel = workspace.panels[panelID] else { continue }
                     let key = "\(windowID.uuidString):\(workspace.id.uuidString):\(panel.id.uuidString)"
                     guard seenPanelKeys.insert(key).inserted else { continue }
-                    let panelTitle = panel.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let panelTitle = (panelTitlesByID[panel.id] ?? panel.displayTitle)
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
                     contexts.append(
                         GlobalSearchPanelContext(
                             windowID: windowID,
@@ -121,7 +124,8 @@ extension AppDelegate {
                         ? String(localized: "workspace.displayName.fallback", defaultValue: "Workspace")
                         : trimmed
                 }()
-                let panelTitle = panel.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                let panelTitle = (workspace.panelTitle(panelId: panel.id) ?? panel.displayTitle)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
                 let context = GlobalSearchPanelContext(
                     windowID: windowID,
                     windowTitle: windowTitle,

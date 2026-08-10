@@ -15,6 +15,33 @@ extension Workspace {
         case pane(RemoteTmuxControlPaneLocation)
     }
 
+    /// Resolves workspace and projected remote-pane titles with one topology traversal.
+    func resolvedPanelTitlesByPanelID() -> [UUID: String] {
+        var resolvedTitles: [UUID: String] = [:]
+        resolvedTitles.reserveCapacity(panels.count)
+        for (panelID, panel) in panels {
+            let fallback = panelTitles[panelID] ?? panel.displayTitle
+            resolvedTitles[panelID] = resolvedPanelTitle(
+                panelId: panelID,
+                fallback: fallback
+            )
+        }
+
+        if let sessionMirror = remoteTmuxSessionMirror {
+            for location in sessionMirror.controlPaneLocations() {
+                resolvedTitles[location.pane.panel.id] = location.pane.title
+            }
+            return resolvedTitles
+        }
+
+        for mirror in remoteTmuxWindowMirrors.values {
+            for pane in mirror.controlPanes() {
+                resolvedTitles[pane.panel.id] = pane.title
+            }
+        }
+        return resolvedTitles
+    }
+
     func remoteTmuxControlPane(paneID: UUID) -> RemoteTmuxControlPaneLocation? {
         if let sessionMirror = remoteTmuxSessionMirror {
             return sessionMirror.controlPaneLocation(paneID: paneID)
