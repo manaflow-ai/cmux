@@ -95,6 +95,7 @@ enum ResourceCloseTreePublication {
 struct CommittedResourceClose {
     commit: ResourcePatchCommit,
     effects: ResourceCloseEffects,
+    publish_resource: bool,
 }
 
 impl ResourceClosePlan {
@@ -2211,6 +2212,190 @@ impl Mux {
         Ok(self.finish_resource_close(committed))
     }
 
+    /// Commit the protocol terminal tombstone and the complete public
+    /// topology projection in one SQLite transaction. The projected state is
+    /// installed only after that transaction commits, so an error or process
+    /// stop cannot leave a subset of the terminal's views removed.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn close_terminal_with_protocol_mutation(
+        &self,
+        terminal_id: &str,
+        terminal_incarnation: Option<&str>,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+    ) -> anyhow::Result<TerminalCloseResult> {
+        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_fence = self.resource_creation_execution.lock().unwrap();
+        let fingerprint = json!({
+            "op":"close-terminal",
+            "terminal_id":terminal_id,
+            "incarnation":terminal_incarnation,
+        });
+        let mut registry = self.workspace_registry.lock().unwrap();
+        let public_id = registry.terminal_resource_id(terminal_id)?;
+        let mut state = self.state.lock().unwrap();
+
+        let Some(public_id) = public_id else {
+            let commit = registry.close_terminal(
+                mutation,
+                expected_generation,
+                expected_revision,
+                terminal_id,
+                terminal_incarnation,
+            )?;
+            let newly_closed =
+                !commit.replayed && !commit.result["already_closed"].as_bool().unwrap_or(false);
+            if newly_closed {
+                self.emit_terminal_registry_changed(&registry, commit.revision);
+            }
+            let closed_incarnation = commit.result["incarnation"].as_str().map(str::to_owned);
+            let catalog_public_id =
+                state.terminal_catalog.iter().find_map(|(public_id, surface)| {
+                    self.resource_terminal_host_identity(surface)
+                        .is_some_and(|identity| identity.terminal_id == terminal_id)
+                        .then(|| public_id.clone())
+                });
+            let runtime = catalog_public_id
+                .as_ref()
+                .and_then(|public_id| state.terminal_catalog.get(public_id))
+                .cloned();
+            let targets = state
+                .surfaces
+                .iter()
+                .filter_map(|(surface_id, surface)| {
+                    self.resource_terminal_host_identity(surface)
+                        .is_some_and(|identity| identity.terminal_id == terminal_id)
+                        .then_some(*surface_id)
+                })
+                .collect::<Vec<_>>();
+            let target = targets.first().copied();
+            let changed_screens = unique_screen_ids(
+                targets.iter().filter_map(|surface| surface_screen_id(&state, *surface)),
+            );
+            let removed = if let Some(runtime) = runtime.as_ref() {
+                remove_terminal_runtime_from_state(self, &mut state, runtime).0
+            } else {
+                let mut removed = Vec::new();
+                let mut split_index_dirty = false;
+                for target in targets {
+                    let (surface, changed) = remove_surface(self, &mut state, target);
+                    split_index_dirty |= changed;
+                    if let Some(surface) = surface {
+                        removed.push(surface);
+                    }
+                }
+                if split_index_dirty {
+                    Self::rebuild_split_screen_index(&mut state);
+                }
+                removed
+            };
+            let empty_revision = state.workspaces.is_empty().then_some(state.workspace_revision);
+            drop(state);
+            drop(registry);
+            drop(_creation_fence);
+            drop(_creation_handoff);
+            for surface in removed {
+                self.purge_surface_side_tables(surface.id);
+            }
+            let had_runtime = runtime.is_some();
+            if let Some(runtime) = runtime {
+                self.purge_terminal_runtime_side_tables(&runtime);
+                self.terminate_terminal_runtime(&runtime);
+            }
+            if target.is_some() {
+                self.emit(MuxEvent::TreeChanged);
+            }
+            for screen in changed_screens {
+                self.emit(MuxEvent::LayoutChanged(screen));
+            }
+            if !had_runtime {
+                self.terminate_discovered_terminal_host(terminal_id, closed_incarnation.as_deref());
+            }
+            self.emit_empty_if_current(empty_revision);
+            return Ok(TerminalCloseResult {
+                surface: target,
+                terminal_id: terminal_id.to_string(),
+                terminal_incarnation: closed_incarnation,
+                already_closed: commit.result["already_closed"]
+                    .as_bool()
+                    .unwrap_or(commit.replayed),
+                terminal_revision: commit.revision,
+            });
+        };
+
+        let mut plan = self.resource_terminal_close_plan_locked(
+            terminal_id,
+            terminal_incarnation,
+            &public_id,
+            &state,
+        )?;
+        anyhow::ensure!(
+            plan.terminal_batch
+                == [(terminal_id.to_string(), terminal_incarnation.map(str::to_owned))],
+            "terminal close plan changed host identity"
+        );
+        let projection =
+            self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
+        anyhow::ensure!(
+            projection.patch.changes.iter().any(|change| {
+                matches!(
+                    change,
+                    ResourceChange::TombstoneTerminal { public_id: target, .. }
+                        if target == &public_id
+                )
+            }),
+            "terminal close projection omitted its public terminal"
+        );
+        let target = plan.removed.first().map(|surface| surface.id);
+        let had_runtime = plan.terminal_runtime.is_some();
+        let current_resource_revision = state.resource_revision;
+        let close = registry.close_terminal_with_resource_patch(
+            mutation,
+            expected_generation,
+            expected_revision,
+            Some(current_resource_revision),
+            terminal_id,
+            terminal_incarnation,
+            Some(&projection.patch),
+            &projection.result,
+            &projection.changes,
+        )?;
+        let newly_closed = !close.terminal.replayed
+            && !close.terminal.result["already_closed"].as_bool().unwrap_or(false);
+        if newly_closed {
+            self.emit_terminal_registry_changed(&registry, close.terminal.revision);
+        }
+        let closed_incarnation = close.terminal.result["incarnation"].as_str().map(str::to_owned);
+        let resource = close.resource.context("terminal close omitted its resource commit")?;
+        let installed_revision =
+            if resource.replayed { current_resource_revision } else { resource.revision };
+        let effects = plan.install(&mut state, installed_revision, None);
+        let terminal_commit = close.terminal;
+        let publish_resource = !resource.replayed;
+        drop(state);
+        drop(registry);
+        drop(_creation_fence);
+        drop(_creation_handoff);
+        self.finish_resource_close(CommittedResourceClose {
+            commit: resource,
+            effects,
+            publish_resource,
+        });
+        if !had_runtime {
+            self.terminate_discovered_terminal_host(terminal_id, closed_incarnation.as_deref());
+        }
+        Ok(TerminalCloseResult {
+            surface: target,
+            terminal_id: terminal_id.to_string(),
+            terminal_incarnation: closed_incarnation,
+            already_closed: terminal_commit.result["already_closed"]
+                .as_bool()
+                .unwrap_or(terminal_commit.replayed),
+            terminal_revision: terminal_commit.revision,
+        })
+    }
+
     pub(super) fn terminal_exit_detach_projection_locked(
         &self,
         registry: &WorkspaceRegistry,
@@ -2466,7 +2651,7 @@ impl Mux {
         }
         drop(registry);
         drop(workspace_lifecycle);
-        Ok(CommittedResourceClose { commit: close.resource, effects })
+        Ok(CommittedResourceClose { commit: close.resource, effects, publish_resource: true })
     }
 
     fn finish_resource_close(&self, committed: CommittedResourceClose) -> ResourcePatchCommit {
@@ -2479,7 +2664,9 @@ impl Mux {
         if let Some(hook) = self.resource_close_cleanup.lock().unwrap().clone() {
             hook();
         }
-        self.publish_resource_event();
+        if committed.publish_resource {
+            self.publish_resource_event();
+        }
         for surface in effects.removed {
             self.purge_surface_side_tables(surface.id);
             if surface.kind() == SurfaceKind::Browser {
@@ -2517,17 +2704,7 @@ impl Mux {
         state: &State,
         notifications: &HashMap<SurfaceId, SurfaceNotification>,
     ) -> anyhow::Result<ResourceClosePlan> {
-        let selection_before = active_tree_selection(state);
-        let mut projected = state.clone();
-        let ResourceCloseInputs {
-            surface_ids,
-            mut delta,
-            changed_screens,
-            workspace_metadata,
-            terminal_runtime,
-            terminal_batch,
-            terminal_public_id,
-        } = match operation {
+        let inputs = match operation {
             ResourceOperation::WorkspaceClose => {
                 let workspace = slots.workspace.context("workspace disappeared")?;
                 let index = state.workspace_index(workspace).context("workspace disappeared")?;
@@ -2630,6 +2807,53 @@ impl Mux {
             }
             _ => anyhow::bail!("operation is not a topology close"),
         };
+        self.resource_close_plan_from_inputs_locked(inputs, state)
+    }
+
+    fn resource_terminal_close_plan_locked(
+        &self,
+        terminal_id: &str,
+        terminal_incarnation: Option<&str>,
+        public_id: &TerminalPublicId,
+        state: &State,
+    ) -> anyhow::Result<ResourceClosePlan> {
+        let placements =
+            state.placements_of_content(&ContentPublicId::Terminal(public_id.clone())).to_vec();
+        let changed_screens = unique_screen_ids(
+            placements.iter().filter_map(|surface| surface_screen_id(state, *surface)),
+        );
+        self.resource_close_plan_from_inputs_locked(
+            ResourceCloseInputs {
+                surface_ids: placements,
+                changed_screens,
+                terminal_runtime: state.terminal_catalog.get(public_id).cloned(),
+                terminal_batch: vec![(
+                    terminal_id.to_string(),
+                    terminal_incarnation.map(str::to_owned),
+                )],
+                terminal_public_id: Some(public_id.clone()),
+                ..Default::default()
+            },
+            state,
+        )
+    }
+
+    fn resource_close_plan_from_inputs_locked(
+        &self,
+        inputs: ResourceCloseInputs,
+        state: &State,
+    ) -> anyhow::Result<ResourceClosePlan> {
+        let selection_before = active_tree_selection(state);
+        let mut projected = state.clone();
+        let ResourceCloseInputs {
+            surface_ids,
+            mut delta,
+            changed_screens,
+            workspace_metadata,
+            terminal_runtime,
+            terminal_batch,
+            terminal_public_id,
+        } = inputs;
 
         let mut removed = Vec::new();
         let mut split_index_changed = false;
@@ -2637,10 +2861,11 @@ impl Mux {
             let (removed_runtime, terminal_views, changed) =
                 remove_terminal_content_from_state(self, &mut projected, public_id);
             anyhow::ensure!(
-                removed_runtime
-                    .as_ref()
-                    .zip(terminal_runtime.as_ref())
-                    .is_some_and(|(removed, planned)| removed.shares_terminal_runtime(planned)),
+                match (removed_runtime.as_ref(), terminal_runtime.as_ref()) {
+                    (Some(removed), Some(planned)) => removed.shares_terminal_runtime(planned),
+                    (None, None) => true,
+                    _ => false,
+                },
                 "terminal close lost its catalog runtime"
             );
             removed = terminal_views;
