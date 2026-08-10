@@ -12,7 +12,7 @@ from package_pypi import TARGETS, wheel_bytes
 
 
 def launcher_command(version: str, argv0: str) -> str:
-    files = wheel_bytes(version, "test-platform", b"binary")
+    files = wheel_bytes(version, "test-platform", b"binary", b"hook-binary")
     source = next(data for name, data, _ in files if name == "cmux_tui/_main.py")
     namespace: dict[str, object] = {}
     exec(compile(source, "cmux_tui/_main.py", "exec"), namespace)
@@ -21,7 +21,7 @@ def launcher_command(version: str, argv0: str) -> str:
 
 class LauncherCommandTests(unittest.TestCase):
     def test_launcher_remains_compatible_with_python_3_8(self) -> None:
-        files = wheel_bytes("1.2.3", "test-platform", b"binary")
+        files = wheel_bytes("1.2.3", "test-platform", b"binary", b"hook-binary")
         source = next(data for name, data, _ in files if name == "cmux_tui/_main.py")
 
         self.assertNotIn(b".removeprefix(", source)
