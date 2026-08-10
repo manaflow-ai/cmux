@@ -601,9 +601,18 @@ struct TerminalComposerView: View {
                       stagingTask.generation == stagingGeneration,
                       sessionGeneration == store.currentSessionGeneration else { break }
                 do {
-                    guard let imported = try await item.loadTransferable(
+                    let imported = try await item.loadTransferable(
                         type: MobileImportedImageFile.self
-                    ) else {
+                    )
+                    guard !Task.isCancelled,
+                          stagingTask.generation == stagingGeneration,
+                          sessionGeneration == store.currentSessionGeneration else {
+                        if let imported {
+                            try? FileManager.default.removeItem(at: imported.url)
+                        }
+                        break
+                    }
+                    guard let imported else {
                         attachmentError = L10n.string(
                             "mobile.attachment.error.unreadable",
                             defaultValue: "The selected file couldn’t be read."
@@ -620,12 +629,15 @@ struct TerminalComposerView: View {
                           stagingTask.generation == stagingGeneration,
                           sessionGeneration == store.currentSessionGeneration else {
                         try? FileManager.default.removeItem(at: attachment.localFileURL)
-                        continue
+                        break
                     }
                     admitStagedAttachment(attachment)
                 } catch is CancellationError {
                     break
                 } catch {
+                    guard !Task.isCancelled,
+                          stagingTask.generation == stagingGeneration,
+                          sessionGeneration == store.currentSessionGeneration else { break }
                     attachmentError = attachmentStagingErrorMessage(error)
                 }
             }
@@ -679,12 +691,15 @@ struct TerminalComposerView: View {
                           stagingTask.generation == stagingGeneration,
                           sessionGeneration == store.currentSessionGeneration else {
                         try? FileManager.default.removeItem(at: attachment.localFileURL)
-                        continue
+                        break
                     }
                     admitStagedAttachment(attachment)
                 } catch is CancellationError {
                     break
                 } catch {
+                    guard !Task.isCancelled,
+                          stagingTask.generation == stagingGeneration,
+                          sessionGeneration == store.currentSessionGeneration else { break }
                     attachmentError = attachmentStagingErrorMessage(error)
                 }
             }
@@ -728,6 +743,11 @@ struct TerminalComposerView: View {
         _ reason: MobileAttachmentAdmissionRejectionReason
     ) -> String? {
         switch reason {
+        case .unreadableFile:
+            return L10n.string(
+                "mobile.attachment.error.unreadable",
+                defaultValue: "The selected file couldn’t be read."
+            )
         case .itemSizeLimit:
             return L10n.string(
                 "mobile.attachment.error.itemSize",

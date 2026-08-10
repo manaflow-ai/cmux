@@ -26,6 +26,7 @@ public typealias CMUXMobileShellStore = MobileShellComposite
 
 /// Why an exact-byte attachment was not admitted to a terminal draft.
 public enum MobileAttachmentAdmissionRejectionReason: Sendable, Equatable {
+    case unreadableFile
     case itemSizeLimit
     case perTerminalCountLimit
     case perTerminalTotalBytesLimit
@@ -7415,7 +7416,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         _ stagedAttachment: MobileStagedAttachment,
         forTerminalID terminalID: String? = nil
     ) -> MobileAttachmentAdmissionResult {
-        admitPendingAttachment(
+        guard let values = try? stagedAttachment.localFileURL.resourceValues(
+            forKeys: [.fileSizeKey, .isReadableKey, .isRegularFileKey]
+        ), values.isRegularFile == true,
+           values.isReadable == true,
+           values.fileSize == stagedAttachment.byteCount else {
+            return .rejected(.unreadableFile)
+        }
+        return admitPendingAttachment(
             MobilePendingAttachment(stagedAttachment),
             forTerminalID: terminalID,
             usesLegacyImageLimit: false
