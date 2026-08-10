@@ -2436,7 +2436,7 @@ class TabManager: ObservableObject {
             mutationCoordinator.reportFailure(for: .createWorkspace)
             return nil
         }
-        workspaceGrouping.createWorkspaceGroup(
+        return workspaceGrouping.createWorkspaceGroup(
             name: name,
             childWorkspaceIds: childWorkspaceIds,
             anchorWorkingDirectory: anchorWorkingDirectory,
