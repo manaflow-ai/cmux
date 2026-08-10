@@ -2347,7 +2347,24 @@ impl Mux {
             &projection.changes,
         )?;
         let (terminal, resource) = match committed {
-            TerminalResourceCloseCommit::Replay(terminal) => {
+            TerminalResourceCloseCommit::TerminalReplay(terminal) => {
+                let result = TerminalCloseResult {
+                    surface: None,
+                    terminal_id: terminal_id.to_string(),
+                    terminal_incarnation: terminal.result["incarnation"]
+                        .as_str()
+                        .map(str::to_string),
+                    already_closed: terminal.result["already_closed"].as_bool().unwrap_or(false),
+                    terminal_revision: terminal.revision,
+                };
+                drop(state);
+                drop(registry);
+                drop(_creation_fence);
+                drop(_creation_handoff);
+                return Ok(Some(result));
+            }
+            TerminalResourceCloseCommit::ResourceReplay { terminal, resource } => {
+                state.resource_revision = state.resource_revision.max(resource.revision);
                 let result = TerminalCloseResult {
                     surface: None,
                     terminal_id: terminal_id.to_string(),
