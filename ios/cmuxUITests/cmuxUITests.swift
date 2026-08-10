@@ -2217,6 +2217,241 @@ final class cmuxUITests: XCTestCase {
         XCTAssertEqual(prompt.value as? String, capturedPromptValue)
     }
 
+    @MainActor
+    func testTaskComposerAttachmentsSurviveClassicMinimalLayoutSwitch() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_COMPOSER_ATTACHMENTS": "1",
+            "CMUX_UITEST_TASK_COMPOSER_LAYOUT": "classic",
+        ])
+        defer { app.terminate() }
+
+        let prompt = app.descendants(matching: .any)["MobileTaskComposerPrompt"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+        try typeText("Draft survives both layouts", into: prompt, in: app)
+        let capturedPromptValue = try XCTUnwrap(prompt.value as? String)
+
+        let toggle = app.buttons["MobileTaskComposerToggleLayoutFixture"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 3))
+        XCTAssertEqual(toggle.value as? String, "classic")
+        XCTAssertTrue(app.buttons["MobileAttachmentCard.0"].exists)
+        XCTAssertTrue(app.buttons["MobileAttachmentCard.1"].exists)
+
+        toggle.tap()
+        let composerLayout = NSPredicate(format: "value == %@", "composer")
+        expectation(for: composerLayout, evaluatedWith: toggle)
+        waitForExpectations(timeout: 3)
+        XCTAssertEqual(prompt.value as? String, capturedPromptValue)
+        XCTAssertTrue(app.buttons["MobileAttachmentCard.0"].exists)
+        XCTAssertTrue(app.buttons["MobileAttachmentCard.1"].exists)
+        XCTAssertTrue(app.buttons["MobileTaskComposerAttachmentButton"].exists)
+
+        toggle.tap()
+        let classicLayout = NSPredicate(format: "value == %@", "classic")
+        expectation(for: classicLayout, evaluatedWith: toggle)
+        waitForExpectations(timeout: 3)
+        XCTAssertEqual(prompt.value as? String, capturedPromptValue)
+        XCTAssertTrue(app.buttons["MobileAttachmentCard.0"].exists)
+        XCTAssertTrue(app.buttons["MobileAttachmentCard.1"].exists)
+    }
+
+    @MainActor
+    func testTaskComposerAttachmentLabelsAndActionsAreLocalizedInJapanese() throws {
+        let app = launchApp(
+            mockData: false,
+            environment: [
+                "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+                "CMUX_UITEST_TASK_COMPOSER_ATTACHMENTS": "1",
+            ],
+            launchArguments: [
+                "-AppleLanguages", "(ja)",
+                "-AppleLocale", "ja_JP",
+            ]
+        )
+        defer { app.terminate() }
+
+        let sourceMenu = app.buttons["MobileTaskComposerAttachmentButton"]
+        XCTAssertTrue(sourceMenu.waitForExistence(timeout: 8))
+        XCTAssertEqual(sourceMenu.label, "添付ファイルを追加")
+        XCTAssertEqual(app.buttons["MobileAttachmentCard.0"].label, "設計 🖼️.pngをプレビュー")
+        XCTAssertEqual(app.buttons["MobileAttachmentRemove.0"].label, "設計 🖼️.pngを削除")
+        XCTAssertEqual(app.buttons["MobileAttachmentCard.1"].label, "-release notes.txtをプレビュー")
+        XCTAssertEqual(app.buttons["MobileAttachmentRemove.1"].label, "-release notes.txtを削除")
+
+        sourceMenu.tap()
+        XCTAssertTrue(app.buttons["写真"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.buttons["ファイル"].exists)
+        app.textFields["MobileTaskComposerPrompt"]
+            .coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .tap()
+        XCTAssertTrue(app.buttons["写真"].waitForNonExistence(timeout: 2))
+
+        app.buttons["MobileAttachmentCard.0"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["MobileAttachmentPreview"].waitForExistence(timeout: 4))
+        let done = app.buttons["完了"]
+        XCTAssertTrue(done.waitForExistence(timeout: 2))
+        done.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["MobileAttachmentPreview"].waitForNonExistence(timeout: 4))
+    }
+
+    @MainActor
+    func testTaskComposerAttachmentsRemainUsableAtAccessibilityTextSize() throws {
+        let app = launchApp(
+            mockData: false,
+            environment: [
+                "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+                "CMUX_UITEST_TASK_COMPOSER_ATTACHMENTS": "1",
+            ],
+            launchArguments: [
+                "-UIPreferredContentSizeCategoryName",
+                "UICTContentSizeCategoryAccessibilityXXXL",
+            ]
+        )
+        defer { app.terminate() }
+
+        let card = app.buttons["MobileAttachmentCard.0"]
+        let remove = app.buttons["MobileAttachmentRemove.0"]
+        XCTAssertTrue(card.waitForExistence(timeout: 8))
+        XCTAssertTrue(remove.waitForExistence(timeout: 3))
+        XCTAssertGreaterThanOrEqual(remove.frame.width, 44)
+        XCTAssertGreaterThanOrEqual(remove.frame.height, 44)
+        XCTAssertTrue(app.buttons["MobileTaskComposerAttachmentButton"].isHittable)
+
+        card.tap()
+        let preview = app.descendants(matching: .any)["MobileAttachmentPreview"]
+        XCTAssertTrue(preview.waitForExistence(timeout: 4))
+        app.buttons["Done"].tap()
+        XCTAssertTrue(preview.waitForNonExistence(timeout: 4))
+    }
+
+    @MainActor
+    func testTaskComposerAttachmentEdgeCasesKeepStableNamesAndActions() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_COMPOSER_ATTACHMENT_EDGE_CASES": "1",
+        ])
+        defer { app.terminate() }
+
+        let emptyCard = app.buttons["MobileAttachmentCard.0"]
+        let unsupportedCard = app.buttons["MobileAttachmentCard.1"]
+        XCTAssertTrue(emptyCard.waitForExistence(timeout: 8))
+        XCTAssertEqual(emptyCard.label, "Preview empty file.txt")
+        XCTAssertEqual(app.buttons["MobileAttachmentRemove.0"].label, "Remove empty file.txt")
+        XCTAssertEqual(unsupportedCard.label, "Preview unsupported.cmuxfixture")
+        XCTAssertEqual(app.buttons["MobileAttachmentRemove.1"].label, "Remove unsupported.cmuxfixture")
+
+        unsupportedCard.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["MobileAttachmentPreview"].waitForExistence(timeout: 4))
+        XCTAssertTrue(app.staticTexts["Preview Unavailable"].waitForExistence(timeout: 2))
+        app.buttons["Done"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["MobileAttachmentPreview"].waitForNonExistence(timeout: 4))
+
+        app.buttons["MobileAttachmentRemove.0"].tap()
+        XCTAssertTrue(emptyCard.waitForNonExistence(timeout: 3))
+        XCTAssertEqual(app.buttons["MobileAttachmentCard.0"].label, "Preview unsupported.cmuxfixture")
+    }
+
+    @MainActor
+    func testTaskComposerMaxAttachmentFixtureDisablesSourceAction() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_COMPOSER_MAX_ATTACHMENTS": "1",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.buttons["MobileAttachmentCard.0"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["MobileAttachmentCard.9"].exists)
+        let sourceMenu = app.buttons["MobileTaskComposerAttachmentButton"]
+        XCTAssertTrue(sourceMenu.exists)
+        XCTAssertFalse(sourceMenu.isEnabled)
+    }
+
+    @MainActor
+    func testAgentChatComposerAttachmentActionsPreserveDraftAndDoNotSend() throws {
+        let app = launchAgentChatPreviewApp(environment: [
+            "CMUX_UITEST_AGENT_CHAT_ATTACHMENTS": "1",
+        ])
+        defer { app.terminate() }
+
+        let table = app.tables["ChatTranscriptTableView"]
+        let initialMessageCount = table.cells.count
+        let field = chatComposerField(in: app)
+        XCTAssertTrue(field.waitForExistence(timeout: 4))
+        try typeText("Keep chat draft", into: field, in: app)
+        let capturedDraft = try XCTUnwrap(field.value as? String)
+
+        let sourceMenu = app.buttons["ChatComposerAttach"]
+        XCTAssertTrue(sourceMenu.waitForExistence(timeout: 3))
+        sourceMenu.tap()
+        XCTAssertTrue(app.buttons["Photos"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.buttons["Files"].exists)
+        field.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        XCTAssertTrue(app.buttons["Photos"].waitForNonExistence(timeout: 2))
+
+        let imageCard = app.buttons["MobileAttachmentCard.0"]
+        let fileCard = app.buttons["MobileAttachmentCard.1"]
+        XCTAssertTrue(imageCard.waitForExistence(timeout: 3))
+        XCTAssertTrue(fileCard.exists)
+        imageCard.tap()
+        let preview = app.descendants(matching: .any)["MobileAttachmentPreview"]
+        XCTAssertTrue(preview.waitForExistence(timeout: 4))
+        app.buttons["Done"].tap()
+        XCTAssertTrue(preview.waitForNonExistence(timeout: 4))
+        XCTAssertEqual(field.value as? String, capturedDraft)
+
+        app.buttons["MobileAttachmentRemove.1"].tap()
+        XCTAssertTrue(fileCard.waitForNonExistence(timeout: 3))
+        XCTAssertTrue(imageCard.exists)
+        XCTAssertEqual(field.value as? String, capturedDraft)
+        XCTAssertEqual(table.cells.count, initialMessageCount)
+    }
+
+    @MainActor
+    func testTerminalComposerAttachmentCardsShareFieldContainerAndPreserveDraft() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TERMINAL_PREVIEW": "1",
+            "CMUX_UITEST_TERMINAL_ATTACHMENT_COMPOSER": "1",
+        ])
+        defer { app.terminate() }
+
+        let field = app.textFields["MobileComposerField"]
+        XCTAssertTrue(field.waitForExistence(timeout: 8))
+        try typeText("Keep terminal draft", into: field, in: app)
+        let capturedDraft = try XCTUnwrap(field.value as? String)
+
+        let container = app.descendants(matching: .any)["MobileComposerFieldContainer"]
+        let imageCard = app.buttons["MobileAttachmentCard.0"]
+        let fileCard = app.buttons["MobileAttachmentCard.1"]
+        let send = app.buttons["MobileComposerSend"]
+        let attach = app.buttons["MobileComposerAttach"]
+        XCTAssertTrue(container.waitForExistence(timeout: 3))
+        XCTAssertTrue(imageCard.waitForExistence(timeout: 3))
+        XCTAssertTrue(fileCard.exists)
+        XCTAssertTrue(send.exists)
+        XCTAssertTrue(attach.exists)
+        XCTAssertEqual(fileCard.frame.minX - imageCard.frame.maxX, 6, accuracy: 1)
+        XCTAssertGreaterThanOrEqual(imageCard.frame.minX, container.frame.minX + 12)
+        XCTAssertLessThanOrEqual(imageCard.frame.maxX, container.frame.maxX)
+        XCTAssertGreaterThan(imageCard.frame.maxY, container.frame.minY)
+        XCTAssertLessThanOrEqual(imageCard.frame.maxY, field.frame.minY)
+        XCTAssertEqual(imageCard.frame.minX, field.frame.minX, accuracy: 2)
+        XCTAssertLessThanOrEqual(send.frame.maxX, container.frame.maxX)
+        XCTAssertLessThanOrEqual(send.frame.maxY, container.frame.maxY)
+        XCTAssertLessThan(attach.frame.maxX, container.frame.minX)
+
+        imageCard.tap()
+        let preview = app.descendants(matching: .any)["MobileAttachmentPreview"]
+        XCTAssertTrue(preview.waitForExistence(timeout: 4))
+        app.buttons["Done"].tap()
+        XCTAssertTrue(preview.waitForNonExistence(timeout: 4))
+        XCTAssertEqual(field.value as? String, capturedDraft)
+
+        app.buttons["MobileAttachmentRemove.1"].tap()
+        XCTAssertTrue(fileCard.waitForNonExistence(timeout: 3))
+        XCTAssertEqual(field.value as? String, capturedDraft)
+        XCTAssertFalse(app.staticTexts["MobileComposerSendFailure"].exists)
+    }
+
     /// The Composer pill scroller must clip between its neighboring controls;
     /// it must not underlap them to render a blur or fade at either edge.
     @MainActor
@@ -5171,10 +5406,14 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchAgentChatPreviewApp() -> XCUIApplication {
-        let app = launchApp(mockData: false, environment: [
+    private func launchAgentChatPreviewApp(environment: [String: String] = [:]) -> XCUIApplication {
+        var launchEnvironment = [
             "CMUX_UITEST_AGENT_CHAT_PREVIEW": "1",
-        ])
+        ]
+        for (key, value) in environment {
+            launchEnvironment[key] = value
+        }
+        let app = launchApp(mockData: false, environment: launchEnvironment)
         XCTAssertTrue(app.tables["ChatTranscriptTableView"].waitForExistence(timeout: 8))
         return app
     }
