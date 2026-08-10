@@ -28,6 +28,7 @@ public struct MobileIrohReleaseGateScene: View {
                     configuration: configuration,
                     onboardingStore: root.onboardingStore,
                     signOutHook: root.signOutHook,
+                    terminalRuntimeOwner: root.terminalRuntimeOwner,
                     settingsController: iroh,
                     endpointIdentity: { await iroh.releaseGateEndpointIdentity() },
                     relayCredentialExpiry: {

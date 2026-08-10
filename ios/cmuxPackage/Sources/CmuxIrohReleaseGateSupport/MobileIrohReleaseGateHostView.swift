@@ -3,11 +3,12 @@ import CMUXMobileCore
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileShellUI
+import CmuxMobileTerminal
 import Foundation
 import SwiftUI
 
 struct MobileIrohReleaseGateHostView: View {
-    @State private var store: CMUXMobileShellStore
+    @State private var session: MobileShellUISession
     @State private var runner: MobileIrohReleaseGateRunner
     private let onboardingStore: MobileOnboardingStore
     private let signOutHook: MobileSignOutHook
@@ -17,11 +18,15 @@ struct MobileIrohReleaseGateHostView: View {
         configuration: MobileIrohReleaseGateRunner.Configuration,
         onboardingStore: MobileOnboardingStore,
         signOutHook: MobileSignOutHook,
+        terminalRuntimeOwner: GhosttyRuntimeOwner,
         settingsController: any CmxIrohSettingsControlling,
         endpointIdentity: @escaping @Sendable () async -> CmxIrohPeerIdentity?,
         relayCredentialExpiry: @escaping @Sendable () async -> Date?
     ) {
-        _store = State(initialValue: store)
+        _session = State(initialValue: MobileShellUISession(
+            store: store,
+            terminalRuntimeOwner: terminalRuntimeOwner
+        ))
         _runner = State(initialValue: MobileIrohReleaseGateRunner(
             configuration: configuration,
             settingsController: settingsController,
@@ -33,13 +38,13 @@ struct MobileIrohReleaseGateHostView: View {
     }
 
     var body: some View {
-        CMUXMobileAppView(
-            store: store,
+        CMUXMobileAppSessionView(
+            session: session,
             onboardingStore: onboardingStore,
             signOutHook: signOutHook
         )
         .task {
-            await runner.run(store: store)
+            await runner.run(store: session.store)
         }
     }
 }

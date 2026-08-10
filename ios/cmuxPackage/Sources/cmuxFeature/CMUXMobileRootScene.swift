@@ -14,7 +14,7 @@ import Foundation
 import OSLog
 import SwiftUI
 
-#if canImport(UIKit) && DEBUG
+#if canImport(UIKit)
 import CmuxMobileTerminal
 #endif
 
@@ -46,6 +46,8 @@ public struct CMUXMobileRootScene: View {
     /// The user's Auto-Connect vs Tailscale connection-method choice, shared by
     /// the shell store (dial ordering) and the Settings/onboarding UI.
     private let connectionMethodStore: MobileConnectionMethodStore
+    /// Process-lifetime Ghostty result, created before any SwiftUI surface mounts.
+    package let terminalRuntimeOwner: GhosttyRuntimeOwner
     /// The first-run onboarding "seen" flag store, injected into the root view so
     /// it gates the one-time onboarding screen ahead of the never-paired
     /// add-device state.
@@ -107,6 +109,7 @@ public struct CMUXMobileRootScene: View {
         pushCoordinator: MobilePushCoordinator,
         displaySettings: MobileDisplaySettings,
         connectionMethodStore: MobileConnectionMethodStore,
+        terminalRuntimeOwner: GhosttyRuntimeOwner,
         onboardingStore: MobileOnboardingStore,
         tailscaleStatusMonitor: any TailscaleStatusObserving,
         personalIrohRouteCatalog: MobileIrohRouteCatalog? = nil,
@@ -122,6 +125,7 @@ public struct CMUXMobileRootScene: View {
         self.pushCoordinator = pushCoordinator
         self.displaySettings = displaySettings
         self.connectionMethodStore = connectionMethodStore
+        self.terminalRuntimeOwner = terminalRuntimeOwner
         self.onboardingStore = onboardingStore
         self.tailscaleStatusMonitor = tailscaleStatusMonitor
         self.personalIrohRouteCatalog = personalIrohRouteCatalog
@@ -314,6 +318,7 @@ public struct CMUXMobileRootScene: View {
             .environment(pushCoordinator)
             .environment(displaySettings)
             .environment(connectionMethodStore)
+            .environment(terminalRuntimeOwner)
             #endif
     }
 
@@ -330,7 +335,8 @@ public struct CMUXMobileRootScene: View {
                 mode: simulatorMode,
                 state: ProcessInfo.processInfo.environment[
                     "CMUX_UITEST_SIMULATOR_DISCOVERABILITY_STATE"
-                ] ?? "inactive"
+                ] ?? "inactive",
+                terminalRuntimeOwner: terminalRuntimeOwner
             )
         } else if UITestConfig.notificationFeedPreviewEnabled {
             NotificationFeedPreviewView()
@@ -361,21 +367,26 @@ public struct CMUXMobileRootScene: View {
         let simulatorStreamStore = MobileSimulatorStreamStore()
         #if os(iOS)
         return CMUXMobileAppView(
-            store: makeStore(
-                browserStreamEvents: browserStreamStore,
-                simulatorStreamStore: simulatorStreamStore
+            session: MobileShellUISession(
+                store: makeStore(
+                    browserStreamEvents: browserStreamStore,
+                    simulatorStreamStore: simulatorStreamStore
+                ),
+                browserStreamStore: browserStreamStore,
+                terminalRuntimeOwner: terminalRuntimeOwner
             ),
-            browserStreamStore: browserStreamStore,
             onboardingStore: onboardingStore,
             signOutHook: signOutHook
         )
         #else
         return CMUXMobileAppView(
-            store: makeStore(
-                browserStreamEvents: browserStreamStore,
-                simulatorStreamStore: simulatorStreamStore
+            session: MobileShellUISession(
+                store: makeStore(
+                    browserStreamEvents: browserStreamStore,
+                    simulatorStreamStore: simulatorStreamStore
+                ),
+                browserStreamStore: browserStreamStore
             ),
-            browserStreamStore: browserStreamStore,
             signOutHook: signOutHook
         )
         #endif

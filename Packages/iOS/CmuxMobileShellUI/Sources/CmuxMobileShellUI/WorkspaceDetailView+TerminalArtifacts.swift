@@ -12,6 +12,7 @@ extension WorkspaceDetailView {
         && store.shouldAutoFocusTerminalSurface(terminalID)
         && !store.isComposerPresented
     GhosttySurfaceRepresentable(
+        runtimeResult: terminalRuntimeOwner.result,
         workspaceID: workspace.id.rawValue,
         surfaceID: terminalID,
         store: store,

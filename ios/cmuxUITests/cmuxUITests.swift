@@ -7700,9 +7700,25 @@ final class SimulatorDiscoverabilityUITests: XCTestCase {
     }
 
     @MainActor
+    func testProductionColdLaunchMountsTerminalRoot() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchEnvironment = [
+            "CMUX_UITEST_MOCK_DATA": "1",
+            "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1",
+        ]
+        app.launch()
+        launchedApplications.append(app)
+
+        XCTAssertTrue(app.buttons["MobileTerminalDropdown"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 4))
+    }
+
+    @MainActor
     func testOneAndTwoPanelChromeSupportsOneTapAndExplicitSelection() throws {
         let one = launchFixture(mode: "one")
         XCTAssertTrue(one.buttons["MobileTerminalDropdown"].waitForExistence(timeout: 8))
+        XCTAssertTrue(one.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 4))
         let onePicker = one.buttons["MobileSimulatorPicker"]
         XCTAssertTrue(onePicker.waitForExistence(timeout: 8))
         XCTAssertGreaterThanOrEqual(onePicker.frame.width, 44)
@@ -7713,6 +7729,8 @@ final class SimulatorDiscoverabilityUITests: XCTestCase {
         one.terminate()
 
         let two = launchFixture(mode: "two")
+        XCTAssertTrue(two.buttons["MobileTerminalDropdown"].waitForExistence(timeout: 8))
+        XCTAssertTrue(two.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 4))
         let twoPicker = two.buttons["MobileSimulatorPicker"]
         XCTAssertTrue(twoPicker.waitForExistence(timeout: 8))
         twoPicker.tap()

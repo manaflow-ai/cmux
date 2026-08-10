@@ -6,18 +6,20 @@ import CmuxMobileShell
 import CmuxMobileShellDebugSupport
 #endif
 import CmuxMobileShellModel
+import CmuxMobileTerminal
 import SwiftUI
 
 #if os(iOS) && DEBUG
 /// Deterministic real-workspace fixture for Simulator chrome and stream-state verification.
 public struct SimulatorDiscoverabilityPreviewView: View {
-    @State private var store: MobileShellComposite
-    @State private var browserStore = BrowserSurfaceStore()
-    @State private var browserStreamStore = BrowserStreamStore()
-    @State private var simulatorStreamStore: MobileSimulatorStreamStore
+    @State private var session: MobileShellUISession
 
     /// Creates a fixture with zero, one, two, or unsupported Simulator panels.
-    public init(mode: String, state: String) {
+    public init(
+        mode: String,
+        state: String,
+        terminalRuntimeOwner: GhosttyRuntimeOwner
+    ) {
         let workspaceID = "simulator-discoverability-workspace"
         let descriptors = Self.descriptors(mode: mode, state: state, workspaceID: workspaceID)
         let streamStore = MobileSimulatorStreamStore()
@@ -55,15 +57,18 @@ public struct SimulatorDiscoverabilityPreviewView: View {
         shellStore.selectedWorkspaceID = workspace.id
         shellStore.selectedTerminalID = terminalID
 
-        _store = State(initialValue: shellStore)
-        _simulatorStreamStore = State(initialValue: shellStore.simulatorStreamStore)
+        _session = State(initialValue: MobileShellUISession(
+            store: shellStore,
+            terminalRuntimeOwner: terminalRuntimeOwner
+        ))
     }
 
     public var body: some View {
-        WorkspaceShellView(store: store, signOut: {}, showAddDevice: nil)
-            .environment(browserStore)
-            .environment(browserStreamStore)
-            .environment(simulatorStreamStore)
+        WorkspaceShellView(store: session.store, signOut: {}, showAddDevice: nil)
+            .environment(session.browserStore)
+            .environment(session.browserStreamStore)
+            .environment(session.simulatorStreamStore)
+            .environment(session.terminalRuntimeOwner)
     }
 
     private static func descriptors(

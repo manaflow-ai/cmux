@@ -3,6 +3,7 @@ import CMUXMobileCore
 import CmuxMobileDiagnostics
 import Foundation
 import GhosttyKit
+import Observation
 import OSLog
 import UIKit
 
@@ -429,6 +430,24 @@ public final class GhosttyRuntime {
     static func resetClipboardHandlersForTesting() {
         clipboardReader = { UIPasteboard.general.string }
         clipboardWriter = { UIPasteboard.general.string = $0 }
+    }
+}
+
+/// Process-lifetime owner for Ghostty initialization.
+///
+/// Construct this before mounting SwiftUI terminal surfaces. Views consume the
+/// captured result and never make C runtime initialization part of their mount
+/// lifecycle. The factory seam keeps initialization-count coverage independent
+/// of libghostty global state.
+@MainActor
+@Observable
+public final class GhosttyRuntimeOwner {
+    public let result: Result<GhosttyRuntime, any Error>
+
+    public init(
+        makeRuntime: () throws -> GhosttyRuntime = { try GhosttyRuntime.shared() }
+    ) {
+        result = Result(catching: makeRuntime)
     }
 }
 
