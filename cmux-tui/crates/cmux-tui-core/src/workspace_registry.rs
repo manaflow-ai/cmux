@@ -5,6 +5,7 @@
 //! event are published, so durable order, reply order, and event order are the
 //! same order. Runtime pane/surface ids deliberately never enter this store.
 
+use std::borrow::Cow;
 #[cfg(test)]
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
@@ -2121,6 +2122,52 @@ fn metadata_identity(metadata: &fs::Metadata) -> String {
     )
 }
 
+fn sqlite_filesystem_path(path: &Path) -> anyhow::Result<Cow<'_, Path>> {
+    #[cfg(windows)]
+    {
+        let parent = path
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("workspace state path has no parent"))?;
+        let file_name = path
+            .file_name()
+            .ok_or_else(|| anyhow::anyhow!("workspace state path has no file name"))?;
+        let parent = fs::canonicalize(parent)
+            .context("resolve workspace state directory")?;
+        Ok(Cow::Owned(parent.join(file_name)))
+    }
+    #[cfg(not(windows))]
+    {
+        Ok(Cow::Borrowed(path))
+    }
+}
+
+fn open_registry_database_with_flags(
+    path: &Path,
+    flags: OpenFlags,
+) -> anyhow::Result<Connection> {
+    let path = sqlite_filesystem_path(path)?;
+    #[cfg(windows)]
+    {
+        Ok(Connection::open_with_flags_and_vfs(
+            path.as_ref(),
+            flags,
+            "win32-longpath",
+        )?)
+    }
+    #[cfg(not(windows))]
+    {
+        Ok(Connection::open_with_flags(path.as_ref(), flags)?)
+    }
+}
+
+fn open_registry_database(path: &Path) -> anyhow::Result<Connection> {
+    open_registry_database_with_flags(path, OpenFlags::default())
+}
+
+fn open_registry_database_read_only(path: &Path) -> anyhow::Result<Connection> {
+    open_registry_database_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+}
+
 impl std::fmt::Debug for WorkspaceRegistry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("WorkspaceRegistry")
@@ -2166,7 +2213,7 @@ impl WorkspaceRegistry {
             return Err(error.into());
         }
         let lease = SessionLease::acquire(&session_dir.join(SESSION_WRITER_LOCK_FILE))?;
-        let connection = Connection::open(&db_path)
+        let connection = open_registry_database(&db_path)
             .with_context(|| format!("open workspace registry {}", db_path.display()))?;
         platform::restrict_file(&db_path)?;
         Self::initialize(
@@ -4536,7 +4583,7 @@ fn preflight_unsupported_schema(
 fn try_preflight_unsupported_schema(
     database_path: &Path,
 ) -> anyhow::Result<Option<UnsupportedWorkspaceRegistrySchema>> {
-    let connection = Connection::open_with_flags(database_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let connection = open_registry_database_read_only(database_path)?;
     connection.busy_timeout(std::time::Duration::from_millis(500))?;
     let has_meta: bool = connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta')",
@@ -4934,7 +4981,7 @@ fn ensure_missing_pepper_can_migrate(root: &Path, pepper_path: &Path) -> anyhow:
         if !database.try_exists()? {
             continue;
         }
-        let connection = Connection::open_with_flags(&database, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        let connection = open_registry_database_read_only(&database)
             .with_context(|| {
             format!("inspect registry before recreating missing pepper {}", database.display())
         })?;
