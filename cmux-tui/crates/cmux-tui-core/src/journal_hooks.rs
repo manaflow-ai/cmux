@@ -1486,7 +1486,7 @@ mod tests {
         }
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     #[test]
     fn unix_process_scope_repeats_a_final_scan_after_a_late_fork() {
         const HELPER: &str = "CMUX_TEST_DETACHED_JOURNAL_HOOK";
@@ -1494,10 +1494,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!(
             "cmux-jh-final-scan-{}-{:x}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
         ));
         std::fs::create_dir_all(&root).unwrap();
         let signal_path = root.join("detached.sock");
@@ -1509,11 +1506,7 @@ mod tests {
         let (scan_completed, resume_cleanup) = tree.final_scan_gate_for_test();
         let mut command = UnixProcessScope::suspended_command("/bin/sh");
         command
-            .args([
-                "-c",
-                "\"$1\" --exact \"$2\" --nocapture &",
-                "cmux-journal-hook-final-scan",
-            ])
+            .args(["-c", "\"$1\" --exact \"$2\" --nocapture &", "cmux-journal-hook-final-scan"])
             .arg(&executable)
             .arg(test_name)
             .env(HELPER, "fork-during-cleanup")
@@ -1554,7 +1547,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     #[test]
     fn journal_hook_shutdown_cancels_an_active_detached_process_scope() {
         let root = std::env::temp_dir().join(format!(

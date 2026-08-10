@@ -57,6 +57,8 @@ pub enum FrontendFocusTarget {
     Pane,
     MachineRail,
     WorkspaceRail,
+    TabsRail,
+    ProjectionRail,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

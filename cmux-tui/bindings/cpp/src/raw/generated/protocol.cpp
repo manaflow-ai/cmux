@@ -1261,6 +1261,8 @@ Result<Json> Codec<FrontendFocusTarget>::encode(const FrontendFocusTarget& value
         case FrontendFocusTarget::pane: return Json(std::string("pane"));
         case FrontendFocusTarget::machine_rail: return Json(std::string("machine_rail"));
         case FrontendFocusTarget::workspace_rail: return Json(std::string("workspace_rail"));
+        case FrontendFocusTarget::tabs_rail: return Json(std::string("tabs_rail"));
+        case FrontendFocusTarget::projection_rail: return Json(std::string("projection_rail"));
     }
     return make_error(ErrorCode::invalid_argument, "invalid enum value");
 }
@@ -1269,6 +1271,8 @@ Result<FrontendFocusTarget> Codec<FrontendFocusTarget>::decode(const Json& value
     if (value == Json(std::string("pane"))) return FrontendFocusTarget::pane;
     if (value == Json(std::string("machine_rail"))) return FrontendFocusTarget::machine_rail;
     if (value == Json(std::string("workspace_rail"))) return FrontendFocusTarget::workspace_rail;
+    if (value == Json(std::string("tabs_rail"))) return FrontendFocusTarget::tabs_rail;
+    if (value == Json(std::string("projection_rail"))) return FrontendFocusTarget::projection_rail;
     return make_error(ErrorCode::decode, "unknown FrontendFocusTarget value");
 }
 

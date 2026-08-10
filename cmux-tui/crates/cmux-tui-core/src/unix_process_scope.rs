@@ -266,10 +266,19 @@ impl UnixProcessScope {
     /// requested program. `bind` registers the stopped root and then releases
     /// it, so user code cannot detach before scope ownership exists.
     pub fn suspended_command(program: impl AsRef<OsStr>) -> Command {
+        #[cfg(target_os = "macos")]
+        let mut command = {
+            let mut command = Command::new("/usr/bin/sandbox-exec");
+            command.args([
+                "-p",
+                "(version 1) (allow default) (deny process-fork)",
+                "/bin/sh",
+            ]);
+            command
+        };
+        #[cfg(not(target_os = "macos"))]
         let mut command = Command::new("/bin/sh");
-        command
-            .args(["-c", "kill -STOP $$; exec \"$@\"", "cmux-process-scope"])
-            .arg(program);
+        command.args(["-c", "kill -STOP $$; exec \"$@\"", "cmux-process-scope"]).arg(program);
         command
     }
 
@@ -667,8 +676,7 @@ impl ProcessScopeTracker {
                             progress.cursor = next;
                         }
                     }
-                    if scan_complete
-                        && let Some(progress) = state.finalizing.get_mut(&registration)
+                    if scan_complete && let Some(progress) = state.finalizing.get_mut(&registration)
                     {
                         let progress = std::mem::take(progress);
                         completed = state

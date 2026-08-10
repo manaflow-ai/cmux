@@ -10170,6 +10170,8 @@ impl App {
                 FocusTarget::Pane => FrontendFocusTarget::Pane,
                 FocusTarget::MachineRail => FrontendFocusTarget::MachineRail,
                 FocusTarget::WorkspaceRail => FrontendFocusTarget::WorkspaceRail,
+                FocusTarget::TabsRail => FrontendFocusTarget::TabsRail,
+                FocusTarget::ProjectionRail(_) => FrontendFocusTarget::ProjectionRail,
             },
             workspace_id: workspace.and_then(|workspace| workspace.resource_id.clone()),
             screen_id: screen.and_then(|screen| screen.resource_id.clone()),
@@ -10207,6 +10209,8 @@ impl App {
             FocusTarget::Pane => FrontendFocusTarget::Pane,
             FocusTarget::MachineRail => FrontendFocusTarget::MachineRail,
             FocusTarget::WorkspaceRail => FrontendFocusTarget::WorkspaceRail,
+            FocusTarget::TabsRail => FrontendFocusTarget::TabsRail,
+            FocusTarget::ProjectionRail(_) => FrontendFocusTarget::ProjectionRail,
         };
         if previous.focus.target != target
             || previous.focus.workspace_id.as_ref()

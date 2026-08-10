@@ -71,6 +71,8 @@ class FrontendFocusTarget(str, Enum):
     PANE = 'pane'
     MACHINE_RAIL = 'machine_rail'
     WORKSPACE_RAIL = 'workspace_rail'
+    TABS_RAIL = 'tabs_rail'
+    PROJECTION_RAIL = 'projection_rail'
 
 class NotificationLevel(str, Enum):
     INFO = 'info'

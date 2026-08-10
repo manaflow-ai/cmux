@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 11;
-pub const ir_sha256 = "ff17d4d94ffdb52e884ae924895a3ab2b3a9b41f0bdd01d6531aa9e62eeb298b";
+pub const ir_sha256 = "3f220af11c5ad1bfab74b2bf3cebf71ee904faaafd9833ae5c87a53812f86943";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -345,11 +345,15 @@ pub const FrontendFocusTarget = enum {
     pane,
     machine_rail,
     workspace_rail,
+    tabs_rail,
+    projection_rail,
 
     pub fn fromWire(value: []const u8) !@This() {
         if (std.mem.eql(u8, value, "pane")) return .pane;
         if (std.mem.eql(u8, value, "machine_rail")) return .machine_rail;
         if (std.mem.eql(u8, value, "workspace_rail")) return .workspace_rail;
+        if (std.mem.eql(u8, value, "tabs_rail")) return .tabs_rail;
+        if (std.mem.eql(u8, value, "projection_rail")) return .projection_rail;
         return error.UnknownEnumValue;
     }
 
@@ -358,6 +362,8 @@ pub const FrontendFocusTarget = enum {
             .pane => "pane",
             .machine_rail => "machine_rail",
             .workspace_rail => "workspace_rail",
+            .tabs_rail => "tabs_rail",
+            .projection_rail => "projection_rail",
         };
     }
 };

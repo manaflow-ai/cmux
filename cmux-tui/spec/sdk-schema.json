@@ -39,7 +39,9 @@
       "values": [
         "pane",
         "machine_rail",
-        "workspace_rail"
+        "workspace_rail",
+        "tabs_rail",
+        "projection_rail"
       ]
     },
     "FrontendJournalEvent": {
