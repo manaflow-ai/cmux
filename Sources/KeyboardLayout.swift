@@ -10,6 +10,8 @@ class KeyboardLayout {
     /// Test-only override for the current input source ID.
     #if DEBUG
     static var debugInputSourceIdOverride: String?
+    /// Test-only override for the current input source languages.
+    static var debugInputSourceLanguagesOverride: [String]?
     #endif
 
     /// Return a string ID of the current keyboard input source.
@@ -24,6 +26,21 @@ class KeyboardLayout {
         }
 
         return nil
+    }
+
+    /// Return the BCP-47 languages the current keyboard input source is intended
+    /// for. The first element is the primary language (kTISPropertyInputSourceLanguages).
+    static var languages: [String] {
+        #if DEBUG
+        if let override = debugInputSourceLanguagesOverride { return override }
+        #endif
+        if let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
+           let languagesPointer = TISGetInputSourceProperty(source, kTISPropertyInputSourceLanguages) {
+            let languages = Unmanaged<CFArray>.fromOpaque(languagesPointer).takeUnretainedValue()
+            return (languages as? [String]) ?? []
+        }
+
+        return []
     }
 
     /// Translate a physical keyCode to the character AppKit would use for shortcut matching,
