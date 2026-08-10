@@ -2300,7 +2300,7 @@ impl Mux {
                 },
             )
         };
-        let projection =
+        let mut projection =
             self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
         if !projection.patch.changes.iter().any(|change| {
             matches!(
@@ -2309,9 +2309,27 @@ impl Mux {
                     if closing == &public_id
             )
         }) {
-            return Err(terminal_close_state_error(format!(
-                "terminal close projection omitted {public_id}"
-            )));
+            let incarnation = registry
+                .terminal_record(terminal_id)?
+                .ok_or_else(|| {
+                    terminal_close_state_error(format!(
+                        "terminal close projection omitted host {terminal_id}"
+                    ))
+                })?
+                .incarnation;
+            projection.patch.changes.push(ResourceChange::TombstoneTerminal {
+                public_id: public_id.clone(),
+                expected_incarnation: incarnation,
+            });
+            let changes = projection.changes.as_array_mut().ok_or_else(|| {
+                terminal_close_state_error("terminal close projection changes are not an array")
+            })?;
+            changes.push(json!({
+                "kind":"delete",
+                "sequence":changes.len(),
+                "resource":"terminal",
+                "id":public_id,
+            }));
         }
         #[cfg(test)]
         if let Some(hook) = self.resource_projection_before_commit.lock().unwrap().clone() {
