@@ -3300,6 +3300,54 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testLargeCodexSubagentTranscriptDoesNotNotifyOrReplaceResumeBinding() throws {
+        let context = try makeClaudeHookContext(name: "codex-large-subagent-transcript")
+        defer { context.cleanup() }
+
+        let sessionId = "large-subagent-session"
+        let turnId = "child-turn"
+        let transcriptURL = context.root.appendingPathComponent("codex-large-subagent.jsonl")
+        let sessionMeta = #"{"type":"session_meta","payload":{"id":"\#(sessionId)","thread_source":"subagent","source":{"subagent":{"parent_thread_id":"parent-thread"}}}}"#
+        let filler = String(
+            repeating: #"{"type":"event_msg","payload":{"type":"token_count"}}"# + "\n",
+            count: 12_000
+        )
+        let terminalTurn = [
+            #"{"type":"turn_context","payload":{"turn_id":"\#(turnId)"}}"#,
+            #"{"type":"event_msg","payload":{"type":"task_complete","turn_id":"\#(turnId)","last_agent_message":"child done"}}"#,
+        ].joined(separator: "\n")
+        try (sessionMeta + "\n" + filler + terminalTurn)
+            .write(to: transcriptURL, atomically: true, encoding: .utf8)
+        XCTAssertGreaterThan(
+            try FileManager.default.attributesOfItem(atPath: transcriptURL.path)[.size] as? Int ?? 0,
+            512 * 1024
+        )
+
+        startAgentHookMockServerAccepting(context: context)
+        let result = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"\#(turnId)","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"child done"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId)
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "{}\n")
+        XCTAssertTrue(
+            context.state.commands.contains { $0.contains(#""method":"feed.push""#) && $0.contains(#""hook_event_name":"Stop""#) },
+            "Large-transcript subagent Stop should remain Feed telemetry, saw \(context.state.commands)"
+        )
+        XCTAssertFalse(
+            context.state.commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "Large-transcript subagent Stop should not publish a child resume binding, saw \(context.state.commands)"
+        )
+        XCTAssertFalse(
+            context.state.commands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
+            "Large-transcript subagent Stop should not notify or clobber visible status, saw \(context.state.commands)"
+        )
+    }
+
     func testCodexStopIgnoresStaleSubagentRelayFromCompletedTurnWithoutTurnId() throws {
         let context = try makeClaudeHookContext(name: "codex-stale-relay")
         defer { context.cleanup() }
