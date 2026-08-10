@@ -19906,28 +19906,15 @@ mod tests {
     fn kitty_quota_worker_stops_waiting_for_an_operation_that_ignores_its_deadline() {
         let mux = test_mux();
         let first = mux.new_workspace(None, Some((80, 24))).unwrap();
-        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
-        let second = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        let runtime_id = first.terminal_runtime_id().unwrap();
         wait_for_kitty_image_budget(&mux);
 
         let gate = Arc::new((Mutex::new(false), Condvar::new()));
-        let block_next_operation = Arc::new(AtomicBool::new(true));
         let (started_sender, started_receiver) = std::sync::mpsc::sync_channel(1);
         let (finished_sender, finished_receiver) = std::sync::mpsc::sync_channel(1);
         *mux.kitty_image_budget_operation.lock().unwrap() = Some(Arc::new({
             let gate = gate.clone();
-            move |surface, limits, _deadline| {
-                // Resource retirement can issue one cleanup update and a
-                // later survivor rebalance. Block only the operation whose
-                // ignored deadline this test measures.
-                if !block_next_operation.swap(false, Ordering::AcqRel) {
-                    return surface.set_kitty_graphics_limits(
-                        limits.image_bytes,
-                        limits.inflight_bytes,
-                        limits.images,
-                        limits.placements,
-                    );
-                }
+            move |_surface, _limits, _deadline| {
                 let _ = started_sender.try_send(());
                 let (released, changed) = &*gate;
                 let mut released = released.lock().unwrap();
@@ -19939,7 +19926,13 @@ mod tests {
             }
         }));
 
-        close_terminal_runtime_for_test(&mux, &second);
+        {
+            let mut budget = mux.kitty_image_budget.lock().unwrap();
+            let entry = budget.entries.get_mut(&runtime_id).unwrap();
+            assert!(entry.owns_quota);
+            entry.applied = KittyGraphicsLimits::disabled();
+        }
+        mux.start_kitty_image_budget_worker();
         started_receiver.recv_timeout(Duration::from_secs(2)).unwrap();
         let deadline = Instant::now() + Duration::from_secs(4);
         while mux.kitty_image_budget.lock().unwrap().worker_running && Instant::now() < deadline {
