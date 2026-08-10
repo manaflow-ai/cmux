@@ -87,7 +87,7 @@ const TERMINAL_HOST_CLEANUP_RECEIPT_FIELD: &str = "terminal_host_cleanup";
 const MAX_TERMINAL_HOST_CLEANUP_IDENTITIES: usize = 4_096;
 #[cfg(all(test, unix))]
 type TerminalAdoptionSurfaceFactory =
-    Arc<dyn Fn(SurfaceId) -> anyhow::Result<Arc<Surface>> + Send + Sync>;
+    Arc<dyn Fn(SurfaceId, TerminalHostIdentity) -> anyhow::Result<Arc<Surface>> + Send + Sync>;
 #[cfg(all(test, unix))]
 type TerminalHostRecordLoader = Arc<
     dyn Fn(std::path::PathBuf, usize, Instant) -> anyhow::Result<TerminalHostRecords> + Send + Sync,
@@ -4316,7 +4316,13 @@ impl Mux {
             self.terminal_adoption_surface_factory.lock().unwrap().clone();
         #[cfg(test)]
         let adopted = if let Some(factory) = adoption_surface_factory {
-            factory(id)
+            factory(
+                id,
+                TerminalHostIdentity {
+                    terminal_id: task.record.terminal_id.clone(),
+                    incarnation: task.record.incarnation.clone(),
+                },
+            )
         } else {
             self.adopt_restored_terminal(
                 restored_binding,
@@ -26406,7 +26412,7 @@ mod tests {
         let (release_tx, release_rx) = std::sync::mpsc::channel();
         let release_rx = Arc::new(Mutex::new(release_rx));
         *mux.terminal_adoption_surface_factory.lock().unwrap() = Some(Arc::new({
-            move |_| {
+            move |_, _| {
                 started_tx.send(()).unwrap();
                 release_rx.lock().unwrap().recv().unwrap();
                 anyhow::bail!("blocked startup handshake")
@@ -26859,7 +26865,7 @@ mod tests {
         *mux.terminal_adoption_surface_factory.lock().unwrap() = Some(Arc::new({
             let mux = Arc::downgrade(&mux);
             let options = options.clone();
-            move |id| {
+            move |id, identity| {
                 let call = calls.fetch_add(1, Ordering::AcqRel);
                 if call == 0 {
                     first_started_tx.send(()).unwrap();
@@ -26867,7 +26873,12 @@ mod tests {
                 } else if call == 1 {
                     let _ = second_started_tx.try_send(());
                 }
-                Surface::spawn_for_test(id, options.clone(), mux.clone())
+                Surface::spawn_for_test_with_terminal_host_identity(
+                    id,
+                    options.clone(),
+                    mux.clone(),
+                    identity,
+                )
             }
         }));
 
@@ -26949,8 +26960,13 @@ mod tests {
             let mux = Arc::downgrade(&mux);
             let options = options.clone();
             let kill_attempts = kill_attempts.clone();
-            move |id| {
-                let surface = Surface::spawn_for_test(id, options.clone(), mux.clone())?;
+            move |id, identity| {
+                let surface = Surface::spawn_for_test_with_terminal_host_identity(
+                    id,
+                    options.clone(),
+                    mux.clone(),
+                    identity,
+                )?;
                 let (_, attempts) = surface.set_recovering_server_shutdown_for_test();
                 *kill_attempts.lock().unwrap() = Some(attempts);
                 Ok(surface)
