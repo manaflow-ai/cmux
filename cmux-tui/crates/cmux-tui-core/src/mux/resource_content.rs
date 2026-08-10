@@ -274,10 +274,6 @@ impl Mux {
                         &destination,
                     )
                     .map_err(anyhow::Error::new)?;
-                let surface =
-                    source.tab.context("terminal selector did not resolve a live surface")?;
-                let source_pane_slot =
-                    source.pane.context("terminal selector did not resolve a source pane")?;
                 let target_pane_slot =
                     target.pane.context("destination did not resolve a live pane")?;
                 let terminal_id = source
@@ -285,8 +281,48 @@ impl Mux {
                     .terminal
                     .clone()
                     .context("terminal selector omitted its public identity")?;
-                let source_tab_id =
-                    source.path.tab.context("terminal move requires a projected tab")?;
+                let topology = registry.resource_topology_snapshot()?;
+                let source_tab_id = if let Some(tab_id) = source.path.tab.clone() {
+                    tab_id
+                } else {
+                    let mut tab_ids = terminal_tab_ids_in_canonical_order(
+                        topology.tabs.iter().filter_map(|tab| match &tab.content_id {
+                            ContentPublicId::Terminal(candidate) => Some((
+                                candidate.clone(),
+                                tab.pane_id.clone(),
+                                tab.position,
+                                tab.public_id.clone(),
+                            )),
+                            ContentPublicId::Browser(_) => None,
+                        }),
+                    );
+                    tab_ids
+                        .remove(&terminal_id)
+                        .and_then(|tab_ids| tab_ids.into_iter().next())
+                        .context("terminal move requires a projected tab")?
+                };
+                let source_tab = topology
+                    .tabs
+                    .iter()
+                    .find(|tab| tab.public_id == source_tab_id)
+                    .cloned()
+                    .context("selected terminal view has no durable tab")?;
+                anyhow::ensure!(
+                    source_tab.content_id == ContentPublicId::Terminal(terminal_id.clone()),
+                    "selected terminal view belongs to another resource"
+                );
+                let surface = state
+                    .resource_indexes
+                    .tabs
+                    .get(&source_tab.public_id)
+                    .copied()
+                    .context("selected terminal view has no live surface")?;
+                let source_pane_slot = state
+                    .resource_indexes
+                    .tab_pane
+                    .get(&surface)
+                    .copied()
+                    .context("selected terminal view has no live source pane")?;
                 let target_workspace_slot =
                     target.workspace.context("destination did not resolve a workspace")?;
                 let target_workspace_index = state
@@ -300,28 +336,22 @@ impl Mux {
                     target.path.screen.clone().context("destination omitted its screen id")?;
                 let target_pane_id = target.path.pane.context("destination omitted its pane id")?;
 
-                let topology = registry.resource_topology_snapshot()?;
                 let snapshot = registry.snapshot()?;
-                let source_tab = topology
-                    .tabs
-                    .iter()
-                    .find(|tab| tab.public_id == source_tab_id)
+                let terminal = state
+                    .terminal_catalog
+                    .get(&terminal_id)
                     .cloned()
-                    .context("selected terminal view has no durable tab")?;
-                let terminal_surface = state
-                    .surfaces
-                    .get(&surface)
-                    .context("terminal selector resolved a missing surface")?;
-                let (terminal_cols, terminal_rows) = terminal_surface.size();
+                    .context("selected terminal has no live runtime")?;
+                let (terminal_cols, terminal_rows) = terminal.size();
                 let mut terminal_value = json!({
                     "id":terminal_id,
                     "tab_id":source_tab.public_id,
-                    "title":terminal_surface.title(),
+                    "title":terminal.title(),
                     "cols":terminal_cols.max(1),
                     "rows":terminal_rows.max(1),
-                    "running":!terminal_surface.is_dead(),
+                    "running":!terminal.is_dead(),
                 });
-                if let Some(cwd) = terminal_surface.spawn_cwd() {
+                if let Some(cwd) = terminal.spawn_cwd() {
                     terminal_value["cwd"] = json!(cwd);
                 }
                 let source_pane_id = source_tab.pane_id.clone();
