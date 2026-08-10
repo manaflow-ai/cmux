@@ -78,7 +78,7 @@ import Testing
         let workspaceA = MobileWorkspacePreview.ID(rawValue: "workspace-a")
         let workspaceB = MobileWorkspacePreview.ID(rawValue: "workspace-b")
 
-        #expect(WorkspaceSimulatorStreamRouteVisibility.visibleWorkspaceID(
+        #expect(WorkspaceShellView.visibleSimulatorStreamWorkspaceID(
             selectedPrimaryTab: .workspaces,
             searchScope: .workspaces,
             usesCompactStack: true,
@@ -88,7 +88,7 @@ import Testing
             workspaceSearchNavigationPath: [],
             notificationSearchNavigationPath: []
         ) == workspaceA)
-        #expect(WorkspaceSimulatorStreamRouteVisibility.visibleWorkspaceID(
+        #expect(WorkspaceShellView.visibleSimulatorStreamWorkspaceID(
             selectedPrimaryTab: .workspaces,
             searchScope: .workspaces,
             usesCompactStack: true,
@@ -98,7 +98,7 @@ import Testing
             workspaceSearchNavigationPath: [],
             notificationSearchNavigationPath: []
         ) == nil)
-        #expect(WorkspaceSimulatorStreamRouteVisibility.visibleWorkspaceID(
+        #expect(WorkspaceShellView.visibleSimulatorStreamWorkspaceID(
             selectedPrimaryTab: .workspaces,
             searchScope: .workspaces,
             usesCompactStack: false,
@@ -108,7 +108,7 @@ import Testing
             workspaceSearchNavigationPath: [],
             notificationSearchNavigationPath: []
         ) == workspaceB)
-        #expect(WorkspaceSimulatorStreamRouteVisibility.visibleWorkspaceID(
+        #expect(WorkspaceShellView.visibleSimulatorStreamWorkspaceID(
             selectedPrimaryTab: .notifications,
             searchScope: .workspaces,
             usesCompactStack: true,
@@ -118,7 +118,7 @@ import Testing
             workspaceSearchNavigationPath: [],
             notificationSearchNavigationPath: []
         ) == workspaceB)
-        #expect(WorkspaceSimulatorStreamRouteVisibility.visibleWorkspaceID(
+        #expect(WorkspaceShellView.visibleSimulatorStreamWorkspaceID(
             selectedPrimaryTab: .search,
             searchScope: .workspaces,
             usesCompactStack: true,

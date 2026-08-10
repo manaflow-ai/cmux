@@ -236,7 +236,7 @@ struct WorkspaceShellView: View {
         #if os(iOS)
         let presentation = workspaceShellRenderPresentation
         let toolbarRenderContext = rootToolbarRenderContext(for: presentation)
-        let visibleSimulatorWorkspaceID = WorkspaceSimulatorStreamRouteVisibility.visibleWorkspaceID(
+        let visibleSimulatorWorkspaceID = Self.visibleSimulatorStreamWorkspaceID(
             selectedPrimaryTab: selectedPrimaryTab,
             searchScope: primarySearchCoordinator.scope,
             usesCompactStack: usesCompactStack,

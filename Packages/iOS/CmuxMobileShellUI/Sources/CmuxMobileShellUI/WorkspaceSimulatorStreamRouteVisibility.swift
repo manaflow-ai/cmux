@@ -1,12 +1,12 @@
 #if os(iOS)
 import CmuxMobileShellModel
 
-/// Resolves the one workspace detail route currently visible in the shell.
-/// Simulator stream teardown observes this owner-level value, never child view
-/// appearance, so recovery remounts preserve selection while real navigation
-/// away stops the old workspace.
-enum WorkspaceSimulatorStreamRouteVisibility {
-    static func visibleWorkspaceID(
+extension WorkspaceShellView {
+    /// Resolves the one workspace detail route currently visible in the shell.
+    /// Simulator stream teardown observes this owner-level value, never child view
+    /// appearance, so recovery remounts preserve selection while real navigation
+    /// away stops the old workspace.
+    static func visibleSimulatorStreamWorkspaceID(
         selectedPrimaryTab: MobilePrimaryTab,
         searchScope: MobilePrimarySearchScope,
         usesCompactStack: Bool,
