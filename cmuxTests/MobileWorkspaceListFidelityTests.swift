@@ -449,13 +449,11 @@ struct MobileWorkspaceListFidelityTests {
         }
 
         try #require(
-            emittedNotificationIDs.count <= 2,
-            "a synchronous summary burst must publish at most one changed snapshot after attachment"
+            emittedNotificationIDs == ["none", notificationIDs[0].uuidString],
+            "the first real mutation after attachment must publish immediately"
         )
-        if emittedNotificationIDs.count == 2 {
-            let leadingEvent = await eventIterator.next()
-            #expect(leadingEvent == notificationIDs[0].uuidString)
-        }
+        let leadingEvent = await eventIterator.next()
+        #expect(leadingEvent == notificationIDs[0].uuidString)
 
         await clock.waitUntilSleeping(for: .milliseconds(80))
         clock.advance(by: .milliseconds(80))
