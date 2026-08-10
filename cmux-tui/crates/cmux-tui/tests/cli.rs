@@ -542,13 +542,8 @@ fn server_lifecycle_start_rejects_output_modes_without_starting_an_owner() {
     let socket = dir.join("mux.sock");
 
     for mode in ["--json", "--jsonl"] {
-        let output = lifecycle_cli(&[
-            mode,
-            "server",
-            "start",
-            "--socket",
-            socket.to_str().unwrap(),
-        ]);
+        let output =
+            lifecycle_cli(&[mode, "server", "start", "--socket", socket.to_str().unwrap()]);
         assert_eq!(output.status.code(), Some(2));
         let diagnostic: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
         assert_eq!(diagnostic["code"], "usage.invalid");
@@ -561,13 +556,8 @@ fn server_lifecycle_start_rejects_output_modes_without_starting_an_owner() {
         assert!(!socket.exists());
     }
 
-    let quiet = lifecycle_cli(&[
-        "server",
-        "start",
-        "--quiet",
-        "--socket",
-        socket.to_str().unwrap(),
-    ]);
+    let quiet =
+        lifecycle_cli(&["server", "start", "--quiet", "--socket", socket.to_str().unwrap()]);
     assert_eq!(quiet.status.code(), Some(2));
     assert!(quiet.stdout.is_empty());
     assert!(quiet.stderr.is_empty());

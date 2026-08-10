@@ -1065,9 +1065,10 @@ fn validate_provider_process_args(args: &Args) -> anyhow::Result<()> {
 }
 
 fn rewrite_server_start(args: &mut Vec<String>) {
-    if args.iter().any(|arg| {
-        matches!(arg.as_str(), "-h" | "--help" | "--json" | "--jsonl" | "--quiet")
-    }) {
+    if args
+        .iter()
+        .any(|arg| matches!(arg.as_str(), "-h" | "--help" | "--json" | "--jsonl" | "--quiet"))
+    {
         return;
     }
     let mut index = 0;

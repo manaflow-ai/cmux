@@ -3637,9 +3637,7 @@ impl ClientRegistry {
         capabilities: Option<Vec<String>>,
     ) -> anyhow::Result<(Option<String>, Option<String>)> {
         let mut state = self.state.lock().unwrap();
-        if kind.as_deref() == Some("native-browser")
-            && state.daemon_handoff_requester.is_some()
-        {
+        if kind.as_deref() == Some("native-browser") && state.daemon_handoff_requester.is_some() {
             anyhow::bail!("daemon handoff is already in progress");
         }
         let record = state

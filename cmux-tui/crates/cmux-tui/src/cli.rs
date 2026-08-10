@@ -131,14 +131,6 @@ fn parse_command(
     if command_args[0] == "daemon" {
         return Err(UsageError::new(crate::localization::catalog().local_server.daemon_removed));
     }
-    if command_args.first().map(String::as_str) == Some("server")
-        && command_args.get(1).map(String::as_str) == Some("start")
-        && global.output != OutputMode::Human
-    {
-        return Err(UsageError::new(
-            crate::localization::catalog().local_server.start_rejects_output_mode,
-        ));
-    }
     if command_args[0] == "help" {
         return match command_args.get(1) {
             None => Ok(ParsedCommand::Help(None)),
@@ -170,6 +162,14 @@ fn parse_command(
             _ => None,
         };
         return Ok(ParsedCommand::Help(topic));
+    }
+    if command_args.first().map(String::as_str) == Some("server")
+        && command_args.get(1).map(String::as_str) == Some("start")
+        && global.output != OutputMode::Human
+    {
+        return Err(UsageError::new(
+            crate::localization::catalog().local_server.start_rejects_output_mode,
+        ));
     }
     let plan = command::parse(&command_args)?;
     Ok(ParsedCommand::Command { global, plan })
