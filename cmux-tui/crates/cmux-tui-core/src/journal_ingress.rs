@@ -1461,10 +1461,9 @@ mod tests {
         blocker.join().unwrap();
         let records = mux.session_journal_after(0, 1024).unwrap().records;
         assert!(
-            records.iter().all(|record| !record
-                .payload
-                .to_string()
-                .contains("registry-mutex-deadline-marker")),
+            records.iter().all(|record| {
+                record.correlation_id.as_deref() != Some("registry_lock_deadline_1")
+            }),
             "a producer event must not commit after its mutex admission deadline"
         );
         drop(mux);
@@ -1526,9 +1525,9 @@ mod tests {
         assert!(mux.daemon_shutdown_requested());
         let records = mux.session_journal_after(0, 1024).unwrap().records;
         assert!(
-            records
-                .iter()
-                .all(|record| !record.payload.to_string().contains("transaction-deadline-marker")),
+            records.iter().all(|record| {
+                record.correlation_id.as_deref() != Some("commit_deadline_1")
+            }),
             "a producer transaction must roll back after its deadline"
         );
         drop(mux);
