@@ -15,6 +15,7 @@
 		8B8A10042DF5000000A66F90 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 8B8A101B2DF5000000A66F90 /* Localizable.xcstrings */; };
 		8B8A10E02DF5000000A66F90 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 8B8A10E12DF5000000A66F90 /* PrivacyInfo.xcprivacy */; };
 		8B8A10052DF5000000A66F90 /* cmuxUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8A101C2DF5000000A66F90 /* cmuxUITests.swift */; };
+		AFEE00012DF5000000A66F90 /* AgentFeedUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFEE00022DF5000000A66F90 /* AgentFeedUITests.swift */; };
 		8B8A10252DF5000000A66F90 /* TerminalThemeParityUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8A10262DF5000000A66F90 /* TerminalThemeParityUITests.swift */; };
 		8B8A10302DF5000000A66F90 /* PushReadinessUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8A10312DF5000000A66F90 /* PushReadinessUITests.swift */; };
 		8B8A10E22DF5000000A66F90 /* SnapshotHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8A10E32DF5000000A66F90 /* SnapshotHelper.swift */; };
@@ -55,6 +56,7 @@
 		8B8A101B2DF5000000A66F90 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		8B8A10E12DF5000000A66F90 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		8B8A101C2DF5000000A66F90 /* cmuxUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmuxUITests.swift; sourceTree = "<group>"; };
+		AFEE00022DF5000000A66F90 /* AgentFeedUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentFeedUITests.swift; sourceTree = "<group>"; };
 		8B8A10262DF5000000A66F90 /* TerminalThemeParityUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalThemeParityUITests.swift; sourceTree = "<group>"; };
 		8B8A10312DF5000000A66F90 /* PushReadinessUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushReadinessUITests.swift; sourceTree = "<group>"; };
 		8B8A10E32DF5000000A66F90 /* SnapshotHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotHelper.swift; sourceTree = "<group>"; };
@@ -103,6 +105,7 @@
 			isa = PBXGroup;
 			children = (
 				8B8A101C2DF5000000A66F90 /* cmuxUITests.swift */,
+				AFEE00022DF5000000A66F90 /* AgentFeedUITests.swift */,
 				8B8A10262DF5000000A66F90 /* TerminalThemeParityUITests.swift */,
 				8B8A10312DF5000000A66F90 /* PushReadinessUITests.swift */,
 				8B8A10E52DF5000000A66F90 /* SnapshotUITests.swift */,
@@ -284,6 +287,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				8B8A10052DF5000000A66F90 /* cmuxUITests.swift in Sources */,
+				AFEE00012DF5000000A66F90 /* AgentFeedUITests.swift in Sources */,
 				8B8A10252DF5000000A66F90 /* TerminalThemeParityUITests.swift in Sources */,
 				8B8A10302DF5000000A66F90 /* PushReadinessUITests.swift in Sources */,
 				8B8A10E42DF5000000A66F90 /* SnapshotUITests.swift in Sources */,

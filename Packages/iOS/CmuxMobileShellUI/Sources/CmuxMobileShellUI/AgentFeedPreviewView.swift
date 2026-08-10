@@ -5,15 +5,26 @@ import SwiftUI
 
 /// Deterministic production-view fixture for Agent Feed UI and interaction tests.
 public struct AgentFeedPreviewView: View {
+    private let scenario: AgentFeedPreviewScenario
+    private let hostEventCount: Int
     @State private var selectedTab: MobilePrimaryTab = .notifications
     @State private var searchCoordinator = MobilePrimarySearchCoordinator(initialScope: .notifications)
-    @State private var filter: MobileAgentFeedFilter = .needsInput
-    @State private var items = AgentFeedPreviewFixture.items
+    @State private var filter: MobileAgentFeedFilter
+    @State private var items: [MobileAgentFeedItem]
+    @State private var status: MobileAgentFeedStatus
     @State private var drafts: [MobileAgentFeedItemID: String] = [:]
     @State private var mutationStates: [MobileAgentFeedItemID: MobileAgentFeedMutationState] = [:]
     @State private var openedItem: MobileAgentFeedItem?
+    @State private var loadedOlderPage = false
 
-    public init() {}
+    public init() {
+        let configuration = AgentFeedPreviewConfiguration.current()
+        scenario = configuration.scenario
+        hostEventCount = configuration.hostEventCount
+        _filter = State(initialValue: configuration.filter)
+        _items = State(initialValue: configuration.items)
+        _status = State(initialValue: configuration.status)
+    }
 
     public var body: some View {
         MobilePrimaryTabScaffold(
@@ -24,7 +35,7 @@ public struct AgentFeedPreviewView: View {
             Text(L10n.string("mobile.agentFeed.fixture.title", defaultValue: "Agent Feed fixture"))
         } notifications: {
             NavigationStack {
-                feed
+                scenarioFeed
                     .navigationDestination(isPresented: Binding(
                         get: { openedItem != nil },
                         set: { if !$0 { openedItem = nil } }
@@ -32,6 +43,8 @@ public struct AgentFeedPreviewView: View {
                         VStack(spacing: 12) {
                             Image(systemName: "terminal")
                             Text(openedItem?.wire.workstreamID ?? "")
+                            Text(openedItem?.wire.workspaceID ?? "")
+                            Text(openedItem?.wire.surfaceID ?? "")
                         }
                         .navigationTitle(L10n.string("mobile.agentFeed.fixture.agent", defaultValue: "Agent"))
                         .accessibilityIdentifier("MobileAgentFeedPreviewAgentDestination")
@@ -40,26 +53,79 @@ public struct AgentFeedPreviewView: View {
         } workspaceSearch: {
             Text(L10n.string("mobile.agentFeed.fixture.title", defaultValue: "Agent Feed fixture"))
         } notificationSearch: {
+            scenarioFeed
+        }
+        .dynamicTypeSize(scenario == .accessibility ? .accessibility3 : .large)
+        .accessibilityIdentifier("AgentFeedScenarioScreen-\(scenario.rawValue)")
+    }
+
+    private var scenarioFeed: some View {
+        VStack(spacing: 0) {
+            scenarioMarker
             feed
+            fixtureControls
+        }
+    }
+
+    private var scenarioMarker: some View {
+        Text("\(scenario.rawValue) · host=\(hostEventCount) · rendered=\(items.count)")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal)
+            .accessibilityIdentifier("AgentFeedScenario-\(scenario.rawValue)")
+            .accessibilityValue("host events \(hostEventCount), rendered items \(items.count)")
+    }
+
+    @ViewBuilder
+    private var fixtureControls: some View {
+        switch scenario {
+        case .empty:
+            Button("Complete first load") { status = .ready }
+                .accessibilityIdentifier("AgentFeedFixtureCompleteFirstLoad")
+        case .newActivity:
+            Button("Inject 100-event burst") {
+                items.insert(contentsOf: AgentFeedPreviewConfiguration.injectedActivityBurst(), at: 0)
+            }
+            .accessibilityIdentifier("AgentFeedFixtureInjectNewActivity")
+        case .reply:
+            if mutationStates.values.contains(.sending) {
+                Button("Acknowledge reply") {
+                    drafts.removeAll()
+                    mutationStates.removeAll()
+                }
+                .accessibilityIdentifier("AgentFeedFixtureAcknowledgeReply")
+            }
+        case .reconnect:
+            Button("Finish reconciliation") {
+                items = AgentFeedPreviewConfiguration.reconciledItems()
+                status = .ready
+            }
+            .accessibilityIdentifier("AgentFeedFixtureFinishReconciliation")
+        case .stress:
+            Button(loadedOlderPage ? "Older page loaded" : "Load older page") {
+                loadedOlderPage = true
+            }
+            .disabled(loadedOlderPage)
+            .accessibilityIdentifier("AgentFeedFixtureLoadOlderPage")
+        default:
+            EmptyView()
         }
     }
 
     private var feed: some View {
         AgentFeedView(
             items: items,
-            status: .ready,
+            status: status,
             filter: $filter,
             drafts: drafts,
             mutationStates: mutationStates,
             actions: AgentFeedActions(
                 setDraft: { id, value in drafts[id] = value },
-                reply: { item in
-                    drafts[item.id] = nil
-                    mutationStates[item.id] = .idle
-                },
+                reply: { item in mutationStates[item.id] = .sending },
                 decide: { item, action in resolve(item, action: action) },
                 open: { item in openedItem = item },
-                refresh: {}
+                refresh: { status = .loading }
             )
         )
     }
@@ -94,116 +160,6 @@ public struct AgentFeedPreviewView: View {
             )
         )
         mutationStates[item.id] = .idle
-    }
-}
-
-private struct AgentFeedPreviewFixture {
-    static let items: [MobileAgentFeedItem] = [
-        item(
-            id: "00000000-0000-0000-0000-000000000101",
-            source: "codex",
-            kind: "permissionRequest",
-            minutesAgo: 1,
-            title: "Codex needs permission",
-            payload: .permission(
-                requestID: "permission-101",
-                toolName: "Bash",
-                safeInput: "command: …, timeout: …",
-                supportedModes: ["once", "always", "deny"]
-            )
-        ),
-        item(
-            id: "00000000-0000-0000-0000-000000000102",
-            source: "claude",
-            kind: "exitPlan",
-            minutesAgo: 2,
-            title: "Claude finished a plan",
-            payload: .exitPlan(
-                requestID: "plan-102",
-                plan: "1. Add an authenticated feed RPC.\n2. Aggregate immutable events across Macs.\n3. Route every response to its exact surface.",
-                summary: "Review the iOS Agent Feed plan",
-                defaultMode: "manual"
-            )
-        ),
-        item(
-            id: "00000000-0000-0000-0000-000000000103",
-            source: "gemini",
-            kind: "question",
-            minutesAgo: 3,
-            title: "Gemini has two questions",
-            payload: .question(requestID: "question-103", questions: [
-                MobileWorkstreamQuestion(
-                    id: "scope",
-                    header: "Scope",
-                    prompt: "Which clients should receive the feed?",
-                    multiSelect: true,
-                    options: [
-                        .init(id: "iphone", label: "iPhone", description: "The signed iOS client"),
-                        .init(id: "ipad", label: "iPad", description: "The tablet layout"),
-                    ]
-                ),
-                MobileWorkstreamQuestion(
-                    id: "priority",
-                    header: "Priority",
-                    prompt: "Which request should appear first?",
-                    multiSelect: false,
-                    options: [
-                        .init(id: "blocking", label: "Blocking requests"),
-                        .init(id: "recent", label: "Most recent activity"),
-                    ]
-                ),
-            ])
-        ),
-        item(
-            id: "00000000-0000-0000-0000-000000000104",
-            source: "opencode",
-            kind: "toolResult",
-            minutesAgo: 4,
-            title: "OpenCode command failed",
-            status: .telemetry,
-            payload: .toolResult(name: "swift test", result: "Exited with status 1", isError: true)
-        ),
-        item(
-            id: "00000000-0000-0000-0000-000000000105",
-            source: "hermes-agent",
-            kind: "stop",
-            minutesAgo: 5,
-            title: "Hermes finished a turn",
-            status: .telemetry,
-            payload: .stop(reason: "Implementation is ready for a reply.")
-        ),
-    ]
-
-    private static func item(
-        id: String,
-        source: String,
-        kind: String,
-        minutesAgo: TimeInterval,
-        title: String,
-        status: MobileWorkstreamFeedStatus = .pending,
-        payload: MobileWorkstreamFeedPayload
-    ) -> MobileAgentFeedItem {
-        let date = Date().addingTimeInterval(-minutesAgo * 60)
-        return MobileAgentFeedItem(
-            macDeviceID: source == "claude" ? "mac-studio" : "macbook",
-            macInstanceTag: "fixture",
-            macDisplayName: source == "claude" ? "Studio" : "MacBook Pro",
-            connectionStatus: .connected,
-            wire: MobileWorkstreamFeedListItem(
-                id: UUID(uuidString: id)!,
-                workstreamID: "\(source)-fixture-session",
-                source: source,
-                kind: kind,
-                createdAt: date,
-                updatedAt: date,
-                cwd: "/cmux/worktrees/agent-feed",
-                title: title,
-                workspaceID: "workspace-agent-feed",
-                surfaceID: "surface-agent-feed",
-                status: status,
-                payload: payload
-            )
-        )
     }
 }
 #endif

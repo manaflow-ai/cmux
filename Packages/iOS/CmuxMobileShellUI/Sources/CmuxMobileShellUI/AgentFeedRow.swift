@@ -19,6 +19,7 @@ struct AgentFeedRow: View, Equatable {
     let isExpanded: Bool
     let draft: String
     let mutationState: MobileAgentFeedMutationState
+    let interactionsEnabled: Bool
     let planFeedback: String
     let questionSelections: [String: Set<String>]
     let otherAnswers: [String: String]
@@ -29,6 +30,7 @@ struct AgentFeedRow: View, Equatable {
             && lhs.isExpanded == rhs.isExpanded
             && lhs.draft == rhs.draft
             && lhs.mutationState == rhs.mutationState
+            && lhs.interactionsEnabled == rhs.interactionsEnabled
             && lhs.planFeedback == rhs.planFeedback
             && lhs.questionSelections == rhs.questionSelections
             && lhs.otherAnswers == rhs.otherAnswers
@@ -60,6 +62,7 @@ struct AgentFeedRow: View, Equatable {
                         )
                     }
                     .frame(minHeight: 44)
+                    .disabled(!interactionsEnabled)
                     .accessibilityIdentifier("MobileAgentFeedOpenAgent-\(suffix)")
                 } else {
                     Text(L10n.string("mobile.agentFeed.targetUnavailable", defaultValue: "Agent location unavailable"))
@@ -101,6 +104,7 @@ struct AgentFeedRow: View, Equatable {
                     axis: .vertical
                 )
                 .lineLimit(2...6)
+                .disabled(!interactionsEnabled || isSending)
                 .accessibilityIdentifier("MobileAgentFeedPlanFeedback-\(suffix)")
                 ViewThatFits {
                     HStack { planButtons }
@@ -117,7 +121,7 @@ struct AgentFeedRow: View, Equatable {
                     Button(L10n.string("mobile.agentFeed.question.submit", defaultValue: "Submit Answers")) {
                         actions.decide(.question(selections: encodedQuestionAnswers(questions)))
                     }
-                    .disabled(isSending || !questionsAreValid(questions))
+                    .disabled(!interactionsEnabled || isSending || !questionsAreValid(questions))
                     .frame(minHeight: 44)
                     .accessibilityIdentifier("MobileAgentFeedQuestionSubmit-\(suffix)")
                 }
@@ -135,7 +139,7 @@ struct AgentFeedRow: View, Equatable {
     private func permissionButtons(_ modes: [String]) -> some View {
         ForEach(modes, id: \.self) { mode in
             Button(AgentFeedCopy.permissionModeLabel(mode)) { actions.decide(.permission(mode: mode)) }
-                .disabled(isSending || !item.wire.status.isPending)
+                .disabled(!interactionsEnabled || isSending || !item.wire.status.isPending)
                 .frame(minHeight: 44)
                 .accessibilityIdentifier("MobileAgentFeedPermission-\(mode)-\(suffix)")
         }
@@ -150,7 +154,7 @@ struct AgentFeedRow: View, Equatable {
                     feedback: planFeedback.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : planFeedback
                 ))
             }
-            .disabled(isSending || !item.wire.status.isPending)
+            .disabled(!interactionsEnabled || isSending || !item.wire.status.isPending)
             .frame(minHeight: 44)
             .accessibilityIdentifier("MobileAgentFeedPlan-\(mode)-\(suffix)")
         }
@@ -164,9 +168,10 @@ struct AgentFeedRow: View, Equatable {
                 axis: .vertical
             )
             .lineLimit(2...8)
+            .disabled(!interactionsEnabled || isSending)
             .accessibilityIdentifier("MobileAgentFeedReplyComposer-\(suffix)")
             Button(L10n.string("mobile.agentFeed.reply.send", defaultValue: "Send Reply"), action: actions.reply)
-                .disabled(isSending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || item.wire.surfaceID == nil)
+                .disabled(!interactionsEnabled || isSending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || item.wire.surfaceID == nil)
                 .frame(minHeight: 44)
                 .accessibilityIdentifier("MobileAgentFeedReplySubmit-\(suffix)")
         }
@@ -198,6 +203,7 @@ struct AgentFeedRow: View, Equatable {
                 }
                 .buttonStyle(.plain)
                 .frame(minHeight: 44)
+                .disabled(!interactionsEnabled || isSending)
                 .accessibilityIdentifier("MobileAgentFeedQuestion-\(question.id)-\(option.id)-\(suffix)")
             }
             TextField(
@@ -209,6 +215,7 @@ struct AgentFeedRow: View, Equatable {
                 axis: .vertical
             )
             .lineLimit(1...4)
+            .disabled(!interactionsEnabled || isSending)
             .accessibilityIdentifier("MobileAgentFeedQuestionOther-\(question.id)-\(suffix)")
         }
     }

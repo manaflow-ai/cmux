@@ -85,6 +85,7 @@ struct AgentFeedView: View {
                                 isExpanded: expandedIDs.contains(item.id),
                                 draft: drafts[item.id] ?? "",
                                 mutationState: mutationStates[item.id] ?? .idle,
+                                interactionsEnabled: interactionsEnabled(for: item),
                                 planFeedback: planFeedback[item.id] ?? "",
                                 questionSelections: questionSelections[item.id] ?? [:],
                                 otherAnswers: otherAnswers[item.id] ?? [:],
@@ -134,6 +135,15 @@ struct AgentFeedView: View {
 
     private func toggleExpanded(_ id: MobileAgentFeedItemID) {
         if expandedIDs.contains(id) { expandedIDs.remove(id) } else { expandedIDs.insert(id) }
+    }
+
+    private func interactionsEnabled(for item: MobileAgentFeedItem) -> Bool {
+        guard item.connectionStatus == .connected else { return false }
+        switch status {
+        case .ready, .partial: return true
+        case .idle, .loading, .offlineCached, .reconnecting, .unavailable, .requiresMacUpdate, .failed:
+            return false
+        }
     }
 }
 
