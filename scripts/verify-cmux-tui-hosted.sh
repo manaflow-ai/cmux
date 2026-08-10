@@ -162,38 +162,35 @@ fi
 run_url="https://github.com/$REPO/actions/runs/$run_id"
 echo "Run: $run_url"
 echo "Waiting for hosted verification"
-if command -v python3 >/dev/null 2>&1; then
-  python_cmd=python3
-elif command -v python >/dev/null 2>&1; then
-  python_cmd=python
-else
-  echo "error: Python is required to enforce the hosted verification timeout" >&2
-  exit 1
-fi
-watch_status=0
-"$python_cmd" - "$timeout_seconds" "$REPO" "$run_id" <<'PY' || watch_status=$?
-import subprocess
-import sys
+verification_started="$(date +%s)"
+run_status=""
+run_conclusion=""
+while true; do
+  run_state=""
+  if run_state="$(
+    gh run view \
+      --repo "$REPO" \
+      "$run_id" \
+      --json status,conclusion \
+      --jq '[.status, .conclusion] | @tsv'
+  )"; then
+    IFS=$'\t' read -r run_status run_conclusion <<< "$run_state"
+    if [[ "$run_status" == "completed" ]]; then
+      break
+    fi
+  else
+    echo "warning: hosted run status query failed; retrying" >&2
+  fi
 
-timeout_seconds = int(sys.argv[1])
-repo = sys.argv[2]
-run_id = sys.argv[3]
-try:
-    result = subprocess.run(
-        ["gh", "run", "watch", run_id, "--repo", repo, "--exit-status"],
-        timeout=timeout_seconds,
-        check=False,
-    )
-except subprocess.TimeoutExpired:
-    raise SystemExit(124)
-raise SystemExit(result.returncode)
-PY
+  verification_now="$(date +%s)"
+  if (( verification_now - verification_started >= timeout_seconds )); then
+    echo "error: hosted verification did not complete within ${timeout_seconds}s: $run_url" >&2
+    exit 1
+  fi
+  sleep 10
+done
 
-if [[ "$watch_status" -eq 124 ]]; then
-  echo "error: hosted verification did not complete within ${timeout_seconds}s: $run_url" >&2
-  exit 1
-fi
-if [[ "$watch_status" -ne 0 ]]; then
+if [[ "$run_conclusion" != "success" ]]; then
   echo "Hosted verification failed: $run_url" >&2
   gh run view --repo "$REPO" "$run_id" --log-failed || true
   exit 1
