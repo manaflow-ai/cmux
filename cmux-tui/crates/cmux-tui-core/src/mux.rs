@@ -5441,6 +5441,15 @@ impl Mux {
                     return Err(error);
                 }
             };
+            let Some(runtime_id) = surface.terminal_runtime_id() else {
+                let _ = self.persist_terminal_exit(
+                    &terminal_hex,
+                    None,
+                    &TerminalExit::unknown("missing-terminal-runtime-identity"),
+                );
+                surface.kill();
+                anyhow::bail!("in-process terminal did not expose a runtime identity");
+            };
             let incarnation = TerminalId::random()?.to_hex();
             let identity = TerminalHostIdentity {
                 terminal_id: terminal_hex.clone(),
@@ -5490,8 +5499,6 @@ impl Mux {
                 surface.kill();
                 return Err(error);
             }
-            let runtime_id =
-                surface.terminal_runtime_id().expect("in-process terminal has a runtime identity");
             self.reserved_in_process_terminals.lock().unwrap().insert(runtime_id, identity);
             return Ok(surface);
         }
@@ -7394,19 +7401,23 @@ impl Mux {
         let mut state = self.state.lock().unwrap();
         let (surface, terminal_id) = match target {
             AgentReportTarget::Surface(surface) => {
-                let runtime = state
-                    .surfaces
-                    .get(&surface)
-                    .cloned()
-                    .or_else(|| state.terminal_runtime_by_id(surface))
-                    .with_context(|| format!("unknown surface {surface}"))?;
-                let identity = runtime.resource_identity().with_context(|| {
-                    format!("surface {surface} has no durable resource identity")
-                })?;
-                let ContentPublicId::Terminal(terminal_id) = &identity.content_id else {
-                    anyhow::bail!("surface {surface} is not a terminal");
-                };
-                (surface, terminal_id.clone())
+                if let Some(runtime) = state.surfaces.get(&surface) {
+                    let identity = runtime.resource_identity().with_context(|| {
+                        format!("surface {surface} has no durable resource identity")
+                    })?;
+                    let ContentPublicId::Terminal(terminal_id) = &identity.content_id else {
+                        anyhow::bail!("surface {surface} is not a terminal");
+                    };
+                    (surface, terminal_id.clone())
+                } else {
+                    let terminal_id = state
+                        .terminal_catalog_by_runtime
+                        .get(&surface)
+                        .filter(|terminal_id| state.terminal_catalog.contains_key(*terminal_id))
+                        .cloned()
+                        .with_context(|| format!("unknown surface {surface}"))?;
+                    (surface, terminal_id)
+                }
             }
             AgentReportTarget::Resource { selectors, terminal_id } => {
                 self.resolve_resource_path_in_state(
@@ -7523,38 +7534,43 @@ impl Mux {
         self.terminal_notifications.lock().unwrap().remove(terminal_id);
     }
 
-    fn purge_terminal_runtime_side_tables(&self, runtime: &Surface) {
-        if let Some(runtime_id) = runtime.terminal_runtime_id() {
-            self.reserved_in_process_terminals.lock().unwrap().remove(&runtime_id);
-            let sizing_lifecycle = self.lock_client_sizing_lifecycle();
-            let mut sizing = self.client_sizing.lock().unwrap();
-            let viewers = sizing
-                .terminal_runtime_by_viewer
-                .iter()
-                .filter_map(|(viewer, terminal)| (*terminal == runtime_id).then_some(*viewer))
-                .collect::<HashSet<_>>();
-            for viewer in &viewers {
-                sizing.surfaces.remove(viewer);
-                sizing.policies.remove(viewer);
-            }
-            sizing.report_order.retain(|(reported, _), _| !viewers.contains(reported));
-            sizing.terminal_runtime_by_viewer.retain(|_, terminal| *terminal != runtime_id);
-            sizing.terminal_authorities.remove(&runtime_id);
-            drop(sizing);
-            drop(sizing_lifecycle);
-            let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
-            let mut pending = self.pending_cell_pixels.lock().unwrap();
-            if let Some(update) = pending.as_mut() {
-                update.failures.remove(&runtime_id);
-                if update.failures.is_empty() {
-                    let target = update.target;
-                    *self.cell_pixels.lock().unwrap() = target;
-                    *pending = None;
-                }
+    fn purge_terminal_resource_side_tables(&self, terminal: &TerminalResource) {
+        let runtime_id = terminal.runtime_id();
+        self.reserved_in_process_terminals.lock().unwrap().remove(&runtime_id);
+        let sizing_lifecycle = self.lock_client_sizing_lifecycle();
+        let mut sizing = self.client_sizing.lock().unwrap();
+        let viewers = sizing
+            .terminal_runtime_by_viewer
+            .iter()
+            .filter_map(|(viewer, terminal)| (*terminal == runtime_id).then_some(*viewer))
+            .collect::<HashSet<_>>();
+        for viewer in &viewers {
+            sizing.surfaces.remove(viewer);
+            sizing.policies.remove(viewer);
+        }
+        sizing.report_order.retain(|(reported, _), _| !viewers.contains(reported));
+        sizing.terminal_runtime_by_viewer.retain(|_, terminal| *terminal != runtime_id);
+        sizing.terminal_authorities.remove(&runtime_id);
+        drop(sizing);
+        drop(sizing_lifecycle);
+        let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
+        let mut pending = self.pending_cell_pixels.lock().unwrap();
+        if let Some(update) = pending.as_mut() {
+            update.failures.remove(&runtime_id);
+            if update.failures.is_empty() {
+                let target = update.target;
+                *self.cell_pixels.lock().unwrap() = target;
+                *pending = None;
             }
         }
-        if let Some(terminal_id) = runtime.terminal_public_id() {
+        if let Some(terminal_id) = terminal.public_id() {
             self.purge_terminal_side_tables(terminal_id);
+        }
+    }
+
+    fn purge_terminal_runtime_side_tables(&self, runtime: &Surface) {
+        if let Some(terminal) = runtime.terminal_resource() {
+            self.purge_terminal_resource_side_tables(&terminal);
         }
     }
 
@@ -8086,14 +8102,16 @@ impl Mux {
     fn finish_terminal_kitty_retirement(&self, surface: &Surface) {
         let Some(mux) = surface.terminal_mux() else { return };
         debug_assert!(std::ptr::eq(self, Arc::as_ptr(&mux)));
-        mux.retire_kitty_image_resource(surface);
+        if let Some(terminal) = surface.terminal_resource() {
+            mux.retire_kitty_image_resource(&terminal);
+        }
     }
 
     /// A view can retain a terminal after the resource leaves the catalog.
     /// Clear retained graphics before stable runtime retirement frees quota.
-    fn retire_kitty_image_resource(self: &Arc<Self>, surface: &Surface) {
-        let runtime_id = surface.terminal_runtime_id().unwrap_or(surface.id);
-        let released = surface.release_kitty_graphics_for_retirement().is_ok();
+    fn retire_kitty_image_resource(self: &Arc<Self>, terminal: &TerminalResource) {
+        let runtime_id = terminal.runtime_id();
+        let released = terminal.release_kitty_graphics_for_retirement().is_ok();
         {
             let mut budget = self.kitty_image_budget.lock().unwrap();
             if released {
@@ -8113,9 +8131,16 @@ impl Mux {
         &self,
         surface: &Surface,
     ) -> Option<TerminalHostIdentity> {
-        surface.terminal_host_identity().or_else(|| {
-            let runtime = surface.terminal_runtime_id()?;
-            self.reserved_in_process_terminals.lock().unwrap().get(&runtime).cloned()
+        let terminal = surface.terminal_resource()?;
+        self.terminal_resource_host_identity(&terminal)
+    }
+
+    pub(crate) fn terminal_resource_host_identity(
+        &self,
+        terminal: &TerminalResource,
+    ) -> Option<TerminalHostIdentity> {
+        terminal.terminal_host_identity().or_else(|| {
+            self.reserved_in_process_terminals.lock().unwrap().get(&terminal.runtime_id()).cloned()
         })
     }
 
@@ -11757,9 +11782,11 @@ impl Mux {
                 // creation batch and any legacy runtime handoff complete.
                 return;
             }
-            if let Some(identity) = self.resource_terminal_host_identity(surface) {
+            if let Some(terminal) = surface.terminal_resource()
+                && let Some(identity) = self.terminal_resource_host_identity(&terminal)
+            {
                 if let Err(error) =
-                    self.mark_hosted_surface_exited(surface, "host-exited-before-attach")
+                    self.mark_hosted_terminal_exited(&terminal, "host-exited-before-attach")
                 {
                     self.emit(MuxEvent::Status(format!(
                         "could not persist terminal {} exit: {error}",
@@ -11767,7 +11794,7 @@ impl Mux {
                     )));
                     self.schedule_exited_terminal_detach(
                         identity.terminal_id,
-                        surface,
+                        &terminal,
                         "host-exited-before-attach",
                     );
                     return;
@@ -11806,62 +11833,81 @@ impl Mux {
     /// Finish one terminal resource exit without resolving it through a view
     /// placement. The reader can outlive every projection of its resource.
     pub(crate) fn terminal_resource_exited(self: &Arc<Self>, terminal: &Arc<TerminalResource>) {
-        self.runtime_exited(terminal.runtime_id(), Some(terminal.compatibility_surface()));
+        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_fence = self.resource_creation_execution.lock().unwrap();
+        if let Some(identity) = self.terminal_resource_host_identity(terminal) {
+            if let Err(error) = self.mark_hosted_terminal_exited(terminal, "host-exited") {
+                self.emit(MuxEvent::Status(format!(
+                    "could not persist terminal {} exit: {error}",
+                    terminal.runtime_id()
+                )));
+                self.schedule_exited_terminal_detach(identity.terminal_id, terminal, "host-exited");
+            }
+            return;
+        }
+        self.finish_terminal_resource_exit(terminal);
     }
 
     fn runtime_exited(self: &Arc<Self>, id: SurfaceId, surface: Option<Arc<Surface>>) {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let _creation_fence = self.resource_creation_execution.lock().unwrap();
-        if let Some(surface) = surface.as_ref()
-            && let Some(identity) = self.resource_terminal_host_identity(surface)
+        if let Some(terminal) = surface.as_ref().and_then(|surface| surface.terminal_resource())
+            && let Some(identity) = self.terminal_resource_host_identity(&terminal)
         {
-            if let Err(error) = self.mark_hosted_surface_exited(surface, "host-exited") {
+            if let Err(error) = self.mark_hosted_terminal_exited(&terminal, "host-exited") {
                 self.emit(MuxEvent::Status(format!(
                     "could not persist terminal {id} exit: {error}"
                 )));
-                self.schedule_exited_terminal_detach(identity.terminal_id, surface, "host-exited");
+                self.schedule_exited_terminal_detach(
+                    identity.terminal_id,
+                    &terminal,
+                    "host-exited",
+                );
                 return;
             }
             return;
         }
-        if let Some(surface) = surface.as_ref()
-            && surface.terminal_public_id().is_some()
+        if let Some(terminal) = surface.as_ref().and_then(|surface| surface.terminal_resource())
+            && terminal.public_id().is_some()
         {
-            let (removed, changed_screens, empty_revision) = {
-                let mut state = self.state.lock().unwrap();
-                let placements = surface
-                    .terminal_public_id()
-                    .map(|terminal_id| {
-                        state
-                            .placements_of_content(&ContentPublicId::Terminal(terminal_id.clone()))
-                            .to_vec()
-                    })
-                    .unwrap_or_default();
-                let changed_screens = unique_screen_ids(
-                    placements.iter().filter_map(|placement| surface_screen_id(&state, *placement)),
-                );
-                let removed = remove_terminal_runtime_from_state(self, &mut state, surface).0;
-                let empty_revision =
-                    state.workspaces.is_empty().then_some(state.workspace_revision);
-                (removed, changed_screens, empty_revision)
-            };
-            for placement in &removed {
-                self.purge_surface_side_tables(placement.id);
-                self.emit(MuxEvent::SurfaceExited(placement.id));
-            }
-            self.purge_terminal_runtime_side_tables(surface);
-            self.retire_kitty_image_resource(surface);
-            if !removed.is_empty() {
-                self.emit(MuxEvent::TreeChanged);
-            }
-            for screen in changed_screens {
-                self.emit(MuxEvent::LayoutChanged(screen));
-            }
-            self.emit_empty_if_current(empty_revision);
+            self.finish_terminal_resource_exit(&terminal);
             return;
         }
         self.remove_surface_after_registry(id);
         self.emit(MuxEvent::SurfaceExited(id));
+    }
+
+    fn finish_terminal_resource_exit(self: &Arc<Self>, terminal: &Arc<TerminalResource>) {
+        let (removed, changed_screens, empty_revision) = {
+            let mut state = self.state.lock().unwrap();
+            let placements = terminal
+                .public_id()
+                .map(|terminal_id| {
+                    state
+                        .placements_of_content(&ContentPublicId::Terminal(terminal_id.clone()))
+                        .to_vec()
+                })
+                .unwrap_or_default();
+            let changed_screens = unique_screen_ids(
+                placements.iter().filter_map(|placement| surface_screen_id(&state, *placement)),
+            );
+            let removed = remove_terminal_resource_from_state(self, &mut state, terminal).0;
+            let empty_revision = state.workspaces.is_empty().then_some(state.workspace_revision);
+            (removed, changed_screens, empty_revision)
+        };
+        for placement in &removed {
+            self.purge_surface_side_tables(placement.id);
+            self.emit(MuxEvent::SurfaceExited(placement.id));
+        }
+        self.purge_terminal_resource_side_tables(terminal);
+        self.retire_kitty_image_resource(terminal);
+        if !removed.is_empty() {
+            self.emit(MuxEvent::TreeChanged);
+        }
+        for screen in changed_screens {
+            self.emit(MuxEvent::LayoutChanged(screen));
+        }
+        self.emit_empty_if_current(empty_revision);
     }
 
     /// Exit persistence is first-writer-wins. A transient SQLite failure
@@ -11870,7 +11916,7 @@ impl Mux {
     fn schedule_exited_terminal_detach(
         self: &Arc<Self>,
         terminal_id: String,
-        surface: &Arc<Surface>,
+        terminal: &Arc<TerminalResource>,
         reason: &'static str,
     ) {
         let Some(detach_lease) = self.terminal_exit_detaches.acquire(terminal_id.clone()) else {
@@ -11878,7 +11924,7 @@ impl Mux {
         };
         let cleanup_id = terminal_id.clone();
         let mux = Arc::downgrade(self);
-        let surface = Arc::downgrade(surface);
+        let terminal = Arc::downgrade(terminal);
         let spawn_result = std::thread::Builder::new()
             .name(format!("terminal-exit-detach-{terminal_id}"))
             .spawn(move || {
@@ -11890,12 +11936,8 @@ impl Mux {
                     if mux.shutting_down.load(Ordering::Acquire) {
                         break;
                     }
-                    let reconciled = surface
-                        .upgrade()
-                        .map(|surface| mux.mark_hosted_surface_exited(&surface, reason))
-                        .unwrap_or_else(|| {
-                            mux.detach_exited_terminal_topology(&terminal_id).map(drop)
-                        });
+                    let Some(terminal) = terminal.upgrade() else { break };
+                    let reconciled = mux.mark_hosted_terminal_exited(&terminal, reason);
                     match reconciled {
                         Ok(()) => break,
                         Err(error) => {
@@ -11915,19 +11957,19 @@ impl Mux {
         }
     }
 
-    fn mark_hosted_surface_exited(
+    fn mark_hosted_terminal_exited(
         &self,
-        surface: &Arc<Surface>,
+        terminal: &Arc<TerminalResource>,
         reason: &str,
     ) -> anyhow::Result<()> {
-        let Some(identity) = self.resource_terminal_host_identity(surface) else {
+        let Some(identity) = self.terminal_resource_host_identity(terminal) else {
             return Ok(());
         };
-        let exit = surface.terminal_exit().unwrap_or_else(|| TerminalExit::unknown(reason));
+        let exit = terminal.terminal_exit().unwrap_or_else(|| TerminalExit::unknown(reason));
         self.persist_terminal_exit(&identity.terminal_id, Some(&identity.incarnation), &exit)?;
         self.detach_exited_terminal_topology(&identity.terminal_id)?;
         #[cfg(unix)]
-        if let Some((path, expected)) = surface.terminal_host_exit_sidecar() {
+        if let Some((path, expected)) = terminal.terminal_host_exit_sidecar() {
             crate::terminal_host_runtime::acknowledge_terminal_host_exit_record(&path, &expected)?;
         }
         Ok(())
@@ -13940,18 +13982,18 @@ fn terminal_exit_snapshot_in_state(
         .filter(|tab| tab.content_id == content_id)
         .map(|tab| tab.public_id.clone())
         .collect::<Vec<_>>();
-    let surface = state.surface_by_content_public_id(&content_id);
-    let (cols, rows) = surface.map(|surface| surface.size()).unwrap_or((80, 24));
+    let terminal = state.terminal_catalog.get(&public_id);
+    let (cols, rows) = terminal.map(|terminal| terminal.size()).unwrap_or((80, 24));
     let mut snapshot = serde_json::json!({
         "id": public_id,
         "tab_id": tab_ids.first(),
         "tab_ids": tab_ids,
-        "title": surface.map(|surface| surface.title()).unwrap_or_default(),
+        "title": terminal.map(|terminal| terminal.title()).unwrap_or_default(),
         "cols": cols.max(1),
         "rows": rows.max(1),
         "running": false,
     });
-    if let Some(cwd) = surface.and_then(|surface| surface.spawn_cwd()) {
+    if let Some(cwd) = terminal.and_then(|terminal| terminal.spawn_cwd()) {
         snapshot["cwd"] = serde_json::json!(cwd);
     }
     Ok(snapshot)
@@ -14381,12 +14423,25 @@ fn remove_terminal_runtime_from_state(
     state: &mut State,
     runtime: &Surface,
 ) -> (Vec<Arc<Surface>>, bool) {
-    let Some(terminal_id) = runtime.terminal_public_id().cloned() else {
+    let Some(runtime) = runtime.terminal_resource() else {
         return (Vec::new(), false);
     };
-    if !state.terminal_catalog.get(&terminal_id).is_some_and(|catalogued| {
-        runtime.terminal_resource().is_some_and(|runtime| catalogued.shares_runtime(&runtime))
-    }) {
+    remove_terminal_resource_from_state(mux, state, &runtime)
+}
+
+fn remove_terminal_resource_from_state(
+    mux: &Mux,
+    state: &mut State,
+    runtime: &TerminalResource,
+) -> (Vec<Arc<Surface>>, bool) {
+    let Some(terminal_id) = runtime.public_id().cloned() else {
+        return (Vec::new(), false);
+    };
+    if !state
+        .terminal_catalog
+        .get(&terminal_id)
+        .is_some_and(|catalogued| catalogued.shares_runtime(runtime))
+    {
         return (Vec::new(), false);
     }
     let (_, removed, split_index_dirty) =
@@ -16452,10 +16507,11 @@ mod tests {
         let placements = restored.state.placements_of_content(&content_id).to_vec();
         assert_eq!(placements.len(), 2);
         let first_tab = topology.tabs[0].public_id.clone();
+        let mux = test_mux();
         let source = Surface::spawn_for_test_with_resource_identity(
             placements[0],
             SurfaceOptions::default(),
-            Weak::new(),
+            Arc::downgrade(&mux),
             Some(TabResourceIdentity::new(first_tab, content_id.clone())),
         )
         .unwrap();
@@ -16469,7 +16525,6 @@ mod tests {
             );
         }
 
-        let mux = test_mux();
         for placement in placements {
             let _ = remove_surface(&mux, &mut restored.state, placement);
         }

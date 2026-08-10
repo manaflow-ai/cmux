@@ -1259,6 +1259,48 @@ impl TerminalResource {
         Arc::ptr_eq(&self.inner, &other.inner)
     }
 
+    pub(crate) fn size(&self) -> (u16, u16) {
+        let geometry = *self.inner.geometry.lock().unwrap();
+        (geometry.cols, geometry.rows)
+    }
+
+    pub(crate) fn title(&self) -> String {
+        self.inner.title.lock().unwrap().clone()
+    }
+
+    pub(crate) fn spawn_cwd(&self) -> Option<String> {
+        self.inner.cwd.clone()
+    }
+
+    pub(crate) fn terminal_exit(&self) -> Option<TerminalExit> {
+        self.inner.exit.lock().unwrap().clone()
+    }
+
+    pub(crate) fn is_dead(&self) -> bool {
+        self.inner.dead.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn terminal_host_identity(
+        &self,
+    ) -> Option<crate::terminal_host_runtime::TerminalHostIdentity> {
+        self.inner.host_identity.clone()
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn terminal_host_exit_sidecar(
+        &self,
+    ) -> Option<(PathBuf, crate::terminal_host_runtime::TerminalHostExitRecord)> {
+        let path = self.inner.host_exit_record_path.clone()?;
+        let identity = self.inner.host_identity.as_ref()?;
+        let exit = self.inner.exit.lock().unwrap().clone()?;
+        Some((path, crate::terminal_host_runtime::TerminalHostExitRecord::new(identity, exit)))
+    }
+
+    pub(crate) fn release_kitty_graphics_for_retirement(&self) -> anyhow::Result<()> {
+        self.inner.kitty_graphics_retired.store(true, Ordering::Release);
+        Surface::apply_local_kitty_graphics_limits(&self.inner, KittyGraphicsLimits::disabled())
+    }
+
     pub(crate) fn project(
         self: &Arc<Self>,
         id: SurfaceId,
@@ -1920,8 +1962,10 @@ fn terminal_public_id_from_resource_identity(
     }
 }
 
-fn next_terminal_runtime_id(mux: &Weak<Mux>, placement: SurfaceId) -> SurfaceId {
-    mux.upgrade().map(|mux| mux.next_id()).unwrap_or(placement)
+fn next_terminal_runtime_id(mux: &Weak<Mux>) -> anyhow::Result<SurfaceId> {
+    mux.upgrade()
+        .map(|mux| mux.next_id())
+        .ok_or_else(|| anyhow::anyhow!("terminal runtime identity requires a live mux"))
 }
 
 impl std::fmt::Debug for Surface {
@@ -2107,7 +2151,7 @@ impl Surface {
                 )
             })
             .transpose()?;
-        let runtime_id = next_terminal_runtime_id(&mux, id);
+        let runtime_id = next_terminal_runtime_id(&mux)?;
         let kitty_reservation =
             mux.upgrade().map(|mux| mux.reserve_kitty_image_surface(runtime_id)).transpose()?;
         let initial_kitty_limits = kitty_reservation
@@ -2600,7 +2644,8 @@ impl Surface {
         let mut applied_color_overrides = snapshot.colors.clone();
         let title_changed = Arc::new(AtomicBool::new(false));
         let event_target = TerminalEventTarget::new(terminal_public_id.as_ref(), id);
-        let callbacks = hosted_terminal_callbacks(event_target, mux.clone(), title_changed.clone());
+        let callbacks =
+            hosted_terminal_callbacks(event_target.clone(), mux.clone(), title_changed.clone());
         let mut term = Terminal::new(snapshot.cols, snapshot.rows, opts.scrollback, callbacks)?;
         term.resize(
             snapshot.cols,
@@ -2647,7 +2692,7 @@ impl Surface {
             },
             terminal: Arc::new(TerminalResource::new(PtyTerminalRuntime {
                 runtime_id,
-                event_target: TerminalEventTarget::new(terminal_public_id.as_ref(), id),
+                event_target,
                 terminal_public_id,
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
@@ -3423,7 +3468,7 @@ impl Surface {
             &resource_identity,
             "hosted terminal cannot use a browser resource identity",
         )?;
-        let runtime_id = next_terminal_runtime_id(&mux, id);
+        let runtime_id = next_terminal_runtime_id(&mux)?;
         let kitty_reservation =
             mux.upgrade().map(|mux| mux.reserve_kitty_image_surface(runtime_id)).transpose()?;
         let initial_kitty_limits = kitty_reservation
@@ -3460,7 +3505,7 @@ impl Surface {
         record_path: PathBuf,
         terminal_public_id: TerminalPublicId,
     ) -> anyhow::Result<Arc<Surface>> {
-        let runtime_id = next_terminal_runtime_id(&mux, id);
+        let runtime_id = next_terminal_runtime_id(&mux)?;
         let kitty_reservation =
             mux.upgrade().map(|mux| mux.reserve_kitty_image_surface(runtime_id)).transpose()?;
         let initial_kitty_limits = kitty_reservation
@@ -3556,10 +3601,10 @@ impl Surface {
         resource_identity: Option<TabResourceIdentity>,
     ) -> anyhow::Result<Arc<Surface>> {
         let initial_kitty_limits = KittyGraphicsLimits::disabled();
-        let runtime_id = next_terminal_runtime_id(&mux, id);
+        let runtime_id = next_terminal_runtime_id(&mux)?;
         let title_changed = Arc::new(AtomicBool::new(false));
         let event_target = TerminalEventTarget::Resource(terminal_public_id.clone());
-        let callbacks = hosted_terminal_callbacks(event_target, mux.clone(), title_changed);
+        let callbacks = hosted_terminal_callbacks(event_target.clone(), mux.clone(), title_changed);
         let (cols, rows) = (opts.cols.max(1), opts.rows.max(1));
         let cell_pixels =
             mux.upgrade().map(|mux| mux.cell_pixel_creation_size()).unwrap_or((8, 16));
@@ -3592,7 +3637,7 @@ impl Surface {
             },
             terminal: Arc::new(TerminalResource::new(PtyTerminalRuntime {
                 runtime_id,
-                event_target: TerminalEventTarget::Resource(terminal_public_id.clone()),
+                event_target,
                 terminal_public_id: Some(terminal_public_id),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
@@ -3757,7 +3802,7 @@ impl Surface {
                 )
             })
             .transpose()?;
-        let runtime_id = next_terminal_runtime_id(&mux, id);
+        let runtime_id = next_terminal_runtime_id(&mux)?;
         let kitty_reservation =
             mux.upgrade().map(|mux| mux.reserve_kitty_image_surface(runtime_id)).transpose()?;
         let initial_kitty_limits = kitty_reservation
@@ -4017,9 +4062,8 @@ impl Surface {
     /// Release parser and render graphics after the runtime can no longer
     /// publish output. This does not contact an exited terminal host.
     pub(crate) fn release_kitty_graphics_for_retirement(&self) -> anyhow::Result<()> {
-        let Some(pty) = self.as_pty() else { return Ok(()) };
-        pty.kitty_graphics_retired.store(true, Ordering::Release);
-        Self::apply_local_kitty_graphics_limits(pty, KittyGraphicsLimits::disabled())
+        let Some(terminal) = self.terminal_resource() else { return Ok(()) };
+        terminal.release_kitty_graphics_for_retirement()
     }
 
     #[cfg_attr(not(test), allow(dead_code))]
@@ -4878,10 +4922,7 @@ impl Surface {
 
     pub fn size(&self) -> (u16, u16) {
         match self {
-            Surface::Pty(pty) => {
-                let geometry = *pty.geometry.lock().unwrap();
-                (geometry.cols, geometry.rows)
-            }
+            Surface::Pty(pty) => pty.terminal.size(),
             Surface::Browser(browser) => browser.size(),
         }
     }
@@ -4937,7 +4978,7 @@ impl Surface {
 
     pub fn title(&self) -> String {
         match self {
-            Surface::Pty(pty) => pty.title.lock().unwrap().clone(),
+            Surface::Pty(pty) => pty.terminal.title(),
             Surface::Browser(browser) => browser.title(),
         }
     }
@@ -4967,11 +5008,11 @@ impl Surface {
     }
 
     pub fn spawn_cwd(&self) -> Option<String> {
-        self.as_pty().and_then(|pty| pty.cwd.clone())
+        self.terminal_resource().and_then(|terminal| terminal.spawn_cwd())
     }
 
     pub fn terminal_exit(&self) -> Option<TerminalExit> {
-        self.as_pty().and_then(|pty| pty.exit.lock().unwrap().clone())
+        self.terminal_resource().and_then(|terminal| terminal.terminal_exit())
     }
 
     /// Terminate a hosted terminal through its existing owner connection and
@@ -5022,11 +5063,7 @@ impl Surface {
     pub(crate) fn terminal_host_exit_sidecar(
         &self,
     ) -> Option<(PathBuf, crate::terminal_host_runtime::TerminalHostExitRecord)> {
-        let pty = self.as_pty()?;
-        let path = pty.host_exit_record_path.clone()?;
-        let identity = pty.host_identity.as_ref()?;
-        let exit = pty.exit.lock().unwrap().clone()?;
-        Some((path, crate::terminal_host_runtime::TerminalHostExitRecord::new(identity, exit)))
+        self.terminal_resource()?.terminal_host_exit_sidecar()
     }
 
     /// Process-stable identity for hosted terminals. Surface ids remain
@@ -5034,7 +5071,7 @@ impl Surface {
     pub fn terminal_host_identity(
         &self,
     ) -> Option<crate::terminal_host_runtime::TerminalHostIdentity> {
-        self.as_pty().and_then(|pty| pty.host_identity.clone())
+        self.terminal_resource()?.terminal_host_identity()
     }
 
     pub fn terminal_host_connection_state(&self) -> Option<TerminalHostConnectionState> {

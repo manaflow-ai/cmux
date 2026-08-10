@@ -79,7 +79,7 @@ impl Mux {
                     .cloned()
                     .context("destination pane has no durable projection")?;
                 let host = mux
-                    .resource_terminal_host_identity(&terminal.compatibility_surface())
+                    .terminal_resource_host_identity(&terminal)
                     .context("terminal omitted its durable host identity")?;
                 let host_id = host.terminal_id;
                 let tab_id = TabPublicId::random()?;
@@ -145,11 +145,10 @@ impl Mux {
                 let durable = registry
                     .terminal_record(&host_id)?
                     .context("terminal projection has no durable host")?;
-                let terminal_surface = terminal.compatibility_surface();
                 let terminal_value = public_terminal_snapshot(
                     &terminal_id,
                     &durable,
-                    Some(&terminal_surface),
+                    Some(&terminal),
                     terminal_tab_ids,
                 )?;
                 let mut deltas = Vec::with_capacity(tabs.len().saturating_add(1));
@@ -760,16 +759,18 @@ impl Mux {
                             ContentPublicId::Terminal(terminal_id) => {
                                 let first_terminal_placement =
                                     live_terminals.insert(terminal_id.clone());
-                                let runtime = state
+                                let host_id = state
                                     .terminal_catalog
                                     .get(terminal_id)
-                                    .map(|terminal| terminal.compatibility_surface())
-                                    .or_else(|| surface.cloned());
-                                let host_id = runtime
-                                    .as_ref()
-                                    .and_then(|surface| {
-                                        self.resource_terminal_host_identity(surface)
+                                    .and_then(|terminal| {
+                                        self.terminal_resource_host_identity(terminal)
                                             .map(|host| host.terminal_id)
+                                    })
+                                    .or_else(|| {
+                                        surface.and_then(|surface| {
+                                            self.resource_terminal_host_identity(surface)
+                                                .map(|host| host.terminal_id)
+                                        })
                                     })
                                     .or_else(|| before_tab.and_then(|tab| tab.terminal_id.clone()))
                                     .context("terminal view omitted its durable host identity")?;
@@ -862,11 +863,10 @@ impl Mux {
                         ));
                         match &tab.content_id {
                             ContentPublicId::Terminal(id) if first_terminal_placement => {
-                                let runtime = state
-                                    .terminal_catalog
-                                    .get(id)
-                                    .map(|terminal| terminal.compatibility_surface())
-                                    .or_else(|| surface.cloned());
+                                let runtime =
+                                    state.terminal_catalog.get(id).cloned().or_else(|| {
+                                        surface.and_then(|surface| surface.terminal_resource())
+                                    });
                                 let durable = tab
                                     .terminal_id
                                     .as_deref()
@@ -945,9 +945,8 @@ impl Mux {
             if !live_terminals.insert(terminal_id.clone()) {
                 continue;
             }
-            let surface = terminal.compatibility_surface();
             let host = self
-                .resource_terminal_host_identity(&surface)
+                .terminal_resource_host_identity(terminal)
                 .context("catalog terminal omitted its durable host identity")?;
             let terminal = terminal_records
                 .get(&host.terminal_id)
@@ -955,15 +954,15 @@ impl Mux {
                 .context("catalog terminal has no durable host")?;
             changes
                 .push(ResourceChange::UpsertTerminal { public_id: terminal_id.clone(), terminal });
-            let (cols, rows) = surface.size();
+            let (cols, rows) = terminal.size();
             let mut value = json!({
                 "id":terminal_id,
                 "tab_id":Value::Null,
                 "tab_ids":[],
-                "title":surface.title(),
+                "title":terminal.title(),
                 "cols":cols.max(1),
                 "rows":rows.max(1),
-                "running":!surface.is_dead(),
+                "running":!terminal.is_dead(),
             });
             if let Some(cwd) = surface.spawn_cwd() {
                 value["cwd"] = json!(cwd);
