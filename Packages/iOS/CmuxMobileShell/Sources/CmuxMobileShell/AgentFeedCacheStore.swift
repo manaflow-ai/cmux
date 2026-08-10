@@ -37,6 +37,10 @@ actor AgentFeedCacheStore {
         try? fileManager.removeItem(at: fileURL(scopeKey: scopeKey))
     }
 
+    func clearAll() {
+        try? fileManager.removeItem(at: directory)
+    }
+
     private func fileURL(scopeKey: String) -> URL {
         let filename = Data(scopeKey.utf8).base64EncodedString()
             .replacingOccurrences(of: "/", with: "_")

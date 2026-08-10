@@ -61,7 +61,7 @@ extension MobileShellComposite {
         }
         for target in targets {
             guard let cursor = agentFeedSnapshotsByMac[target.ownerKey]?.nextCursor else { continue }
-            await fetchAgentFeed(target, cursor: cursor, appending: true, staleRetryBudget: 0)
+            await fetchAgentFeed(target, cursor: cursor, appending: true)
         }
         agentFeedStatus = resolvedAgentFeedStatus()
     }
@@ -129,7 +129,7 @@ extension MobileShellComposite {
             let request = try MobileCoreRPCClient.requestData(method: "workstream.feed.action", params: params)
             _ = try await target.client.sendRequest(request)
             agentFeedMutationStates[item.id] = .idle
-            await fetchAgentFeed(target)
+            await scheduleAgentFeedRefresh(target).value
         } catch {
             agentFeedMutationStates[item.id] = .failed(message: String(describing: error))
         }
@@ -201,14 +201,20 @@ extension MobileShellComposite {
                 wire: item.wire
             )
         }
+        let retainedIDs = Set(agentFeedItems.map(\.id))
+        agentFeedDrafts = agentFeedDrafts.filter { retainedIDs.contains($0.key) }
+        agentFeedMutationStates = agentFeedMutationStates.filter { retainedIDs.contains($0.key) }
         recomputeAgentFeedPagingState()
     }
 
     func resetAgentFeed() {
-        let scopeKey = agentFeedCacheScopeKey
         resetAgentFeedForScopeChange()
-        if let scopeKey {
-            Task { await agentFeedCacheStore.clear(scopeKey: scopeKey) }
+        let previousClear = agentFeedCacheClearTask
+        let token = UUID()
+        agentFeedCacheClearToken = token
+        agentFeedCacheClearTask = Task { [agentFeedCacheStore] in
+            await previousClear?.value
+            await agentFeedCacheStore.clearAll()
         }
     }
 
@@ -232,7 +238,10 @@ extension MobileShellComposite {
     private func scheduleAgentFeedRefresh(_ target: AgentFeedTarget) -> Task<Void, Never> {
         agentFeedRefreshTasks.schedule(ownerKey: target.ownerKey) { @MainActor [weak self] in
             guard let self else { return }
+            await self.restoreAgentFeedCacheIfNeeded()
+            guard !Task.isCancelled else { return }
             await self.fetchAgentFeed(target)
+            guard !Task.isCancelled else { return }
             self.agentFeedStatus = self.resolvedAgentFeedStatus()
         }
     }
@@ -240,17 +249,18 @@ extension MobileShellComposite {
     private func fetchAgentFeed(
         _ target: AgentFeedTarget,
         cursor: String? = nil,
-        appending: Bool = false,
-        staleRetryBudget: Int = 1
+        appending: Bool = false
     ) async {
         do {
             var params: [String: Any] = [:]
             if let cursor { params["cursor"] = cursor }
             let request = try MobileCoreRPCClient.requestData(method: "workstream.feed.list", params: params)
             let data = try await target.client.sendRequest(request)
-            let response = try MobileWorkstreamFeedListResponse.decode(data)
-            guard agentFeedClient(for: target.ownerKey) === target.client else { return }
-            let invalidatedRevision = agentFeedKnownRevisionsByMac[target.ownerKey] ?? 0
+            let response = try await Task.detached {
+                try MobileWorkstreamFeedListResponse.decode(data)
+            }.value
+            guard !Task.isCancelled,
+                  agentFeedClient(for: target.ownerKey) === target.client else { return }
             var pages: MobileAgentFeedPageAccumulator
             if var existing = agentFeedSnapshotsByMac[target.ownerKey]?.pages {
                 if appending {
@@ -282,12 +292,14 @@ extension MobileShellComposite {
             agentFeedFailedOwnerKeys.remove(target.ownerKey)
             recomputeAgentFeedItems()
             if !appending {
-                await persistAgentFeedSnapshot(Self.sanitizedAgentFeedCacheData(data), target: target)
-            }
-            if !appending, response.revision < invalidatedRevision, staleRetryBudget > 0 {
-                await fetchAgentFeed(target, staleRetryBudget: staleRetryBudget - 1)
+                let sanitized = await Task.detached {
+                    Self.sanitizedAgentFeedCacheData(data)
+                }.value
+                guard !Task.isCancelled else { return }
+                await persistAgentFeedSnapshot(sanitized, target: target)
             }
         } catch {
+            guard !Task.isCancelled else { return }
             agentFeedFailedOwnerKeys.insert(target.ownerKey)
             agentFeedLog.error(
                 "list failed mac=\(target.macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .private)"
@@ -297,14 +309,23 @@ extension MobileShellComposite {
     }
 
     private func restoreAgentFeedCacheIfNeeded() async {
+        await awaitAgentFeedCacheClearIfNeeded()
         guard agentFeedSnapshotsByMac.isEmpty,
               let scope = await currentScopeSnapshot() else { return }
         let scopeKey = pairedMacScopeKey(scope)
         agentFeedCacheScopeKey = scopeKey
         let cached = await agentFeedCacheStore.load(scopeKey: scopeKey)
         guard await isScopeCurrent(scope) else { return }
-        for snapshot in cached {
-            guard let response = try? MobileWorkstreamFeedListResponse.decode(snapshot.responseData) else { continue }
+        let decoded: [(AgentFeedCachedSnapshot, MobileWorkstreamFeedListResponse)] = await Task.detached {
+            cached.compactMap { snapshot in
+                guard let response = try? MobileWorkstreamFeedListResponse.decode(snapshot.responseData) else {
+                    return nil
+                }
+                return (snapshot, response)
+            }
+        }.value
+        guard !Task.isCancelled else { return }
+        for (snapshot, response) in decoded {
             let rows = response.items.prefix(MobileAgentFeedAggregation.maxItemCount).map { wire in
                 MobileAgentFeedItem(
                     macDeviceID: snapshot.macDeviceID,
@@ -325,6 +346,7 @@ extension MobileShellComposite {
     }
 
     private func persistAgentFeedSnapshot(_ data: Data, target: AgentFeedTarget) async {
+        await awaitAgentFeedCacheClearIfNeeded()
         guard !data.isEmpty,
               let scope = await currentScopeSnapshot(),
               await isScopeCurrent(scope) else { return }
@@ -345,7 +367,7 @@ extension MobileShellComposite {
 
     /// Removes raw tool input before writing a host response to disk. Cards use
     /// the host-produced redacted summary, so retaining raw values is needless.
-    static func sanitizedAgentFeedCacheData(_ data: Data) -> Data {
+    nonisolated static func sanitizedAgentFeedCacheData(_ data: Data) -> Data {
         guard var root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               var items = root["items"] as? [[String: Any]] else { return Data() }
         for index in items.indices {
@@ -421,6 +443,36 @@ extension MobileShellComposite {
             return item.macDeviceID
         }
         return MobilePairedMac.pairingID(macDeviceID: item.macDeviceID, instanceTag: item.macInstanceTag)
+    }
+
+    func removeAgentFeedSnapshot(ownerKey: String) {
+        agentFeedRefreshTasks.cancel(ownerKey: ownerKey)
+        agentFeedSnapshotsByMac[ownerKey] = nil
+        agentFeedKnownRevisionsByMac[ownerKey] = nil
+        agentFeedFailedOwnerKeys.remove(ownerKey)
+        recomputeAgentFeedItems()
+        agentFeedStatus = resolvedAgentFeedStatus()
+    }
+
+    func resetForegroundAgentFeedIfInstanceChanged(
+        previousDeviceID: String?,
+        previousTag: String?,
+        newDeviceID: String?,
+        newTag: String?
+    ) {
+        guard let newDeviceID, !newDeviceID.isEmpty,
+              previousDeviceID == newDeviceID,
+              !macInstanceTagAuthority.sameStoredAuthority(previousTag, newTag) else { return }
+        removeAgentFeedSnapshot(ownerKey: newDeviceID)
+    }
+
+    private func awaitAgentFeedCacheClearIfNeeded() async {
+        guard let task = agentFeedCacheClearTask,
+              let token = agentFeedCacheClearToken else { return }
+        await task.value
+        guard agentFeedCacheClearToken == token else { return }
+        agentFeedCacheClearTask = nil
+        agentFeedCacheClearToken = nil
     }
 }
 

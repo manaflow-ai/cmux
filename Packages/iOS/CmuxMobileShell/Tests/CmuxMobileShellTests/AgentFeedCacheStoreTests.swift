@@ -46,4 +46,29 @@ import Testing
         #expect(item["tool_input_summary"] as? String == "command: …")
         #expect(item["text"] as? String == "safe")
     }
+
+    @Test func clearAllRemovesEveryAccountScope() async {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "agent-feed-cache-all-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = AgentFeedCacheStore(directory: directory)
+        for scope in ["user-a\tteam-a", "user-b\tteam-b"] {
+            await store.upsert(
+                AgentFeedCachedSnapshot(
+                    ownerKey: scope,
+                    macDeviceID: "mac",
+                    instanceTag: nil,
+                    displayName: "Mac",
+                    responseData: Data("snapshot".utf8),
+                    cachedAt: Date(timeIntervalSinceReferenceDate: 800_000_000)
+                ),
+                scopeKey: scope
+            )
+        }
+
+        await store.clearAll()
+
+        #expect(await store.load(scopeKey: "user-a\tteam-a").isEmpty)
+        #expect(await store.load(scopeKey: "user-b\tteam-b").isEmpty)
+    }
 }

@@ -622,7 +622,14 @@ extension MobileShellComposite {
         // and a sibling switch must not reuse the old build's device-keyed
         // revision floor.
         removeNotificationFeedSnapshot(macDeviceID: ownerKey.pairingID)
+        removeAgentFeedSnapshot(ownerKey: ownerKey.pairingID)
         resetForegroundNotificationFeedIfInstanceChanged(
+            previousDeviceID: previousForegroundID,
+            previousTag: previousForegroundTag,
+            newDeviceID: macID,
+            newTag: activeMacInstanceTag
+        )
+        resetForegroundAgentFeedIfInstanceChanged(
             previousDeviceID: previousForegroundID,
             previousTag: previousForegroundTag,
             newDeviceID: macID,

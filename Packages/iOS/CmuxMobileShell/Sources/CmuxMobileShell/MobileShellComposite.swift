@@ -1152,6 +1152,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @ObservationIgnored let agentFeedRefreshTasks = MobileAgentFeedRefreshTaskCoalescer()
     @ObservationIgnored var agentFeedFailedOwnerKeys: Set<String> = []
     @ObservationIgnored var agentFeedCacheScopeKey: String?
+    @ObservationIgnored var agentFeedCacheClearTask: Task<Void, Never>?
+    @ObservationIgnored var agentFeedCacheClearToken: UUID?
     let agentFeedCacheStore = AgentFeedCacheStore()
     let agentFeedAggregation = MobileAgentFeedAggregation()
     var createWorkspaceTaskID: UUID?
@@ -8566,6 +8568,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             : resolvedForegroundMacID,
                         newTag: resolvedInstanceTag
                     )
+                    resetForegroundAgentFeedIfInstanceChanged(
+                        previousDeviceID: previousForegroundDeviceIDForFeedReset,
+                        previousTag: previousForegroundTagForFeedReset,
+                        newDeviceID: resolvedForegroundMacID.isEmpty
+                            ? previousForegroundDeviceIDForFeedReset
+                            : resolvedForegroundMacID,
+                        newTag: resolvedInstanceTag
+                    )
                     // Mirror of the promotion path: the foreground refetches
                     // its feed under the bare device key, so a secondary-era
                     // pairing-keyed snapshot for THIS target would linger as a
@@ -8579,6 +8589,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             removeNotificationFeedSnapshot(
                                 macDeviceID: takeoverPairingID
                             )
+                            removeAgentFeedSnapshot(ownerKey: takeoverPairingID)
                         }
                     }
                     prepareTerminalThemeRevisionAuthority(

@@ -177,6 +177,45 @@ struct MobileAgentFeedTests {
         #expect(coalescer.activeCount == 0)
     }
 
+    @MainActor
+    @Test func invalidationDuringRefreshRunsOneTrailingRefresh() async {
+        let coalescer = MobileAgentFeedRefreshTaskCoalescer()
+        let gate = AgentFeedRefreshGate()
+        var refreshCount = 0
+        let first = coalescer.schedule(ownerKey: "mac-a") {
+            refreshCount += 1
+            await gate.wait()
+        }
+        await Task.yield()
+        let trailing = coalescer.schedule(ownerKey: "mac-a") {
+            refreshCount += 1
+        }
+        #expect(coalescer.activeCount == 1)
+        await gate.release()
+        await first.value
+        await trailing.value
+
+        #expect(refreshCount == 2)
+        #expect(coalescer.activeCount == 0)
+    }
+
+    @MainActor
+    @Test func cancellingOwnerDropsItsPendingTrailingRefresh() async {
+        let coalescer = MobileAgentFeedRefreshTaskCoalescer()
+        let gate = AgentFeedRefreshGate()
+        var trailingRuns = 0
+        let first = coalescer.schedule(ownerKey: "mac-a") { await gate.wait() }
+        await Task.yield()
+        _ = coalescer.schedule(ownerKey: "mac-a") { trailingRuns += 1 }
+
+        coalescer.cancel(ownerKey: "mac-a")
+        await gate.release()
+        await first.value
+
+        #expect(trailingRuns == 0)
+        #expect(coalescer.activeCount == 0)
+    }
+
     @Test func aggregationBenchmarkReportsIncreasingInputSizes() throws {
         for size in [300, 1_200, 2_400, 4_800] {
             var snapshots = Array(repeating: [MobileAgentFeedItem](), count: 12)
@@ -288,5 +327,22 @@ struct MobileAgentFeedTests {
         {"id":"\(id)","workstream_id":"agent-1","source":"\(source)","kind":"\(kind)","created_at":"\(createdAt)","updated_at":"\(updatedAt)","status":"\(status)"\(suffix)}
         """.utf8)
         return try JSONDecoder().decode(MobileWorkstreamFeedListItem.self, from: data)
+    }
+}
+
+private actor AgentFeedRefreshGate {
+    private var released = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        guard !released else { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func release() {
+        released = true
+        let current = waiters
+        waiters.removeAll()
+        current.forEach { $0.resume() }
     }
 }
