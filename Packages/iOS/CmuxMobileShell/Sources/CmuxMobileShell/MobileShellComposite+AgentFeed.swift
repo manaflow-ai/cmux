@@ -191,6 +191,7 @@ extension MobileShellComposite {
         agentFeedRefreshTasksByMac = [:]
         agentFeedSnapshotsByMac = [:]
         agentFeedKnownRevisionsByMac = [:]
+        agentFeedFailedOwnerKeys = []
         agentFeedItems = []
         agentFeedDrafts = [:]
         agentFeedMutationStates = [:]
@@ -234,16 +235,18 @@ extension MobileShellComposite {
             // authoritative, so adopt its cursor instead of retaining a larger
             // revision from the previous process forever.
             agentFeedKnownRevisionsByMac[target.ownerKey] = response.revision
+            agentFeedFailedOwnerKeys.remove(target.ownerKey)
             recomputeAgentFeedItems()
             await persistAgentFeedSnapshot(Self.sanitizedAgentFeedCacheData(data), target: target)
             if response.revision < invalidatedRevision, staleRetryBudget > 0 {
                 await fetchAgentFeed(target, staleRetryBudget: staleRetryBudget - 1)
             }
         } catch {
+            agentFeedFailedOwnerKeys.insert(target.ownerKey)
             agentFeedLog.error(
                 "list failed mac=\(target.macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .private)"
             )
-            if agentFeedSnapshotsByMac[target.ownerKey] == nil { agentFeedStatus = .failed }
+            agentFeedStatus = agentFeedSnapshotsByMac[target.ownerKey] == nil ? .failed : .offlineCached
         }
     }
 
@@ -317,6 +320,9 @@ extension MobileShellComposite {
         }
         let capable = agentFeedTargets().count
         guard capable > 0 else { return .requiresMacUpdate }
+        let failedCount = agentFeedTargets().lazy.filter { self.agentFeedFailedOwnerKeys.contains($0.ownerKey) }.count
+        if failedCount == capable { return agentFeedItems.isEmpty ? .failed : .offlineCached }
+        if failedCount > 0 { return .partial }
         if capable < connectedAgentFeedMacCount { return .partial }
         return .ready
     }
