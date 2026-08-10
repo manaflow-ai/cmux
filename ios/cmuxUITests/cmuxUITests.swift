@@ -2257,13 +2257,19 @@ final class cmuxUITests: XCTestCase {
 
         let hostPrompt = taskComposerPrompt(in: hostApp)
         XCTAssertTrue(hostPrompt.waitForExistence(timeout: 8))
-        let requestedHostModels = await server.waitForTaskModelListRequest(provider: "claude")
+        let hostModel = hostApp.buttons["MobileTaskComposerModelPill"]
+        XCTAssertTrue(
+            hostModel.waitForExistence(timeout: 20),
+            "The production composer must expose the model returned by the selected host"
+        )
+        let requestedHostModels = await server.waitForTaskModelListRequest(
+            provider: "claude",
+            timeout: 2
+        )
         XCTAssertTrue(
             requestedHostModels,
-            "The production composer must request models from the selected host"
+            "The visible host model must originate from the production model-list RPC"
         )
-        let hostModel = hostApp.buttons["MobileTaskComposerModelPill"]
-        XCTAssertTrue(hostModel.waitForExistence(timeout: 4))
         tap(hostModel, in: hostApp)
         tapMenuItem(hostApp.buttons[discoveredModelName], in: hostApp)
         XCTAssertEqual(hostModel.value as? String, discoveredModelName)
