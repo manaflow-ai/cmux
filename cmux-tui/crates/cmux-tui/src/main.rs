@@ -1198,7 +1198,7 @@ fn main() {
     }
     if remote_cli::is_remote_invocation(&raw_args) {
         discard_provider_secret_environment();
-        std::process::exit(remote_cli::run(&raw_args, &usage()));
+        std::process::exit(remote_cli::run(&raw_args, &usage(), config::load));
     }
     if raw_args.first().map(|arg| arg.as_str()) == Some("relay") {
         let args = parse_args(raw_args.into_iter().skip(1));
@@ -1262,16 +1262,16 @@ fn main() {
     #[cfg(unix)]
     let result = match provider {
         Some((provider, local_machines, connect_external)) => {
-            run_provider_machine_client(provider, local_machines, connect_external)
+            run_provider_machine_client(provider, local_machines, connect_external, config)
         }
-        None if args.attach => run_attach(args),
-        None => run_server(args, provider_workspace_authority),
+        None if args.attach => run_attach(args, config),
+        None => run_server(args, provider_workspace_authority, config),
     };
     #[cfg(not(unix))]
     let result = match provider {
         Some(_) => Err(anyhow::anyhow!("dynamic machine providers require Unix")),
-        None if args.attach => run_attach(args),
-        None => run_server(args, provider_workspace_authority),
+        None if args.attach => run_attach(args, config),
+        None => run_server(args, provider_workspace_authority, config),
     };
     if let Err(e) = result {
         eprintln!("cmux-tui: {e}");
@@ -1288,10 +1288,9 @@ fn run_terminal_host_process(args: &[String]) -> anyhow::Result<()> {
     cmux_tui_core::terminal_host_runtime::serve_terminal_host_stdio(args, &mut reader, &mut writer)
 }
 
-fn run_attach(args: Args) -> anyhow::Result<()> {
+fn run_attach(args: Args, config: config::Config) -> anyhow::Result<()> {
     let socket_path =
         args.socket.unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
-    let config = config::load();
     let messages = &localization::catalog().attach;
     let terminal = args
         .terminal
@@ -1487,6 +1486,7 @@ fn socket_option(fd: std::os::fd::RawFd, option: libc::c_int) -> io::Result<libc
 fn run_server(
     args: Args,
     provider_workspace_authority: Option<ProviderWorkspaceAuthority>,
+    config: config::Config,
 ) -> anyhow::Result<()> {
     #[cfg(not(unix))]
     reject_unsupported_remote_options(&args)?;
@@ -1502,7 +1502,6 @@ fn run_server(
             "provider workspace authority cannot use both environment and management socket"
         );
     }
-    let config = config::load();
     let ws_addr = args.ws.clone().or(config.server.ws.clone());
     let ws_token = args.ws_token.clone().or(config.server.ws_token.clone());
     // Compute the socket path up front so a normal interactive launch can
@@ -1703,12 +1702,12 @@ fn run_server(
             run_headless(&mux, &socket_path, || false)
         }
     } else if let Some(runtime) = machine_runtime {
-        run_machine_client(runtime)
+        run_machine_client(runtime, config)
     } else {
         match RemoteSession::connect(&socket_path)
             .context("connect the interactive client to its session server")
         {
-            Ok(remote) => run_tui(Session::Remote(remote), args.session, None),
+            Ok(remote) => run_tui(Session::Remote(remote), args.session, None, config),
             Err(error) => Err(error),
         }
     };
@@ -1769,8 +1768,9 @@ fn run_tui(
     session: Session,
     session_label: String,
     surface_only: Option<cmux_tui_core::SurfaceId>,
+    config: config::Config,
 ) -> anyhow::Result<()> {
-    match run_tui_once(session, session_label, surface_only, None, None)? {
+    match run_tui_once(session, session_label, surface_only, None, None, config)? {
         app::RunOutcome::Quit => Ok(()),
         app::RunOutcome::Machine(_) => {
             anyhow::bail!("machine request returned without a machine runtime")
@@ -1803,44 +1803,46 @@ fn run_connected_session_client(
     surface_only: Option<cmux_tui_core::SurfaceId>,
 ) -> anyhow::Result<()> {
     if surface_only.is_some() {
-        return run_tui(session, session_label, surface_only);
+        return run_tui(session, session_label, surface_only, config);
     }
     match session_client_mode(&config) {
-        SessionClientMode::Plain => run_tui(session, session_label, None),
+        SessionClientMode::Plain => run_tui(session, session_label, None, config),
         SessionClientMode::Machines => {
             let runtime = MachineRuntime::with_creation_sources(
                 socket_path,
-                config.machines,
-                config.machine_sidebar.create_sources,
+                config.machines.clone(),
+                config.machine_sidebar.create_sources.clone(),
             );
-            run_machine_client_with_initial(runtime, session, None)
+            run_machine_client_with_initial(runtime, session, None, config)
         }
     }
 }
 
-fn run_machine_client(runtime: MachineRuntime) -> anyhow::Result<()> {
+fn run_machine_client(runtime: MachineRuntime, config: config::Config) -> anyhow::Result<()> {
     let active = runtime.initial_key();
     let connections = MachineConnectionHub::new(runtime.connection_connectors());
     let session = connections.connect(active)?;
-    run_machine_client_with_hub(runtime, session, connections)
+    run_machine_client_with_hub(runtime, session, connections, config)
 }
 
 fn run_machine_client_with_initial(
     runtime: MachineRuntime,
     session: Session,
     active_lease: Option<Box<dyn MachineConnectionLease>>,
+    config: config::Config,
 ) -> anyhow::Result<()> {
     let active = runtime.initial_key();
     let connections = MachineConnectionHub::new(runtime.connection_connectors());
     connections
         .insert_ready(active, MachineConnection { session: session.clone(), _lease: active_lease });
-    run_machine_client_with_hub(runtime, session, connections)
+    run_machine_client_with_hub(runtime, session, connections, config)
 }
 
 fn run_machine_client_with_hub(
     runtime: MachineRuntime,
     session: Session,
     connections: MachineConnectionHub,
+    config: config::Config,
 ) -> anyhow::Result<()> {
     let active = runtime.initial_key();
     let label = runtime.name(active).unwrap_or("machine").to_string();
@@ -1848,7 +1850,7 @@ fn run_machine_client_with_hub(
     machine_ui.set_connection_phases(connections.phases());
     let controller: Box<dyn MachineController> =
         Box::new(StaticMachineController { runtime, active, connections, pending: None });
-    match run_tui_once(session, label, None, Some(machine_ui), Some(controller))? {
+    match run_tui_once(session, label, None, Some(machine_ui), Some(controller), config)? {
         app::RunOutcome::Quit => Ok(()),
         app::RunOutcome::Machine(_) => {
             anyhow::bail!("machine request escaped its in-place controller")
@@ -1971,6 +1973,7 @@ fn run_provider_machine_client(
     connector: Arc<dyn MachineProviderConnector>,
     local_machines: Vec<config::MachineConfig>,
     connect_external: bool,
+    config: config::Config,
 ) -> anyhow::Result<()> {
     let state_root = cmux_tui_core::platform::workspace_state_dir();
     let mut runtime = ProviderMachineController::connect_with(
@@ -1989,7 +1992,7 @@ fn run_provider_machine_client(
     };
     runtime.sync_connections();
     let controller: Box<dyn MachineController> = Box::new(runtime);
-    match run_tui_once(session, label, None, Some(machine_ui), Some(controller))? {
+    match run_tui_once(session, label, None, Some(machine_ui), Some(controller), config)? {
         app::RunOutcome::Quit => Ok(()),
         app::RunOutcome::Machine(_) => {
             anyhow::bail!("provider request escaped its in-place controller")
@@ -2030,9 +2033,9 @@ fn run_tui_once(
     surface_only: Option<cmux_tui_core::SurfaceId>,
     machine_ui: Option<MachineUiState>,
     machine_controller: Option<Box<dyn MachineController>>,
+    config: config::Config,
 ) -> anyhow::Result<app::RunOutcome> {
     crossterm::terminal::enable_raw_mode()?;
-    let config = config::load();
     let mut colors = config.terminal_defaults;
     let host_colors = host_colors::probe_default_colors();
     if host_colors.fg.is_some() {
@@ -2054,6 +2057,7 @@ fn run_tui_once(
         surface_only,
         machine_ui,
         machine_controller,
+        config,
     )
 }
 
