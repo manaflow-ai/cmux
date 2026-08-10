@@ -2239,7 +2239,10 @@ final class cmuxUITests: XCTestCase {
         ])
         let port = try await server.start()
 
-        let hostApp = try launchConnectedApp(port: port)
+        // Use the established production pairing fixture: it enables the New
+        // Task entrypoint and proves the capability handshake before this test
+        // exercises the host-discovered model request.
+        let hostApp = try launchConnectedAppViaManualPairing(port: port)
         let backButton = hostApp.buttons["MobileWorkspaceBackButton"]
         XCTAssertTrue(backButton.waitForExistence(timeout: 4))
         tap(backButton, in: hostApp)
