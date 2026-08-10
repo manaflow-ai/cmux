@@ -531,6 +531,9 @@ jobs:
           set -euo pipefail
           ./scripts/select-ci-xcode.sh
 
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
       - name: Validate terminal backend service scripts
         if: ${{ matrix.shard == 4 }}
         run: ./tests/test_terminal_backend_service_scripts.sh
