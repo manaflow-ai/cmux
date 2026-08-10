@@ -172,7 +172,7 @@ final class TerminalRenderMetalBlitter: @unchecked Sendable {
         // mailbox. A newer frame can install its monotonic layer epoch here;
         // an older frame can never move the executor backwards.
         register(epoch: epoch, layer: layer)
-        await withCheckedContinuation { continuation in
+        return await withCheckedContinuation { continuation in
             admit(
                 frame,
                 epoch: epoch,

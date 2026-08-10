@@ -25085,7 +25085,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let socket = dir.join("mux.sock");
         server::serve(mux.clone(), Some(socket.clone())).unwrap();
-        let tree = mux.tree();
+        let tree = Session::Local(mux.clone()).tree();
         let remote = RemoteSession::connect(&socket).unwrap();
         let session = Session::Remote(remote);
         let SurfaceAttach::Attached(mirror) =
