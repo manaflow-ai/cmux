@@ -160,7 +160,7 @@ struct WorkspaceShellView: View {
     /// hides the add affordance.
     var showAddDevice: (() -> Void)?
     var showPairingScanner: (() -> Void)?
-    var settingsPresentation = MobileChildSheetPresentation()
+    var showSettings: () -> Void = {}
     var deviceTreePresentation = MobileChildSheetPresentation()
     var taskComposerPresentation = MobileChildSheetPresentation()
     let compactNavigationPolicy = WorkspaceShellCompactNavigationPolicy()
@@ -326,17 +326,6 @@ struct WorkspaceShellView: View {
             }
             .onChange(of: presentation.notificationFeedItems, initial: true) { _, items in
                 notificationFeedProjection.update(items: items)
-            }
-            .sheet(
-                isPresented: settingsPresentation.isPresented,
-                onDismiss: settingsPresentation.didDismiss
-            ) {
-                MobileSettingsView(
-                    connectedHostName: store.connectedHostName,
-                    startPairingScanner: { showPairingScanner?() },
-                    signOut: signOut,
-                    store: store
-                )
             }
             .sheet(
                 isPresented: deviceTreePresentation.isPresented,
@@ -706,7 +695,7 @@ struct WorkspaceShellView: View {
     @ToolbarContentBuilder
     private var rootToolbarContent: some ToolbarContent {
         WorkspaceRootToolbarLiveContent(
-            openSettings: { settingsPresentation.present() },
+            openSettings: showSettings,
             openDevices: { deviceTreePresentation.present() },
             pendingSelection: rootToolbarPendingSelection,
             select: handleRootToolbarSelection,

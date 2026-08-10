@@ -29,8 +29,6 @@ struct MobileRootPresentationState: Equatable {
 
     /// A child-owned sheet that participates in the shared modal slot.
     enum ChildPresentation: Equatable {
-        /// The root-shell Settings sheet, shared across connected and disconnected shells.
-        case shellSettings
         case workspaceDeviceTree
         case workspaceTaskComposer
         case disconnectedSetupHelp
@@ -41,6 +39,7 @@ struct MobileRootPresentationState: Equatable {
     /// The content or transition currently holding the shared modal slot.
     enum Presentation: Equatable {
         case autoConnectMigrationIntroduction
+        case settings
         case connectionSettings
         case pairing(PairingPresentation)
         case child(ChildPresentation)
@@ -55,6 +54,7 @@ struct MobileRootPresentationState: Equatable {
         case presentAutoConnectMigrationIfIdle
         case continueWithAutoConnect
         case openConnectionSettings
+        case presentSettings
         case presentPairing(PairingPresentation)
         case presentChild(ChildPresentation)
         case dismissChild(ChildPresentation)
@@ -84,7 +84,7 @@ struct MobileRootPresentationState: Equatable {
     /// Whether the root SwiftUI sheet host should be presented.
     var isRootSheetPresented: Bool {
         switch presentation {
-        case .autoConnectMigrationIntroduction, .connectionSettings, .pairing:
+        case .autoConnectMigrationIntroduction, .settings, .connectionSettings, .pairing:
             true
         case .child, .dismissingChild, nil:
             false
@@ -118,6 +118,11 @@ struct MobileRootPresentationState: Equatable {
             guard presentation == .autoConnectMigrationIntroduction else { return .none }
             presentation = .connectionSettings
             return .acknowledgeAutoConnectMigration
+
+        case .presentSettings:
+            guard presentation == nil else { return .none }
+            presentation = .settings
+            return .none
 
         case let .presentPairing(pairingPresentation):
             switch presentation {
@@ -186,7 +191,7 @@ struct MobileRootPresentationState: Equatable {
             case .pairing:
                 presentation = nil
                 return .finishPairing
-            case .connectionSettings:
+            case .settings, .connectionSettings:
                 presentation = nil
                 return .none
             case .child, .dismissingChild, nil:

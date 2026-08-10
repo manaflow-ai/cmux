@@ -55,35 +55,50 @@ struct MobileRootPresentationStateTests {
 
     @Test func childModalBlocksMigrationUntilItsDismissalCompletes() {
         var state = MobileRootPresentationState()
+        let child = MobileRootPresentationState.ChildPresentation.workspaceDeviceTree
 
-        #expect(state.apply(.presentChild(.shellSettings)) == .none)
-        #expect(state.presentation == .child(.shellSettings))
-        #expect(state.isPresentingChild(.shellSettings))
+        #expect(state.apply(.presentChild(child)) == .none)
+        #expect(state.presentation == .child(child))
+        #expect(state.isPresentingChild(child))
 
         #expect(state.apply(.presentAutoConnectMigrationIfIdle) == .none)
-        #expect(state.presentation == .child(.shellSettings))
+        #expect(state.presentation == .child(child))
 
-        #expect(state.apply(.dismissChild(.shellSettings)) == .none)
+        #expect(state.apply(.dismissChild(child)) == .none)
         #expect(
             state.presentation
-                == .dismissingChild(.shellSettings, pendingPairing: nil)
+                == .dismissingChild(child, pendingPairing: nil)
         )
-        #expect(!state.isPresentingChild(.shellSettings))
+        #expect(!state.isPresentingChild(child))
         #expect(!state.isIdle)
         #expect(state.apply(.presentAutoConnectMigrationIfIdle) == .none)
         #expect(
             state.presentation
-                == .dismissingChild(.shellSettings, pendingPairing: nil)
+                == .dismissingChild(child, pendingPairing: nil)
         )
 
         #expect(
-            state.apply(.childDidDismiss(.shellSettings))
+            state.apply(.childDidDismiss(child))
                 == .retryAutoConnectMigration
         )
         #expect(state.isIdle)
 
         #expect(state.apply(.presentAutoConnectMigrationIfIdle) == .none)
         #expect(state.presentation == .autoConnectMigrationIntroduction)
+    }
+
+    @Test func rootSettingsBlocksMigrationOnTheAlwaysMountedSheetHost() {
+        var state = MobileRootPresentationState()
+
+        #expect(state.apply(.presentSettings) == .none)
+        #expect(state.presentation == .settings)
+        #expect(state.isRootSheetPresented)
+
+        #expect(state.apply(.presentAutoConnectMigrationIfIdle) == .none)
+        #expect(state.presentation == .settings)
+
+        #expect(state.apply(.sheetDidRequestDismissal) == .none)
+        #expect(state.isIdle)
     }
 
     @Test(arguments: MobileRootPresentationState.WorkspaceListPresentation.allCases)
@@ -123,16 +138,17 @@ struct MobileRootPresentationStateTests {
     @Test func pairingRequestedFromChildWaitsForItsDismissalCallback() {
         var state = MobileRootPresentationState()
         let scanner = PairingPresentation.scanner(entry: .settingsReplay)
-        state.apply(.presentChild(.shellSettings))
+        let child = MobileRootPresentationState.ChildPresentation.workspaceList(.settings)
+        state.apply(.presentChild(child))
 
         #expect(state.apply(.presentPairing(scanner)) == .none)
         #expect(
             state.presentation
-                == .dismissingChild(.shellSettings, pendingPairing: scanner)
+                == .dismissingChild(child, pendingPairing: scanner)
         )
         #expect(!state.isRootSheetPresented)
 
-        #expect(state.apply(.childDidDismiss(.shellSettings)) == .none)
+        #expect(state.apply(.childDidDismiss(child)) == .none)
         #expect(state.presentation == .pairing(scanner))
         #expect(state.isRootSheetPresented)
     }

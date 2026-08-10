@@ -26,7 +26,7 @@ struct DisconnectedWorkspaceShellView: View {
     /// (this screen is the terminal not-connected state, reached after a stored
     /// Mac reconnect fails). `nil` in previews.
     var store: CMUXMobileShellStore?
-    var settingsPresentation = MobileChildSheetPresentation()
+    var showSettings: () -> Void = {}
     var setupHelpPresentation = MobileChildSheetPresentation()
 
     #if os(iOS)
@@ -95,22 +95,6 @@ struct DisconnectedWorkspaceShellView: View {
             SetupHelpView(
                 highlight: setupHelpHighlight,
                 onDone: setupHelpPresentation.dismiss
-            )
-        }
-        .sheet(
-            isPresented: settingsPresentation.isPresented,
-            onDismiss: settingsPresentation.didDismiss
-        ) {
-            // Reuse the same Settings sheet the workspace list opens from its
-            // Settings button so the no-devices screen's chrome matches. There is no
-            // connected computer to forget here, but the store is forwarded so
-            // a user whose active Mac went offline can still switch to another
-            // paired Mac; the sheet also surfaces the account + Sign Out.
-            MobileSettingsView(
-                connectedHostName: "",
-                startPairingScanner: showPairingScanner,
-                signOut: signOut,
-                store: store
             )
         }
         .alert(
@@ -355,7 +339,7 @@ struct DisconnectedWorkspaceShellView: View {
     private var settingsMenu: some View {
         #if os(iOS)
         Button {
-            settingsPresentation.present()
+            showSettings()
         } label: {
             MobileWorkspaceSettingsIcon()
         }

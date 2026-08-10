@@ -7,9 +7,9 @@ import SwiftUI
 /// shell, and the offline shell after a failed reconnect. The restoring window
 /// only varies the inputs passed down; this host and the shell's navigation
 /// paths stay mounted across restoring → connected → offline transitions.
-/// Root-owned modal bindings preserve an open Settings sheet across the same
-/// transitions. Mounting a different view per connection state destroyed that
-/// state and dismissed Settings when reconnection finished.
+/// Root-owned presentation actions preserve an open Settings sheet across the
+/// same transitions. Mounting a different view per connection state destroyed
+/// that state and dismissed Settings when reconnection finished.
 struct WorkspaceShellHost: View {
     private static let loadingTimeout: Duration = .seconds(10)
 
@@ -20,7 +20,7 @@ struct WorkspaceShellHost: View {
     let signOut: @MainActor @Sendable () -> Void
     let showAddDevice: (() -> Void)?
     let showPairingScanner: (() -> Void)?
-    var settingsPresentation = MobileChildSheetPresentation()
+    var showSettings: () -> Void = {}
     var deviceTreePresentation = MobileChildSheetPresentation()
     var taskComposerPresentation = MobileChildSheetPresentation()
     let reconnectStoredMac: () -> Void
@@ -39,7 +39,7 @@ struct WorkspaceShellHost: View {
             retryInitialConnection: retry,
             showAddDevice: showAddDevice,
             showPairingScanner: showPairingScanner,
-            settingsPresentation: settingsPresentation,
+            showSettings: showSettings,
             deviceTreePresentation: deviceTreePresentation,
             taskComposerPresentation: taskComposerPresentation
         )

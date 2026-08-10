@@ -74,7 +74,7 @@ struct CMUXMobileRootView: View {
         if AutoConnectMigrationUITestConfiguration(
             environment: ProcessInfo.processInfo.environment
         )?.presentsShellSettingsBeforeMigration == true {
-            initialRootPresentation.apply(.presentChild(.shellSettings))
+            initialRootPresentation.apply(.presentSettings)
         }
         #endif
         _rootPresentation = State(initialValue: initialRootPresentation)
@@ -413,9 +413,7 @@ struct CMUXMobileRootView: View {
                     signOut: signOut,
                     setupHelpHighlight: disconnectedSetupHelpHighlight,
                     store: store,
-                    settingsPresentation: childSheetPresentation(
-                        for: .shellSettings
-                    ),
+                    showSettings: showSettings,
                     setupHelpPresentation: childSheetPresentation(
                         for: .disconnectedSetupHelp
                     )
@@ -435,9 +433,7 @@ struct CMUXMobileRootView: View {
                     signOut: signOut,
                     showAddDevice: showAddDevice,
                     showPairingScanner: showPairingScanner,
-                    settingsPresentation: childSheetPresentation(
-                        for: .shellSettings
-                    ),
+                    showSettings: showSettings,
                     deviceTreePresentation: childSheetPresentation(
                         for: .workspaceDeviceTree
                     ),
@@ -524,19 +520,31 @@ struct CMUXMobileRootView: View {
                     handleRootPresentation(.openConnectionSettings)
                 }
             )
+        case .settings:
+            settingsSheet(initialFocus: nil)
         case .connectionSettings:
-            MobileSettingsView(
-                connectedHostName: store.connectedHostName,
-                startPairingScanner: showPairingScanner,
-                signOut: signOut,
-                store: store,
-                initialFocus: .connectionMethod
-            )
+            settingsSheet(initialFocus: .connectionMethod)
         case let .pairing(pairingPresentation):
             pairingSheet(initialPresentation: pairingPresentation)
         case .child, .dismissingChild, nil:
             EmptyView()
         }
+    }
+
+    /// The one root-hosted Settings page used by either shell and the migration route.
+    private func settingsSheet(initialFocus: MobileSettingsFocus?) -> some View {
+        MobileSettingsView(
+            connectedHostName: store.connectedHostName,
+            startPairingScanner: showPairingScanner,
+            signOut: signOut,
+            store: store,
+            initialFocus: initialFocus
+        )
+    }
+
+    /// Requests root Settings without depending on the currently mounted shell.
+    private func showSettings() {
+        handleRootPresentation(.presentSettings)
     }
 
     /// Presents only after the authenticated shell owns the screen and no
