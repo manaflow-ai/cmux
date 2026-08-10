@@ -41,6 +41,7 @@ struct TaskComposerSheet: View {
 
     let sessionGeneration: Int
     private let availableMachines: [MobilePairedMac]?
+    let taskAttachmentsCapabilityOverride: Bool?
     let submitTaskComposer: @MainActor (
         _ macDeviceID: String,
         _ instanceTag: String?,
@@ -62,6 +63,7 @@ struct TaskComposerSheet: View {
     init(
         store: CMUXMobileShellStore,
         availableMachines: [MobilePairedMac]? = nil,
+        taskAttachmentsCapabilityOverride: Bool? = nil,
         submitTaskComposer: (@MainActor (
             _ macDeviceID: String,
             _ instanceTag: String?,
@@ -82,6 +84,7 @@ struct TaskComposerSheet: View {
     ) {
         self.store = store
         self.availableMachines = availableMachines
+        self.taskAttachmentsCapabilityOverride = taskAttachmentsCapabilityOverride
         self.sessionGeneration = store.currentSessionGeneration
         self.searchTaskDirectories = searchTaskDirectories
         self.listTaskDirectories = listTaskDirectories

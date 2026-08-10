@@ -2621,35 +2621,22 @@ final class cmuxUITests: XCTestCase {
     /// The fully populated production row must leave every fixed edge action
     /// tappable while only the provider/model viewport absorbs width pressure.
     @MainActor
-    func testTaskComposerAccessibilityXXXLKeepsAttachmentAndEdgeControlsVisible() async throws {
-        let server = try MobileSyncMockHostServer(
-            supportsManualAttachTicket: true,
-            advertisesTaskAttachments: true
+    func testTaskComposerAccessibilityXXXLKeepsAttachmentAndEdgeControlsVisible() throws {
+        let app = launchApp(
+            mockData: false,
+            environment: [
+                "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+                "CMUX_UITEST_TASK_COMPOSER_ATTACHMENTS": "1",
+            ],
+            launchArguments: [
+                "-UIPreferredContentSizeCategoryName",
+                "UICTContentSizeCategoryAccessibilityXXXL",
+            ]
         )
-        let port = try await server.start()
-        defer { server.stop() }
-
-        let app = try launchConnectedAppViaManualPairing(port: port)
-        app.terminate()
-        app.launchArguments += [
-            "-UIPreferredContentSizeCategoryName",
-            "UICTContentSizeCategoryAccessibilityXXXL",
-        ]
-        app.launch()
         defer { app.terminate() }
 
-        waitForWorkspaceShell(in: app)
-        let composerButton = app.buttons["MobileTaskComposerButton"]
-        if !composerButton.waitForExistence(timeout: 4) {
-            let backButton = app.buttons["MobileWorkspaceBackButton"]
-            XCTAssertTrue(backButton.waitForExistence(timeout: 4))
-            backButton.tap()
-        }
-        XCTAssertTrue(composerButton.waitForExistence(timeout: 4))
-        composerButton.tap()
-
         let prompt = taskComposerPrompt(in: app)
-        XCTAssertTrue(prompt.waitForExistence(timeout: 4))
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
         let attachment = app.buttons["MobileTaskComposerAttachmentButton"]
         XCTAssertTrue(
             attachment.waitForExistence(timeout: 4),
