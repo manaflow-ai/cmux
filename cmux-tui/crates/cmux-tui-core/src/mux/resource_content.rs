@@ -941,30 +941,32 @@ impl Mux {
                 }
             }
         }
-        for (terminal_id, terminal) in &state.terminal_catalog {
+        for (terminal_id, terminal_resource) in &state.terminal_catalog {
             if !live_terminals.insert(terminal_id.clone()) {
                 continue;
             }
             let host = self
-                .terminal_resource_host_identity(terminal)
+                .terminal_resource_host_identity(terminal_resource)
                 .context("catalog terminal omitted its durable host identity")?;
-            let terminal = terminal_records
+            let terminal_record = terminal_records
                 .get(&host.terminal_id)
                 .cloned()
                 .context("catalog terminal has no durable host")?;
-            changes
-                .push(ResourceChange::UpsertTerminal { public_id: terminal_id.clone(), terminal });
-            let (cols, rows) = terminal.size();
+            changes.push(ResourceChange::UpsertTerminal {
+                public_id: terminal_id.clone(),
+                terminal: terminal_record,
+            });
+            let (cols, rows) = terminal_resource.size();
             let mut value = json!({
                 "id":terminal_id,
                 "tab_id":Value::Null,
                 "tab_ids":[],
-                "title":terminal.title(),
+                "title":terminal_resource.title(),
                 "cols":cols.max(1),
                 "rows":rows.max(1),
-                "running":!terminal.is_dead(),
+                "running":!terminal_resource.is_dead(),
             });
-            if let Some(cwd) = surface.spawn_cwd() {
+            if let Some(cwd) = terminal_resource.spawn_cwd() {
                 value["cwd"] = json!(cwd);
             }
             public.push(("terminal", terminal_id.to_string(), value));
