@@ -339,6 +339,10 @@ pub struct DaemonRuntimeHandle {
     shutdown: watch::Sender<bool>,
     thread: Option<thread::JoinHandle<anyhow::Result<()>>>,
     completion: Arc<RuntimeThreadCompletion>,
+    #[cfg(debug_assertions)]
+    shutdown_test_started: bool,
+    #[cfg(debug_assertions)]
+    shutdown_test_completed: bool,
 }
 
 #[derive(Default)]
@@ -400,7 +404,42 @@ impl DaemonRuntimeHandle {
         let _ = self.shutdown.send(true);
     }
 
+    #[cfg(debug_assertions)]
+    fn begin_shutdown_test_hooks(&mut self) -> anyhow::Result<()> {
+        if self.shutdown_test_started {
+            return Ok(());
+        }
+        if let Some(signal) = std::env::var_os("CMUX_TUI_TEST_REMOTE_SHUTDOWN_STARTED_SIGNAL") {
+            fs::write(signal, b"1")?;
+        }
+        if let Some(gate) = std::env::var_os("CMUX_TUI_TEST_REMOTE_SHUTDOWN_GATE") {
+            use std::io::Read as _;
+
+            let mut gate = fs::File::open(gate)?;
+            let mut signal = [0_u8; 1];
+            gate.read_exact(&mut signal)?;
+        }
+        self.shutdown_test_started = true;
+        Ok(())
+    }
+
+    #[cfg(debug_assertions)]
+    fn complete_shutdown_test_hooks(&mut self) -> anyhow::Result<()> {
+        if self.shutdown_test_completed {
+            return Ok(());
+        }
+        if let Some(signal) = std::env::var_os("CMUX_TUI_TEST_REMOTE_SHUTDOWN_COMPLETE_SIGNAL") {
+            fs::write(signal, b"1")?;
+        }
+        self.shutdown_test_completed = true;
+        Ok(())
+    }
+
     pub(crate) fn shutdown_until(&mut self, deadline: std::time::Instant) -> DaemonRuntimeShutdown {
+        #[cfg(debug_assertions)]
+        if let Err(error) = self.begin_shutdown_test_hooks() {
+            return DaemonRuntimeShutdown::Complete(Err(error));
+        }
         self.request_shutdown();
         if self.thread.is_none() {
             return DaemonRuntimeShutdown::Complete(Err(anyhow!(
@@ -408,7 +447,12 @@ impl DaemonRuntimeHandle {
             )));
         }
         if self.completion.wait_until(deadline) {
-            DaemonRuntimeShutdown::Complete(self.join_runtime_thread())
+            let result = self.join_runtime_thread();
+            #[cfg(debug_assertions)]
+            if let Err(error) = self.complete_shutdown_test_hooks() {
+                return DaemonRuntimeShutdown::Complete(Err(error));
+            }
+            DaemonRuntimeShutdown::Complete(result)
         } else {
             DaemonRuntimeShutdown::Pending
         }
@@ -454,30 +498,20 @@ impl DaemonRuntimeHandle {
             shutdown,
             thread: Some(thread),
             completion,
+            #[cfg(debug_assertions)]
+            shutdown_test_started: false,
+            #[cfg(debug_assertions)]
+            shutdown_test_completed: false,
         }
     }
 
     pub fn shutdown(mut self) -> anyhow::Result<()> {
         #[cfg(debug_assertions)]
-        let shutdown_started = std::env::var_os("CMUX_TUI_TEST_REMOTE_SHUTDOWN_STARTED_SIGNAL");
-        #[cfg(debug_assertions)]
-        if let Some(signal) = shutdown_started.as_ref() {
-            fs::write(signal, b"1")?;
-        }
-        #[cfg(debug_assertions)]
-        if let Some(gate) = std::env::var_os("CMUX_TUI_TEST_REMOTE_SHUTDOWN_GATE") {
-            use std::io::Read as _;
-
-            let mut gate = fs::File::open(gate)?;
-            let mut signal = [0_u8; 1];
-            gate.read_exact(&mut signal)?;
-        }
+        self.begin_shutdown_test_hooks()?;
         self.request_shutdown();
         let result = self.join_runtime_thread();
         #[cfg(debug_assertions)]
-        if let Some(signal) = std::env::var_os("CMUX_TUI_TEST_REMOTE_SHUTDOWN_COMPLETE_SIGNAL") {
-            fs::write(signal, b"1")?;
-        }
+        self.complete_shutdown_test_hooks()?;
         result
     }
 }
@@ -1898,7 +1932,16 @@ fn start_daemon_runtime_with_timeout(
             return Err(anyhow!("remote daemon did not become ready: {error}"));
         }
     };
-    Ok(DaemonRuntimeHandle { info, shutdown: shutdown_tx, thread: Some(thread), completion })
+    Ok(DaemonRuntimeHandle {
+        info,
+        shutdown: shutdown_tx,
+        thread: Some(thread),
+        completion,
+        #[cfg(debug_assertions)]
+        shutdown_test_started: false,
+        #[cfg(debug_assertions)]
+        shutdown_test_completed: false,
+    })
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -967,12 +967,13 @@ mod tests {
                 Err(error) => panic!("failed to drain stopped child output: {error}"),
             }
         }
+        assert_eq!(unsafe { libc::fcntl(descriptor, libc::F_SETFL, flags) }, 0);
+        let (resumed_sender, resumed_receiver) = mpsc::sync_channel(1);
+        let resumed_reader = std::thread::spawn(move || {
+            resumed_sender.send(stdout.read(&mut output).map(|read| read != 0)).unwrap();
+        });
         drop(tree);
-        let mut poll_descriptor = libc::pollfd { fd: descriptor, events: libc::POLLIN, revents: 0 };
-        // SAFETY: poll_descriptor points to one initialized pollfd for this call.
-        assert_eq!(unsafe { libc::poll(&raw mut poll_descriptor, 1, 250) }, 1);
-        assert_ne!(poll_descriptor.revents & libc::POLLIN, 0);
-        let resumed = stdout.read(&mut output).unwrap() != 0;
+        let resumed = resumed_receiver.recv_timeout(Duration::from_millis(250));
 
         STABLE_HANDLE_CAPTURE_BUDGET.set(None);
         // SAFETY: only the exact test-owned child can still use this unreaped PID.
@@ -981,7 +982,11 @@ mod tests {
         }
         let _ = child.kill();
         let _ = child.wait();
+        resumed_reader.join().unwrap();
 
+        let resumed = resumed
+            .expect("resumed child did not publish output before the final failure deadline")
+            .expect("failed to read resumed child output");
         assert!(resumed, "dropping a process fence left its exact process stopped");
     }
 

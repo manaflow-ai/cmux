@@ -365,16 +365,6 @@ fn execute_terminal_effect(
             ResourceError::not_found("terminal", terminal_id.as_str()),
         );
     };
-    if prepared.operation == "terminal.close" {
-        let commit = mux.commit_resource_content_close_effect(
-            surface_id,
-            &ContentPublicId::Terminal(terminal_id),
-            &prepared.idempotency_key,
-            &prepared.operation,
-            &prepared.fingerprint,
-        );
-        return finish_projection_commit(mux, prepared, commit);
-    }
     let Some(surface) = mux.surface(surface_id) else {
         return effects::commit_known_failure(
             mux,

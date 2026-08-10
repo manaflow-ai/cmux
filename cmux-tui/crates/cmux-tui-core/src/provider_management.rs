@@ -10,9 +10,9 @@ use std::path::Path;
 #[cfg(target_os = "linux")]
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 #[cfg(target_os = "linux")]
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 #[cfg(target_os = "linux")]
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
@@ -223,6 +223,7 @@ fn peer_uid(stream: &std::os::unix::net::UnixStream) -> io::Result<u32> {
 pub struct ProviderManagementServer {
     shutdown: Arc<AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
+    completion: Option<mpsc::Receiver<()>>,
 }
 
 #[cfg(all(test, target_os = "linux"))]
@@ -260,18 +261,34 @@ fn reap_finished_peer_threads(peers: &mut Vec<std::thread::JoinHandle<()>>) {
 }
 
 #[cfg(target_os = "linux")]
-impl Drop for ProviderManagementServer {
-    fn drop(&mut self) {
+impl ProviderManagementServer {
+    pub fn shutdown_until(&mut self, deadline: Instant) -> bool {
         self.shutdown.store(true, Ordering::Release);
+        let Some(completion) = self.completion.as_ref() else { return true };
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if completion.recv_timeout(remaining).is_err() {
+            return false;
+        }
+        self.completion.take();
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
+        true
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl Drop for ProviderManagementServer {
+    fn drop(&mut self) {
+        // The listener thread owns its listener and peer handles. A plain drop
+        // requests shutdown and leaves that thread to finish its owned cleanup.
+        self.shutdown.store(true, Ordering::Release);
     }
 }
 
 /// Serve the systemd-provided listener until the returned owner is dropped.
-/// Dropping the owner closes every active peer and joins all management
-/// threads before returning.
+/// `shutdown_until` confirms that every active peer and management thread has
+/// finished. Dropping without that confirmation requests detached cleanup.
 #[cfg(target_os = "linux")]
 pub fn serve(
     listener: std::os::unix::net::UnixListener,
@@ -284,6 +301,7 @@ pub fn serve(
     listener.set_nonblocking(true)?;
     let shutdown = Arc::new(AtomicBool::new(false));
     let thread_shutdown = shutdown.clone();
+    let (completion_tx, completion_rx) = mpsc::sync_channel(1);
     let thread =
         std::thread::Builder::new().name("provider-management".into()).spawn(move || {
             let active = Arc::new(Mutex::new(std::collections::HashMap::new()));
@@ -350,8 +368,9 @@ pub fn serve(
             for peer in peers {
                 let _ = peer.join();
             }
+            let _ = completion_tx.send(());
         })?;
-    Ok(ProviderManagementServer { shutdown, thread: Some(thread) })
+    Ok(ProviderManagementServer { shutdown, thread: Some(thread), completion: Some(completion_rx) })
 }
 
 #[derive(Debug)]
@@ -565,6 +584,38 @@ mod tests {
         assert!(peer_entered, "the provider peer did not reach its tracked owner signal");
         assert!(dropper_result.is_ok(), "the provider server drop helper panicked");
         assert!(prompt, "provider server drop waited without limit for a tracked peer");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn shutdown_until_retains_owner_and_receipt_across_a_missed_deadline() {
+        use std::os::unix::net::{UnixListener, UnixStream};
+
+        let _test_guard = PROVIDER_PEER_TEST_LOCK.lock().unwrap();
+        let (hook_guard, entered, release) = ProviderPeerTestHookGuard::install();
+        let socket = std::env::temp_dir()
+            .join(format!("cmux-provider-management-shutdown-retry-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&socket);
+        let listener = UnixListener::bind(&socket).unwrap();
+        let mut server = serve(listener, mux()).unwrap();
+        let client = UnixStream::connect(&socket).unwrap();
+        let peer_entered = entered.recv_timeout(Duration::from_secs(1)).is_ok();
+
+        let first = server.shutdown_until(Instant::now());
+        let retained = server.thread.is_some() && server.completion.is_some();
+        let _ = release.send(());
+        drop(client);
+        let second = server.shutdown_until(Instant::now() + Duration::from_secs(5));
+        let cleared = server.thread.is_none() && server.completion.is_none();
+        drop(server);
+        drop(hook_guard);
+        let _ = std::fs::remove_file(socket);
+
+        assert!(peer_entered, "the provider peer did not reach its tracked owner signal");
+        assert!(!first, "an expired deadline reported provider shutdown completion");
+        assert!(retained, "a missed deadline discarded the provider owner or completion receipt");
+        assert!(second, "the released provider peer did not complete within the final deadline");
+        assert!(cleared, "confirmed provider shutdown retained its owner or completion receipt");
     }
 
     #[cfg(target_os = "linux")]

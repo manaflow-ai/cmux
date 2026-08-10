@@ -9465,7 +9465,7 @@ fn handle_command_with_cancellation(
                 anyhow::bail!("shutdown is only available over the local session socket");
             }
             mux.close_all_surfaces_for_shutdown()
-                .map_err(|_| anyhow::anyhow!(SERVER_SHUTDOWN_INCOMPLETE_ERROR))?;
+                .map_err(|error| error.context(SERVER_SHUTDOWN_INCOMPLETE_ERROR))?;
             Ok(json!({}))
         }
         Command::ShutdownDaemon { pid, generation, force } => {
@@ -16546,6 +16546,10 @@ mod tests {
         let error = handle_command(&mux, client, Command::Shutdown, &writer).unwrap_err();
 
         assert_eq!(error.to_string(), SERVER_SHUTDOWN_INCOMPLETE_ERROR);
+        assert!(
+            format!("{error:#}").contains("could not terminate 1 surface process"),
+            "shutdown diagnostic discarded its retained owner: {error:#}"
+        );
     }
 
     #[test]

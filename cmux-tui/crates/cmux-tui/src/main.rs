@@ -1419,7 +1419,15 @@ struct ServerProcessOwners {
 impl ServerProcessOwners {
     fn shutdown_until(&mut self, deadline: std::time::Instant) -> ServerProcessOwnersShutdown {
         #[cfg(target_os = "linux")]
-        drop(self.provider_management.take());
+        if let Some(provider_management) = self.provider_management.as_mut() {
+            if provider_management.shutdown_until(deadline) {
+                drop(self.provider_management.take());
+            } else {
+                return ServerProcessOwnersShutdown::Pending {
+                    message: "provider management cleanup exceeded the shutdown deadline",
+                };
+            }
+        }
         if let Some(websocket) = self.websocket.as_mut() {
             match websocket.shutdown_until(deadline) {
                 Ok(true) => drop(self.websocket.take()),

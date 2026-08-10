@@ -873,7 +873,7 @@ fn legacy_server_process_helper() {
                     "self": false,
                 }));
             }
-            writeln!(
+            if writeln!(
                 stream,
                 "{}",
                 serde_json::json!({
@@ -882,7 +882,15 @@ fn legacy_server_process_helper() {
                     "data": clients,
                 })
             )
-            .unwrap();
+            .is_err()
+            {
+                // The bounded helper can reject exclusivity and close this
+                // client before its last response is written. A real legacy
+                // server keeps serving after that client disconnects.
+                loop {
+                    std::thread::park();
+                }
+            }
             continue;
         }
         assert_eq!(list_request["cmd"].as_str(), Some("list-workspaces"));
@@ -2633,7 +2641,7 @@ fn incompatible_server_status_and_public_api_use_separate_compatibility_domains(
             } else {
                 commands.push(request["operation"].as_str().unwrap().to_string());
                 serde_json::json!({
-                    "protocol": "cmux.protocol/1",
+                    "protocol": cmux_tui_core::resource::PROTOCOL,
                     "type": "response",
                     "id": request["id"],
                     "ok": true,

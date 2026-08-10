@@ -55,11 +55,16 @@ pub enum BrowserMode {
 
 /// A launched Chrome/Chromium process plus its profile dir.
 pub struct Chrome {
-    child: Mutex<Option<Child>>,
+    process: Mutex<ChromeProcessState>,
     profile_dir: PathBuf,
     profile_ephemeral: bool,
     web_socket_url: String,
-    reaper: Mutex<Option<ChromeReaperLease>>,
+}
+
+enum ChromeProcessState {
+    Owned { child: Child, reaper: ChromeReaperLease },
+    Reaping { completion: mpsc::Receiver<()> },
+    Complete,
 }
 
 impl Chrome {
@@ -145,11 +150,10 @@ impl Chrome {
         };
 
         Ok(Chrome {
-            child: Mutex::new(Some(child)),
+            process: Mutex::new(ChromeProcessState::Owned { child, reaper }),
             profile_dir,
             profile_ephemeral,
             web_socket_url,
-            reaper: Mutex::new(Some(reaper)),
         })
     }
 
@@ -162,30 +166,41 @@ impl Chrome {
     }
 
     pub fn kill_until(&self, deadline: Instant) -> bool {
-        let mut slot = self.child.lock().unwrap();
-        let Some(child) = slot.take() else { return true };
-        drop(slot);
-        let reaper =
-            self.reaper.lock().unwrap().take().expect("live Chrome retains its reaper lease");
-        reap_child_until(
-            reaper,
-            child,
-            self.profile_ephemeral.then(|| self.profile_dir.clone()),
-            deadline,
-        )
+        let mut state = self.process.lock().unwrap();
+        if matches!(&*state, ChromeProcessState::Owned { .. }) {
+            let ChromeProcessState::Owned { child, reaper } =
+                std::mem::replace(&mut *state, ChromeProcessState::Complete)
+            else {
+                unreachable!()
+            };
+            let completion = reap_child_with_completion(
+                reaper,
+                child,
+                self.profile_ephemeral.then(|| self.profile_dir.clone()),
+            );
+            *state = ChromeProcessState::Reaping { completion };
+        }
+        let completed = match &*state {
+            ChromeProcessState::Owned { .. } => unreachable!(),
+            ChromeProcessState::Reaping { completion } => {
+                wait_for_reap_completion(completion, deadline)
+            }
+            ChromeProcessState::Complete => true,
+        };
+        if completed {
+            *state = ChromeProcessState::Complete;
+        }
+        completed
     }
 }
 
 impl Drop for Chrome {
     fn drop(&mut self) {
-        let child = self.child.get_mut().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
-        if let Some(child) = child {
+        let state = self.process.get_mut().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let state = std::mem::replace(state, ChromeProcessState::Complete);
+        if let ChromeProcessState::Owned { child, reaper } = state {
             reap_child_detached(
-                self.reaper
-                    .get_mut()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner())
-                    .take()
-                    .expect("live Chrome retains its reaper lease"),
+                reaper,
                 child,
                 self.profile_ephemeral.then(|| self.profile_dir.clone()),
             );
@@ -277,14 +292,27 @@ fn reap_child_until(
     profile_dir: Option<PathBuf>,
     deadline: Instant,
 ) -> bool {
+    let completion = reap_child_with_completion(reaper, child, profile_dir);
+    wait_for_reap_completion(&completion, deadline)
+}
+
+fn reap_child_with_completion(
+    reaper: ChromeReaperLease,
+    child: Child,
+    profile_dir: Option<PathBuf>,
+) -> mpsc::Receiver<()> {
     let (completion_tx, completion_rx) = mpsc::sync_channel(1);
     reap_child(reaper, child, profile_dir, Some(completion_tx));
+    completion_rx
+}
+
+fn wait_for_reap_completion(completion: &mpsc::Receiver<()>, deadline: Instant) -> bool {
     #[cfg(test)]
     if FORCE_KILL_TIMEOUT.get() {
         return false;
     }
     let Some(remaining) = deadline.checked_duration_since(Instant::now()) else { return false };
-    completion_rx.recv_timeout(remaining).is_ok()
+    completion.recv_timeout(remaining).is_ok()
 }
 
 fn reap_child(
@@ -591,15 +619,17 @@ mod tests {
             .unwrap();
         let profile_dir = make_profile_dir().unwrap();
         let chrome = Chrome {
-            child: Mutex::new(Some(child)),
+            process: Mutex::new(ChromeProcessState::Owned {
+                child,
+                reaper: chrome_reaper_lease().unwrap(),
+            }),
             profile_dir,
             profile_ephemeral: true,
             web_socket_url: "ws://127.0.0.1/unused".to_string(),
-            reaper: Mutex::new(Some(chrome_reaper_lease().unwrap())),
         };
 
         assert!(chrome.kill_until(Instant::now() + Duration::from_secs(1)));
-        assert!(chrome.child.lock().unwrap().is_none());
+        assert!(matches!(&*chrome.process.lock().unwrap(), ChromeProcessState::Complete));
     }
 
     #[cfg(unix)]
@@ -617,11 +647,10 @@ mod tests {
         let active = Arc::new(AtomicUsize::new(0));
         let reaper = reserve_reaper_lease(sender.clone(), active.clone(), 1).unwrap();
         let chrome = Chrome {
-            child: Mutex::new(Some(child)),
+            process: Mutex::new(ChromeProcessState::Owned { child, reaper }),
             profile_dir: make_profile_dir().unwrap(),
             profile_ephemeral: true,
             web_socket_url: "ws://127.0.0.1/unused".to_string(),
-            reaper: Mutex::new(Some(reaper)),
         };
 
         assert!(chrome.kill_until(Instant::now() + Duration::from_secs(1)));
@@ -654,11 +683,13 @@ mod tests {
             .unwrap();
         let pid = i32::try_from(child.id()).unwrap();
         let chrome = Chrome {
-            child: Mutex::new(Some(child)),
+            process: Mutex::new(ChromeProcessState::Owned {
+                child,
+                reaper: chrome_reaper_lease().unwrap(),
+            }),
             profile_dir: make_profile_dir().unwrap(),
             profile_ephemeral: true,
             web_socket_url: "ws://127.0.0.1/unused".to_string(),
-            reaper: Mutex::new(Some(chrome_reaper_lease().unwrap())),
         };
 
         FORCE_KILL_TIMEOUT.set(true);
@@ -690,11 +721,13 @@ mod tests {
             .unwrap();
         let pid = child.id();
         let chrome = Chrome {
-            child: Mutex::new(Some(child)),
+            process: Mutex::new(ChromeProcessState::Owned {
+                child,
+                reaper: chrome_reaper_lease().unwrap(),
+            }),
             profile_dir: make_profile_dir().unwrap(),
             profile_ephemeral: true,
             web_socket_url: "ws://127.0.0.1/unused".to_string(),
-            reaper: Mutex::new(Some(chrome_reaper_lease().unwrap())),
         };
         let pending = ForcedReaperPending::new();
 
