@@ -53,8 +53,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     // other files use.
     public typealias NamedKeySendResult = CmuxTerminalCore.NamedKeySendResult
     public typealias InputSendResult = CmuxTerminalCore.InputSendResult
-    public typealias ClaudeCommandShim = TerminalSurfaceClaudeCommandShim
-    public typealias CodexCommandShim = TerminalSurfaceCodexCommandShim
+    public typealias AgentCommandShimSet = TerminalSurfaceAgentCommandShimSet
     public typealias CmuxContextEnvironment = TerminalSurfaceCmuxContextEnvironment
     private var runtimeSurface: ghostty_surface_t?
     var runtimeControllingTTYName: String?
@@ -87,8 +86,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator
     let restoreSpawnScheduler: any TerminalSurfaceRuntimeSpawnScheduling
     let runtimeFilesystem: TerminalSurfaceRuntimeFilesystem
-    let claudeCommandShimInstallDeadline: Duration
-    let claudeCommandShimInstallDeadlineClock: any Clock<Duration>
+    let agentCommandShimInstallDeadline: Duration
+    let agentCommandShimInstallDeadlineClock: any Clock<Duration>
     /// Port ordinal base/range for CMUX_PORT assignment, snapshotted by the app composition root.
     let sessionPortBase: Int
     let sessionPortRangeSize: Int
@@ -287,12 +286,12 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         TerminalSurfaceRuntimeTeardownReservation?
     var headlessStartupWindow: NSWindow?
     var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
-    var claudeCommandShim: ClaudeCommandShim?
-    var claudeCommandShimInstallTask: Task<ClaudeCommandShim?, Never>?
-    var claudeCommandShimCompletionTask: Task<Void, Never>?
-    var claudeCommandShimDeadlineTask: Task<Void, Never>?
-    var claudeCommandShimInstallCompleted = false
-    var claudeCommandShimPendingCreationSource: RuntimeSurfaceCreationSource?
+    var agentCommandShims: AgentCommandShimSet?
+    var agentCommandShimInstallTask: Task<AgentCommandShimSet?, Never>?
+    var agentCommandShimCompletionTask: Task<Void, Never>?
+    var agentCommandShimDeadlineTask: Task<Void, Never>?
+    var agentCommandShimInstallCompleted = false
+    var agentCommandShimPendingCreationSource: RuntimeSurfaceCreationSource?
     /// The retained byte-tee lease for the libghostty PTY tee callback (cmux
     /// fork extension). Installed in `createSurface` after
     /// `ghostty_surface_new` succeeds. The Mac sync server reads the tee'd
@@ -544,8 +543,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.runtimeTeardown = dependencies.runtimeTeardown
         self.restoreSpawnScheduler = dependencies.restoreSpawnScheduler
         self.runtimeFilesystem = dependencies.runtimeFilesystem
-        self.claudeCommandShimInstallDeadline = dependencies.claudeCommandShimInstallDeadline
-        self.claudeCommandShimInstallDeadlineClock = dependencies.claudeCommandShimInstallDeadlineClock
+        self.agentCommandShimInstallDeadline = dependencies.agentCommandShimInstallDeadline
+        self.agentCommandShimInstallDeadlineClock = dependencies.agentCommandShimInstallDeadlineClock
         self.requiresRestoreSpawnPacing = runtimeSpawnPolicy == .pacedSessionRestore
         self.sessionPortBase = dependencies.sessionPortBase
         self.sessionPortRangeSize = dependencies.sessionPortRangeSize
@@ -618,8 +617,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     deinit {
-        claudeCommandShimInstallTask?.cancel()
-        claudeCommandShimCompletionTask?.cancel()
+        agentCommandShimInstallTask?.cancel()
+        agentCommandShimCompletionTask?.cancel()
         registry.unregister(self)
         markPortalLifecycleClosed(reason: "deinit")
         // Mirror closeHeadlessStartupWindowIfNeeded: deinit is nonisolated, so
