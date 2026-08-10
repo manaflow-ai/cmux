@@ -14,7 +14,6 @@ const AGENT_PROJECTION_JOURNAL_CANDIDATE_KEY: &str =
 const AGENT_PROJECTION_JOURNAL_REBUILD_TARGET_KEY: &str =
     "agent_projection_journal_rebuild_target_sequence_v1";
 const AGENT_PROJECTION_JOURNAL_REBUILD_PAGE_SIZE: usize = 1_024;
-const AGENT_EVENT_ID_PREFIX: &str = "event_agent_";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct AgentProjectionRow {
@@ -90,8 +89,14 @@ pub(super) fn rebuild_agent_projections_from_journal(
     }
 
     let sequence = sequence.context("agent projection journal cursor was not initialized")?;
-    let candidate = agent_projection_journal_candidate(&tx)?.unwrap_or(0);
     let head_sequence = session_journal::session_journal_head(&tx)?;
+    let candidate = match agent_projection_journal_candidate(&tx)? {
+        Some(candidate) => candidate,
+        None => {
+            note_agent_projection_journal_candidate(&tx, head_sequence)?;
+            head_sequence
+        }
+    };
     anyhow::ensure!(
         sequence <= head_sequence,
         "agent projection journal cursor {sequence} is ahead of journal head {head_sequence}"
@@ -121,6 +126,17 @@ pub(super) fn rebuild_agent_projections_from_journal(
     Ok(())
 }
 
+impl WorkspaceRegistry {
+    pub(crate) fn agent_projection_rebuild_pending(&self) -> anyhow::Result<bool> {
+        Ok(agent_projection_journal_rebuild_target(&self.connection)?.is_some())
+    }
+
+    pub(crate) fn continue_agent_projection_rebuild(&self) -> anyhow::Result<bool> {
+        rebuild_agent_projections_from_journal(&self.connection)?;
+        Ok(!self.agent_projection_rebuild_pending()?)
+    }
+}
+
 fn replay_agent_projection_journal_page(
     transaction: &Transaction<'_>,
     sequence: u64,
@@ -129,10 +145,11 @@ fn replay_agent_projection_journal_page(
 ) -> anyhow::Result<()> {
     let scanned = {
         let mut statement = transaction.prepare(
-            "SELECT sequence, event_id
-             FROM journal_event_index
-             WHERE sequence > ?1 AND sequence <= ?2
-             ORDER BY sequence ASC
+            "SELECT event.sequence, active.kind
+             FROM journal_event_index event
+             LEFT JOIN session_journal active ON active.sequence = event.sequence
+             WHERE event.sequence > ?1 AND event.sequence <= ?2
+             ORDER BY event.sequence ASC
              LIMIT ?3",
         )?;
         let rows = statement.query_map(
@@ -143,22 +160,29 @@ fn replay_agent_projection_journal_page(
                 i64::try_from(AGENT_PROJECTION_JOURNAL_REBUILD_PAGE_SIZE)
                     .context("agent rebuild page size exceeds SQLite range")?,
             ],
-            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?)),
         )?;
         rows.map(|row| {
-            let (sequence, event_id) = row?;
-            Ok((u64::try_from(sequence).context("agent rebuild sequence is negative")?, event_id))
+            let (sequence, kind) = row?;
+            Ok((u64::try_from(sequence).context("agent rebuild sequence is negative")?, kind))
         })
         .collect::<anyhow::Result<Vec<_>>>()?
     };
     let last_sequence = scanned.last().map(|(sequence, _)| *sequence);
-    let agent_sequences = scanned
+    let projection_sequences = scanned
         .iter()
-        .filter_map(|(sequence, event_id)| {
-            event_id.starts_with(AGENT_EVENT_ID_PREFIX).then_some(*sequence)
+        .filter_map(|(sequence, kind)| {
+            kind.as_deref()
+                .is_none_or(|kind| kind.starts_with("agent."))
+                .then_some(*sequence)
         })
         .collect::<Vec<_>>();
-    for record in session_journal::query_session_journal_sequences(transaction, &agent_sequences)? {
+    for record in
+        session_journal::query_session_journal_sequences(transaction, &projection_sequences)?
+    {
+        if !record.kind.starts_with("agent.") {
+            continue;
+        }
         apply_agent_projection_journal_record(
             transaction,
             record.sequence,
@@ -632,7 +656,7 @@ fn merge_projection(
     if same_session_identity || same_provider_without_session {
         if current.source == "hook" && next.source == "socket" {
             if matches!(next.state.as_str(), "done" | "interrupted") {
-                return next;
+                return if next.updated_at_ms >= current.updated_at_ms { next } else { current };
             }
             return current;
         }

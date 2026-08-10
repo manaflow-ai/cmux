@@ -5103,6 +5103,71 @@ fn journal_agent_projection_rebuild_is_bounded_and_resumable() {
 }
 
 #[test]
+fn journal_agent_projection_rebuild_continues_in_owned_mux_worker() {
+    const EVENT_COUNT: usize = 1_025;
+
+    let root = temp_root("journal-agent-owned-rebuild");
+    let session = "journal-agent-owned-rebuild";
+    let database = root.join(session_storage_component(session)).join(WORKSPACE_REGISTRY_FILE);
+    {
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let producer = JournalProducer { kind: "test".into(), id: "owned-rebuild".into() };
+        let payload = json!({});
+        let tx = registry.connection.unchecked_transaction().unwrap();
+        for index in 0..EVENT_COUNT {
+            let event_id = format!("event_agent_owned_rebuild_{index:04}");
+            session_journal::append_journal_record(
+                &tx,
+                &session_journal::JournalAppend {
+                    event_id: &event_id,
+                    schema_version: 1,
+                    kind: "agent.unknown",
+                    class: JournalClass::Observation,
+                    replay: JournalReplayPolicy::Advisory,
+                    occurred_at_ms: index as u64,
+                    producer: &producer,
+                    authority: None,
+                    causation_id: None,
+                    correlation_id: None,
+                    causation_depth: 0,
+                    subjects: &[],
+                    sensitivity: JournalSensitivity::Metadata,
+                    payload: &payload,
+                    content: None,
+                    resource_revision: None,
+                    previous_resource_revision: None,
+                },
+            )
+            .unwrap();
+        }
+        tx.commit().unwrap();
+    }
+    Connection::open(&database)
+        .unwrap()
+        .execute_batch(
+            "DELETE FROM meta
+             WHERE key IN (
+               'agent_projection_journal_sequence_v1',
+               'agent_projection_journal_candidate_sequence_v1'
+             );",
+        )
+        .unwrap();
+
+    let mux = crate::Mux::open_persistent(session, crate::SurfaceOptions::default(), &root).unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let mut epoch = mux.journal_event_epoch();
+    while mux.agent_projection_rebuild_pending_for_test().unwrap() {
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        assert!(!remaining.is_zero(), "owned agent projection rebuild did not complete");
+        epoch = mux.wait_for_journal_event(epoch, remaining);
+    }
+    assert!(!mux.agent_projection_rebuild_pending_for_test().unwrap());
+    mux.shutdown();
+    drop(mux);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn journal_agent_legacy_upgrade_without_candidate_replays_hook_events() {
     let root = temp_root("journal-agent-upgrade-without-candidate");
     let session = "journal-agent-upgrade-without-candidate";

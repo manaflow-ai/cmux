@@ -1922,6 +1922,7 @@ pub struct Mux {
     durable_terminal_defaults: AtomicBool,
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
     agent_records: Mutex<HashMap<TerminalPublicId, TerminalAgentRecord>>,
+    agent_projection_rebuild_running: AtomicBool,
     /// Nonterminal notifications remain placement-local. Terminal unread
     /// state is keyed separately by stable content identity so every view of
     /// one terminal shares the same attention marker.
@@ -2285,6 +2286,7 @@ impl Mux {
             durable_terminal_defaults: AtomicBool::new(has_terminal_defaults),
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
             agent_records: Mutex::new(agent_records),
+            agent_projection_rebuild_running: AtomicBool::new(false),
             placement_notifications: Mutex::new(HashMap::new()),
             terminal_notifications: Mutex::new(terminal_notifications),
             notification_ledger: Mutex::new(notification_ledger),
@@ -2322,6 +2324,7 @@ impl Mux {
             test_surface_runtime,
             session,
         });
+        mux.start_agent_projection_rebuild_worker()?;
         crate::journal_ingress::start(&mux, journal_ingress_receiver)?;
         mux.materialize_interrupted_resource_workspaces()?;
         mux.materialize_restored_browsers(&contents)?;
@@ -4915,6 +4918,65 @@ impl Mux {
         Ok(commit)
     }
 
+    fn start_agent_projection_rebuild_worker(self: &Arc<Self>) -> anyhow::Result<()> {
+        if !self.workspace_registry.lock().unwrap().agent_projection_rebuild_pending()? {
+            return Ok(());
+        }
+        if self
+            .agent_projection_rebuild_running
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return Ok(());
+        }
+        let weak = Arc::downgrade(self);
+        if let Err(error) = std::thread::Builder::new()
+            .name("agent-projection-rebuild".into())
+            .spawn(move || Self::run_agent_projection_rebuild_worker(weak))
+        {
+            self.agent_projection_rebuild_running.store(false, Ordering::Release);
+            return Err(error.into());
+        }
+        Ok(())
+    }
+
+    fn run_agent_projection_rebuild_worker(weak: Weak<Self>) {
+        loop {
+            let Some(mux) = weak.upgrade() else { return };
+            if mux.shutting_down.load(Ordering::Acquire) {
+                mux.agent_projection_rebuild_running.store(false, Ordering::Release);
+                return;
+            }
+            let result = (|| -> anyhow::Result<bool> {
+                let registry = mux.workspace_registry.lock().unwrap();
+                if !registry.continue_agent_projection_rebuild()? {
+                    return Ok(false);
+                }
+                let projections = registry.public_agent_projections(None, None)?;
+                let restored = public_projections::restore_agent_projections(projections)?;
+                *mux.agent_records.lock().unwrap() = restored;
+                Ok(true)
+            })();
+            match result {
+                Ok(false) => {
+                    drop(mux);
+                    std::thread::yield_now();
+                }
+                Ok(true) => {
+                    mux.agent_projection_rebuild_running.store(false, Ordering::Release);
+                    mux.publish_journal_event();
+                    return;
+                }
+                Err(error) => {
+                    mux.agent_projection_rebuild_running.store(false, Ordering::Release);
+                    eprintln!("cmux-tui: rebuild agent projections: {error:#}");
+                    mux.request_daemon_shutdown();
+                    return;
+                }
+            }
+        }
+    }
+
     pub(crate) fn append_journal_ingress(
         &self,
         ingress: &crate::JournalIngress,
@@ -5196,6 +5258,11 @@ impl Mux {
     #[cfg(test)]
     pub(crate) fn resource_agent_projection_count_for_test(&self) -> anyhow::Result<u64> {
         self.workspace_registry.lock().unwrap().resource_agent_projection_count_for_test()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn agent_projection_rebuild_pending_for_test(&self) -> anyhow::Result<bool> {
+        self.workspace_registry.lock().unwrap().agent_projection_rebuild_pending()
     }
 
     #[cfg(test)]

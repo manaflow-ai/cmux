@@ -1,7 +1,7 @@
 use anyhow::Context;
 
 use super::*;
-use crate::workspace_registry::RegistryPublicProjections;
+use crate::workspace_registry::{RegistryAgentProjection, RegistryPublicProjections};
 
 #[derive(Debug)]
 pub(super) struct RestoredPublicProjections {
@@ -58,8 +58,23 @@ pub(super) fn restore_public_projections(
         .context("notification count exceeds uint64")?
         .saturating_add(1);
 
-    let mut agent_records = HashMap::with_capacity(projections.agents.len());
-    for agent in projections.agents {
+    let agent_records = restore_agent_projections(projections.agents)?;
+
+    Ok(RestoredPublicProjections {
+        default_colors,
+        has_terminal_defaults,
+        next_notification_id,
+        agent_records,
+        terminal_notifications,
+        notification_ledger,
+    })
+}
+
+pub(super) fn restore_agent_projections(
+    agents: Vec<RegistryAgentProjection>,
+) -> anyhow::Result<HashMap<TerminalPublicId, TerminalAgentRecord>> {
+    let mut agent_records = HashMap::with_capacity(agents.len());
+    for agent in agents {
         let terminal_id = agent.terminal_id;
         let record = terminal_agent_record(
             &agent.state,
@@ -74,15 +89,7 @@ pub(super) fn restore_public_projections(
             terminal_id
         );
     }
-
-    Ok(RestoredPublicProjections {
-        default_colors,
-        has_terminal_defaults,
-        next_notification_id,
-        agent_records,
-        terminal_notifications,
-        notification_ledger,
-    })
+    Ok(agent_records)
 }
 
 pub(super) fn terminal_agent_record(
