@@ -72,7 +72,7 @@ import Testing
 
         #expect(configuration?.eligibility.rawValue == raw)
         #expect(configuration?.identifier == "migration-run")
-        #expect(configuration?.presentsWorkspaceSettingsBeforeMigration == false)
+        #expect(configuration?.presentsShellSettingsBeforeMigration == false)
         #expect(
             configuration?.defaultsSuiteName
                 == "dev.cmux.uitest.autoConnectMigration.migration-run"
@@ -87,7 +87,7 @@ import Testing
             "CMUX_UITEST_AUTOCONNECT_MIGRATION_INITIAL_SETTINGS": " 1 ",
         ])
 
-        #expect(configuration?.presentsWorkspaceSettingsBeforeMigration == true)
+        #expect(configuration?.presentsShellSettingsBeforeMigration == true)
         #expect(AutoConnectMigrationUITestConfiguration(environment: [
             "CMUX_UITEST_MOCK_DATA": "0",
             "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",

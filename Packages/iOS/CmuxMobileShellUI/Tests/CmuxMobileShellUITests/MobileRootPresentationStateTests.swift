@@ -56,28 +56,28 @@ struct MobileRootPresentationStateTests {
     @Test func childModalBlocksMigrationUntilItsDismissalCompletes() {
         var state = MobileRootPresentationState()
 
-        #expect(state.apply(.presentChild(.workspaceSettings)) == .none)
-        #expect(state.presentation == .child(.workspaceSettings))
-        #expect(state.isPresentingChild(.workspaceSettings))
+        #expect(state.apply(.presentChild(.shellSettings)) == .none)
+        #expect(state.presentation == .child(.shellSettings))
+        #expect(state.isPresentingChild(.shellSettings))
 
         #expect(state.apply(.presentAutoConnectMigrationIfIdle) == .none)
-        #expect(state.presentation == .child(.workspaceSettings))
+        #expect(state.presentation == .child(.shellSettings))
 
-        #expect(state.apply(.dismissChild(.workspaceSettings)) == .none)
+        #expect(state.apply(.dismissChild(.shellSettings)) == .none)
         #expect(
             state.presentation
-                == .dismissingChild(.workspaceSettings, pendingPairing: nil)
+                == .dismissingChild(.shellSettings, pendingPairing: nil)
         )
-        #expect(!state.isPresentingChild(.workspaceSettings))
+        #expect(!state.isPresentingChild(.shellSettings))
         #expect(!state.isIdle)
         #expect(state.apply(.presentAutoConnectMigrationIfIdle) == .none)
         #expect(
             state.presentation
-                == .dismissingChild(.workspaceSettings, pendingPairing: nil)
+                == .dismissingChild(.shellSettings, pendingPairing: nil)
         )
 
         #expect(
-            state.apply(.childDidDismiss(.workspaceSettings))
+            state.apply(.childDidDismiss(.shellSettings))
                 == .retryAutoConnectMigration
         )
         #expect(state.isIdle)
@@ -123,16 +123,16 @@ struct MobileRootPresentationStateTests {
     @Test func pairingRequestedFromChildWaitsForItsDismissalCallback() {
         var state = MobileRootPresentationState()
         let scanner = PairingPresentation.scanner(entry: .settingsReplay)
-        state.apply(.presentChild(.workspaceSettings))
+        state.apply(.presentChild(.shellSettings))
 
         #expect(state.apply(.presentPairing(scanner)) == .none)
         #expect(
             state.presentation
-                == .dismissingChild(.workspaceSettings, pendingPairing: scanner)
+                == .dismissingChild(.shellSettings, pendingPairing: scanner)
         )
         #expect(!state.isRootSheetPresented)
 
-        #expect(state.apply(.childDidDismiss(.workspaceSettings)) == .none)
+        #expect(state.apply(.childDidDismiss(.shellSettings)) == .none)
         #expect(state.presentation == .pairing(scanner))
         #expect(state.isRootSheetPresented)
     }

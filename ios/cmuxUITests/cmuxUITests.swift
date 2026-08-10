@@ -614,7 +614,7 @@ final class cmuxUITests: XCTestCase {
     /// A child sheet owns the real modal slot first. Its dismissal must trigger
     /// the existing retry path and then present the pending migration.
     @MainActor
-    func testAutoConnectMigrationDefersUntilWorkspaceSettingsDismisses() throws {
+    func testAutoConnectMigrationDefersUntilExistingSettingsDismisses() throws {
         let app = launchApp(mockData: true, environment: [
             "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
             "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": UUID().uuidString,

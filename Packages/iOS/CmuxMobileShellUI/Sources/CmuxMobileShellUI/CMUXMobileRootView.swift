@@ -73,8 +73,8 @@ struct CMUXMobileRootView: View {
         #if DEBUG
         if AutoConnectMigrationUITestConfiguration(
             environment: ProcessInfo.processInfo.environment
-        )?.presentsWorkspaceSettingsBeforeMigration == true {
-            initialRootPresentation.apply(.presentChild(.workspaceSettings))
+        )?.presentsShellSettingsBeforeMigration == true {
+            initialRootPresentation.apply(.presentChild(.shellSettings))
         }
         #endif
         _rootPresentation = State(initialValue: initialRootPresentation)
@@ -414,7 +414,7 @@ struct CMUXMobileRootView: View {
                     setupHelpHighlight: disconnectedSetupHelpHighlight,
                     store: store,
                     settingsPresentation: childSheetPresentation(
-                        for: .disconnectedSettings
+                        for: .shellSettings
                     ),
                     setupHelpPresentation: childSheetPresentation(
                         for: .disconnectedSetupHelp
@@ -436,7 +436,7 @@ struct CMUXMobileRootView: View {
                     showAddDevice: showAddDevice,
                     showPairingScanner: showPairingScanner,
                     settingsPresentation: childSheetPresentation(
-                        for: .workspaceSettings
+                        for: .shellSettings
                     ),
                     deviceTreePresentation: childSheetPresentation(
                         for: .workspaceDeviceTree

@@ -29,10 +29,10 @@ struct MobileRootPresentationState: Equatable {
 
     /// A child-owned sheet that participates in the shared modal slot.
     enum ChildPresentation: Equatable {
-        case workspaceSettings
+        /// The root-shell Settings sheet, shared across connected and disconnected shells.
+        case shellSettings
         case workspaceDeviceTree
         case workspaceTaskComposer
-        case disconnectedSettings
         case disconnectedSetupHelp
         case workspaceList(WorkspaceListPresentation)
         case workspaceDetail(WorkspaceDetailPresentation)
