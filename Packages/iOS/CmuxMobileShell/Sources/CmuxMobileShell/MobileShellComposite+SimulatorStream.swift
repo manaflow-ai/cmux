@@ -7,11 +7,6 @@ extension MobileShellComposite {
     /// Applies the user's selection to the composite-owned presentation state,
     /// then reconciles the matching host RPC transition through the same owner.
     public func selectMobileSimulatorStream(panelID: String, workspaceID: String) {
-        #if DEBUG
-        simulatorStreamStore.recordLifecycleDebugEvent(
-            "select.entry workspace=\(workspaceID) panel=\(panelID) active=\(simulatorStreamStore.activeState(in: workspaceID)?.id ?? "nil") state=\(simulatorStreamStore.state(for: panelID) == nil ? 0 : 1)"
-        )
-        #endif
         guard simulatorStreamStore.state(for: panelID) != nil else { return }
         let previousPanelID = simulatorStreamStore.activeState(in: workspaceID).flatMap {
             $0.id == panelID ? nil : $0.id
@@ -20,11 +15,6 @@ extension MobileShellComposite {
             simulatorStreamStore.deactivate(panelID: previousPanelID, in: workspaceID)
         }
         simulatorStreamStore.activate(panelID: panelID, in: workspaceID)
-        #if DEBUG
-        simulatorStreamStore.recordLifecycleDebugEvent(
-            "select.activated workspace=\(workspaceID) panel=\(panelID) active=\(simulatorStreamStore.activeState(in: workspaceID)?.id ?? "nil")"
-        )
-        #endif
         transitionMobileSimulatorStreamSelection(
             from: previousPanelID,
             to: panelID,

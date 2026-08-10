@@ -145,19 +145,7 @@ extension WorkspaceDetailView {
         )
         .id(simulator.id)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear {
-            #if DEBUG
-            simulatorStreamStore.recordLifecycleDebugEvent(
-                "pane.appear workspace=\(workspace.rpcWorkspaceID.rawValue) panel=\(simulator.id) active=\(simulatorStreamStore.activeState(in: workspace.rpcWorkspaceID.rawValue)?.id ?? "nil")"
-            )
-            #endif
-        }
         .onDisappear {
-            #if DEBUG
-            simulatorStreamStore.recordLifecycleDebugEvent(
-                "pane.disappear workspace=\(workspace.rpcWorkspaceID.rawValue) panel=\(simulator.id) active=\(simulatorStreamStore.activeState(in: workspace.rpcWorkspaceID.rawValue)?.id ?? "nil")"
-            )
-            #endif
             // Panel-scoped: when switching simulator A -> B, A's onDisappear
             // fires AFTER B was activated, so the unconditional deactivate
             // would clear B's fresh selection. The stop targets only this

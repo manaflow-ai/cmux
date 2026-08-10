@@ -7710,6 +7710,14 @@ final class SimulatorDiscoverabilityUITests: XCTestCase {
         app.launch()
         launchedApplications.append(app)
 
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        for label in ["Allow", "許可", "許可する"] {
+            let allow = springboard.buttons[label]
+            if allow.waitForExistence(timeout: 4) {
+                allow.tap()
+                break
+            }
+        }
         if !app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 4) {
             let row = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
             XCTAssertTrue(row.waitForExistence(timeout: 8))
@@ -7729,7 +7737,9 @@ final class SimulatorDiscoverabilityUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(onePicker.frame.width, 44)
         XCTAssertGreaterThanOrEqual(onePicker.frame.height, 44)
         onePicker.tap()
-        XCTAssertTrue(one.otherElements["SimulatorStreamPane"].waitForExistence(timeout: 4))
+        XCTAssertTrue(
+            one.descendants(matching: .any)["SimulatorStreamPane"].waitForExistence(timeout: 4)
+        )
         XCTAssertEqual(onePicker.value as? String, "iPhone A")
         one.terminate()
 
@@ -7772,7 +7782,7 @@ final class SimulatorDiscoverabilityUITests: XCTestCase {
             XCTAssertTrue(picker.waitForExistence(timeout: 8))
             picker.tap()
             XCTAssertTrue(
-                app.otherElements[fixture.overlay].waitForExistence(timeout: 4),
+                app.descendants(matching: .any)[fixture.overlay].waitForExistence(timeout: 4),
                 "Expected \(fixture.overlay) for \(fixture.state)"
             )
             app.terminate()
@@ -7790,19 +7800,6 @@ final class SimulatorDiscoverabilityUITests: XCTestCase {
         retry.tap()
         XCTAssertTrue(failed.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8))
         XCTAssertFalse(failed.otherElements["MobileTerminalRendererFailure"].exists)
-    }
-
-    @MainActor
-    func testSimulatorLifecycleDiagnostic() throws {
-        let app = launchFixture(mode: "one")
-        let picker = app.buttons["MobileSimulatorPicker"]
-        if picker.waitForExistence(timeout: 8) {
-            picker.tap()
-            _ = app.otherElements["SimulatorStreamPane"].waitForExistence(timeout: 4)
-        }
-        let timeline = app.descendants(matching: .any)["SimulatorLifecycleDebugTimeline"]
-        _ = timeline.waitForExistence(timeout: 2)
-        print("cmux.simulator.lifecycle.timeline \(timeline.value as? String ?? "missing")")
     }
 
     @MainActor

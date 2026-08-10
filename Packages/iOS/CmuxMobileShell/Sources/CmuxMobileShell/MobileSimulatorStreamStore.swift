@@ -178,24 +178,8 @@ public final class MobileSimulatorStreamStore {
     private var statesByPanel: [String: MobileSimulatorStreamSurfaceState] = [:]
     private var activePanelByWorkspace: [String: String] = [:]
     private var currentConnectionStatus: MobileSimulatorStreamSurfaceState.ConnectionStatus = .disconnected
-    #if DEBUG
-    public private(set) var lifecycleDebugEvents: [String] = []
-    #endif
 
     public init() {}
-
-    #if DEBUG
-    public var lifecycleDebugTimeline: String {
-        lifecycleDebugEvents.joined(separator: " | ")
-    }
-
-    public func recordLifecycleDebugEvent(_ event: String) {
-        lifecycleDebugEvents.append(event)
-        if lifecycleDebugEvents.count > 32 {
-            lifecycleDebugEvents.removeFirst(lifecycleDebugEvents.count - 32)
-        }
-    }
-    #endif
 
     public func panels(in workspaceID: String) -> [MobileSimulatorPanelDescriptor] {
         descriptorsByWorkspace[workspaceID] ?? []
@@ -235,14 +219,7 @@ public final class MobileSimulatorStreamStore {
         panelID: String,
         in workspaceID: String
     ) -> MobileSimulatorStreamSurfaceState? {
-        guard let state = statesByPanel[panelID] else {
-            #if DEBUG
-            recordLifecycleDebugEvent(
-                "store.activate.missing workspace=\(workspaceID) panel=\(panelID) active=\(activePanelByWorkspace[workspaceID] ?? "nil")"
-            )
-            #endif
-            return nil
-        }
+        guard let state = statesByPanel[panelID] else { return nil }
         activePanelByWorkspace[workspaceID] = panelID
         state.connectionStatus = currentConnectionStatus
         // Re-selecting a stalled or view-only panel must not hide its truthful
@@ -251,26 +228,13 @@ public final class MobileSimulatorStreamStore {
         if state.streamStatus != .stalled, state.streamStatus != .locked {
             state.streamStatus = .starting
         }
-        #if DEBUG
-        recordLifecycleDebugEvent(
-            "store.activate workspace=\(workspaceID) panel=\(panelID) active=\(activePanelByWorkspace[workspaceID] ?? "nil")"
-        )
-        #endif
         return state
     }
 
     public func deactivate(in workspaceID: String) {
-        #if DEBUG
-        let previousPanelID = activePanelByWorkspace[workspaceID]
-        #endif
         if let panelID = activePanelByWorkspace.removeValue(forKey: workspaceID) {
             statesByPanel[panelID]?.streamStatus = .idle
         }
-        #if DEBUG
-        recordLifecycleDebugEvent(
-            "store.deactivate.workspace workspace=\(workspaceID) panel=\(previousPanelID ?? "nil") active=\(activePanelByWorkspace[workspaceID] ?? "nil")"
-        )
-        #endif
     }
 
     /// Deactivates only when `panelID` is still the workspace's active panel.
@@ -278,21 +242,9 @@ public final class MobileSimulatorStreamStore {
     /// activated (SwiftUI unmounts the old identity last), so the
     /// unconditional form would tear down the replacement's selection.
     public func deactivate(panelID: String, in workspaceID: String) {
-        guard activePanelByWorkspace[workspaceID] == panelID else {
-            #if DEBUG
-            recordLifecycleDebugEvent(
-                "store.deactivate.panel.skipped workspace=\(workspaceID) panel=\(panelID) active=\(activePanelByWorkspace[workspaceID] ?? "nil")"
-            )
-            #endif
-            return
-        }
+        guard activePanelByWorkspace[workspaceID] == panelID else { return }
         activePanelByWorkspace[workspaceID] = nil
         statesByPanel[panelID]?.streamStatus = .idle
-        #if DEBUG
-        recordLifecycleDebugEvent(
-            "store.deactivate.panel workspace=\(workspaceID) panel=\(panelID) active=\(activePanelByWorkspace[workspaceID] ?? "nil")"
-        )
-        #endif
     }
 
     public func simulatorStreamWillStart(panelID: String) {
