@@ -35,6 +35,7 @@ struct MobileAutoConnectMigrationSheet: View {
             } action: { newHeight in
                 viewportHeight = newHeight
             }
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier(
                 usesScrollFallback
                     ? "MobileAutoConnectMigrationScrollView"
@@ -44,6 +45,7 @@ struct MobileAutoConnectMigrationSheet: View {
         .presentationDetents([.height(contentHeight)])
         .presentationContentInteraction(.scrolls)
         .presentationDragIndicator(.visible)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("MobileAutoConnectMigrationSheet")
     }
 }
@@ -64,6 +66,7 @@ private struct MobileAutoConnectMigrationContent: View {
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.horizontal, 24)
         .padding(.vertical, 24)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("MobileAutoConnectMigrationContent")
     }
 }
