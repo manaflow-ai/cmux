@@ -346,7 +346,8 @@ USAGE
   cmux pane list
   cmux pane create [--correlation-key <value>]
   cmux pane <selector> show|rename|focus|close
-  cmux pane <selector> split [--right|--down] [--correlation-key <value>]
+  cmux pane <selector> split [--right|--down] [--viewport-width <0.1..1.0>]
+    [--correlation-key <value>]
   cmux pane <selector> focus direction <left|right|up|down>
   cmux pane <selector> neighbor <left|right|up|down>
   cmux pane <selector> swap --other-workspace <selector>

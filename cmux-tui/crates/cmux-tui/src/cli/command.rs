@@ -615,11 +615,16 @@ fn parse_pane_strings(
         [selector, "split"] => {
             selectors.insert("pane", "pane", selector)?;
             let mut params = Map::new();
-            let direction = take_direction_switch(flags)?;
-            params.insert(
-                "direction".into(),
-                Value::String(direction.unwrap_or_else(|| "right".into())),
-            );
+            let direction = take_direction_switch(flags)?.unwrap_or_else(|| "right".into());
+            if let Some(width) = flags.take("viewport-width") {
+                if direction != "right" {
+                    return Err(UsageError::new(
+                        crate::localization::catalog().layout.viewport_width_requires_right,
+                    ));
+                }
+                insert_viewport_width(&mut params, width)?;
+            }
+            params.insert("direction".into(), Value::String(direction));
             if let Some(ratio) = flags.take("ratio") {
                 insert_ratio(&mut params, "ratio", "--ratio", ratio)?;
             }
@@ -2047,6 +2052,19 @@ fn insert_ratio(
     Ok(())
 }
 
+fn insert_viewport_width(params: &mut Map<String, Value>, value: String) -> Result<(), UsageError> {
+    let number = value
+        .parse::<f64>()
+        .ok()
+        .filter(|number| number.is_finite() && (0.1..=1.0).contains(number))
+        .and_then(Number::from_f64)
+        .ok_or_else(|| {
+            UsageError::new(crate::localization::catalog().layout.viewport_width_out_of_range)
+        })?;
+    params.insert("viewport_width".into(), Value::Number(number));
+    Ok(())
+}
+
 fn map_with(name: &str, value: Value) -> Map<String, Value> {
     let mut map = Map::new();
     map.insert(name.into(), value);
@@ -2591,6 +2609,45 @@ mod tests {
         assert_eq!(terminal.params["initial_content"], "terminal");
         let empty = protocol(&["workspace", "create", "--empty"]);
         assert_eq!(empty.params["initial_content"], "empty");
+    }
+
+    #[test]
+    fn pane_split_viewport_width_is_bounded_and_right_only() {
+        const PANE: &str = "pane_33333333333333333333333333333333";
+        let plan = protocol(&[
+            "pane",
+            PANE,
+            "split",
+            "--right",
+            "--viewport-width",
+            "0.66",
+        ]);
+        assert_eq!(plan.params["viewport_width"], json!(0.66));
+
+        for invalid in ["nan", "0.09", "1.01"] {
+            assert!(
+                parse(&strings(&[
+                    "pane",
+                    PANE,
+                    "split",
+                    "--right",
+                    "--viewport-width",
+                    invalid,
+                ]))
+                .is_err()
+            );
+        }
+        assert!(
+            parse(&strings(&[
+                "pane",
+                PANE,
+                "split",
+                "--down",
+                "--viewport-width",
+                "0.66",
+            ]))
+            .is_err()
+        );
     }
 
     #[test]
@@ -3190,6 +3247,8 @@ mod tests {
                     "--right",
                     "--ratio",
                     "0.5",
+                    "--viewport-width",
+                    "0.66",
                     "--cwd",
                     "/tmp",
                     "--cols",
