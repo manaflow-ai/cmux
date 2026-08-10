@@ -35,6 +35,10 @@ public struct ChatComposerView: View {
     @State private var attachmentStagingTask: Task<Void, Never>?
     @State private var attachmentStagingGeneration = UUID()
     @State private var dictation = ComposerDictationController()
+    #if DEBUG
+    @Environment(\.mobileAttachmentAccessibilityFixtures) private var accessibilityAttachmentFixtures
+    @State private var didSeedAccessibilityAttachmentFixtures = false
+    #endif
     #endif
 
     @Environment(\.chatTheme) private var theme
@@ -82,6 +86,7 @@ public struct ChatComposerView: View {
             .accessibilityIdentifier("ChatComposerBar")
             #if DEBUG
             .background(ChatComposerDebugAutofocusBridge())
+            .onAppear { seedAccessibilityAttachmentFixturesIfNeeded() }
             #endif
             .onDisappear {
                 dictation.cancel()
@@ -132,6 +137,16 @@ public struct ChatComposerView: View {
     }
 
     #if os(iOS)
+    #if DEBUG
+    private func seedAccessibilityAttachmentFixturesIfNeeded() {
+        guard !didSeedAccessibilityAttachmentFixtures,
+              attachments.isEmpty,
+              !accessibilityAttachmentFixtures.isEmpty else { return }
+        didSeedAccessibilityAttachmentFixtures = true
+        attachments = accessibilityAttachmentFixtures
+    }
+    #endif
+
     @ViewBuilder
     private var composerSurface: some View {
         if #available(iOS 26.0, *) {

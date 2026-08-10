@@ -16,9 +16,13 @@ struct AgentChatDemoScreen: View {
     @Environment(\.dismiss) private var dismiss
     @State private var stack: DemoStack?
     @State private var contentWidth: CGFloat = 0
+    private let attachmentFixtures: [MobileStagedAttachment]
 
     init(style: AgentChatDemoScreenStyle = .standalone) {
         self.style = style
+        self.attachmentFixtures = ProcessInfo.processInfo.environment[
+            "CMUX_UITEST_AGENT_CHAT_ATTACHMENTS"
+        ] == "1" ? MobileAttachmentAccessibilityFixtures.basic() : []
     }
 
     var body: some View {
@@ -148,6 +152,7 @@ struct AgentChatDemoScreen: View {
                 providesOwnChrome: false,
                 onOpenTerminal: {}
             )
+            .environment(\.mobileAttachmentAccessibilityFixtures, attachmentFixtures)
         case .inlineWorkspace:
             ChatScreen(
                 store: stack.store,
@@ -156,6 +161,7 @@ struct AgentChatDemoScreen: View {
                 providesOwnChrome: false,
                 onOpenTerminal: {}
             )
+            .environment(\.mobileAttachmentAccessibilityFixtures, attachmentFixtures)
         }
     }
 

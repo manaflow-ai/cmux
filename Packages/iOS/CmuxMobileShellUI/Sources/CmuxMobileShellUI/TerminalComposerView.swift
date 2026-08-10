@@ -303,13 +303,6 @@ struct TerminalComposerView: View {
 
     private var composerBar: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // iMessage-style row of staged attachments, ABOVE the
-            // field. Shown only when something is staged so the empty composer
-            // keeps its compact one-line height (and the host's measurement).
-            if !pendingAttachments.isEmpty || isStagingAttachments {
-                attachmentChipRow
-            }
-
             if sendStatus == .failed {
                 Label(
                     L10n.string(
@@ -342,44 +335,55 @@ struct TerminalComposerView: View {
                 // rendered through the same support component as GUI chat. `.bottom`
                 // alignment pins the button to the field's last line as it grows.
                 MobileComposerFieldContainer(minHeight: composerFieldMinHeight) {
-                    TextField(
-                        L10n.string("mobile.composer.placeholder", defaultValue: "Message"),
-                        text: $store.terminalInputText,
-                        axis: .vertical
-                    )
-                    // Opens at a single line and grows up to 14 lines so a long message has
-                    // room. Each added line grows this view, which the host reserves above the
-                    // always-visible toolbar; the toolbar and keyboard never move.
-                    .lineLimit(composerLineLimit)
-                    // Natural-language to an agent, so normal iOS text assistance
-                    // is on (autocorrect, sentence-case, spell check). The raw
-                    // terminal input field keeps these OFF; only the composer
-                    // enables them.
-                    .textInputAutocapitalization(.sentences)
-                    .autocorrectionDisabled(false)
-                    .focused($isFieldFocused)
-                    .simultaneousGesture(
-                        TapGesture().onEnded {
-                            guard !dictation.locksComposerField else { return }
-                            requestInputFocus()
+                    VStack(alignment: .leading, spacing: 6) {
+                        // Attachments belong to the same input affordance as the
+                        // draft. Keeping them above the text inside this container
+                        // preserves one shared leading inset while the send action
+                        // stays pinned to the bottom-right.
+                        if !pendingAttachments.isEmpty || isStagingAttachments {
+                            attachmentChipRow
                         }
-                    )
-                    // Lock the field while dictation owns the text (`.listening`
-                    // or `.stopping`). Every recognition callback rewrites the
-                    // field as base + transcript, so an edit the user made
-                    // mid-dictation would be silently discarded by the next
-                    // partial/final. Disabling input until dictation settles to
-                    // idle makes that edit impossible rather than letting it be
-                    // clobbered. The field stays visible showing the live
-                    // transcript; the mic toggle and send stay live (send
-                    // hard-cancels dictation -> idle, re-enabling the field).
-                    .disabled(dictation.locksComposerField)
-                    .foregroundStyle(store.activeTerminalTheme.terminalForegroundColor)
-                    // 6pt container padding + 3pt here keeps the text's 9pt inset
-                    // from the round-7 layout, and bottom-aligns the single-line text
-                    // with the inline button's circle.
-                    .padding(.vertical, 3)
-                    .accessibilityIdentifier("MobileComposerField")
+
+                        TextField(
+                            L10n.string("mobile.composer.placeholder", defaultValue: "Message"),
+                            text: $store.terminalInputText,
+                            axis: .vertical
+                        )
+                        // Opens at a single line and grows up to 14 lines so a long message has
+                        // room. Each added line grows this view, which the host reserves above the
+                        // always-visible toolbar; the toolbar and keyboard never move.
+                        .lineLimit(composerLineLimit)
+                        // Natural-language to an agent, so normal iOS text assistance
+                        // is on (autocorrect, sentence-case, spell check). The raw
+                        // terminal input field keeps these OFF; only the composer
+                        // enables them.
+                        .textInputAutocapitalization(.sentences)
+                        .autocorrectionDisabled(false)
+                        .focused($isFieldFocused)
+                        .simultaneousGesture(
+                            TapGesture().onEnded {
+                                guard !dictation.locksComposerField else { return }
+                                requestInputFocus()
+                            }
+                        )
+                        // Lock the field while dictation owns the text (`.listening`
+                        // or `.stopping`). Every recognition callback rewrites the
+                        // field as base + transcript, so an edit the user made
+                        // mid-dictation would be silently discarded by the next
+                        // partial/final. Disabling input until dictation settles to
+                        // idle makes that edit impossible rather than letting it be
+                        // clobbered. The field stays visible showing the live
+                        // transcript; the mic toggle and send stay live (send
+                        // hard-cancels dictation -> idle, re-enabling the field).
+                        .disabled(dictation.locksComposerField)
+                        .foregroundStyle(store.activeTerminalTheme.terminalForegroundColor)
+                        // 6pt container padding + 3pt here keeps the text's 9pt inset
+                        // from the round-7 layout, and bottom-aligns the single-line text
+                        // with the inline button's circle.
+                        .padding(.vertical, 3)
+                        .accessibilityIdentifier("MobileComposerField")
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 } trailing: {
                     Button {
@@ -548,8 +552,6 @@ struct TerminalComposerView: View {
             store.removePendingAttachment(id: id, forTerminalID: terminalID)
             requestHeightRemeasure()
         }
-        .padding(.leading, controlHeight + 8)
-        .padding(.trailing, 12)
     }
 
     private func send() {

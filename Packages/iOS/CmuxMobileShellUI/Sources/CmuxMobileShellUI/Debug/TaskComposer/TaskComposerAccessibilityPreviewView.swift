@@ -10,6 +10,7 @@ import SwiftUI
 /// Deterministic host for accessibility UI tests. It presents the production
 /// composer as a real sheet, including its iPad presentation behavior.
 public struct TaskComposerAccessibilityPreviewView: View {
+    @Environment(MobileDisplaySettings.self) private var displaySettings
     @State private var isPresented = false
     @State private var draftWasPersistedAtSubmit: Bool?
     @State private var submittedMacDeviceID: String?
@@ -92,9 +93,15 @@ public struct TaskComposerAccessibilityPreviewView: View {
         self.holdsSubmissionInPreparation = environment[
             "CMUX_UITEST_TASK_COMPOSER_HOLD_PREPARATION"
         ] == "1"
-        self.attachmentFixtures = environment[
-            "CMUX_UITEST_TASK_COMPOSER_ATTACHMENTS"
-        ] == "1" ? Self.makeAttachmentFixtures() : []
+        if environment["CMUX_UITEST_TASK_COMPOSER_MAX_ATTACHMENTS"] == "1" {
+            self.attachmentFixtures = MobileAttachmentAccessibilityFixtures.maximumCount()
+        } else if environment["CMUX_UITEST_TASK_COMPOSER_ATTACHMENT_EDGE_CASES"] == "1" {
+            self.attachmentFixtures = MobileAttachmentAccessibilityFixtures.edgeCases()
+        } else if environment["CMUX_UITEST_TASK_COMPOSER_ATTACHMENTS"] == "1" {
+            self.attachmentFixtures = MobileAttachmentAccessibilityFixtures.basic()
+        } else {
+            self.attachmentFixtures = []
+        }
         _directoryPaginationRecoveryPreview = State(
             initialValue: presentsDirectoryPaginationRecovery
                 ? TaskComposerDirectoryPaginationRecoveryPreview()
@@ -203,37 +210,26 @@ public struct TaskComposerAccessibilityPreviewView: View {
                             TaskComposerSubmissionHistoryProbe(attempts: submissionAttempts)
                         }
                     }
+                    .overlay(alignment: .topTrailing) {
+                        if !attachmentFixtures.isEmpty {
+                            Button {
+                                displaySettings.taskComposerLayoutStyle =
+                                    displaySettings.taskComposerLayoutStyle == .classic
+                                        ? .composer
+                                        : .classic
+                            } label: {
+                                Image(systemName: "rectangle.2.swap")
+                                    .frame(width: 44, height: 44)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(displaySettings.taskComposerLayoutStyle.title)
+                            .accessibilityValue(displaySettings.taskComposerLayoutStyle.rawValue)
+                            .accessibilityIdentifier("MobileTaskComposerToggleLayoutFixture")
+                            .padding(.trailing, 8)
+                        }
+                    }
                 }
             }
-    }
-
-    private static func makeAttachmentFixtures() -> [TaskComposerAttachment] {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-task-attachment-preview", isDirectory: true)
-        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let imageData = Data(base64Encoded:
-            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
-        ) ?? Data()
-        let imageURL = root.appendingPathComponent("preview.png")
-        let fileData = Data("attachment fixture".utf8)
-        let fileURL = root.appendingPathComponent("preview.txt")
-        try? imageData.write(to: imageURL, options: .atomic)
-        try? fileData.write(to: fileURL, options: .atomic)
-        return [
-            TaskComposerAttachment(
-                kind: .image,
-                fileName: "設計 🖼️.png",
-                localFileURL: imageURL,
-                byteCount: imageData.count,
-                thumbnailData: imageData
-            ),
-            TaskComposerAttachment(
-                kind: .file,
-                fileName: "-release notes.txt",
-                localFileURL: fileURL,
-                byteCount: fileData.count
-            ),
-        ]
     }
 
     private static let previewMac = MobilePairedMac(

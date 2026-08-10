@@ -6,6 +6,20 @@ import SwiftUI
 import UniformTypeIdentifiers
 import UIKit
 
+#if DEBUG
+private struct MobileAttachmentAccessibilityFixturesKey: EnvironmentKey {
+    static let defaultValue: [MobileStagedAttachment] = []
+}
+
+public extension EnvironmentValues {
+    /// Deterministic staged files injected by DEBUG accessibility hosts.
+    var mobileAttachmentAccessibilityFixtures: [MobileStagedAttachment] {
+        get { self[MobileAttachmentAccessibilityFixturesKey.self] }
+        set { self[MobileAttachmentAccessibilityFixturesKey.self] = newValue }
+    }
+}
+#endif
+
 struct MobileAttachmentCardLayout: Sendable {
     let side: CGFloat
     let spacing: CGFloat
