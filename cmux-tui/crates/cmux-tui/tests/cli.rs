@@ -913,6 +913,26 @@ fn server_stop_uses_identify_fence_and_refuses_cross_session_targeting() {
     assert!(!crossed.status.success());
     let error = String::from_utf8(crossed.stderr).unwrap();
     assert!(error.contains("different session"), "{error}");
+    assert!(!error.contains("remote-or-other"), "{error}");
+
+    fs::remove_file(&socket).unwrap();
+    let listener = UnixListener::bind(&socket).unwrap();
+    let thread = std::thread::spawn(move || fake_server(listener, "private-session", false));
+    let crossed = lifecycle_cli(&[
+        "--json",
+        "server",
+        "stop",
+        "--session",
+        "local",
+        "--socket",
+        socket.to_str().unwrap(),
+    ]);
+    thread.join().unwrap();
+    assert!(!crossed.status.success());
+    let error = String::from_utf8(crossed.stderr).unwrap();
+    let error_json: serde_json::Value = serde_json::from_str(&error).unwrap();
+    assert_eq!(error_json["code"], "server.different_session");
+    assert!(!error.contains("private-session"), "{error}");
     fs::remove_dir_all(dir).unwrap();
 }
 
