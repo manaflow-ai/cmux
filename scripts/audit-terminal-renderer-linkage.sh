@@ -46,7 +46,7 @@ elif [[ -n "$BINARY" ]]; then
   exit 2
 fi
 
-for command in ar clang file nm otool strings; do
+for command in ar clang file lipo nm otool strings; do
   command -v "$command" >/dev/null 2>&1 || {
     echo "error: required audit command is missing: $command" >&2
     exit 1
@@ -196,6 +196,21 @@ ARCHIVES_LIST="$TEMP_DIR/archives.txt"
 find -H "$XCFRAMEWORK" -type f -name '*.a' -print | sort > "$ARCHIVES_LIST"
 [[ -s "$ARCHIVES_LIST" ]] || { echo "error: scene XCFramework contains no static archives" >&2; exit 1; }
 
+AUDIT_ARCHIVES="$TEMP_DIR/audit-archives.txt"
+: > "$AUDIT_ARCHIVES"
+while IFS= read -r archive; do
+  architectures="$(lipo -archs "$archive" 2>/dev/null || true)"
+  if [[ "$(wc -w <<< "$architectures" | tr -d ' ')" -gt 1 ]]; then
+    for architecture in $architectures; do
+      thin_archive="$TEMP_DIR/$(printf '%s-%s' "$archive" "$architecture" | shasum -a 256 | awk '{print $1}').a"
+      lipo "$archive" -thin "$architecture" -output "$thin_archive"
+      printf '%s\n' "$thin_archive" >> "$AUDIT_ARCHIVES"
+    done
+  else
+    printf '%s\n' "$archive" >> "$AUDIT_ARCHIVES"
+  fi
+done < "$ARCHIVES_LIST"
+
 while IFS= read -r archive; do
   archive_slug="$(printf '%s' "$archive" | shasum -a 256 | awk '{print $1}')"
   archive_defined="$TEMP_DIR/archive-$archive_slug-defined.txt"
@@ -247,12 +262,13 @@ $archive_bundle_selectors"
   unexpected="$(comm -13 "$DECLARED_ABI" "$archive_ghostty" || true)"
   [[ -z "$unexpected" ]] || fail_with_matches \
     "scene archive exports Ghostty symbols outside its public header: $archive" "$unexpected"
-done < "$ARCHIVES_LIST"
+done < "$AUDIT_ARCHIVES"
 
-archive_count="$(wc -l < "$ARCHIVES_LIST" | tr -d ' ')"
+container_count="$(wc -l < "$ARCHIVES_LIST" | tr -d ' ')"
+archive_count="$(wc -l < "$AUDIT_ARCHIVES" | tr -d ' ')"
 abi_count="$(wc -l < "$DECLARED_ABI" | tr -d ' ')"
 if [[ "$ARCHIVE_ONLY" == true ]]; then
-  echo "Renderer archive audit passed: archives=$archive_count declared_scene_abi=$abi_count"
+  echo "Renderer archive audit passed: containers=$container_count architecture_archives=$archive_count declared_scene_abi=$abi_count"
 else
   FINAL_GHOSTTY="$TEMP_DIR/final-ghostty.txt"
   grep -E '^_ghostty_' "$DEFINED" | sort -u > "$FINAL_GHOSTTY"
@@ -263,5 +279,5 @@ else
 
   binary_size="$(stat -f '%z' "$BINARY")"
   linked_count="$(wc -l < "$FINAL_GHOSTTY" | tr -d ' ')"
-  echo "Renderer linkage audit passed: binary_bytes=$binary_size archives=$archive_count declared_scene_abi=$abi_count linked_scene_abi=$linked_count"
+  echo "Renderer linkage audit passed: binary_bytes=$binary_size containers=$container_count architecture_archives=$archive_count declared_scene_abi=$abi_count linked_scene_abi=$linked_count"
 fi

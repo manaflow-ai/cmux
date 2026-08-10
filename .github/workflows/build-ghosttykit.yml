@@ -104,6 +104,14 @@ jobs:
           set -euo pipefail
           cd ghostty && zig build -Dcrash-report-subdir="$GHOSTTYKIT_CRASH_REPORT_SUBDIR" -Dsentry=false -Demit-xcframework=true -Demit-scene-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
 
+      - name: Audit scene renderer archive
+        if: steps.check-release.outputs.exists == 'false'
+        run: |
+          set -euo pipefail
+          ./scripts/audit-terminal-renderer-linkage.sh \
+            --archive-only \
+            --xcframework ghostty/macos/GhosttySceneRendererKit.xcframework
+
       - name: Package xcframeworks
         if: steps.check-release.outputs.exists == 'false'
         run: |
