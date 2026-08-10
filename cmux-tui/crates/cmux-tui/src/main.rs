@@ -2122,7 +2122,6 @@ fn finish_server_process(
     result
 }
 
-#[cfg(unix)]
 fn combine_server_and_remote_shutdown_results(
     server_result: anyhow::Result<()>,
     remote_shutdown_result: anyhow::Result<()>,
@@ -3170,7 +3169,6 @@ mod tests {
         assert!(!socket_remained, "remote startup failure retained the published server socket");
     }
 
-    #[cfg(unix)]
     #[test]
     fn remote_shutdown_failure_preserves_an_earlier_server_error() {
         let error = combine_server_and_remote_shutdown_results(
@@ -3184,7 +3182,6 @@ mod tests {
         assert!(message.contains("remote shutdown failed"));
     }
 
-    #[cfg(unix)]
     #[test]
     fn remote_shutdown_failure_is_returned_after_successful_server_execution() {
         let error = combine_server_and_remote_shutdown_results(
