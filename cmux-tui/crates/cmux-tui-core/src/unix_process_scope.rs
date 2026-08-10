@@ -155,7 +155,7 @@ pub struct UnixProcessScope {
     track_before_finalization: bool,
     #[cfg(test)]
     final_scan_gate: Option<FinalScanTestGate>,
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     kernel_group_fence: bool,
 }
 
@@ -260,7 +260,7 @@ impl UnixProcessScope {
             track_before_finalization: true,
             #[cfg(test)]
             final_scan_gate: None,
-            #[cfg(test)]
+            #[cfg(all(test, target_os = "linux"))]
             kernel_group_fence: true,
         })
     }

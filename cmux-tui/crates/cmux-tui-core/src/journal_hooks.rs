@@ -6,7 +6,7 @@ use std::io::Write;
 use std::mem::size_of;
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
-#[cfg(all(test, unix))]
+#[cfg(all(test, target_os = "linux"))]
 use std::os::unix::process::CommandExt;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;

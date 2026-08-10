@@ -145,7 +145,7 @@ pub(crate) struct SessionJournalReader {
 
 impl SessionJournalReader {
     pub(crate) fn open(database_path: &Path) -> anyhow::Result<Self> {
-        let connection = Connection::open_with_flags(
+        let connection = open_registry_database_with_flags(
             database_path,
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )
