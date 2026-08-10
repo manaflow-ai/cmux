@@ -385,9 +385,11 @@ TEST("Unix transport times out and close unblocks receive") {
     auto* unix_transport = dynamic_cast<cmux::UnixTransport*>(transport.get());
     CHECK(unix_transport != nullptr);
     std::promise<void> receive_waiting;
+    std::once_flag receive_waiting_once;
     auto receive_ready = receive_waiting.get_future();
-    unix_transport->set_before_receive_wait_for_testing(
-        [&] { receive_waiting.set_value(); });
+    unix_transport->set_before_receive_wait_for_testing([&] {
+        std::call_once(receive_waiting_once, [&] { receive_waiting.set_value(); });
+    });
     std::thread reader([&] { read = transport->receive(std::chrono::seconds(30)); });
     CHECK(receive_ready.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
     transport->close();
