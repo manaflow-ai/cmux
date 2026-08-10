@@ -46,12 +46,14 @@ mock.module("@stackframe/stack", () => ({
     teams,
     teamId,
     onChange,
+    allowNull,
   }: {
     teams: Array<{ id: string }>;
     teamId?: string;
     onChange: (
       team: { id: string; displayName: string } | null,
     ) => Promise<void>;
+    allowNull?: boolean;
   }) => {
     handlers.switchOrganization = onChange;
     return (
@@ -59,6 +61,7 @@ mock.module("@stackframe/stack", () => ({
         data-testid="team-switcher"
         data-team-id={teamId}
         data-team-ids={teams.map((team) => team.id).join(",")}
+        data-allow-null={allowNull}
       />
     );
   },
@@ -223,6 +226,43 @@ describe("dashboard account menu", () => {
 
     expect(html).toContain('href="/dashboard/team"');
     expect(html).not.toContain("animate-pulse");
+  });
+
+  test("keeps a null Stack selection on the authorized personal organization", () => {
+    organizationQuery = {
+      data: {
+        selectedTeamId: null,
+        teams: [
+          {
+            id: "user-lawrence",
+            name: "Personal",
+            personal: true,
+            permissions: { use: true, manageAccounts: true },
+          },
+          {
+            id: "team-2",
+            name: "Team",
+            personal: false,
+            permissions: { use: true, manageAccounts: true },
+          },
+        ],
+      },
+      isPending: false,
+      isError: false,
+    };
+    currentUser = {
+      id: "user-lawrence",
+      displayName: "Lawrence",
+      primaryEmail: "lawrence@example.com",
+      signOut: async () => undefined,
+      selectedTeam: null,
+      useTeams: () => [{ id: "team-2", displayName: "Team" }],
+      setSelectedTeam: async () => undefined,
+    };
+    const html = renderToStaticMarkup(<DashboardAccountMenu />);
+
+    expect(html).toContain('data-allow-null="true"');
+    expect(html).not.toContain('data-team-id="team-2"');
   });
 
   test("rejects malformed organization entries at the response boundary", () => {
