@@ -8,7 +8,7 @@ use crate::browser::{BrowserSource, BrowserStatus};
 use crate::model::{Node, State};
 use crate::resource::{
     ContentPublicId, PanePublicId, SplitPublicId, TabPublicId, TabResourceIdentity,
-    WorkspacePublicId,
+    TerminalPublicId, WorkspacePublicId,
 };
 use crate::resource_api::{public_terminal_snapshot, terminal_tab_ids_in_canonical_order};
 use crate::workspace_registry::{
@@ -591,7 +591,7 @@ impl ResourceEffectProjection {
     /// terminals have no runtime or views.
     pub(super) fn ensure_terminal_close(
         &mut self,
-        terminal_id: &crate::resource::TerminalPublicId,
+        terminal_id: &TerminalPublicId,
         expected_incarnation: Option<&str>,
     ) -> anyhow::Result<()> {
         anyhow::ensure!(
@@ -652,6 +652,19 @@ impl Mux {
         state: &mut State,
         result: Value,
     ) -> anyhow::Result<ResourceEffectProjection> {
+        self.resource_effect_projection_preserving_terminal_locked(registry, state, result, None)
+    }
+
+    /// Project live state while one terminal exit transaction retains its
+    /// durable receipt. The registry still reports that terminal as running
+    /// until the lifecycle and topology changes commit together.
+    pub(super) fn resource_effect_projection_preserving_terminal_locked(
+        &self,
+        registry: &WorkspaceRegistry,
+        state: &mut State,
+        result: Value,
+        retained_terminal_id: Option<&TerminalPublicId>,
+    ) -> anyhow::Result<ResourceEffectProjection> {
         let before = registry.resource_topology_snapshot()?;
         let terminal_records = registry
             .terminal_snapshot()?
@@ -664,7 +677,7 @@ impl Mux {
         // Exited terminals are durable receipts with no runtime. Their absence
         // from live state is not an explicit close.
         let terminal_resources = registry.live_terminal_resource_ids()?;
-        let exited_terminal_ids = terminal_resources
+        let mut preserved_terminal_ids = terminal_resources
             .iter()
             .filter_map(|(host_id, terminal_id)| {
                 terminal_records
@@ -673,6 +686,9 @@ impl Mux {
                     .then(|| terminal_id.clone())
             })
             .collect::<HashSet<_>>();
+        if let Some(terminal_id) = retained_terminal_id {
+            preserved_terminal_ids.insert(terminal_id.clone());
+        }
         let before_terminal_ids =
             terminal_resources.into_iter().map(|(_, terminal_id)| terminal_id).collect::<Vec<_>>();
         // Local UI mutations can attach resource-identified surfaces before
@@ -1055,7 +1071,7 @@ impl Mux {
         let mut tombstoned_browsers = HashSet::new();
         for terminal_id in &before_terminal_ids {
             if !live_terminals.contains(terminal_id)
-                && !exited_terminal_ids.contains(terminal_id)
+                && !preserved_terminal_ids.contains(terminal_id)
                 && tombstoned_terminals.insert(terminal_id.clone())
             {
                 changes.push(ResourceChange::TombstoneTerminal {
@@ -1074,7 +1090,7 @@ impl Mux {
             match &tab.content_id {
                 ContentPublicId::Terminal(id)
                     if !live_terminals.contains(id)
-                        && !exited_terminal_ids.contains(id)
+                        && !preserved_terminal_ids.contains(id)
                         && tombstoned_terminals.insert(id.clone()) =>
                 {
                     changes.push(ResourceChange::TombstoneTerminal {
@@ -1127,15 +1143,15 @@ impl Mux {
         let mut deleted_content = HashSet::new();
         for terminal_id in &before_terminal_ids {
             if !live_terminals.contains(terminal_id)
-                && !exited_terminal_ids.contains(terminal_id)
+                && !preserved_terminal_ids.contains(terminal_id)
                 && deleted_content.insert(("terminal", terminal_id.as_str()))
             {
                 push_delete_delta(&mut deltas, "terminal", terminal_id.as_str());
             }
         }
         for tab in &before.tabs {
-            let preserves_exited_terminal = match &tab.content_id {
-                ContentPublicId::Terminal(id) => exited_terminal_ids.contains(id),
+            let preserves_terminal_receipt = match &tab.content_id {
+                ContentPublicId::Terminal(id) => preserved_terminal_ids.contains(id),
                 ContentPublicId::Browser(_) => false,
             };
             let (kind, id) = match &tab.content_id {
@@ -1143,7 +1159,7 @@ impl Mux {
                 ContentPublicId::Browser(id) => ("browser", id.as_str()),
             };
             if !live_keys.contains(&(kind.to_string(), id.to_string()))
-                && !preserves_exited_terminal
+                && !preserves_terminal_receipt
                 && deleted_content.insert((kind, id))
             {
                 push_delete_delta(&mut deltas, kind, id);

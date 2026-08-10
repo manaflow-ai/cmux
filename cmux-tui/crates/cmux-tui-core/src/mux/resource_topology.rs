@@ -2267,8 +2267,12 @@ impl Mux {
             "terminal exit retained its catalog runtime"
         );
         let selection_resync = selection_before != active_tree_selection(&projected);
-        let projection =
-            self.resource_effect_projection_locked(registry, &mut projected, json!({}))?;
+        let projection = self.resource_effect_projection_preserving_terminal_locked(
+            registry,
+            &mut projected,
+            json!({}),
+            Some(terminal_public_id),
+        )?;
         anyhow::ensure!(
             !projection.patch.changes.iter().any(|change| matches!(
                 change,
