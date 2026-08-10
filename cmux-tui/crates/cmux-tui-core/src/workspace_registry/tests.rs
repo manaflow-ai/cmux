@@ -5060,7 +5060,13 @@ fn journal_agent_projection_rebuild_is_bounded_and_resumable() {
 
     Connection::open(&database)
         .unwrap()
-        .execute("DELETE FROM meta WHERE key = 'agent_projection_journal_sequence_v1'", [])
+        .execute_batch(
+            "DELETE FROM meta
+             WHERE key IN (
+               'agent_projection_journal_sequence_v1',
+               'agent_projection_journal_candidate_sequence_v1'
+             );",
+        )
         .unwrap();
 
     let reopened = WorkspaceRegistry::open(&root, session).unwrap();
@@ -5093,6 +5099,114 @@ fn journal_agent_projection_rebuild_is_bounded_and_resumable() {
         .unwrap();
     assert_eq!(resumed_cursor, head_sequence);
     drop(reopened_again);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn journal_agent_legacy_upgrade_without_candidate_replays_hook_events() {
+    let root = temp_root("journal-agent-upgrade-without-candidate");
+    let session = "journal-agent-upgrade-without-candidate";
+    let database = root.join(session_storage_component(session)).join(WORKSPACE_REGISTRY_FILE);
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, session).unwrap();
+        commit_terminal_topology(&mut registry, "journal-agent-upgrade-without-candidate-topology");
+        let ingress = crate::agent_hook_journal_ingress(
+            "pi",
+            "AgentStart",
+            Some(terminal_id.as_str()),
+            json!({"session_id":"legacy-hook-session"}),
+        )
+        .unwrap();
+        let validated = crate::journal_kernel::ValidatedJournalIngress {
+            class: JournalClass::Observation,
+            replay: JournalReplayPolicy::Advisory,
+            sensitivity: JournalSensitivity::Sensitive,
+        };
+        registry
+            .append_journal_ingress(
+                &ingress,
+                &validated,
+                "client_upgrade_without_candidate",
+                "journal_agent_upgrade_without_candidate",
+            )
+            .unwrap();
+    }
+
+    Connection::open(&database)
+        .unwrap()
+        .execute_batch(
+            "DELETE FROM resource_agent_projections;
+             DELETE FROM meta
+             WHERE key IN (
+               'agent_projection_journal_sequence_v1',
+               'agent_projection_journal_candidate_sequence_v1'
+             );",
+        )
+        .unwrap();
+
+    let reopened = WorkspaceRegistry::open(&root, session).unwrap();
+    let agent = reopened.public_projections().unwrap().agents.remove(0);
+    assert_eq!(agent.state, "working");
+    assert_eq!(agent.source, "hook");
+    assert_eq!(agent.source_session.as_deref(), Some("legacy-hook-session"));
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn journal_agent_rebuild_includes_resource_agent_reports() {
+    let root = temp_root("journal-agent-resource-report-rebuild");
+    let session = "journal-agent-resource-report-rebuild";
+    let database = root.join(session_storage_component(session)).join(WORKSPACE_REGISTRY_FILE);
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, session).unwrap();
+        commit_terminal_topology(&mut registry, "journal-agent-resource-report-rebuild-topology");
+        let result = json!({
+            "id":agent_resource(&terminal_id),
+            "session_id":registry.session_id(),
+            "terminal_id":terminal_id,
+            "state":"idle",
+            "source":"socket",
+            "updated_at_ms":"42",
+            "source_session":"resource-report-session",
+            "extra":{"provider":"socket-test"},
+        });
+        registry
+            .commit_agent_projection(
+                &WorkspaceMutation::new(
+                    "journal-agent-resource-report-rebuild",
+                    "socket-test",
+                )
+                .unwrap(),
+                &json!({"source_session":"resource-report-session"}),
+                Some(1),
+                &terminal_id,
+                &result,
+                &json!([]),
+            )
+            .unwrap();
+    }
+
+    Connection::open(&database)
+        .unwrap()
+        .execute_batch(
+            "DELETE FROM resource_agent_projections;
+             DELETE FROM meta
+             WHERE key IN (
+               'agent_projection_journal_sequence_v1',
+               'agent_projection_journal_candidate_sequence_v1'
+             );",
+        )
+        .unwrap();
+
+    let reopened = WorkspaceRegistry::open(&root, session).unwrap();
+    let agent = reopened.public_projections().unwrap().agents.remove(0);
+    assert_eq!(agent.state, "idle");
+    assert_eq!(agent.source, "socket");
+    assert_eq!(agent.source_session.as_deref(), Some("resource-report-session"));
+    drop(reopened);
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -5704,6 +5818,58 @@ fn journal_agent_final_socket_without_provider_overrides_same_session_hook_state
     let agent = registry.public_projections().unwrap().agents.remove(0);
     assert_eq!(agent.state, "done");
     assert_eq!(agent.source, "socket");
+    assert_eq!(agent.source_session.as_deref(), Some("shared-session"));
+}
+
+#[test]
+fn journal_agent_stale_final_socket_does_not_replace_newer_hook_state() {
+    let mut registry = WorkspaceRegistry::in_memory("journal-agent-stale-final-socket").unwrap();
+    commit_terminal_topology(&mut registry, "journal-agent-stale-final-socket-topology");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let ingress = crate::agent_hook_journal_ingress(
+        "pi",
+        "AgentStart",
+        Some(terminal_id.as_str()),
+        json!({"session_id":"shared-session"}),
+    )
+    .unwrap();
+    let validated = crate::journal_kernel::ValidatedJournalIngress {
+        class: JournalClass::Observation,
+        replay: JournalReplayPolicy::Advisory,
+        sensitivity: JournalSensitivity::Sensitive,
+    };
+    registry
+        .append_journal_ingress(
+            &ingress,
+            &validated,
+            "client_stale_final_socket",
+            "journal_agent_stale_final_socket_hook",
+        )
+        .unwrap();
+    let result = json!({
+        "id":agent_resource(&terminal_id),
+        "session_id":registry.session_id(),
+        "terminal_id":terminal_id,
+        "state":"done",
+        "source":"socket",
+        "updated_at_ms":"1",
+        "source_session":"shared-session",
+        "extra":{"provider":"pi"},
+    });
+    registry
+        .commit_agent_projection(
+            &WorkspaceMutation::new("journal-agent-stale-final-socket", "socket-test").unwrap(),
+            &json!({"source_session":"shared-session"}),
+            Some(1),
+            &terminal_id,
+            &result,
+            &json!([]),
+        )
+        .unwrap();
+
+    let agent = registry.public_projections().unwrap().agents.remove(0);
+    assert_eq!(agent.state, "working");
+    assert_eq!(agent.source, "hook");
     assert_eq!(agent.source_session.as_deref(), Some("shared-session"));
 }
 
