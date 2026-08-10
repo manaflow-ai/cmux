@@ -18382,6 +18382,15 @@ mod tests {
             state.admitted_jobs = CELL_PIXEL_FANOUT_MAX_WORKERS;
         }
 
+        // Make the live survivor part of the rejected contraction wave. The
+        // close below otherwise only needs to disable the retiring surface,
+        // so process-isolated runs can correctly block that surface alone.
+        {
+            let mut budget = mux.kitty_image_budget.lock().unwrap();
+            let survivor = budget.entries.get_mut(&first.id).unwrap();
+            survivor.applied.image_bytes = survivor.applied.image_bytes.saturating_add(1);
+        }
+
         close_terminal_runtime_for_test(&mux, &second);
         let deadline = Instant::now() + Duration::from_secs(2);
         while mux.kitty_image_budget.lock().unwrap().worker_running && Instant::now() < deadline {
