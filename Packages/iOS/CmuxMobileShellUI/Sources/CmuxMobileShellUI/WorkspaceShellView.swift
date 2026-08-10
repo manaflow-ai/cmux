@@ -179,10 +179,11 @@ struct WorkspaceShellView: View {
     @State private var workspacesStackIsOnScreen = false
     @State private var notificationsStackIsOnScreen = false
     // Set when a workspace is opened from search results: popping back then
-    // finishes the search round on the Workspaces tab with the query cleared,
-    // instead of stranding the user on a deactivated search tab whose selected
-    // (tinted) search control suggests a search is still in progress.
-    @State private var searchSelectionReturnsToWorkspaces = false
+    // restores the search session exactly as it was left (query, filtered
+    // results, the field presented at the bottom). The session itself has to
+    // end across the push — kept alive, the system re-hosts the field in the
+    // top navigation bar when the detail pops.
+    @State private var searchSelectionRestoresSearchOnPop = false
     @State private var showingRootSettings = false
     @State private var settingsPairingScannerHandoff = SettingsPairingScannerHandoff()
     @State private var showingRootDeviceTree = false
@@ -304,15 +305,17 @@ struct WorkspaceShellView: View {
                 if oldValue == .search, newValue != .search {
                     notificationSearchNavigationPath = []
                     workspaceSearchNavigationPath = []
-                    searchSelectionReturnsToWorkspaces = false
+                    searchSelectionRestoresSearchOnPop = false
                 }
             }
             .onChange(of: workspaceSearchNavigationPath) { _, path in
-                guard path.isEmpty, searchSelectionReturnsToWorkspaces else { return }
-                searchSelectionReturnsToWorkspaces = false
+                guard path.isEmpty, searchSelectionRestoresSearchOnPop else { return }
+                searchSelectionRestoresSearchOnPop = false
                 guard selectedPrimaryTab == .search else { return }
-                primarySearchCoordinator.workspaces = ""
-                selectedPrimaryTab = .workspaces
+                // Re-activate as a fresh presentation: it anchors at the
+                // bottom like a search-control tap and pulls the query back
+                // from the commit made when the result was selected.
+                primarySearchCoordinator.setPresentation(true)
             }
             .onChange(of: store.deeplinkWorkspaceNavigationRequest) { _, request in
                 guard request != nil else { return }
@@ -956,15 +959,15 @@ struct WorkspaceShellView: View {
 
     /// Opens a workspace tapped in the search results by pushing it onto the
     /// search tab's own stack — no tab transition, so the push cannot land on
-    /// an off-window stack. Choosing a result also ends the search session
-    /// (committing the query, like every other search exit): left presented,
-    /// the field re-presents after popping anchored to the navigation bar at
-    /// the top instead of the search tab's bottom control. Popping back lands
-    /// on the still-filtered results with the bottom search control collapsed.
+    /// an off-window stack. The platform search session must end across the
+    /// push (committing the query preserves it): left presented, the field
+    /// re-presents after popping anchored to the navigation bar at the top
+    /// instead of the search tab's bottom control. Popping back restores the
+    /// session from that commit, exactly as it was left.
     private func selectWorkspaceFromSearch(_ id: MobileWorkspacePreview.ID) {
         pendingCompactCreateNavigationWorkspaceIDs = nil
         primarySearchCoordinator.deactivateCurrentSearch()
-        searchSelectionReturnsToWorkspaces = true
+        searchSelectionRestoresSearchOnPop = true
         store.selectedWorkspaceID = id
         if workspaceSearchNavigationPath.last != id {
             workspaceSearchNavigationPath = [id]

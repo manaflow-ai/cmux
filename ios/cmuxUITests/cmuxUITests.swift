@@ -1228,38 +1228,29 @@ final class cmuxUITests: XCTestCase {
         guard waitForVisibleElement(in: workspaceListTables, app: app, timeout: 3) != nil else {
             return XCTFail("Workspaces list did not return after popping the detail")
         }
-        // Popping the detail finishes the search round on the Workspaces tab
-        // with the query cleared and the bottom search control collapsed.
-        guard waitForKeyboardDismissal(in: app) else {
-            return XCTFail("Keyboard stayed up after popping back from the search detail")
+        // Popping the detail restores the search session exactly as left:
+        // the field presented with the query and the results still filtered.
+        guard searchField.waitForExistence(timeout: 3) else {
+            return XCTFail("Search field missing after popping back from the detail")
         }
-        guard workspacesTab.waitForExistence(timeout: 3) else {
-            return XCTFail("Workspaces tab pill missing after popping the search detail")
-        }
-        XCTAssertTrue(
-            workspacesTab.isSelected,
-            "Popping the search-opened workspace must land on the Workspaces tab"
+        XCTAssertEqual(
+            searchField.value as? String,
+            "Docs",
+            "Restored search field must carry the query from before the push"
         )
-        guard minimizedSearch.waitForExistence(timeout: 3) else {
-            return XCTFail("Minimized search control missing after finishing the search round")
-        }
         guard waitForHittable(docsRow, timeout: 3) else {
-            return XCTFail("Workspaces list missing rows after finishing the search round")
+            return XCTFail("Matching row missing from the restored search results")
         }
-        guard waitForHittable(mainRow, timeout: 3) else {
-            return XCTFail("Query must be cleared after finishing the search round")
+        guard waitForNotHittable(mainRow, timeout: 3) else {
+            return XCTFail("Query filter lost on the restored search results")
         }
 
         // An explicit submit still commits the query as the Workspaces filter;
         // that committed filter must survive a list refresh.
-        tap(minimizedSearch, in: app)
-        guard waitForHittable(searchField, timeout: 3) else {
-            return XCTFail("Search field missing when reactivating search for submit")
-        }
         guard focusTextInput(searchField, in: app) else {
-            return XCTFail("Could not focus the search field for submit")
+            return XCTFail("Could not focus the restored search field for submit")
         }
-        searchField.typeText("Docs\n")
+        searchField.typeText("\n")
         guard waitForVisibleElement(in: workspaceListTables, app: app, timeout: 3) != nil else {
             return XCTFail("Workspaces root list missing after submitting the query")
         }
@@ -1782,49 +1773,35 @@ final class cmuxUITests: XCTestCase {
         }
         XCTAssertTrue(workspaceList.waitForExistence(timeout: 3))
 
-        // Popping back finishes the search round on the Workspaces tab: the
-        // full unfiltered list, no query left silently applied, and no
-        // selected (tinted) search control suggesting a search is still live.
-        let workspacesTab = app.tabBars.buttons["Workspaces"]
-        XCTAssertTrue(workspacesTab.waitForExistence(timeout: 3))
+        // Popping back restores the exact search state from before the push:
+        // the field presented with the query, the results still filtered, and
+        // the field anchored at the bottom (the original regression re-hosted
+        // it in the top navigation bar).
         XCTAssertTrue(
-            workspacesTab.isSelected,
-            "Popping the search-opened workspace must land on the Workspaces tab"
+            searchField.waitForExistence(timeout: 3),
+            "Search field missing after popping back to the search results"
+        )
+        XCTAssertEqual(
+            searchField.value as? String,
+            "Docs",
+            "Restored search field must carry the query from before the push"
+        )
+        guard let fieldFrame = waitForUsableFrame(of: searchField, timeout: 3) else {
+            return XCTFail("Restored search field had no usable frame")
+        }
+        XCTAssertGreaterThan(
+            fieldFrame.midY,
+            app.frame.midY,
+            "Search field must restore at the bottom after popping, got \(fieldFrame)"
         )
         XCTAssertTrue(
             waitForHittable(docsRow, timeout: 3),
-            "Workspaces list missing rows after finishing the search round"
+            "Matching row missing from the restored search results"
         )
         XCTAssertTrue(
-            waitForHittable(mainRow, timeout: 3),
-            "Query must be cleared after finishing the search round, not left filtering the list"
+            waitForNotHittable(mainRow, timeout: 3),
+            "Query filter lost on the restored search results"
         )
-
-        // Any visible search affordance belongs to the bottom edge (the
-        // regression showed the field pinned to the top with the keyboard up).
-        let restoredSearchControl = app.tabBars.buttons
-            .matching(NSPredicate(format: "label == %@", "Search"))
-            .firstMatch
-        XCTAssertTrue(
-            restoredSearchControl.waitForExistence(timeout: 3),
-            "Bottom search control missing after popping the search detail"
-        )
-        if let controlFrame = waitForUsableFrame(of: restoredSearchControl, timeout: 3) {
-            XCTAssertGreaterThan(
-                controlFrame.midY,
-                app.frame.midY,
-                "Search control must sit at the bottom after popping, got \(controlFrame)"
-            )
-        } else {
-            XCTFail("Bottom search control had no usable frame after popping")
-        }
-        if searchField.exists, let fieldFrame = waitForUsableFrame(of: searchField, timeout: 1) {
-            XCTAssertGreaterThan(
-                fieldFrame.midY,
-                app.frame.midY,
-                "Search field must not re-present at the top after popping, got \(fieldFrame)"
-            )
-        }
     }
 
     @MainActor

@@ -178,7 +178,7 @@ public struct WorkspaceListLayoutPreviewView: View {
     @State private var fixtureRoute: FixtureWorkspaceRoute?
     // Mirrors the shell: search results push onto the search tab's own stack.
     @State private var searchFixturePath: [MobileWorkspacePreview.ID] = []
-    @State private var searchSelectionReturnsToWorkspaces = false
+    @State private var searchSelectionRestoresSearchOnPop = false
 
     private var scrollMetricsEnabled: Bool {
         ProcessInfo.processInfo.environment["CMUX_UITEST_SCROLL_METRICS"] == "1"
@@ -591,15 +591,14 @@ public struct WorkspaceListLayoutPreviewView: View {
         .onChange(of: selectedPrimaryTab) { oldValue, newValue in
             if oldValue == .search, newValue != .search {
                 searchFixturePath = []
-                searchSelectionReturnsToWorkspaces = false
+                searchSelectionRestoresSearchOnPop = false
             }
         }
         .onChange(of: searchFixturePath) { _, path in
-            guard path.isEmpty, searchSelectionReturnsToWorkspaces else { return }
-            searchSelectionReturnsToWorkspaces = false
+            guard path.isEmpty, searchSelectionRestoresSearchOnPop else { return }
+            searchSelectionRestoresSearchOnPop = false
             guard selectedPrimaryTab == .search else { return }
-            primarySearchCoordinator.workspaces = ""
-            selectedPrimaryTab = .workspaces
+            primarySearchCoordinator.setPresentation(true)
         }
         .overlay(alignment: .topLeading) {
             ZStack(alignment: .topLeading) {
@@ -638,11 +637,11 @@ public struct WorkspaceListLayoutPreviewView: View {
         selectedWorkspaceID = id
         if showsTabScaffold,
            selectedPrimaryTab == .search || primarySearchCoordinator.isPresented {
-            // Mirrors the shell: choosing a result ends the search session so
-            // the field re-collapses to the bottom control after popping back,
-            // and the pop finishes the round on the Workspaces tab.
+            // Mirrors the shell: the session ends across the push (kept
+            // presented it re-anchors to the top on pop) and is restored
+            // from the commit when the detail pops.
             primarySearchCoordinator.deactivateCurrentSearch()
-            searchSelectionReturnsToWorkspaces = true
+            searchSelectionRestoresSearchOnPop = true
             if searchFixturePath.last != id {
                 searchFixturePath = [id]
             }
