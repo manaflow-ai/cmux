@@ -158,7 +158,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                         );
                     }
                 };
-            let Some(reloaded) = result["reloaded"].as_bool() else {
+            if result["reloaded"].as_bool() != Some(true) {
                 return local_error(
                     "server.invalid_response",
                     crate::localization::catalog().local_server.invalid_response,
@@ -168,7 +168,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             };
             print_success(
                 json!({
-                    "reloaded":reloaded,
+                    "reloaded":true,
                     "session":actual_session,
                     "warnings":result["warnings"].as_array().cloned().unwrap_or_default(),
                     "message":crate::localization::catalog().local_server.reloaded,

@@ -5663,10 +5663,14 @@ fn handle_resource_connection_message(
             writer,
             id,
             operation,
-            Err(ResourceError::operation_failed(
-                operation_name,
+            Err(ResourceError::new(
+                "operation.failed",
                 "server lifecycle is not ready",
-                json!({}),
+                json!({
+                    "operation": operation_name,
+                    "reason": "lifecycle_not_ready",
+                }),
+                false,
             )),
         );
     }

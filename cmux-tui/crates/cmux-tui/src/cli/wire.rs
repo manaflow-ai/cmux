@@ -7,7 +7,7 @@ use std::time::Duration;
 use cmux_tui_core::platform::transport;
 use cmux_tui_core::resource::{
     EnvelopeType, MAX_MESSAGE_BYTES, OperationClass, PROTOCOL, ResponseEnvelope, StreamEndEnvelope,
-    StreamEndReason, StreamItemEnvelope,
+    ResourceOperation, StreamEndReason, StreamItemEnvelope,
 };
 use serde_json::{Value, json};
 
@@ -285,8 +285,9 @@ fn run_response(
                     continue;
                 }
                 if !response.ok {
-                    let error = serde_json::to_value(response.error.expect("validated error"))
+                    let mut error = serde_json::to_value(response.error.expect("validated error"))
                         .expect("resource errors serialize");
+                    localize_operation_error(plan, &mut error);
                     return print_operation_error(&error, global.output);
                 }
                 let result = response.result.expect("validated result");
@@ -429,6 +430,22 @@ fn print_success(value: &Value, output: OutputMode) -> i32 {
 
 fn print_operation_error(error: &Value, output: OutputMode) -> i32 {
     print_local_error(error, output, 1)
+}
+
+fn localize_operation_error(plan: &RequestPlan, error: &mut Value) {
+    let is_lifecycle_operation = matches!(
+        &plan.operation,
+        WireOperation::Typed(
+            ResourceOperation::SessionShutdown | ResourceOperation::SessionReloadConfig
+        )
+    );
+    if is_lifecycle_operation
+        && error["code"] == "operation.failed"
+        && error["details"]["reason"] == "lifecycle_not_ready"
+    {
+        error["message"] =
+            Value::String(crate::localization::catalog().local_server.starting.to_string());
+    }
 }
 
 pub(super) fn print_local_error(error: &Value, output: OutputMode, exit_code: i32) -> i32 {
