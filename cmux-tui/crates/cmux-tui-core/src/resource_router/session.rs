@@ -301,7 +301,7 @@ mod tests {
     }
 
     #[test]
-    fn failed_reload_replays_its_known_failure_receipt() {
+    fn stopped_owner_reload_replays_its_known_failure_receipt() {
         let mux = Mux::new_for_test("session-reload-failure", SurfaceOptions::default());
         mux.shutdown();
         let reload = || {
@@ -315,6 +315,36 @@ mod tests {
         let first = reload();
         let replay = reload();
         assert_eq!(first.code, "operation.failed");
+        assert_eq!(replay, first);
+    }
+
+    #[test]
+    fn timed_out_reload_remains_indeterminate_after_late_owner_completion() {
+        let mux = Mux::new_for_test("session-reload-timeout", SurfaceOptions::default());
+        let events = mux.subscribe_config_reload();
+        let worker_mux = mux.clone();
+        let worker = std::thread::spawn(move || {
+            dispatch(
+                &worker_mux,
+                request(ResourceOperation::SessionReloadConfig, "reload-timeout", json!({})),
+            )
+            .unwrap_err()
+        });
+
+        assert!(matches!(
+            events.recv_timeout(std::time::Duration::from_secs(1)),
+            Ok(MuxEvent::ConfigReloadRequested)
+        ));
+        let first = worker.join().unwrap();
+        let target = mux.begin_config_reload_application();
+        mux.complete_config_reload_application(target);
+        let replay = dispatch(
+            &mux,
+            request(ResourceOperation::SessionReloadConfig, "reload-timeout", json!({})),
+        )
+        .unwrap_err();
+
+        assert_eq!(first.code, "mutation.indeterminate");
         assert_eq!(replay, first);
     }
 

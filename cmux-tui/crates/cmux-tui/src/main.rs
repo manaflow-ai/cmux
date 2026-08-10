@@ -1783,11 +1783,13 @@ fn run_server(
     let _provider_management = provider_management_listener
         .map(|listener| cmux_tui_core::provider_management::serve(listener, mux.clone()))
         .transpose()?;
-    let owner_event_loop = if args.headless {
-        start_headless_local_owner_event_loop(&mux)
-    } else {
-        start_local_owner_event_loop(&mux)
-    };
+    let owner_event_loop = background_owner_reload_completion(args.headless).map(|complete_reload| {
+        if complete_reload {
+            start_headless_local_owner_event_loop(&mux)
+        } else {
+            start_local_owner_event_loop(&mux)
+        }
+    });
     let pending_server =
         match cmux_tui_core::server::serve_paused(mux.clone(), Some(socket_path.clone())) {
             Ok(server) => server,
@@ -1904,7 +1906,7 @@ fn run_server(
             Err(error) => Err(error),
         }
     };
-    let owner_event_result = owner_event_loop.finish();
+    let owner_event_result = owner_event_loop.map_or(Ok(()), LocalOwnerEventLoop::finish);
     #[cfg(unix)]
     let remote_shutdown_result = remote_runtime.map_or(Ok(()), |runtime| runtime.shutdown());
     drop(websocket_server);
@@ -1927,6 +1929,10 @@ fn dispatch_local_owner_event(event: &cmux_tui_core::MuxEvent, reload: impl FnOn
 
 fn local_owner_reload_events(mux: &Mux) -> cmux_tui_core::MuxEventReceiver {
     mux.subscribe_config_reload()
+}
+
+fn background_owner_reload_completion(headless: bool) -> Option<bool> {
+    Some(headless)
 }
 
 fn start_local_owner_event_loop(mux: &Arc<Mux>) -> LocalOwnerEventLoop {
@@ -2545,6 +2551,12 @@ mod tests {
         result_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap();
         worker.join().unwrap();
         event_loop.finish().unwrap();
+    }
+
+    #[test]
+    fn interactive_owner_uses_only_the_app_reload_path() {
+        assert_eq!(background_owner_reload_completion(false), None);
+        assert_eq!(background_owner_reload_completion(true), Some(true));
     }
 
     #[cfg(windows)]
