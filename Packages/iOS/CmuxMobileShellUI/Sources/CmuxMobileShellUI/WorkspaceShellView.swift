@@ -473,7 +473,7 @@ struct WorkspaceShellView: View {
             compactNavigationPath = [selectedWorkspaceID]
         }
         #if os(iOS)
-        .sheet(isPresented: $isTaskComposerPresented) {
+        .taskComposerPresentation(isPresented: $isTaskComposerPresented) {
             TaskComposerSheet(
                 store: store,
                 submitTaskComposer: submitTaskComposerFromShell

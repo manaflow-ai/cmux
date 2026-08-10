@@ -115,7 +115,7 @@ public struct TaskComposerAccessibilityPreviewView: View {
                     TaskComposerSubmissionHistoryProbe(attempts: submissionAttempts)
                 }
             }
-            .sheet(isPresented: $isPresented) {
+            .taskComposerPresentation(isPresented: $isPresented) {
                 if presentsTemplateForm {
                     TaskTemplateFormView(template: nil, onSave: { _ in })
                 } else if presentsDirectoryPicker {
