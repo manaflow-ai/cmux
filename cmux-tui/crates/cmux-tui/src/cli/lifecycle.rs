@@ -109,12 +109,12 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         );
     };
     if expected_session.as_deref().is_some_and(|expected| actual_session != expected) {
-        let message = crate::localization::catalog()
-            .local_server
-            .different_session
-            .replace("{expected}", &session)
-            .replace("{actual}", actual_session);
-        return local_error("server.different_session", &message, global.output, 1);
+        return local_error(
+            "server.different_session",
+            crate::localization::catalog().local_server.different_session,
+            global.output,
+            1,
+        );
     }
 
     match plan.action {
