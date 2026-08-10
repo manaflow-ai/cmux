@@ -5586,6 +5586,37 @@ mod tests {
         assert!(matches!(result, GhosttyHelperDefaults::Resolved(_)));
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn ghostty_process_scan_waits_for_the_process_creation_barrier() {
+        let barrier = cmux_tui_process::ProcessCreationGuard::acquire();
+        let (started_sender, started_receiver) = mpsc::channel();
+        let (result_sender, result_receiver) = mpsc::channel();
+        let helper = std::thread::spawn(move || {
+            started_sender.send(()).unwrap();
+            let result = ghostty_helper_process_table_snapshot();
+            result_sender.send(result).unwrap();
+        });
+        let started = started_receiver.recv_timeout(Duration::from_secs(1)).is_ok();
+        let early = result_receiver.recv_timeout(Duration::from_millis(250));
+        let waited = matches!(&early, Err(mpsc::RecvTimeoutError::Timeout));
+
+        drop(barrier);
+        let result = match early {
+            Ok(result) => result,
+            Err(mpsc::RecvTimeoutError::Timeout) => result_receiver
+                .recv_timeout(Duration::from_secs(5))
+                .expect("process scan did not resume after the process barrier was released"),
+            Err(mpsc::RecvTimeoutError::Disconnected) => None,
+        };
+        let helper_result = helper.join();
+
+        assert!(started, "process scan worker did not reach process creation");
+        assert!(helper_result.is_ok(), "process scan worker panicked");
+        assert!(waited, "Ghostty process scan spawned while descriptor setup held the barrier");
+        assert!(result.is_some(), "process scan did not return a process table");
+    }
+
     #[cfg(unix)]
     #[test]
     fn ghostty_config_helper_cleanup_reaps_killed_child() {
