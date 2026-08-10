@@ -406,6 +406,8 @@ extension Workspace {
         let customTitleSource: CustomTitleSource? = customTitle != nil
             ? (panelCustomTitleSources[panelId] ?? .user)
             : nil
+        let customColor = surfaceIdFromPanelId(panelId)
+            .flatMap { bonsplitController.tab($0)?.customColor }
         let directory: String? = {
             if let directory = panelDirectories[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
                !directory.isEmpty {
@@ -726,6 +728,7 @@ extension Workspace {
             title: panelTitle,
             customTitle: customTitle,
             customTitleSource: customTitleSource,
+            customColor: customColor,
             directory: directory,
             directoryIsTrustedRemoteReport: directoryIsTrustedRemoteReport,
             directoryRequiresRemoteTrust: directoryRequiresRemoteTrust ? true : nil,
@@ -1871,6 +1874,7 @@ extension Workspace {
 
         setPanelCustomTitle(panelId: panelId, title: snapshot.customTitle, source: snapshot.customTitleSource ?? .user)
         setPanelPinned(panelId: panelId, pinned: snapshot.isPinned)
+        _ = setSurfaceColor(panelId: panelId, color: snapshot.customColor)
 
         // The bonsplit tab header only refreshes when `updateTab` is called; the writes
         // above never reach it (`setPanelCustomTitle` skips the sync when there is no
@@ -4603,6 +4607,21 @@ final class Workspace: Identifiable, ObservableObject {
                 workspaceId: id, panelId: panelId, title: trimmed
             )
         }
+        return true
+    }
+
+    @discardableResult
+    func setSurfaceColor(panelId: UUID, color: String?) -> Bool {
+        guard panels[panelId] != nil,
+              let tabId = surfaceIdFromPanelId(panelId) else { return false }
+        let normalized: String?
+        if let color {
+            guard let value = WorkspaceTabColorSettings.normalizedHex(color) else { return false }
+            normalized = value
+        } else {
+            normalized = nil
+        }
+        bonsplitController.updateTab(tabId, customColor: .some(normalized))
         return true
     }
 
@@ -13290,6 +13309,11 @@ extension Workspace: BonsplitDelegate {
         case .clearName:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             setPanelCustomTitle(panelId: panelId, title: nil)
+        case .setColor:
+            promptSurfaceColor(panelId: panelIdFromSurfaceId(tab.id))
+        case .clearColor:
+            guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
+            _ = setSurfaceColor(panelId: panelId, color: nil)
         case .copyIdentifiers:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             copyIdentifiersToPasteboard(surfaceId: panelId)
@@ -13357,6 +13381,26 @@ extension Workspace: BonsplitDelegate {
         @unknown default:
             break
         }
+    }
+
+    private func promptSurfaceColor(panelId: UUID?) {
+        guard let panelId else { return }
+        let palette = WorkspaceTabColorSettings.palette()
+        guard !palette.isEmpty else { return }
+        let picker = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 240, height: 26))
+        picker.addItems(withTitles: palette.map(\.name))
+        if let current = surfaceIdFromPanelId(panelId).flatMap({ bonsplitController.tab($0)?.customColor }),
+           let index = palette.firstIndex(where: { $0.hex == current }) {
+            picker.selectItem(at: index)
+        }
+
+        let alert = NSAlert()
+        alert.messageText = String(localized: "alert.tabColor.title", defaultValue: "Set Tab Color")
+        alert.accessoryView = picker
+        alert.addButton(withTitle: String(localized: "alert.customColor.apply", defaultValue: "Apply"))
+        alert.addButton(withTitle: String(localized: "alert.customColor.cancel", defaultValue: "Cancel"))
+        guard alert.runCmuxModal() == .alertFirstButtonReturn else { return }
+        _ = setSurfaceColor(panelId: panelId, color: palette[picker.indexOfSelectedItem].hex)
     }
 
     private func handleForkConversationContextAction(_ action: TabContextAction, for tab: Bonsplit.Tab, inPane pane: PaneID) {
