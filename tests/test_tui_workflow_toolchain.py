@@ -5,8 +5,9 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui.yml"
 VALGRIND_PIDFD_SKIPS = ROOT / "cmux-tui" / "dist" / "valgrind-pidfd-skips.txt"
+VALGRIND_EXECUTION_JOB = "valgrind-leak-check-shard"
 RUST_JOBS = (
-    "valgrind-leak-check",
+    VALGRIND_EXECUTION_JOB,
     "test",
     "bindings-e2e",
     "windows-experimental",
@@ -75,7 +76,7 @@ def test_valgrind_fallback_keeps_non_pidfd_tests() -> None:
         test_name for scope, test_name in entries if scope == "cmux_tui_core"
     }
 
-    valgrind_job = job_block(WORKFLOW.read_text(), "valgrind-leak-check")
+    valgrind_job = job_block(WORKFLOW.read_text(), VALGRIND_EXECUTION_JOB)
     assert "Skipping pidfd-dependent test binary" not in valgrind_job
     assert "dist/valgrind-pidfd-skips.txt" in valgrind_job
     assert "test_scope=browser_runtime" in valgrind_job
