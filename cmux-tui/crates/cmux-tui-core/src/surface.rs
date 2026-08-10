@@ -1265,6 +1265,7 @@ pub struct PtyTerminalRuntime {
     pwd: Mutex<Option<String>>,
     geometry: Mutex<PtyGeometry>,
     kitty_graphics_limits: Box<Mutex<KittyGraphicsLimits>>,
+    kitty_graphics_retired: AtomicBool,
     #[cfg(test)]
     geometry_test_hook: Mutex<Option<PtyGeometryTestHook>>,
     #[cfg(test)]
@@ -1862,6 +1863,10 @@ impl Surface {
         }
     }
 
+    pub(crate) fn terminal_mux(&self) -> Option<Arc<Mux>> {
+        self.as_pty()?.mux.upgrade()
+    }
+
     /// Create another view placement for this terminal without creating a
     /// second process or terminal emulator.
     pub(crate) fn project_terminal(
@@ -2181,6 +2186,7 @@ impl Surface {
                 pwd: Mutex::new(None),
                 geometry: Mutex::new(initial_geometry),
                 kitty_graphics_limits: Box::new(Mutex::new(initial_kitty_limits)),
+                kitty_graphics_retired: AtomicBool::new(false),
                 #[cfg(test)]
                 geometry_test_hook: Mutex::new(None),
                 #[cfg(test)]
@@ -2591,6 +2597,7 @@ impl Surface {
                     cell_height: snapshot.cell_pixels.1,
                 }),
                 kitty_graphics_limits: Box::new(Mutex::new(snapshot.kitty_state.limits)),
+                kitty_graphics_retired: AtomicBool::new(false),
                 #[cfg(test)]
                 geometry_test_hook: Mutex::new(None),
                 #[cfg(test)]
@@ -3519,6 +3526,7 @@ impl Surface {
                     cell_height: cell_pixels.1,
                 }),
                 kitty_graphics_limits: Box::new(Mutex::new(initial_kitty_limits)),
+                kitty_graphics_retired: AtomicBool::new(false),
                 #[cfg(test)]
                 geometry_test_hook: Mutex::new(None),
                 #[cfg(test)]
@@ -3736,6 +3744,7 @@ impl Surface {
                 pwd: Mutex::new(None),
                 geometry: Mutex::new(initial_geometry),
                 kitty_graphics_limits: Box::new(Mutex::new(initial_kitty_limits)),
+                kitty_graphics_retired: AtomicBool::new(false),
                 geometry_test_hook: Mutex::new(None),
                 deferred_cell_pixel_ack_test_hook: Mutex::new(None),
                 test_master_control: Some(test_master_control),
@@ -3872,6 +3881,48 @@ impl Surface {
         terminal.set_kitty_graphics_limits(limits).map_err(Into::into)
     }
 
+    fn apply_local_kitty_graphics_limits(
+        pty: &PtyTerminalRuntime,
+        requested: KittyGraphicsLimits,
+    ) -> anyhow::Result<()> {
+        let graphics_changed = {
+            let mut term = pty.term.lock().unwrap();
+            let mut limits = pty.kitty_graphics_limits.lock().unwrap();
+            let next = if pty.kitty_graphics_retired.load(Ordering::Acquire) {
+                KittyGraphicsLimits::disabled()
+            } else {
+                requested
+            };
+            if *limits == next {
+                return Ok(());
+            }
+            let graphics_changed = Self::configure_terminal_kitty_graphics_limits(&mut term, next)?;
+            *limits = next;
+            pty.resynchronize_attach_taps_locked(&mut term);
+            if graphics_changed {
+                let mut render = pty.render.lock().unwrap();
+                render.state.clear_kitty_graphics_cache();
+                render.latest = None;
+                render.initial_graphics = None;
+            }
+            graphics_changed
+        };
+        if !graphics_changed {
+            return Ok(());
+        }
+        let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
+        pty.request_frame(generation);
+        Ok(())
+    }
+
+    /// Release parser and render graphics after the runtime can no longer
+    /// publish output. This does not contact an exited terminal host.
+    pub(crate) fn release_kitty_graphics_for_retirement(&self) -> anyhow::Result<()> {
+        let Some(pty) = self.as_pty() else { return Ok(()) };
+        pty.kitty_graphics_retired.store(true, Ordering::Release);
+        Self::apply_local_kitty_graphics_limits(pty, KittyGraphicsLimits::disabled())
+    }
+
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn set_kitty_graphics_limits(
         &self,
@@ -3895,6 +3946,11 @@ impl Surface {
     ) -> anyhow::Result<()> {
         let Some(pty) = self.as_pty() else {
             return Ok(());
+        };
+        let requested = if pty.kitty_graphics_retired.load(Ordering::Acquire) {
+            KittyGraphicsLimits::disabled()
+        } else {
+            requested
         };
         let requested = requested
             .validate()
@@ -3921,29 +3977,7 @@ impl Surface {
         };
         #[cfg(not(unix))]
         let next = requested;
-        let graphics_changed = {
-            let mut term = pty.term.lock().unwrap();
-            let mut limits = pty.kitty_graphics_limits.lock().unwrap();
-            if *limits == next {
-                return Ok(());
-            }
-            let graphics_changed = Self::configure_terminal_kitty_graphics_limits(&mut term, next)?;
-            *limits = next;
-            pty.resynchronize_attach_taps_locked(&mut term);
-            if graphics_changed {
-                let mut render = pty.render.lock().unwrap();
-                render.state.clear_kitty_graphics_cache();
-                render.latest = None;
-                render.initial_graphics = None;
-            }
-            graphics_changed
-        };
-        if !graphics_changed {
-            return Ok(());
-        }
-        let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
-        pty.request_frame(generation);
-        Ok(())
+        Self::apply_local_kitty_graphics_limits(pty, next)
     }
 
     /// Return the coalesced revision advanced after terminal output or another

@@ -6912,11 +6912,11 @@ impl Mux {
     fn terminate_terminal_runtime(&self, runtime: &Arc<Surface>) {
         let identity = self.resource_terminal_host_identity(runtime);
         #[cfg(unix)]
-        let acknowledged = match runtime
+        let (acknowledged, runtime_stopped) = match runtime
             .terminate_host_and_wait_for_exit(Instant::now() + TERMINAL_HOST_CLOSE_WAIT)
         {
-            Ok(Some((path, exit))) => acknowledge_exact_terminal_host_exit(&path, &exit),
-            Ok(None) => false,
+            Ok(Some((path, exit))) => (acknowledge_exact_terminal_host_exit(&path, &exit), true),
+            Ok(None) => (false, true),
             Err(error) => {
                 if let Some(identity) = identity.as_ref() {
                     eprintln!(
@@ -6924,10 +6924,15 @@ impl Mux {
                         identity.terminal_id
                     );
                 }
-                false
+                (false, runtime.is_dead())
             }
         };
+        #[cfg(not(unix))]
+        let runtime_stopped = true;
         runtime.kill();
+        if runtime_stopped {
+            self.finish_terminal_kitty_retirement(runtime);
+        }
         #[cfg(unix)]
         if !acknowledged && let Some(identity) = identity {
             self.terminate_discovered_terminal_host(
@@ -7909,6 +7914,32 @@ impl Mux {
         self.kitty_image_budget_changed.notify_all();
         self.start_kitty_image_budget_worker();
         Ok(())
+    }
+
+    fn finish_terminal_kitty_retirement(&self, surface: &Surface) {
+        let Some(mux) = surface.terminal_mux() else { return };
+        debug_assert!(std::ptr::eq(self, Arc::as_ptr(&mux)));
+        mux.retire_kitty_image_resource(surface);
+    }
+
+    /// A view can retain a terminal after the resource leaves the catalog.
+    /// Clear retained graphics before stable runtime retirement frees quota.
+    fn retire_kitty_image_resource(self: &Arc<Self>, surface: &Surface) {
+        let runtime_id = surface.terminal_runtime_id().unwrap_or(surface.id);
+        let released = surface.release_kitty_graphics_for_retirement().is_ok();
+        {
+            let mut budget = self.kitty_image_budget.lock().unwrap();
+            if released {
+                budget.entries.remove(&runtime_id);
+                budget.blocked_surfaces.remove(&runtime_id);
+                Self::rebalance_kitty_image_budget_owners(&mut budget);
+            } else if let Some(entry) = budget.entries.get_mut(&runtime_id) {
+                entry.removing = true;
+                budget.blocked_surfaces.remove(&runtime_id);
+            }
+        }
+        self.kitty_image_budget_changed.notify_all();
+        self.start_kitty_image_budget_worker();
     }
 
     pub(crate) fn resource_terminal_host_identity(
