@@ -93,23 +93,20 @@ pub(super) fn rebuild_agent_projections_from_journal(
         return Ok(());
     }
 
-    let (mut candidates, mut head_sequence) =
-        agent_projection_candidates_from_legacy_agent_index(&tx)?;
+    let original_head_sequence = session_journal::session_journal_head(&tx)?;
+    let mut head_sequence = original_head_sequence;
+    let mut stored_by_sequence = BTreeMap::<u64, Vec<AgentProjectionRow>>::new();
     for mut stored in stored_live_projections(&tx)? {
-        stored.committed_sequence = match stored_projection_journal_sequence(&tx, &stored)? {
-            Some(sequence) => sequence,
-            None => append_prejournal_projection_migration(&tx, &stored)?,
-        };
+        stored.committed_sequence =
+            match stored_projection_journal_sequence(&tx, &stored, original_head_sequence)? {
+                Some(sequence) => sequence,
+                None => append_prejournal_projection_migration(&tx, &stored)?,
+            };
         head_sequence = head_sequence.max(stored.committed_sequence);
-        candidates.push(stored);
+        stored_by_sequence.entry(stored.committed_sequence).or_default().push(stored);
     }
-    candidates.sort_by_key(|projection| projection.committed_sequence);
-    let mut projections = BTreeMap::new();
-    for next in candidates {
-        let key = next.terminal_id.to_string();
-        let current = projections.remove(&key);
-        projections.insert(key, merge_projection(current, next));
-    }
+    let projections =
+        agent_projections_from_legacy_agent_index(&tx, stored_by_sequence)?;
     tx.execute("DELETE FROM resource_agent_projections", [])?;
     for projection in projections.into_values() {
         if terminal_is_live(&tx, &projection.terminal_id)? {
@@ -271,29 +268,52 @@ fn append_prejournal_projection_migration(
     )
 }
 
-fn agent_projection_candidates_from_legacy_agent_index(
+fn agent_projections_from_legacy_agent_index(
     connection: &Connection,
-) -> anyhow::Result<(Vec<AgentProjectionRow>, u64)> {
+    stored_by_sequence: BTreeMap<u64, Vec<AgentProjectionRow>>,
+) -> anyhow::Result<BTreeMap<String, AgentProjectionRow>> {
     let mut statement = connection.prepare(
         "SELECT sequence
          FROM journal_event_index
-         WHERE event_id >= ?1 AND event_id < ?2",
+         WHERE sequence > ?1
+           AND event_id >= ?2 AND event_id < ?3
+         ORDER BY sequence ASC
+         LIMIT 1024",
     )?;
-    let mut sequences = statement
-        .query_map(
-            params![LEGACY_AGENT_EVENT_ID_LOWER_BOUND, LEGACY_AGENT_EVENT_ID_UPPER_BOUND],
-            |row| row.get::<_, i64>(0),
-        )?
-        .map(|sequence| {
-            u64::try_from(sequence?).context("legacy agent journal sequence is negative")
-        })
-        .collect::<anyhow::Result<Vec<_>>>()?;
-    sequences.sort_unstable();
-
-    let mut projections = Vec::new();
-    for batch in sequences.chunks(1024) {
-        for record in session_journal::query_session_journal_sequences(connection, batch)? {
-            let Some(next) = projection_from_journal_record(
+    let mut projections = BTreeMap::new();
+    let mut stored_by_sequence = stored_by_sequence;
+    let mut sequence = 0_u64;
+    loop {
+        let sequences = statement
+            .query_map(
+                params![
+                    i64::try_from(sequence).context("legacy agent cursor exceeds SQLite range")?,
+                    LEGACY_AGENT_EVENT_ID_LOWER_BOUND,
+                    LEGACY_AGENT_EVENT_ID_UPPER_BOUND,
+                ],
+                |row| row.get::<_, i64>(0),
+            )?
+            .map(|sequence| {
+                u64::try_from(sequence?).context("legacy agent journal sequence is negative")
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        let Some(last_sequence) = sequences.last().copied() else {
+            break;
+        };
+        sequence = last_sequence;
+        for record in session_journal::query_session_journal_sequences(connection, &sequences)? {
+            while stored_by_sequence
+                .first_key_value()
+                .is_some_and(|(stored_sequence, _)| *stored_sequence < record.sequence)
+            {
+                let (_, stored) = stored_by_sequence.pop_first().context(
+                    "stored agent projection sequence disappeared during legacy migration",
+                )?;
+                for projection in stored {
+                    merge_projection_candidate(&mut projections, projection);
+                }
+            }
+            if let Some(next) = projection_from_journal_record(
                 record.sequence,
                 &record.kind,
                 record.occurred_at_ms,
@@ -301,19 +321,37 @@ fn agent_projection_candidates_from_legacy_agent_index(
                 &record.subjects,
                 &record.payload,
                 record.resource_revision,
-            )?
-            else {
-                continue;
-            };
-            projections.push(next);
+            )? {
+                merge_projection_candidate(&mut projections, next);
+            }
+            if let Some(stored) = stored_by_sequence.remove(&record.sequence) {
+                for projection in stored {
+                    merge_projection_candidate(&mut projections, projection);
+                }
+            }
         }
     }
-    Ok((projections, session_journal::session_journal_head(connection)?))
+    for (_, stored) in stored_by_sequence {
+        for projection in stored {
+            merge_projection_candidate(&mut projections, projection);
+        }
+    }
+    Ok(projections)
+}
+
+fn merge_projection_candidate(
+    projections: &mut BTreeMap<String, AgentProjectionRow>,
+    next: AgentProjectionRow,
+) {
+    let key = next.terminal_id.to_string();
+    let current = projections.remove(&key);
+    projections.insert(key, merge_projection(current, next));
 }
 
 fn stored_projection_journal_sequence(
     connection: &Connection,
     stored: &AgentProjectionRow,
+    head_sequence: u64,
 ) -> anyhow::Result<Option<u64>> {
     let resource_revision = i64::try_from(stored.committed_sequence)
         .context("stored agent projection revision exceeds SQLite range")?;
@@ -327,7 +365,6 @@ fn stored_projection_journal_sequence(
         .map(u64::try_from)
         .transpose()
         .context("stored agent projection journal sequence is negative")?;
-    let head_sequence = session_journal::session_journal_head(connection)?;
     let mut candidates = resource_sequence.into_iter().collect::<Vec<_>>();
     if stored.committed_sequence <= head_sequence
         && !candidates.contains(&stored.committed_sequence)
@@ -587,6 +624,9 @@ fn merge_projection(
         && current.provider == next.provider;
     if same_verified_identity {
         if current.source == "hook" && next.source == "socket" {
+            if matches!(next.state.as_str(), "done" | "interrupted") {
+                return next;
+            }
             return current;
         }
         return next;
