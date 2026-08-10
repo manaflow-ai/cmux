@@ -111,6 +111,10 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
         }
     }
 
+    func recoveryCapacityIsOpen() -> Bool {
+        state.withLock { recoveryCapacityIsOpen(in: $0) }
+    }
+
     func releaseRecoveryCapacity(
         _ reservation:
             TerminalSurfaceRuntimeOwnershipRecoveryCapacityReservation

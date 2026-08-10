@@ -123,9 +123,19 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     }
 
     nonisolated func registerRuntimeSurfaceOwnershipRecoveryOverflow(
-        registry: any TerminalSurfaceRegistering
+        surfaceID: UUID,
+        surface: TerminalSurface
     ) -> UInt64 {
-        recoveryRescanScheduler.registerOverflow(registry: registry)
+        recoveryRescanScheduler.registerOverflow(
+            surfaceID: surfaceID,
+            surface: surface
+        )
+    }
+
+    nonisolated func cancelRuntimeSurfaceOwnershipRecoveryOverflow(
+        surfaceID: UUID
+    ) {
+        recoveryRescanScheduler.cancelOverflow(surfaceID: surfaceID)
     }
 
     nonisolated func requestRuntimeSurfaceOwnershipRecoveryRescan() {
@@ -135,6 +145,10 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     nonisolated func claimRuntimeSurfaceOwnershipRecoveryCapacity()
         -> TerminalSurfaceRuntimeOwnershipRecoveryCapacityReservation? {
         runtimeOwnershipAdmission.claimRecoveryCapacity()
+    }
+
+    nonisolated func runtimeSurfaceOwnershipRecoveryCapacityIsOpen() -> Bool {
+        runtimeOwnershipAdmission.recoveryCapacityIsOpen()
     }
 
     nonisolated func cancelRuntimeSurfaceOwnershipRecoveryCapacity(

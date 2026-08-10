@@ -1,16 +1,40 @@
-internal import CmuxTerminalCore
 internal import os
 
-/// Coalesces MainActor scans for surface-owned overflow recovery intents.
+/// Coalesces bounded MainActor batches for surface-owned overflow recovery.
 ///
-/// The registry stores weak surface entries. This scheduler stores no surface
-/// or recovery closure; the strong array exists only for one synchronous scan.
+/// The FIFO stores one weak surface per public surface id. It does not retain
+/// native-creation closures or surfaces, and each task processes a fixed batch
+/// before yielding the main actor.
 internal final class TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler:
   @unchecked Sendable
 {
+  private static let maximumBatchCount = 32
+
+  private final class OverflowEntry {
+    let surfaceID: UUID
+    let sequence: UInt64
+    weak var surface: TerminalSurface?
+    var previousID: UUID?
+    var nextID: UUID?
+
+    init(
+      surfaceID: UUID,
+      sequence: UInt64,
+      surface: TerminalSurface,
+      previousID: UUID?
+    ) {
+      self.surfaceID = surfaceID
+      self.sequence = sequence
+      self.surface = surface
+      self.previousID = previousID
+    }
+  }
+
   private struct State {
     var nextSequence: UInt64 = 0
-    var registry: (any TerminalSurfaceRegistering)?
+    var entriesByID: [UUID: OverflowEntry] = [:]
+    var headID: UUID?
+    var tailID: UUID?
     var rescanRequested = false
     var rescanTask: Task<Void, Never>?
   }
@@ -18,29 +42,55 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler:
   private let state = OSAllocatedUnfairLock(initialState: State())
 
   internal func registerOverflow(
-    registry: any TerminalSurfaceRegistering
+    surfaceID: UUID,
+    surface: TerminalSurface
   ) -> UInt64 {
     var startGate: TerminalSurfaceRuntimeTeardownStartGate?
     let sequence = state.withLock { state in
+      if let entry = state.entriesByID[surfaceID] {
+        entry.surface = surface
+        state.rescanRequested = true
+        prepareRescanTaskIfNeeded(state: &state, startGate: &startGate)
+        return entry.sequence
+      }
+
       precondition(state.nextSequence < UInt64.max)
       state.nextSequence += 1
-      if let registeredRegistry = state.registry {
-        precondition(registeredRegistry === registry)
+      let previousID = state.tailID
+      let entry = OverflowEntry(
+        surfaceID: surfaceID,
+        sequence: state.nextSequence,
+        surface: surface,
+        previousID: previousID
+      )
+      state.entriesByID[surfaceID] = entry
+      if let previousID {
+        state.entriesByID[previousID]?.nextID = surfaceID
       } else {
-        state.registry = registry
+        state.headID = surfaceID
       }
+      state.tailID = surfaceID
       state.rescanRequested = true
       prepareRescanTaskIfNeeded(state: &state, startGate: &startGate)
-      return state.nextSequence
+      return entry.sequence
     }
     startGate?.start()
     return sequence
   }
 
+  internal func cancelOverflow(surfaceID: UUID) {
+    let removed = state.withLock { state in
+      removeOverflow(surfaceID: surfaceID, from: &state) != nil
+    }
+    if removed {
+      requestRescan()
+    }
+  }
+
   internal func requestRescan() {
     var startGate: TerminalSurfaceRuntimeTeardownStartGate?
     state.withLock { state in
-      guard state.registry != nil else { return }
+      guard state.headID != nil else { return }
       state.rescanRequested = true
       prepareRescanTaskIfNeeded(state: &state, startGate: &startGate)
     }
@@ -62,54 +112,105 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler:
     let gate = TerminalSurfaceRuntimeTeardownStartGate()
     state.rescanTask = Task { @MainActor [weak self] in
       await gate.wait()
-      self?.drainRequestedRescans()
+      self?.runScheduledBatch()
     }
     startGate = gate
   }
 
   @MainActor
-  private func drainRequestedRescans() {
-    while true {
-      let registry = state.withLock { state in
-        state.rescanRequested = false
-        return state.registry
-      }
-      if let registry {
-        rescan(registry: registry)
-      }
-      let shouldContinue = state.withLock { state in
-        guard state.rescanRequested else {
-          state.rescanTask = nil
-          return false
+  private func runScheduledBatch() {
+    let shouldRun = state.withLock { state in
+      state.rescanRequested = false
+      return state.headID != nil
+    }
+    var processedCount = 0
+    if shouldRun {
+      while processedCount < Self.maximumBatchCount {
+        guard
+          let entry = state.withLock({ state in
+            state.headID.flatMap { state.entriesByID[$0] }
+          })
+        else {
+          break
         }
-        return true
+        guard let surface = entry.surface else {
+          state.withLock { state in
+            _ = removeOverflow(
+              surfaceID: entry.surfaceID,
+              from: &state
+            )
+          }
+          processedCount += 1
+          continue
+        }
+        guard
+          let capacityReservation =
+            surface.runtimeTeardown
+            .claimRuntimeSurfaceOwnershipRecoveryCapacity()
+        else {
+          break
+        }
+        surface.retryRuntimeSurfaceCreationAfterAdmissionOverflow(
+          capacityReservation: capacityReservation
+        )
+        processedCount += 1
+
+        let madeProgress = state.withLock { state in
+          state.entriesByID[entry.surfaceID] == nil
+        }
+        guard madeProgress else { break }
       }
-      guard shouldContinue else { return }
+    }
+
+    let followUp = state.withLock { state -> (OverflowEntry, Bool)? in
+      state.rescanTask = nil
+      let externallyRequested = state.rescanRequested
+      state.rescanRequested = false
+      guard let headID = state.headID,
+        let entry = state.entriesByID[headID]
+      else {
+        return nil
+      }
+      return (entry, externallyRequested)
+    }
+    guard let (entry, externallyRequested) = followUp else { return }
+    let batchWasExhausted = processedCount == Self.maximumBatchCount
+    let capacityRemains: Bool
+    if let surface = entry.surface {
+      capacityRemains =
+        surface.runtimeTeardown
+        .runtimeSurfaceOwnershipRecoveryCapacityIsOpen()
+    } else {
+      capacityRemains = true
+    }
+    if capacityRemains && (batchWasExhausted || externallyRequested) {
+      requestRescan()
     }
   }
 
-  @MainActor
-  private func rescan(registry: any TerminalSurfaceRegistering) {
-    let surfaces = registry.allSurfaces()
-      .compactMap { $0 as? TerminalSurface }
-      .compactMap { surface in
-        surface.runtimeSurfaceAdmissionOverflowSequence.map {
-          (sequence: $0, surface: surface)
-        }
-      }
-      .sorted { lhs, rhs in lhs.sequence < rhs.sequence }
-
-    for entry in surfaces {
-      guard
-        let capacityReservation =
-          entry.surface.runtimeTeardown
-          .claimRuntimeSurfaceOwnershipRecoveryCapacity()
-      else {
-        return
-      }
-      entry.surface.retryRuntimeSurfaceCreationAfterAdmissionOverflow(
-        capacityReservation: capacityReservation
-      )
+  @discardableResult
+  private func removeOverflow(
+    surfaceID: UUID,
+    from state: inout State
+  ) -> OverflowEntry? {
+    guard let entry = state.entriesByID.removeValue(forKey: surfaceID) else {
+      return nil
     }
+    if let previousID = entry.previousID {
+      state.entriesByID[previousID]?.nextID = entry.nextID
+    } else {
+      state.headID = entry.nextID
+    }
+    if let nextID = entry.nextID {
+      state.entriesByID[nextID]?.previousID = entry.previousID
+    } else {
+      state.tailID = entry.previousID
+    }
+    if state.entriesByID.isEmpty {
+      state.headID = nil
+      state.tailID = nil
+      state.rescanRequested = false
+    }
+    return entry
   }
 }

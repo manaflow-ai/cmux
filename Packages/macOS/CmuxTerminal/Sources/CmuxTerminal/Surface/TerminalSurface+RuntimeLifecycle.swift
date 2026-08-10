@@ -782,24 +782,24 @@ extension TerminalSurface {
             )
         switch admissionResult {
         case .reserved(let reservation):
+            teardownCoordinator
+                .cancelRuntimeSurfaceOwnershipRecoveryOverflow(surfaceID: id)
             runtimeSurfaceAdmissionOverflowSequence = nil
             runtimeSurfaceAdmissionDeferredCreationSource = nil
             runtimeSurfaceAdmissionDeferredCreationView = nil
             return reservation
         case .deferred:
+            teardownCoordinator
+                .cancelRuntimeSurfaceOwnershipRecoveryOverflow(surfaceID: id)
             runtimeSurfaceAdmissionOverflowSequence = nil
             return nil
         case .rejected:
-            if runtimeSurfaceAdmissionOverflowSequence == nil {
-                runtimeSurfaceAdmissionOverflowSequence =
-                    teardownCoordinator
-                        .registerRuntimeSurfaceOwnershipRecoveryOverflow(
-                            registry: registry
-                        )
-            } else {
+            runtimeSurfaceAdmissionOverflowSequence =
                 teardownCoordinator
-                    .requestRuntimeSurfaceOwnershipRecoveryRescan()
-            }
+                    .registerRuntimeSurfaceOwnershipRecoveryOverflow(
+                        surfaceID: id,
+                        surface: self
+                    )
             return nil
         }
     }
@@ -813,6 +813,8 @@ extension TerminalSurface {
               allowsRuntimeSurfaceCreation(),
               surface == nil,
               runtimeSurfaceAdmissionDeferredCreationSource != nil else {
+            runtimeTeardown
+                .cancelRuntimeSurfaceOwnershipRecoveryOverflow(surfaceID: id)
             runtimeSurfaceAdmissionOverflowSequence = nil
             runtimeSurfaceAdmissionDeferredCreationSource = nil
             runtimeSurfaceAdmissionDeferredCreationView = nil
@@ -833,11 +835,15 @@ extension TerminalSurface {
             )
         switch admissionResult {
         case .reserved(let reservation):
+            teardownCoordinator
+                .cancelRuntimeSurfaceOwnershipRecoveryOverflow(surfaceID: id)
             runtimeSurfaceAdmissionOverflowSequence = nil
             resumeRuntimeSurfaceCreationAfterAdmissionRecovery(
                 reservation: reservation
             )
         case .deferred:
+            teardownCoordinator
+                .cancelRuntimeSurfaceOwnershipRecoveryOverflow(surfaceID: id)
             runtimeSurfaceAdmissionOverflowSequence = nil
         case .rejected:
             teardownCoordinator
@@ -875,6 +881,8 @@ extension TerminalSurface {
 
     private func cancelRuntimeSurfaceCreationAfterAdmissionRecovery() {
         runtimeTeardown.cancelRuntimeSurfaceOwnershipRecovery(id)
+        runtimeTeardown
+            .cancelRuntimeSurfaceOwnershipRecoveryOverflow(surfaceID: id)
         runtimeSurfaceAdmissionOverflowSequence = nil
         runtimeSurfaceAdmissionDeferredCreationSource = nil
         runtimeSurfaceAdmissionDeferredCreationView = nil
