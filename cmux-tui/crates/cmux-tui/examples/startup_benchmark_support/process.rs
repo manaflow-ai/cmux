@@ -1181,6 +1181,8 @@ fn source_rust_toolchain(source: &Path) -> Result<String> {
 }
 
 fn json_cli(common: &Common, socket: &Path, args: &[&str]) -> Result<Value> {
+    // These noun-first requests use cmux_tui_core::platform::transport. Windows provides the
+    // local transport through uds_windows; the Unix-only remote-daemon command family is separate.
     let mut command = common.std_command(&[], false)?;
     command.args(["--json", "--socket"]);
     command.arg(socket);
