@@ -2099,6 +2099,65 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(feed.waitForExistence(timeout: 3))
     }
 
+    /// Legacy model-lab defaults must not change the shipping composer. The
+    /// preview intentionally provides no layout or model-variant environment
+    /// override, so this exercises the same canonical entrypoint as production.
+    @MainActor
+    func testTaskComposerCanonicalControlsIgnoreLegacyLabDefaults() throws {
+        let legacyValues = [
+            (layout: "classic", modelVariant: "off"),
+            (layout: "removed-layout", modelVariant: "removed-variant"),
+        ]
+
+        for values in legacyValues {
+            let app = launchApp(
+                mockData: false,
+                environment: [
+                    "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+                ],
+                launchArguments: [
+                    "-cmux.mobile.debug.taskComposerLayoutStyle.v1",
+                    values.layout,
+                    "-cmux.mobile.debug.taskComposerModelPickerVariant.v1",
+                    values.modelVariant,
+                ]
+            )
+
+            let prompt = app.descendants(matching: .any)["MobileTaskComposerPrompt"]
+            XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+
+            let options = app.buttons["MobileTaskComposerOptionsButton"]
+            let agent = app.buttons["MobileTaskComposerAgentPill"]
+            let model = app.buttons["MobileTaskComposerModelPill"]
+            let submit = app.buttons["MobileTaskComposerSubmitButton"]
+            for control in [options, agent, model, submit] {
+                XCTAssertTrue(
+                    control.waitForExistence(timeout: 3),
+                    "Canonical composer control missing for legacy values \(values)"
+                )
+                XCTAssertGreaterThanOrEqual(control.frame.width, 44)
+                XCTAssertGreaterThanOrEqual(control.frame.height, 44)
+            }
+
+            XCTAssertLessThan(options.frame.midX, agent.frame.midX)
+            XCTAssertLessThan(agent.frame.midX, model.frame.midX)
+            XCTAssertLessThan(model.frame.midX, submit.frame.midX)
+            XCTAssertFalse(app.buttons["MobileTaskComposerCreateButton"].exists)
+            XCTAssertFalse(app.buttons["MobileTaskComposerAgentMenu"].exists)
+
+            options.tap()
+            XCTAssertTrue(
+                app.textFields["MobileTaskComposerWorkspaceName"].waitForExistence(timeout: 3)
+            )
+            XCTAssertTrue(app.buttons["MobileTaskComposerMachineMenu"].exists)
+            XCTAssertTrue(app.buttons["MobileTaskComposerDirectory"].exists)
+            XCTAssertFalse(app.buttons["MobileTaskComposerModelPill"].exists)
+            XCTAssertFalse(app.buttons["MobileTaskComposerAgentMenu"].exists)
+
+            app.terminate()
+        }
+    }
+
     /// Regression: every task-composer action must remain discoverable through
     /// the accessibility hierarchy, and its exposed activation frame must meet
     /// Apple's 44-point minimum on both compact and regular-width layouts.
