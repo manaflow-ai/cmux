@@ -28,6 +28,8 @@ pub struct Target {
     pub sha: String,
     pub observed_sha: String,
     pub ghostty_sha: String,
+    pub zig_version: String,
+    pub rust_toolchain: String,
     version: String,
     pub launcher: Vec<String>,
 }
@@ -48,8 +50,21 @@ impl Target {
             );
         }
         let ghostty_sha = git_sha(&source.join("ghostty"))?;
+        let zig_version = source_zig_version(&source)?;
+        let rust_toolchain = source_rust_toolchain(&source)?;
         let version = binary_version(&binary)?;
-        Ok(Self { kind, binary, source, sha, observed_sha, ghostty_sha, version, launcher })
+        Ok(Self {
+            kind,
+            binary,
+            source,
+            sha,
+            observed_sha,
+            ghostty_sha,
+            zig_version,
+            rust_toolchain,
+            version,
+            launcher,
+        })
     }
 }
 
@@ -518,9 +533,8 @@ fn run_incompatible(
         bail!("incompatible state unexpectedly started successfully");
     }
     let stderr = String::from_utf8_lossy(&captured.stderr);
-    if !stderr.contains(expected) {
-        bail!("incompatible state error did not contain {expected:?}: {stderr}");
-    }
+    let expected = format!("cmux-tui: {expected}");
+    validate_primary_diagnostic(&stderr, &expected)?;
     let connection = Connection::open(database)?;
     let stored: String =
         connection.query_row("SELECT value FROM meta WHERE key = 'schema_version'", [], |row| {
@@ -533,6 +547,16 @@ fn run_incompatible(
         duration_ns: duration_ns(captured.duration)?,
         evidence: Evidence { schema_rejections: 1, process_exits: 1, ..Evidence::default() },
     })
+}
+
+fn validate_primary_diagnostic(stderr: &str, expected: &str) -> Result<()> {
+    let primary_diagnostic = stderr.lines().next().unwrap_or_default();
+    if primary_diagnostic != expected {
+        bail!(
+            "incompatible state primary diagnostic was {primary_diagnostic:?}, expected {expected:?}: {stderr}"
+        );
+    }
+    Ok(())
 }
 
 fn headless_args(session: &str, socket: &Path, state: Option<&Path>) -> Vec<String> {
@@ -1018,6 +1042,44 @@ fn binary_version(binary: &Path) -> Result<String> {
         .with_context(|| format!("unexpected {} --version output: {output:?}", binary.display()))
 }
 
+fn source_zig_version(source: &Path) -> Result<String> {
+    let script = source.join("scripts/ghostty-zig-version.sh");
+    let mut command = Command::new("bash");
+    command.arg(&script);
+    let captured = run_captured(command)
+        .with_context(|| format!("resolve Zig version with {}", script.display()))?;
+    if !captured.status.success() {
+        bail!("{} failed: {}", script.display(), String::from_utf8_lossy(&captured.stderr));
+    }
+    let output = String::from_utf8(captured.stdout)?;
+    let version = output.trim();
+    if version.is_empty() || version.lines().count() != 1 {
+        bail!("{} returned invalid Zig version {output:?}", script.display());
+    }
+    Ok(version.to_string())
+}
+
+fn source_rust_toolchain(source: &Path) -> Result<String> {
+    let cmux_tui = source.join("cmux-tui");
+    let mut command = Command::new("rustup");
+    command.args(["show", "active-toolchain"]).current_dir(&cmux_tui);
+    let captured = run_captured(command)
+        .with_context(|| format!("resolve Rust toolchain in {}", cmux_tui.display()))?;
+    if !captured.status.success() {
+        bail!(
+            "rustup show active-toolchain failed in {}: {}",
+            cmux_tui.display(),
+            String::from_utf8_lossy(&captured.stderr)
+        );
+    }
+    let output = String::from_utf8(captured.stdout)?;
+    output
+        .split_whitespace()
+        .next()
+        .map(str::to_string)
+        .with_context(|| format!("rustup returned no active toolchain in {}", cmux_tui.display()))
+}
+
 fn json_cli(common: &Common, socket: &Path, args: &[&str]) -> Result<Value> {
     let mut command = common.std_command(&[], false)?;
     command.args(["--json", "--socket"]);
@@ -1115,5 +1177,25 @@ mod tests {
         assert!(json_contains_string(&value, "term:exact"));
         assert!(!json_contains_string(&value, "term:exa"));
         assert_eq!(find_key_string(&value, "id").as_deref(), Some("term:exact"));
+    }
+
+    #[test]
+    fn incompatible_error_requires_the_exact_primary_diagnostic() {
+        let expected = "cmux-tui: saved state is incompatible";
+        assert!(validate_primary_diagnostic(
+            "cmux-tui: saved state is incompatible\r\nrecovery",
+            expected
+        )
+        .is_ok());
+        assert!(validate_primary_diagnostic(
+            "cmux-tui: saved state is incompatible with details\n",
+            expected
+        )
+        .is_err());
+        assert!(validate_primary_diagnostic(
+            "prefix cmux-tui: saved state is incompatible\n",
+            expected
+        )
+        .is_err());
     }
 }

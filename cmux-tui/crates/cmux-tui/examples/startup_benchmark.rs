@@ -3,11 +3,11 @@ mod startup_benchmark_support;
 use std::fs;
 use std::path::Path;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use startup_benchmark_support::{
-    Args, ComparisonReport, Evidence, Fixture, HostMetadata, Pair, ProfileReport, SampleSet,
-    Scenario, ScenarioReport, SignedSummary, Target, TargetKind, TargetMetadata, now_unix_ms,
-    run_sample,
+    now_unix_ms, run_sample, Args, ComparisonReport, Evidence, Fixture, HostMetadata, Pair,
+    ProfileReport, SampleSet, Scenario, ScenarioReport, SignedSummary, Target, TargetKind,
+    TargetMetadata,
 };
 
 fn main() {
@@ -62,7 +62,7 @@ fn run_profile(
     evidence.samples_completed += 1;
     evidence.add(&fixture.cleanup()?);
     let report = ProfileReport {
-        schema_version: 1,
+        schema_version: 2,
         generated_at_unix_ms: now_unix_ms(),
         platform_label: platform_label.to_string(),
         target: target.kind,
@@ -87,7 +87,7 @@ fn run_comparison(args: Args, baseline: Target, candidate: Target) -> Result<()>
         );
     }
     let report = ComparisonReport {
-        schema_version: 1,
+        schema_version: 2,
         generated_at_unix_ms: now_unix_ms(),
         platform_label: args.platform_label,
         warmups: args.warmups,

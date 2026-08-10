@@ -9,6 +9,9 @@ on:
       - cmux-tui/.cargo/**
       - cmux-tui/Cargo.lock
       - cmux-tui/Cargo.toml
+      - cmux-tui/rust-toolchain.toml
+      - .github/actions/setup-cmux-tui-rust/action.yml
+      - scripts/ghostty-zig-version.sh
       # Keep this broad so new local startup dependencies cannot bypass the benchmark.
       - cmux-tui/crates/**
       - cmux-tui/vendor/**
@@ -41,28 +44,28 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  RUST_TOOLCHAIN: "1.95.0"
-
 jobs:
   benchmark:
     name: startup benchmark (${{ matrix.platform }})
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 90
+    timeout-minutes: ${{ matrix.timeout_minutes }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - platform: macos-blacksmith
             runner: blacksmith-6vcpu-macos-15
+            timeout_minutes: 90
             rust_target: ""
             binary_suffix: ""
           - platform: linux-azure
             runner: ubuntu-24.04
+            timeout_minutes: 90
             rust_target: ""
             binary_suffix: ""
           - platform: windows-azure
             runner: windows-latest
+            timeout_minutes: 180
             rust_target: x86_64-pc-windows-gnu
             binary_suffix: .exe
     env:
@@ -166,32 +169,71 @@ jobs:
           set -euo pipefail
           baseline_version="$(bash "$BASELINE_SOURCE/scripts/ghostty-zig-version.sh")"
           candidate_version="$(bash "$CANDIDATE_SOURCE/scripts/ghostty-zig-version.sh")"
-          if [[ "$baseline_version" != "$candidate_version" ]]; then
-            echo "baseline Zig $baseline_version differs from candidate Zig $candidate_version" >&2
-            exit 1
-          fi
-          echo "version=$candidate_version" >> "$GITHUB_OUTPUT"
+          version_pattern='^[0-9]+\.[0-9]+\.[0-9]+[0-9A-Za-z.+-]*$'
+          [[ "$baseline_version" =~ $version_pattern ]]
+          [[ "$candidate_version" =~ $version_pattern ]]
+          printf 'baseline=%s\n' "$baseline_version" >> "$GITHUB_OUTPUT"
+          printf 'candidate=%s\n' "$candidate_version" >> "$GITHUB_OUTPUT"
 
-      - name: Install Zig
+      - name: Install baseline Zig
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
-          version: ${{ steps.zig-version.outputs.version }}
+          version: ${{ steps.zig-version.outputs.baseline }}
 
-      - name: Install pinned Rust toolchain
+      - name: Capture baseline Zig
+        shell: bash
+        env:
+          EXPECTED_ZIG_VERSION: ${{ steps.zig-version.outputs.baseline }}
+        run: |
+          set -euo pipefail
+          zig_binary="$(command -v zig)"
+          actual_version="$("$zig_binary" version)"
+          test "$actual_version" = "$EXPECTED_ZIG_VERSION"
+          printf 'BASELINE_ZIG_BIN=%s\n' "$zig_binary" >> "$GITHUB_ENV"
+          printf 'BASELINE_ZIG_VERSION=%s\n' "$actual_version" >> "$GITHUB_ENV"
+
+      - name: Install candidate Zig
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.zig-version.outputs.candidate }}
+
+      - name: Capture candidate Zig
+        shell: bash
+        env:
+          EXPECTED_ZIG_VERSION: ${{ steps.zig-version.outputs.candidate }}
+        run: |
+          set -euo pipefail
+          zig_binary="$(command -v zig)"
+          actual_version="$("$zig_binary" version)"
+          test "$actual_version" = "$EXPECTED_ZIG_VERSION"
+          printf 'CANDIDATE_ZIG_BIN=%s\n' "$zig_binary" >> "$GITHUB_ENV"
+          printf 'CANDIDATE_ZIG_VERSION=%s\n' "$actual_version" >> "$GITHUB_ENV"
+
+      - name: Install baseline Rust toolchain
+        uses: ./source-a/.github/actions/setup-cmux-tui-rust
+
+      - name: Install candidate Rust toolchain
+        uses: ./source-b/.github/actions/setup-cmux-tui-rust
+
+      - name: Install Rust target and verify toolchains
         shell: bash
         run: |
           set -euo pipefail
-          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
-          rustup default "$RUST_TOOLCHAIN"
+          baseline_toolchain="$(cd "$BASELINE_SOURCE/cmux-tui" && rustup show active-toolchain | awk '{print $1}')"
+          candidate_toolchain="$(cd "$CANDIDATE_SOURCE/cmux-tui" && rustup show active-toolchain | awk '{print $1}')"
+          printf 'BASELINE_RUST_TOOLCHAIN=%s\n' "$baseline_toolchain" >> "$GITHUB_ENV"
+          printf 'CANDIDATE_RUST_TOOLCHAIN=%s\n' "$candidate_toolchain" >> "$GITHUB_ENV"
           if [[ -n "$RUST_TARGET" ]]; then
-            rustup target add "$RUST_TARGET"
+            rustup target add --toolchain "$baseline_toolchain" "$RUST_TARGET"
+            rustup target add --toolchain "$candidate_toolchain" "$RUST_TARGET"
           fi
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             printf '%s\n' 'C:\msys64\mingw64\bin' >> "$GITHUB_PATH"
           fi
           rustc -vV
           cargo -V
-          zig version
+          test "$("$BASELINE_ZIG_BIN" version)" = "$BASELINE_ZIG_VERSION"
+          test "$("$CANDIDATE_ZIG_BIN" version)" = "$CANDIDATE_ZIG_VERSION"
 
       - name: Prepare evidence directory
         shell: bash
@@ -230,9 +272,12 @@ jobs:
             printf 'image_version=%s\n' "${ImageVersion:-}"
             printf 'baseline_ghostty=%s\n' "$(git -C "$BASELINE_SOURCE/ghostty" rev-parse HEAD)"
             printf 'candidate_ghostty=%s\n' "$(git -C "$CANDIDATE_SOURCE/ghostty" rev-parse HEAD)"
+            printf 'baseline_zig_version=%s\n' "$BASELINE_ZIG_VERSION"
+            printf 'candidate_zig_version=%s\n' "$CANDIDATE_ZIG_VERSION"
+            printf 'baseline_rust_toolchain=%s\n' "$BASELINE_RUST_TOOLCHAIN"
+            printf 'candidate_rust_toolchain=%s\n' "$CANDIDATE_RUST_TOOLCHAIN"
             rustc -vV
             cargo -V
-            zig version
           } > "$ARTIFACT_DIR/runner-context.txt"
 
       - name: Capture macOS hardware metadata
@@ -305,8 +350,11 @@ jobs:
             local source="$1"
             local target_root="$2"
             local commit="$3"
+            local zig_binary="$4"
+            local zig_version="$5"
             local ghostty_commit
             ghostty_commit="$(git -C "$source/ghostty" rev-parse HEAD)"
+            test "$("$zig_binary" version)" = "$zig_version"
             local args=(cargo build -p cmux-tui --bin cmux-tui --release --locked)
             if [[ -n "$RUST_TARGET" ]]; then
               args+=(--target "$RUST_TARGET")
@@ -317,12 +365,17 @@ jobs:
               CMUX_TUI_BUILD_COMMIT="$commit" \
               CMUX_TUI_GHOSTTY_COMMIT="$ghostty_commit" \
               CARGO_TARGET_DIR="$target_root" \
+              PATH="$(dirname "$zig_binary"):$PATH" \
                 "${args[@]}"
             )
           }
 
-          build_product "$BASELINE_SOURCE" "$BASELINE_TARGET_ROOT" "$BASELINE_SHA"
-          build_product "$CANDIDATE_SOURCE" "$CANDIDATE_TARGET_ROOT" "$CANDIDATE_SHA"
+          build_product \
+            "$BASELINE_SOURCE" "$BASELINE_TARGET_ROOT" "$BASELINE_SHA" \
+            "$BASELINE_ZIG_BIN" "$BASELINE_ZIG_VERSION"
+          build_product \
+            "$CANDIDATE_SOURCE" "$CANDIDATE_TARGET_ROOT" "$CANDIDATE_SHA" \
+            "$CANDIDATE_ZIG_BIN" "$CANDIDATE_ZIG_VERSION"
 
           harness_args=(cargo build -p cmux-tui --example startup_benchmark --release --locked)
           if [[ -n "$RUST_TARGET" ]]; then
@@ -334,6 +387,7 @@ jobs:
             CMUX_TUI_BUILD_COMMIT="$CANDIDATE_SHA" \
             CMUX_TUI_GHOSTTY_COMMIT="$(git -C "$CANDIDATE_SOURCE/ghostty" rev-parse HEAD)" \
             CARGO_TARGET_DIR="$CANDIDATE_TARGET_ROOT" \
+            PATH="$(dirname "$CANDIDATE_ZIG_BIN"):$PATH" \
               "${harness_args[@]}"
           )
 
@@ -351,6 +405,7 @@ jobs:
             CMUX_TUI_BUILD_COMMIT="$CANDIDATE_SHA" \
             CMUX_TUI_GHOSTTY_COMMIT="$(git -C "$CANDIDATE_SOURCE/ghostty" rev-parse HEAD)" \
             CARGO_TARGET_DIR="$CANDIDATE_TARGET_ROOT" \
+            PATH="$(dirname "$CANDIDATE_ZIG_BIN"):$PATH" \
               "${args[@]}"
           )
 
@@ -428,10 +483,14 @@ jobs:
               "baseline.observed_sha": str,
               "baseline.requested_sha": str,
               "baseline.ghostty_sha": str,
+              "baseline.zig_version": str,
+              "baseline.rust_toolchain": str,
               "baseline.binary_sha256": str,
               "candidate.observed_sha": str,
               "candidate.requested_sha": str,
               "candidate.ghostty_sha": str,
+              "candidate.zig_version": str,
+              "candidate.rust_toolchain": str,
               "candidate.binary_sha256": str,
           }
 
@@ -464,6 +523,10 @@ jobs:
               "candidate.observed_sha": os.environ["CANDIDATE_SHA"],
               "baseline.ghostty_sha": os.environ["EXPECTED_BASELINE_GHOSTTY"],
               "candidate.ghostty_sha": os.environ["EXPECTED_CANDIDATE_GHOSTTY"],
+              "baseline.zig_version": os.environ["BASELINE_ZIG_VERSION"],
+              "candidate.zig_version": os.environ["CANDIDATE_ZIG_VERSION"],
+              "baseline.rust_toolchain": os.environ["BASELINE_RUST_TOOLCHAIN"],
+              "candidate.rust_toolchain": os.environ["CANDIDATE_RUST_TOOLCHAIN"],
           }
           for dotted, expected_value in expected.items():
               actual = get(dotted)
@@ -476,7 +539,7 @@ jobs:
               if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
                   raise SystemExit(f"benchmark evidence has invalid {dotted}: {value!r}")
 
-          if document.get("schema_version") != 1:
+          if document.get("schema_version") != 2:
               raise SystemExit(f"unsupported benchmark schema: {document.get('schema_version')!r}")
           if document.get("platform_label") != os.environ["PLATFORM_LABEL"]:
               raise SystemExit(f"wrong platform label: {document.get('platform_label')!r}")

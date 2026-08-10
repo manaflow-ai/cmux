@@ -8,7 +8,7 @@ The startup benchmark compares two exact cmux-tui commits. It uses product outpu
 - Warm starts an attach client after a headless daemon has printed its readiness line and answered session current ping. The event ends at the attach client's first complete frame.
 - Headless starts a new daemon. The event ends after the readiness line and a successful session current ping.
 - Restored creates a real terminal through the public CLI, stops the daemon, and restarts it with the same state. The event ends after the readiness line and a terminal list response that contains the saved terminal ID.
-- Incompatible changes a valid registry schema to an unsupported value. The event ends at nonzero process exit and requires the exact public incompatible-state error for that binary and session. The benchmark also proves that startup did not change the stored schema.
+- Incompatible changes a valid registry schema to an unsupported value. The event ends at nonzero process exit and requires exact equality for the normalized primary public diagnostic for that binary and session. The benchmark also proves that startup did not change the stored schema.
 
 Each cold and headless launch uses a fresh process, configuration root, and state root. The workflow does not clear the operating system page cache.
 
@@ -18,7 +18,7 @@ The hosted workflow builds the baseline and candidate in separate target directo
 
 The JSON artifact contains samples in run order and sorted order. It reports minimum, mean, population standard deviation, median absolute deviation, p50, p90, p95, p99, and maximum. Paired deltas use candidate minus baseline. Negative deltas mean that the candidate was faster.
 
-The artifact records exact source, Ghostty, and binary identities. It also records the runner image, CPU, physical and logical core counts, memory, kernel, Rust, Cargo, and Zig versions.
+The artifact records exact source, Ghostty, binary, required Zig, and Rust toolchain identities for each checkout. It also records the runner image, CPU, physical and logical core counts, memory, kernel, Rust, and Cargo versions.
 
 Run the workflow from GitHub for comparable evidence. The workflow uploads JSON, Markdown, metadata, diagnostics, and available native profiles.
 
