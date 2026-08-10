@@ -447,7 +447,7 @@ fn projection_from_resource_report(
         .filter(|source| matches!(*source, "hook" | "socket" | "detected"))
         .unwrap_or("detected")
         .to_string();
-    let begins_session = source == "socket";
+    let begins_session = false;
     let updated_at_ms = result
         .get("updated_at_ms")
         .and_then(|value| value.as_str().and_then(|value| value.parse::<u64>().ok()))
@@ -591,7 +591,16 @@ fn merge_projection(
         }
         return next;
     }
-    if next.begins_session || current.source_session.is_none() {
+    let current_is_final = matches!(current.state.as_str(), "done" | "interrupted");
+    let next_is_active = matches!(next.state.as_str(), "working" | "blocked" | "idle");
+    let newer_socket_activity = next.source == "socket"
+        && next_is_active
+        && next.updated_at_ms > current.updated_at_ms;
+    if next.begins_session
+        || (current_is_final && next_is_active)
+        || newer_socket_activity
+        || current.source_session.is_none()
+    {
         return next;
     }
     current

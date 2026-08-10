@@ -688,9 +688,7 @@ fn normalized_provider_string(field: &str, value: &str) -> Option<String> {
 fn safe_opaque_identifier(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= MAX_OPAQUE_IDENTIFIER_BYTES
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+        && !value.chars().any(char::is_control)
 }
 
 fn safe_checkpoint_path(value: &str) -> bool {
