@@ -2196,6 +2196,36 @@ final class cmuxUITests: XCTestCase {
         }
     }
 
+    /// A model absent from the installed app's test fixture must flow from an
+    /// injected backend response through the visible picker and launch command.
+    @MainActor
+    func testTaskComposerBackendCatalogAddsModelWithoutAppRebuild() throws {
+        let backendCatalog = #"{"schemaVersion":1,"updatedAt":"2026-08-09T00:00:00Z","providers":{"claude":{"defaultModel":"backend-next-999","models":[{"id":"backend-next-999","label":"Backend Next 999"}]}}}"#
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_MODEL_CATALOG_JSON": backendCatalog,
+        ])
+        defer { app.terminate() }
+
+        let prompt = taskComposerPrompt(in: app)
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+        let model = app.buttons["MobileTaskComposerModelPill"]
+        XCTAssertTrue(model.waitForExistence(timeout: 4))
+        tap(model, in: app)
+        tapMenuItem(app.buttons["Backend Next 999"], in: app)
+        XCTAssertEqual(model.value as? String, "Backend Next 999")
+
+        try typeText("Use the backend model", into: prompt, in: app)
+        tap(app.buttons["MobileTaskComposerSubmitButton"], in: app)
+
+        let submittedCommand = app.staticTexts["MobileTaskComposerSubmittedInitialCommand"]
+        XCTAssertTrue(submittedCommand.waitForExistence(timeout: 4))
+        XCTAssertEqual(
+            submittedCommand.label,
+            "claude --model 'backend-next-999' -- \"$CMUX_TASK_PROMPT\""
+        )
+    }
+
     /// Regression: every task-composer action must remain discoverable through
     /// the accessibility hierarchy, and its exposed activation frame must meet
     /// Apple's 44-point minimum on both compact and regular-width layouts.

@@ -68,6 +68,42 @@ struct MobileTaskModelCatalogClientTests {
     }
 
     @MainActor
+    @Test func authoritativeHostCatalogPerformsZeroBackendRequests() async {
+        let probe = MobileTaskModelCatalogProbe(responses: [
+            catalogData(claude: [("backend-next-999", "Backend Next 999")]),
+        ])
+        let store = MobileShellComposite(
+            taskModelCatalogClient: makeClient(probe: probe)
+        )
+
+        await store.refreshTaskModels(
+            provider: .claude,
+            macDeviceID: "mac-host",
+            hostResult: MobileTaskModelListResult(
+                models: [
+                    MobileTaskAgentModel(
+                        id: "host-next-999",
+                        displayName: "Host Next 999"
+                    ),
+                ],
+                source: .discovered
+            )
+        )
+
+        #expect(store.discoveredTaskModels(
+            provider: .claude,
+            macDeviceID: "mac-host",
+            instanceTag: nil
+        )?.map(\.id) == ["host-next-999"])
+        #expect(store.taskModelListSource(
+            provider: .claude,
+            macDeviceID: "mac-host",
+            instanceTag: nil
+        ) == .discovered)
+        #expect(await probe.requestCount == 0)
+    }
+
+    @MainActor
     @Test func refreshFallsBackToBackendAndPreservesLastValidCatalogOnFailure() async {
         let initialData = catalogData(
             claude: [("backend-next-999", "Backend Next 999")]
@@ -80,7 +116,15 @@ struct MobileTaskModelCatalogClientTests {
         await store.refreshTaskModels(
             provider: .claude,
             macDeviceID: "mac-a",
-            instanceTag: "stable"
+            hostResult: MobileTaskModelListResult(
+                models: [
+                    MobileTaskAgentModel(
+                        id: "legacy-device-value",
+                        displayName: "Legacy Device Value"
+                    ),
+                ],
+                source: .fallback
+            )
         )
         #expect(store.discoveredTaskModels(
             provider: .claude,
@@ -96,7 +140,7 @@ struct MobileTaskModelCatalogClientTests {
         await store.refreshTaskModels(
             provider: .claude,
             macDeviceID: "mac-a",
-            instanceTag: "stable"
+            hostResult: nil
         )
 
         #expect(store.discoveredTaskModels(

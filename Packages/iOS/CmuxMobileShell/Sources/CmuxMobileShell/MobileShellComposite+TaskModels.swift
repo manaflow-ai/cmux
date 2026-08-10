@@ -193,22 +193,44 @@ extension MobileShellComposite {
         macDeviceID: String,
         instanceTag: String?
     ) async {
+        let hostResult: MobileTaskModelListResult?
+        if supportsTaskModels(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ) {
+            hostResult = try? await fetchTaskModels(
+                provider: provider,
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
+        } else {
+            hostResult = nil
+        }
+        await refreshTaskModels(
+            provider: provider,
+            macDeviceID: macDeviceID,
+            hostResult: hostResult
+        )
+    }
+
+    /// Applies the source-priority policy through an injectable host result.
+    /// Kept internal so package tests can prove that authoritative agent data
+    /// performs zero backend requests and legacy host fallbacks do not leak in.
+    func refreshTaskModels(
+        provider: MobileTaskAgentProvider,
+        macDeviceID: String,
+        hostResult: MobileTaskModelListResult?
+    ) async {
         let key = MobileTaskModelCacheKey(
             macDeviceID: macDeviceID,
             provider: provider
         )
-        if supportsTaskModels(
-            macDeviceID: macDeviceID,
-            instanceTag: instanceTag
-        ), let result = try? await fetchTaskModels(
-            provider: provider,
-            macDeviceID: macDeviceID,
-            instanceTag: instanceTag
-        ), result.source == .discovered,
-           !result.models.isEmpty {
+        if let hostResult,
+           hostResult.source == .discovered,
+           !hostResult.models.isEmpty {
             guard !Task.isCancelled else { return }
             taskModelCache[key] = MobileTaskModelCacheEntry(
-                result: result,
+                result: hostResult,
                 fetchedAt: runtime?.now() ?? Date()
             )
             return
