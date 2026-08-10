@@ -282,7 +282,7 @@ impl Mux {
                     .clone()
                     .context("terminal selector omitted its public identity")?;
                 let topology = registry.resource_topology_snapshot()?;
-                let source_tab_id = if let Some(tab_id) = source.path.tab.clone() {
+                let source_tab_id = if let Some(tab_id) = source.path.tab {
                     tab_id
                 } else {
                     let mut tab_ids = terminal_tab_ids_in_canonical_order(
