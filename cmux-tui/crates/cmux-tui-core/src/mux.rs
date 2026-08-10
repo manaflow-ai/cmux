@@ -21205,9 +21205,8 @@ mod tests {
         assert_ne!(primary_id, secondary_id);
         let host = mux.resource_terminal_host_identity(&source).unwrap();
         let secondary_content = ContentPublicId::Terminal(secondary_id.clone());
-        let projected_tab = mux.with_state(|state| {
-            state.resource_indexes.tab_ids[&projected.id].clone()
-        });
+        let projected_tab =
+            mux.with_state(|state| state.resource_indexes.tab_ids[&projected.id].clone());
 
         {
             let mut state = mux.state.lock().unwrap();
@@ -21221,10 +21220,7 @@ mod tests {
                 .get_mut(&primary_content)
                 .unwrap()
                 .retain(|placement| *placement != projected.id);
-            state
-                .resource_indexes
-                .content_ids
-                .insert(projected.id, secondary_content.clone());
+            state.resource_indexes.content_ids.insert(projected.id, secondary_content.clone());
             state
                 .resource_indexes
                 .content_placements
