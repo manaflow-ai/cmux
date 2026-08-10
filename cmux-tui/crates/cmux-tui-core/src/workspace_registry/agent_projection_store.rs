@@ -172,9 +172,7 @@ fn replay_agent_projection_journal_page(
     let projection_sequences = scanned
         .iter()
         .filter_map(|(sequence, kind)| {
-            kind.as_deref()
-                .is_none_or(|kind| kind.starts_with("agent."))
-                .then_some(*sequence)
+            kind.as_deref().is_none_or(|kind| kind.starts_with("agent.")).then_some(*sequence)
         })
         .collect::<Vec<_>>();
     for record in

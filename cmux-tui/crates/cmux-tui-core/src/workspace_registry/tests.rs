@@ -5153,7 +5153,8 @@ fn journal_agent_projection_rebuild_continues_in_owned_mux_worker() {
         )
         .unwrap();
 
-    let mux = crate::Mux::open_persistent(session, crate::SurfaceOptions::default(), &root).unwrap();
+    let mux =
+        crate::Mux::open_persistent(session, crate::SurfaceOptions::default(), &root).unwrap();
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     let mut epoch = mux.journal_event_epoch();
     while mux.agent_projection_rebuild_pending_for_test().unwrap() {
