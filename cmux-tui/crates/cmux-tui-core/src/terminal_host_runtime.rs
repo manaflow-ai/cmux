@@ -7260,11 +7260,9 @@ mod unix {
             release_tx.send(()).unwrap();
             connecting.join().unwrap();
             stalled.join().unwrap();
-            assert!(
-                result.expect(
-                    "terminal-host connection did not honor its handshake and retry deadlines",
-                )
-            );
+            assert!(result.expect(
+                "terminal-host connection did not honor its handshake and retry deadlines",
+            ));
             let _ = fs::remove_file(endpoint);
             drop(lease);
             assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
