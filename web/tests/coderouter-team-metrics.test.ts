@@ -184,6 +184,21 @@ describe("CodeRouter team metrics", () => {
     expect(result).toEqual({ kind: "unavailable" });
   });
 
+  test("reports endpoint failures without including the team identity", async () => {
+    const failures: Array<{ reason: string; status?: number }> = [];
+    const result = await metricsTest.queryCoderouterTeamMetrics("team-private", {
+      config: () => config,
+      fetch: mock(async () =>
+        new Response(null, { status: 503 })) as typeof fetch,
+      now: () => new Date("2026-08-08T12:00:00.000Z"),
+      reportFailure: (reason, status) => failures.push({ reason, status }),
+    });
+
+    expect(result).toEqual({ kind: "unavailable" });
+    expect(failures).toEqual([{ reason: "endpoint_status", status: 503 }]);
+    expect(JSON.stringify(failures)).not.toContain("team-private");
+  });
+
   test("rejects a 31st UTC day instead of silently truncating", async () => {
     const result = await metricsTest.queryCoderouterTeamMetrics("team-1", {
       config: () => config,
