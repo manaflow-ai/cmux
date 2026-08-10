@@ -5285,17 +5285,37 @@ final class cmuxUITests: XCTestCase {
         let fixtureName = "manual-\(UUID().uuidString)"
         let app = launchApp(mockData: true, environment: [
             "CMUX_UITEST_ADD_DEVICE_NAME": fixtureName,
+            "CMUX_UITEST_ADD_DEVICE_HOST": "127.0.0.1",
             "CMUX_UITEST_ADD_DEVICE_PORT": portText,
         ], launchArguments: [
             "-cmux.mobile.taskComposerEnabled", "YES",
         ])
         let pairingForm = app.otherElements["MobileAddDeviceForm"]
-        XCTAssertTrue(pairingForm.waitForExistence(timeout: 20))
+        if !pairingForm.waitForExistence(timeout: 2) {
+            let disconnectedShell = app.otherElements["MobileDisconnectedWorkspaceShell"]
+            _ = try XCTUnwrap(
+                disconnectedShell.waitForExistence(timeout: 8) ? disconnectedShell : nil,
+                "Manual pairing setup must begin from the disconnected workspace shell"
+            )
+            let addDeviceButton = app.buttons["MobileShowAddDeviceButton"]
+            if addDeviceButton.waitForExistence(timeout: 3) {
+                tap(addDeviceButton, in: app)
+            } else {
+                let toolbarButton = app.buttons["MobileShowAddDeviceToolbarButton"]
+                _ = try XCTUnwrap(
+                    toolbarButton.waitForExistence(timeout: 3) ? toolbarButton : nil,
+                    "The disconnected shell must expose an Add Computer entrypoint"
+                )
+                tap(toolbarButton, in: app)
+            }
+        }
+        _ = try XCTUnwrap(
+            pairingForm.waitForExistence(timeout: 8) ? pairingForm : nil,
+            "The explicit Add Computer entrypoint must present the manual pairing form"
+        )
 
         let hostField = app.textFields["MobileAddDeviceHostField"]
         XCTAssertTrue(hostField.waitForExistence(timeout: 4))
-        hostField.tap()
-        hostField.typeText("127.0.0.1")
 
         let portField = app.textFields["MobileAddDevicePortField"]
         XCTAssertTrue(portField.waitForExistence(timeout: 4))
