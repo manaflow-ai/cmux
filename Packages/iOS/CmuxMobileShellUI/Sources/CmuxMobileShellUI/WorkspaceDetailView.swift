@@ -89,6 +89,8 @@ struct WorkspaceDetailView: View {
     @State var chatConversationStores: [String: ChatConversationStore] = [:]
     /// Per-session composer drafts, surviving toggles back to the terminal.
     @State var chatDrafts: [String: String] = [:]
+    /// Local presenter identity remains separate from the artifact popover payload.
+    @State var isTerminalArtifactFilesPresented = false
     @State var terminalArtifactFilesContext: TerminalArtifactContext?
     @State var selectedTerminalArtifact: TerminalArtifactSelection?
     @State var terminalArtifactThumbnailCache = ChatArtifactThumbnailCache()
@@ -116,7 +118,7 @@ struct WorkspaceDetailView: View {
         for child: MobileRootPresentationState.ChildPresentation,
         fallback: Binding<Bool>
     ) -> MobileChildSheetPresentation {
-        childPresentationProvider?.presentation(for: child)
+        childPresentationProvider?.presentation(for: child, fallback: fallback)
             ?? MobileChildSheetPresentation(isPresented: fallback)
     }
 

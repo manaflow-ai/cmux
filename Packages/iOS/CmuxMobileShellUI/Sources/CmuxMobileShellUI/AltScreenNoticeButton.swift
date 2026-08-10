@@ -7,7 +7,10 @@ struct AltScreenNoticeButton: View {
     @State private var isPresentingExplanation = false
 
     private var explanationPresentation: MobileChildSheetPresentation {
-        childPresentationProvider?.presentation(for: .workspaceDetail(.alternateScreenExplanation))
+        childPresentationProvider?.presentation(
+            for: .workspaceDetail(.alternateScreenExplanation),
+            fallback: $isPresentingExplanation
+        )
             ?? MobileChildSheetPresentation(isPresented: $isPresentingExplanation)
     }
 

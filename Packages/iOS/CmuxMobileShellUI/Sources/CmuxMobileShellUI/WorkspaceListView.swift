@@ -131,6 +131,8 @@ struct WorkspaceListView: View {
     @State var showingViewOptionsPopover = false
     @State private var settingsPairingScannerHandoff = SettingsPairingScannerHandoff()
     @State private var showingDeviceTree = false
+    /// Local presenter identity remains separate from the selected changes payload.
+    @State var isWorkspaceChangesPresented = false
     @State var changesSheetTarget: WorkspaceChangesSheetTarget? = nil
     @State private var macTitlePickerSwitchTask: Task<Void, Never>?
     @State private var macTitlePickerSwitchIsCancellation = false
@@ -154,6 +156,7 @@ struct WorkspaceListView: View {
     @State var workspaceRenameDraft = ""
     /// The workspace whose UIKit context-menu action is presenting the shared
     /// customization sheet.
+    @State var isWorkspaceCustomizationPresented = false
     @State var workspacePendingCustomizationID: MobileWorkspacePreview.ID?
     /// The group whose UIKit context-menu action is presenting the shared
     /// rename alert.
@@ -192,7 +195,7 @@ struct WorkspaceListView: View {
         for child: MobileRootPresentationState.ChildPresentation,
         fallback: Binding<Bool>
     ) -> MobileChildSheetPresentation {
-        childPresentationProvider?.presentation(for: child)
+        childPresentationProvider?.presentation(for: child, fallback: fallback)
             ?? MobileChildSheetPresentation(isPresented: fallback)
     }
 

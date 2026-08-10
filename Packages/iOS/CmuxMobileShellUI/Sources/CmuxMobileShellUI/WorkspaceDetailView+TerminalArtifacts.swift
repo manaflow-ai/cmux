@@ -6,21 +6,10 @@ import CmuxMobileTerminal
 import SwiftUI
 
 extension WorkspaceDetailView {
-    var terminalArtifactFilesIsPresented: Binding<Bool> {
-        Binding(
-            get: { terminalArtifactFilesContext != nil },
-            set: { isPresented in
-                if !isPresented {
-                    terminalArtifactFilesContext = nil
-                }
-            }
-        )
-    }
-
     var terminalArtifactFilesPresentation: MobileChildSheetPresentation {
         resolvedPresentation(
             for: .workspaceDetail(.terminalArtifactFiles),
-            fallback: terminalArtifactFilesIsPresented
+            fallback: $isTerminalArtifactFilesPresented
         )
     }
 

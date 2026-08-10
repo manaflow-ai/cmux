@@ -53,7 +53,10 @@ struct WorkspaceNavigationRow: View {
     @State private var isCustomizing = false
 
     private var customizationPresentation: MobileChildSheetPresentation {
-        childPresentationProvider?.presentation(for: .workspaceList(.customization))
+        childPresentationProvider?.presentation(
+            for: .workspaceList(.customization),
+            fallback: $isCustomizing
+        )
             ?? MobileChildSheetPresentation(isPresented: $isCustomizing)
     }
 

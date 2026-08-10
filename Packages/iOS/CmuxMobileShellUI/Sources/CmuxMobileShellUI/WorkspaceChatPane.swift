@@ -31,7 +31,10 @@ struct WorkspaceChatPane: View {
     @State private var cachedArtifactLoader: CachedArtifactLoader?
 
     private var shortcutSettingsPresentation: MobileChildSheetPresentation {
-        childPresentationProvider?.presentation(for: .workspaceDetail(.chatShortcutsSettings))
+        childPresentationProvider?.presentation(
+            for: .workspaceDetail(.chatShortcutsSettings),
+            fallback: $isShowingShortcutSettings
+        )
             ?? MobileChildSheetPresentation(isPresented: $isShowingShortcutSettings)
     }
 

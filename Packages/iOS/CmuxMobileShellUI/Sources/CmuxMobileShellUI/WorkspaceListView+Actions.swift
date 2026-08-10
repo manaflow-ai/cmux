@@ -109,39 +109,17 @@ extension WorkspaceListView {
         )
     }
 
-    var workspaceCustomizationIsPresented: Binding<Bool> {
-        Binding(
-            get: { workspacePendingCustomizationID != nil },
-            set: { isPresented in
-                if !isPresented {
-                    workspacePendingCustomizationID = nil
-                }
-            }
-        )
-    }
-
     var workspaceCustomizationPresentation: MobileChildSheetPresentation {
         resolvedPresentation(
             for: .workspaceList(.customization),
-            fallback: workspaceCustomizationIsPresented
-        )
-    }
-
-    var workspaceChangesIsPresented: Binding<Bool> {
-        Binding(
-            get: { changesSheetTarget != nil },
-            set: { isPresented in
-                if !isPresented {
-                    changesSheetTarget = nil
-                }
-            }
+            fallback: $isWorkspaceCustomizationPresented
         )
     }
 
     var workspaceChangesPresentation: MobileChildSheetPresentation {
         resolvedPresentation(
             for: .workspaceList(.changes),
-            fallback: workspaceChangesIsPresented
+            fallback: $isWorkspaceChangesPresented
         )
     }
 

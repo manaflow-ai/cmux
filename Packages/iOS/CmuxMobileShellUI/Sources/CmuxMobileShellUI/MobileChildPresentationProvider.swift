@@ -15,11 +15,12 @@ struct MobileChildPresentationProvider {
         self.resolve = resolve
     }
 
-    /// Returns the root-owned handle for one descendant presentation.
+    /// Returns one presenter's local identity coordinated with the root modal grant.
     func presentation(
-        for child: MobileRootPresentationState.ChildPresentation
+        for child: MobileRootPresentationState.ChildPresentation,
+        fallback: Binding<Bool>
     ) -> MobileChildSheetPresentation {
-        resolve(child)
+        resolve(child).coordinated(with: fallback)
     }
 }
 

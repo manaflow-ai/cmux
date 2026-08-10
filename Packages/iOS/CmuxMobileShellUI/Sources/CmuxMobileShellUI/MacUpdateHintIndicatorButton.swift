@@ -10,7 +10,10 @@ struct MacUpdateHintIndicatorButton: View {
     @State private var isPresentingExplanation = false
 
     private var explanationPresentation: MobileChildSheetPresentation {
-        childPresentationProvider?.presentation(for: .workspaceList(.macUpdateHint))
+        childPresentationProvider?.presentation(
+            for: .workspaceList(.macUpdateHint),
+            fallback: $isPresentingExplanation
+        )
             ?? MobileChildSheetPresentation(isPresented: $isPresentingExplanation)
     }
 
