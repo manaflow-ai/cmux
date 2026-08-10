@@ -793,6 +793,47 @@ struct MobileHostSimulatorFrameQueueDiagnosticsTests {
         ])
         await session.close(reason: "test cleanup")
     }
+
+    @Test func simulatorReplayDebtSurvivesUnsubscribeDrainAndResubscribe() async {
+        let connectionID = UUID()
+        let replayRecorder = MobileHostSimulatorReplayRecorder()
+        let queue = MobileHostConnectionEventQueue(
+            maximumEventCount: 1,
+            maximumByteCount: 1_000_000
+        )
+        let session = MobileHostConnection(
+            id: connectionID,
+            transport: RecordingMobileHostByteTransport(),
+            eventQueue: queue,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in },
+            requestSimulatorFrameReplay: { connectionID, panelIDs in
+                await replayRecorder.record(connectionID: connectionID, panelIDs: panelIDs)
+            }
+        )
+        await session.subscribe(streamID: "events", topics: ["simulator.frame"])
+        let frame = Data(repeating: 0x61, count: 16)
+        #expect(queue.enqueue(
+            topic: "simulator.frame", coalesceKey: "sim-a",
+            isFullRenderGridFrame: false, frame: frame
+        ).admitted)
+        #expect(queue.enqueue(
+            topic: "simulator.frame", coalesceKey: "sim-b",
+            isFullRenderGridFrame: false, frame: frame
+        ).admitted)
+
+        _ = await session.unsubscribe(streamID: "events")
+        await session.drainQueuedEvents()
+        #expect(await replayRecorder.requests().isEmpty)
+
+        await session.subscribe(streamID: "events", topics: ["simulator.frame"])
+        #expect(await replayRecorder.requests() == [
+            MobileHostSimulatorReplayRequest(connectionID: connectionID, panelIDs: ["sim-a"]),
+        ])
+        await session.close(reason: "test cleanup")
+    }
 }
 
 private struct MobileHostSimulatorReplayRequest: Equatable, Sendable {
