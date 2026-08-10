@@ -167,7 +167,9 @@ struct WorkspaceShellView: View {
     #if os(iOS)
     @State private var selectedPrimaryTab: MobilePrimaryTab = .workspaces
     @State private var notificationNavigationPath: [MobileWorkspacePreview.ID] = []
+    @State private var workspaceSearchNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var notificationSearchNavigationPath: [MobileWorkspacePreview.ID] = []
+    @State private var restoreSearchOnDetailReturn = false
     @State private var pendingPrimarySearchWorkspaceNavigationID: MobileWorkspacePreview.ID?
     @State private var pendingPrimarySearchNotificationNavigationID: MobileWorkspacePreview.ID?
     @State private var showingRootSettings = false
@@ -344,7 +346,7 @@ struct WorkspaceShellView: View {
 
     private func workspaceSearchTabContent(canCreateWorkspaceForSelection: Bool) -> some View {
         workspaceActionToastOverlay {
-            NavigationStack {
+            NavigationStack(path: $workspaceSearchNavigationPath) {
                 MobilePrimaryWorkspaceSearchContentHost(
                     searchCoordinator: primarySearchCoordinator
                 ) { searchText in
@@ -360,8 +362,29 @@ struct WorkspaceShellView: View {
                     )
                 }
                 .toolbar {
-                    rootToolbarContent
+                    if workspaceSearchNavigationPath.isEmpty {
+                        rootToolbarContent
+                    }
                 }
+                .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
+                    workspaceDestination(
+                        for: workspaceID,
+                        createWorkspace: createWorkspaceInCompactStack,
+                        canCreateWorkspaceForSelection: canCreateWorkspaceForSelection,
+                        backButtonConfiguration: WorkspaceBackButtonConfiguration(
+                            unreadCount: unreadWorkspaceCount(excluding: workspaceID),
+                            badgeContrast: .darkBackground,
+                            action: popWorkspaceSearchStack
+                        )
+                    )
+                    .toolbarVisibility(.hidden, for: .tabBar, .bottomBar)
+                    .navigationBarBackButtonHidden(true)
+                    .background(InteractiveSwipeBackEnabler())
+                }
+            }
+            .onChange(of: workspaceSearchNavigationPath) { oldPath, newPath in
+                guard !oldPath.isEmpty, newPath.isEmpty else { return }
+                restoreWorkspaceSearchPresentationIfNeeded()
             }
         }
     }
@@ -482,6 +505,7 @@ struct WorkspaceShellView: View {
             }
         }
         .onChange(of: store.selectedWorkspaceID) { _, selectedWorkspaceID in
+            guard workspaceSearchNavigationPath.isEmpty else { return }
             if let createdPath = compactNavigationPolicy.pathForCreatedWorkspaceSelection(
                 currentPath: compactNavigationPath,
                 selectedWorkspaceID: selectedWorkspaceID,
@@ -900,8 +924,21 @@ struct WorkspaceShellView: View {
     }
 
     private func selectWorkspaceFromSearch(_ id: MobileWorkspacePreview.ID) {
-        pendingPrimarySearchWorkspaceNavigationID = id
-        transitionPrimaryTab(to: .workspaces)
+        restoreSearchOnDetailReturn = primarySearchCoordinator.isPresented
+        workspaceSearchNavigationPath = [id]
+        pendingCompactCreateNavigationWorkspaceIDs = nil
+        store.selectedWorkspaceID = id
+    }
+
+    private func popWorkspaceSearchStack() {
+        guard !workspaceSearchNavigationPath.isEmpty else { return }
+        workspaceSearchNavigationPath.removeLast()
+    }
+
+    private func restoreWorkspaceSearchPresentationIfNeeded() {
+        guard restoreSearchOnDetailReturn else { return }
+        restoreSearchOnDetailReturn = false
+        primarySearchCoordinator.setPresentation(true)
     }
 
     private func createWorkspaceFromSearch() {
