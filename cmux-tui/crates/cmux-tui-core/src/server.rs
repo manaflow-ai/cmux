@@ -19763,7 +19763,7 @@ mod tests {
             1
         );
         mux.close_surface(surface).unwrap();
-        mux.shutdown();
+        mux.shutdown().unwrap();
     }
 
     #[test]

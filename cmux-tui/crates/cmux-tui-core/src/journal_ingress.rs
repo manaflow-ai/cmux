@@ -1278,7 +1278,7 @@ mod tests {
         let shutdown_mux = mux.clone();
         let (completed, completion) = sync_channel(1);
         let shutdown = std::thread::spawn(move || {
-            shutdown_mux.shutdown();
+            shutdown_mux.shutdown().unwrap();
             completed.send(()).unwrap();
         });
         assert!(
@@ -1331,7 +1331,7 @@ mod tests {
         );
 
         let started = Instant::now();
-        mux.shutdown();
+        mux.shutdown().unwrap();
 
         assert!(
             started.elapsed() < JOURNAL_DURABLE_WAIT + Duration::from_secs(2),
@@ -1719,7 +1719,7 @@ mod tests {
         let shutdown_mux = mux.clone();
         let (shutdown_completed, shutdown_completion) = sync_channel(1);
         let shutdown = std::thread::spawn(move || {
-            shutdown_mux.shutdown();
+            shutdown_mux.shutdown().unwrap();
             shutdown_completed.send(()).unwrap();
         });
         let returned = shutdown_completion.recv_timeout(Duration::from_secs(5));
@@ -1773,7 +1773,7 @@ mod tests {
         let shutdown_mux = mux.clone();
         let (completed, completion) = sync_channel(1);
         let shutdown = std::thread::spawn(move || {
-            shutdown_mux.shutdown();
+            shutdown_mux.shutdown().unwrap();
             completed.send(()).unwrap();
         });
         assert!(
@@ -1891,7 +1891,7 @@ mod tests {
         }
 
         let started = Instant::now();
-        mux.shutdown();
+        mux.shutdown().unwrap();
 
         assert!(
             started.elapsed() < Duration::from_secs(3),
@@ -1975,7 +1975,7 @@ mod tests {
             .unwrap();
 
         let started = Instant::now();
-        mux.shutdown();
+        mux.shutdown().unwrap();
         assert!(
             started.elapsed() < Duration::from_secs(3),
             "shutdown waited without a bound for a descendant-held PTY"

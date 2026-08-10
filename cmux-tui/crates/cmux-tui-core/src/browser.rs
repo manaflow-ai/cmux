@@ -895,11 +895,6 @@ impl BrowserRuntime {
             anyhow::bail!("CDP browser connection is closed");
         }
         let (target_id, normalized_url) = match bootstrap {
-            BrowserBootstrap::Create { url } => {
-                let normalized_url = normalize_url(&url);
-                let target_id = self.client.create_target(&normalized_url)?;
-                (target_id, normalized_url)
-            }
             BrowserBootstrap::ExistingTarget { target_id, url } => (target_id, normalize_url(&url)),
             BrowserBootstrap::Provider { .. } => {
                 anyhow::bail!("browser provider target was not resolved before CDP bootstrap")
@@ -1175,7 +1170,6 @@ impl BrowserRuntime {
 }
 
 pub(crate) enum BrowserBootstrap {
-    Create { url: String },
     ExistingTarget { target_id: String, url: String },
     Provider { tab_id: crate::resource::TabPublicId, url: String },
 }

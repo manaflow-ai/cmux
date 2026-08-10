@@ -6185,7 +6185,7 @@ mod creation_recovery_tests {
             )
             .unwrap_err();
         assert_eq!(error.to_string(), "resource revision conflict: expected 0, current 1");
-        mux.shutdown();
+        mux.shutdown().unwrap();
     }
 
     #[test]
