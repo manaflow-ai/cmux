@@ -31,6 +31,9 @@ This repository hosts an unofficial community Windows build of cmux for users wh
 
 Download `cmux-0.1.0-setup.exe` from this repository's [Releases](https://github.com/imthegoodboy/cmux-window/releases) page. The app and installer are named `cmux`; this repository's Windows build is an unofficial community build. The official macOS release remains available from [manaflow-ai/cmux](https://github.com/manaflow-ai/cmux).
 
+## Status (window)
+Not maintaining anymore ( pr accepted)
+
 ## Features
 
 <table>
