@@ -6,7 +6,7 @@ import {
   UserAvatar,
   useUser,
 } from "@stackframe/stack";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocale, useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
 import { useState } from "react";
@@ -127,8 +127,10 @@ function DashboardOrganizationSwitcher() {
   const user = useUser({ or: "throw" });
   const teams = user.useTeams();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   const t = useTranslations("dashboard.accountMenu");
+  const [switchError, setSwitchError] = useState(false);
   const organizationQueryKey = [
     "coderouter-organizations",
     user.id,
@@ -161,21 +163,37 @@ function DashboardOrganizationSwitcher() {
   const selectableTeams = teams.filter((team) => permittedIds.has(team.id));
   const personal = permittedCatalogTeams.find((team) => team.personal);
   const requestedTeamId = searchParams.get("team");
-  // Match the CodeRouter page: an explicit deep link wins, then Stack's live
-  // selected team (where null means personal), then a permitted fallback.
+  const catalogSelectedTeamId = data.selectedTeamId ?? personal?.id;
+  // Match the CodeRouter page: an explicit deep link wins, then the
+  // authenticated catalog selection, then a permitted fallback.
   const selectedTeamId = requestedTeamId && permittedIds.has(requestedTeamId)
     ? requestedTeamId
-    : user.selectedTeam && permittedIds.has(user.selectedTeam.id)
-    ? user.selectedTeam.id
-    : user.selectedTeam === null && personal
-    ? personal.id
+    : catalogSelectedTeamId && permittedIds.has(catalogSelectedTeamId)
+    ? catalogSelectedTeamId
     : permittedCatalogTeams[0]?.id;
   const switchOrganization = async (
     team: (typeof selectableTeams)[number] | null,
   ) => {
     const organizationId = team?.id ?? personal?.id;
     if (!organizationId) return;
-    await user.setSelectedTeam(team);
+    setSwitchError(false);
+    try {
+      await user.setSelectedTeam(team);
+    } catch {
+      setSwitchError(true);
+      return;
+    }
+    queryClient.setQueryData<OrganizationCatalog>(
+      organizationQueryKey,
+      (current) =>
+        current
+          ? { ...current, selectedTeamId: team?.id ?? null }
+          : current,
+    );
+    void queryClient.invalidateQueries({
+      queryKey: organizationQueryKey,
+      exact: true,
+    });
     router.push(
       `/dashboard/coderouter?team=${
         encodeURIComponent(organizationId)
@@ -190,7 +208,7 @@ function DashboardOrganizationSwitcher() {
       "min-h-9 w-full border border-border bg-background px-2 text-left text-sm hover:bg-code-bg",
   };
 
-  return personal
+  const switcher = personal
     ? (
       <TeamSwitcher
         {...shared}
@@ -200,6 +218,19 @@ function DashboardOrganizationSwitcher() {
       />
     )
     : <TeamSwitcher {...shared} onChange={switchOrganization} />;
+  return (
+    <>
+      {switcher}
+      {switchError ? (
+        <p role="alert" className="mt-1 text-xs text-red-600 dark:text-red-400">
+          {t("organizationSwitchError")}{" "}
+          <Link href="/dashboard/team" className="underline">
+            {t("settings")}
+          </Link>
+        </p>
+      ) : null}
+    </>
+  );
 }
 
 async function loadOrganizationCatalog(): Promise<OrganizationCatalog> {

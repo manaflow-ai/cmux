@@ -290,11 +290,11 @@ describe("dashboard account menu", () => {
     expect(html).not.toContain('data-team-id="team-2"');
   });
 
-  test("uses the live Stack selection when the URL has no team scope", () => {
+  test("uses the authenticated catalog selection when the URL has no team scope", () => {
     searchTeam = null;
     organizationQuery = {
       data: {
-        selectedTeamId: "team-1",
+        selectedTeamId: "team-2",
         teams: [
           {
             id: "team-1",

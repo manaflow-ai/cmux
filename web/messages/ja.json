@@ -130,6 +130,7 @@
       "signOut": "サインアウト",
       "signingOut": "サインアウト中…",
       "signOutError": "サインアウトできませんでした。もう一度お試しください。",
+      "organizationSwitchError": "組織を切り替えられませんでした。もう一度お試しください。",
       "signIn": "サインイン"
     },
     "billing": {
