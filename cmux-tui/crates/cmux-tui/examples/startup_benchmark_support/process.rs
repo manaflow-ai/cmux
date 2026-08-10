@@ -92,9 +92,9 @@ impl Fixture {
                 )?;
                 let terminal_id = find_key_string(&created, "terminal_id")
                     .context("workspace create did not return a terminal_id")?;
-                let topology = json_cli(&common, &socket, &["workspace", "list"])?;
+                let topology = json_cli(&common, &socket, &["terminal", "list"])?;
                 if !json_contains_string(&topology, &terminal_id) {
-                    bail!("restored fixture topology omitted terminal {terminal_id}");
+                    bail!("restored fixture terminal list omitted {terminal_id}");
                 }
                 server.shutdown_and_wait(&common)?;
                 common.setup_evidence.readiness_lines += 1;
@@ -481,9 +481,9 @@ fn run_restored(common: &mut Common, state: &Path, terminal_id: &str) -> Result<
     let args = headless_args(&session, &socket, Some(state));
     let mut server = RunningHeadless::start(common, args, &socket, common.wrap_measured_process)?;
     server.wait_ready()?;
-    let topology = json_cli(common, &socket, &["workspace", "list"])?;
+    let topology = json_cli(common, &socket, &["terminal", "list"])?;
     if !json_contains_string(&topology, terminal_id) {
-        bail!("restored topology omitted saved terminal {terminal_id}");
+        bail!("restored terminal list omitted saved terminal {terminal_id}");
     }
     let duration = server.started.elapsed();
     server.shutdown_and_wait(common)?;

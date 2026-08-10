@@ -109,24 +109,15 @@ fn compare_scenario(
     candidate: Target,
     scenario: Scenario,
 ) -> Result<ScenarioReport> {
-    let mut baseline_fixture = Fixture::new(baseline, scenario, false)?;
-    let mut candidate_fixture = Fixture::new(candidate, scenario, false)?;
-    let mut baseline_evidence = baseline_fixture.setup_evidence();
-    let mut candidate_evidence = candidate_fixture.setup_evidence();
+    let mut baseline = ScenarioTarget::new(baseline, scenario)?;
+    let mut candidate = ScenarioTarget::new(candidate, scenario)?;
 
     for index in 0..args.warmups {
         let first = if index % 2 == 0 { TargetKind::Baseline } else { TargetKind::Candidate };
-        run_pair(first, &mut baseline_fixture, &mut candidate_fixture, |kind, result| {
-            let evidence = if kind == TargetKind::Baseline {
-                &mut baseline_evidence
-            } else {
-                &mut candidate_evidence
-            };
-            evidence.add(&result.evidence);
-            evidence.warmups_completed += 1;
-            Ok(())
-        })
-        .with_context(|| format!("warmup pair {index}"))?;
+        run_pair(first, &mut baseline, &mut candidate)
+            .with_context(|| format!("warmup pair {index}"))?;
+        baseline.evidence.warmups_completed += 1;
+        candidate.evidence.warmups_completed += 1;
     }
 
     let mut baseline_values = Vec::with_capacity(args.samples);
@@ -134,25 +125,12 @@ fn compare_scenario(
     let mut pairs = Vec::with_capacity(args.samples);
     for index in 0..args.samples {
         let first = if index % 2 == 0 { TargetKind::Baseline } else { TargetKind::Candidate };
-        let mut baseline_ns = None;
-        let mut candidate_ns = None;
-        run_pair(first, &mut baseline_fixture, &mut candidate_fixture, |kind, result| {
-            let evidence = if kind == TargetKind::Baseline {
-                &mut baseline_evidence
-            } else {
-                &mut candidate_evidence
-            };
-            evidence.add(&result.evidence);
-            evidence.samples_completed += 1;
-            match kind {
-                TargetKind::Baseline => baseline_ns = Some(result.duration_ns),
-                TargetKind::Candidate => candidate_ns = Some(result.duration_ns),
-            }
-            Ok(())
-        })
-        .with_context(|| format!("measured pair {index}"))?;
-        let baseline_ns = baseline_ns.context("baseline pair result missing")?;
-        let candidate_ns = candidate_ns.context("candidate pair result missing")?;
+        let (baseline_result, candidate_result) = run_pair(first, &mut baseline, &mut candidate)
+            .with_context(|| format!("measured pair {index}"))?;
+        baseline.evidence.samples_completed += 1;
+        candidate.evidence.samples_completed += 1;
+        let baseline_ns = baseline_result.duration_ns;
+        let candidate_ns = candidate_result.duration_ns;
         let delta = i64::try_from(i128::from(candidate_ns) - i128::from(baseline_ns))
             .context("paired delta does not fit i64")?;
         baseline_values.push(baseline_ns);
@@ -165,8 +143,10 @@ fn compare_scenario(
             candidate_minus_baseline_ns: delta,
         });
     }
-    baseline_evidence.add(&baseline_fixture.cleanup()?);
-    candidate_evidence.add(&candidate_fixture.cleanup()?);
+    baseline.finish()?;
+    candidate.finish()?;
+    let baseline_evidence = baseline.evidence;
+    let candidate_evidence = candidate.evidence;
     validate_evidence(scenario, args, &baseline_evidence)?;
     validate_evidence(scenario, args, &candidate_evidence)?;
     let deltas = pairs.iter().map(|pair| pair.candidate_minus_baseline_ns).collect::<Vec<_>>();
@@ -180,23 +160,74 @@ fn compare_scenario(
     })
 }
 
+struct ScenarioTarget {
+    target: Target,
+    scenario: Scenario,
+    fixture: Option<Fixture>,
+    evidence: Evidence,
+}
+
+impl ScenarioTarget {
+    fn new(target: Target, scenario: Scenario) -> Result<Self> {
+        let fixture =
+            matches!(scenario, Scenario::Warm | Scenario::Restored | Scenario::Incompatible)
+                .then(|| Fixture::new(target.clone(), scenario, false))
+                .transpose()?;
+        let evidence = fixture.as_ref().map(Fixture::setup_evidence).unwrap_or_default();
+        Ok(Self { target, scenario, fixture, evidence })
+    }
+
+    fn run(&mut self) -> Result<startup_benchmark_support::RunResult> {
+        if let Some(fixture) = self.fixture.as_mut() {
+            let result = run_sample(fixture)?;
+            self.evidence.add(&result.evidence);
+            return Ok(result);
+        }
+
+        let mut fixture = Fixture::new(self.target.clone(), self.scenario, false)?;
+        self.evidence.add(&fixture.setup_evidence());
+        let result = run_sample(&mut fixture);
+        let cleanup = fixture.cleanup();
+        let result = match (result, cleanup) {
+            (Ok(result), Ok(cleanup)) => {
+                self.evidence.add(&cleanup);
+                result
+            }
+            (Err(error), Ok(_)) => return Err(error),
+            (Ok(_), Err(error)) => return Err(error),
+            (Err(error), Err(cleanup)) => {
+                return Err(error.context(format!("fixture cleanup also failed: {cleanup:#}")));
+            }
+        };
+        self.evidence.add(&result.evidence);
+        Ok(result)
+    }
+
+    fn finish(&mut self) -> Result<()> {
+        if let Some(fixture) = self.fixture.as_mut() {
+            self.evidence.add(&fixture.cleanup()?);
+        }
+        Ok(())
+    }
+}
+
 fn run_pair(
     first: TargetKind,
-    baseline: &mut Fixture,
-    candidate: &mut Fixture,
-    mut consume: impl FnMut(TargetKind, startup_benchmark_support::RunResult) -> Result<()>,
-) -> Result<()> {
+    baseline: &mut ScenarioTarget,
+    candidate: &mut ScenarioTarget,
+) -> Result<(startup_benchmark_support::RunResult, startup_benchmark_support::RunResult)> {
     match first {
         TargetKind::Baseline => {
-            consume(TargetKind::Baseline, run_sample(baseline).context("run baseline")?)?;
-            consume(TargetKind::Candidate, run_sample(candidate).context("run candidate")?)?;
+            let baseline = baseline.run().context("run baseline")?;
+            let candidate = candidate.run().context("run candidate")?;
+            Ok((baseline, candidate))
         }
         TargetKind::Candidate => {
-            consume(TargetKind::Candidate, run_sample(candidate).context("run candidate")?)?;
-            consume(TargetKind::Baseline, run_sample(baseline).context("run baseline")?)?;
+            let candidate = candidate.run().context("run candidate")?;
+            let baseline = baseline.run().context("run baseline")?;
+            Ok((baseline, candidate))
         }
     }
-    Ok(())
 }
 
 fn validate_evidence(scenario: Scenario, args: &Args, evidence: &Evidence) -> Result<()> {
