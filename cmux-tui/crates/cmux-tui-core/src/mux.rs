@@ -2437,7 +2437,7 @@ impl Mux {
                 content.identity.clone(),
             )?;
             surface.set_name(content.name.clone());
-            insert_surface_checked(&mut self.state.lock().unwrap(), surface.clone())?;
+            insert_surface_checked(self, &mut self.state.lock().unwrap(), surface.clone())?;
             match browser.reconnect {
                 RegistryBrowserReconnect::Recreate => {
                     self.start_browser_bootstrap(
@@ -2862,7 +2862,7 @@ impl Mux {
                 !self.consume_terminal_adoption_insert_failure(),
                 "injected terminal adoption topology failure"
             );
-            insert_restored_terminal_runtime_checked(&mut state, surface)?;
+            insert_restored_terminal_runtime_checked(self, &mut state, surface)?;
         } else {
             // One-release import path for a host that predates public content
             // identities. Give it a real initial placement so the normal
@@ -2879,7 +2879,7 @@ impl Mux {
                 !self.consume_terminal_adoption_insert_failure(),
                 "injected terminal adoption topology failure"
             );
-            insert_surface_checked(&mut state, surface)?;
+            insert_surface_checked(self, &mut state, surface)?;
             {
                 let workspace = &mut state.workspaces[workspace_index];
                 workspace.screens.push(Screen {
@@ -6013,7 +6013,7 @@ impl Mux {
                     }
                 };
             let insert_result =
-                insert_surface_checked(&mut self.state.lock().unwrap(), surface.clone());
+                insert_surface_checked(self, &mut self.state.lock().unwrap(), surface.clone());
             drop(cell_pixel_lifecycle);
             if let Err(error) = insert_result {
                 let _ = self.persist_terminal_exit(
@@ -6122,10 +6122,19 @@ impl Mux {
                         return Err(error);
                     }
                 };
+            {
+                let previous = self
+                    .reserved_in_process_terminals
+                    .lock()
+                    .unwrap()
+                    .insert(surface.id, identity);
+                debug_assert!(previous.is_none());
+            }
             let insert_result =
-                insert_surface_checked(&mut self.state.lock().unwrap(), surface.clone());
+                insert_surface_checked(self, &mut self.state.lock().unwrap(), surface.clone());
             drop(cell_pixel_lifecycle);
             if let Err(error) = insert_result {
+                self.reserved_in_process_terminals.lock().unwrap().remove(&surface.id);
                 let _ = self.persist_terminal_exit(
                     &terminal_hex,
                     Some(&incarnation),
@@ -6134,7 +6143,6 @@ impl Mux {
                 surface.kill();
                 return Err(error);
             }
-            self.reserved_in_process_terminals.lock().unwrap().insert(surface.id, identity);
             return Ok(surface);
         }
         #[cfg(test)]
@@ -6162,7 +6170,7 @@ impl Mux {
             }
         };
         let insert_result =
-            insert_surface_checked(&mut self.state.lock().unwrap(), surface.clone());
+            insert_surface_checked(self, &mut self.state.lock().unwrap(), surface.clone());
         drop(cell_pixel_lifecycle);
         if let Err(error) = insert_result {
             self.pending_workspace_surfaces.lock().unwrap().remove(&id);
@@ -6215,7 +6223,7 @@ impl Mux {
             }
         };
         let insert_result =
-            insert_surface_checked(&mut self.state.lock().unwrap(), surface.clone());
+            insert_surface_checked(self, &mut self.state.lock().unwrap(), surface.clone());
         drop(cell_pixel_lifecycle);
         if let Err(error) = insert_result {
             surface.kill();
@@ -6258,7 +6266,7 @@ impl Mux {
                 Arc::downgrade(self),
             )?,
         };
-        insert_surface_checked(&mut self.state.lock().unwrap(), surface.clone())?;
+        insert_surface_checked(self, &mut self.state.lock().unwrap(), surface.clone())?;
         let tab_id = surface
             .resource_identity()
             .context("browser surface omitted its public tab identity")?
@@ -7257,7 +7265,7 @@ impl Mux {
             },
         )?;
         let mut state = self.state.lock().unwrap();
-        insert_surface_checked(&mut state, surface.clone())?;
+        insert_surface_checked(self, &mut state, surface.clone())?;
         let (placement, changed) =
             self.project_terminal_to_workspace_in_state(&mut state, terminal_id, workspace_key)?;
         anyhow::ensure!(changed, "seeded terminal did not change topology");
@@ -7549,12 +7557,19 @@ impl Mux {
 
     #[cfg(test)]
     pub(crate) fn remove_surface_runtime_for_test(&self, id: SurfaceId) -> Option<Arc<Surface>> {
-        self.state.lock().unwrap().surfaces.remove(&id)
+        let mut state = self.state.lock().unwrap();
+        let removed = state.surfaces.remove(&id)?;
+        unregister_terminal_placement(&mut state, &removed);
+        unregister_terminal_host_placement(self, &mut state, &removed);
+        Some(removed)
     }
 
     #[cfg(test)]
     pub(crate) fn insert_surface_runtime_for_test(&self, surface: Arc<Surface>) {
-        let previous = self.state.lock().unwrap().surfaces.insert(surface.id, surface);
+        let mut state = self.state.lock().unwrap();
+        register_terminal_placement_checked(&mut state, &surface).unwrap();
+        register_terminal_host_placement_checked(self, &mut state, &surface).unwrap();
+        let previous = state.surfaces.insert(surface.id, surface);
         assert!(previous.is_none(), "test surface id already exists");
     }
 
@@ -11998,6 +12013,7 @@ impl Mux {
                     for surface in pane.tabs {
                         if let Some(surface) = state.surfaces.remove(&surface) {
                             unregister_terminal_placement(&mut state, &surface);
+                            unregister_terminal_host_placement(self, &mut state, &surface);
                             removed.push(surface);
                         }
                     }
@@ -14790,7 +14806,11 @@ fn cleanup_terminal_host_record(
     }
 }
 
-fn insert_surface_checked(state: &mut State, surface: Arc<Surface>) -> anyhow::Result<()> {
+fn insert_surface_checked(
+    mux: &Mux,
+    state: &mut State,
+    surface: Arc<Surface>,
+) -> anyhow::Result<()> {
     if state.surfaces.contains_key(&surface.id) {
         anyhow::bail!("duplicate_surface_id");
     }
@@ -14826,6 +14846,7 @@ fn insert_surface_checked(state: &mut State, surface: Arc<Surface>) -> anyhow::R
     }
     register_terminal_runtime_checked(state, &surface)?;
     register_terminal_placement_checked(state, &surface)?;
+    register_terminal_host_placement_checked(mux, state, &surface)?;
     state.surfaces.insert(surface.id, surface);
     Ok(())
 }
@@ -14840,6 +14861,7 @@ fn insert_terminal_runtime_checked(state: &mut State, surface: Arc<Surface>) -> 
 }
 
 fn insert_restored_terminal_runtime_checked(
+    mux: &Mux,
     state: &mut State,
     surface: Arc<Surface>,
 ) -> anyhow::Result<()> {
@@ -14857,7 +14879,7 @@ fn insert_restored_terminal_runtime_checked(
         placements.contains(&surface.id),
         "restored terminal runtime is not one of its durable placements"
     );
-    insert_surface_checked(state, surface.clone())?;
+    insert_surface_checked(mux, state, surface.clone())?;
     for placement in placements.into_iter().filter(|placement| *placement != surface.id) {
         anyhow::ensure!(
             !state.surfaces.contains_key(&placement),
@@ -14871,7 +14893,7 @@ fn insert_restored_terminal_runtime_checked(
             .context("restored terminal placement has no tab identity")?;
         let projected = surface
             .project_terminal(placement, TabResourceIdentity::new(tab_id, content_id.clone()))?;
-        insert_surface_checked(state, projected)?;
+        insert_surface_checked(mux, state, projected)?;
     }
     Ok(())
 }
@@ -14940,6 +14962,41 @@ fn unregister_terminal_placement(state: &mut State, surface: &Surface) {
     }
 }
 
+fn register_terminal_host_placement_checked(
+    mux: &Mux,
+    state: &mut State,
+    surface: &Arc<Surface>,
+) -> anyhow::Result<()> {
+    let Some(identity) = mux.resource_terminal_host_identity(surface) else {
+        return Ok(());
+    };
+    anyhow::ensure!(
+        state
+            .terminal_placements_by_host
+            .entry(identity.terminal_id)
+            .or_default()
+            .insert(surface.id),
+        "duplicate terminal host placement"
+    );
+    Ok(())
+}
+
+fn unregister_terminal_host_placement(mux: &Mux, state: &mut State, surface: &Surface) {
+    let Some(identity) = mux.resource_terminal_host_identity(surface) else {
+        return;
+    };
+    let remove_host =
+        if let Some(placements) = state.terminal_placements_by_host.get_mut(&identity.terminal_id) {
+            placements.remove(&surface.id);
+            placements.is_empty()
+        } else {
+            false
+        };
+    if remove_host {
+        state.terminal_placements_by_host.remove(&identity.terminal_id);
+    }
+}
+
 fn terminal_host_matches(
     identity: &TerminalHostIdentity,
     expected_id: &str,
@@ -14963,58 +15020,30 @@ fn terminal_surface_matches(
     candidate.terminal_public_id() == Some(terminal_id)
 }
 
-/// Decide whether terminal-specific reverse indexes can serve a close without
-/// an application-wide repair scan. This check is proportional only to the
-/// affected terminal's durable and live placement sets.
-fn terminal_placement_indexes_need_repair(
+/// Discover live views by durable host identity without inspecting unrelated
+/// surfaces. Incarnation filtering prevents a replay from closing a new host.
+fn terminal_host_placements(
     mux: &Mux,
     state: &State,
-    terminal_id: &TerminalPublicId,
-    expected_host: Option<(&str, Option<&str>)>,
-) -> bool {
-    let Some(runtime) = state.terminal_catalog.get(terminal_id) else {
-        return true;
-    };
-    let Some(runtime_id) = runtime.terminal_runtime_id() else {
-        return true;
-    };
-    if state.terminal_catalog_by_runtime.get(&runtime_id) != Some(terminal_id) {
-        return true;
-    }
-
-    let content_id = ContentPublicId::Terminal(terminal_id.clone());
-    let durable = state.placements_of_content(&content_id);
-    let Some(indexed) = state.terminal_placements_by_runtime.get(&runtime_id) else {
-        return state.surfaces.contains_key(&runtime.id)
-            || durable.iter().any(|placement| {
-                state.resource_indexes.content_ids.get(placement) != Some(&content_id)
-                    || state.surfaces.contains_key(placement)
-            });
-    };
-
-    if indexed.iter().any(|placement| {
-        state.resource_indexes.content_ids.get(placement) != Some(&content_id)
-            || !state.surfaces.get(placement).is_some_and(|candidate| {
-                terminal_surface_matches(mux, candidate, terminal_id, expected_host)
+    terminal_id: &str,
+    terminal_incarnation: Option<&str>,
+) -> Vec<SurfaceId> {
+    let mut targets = state
+        .terminal_placements_by_host
+        .get(terminal_id)
+        .into_iter()
+        .flatten()
+        .copied()
+        .filter(|placement| {
+            state.surfaces.get(placement).is_some_and(|candidate| {
+                mux.resource_terminal_host_identity(candidate).is_some_and(|identity| {
+                    terminal_host_matches(&identity, terminal_id, terminal_incarnation)
+                })
             })
-    }) {
-        return true;
-    }
-    if durable.iter().any(|placement| {
-        if state.resource_indexes.content_ids.get(placement) != Some(&content_id) {
-            return true;
-        }
-        state.surfaces.get(placement).is_some_and(|candidate| {
-            !terminal_surface_matches(mux, candidate, terminal_id, expected_host)
-                || !indexed.contains(placement)
         })
-    }) {
-        return true;
-    }
-    state.surfaces.get(&runtime.id).is_some_and(|candidate| {
-        terminal_surface_matches(mux, candidate, terminal_id, expected_host)
-            && !indexed.contains(&runtime.id)
-    })
+        .collect::<Vec<_>>();
+    targets.sort_unstable();
+    targets
 }
 
 /// Discover every durable or live view by terminal identity. The runtime
@@ -15024,7 +15053,6 @@ fn terminal_content_placements(
     state: &State,
     terminal_id: &TerminalPublicId,
     expected_host: Option<(&str, Option<&str>)>,
-    scan_unindexed_host_matches: bool,
 ) -> Vec<SurfaceId> {
     let content_id = ContentPublicId::Terminal(terminal_id.clone());
     let matches_live_surface = |candidate: &Arc<Surface>| {
@@ -15054,12 +15082,8 @@ fn terminal_content_placements(
             targets.push(runtime.id);
         }
     }
-    if scan_unindexed_host_matches {
-        // Protocol repair and catalog-missing adoption are bounded to one
-        // terminal. Steady-state exit fanout stays on the reverse indexes.
-        targets.extend(state.surfaces.iter().filter_map(|(placement, candidate)| {
-            matches_live_surface(candidate).then_some(*placement)
-        }));
+    if let Some((host_id, host_incarnation)) = expected_host {
+        targets.extend(terminal_host_placements(mux, state, host_id, host_incarnation));
     }
     targets.sort_unstable();
     targets.dedup();
@@ -15118,7 +15142,6 @@ fn remove_terminal_runtime_from_state(
         state,
         &terminal_id,
         host.as_ref().map(|host| (host.terminal_id.as_str(), Some(host.incarnation.as_str()))),
-        false,
     );
     let (_, removed, split_index_dirty) =
         remove_terminal_content_from_state(mux, state, &terminal_id, &targets);
@@ -15541,6 +15564,7 @@ fn restore_resource_state(
             terminal_catalog: HashMap::new(),
             terminal_catalog_by_runtime: HashMap::new(),
             terminal_placements_by_runtime: HashMap::new(),
+            terminal_placements_by_host: HashMap::new(),
             split_screens: HashMap::new(),
             resource_indexes: indexes,
         },
@@ -16107,6 +16131,7 @@ fn remove_surface(mux: &Mux, state: &mut State, target: SurfaceId) -> (Option<Ar
     let removed = state.surfaces.remove(&target);
     if let Some(surface) = removed.as_ref() {
         unregister_terminal_placement(state, surface);
+        unregister_terminal_host_placement(mux, state, surface);
     }
     if let Some(tab_id) = state.resource_indexes.tab_ids.remove(&target) {
         state.resource_indexes.tabs.remove(&tab_id);
@@ -17060,7 +17085,9 @@ mod tests {
         )
         .unwrap();
 
-        insert_restored_terminal_runtime_checked(&mut restored.state, source.clone()).unwrap();
+        let mux = test_mux();
+        insert_restored_terminal_runtime_checked(&mux, &mut restored.state, source.clone())
+            .unwrap();
         assert_eq!(restored.state.terminal_catalog.len(), 1);
         for placement in &placements {
             assert!(
@@ -17069,7 +17096,6 @@ mod tests {
             );
         }
 
-        let mux = test_mux();
         for placement in placements {
             let _ = remove_surface(&mux, &mut restored.state, placement);
         }
@@ -20181,6 +20207,7 @@ mod tests {
         {
             let mut state = mux.state.lock().unwrap();
             assert_eq!(state.terminal_placements_by_runtime[&runtime_id], placements);
+            assert_eq!(state.terminal_placements_by_host[&host.terminal_id], placements);
             state
                 .resource_indexes
                 .content_placements
@@ -20207,6 +20234,7 @@ mod tests {
                 "an exited runtime retained its reverse catalog entry"
             );
             assert!(!state.terminal_placements_by_runtime.contains_key(&runtime_id));
+            assert!(!state.terminal_placements_by_host.contains_key(&host.terminal_id));
             assert!(!state.surfaces.contains_key(&source.id));
             assert!(!state.surfaces.contains_key(&projected.id));
         });
@@ -20848,6 +20876,7 @@ mod tests {
                 .insert(ContentPublicId::Terminal(public_id.clone()), vec![first.id, unrelated.id]);
             state.terminal_catalog.remove(&public_id);
             state.terminal_catalog_by_runtime.remove(&runtime_id);
+            state.terminal_placements_by_runtime.remove(&runtime_id);
         }
 
         let mut wrong_incarnation = host.incarnation.clone();
@@ -20865,6 +20894,12 @@ mod tests {
         assert!(mux.surface(first.id).is_none());
         assert!(mux.surface(second.id).is_none());
         assert!(mux.surface(unrelated.id).is_some());
+        assert!(
+            !mux.with_state(|state| {
+                state.terminal_placements_by_host.contains_key(&host.terminal_id)
+            }),
+            "terminal close retained its durable host placement index"
+        );
         assert_eq!(
             mux.resolve_terminal(&host.terminal_id).unwrap().unwrap().terminal.lifecycle,
             TerminalLifecycle::Tombstoned
@@ -20896,7 +20931,7 @@ mod tests {
         )
         .unwrap();
         let new_surface_id = new_surface.id;
-        insert_surface_checked(&mut mux.state.lock().unwrap(), new_surface).unwrap();
+        insert_surface_checked(&mux, &mut mux.state.lock().unwrap(), new_surface).unwrap();
 
         let replay = mux
             .close_terminal_with_mutation(&host.terminal_id, None, None, None, &mutation)
@@ -20929,8 +20964,8 @@ mod tests {
         .unwrap();
         {
             let mut state = mux.state.lock().unwrap();
-            insert_surface_checked(&mut state, first.clone()).unwrap();
-            insert_surface_checked(&mut state, second.clone()).unwrap();
+            insert_surface_checked(&mux, &mut state, first.clone()).unwrap();
+            insert_surface_checked(&mux, &mut state, second.clone()).unwrap();
             state.resource_indexes.content_placements.remove(&ContentPublicId::Terminal(public_id));
         }
 
@@ -21021,7 +21056,7 @@ mod tests {
         )
         .unwrap();
         let new_surface_id = new_surface.id;
-        insert_surface_checked(&mut mux.state.lock().unwrap(), new_surface).unwrap();
+        insert_surface_checked(&mux, &mut mux.state.lock().unwrap(), new_surface).unwrap();
 
         let error = mux
             .close_terminal_with_mutation(&host.terminal_id, None, None, None, &mutation)
@@ -21063,7 +21098,7 @@ mod tests {
         )
         .unwrap();
         let new_surface_id = new_surface.id;
-        insert_surface_checked(&mut mux.state.lock().unwrap(), new_surface).unwrap();
+        insert_surface_checked(&mux, &mut mux.state.lock().unwrap(), new_surface).unwrap();
 
         let error = mux
             .close_terminal_with_mutation(
@@ -21102,7 +21137,7 @@ mod tests {
             stale_public_id,
         )
         .unwrap();
-        insert_surface_checked(&mut mux.state.lock().unwrap(), stale.clone()).unwrap();
+        insert_surface_checked(&mux, &mut mux.state.lock().unwrap(), stale.clone()).unwrap();
 
         let placements = {
             let state = mux.state.lock().unwrap();
@@ -21111,7 +21146,6 @@ mod tests {
                 &state,
                 &public_id,
                 Some((&host.terminal_id, Some(&host.incarnation))),
-                true,
             )
         };
 
@@ -22894,6 +22928,7 @@ mod tests {
                 Mux::rebuild_split_screen_index(&mut state);
             }
             insert_surface_checked(
+                &mux,
                 &mut state,
                 removed.expect("seeded terminal is removable from topology"),
             )
@@ -24902,7 +24937,7 @@ mod tests {
             TerminalHostIdentity { terminal_id: TERMINAL.into(), incarnation: INCARNATION.into() },
         )
         .unwrap();
-        insert_surface_checked(&mut mux.state.lock().unwrap(), surface.clone()).unwrap();
+        insert_surface_checked(&mux, &mut mux.state.lock().unwrap(), surface.clone()).unwrap();
         let (placement, canonical_workspace, changed, _) =
             mux.bind_running_terminal_to_canonical_workspace(&surface).unwrap();
         assert!(changed);

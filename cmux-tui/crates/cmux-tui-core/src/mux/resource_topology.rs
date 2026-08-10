@@ -2264,44 +2264,20 @@ impl Mux {
                     })
                 })
                 .cloned();
-            let repair_scan = newly_closed
-                && resource_public_id.as_ref().is_none_or(|public_id| {
-                    terminal_placement_indexes_need_repair(
-                        self,
-                        &state,
-                        public_id,
-                        Some((terminal_id, closed_incarnation.as_deref())),
-                    )
-                });
             let targets = if let Some(public_id) = resource_public_id.as_ref() {
                 terminal_content_placements(
                     self,
                     &state,
                     public_id,
                     Some((terminal_id, closed_incarnation.as_deref())),
-                    repair_scan,
                 )
-            } else if repair_scan {
-                // A one-release pre-resource terminal has no durable public
-                // identity. Scan once when its lifecycle first tombstones;
-                // later retries remain constant-time.
-                state
-                    .surfaces
-                    .iter()
-                    .filter_map(|(surface_id, surface)| {
-                        self.resource_terminal_host_identity(surface)
-                            .is_some_and(|identity| {
-                                terminal_host_matches(
-                                    &identity,
-                                    terminal_id,
-                                    closed_incarnation.as_deref(),
-                                )
-                            })
-                            .then_some(*surface_id)
-                    })
-                    .collect::<Vec<_>>()
             } else {
-                Vec::new()
+                terminal_host_placements(
+                    self,
+                    &state,
+                    terminal_id,
+                    closed_incarnation.as_deref(),
+                )
             };
             let waiter_public_id = resource_public_id.clone().or_else(|| {
                 targets.iter().find_map(|surface_id| {
@@ -2521,7 +2497,6 @@ impl Mux {
             state,
             terminal_public_id,
             Some((terminal_id, None)),
-            !has_runtime,
         );
         if targets.is_empty() && !has_runtime {
             return Ok(None);
@@ -2909,7 +2884,6 @@ impl Mux {
                     state,
                     &public_id,
                     Some((host.terminal_id.as_str(), Some(host.incarnation.as_str()))),
-                    false,
                 );
                 let screens = unique_screen_ids(
                     placements.iter().filter_map(|surface| surface_screen_id(state, *surface)),
@@ -2945,18 +2919,11 @@ impl Mux {
                 "terminal_incarnation_mismatch"
             );
         }
-        let scan_unindexed_host_matches = terminal_placement_indexes_need_repair(
-            self,
-            state,
-            public_id,
-            Some((terminal_id, terminal_incarnation)),
-        );
         let placements = terminal_content_placements(
             self,
             state,
             public_id,
             Some((terminal_id, terminal_incarnation)),
-            scan_unindexed_host_matches,
         );
         let changed_screens = unique_screen_ids(
             placements.iter().filter_map(|surface| surface_screen_id(state, *surface)),

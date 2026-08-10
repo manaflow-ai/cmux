@@ -873,6 +873,8 @@ pub struct State {
     pub(crate) terminal_catalog_by_runtime: HashMap<SurfaceId, TerminalPublicId>,
     /// Live view placements grouped by their daemon-local terminal runtime.
     pub(crate) terminal_placements_by_runtime: HashMap<SurfaceId, HashSet<SurfaceId>>,
+    /// Live view placements grouped by durable terminal host identity.
+    pub(crate) terminal_placements_by_host: HashMap<String, HashSet<SurfaceId>>,
     pub(crate) split_screens: HashMap<SplitId, (usize, usize, ScreenId)>,
     pub(crate) resource_indexes: PublicSlotIndexes,
 }
