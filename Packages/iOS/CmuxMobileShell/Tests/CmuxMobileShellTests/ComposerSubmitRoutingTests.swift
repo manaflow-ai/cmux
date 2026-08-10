@@ -461,4 +461,38 @@ import Testing
         #expect(completed.first?.fileName == "original.txt")
         #expect(completed.first?.bytes == Data("hello".utf8))
     }
+
+    @Test func routingHostKeepsEveryUploadMetadataFieldImmutable() async {
+        let operationID = UUID()
+        let uploadID = UUID()
+        let mutations: [(operationID: UUID, fileName: String, totalBytes: Int, data: Data)] = [
+            (UUID(), "original.txt", 5, Data("llo".utf8)),
+            (operationID, "changed.txt", 5, Data("llo".utf8)),
+            (operationID, "original.txt", 6, Data("llox".utf8)),
+        ]
+
+        for mutation in mutations {
+            let router = RoutingHostRouter()
+            _ = await router.response(.attachmentUpload(
+                operationID: operationID,
+                uploadID: uploadID,
+                fileName: "original.txt",
+                totalBytes: 5,
+                offset: 0,
+                data: Data("he".utf8),
+                isLast: false
+            ))
+            _ = await router.response(.attachmentUpload(
+                operationID: mutation.operationID,
+                uploadID: uploadID,
+                fileName: mutation.fileName,
+                totalBytes: mutation.totalBytes,
+                offset: 2,
+                data: mutation.data,
+                isLast: true
+            ))
+
+            #expect(await router.recordedUploads().isEmpty)
+        }
+    }
 }
