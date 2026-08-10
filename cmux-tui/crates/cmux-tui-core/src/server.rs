@@ -16381,6 +16381,7 @@ mod tests {
         let response = pop_json(&outbound);
         assert_eq!(response["ok"], false);
         assert!(response["error"]["message"].as_str().unwrap().contains("not ready"));
+        assert_eq!(response["error"]["details"]["reason"], "lifecycle_not_ready");
         assert!(!mux.daemon_shutdown_requested());
         assert!(!mux.control_clients.daemon_handoff_pending());
     }
@@ -16404,6 +16405,7 @@ mod tests {
         let response = pop_json(&outbound);
         assert_eq!(response["ok"], false);
         assert!(response["error"]["message"].as_str().unwrap().contains("not ready"));
+        assert_eq!(response["error"]["details"]["reason"], "lifecycle_not_ready");
         assert!(events.try_recv().is_err());
     }
 

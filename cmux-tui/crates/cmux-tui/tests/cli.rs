@@ -959,6 +959,69 @@ fn lifecycle_errors_do_not_expose_raw_server_failures() {
 
 #[cfg(unix)]
 #[test]
+fn server_reload_rejects_false_acknowledgement() {
+    let dir = unique_temp_dir("server-reload-false-ack");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("owned.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let thread = std::thread::spawn(move || {
+        let stream = accept_with_timeout(&listener, Duration::from_secs(5)).unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut writer = stream;
+        let mut request = String::new();
+        reader.read_line(&mut request).unwrap();
+        let identify: serde_json::Value = serde_json::from_str(&request).unwrap();
+        writeln!(
+            writer,
+            "{}",
+            serde_json::json!({
+                "id": identify["id"],
+                "ok": true,
+                "data": {
+                    "app": "cmux-tui",
+                    "session": "false-ack",
+                    "pid": 4242,
+                    "generation": "generation-a",
+                    "capabilities": [],
+                    "lifecycle_ready": true
+                }
+            })
+        )
+        .unwrap();
+        request.clear();
+        reader.read_line(&mut request).unwrap();
+        let reload: serde_json::Value = serde_json::from_str(&request).unwrap();
+        assert_eq!(reload["cmd"], "reload-config");
+        writeln!(
+            writer,
+            "{}",
+            serde_json::json!({
+                "id": reload["id"],
+                "ok": true,
+                "data": {"reloaded": false}
+            })
+        )
+        .unwrap();
+    });
+
+    let output = lifecycle_cli(&[
+        "--json",
+        "server",
+        "reload-config",
+        "--session",
+        "false-ack",
+        "--socket",
+        socket.to_str().unwrap(),
+    ]);
+    thread.join().unwrap();
+    assert_eq!(output.status.code(), Some(3));
+    let error: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
+    assert_eq!(error["code"], "server.invalid_response");
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn server_stop_uses_identify_fence_and_refuses_cross_session_targeting() {
     fn fake_server(listener: UnixListener, identified_session: &'static str, expect_stop: bool) {
         let stream = accept_with_timeout(&listener, Duration::from_secs(5)).unwrap();

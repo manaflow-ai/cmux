@@ -899,6 +899,57 @@ fn journal_subscription_rejects_a_stale_session_before_sending_the_new_envelope(
 
 #[cfg(unix)]
 #[test]
+fn pre_ready_resource_reload_uses_selected_locale() {
+    let dir = unique_temp_dir("pre-ready-reload-locale");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("mux.sock");
+    let listener = transport::listen(&socket).unwrap();
+    let server = std::thread::spawn(move || {
+        let mut stream = listener.accept().unwrap();
+        let mut line = String::new();
+        BufReader::new(stream.try_clone_box().unwrap()).read_line(&mut line).unwrap();
+        let request: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(request["operation"], "session.reload_config");
+        let response = json!({
+            "protocol":"cmux.protocol/1",
+            "type":"response",
+            "id":request["id"],
+            "ok":false,
+            "error":{
+                "code":"operation.failed",
+                "message":"server lifecycle is not ready",
+                "details":{
+                    "operation":"session.reload_config",
+                    "reason":"lifecycle_not_ready"
+                },
+                "retryable":false
+            }
+        });
+        writeln!(stream, "{response}").unwrap();
+        stream.flush().unwrap();
+    });
+
+    let output = Command::new(bin())
+        .args(["--socket"])
+        .arg(&socket)
+        .args(["session", "current", "config", "reload"])
+        .env("LC_ALL", "ja_JP.UTF-8")
+        .env("LC_MESSAGES", "ja_JP.UTF-8")
+        .env("LANG", "ja_JP.UTF-8")
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    server.join().unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let diagnostic = stderr(&output);
+    assert!(diagnostic.contains("ローカルサーバーは起動中です"), "{diagnostic}");
+    assert!(!diagnostic.contains("server lifecycle is not ready"), "{diagnostic}");
+    let _ = fs::remove_file(&socket);
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn journal_subscription_negotiates_then_sends_the_resource_envelope() {
     let dir = unique_temp_dir("journal-capable-session");
     fs::create_dir_all(&dir).unwrap();
