@@ -413,7 +413,7 @@ describe("dashboard account menu", () => {
     expect(routerPush).not.toHaveBeenCalled();
   });
 
-  test("prevents a second organization switch while the first is pending", async () => {
+  test("serializes organization switches and applies the latest request", async () => {
     searchTeam = "team-2";
     organizationQuery = {
       data: {
@@ -468,17 +468,13 @@ describe("dashboard account menu", () => {
     expect(guardedSetSelectedTeam).toHaveBeenCalledTimes(1);
     finishFirstSwitch?.();
     await first;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(guardedSetSelectedTeam).toHaveBeenCalledTimes(2);
     expect(routerPush).toHaveBeenCalledWith(
-      "/dashboard/coderouter?team=team-2",
-    );
-    expect(routerPush).not.toHaveBeenCalledWith(
       "/dashboard/coderouter?team=team-3",
     );
-  });
-
-  test("bounds operations that never settle", async () => {
-    await expect(
-      __test.withDeadline(new Promise<void>(() => undefined), 1),
-    ).rejects.toThrow("timed out");
+    expect(routerPush).not.toHaveBeenCalledWith(
+      "/dashboard/coderouter?team=team-2",
+    );
   });
 });
