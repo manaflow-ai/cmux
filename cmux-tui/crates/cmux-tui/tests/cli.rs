@@ -2915,12 +2915,10 @@ fn forced_exit_waits_for_remote_runtime_cleanup() {
     let remote_shutdown_started_path = dir.join("remote-shutdown-started");
     let remote_shutdown_release_path = dir.join("remote-shutdown-release");
     let remote_shutdown_complete_path = dir.join("remote-shutdown-complete");
-    let server_exit_ready_path = dir.join("server-exit-ready");
     let mut remote_started = TestFifoSignal::create(&remote_started_path);
     let mut remote_shutdown_started = TestFifoSignal::create(&remote_shutdown_started_path);
     let mut remote_shutdown_release = TestFifoSignal::create(&remote_shutdown_release_path);
     let mut remote_shutdown_complete = TestFifoSignal::create(&remote_shutdown_complete_path);
-    let mut server_exit_ready = TestFifoSignal::create(&server_exit_ready_path);
     let mut server = PtyChild::start_with_env(
         &[
             "--socket",
@@ -2944,7 +2942,6 @@ fn forced_exit_waits_for_remote_runtime_cleanup() {
                 "CMUX_TUI_TEST_REMOTE_SHUTDOWN_COMPLETE_SIGNAL",
                 remote_shutdown_complete_path.as_os_str(),
             ),
-            ("CMUX_TUI_TEST_SERVER_EXIT_READY_SIGNAL", server_exit_ready_path.as_os_str()),
         ],
     );
     wait_for_socket_path(&socket);
@@ -2960,8 +2957,11 @@ fn forced_exit_waits_for_remote_runtime_cleanup() {
 
     remote_shutdown_release.send();
     remote_shutdown_complete.receive(Duration::from_secs(5));
-    server_exit_ready.receive(Duration::from_secs(5));
-    let status = server.child.wait().unwrap();
+    let status = wait_for_child_exit(
+        native_pty_child(server.child.as_mut()),
+        Duration::from_secs(5),
+        "server remained alive after remote runtime cleanup completed",
+    );
     assert!(status.success(), "server exited with {status}");
     drop(server);
     fs::remove_dir_all(dir).unwrap();

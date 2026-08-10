@@ -16546,8 +16546,11 @@ mod tests {
         let error = handle_command(&mux, client, Command::Shutdown, &writer).unwrap_err();
 
         assert_eq!(error.to_string(), SERVER_SHUTDOWN_INCOMPLETE_ERROR);
+        let diagnostic = format!("{error:#}");
         assert!(
-            format!("{error:#}").contains("could not terminate 1 surface process"),
+            diagnostic.contains("could not terminate 1 surface process")
+                && diagnostic.contains("key=Surface(")
+                && diagnostic.contains("phase=untracked-local-kill-unconfirmed"),
             "shutdown diagnostic discarded its retained owner: {error:#}"
         );
     }

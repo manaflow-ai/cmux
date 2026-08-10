@@ -401,6 +401,14 @@ impl ShutdownOwnerLedger {
         Some(self.stage(shutdown_owner_key(surface.id, &owner), owner))
     }
 
+    fn stage_daemon_owned_local_surface(
+        &self,
+        surface: &Arc<Surface>,
+    ) -> Option<(ShutdownOwnerKey, Arc<SurfaceShutdownOwner>)> {
+        let owner = surface.daemon_shutdown_owner()?;
+        Some(self.stage(ShutdownOwnerKey::Surface(surface.id), owner))
+    }
+
     fn snapshot(&self) -> Vec<(ShutdownOwnerKey, Arc<SurfaceShutdownOwner>)> {
         self.owners
             .lock()
@@ -9217,6 +9225,7 @@ impl Mux {
             .context("drain unpublished child reaper ownership for daemon exit")?;
         let surfaces = unique_surface_runtimes(&self.state.lock().unwrap());
         for surface in surfaces {
+            let _ = self.shutdown_owners.stage_daemon_owned_local_surface(&surface);
             surface.shutdown_for_daemon();
         }
         self.terminate_staged_shutdown_owners_until(deadline);
@@ -9592,33 +9601,33 @@ impl Mux {
         let browser_runtime_failed = self.shutdown_browser_runtimes_until(deadline);
 
         let retained = self.shutdown_owners.snapshot();
-        let mut failed_surface_ids = retained
+        let mut failed_surfaces = retained
             .iter()
-            .filter_map(|(key, _)| match key {
-                ShutdownOwnerKey::Surface(surface) => Some(*surface),
+            .filter_map(|(key, owner)| match key {
+                ShutdownOwnerKey::Surface(_) => {
+                    Some(format!("key={key:?} phase={}", owner.retained_shutdown_phase()))
+                }
                 ShutdownOwnerKey::Hosted { .. } => None,
             })
             .collect::<Vec<_>>();
-        failed_surface_ids.sort_unstable();
+        failed_surfaces.sort();
         let mut failed_hosts = retained
             .iter()
-            .filter_map(|(key, _)| match key {
-                ShutdownOwnerKey::Hosted { terminal_id, .. } => Some(terminal_id.clone()),
+            .filter_map(|(key, owner)| match key {
+                ShutdownOwnerKey::Hosted { .. } => {
+                    Some(format!("key={key:?} phase={}", owner.retained_shutdown_phase()))
+                }
                 ShutdownOwnerKey::Surface(_) => None,
             })
             .collect::<Vec<_>>();
         failed_hosts.sort();
 
         let mut failures = Vec::new();
-        if !failed_surface_ids.is_empty() {
+        if !failed_surfaces.is_empty() {
             failures.push(format!(
                 "could not terminate {} surface process(es): {}",
-                failed_surface_ids.len(),
-                failed_surface_ids
-                    .into_iter()
-                    .map(|surface| surface.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                failed_surfaces.len(),
+                failed_surfaces.join(", ")
             ));
         }
         if browser_runtime_failed {

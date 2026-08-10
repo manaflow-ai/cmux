@@ -1374,6 +1374,14 @@ impl LocalProcess {
             Self::Untracked(killer) => killer.lock().unwrap().kill().is_ok(),
         }
     }
+
+    fn retained_shutdown_phase(&self) -> &'static str {
+        match self {
+            Self::Owned(process) => process.retained_shutdown_phase(),
+            #[cfg(test)]
+            Self::Untracked(_) => "untracked-local-kill-unconfirmed",
+        }
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PtyLifetime {
@@ -1539,6 +1547,15 @@ impl SurfaceShutdownOwner {
             SurfaceShutdownOwnerKind::Local(_) => None,
             #[cfg(unix)]
             SurfaceShutdownOwnerKind::Hosted(_) => None,
+        }
+    }
+
+    pub(crate) fn retained_shutdown_phase(&self) -> &'static str {
+        match &self.kind {
+            SurfaceShutdownOwnerKind::Local(process) => process.retained_shutdown_phase(),
+            #[cfg(unix)]
+            SurfaceShutdownOwnerKind::Hosted(_) => "host-termination-confirmation-unfinished",
+            SurfaceShutdownOwnerKind::Browser(_) => "browser-target-close-unconfirmed",
         }
     }
 
@@ -1891,6 +1908,36 @@ impl LocalPtyProcess {
         let (exited, _) =
             self.exited.1.wait_timeout_while(exited, remaining, |exited| !*exited).unwrap();
         *exited
+    }
+
+    fn retained_shutdown_phase(&self) -> &'static str {
+        if *self.exited.0.lock().unwrap() {
+            return "local-exit-observed-owner-retained";
+        }
+        #[cfg(unix)]
+        {
+            if self.child_wait_ownership_lost.load(Ordering::Acquire) {
+                return "local-child-wait-ownership-lost";
+            }
+            let child_reaped = self.child_reaped.load(Ordering::Acquire);
+            let group_escalation_complete = self.group_escalation_complete.load(Ordering::Acquire);
+            if child_reaped && group_escalation_complete {
+                return "local-termination-complete-owner-retained";
+            }
+            if child_reaped {
+                return "local-session-drain-unconfirmed";
+            }
+            if group_escalation_complete {
+                return "local-child-reap-unconfirmed";
+            }
+            if self.child_waitable.load(Ordering::Acquire) {
+                return "local-session-escalation-unconfirmed";
+            }
+            if self.termination_started.load(Ordering::Acquire) {
+                return "local-child-exit-unconfirmed";
+            }
+        }
+        "local-termination-not-active"
     }
 
     #[cfg(unix)]
@@ -6003,6 +6050,17 @@ impl Surface {
                 SurfaceShutdownOwner { kind: SurfaceShutdownOwnerKind::Browser(owner) }
             }),
         }
+    }
+
+    pub(crate) fn daemon_shutdown_owner(&self) -> Option<SurfaceShutdownOwner> {
+        let Surface::Pty(pty) = self else { return None };
+        if pty.lifetime != PtyLifetime::DaemonOwned {
+            return None;
+        }
+        pty.local_process
+            .as_deref()
+            .cloned()
+            .map(|process| SurfaceShutdownOwner { kind: SurfaceShutdownOwnerKind::Local(process) })
     }
 
     #[cfg(test)]
