@@ -1751,9 +1751,7 @@ pub enum ConfigReloadError {
 impl fmt::Display for ConfigReloadError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
-            Self::OwnerStopped => {
-                "configuration reload owner stopped before applying the request"
-            }
+            Self::OwnerStopped => "configuration reload owner stopped before applying the request",
             Self::TimedOut => "configuration reload owner did not apply the request",
         })
     }
