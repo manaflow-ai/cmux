@@ -222,7 +222,8 @@ struct CMUXMobileRootView: View {
             #endif
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active {
+            switch phase {
+            case .active:
                 store.resumeForegroundRefresh()
                 // The user may have toggled Tailscale while we were backgrounded.
                 tailscaleStatusMonitor?.refresh()
@@ -230,8 +231,15 @@ struct CMUXMobileRootView: View {
                 // backgrounded routes to the sign-in page instead of waiting for a
                 // failed connect to surface a confusing host-side message.
                 Task { await authManager.revalidateSession() }
-            } else {
+            case .background:
                 store.suspendForegroundRefresh()
+            case .inactive:
+                // Control Center, system prompts, and foreground handoffs can
+                // make the scene inactive without suspending the process. Keep
+                // the current transport recovery owner alive through that edge.
+                break
+            @unknown default:
+                break
             }
             #if os(iOS)
             updateOnboardingMacDiscoveryKeepAlive()

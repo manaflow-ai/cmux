@@ -301,6 +301,8 @@ extension MobileShellComposite {
 
     /// Resume foreground-only refresh loops after the app becomes active.
     public func resumeForegroundRefresh() {
+        guard foregroundRefreshLifecycleState != .active else { return }
+        foregroundRefreshLifecycleState = .active
         foregroundRefreshIsActive = true
         foregroundResumeEpoch &+= 1
         startObservingNetworkPathChanges()
@@ -332,8 +334,12 @@ extension MobileShellComposite {
         }
     }
 
-    /// Record that the app left the active scene phase.
+    /// Record that the app entered the background. Transient inactive phases
+    /// must not call this: they do not suspend the process and canceling a
+    /// useful recovery there makes wake latency depend on interruption churn.
     public func suspendForegroundRefresh() {
+        guard foregroundRefreshLifecycleState != .background else { return }
+        foregroundRefreshLifecycleState = .background
         foregroundRefreshIsActive = false
         if connectionRecoveryOwner.cancelProbing() {
             applyConnectionRecoveryOwnerState()

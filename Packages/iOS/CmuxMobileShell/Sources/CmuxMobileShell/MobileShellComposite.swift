@@ -2006,6 +2006,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// traces showed ~9.5s stalls) and then competes with the foreground
     /// recovery pass.
     var foregroundRefreshIsActive = true
+    /// The view can report `onAppear` and `.active` for the same foreground
+    /// transition. Track the shell-owned lifecycle edge separately from the
+    /// active gate so duplicate callbacks cannot supersede an in-flight probe.
+    /// `.inactive` never enters this state machine; only a real `.background`
+    /// transition suspends transport work.
+    enum ForegroundRefreshLifecycleState {
+        case uninitialized
+        case active
+        case background
+    }
+    var foregroundRefreshLifecycleState =
+        ForegroundRefreshLifecycleState.uninitialized
     /// The most recent recovery trigger parked while inactive, replayed once
     /// by `recoverPendingInactiveRecoveryIfNeeded()` on foreground.
     var pendingInactiveRecoveryTrigger: RecoveryTrigger?
@@ -4802,51 +4814,49 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
             }
         }
-        // For each wanted secondary Mac: establish a fresh subscription, or — if
-        // one already exists — reseed its snapshot over the existing client so an
-        // explicit refresh (foreground/pull) still updates a stream that was
-        // suspended while backgrounded or whose pushes never started. If the
-        // existing client is dead, recreate the subscription.
-        for mac in macs where wanted.contains(MacPairingKey(mac)) {
-            // Re-check before each Mac so a sign-out / account/team switch
-            // mid-loop stops us before we connect to or write state for another
-            // scope.
-            guard await isAggregationScopeValid(scope) else { return }
-            if let existing = secondaryMacSubscriptions[MacPairingKey(mac)] {
-                // Promotion owns this exact registry entry from its initial
-                // fence through role commit. Aggregation defers all fetch and
-                // teardown work until promotion succeeds or explicitly
-                // releases the claim.
-                guard !existing.isTransitioningToFocus else { continue }
-                guard macInstanceTagAuthority.sameStoredAuthority(
-                    existing.storedInstanceTag,
-                    mac.instanceTag
-                ) else {
-                    // A changed stored instance can still address the same
-                    // physical Iroh peer. Reserve and drain the old owner
-                    // before a later aggregation pass dials its replacement.
-                    await retireSecondaryControlOwner(
-                        existing,
-                        shouldRetry: allowsNewConnections
-                    )
-                    continue
-                }
-                let refresh = enqueueSecondaryWorkspaceRefresh(
-                    existing,
-                    displayName: mac.displayName,
-                    authorityValidation: authorityValidation
-                )
-                await refresh?.value
-            } else if allowsNewConnections {
-                recordEstablishmentOutcome(
-                    await establishSecondaryMacSubscription(
-                        for: mac,
+        // Reconcile every wanted secondary Mac concurrently. The registry and
+        // per-pairing establishment flights remain the publication owners, so
+        // parallel network waits cannot install duplicates or exceed the pool
+        // cap. A sleeping phone can therefore probe, drain, and redial all stale
+        // peers in one bounded wave instead of multiplying the timeout by the
+        // number of Macs.
+        let reconciliationMacs = macs.filter {
+            wanted.contains(MacPairingKey($0))
+        }
+        let reconciliationResults = await withTaskGroup(
+            of: SecondaryMacReconciliationResult.self,
+            returning: [SecondaryMacReconciliationResult].self
+        ) { group in
+            for mac in reconciliationMacs {
+                group.addTask { [weak self] in
+                    guard let self else {
+                        return SecondaryMacReconciliationResult(
+                            macDeviceID: mac.macDeviceID,
+                            establishmentOutcome: .superseded
+                        )
+                    }
+                    return await self.reconcileSecondaryMac(
+                        mac,
                         scope: scope,
-                        authorityValidation: authorityValidation
-                    ),
-                    macDeviceID: mac.macDeviceID
-                )
+                        authorityValidation: authorityValidation,
+                        allowsNewConnections: allowsNewConnections
+                    )
+                }
             }
+            var results: [SecondaryMacReconciliationResult] = []
+            results.reserveCapacity(reconciliationMacs.count)
+            for await result in group {
+                results.append(result)
+            }
+            return results
+        }
+        guard await isAggregationScopeValid(scope) else { return }
+        for result in reconciliationResults {
+            guard let outcome = result.establishmentOutcome else { continue }
+            recordEstablishmentOutcome(
+                outcome,
+                macDeviceID: result.macDeviceID
+            )
         }
         if onlyMacDeviceIDs != nil, retiredControlSlot {
             // Only an actual owner retirement widens an incremental edge into
@@ -4907,6 +4917,76 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
     }
+
+    /// Revalidate one warm control owner without serializing unrelated Macs.
+    /// All state mutation remains MainActor-isolated; only awaited transport and
+    /// store work overlaps across peers.
+    private func reconcileSecondaryMac(
+        _ mac: MobilePairedMac,
+        scope: MobileShellScopeSnapshot,
+        authorityValidation: SecondaryStoredAuthorityValidation,
+        allowsNewConnections: Bool
+    ) async -> SecondaryMacReconciliationResult {
+        let ownerKey = MacPairingKey(mac)
+        guard await isAggregationScopeValid(scope) else {
+            return SecondaryMacReconciliationResult(
+                macDeviceID: mac.macDeviceID,
+                establishmentOutcome: .superseded
+            )
+        }
+        if let existing = secondaryMacSubscriptions[ownerKey] {
+            // Promotion owns this exact registry entry from its initial fence
+            // through role commit. Aggregation defers all fetch and teardown
+            // work until promotion succeeds or releases the claim.
+            guard !existing.isTransitioningToFocus else {
+                return SecondaryMacReconciliationResult(
+                    macDeviceID: mac.macDeviceID,
+                    establishmentOutcome: nil
+                )
+            }
+            guard macInstanceTagAuthority.sameStoredAuthority(
+                existing.storedInstanceTag,
+                mac.instanceTag
+            ) else {
+                // A changed stored instance can still address the same physical
+                // Iroh peer. Reserve and drain the old owner before a later pass
+                // dials its replacement.
+                await retireSecondaryControlOwner(
+                    existing,
+                    shouldRetry: allowsNewConnections
+                )
+                return SecondaryMacReconciliationResult(
+                    macDeviceID: mac.macDeviceID,
+                    establishmentOutcome: nil
+                )
+            }
+            let refresh = enqueueSecondaryWorkspaceRefresh(
+                existing,
+                displayName: mac.displayName,
+                authorityValidation: authorityValidation
+            )
+            await refresh?.value
+            return SecondaryMacReconciliationResult(
+                macDeviceID: mac.macDeviceID,
+                establishmentOutcome: nil
+            )
+        }
+        let outcome: SecondaryMacEstablishmentOutcome?
+        if allowsNewConnections {
+            outcome = await establishSecondaryMacSubscription(
+                for: mac,
+                scope: scope,
+                authorityValidation: authorityValidation
+            )
+        } else {
+            outcome = nil
+        }
+        return SecondaryMacReconciliationResult(
+            macDeviceID: mac.macDeviceID,
+            establishmentOutcome: outcome
+        )
+    }
+
     func readSecondaryStoredAuthority(
         macDeviceID: String,
         storedInstanceTag: String?,
