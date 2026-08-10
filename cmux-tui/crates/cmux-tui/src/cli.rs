@@ -128,7 +128,7 @@ fn parse_command(
     if command_args.is_empty() {
         return Err(UsageError::new("missing resource scope; use --help to list scopes"));
     }
-    if super::has_inline_relay_ticket_argument(&command_args) {
+    if super::public_command_has_inline_relay_ticket_argument(&command_args) {
         return Err(UsageError::new(
             crate::localization::catalog().remote_client.inline_relay_ticket_rejected,
         ));

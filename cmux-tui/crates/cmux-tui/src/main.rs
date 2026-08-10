@@ -1101,6 +1101,14 @@ fn rewrite_server_start(args: &mut Vec<String>) {
 }
 
 fn has_inline_relay_ticket_argument(args: &[String]) -> bool {
+    scan_inline_relay_ticket_argument(args, false)
+}
+
+fn public_command_has_inline_relay_ticket_argument(args: &[String]) -> bool {
+    scan_inline_relay_ticket_argument(args, true)
+}
+
+fn scan_inline_relay_ticket_argument(args: &[String], stop_at_payload: bool) -> bool {
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
@@ -1139,6 +1147,7 @@ fn has_inline_relay_ticket_argument(args: &[String]) -> bool {
                 }
                 index += 1;
             }
+            "--" if stop_at_payload => break,
             _ => index += 1,
         }
     }

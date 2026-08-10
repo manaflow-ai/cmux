@@ -5094,6 +5094,27 @@ fn handle_resource_connection_message(
     };
     let id = request.envelope.id.clone();
     let operation = request.envelope.operation;
+    if matches!(
+        operation,
+        ResourceOperation::SessionShutdown | ResourceOperation::SessionReloadConfig
+    ) && !mux.server_lifecycle_ready()
+    {
+        let operation_name = match operation {
+            ResourceOperation::SessionShutdown => "session.shutdown",
+            ResourceOperation::SessionReloadConfig => "session.reload_config",
+            _ => unreachable!("lifecycle readiness applies only to lifecycle operations"),
+        };
+        return send_resource_response(
+            writer,
+            id,
+            operation,
+            Err(ResourceError::operation_failed(
+                operation_name,
+                "server lifecycle is not ready",
+                json!({}),
+            )),
+        );
+    }
     debug_assert_eq!(
         handles_resource_connection_operation(operation),
         crate::resource_router::requires_connection_context(operation)
@@ -13531,6 +13552,7 @@ mod tests {
     #[test]
     fn resource_shutdown_requires_local_authority_and_force_for_a_live_browser_owner() {
         let mux = test_mux();
+        mux.mark_server_lifecycle_ready();
         let owner_writer = test_writer();
         let owner = mux.control_clients.register(ClientTransport::Unix, owner_writer.clone());
         handle_command(
@@ -13669,6 +13691,7 @@ mod tests {
 
         let first =
             Mux::open_persistent("shutdown-replay", SurfaceOptions::default(), &root).unwrap();
+        first.mark_server_lifecycle_ready();
         let (closed_writer, _) = captured_writer();
         let client = first.control_clients.register(ClientTransport::Unix, closed_writer.clone());
         let scheduler =
@@ -13682,6 +13705,7 @@ mod tests {
 
         let reopened =
             Mux::open_persistent("shutdown-replay", SurfaceOptions::default(), &root).unwrap();
+        reopened.mark_server_lifecycle_ready();
         let (writer, outbound) = captured_writer();
         let client = reopened.control_clients.register(ClientTransport::Unix, writer.clone());
         let scheduler =
