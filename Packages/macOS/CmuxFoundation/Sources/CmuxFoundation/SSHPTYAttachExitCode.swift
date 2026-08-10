@@ -63,6 +63,10 @@ public enum SSHPTYAttachExitCode: Int32 {
 
     /// Builds the POSIX shell loop shared by persistent SSH PTY attach entry points.
     ///
+    /// The attach environment is exported on its own lines rather than as an
+    /// assignment prefix, because a prefix is only legal before a simple command
+    /// and callers legitimately pass compound commands.
+    ///
     /// - Parameters:
     ///   - command: The shell command that performs one attach attempt.
     ///   - reauthenticates: Whether transient failures should request foreground authentication.
@@ -99,7 +103,11 @@ public enum SSHPTYAttachExitCode: Int32 {
             "  fi",
             "  if [ \"$cmux_ssh_attach_reauth_required\" -eq 0 ]; then",
             "  if [ \"$cmux_ssh_attach_reconnect_unbounded\" -eq 1 ] || [ \"$cmux_ssh_attach_retry\" -lt \"$cmux_ssh_attach_reconnect_limit\" ]; then cmux_ssh_attach_can_retry=1; else cmux_ssh_attach_can_retry=0; fi",
-            "  CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY=\"$cmux_ssh_attach_can_retry\" CMUX_SSH_PTY_ATTACH_NO_PROGRESS_RETRY=\"$cmux_ssh_attach_no_progress_retry\" CMUX_SSH_PTY_ATTACH_NO_PROGRESS_LIMIT=\"$cmux_ssh_attach_no_progress_limit\" \(command)",
+            "  CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY=\"$cmux_ssh_attach_can_retry\"",
+            "  CMUX_SSH_PTY_ATTACH_NO_PROGRESS_RETRY=\"$cmux_ssh_attach_no_progress_retry\"",
+            "  CMUX_SSH_PTY_ATTACH_NO_PROGRESS_LIMIT=\"$cmux_ssh_attach_no_progress_limit\"",
+            "  export CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY CMUX_SSH_PTY_ATTACH_NO_PROGRESS_RETRY CMUX_SSH_PTY_ATTACH_NO_PROGRESS_LIMIT",
+            "  \(command)",
             "  cmux_ssh_attach_status=$?",
             "  case \"$cmux_ssh_attach_status\" in",
             "    \(noProgressPolicy.status)) cmux_ssh_attach_no_progress_retry=$((cmux_ssh_attach_no_progress_retry + 1)); cmux_ssh_attach_reconnect_delay=\"$cmux_ssh_attach_reconnect_initial_delay\"; \(noProgressPolicy.limitReachedCommand) ;;",

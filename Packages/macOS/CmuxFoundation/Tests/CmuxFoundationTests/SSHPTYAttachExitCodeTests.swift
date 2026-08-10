@@ -65,6 +65,38 @@ struct SSHPTYAttachExitCodeTests {
         #expect(!fileManager.fileExists(atPath: authAttempts.path))
     }
 
+    // Regression for #9443: env-assignment prefixes are only legal before a
+    // simple command, so a compound attach command used to produce
+    // "syntax error near unexpected token `then'".
+    @Test("retry loop stays valid POSIX shell for compound attach commands")
+    func retryLoopAcceptsCompoundAttachCommands() throws {
+        let compoundCommand = [
+            "if [ \"$cmux_ssh_attach_no_progress_retry\" -gt 0 ]; then :; fi",
+            "exit 0",
+        ].joined(separator: "\n")
+        let script = SSHPTYAttachExitCode.retryLoopLines(
+            command: compoundCommand,
+            reauthenticates: false
+        ).joined(separator: "\n")
+        let scriptURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-pty-retry-syntax-\(UUID().uuidString).sh")
+        defer { try? FileManager.default.removeItem(at: scriptURL) }
+        try (script + "\n").write(to: scriptURL, atomically: true, encoding: .utf8)
+
+        let process = Process()
+        let stderrPipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-n", scriptURL.path]
+        process.standardError = stderrPipe
+        try process.run()
+        process.waitUntilExit()
+        let stderr = String(
+            data: stderrPipe.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+        #expect(process.terminationStatus == 0, "\(stderr)\n\(script)")
+    }
+
     @Test("lifecycle codes retain precedence over transient-looking messages")
     func lifecycleCodesRetainPrecedence() {
         #expect(
