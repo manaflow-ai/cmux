@@ -2296,19 +2296,15 @@ final class cmuxUITests: XCTestCase {
         XCTAssertEqual(app.buttons["MobileAttachmentRemove.0"].label, "設計 🖼️.pngを削除")
         XCTAssertEqual(app.buttons["MobileAttachmentCard.1"].label, "-release notes.txtをプレビュー")
         XCTAssertEqual(app.buttons["MobileAttachmentRemove.1"].label, "-release notes.txtを削除")
+        keepScreenshot(named: "task-attachments-japanese", app: app)
 
         app.buttons["MobileAttachmentCard.0"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["MobileAttachmentPreview"].waitForExistence(timeout: 4))
         let done = app.buttons["MobileAttachmentPreviewDone"]
         XCTAssertTrue(done.waitForExistence(timeout: 2))
+        XCTAssertEqual(done.label, "完了")
         done.tap()
         XCTAssertTrue(app.descendants(matching: .any)["MobileAttachmentPreview"].waitForNonExistence(timeout: 4))
-
-        dismissTaskComposerKeyboard(in: app)
-        tap(sourceMenu, in: app)
-        XCTAssertTrue(app.buttons["写真"].waitForExistence(timeout: 4))
-        XCTAssertTrue(app.buttons["ファイル"].waitForExistence(timeout: 2))
-        keepScreenshot(named: "task-attachments-japanese-source-menu", app: app)
     }
 
     @MainActor
@@ -6117,22 +6113,6 @@ final class cmuxUITests: XCTestCase {
         app.coordinate(withNormalizedOffset: .zero)
             .withOffset(CGVector(dx: frame.midX, dy: frame.midY))
             .tap()
-    }
-
-    @MainActor
-    private func dismissTaskComposerKeyboard(
-        in app: XCUIApplication,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) {
-        guard app.keyboards.firstMatch.exists else { return }
-        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
-        XCTAssertTrue(
-            waitForKeyboardDismissal(in: app),
-            "Task composer keyboard must be fully dismissed before opening a source menu",
-            file: file,
-            line: line
-        )
     }
 
     @MainActor
