@@ -17283,7 +17283,16 @@ mod tests {
         assert!(after["notifications"].as_array().unwrap().contains(&notification_value));
         assert!(after["agents"].as_array().unwrap().contains(&agent_value));
         assert!(after["frontend_projections"].as_array().unwrap().contains(&projection_value));
-        assert_eq!(after["terminals"], serde_json::json!([]));
+        let restored_terminals = after["terminals"].as_array().unwrap();
+        assert_eq!(restored_terminals.len(), 1);
+        let restored_terminal = &restored_terminals[0];
+        assert_eq!(restored_terminal["id"].as_str(), Some(terminal_id.as_str()));
+        assert_eq!(restored_terminal["lifecycle"], "exited");
+        assert_eq!(restored_terminal["running"], false);
+        assert_eq!(restored_terminal["tab_id"], Value::Null);
+        assert_eq!(restored_terminal["tab_ids"], serde_json::json!([]));
+        assert_eq!(restored_terminal["exit"]["outcome"]["kind"], "unknown");
+        assert_eq!(restored_terminal["exit"]["outcome"]["reason"], "missing-host-record");
         assert_eq!(reopened.resource_surface_for_terminal(&terminal_public_id), None);
         let exited =
             reopened.wait_for_terminal_exit(&terminal_public_id, Some(Duration::ZERO)).unwrap();
