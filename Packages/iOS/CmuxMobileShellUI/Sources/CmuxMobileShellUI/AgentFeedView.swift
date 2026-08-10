@@ -1,15 +1,7 @@
 #if os(iOS)
 import CmuxMobileShellModel
 import CmuxMobileSupport
-import OSLog
 import SwiftUI
-
-#if DEBUG
-private let agentFeedViewportLogger = Logger(
-    subsystem: "com.cmuxterm.cmux.debug",
-    category: "AgentFeedViewport"
-)
-#endif
 
 struct AgentFeedActions {
     let setDraft: @MainActor (MobileAgentFeedItemID, String) -> Void
@@ -37,6 +29,7 @@ struct AgentFeedView: View {
     @State private var otherAnswers: [MobileAgentFeedItemID: [String: String]] = [:]
     @State private var renderedItems: [MobileAgentFeedItem]?
     @State private var pendingViewportAnchor: MobileAgentFeedItemID?
+    @State private var heldViewportAnchor: MobileAgentFeedItemID?
     @State private var visibilityTracker = AgentFeedVisibilityTracker()
     @State private var unseenItemCount = 0
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -109,14 +102,15 @@ struct AgentFeedView: View {
                     .accessibilityIdentifier("MobileAgentFeedList")
                     .onScrollTargetVisibilityChange(
                         idType: MobileAgentFeedItemID.self,
-                        threshold: 0.01
+                        threshold: 0.5
                     ) { visibleIDs in
                         visibilityTracker.replaceVisibleIDs(visibleIDs)
-#if DEBUG
-                        agentFeedViewportLogger.notice(
-                            "visibility count=\(visibleIDs.count, privacy: .public) first=\(String(describing: visibleIDs.first), privacy: .public)"
-                        )
-#endif
+                        if unseenItemCount > 0,
+                           let newestID = visibleItems.first?.id,
+                           visibleIDs.contains(newestID) {
+                            unseenItemCount = 0
+                            heldViewportAnchor = nil
+                        }
                     }
                     .overlay(alignment: .top) {
                         if unseenItemCount > 0 {
@@ -125,6 +119,7 @@ struct AgentFeedView: View {
                                     withAnimation { proxy.scrollTo(newest.id, anchor: .top) }
                                 }
                                 unseenItemCount = 0
+                                heldViewportAnchor = nil
                             } label: {
                                 Label(
                                     localizer.string(
@@ -158,28 +153,19 @@ struct AgentFeedView: View {
                         let insertedVisibleCount = insertedBeforeOldNewest
                             .intersection(genuinelyNewIDs)
                             .count
-#if DEBUG
-                        if !genuinelyNewIDs.isEmpty {
-                            agentFeedViewportLogger.notice(
-                                "source old=\(oldIDs.count, privacy: .public) new=\(newIDs.count, privacy: .public) genuinelyNew=\(genuinelyNewIDs.count, privacy: .public) visible=\(visibilityTracker.visibleIDs.count, privacy: .public) oldNewestVisible=\(oldNewestID.map(visibilityTracker.visibleIDs.contains) ?? false, privacy: .public) insertedBefore=\(insertedVisibleCount, privacy: .public) anchor=\(String(describing: anchorID), privacy: .public)"
-                            )
-                        }
-#endif
                         if !oldIDs.isEmpty,
                            let oldNewestID,
                            !visibilityTracker.visibleIDs.contains(oldNewestID),
                            insertedVisibleCount > 0 {
                             unseenItemCount += insertedVisibleCount
-                            pendingViewportAnchor = anchorID
+                            if heldViewportAnchor == nil {
+                                heldViewportAnchor = anchorID
+                            }
+                            pendingViewportAnchor = heldViewportAnchor
                         }
                         renderedItems = newVisibleItems
                     }
                     .onChange(of: visibleItems.map(\.id)) { _, _ in
-#if DEBUG
-                        agentFeedViewportLogger.notice(
-                            "render committed count=\(visibleItems.count, privacy: .public) pending=\(String(describing: pendingViewportAnchor), privacy: .public) unseen=\(unseenItemCount, privacy: .public)"
-                        )
-#endif
                         guard let anchorID = pendingViewportAnchor else { return }
                         pendingViewportAnchor = nil
                         var transaction = Transaction()
@@ -192,7 +178,12 @@ struct AgentFeedView: View {
             }
         }
         .navigationTitle(localizer.string("mobile.tabs.feed", defaultValue: "Feed"))
-        .accessibilityIdentifier("MobileAgentFeed")
+        .overlay(alignment: .topLeading) {
+            Color.clear
+                .frame(width: 1, height: 1)
+                .accessibilityElement(children: .ignore)
+                .accessibilityIdentifier("MobileAgentFeed")
+        }
     }
 
     private var loadOlderControl: some View {
