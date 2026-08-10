@@ -194,11 +194,8 @@ function DashboardOrganizationSwitcher() {
     switchPendingRef.current = true;
     setSwitchPending(true);
     setSwitchError(false);
-    try {
-      await withDeadline(
-        user.setSelectedTeam(team),
-        ORGANIZATION_SWITCH_TIMEOUT_MS,
-      );
+    const operation = user.setSelectedTeam(team);
+    const applySuccessfulSwitch = () => {
       queryClient.setQueryData<OrganizationCatalog>(
         organizationQueryKey,
         (current) =>
@@ -216,11 +213,28 @@ function DashboardOrganizationSwitcher() {
         }`,
       );
       router.refresh();
-    } catch {
-      setSwitchError(true);
-    } finally {
+    };
+    const finishSwitch = () => {
       switchPendingRef.current = false;
       setSwitchPending(false);
+    };
+    try {
+      await withDeadline(
+        operation,
+        ORGANIZATION_SWITCH_TIMEOUT_MS,
+      );
+      applySuccessfulSwitch();
+      finishSwitch();
+    } catch (error) {
+      setSwitchError(true);
+      if (error instanceof OperationTimeoutError) {
+        // The Stack SDK does not expose cancellation. Keep this mutation
+        // exclusively owned until it really settles, then reconcile its result.
+        void operation.then(applySuccessfulSwitch).catch(() => undefined)
+          .finally(finishSwitch);
+      } else {
+        finishSwitch();
+      }
     }
   };
   const shared = {
@@ -289,7 +303,7 @@ async function withDeadline<T>(
   let timeout: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<never>((_resolve, reject) => {
     timeout = setTimeout(
-      () => reject(new Error("Operation timed out")),
+      () => reject(new OperationTimeoutError()),
       timeoutMs,
     );
   });
@@ -297,6 +311,13 @@ async function withDeadline<T>(
     return await Promise.race([operation, deadline]);
   } finally {
     if (timeout) clearTimeout(timeout);
+  }
+}
+
+class OperationTimeoutError extends Error {
+  constructor() {
+    super("Operation timed out");
+    this.name = "OperationTimeoutError";
   }
 }
 
