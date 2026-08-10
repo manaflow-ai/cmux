@@ -9,6 +9,20 @@ public struct AutoConnectMigrationUITestConfiguration: Equatable, Sendable {
         case ineligible
     }
 
+    /// A real modal host that should own presentation before migration checks.
+    public enum InitialModalHost: String, Equatable, Sendable {
+        case rootPairing = "root-pairing"
+        case workspaceListDeviceTree = "workspace-list-device-tree"
+        case workspaceDetailTerminalText = "workspace-detail-terminal-text"
+    }
+
+    /// A launch prerequisite held unavailable for deterministic suppression tests.
+    public enum ReadinessGate: String, Equatable, Sendable {
+        case authenticationRestoring = "authentication-restoring"
+        case sceneInactive = "scene-inactive"
+        case explicitAttachRoute = "explicit-attach-route"
+    }
+
     /// The eligibility prerequisites seeded into this fixture's isolated suite.
     public let eligibility: Eligibility
     /// A per-test identifier used to isolate all migration-owned defaults.
@@ -16,6 +30,10 @@ public struct AutoConnectMigrationUITestConfiguration: Equatable, Sendable {
     /// Whether Settings should own the root modal slot before migration
     /// eligibility is checked.
     public let presentsShellSettingsBeforeMigration: Bool
+    /// The real modal host that initially owns the shared presentation slot.
+    public let initialModalHost: InitialModalHost?
+    /// The launch prerequisite held unavailable until the next fixture launch.
+    public let readinessGate: ReadinessGate?
 
     /// Parses a DEBUG-only migration fixture from explicit process inputs.
     ///
@@ -38,6 +56,35 @@ public struct AutoConnectMigrationUITestConfiguration: Equatable, Sendable {
         self.presentsShellSettingsBeforeMigration =
             environment["CMUX_UITEST_AUTOCONNECT_MIGRATION_INITIAL_SETTINGS"]?
                 .trimmingCharacters(in: .whitespacesAndNewlines) == "1"
+        if let rawInitialModalHost = environment[
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_INITIAL_MODAL_HOST"
+        ]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !rawInitialModalHost.isEmpty {
+            guard let initialModalHost = InitialModalHost(rawValue: rawInitialModalHost) else {
+                return nil
+            }
+            self.initialModalHost = initialModalHost
+        } else {
+            self.initialModalHost = nil
+        }
+        if let rawReadinessGate = environment[
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_READINESS_GATE"
+        ]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !rawReadinessGate.isEmpty {
+            guard let readinessGate = ReadinessGate(rawValue: rawReadinessGate) else {
+                return nil
+            }
+            self.readinessGate = readinessGate
+        } else {
+            self.readinessGate = nil
+        }
+    }
+
+    /// The fixture requested by the current DEBUG process, when valid.
+    public static var currentProcess: AutoConnectMigrationUITestConfiguration? {
+        AutoConnectMigrationUITestConfiguration(
+            environment: ProcessInfo.processInfo.environment
+        )
     }
 
     /// A stable suite shared across relaunches of one UI-test fixture.

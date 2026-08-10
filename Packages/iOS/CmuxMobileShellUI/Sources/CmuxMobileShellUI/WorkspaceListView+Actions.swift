@@ -68,9 +68,8 @@ extension WorkspaceListView {
     var requestWorkspaceCustomization: ((CmuxMobileShellModel.MobileWorkspacePreview.ID) -> Void)? {
         guard customizeWorkspace != nil else { return nil }
         return { workspaceID in
-            workspacePendingCustomizationID = workspaceID
-            if !workspaceCustomizationPresentation.present() {
-                workspacePendingCustomizationID = nil
+            workspaceCustomizationPresentation.present {
+                workspacePendingCustomizationID = workspaceID
             }
         }
     }

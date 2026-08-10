@@ -130,7 +130,14 @@ struct WorkspaceListView: View {
     /// Presents the view-options card (sort tiles + filter rows).
     @State var showingViewOptionsPopover = false
     @State private var settingsPairingScannerHandoff = SettingsPairingScannerHandoff()
-    @State private var showingDeviceTree = false
+    @State private var showingDeviceTree = {
+        #if DEBUG
+        AutoConnectMigrationUITestConfiguration.currentProcess?.initialModalHost
+            == .workspaceListDeviceTree
+        #else
+        false
+        #endif
+    }()
     /// Local presenter identity remains separate from the selected changes payload.
     @State var isWorkspaceChangesPresented = false
     @State var changesSheetTarget: WorkspaceChangesSheetTarget? = nil
@@ -968,12 +975,11 @@ struct WorkspaceListView: View {
 
     func openWorkspaceChanges(_ workspace: MobileWorkspacePreview) {
         guard store != nil else { return }
-        changesSheetTarget = WorkspaceChangesSheetTarget(
-            workspaceID: workspace.rpcWorkspaceID.rawValue,
-            workspaceTitle: workspace.name
-        )
-        if !workspaceChangesPresentation.present() {
-            changesSheetTarget = nil
+        workspaceChangesPresentation.present {
+            changesSheetTarget = WorkspaceChangesSheetTarget(
+                workspaceID: workspace.rpcWorkspaceID.rawValue,
+                workspaceTitle: workspace.name
+            )
         }
     }
 

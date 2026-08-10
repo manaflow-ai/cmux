@@ -42,13 +42,12 @@ extension WorkspaceDetailView {
         sessionArtifactCountEnabled: store.supportsChatArtifactGallery,
         visibleArtifactCount: visibleArtifactCount,
         onArtifactFilesRequested: { anchor in
-            terminalArtifactFilesContext = TerminalArtifactContext(
-                workspaceID: workspace.id.rawValue,
-                surfaceID: terminalID,
-                anchor: anchor
-            )
-            if !terminalArtifactFilesPresentation.present() {
-                terminalArtifactFilesContext = nil
+            terminalArtifactFilesPresentation.present {
+                terminalArtifactFilesContext = TerminalArtifactContext(
+                    workspaceID: workspace.id.rawValue,
+                    surfaceID: terminalID,
+                    anchor: anchor
+                )
             }
         },
         onArtifactPathTapped: { path in

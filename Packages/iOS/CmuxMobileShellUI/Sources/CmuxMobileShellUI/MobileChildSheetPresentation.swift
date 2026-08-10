@@ -27,6 +27,17 @@ struct MobileChildSheetPresentation {
         return isPresented.wrappedValue
     }
 
+    /// Requests modal ownership, then runs side effects only after acquisition.
+    ///
+    /// Use this overload when a presentation owns payload, persistence, or
+    /// fetch work that must remain unchanged if another modal denies the request.
+    @discardableResult
+    func present(_ onAcquired: () -> Void) -> Bool {
+        guard present() else { return false }
+        onAcquired()
+        return true
+    }
+
     /// Begins dismissal while retaining modal ownership until `didDismiss`.
     func dismiss() {
         isPresented.wrappedValue = false

@@ -611,28 +611,136 @@ final class cmuxUITests: XCTestCase {
         )
     }
 
-    /// A child sheet owns the real modal slot first. Its dismissal must trigger
-    /// the existing retry path and then present the pending migration.
+    /// Real root, Settings, list, and detail hosts must retain modal ownership
+    /// until dismissal, then advance the queued migration without a delay.
     @MainActor
-    func testAutoConnectMigrationDefersUntilExistingSettingsDismisses() throws {
-        let app = launchApp(mockData: true, environment: [
+    func testAutoConnectMigrationDefersBehindRealModalHosts() throws {
+        let settingsApp = launchApp(mockData: true, environment: [
             "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
             "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": UUID().uuidString,
             "CMUX_UITEST_AUTOCONNECT_MIGRATION_INITIAL_SETTINGS": "1",
         ])
-        defer { app.terminate() }
+        defer { settingsApp.terminate() }
 
-        let settings = app.descendants(matching: .any)["MobileSettingsView"]
+        let settings = settingsApp.descendants(matching: .any)["MobileSettingsView"]
         XCTAssertTrue(settings.waitForExistence(timeout: 8))
-        let migration = app.descendants(matching: .any)["MobileAutoConnectMigrationSheet"]
-        XCTAssertFalse(migration.exists)
+        let settingsMigration = settingsApp.descendants(matching: .any)[
+            "MobileAutoConnectMigrationSheet"
+        ]
+        XCTAssertFalse(settingsMigration.exists)
 
-        let done = app.buttons["MobileSettingsDone"]
+        let setupHelpButton = settingsApp.buttons["MobileSettingsSetUpYourMac"]
+        XCTAssertTrue(setupHelpButton.waitForExistence(timeout: 4))
+        XCTAssertTrue(setupHelpButton.isHittable)
+        setupHelpButton.tap()
+        let setupHelp = settingsApp.descendants(matching: .any)["MobileSetupHelpView"]
+        XCTAssertTrue(setupHelp.waitForExistence(timeout: 4))
+        XCTAssertFalse(settingsMigration.exists)
+        let setupHelpDone = settingsApp.buttons["MobileSetupHelpDone"]
+        XCTAssertTrue(setupHelpDone.waitForExistence(timeout: 4))
+        setupHelpDone.tap()
+        XCTAssertTrue(setupHelp.waitForNonExistence(timeout: 4))
+        XCTAssertTrue(settings.exists)
+
+        let done = settingsApp.buttons["MobileSettingsDone"]
         XCTAssertTrue(done.waitForExistence(timeout: 4))
         XCTAssertTrue(done.isHittable)
         done.tap()
         XCTAssertTrue(settings.waitForNonExistence(timeout: 4))
-        XCTAssertTrue(migration.waitForExistence(timeout: 8))
+        XCTAssertTrue(settingsMigration.waitForExistence(timeout: 8))
+        settingsApp.terminate()
+
+        let modalHosts = [
+            (
+                name: "root pairing",
+                fixture: "root-pairing",
+                visible: "MobilePairingView",
+                dismiss: "MobilePairingCancelButton",
+                environment: [String: String]()
+            ),
+            (
+                name: "workspace list device tree",
+                fixture: "workspace-list-device-tree",
+                visible: "MobileDeviceTree",
+                dismiss: "MobileDeviceTreeDone",
+                environment: [String: String]()
+            ),
+            (
+                name: "workspace detail terminal text",
+                fixture: "workspace-detail-terminal-text",
+                visible: "MobileTerminalTextSheetDone",
+                dismiss: "MobileTerminalTextSheetDone",
+                environment: ["CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1"]
+            ),
+        ]
+
+        for modalHost in modalHosts {
+            var environment = modalHost.environment
+            environment["CMUX_UITEST_AUTOCONNECT_MIGRATION"] = "eligible"
+            environment["CMUX_UITEST_AUTOCONNECT_MIGRATION_ID"] = UUID().uuidString
+            environment["CMUX_UITEST_AUTOCONNECT_MIGRATION_INITIAL_MODAL_HOST"] =
+                modalHost.fixture
+            let app = launchApp(mockData: true, environment: environment)
+            defer { app.terminate() }
+
+            let host = app.descendants(matching: .any)[modalHost.visible]
+            XCTAssertTrue(
+                host.waitForExistence(timeout: 12),
+                "Expected the real \(modalHost.name) host."
+            )
+            let migration = app.descendants(matching: .any)["MobileAutoConnectMigrationSheet"]
+            XCTAssertFalse(migration.exists, "Migration competed with \(modalHost.name).")
+            let dismissButton = app.buttons[modalHost.dismiss]
+            XCTAssertTrue(dismissButton.waitForExistence(timeout: 4))
+            XCTAssertTrue(dismissButton.isHittable)
+            dismissButton.tap()
+            XCTAssertTrue(host.waitForNonExistence(timeout: 4))
+            XCTAssertTrue(
+                migration.waitForExistence(timeout: 8),
+                "Migration did not follow \(modalHost.name) dismissal."
+            )
+            app.terminate()
+        }
+    }
+
+    /// Each launch-only readiness gate suppresses a pending migration. Removing
+    /// that gate on the same durable fixture allows the notice immediately.
+    @MainActor
+    func testAutoConnectMigrationWaitsForLaunchReadinessGates() throws {
+        for readinessGate in [
+            "authentication-restoring",
+            "scene-inactive",
+            "explicit-attach-route",
+        ] {
+            let fixtureID = UUID().uuidString
+            let baseEnvironment = [
+                "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+                "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": fixtureID,
+            ]
+            var gatedEnvironment = baseEnvironment
+            gatedEnvironment["CMUX_UITEST_AUTOCONNECT_MIGRATION_READINESS_GATE"] = readinessGate
+            let gatedApp = launchApp(mockData: true, environment: gatedEnvironment)
+            defer { gatedApp.terminate() }
+
+            XCTAssertFalse(
+                gatedApp.descendants(matching: .any)["MobileAutoConnectMigrationSheet"]
+                    .waitForExistence(timeout: 2),
+                "Migration ignored the \(readinessGate) gate."
+            )
+            XCTAssertTrue(
+                gatedApp.buttons["MobileWorkspaceSettingsMenu"].waitForExistence(timeout: 8)
+            )
+            gatedApp.terminate()
+
+            let relaunched = launchApp(mockData: true, environment: baseEnvironment)
+            defer { relaunched.terminate() }
+            XCTAssertTrue(
+                relaunched.descendants(matching: .any)["MobileAutoConnectMigrationSheet"]
+                    .waitForExistence(timeout: 8),
+                "Migration did not present after removing the \(readinessGate) gate."
+            )
+            relaunched.terminate()
+        }
     }
 
     /// The same deterministic shell can prove an ineligible fresh-install

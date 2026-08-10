@@ -71,10 +71,20 @@ struct CMUXMobileRootView: View {
         self.startupConnectionCoordinator = startupConnectionCoordinator
         var initialRootPresentation = MobileRootPresentationState()
         #if DEBUG
-        if AutoConnectMigrationUITestConfiguration(
-            environment: ProcessInfo.processInfo.environment
-        )?.presentsShellSettingsBeforeMigration == true {
+        let migrationFixture = AutoConnectMigrationUITestConfiguration.currentProcess
+        if migrationFixture?.presentsShellSettingsBeforeMigration == true {
             initialRootPresentation.apply(.presentSettings)
+        } else {
+            switch migrationFixture?.initialModalHost {
+            case .rootPairing:
+                initialRootPresentation.apply(.presentPairing(.manual))
+            case .workspaceListDeviceTree:
+                initialRootPresentation.apply(.presentChild(.workspaceList(.deviceTree)))
+            case .workspaceDetailTerminalText:
+                initialRootPresentation.apply(.presentChild(.workspaceDetail(.terminalText)))
+            case nil:
+                break
+            }
         }
         #endif
         _rootPresentation = State(initialValue: initialRootPresentation)
@@ -574,12 +584,29 @@ struct CMUXMobileRootView: View {
 
     /// All migration gates except ownership of the shared modal slot.
     private var isAutoConnectMigrationReady: Bool {
-        autoConnectMigrationStore?.resolution == .pending
-            && onboardingStore.progress == .complete
-            && authManager.isAuthenticated
-            && !authManager.isRestoringSession
-            && scenePhase == .active
-            && !hasInjectedAttachLaunchRoute
+        var isRestoringAuthentication = authManager.isRestoringSession
+        var isSceneActive = scenePhase == .active
+        var hasExplicitAttachRoute = hasInjectedAttachLaunchRoute
+        #if DEBUG
+        switch AutoConnectMigrationUITestConfiguration.currentProcess?.readinessGate {
+        case .authenticationRestoring:
+            isRestoringAuthentication = true
+        case .sceneInactive:
+            isSceneActive = false
+        case .explicitAttachRoute:
+            hasExplicitAttachRoute = true
+        case nil:
+            break
+        }
+        #endif
+        return MobileAutoConnectMigrationReadiness(
+            hasPendingMigration: autoConnectMigrationStore?.resolution == .pending,
+            hasCompletedOnboarding: onboardingStore.progress == .complete,
+            isAuthenticated: authManager.isAuthenticated,
+            isRestoringAuthentication: isRestoringAuthentication,
+            isSceneActive: isSceneActive,
+            hasExplicitAttachRoute: hasExplicitAttachRoute
+        ).canPresent
     }
 
     /// Applies one root presentation action and performs its domain side effect.

@@ -73,6 +73,8 @@ import Testing
         #expect(configuration?.eligibility.rawValue == raw)
         #expect(configuration?.identifier == "migration-run")
         #expect(configuration?.presentsShellSettingsBeforeMigration == false)
+        #expect(configuration?.initialModalHost == nil)
+        #expect(configuration?.readinessGate == nil)
         #expect(
             configuration?.defaultsSuiteName
                 == "dev.cmux.uitest.autoConnectMigration.migration-run"
@@ -96,6 +98,46 @@ import Testing
         ]) == nil)
     }
 
+    @Test func autoConnectMigrationFixtureParsesRealInitialModalHosts() throws {
+        let cases: [(String, AutoConnectMigrationUITestConfiguration.InitialModalHost)] = [
+            ("root-pairing", .rootPairing),
+            ("workspace-list-device-tree", .workspaceListDeviceTree),
+            ("workspace-detail-terminal-text", .workspaceDetailTerminalText),
+        ]
+
+        for (rawValue, expected) in cases {
+            let configuration = try #require(AutoConnectMigrationUITestConfiguration(
+                environment: [
+                    "CMUX_UITEST_MOCK_DATA": "1",
+                    "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+                    "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": "migration-run",
+                    "CMUX_UITEST_AUTOCONNECT_MIGRATION_INITIAL_MODAL_HOST": rawValue,
+                ]
+            ))
+            #expect(configuration.initialModalHost == expected)
+        }
+    }
+
+    @Test func autoConnectMigrationFixtureParsesReadinessGates() throws {
+        let cases: [(String, AutoConnectMigrationUITestConfiguration.ReadinessGate)] = [
+            ("authentication-restoring", .authenticationRestoring),
+            ("scene-inactive", .sceneInactive),
+            ("explicit-attach-route", .explicitAttachRoute),
+        ]
+
+        for (rawValue, expected) in cases {
+            let configuration = try #require(AutoConnectMigrationUITestConfiguration(
+                environment: [
+                    "CMUX_UITEST_MOCK_DATA": "1",
+                    "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+                    "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": "migration-run",
+                    "CMUX_UITEST_AUTOCONNECT_MIGRATION_READINESS_GATE": rawValue,
+                ]
+            ))
+            #expect(configuration.readinessGate == expected)
+        }
+    }
+
     @Test func autoConnectMigrationFixtureRejectsUnsafeOrIncompleteInputs() {
         #expect(AutoConnectMigrationUITestConfiguration(environment: [
             "CMUX_UITEST_MOCK_DATA": "0",
@@ -111,6 +153,18 @@ import Testing
             "CMUX_UITEST_MOCK_DATA": "1",
             "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
             "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": "   ",
+        ]) == nil)
+        #expect(AutoConnectMigrationUITestConfiguration(environment: [
+            "CMUX_UITEST_MOCK_DATA": "1",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": "run",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_INITIAL_MODAL_HOST": "unknown",
+        ]) == nil)
+        #expect(AutoConnectMigrationUITestConfiguration(environment: [
+            "CMUX_UITEST_MOCK_DATA": "1",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": "run",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_READINESS_GATE": "unknown",
         ]) == nil)
     }
     #endif
