@@ -10,8 +10,6 @@ import {
 } from "../../../services/telemetry";
 import { checkEmailDeliverable } from "./email-check";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const WAITLIST_PLATFORMS = ["linux", "android", "windows"] as const;
 

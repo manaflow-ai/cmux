@@ -74,6 +74,18 @@ public struct AgentRestorePlanner: Sendable {
         environment.merge(restoredEnvironment) { _, restored in restored }
 
         var routedArguments = sanitizedArguments
+        let hermesProfilePin: HermesAgentResumeProfilePin?
+        if kind == "hermes-agent", request.mode != .direct {
+            let pin = HermesAgentResumeProfilePin(
+                hermesHome: restoredEnvironment["HERMES_HOME"],
+                homeDirectory: normalized(ambientEnvironment["HOME"]) ?? NSHomeDirectory()
+            )
+            environment["HERMES_HOME"] = pin.hermesHome
+            routedArguments = pin.applying(to: routedArguments)
+            hermesProfilePin = pin
+        } else {
+            hermesProfilePin = nil
+        }
         if request.mode != .direct {
             routedArguments = routeManagedWrapper(
                 arguments: routedArguments,
@@ -88,7 +100,8 @@ public struct AgentRestorePlanner: Sendable {
             arguments: &routedArguments,
             kind: kind,
             environment: environment,
-            ambientEnvironment: ambientEnvironment
+            ambientEnvironment: ambientEnvironment,
+            profilePin: hermesProfilePin
         )
         return AgentRestoreInvocation(
             arguments: routedArguments,
@@ -220,11 +233,8 @@ public struct AgentRestorePlanner: Sendable {
             environment[restoreLaunch.customExecutablePathEnvironmentKey] = first
         }
         environment["CMUX_AGENT_RESTORE_LAUNCH"] = restoreLaunch.authorizationEnvironmentValue
-        let shimKey = kind == "claude"
-            ? "CMUX_CLAUDE_WRAPPER_SHIM"
-            : "CMUX_CODEX_WRAPPER_SHIM"
         let routedExecutable =
-            normalized(environment[shimKey])
+            normalized(environment[restoreLaunch.wrapperShimEnvironmentKey])
                 .flatMap { isExecutableFile($0) ? $0 : nil }
             ?? (first.contains("/") && isExecutableFile(first) ? first : nil)
             ?? restoreLaunch.executableName
@@ -235,7 +245,8 @@ public struct AgentRestorePlanner: Sendable {
         arguments: inout [String],
         kind: String,
         environment: [String: String],
-        ambientEnvironment: [String: String]
+        ambientEnvironment: [String: String],
+        profilePin: HermesAgentResumeProfilePin?
     ) -> [AgentRestorePreflightInvocation] {
         guard kind == "hermes-agent" else { return [] }
         arguments = HermesAgentCodexEnvironment.argumentsByReplacingOpenAICodexProvider(arguments)
@@ -265,9 +276,10 @@ public struct AgentRestorePlanner: Sendable {
         ) {
             settings.append(("model.default", model))
         }
+        let commandPrefix = [executable] + (profilePin?.profileArguments(in: arguments) ?? [])
         return settings.compactMap { key, value in
             AgentRestorePreflightInvocation(
-                arguments: [executable, "config", "set", key, value],
+                arguments: commandPrefix + ["config", "set", key, value],
                 environment: resolvedEnvironment
             )
         }

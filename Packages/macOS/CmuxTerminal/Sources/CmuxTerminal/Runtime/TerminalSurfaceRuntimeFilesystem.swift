@@ -3,25 +3,25 @@ public import CmuxTerminalCore
 
 /// Filesystem operations injected into ``TerminalSurface`` runtime creation.
 public struct TerminalSurfaceRuntimeFilesystem: Sendable {
-    /// The root directory used for per-surface Claude command shims.
-    public let claudeCommandShimTemporaryDirectory: URL
+    /// The root directory used for per-surface agent command shims.
+    public let agentCommandShimTemporaryDirectory: URL
 
-    /// Installs a per-surface Claude command shim when the bundled wrapper is available.
-    public let installClaudeCommandShim:
-        @Sendable (_ wrapperURL: URL, _ surfaceId: UUID, _ temporaryDirectory: URL) async -> TerminalSurfaceClaudeCommandShim?
+    /// Installs per-surface agent command shims for the available bundled wrappers.
+    public let installAgentCommandShims:
+        @Sendable (_ wrapperDirectoryURL: URL, _ surfaceId: UUID, _ temporaryDirectory: URL) async -> TerminalSurfaceAgentCommandShimSet?
 
     /// Returns whether the path points at an executable file.
     public let isExecutableFile: @Sendable (_ path: String) -> Bool
 
     /// Creates the runtime filesystem seam.
     public init(
-        claudeCommandShimTemporaryDirectory: URL,
-        installClaudeCommandShim:
-            @escaping @Sendable (_ wrapperURL: URL, _ surfaceId: UUID, _ temporaryDirectory: URL) async -> TerminalSurfaceClaudeCommandShim?,
+        agentCommandShimTemporaryDirectory: URL,
+        installAgentCommandShims:
+            @escaping @Sendable (_ wrapperDirectoryURL: URL, _ surfaceId: UUID, _ temporaryDirectory: URL) async -> TerminalSurfaceAgentCommandShimSet?,
         isExecutableFile: @escaping @Sendable (_ path: String) -> Bool
     ) {
-        self.claudeCommandShimTemporaryDirectory = claudeCommandShimTemporaryDirectory
-        self.installClaudeCommandShim = installClaudeCommandShim
+        self.agentCommandShimTemporaryDirectory = agentCommandShimTemporaryDirectory
+        self.installAgentCommandShims = installAgentCommandShims
         self.isExecutableFile = isExecutableFile
     }
 }

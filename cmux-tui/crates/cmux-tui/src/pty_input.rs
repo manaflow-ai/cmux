@@ -1457,7 +1457,7 @@ mod tests {
         assert!(failure.lane_failed);
         assert_eq!(failure.label, "PTY input");
 
-        mux.close_surface(surface.id).unwrap();
+        mux.shutdown();
     }
 
     fn mutation_with_retained_bytes(retained_bytes: usize) -> PtyInputEvent {

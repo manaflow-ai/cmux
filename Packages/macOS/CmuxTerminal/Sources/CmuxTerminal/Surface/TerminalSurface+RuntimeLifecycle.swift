@@ -37,7 +37,25 @@ extension TerminalSurface {
 
     @MainActor
     private func ensureHeadlessStartupWindowIfNeeded(reason: String) {
-        guard headlessStartupWindow == nil else { return }
+        if let existingWindow = headlessStartupWindow {
+            guard paneHost.window !== existingWindow else { return }
+            if paneHost.window != nil {
+                // The pane host reached a real window while a bootstrap
+                // window was still recorded; the bootstrap is stale.
+                headlessStartupWindow = nil
+                existingWindow.contentView = nil
+                existingWindow.close()
+                return
+            }
+            // Window-portal churn can reparent the pane host out of the
+            // bootstrap window and park it with no window at all
+            // (detachHostedView ends in removeFromSuperview). Reclaim custody
+            // instead of early-returning: otherwise every later cold start
+            // defers on the missing window and the surface never spawns a
+            // PTY (#9769).
+            adoptPaneHostIntoHeadlessStartupWindow(existingWindow, reason: reason)
+            return
+        }
         guard paneHost.window == nil else { return }
         let width = max(surfaceView.bounds.width, CGFloat(800))
         let height = max(surfaceView.bounds.height, CGFloat(600))
@@ -54,18 +72,30 @@ extension TerminalSurface {
         window.ignoresMouseEvents = true
         window.collectionBehavior = [.transient, .ignoresCycle, .stationary]
         window.isExcludedFromWindowsMenu = true
-        let contentView = NSView(frame: frame)
+        window.contentView = NSView(frame: frame)
+        headlessStartupWindow = window
+        adoptPaneHostIntoHeadlessStartupWindow(window, reason: reason)
+
+#if DEBUG
+        logDebugEvent(
+            "surface.headless_window.create surface=\(id.uuidString.prefix(8)) " +
+            "reason=\(reason) window=\(ObjectIdentifier(window))"
+        )
+#endif
+    }
+
+    @MainActor
+    private func adoptPaneHostIntoHeadlessStartupWindow(_ window: NSWindow, reason: String) {
+        guard let contentView = window.contentView else { return }
         paneHost.frame = contentView.bounds
         paneHost.autoresizingMask = [.width, .height]
         contentView.addSubview(paneHost)
-        window.contentView = contentView
-        headlessStartupWindow = window
         paneHost.setVisibleInUI(false)
         paneHost.setActive(false)
 
 #if DEBUG
         logDebugEvent(
-            "surface.headless_window.create surface=\(id.uuidString.prefix(8)) " +
+            "surface.headless_window.adopt surface=\(id.uuidString.prefix(8)) " +
             "reason=\(reason) window=\(ObjectIdentifier(window))"
         )
 #endif
@@ -177,6 +207,15 @@ extension TerminalSurface {
         portalLifecycleState == .live && !runtimeSurfaceSuspendedForAgentHibernation
     }
 
+    /// Whether the surface lifecycle currently permits creating a runtime
+    /// surface (portal live, not suspended for agent hibernation).
+    ///
+    /// Background priming uses this to skip surfaces whose spawn can never
+    /// complete instead of retaining a hidden mount slot for them forever.
+    public var canCreateRuntimeSurface: Bool {
+        allowsRuntimeSurfaceCreation()
+    }
+
     private var hasDeferredStartupWork: Bool {
         let inheritedCommand = configTemplate?.command?.trimmingCharacters(in: .whitespacesAndNewlines)
         let inheritedInput = configTemplate?.initialInput
@@ -234,7 +273,7 @@ extension TerminalSurface {
         recordTeardownRequest(reason: "surface.teardown")
         markPortalLifecycleClosed(reason: "teardown")
         backgroundSurfaceStartSource = .normal
-        cancelClaudeCommandShimInstallLifecycle()
+        cancelAgentCommandShimInstallLifecycle()
         closeHeadlessStartupWindowIfNeeded()
 
         let callbackContext = surfaceCallbackContext
@@ -287,14 +326,15 @@ extension TerminalSurface {
         }
 #endif
 
-        Task { @MainActor in
-            // Keep free behavior aligned with deinit: perform the runtime teardown on
-            // the next main-actor turn so SIGHUP delivery is deterministic but non-reentrant.
-            ghostty_surface_free(surfaceToFree)
-            callbackContext?.release()
-            manualIOContext?.release()
-            teeLease?.release()
-        }
+        runtimeTeardown.enqueueRuntimeTeardown(
+            id: id,
+            workspaceId: tabId,
+            reason: "teardown",
+            surface: surfaceToFree,
+            callbackContext: callbackContext,
+            manualIOContext: manualIOContext,
+            byteTeeLease: teeLease
+        )
     }
 
     /// Frees the runtime surface while keeping the model alive for an
@@ -313,10 +353,17 @@ extension TerminalSurface {
         agentHibernationRuntimeTeardownReservation = nil
         _ = fontSizeLineageSnapshot()
         mobileViewportFontFitState = nil
+        if !runtimeSurfaceSuspendedForAgentHibernation {
+            // End the child-process generation at the successful suspension
+            // boundary. The registry advances first, synchronously rejecting
+            // delayed reports before this main-actor model exports the token
+            // to the replacement runtime.
+            advanceTerminalLifecycleForRuntimeReplacement()
+        }
         runtimeSurfaceSuspendedForAgentHibernation = true
         backgroundSurfaceStartQueued = false
         backgroundSurfaceStartSource = .normal
-        cancelClaudeCommandShimInstallLifecycle()
+        cancelAgentCommandShimInstallLifecycle()
         closeHeadlessStartupWindowIfNeeded()
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
@@ -620,13 +667,13 @@ extension TerminalSurface {
         ) {
             return
         }
-        let claudeShimState = claudeCommandShimStateForSurface(view: view, source: source)
-        guard claudeShimState.isReady else { return }
+        let agentShimState = agentCommandShimStateForSurface(view: view, source: source)
+        guard agentShimState.isReady else { return }
         if shouldPaceRuntimeSurfaceCreation(source: source) {
             enqueueRestoredRuntimeSurfaceCreation(for: view)
             return
         }
-        let claudeShim = claudeShimState.shim
+        let agentCommandShims = agentShimState.shims
 #if DEBUG
         runtimeSurfaceCreateAttemptCountForTesting += 1
 #endif
@@ -654,7 +701,7 @@ extension TerminalSurface {
             app: app,
             for: view,
             scaleFactors: scaleFactors,
-            claudeShim: claudeShim
+            agentCommandShims: agentCommandShims
         )
         surface = runtimeSurfaceCreation.createdSurface
         let runtimeInitialInput = runtimeSurfaceCreation.runtimeInitialInput
