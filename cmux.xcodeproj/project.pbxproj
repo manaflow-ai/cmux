@@ -2661,6 +2661,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		F87920000000000000000031 /* WorkspaceTerminalFontSizeRequestResourceKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = F87920000000000000000032 /* WorkspaceTerminalFontSizeRequestResourceKey.swift */; };
 		F87920000000000000000033 /* WorkspaceTerminalFontSizeRequestTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = F87920000000000000000034 /* WorkspaceTerminalFontSizeRequestTarget.swift */; };
 		F87920000000000000000035 /* WorkspaceTerminalFontSizeSessionProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = F87920000000000000000036 /* WorkspaceTerminalFontSizeSessionProjection.swift */; };
+		F9466A010000000000000001 /* WorkspaceTerminalFontSizeShortcutOutcome.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9466A010000000000000002 /* WorkspaceTerminalFontSizeShortcutOutcome.swift */; };
 		F87920000000000000000037 /* WorkspaceTerminalFontSizeSnapshotIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = F87920000000000000000038 /* WorkspaceTerminalFontSizeSnapshotIntent.swift */; };
 		F87920000000000000000039 /* WorkspaceTerminalFontSizeSnapshotProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8792000000000000000003A /* WorkspaceTerminalFontSizeSnapshotProjection.swift */; };
 		F8792000000000000000003B /* WorkspaceTerminalFontSizeTransferObligation.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8792000000000000000003C /* WorkspaceTerminalFontSizeTransferObligation.swift */; };
@@ -5324,6 +5325,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		F87920000000000000000032 /* WorkspaceTerminalFontSizeRequestResourceKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTerminalFontSizeRequestResourceKey.swift; sourceTree = "<group>"; };
 		F87920000000000000000034 /* WorkspaceTerminalFontSizeRequestTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTerminalFontSizeRequestTarget.swift; sourceTree = "<group>"; };
 		F87920000000000000000036 /* WorkspaceTerminalFontSizeSessionProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTerminalFontSizeSessionProjection.swift; sourceTree = "<group>"; };
+		F9466A010000000000000002 /* WorkspaceTerminalFontSizeShortcutOutcome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTerminalFontSizeShortcutOutcome.swift; sourceTree = "<group>"; };
 		F87920000000000000000038 /* WorkspaceTerminalFontSizeSnapshotIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTerminalFontSizeSnapshotIntent.swift; sourceTree = "<group>"; };
 		F8792000000000000000003A /* WorkspaceTerminalFontSizeSnapshotProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTerminalFontSizeSnapshotProjection.swift; sourceTree = "<group>"; };
 		F8792000000000000000003C /* WorkspaceTerminalFontSizeTransferObligation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTerminalFontSizeTransferObligation.swift; sourceTree = "<group>"; };
@@ -6308,6 +6310,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F87920000000000000000048 /* WorkspaceTerminalFontSizeWindowDockSlot.swift */,
 				F87910120000000000000002 /* TerminalFontConfigurationReloadTransaction.swift */,
 				F87910010000000000000002 /* WorkspaceTerminalFontSizeChange.swift */,
+				F9466A010000000000000002 /* WorkspaceTerminalFontSizeShortcutOutcome.swift */,
 				F87910150000000000000002 /* TerminalFontSizeChangeInheritanceContext.swift */,
 				F87910160000000000000002 /* TerminalFontSizeLineageSelection.swift */,
 				F87910110000000000000002 /* TerminalPendingConfigurationReload.swift */,
@@ -10348,6 +10351,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F87920000000000000000031 /* WorkspaceTerminalFontSizeRequestResourceKey.swift in Sources */,
 				F87920000000000000000033 /* WorkspaceTerminalFontSizeRequestTarget.swift in Sources */,
 				F87920000000000000000035 /* WorkspaceTerminalFontSizeSessionProjection.swift in Sources */,
+				F9466A010000000000000001 /* WorkspaceTerminalFontSizeShortcutOutcome.swift in Sources */,
 				F87920000000000000000037 /* WorkspaceTerminalFontSizeSnapshotIntent.swift in Sources */,
 				F87920000000000000000039 /* WorkspaceTerminalFontSizeSnapshotProjection.swift in Sources */,
 				F8792000000000000000003B /* WorkspaceTerminalFontSizeTransferObligation.swift in Sources */,

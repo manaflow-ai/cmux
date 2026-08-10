@@ -7242,8 +7242,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
     override func rightMouseDown(with event: NSEvent) {
-        guard let surface = surface else { return }
         focusFromPointerDown()
+        guard let surface = surface else { return }
         if !ghostty_surface_mouse_captured(surface) {
             super.rightMouseDown(with: event)
             return

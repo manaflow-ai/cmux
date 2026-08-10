@@ -14605,20 +14605,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     .firstResponder
                     .cmuxStrictOwningGhosttyView()?
                     .terminalSurface
-                let accepted =
+                let enqueueOutcome =
                     enqueueWorkspaceTerminalFontSizeChange(
                         workspaceTerminalFontSizeAction,
                         workspace: selectedWorkspace,
                         tabManager: routedTabs,
                         deferFlush: event.isARepeat
                     )
-                if !accepted {
+                switch enqueueOutcome {
+                case .rejected:
                     NSSound.beep()
-                } else {
+                case .acceptedMutation:
                     // The font mutation fans out across the workspace. Attribute
                     // the handled input only to the responder that originated it.
                     originatingSurface?.didReceiveExplicitInput()
                     originatingSurface?.didAcceptExplicitInput()
+                case .consumedWithoutMutation:
+                    break
                 }
             }
             return true
@@ -15044,9 +15047,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         workspace: Workspace,
         tabManager: TabManager?,
         deferFlush: Bool
-    ) -> Bool {
+    ) -> WorkspaceTerminalFontSizeShortcutOutcome {
         if action == .resetWorkspaceTerminalFontSize, deferFlush {
-            return true
+            return .consumedWithoutMutation
         }
         let change: WorkspaceTerminalFontSizeChange
         if action == .resetWorkspaceTerminalFontSize {
@@ -15058,20 +15061,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         guard let tabManager,
               let context = mainWindowContext(for: tabManager) else {
-            return true
+            return .consumedWithoutMutation
         }
 #if DEBUG
         if let override =
                 context
                     .debugWorkspaceTerminalFontSizeEnqueueResultOverride {
-            return override
+            return override ? .acceptedMutation : .rejected
         }
 #endif
-        return context.workspaceTerminalFontSizeCoordinator.enqueue(
+        let accepted = context.workspaceTerminalFontSizeCoordinator.enqueue(
             change,
             workspaceId: workspace.id,
             deferFlush: deferFlush
         )
+        return accepted ? .acceptedMutation : .rejected
     }
 
 
