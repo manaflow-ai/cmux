@@ -98,6 +98,26 @@ struct MobileTaskAttachmentStoreTests {
         }
     }
 
+    @Test func batchLookupFailsBeforeReturningAnyPathWhenLaterReferenceIsInvalid() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let operationID = UUID()
+        let firstID = UUID()
+        _ = try fixture.complete(
+            operationID: operationID,
+            uploadID: firstID,
+            fileName: "first.txt",
+            contents: "first"
+        )
+
+        #expect(throws: MobileTaskAttachmentStoreError.self) {
+            try fixture.store.completedAttachmentURLs(references: [
+                .init(operationID: operationID, uploadID: firstID),
+                .init(operationID: operationID, uploadID: UUID()),
+            ])
+        }
+    }
+
     @Test func rejectsOutOfOrderAndOversizedRequests() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }

@@ -586,16 +586,27 @@ struct ChatConversationStoreTests {
     func discardRemovesFailedPending() async {
         let source = FailingChatEventSource(failuresRemaining: .max)
         let store = Self.makeStore(source: source)
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("discarded-chat-attachment-\(UUID()).txt")
+        try? Data("draft bytes".utf8).write(to: fileURL)
+        let attachment = ChatOutboundAttachment(
+            localFileURL: fileURL,
+            byteCount: 11,
+            fileName: "draft.txt",
+            kind: .file
+        )
 
-        await store.send(text: "doomed prompt")
+        await store.send(text: "doomed prompt", attachments: [attachment])
         let failed = Self.pendingItems(store.rows)
         guard let item = failed.first, case .failed = item.delivery else {
             Issue.record("expected a failed pending row, got \(failed)")
             return
         }
 
+        #expect(FileManager.default.fileExists(atPath: fileURL.path))
         store.discard(pendingID: item.id)
         #expect(Self.pendingItems(store.rows).isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: fileURL.path))
     }
 
     // MARK: - Pagination
