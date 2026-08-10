@@ -65,6 +65,11 @@ use crate::{
 
 pub type SurfaceResizeReporter = Arc<dyn Fn(SurfaceId, (u16, u16), Option<u64>) + Send + Sync>;
 
+enum TerminalHostCallbackTarget {
+    Pending,
+    Live(Arc<Surface>),
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct DaemonIdentity {
     pub(crate) pid: u32,
@@ -4887,37 +4892,36 @@ impl Mux {
     }
 
     /// A broken admin stream is not evidence that the per-terminal process
-    /// died. The surface keeps its tab and reconnects the same incarnation;
-    /// this callback only exposes the transient lifecycle to frontends.
+    /// died. The terminal resource reconnects the same incarnation, and any
+    /// current views remain placements of that resource.
     pub(crate) fn terminal_host_connection_lost(
         &self,
-        surface_id: SurfaceId,
+        runtime_id: SurfaceId,
         identity: &TerminalHostIdentity,
     ) -> bool {
         if self.shutting_down.load(Ordering::Acquire) {
             return false;
         }
         let mut registry = self.workspace_registry.lock().unwrap();
-        let state = self.state.lock().unwrap();
-        let identity_matches = state
-            .surfaces
-            .get(&surface_id)
-            .or_else(|| state.terminal_runtime_by_id(surface_id))
-            .and_then(|surface| surface.terminal_host_identity())
-            .is_some_and(|current| current == *identity);
-        drop(state);
-        if !identity_matches {
-            return false;
-        }
         let Ok(Some(terminal)) = registry.terminal_record(&identity.terminal_id) else {
             return false;
         };
-        if terminal.incarnation.as_deref() != Some(identity.incarnation.as_str())
-            || matches!(
-                terminal.lifecycle,
-                TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned
-            )
-        {
+        if matches!(terminal.lifecycle, TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned) {
+            return false;
+        }
+        let target = {
+            let state = self.state.lock().unwrap();
+            let Ok(Some(target)) =
+                self.terminal_host_callback_target(&state, runtime_id, identity, &terminal)
+            else {
+                return false;
+            };
+            target
+        };
+        if matches!(target, TerminalHostCallbackTarget::Pending) {
+            return true;
+        }
+        if terminal.incarnation.as_deref() != Some(identity.incarnation.as_str()) {
             return false;
         }
         if terminal.lifecycle == TerminalLifecycle::Adopting {
@@ -4948,7 +4952,7 @@ impl Mux {
 
     pub(crate) fn terminal_host_reconnected(
         self: &Arc<Self>,
-        surface_id: SurfaceId,
+        runtime_id: SurfaceId,
         identity: &TerminalHostIdentity,
         applied_kitty_limits: KittyGraphicsLimits,
     ) -> bool {
@@ -4956,29 +4960,25 @@ impl Mux {
             return false;
         }
         let mut registry = self.workspace_registry.lock().unwrap();
-        let state = self.state.lock().unwrap();
-        let surface = state
-            .surfaces
-            .get(&surface_id)
-            .or_else(|| state.terminal_runtime_by_id(surface_id))
-            .cloned();
-        let identity_matches = surface
-            .as_ref()
-            .and_then(|surface| surface.terminal_host_identity())
-            .is_some_and(|current| current == *identity);
-        drop(state);
-        if !identity_matches {
-            return false;
-        }
         let Ok(Some(terminal)) = registry.terminal_record(&identity.terminal_id) else {
             return false;
         };
-        if terminal.incarnation.as_deref() != Some(identity.incarnation.as_str())
-            || matches!(
-                terminal.lifecycle,
-                TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned
-            )
-        {
+        if matches!(terminal.lifecycle, TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned) {
+            return false;
+        }
+        let target = {
+            let state = self.state.lock().unwrap();
+            let Ok(Some(target)) =
+                self.terminal_host_callback_target(&state, runtime_id, identity, &terminal)
+            else {
+                return false;
+            };
+            target
+        };
+        let TerminalHostCallbackTarget::Live(surface) = target else {
+            return true;
+        };
+        if terminal.incarnation.as_deref() != Some(identity.incarnation.as_str()) {
             return false;
         }
         let lifecycle_ready = if terminal.lifecycle == TerminalLifecycle::Running {
@@ -5020,9 +5020,7 @@ impl Mux {
         {
             return false;
         }
-        surface.is_some_and(|surface| {
-            self.reconcile_reconnected_kitty_image_surface(&surface, applied_kitty_limits)
-        })
+        self.reconcile_reconnected_kitty_image_surface(&surface, applied_kitty_limits)
     }
 
     pub(crate) fn lock_client_sizing_lifecycle(&self) -> MutexGuard<'_, ()> {
@@ -7965,6 +7963,42 @@ impl Mux {
             }),
         )
         .map(|matched| matched.map(|(surface, _)| surface))
+    }
+
+    fn terminal_host_callback_target(
+        &self,
+        state: &State,
+        runtime_id: SurfaceId,
+        identity: &TerminalHostIdentity,
+        terminal: &RegistryTerminal,
+    ) -> anyhow::Result<Option<TerminalHostCallbackTarget>> {
+        let Some(surface) = self.catalog_terminal_by_host(state, &identity.terminal_id)? else {
+            // Spawn and adoption commit their durable lifecycle before they
+            // publish a surface into State. The authenticated host can lose
+            // its admin stream in that gap. Accept the callback without
+            // advancing lifecycle until surface publication is complete.
+            let pending = match terminal.lifecycle {
+                TerminalLifecycle::Launching => terminal.incarnation.is_none(),
+                TerminalLifecycle::Adopting => {
+                    terminal.incarnation.as_deref() == Some(identity.incarnation.as_str())
+                }
+                TerminalLifecycle::Running
+                | TerminalLifecycle::Exited
+                | TerminalLifecycle::Tombstoned => false,
+            };
+            return Ok(pending.then_some(TerminalHostCallbackTarget::Pending));
+        };
+        let callback_surface = state
+            .surfaces
+            .get(&runtime_id)
+            .or_else(|| state.terminal_runtime_by_id(runtime_id));
+        let identity_matches = callback_surface.is_some_and(|callback_surface| {
+            callback_surface.shares_terminal_runtime(&surface)
+                && self
+                    .resource_terminal_host_identity(&surface)
+                    .is_some_and(|current| current == *identity)
+        });
+        Ok(identity_matches.then_some(TerminalHostCallbackTarget::Live(surface)))
     }
 
     pub(crate) fn kitty_image_limits_for_reconnect(
