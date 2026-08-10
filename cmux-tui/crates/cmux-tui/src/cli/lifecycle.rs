@@ -39,6 +39,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     }
     let expected_session = global.session.clone();
     let socket = super::wire::resolve_socket(&global);
+    let socket_output = socket.to_string_lossy().into_owned();
     let stream = match transport::connect(&socket) {
         Ok(stream) => stream,
         Err(error) if matches!(plan.action, ServerAction::Stop { .. }) && is_absent(&error) => {
@@ -46,7 +47,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                 json!({
                     "status":"not_running",
                     "session":expected_session,
-                    "socket":socket,
+                    "socket":socket_output.clone(),
                     "message":crate::localization::catalog().local_server.not_running,
                 }),
                 global.output,
@@ -121,7 +122,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             json!({
                 "status":"running",
                 "session":actual_session,
-                "socket":socket,
+                "socket":socket_output,
                 "pid":pid,
                 "generation":generation,
                 "message":crate::localization::catalog().local_server.running,

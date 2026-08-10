@@ -2063,6 +2063,9 @@ trait MessageSink: Send + Sync {
     }
     fn is_open(&self) -> bool;
     fn close(&self);
+    fn abort(&self) {
+        self.close();
+    }
 }
 
 /// Transport-independent writer shared by command responses and event streams.
@@ -2262,7 +2265,7 @@ impl MessageWriter {
         }
         let result = self.sink.flush_control(timeout);
         if result.is_err() {
-            self.close();
+            self.abort();
         }
         result
     }
@@ -2286,6 +2289,16 @@ impl MessageWriter {
             }
             self.sink.close();
         }
+    }
+
+    fn abort(&self) {
+        if self.open.swap(false, Ordering::AcqRel) {
+            let wakeups = std::mem::take(&mut *self.wait_wakeups.lock().unwrap());
+            for wake in wakeups.into_iter().filter_map(|wake| wake.upgrade()) {
+                wake.notify();
+            }
+        }
+        self.sink.abort();
     }
 }
 
@@ -2982,6 +2995,23 @@ impl BoundedOutbound {
         drop(state);
         self.changed.notify_all();
     }
+
+    fn abort(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.closed = true;
+        for usage in state.stream_usage.values() {
+            usage.stream.close();
+        }
+        state.initial.clear();
+        state.control.clear();
+        state.regular.clear();
+        state.stream_usage.clear();
+        state.control_messages = 0;
+        state.control_bytes = 0;
+        state.regular_bytes = 0;
+        drop(state);
+        self.changed.notify_all();
+    }
 }
 
 fn write_line_outbound_item<W: Write + ?Sized>(
@@ -3110,6 +3140,13 @@ impl SinkControl {
             Self::WebSocket(stream) => stream.set_write_timeout(timeout),
         }
     }
+
+    fn shutdown(&self) -> std::io::Result<()> {
+        match self {
+            Self::Unix(stream) => stream.shutdown(Shutdown::Both),
+            Self::WebSocket(stream) => stream.shutdown(Shutdown::Both),
+        }
+    }
 }
 
 impl MessageSink for QueuedSink {
@@ -3159,6 +3196,13 @@ impl MessageSink for QueuedSink {
 
     fn close(&self) {
         self.outbound.close();
+    }
+
+    fn abort(&self) {
+        self.outbound.abort();
+        if let Some(control) = &self.control {
+            let _ = control.shutdown();
+        }
     }
 }
 
@@ -11806,6 +11850,10 @@ mod tests {
 
         fn close(&self) {
             self.outbound.close();
+        }
+
+        fn abort(&self) {
+            self.outbound.abort();
         }
     }
 
