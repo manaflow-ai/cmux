@@ -455,7 +455,7 @@ import CmuxTerminalCore
 
     @Test func overflowCancellationChurnEmptiesIndexAndLinkedOrder() {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
-            maximumRuntimeSurfaceOwnerCount: 1
+            maximumRuntimeSurfaceOwnerCount: 2
         )
         let fixture = makeSurfaceFixture(
             registry: FakeSurfaceRegistry(),
@@ -527,11 +527,11 @@ import CmuxTerminalCore
 
     @Test func lifecycleCancellationSynchronouslyRemovesOverflowEntries() throws {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
-            maximumRuntimeSurfaceOwnerCount: 1
+            maximumRuntimeSurfaceOwnerCount: 2
         )
         let saturation = try saturateRuntimeOwnershipRecovery(
             coordinator,
-            count: 1
+            count: 2
         )
         defer {
             releaseRuntimeOwnershipSaturation(saturation, from: coordinator)
@@ -596,11 +596,11 @@ import CmuxTerminalCore
 
     @Test func overflowCancelAfterCapacitySignalLeavesOnlyLiveFIFOHead() async throws {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
-            maximumRuntimeSurfaceOwnerCount: 1
+            maximumRuntimeSurfaceOwnerCount: 2
         )
         let saturation = try saturateRuntimeOwnershipRecovery(
             coordinator,
-            count: 1
+            count: 2
         )
         defer {
             releaseRuntimeOwnershipSaturation(saturation, from: coordinator)

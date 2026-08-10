@@ -328,14 +328,14 @@ fn resolve_host_addresses_until(
             handoff_resolver_child(child, reaper);
             return Err(error);
         }
-        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+        Err(RecvTimeoutError::Timeout) => {
             handoff_resolver_child(child, reaper);
             return Err(std::io::Error::new(
                 std::io::ErrorKind::TimedOut,
                 "CDP address resolution deadline expired",
             ));
         }
-        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+        Err(RecvTimeoutError::Disconnected) => {
             handoff_resolver_child(child, reaper);
             return Err(std::io::Error::other("host resolver output reader stopped"));
         }
@@ -473,8 +473,8 @@ fn run_resolver_child_reaper(
             } else {
                 match receiver.recv_timeout(wait) {
                     Ok(request) => pending.push(request),
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
-                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    Err(RecvTimeoutError::Timeout) => {}
+                    Err(RecvTimeoutError::Disconnected) => {
                         disconnected = true;
                     }
                 }
@@ -1241,10 +1241,10 @@ fn resolve_socket_addr_until(
     let remaining = remaining_until(deadline, "CDP address resolution deadline expired")?;
     let addresses = match receiver.recv_timeout(remaining) {
         Ok(result) => result?,
-        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+        Err(RecvTimeoutError::Timeout) => {
             anyhow::bail!("CDP address resolution deadline expired")
         }
-        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+        Err(RecvTimeoutError::Disconnected) => {
             anyhow::bail!("CDP resolver worker stopped")
         }
     };
@@ -3054,6 +3054,7 @@ mod tests {
         (
             Arc::new(Inner {
                 outbound,
+                transport_close: Mutex::new(TransportClose::Open),
                 pending: Mutex::new(HashMap::new()),
                 events: Arc::new(EventQueue::new()),
                 frame_epochs: Mutex::new(HashMap::new()),

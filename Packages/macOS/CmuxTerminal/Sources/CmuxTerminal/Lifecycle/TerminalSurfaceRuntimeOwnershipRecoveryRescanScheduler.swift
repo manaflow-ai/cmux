@@ -1,3 +1,4 @@
+internal import Foundation
 internal import os
 
 /// Coalesces bounded MainActor batches for surface-owned overflow recovery.
