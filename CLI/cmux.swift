@@ -26874,7 +26874,7 @@ struct CMUXCLI {
         turnId: String?
     ) -> CodexTranscriptSubagentSignals {
         var signals = CodexTranscriptSubagentSignals()
-        if let firstLine = readInitialTextFileLine(path: path, maxBytes: 1024 * 1024),
+        if let firstLine = readInitialTextFileLine(path: path, maxBytes: 4 * 1024 * 1024),
            let data = firstLine.data(using: .utf8),
            let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
            (object["type"] as? String) == "session_meta",
