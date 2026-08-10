@@ -52,6 +52,8 @@ struct AgentFeedRow: View, Equatable {
                     AgentFeedContext(item: item, isExpanded: isExpanded)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(disclosureAccessibilityLabel)
                 .accessibilityIdentifier("MobileAgentFeedExpand-\(suffix)")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -286,6 +288,22 @@ struct AgentFeedRow: View, Equatable {
     }
 
     private var suffix: String { "\(item.macDeviceID)-\(item.wire.id.uuidString)" }
+
+    private var disclosureAccessibilityLabel: String {
+        [
+            AgentFeedCopy.sourceLabel(item.wire.source),
+            AgentFeedCopy.statusLabel(item.wire.status),
+            item.macDisplayName,
+            item.connectionStatus.label,
+            item.wire.workstreamID,
+            item.wire.title,
+            AgentFeedCopy.payloadSummary(item.wire.payload),
+            AgentFeedCopy.resolutionLabel(item.wire.status),
+            item.wire.createdAt.formatted(.relative(presentation: .named, unitsStyle: .abbreviated)),
+        ]
+        .compactMap { $0 }
+        .formatted()
+    }
 }
 
 private struct AgentFeedRowHeader: View {
@@ -370,17 +388,8 @@ private struct AgentFeedContext: View {
                 .font(.subheadline)
                 .lineLimit(isExpanded || dynamicTypeSize.isAccessibilitySize ? nil : 4)
                 .fixedSize(horizontal: false, vertical: true)
-            if case .resolved(let decision) = item.wire.status,
-               let decision = AgentFeedCopy.decisionLabel(decision) {
-                Text(
-                    String(
-                        format: AgentFeedL10n.string(
-                            "mobile.agentFeed.card.resolution",
-                            defaultValue: "Resolved: %@"
-                        ),
-                        decision
-                    )
-                )
+            if let resolution = AgentFeedCopy.resolutionLabel(item.wire.status) {
+                Text(resolution)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
             }
@@ -466,6 +475,18 @@ private struct AgentFeedCopy {
         case .unknown(let kind): return kind
         case nil: return nil
         }
+    }
+
+    static func resolutionLabel(_ status: MobileWorkstreamFeedStatus) -> String? {
+        guard case .resolved(let decision) = status,
+              let decision = decisionLabel(decision) else { return nil }
+        return String(
+            format: AgentFeedL10n.string(
+                "mobile.agentFeed.card.resolution",
+                defaultValue: "Resolved: %@"
+            ),
+            decision
+        )
     }
 
     static func planModeLabel(_ mode: String) -> String {

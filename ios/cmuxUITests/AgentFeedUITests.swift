@@ -13,19 +13,21 @@ final class AgentFeedUITests: XCTestCase {
             "MobileAgentFeedCard-macbook-00000000-0000-0000-0000-000000000101"
         ]
         XCTAssertTrue(permissionCard.waitForExistence(timeout: 3))
-        let permissionExpand = app.buttons[
-            "MobileAgentFeedExpand-macbook-00000000-0000-0000-0000-000000000101"
-        ]
+        let permissionExpandID = "MobileAgentFeedExpand-macbook-00000000-0000-0000-0000-000000000101"
+        let permissionExpand = app.buttons[permissionExpandID]
+        XCTAssertEqual(app.buttons.matching(identifier: permissionExpandID).count, 1)
         makeHittable(permissionExpand, in: app)
         permissionExpand.tap()
-        let deny = app.buttons[
-            "MobileAgentFeedPermission-deny-macbook-00000000-0000-0000-0000-000000000101"
-        ]
+        let denyID = "MobileAgentFeedPermission-deny-macbook-00000000-0000-0000-0000-000000000101"
+        let deny = app.buttons[denyID]
+        XCTAssertEqual(app.buttons.matching(identifier: denyID).count, 1)
         XCTAssertTrue(deny.waitForExistence(timeout: 3))
         XCTAssertTrue(deny.isHittable)
         deny.tap()
         XCTAssertTrue(permissionCard.waitForExistence(timeout: 3))
-        XCTAssertTrue(app.staticTexts["Resolved: Deny"].waitForExistence(timeout: 3))
+        let resolvedExpand = app.buttons[permissionExpandID]
+        XCTAssertEqual(app.buttons.matching(identifier: permissionExpandID).count, 1)
+        XCTAssertTrue(resolvedExpand.label.contains("Resolved: Deny"))
         XCTAssertFalse(app.descendants(matching: .any)["MobileAgentFeedPreviewAgentDestination"].exists)
 
         let planOpen = app.buttons[
@@ -47,7 +49,9 @@ final class AgentFeedUITests: XCTestCase {
         defer { app.terminate() }
 
         let suffix = "mac-3-00000000-0000-0000-0000-000000000103"
-        let expand = app.buttons["MobileAgentFeedExpand-\(suffix)"]
+        let expandID = "MobileAgentFeedExpand-\(suffix)"
+        let expand = app.buttons[expandID]
+        XCTAssertEqual(app.buttons.matching(identifier: expandID).count, 1)
         XCTAssertTrue(expand.waitForExistence(timeout: 8))
         makeHittable(expand, in: app)
         expand.tap()
@@ -114,15 +118,21 @@ final class AgentFeedUITests: XCTestCase {
         XCTAssertTrue(filter.exists)
         XCTAssertTrue(filter.isHittable)
         let suffix = "macbook-00000000-0000-0000-0000-000000000101"
-        let expand = app.buttons["MobileAgentFeedExpand-\(suffix)"]
+        let expandID = "MobileAgentFeedExpand-\(suffix)"
+        let expand = app.buttons[expandID]
+        XCTAssertEqual(app.buttons.matching(identifier: expandID).count, 1)
         XCTAssertTrue(expand.exists)
         XCTAssertTrue(expand.isHittable)
         expand.tap()
-        let deny = app.buttons["MobileAgentFeedPermission-deny-\(suffix)"]
+        let denyID = "MobileAgentFeedPermission-deny-\(suffix)"
+        let deny = app.buttons[denyID]
+        XCTAssertEqual(app.buttons.matching(identifier: denyID).count, 1)
         XCTAssertTrue(deny.waitForExistence(timeout: 3))
         makeHittable(deny, in: app)
         deny.tap()
-        XCTAssertTrue(app.staticTexts["Resolved: Deny"].waitForExistence(timeout: 3))
+        let resolvedExpand = app.buttons[expandID]
+        XCTAssertEqual(app.buttons.matching(identifier: expandID).count, 1)
+        XCTAssertTrue(resolvedExpand.label.contains("Resolved: Deny"))
         XCTAssertFalse(app.descendants(matching: .any)["MobileAgentFeedPreviewAgentDestination"].exists)
         app.terminate()
     }

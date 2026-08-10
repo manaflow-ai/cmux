@@ -58,7 +58,7 @@ struct AgentFeedPreviewConfiguration {
         case .reply:
             return one(scenario, item: replyItem)
         case .permission:
-            return one(scenario, item: permissionItem)
+            return one(scenario, item: permissionItem, filter: .allActivity)
         case .plan:
             return one(scenario, item: planItem)
         case .questions:
