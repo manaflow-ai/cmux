@@ -75,9 +75,31 @@ import Testing
         #expect(configuration?.presentsShellSettingsBeforeMigration == false)
         #expect(configuration?.initialModalHost == nil)
         #expect(configuration?.readinessGate == nil)
+        #expect(configuration?.showsLayoutProbe == false)
         #expect(
             configuration?.defaultsSuiteName
                 == "dev.cmux.uitest.autoConnectMigration.migration-run"
+        )
+    }
+
+    @Test func autoConnectMigrationFixtureRequiresExplicitLayoutProbeOptIn() {
+        let baseEnvironment = [
+            "CMUX_UITEST_MOCK_DATA": "1",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": "migration-run",
+        ]
+        var enabledEnvironment = baseEnvironment
+        enabledEnvironment["CMUX_UITEST_AUTOCONNECT_MIGRATION_LAYOUT_PROBES"] = " 1 "
+        var disabledEnvironment = baseEnvironment
+        disabledEnvironment["CMUX_UITEST_AUTOCONNECT_MIGRATION_LAYOUT_PROBES"] = "true"
+
+        #expect(
+            AutoConnectMigrationUITestConfiguration(environment: enabledEnvironment)?
+                .showsLayoutProbe == true
+        )
+        #expect(
+            AutoConnectMigrationUITestConfiguration(environment: disabledEnvironment)?
+                .showsLayoutProbe == false
         )
     }
 

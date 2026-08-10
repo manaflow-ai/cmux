@@ -529,7 +529,8 @@ struct CMUXMobileRootView: View {
                 },
                 openConnectionSettings: {
                     handleRootPresentation(.openConnectionSettings)
-                }
+                },
+                showsLayoutProbe: showsAutoConnectMigrationLayoutProbe
             )
         case .settings:
             settingsSheet(initialFocus: nil)
@@ -540,6 +541,15 @@ struct CMUXMobileRootView: View {
         case .child, .dismissingChild, nil:
             EmptyView()
         }
+    }
+
+    /// Keeps the automation-only viewport leaf absent from normal app launches.
+    private var showsAutoConnectMigrationLayoutProbe: Bool {
+        #if DEBUG
+        AutoConnectMigrationUITestConfiguration.currentProcess?.showsLayoutProbe == true
+        #else
+        false
+        #endif
     }
 
     /// The one root-hosted Settings page used by either shell and the migration route.

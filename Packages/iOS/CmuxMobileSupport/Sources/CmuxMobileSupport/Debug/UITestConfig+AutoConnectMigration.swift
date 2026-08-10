@@ -34,6 +34,8 @@ public struct AutoConnectMigrationUITestConfiguration: Equatable, Sendable {
     public let initialModalHost: InitialModalHost?
     /// The launch prerequisite held unavailable until the next fixture launch.
     public let readinessGate: ReadinessGate?
+    /// Whether this launch exposes a leaf viewport probe for XCUITest geometry.
+    public let showsLayoutProbe: Bool
 
     /// Parses a DEBUG-only migration fixture from explicit process inputs.
     ///
@@ -78,6 +80,9 @@ public struct AutoConnectMigrationUITestConfiguration: Equatable, Sendable {
         } else {
             self.readinessGate = nil
         }
+        self.showsLayoutProbe =
+            environment["CMUX_UITEST_AUTOCONNECT_MIGRATION_LAYOUT_PROBES"]?
+                .trimmingCharacters(in: .whitespacesAndNewlines) == "1"
     }
 
     /// The fixture requested by the current DEBUG process, when valid.

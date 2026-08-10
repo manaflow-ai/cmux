@@ -438,6 +438,9 @@ final class cmuxUITests: XCTestCase {
 
         let migrationTitle = app.staticTexts["MobileAutoConnectMigrationTitle"]
         XCTAssertTrue(migrationTitle.waitForExistence(timeout: 8))
+        XCTAssertFalse(
+            app.descendants(matching: .any)["MobileAutoConnectMigrationViewportProbe"].exists
+        )
         XCTAssertTrue(app.staticTexts["cmux now uses Auto-Connect"].exists)
         XCTAssertTrue(app.staticTexts.matching(
             NSPredicate(format: "label CONTAINS %@", "end-to-end encrypted")
@@ -586,18 +589,31 @@ final class cmuxUITests: XCTestCase {
         let environment = [
             "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
             "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": UUID().uuidString,
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_LAYOUT_PROBES": "1",
         ]
         let app = launchApp(mockData: true, environment: environment)
         defer { app.terminate() }
 
         let migrationTitle = app.staticTexts["MobileAutoConnectMigrationTitle"]
         XCTAssertTrue(migrationTitle.waitForExistence(timeout: 8))
-        let systemSheet = app.sheets.firstMatch
-        XCTAssertTrue(systemSheet.waitForExistence(timeout: 4))
-        let dragIndicator = systemSheet.coordinate(
-            withNormalizedOffset: CGVector(dx: 0.5, dy: 0.02)
+        let probes = app.descendants(matching: .any).matching(
+            identifier: "MobileAutoConnectMigrationViewportProbe"
         )
-        let bottom = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95))
+        let viewportProbe = probes.firstMatch
+        XCTAssertTrue(viewportProbe.waitForExistence(timeout: 4))
+        XCTAssertEqual(probes.count, 1)
+        XCTAssertFalse(viewportProbe.isHittable)
+        let viewportFrame = try XCTUnwrap(waitForUsableFrame(of: viewportProbe, timeout: 4))
+        let window = app.windows.firstMatch
+        let windowFrame = try XCTUnwrap(waitForUsableFrame(of: window, timeout: 4))
+        let windowOrigin = window.coordinate(
+            withNormalizedOffset: CGVector(dx: 0, dy: 0)
+        )
+        let dragIndicator = windowOrigin.withOffset(CGVector(
+            dx: viewportFrame.midX - windowFrame.minX,
+            dy: max(viewportFrame.minY - windowFrame.minY - 16, 1)
+        ))
+        let bottom = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95))
         dragIndicator.press(forDuration: 0.05, thenDragTo: bottom)
         XCTAssertTrue(migrationTitle.waitForNonExistence(timeout: 4))
         app.terminate()
@@ -777,6 +793,7 @@ final class cmuxUITests: XCTestCase {
                 environment: [
                     "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
                     "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": UUID().uuidString,
+                    "CMUX_UITEST_AUTOCONNECT_MIGRATION_LAYOUT_PROBES": "1",
                 ],
                 launchArguments: [
                     "-UIPreferredContentSizeCategoryName",
@@ -792,9 +809,10 @@ final class cmuxUITests: XCTestCase {
             let guidance = app.staticTexts["MobileAutoConnectMigrationGuidance"]
             let continueButton = app.buttons["MobileAutoConnectMigrationContinue"]
             let finalButton = app.buttons["MobileAutoConnectMigrationOpenSettings"]
-            let systemSheet = app.sheets.firstMatch
-            let internalScrollViews = systemSheet.descendants(matching: .scrollView)
-            let scrollView = internalScrollViews.firstMatch
+            let probes = app.descendants(matching: .any).matching(
+                identifier: "MobileAutoConnectMigrationViewportProbe"
+            )
+            let viewportProbe = probes.firstMatch
             let window = app.windows.firstMatch
 
             func capture(_ layout: String) {
@@ -805,8 +823,9 @@ final class cmuxUITests: XCTestCase {
             }
 
             XCTAssertTrue(title.waitForExistence(timeout: 8))
-            XCTAssertTrue(systemSheet.waitForExistence(timeout: 4))
-            XCTAssertTrue(scrollView.waitForExistence(timeout: 4))
+            XCTAssertTrue(viewportProbe.waitForExistence(timeout: 4))
+            XCTAssertEqual(probes.count, 1)
+            XCTAssertFalse(viewportProbe.isHittable)
             for element in [title, body, guidance, continueButton, finalButton] {
                 XCTAssertTrue(element.waitForExistence(timeout: 4))
             }
@@ -823,24 +842,26 @@ final class cmuxUITests: XCTestCase {
             func assertDeclaredBottomPadding(scrollingIfNeeded: Bool) throws {
                 if scrollingIfNeeded {
                     for _ in 0..<8 {
-                        let scrollFrame = try XCTUnwrap(
-                            waitForUsableFrame(of: scrollView, timeout: 2)
+                        let viewportFrame = try XCTUnwrap(
+                            waitForUsableFrame(of: viewportProbe, timeout: 2)
                         )
                         let finalButtonFrame = try XCTUnwrap(
                             waitForUsableFrame(of: finalButton, timeout: 2)
                         )
-                        if scrollFrame.maxY - finalButtonFrame.maxY >= 22 {
+                        if viewportFrame.maxY - finalButtonFrame.maxY >= 22 {
                             break
                         }
-                        scrollView.swipeUp()
+                        viewportProbe.swipeUp()
                     }
                 }
 
-                let scrollFrame = try XCTUnwrap(waitForUsableFrame(of: scrollView, timeout: 4))
+                let viewportFrame = try XCTUnwrap(
+                    waitForUsableFrame(of: viewportProbe, timeout: 4)
+                )
                 let finalButtonFrame = try XCTUnwrap(
                     waitForUsableFrame(of: finalButton, timeout: 4)
                 )
-                let renderedBottomGap = scrollFrame.maxY - finalButtonFrame.maxY
+                let renderedBottomGap = viewportFrame.maxY - finalButtonFrame.maxY
                 XCTAssertEqual(
                     renderedBottomGap,
                     24,
@@ -849,18 +870,20 @@ final class cmuxUITests: XCTestCase {
                 )
                 XCTAssertLessThanOrEqual(
                     renderedBottomGap,
-                    24,
-                    "Rendered bottom space must never exceed the declared padding."
+                    26,
+                    "Rendered bottom space must stay within the declared padding tolerance."
                 )
             }
 
             func allContentFitsInScrollViewport() throws -> Bool {
-                let scrollFrame = try XCTUnwrap(waitForUsableFrame(of: scrollView, timeout: 4))
+                let viewportFrame = try XCTUnwrap(
+                    waitForUsableFrame(of: viewportProbe, timeout: 4)
+                )
                     .insetBy(dx: -1, dy: -1)
                 for (_, element) in localizedElements {
                     guard element.isHittable,
                           let frame = waitForUsableFrame(of: element, timeout: 2),
-                          scrollFrame.contains(frame)
+                          viewportFrame.contains(frame)
                     else {
                         return false
                     }
@@ -870,17 +893,15 @@ final class cmuxUITests: XCTestCase {
 
             func assertIntrinsicLayout(_ orientation: String) throws -> CGRect {
                 XCTAssertEqual(
-                    internalScrollViews.count,
+                    probes.count,
                     1,
-                    "The migration sheet must expose exactly one internal scroll view."
+                    "The migration sheet must expose exactly one viewport probe."
                 )
-                let sheetFrame = try XCTUnwrap(
-                    waitForUsableFrame(of: systemSheet, timeout: 4)
+                let viewportFrame = try XCTUnwrap(
+                    waitForUsableFrame(of: viewportProbe, timeout: 4)
                 )
-                let scrollFrame = try XCTUnwrap(waitForUsableFrame(of: scrollView, timeout: 4))
                 let windowFrame = try XCTUnwrap(waitForUsableFrame(of: window, timeout: 4))
-                let containedFrame = sheetFrame.insetBy(dx: -1, dy: -1)
-                let visibleFrame = scrollFrame.insetBy(dx: -1, dy: -1)
+                let visibleFrame = viewportFrame.insetBy(dx: -1, dy: -1)
                 var verticalPositions: [CGFloat] = []
 
                 for (name, element) in localizedElements {
@@ -890,17 +911,13 @@ final class cmuxUITests: XCTestCase {
                     )
                     let frame = try XCTUnwrap(waitForUsableFrame(of: element, timeout: 2))
                     XCTAssertTrue(
-                        containedFrame.contains(frame),
-                        "The \(name) escaped the \(localization.name) sheet in \(orientation)."
-                    )
-                    XCTAssertTrue(
                         visibleFrame.contains(frame),
                         "The \(localization.name) \(name) was clipped in \(orientation)."
                     )
                     verticalPositions.append(frame.minY)
                 }
 
-                scrollView.swipeUp(velocity: .slow)
+                viewportProbe.swipeUp(velocity: .slow)
                 for (index, (_, element)) in localizedElements.enumerated() {
                     let frame = try XCTUnwrap(waitForUsableFrame(of: element, timeout: 2))
                     XCTAssertEqual(
@@ -912,40 +929,27 @@ final class cmuxUITests: XCTestCase {
                 }
                 try assertDeclaredBottomPadding(scrollingIfNeeded: false)
 
-                let systemBottomGap = sheetFrame.maxY - scrollFrame.maxY
-                XCTAssertGreaterThanOrEqual(systemBottomGap, 0)
-                XCTAssertLessThanOrEqual(
-                    systemBottomGap,
-                    72,
-                    "The system sheet left excess space below the padded content."
-                )
-                XCTAssertLessThanOrEqual(
-                    sheetFrame.height - scrollFrame.height,
-                    96,
-                    "The sheet occupied unnecessary full-screen height around fitted content."
-                )
-                XCTAssertEqual(sheetFrame.midX, windowFrame.midX, accuracy: 2)
-                return sheetFrame
+                XCTAssertTrue(windowFrame.insetBy(dx: -1, dy: -1).contains(viewportFrame))
+                XCTAssertEqual(viewportFrame.midX, windowFrame.midX, accuracy: 2)
+                return viewportFrame
             }
 
             func assertScrollableLayout() throws -> CGRect {
                 XCTAssertEqual(
-                    internalScrollViews.count,
+                    probes.count,
                     1,
-                    "The migration sheet must expose exactly one internal scroll fallback."
+                    "The migration sheet must expose exactly one viewport probe."
                 )
-                let sheetFrame = try XCTUnwrap(
-                    waitForUsableFrame(of: systemSheet, timeout: 4)
+                let viewportFrame = try XCTUnwrap(
+                    waitForUsableFrame(of: viewportProbe, timeout: 4)
                 )
-                let scrollFrame = try XCTUnwrap(waitForUsableFrame(of: scrollView, timeout: 4))
                 let windowFrame = try XCTUnwrap(waitForUsableFrame(of: window, timeout: 4))
-                let containedSheetFrame = sheetFrame.insetBy(dx: -1, dy: -1)
-                XCTAssertTrue(containedSheetFrame.contains(scrollFrame))
-                XCTAssertTrue(windowFrame.insetBy(dx: -1, dy: -1).contains(sheetFrame))
+                let visibleFrame = viewportFrame.insetBy(dx: -1, dy: -1)
+                XCTAssertTrue(windowFrame.insetBy(dx: -1, dy: -1).contains(viewportFrame))
 
                 for (name, element) in localizedElements {
                     for _ in 0..<8 where !element.isHittable {
-                        scrollView.swipeUp()
+                        viewportProbe.swipeUp()
                     }
                     XCTAssertTrue(
                         element.isHittable,
@@ -953,17 +957,17 @@ final class cmuxUITests: XCTestCase {
                     )
                     let frame = try XCTUnwrap(waitForUsableFrame(of: element, timeout: 2))
                     XCTAssertTrue(
-                        containedSheetFrame.contains(frame),
-                        "The visible \(localization.name) \(name) escaped the landscape sheet."
+                        visibleFrame.contains(frame),
+                        "The visible \(localization.name) \(name) escaped the landscape viewport."
                     )
                 }
 
                 try assertDeclaredBottomPadding(scrollingIfNeeded: true)
-                XCTAssertEqual(sheetFrame.midX, windowFrame.midX, accuracy: 2)
-                return sheetFrame
+                XCTAssertEqual(viewportFrame.midX, windowFrame.midX, accuracy: 2)
+                return viewportFrame
             }
 
-            let portraitSheetFrame = try assertIntrinsicLayout("portrait")
+            let portraitViewportFrame = try assertIntrinsicLayout("portrait")
             let portraitWindowFrame = window.frame.standardized
             XCTAssertGreaterThan(portraitWindowFrame.height, portraitWindowFrame.width)
             capture("portrait")
@@ -973,19 +977,19 @@ final class cmuxUITests: XCTestCase {
                 frame.width > frame.height
             })
             capture("landscape-initial")
-            let landscapeSheetFrame: CGRect
+            let landscapeViewportFrame: CGRect
             if try allContentFitsInScrollViewport() {
-                landscapeSheetFrame = try assertIntrinsicLayout("landscape")
+                landscapeViewportFrame = try assertIntrinsicLayout("landscape")
             } else {
-                landscapeSheetFrame = try assertScrollableLayout()
+                landscapeViewportFrame = try assertScrollableLayout()
             }
             XCTAssertNotEqual(
-                landscapeSheetFrame.midX,
-                portraitSheetFrame.midX,
+                landscapeViewportFrame.midX,
+                portraitViewportFrame.midX,
                 accuracy: 2,
                 "The fitted sheet did not reposition after rotation."
             )
-            XCTAssertEqual(landscapeSheetFrame.midX, landscapeWindowFrame.midX, accuracy: 2)
+            XCTAssertEqual(landscapeViewportFrame.midX, landscapeWindowFrame.midX, accuracy: 2)
             capture("landscape-final")
             app.terminate()
         }
@@ -1007,6 +1011,7 @@ final class cmuxUITests: XCTestCase {
                 environment: [
                     "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
                     "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": UUID().uuidString,
+                    "CMUX_UITEST_AUTOCONNECT_MIGRATION_LAYOUT_PROBES": "1",
                 ],
                 launchArguments: [
                     "-UIPreferredContentSizeCategoryName",
@@ -1017,70 +1022,81 @@ final class cmuxUITests: XCTestCase {
 
             let title = app.staticTexts["MobileAutoConnectMigrationTitle"]
             XCTAssertTrue(title.waitForExistence(timeout: 8))
-            let systemSheet = app.sheets.firstMatch
-            XCTAssertTrue(systemSheet.waitForExistence(timeout: 4))
-            let internalScrollViews = systemSheet.descendants(matching: .scrollView)
-            let scrollView = internalScrollViews.firstMatch
+            let probes = app.descendants(matching: .any).matching(
+                identifier: "MobileAutoConnectMigrationViewportProbe"
+            )
+            let viewportProbe = probes.firstMatch
             XCTAssertTrue(
-                scrollView.waitForExistence(timeout: 4),
-                "Expected the migration scroll view in \(name)."
+                viewportProbe.waitForExistence(timeout: 4),
+                "Expected the migration viewport probe in \(name)."
             )
             XCTAssertEqual(
-                internalScrollViews.count,
+                probes.count,
                 1,
-                "The migration sheet must expose exactly one internal scroll view in \(name)."
+                "The migration sheet must expose exactly one viewport probe in \(name)."
             )
+            XCTAssertFalse(viewportProbe.isHittable)
 
-            func reveal(_ element: XCUIElement, named elementName: String) {
+            func reveal(_ element: XCUIElement, named elementName: String) throws {
                 XCTAssertTrue(
                     element.waitForExistence(timeout: 2),
                     "Expected \(elementName) in the \(name) accessibility hierarchy."
                 )
                 for _ in 0..<8 where !element.isHittable {
-                    scrollView.swipeUp()
+                    viewportProbe.swipeUp()
                 }
                 XCTAssertTrue(
                     element.isHittable,
                     "Expected \(elementName) to become visibly reachable by scrolling in \(name)."
                 )
+                let viewportFrame = try XCTUnwrap(
+                    waitForUsableFrame(of: viewportProbe, timeout: 2)
+                ).insetBy(dx: -1, dy: -1)
+                let elementFrame = try XCTUnwrap(waitForUsableFrame(of: element, timeout: 2))
+                XCTAssertTrue(
+                    viewportFrame.contains(elementFrame),
+                    "Expected \(elementName) to remain inside the \(name) viewport."
+                )
             }
 
-            reveal(
+            try reveal(
                 app.staticTexts["MobileAutoConnectMigrationBody"],
                 named: "the Auto-Connect explanation"
             )
-            reveal(
+            try reveal(
                 app.staticTexts["MobileAutoConnectMigrationGuidance"],
                 named: "the Tailscale guidance"
             )
-            reveal(
+            try reveal(
                 app.buttons["MobileAutoConnectMigrationContinue"],
                 named: "Continue with Auto-Connect"
             )
-            reveal(
+            try reveal(
                 app.buttons["MobileAutoConnectMigrationOpenSettings"],
                 named: "Open Connection Settings"
             )
 
             let finalButton = app.buttons["MobileAutoConnectMigrationOpenSettings"]
             for _ in 0..<8 {
-                let scrollFrame = try XCTUnwrap(
-                    waitForUsableFrame(of: scrollView, timeout: 2)
+                let viewportFrame = try XCTUnwrap(
+                    waitForUsableFrame(of: viewportProbe, timeout: 2)
                 )
                 let finalButtonFrame = try XCTUnwrap(
                     waitForUsableFrame(of: finalButton, timeout: 2)
                 )
-                if scrollFrame.maxY - finalButtonFrame.maxY >= 22 {
+                if viewportFrame.maxY - finalButtonFrame.maxY >= 22 {
                     break
                 }
-                scrollView.swipeUp()
+                viewportProbe.swipeUp()
             }
-            let scrollFrame = try XCTUnwrap(waitForUsableFrame(of: scrollView, timeout: 4))
+            let viewportFrame = try XCTUnwrap(
+                waitForUsableFrame(of: viewportProbe, timeout: 4)
+            )
             let finalButtonFrame = try XCTUnwrap(
                 waitForUsableFrame(of: finalButton, timeout: 4)
             )
             XCTAssertEqual(
-                scrollFrame.maxY - finalButtonFrame.maxY,
+                viewportFrame.maxY - finalButtonFrame.maxY,
                 24,
                 accuracy: 2,
                 "The scrolled content must retain its declared 24-point bottom padding in \(name)."

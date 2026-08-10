@@ -5,6 +5,7 @@ import SwiftUI
 struct MobileAutoConnectMigrationSheet: View {
     let continueWithAutoConnect: () -> Void
     let openConnectionSettings: () -> Void
+    let showsLayoutProbe: Bool
 
     /// The system caps an oversized height detent, turning the scroll view into
     /// the fallback only when the wrapped content exceeds the available screen.
@@ -25,12 +26,31 @@ struct MobileAutoConnectMigrationSheet: View {
                 }
             }
             .scrollBounceBehavior(.basedOnSize)
+            #if DEBUG
+            .overlay {
+                if showsLayoutProbe {
+                    MobileAutoConnectMigrationViewportProbe()
+                }
+            }
+            #endif
         }
         .presentationDetents([.height(contentHeight)])
         .presentationContentInteraction(.scrolls)
         .presentationDragIndicator(.visible)
     }
 }
+
+#if DEBUG
+/// A UI-test-only leaf that inherits the real scroll viewport's rendered frame.
+private struct MobileAutoConnectMigrationViewportProbe: View {
+    var body: some View {
+        Color.clear
+            .allowsHitTesting(false)
+            .accessibilityElement(children: .ignore)
+            .accessibilityIdentifier("MobileAutoConnectMigrationViewportProbe")
+    }
+}
+#endif
 
 private struct MobileAutoConnectMigrationContent: View {
     let continueWithAutoConnect: () -> Void
