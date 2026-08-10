@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 11, IR edeb627139683b278880c449a7c4126bac41451a3620b38d025ddf89ecb09f7a. */
+/* cmux-tui mux protocol 11, IR d779d845ef7ccdc136d0fab367a0a534d657077399b853ca455f636c890ee4f7. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -47,6 +47,27 @@ export type BrowserFrame = {
   "height": number;
   "seq": bigint;
   "width": number;
+};
+
+export type BrowserProviderAuthentication = "none" | "bearer";
+
+export type BrowserProviderSnapshot = {
+  "authentication"?: BrowserProviderAuthentication;
+  "available": boolean;
+  "clients"?: bigint;
+  "endpoint"?: string;
+  "provider_id"?: string;
+  "revision": bigint;
+  "targets": Array<BrowserProviderTarget>;
+};
+
+export type BrowserProviderTarget = {
+  "tab_id": string;
+  "target_id": string;
+};
+
+export type BrowserProviderUnregisterResult = {
+  "removed": boolean;
 };
 
 export type CellPixelFailure = {
@@ -144,6 +165,39 @@ export type ExportedPane = {
 export type FocusDirectionResult = {
   "pane": Id;
 };
+
+export type FrontendFocusTarget = "pane" | "machine_rail" | "workspace_rail" | "tabs_rail" | "projection_rail";
+
+export type FrontendJournalEvent = ({ "kind": "focus" } & {
+  "content_id"?: (string) | null;
+  "event_id": string;
+  "frontend_projection_id": string;
+  "generation": string;
+  "kind": "focus";
+  "pane_id"?: (string) | null;
+  "screen_id"?: (string) | null;
+  "tab_id"?: (string) | null;
+  "target": FrontendFocusTarget;
+  "workspace_id"?: (string) | null;
+}) | ({ "kind": "resize" } & {
+  "cell_height": number;
+  "cell_width": number;
+  "cols": number;
+  "event_id": string;
+  "frontend_projection_id": string;
+  "generation": string;
+  "kind": "resize";
+  "rows": number;
+}) | ({ "kind": "viewport" } & {
+  "event_id": string;
+  "frontend_projection_id": string;
+  "generation": string;
+  "kind": "viewport";
+  "offset": bigint;
+  "screen_id"?: (string) | null;
+  "settled": boolean;
+  "target": bigint;
+});
 
 export type FrontendProjection = {
   "frontend": string;

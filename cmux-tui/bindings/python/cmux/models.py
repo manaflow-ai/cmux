@@ -149,7 +149,6 @@ TerminalLifecycle = Literal["launching", "running", "exited"]
 
 @dataclass(frozen=True)
 class TerminalSnapshot(Snapshot[TerminalId]):
-    tab_id: Optional[TabId]
     tab_ids: Tuple[TabId, ...]
     title: str
     cols: int
@@ -244,7 +243,11 @@ class PairingRequestSnapshot(Snapshot[PairingRequestId]):
 @dataclass(frozen=True)
 class FrontendProjectionSnapshot(Snapshot[ProjectionId]):
     session_id: SessionId
+    frontend_id: str
+    window_id: str
+    generation: str
     projection: Any
+    projection_revision: str
     extra: JsonObject = field(default_factory=dict)
 
 
@@ -394,12 +397,22 @@ class ProcessInfoResult:
 class ViewerResizeResult:
     accepted: bool
     size: "Size"
+    outcome: "ViewAttachmentOutcome"
 
 
 @dataclass(frozen=True)
 class BrowserViewerResizeResult:
     accepted: bool
     size: "PixelSize"
+    outcome: "ViewAttachmentOutcome"
+
+
+ViewAttachmentOutcome = Literal["applied", "passive", "superseded"]
+
+
+@dataclass(frozen=True)
+class ViewerReleaseResult:
+    outcome: ViewAttachmentOutcome
 
 
 @dataclass(frozen=True)
@@ -758,6 +771,52 @@ class SessionDelta:
 
 SessionEvent = Union[SessionSnapshotItem, SessionDelta, Unknown]
 
+JournalClass = Literal["state", "observation", "effect", "checkpoint"]
+JournalReplayPolicy = Literal["required", "advisory", "never"]
+JournalSensitivity = Literal["public", "metadata", "sensitive", "secret"]
+
+
+@dataclass(frozen=True)
+class JournalProducer:
+    kind: str
+    id: str
+
+
+@dataclass(frozen=True)
+class JournalAuthority:
+    principal_id: str
+    lease_id: str
+    generation: str
+    role: str
+
+
+@dataclass(frozen=True)
+class JournalSubject:
+    kind: str
+    id: str
+
+
+@dataclass(frozen=True)
+class SessionJournalRecord:
+    sequence: str
+    event_id: str
+    schema_version: int
+    kind: str
+    class_: JournalClass
+    replay: JournalReplayPolicy
+    occurred_at_ms: str
+    committed_at_ms: str
+    producer: JournalProducer
+    authority: Optional[JournalAuthority]
+    causation_id: Optional[str]
+    correlation_id: Optional[str]
+    causation_depth: int
+    subjects: Tuple[JournalSubject, ...]
+    sensitivity: JournalSensitivity
+    payload: Any
+    resource_revision: Optional[str]
+    previous_resource_revision: Optional[str]
+
 
 @dataclass(frozen=True)
 class RenderCursor:
@@ -963,6 +1022,13 @@ __all__ = [
     "SessionSnapshotItem",
     "SessionDelta",
     "SessionEvent",
+    "JournalAuthority",
+    "JournalClass",
+    "JournalProducer",
+    "JournalReplayPolicy",
+    "JournalSensitivity",
+    "JournalSubject",
+    "SessionJournalRecord",
     "ShellCommand",
     "SidebarAttachItem",
     "SidebarAttachPatch",
@@ -996,6 +1062,8 @@ __all__ = [
     "TerminalAttachSnapshot",
     "Unknown",
     "ViewerResizeResult",
+    "ViewerReleaseResult",
+    "ViewAttachmentOutcome",
     "WorkspaceSnapshot",
     "exact",
     "shell",

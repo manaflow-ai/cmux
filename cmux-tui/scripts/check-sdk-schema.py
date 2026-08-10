@@ -17,8 +17,10 @@ SPEC = TUI / "spec"
 BINDINGS = TUI / "bindings"
 SERVER = TUI / "crates/cmux-tui-core/src/server.rs"
 RUNTIME_NAMED_REQUEST_REFS = {
-    "ProtocolKeyInput": "TerminalKeyInput",
+    "BrowserProviderTargetRequest": "BrowserProviderTarget",
+    "crate::FrontendJournalEvent": "FrontendJournalEvent",
     "crate::ResourceSelectors": "ResourceSelectors",
+    "ProtocolKeyInput": "TerminalKeyInput",
 }
 
 sys.path.insert(0, str(BINDINGS))
