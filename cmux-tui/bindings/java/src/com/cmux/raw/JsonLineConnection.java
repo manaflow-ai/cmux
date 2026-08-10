@@ -16,6 +16,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Bounded UTF-8 JSON-lines connection over a JDK Unix-domain socket. */
@@ -84,7 +85,8 @@ final class JsonLineConnection implements AutoCloseable {
         }
     }
 
-    void send(Map<String, Object> value) throws CmuxException {
+    void send(Map<String, Object> value, Deadline deadline) throws CmuxException {
+        Objects.requireNonNull(deadline, "deadline");
         byte[] message;
         try {
             message = Json.stringify(Wire.encode(value), maxJsonDepth).getBytes(StandardCharsets.UTF_8);
@@ -99,8 +101,8 @@ final class JsonLineConnection implements AutoCloseable {
         synchronized (writeLock) {
             ensureOpen();
             try {
-                writeFully(ByteBuffer.wrap(message));
-                writeFully(ByteBuffer.wrap(new byte[] {'\n'}));
+                writeFully(ByteBuffer.wrap(message), deadline);
+                writeFully(ByteBuffer.wrap(new byte[] {'\n'}), deadline);
             } catch (ClosedChannelException error) {
                 throw new CmuxTransportException("connection is closed", error);
             } catch (IOException error) {
@@ -110,20 +112,24 @@ final class JsonLineConnection implements AutoCloseable {
     }
 
     Map<String, Object> receive(Duration timeout) throws CmuxException {
-        return receive(timeout, () -> {});
+        return receive(deadline(timeout), () -> {});
     }
 
     Map<String, Object> receive(Duration timeout, Runnable beforeWait)
         throws CmuxException {
-        if (timeout == null || timeout.isNegative() || timeout.isZero()) {
-            throw new IllegalArgumentException("timeout must be positive");
-        }
-        if (beforeWait == null) {
-            throw new NullPointerException("beforeWait");
-        }
+        return receive(deadline(timeout), beforeWait);
+    }
+
+    Map<String, Object> receive(Deadline deadline) throws CmuxException {
+        return receive(deadline, () -> {});
+    }
+
+    Map<String, Object> receive(Deadline deadline, Runnable beforeWait)
+        throws CmuxException {
+        Objects.requireNonNull(deadline, "deadline");
+        Objects.requireNonNull(beforeWait, "beforeWait");
         synchronized (readLock) {
             ensureOpen();
-            long deadline = deadline(timeout);
             while (true) {
                 byte[] line = takeLine();
                 if (line != null) {
@@ -138,10 +144,9 @@ final class JsonLineConnection implements AutoCloseable {
                     }
                     return Wire.object(decoded, "server message");
                 }
-                long remaining = deadline - System.nanoTime();
-                if (remaining <= 0) {
-                    throw new CmuxTimeoutException("session did not respond before timeout");
-                }
+                long remaining = deadline.remainingNanos(
+                    "session did not respond before timeout"
+                );
                 try {
                     beforeWait.run();
                     int ready = readSelector.select(
@@ -182,8 +187,10 @@ final class JsonLineConnection implements AutoCloseable {
         }
     }
 
-    private void writeFully(ByteBuffer bytes) throws IOException, CmuxTransportException {
+    private void writeFully(ByteBuffer bytes, Deadline deadline)
+        throws IOException, CmuxException {
         while (bytes.hasRemaining()) {
+            deadline.remainingNanos("session did not accept request before timeout");
             int written = channel.write(bytes);
             if (written > 0) {
                 continue;
@@ -195,7 +202,12 @@ final class JsonLineConnection implements AutoCloseable {
                 throw interruptedWrite();
             }
             try {
-                int ready = writeSelector.select();
+                long remaining = deadline.remainingNanos(
+                    "session did not accept request before timeout"
+                );
+                int ready = writeSelector.select(
+                    Math.max(1, Duration.ofNanos(remaining).toMillis())
+                );
                 if (closed.get()) {
                     throw new ClosedChannelException();
                 }
@@ -261,15 +273,46 @@ final class JsonLineConnection implements AutoCloseable {
         return true;
     }
 
-    private static long deadline(Duration timeout) {
+    static Deadline deadline(Duration timeout) {
+        if (timeout == null || timeout.isNegative() || timeout.isZero()) {
+            throw new IllegalArgumentException("timeout must be positive");
+        }
         long now = System.nanoTime();
         long nanos;
         try {
             nanos = timeout.toNanos();
         } catch (ArithmeticException error) {
-            return Long.MAX_VALUE;
+            return Deadline.infinite();
         }
-        return nanos >= Long.MAX_VALUE - now ? Long.MAX_VALUE : now + nanos;
+        return now > Long.MAX_VALUE - nanos
+            ? Deadline.infinite()
+            : new Deadline(now + nanos, false);
+    }
+
+    static final class Deadline {
+        private final long nanoTime;
+        private final boolean infinite;
+
+        private Deadline(long nanoTime, boolean infinite) {
+            this.nanoTime = nanoTime;
+            this.infinite = infinite;
+        }
+
+        private static Deadline infinite() {
+            return new Deadline(0, true);
+        }
+
+        private long remainingNanos(String timeoutMessage)
+            throws CmuxTimeoutException {
+            if (infinite) {
+                return Long.MAX_VALUE;
+            }
+            long remaining = nanoTime - System.nanoTime();
+            if (remaining <= 0) {
+                throw new CmuxTimeoutException(timeoutMessage);
+            }
+            return remaining;
+        }
     }
 
     private void ensureOpen() throws CmuxTransportException {

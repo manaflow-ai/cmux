@@ -189,11 +189,10 @@ public final class LifecycleTest {
     }
 
     private static void closeUnblocksPendingCommandRead() throws Exception {
-        CountDownLatch requestReceived = new CountDownLatch(1);
+        CountDownLatch readStarted = new CountDownLatch(1);
         try (Harness harness = new Harness(server -> {
             try (SocketChannel client = server.accept()) {
                 readObject(client);
-                requestReceived.countDown();
                 while (client.read(ByteBuffer.allocate(1)) >= 0) {
                     // Wait for CmuxClient.close().
                 }
@@ -206,7 +205,10 @@ public final class LifecycleTest {
             AtomicReference<Throwable> outcome = new AtomicReference<>();
             Thread reader = new Thread(() -> {
                 try {
-                    client.rawRequest(Map.of("cmd", "ping"));
+                    client.rawRequest(
+                        Map.of("cmd", "ping"),
+                        readStarted::countDown
+                    );
                     outcome.set(new AssertionError("command returned without a response"));
                 } catch (CmuxTransportException expected) {
                     outcome.set(expected);
@@ -215,7 +217,7 @@ public final class LifecycleTest {
                 }
             }, "cmux-java-client-close-unblocks");
             reader.start();
-            check(requestReceived.await(2, TimeUnit.SECONDS), "command request received");
+            check(readStarted.await(2, TimeUnit.SECONDS), "client entered command read wait");
             client.close();
             reader.join(2_000);
             check(!reader.isAlive(), "client close unblocks command read");

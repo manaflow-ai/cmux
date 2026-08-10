@@ -39,13 +39,14 @@ public final class CmuxStream<E extends ProtocolEvent> implements AutoCloseable 
         if (maxBufferedEvents < 1) {
             throw new IllegalArgumentException("maxBufferedEvents must be positive");
         }
-        connection.send(request);
+        JsonLineConnection.Deadline deadline = JsonLineConnection.deadline(timeout);
+        connection.send(request, deadline);
         ArrayDeque<ProtocolEvent> buffered = new ArrayDeque<>();
         Object id = request.get("id");
         boolean attach = "attach-surface".equals(request.get("cmd"));
         try {
             while (true) {
-                Map<String, Object> message = connection.receive(timeout);
+                Map<String, Object> message = connection.receive(deadline);
                 if (message.containsKey("event")) {
                     ProtocolEvent event = Protocol.decodeEvent(message);
                     if (buffered.size() >= maxBufferedEvents) {
