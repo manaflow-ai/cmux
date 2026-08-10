@@ -2140,6 +2140,11 @@ final class cmuxUITests: XCTestCase {
             }
 
             XCTAssertLessThan(options.frame.midX, agent.frame.midX)
+            let attachment = app.buttons["MobileTaskComposerAttachmentButton"]
+            if attachment.exists {
+                XCTAssertLessThan(options.frame.midX, attachment.frame.midX)
+                XCTAssertLessThan(attachment.frame.midX, agent.frame.midX)
+            }
             XCTAssertLessThan(agent.frame.midX, model.frame.midX)
             XCTAssertLessThan(model.frame.midX, submit.frame.midX)
             XCTAssertFalse(app.buttons["MobileTaskComposerCreateButton"].exists)
@@ -2153,6 +2158,26 @@ final class cmuxUITests: XCTestCase {
             XCTAssertTrue(app.buttons["MobileTaskComposerDirectory"].exists)
             XCTAssertFalse(app.buttons["MobileTaskComposerModelPill"].exists)
             XCTAssertFalse(app.buttons["MobileTaskComposerAgentMenu"].exists)
+
+            tap(app.buttons["MobileTaskComposerOptionsDoneButton"], in: app)
+            selectTaskComposerAgent(named: "Codex", in: app)
+            XCTAssertEqual(agent.value as? String, "Codex")
+
+            let refreshedModel = app.buttons["MobileTaskComposerModelPill"]
+            XCTAssertTrue(refreshedModel.waitForExistence(timeout: 3))
+            tap(refreshedModel, in: app)
+            tapMenuItem(app.buttons["GPT-5.5"], in: app)
+            XCTAssertEqual(refreshedModel.value as? String, "GPT-5.5")
+
+            try typeText("Verify canonical controls", into: prompt, in: app)
+            XCTAssertTrue(submit.isEnabled)
+            tap(submit, in: app)
+            let submittedCommand = app.staticTexts["MobileTaskComposerSubmittedInitialCommand"]
+            XCTAssertTrue(submittedCommand.waitForExistence(timeout: 4))
+            XCTAssertEqual(
+                submittedCommand.label,
+                "codex -m 'gpt-5.5' -- \"$CMUX_TASK_PROMPT\""
+            )
 
             app.terminate()
         }
@@ -2170,19 +2195,19 @@ final class cmuxUITests: XCTestCase {
 
         XCTAssertTrue(app.textFields["MobileTaskComposerPrompt"].waitForExistence(timeout: 8))
 
-        let create = app.buttons["MobileTaskComposerCreateButton"]
+        let create = app.buttons["MobileTaskComposerSubmitButton"]
         XCTAssertTrue(
             create.waitForExistence(timeout: 4),
             "The visible launch action must be present in the accessibility hierarchy"
         )
-        XCTAssertEqual(create.label, "Start Claude")
+        XCTAssertEqual(create.label, "Start Task")
         XCTAssertGreaterThanOrEqual(
             create.frame.height,
             44,
             "The launch action must expose at least a 44-point activation frame"
         )
 
-        let agentMenu = app.buttons["MobileTaskComposerAgentMenu"]
+        let agentMenu = app.buttons["MobileTaskComposerAgentPill"]
         XCTAssertTrue(agentMenu.waitForExistence(timeout: 2))
         XCTAssertGreaterThanOrEqual(
             agentMenu.frame.height,
@@ -2200,6 +2225,12 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.buttons["MobileTaskComposerEditTemplatesButton"].exists)
         tapMenuItem(app.buttons["Claude"], in: app)
 
+        let model = app.buttons["MobileTaskComposerModelPill"]
+        XCTAssertTrue(model.waitForExistence(timeout: 2))
+        XCTAssertGreaterThanOrEqual(model.frame.height, 44)
+
+        openTaskComposerOptions(in: app)
+
         for identifier in [
             "MobileTaskComposerMachineMenu",
             "MobileTaskComposerDirectory",
@@ -2216,8 +2247,6 @@ final class cmuxUITests: XCTestCase {
     func testTaskComposerComposerPillScrollerUsesHardEdges() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
-            "CMUX_UITEST_TASK_COMPOSER_LAYOUT": "composer",
-            "CMUX_UITEST_TASK_COMPOSER_MODEL_VARIANT": "combined",
         ])
         defer { app.terminate() }
 
@@ -2275,7 +2304,6 @@ final class cmuxUITests: XCTestCase {
     func testTaskComposerPromptScrollDoesNotDragSheet() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
-            "CMUX_UITEST_TASK_COMPOSER_LAYOUT": "composer",
             "CMUX_UITEST_TASK_COMPOSER_LONG_PROMPT": "1",
         ])
         defer { app.terminate() }
@@ -2313,9 +2341,7 @@ final class cmuxUITests: XCTestCase {
     func testTaskComposerPromptScrollAwayFromCaretRemainsAtTop() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
-            "CMUX_UITEST_TASK_COMPOSER_LAYOUT": "composer",
             "CMUX_UITEST_TASK_COMPOSER_LONG_PROMPT": "1",
-            "CMUX_UITEST_TASK_COMPOSER_MODEL_VARIANT": "combined",
         ])
         defer { app.terminate() }
 
@@ -2363,18 +2389,21 @@ final class cmuxUITests: XCTestCase {
         defer { app.terminate() }
 
         XCTAssertTrue(app.textFields["MobileTaskComposerPrompt"].waitForExistence(timeout: 8))
+        openTaskComposerOptions(in: app)
         let directory = app.buttons["MobileTaskComposerDirectory"]
         XCTAssertTrue(directory.waitForExistence(timeout: 3))
         XCTAssertEqual(directory.value as? String, "/Users/ui/current-project")
+        tap(app.buttons["MobileTaskComposerOptionsDoneButton"], in: app)
 
         selectTaskComposerAgent(named: "Codex", in: app)
 
-        XCTAssertEqual(app.buttons["MobileTaskComposerCreateButton"].label, "Start Codex")
+        XCTAssertEqual(app.buttons["MobileTaskComposerAgentPill"].value as? String, "Codex")
+        openTaskComposerOptions(in: app)
         XCTAssertEqual(directory.value as? String, "/Users/ui/current-project")
     }
 
-    /// The composer keeps the launch route visible while the prompt receives
-    /// focus, so the user can verify the agent, Mac, and folder while typing.
+    /// The canonical composer keeps its control row attached to the keyboard
+    /// while the prompt receives focus.
     @MainActor
     func testTaskComposerOpensFocusedWithPersonalizedLaunchAction() throws {
         let app = launchApp(mockData: false, environment: [
@@ -2386,20 +2415,24 @@ final class cmuxUITests: XCTestCase {
         let keyboard = app.keyboards.firstMatch
         XCTAssertTrue(keyboard.waitForExistence(timeout: 3))
         let prompt = app.textFields["MobileTaskComposerPrompt"]
-        let machine = app.buttons["MobileTaskComposerMachineMenu"]
-        let directory = app.buttons["MobileTaskComposerDirectory"]
-        XCTAssertTrue(machine.exists)
-        XCTAssertTrue(directory.exists)
+        let options = app.buttons["MobileTaskComposerOptionsButton"]
+        let agent = app.buttons["MobileTaskComposerAgentPill"]
+        let model = app.buttons["MobileTaskComposerModelPill"]
+        let submit = app.buttons["MobileTaskComposerSubmitButton"]
+        for control in [options, agent, model, submit] {
+            XCTAssertTrue(control.waitForExistence(timeout: 3))
+        }
         XCTAssertGreaterThanOrEqual(
             prompt.frame.height,
             100,
             "The prompt must remain the dominant keyboard-up surface"
         )
-        XCTAssertLessThanOrEqual(prompt.frame.maxY, machine.frame.minY)
-        XCTAssertLessThanOrEqual(prompt.frame.maxY, directory.frame.minY)
-        XCTAssertLessThanOrEqual(machine.frame.maxY, keyboard.frame.minY)
-        XCTAssertLessThanOrEqual(directory.frame.maxY, keyboard.frame.minY)
-        XCTAssertEqual(app.buttons["MobileTaskComposerCreateButton"].label, "Start Claude")
+        XCTAssertLessThanOrEqual(prompt.frame.maxY, options.frame.minY)
+        XCTAssertLessThanOrEqual(options.frame.maxY, keyboard.frame.minY)
+        XCTAssertLessThanOrEqual(agent.frame.maxY, keyboard.frame.minY)
+        XCTAssertLessThanOrEqual(model.frame.maxY, keyboard.frame.minY)
+        XCTAssertLessThanOrEqual(submit.frame.maxY, keyboard.frame.minY)
+        XCTAssertEqual(submit.label, "Start Task")
 
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "task-composer-prompt-first"
@@ -2425,27 +2458,26 @@ final class cmuxUITests: XCTestCase {
 
         let prompt = app.textFields["MobileTaskComposerPrompt"]
         XCTAssertTrue(prompt.waitForExistence(timeout: 8))
-        let agentMenu = app.buttons["MobileTaskComposerAgentMenu"]
+        let agentMenu = app.buttons["MobileTaskComposerAgentPill"]
         XCTAssertTrue(agentMenu.waitForExistence(timeout: 3))
         XCTAssertLessThanOrEqual(
             agentMenu.frame.height,
             80,
             "The selected agent control must stay compact at accessibility sizes"
         )
-        let machine = app.buttons["MobileTaskComposerMachineMenu"]
-        let directory = app.buttons["MobileTaskComposerDirectory"]
-        XCTAssertTrue(machine.waitForExistence(timeout: 3))
-        XCTAssertTrue(directory.waitForExistence(timeout: 3))
+        let options = app.buttons["MobileTaskComposerOptionsButton"]
+        let model = app.buttons["MobileTaskComposerModelPill"]
+        XCTAssertTrue(options.waitForExistence(timeout: 3))
+        XCTAssertTrue(model.waitForExistence(timeout: 3))
         XCTAssertGreaterThanOrEqual(
             prompt.frame.minY,
             app.navigationBars["New Task"].frame.maxY,
             "Prompt focus must not scroll the prompt behind the navigation title"
         )
-        XCTAssertLessThanOrEqual(prompt.frame.maxY, machine.frame.minY)
-        XCTAssertLessThanOrEqual(prompt.frame.maxY, directory.frame.minY)
+        XCTAssertLessThanOrEqual(prompt.frame.maxY, options.frame.minY)
         let keyboard = app.keyboards.firstMatch
         XCTAssertTrue(keyboard.waitForExistence(timeout: 3))
-        let create = app.buttons["MobileTaskComposerCreateButton"]
+        let create = app.buttons["MobileTaskComposerSubmitButton"]
         XCTAssertTrue(create.waitForExistence(timeout: 3))
         XCTAssertLessThanOrEqual(
             create.frame.height,
@@ -2475,65 +2507,35 @@ final class cmuxUITests: XCTestCase {
 
         let prompt = app.textFields["MobileTaskComposerPrompt"]
         XCTAssertTrue(prompt.waitForExistence(timeout: 8))
-        let create = app.buttons["MobileTaskComposerCreateButton"]
+        let create = app.buttons["MobileTaskComposerSubmitButton"]
         XCTAssertTrue(create.waitForExistence(timeout: 3))
-        XCTAssertEqual(create.label, "Start Claude")
+        XCTAssertEqual(create.label, "Start Task")
         XCTAssertFalse(create.isEnabled)
-        XCTAssertEqual(
-            app.staticTexts["MobileTaskComposerActionCaption"].label,
-            "Add a prompt to put Claude to work."
-        )
+        XCTAssertTrue(app.buttons["MobileTaskComposerModelPill"].exists)
 
         selectTaskComposerAgent(named: "Shell", in: app)
-        let shellReady = NSPredicate(format: "label == %@ AND enabled == true", "Open Shell")
+        let shellReady = NSPredicate(format: "enabled == true")
         expectation(for: shellReady, evaluatedWith: create)
         waitForExpectations(timeout: 3)
-        XCTAssertEqual(
-            app.staticTexts["MobileTaskComposerActionCaption"].label,
-            "New workspace on Preview Mac in ~."
-        )
+        XCTAssertFalse(app.buttons["MobileTaskComposerModelPill"].exists)
 
         selectTaskComposerAgent(named: "Claude", in: app)
-        let agentNeedsPrompt = NSPredicate(format: "label == %@ AND enabled == false", "Start Claude")
+        let agentNeedsPrompt = NSPredicate(format: "enabled == false")
         expectation(for: agentNeedsPrompt, evaluatedWith: create)
         waitForExpectations(timeout: 3)
+        XCTAssertTrue(app.buttons["MobileTaskComposerModelPill"].waitForExistence(timeout: 3))
 
         tap(prompt, in: app)
         prompt.typeText("Fix the race")
-        let agentReady = NSPredicate(format: "label == %@ AND enabled == true", "Start Claude")
+        let agentReady = NSPredicate(format: "enabled == true")
         expectation(for: agentReady, evaluatedWith: create)
         waitForExpectations(timeout: 3)
-        XCTAssertEqual(
-            app.staticTexts["MobileTaskComposerActionCaption"].label,
-            "New workspace on Preview Mac in ~."
-        )
 
-        let templates = [
-            (name: "Claude", action: "Start Claude"),
-            (name: "Codex", action: "Start Codex"),
-            (name: "OpenCode", action: "Start OpenCode"),
-            (name: "Shell", action: "Open Shell"),
-        ]
-        let agentMenu = app.buttons["MobileTaskComposerAgentMenu"]
-        let stableAgentMenuWidth = agentMenu.frame.width
-        for template in templates {
-            selectTaskComposerAgent(named: template.name, in: app)
-            let selectedAction = NSPredicate(
-                format: "label == %@ AND enabled == true",
-                template.action
-            )
-            expectation(for: selectedAction, evaluatedWith: create)
-            waitForExpectations(timeout: 3)
-            XCTAssertEqual(
-                agentMenu.value as? String,
-                template.name
-            )
-            XCTAssertEqual(
-                agentMenu.frame.width,
-                stableAgentMenuWidth,
-                accuracy: 0.5,
-                "Changing to a longer agent title must not resize and clip the menu label"
-            )
+        let agentMenu = app.buttons["MobileTaskComposerAgentPill"]
+        for name in ["Claude", "Codex", "OpenCode", "Shell"] {
+            selectTaskComposerAgent(named: name, in: app)
+            XCTAssertEqual(agentMenu.value as? String, name)
+            XCTAssertGreaterThanOrEqual(agentMenu.frame.height, 44)
         }
     }
 
@@ -2548,14 +2550,15 @@ final class cmuxUITests: XCTestCase {
 
         let prompt = app.textFields["MobileTaskComposerPrompt"]
         XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+        openTaskComposerOptions(in: app)
         let machineMenu = app.buttons["MobileTaskComposerMachineMenu"]
-        revealTaskComposerControl(machineMenu, in: app)
         machineMenu.tap()
         tapMenuItem(app.buttons["Backup Preview Mac"], in: app)
         XCTAssertEqual(machineMenu.value as? String, "Backup Preview Mac")
+        tap(app.buttons["MobileTaskComposerOptionsDoneButton"], in: app)
 
         try typeText("Route this task to the backup Mac", into: prompt, in: app)
-        tap(app.buttons["MobileTaskComposerCreateButton"], in: app)
+        tap(app.buttons["MobileTaskComposerSubmitButton"], in: app)
 
         let submittedMac = app.staticTexts["MobileTaskComposerSubmittedMacDeviceID"]
         XCTAssertTrue(submittedMac.waitForExistence(timeout: 4))
@@ -2632,11 +2635,11 @@ final class cmuxUITests: XCTestCase {
     @MainActor
     func testTaskComposerSubmitsEveryBuiltInTemplateWithExactWorkspaceSpec() throws {
         let prompt = "Inspect the task composer"
-        let templates: [(name: String, action: String, command: String?, prompt: String?)] = [
-            ("Claude", "Start Claude", "claude -- \"$CMUX_TASK_PROMPT\"", prompt),
-            ("Codex", "Start Codex", "codex -- \"$CMUX_TASK_PROMPT\"", prompt),
-            ("OpenCode", "Start OpenCode", "opencode --prompt \"$CMUX_TASK_PROMPT\"", prompt),
-            ("Shell", "Open Shell", nil, nil),
+        let templates: [(name: String, command: String?, prompt: String?)] = [
+            ("Claude", "claude -- \"$CMUX_TASK_PROMPT\"", prompt),
+            ("Codex", "codex -- \"$CMUX_TASK_PROMPT\"", prompt),
+            ("OpenCode", "opencode --prompt \"$CMUX_TASK_PROMPT\"", prompt),
+            ("Shell", nil, nil),
         ]
 
         for template in templates {
@@ -2650,11 +2653,11 @@ final class cmuxUITests: XCTestCase {
                 try typeText(templatePrompt, into: promptField, in: app)
             }
 
-            let create = app.buttons["MobileTaskComposerCreateButton"]
-            let ready = NSPredicate(format: "label == %@ AND enabled == true", template.action)
-            expectation(for: ready, evaluatedWith: create)
+            let submit = app.buttons["MobileTaskComposerSubmitButton"]
+            let ready = NSPredicate(format: "label == %@ AND enabled == true", "Start Task")
+            expectation(for: ready, evaluatedWith: submit)
             waitForExpectations(timeout: 4)
-            tap(create, in: app)
+            tap(submit, in: app)
 
             let submittedCommand = app.staticTexts["MobileTaskComposerSubmittedInitialCommand"]
             XCTAssertTrue(submittedCommand.waitForExistence(timeout: 4))
@@ -2842,7 +2845,7 @@ final class cmuxUITests: XCTestCase {
         defer { app.terminate() }
 
         XCTAssertTrue(app.textFields["MobileTaskComposerPrompt"].waitForExistence(timeout: 8))
-        tap(app.buttons["MobileTaskComposerAgentMenu"], in: app)
+        tap(app.buttons["MobileTaskComposerAgentPill"], in: app)
         tapMenuItem(app.buttons["MobileTaskComposerEditTemplatesButton"], in: app)
         XCTAssertTrue(app.navigationBars["Task Templates"].waitForExistence(timeout: 4))
         tap(app.buttons["Add Template"], in: app)
@@ -2888,6 +2891,7 @@ final class cmuxUITests: XCTestCase {
         defer { app.terminate() }
 
         XCTAssertTrue(app.textFields["MobileTaskComposerPrompt"].waitForExistence(timeout: 8))
+        tap(app.buttons["MobileTaskComposerAgentPill"], in: app)
         for name in ["Claude", "Codex", "OpenCode", "Shell"] {
             XCTAssertTrue(
                 app.buttons[name].waitForExistence(timeout: 2),
@@ -2905,33 +2909,32 @@ final class cmuxUITests: XCTestCase {
         ])
         defer { app.terminate() }
 
+        XCTAssertTrue(app.textFields["MobileTaskComposerPrompt"].waitForExistence(timeout: 8))
+        openTaskComposerOptions(in: app)
         let workspaceName = app.textFields["MobileTaskComposerWorkspaceName"]
-        XCTAssertTrue(workspaceName.waitForExistence(timeout: 8))
         XCTAssertTrue(
             app.staticTexts["Workspace name (optional)"].exists,
             "The workspace name field must state that it is optional"
         )
-        let prompt = app.textFields["MobileTaskComposerPrompt"]
-        XCTAssertTrue(prompt.waitForExistence(timeout: 3))
         let machine = app.buttons["MobileTaskComposerMachineMenu"]
         XCTAssertTrue(machine.waitForExistence(timeout: 3))
-        XCTAssertGreaterThan(
-            workspaceName.frame.minY,
-            prompt.frame.maxY,
-            "Workspace name should sit outside and below the prompt canvas"
-        )
         XCTAssertLessThan(
             workspaceName.frame.maxY,
             machine.frame.minY,
-            "Workspace name should lead the workspace context card"
+            "Workspace name should lead the Task Options context controls"
         )
+        XCTAssertFalse(app.buttons["MobileTaskComposerAgentPill"].exists)
+        XCTAssertFalse(app.buttons["MobileTaskComposerModelPill"].exists)
 
         try typeText("Release checklist", into: workspaceName, in: app)
+        tap(app.buttons["MobileTaskComposerOptionsDoneButton"], in: app)
+        let prompt = app.textFields["MobileTaskComposerPrompt"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 3))
         try typeText("Verify the release", into: prompt, in: app)
 
-        let create = app.buttons["MobileTaskComposerCreateButton"]
-        XCTAssertTrue(create.waitForExistence(timeout: 3))
-        tap(create, in: app)
+        let submit = app.buttons["MobileTaskComposerSubmitButton"]
+        XCTAssertTrue(submit.waitForExistence(timeout: 3))
+        tap(submit, in: app)
 
         let submittedTitle = app.staticTexts["MobileTaskComposerSubmittedTitle"]
         XCTAssertTrue(submittedTitle.waitForExistence(timeout: 3))
@@ -2970,10 +2973,10 @@ final class cmuxUITests: XCTestCase {
         let keyboard = app.keyboards.firstMatch
         XCTAssertTrue(keyboard.waitForExistence(timeout: 3))
         prompt.typeText("Exercise failure recovery")
-        let create = app.buttons["MobileTaskComposerCreateButton"]
-        XCTAssertTrue(create.waitForExistence(timeout: 3))
+        let submit = app.buttons["MobileTaskComposerSubmitButton"]
+        XCTAssertTrue(submit.waitForExistence(timeout: 3))
 
-        tap(create, in: app)
+        tap(submit, in: app)
 
         let failureTitle = app.staticTexts["MobileTaskComposerFailureTitle"]
         XCTAssertTrue(failureTitle.waitForExistence(timeout: 3))
@@ -2984,13 +2987,13 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(keyboard.exists, "Submission failure must not require dismissing the keyboard")
         XCTAssertLessThanOrEqual(
             failure.frame.maxY,
-            create.frame.minY,
-            "Failure guidance must remain in the persistent area immediately above Create"
+            submit.frame.minY,
+            "Failure guidance must remain immediately above the keyboard control row"
         )
         XCTAssertLessThanOrEqual(
-            create.frame.maxY,
+            submit.frame.maxY,
             keyboard.frame.minY,
-            "The persistent failure and Create action must remain above the keyboard"
+            "The failure guidance and submit action must remain above the keyboard"
         )
     }
 
@@ -3009,14 +3012,14 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(prompt.waitForExistence(timeout: 8))
         try typeText(expectedPrompt, into: prompt, in: app)
 
-        let create = app.buttons["MobileTaskComposerCreateButton"]
-        XCTAssertTrue(create.waitForExistence(timeout: 3))
-        tap(create, in: app)
+        let submit = app.buttons["MobileTaskComposerSubmitButton"]
+        XCTAssertTrue(submit.waitForExistence(timeout: 3))
+        tap(submit, in: app)
 
         let failure = app.staticTexts["MobileTaskComposerFailure"]
         XCTAssertTrue(failure.waitForExistence(timeout: 3))
-        let retryReady = NSPredicate(format: "label == %@ AND enabled == true", "Try Again")
-        expectation(for: retryReady, evaluatedWith: create)
+        let retryReady = NSPredicate(format: "label == %@ AND enabled == true", "Start Task")
+        expectation(for: retryReady, evaluatedWith: submit)
         waitForExpectations(timeout: 3)
         XCTAssertEqual(prompt.value as? String, expectedPrompt)
 
@@ -3027,7 +3030,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertNotEqual(firstOperationID.label, "<nil>")
         XCTAssertEqual(firstPrompt.label, expectedPrompt)
 
-        tap(create, in: app)
+        tap(submit, in: app)
 
         XCTAssertTrue(
             failure.waitForNonExistence(timeout: 0.5),
@@ -3088,6 +3091,7 @@ final class cmuxUITests: XCTestCase {
         )
         prompt.typeText(promptText)
 
+        openTaskComposerOptions(in: app)
         tap(app.buttons["MobileTaskComposerDirectory"], in: app)
         let directorySearch = app.searchFields["Search folders"]
         XCTAssertTrue(directorySearch.waitForExistence(timeout: 4))
@@ -3100,14 +3104,15 @@ final class cmuxUITests: XCTestCase {
         let selectedDirectory = app.buttons["MobileTaskComposerDirectory"]
         XCTAssertTrue(selectedDirectory.waitForExistence(timeout: 4))
         XCTAssertEqual(selectedDirectory.value as? String, "~/cmux")
+        tap(app.buttons["MobileTaskComposerOptionsDoneButton"], in: app)
 
-        let create = app.buttons["MobileTaskComposerCreateButton"]
+        let submit = app.buttons["MobileTaskComposerSubmitButton"]
         let ready = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "label == %@ AND enabled == true", "Start Claude"),
-            object: create
+            predicate: NSPredicate(format: "label == %@ AND enabled == true", "Start Task"),
+            object: submit
         )
         XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 4), .completed)
-        tap(create, in: app)
+        tap(submit, in: app)
 
         XCTAssertTrue(
             prompt.waitForNonExistence(timeout: 8),
@@ -3171,18 +3176,18 @@ final class cmuxUITests: XCTestCase {
         let prompt = app.textFields["MobileTaskComposerPrompt"]
         XCTAssertTrue(prompt.waitForExistence(timeout: 8))
         prompt.typeText("Persist this task")
-        let create = app.buttons["MobileTaskComposerCreateButton"]
-        XCTAssertTrue(create.waitForExistence(timeout: 3))
-        XCTAssertEqual(create.label, "Start Claude")
-        let restingButtonFrame = create.frame
-        tap(create, in: app)
+        let submit = app.buttons["MobileTaskComposerSubmitButton"]
+        XCTAssertTrue(submit.waitForExistence(timeout: 3))
+        XCTAssertEqual(submit.label, "Start Task")
+        let restingButtonFrame = submit.frame
+        tap(submit, in: app)
 
-        let startingPredicate = NSPredicate(format: "label == %@", "Preparing workspace…")
-        expectation(for: startingPredicate, evaluatedWith: create)
+        let startingPredicate = NSPredicate(format: "enabled == false")
+        expectation(for: startingPredicate, evaluatedWith: submit)
         waitForExpectations(timeout: 3)
 
-        XCTAssertEqual(create.frame.height, restingButtonFrame.height, accuracy: 1)
-        XCTAssertEqual(create.frame.width, restingButtonFrame.width, accuracy: 1)
+        XCTAssertEqual(submit.frame.height, restingButtonFrame.height, accuracy: 1)
+        XCTAssertEqual(submit.frame.width, restingButtonFrame.width, accuracy: 1)
 
         let draftState = app.staticTexts["MobileTaskComposerSubmissionDraftState"]
         XCTAssertTrue(draftState.waitForExistence(timeout: 3))
@@ -5643,35 +5648,26 @@ final class cmuxUITests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        let menu = app.buttons["MobileTaskComposerAgentMenu"]
+        let menu = app.buttons["MobileTaskComposerAgentPill"]
         XCTAssertTrue(menu.waitForExistence(timeout: 4), file: file, line: line)
         tap(menu, in: app, file: file, line: line)
         tapMenuItem(app.buttons[name], in: app, file: file, line: line)
     }
 
     @MainActor
-    private func revealTaskComposerControl(
-        _ control: XCUIElement,
+    private func openTaskComposerOptions(
         in app: XCUIApplication,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        XCTAssertTrue(control.waitForExistence(timeout: 4), file: file, line: line)
-        let hero = app.descendants(matching: .any)["MobileTaskComposerHero"]
-        for _ in 0..<3 where !control.isHittable {
-            if hero.exists, hero.isHittable {
-                hero.swipeUp(velocity: .slow)
-            } else {
-                app.coordinate(withNormalizedOffset: .zero)
-                    .withOffset(CGVector(dx: 200, dy: 360))
-                    .press(
-                        forDuration: 0.05,
-                        thenDragTo: app.coordinate(withNormalizedOffset: .zero)
-                            .withOffset(CGVector(dx: 200, dy: 160))
-                    )
-            }
-        }
-        XCTAssertTrue(control.isHittable, "Task composer control stayed behind the keyboard", file: file, line: line)
+        let options = app.buttons["MobileTaskComposerOptionsButton"]
+        XCTAssertTrue(options.waitForExistence(timeout: 4), file: file, line: line)
+        tap(options, in: app, file: file, line: line)
+        XCTAssertTrue(
+            app.textFields["MobileTaskComposerWorkspaceName"].waitForExistence(timeout: 4),
+            file: file,
+            line: line
+        )
     }
 
     @MainActor

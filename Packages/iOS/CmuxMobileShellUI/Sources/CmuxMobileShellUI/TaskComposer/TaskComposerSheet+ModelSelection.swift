@@ -35,12 +35,7 @@ extension TaskComposerSheet {
     }
 
     var selectedModel: MobileTaskAgentModel? {
-        // With the picker Off no model UI is rendered, so a model restored
-        // from an earlier draft must not silently ride into snapshots, drafts,
-        // or the submitted command. The selection state itself is kept so
-        // re-enabling a variant restores the visible choice.
-        guard displaySettings.taskComposerModelPickerVariant.renderedVariant != .off,
-              let selectedModelID else { return nil }
+        guard let selectedModelID else { return nil }
         return modelAvailability.selectedModel(id: selectedModelID)
     }
 

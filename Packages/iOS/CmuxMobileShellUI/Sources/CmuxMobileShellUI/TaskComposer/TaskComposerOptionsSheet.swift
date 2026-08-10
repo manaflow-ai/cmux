@@ -2,12 +2,11 @@
 import CmuxMobilePairedMac
 import CmuxMobileRPC
 import CmuxMobileShell
-import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 import UIKit
 
-/// The minimal composer's workspace, Mac, directory, and contextual model controls.
+/// The composer's workspace name, Mac, and directory controls.
 struct TaskComposerOptionsSheet: View {
     @Environment(\.dismiss) private var dismiss
 
@@ -16,15 +15,11 @@ struct TaskComposerOptionsSheet: View {
     let selectedMacPairingID: String
     let buildLabelsByID: [String: String]
     let directory: String
-    let modelPickerVariant: TaskComposerModelPickerVariant
-    let models: [MobileTaskAgentModel]
-    let selectedModelID: String?
     let isDisabled: Bool
     let directoryCandidates: [MobileTaskDirectoryCandidate]
     let endWorkspaceNameEditing: () -> Void
     let selectMachine: (String, String?) -> Void
     let selectDirectory: (String) -> Void
-    let selectModel: (String?) -> Void
     let searchMac: (
         String
     ) async -> Result<MobileTaskDirectorySearchResponse, MobileTaskDirectorySearchFailure>
@@ -44,14 +39,10 @@ struct TaskComposerOptionsSheet: View {
                     selectedMacPairingID: selectedMacPairingID,
                     buildLabelsByID: buildLabelsByID,
                     directory: directory,
-                    modelPickerVariant: modelPickerVariant,
-                    models: models,
-                    selectedModelID: selectedModelID,
                     isDisabled: isDisabled,
                     endWorkspaceNameEditing: endWorkspaceNameEditing,
                     selectMachine: selectMachine,
-                    selectDirectory: { isDirectoryPickerPresented = true },
-                    selectModel: selectModel
+                    selectDirectory: { isDirectoryPickerPresented = true }
                 )
                 .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
                 .frame(maxWidth: 680)

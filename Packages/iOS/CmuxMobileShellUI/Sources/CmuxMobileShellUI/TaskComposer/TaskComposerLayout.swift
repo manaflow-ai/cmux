@@ -5,7 +5,7 @@ import SwiftUI
 import UIKit
 
 /// A full-screen prompt canvas with compact task controls above the keyboard.
-struct TaskComposerMinimalLayout: View {
+struct TaskComposerLayout: View {
     @Binding var prompt: String
     let genericPromptPlaceholder: String
     let directory: String
@@ -13,7 +13,6 @@ struct TaskComposerMinimalLayout: View {
     let locksDismissal: Bool
     let templates: [MobileTaskTemplate]
     let selectedTemplateID: MobileTaskTemplate.ID?
-    let modelPickerVariant: TaskComposerModelPickerVariant
     let models: [MobileTaskAgentModel]
     let selectedModelID: String?
     let isSubmitting: Bool
@@ -29,7 +28,6 @@ struct TaskComposerMinimalLayout: View {
     let optionsSheet: () -> TaskComposerOptionsSheet
     let endEditing: () -> Void
     let selectTemplate: (MobileTaskTemplate.ID) -> Void
-    let selectTemplateAndModel: (MobileTaskTemplate.ID, String?) -> Void
     let selectModel: (String?) -> Void
     let editTemplates: () -> Void
     let cancel: () -> Void
@@ -126,6 +124,8 @@ struct TaskComposerMinimalLayout: View {
             }
 
             HStack(spacing: 10) {
+                optionsButton
+
                 if showsAttachmentButton {
                     TaskComposerAttachmentPickerMenu(
                         style: .circularPlus,
@@ -135,13 +135,11 @@ struct TaskComposerMinimalLayout: View {
                     )
                 }
 
-                optionsButton
-
                 ScrollView(.horizontal) {
                     HStack(spacing: 8) {
                         agentPill
 
-                        if !models.isEmpty, showsStandaloneModelPill {
+                        if !models.isEmpty {
                             modelPill
                         }
                     }
@@ -320,14 +318,6 @@ struct TaskComposerMinimalLayout: View {
         template.name
     }
 
-    /// The composer layout has ONE canonical model treatment regardless of the
-    /// classic-layout lab variant: a dedicated pill beside the agent pill,
-    /// mirroring the reference composer. The agent menu stays plain (see
-    /// `agentMenuValue`), so the pill is the single model entry point.
-    private var showsStandaloneModelPill: Bool {
-        modelPickerVariant.renderedVariant != .off
-    }
-
     private var selectedModelName: String {
         models.displayName(forSelected: selectedModelID)
     }
@@ -353,18 +343,9 @@ struct TaskComposerMinimalLayout: View {
     }
 
     private var agentMenuValue: TaskComposerAgentMenuValue {
-        // Force the plain (non-combined) agent menu: the standalone model
-        // pill is this layout's single model entry point, so the menu must
-        // not duplicate model submenus even when the classic-layout lab
-        // variant is `combined`.
         TaskComposerAgentMenuValue(
             templates: templates,
             selectedTemplateID: selectedTemplateID,
-            modelPickerVariant: modelPickerVariant.renderedVariant == .combined
-                ? .separateRow
-                : modelPickerVariant,
-            models: models,
-            selectedModelID: selectedModelID,
             isDisabled: isDisabled
         )
     }
@@ -372,7 +353,6 @@ struct TaskComposerMinimalLayout: View {
     private var agentMenuActions: TaskComposerAgentMenuActions {
         TaskComposerAgentMenuActions(
             selectTemplate: selectTemplate,
-            selectTemplateAndModel: selectTemplateAndModel,
             editTemplates: editTemplates
         )
     }
