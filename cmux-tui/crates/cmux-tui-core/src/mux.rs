@@ -7623,6 +7623,15 @@ impl Mux {
         if let Some(incarnation) = terminal_incarnation {
             validate_terminal_hex(incarnation, "invalid_terminal_incarnation")?;
         }
+        if let Some(result) = self.commit_legacy_terminal_close(
+            terminal_id,
+            terminal_incarnation,
+            expected_generation,
+            expected_revision,
+            mutation,
+        )? {
+            return Ok(result);
+        }
         let (commit, terminal_incarnation, public_id, notify_public_id) = {
             let mut registry = self.workspace_registry.lock().unwrap();
             let public_id = registry.terminal_resource_id(terminal_id)?;

@@ -2211,6 +2211,88 @@ impl Mux {
         Ok(self.finish_resource_close(committed))
     }
 
+    /// Route the legacy host close through the same projected topology owner
+    /// as `terminal.close`. `None` means the host has no live public resource,
+    /// so the caller may use the host-only compatibility path.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn commit_legacy_terminal_close(
+        &self,
+        terminal_id: &str,
+        expected_incarnation: Option<&str>,
+        expected_generation: Option<&str>,
+        expected_terminal_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+    ) -> anyhow::Result<Option<TerminalCloseResult>> {
+        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_fence = self.resource_creation_execution.lock().unwrap();
+        let notifications = self.surface_notifications();
+        let mut registry = self.workspace_registry.lock().unwrap();
+        let Some(public_id) = registry.terminal_resource_id(terminal_id)? else {
+            return Ok(None);
+        };
+        let mut state = self.state.lock().unwrap();
+        let runtime =
+            state.terminal_catalog.get(&public_id).cloned().with_context(|| {
+                format!("live terminal resource {public_id} has no runtime owner")
+            })?;
+        let host = self
+            .resource_terminal_host_identity(&runtime)
+            .context("terminal runtime omitted its durable host identity")?;
+        anyhow::ensure!(host.terminal_id == terminal_id, "terminal resource changed hosts");
+        if let Some(expected) = expected_incarnation {
+            anyhow::ensure!(host.incarnation == expected, "terminal_incarnation_mismatch");
+        }
+        let surface = runtime.id;
+        let target = state
+            .placements_of_content(&ContentPublicId::Terminal(public_id.clone()))
+            .first()
+            .copied();
+        let mut plan = self.resource_close_plan_locked(
+            ResourceOperation::TerminalClose,
+            EffectSlots { workspace: None, screen: None, pane: None, tab: Some(surface) },
+            &registry,
+            &state,
+            &notifications,
+        )?;
+        let projection =
+            self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
+        #[cfg(test)]
+        if let Some(hook) = self.resource_projection_before_commit.lock().unwrap().clone() {
+            hook();
+        }
+        let (terminal, resource) = registry.close_terminal_with_resource_patch(
+            mutation,
+            expected_generation,
+            expected_terminal_revision,
+            state.resource_revision,
+            terminal_id,
+            expected_incarnation,
+            &projection.patch,
+            &projection.result,
+            &projection.changes,
+        )?;
+        #[cfg(test)]
+        if let Some(hook) = self.resource_close_after_commit.lock().unwrap().clone() {
+            hook();
+        }
+        if !terminal.replayed && !terminal.result["already_closed"].as_bool().unwrap_or(false) {
+            self.emit_terminal_registry_changed(&registry, terminal.revision);
+        }
+        let effects = plan.install(&mut state, resource.revision, None);
+        drop(state);
+        drop(registry);
+        drop(_creation_fence);
+        drop(_creation_handoff);
+        self.finish_resource_close(CommittedResourceClose { commit: resource, effects });
+        Ok(Some(TerminalCloseResult {
+            surface: target,
+            terminal_id: terminal_id.to_string(),
+            terminal_incarnation: terminal.result["incarnation"].as_str().map(str::to_string),
+            already_closed: terminal.result["already_closed"].as_bool().unwrap_or(false),
+            terminal_revision: terminal.revision,
+        }))
+    }
+
     pub(super) fn terminal_exit_detach_projection_locked(
         &self,
         registry: &WorkspaceRegistry,
