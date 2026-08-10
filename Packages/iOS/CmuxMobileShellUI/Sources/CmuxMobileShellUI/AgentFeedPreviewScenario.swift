@@ -83,7 +83,7 @@ struct AgentFeedPreviewConfiguration {
                 items: Array(stressItems.prefix(300)),
                 status: .ready,
                 filter: .allActivity,
-                hostEventCount: 2_400
+                hostEventCount: stressHostEventCount
             )
         }
     }
@@ -293,6 +293,9 @@ struct AgentFeedPreviewConfiguration {
             }
         }
     }
+
+    static let stressHostEventCount = 2_400
+    static let stressRetainedItemLimit = MobileAgentFeedAggregation.maxItemCount
 
     static var stressItems: [MobileAgentFeedItem] {
         MobileAgentFeedAggregation().items(from: stressSnapshots)

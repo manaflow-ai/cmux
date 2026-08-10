@@ -123,9 +123,11 @@ public struct AgentFeedPreviewView: View {
             filter: $filter,
             drafts: drafts,
             mutationStates: mutationStates,
-            hasMoreItems: (scenario == .stress && items.count < AgentFeedPreviewConfiguration.stressItems.count)
+            hasMoreItems: (scenario == .stress && items.count < AgentFeedPreviewConfiguration.stressRetainedItemLimit)
                 || scenario == .offline,
-            canLoadOlder: scenario == .stress && status == .ready,
+            canLoadOlder: scenario == .stress
+                && status == .ready
+                && items.count < AgentFeedPreviewConfiguration.stressRetainedItemLimit,
             isLoadingOlder: false,
             actions: AgentFeedActions(
                 setDraft: { id, value in drafts[id] = value },
@@ -140,9 +142,14 @@ public struct AgentFeedPreviewView: View {
     }
 
     private func loadOlder() {
-        guard scenario == .stress else { return }
+        guard scenario == .stress,
+              items.count < AgentFeedPreviewConfiguration.stressRetainedItemLimit else { return }
         let allItems = AgentFeedPreviewConfiguration.stressItems
-        let end = min(items.count + 300, allItems.count)
+        let end = min(
+            items.count + 300,
+            AgentFeedPreviewConfiguration.stressRetainedItemLimit,
+            allItems.count
+        )
         items = Array(allItems.prefix(end))
     }
 

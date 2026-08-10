@@ -55,6 +55,8 @@ actor RoutingHostRouter {
     private(set) var directorySearchQueries: [String] = []
     private(set) var dismisses: [(notificationIDs: [String], clientID: String?)] = []
     private var notificationFeedMarkAllReadCount = 0
+    private var workstreamFeedTotalCount = 0
+    private var workstreamFeedListCursors: [String?] = []
     private var workspaceCreates: [WorkspaceCreateRecord] = []
     /// Reject the Nth (0-based) and later paste_image requests; `nil` accepts all.
     private var rejectPasteImageFromIndex: Int?
@@ -168,6 +170,8 @@ actor RoutingHostRouter {
     }
     func recordedDismisses() -> [(notificationIDs: [String], clientID: String?)] { dismisses }
     func recordedNotificationFeedMarkAllReadCount() -> Int { notificationFeedMarkAllReadCount }
+    func setWorkstreamFeedTotalCount(_ count: Int) { workstreamFeedTotalCount = count }
+    func recordedWorkstreamFeedListCursors() -> [String?] { workstreamFeedListCursors }
 
     /// Sendable extract of the request fields the router needs, pulled off the
     /// non-Sendable params dictionary before crossing the Task boundary.
@@ -190,6 +194,7 @@ actor RoutingHostRouter {
         var directoryPath: String?
         var directoryOffset: Int?
         var directoryLimit: Int?
+        var cursor: String?
     }
 
     func response(_ info: RequestInfo) async -> Data? {
@@ -384,6 +389,30 @@ actor RoutingHostRouter {
                 "marked": 1,
                 "revision": notificationFeedMarkAllReadCount + 100,
             ])
+        case "workstream.feed.list":
+            workstreamFeedListCursors.append(info.cursor)
+            let end = min(Int(info.cursor ?? "") ?? workstreamFeedTotalCount, workstreamFeedTotalCount)
+            let start = max(0, end - 300)
+            let formatter = ISO8601DateFormatter()
+            let items: [[String: Any]] = (start..<end).map { index in
+                let timestamp = formatter.string(from: Date(timeIntervalSince1970: TimeInterval(index + 1)))
+                return [
+                    "id": String(format: "00000000-0000-0000-0000-%012d", index + 1),
+                    "workstream_id": "agent-1",
+                    "source": "codex",
+                    "kind": "assistantMessage",
+                    "created_at": timestamp,
+                    "updated_at": timestamp,
+                    "status": "telemetry",
+                    "text": "event \(index + 1)",
+                ]
+            }
+            return try? Self.resultFrame(id: id, result: [
+                "revision": 1,
+                "items": items,
+                "next_cursor": start > 0 ? String(start) : NSNull(),
+                "has_more": start > 0,
+            ])
         case "mobile.events.unsubscribe":
             return try? Self.resultFrame(id: id, result: [
                 "stream_id": info.streamID ?? "",
@@ -477,7 +506,8 @@ private actor RoutingTransport: CmxByteTransport {
                 query: params?["query"] as? String,
                 directoryPath: params?["path"] as? String,
                 directoryOffset: params?["offset"] as? Int,
-                directoryLimit: params?["limit"] as? Int
+                directoryLimit: params?["limit"] as? Int,
+                cursor: params?["cursor"] as? String
             )
             Task { [router, weak self] in
                 guard let response = await router.response(info) else {

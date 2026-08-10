@@ -141,6 +141,30 @@ struct MobileAgentFeedTests {
         #expect(pages.nextCursor == nil)
     }
 
+    @Test func pagingStopsAtPhoneHistoryLimitWithoutRequestingDiscardedRows() throws {
+        var oldestLoadedID = 2_101
+        var requestCount = 1
+        var pages = MobileAgentFeedPageAccumulator(
+            response: try hostResponse(ids: oldestLoadedID...2_400)
+        )
+
+        while pages.hasMore {
+            let pageOldestID = oldestLoadedID - 300
+            pages.append(try hostResponse(ids: pageOldestID...(oldestLoadedID - 1)))
+            oldestLoadedID = pageOldestID
+            requestCount += 1
+        }
+
+        #expect(requestCount == 7)
+        #expect(pages.items.count == MobileAgentFeedAggregation.maxItemCount)
+        #expect(Set(pages.items.map(\.id)).count == MobileAgentFeedAggregation.maxItemCount)
+        let expectedIDs = Set((401...2_400).compactMap { UUID(uuidString: feedItemID($0)) })
+        #expect(Set(pages.items.map(\.id)) == expectedIDs)
+        #expect(pages.reachedHistoryLimit)
+        #expect(!pages.hasMore)
+        #expect(pages.nextCursor == nil)
+    }
+
     @MainActor
     @Test func repeatedInvalidationsCoalesceAndLeaveNoRefreshTasks() async {
         let coalescer = MobileAgentFeedRefreshTaskCoalescer()
@@ -217,6 +241,27 @@ struct MobileAgentFeedTests {
             nextCursor: cursor,
             hasMore: hasMore
         )
+    }
+
+    private func hostResponse(ids: ClosedRange<Int>) throws -> MobileWorkstreamFeedListResponse {
+        let formatter = ISO8601DateFormatter()
+        return try MobileWorkstreamFeedListResponse(
+            revision: 1,
+            items: ids.map { index in
+                let timestamp = formatter.string(from: Date(timeIntervalSince1970: TimeInterval(index)))
+                return try decodeRow(
+                    id: feedItemID(index),
+                    createdAt: timestamp,
+                    updatedAt: timestamp
+                )
+            },
+            nextCursor: ids.lowerBound > 1 ? String(ids.lowerBound - 1) : nil,
+            hasMore: ids.lowerBound > 1
+        )
+    }
+
+    private func feedItemID(_ index: Int) -> String {
+        String(format: "00000000-0000-0000-0000-%012d", index)
     }
 
     private func mobileItem(_ wire: MobileWorkstreamFeedListItem, mac: String) -> MobileAgentFeedItem {
