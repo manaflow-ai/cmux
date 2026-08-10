@@ -13,7 +13,9 @@ extension TerminalPasteboardService {
     ///   - sourceURL: The worker-created image file to adopt.
     ///   - sourceDirectory: The isolated directory the worker was allowed to write.
     /// - Returns: The new owned URL under this service's temporary directory.
-    /// - Throws: A Cocoa file error when validation or the move fails.
+    /// - Throws: A Cocoa file error when validation, the move, or permission
+    ///   hardening fails. A permission failure restores the worker source when
+    ///   possible; otherwise the service retains the destination for cleanup.
     public func adoptTemporaryImageFile(
         _ sourceURL: URL,
         from sourceDirectory: URL
@@ -80,13 +82,23 @@ extension TerminalPasteboardService {
         }
         do {
             try fileManager.moveItem(at: source, to: destination)
+        } catch {
+            try? fileManager.removeItem(at: destination)
+            throw error
+        }
+        do {
             try fileManager.setAttributes(
                 [.posixPermissions: 0o600],
                 ofItemAtPath: destination.path
             )
         } catch {
-            try? fileManager.removeItem(at: destination)
-            throw error
+            let permissionsError = error
+            do {
+                try fileManager.moveItem(at: destination, to: source)
+            } catch {
+                registerOwnedTemporaryImageFile(destination)
+            }
+            throw permissionsError
         }
         registerOwnedTemporaryImageFile(destination)
         return destination
