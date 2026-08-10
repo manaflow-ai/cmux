@@ -102,16 +102,23 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             }
             CommandPlan::RawCommand(command) => raw::run(global, command),
         },
-        Err(failure) => wire::print_local_error(
-            &serde_json::json!({
-                "code":"usage.invalid",
-                "message":failure.error.to_string(),
-                "details":{},
-                "retryable":false,
-            }),
-            failure.output,
-            2,
-        ),
+        Err(failure) => {
+            let message = if matches!(failure.output, OutputMode::Quiet | OutputMode::Human) {
+                format!("cmux: {}", failure.error)
+            } else {
+                failure.error.to_string()
+            };
+            wire::print_local_error(
+                &serde_json::json!({
+                    "code":"usage.invalid",
+                    "message":message,
+                    "details":{},
+                    "retryable":false,
+                }),
+                failure.output,
+                2,
+            )
+        }
     }
 }
 

@@ -1281,6 +1281,11 @@ fn server_start_has_cli_routing_flag(args: &[String]) -> bool {
 }
 
 fn is_cli_invocation(args: &[String]) -> bool {
+    if args.first().map(String::as_str) == Some("--headless")
+        && has_inline_relay_ticket_argument(args)
+    {
+        return false;
+    }
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
