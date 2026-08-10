@@ -140,9 +140,6 @@ extension MobileShellComposite {
                     displayName: displayName
                 ))
             }
-            guard !models.isEmpty else {
-                throw MobileShellConnectionError.invalidResponse
-            }
             return MobileTaskModelListResult(models: models, source: source)
         } catch {
             if context.isCurrent(
@@ -182,7 +179,8 @@ extension MobileShellComposite {
         ]?.result.models
     }
 
-    /// Refreshes and caches one provider's models when the Mac supports it.
+    /// Refreshes one provider from the selected Mac, then the over-the-air
+    /// catalog when host discovery is unavailable or produces no models.
     ///
     /// Failed refreshes leave an earlier valid cache entry intact.
     ///
@@ -195,28 +193,54 @@ extension MobileShellComposite {
         macDeviceID: String,
         instanceTag: String?
     ) async {
-        guard supportsTaskModels(
+        let key = MobileTaskModelCacheKey(
+            macDeviceID: macDeviceID,
+            provider: provider
+        )
+        if supportsTaskModels(
             macDeviceID: macDeviceID,
             instanceTag: instanceTag
-        ) else {
-            return
-        }
-        guard let result = try? await fetchTaskModels(
+        ), let result = try? await fetchTaskModels(
             provider: provider,
             macDeviceID: macDeviceID,
             instanceTag: instanceTag
-        ) else {
+        ), result.source == .discovered,
+           !result.models.isEmpty {
+            guard !Task.isCancelled else { return }
+            taskModelCache[key] = MobileTaskModelCacheEntry(
+                result: result,
+                fetchedAt: runtime?.now() ?? Date()
+            )
             return
         }
+
+        guard !Task.isCancelled,
+              let models = try? await taskModelCatalogClient.models(for: provider),
+              !models.isEmpty,
+              !Task.isCancelled else {
+            return
+        }
+        taskModelCache[key] = MobileTaskModelCacheEntry(
+            result: MobileTaskModelListResult(
+                models: models,
+                source: .backend
+            ),
+            fetchedAt: runtime?.now() ?? Date()
+        )
+    }
+
+    /// Source of the cached catalog, exposed for diagnostics and UI verification.
+    public func taskModelListSource(
+        provider: MobileTaskAgentProvider,
+        macDeviceID: String,
+        instanceTag _: String?
+    ) -> MobileTaskModelListSource? {
         taskModelCache[
             MobileTaskModelCacheKey(
                 macDeviceID: macDeviceID,
                 provider: provider
             )
-        ] = MobileTaskModelCacheEntry(
-            result: result,
-            fetchedAt: runtime?.now() ?? Date()
-        )
+        ]?.result.source
     }
 
     /// Fetch timestamp used by package tests and cache diagnostics.

@@ -135,6 +135,14 @@ export const agentModelCatalog = {
         },
       ],
     },
+    opencode: {
+      defaultModel: "anthropic/claude-sonnet-5",
+      models: [
+        { id: "anthropic/claude-sonnet-5", label: "Claude Sonnet 5" },
+        { id: "anthropic/claude-opus-4-8", label: "Claude Opus 4.8" },
+        { id: "openai/gpt-5.5", label: "GPT-5.5" },
+      ],
+    },
     gemini: {
       defaultModel: "gemini-3.1-pro-preview",
       models: [

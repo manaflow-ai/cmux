@@ -4,6 +4,8 @@ import UIKit
 import XCTest
 
 final class cmuxUITests: XCTestCase {
+    private static let taskComposerModelCatalogJSON = #"{"schemaVersion":1,"updatedAt":"2026-08-09T00:00:00Z","providers":{"claude":{"defaultModel":"claude-opus-4-8","models":[{"id":"claude-opus-4-8","label":"Opus 4.8"}]},"codex":{"defaultModel":"gpt-5.5","models":[{"id":"gpt-5.5","label":"GPT-5.5"}]},"opencode":{"defaultModel":"anthropic/claude-opus-4-8","models":[{"id":"anthropic/claude-opus-4-8","label":"Claude Opus 4.8"}]}}}"#
+
     override func setUpWithError() throws {
         continueAfterFailure = false
     }
@@ -3090,6 +3092,8 @@ final class cmuxUITests: XCTestCase {
         ]
         app.launchEnvironment["CMUX_UITEST_MOCK_DATA"] = "0"
         app.launchEnvironment["CMUX_UITEST_TASK_COMPOSER_PREVIEW"] = "1"
+        app.launchEnvironment["CMUX_UITEST_TASK_MODEL_CATALOG_JSON"] =
+            Self.taskComposerModelCatalogJSON
         app.launch()
         defer { app.terminate() }
 
@@ -5477,6 +5481,11 @@ final class cmuxUITests: XCTestCase {
         app.launchEnvironment["CMUX_UITEST_MOCK_DATA"] = mockData ? "1" : "0"
         for (key, value) in environment {
             app.launchEnvironment[key] = value
+        }
+        if environment["CMUX_UITEST_TASK_COMPOSER_PREVIEW"] == "1",
+           environment["CMUX_UITEST_TASK_MODEL_CATALOG_JSON"] == nil {
+            app.launchEnvironment["CMUX_UITEST_TASK_MODEL_CATALOG_JSON"] =
+                Self.taskComposerModelCatalogJSON
         }
         if clearAuth {
             app.launchEnvironment["CMUX_UITEST_CLEAR_AUTH"] = "1"

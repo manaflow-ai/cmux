@@ -70,10 +70,21 @@ public struct TaskComposerAccessibilityPreviewView: View {
                 macDeviceID: Self.previewMac.macDeviceID
             )
         }
+        let catalogData = environment["CMUX_UITEST_TASK_MODEL_CATALOG_JSON"]?
+            .data(using: .utf8)
+        let catalogClient = MobileTaskModelCatalogClient(
+            endpoint: URL(string: "https://task-model-catalog.invalid")!
+        ) { _ in
+            guard let catalogData else {
+                throw URLError(.resourceUnavailable)
+            }
+            return catalogData
+        }
         self.store = CMUXMobileShellStore(
             isSignedIn: true,
             workspaces: presentsOpenDirectory ? [Self.openDirectoryWorkspace] : [],
-            taskTemplateStore: templateStore
+            taskTemplateStore: templateStore,
+            taskModelCatalogClient: catalogClient
         )
         self.returnsSubmissionFailure = environment[
             "CMUX_UITEST_TASK_COMPOSER_FAILURE"

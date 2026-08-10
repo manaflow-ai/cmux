@@ -462,6 +462,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public internal(set) var workspaceComputerPriority: [String] = []
     /// Device-local task templates used by the iOS task composer.
     @ObservationIgnored public let taskTemplateStore: (any MobileTaskTemplateStoring)?
+    /// Over-the-air fallback used when the selected Mac's agent cannot list models.
+    @ObservationIgnored let taskModelCatalogClient: MobileTaskModelCatalogClient
     /// Mac/provider model responses observed by the task composer.
     var taskModelCache: [MobileTaskModelCacheKey: MobileTaskModelCacheEntry] = [:]
     /// The connected Mac's `mobile.host.status` capabilities. Feature gates are
@@ -1496,6 +1498,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionHandoffDrainTimeoutNanoseconds: UInt64 = 3_000_000_000,
         terminalInputAckResubscribeClock: any Clock<Duration> = ContinuousClock(),
         taskTemplateStore: (any MobileTaskTemplateStoring)? = nil,
+        taskModelCatalogClient: MobileTaskModelCatalogClient = .live(),
         browserStreamEvents: (any BrowserStreamEventReceiving)? = nil,
         simulatorStreamStore: MobileSimulatorStreamStore? = nil,
         simulatorStreamStalenessClock: any Clock<Duration> = ContinuousClock(),
@@ -1514,6 +1517,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             connectionHandoffDrainTimeoutNanoseconds
         self.terminalInputAckResubscribeClock = terminalInputAckResubscribeClock
         self.taskTemplateStore = taskTemplateStore
+        self.taskModelCatalogClient = taskModelCatalogClient
         self.browserStreamEvents = browserStreamEvents
         self.simulatorStreamStore = simulatorStreamStore
         self.simulatorStreamStalenessClock = simulatorStreamStalenessClock
