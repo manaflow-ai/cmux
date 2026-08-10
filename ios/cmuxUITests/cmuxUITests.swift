@@ -2151,6 +2151,65 @@ final class cmuxUITests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testTaskComposerAttachmentCardsPreviewMenuAndRemoval() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_COMPOSER_ATTACHMENTS": "1",
+        ])
+        defer { app.terminate() }
+
+        let prompt = app.textFields["MobileTaskComposerPrompt"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+        try typeText("Keep this draft", into: prompt, in: app)
+
+        let imageCard = app.buttons["MobileAttachmentCard.0"]
+        let fileCard = app.buttons["MobileAttachmentCard.1"]
+        let imageRemove = app.buttons["MobileAttachmentRemove.0"]
+        let fileRemove = app.buttons["MobileAttachmentRemove.1"]
+        XCTAssertTrue(imageCard.waitForExistence(timeout: 4))
+        XCTAssertTrue(fileCard.waitForExistence(timeout: 4))
+        XCTAssertEqual(imageCard.frame.width, imageCard.frame.height, accuracy: 1)
+        XCTAssertEqual(fileCard.frame.width, fileCard.frame.height, accuracy: 1)
+        XCTAssertEqual(imageCard.frame.width, fileCard.frame.width, accuracy: 1)
+        XCTAssertGreaterThanOrEqual(imageCard.frame.width, 100)
+        XCTAssertLessThanOrEqual(imageCard.frame.width, 140)
+        XCTAssertTrue(imageRemove.waitForExistence(timeout: 2))
+        XCTAssertTrue(fileRemove.waitForExistence(timeout: 2))
+        XCTAssertGreaterThanOrEqual(imageRemove.frame.width, 44)
+        XCTAssertGreaterThanOrEqual(imageRemove.frame.height, 44)
+        XCTAssertGreaterThanOrEqual(fileRemove.frame.width, 44)
+        XCTAssertGreaterThanOrEqual(fileRemove.frame.height, 44)
+
+        for card in [imageCard, fileCard] {
+            card.tap()
+            let preview = app.descendants(matching: .any)["MobileAttachmentPreview"]
+            XCTAssertTrue(preview.waitForExistence(timeout: 4))
+            let done = app.buttons["Done"]
+            XCTAssertTrue(done.waitForExistence(timeout: 2))
+            done.tap()
+            XCTAssertTrue(preview.waitForNonExistence(timeout: 4))
+            XCTAssertEqual(prompt.value as? String, "Keep this draft")
+            XCTAssertTrue(imageCard.exists)
+            XCTAssertTrue(fileCard.exists)
+            dismissKeyboard(in: app)
+        }
+
+        let sourceMenu = app.buttons["MobileTaskComposerAttachmentButton"]
+        XCTAssertTrue(sourceMenu.waitForExistence(timeout: 2))
+        sourceMenu.tap()
+        XCTAssertTrue(app.buttons["Photos"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.buttons["Files"].waitForExistence(timeout: 2))
+        XCTAssertFalse(app.descendants(matching: .any)["MobileAttachmentPreview"].exists)
+        prompt.tap()
+        dismissKeyboard(in: app)
+
+        fileRemove.tap()
+        XCTAssertTrue(fileCard.waitForNonExistence(timeout: 3))
+        XCTAssertTrue(imageCard.exists)
+        XCTAssertEqual(prompt.value as? String, "Keep this draft")
+    }
+
     /// The Composer pill scroller must clip between its neighboring controls;
     /// it must not underlap them to render a blur or fade at either edge.
     @MainActor

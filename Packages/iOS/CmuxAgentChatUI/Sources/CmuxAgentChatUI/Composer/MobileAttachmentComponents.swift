@@ -124,8 +124,7 @@ public struct MobileAttachmentCardStrip: View {
     private let remove: (UUID) -> Void
     private let onPreviewDismiss: () -> Void
     @State private var preview: MobileStagedAttachment?
-    @ScaledMetric(relativeTo: .caption) private var cardHeight: CGFloat = 72
-    @ScaledMetric(relativeTo: .caption) private var fileCardWidth: CGFloat = 176
+    @ScaledMetric(relativeTo: .body) private var cardSide: CGFloat = 112
 
     public init(
         attachments: [MobileStagedAttachment],
@@ -234,38 +233,39 @@ public struct MobileAttachmentCardStrip: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .frame(width: cardHeight, height: cardHeight)
+        .frame(width: cardSide, height: cardSide)
         .background(Color.primary.opacity(0.07))
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
     private func fileCard(_ attachment: MobileStagedAttachment) -> some View {
-        HStack(spacing: 9) {
-            VStack(spacing: 2) {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 5) {
                 Image(systemName: "doc.fill")
-                    .font(.title3)
+                    .font(.caption.weight(.semibold))
                 Text(fileExtension(for: attachment))
-                    .font(.caption2.weight(.bold))
+                    .font(.caption.weight(.bold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
+                Spacer(minLength: 0)
             }
             .foregroundStyle(.secondary)
-            .frame(width: 42, height: 52)
-            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(attachment.fileName)
-                    .font(.caption.weight(.medium))
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                Text(ByteCountFormatter.string(fromByteCount: Int64(attachment.byteCount), countStyle: .file))
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            Spacer(minLength: 2)
+
+            Text(attachment.fileName)
+                .font(.caption.weight(.semibold))
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text(ByteCountFormatter.string(fromByteCount: Int64(attachment.byteCount), countStyle: .file))
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
         }
-        .frame(width: fileCardWidth, height: cardHeight)
-        .padding(.horizontal, 8)
+        .padding(10)
+        .frame(width: cardSide, height: cardSide, alignment: .topLeading)
         .background(Color.primary.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
     }
 
