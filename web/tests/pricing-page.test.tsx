@@ -75,6 +75,17 @@ describe("localized pricing page", () => {
     expect(jaMessages.pricing.team.features).toEqual([
       "匿名の集計使用量・コスト分析付きチーム全体 CodeRouter",
     ]);
+    expect(
+      enMessages.pricing.compare.rows.map((row) => row.label),
+    ).not.toContain("Unified billing and seat management");
+    expect(
+      enMessages.pricing.compare.rows.map((row) => row.label),
+    ).not.toContain("Centralized admin and shared team rules");
+    expect(
+      enMessages.pricing.faq.items.at(-1)?.a,
+    ).toBe(
+      "Yes. Team is $35/user/mo, or $28/user/mo when billed annually, and adds shared CodeRouter with anonymous aggregate usage and cost analytics.",
+    );
   });
 
   beforeEach(() => {
