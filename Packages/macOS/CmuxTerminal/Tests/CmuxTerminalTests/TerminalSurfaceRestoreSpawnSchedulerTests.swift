@@ -2,6 +2,7 @@ import AppKit
 import Dispatch
 import Foundation
 import GhosttyKit
+import os
 import Testing
 import CmuxTerminalCore
 @testable import CmuxTerminal
@@ -631,6 +632,146 @@ import CmuxTerminalCore
         await scheduler.waitForScheduledCount(4)
 
         #expect(scheduler.scheduledSurfaceIds.last == fixtures[0].surface.id)
+    }
+
+    @Test func stalledCloseWorkersFailDeferredCreationAndRecoverSafely() async throws {
+        let clock = ManualTerminalSurfaceRuntimeTeardownClock()
+        let stalledSlots = AsyncStream<Int>.makeStream()
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
+            maximumRuntimeSurfaceOwnerCount: 2,
+            closeTeardownTimeout: .seconds(5),
+            closeTeardownClock: clock,
+            closeTeardownStalledObserver: { slot in
+                stalledSlots.continuation.yield(slot)
+            }
+        )
+        let pointers = (0..<2).map { _ in
+            UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        }
+        let freeStarted = AsyncStream<Int>.makeStream()
+        let releaseFrees = (0..<2).map { _ in DispatchSemaphore(value: 0) }
+        let freedPointerBits = OSAllocatedUnfairLock(initialState: [UInt]())
+        defer {
+            for releaseFree in releaseFrees {
+                releaseFree.signal()
+            }
+            for pointer in pointers {
+                pointer.deallocate()
+            }
+            freeStarted.continuation.finish()
+            stalledSlots.continuation.finish()
+        }
+        let reservations = try (0..<2).map { _ in
+            try #require(coordinator.reserveRuntimeSurfaceOwnership())
+        }
+        let tickets = try pointers.enumerated().map { index, pointer in
+            try #require(
+                coordinator.enqueueRuntimeTeardown(
+                    id: UUID(),
+                    workspaceId: UUID(),
+                    reason: "test.stalledClose.\(index)",
+                    surface: pointer,
+                    callbackContext: nil,
+                    manualIOContext: nil,
+                    byteTeeLease: nil,
+                    runtimeOwnershipReservation: reservations[index],
+                    freeSurface: { pointer in
+                        freeStarted.continuation.yield(index)
+                        releaseFrees[index].wait()
+                        freedPointerBits.withLock {
+                            $0.append(UInt(bitPattern: pointer))
+                        }
+                    }
+                )
+            )
+        }
+        var freeStartedIterator = freeStarted.stream.makeAsyncIterator()
+        _ = try #require(await freeStartedIterator.next())
+        _ = try #require(await freeStartedIterator.next())
+        var registrationIterator = clock.registrations.makeAsyncIterator()
+        let firstWatchdog = try #require(await registrationIterator.next())
+        let secondWatchdog = try #require(await registrationIterator.next())
+
+        let registry = FakeSurfaceRegistry()
+        let scheduler = RecordingRestoreSpawnScheduler()
+        let deferredFixtures = (0..<3).map { _ in
+            makeSurfaceFixture(
+                registry: registry,
+                scheduler: scheduler,
+                runtimeTeardown: coordinator
+            )
+        }
+        for (index, fixture) in deferredFixtures.enumerated() {
+            fixture.surface.createSurface(for: fixture.nativeView)
+            scheduler.runScheduledOperation(at: index)
+        }
+
+        var stalledSlotIterator = stalledSlots.stream.makeAsyncIterator()
+        clock.fire(firstWatchdog)
+        _ = try #require(await stalledSlotIterator.next())
+        #expect(
+            deferredFixtures.allSatisfy {
+                $0.paneHost.runtimeSurfaceCreationFailureMessages.isEmpty
+            }
+        )
+
+        var failureIterators = deferredFixtures.map {
+            $0.paneHost.runtimeSurfaceCreationFailures.makeAsyncIterator()
+        }
+        clock.fire(secondWatchdog)
+        _ = try #require(await stalledSlotIterator.next())
+        let expectedMessage = String(
+            localized: "terminal.surface.runtimeCreation.capacityExceeded",
+            defaultValue:
+                "Unable to start this terminal because too many terminal sessions are still closing."
+        )
+        for index in failureIterators.indices {
+            #expect(
+                try #require(await failureIterators[index].next())
+                    == expectedMessage
+            )
+            #expect(
+                deferredFixtures[index].surface
+                    .runtimeSurfaceAdmissionDeferredCreationSource == nil
+            )
+        }
+        assertOverflowStorageIsEmpty(coordinator)
+
+        let rejectedAfterStall = makeSurfaceFixture(
+            registry: registry,
+            scheduler: scheduler,
+            runtimeTeardown: coordinator
+        )
+        var postStallFailureIterator = rejectedAfterStall.paneHost
+            .runtimeSurfaceCreationFailures.makeAsyncIterator()
+        rejectedAfterStall.surface.createSurface(
+            for: rejectedAfterStall.nativeView
+        )
+        scheduler.runScheduledOperation(at: deferredFixtures.count)
+        #expect(
+            try #require(await postStallFailureIterator.next())
+                == expectedMessage
+        )
+
+        releaseFrees[0].signal()
+        #expect(await tickets[0].wait(timeout: nil))
+        #expect(
+            freedPointerBits.withLock { $0 }
+                == [UInt(bitPattern: pointers[0])]
+        )
+        let recoveredReservation = try #require(
+            coordinator.reserveRuntimeSurfaceOwnership()
+        )
+        coordinator.cancelRuntimeSurfaceOwnership(recoveredReservation)
+        #expect(await !coordinator.debugCloseTeardownAllStalled)
+
+        releaseFrees[1].signal()
+        #expect(await tickets[1].wait(timeout: nil))
+        #expect(
+            Set(freedPointerBits.withLock { $0 })
+                == Set(pointers.map { UInt(bitPattern: $0) })
+        )
+        #expect(coordinator.debugRuntimeSurfaceOwnerCount == 0)
     }
 
     @Test func lifecycleCancellationSynchronouslyRemovesOverflowEntries() throws {

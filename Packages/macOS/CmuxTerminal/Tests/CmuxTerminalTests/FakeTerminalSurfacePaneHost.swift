@@ -8,12 +8,18 @@ final class FakeTerminalSurfacePaneHost: NSView, TerminalSurfacePaneHosting {
     private let onAttach: (() -> Void)?
     private(set) var explicitInputCount = 0
     private(set) var runtimeSurfaceCreationFailureMessages: [String] = []
+    let runtimeSurfaceCreationFailures: AsyncStream<String>
+    private let runtimeSurfaceCreationFailureContinuation:
+        AsyncStream<String>.Continuation
 
     init(
         surfaceView: FakeTerminalSurfaceNativeView,
         attachesThroughSurfaceModel: Bool = false,
         onAttach: (() -> Void)? = nil
     ) {
+        (runtimeSurfaceCreationFailures,
+         runtimeSurfaceCreationFailureContinuation) =
+            AsyncStream.makeStream(of: String.self)
         self.surfaceView = surfaceView
         self.attachesThroughSurfaceModel = attachesThroughSurfaceModel
         self.onAttach = onAttach
@@ -42,6 +48,7 @@ final class FakeTerminalSurfacePaneHost: NSView, TerminalSurfacePaneHosting {
 
     func showRuntimeSurfaceCreationFailure(message: String) {
         runtimeSurfaceCreationFailureMessages.append(message)
+        runtimeSurfaceCreationFailureContinuation.yield(message)
     }
 
     func terminalSurfaceDidReceiveExplicitInput() {
