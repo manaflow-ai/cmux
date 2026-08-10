@@ -2334,18 +2334,39 @@ impl Mux {
                 == [(terminal_id.to_string(), terminal_incarnation.map(str::to_owned))],
             "terminal close plan changed host identity"
         );
-        let projection =
+        let mut projection =
             self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
-        anyhow::ensure!(
-            projection.patch.changes.iter().any(|change| {
-                matches!(
-                    change,
-                    ResourceChange::TombstoneTerminal { public_id: target, .. }
-                        if target == &public_id
-                )
-            }),
-            "terminal close projection omitted its public terminal"
-        );
+        if !projection.patch.changes.iter().any(|change| {
+            matches!(
+                change,
+                ResourceChange::TombstoneTerminal { public_id: target, .. }
+                    if target == &public_id
+            )
+        }) {
+            // Exit detach keeps the terminal receipt after its last tab is
+            // tombstoned. Explicit close must delete that tabless receipt.
+            projection.patch.changes.push(ResourceChange::TombstoneTerminal {
+                public_id: public_id.clone(),
+                expected_incarnation: terminal_incarnation.map(str::to_owned),
+            });
+        }
+        let public_changes = projection
+            .changes
+            .as_array_mut()
+            .context("terminal close topology changes are not an array")?;
+        if !public_changes.iter().any(|change| {
+            change["kind"] == "delete"
+                && change["resource"] == "terminal"
+                && change["id"].as_str() == Some(public_id.as_str())
+        }) {
+            let sequence = public_changes.len();
+            public_changes.push(json!({
+                "kind":"delete",
+                "sequence":sequence,
+                "resource":"terminal",
+                "id":public_id,
+            }));
+        }
         let target = plan.removed.first().map(|surface| surface.id);
         let had_runtime = plan.terminal_runtime.is_some();
         let current_resource_revision = state.resource_revision;
