@@ -80,6 +80,25 @@ else
   remote_branch="$branch"
 fi
 remote_ref="$remote/$remote_branch"
+remote_url="$(git remote get-url "$remote")"
+remote_matches_repo=false
+for expected_url in \
+  "https://github.com/$REPO" \
+  "https://github.com/$REPO.git" \
+  "git@github.com:$REPO" \
+  "git@github.com:$REPO.git" \
+  "ssh://git@github.com/$REPO" \
+  "ssh://git@github.com/$REPO.git"
+do
+  if [[ "$remote_url" == "$expected_url" ]]; then
+    remote_matches_repo=true
+    break
+  fi
+done
+if [[ "$remote_matches_repo" != true ]]; then
+  echo "error: upstream remote $remote targets $remote_url, not github.com/$REPO" >&2
+  exit 1
+fi
 
 commit="$(git rev-parse HEAD)"
 if [[ ! "$commit" =~ ^[0-9a-f]{40}$ ]]; then
@@ -114,16 +133,21 @@ run_id=""
 # The dispatch command does not return a run ID. Poll only until the uniquely
 # titled run appears, and then let GitHub CLI watch the run state.
 for _ in $(seq 1 60); do
-  run_id="$({
+  run_query=""
+  if run_query="$(
     gh run list \
       --repo "$REPO" \
       --workflow "$WORKFLOW" \
       --branch "$remote_branch" \
       --event workflow_dispatch \
       --limit 100 \
-      --json databaseId,displayTitle \
-      --jq ".[] | select(.displayTitle == \"$run_title\") | .databaseId"
-  } | head -n 1)"
+      --json databaseId,displayTitle,headSha \
+      --jq ".[] | select(.displayTitle == \"$run_title\" and .headSha == \"$commit\") | .databaseId"
+  )"; then
+    run_id="$(printf '%s\n' "$run_query" | sed -n '1p')"
+  else
+    echo "warning: run discovery query failed; retrying" >&2
+  fi
   if [[ -n "$run_id" ]]; then
     break
   fi

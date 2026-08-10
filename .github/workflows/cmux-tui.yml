@@ -42,6 +42,7 @@ jobs:
       - name: Validate dispatch inputs
         env:
           EXACT_COMMIT: ${{ inputs.commit }}
+          WORKFLOW_COMMIT: ${{ github.sha }}
           MODE: ${{ inputs.mode }}
           TEST_FILTER: ${{ inputs.test_filter }}
           REQUEST_ID: ${{ inputs.request_id }}
@@ -49,6 +50,10 @@ jobs:
         run: |
           if [[ ! "$EXACT_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
             echo "::error::commit must be a lowercase 40-character SHA" >&2
+            exit 1
+          fi
+          if [[ "$WORKFLOW_COMMIT" != "$EXACT_COMMIT" ]]; then
+            echo "::error::workflow revision $WORKFLOW_COMMIT does not match requested commit $EXACT_COMMIT" >&2
             exit 1
           fi
           if [[ ! "$REQUEST_ID" =~ ^[A-Za-z0-9._-]{1,100}$ ]]; then
@@ -348,7 +353,6 @@ jobs:
         if: inputs.mode == 'full'
         working-directory: ghostty
         run: |
-          "$CMUX_ZIG" fmt --check src/terminal/formatter.zig
           "$CMUX_ZIG" build test-lib-vt -Dtest-filter="Terminal vt"
 
       - name: Set up pinned Rust

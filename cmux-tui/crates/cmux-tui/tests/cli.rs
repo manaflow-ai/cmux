@@ -188,30 +188,6 @@ impl HeadlessServer {
             .copied()
             .filter(|pid| process_exists(*pid) || process_group_exists(*pid))
             .collect::<Vec<_>>();
-        for pid in &live_hosts {
-            signal_test_process(*pid, libc::SIGTERM);
-        }
-        for pid in &live_terminals {
-            signal_test_process_group(*pid, libc::SIGTERM);
-            signal_test_process(*pid, libc::SIGTERM);
-        }
-        let mut owned_pids = live_hosts.clone();
-        owned_pids.extend(live_terminals.iter().copied());
-        owned_pids.sort_unstable();
-        owned_pids.dedup();
-        if wait_for_processes_to_exit(&owned_pids, Duration::from_secs(2)) {
-            return Ok(());
-        }
-        for pid in &live_hosts {
-            signal_test_process(*pid, libc::SIGKILL);
-        }
-        for pid in &live_terminals {
-            signal_test_process_group(*pid, libc::SIGKILL);
-            signal_test_process(*pid, libc::SIGKILL);
-        }
-        if wait_for_processes_to_exit(&owned_pids, Duration::from_secs(2)) {
-            return Ok(());
-        }
         Err(format!(
             "close failures: {close_failures:?}; records: {record_paths:?}; live hosts: {live_hosts:?}; live terminals or groups: {live_terminals:?}"
         ))
@@ -249,16 +225,6 @@ fn signal_test_process_group(pid: u32, signal: libc::c_int) {
     // private terminal-host record or process-info response.
     unsafe {
         libc::kill(-pid, signal);
-    }
-}
-
-#[cfg(unix)]
-fn signal_test_process(pid: u32, signal: libc::c_int) {
-    let Ok(pid) = libc::pid_t::try_from(pid) else { return };
-    // SAFETY: the PID came from this fixture's private terminal-host state or
-    // from process-info for a surface owned by this fixture.
-    unsafe {
-        libc::kill(pid, signal);
     }
 }
 
