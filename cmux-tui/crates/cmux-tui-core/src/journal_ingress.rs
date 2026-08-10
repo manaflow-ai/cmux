@@ -1972,7 +1972,7 @@ mod tests {
 
         if unsafe { libc::kill(descendant_pid, libc::SIGKILL) } != 0 {
             assert_eq!(
-                std::io::Error::last_os_error().raw_os_error(),
+                io::Error::last_os_error().raw_os_error(),
                 Some(libc::ESRCH),
                 "descendant cleanup failed"
             );
