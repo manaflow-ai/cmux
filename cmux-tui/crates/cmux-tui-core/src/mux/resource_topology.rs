@@ -2837,8 +2837,17 @@ impl Mux {
         public_id: &TerminalPublicId,
         state: &State,
     ) -> anyhow::Result<ResourceClosePlan> {
-        let placements =
+        let mut placements =
             state.placements_of_content(&ContentPublicId::Terminal(public_id.clone())).to_vec();
+        if placements.is_empty() {
+            placements.extend(state.surfaces.iter().filter_map(|(surface_id, surface)| {
+                self.resource_terminal_host_identity(surface)
+                    .is_some_and(|identity| identity.terminal_id == terminal_id)
+                    .then_some(*surface_id)
+            }));
+        }
+        placements.sort_unstable();
+        placements.dedup();
         let changed_screens = unique_screen_ids(
             placements.iter().filter_map(|surface| surface_screen_id(state, *surface)),
         );
@@ -2896,8 +2905,16 @@ impl Mux {
             removed = terminal_views;
             split_index_changed = changed;
             for surface in surface_ids {
+                if projected.surfaces.contains_key(&surface) {
+                    let (candidate, changed) = remove_surface(self, &mut projected, surface);
+                    split_index_changed |= changed;
+                    if let Some(candidate) = candidate {
+                        removed.push(candidate);
+                    }
+                }
                 anyhow::ensure!(
-                    projected.pane_of(surface).is_none(),
+                    !projected.surfaces.contains_key(&surface)
+                        && projected.pane_of(surface).is_none(),
                     "close target surface {surface} remained attached"
                 );
             }

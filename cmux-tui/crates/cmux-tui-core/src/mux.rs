@@ -19657,6 +19657,45 @@ mod tests {
         assert!(mux.surface(first.id).is_none());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn explicit_terminal_close_repairs_a_missing_placement_index() {
+        const TERMINAL: &str = "0000000000004000800000000000004a";
+        const INCARNATION: &str = "1000000000004000800000000000004a";
+        let mux = test_mux();
+        let workspace = mux
+            .create_empty_workspace(
+                Some("partial restore".into()),
+                Some("018f6e21-7b70-7e70-8000-00000000104a".into()),
+                None,
+            )
+            .unwrap();
+        let surface =
+            mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
+        let public_id =
+            mux.workspace_registry.lock().unwrap().terminal_resource_id(TERMINAL).unwrap().unwrap();
+
+        {
+            let mut state = mux.state.lock().unwrap();
+            let runtime_id = state.surfaces[&surface].terminal_runtime_id().unwrap();
+            state
+                .resource_indexes
+                .content_placements
+                .remove(&ContentPublicId::Terminal(public_id.clone()));
+            state.terminal_catalog.remove(&public_id);
+            state.terminal_catalog_by_runtime.remove(&runtime_id);
+        }
+
+        let closed = mux.close_terminal(TERMINAL, INCARNATION).unwrap();
+
+        assert_eq!(closed.surface, Some(surface));
+        assert!(mux.surface(surface).is_none());
+        assert_eq!(
+            mux.resolve_terminal(TERMINAL).unwrap().unwrap().terminal.lifecycle,
+            TerminalLifecycle::Tombstoned
+        );
+    }
+
     #[test]
     fn failed_browser_surface_attach_kills_worker() {
         let mux = test_mux();
