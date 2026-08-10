@@ -1,4 +1,5 @@
 import CmuxMobileShellModel
+import CmuxMobileSupport
 import Foundation
 import Testing
 @testable import CmuxMobileShell
@@ -89,6 +90,35 @@ import Testing
         #expect(pastes.map(\.surfaceID) == [termA])
         #expect(pastes.first?.text == "hello")
         #expect(store.pendingAttachments(forTerminalID: termA).isEmpty)
+    }
+
+    @Test func sendsEmptyFileBackedAttachmentThroughChunkedRoute() async throws {
+        let router = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(router: router)
+        let terminalID = RoutingHostRouter.terminalA
+        store.selectTerminal(MobileTerminalPreview.ID(rawValue: terminalID))
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-empty-\(UUID()).txt")
+        try Data().write(to: url, options: .atomic)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let attachment = MobileStagedAttachment(
+            kind: .file,
+            fileName: "empty file.txt",
+            localFileURL: url,
+            byteCount: 0
+        )
+
+        #expect(store.addPendingAttachment(attachment, forTerminalID: terminalID) != nil)
+        #expect(store.composerCanSend(forTerminalID: terminalID))
+        await store.submitComposer()
+
+        let uploads = await router.recordedUploads()
+        #expect(uploads.count == 1)
+        #expect(uploads.first?.uploadID == attachment.id.uuidString)
+        #expect(uploads.first?.fileName == "empty file.txt")
+        #expect(uploads.first?.bytes == Data())
+        #expect(await router.recordedPasteImages().map(\.surfaceID) == [terminalID])
+        #expect(store.pendingAttachments(forTerminalID: terminalID).isEmpty)
     }
 
     /// A terminal switch WHILE the first image send is in flight must not reroute
