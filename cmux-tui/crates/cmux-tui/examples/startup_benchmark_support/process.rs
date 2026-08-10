@@ -3,6 +3,7 @@ use std::fs;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -435,17 +436,37 @@ fn run_pty(
     let (event_sender, event_receiver) = mpsc::channel();
     let writer_for_reader = writer.clone();
     let marker_bytes = marker.into_bytes();
+    let diagnostic = Arc::new(Mutex::new(Vec::new()));
+    let diagnostic_for_reader = diagnostic.clone();
+    let probe_queries = Arc::new(AtomicUsize::new(0));
+    let probe_queries_for_reader = probe_queries.clone();
+    let probe_responses = Arc::new(AtomicUsize::new(0));
+    let probe_responses_for_reader = probe_responses.clone();
+    let reader_cancelled = Arc::new(AtomicBool::new(false));
+    let reader_cancelled_for_reader = reader_cancelled.clone();
+    let reader_event_sender = event_sender.clone();
     let (reader_sender, reader_receiver) = mpsc::channel();
     let reader_thread =
         thread::Builder::new().name("startup-benchmark-pty-reader".into()).spawn(move || {
-            let result = read_pty(reader, writer_for_reader, marker_bytes, event_sender);
+            let result = read_pty(
+                reader,
+                writer_for_reader,
+                marker_bytes,
+                reader_event_sender,
+                diagnostic_for_reader,
+                probe_queries_for_reader,
+                probe_responses_for_reader,
+                reader_cancelled_for_reader,
+            );
             let _ = reader_sender.send(result);
         })?;
     let (status_sender, status_receiver) = mpsc::channel();
+    let status_event_sender = event_sender;
     let status_thread =
         thread::Builder::new().name("startup-benchmark-pty-wait".into()).spawn(move || {
             let status = child.wait();
             let _ = status_sender.send(status);
+            let _ = status_event_sender.send(PtyEvent::Exited);
         })?;
     let mut runtime = PtyRuntime {
         killer,
@@ -456,16 +477,37 @@ fn run_pty(
         status_thread: Some(status_thread),
         reader_receiver,
         reader_thread: Some(reader_thread),
+        diagnostic,
+        probe_queries,
+        probe_responses,
+        reader_cancelled,
     };
 
     let observed_at = match event_receiver.recv_timeout(EVENT_TIMEOUT) {
         Ok(PtyEvent::Marker(at)) => at,
         Ok(PtyEvent::Ended) => {
             let (_, reader, _) = runtime.finish(false, PROCESS_TIMEOUT)?;
-            bail!("PTY ended before render marker: {}", String::from_utf8_lossy(&reader.output));
+            return Err(runtime.failure_with_diagnostic(anyhow!(
+                "PTY ended before render marker: {}",
+                String::from_utf8_lossy(&reader.output)
+            )));
         }
         Ok(PtyEvent::Failed(error)) => {
             return runtime.fail(anyhow!("PTY reader failed before render marker: {error}"));
+        }
+        Ok(PtyEvent::Exited) => {
+            let failure = anyhow!("interactive process exited before render marker");
+            return match runtime.finish(false, PROCESS_TIMEOUT) {
+                Ok((status, reader, _)) => {
+                    Err(runtime.failure_with_diagnostic(failure.context(format!(
+                        "status {status}; PTY output: {}",
+                        String::from_utf8_lossy(&reader.output)
+                    ))))
+                }
+                Err(cleanup) => Err(runtime.failure_with_diagnostic(
+                    failure.context(format!("PTY cleanup also failed: {cleanup:#}")),
+                )),
+            };
         }
         Err(error) => {
             return runtime.fail(anyhow!("render marker deadline expired: {error}"));
@@ -807,6 +849,7 @@ enum PtyEvent {
     Marker(Instant),
     Ended,
     Failed(String),
+    Exited,
 }
 
 struct PtyReadResult {
@@ -824,6 +867,10 @@ struct PtyRuntime {
     status_thread: Option<thread::JoinHandle<()>>,
     reader_receiver: mpsc::Receiver<io::Result<PtyReadResult>>,
     reader_thread: Option<thread::JoinHandle<()>>,
+    diagnostic: Arc<Mutex<Vec<u8>>>,
+    probe_queries: Arc<AtomicUsize>,
+    probe_responses: Arc<AtomicUsize>,
+    reader_cancelled: Arc<AtomicBool>,
 }
 
 impl PtyRuntime {
@@ -837,6 +884,44 @@ impl PtyRuntime {
 
     fn terminate_tree(&mut self) -> io::Result<()> {
         self.process_tree.terminate(self.killer.as_mut())
+    }
+
+    fn failure_with_diagnostic(&self, error: anyhow::Error) -> anyhow::Error {
+        let output = self
+            .diagnostic
+            .lock()
+            .map(|output| String::from_utf8_lossy(&output).into_owned())
+            .unwrap_or_else(|_| "<PTY diagnostic lock poisoned>".into());
+        error.context(format!(
+            "PTY failure snapshot: queries={} responses={} output={output:?}",
+            self.probe_queries.load(Ordering::Relaxed),
+            self.probe_responses.load(Ordering::Relaxed)
+        ))
+    }
+
+    #[cfg(windows)]
+    fn cancel_reader_io(&self) -> io::Result<()> {
+        use std::os::windows::io::AsRawHandle;
+
+        self.reader_cancelled.store(true, Ordering::Release);
+        let reader = self
+            .reader_thread
+            .as_ref()
+            .ok_or_else(|| io::Error::other("PTY reader thread already joined"))?;
+        // SAFETY: this live JoinHandle owns the exact reader thread. The call
+        // only cancels synchronous I/O issued by that thread.
+        let result = unsafe { CancelSynchronousIo(reader.as_raw_handle()) };
+        if result != 0 {
+            return Ok(());
+        }
+        let error = io::Error::last_os_error();
+        const ERROR_NOT_FOUND: i32 = 1168;
+        if error.raw_os_error() == Some(ERROR_NOT_FOUND) { Ok(()) } else { Err(error) }
+    }
+
+    #[cfg(not(windows))]
+    fn cancel_reader_io(&self) -> io::Result<()> {
+        Ok(())
     }
 
     fn finish(
@@ -888,14 +973,25 @@ impl PtyRuntime {
             .join()
             .map_err(|_| anyhow!("PTY wait thread panicked"))?;
         // On ConPTY, process exit alone does not close the readable stream.
-        // The runtime owns and closes the master before it waits for EOF.
+        // The runtime owns and closes the master, then explicitly cancels the
+        // reader's synchronous I/O after the child is reaped. The reader treats
+        // that owner-requested cancellation as EOF.
         self.master.take().context("PTY master already closed")?;
+        #[cfg(windows)]
+        if let Err(error) = self.cancel_reader_io() {
+            kill_error = Some(error);
+        }
         let mut reader_timed_out = false;
         let reader = match self.reader_receiver.recv_timeout(PROCESS_TIMEOUT) {
             Ok(reader) => reader,
-            Err(mpsc::RecvTimeoutError::Timeout) if !tree_termination_attempted => {
+            Err(mpsc::RecvTimeoutError::Timeout) => {
                 reader_timed_out = true;
-                if let Err(error) = self.terminate_tree() {
+                if !tree_termination_attempted {
+                    if let Err(error) = self.terminate_tree() {
+                        kill_error = Some(error);
+                    }
+                }
+                if let Err(error) = self.cancel_reader_io() {
                     kill_error = Some(error);
                 }
                 self.reader_receiver
@@ -903,12 +999,13 @@ impl PtyRuntime {
                     .context("wait for PTY reader after full-tree termination")?
             }
             Err(error) => return Err(error).context("wait for PTY reader completion"),
-        }?;
+        };
         self.reader_thread
             .take()
             .context("PTY reader thread already joined")?
             .join()
             .map_err(|_| anyhow!("PTY reader panicked"))?;
+        let reader = reader.context("read PTY output")?;
         let thread_join = join_started.elapsed();
         if let Some(error) = kill_error {
             return Err(error).context("kill interactive process during cleanup");
@@ -927,11 +1024,19 @@ impl PtyRuntime {
     }
 
     fn fail<T>(&mut self, error: anyhow::Error) -> Result<T> {
-        match self.finish(true, PROCESS_TIMEOUT) {
-            Ok(_) => Err(error),
-            Err(cleanup) => Err(error.context(format!("PTY cleanup also failed: {cleanup:#}"))),
-        }
+        let cleanup = self.finish(true, PROCESS_TIMEOUT);
+        let error = match cleanup {
+            Ok(_) => error,
+            Err(cleanup) => error.context(format!("PTY cleanup also failed: {cleanup:#}")),
+        };
+        Err(self.failure_with_diagnostic(error))
     }
+}
+
+#[cfg(windows)]
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    fn CancelSynchronousIo(thread: std::os::windows::io::RawHandle) -> i32;
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1007,6 +1112,10 @@ fn read_pty(
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     marker: Vec<u8>,
     sender: mpsc::Sender<PtyEvent>,
+    diagnostic: Arc<Mutex<Vec<u8>>>,
+    probe_queries: Arc<AtomicUsize>,
+    probe_responses: Arc<AtomicUsize>,
+    reader_cancelled: Arc<AtomicBool>,
 ) -> std::io::Result<PtyReadResult> {
     let mut output = Vec::new();
     let mut probes = ProbeTracker::default();
@@ -1027,12 +1136,21 @@ fn read_pty(
             }
             Ok(read) => {
                 append_bounded(&mut output, &buffer[..read]);
-                for response in probes.observe(&buffer[..read]) {
+                {
+                    let mut diagnostic = diagnostic
+                        .lock()
+                        .map_err(|_| io::Error::other("PTY diagnostic lock poisoned"))?;
+                    append_bounded(&mut diagnostic, &buffer[..read]);
+                }
+                let responses = probes.observe(&buffer[..read]);
+                probe_queries.store(probes.responses, Ordering::Relaxed);
+                for response in responses {
                     let mut writer = writer.lock().map_err(|_| {
                         std::io::Error::other("terminal response writer lock poisoned")
                     })?;
                     writer.write_all(response)?;
                     writer.flush()?;
+                    probe_responses.fetch_add(1, Ordering::Relaxed);
                 }
                 if !frame_seen && frame_marker.observe(&buffer[..read]).is_some() {
                     frame_seen = true;
@@ -1040,6 +1158,13 @@ fn read_pty(
                 }
             }
             Err(error) => {
+                if reader_cancelled.load(Ordering::Acquire) {
+                    return Ok(PtyReadResult {
+                        output,
+                        probe_responses: probes.responses,
+                        cursor_visibility: frame_marker.visibility,
+                    });
+                }
                 let _ = sender.send(PtyEvent::Failed(error.to_string()));
                 return Err(error);
             }
