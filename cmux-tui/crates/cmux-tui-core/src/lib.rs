@@ -65,11 +65,11 @@ pub use mux::{
     AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, CanonicalSnapshot,
     CellPixelUpdate, CellPixelUpdateFailure, Direction, GraphicsStatus, LayoutLeafSpec,
     LayoutRatioError, LayoutSpec, LayoutUndoError, LayoutUndoResult, Mux, MuxEvent,
-    NotificationEvent, NotificationLevel, ProviderWorkspaceAuthority,
-    ProviderWorkspaceAuthorityStatus, ProviderWorkspaceAuthorityUpdateError, ResourceNotification,
-    RunPlacement, SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification,
-    SurfaceResizeReporter, TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceMutationResult,
-    WorkspacePlacement, ZoomMode, ZoomState,
+    NotificationEvent, ProviderWorkspaceAuthority, ProviderWorkspaceAuthorityStatus,
+    ProviderWorkspaceAuthorityUpdateError, ResourceNotification, RunPlacement,
+    SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification, SurfaceResizeReporter,
+    TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceMutationResult, WorkspacePlacement,
+    ZoomMode, ZoomState,
 };
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
 pub use presentation::{Presentation, PresentationScroll, PresentationView, PresentationZoom};

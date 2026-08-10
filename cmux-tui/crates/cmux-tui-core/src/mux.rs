@@ -8,22 +8,29 @@ mod resource_topology;
 pub(crate) use resource_content::ResourceEffectProjection;
 
 use public_projections::{RestoredPublicProjections, restore_public_projections};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::fmt;
+use std::ops::{Deref, DerefMut};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::mpsc::{Receiver, SyncSender};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, Weak};
+use std::sync::mpsc::{Receiver, Sender, SyncSender, TryRecvError};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, RwLock, RwLockReadGuard, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
 use ghostty_vt::KittyGraphicsLimits;
+use serde::Serialize;
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use zeroize::Zeroize;
 
 use crate::browser::{self, BrowserBootstrap, BrowserPresentationMode, BrowserRuntime};
 use crate::event_bus::{MuxEventBroadcaster, MuxEventReceiver};
+use crate::frontend_native_browser::{
+    FrontendNativeBrowserClaimReceipt, FrontendNativeBrowserOwner, FrontendNativeBrowserRegistry,
+    FrontendNativeBrowserSourceReceipt,
+};
+use crate::identity::EntityIdentityAllocator;
 #[cfg(test)]
 use crate::layout::layout_screen_with_viewport;
 use crate::layout::{
@@ -32,9 +39,25 @@ use crate::layout::{
 #[cfg(test)]
 use crate::model::ViewportColumn;
 use crate::model::{
-    LayoutColumn, LayoutMutationKey, LayoutResizeOwner, Node, Pane, Screen, State, Workspace,
+    ChangeState, LayoutColumn, LayoutMutationKey, LayoutResizeOwner, Node, Pane, Screen, State,
+    Workspace,
 };
 use crate::pairing::PairingBroker;
+use crate::presentation::PresentationRegistry;
+use crate::projection_state::ProjectionStateRegistry;
+use crate::remote_tmux_producer::{
+    ExternalTerminalProvenance, RemoteTmuxProducerClaimReceipt, RemoteTmuxProducerOwner,
+    RemoteTmuxProducerRegistry, RemoteTmuxProducerSource, RemoteTmuxProducerSourceUpdateReceipt,
+};
+use crate::renderer_control::{
+    RendererColorSpace, RendererControlDirection, RendererControlEncoder, RendererControlMessage,
+    RendererFrameRelease, RendererPixelFormat, RendererPresentationAttachment,
+    RendererPresentationReady, RendererPresentationRemoval, RendererSemanticScene,
+};
+use crate::renderer_supervisor::{
+    RendererProcessInstanceToken, RendererSupervisor, RendererSupervisorConfig,
+    RendererSupervisorError, RendererSupervisorEvent, RendererWorkerState, RendererWorkerStatus,
+};
 use crate::resource::{
     AgentPublicId, ContentPublicId, FrontendProjectionPublicId, NotificationPublicId,
     PairingRequestPublicId, PanePublicId, PublicSlotIndexes, ResourceError, ResourceOperation,
@@ -45,12 +68,35 @@ use crate::resource_mutation::{ResourceMutationMetrics, ResourceMutationPlan};
 use crate::resource_selector::{
     ResolvedResourceSlots, ResourceSelectorContext, resolve_resource_selectors,
 };
+use crate::semantic_scene::{
+    SemanticSceneAttachmentOptions, SemanticSceneCaptureOptions, SemanticSceneControl,
+    SemanticSceneEvent, SemanticSceneFrame, SemanticScenePreedit,
+    SemanticScenePresentationIdentity, SemanticSceneReceiver,
+};
+use crate::state_store::{
+    DurableSession, MAX_PERSISTED_IDEMPOTENCY_RESULTS, MAX_PERSISTED_TOMBSTONES,
+    PersistedEntityKind, PersistedIdempotencyResult, PersistedLaunchRecipe, PersistedNode,
+    PersistedPane, PersistedScreen, PersistedSessionState, PersistedSplitDirection,
+    PersistedSurface, PersistedSurfaceKind, PersistedTombstone, PersistedWorkspace, StateStore,
+};
 use crate::surface::{DefaultColors, Surface, SurfaceOptions};
+use crate::surface::{
+    ExternalTerminalClaimReceipt, ExternalTerminalOutputReceipt, ExternalTerminalOwner,
+    InputAuthorityPermit, TerminalLaunchCompletionPhase,
+};
+use crate::terminal_activity::{
+    LEGACY_TERMINAL_ACTIVITY_READER_UUID, NotificationLevel, TerminalActivityFact,
+    TerminalActivityReadReceipt, TerminalActivitySnapshot, TerminalActivityState,
+};
+use crate::terminal_authority::{
+    TerminalAuthorityRegistry, TerminalLease, TerminalLeaseClaim, TerminalLeaseKind,
+};
 use crate::terminal_host::TerminalId;
 use crate::terminal_host_protocol::TerminalExit;
 use crate::terminal_host_runtime::TerminalHostIdentity;
 #[cfg(unix)]
 use crate::terminal_host_runtime::TerminalHostLiveness;
+use crate::topology::{TopologyJournal, topology_json};
 use crate::workspace_registry::{
     FrontendProjection, ProjectionCommit, RegistryBrowser, RegistryBrowserReconnect,
     RegistryCommit, RegistryLayoutNode, RegistrySnapshot, RegistryTab, RegistryTerminal,
@@ -59,8 +105,10 @@ use crate::workspace_registry::{
     TerminalLifecycle, TerminalRegistrySnapshot, WorkspaceMutation, WorkspaceRegistry,
 };
 use crate::{
-    PairingChallenge, PairingDecision, PairingError, PaneId, ScreenId, SplitDir, SplitId,
-    SurfaceId, SurfaceKind, WorkspaceId,
+    DaemonInstanceId, PairingChallenge, PairingDecision, PairingError, PaneId, PaneUuid, ScreenId,
+    ScreenUuid, SessionId, SplitDir, SplitId, SurfaceId, SurfaceKind, SurfaceUuid, TopologyLimits,
+    TopologyOperation, TopologyResume, TopologySnapshot, TopologyTargets, WorkspaceId,
+    WorkspaceUuid,
 };
 
 pub type SurfaceResizeReporter = Arc<dyn Fn(SurfaceId, (u16, u16), Option<u64>) + Send + Sync>;
@@ -96,6 +144,9 @@ type TerminalReservationHook = Arc<dyn Fn(&str) + Send + Sync>;
 type RestoredViewport = (std::collections::BTreeMap<SplitId, f32>, Option<f32>, Vec<LayoutColumn>);
 
 const TERMINAL_DIMENSION_MAX: u16 = 10_000;
+const TERMINAL_INITIAL_INPUT_DEADLINE: Duration = Duration::from_secs(30);
+const RENDERER_PRESENTATION_REMOVAL_TIMEOUT: Duration = Duration::from_secs(2);
+const RENDERER_EVENT_DISPATCH_CAPACITY: usize = 256;
 const WORKSPACE_REGISTRY_LIMIT: usize = 4_096;
 const WORKSPACE_KEY_MAX_BYTES: usize = 256;
 const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
@@ -106,6 +157,16 @@ const DEADLINE_FANOUT_IDLE_TIMEOUT: Duration = Duration::from_millis(250);
 const CELL_PIXEL_RETRY_INITIAL: Duration = Duration::from_millis(25);
 const CELL_PIXEL_RETRY_MAX: Duration = Duration::from_millis(250);
 const CELL_PIXEL_RETRY_MAX_ATTEMPTS: u8 = 4;
+fn terminal_initial_input_deadline() -> Duration {
+    #[cfg(test)]
+    if let Ok(milliseconds) = std::env::var("CMUX_TEST_TERMINAL_INITIAL_INPUT_DEADLINE_MS")
+        && let Ok(milliseconds) = milliseconds.parse::<u64>()
+    {
+        return Duration::from_millis(milliseconds.max(1));
+    }
+    TERMINAL_INITIAL_INPUT_DEADLINE
+}
+
 const KITTY_IMAGE_BUDGET_RETRY_INITIAL: Duration = Duration::from_millis(25);
 const KITTY_IMAGE_BUDGET_RETRY_MAX: Duration = Duration::from_secs(1);
 const KITTY_IMAGE_BUDGET_RETRY_MAX_ATTEMPTS: u32 = 4;
@@ -1083,6 +1144,318 @@ enum WorkspaceMutationAuthority<'a> {
     Ordinary,
     TrustedProvider,
     ProviderCredential(&'a str),
+}
+
+#[derive(Clone)]
+pub(crate) struct EnsureTerminalRequest {
+    pub workspace_uuid: WorkspaceUuid,
+    pub surface_uuid: SurfaceUuid,
+    pub cwd: Option<String>,
+    pub argv: Option<Vec<String>>,
+    pub env: Vec<(String, String)>,
+    pub initial_input: Option<String>,
+    pub wait_after_command: bool,
+    pub cols: u16,
+    pub rows: u16,
+}
+
+const MAX_ENSURE_TERMINAL_BATCH_SIZE: usize = 1_024;
+const MAX_ENSURE_TERMINAL_INITIAL_INPUT_BYTES: usize = 1024 * 1024;
+const MAX_TERMINAL_LAUNCH_ARGUMENTS: usize = 1_024;
+const MAX_TERMINAL_LAUNCH_ENVIRONMENT: usize = 1_024;
+const MAX_TERMINAL_LAUNCH_STRING_BYTES: usize = 64 * 1024;
+const MAX_TERMINAL_LAUNCH_CWD_BYTES: usize = 16 * 1024;
+const MAX_TERMINAL_LAUNCH_ENVIRONMENT_NAME_BYTES: usize = 4 * 1024;
+const MAX_TERMINAL_LAUNCH_AGGREGATE_BYTES: usize = 2 * 1024 * 1024;
+const TERMINAL_INITIAL_INPUT_CANONICAL_LINE_MAX_BYTES: usize = 512;
+
+fn validate_terminal_initial_input(label: &str, input: &str) -> anyhow::Result<()> {
+    let mut line_bytes = 0;
+    for byte in input.bytes() {
+        line_bytes += 1;
+        if line_bytes > TERMINAL_INITIAL_INPUT_CANONICAL_LINE_MAX_BYTES {
+            anyhow::bail!(
+                "{label} contains a line longer than the canonical-safe maximum of \
+                 {TERMINAL_INITIAL_INPUT_CANONICAL_LINE_MAX_BYTES} bytes including newline"
+            );
+        }
+        if byte == b'\n' {
+            line_bytes = 0;
+        }
+    }
+    Ok(())
+}
+
+fn validate_ensure_terminal_request(request: &EnsureTerminalRequest) -> anyhow::Result<()> {
+    if request.workspace_uuid.as_uuid().is_nil() || request.surface_uuid.as_uuid().is_nil() {
+        anyhow::bail!("ensure-terminal UUIDs must be nonzero");
+    }
+    if request.cols == 0 || request.rows == 0 {
+        anyhow::bail!("ensure-terminal columns and rows must be nonzero");
+    }
+    if request.argv.as_ref().is_some_and(Vec::is_empty) {
+        anyhow::bail!("ensure-terminal argv must be non-empty when supplied");
+    }
+    if request.env.iter().any(|(name, value)| {
+        name.is_empty()
+            || name.contains(['=', '\0'])
+            || value.contains('\0')
+            || crate::launch_gate::is_reserved_environment_name(name)
+    }) {
+        anyhow::bail!("ensure-terminal environment contains an invalid name or value");
+    }
+    if request
+        .initial_input
+        .as_ref()
+        .is_some_and(|input| input.len() > MAX_ENSURE_TERMINAL_INITIAL_INPUT_BYTES)
+    {
+        anyhow::bail!(
+            "ensure-terminal initial_input exceeds {MAX_ENSURE_TERMINAL_INITIAL_INPUT_BYTES} bytes"
+        );
+    }
+    if let Some(initial_input) = request.initial_input.as_deref() {
+        validate_terminal_initial_input("ensure-terminal initial_input", initial_input)?;
+    }
+    Ok(())
+}
+
+fn validate_terminal_launch_request(request: &TerminalLaunchRequest) -> anyhow::Result<()> {
+    if request.argv.is_some() && request.command.is_some() {
+        anyhow::bail!("terminal launch argv and command are mutually exclusive");
+    }
+    if request.argv.as_ref().is_some_and(Vec::is_empty) {
+        anyhow::bail!("terminal launch argv must be non-empty when supplied");
+    }
+    if request.command.as_ref().is_some_and(|command| command.is_empty()) {
+        anyhow::bail!("terminal launch command must be non-empty when supplied");
+    }
+    if request.argv.as_ref().is_some_and(|argv| argv.len() > MAX_TERMINAL_LAUNCH_ARGUMENTS) {
+        anyhow::bail!("terminal launch argv exceeds {MAX_TERMINAL_LAUNCH_ARGUMENTS} arguments");
+    }
+    if request.env.len() > MAX_TERMINAL_LAUNCH_ENVIRONMENT {
+        anyhow::bail!(
+            "terminal launch environment exceeds {MAX_TERMINAL_LAUNCH_ENVIRONMENT} entries"
+        );
+    }
+    if let Some(cwd) = &request.cwd {
+        validate_terminal_launch_text("cwd", cwd, MAX_TERMINAL_LAUNCH_CWD_BYTES)?;
+    }
+    if let Some(command) = &request.command {
+        validate_terminal_launch_text("command", command, MAX_TERMINAL_LAUNCH_STRING_BYTES)?;
+    }
+    if let Some(argv) = &request.argv {
+        for argument in argv {
+            validate_terminal_launch_text(
+                "argv entry",
+                argument,
+                MAX_TERMINAL_LAUNCH_STRING_BYTES,
+            )?;
+        }
+    }
+    for (name, value) in &request.env {
+        if !valid_terminal_environment_name(name) {
+            anyhow::bail!("terminal launch environment contains an invalid name");
+        }
+        if crate::launch_gate::is_reserved_environment_name(name) {
+            anyhow::bail!("terminal launch environment contains a reserved launch-gate name");
+        }
+        validate_terminal_launch_text(
+            "environment name",
+            name,
+            MAX_TERMINAL_LAUNCH_ENVIRONMENT_NAME_BYTES,
+        )?;
+        validate_terminal_launch_text(
+            "environment value",
+            value,
+            MAX_TERMINAL_LAUNCH_STRING_BYTES,
+        )?;
+    }
+    if request
+        .initial_input
+        .as_ref()
+        .is_some_and(|input| input.len() > MAX_ENSURE_TERMINAL_INITIAL_INPUT_BYTES)
+    {
+        anyhow::bail!(
+            "terminal launch initial_input exceeds {MAX_ENSURE_TERMINAL_INITIAL_INPUT_BYTES} bytes"
+        );
+    }
+    if let Some(initial_input) = request.initial_input.as_deref() {
+        validate_terminal_initial_input("terminal launch initial_input", initial_input)?;
+    }
+    let aggregate_bytes = request.cwd.as_ref().map_or(0, String::len)
+        + request.command.as_ref().map_or(0, String::len)
+        + request.argv.as_ref().map_or(0, |argv| argv.iter().map(String::len).sum())
+        + request.env.iter().map(|(name, value)| name.len() + value.len()).sum::<usize>()
+        + request.initial_input.as_ref().map_or(0, String::len);
+    if aggregate_bytes > MAX_TERMINAL_LAUNCH_AGGREGATE_BYTES {
+        anyhow::bail!(
+            "terminal launch payload exceeds {MAX_TERMINAL_LAUNCH_AGGREGATE_BYTES} bytes"
+        );
+    }
+    Ok(())
+}
+
+fn validate_terminal_launch_text(
+    field: &str,
+    value: &str,
+    maximum_bytes: usize,
+) -> anyhow::Result<()> {
+    if value.contains('\0') {
+        anyhow::bail!("terminal launch {field} contains NUL");
+    }
+    if value.len() > maximum_bytes {
+        anyhow::bail!("terminal launch {field} exceeds {maximum_bytes} bytes");
+    }
+    Ok(())
+}
+
+fn validate_browser_url(url: &str) -> anyhow::Result<()> {
+    if url.is_empty() {
+        anyhow::bail!("browser URL must not be empty");
+    }
+    validate_terminal_launch_text("browser URL", url, MAX_TERMINAL_LAUNCH_STRING_BYTES)
+}
+
+fn valid_terminal_environment_name(name: &str) -> bool {
+    let mut bytes = name.bytes();
+    matches!(bytes.next(), Some(b'A'..=b'Z' | b'a'..=b'z' | b'_'))
+        && bytes.all(|byte| matches!(byte, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'_'))
+}
+
+fn canonical_payload_digest<T: Serialize>(operation: &str, payload: &T) -> anyhow::Result<String> {
+    let encoded = serde_json::to_vec(&(operation, payload))?;
+    let bytes = Sha256::digest(encoded);
+    let mut result = String::with_capacity(bytes.len() * 2);
+    use std::fmt::Write as _;
+    for byte in bytes {
+        write!(&mut result, "{byte:02x}").expect("writing into String cannot fail");
+    }
+    Ok(result)
+}
+
+fn canonical_split_direction(dir: SplitDir) -> &'static str {
+    match dir {
+        SplitDir::Right => "right",
+        SplitDir::Down => "down",
+    }
+}
+
+fn canonical_digest_from_key(key: &str) -> Option<&str> {
+    let mut components = key.rsplit(':');
+    let _request_id = components.next()?;
+    let digest = components.next()?;
+    (key.starts_with("canonical:") && digest.len() == 64).then_some(digest)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct EnsureTerminalPlacement {
+    pub created: bool,
+    pub workspace: WorkspaceId,
+    pub workspace_uuid: WorkspaceUuid,
+    pub screen: ScreenId,
+    pub screen_uuid: ScreenUuid,
+    pub pane: PaneId,
+    pub pane_uuid: PaneUuid,
+    pub surface: SurfaceId,
+    pub surface_uuid: SurfaceUuid,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub(crate) struct TerminalLaunchRequest {
+    pub cwd: Option<String>,
+    pub argv: Option<Vec<String>>,
+    pub command: Option<String>,
+    pub env: Vec<(String, String)>,
+    pub initial_input: Option<String>,
+    pub wait_after_command: bool,
+}
+
+enum PreparedTerminalGate {
+    Real(crate::launch_gate::TerminalLaunchGate),
+    #[cfg(test)]
+    Test,
+}
+
+struct PreparedTerminalLaunch {
+    surface: Arc<Surface>,
+    launch: Option<PersistedLaunchRecipe>,
+    gate: Option<PreparedTerminalGate>,
+    input_authority: Option<InputAuthorityPermit>,
+    initial_input: Vec<u8>,
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TerminalLaunchAtomicityPhase {
+    BeforeFsync,
+    AfterFsync,
+    BeforeRelease,
+    AfterRelease,
+    AfterInitialInput,
+}
+
+#[cfg(test)]
+type TerminalLaunchAtomicityProbe = Arc<dyn Fn(TerminalLaunchAtomicityPhase) + Send + Sync>;
+
+/// Fences one canonical topology mutation to an exact daemon snapshot and
+/// supplies the durable key used to replay retries without applying twice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CanonicalMutationExpectation {
+    pub daemon_instance_id: DaemonInstanceId,
+    pub session_id: SessionId,
+    pub expected_revision: u64,
+    pub request_id: uuid::Uuid,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CanonicalMutationReceipt {
+    pub request_id: uuid::Uuid,
+    pub daemon_instance_id: DaemonInstanceId,
+    pub session_id: SessionId,
+    pub base_revision: u64,
+    pub revision: u64,
+    pub replayed: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CanonicalSurfacePlacement {
+    pub receipt: CanonicalMutationReceipt,
+    pub workspace: WorkspaceId,
+    pub workspace_uuid: WorkspaceUuid,
+    pub screen: ScreenId,
+    pub screen_uuid: ScreenUuid,
+    pub pane: PaneId,
+    pub pane_uuid: PaneUuid,
+    pub surface: SurfaceId,
+    pub surface_uuid: SurfaceUuid,
+}
+
+enum CanonicalMutationStart {
+    Fresh { key: String },
+    Replay { receipt: CanonicalMutationReceipt, result: PersistedIdempotencyResult },
+}
+
+#[derive(Debug, Clone, Copy)]
+struct EnsureTerminalWorkspaceLocation {
+    workspace: WorkspaceId,
+    screen: ScreenId,
+    screen_uuid: ScreenUuid,
+    pane: PaneId,
+    pane_uuid: PaneUuid,
+    new_workspace: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ReparentTerminalPlacement {
+    pub moved: bool,
+    pub workspace: WorkspaceId,
+    pub workspace_uuid: WorkspaceUuid,
+    pub screen: ScreenId,
+    pub screen_uuid: ScreenUuid,
+    pub pane: PaneId,
+    pub pane_uuid: PaneUuid,
+    pub surface: SurfaceId,
+    pub surface_uuid: SurfaceUuid,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21184,6 +21557,393 @@ fn move_tab_in_state(
         mux.subscribers.update_surface_session_path(surface, workspace, screen, target_pane);
     }
     (true, topology_changed)
+}
+
+fn stamp_pane(state: &mut State, pane: PaneId, active_at: u64) {
+    if let Some(pane) = state.panes.get_mut(&pane) {
+        pane.active_at = active_at;
+    }
+}
+
+fn most_recent_pane(state: &State, panes: &[PaneId]) -> Option<PaneId> {
+    panes
+        .iter()
+        .filter_map(|id| state.panes.get(id).map(|pane| (*id, pane.active_at)))
+        .max_by_key(|(_, active_at)| *active_at)
+        .map(|(id, _)| id)
+}
+
+fn clamp_split_ratio(ratio: f32) -> f32 {
+    ratio.clamp(0.05, 0.95)
+}
+
+fn validate_layout_spec(layout: &LayoutSpec) -> anyhow::Result<()> {
+    match layout {
+        LayoutSpec::Leaf(spec) => {
+            if spec.command.as_ref().is_some_and(Vec::is_empty) {
+                anyhow::bail!("leaf command must not be empty");
+            }
+        }
+        LayoutSpec::Split { ratio, a, b, .. } => {
+            if !ratio.is_finite() {
+                anyhow::bail!("split ratio must be finite");
+            }
+            validate_layout_spec(a)?;
+            validate_layout_spec(b)?;
+        }
+    }
+    Ok(())
+}
+
+fn unique_screen_ids(ids: impl IntoIterator<Item = ScreenId>) -> Vec<ScreenId> {
+    let mut unique = Vec::new();
+    for id in ids {
+        if !unique.contains(&id) {
+            unique.push(id);
+        }
+    }
+    unique
+}
+
+fn surface_screen_id(state: &State, surface: SurfaceId) -> Option<ScreenId> {
+    let pane = state.pane_of(surface)?;
+    let (wi, si) = state.screen_of(pane)?;
+    Some(state.workspaces[wi].screens[si].id)
+}
+
+fn topology_targets(
+    state: &State,
+    workspace: Option<WorkspaceId>,
+    screen: Option<ScreenId>,
+    pane: Option<PaneId>,
+    surface: Option<SurfaceId>,
+) -> TopologyTargets {
+    TopologyTargets::from_legacy(state, workspace, screen, pane, surface)
+}
+
+fn topology_targets_many(
+    state: &State,
+    workspaces: &[WorkspaceId],
+    screens: &[ScreenId],
+    panes: &[PaneId],
+    surfaces: &[SurfaceId],
+) -> TopologyTargets {
+    TopologyTargets::from_legacy(
+        state,
+        workspaces.iter().copied(),
+        screens.iter().copied(),
+        panes.iter().copied(),
+        surfaces.iter().copied(),
+    )
+}
+
+fn close_topology_operation(kind: TreeDeltaKind) -> TopologyOperation {
+    match kind {
+        TreeDeltaKind::TabClosed => TopologyOperation::SurfaceClosed,
+        TreeDeltaKind::PaneClosed => TopologyOperation::PaneClosed,
+        TreeDeltaKind::ScreenClosed => TopologyOperation::ScreenClosed,
+        TreeDeltaKind::WorkspaceClosed => TopologyOperation::WorkspaceClosed,
+        _ => panic!("non-close tree delta used for a topology close transaction"),
+    }
+}
+
+fn screen_pane_index(state: &State, screen: ScreenId, pane: PaneId) -> usize {
+    state
+        .workspaces
+        .iter()
+        .flat_map(|workspace| workspace.screens.iter())
+        .find(|candidate| candidate.id == screen)
+        .map(|screen| {
+            let mut panes = Vec::new();
+            screen.root.pane_ids(&mut panes);
+            panes.iter().position(|candidate| *candidate == pane).unwrap_or(0)
+        })
+        .unwrap_or(0)
+}
+
+fn close_surface_delta(
+    state: &State,
+    notifications: &HashMap<SurfaceId, SurfaceNotification>,
+    surface: SurfaceId,
+) -> Option<TreeDelta> {
+    let pane_id = state.pane_of(surface)?;
+    let pane = state.panes.get(&pane_id)?;
+    let tab_index = pane.tabs.iter().position(|candidate| *candidate == surface)?;
+    let (wi, si) = state.screen_of(pane_id)?;
+    let workspace = &state.workspaces[wi];
+    let screen = &workspace.screens[si];
+    if pane.tabs.len() > 1 {
+        let entity = crate::server::tree_entity_json(
+            state,
+            notifications,
+            TreeDeltaKind::TabClosed,
+            surface,
+        )?;
+        return Some(TreeDelta {
+            kind: TreeDeltaKind::TabClosed,
+            workspace: workspace.id,
+            screen: Some(screen.id),
+            pane: Some(pane_id),
+            surface: Some(surface),
+            index: Some(tab_index),
+            entity,
+        });
+    }
+    close_pane_delta(state, notifications, pane_id)
+}
+
+fn close_pane_delta(
+    state: &State,
+    notifications: &HashMap<SurfaceId, SurfaceNotification>,
+    pane: PaneId,
+) -> Option<TreeDelta> {
+    let (wi, si) = state.screen_of(pane)?;
+    let workspace = &state.workspaces[wi];
+    let screen = &workspace.screens[si];
+    let mut panes = Vec::new();
+    screen.root.pane_ids(&mut panes);
+    if panes.len() > 1 {
+        let entity =
+            crate::server::tree_entity_json(state, notifications, TreeDeltaKind::PaneClosed, pane)?;
+        return Some(TreeDelta {
+            kind: TreeDeltaKind::PaneClosed,
+            workspace: workspace.id,
+            screen: Some(screen.id),
+            pane: Some(pane),
+            surface: None,
+            index: Some(panes.iter().position(|candidate| *candidate == pane)?),
+            entity,
+        });
+    }
+    close_screen_delta(state, notifications, screen.id)
+}
+
+fn close_screen_delta(
+    state: &State,
+    notifications: &HashMap<SurfaceId, SurfaceNotification>,
+    screen: ScreenId,
+) -> Option<TreeDelta> {
+    let (wi, si) = state.workspaces.iter().enumerate().find_map(|(wi, workspace)| {
+        workspace.screens.iter().position(|candidate| candidate.id == screen).map(|si| (wi, si))
+    })?;
+    let workspace = &state.workspaces[wi];
+    if workspace.screens.len() > 1 {
+        let entity = crate::server::tree_entity_json(
+            state,
+            notifications,
+            TreeDeltaKind::ScreenClosed,
+            screen,
+        )?;
+        return Some(TreeDelta {
+            kind: TreeDeltaKind::ScreenClosed,
+            workspace: workspace.id,
+            screen: Some(screen),
+            pane: None,
+            surface: None,
+            index: Some(si),
+            entity,
+        });
+    }
+    close_workspace_delta(state, notifications, workspace.id)
+}
+
+fn close_workspace_delta(
+    state: &State,
+    notifications: &HashMap<SurfaceId, SurfaceNotification>,
+    workspace: WorkspaceId,
+) -> Option<TreeDelta> {
+    let index = state.workspaces.iter().position(|candidate| candidate.id == workspace)?;
+    let entity = crate::server::tree_entity_json(
+        state,
+        notifications,
+        TreeDeltaKind::WorkspaceClosed,
+        workspace,
+    )?;
+    Some(TreeDelta {
+        kind: TreeDeltaKind::WorkspaceClosed,
+        workspace,
+        screen: None,
+        pane: None,
+        surface: None,
+        index: Some(index),
+        entity,
+    })
+}
+
+/// Remove one surface from the state: detach it from its
+/// pane, and collapse emptied panes/screens/workspaces. Returns whether
+/// anything was removed. Runs under the state lock.
+fn remove_surface(state: &mut CanonicalState, target: SurfaceId) -> Option<Arc<Surface>> {
+    let removed = state.discard_surface_runtime(target);
+    if let Some(surface) = &removed {
+        state.terminal_activity.remove_surface(surface.uuid);
+    }
+    let Some(pane_id) = state.pane_of(target) else {
+        return removed;
+    };
+    let pane = state.panes.get_mut(&pane_id).expect("pane_of returned live id");
+    let idx = pane.tabs.iter().position(|id| *id == target).expect("tab in pane");
+    pane.tabs.remove(idx);
+    if !pane.tabs.is_empty() {
+        if pane.active_tab >= idx && pane.active_tab > 0 {
+            pane.active_tab -= 1;
+        }
+        return removed;
+    }
+
+    // Last tab gone: the pane collapses out of its screen.
+    state.panes.remove(&pane_id);
+    let Some((wi, si)) = state.screen_of(pane_id) else {
+        return removed;
+    };
+    let (was_active, root) = {
+        let screen = &mut state.workspaces[wi].screens[si];
+        let was_active = screen.active_pane == pane_id;
+        if screen.zoomed_pane == Some(pane_id) {
+            screen.zoomed_pane = None;
+        }
+        let root = std::mem::replace(&mut screen.root, Node::Leaf(0));
+        (was_active, root)
+    };
+    match root.remove_leaf(pane_id) {
+        Some(root) => {
+            let next_active = if was_active {
+                let mut ids = Vec::new();
+                root.pane_ids(&mut ids);
+                most_recent_pane(state, &ids)
+            } else {
+                None
+            };
+            let screen = &mut state.workspaces[wi].screens[si];
+            screen.root = root;
+            if let Some(next) = next_active {
+                screen.active_pane = next;
+            }
+            return removed;
+        }
+        None => {
+            // Screen emptied: drop it from the workspace.
+            let ws = &mut state.workspaces[wi];
+            ws.screens.remove(si);
+            ws.active_screen = ws.active_screen.min(ws.screens.len().saturating_sub(1));
+            if !ws.screens.is_empty() {
+                return removed;
+            }
+        }
+    }
+
+    // Workspace emptied too: drop it, keeping the active selection stable.
+    let active_id = state.workspaces.get(state.active_workspace).map(|w| w.id);
+    state.workspaces.remove(wi);
+    state.active_workspace = active_id
+        .and_then(|id| state.workspaces.iter().position(|w| w.id == id))
+        .unwrap_or_else(|| state.workspaces.len().saturating_sub(1));
+    removed
+}
+
+fn collapse_empty_pane(state: &mut State, pane_id: PaneId) {
+    state.panes.remove(&pane_id);
+    let Some((wi, si)) = state.screen_of(pane_id) else {
+        return;
+    };
+    let (was_active, root) = {
+        let screen = &mut state.workspaces[wi].screens[si];
+        let was_active = screen.active_pane == pane_id;
+        if screen.zoomed_pane == Some(pane_id) {
+            screen.zoomed_pane = None;
+        }
+        let root = std::mem::replace(&mut screen.root, Node::Leaf(0));
+        (was_active, root)
+    };
+    match root.remove_leaf(pane_id) {
+        Some(root) => {
+            let next_active = if was_active {
+                let mut ids = Vec::new();
+                root.pane_ids(&mut ids);
+                most_recent_pane(state, &ids)
+            } else {
+                None
+            };
+            let screen = &mut state.workspaces[wi].screens[si];
+            screen.root = root;
+            if let Some(next) = next_active {
+                screen.active_pane = next;
+            }
+        }
+        None => {
+            let ws = &mut state.workspaces[wi];
+            ws.screens.remove(si);
+            ws.active_screen = ws.active_screen.min(ws.screens.len().saturating_sub(1));
+            if !ws.screens.is_empty() {
+                return;
+            }
+            let active_id = state.workspaces.get(state.active_workspace).map(|w| w.id);
+            state.workspaces.remove(wi);
+            state.active_workspace = active_id
+                .and_then(|id| state.workspaces.iter().position(|w| w.id == id))
+                .unwrap_or_else(|| state.workspaces.len().saturating_sub(1));
+        }
+    }
+}
+
+fn move_tab_in_state(
+    state: &mut State,
+    surface: SurfaceId,
+    target_pane: PaneId,
+    index: usize,
+) -> bool {
+    if !state.surfaces.contains_key(&surface) || !state.panes.contains_key(&target_pane) {
+        return false;
+    }
+    let Some(source_pane) = state.pane_of(surface) else { return false };
+    if source_pane == target_pane {
+        let Some(pane) = state.panes.get_mut(&target_pane) else {
+            return false;
+        };
+        let Some(old_idx) = pane.tabs.iter().position(|id| *id == surface) else {
+            return false;
+        };
+        let new_idx = if index > old_idx { index.saturating_sub(1) } else { index };
+        let new_idx = new_idx.min(pane.tabs.len().saturating_sub(1));
+        if new_idx == old_idx {
+            return false;
+        }
+        let tab = pane.tabs.remove(old_idx);
+        pane.tabs.insert(new_idx, tab);
+        pane.active_tab = new_idx;
+        return true;
+    }
+
+    {
+        let Some(source) = state.panes.get_mut(&source_pane) else {
+            return false;
+        };
+        let Some(old_idx) = source.tabs.iter().position(|id| *id == surface) else {
+            return false;
+        };
+        source.tabs.remove(old_idx);
+        if !source.tabs.is_empty() && source.active_tab >= old_idx && source.active_tab > 0 {
+            source.active_tab -= 1;
+        }
+    }
+
+    if state.panes.get(&source_pane).is_some_and(|pane| pane.tabs.is_empty()) {
+        collapse_empty_pane(state, source_pane);
+    }
+
+    let Some(target) = state.panes.get_mut(&target_pane) else {
+        return false;
+    };
+    let new_idx = index.min(target.tabs.len());
+    target.tabs.insert(new_idx, surface);
+    target.active_tab = new_idx;
+    if let Some((wi, si)) = state.screen_of(target_pane) {
+        state.active_workspace = wi;
+        let ws = &mut state.workspaces[wi];
+        ws.active_screen = si;
+        ws.screens[si].active_pane = target_pane;
+    }
+    true
 }
 
 #[cfg(test)]

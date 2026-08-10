@@ -28,14 +28,15 @@ use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::sync::{Arc, Condvar, Mutex, RwLock, Weak};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use base64::Engine;
 use ghostty_vt::{
-    Dirty, KeyAction, KeyEncoder, KeyInput, KittyReplayState, Mods, StyledRun, UnderlineStyle,
-    key_input_from_chord, rows_to_runs, sys,
+    Dirty, KeyAction, KeyEncoder, KeyInput, KittyReplayState, Mods, MouseAction, MouseButton,
+    MouseInput, SelectionAdjustment, StyledRun, UnderlineStyle, key_input_from_chord, rows_to_runs,
+    sys,
 };
 use regex::Regex;
 use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
@@ -50,10 +51,34 @@ use zeroize::Zeroize;
 
 use crate::browser::{
     BrowserAttachUpdate, BrowserFrameUpdate, BrowserMouseDispatch, BrowserPointerOwner,
+    BrowserPresentationMode,
+};
+use crate::connection_security::{
+    ConnectionAuthorization, ConnectionPermission, ConnectionRole, RegisteredClientKind,
+    TopologyMutationLease, TopologyMutationLeaseClaim,
+};
+use crate::frontend_native_browser::{
+    FrontendNativeBrowserClaimReceipt, FrontendNativeBrowserSourceReceipt,
 };
 use crate::model::{Screen, State, Workspace};
-use crate::mux::{DaemonHandoffRequest, ResourceWaitWake, clamp_terminal_size};
+use crate::mux::{
+    CanonicalMutationExpectation, CanonicalMutationReceipt, CanonicalSurfacePlacement,
+    DaemonHandoffRequest, EnsureTerminalRequest, RendererPreedit,
+    RendererPresentationConfiguration, ResourceWaitWake, TerminalLaunchRequest,
+    clamp_terminal_size,
+};
 use crate::platform::{self, transport};
+use crate::presentation::normalize_presentation;
+use crate::private_runtime::ConnectionPrivateOwner;
+use crate::projection_state::{
+    ProjectionClaimant, ProjectionStateUpdate, ProjectionWorkspaceState,
+};
+use crate::remote_tmux_producer::{
+    ExternalTerminalProvenance, RemoteTmuxProducerClaimReceipt, RemoteTmuxProducerSource,
+    RemoteTmuxProducerSourceUpdateReceipt,
+};
+use crate::renderer_control::{RendererColorSpace, RendererFrameRelease, RendererPixelFormat};
+use crate::renderer_supervisor::RendererProcessInstanceToken;
 use crate::resource::{
     BrowserPublicId, ClientPublicId, ContentPublicId, RequestId as ResourceRequestId,
     ResourceError, ResourceOperation, ResponseEnvelope as ResourceResponseEnvelope, Selector,
@@ -65,15 +90,27 @@ use crate::sidebar_resource::{
 };
 use crate::surface::{
     AttachLifecycle, CLEAR_HISTORY_KEY_TEXT_MAX_BYTES, ClearHistoryDelivery, ClearHistoryFailure,
+    ExternalTerminalClaimReceipt, ExternalTerminalOutputReceipt, ExternalTerminalOwner,
+    MouseSelectionAutoscrollDirection, TerminalInteractionSnapshot,
+};
+use crate::terminal_authority::{
+    AutomationInputScope, BeginTerminalOperation, DEFAULT_TERMINAL_LEASE_TTL_MS,
+    PresentationAuthority, RequestFingerprint, TerminalConnectionClaim,
+    TerminalDelegationReference, TerminalInputGroup, TerminalLeaseClaim, TerminalLeaseKind,
+    TerminalLeaseReference, TerminalOperationKind, TerminalOperationOutcome,
+    TerminalOperationReceipt,
 };
 use crate::workspace_registry::TerminalLifecycle;
 use crate::{
     AgentRecord, AgentSource, AgentState, AttachFrame, BrowserAttachState, BrowserFrameStream,
-    DefaultColors, Direction, GraphicsStatus, LayoutLeafSpec, LayoutRatioError, LayoutSpec,
-    LayoutUndoResult, Mux, MuxEvent, Node, NotificationLevel, PairingDecision, PaneId,
-    RenderAttachFrame, RenderAttachStream, Rgb, ScreenId, SidebarPluginStatus, SplitDir, SplitId,
-    SurfaceId, SurfaceKind, SurfaceNotification, SurfaceRenderFrame, TerminalColors, TreeDelta,
-    TreeDeltaKind, ViewportWidthError, WorkspaceId, WorkspaceMutation, ZoomMode, assign_short_ids,
+    DaemonInstanceId, DefaultColors, Direction, GraphicsStatus,
+    LEGACY_TERMINAL_ACTIVITY_READER_UUID, LayoutLeafSpec, LayoutRatioError, LayoutSpec,
+    LayoutUndoResult, Mux, MuxEvent, MuxEventReceiver, Node, NotificationLevel, PairingDecision,
+    PaneId, PresentationId, PresentationScroll, PresentationView, PresentationZoom,
+    RenderAttachFrame, RenderAttachStream, Rgb, ScreenId, SessionId, SidebarPluginStatus, SplitDir,
+    SplitId, SurfaceId, SurfaceKind, SurfaceNotification, SurfaceRenderFrame, SurfaceUuid,
+    TerminalColors, TopologyResume, TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceId,
+    WorkspaceMutation, WorkspaceUuid, ZoomMode, assign_short_ids,
 };
 
 pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
@@ -99,6 +136,42 @@ pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
 pub const PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION: u32 = 10;
 pub const TERMINAL_LIFECYCLE_PROTOCOL_VERSION: u32 = 11;
 pub const PROTOCOL_VERSION: u32 = TERMINAL_LIFECYCLE_PROTOCOL_VERSION;
+pub const PROTOCOL_MIN_VERSION: u32 = 6;
+pub const PROTOCOL_MAX_VERSION: u32 = PROTOCOL_VERSION;
+pub const PROTOCOL_CAPABILITIES: &[&str] = &[
+    "durable-session-identity-v1",
+    "ensure-terminal-v1",
+    "ensure-terminals-v1",
+    "frontend-native-browser-v1",
+    "reparent-terminal-v1",
+    "canonical-topology-mutations-v1",
+    "canonical-topology-snapshot-v1",
+    "presentation-registry-v1",
+    "projection-state-reconnect-v1",
+    "remote-tmux-producer-source-v1",
+    "renderer-semantic-scene-v1",
+    "renderer-worker-supervision-v1",
+    "render-attach-v1",
+    "stable-entity-uuid-v1",
+    "terminal-interaction-v1",
+    "terminal-accessibility-v1",
+    "terminal-activity-v1",
+    "terminal-byte-stream-compat-v1",
+    "terminal-control-lease-v1",
+    "terminal-split-leases-v1",
+    "terminal-lease-transfer-v1",
+    "terminal-input-delegation-v1",
+    "terminal-input-groups-v1",
+    "terminal-global-input-order-v1",
+    "terminal-input-idempotency-v1",
+    "terminal-input-receipt-ack-v1",
+    "terminal-nonrenderer-presentation-v1",
+    "terminal-link-hit-v1",
+    "terminal-ordered-input-v1",
+    "topology-resume-v1",
+    "topology-revision-v1",
+    "tree-delta-v1",
+];
 const PROTOCOL_KEY_TEXT_MAX_BYTES: usize = CLEAR_HISTORY_KEY_TEXT_MAX_BYTES;
 
 fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&'static str> {

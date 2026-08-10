@@ -34,7 +34,8 @@ pub use scene::{
 };
 pub use terminal::{
     Callbacks, ClearHistoryOutcome, KittyGraphicsLimits, KittyImageIdCursors, KittyReplayState,
-    NotifyFn, PtyWriteFn, Rgb, Screen, Scrollbar, Terminal, TerminalColorOverrides,
+    NotifyFn, PtyWriteFn, Rgb, Screen, Scrollbar, SearchSelection, SelectionAdjustment,
+    SelectionPoint, SelectionRangeSnapshot, SelectionSnapshot, Terminal, TerminalColorOverrides,
     TerminalPointerSemanticSnapshot, TrackedScreenPoint, VtReplay, parse_color,
     parse_palette_entry,
 };

@@ -10,6 +10,15 @@ use crate::resource::{
     TerminalPublicId, WorkspacePublicId,
 };
 use crate::{PaneId, ScreenId, SplitDir, SplitId, Surface, SurfaceId, WorkspaceId};
+use crate::{PaneUuid, ScreenUuid, SurfaceUuid, WorkspaceUuid};
+
+/// Result of resolving a requested mutation against canonical state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ChangeState {
+    Missing,
+    Unchanged,
+    Changed,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ViewportColumn {
