@@ -17,7 +17,7 @@ extension DockSplitStore {
         replacedCachedTransferAgentSessionPanelIds.remove(panelId)
         restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
         agentRuntimeByPanelId.removeValue(forKey: panelId)
-        agentNeedsInputAttention.setAttention(false, forSurfaceId: panelId)
+        syncAgentNeedsInputAttention(panelId: panelId, runtime: nil)
         restoredPanelTitleBoundariesByPanelId.removeValue(forKey: panelId)
     }
 
