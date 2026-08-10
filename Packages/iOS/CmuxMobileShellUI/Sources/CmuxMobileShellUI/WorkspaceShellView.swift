@@ -144,6 +144,7 @@ private struct WorkspaceShellRenderPresentation {
     let notificationFeedItems: [MobileNotificationFeedItem]
     let notificationUnreadCount: Int
     let notificationFeedStatus: MobileNotificationFeedStatus
+    let agentFeedNeedsInputCount: Int
     let selectedNotificationFeedMacDeviceIDs: Set<String>?
     let toolbarMachineSnapshots: WorkspaceMachineSnapshots
     let canCreateWorkspaceForSelection: Bool
@@ -240,7 +241,7 @@ struct WorkspaceShellView: View {
             MobilePrimaryTabScaffold(
                 selection: $selectedPrimaryTab,
                 searchCoordinator: primarySearchCoordinator,
-                notificationUnreadCount: presentation.notificationUnreadCount,
+                notificationUnreadCount: presentation.agentFeedNeedsInputCount,
                 taskComposerAction: usesCompactStack && !compactNavigationPath.isEmpty
                     ? nil
                     : taskComposerAction
@@ -250,13 +251,7 @@ struct WorkspaceShellView: View {
                 )
             } notifications: {
                 NavigationStack(path: $notificationNavigationPath) {
-                    NotificationFeedStoreView(
-                        store: store,
-                        items: presentation.notificationFeedItems,
-                        status: presentation.notificationFeedStatus,
-                        projection: notificationFeedProjection,
-                        selectedMacDeviceIDs: presentation.selectedNotificationFeedMacDeviceIDs
-                    )
+                    AgentFeedStoreView(store: store)
                         .toolbar {
                             if notificationNavigationPath.isEmpty {
                                 rootToolbarContent
@@ -774,6 +769,7 @@ struct WorkspaceShellView: View {
             notificationFeedItems: visibleNotificationFeedItems,
             notificationUnreadCount: notificationUnreadCount,
             notificationFeedStatus: store.notificationFeedStatus(scopedTo: selectedMachineIDs),
+            agentFeedNeedsInputCount: store.agentFeedNeedsInputCount,
             selectedNotificationFeedMacDeviceIDs: selectedMachineIDs,
             toolbarMachineSnapshots: toolbarMachineSnapshots,
             canCreateWorkspaceForSelection: scope.canCreateWorkspace(

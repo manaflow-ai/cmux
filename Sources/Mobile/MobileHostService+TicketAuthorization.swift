@@ -111,7 +111,8 @@ extension MobileHostService {
                 terminalSelection: terminalSelection.value
             )
         case "notification.feed.list", "notification.feed.mark_read", "notification.feed.mark_unread",
-             "notification.feed.mark_all_read":
+             "notification.feed.mark_all_read", "workstream.feed.list",
+             "workstream.feed.action", "workstream.feed.reply":
             // The Stack same-account check (or admitted Iroh peer identity) is
             // the authority for the account-wide feed, just as it is for the
             // account-wide workspace list. An attach ticket only narrows

@@ -53,7 +53,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return [
                     "workspace.updated", "mobile.sync.delta",
                     "terminal.bytes", "terminal.render_grid", "terminal.set_font",
-                    "notification.dismissed", "notification.badge", "notification.feed.changed",
+                    "notification.dismissed", "notification.badge", "notification.feed.changed", "workstream.feed.changed",
                     "phone_push.status.changed",
                     "browser.frame", "browser.state", "browser.closed", "browser.dialog", "browser.dialog.resolved",
                     "simulator.frame", "simulator.state", "simulator.closed",
@@ -62,7 +62,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return [
                     "workspace.updated", "mobile.sync.delta",
                     "terminal.render_grid", "terminal.set_font",
-                    "notification.dismissed", "notification.badge", "notification.feed.changed",
+                    "notification.dismissed", "notification.badge", "notification.feed.changed", "workstream.feed.changed",
                     "phone_push.status.changed",
                     "browser.frame", "browser.state", "browser.closed", "browser.dialog", "browser.dialog.resolved",
                     "simulator.frame", "simulator.state", "simulator.closed",
@@ -71,7 +71,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return [
                     "workspace.updated", "mobile.sync.delta",
                     "terminal.bytes", "terminal.set_font",
-                    "notification.dismissed", "notification.badge", "notification.feed.changed",
+                    "notification.dismissed", "notification.badge", "notification.feed.changed", "workstream.feed.changed",
                     "phone_push.status.changed",
                     "browser.frame", "browser.state", "browser.closed", "browser.dialog", "browser.dialog.resolved",
                     "simulator.frame", "simulator.state", "simulator.closed",
@@ -249,6 +249,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         didSet {
             guard oldValue != macConnectionStatus else { return }
             recomputeNotificationFeedItems()
+            recomputeAgentFeedItems()
         }
     }
     public internal(set) var connectedHostName: String
@@ -353,6 +354,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let newStatuses = workspacesByMac.mapValues(\.status)
             if oldStatuses != newStatuses {
                 recomputeNotificationFeedItems()
+                recomputeAgentFeedItems()
             }
         }
     }
@@ -379,6 +381,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public internal(set) var notificationFeedStatus: MobileNotificationFeedStatus = .idle
     /// The number of currently retained unread notifications across all Macs.
     public private(set) var notificationFeedUnreadCount: Int = 0
+    /// Immutable, bounded coding-agent activity aggregated across every Mac.
+    public internal(set) var agentFeedItems: [MobileAgentFeedItem] = [] {
+        didSet {
+            agentFeedNeedsInputCount = agentFeedItems.lazy.filter(\.isActionable).count
+        }
+    }
+    /// Count shown on the Feed tab badge. Telemetry and resolved rows never count.
+    public private(set) var agentFeedNeedsInputCount: Int = 0
+    public internal(set) var agentFeedStatus: MobileAgentFeedStatus = .idle
+    /// Drafts are keyed by stable item identity so list insertion/filtering never
+    /// attaches text to another card.
+    public var agentFeedDrafts: [MobileAgentFeedItemID: String] = [:]
+    public internal(set) var agentFeedMutationStates: [MobileAgentFeedItemID: MobileAgentFeedMutationState] = [:]
     /// Last authoritative chat-session snapshots, keyed by the workspace row id the UI renders.
     var chatSessionSnapshotsByWorkspaceID: [String: [ChatSessionDescriptor]] = [:]
     /// The group sections the UI renders. A materialized derivation of every
@@ -1127,6 +1142,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @ObservationIgnored var notificationFeedOpenTask: Task<Void, Never>?
     @ObservationIgnored var notificationFeedOpenToken: UUID?
     let notificationFeedAggregation = MobileNotificationFeedAggregation()
+    @ObservationIgnored var agentFeedSnapshotsByMac: [String: AgentFeedMacSnapshot] = [:]
+    @ObservationIgnored var agentFeedKnownRevisionsByMac: [String: UInt64] = [:]
+    @ObservationIgnored var agentFeedRefreshTasksByMac: [String: Task<Void, Never>] = [:]
+    let agentFeedAggregation = MobileAgentFeedAggregation()
     var createWorkspaceTaskID: UUID?
     private var createTerminalTaskID: UUID?
     var connectionGeneration: UUID
@@ -1822,6 +1841,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         replaceRemoteClient(with: nil)
         cancelRemoteOperationTasks()
         resetNotificationFeed()
+        resetAgentFeed()
         // Tear down secondary-Mac aggregation at the account boundary: cancel any
         // in-flight aggregation pass and every live secondary subscription so the
         // previous user's Macs/workspaces cannot be re-seeded into the next
@@ -5582,6 +5602,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             client: subscription.client,
             displayName: displayName
         )
+        scheduleSecondaryAgentFeedRefresh(
+            ownerKey: subscription.ownerKey.pairingID,
+            client: subscription.client
+        )
         if subscription.supportedHostCapabilities.contains("events.v1") {
             startSecondaryEventConsumer(
                 subscription,
@@ -5684,6 +5708,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     fallback: displayName
                 )
             )
+        } else if event.topic == "workstream.feed.changed" {
+            handleAgentFeedChangedEvent(
+                event,
+                ownerKey: ownerKey.pairingID,
+                client: client
+            )
         }
         return true
     }
@@ -5780,6 +5810,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     macDeviceID: ownerKey.pairingID,
                     client: subscription.client,
                     displayName: subscription.displayName
+                )
+                scheduleSecondaryAgentFeedRefresh(
+                    ownerKey: ownerKey.pairingID,
+                    client: subscription.client
                 )
             }
             return
@@ -6041,6 +6075,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             macDeviceID: ownerKey.pairingID,
             client: subscription.client,
             displayName: subscription.displayName
+        )
+        scheduleSecondaryAgentFeedRefresh(
+            ownerKey: ownerKey.pairingID,
+            client: subscription.client
         )
         if subscription.refreshPending,
            subscription.refreshTask == nil,
@@ -10706,6 +10744,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return
             }
             self?.scheduleForegroundNotificationFeedRefresh(client: client)
+            self?.scheduleForegroundAgentFeedRefresh(client: client)
             let topics = outputTransport.eventTopics
             let stream = await client.subscribe(to: Set(topics))
             // Kick off the server-side enable handshake CONCURRENTLY with
@@ -10773,6 +10812,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         displayName: self.notificationFeedDisplayNameForForeground(
                             macDeviceID: macDeviceID
                         )
+                    )
+                } else if event.topic == "workstream.feed.changed",
+                          let macDeviceID = self.foregroundMacDeviceID ?? self.activeTicket?.macDeviceID {
+                    self.handleAgentFeedChangedEvent(
+                        event,
+                        ownerKey: macDeviceID,
+                        client: client
                     )
                 } else if event.topic == "phone_push.status.changed" {
                     await self.refreshPhonePushStatus(

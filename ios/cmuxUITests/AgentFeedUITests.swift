@@ -1,0 +1,75 @@
+import XCTest
+
+final class AgentFeedUITests: XCTestCase {
+    @MainActor
+    func testAgentFeedPermissionResolutionAndExactNavigation() throws {
+        let app = launchFixture()
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.descendants(matching: .any)["MobileAgentFeed"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.tabBars.buttons["Feed"].isSelected)
+
+        let permissionCard = app.descendants(matching: .any)[
+            "MobileAgentFeedCard-macbook-00000000-0000-0000-0000-000000000101"
+        ]
+        XCTAssertTrue(permissionCard.waitForExistence(timeout: 3))
+        app.buttons[
+            "MobileAgentFeedExpand-macbook-00000000-0000-0000-0000-000000000101"
+        ].tap()
+        let allowOnce = app.buttons[
+            "MobileAgentFeedPermission-once-macbook-00000000-0000-0000-0000-000000000101"
+        ]
+        XCTAssertTrue(allowOnce.waitForExistence(timeout: 3))
+        allowOnce.tap()
+        XCTAssertTrue(permissionCard.waitForNonExistence(timeout: 3))
+
+        let planOpen = app.buttons[
+            "MobileAgentFeedOpenAgent-mac-studio-00000000-0000-0000-0000-000000000102"
+        ]
+        XCTAssertTrue(planOpen.waitForExistence(timeout: 3))
+        planOpen.tap()
+        let destination = app.descendants(matching: .any)["MobileAgentFeedPreviewAgentDestination"]
+        XCTAssertTrue(destination.waitForExistence(timeout: 3))
+        app.navigationBars.buttons.firstMatch.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["MobileAgentFeed"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.tabBars.buttons["Feed"].isSelected)
+    }
+
+    @MainActor
+    func testAgentFeedMultiQuestionRequiresEveryAnswerAndSupportsOther() throws {
+        let app = launchFixture()
+        defer { app.terminate() }
+
+        let suffix = "macbook-00000000-0000-0000-0000-000000000103"
+        let expand = app.buttons["MobileAgentFeedExpand-\(suffix)"]
+        XCTAssertTrue(expand.waitForExistence(timeout: 8))
+        expand.tap()
+
+        let submit = app.buttons["MobileAgentFeedQuestionSubmit-\(suffix)"]
+        XCTAssertTrue(submit.waitForExistence(timeout: 3))
+        XCTAssertFalse(submit.isEnabled)
+        app.buttons["MobileAgentFeedQuestion-scope-iphone-\(suffix)"].tap()
+        XCTAssertFalse(submit.isEnabled)
+        let other = app.textFields["MobileAgentFeedQuestionOther-priority-\(suffix)"]
+        XCTAssertTrue(other.waitForExistence(timeout: 3))
+        other.tap()
+        other.typeText("Oldest blocked request")
+        XCTAssertTrue(submit.isEnabled)
+        submit.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["MobileAgentFeedCard-\(suffix)"].waitForNonExistence(timeout: 3))
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "agent-feed-multi-question-resolved"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
+    private func launchFixture() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchEnvironment["CMUX_UITEST_AGENT_FEED_PREVIEW"] = "1"
+        app.launch()
+        return app
+    }
+}

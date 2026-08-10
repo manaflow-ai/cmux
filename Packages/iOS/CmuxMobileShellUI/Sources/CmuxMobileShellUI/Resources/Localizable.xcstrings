@@ -1348,6 +1348,398 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "キャンセル" } }
       }
     },
+    "mobile.agentFeed.activity.lifecycle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Session activity" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "セッションのアクティビティ" } }
+      }
+    },
+    "mobile.agentFeed.activity.todos" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Task list updated" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "タスクリストを更新しました" } }
+      }
+    },
+    "mobile.agentFeed.activity.toolError" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%@ failed: %@" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%@ が失敗しました: %@" } }
+      }
+    },
+    "mobile.agentFeed.activity.toolUse" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Using %@" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%@ を使用中" } }
+      }
+    },
+    "mobile.agentFeed.activity.turnComplete" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Turn complete. Reply to continue." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ターンが完了しました。返信して続行できます。" } }
+      }
+    },
+    "mobile.agentFeed.activity.unknown" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Agent activity" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "エージェントのアクティビティ" } }
+      }
+    },
+    "mobile.agentFeed.card.activity" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Activity" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "アクティビティ" } }
+      }
+    },
+    "mobile.agentFeed.card.computerContext" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%@ · %@ · %@" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%@ · %@ · %@" } }
+      }
+    },
+    "mobile.agentFeed.card.expired" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Expired" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "期限切れ" } }
+      }
+    },
+    "mobile.agentFeed.card.collapse" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Collapse details" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "詳細を閉じる" } }
+      }
+    },
+    "mobile.agentFeed.card.expand" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Expand details" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "詳細を開く" } }
+      }
+    },
+    "mobile.agentFeed.card.pending" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Needs input" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "入力が必要" } }
+      }
+    },
+    "mobile.agentFeed.card.resolved" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Resolved" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "解決済み" } }
+      }
+    },
+    "mobile.agentFeed.card.resolution" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Resolved: %@" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "解決済み: %@" } }
+      }
+    },
+    "mobile.agentFeed.card.unknown" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Unknown status" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "不明な状態" } }
+      }
+    },
+    "mobile.agentFeed.empty.message" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Agent updates and requests will appear here." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "エージェントの更新とリクエストがここに表示されます。" } }
+      }
+    },
+    "mobile.agentFeed.empty.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No agent activity" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "エージェントのアクティビティはありません" } }
+      }
+    },
+    "mobile.agentFeed.filter.all" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "All Activity" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "すべてのアクティビティ" } }
+      }
+    },
+    "mobile.agentFeed.filter.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Feed filter" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "フィードフィルタ" } }
+      }
+    },
+    "mobile.agentFeed.filter.needsInput" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Needs Input" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "入力が必要" } }
+      }
+    },
+    "mobile.agentFeed.fixture.agent" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Agent" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "エージェント" } }
+      }
+    },
+    "mobile.agentFeed.fixture.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Agent Feed fixture" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "エージェントフィードのフィクスチャ" } }
+      }
+    },
+    "mobile.agentFeed.openAgent" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Open Agent" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "エージェントを開く" } }
+      }
+    },
+    "mobile.agentFeed.newActivity.count" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%d new activities" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "新しいアクティビティ %d件" } }
+      }
+    },
+    "mobile.agentFeed.permission.all" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Allow All" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "すべて許可" } }
+      }
+    },
+    "mobile.agentFeed.permission.always" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Always Allow" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "常に許可" } }
+      }
+    },
+    "mobile.agentFeed.permission.bypass" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Bypass" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "バイパス" } }
+      }
+    },
+    "mobile.agentFeed.permission.deny" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Deny" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "拒否" } }
+      }
+    },
+    "mobile.agentFeed.permission.once" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Allow Once" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "一度だけ許可" } }
+      }
+    },
+    "mobile.agentFeed.plan.autoAccept" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Auto-Accept" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "自動承認" } }
+      }
+    },
+    "mobile.agentFeed.plan.bypass" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Bypass Permissions" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "権限をバイパス" } }
+      }
+    },
+    "mobile.agentFeed.plan.deny" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Deny" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "拒否" } }
+      }
+    },
+    "mobile.agentFeed.plan.feedback" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Request changes" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "変更をリクエスト" } }
+      }
+    },
+    "mobile.agentFeed.plan.manual" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Manual" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "手動" } }
+      }
+    },
+    "mobile.agentFeed.plan.ultraplan" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Ultraplan" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ウルトラプラン" } }
+      }
+    },
+    "mobile.agentFeed.question.malformed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "This question could not be displayed. Open the agent to respond." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "この質問を表示できません。エージェントを開いて回答してください。" } }
+      }
+    },
+    "mobile.agentFeed.question.other" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Other" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "その他" } }
+      }
+    },
+    "mobile.agentFeed.question.submit" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Submit Answers" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "回答を送信" } }
+      }
+    },
+    "mobile.agentFeed.reply.placeholder" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Reply to this agent" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このエージェントに返信" } }
+      }
+    },
+    "mobile.agentFeed.reply.send" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Send Reply" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "返信を送信" } }
+      }
+    },
+    "mobile.agentFeed.source.claude" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Claude" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Claude" } }
+      }
+    },
+    "mobile.agentFeed.source.codex" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Codex" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Codex" } }
+      }
+    },
+    "mobile.agentFeed.source.gemini" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Gemini" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Gemini" } }
+      }
+    },
+    "mobile.agentFeed.source.hermes" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Hermes" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Hermes" } }
+      }
+    },
+    "mobile.agentFeed.source.opencode" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "OpenCode" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "OpenCode" } }
+      }
+    },
+    "mobile.agentFeed.source.other" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Agent: %@" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "エージェント: %@" } }
+      }
+    },
+    "mobile.agentFeed.status.failed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Failed. Try again." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "失敗しました。もう一度お試しください。" } }
+      }
+    },
+    "mobile.agentFeed.status.offline" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Offline. Showing cached activity." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "オフラインです。キャッシュしたアクティビティを表示しています。" } }
+      }
+    },
+    "mobile.agentFeed.status.partial" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Some computers are unavailable." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "一部のコンピュータを利用できません。" } }
+      }
+    },
+    "mobile.agentFeed.status.reconnecting" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Reconnecting…" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "再接続中…" } }
+      }
+    },
+    "mobile.agentFeed.status.retry" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Feed unavailable. Retry" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "フィードを利用できません。再試行" } }
+      }
+    },
+    "mobile.agentFeed.status.sending" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Sending…" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "送信中…" } }
+      }
+    },
+    "mobile.agentFeed.status.syncing" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Syncing Feed…" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "フィードを同期中…" } }
+      }
+    },
+    "mobile.agentFeed.status.updateMac" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Update cmux on your Mac to use Feed." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "フィードを使うにはMacのcmuxを更新してください。" } }
+      }
+    },
+    "mobile.agentFeed.targetUnavailable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Agent location unavailable" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "エージェントの場所を利用できません" } }
+      }
+    },
+    "mobile.tabs.feed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Feed" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "フィード" } }
+      }
+    },
     "mobile.iroh.diagnostics.failure.unknown" : {
       "extractionState" : "manual",
       "localizations" : {

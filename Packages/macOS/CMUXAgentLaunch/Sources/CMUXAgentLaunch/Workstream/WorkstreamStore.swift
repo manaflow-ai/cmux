@@ -214,6 +214,7 @@ public final class WorkstreamStore {
         return WorkstreamItem(
             workstreamId: event.sessionId,
             source: source,
+            sourceRawValue: event.source,
             kind: kind,
             createdAt: event.receivedAt,
             updatedAt: event.receivedAt,

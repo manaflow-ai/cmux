@@ -9,6 +9,9 @@ import Testing
         "notification.feed.mark_read",
         "notification.feed.mark_unread",
         "notification.feed.mark_all_read",
+        "workstream.feed.list",
+        "workstream.feed.action",
+        "workstream.feed.reply",
     ])
     func feedRequestsUseAccountAuthorizationWithoutWorkspaceTicketScope(method: String) async throws {
         let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 58_465)

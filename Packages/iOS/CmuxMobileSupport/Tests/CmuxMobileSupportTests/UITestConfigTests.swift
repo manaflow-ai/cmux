@@ -277,5 +277,18 @@ import Testing
             environment: ["CMUX_UITEST_SCANNER_PREVIEW": "0"]
         ).pairingScannerPreviewEnabled == false)
     }
+
+    @Test func agentFeedPreviewAcceptsEnvironmentOrLaunchArgument() {
+        #expect(UITestConfig.agentFeedPreviewEnabled(
+            from: ["CMUX_UITEST_AGENT_FEED_PREVIEW": "1"]
+        ))
+        #expect(UITestConfig.agentFeedPreviewEnabled(
+            from: [:],
+            arguments: ["CMUX_UITEST_AGENT_FEED_PREVIEW=1"]
+        ))
+        #expect(!UITestConfig.agentFeedPreviewEnabled(
+            from: ["CMUX_UITEST_AGENT_FEED_PREVIEW": "0"]
+        ))
+    }
     #endif
 }

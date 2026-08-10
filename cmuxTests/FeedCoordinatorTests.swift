@@ -155,6 +155,28 @@ struct FeedCoordinatorTests {
         #expect(!FeedPermissionActionPolicy.supportsAllPermissionMode(source: .codex, toolInputJSON: capabilityToolInput))
     }
 
+    @Test func mobileFeedEncodingPreservesFutureSourceAndRedactsPermissionValues() throws {
+        let item = WorkstreamItem(
+            workstreamId: "future-session",
+            source: .claude,
+            sourceRawValue: "future-agent",
+            kind: .permissionRequest,
+            payload: .permissionRequest(
+                requestId: "request-future",
+                toolName: "Deploy",
+                toolInputJSON: #"{"token":"secret","region":"us-west-2"}"#,
+                pattern: nil
+            )
+        )
+
+        let dict = FeedSocketEncoding.itemDict(item)
+
+        #expect(dict["source"] as? String == "future-agent")
+        #expect(dict["tool_input_summary"] as? String == "region: …, token: …")
+        #expect(!(try #require(dict["tool_input_summary"] as? String)).contains("secret"))
+        #expect(dict["supported_modes"] as? [String] == ["deny"])
+    }
+
     @Test func codexAppServerApprovalBuildsActionableFeedEvent() throws {
         let event = CodexTeamsApprovalBridge.feedEvent(
             method: "item/commandExecution/requestApproval",

@@ -193,10 +193,10 @@ struct MobilePrimaryTabScaffold<
             notifications
         } label: {
             Label(
-                L10n.string("mobile.tabs.notifications", defaultValue: "Notifications"),
-                systemImage: "bell"
+                L10n.string("mobile.tabs.feed", defaultValue: "Feed"),
+                systemImage: "text.bubble"
             )
-            .accessibilityIdentifier("MobilePrimaryTabNotifications")
+            .accessibilityIdentifier("MobilePrimaryTabFeed")
         }
         .badge(notificationUnreadCount)
     }
