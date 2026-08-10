@@ -180,11 +180,16 @@ impl FixtureRoot {
             bail!("cannot defer a fixture root before child and reader cleanup completes");
         }
         let started = Instant::now();
-        let path = self.path.take().context("fixture root was already deferred")?;
-        if path.parent() != Some(self.parent.as_path()) || self.parent != recorder.fixture_parent {
-            bail!("fixture root is outside the configured reclamation parent");
+        {
+            let path = self.path.as_ref().context("fixture root was already deferred")?;
+            if path.parent() != Some(self.parent.as_path())
+                || self.parent != recorder.fixture_parent
+            {
+                bail!("fixture root is outside the configured reclamation parent");
+            }
+            recorder.accept_root(path)?;
         }
-        recorder.accept_root(path)?;
+        let _transferred_path = self.path.take().expect("validated fixture root disappeared");
         PhaseMetric::completed(started.elapsed())
     }
 }
@@ -303,7 +308,7 @@ impl LifecycleRecorder {
         write_new_json(&self.output_dir.join(file_name), &document)
     }
 
-    fn accept_root(&mut self, path: PathBuf) -> Result<()> {
+    fn accept_root(&mut self, path: &Path) -> Result<()> {
         let name = path
             .file_name()
             .and_then(|name| name.to_str())
