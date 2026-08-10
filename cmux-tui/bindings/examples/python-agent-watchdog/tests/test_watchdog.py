@@ -48,7 +48,7 @@ def send_frame(connection: socket.socket, value: Dict[str, Any]) -> None:
 
 def response(request: Dict[str, Any], result: Any) -> Dict[str, Any]:
     return {
-        "protocol": "cmux.protocol/1",
+        "protocol": "cmux.protocol/2",
         "type": "response",
         "id": request["id"],
         "ok": True,
@@ -138,6 +138,7 @@ def full_snapshot(*, blocked: bool) -> Dict[str, Any]:
             {
                 "id": TERMINAL_ID,
                 "tab_id": TAB_ID,
+                "tab_ids": [TAB_ID],
                 "title": "Codex",
                 "cwd": "/tmp/project",
                 "cols": 80,
@@ -226,7 +227,7 @@ class FakeCmuxServer:
                         send_frame(
                             connection,
                             {
-                                "protocol": "cmux.protocol/1",
+                                "protocol": "cmux.protocol/2",
                                 "type": "stream_item",
                                 "stream_id": request["params"]["stream_id"],
                                 "sequence": "1",
@@ -315,7 +316,7 @@ class FakeCmuxServer:
                     send_frame(
                         connection,
                         {
-                            "protocol": "cmux.protocol/1",
+                            "protocol": "cmux.protocol/2",
                             "type": "response",
                             "id": request["id"],
                             "ok": False,

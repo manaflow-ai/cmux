@@ -135,6 +135,31 @@
     "faqFeatureA": "我們很想聽到你的回饋。在 GitHub 上提交一個 <issuesLink>issue</issuesLink> 或 <prLink>pull request</prLink>，或者 <mailLink>寄電子郵件給我們</mailLink>。"
   },
   "dashboard": {
+    "nav": {
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "總覽",
+      "team": "團隊"
+    },
+    "home": {
+      "coderouterName": "coderouter",
+      "coderouterDescription": "在供應商帳戶之間路由 LLM 請求，支援容錯移轉和依用量排程。",
+      "coderouterLink": "開啟 coderouter"
+    },
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "管理共用 AI 帳戶，並使用 coderouter 路由請求。",
+      "title": "coderouter",
+      "description": "coderouter 在供應商帳戶之間路由 LLM 請求，支援容錯移轉和依用量排程。"
+    },
+    "accountMenu": {
+      "label": "帳戶選單",
+      "settings": "設定",
+      "billing": "帳單",
+      "signOut": "登出",
+      "signingOut": "正在登出…",
+      "signOutError": "無法登出，請再試一次。",
+      "signIn": "登入"
+    },
     "aiAccounts": {
       "metaTitle": "AI 帳戶 — cmux",
       "metaDescription": "管理 cmux 的團隊 AI 供應商帳戶。",
@@ -867,6 +892,8 @@
       "concepts": "概念",
       "anchorTitle": "錨點工作區",
       "anchorDesc": "每個群組都恰好由一個稱為錨點的工作區擁有。側邊欄中的群組標頭即是錨點的呈現方式——它沒有獨立的列。點按標頭名稱區域會聚焦於錨點的面板；點按箭號則切換折疊狀態。",
+      "anchorNew": "群組的錨點在建立時一律是全新的工作區；無論將所選工作區分組或建立群組，都不會把任何現有工作區提升為錨點。（之後關閉錨點時，確實會提升群組中第一個仍保留的成員，請見下文。）將所選工作區分組時，錨點的工作目錄會繼承自第一個選取的工作區；透過 CLI 建立且未指定 --cwd 時，則繼承自目前使用中的工作區。",
+      "anchorClose": "關閉錨點工作區時，只會關閉該工作區，並將群組中第一個仍保留的成員（依群組順序仍存在的成員中最前面的一個）提升為新錨點，因此群組和其他成員會維持不變（獲提升的成員之後會在標頭顯示群組名稱）。當錨點是群組中唯一的工作區時，群組會被移除。若要將群組展開為未分組的工作區，請使用取消工作區群組；若要關閉群組中的所有工作區，請使用刪除群組。",
       "identityTitle": "群組識別",
       "identityDesc": "群組具有名稱、圖示（一個 SF Symbol，預設為 folder.fill），以及一個選用的自訂顏色。這些都獨立於錨點工作區本身的自訂設定。錨點的顏色和圖示在建立時會以群組為種子值，但之後可以各自不同。",
       "pinningTitle": "釘選",
@@ -1405,7 +1432,16 @@
     "changelog": {
       "title": "更新日誌",
       "metaDescription": "cmux 版本說明和版本歷史。原生 macOS 終端機的新功能、錯誤修復和變更。",
-      "metaTitle": "更新日誌"
+      "metaTitle": "更新日誌",
+      "versionTitle": "cmux {version} · 更新日誌",
+      "releaseNavLabel": "cmux {version} 附近的版本",
+      "sections": {
+        "added": "新增",
+        "changed": "變更",
+        "fixed": "修正",
+        "removed": "移除",
+        "contributors": "貢獻者"
+      }
     },
     "navItems": {
       "gettingStarted": "入門指南",
@@ -3559,7 +3595,6 @@
     "title": "適用於 {platform} 的 cmux",
     "tagline": "將 Chromium 瀏覽器與代理工作區整合在一起。",
     "logoAlt": "cmux App 圖示",
-    "portableCta": "可攜式 ZIP",
     "featuresTitle": "專為代理工作打造",
     "features": {
       "chromium": {
@@ -3581,7 +3616,7 @@
     },
     "installTitle": "安裝",
     "releaseTitle": "版本與更新",
-    "releaseBody": "這些連結一律指向 <github>GitHub Releases</github> 上的最新穩定版本。cmux 會在安裝更新前驗證已簽署的更新資訊清單。",
+    "releaseBody": "這些連結一律指向 <github>GitHub Releases</github> 上的最新 Nightly 版本。cmux 會在安裝更新前驗證已簽署的更新資訊清單。",
     "sourceLink": "在 GitHub 上檢視原始碼",
     "otherPlatform": "適用於 {platform} 的 cmux",
     "macLink": "Mac 版 cmux 終端",
@@ -3591,6 +3626,7 @@
       "metaDescription": "下載 Windows x64 版 cmux：免費且開放原始碼的 Chromium 瀏覽器與代理工作區，提供以任務為核心的分頁和終端介面。",
       "subtitle": "原生 x64 版本，提供 Chromium 分頁、cmux 工作區和熟悉的 Windows 鍵盤操作。",
       "primaryCta": "下載安裝程式（.exe）",
+      "secondaryCta": "可攜式 ZIP",
       "requirements": "Windows 10 或更新版本 · x64",
       "installBody": "執行安裝程式並依照 Windows 提示操作。若想將 cmux 放在資料夾中而不進行全系統安裝，請選擇可攜式 ZIP。"
     },
@@ -3599,9 +3635,10 @@
       "metaTitle": "下載 Linux 版 cmux",
       "metaDescription": "下載 Linux x64 版 cmux：免費且開放原始碼的 Chromium 瀏覽器與代理工作區，提供以任務為核心的分頁和終端介面。",
       "subtitle": "原生 x64 版本，提供 Chromium 分頁、cmux 工作區和整合式終端介面。",
-      "primaryCta": "下載 .deb",
-      "requirements": "Debian 或 Ubuntu · x64",
-      "installBody": "下載 Debian 套件並使用套件管理員安裝。若要進行每位使用者安裝和 App 內更新，請選擇可攜式 ZIP。"
+      "primaryCta": "下載支援自動更新的安裝程式（.run）",
+      "secondaryCta": "Debian 套件（.deb）",
+      "requirements": "Linux · x64",
+      "installBody": "執行一次使用者層級安裝程式。cmux 會在不需要 root 權限的情況下安裝到 ~/.local，並啟用經簽署的 App 內更新。若希望由套件管理員管理更新，請改選 Debian 套件。"
     }
   },
   "emails": {

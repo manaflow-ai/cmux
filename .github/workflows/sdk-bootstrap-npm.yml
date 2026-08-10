@@ -167,6 +167,7 @@ jobs:
             --workflow .github/workflows/sdk-bootstrap-npm.yml \
             --workflow-ref refs/heads/main \
             --dist-tag bootstrap \
+            --require-dist-tag latest \
             --publisher owner \
             --artifact "${packages[0]}"
 
@@ -258,7 +259,7 @@ jobs:
             exit 1
           }
           echo "npm lifecycle scripts are disabled in the credentialed publisher"
-          npm publish "${packages[0]}" \
+          npm publish "$(realpath "${packages[0]}")" \
             --ignore-scripts \
             --tag bootstrap \
             --provenance \
@@ -297,7 +298,7 @@ jobs:
       - name: Install pinned npm
         run: npm install --global --ignore-scripts npm@11.5.1
 
-      - name: Verify the prerelease did not claim latest
+      - name: Verify npm-required bootstrap tags
         run: |
           set -euo pipefail
           tags="$RUNNER_TEMP/cmux-sdk-bootstrap-tags.json"
@@ -313,8 +314,13 @@ jobs:
           const fs = require("node:fs");
           const [path, expected] = process.argv.slice(2);
           const tags = JSON.parse(fs.readFileSync(path, "utf8"));
-          if (tags.bootstrap !== expected || Object.hasOwn(tags, "latest")) {
-            throw new Error(`unexpected cmux-sdk dist-tags: ${JSON.stringify(tags)}`);
+          if (
+            tags.bootstrap !== expected ||
+            typeof tags.latest !== "string" ||
+            tags.latest.length === 0
+          ) {
+            console.error("cmux-sdk dist-tag validation failed.");
+            process.exit(1);
           }
           NODE
 
@@ -336,5 +342,6 @@ jobs:
             --workflow .github/workflows/sdk-bootstrap-npm.yml \
             --workflow-ref refs/heads/main \
             --dist-tag bootstrap \
+            --require-dist-tag latest \
             --publisher owner \
             --artifact "${packages[0]}"

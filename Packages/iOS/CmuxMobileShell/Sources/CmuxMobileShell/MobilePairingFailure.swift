@@ -257,7 +257,7 @@ extension MobilePairingFailureCategory {
         case .invalidCode:
             return L10n.string(
                 "mobile.pairing.invalidCode",
-                defaultValue: "This isn't a cmux pairing QR. Scan the code shown in the Pair iPhone window on your Mac."
+                defaultValue: "This isn't a cmux pairing QR. Scan the code shown in Tailscale Pairing on your Mac."
             )
         case .unrecognizedVersion:
             return L10n.string(
@@ -267,7 +267,10 @@ extension MobilePairingFailureCategory {
         case .loopbackRejected:
             return L10n.string(
                 "mobile.pairing.loopbackRejected",
-                defaultValue: "This code points at the Mac itself (localhost), so your iPhone can't use it. Update cmux on the Mac and scan its Iroh code."
+                defaultValue: """
+                This code points at the Mac itself (localhost), so your iPhone can't use it. \
+                Open Tailscale Pairing on the Mac and scan a fresh code.
+                """
             )
         case .macUpdateRequired:
             return L10n.string(
@@ -356,7 +359,7 @@ extension MobilePairingFailureCategory {
         case .ticketExpired, .unsupportedRoute, .noSupportedRoute:
             return L10n.string(
                 "mobile.pairing.guidance.rescanFresh",
-                defaultValue: "Open the pairing window on your Mac and scan a fresh QR or link."
+                defaultValue: "Open Tailscale Pairing on your Mac and scan a fresh QR or link."
             )
         case .unrecognizedVersion:
             return L10n.string(

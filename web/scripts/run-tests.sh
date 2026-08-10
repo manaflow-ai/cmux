@@ -116,24 +116,31 @@ if arguments_require_bun_discovery "$@" || default_config_controls_discovery; th
   exec bun test --isolate "$@"
 fi
 
-discovered_test_files=""
-if ! discovered_test_files="$(
+discovery_file="$(mktemp "${TMPDIR:-/tmp}/cmux-web-test-discovery.XXXXXX")"
+cleanup_discovery_file() {
+  rm -f "$discovery_file"
+}
+trap cleanup_discovery_file EXIT HUP INT TERM
+
+if ! (
   find . \
     \( -type d \( -name node_modules -o -name '.*' \) ! -path . -prune \) -o \
     -type f -print |
     awk '/(\.test|_test|\.spec|_spec)\.(js|jsx|ts|tsx|mjs|cjs|mts|cts)$/' |
     LC_ALL=C sort
-)"; then
+) > "$discovery_file"; then
   echo "Web test discovery failed" >&2
   exit 1
 fi
 
 test_files=()
-if [[ -n "$discovered_test_files" ]]; then
-  while IFS= read -r test_file; do
+while IFS= read -r test_file; do
+  if [[ -n "$test_file" ]]; then
     test_files+=("$test_file")
-  done <<< "$discovered_test_files"
-fi
+  fi
+done < "$discovery_file"
+cleanup_discovery_file
+trap - EXIT HUP INT TERM
 
 if (( ${#test_files[@]} == 0 )); then
   echo "No web test files found" >&2

@@ -29,7 +29,8 @@ pub use render::{
 pub use terminal::{
     Callbacks, ClearHistoryOutcome, KittyGraphicsLimits, KittyImageIdCursors, KittyReplayState,
     NotifyFn, PtyWriteFn, Rgb, Screen, Scrollbar, Terminal, TerminalColorOverrides,
-    TerminalPointerSemanticSnapshot, VtReplay, parse_color, parse_palette_entry,
+    TerminalPointerSemanticSnapshot, TrackedScreenPoint, VtReplay, parse_color,
+    parse_palette_entry,
 };
 
 pub(crate) fn check(result: ghostty_vt_sys::GhosttyResult) -> std::result::Result<(), Error> {

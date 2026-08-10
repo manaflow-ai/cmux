@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CMUXAgentLaunch
+import CmuxNotifications
 import Foundation
 @preconcurrency import UserNotifications
 import CmuxSettings
@@ -28,6 +29,13 @@ final class FeedCoordinator: @unchecked Sendable {
     // The store runs on the main actor. The coordinator is not isolated,
     // so it hops to main explicitly when touching the store.
     @MainActor private(set) var store: WorkstreamStore!
+    @MainActor private var userNotificationCenter: (any UserNotificationCenterServing)?
+
+    /// The bounded notification-center boundary. `install(store:)` injects it;
+    /// the shared store's service covers the pre-install window.
+    @MainActor private var resolvedUserNotificationCenter: any UserNotificationCenterServing {
+        userNotificationCenter ?? TerminalNotificationStore.shared.userNotificationCenter
+    }
 
     /// Pending blocking-hook waiters keyed by request id. The waiter owns
     /// a semaphore plus a slot for the resolved decision; the reply
@@ -57,12 +65,28 @@ final class FeedCoordinator: @unchecked Sendable {
     /// methods.
     @MainActor private var pendingAttentionStates: [AttentionTarget: AttentionOverlayState] = [:]
 
+    /// Tail of the serialized `CMUXFeedQuestion.` category mutation chain.
+    /// `UNUserNotificationCenter` has no atomic category merge, so every
+    /// mutation is a get→filter→set round trip; two concurrent round trips
+    /// (mint racing mint, or mint racing cancel) each capture a stale snapshot
+    /// and the later `set` silently drops the earlier write. The coordinator
+    /// is the sole owner of this category namespace, and every mutation
+    /// appends here so round trips never interleave.
+    @MainActor private var questionCategoryUpdates: Task<Void, Never>?
+
     private init() {}
 
     /// Must be called once at app launch to install the store.
     @MainActor
-    func install(store: WorkstreamStore) {
+    func install(
+        store: WorkstreamStore,
+        userNotificationCenter: (any UserNotificationCenterServing)? = nil
+    ) {
         self.store = store
+        // Resolved here rather than as a default argument: default-argument
+        // expressions evaluate outside the method's main-actor isolation.
+        self.userNotificationCenter = userNotificationCenter
+            ?? TerminalNotificationStore.shared.userNotificationCenter
         NotificationCenter.default.post(name: Self.storeInstalledNotification, object: self)
         // Catch any pending items that were restored from disk whose
         // agent is already gone. After this, live tracking is
@@ -1008,7 +1032,9 @@ private extension FeedCoordinator {
                     defaultValue: "Review and approve the plan"
                 )
             case .askUserQuestion:
-                categoryId = "CMUXFeedQuestion"
+                categoryId = Self.inlineQuestionOptions(for: event) == nil
+                    ? "CMUXFeedQuestion"
+                    : "CMUXFeedQuestion.\(requestId)"
                 title = String(
                     localized: "feed.notification.question.title",
                     defaultValue: "\(event.source.capitalized) question"
@@ -1098,6 +1124,17 @@ private extension FeedCoordinator {
         return suffix.isEmpty ? "CMUXFeedPermissionDeny" : "CMUXFeedPermission\(suffix)"
     }
 
+    private static func inlineQuestionOptions(
+        for event: WorkstreamEvent
+    ) -> [WorkstreamQuestionOption]? {
+        let questions = WorkstreamQuestionPrompt.parse(toolInputJSON: event.toolInputJSON)
+        guard questions.count == 1,
+              let question = questions.first,
+              !question.multiSelect,
+              (1...4).contains(question.options.count) else { return nil }
+        return question.options
+    }
+
     @MainActor
     func deliverFeedNotificationIfStillAwaiting(
         requestId: String,
@@ -1134,6 +1171,9 @@ private extension FeedCoordinator {
             "requestId": requestId,
             "workstreamId": event.sessionId,
         ]
+        if let options = Self.inlineQuestionOptions(for: event) {
+            content.userInfo["questionOptionIds"] = options.map(\.id)
+        }
 
         let request = UNNotificationRequest(
             identifier: "feed.\(requestId)",
@@ -1141,52 +1181,59 @@ private extension FeedCoordinator {
             trigger: nil
         )
 
-        let center = UNUserNotificationCenter.current()
-        center.getNotificationSettings { settings in
-            Task { @MainActor [weak self] in
-                guard let self, self.isAwaitingDecision(requestId: requestId) else { return }
-                switch settings.authorizationStatus {
-                case .authorized, .provisional:
-                    self.addNotificationIfStillAwaiting(
-                        center: center,
+        let center = resolvedUserNotificationCenter
+        Task { @MainActor [weak self] in
+            let statusResult = await center.authorizationStatus()
+            guard let self, self.isAwaitingDecision(requestId: requestId) else { return }
+            let status: UserNotificationAuthorizationStatus
+            switch statusResult {
+            case .success(let value):
+                status = value
+            case .failure:
+                // The notification daemon is unresponsive; treat authorization
+                // as unknown and stay audible (fail-open) via local fallback.
+                self.runFallbackEffectsIfStillAwaiting(
+                    requestId: requestId,
+                    title: title,
+                    subtitle: subtitle,
+                    body: body,
+                    effects: TerminalNotificationStore.fallbackEffects(
+                        effects,
+                        authorizationState: .unknown
+                    ),
+                    runCommand: false
+                )
+                return
+            }
+            switch status {
+            case .authorized, .provisional:
+                self.registerQuestionCategoryAndAddIfStillAwaiting(
+                    request: request,
+                    event: event,
+                    requestId: requestId,
+                    effects: effects
+                )
+            case .notDetermined:
+                let authorization = await center.requestAuthorization(options: [.alert, .sound])
+                guard self.isAwaitingDecision(requestId: requestId) else { return }
+                if case .success(true) = authorization {
+                    self.registerQuestionCategoryAndAddIfStillAwaiting(
                         request: request,
+                        event: event,
                         requestId: requestId,
                         effects: effects
                     )
-                case .notDetermined:
-                    var granted = false
-                    var requestFailed = false
-                    do {
-                        granted = try await center.requestAuthorization(options: [.alert, .sound])
-                    } catch {
+                } else {
+                    // A non-grant without an error is the user declining
+                    // the prompt just now: honor the fresh denial on this
+                    // very notification. A request failure is not a user
+                    // decision, so the fallback stays audible (fail-open).
+                    let requestFailed: Bool
+                    if case .failure = authorization {
                         requestFailed = true
-                    }
-                    guard self.isAwaitingDecision(requestId: requestId) else { return }
-                    if granted {
-                        self.addNotificationIfStillAwaiting(
-                            center: center,
-                            request: request,
-                            requestId: requestId,
-                            effects: effects
-                        )
                     } else {
-                        // A non-grant without an error is the user declining
-                        // the prompt just now: honor the fresh denial on this
-                        // very notification. A request error is not a user
-                        // decision, so the fallback stays audible (fail-open).
-                        self.runFallbackEffectsIfStillAwaiting(
-                            requestId: requestId,
-                            title: title,
-                            subtitle: subtitle,
-                            body: body,
-                            effects: TerminalNotificationStore.fallbackEffects(
-                                effects,
-                                authorizationState: requestFailed ? .unknown : .denied
-                            ),
-                            runCommand: false
-                        )
+                        requestFailed = false
                     }
-                default:
                     self.runFallbackEffectsIfStillAwaiting(
                         requestId: requestId,
                         title: title,
@@ -1194,20 +1241,127 @@ private extension FeedCoordinator {
                         body: body,
                         effects: TerminalNotificationStore.fallbackEffects(
                             effects,
-                            authorizationState: TerminalNotificationStore.authorizationState(
-                                from: settings.authorizationStatus
-                            )
+                            authorizationState: requestFailed ? .unknown : .denied
                         ),
                         runCommand: false
                     )
                 }
+            case .denied, .ephemeral, .unknown:
+                self.runFallbackEffectsIfStillAwaiting(
+                    requestId: requestId,
+                    title: title,
+                    subtitle: subtitle,
+                    body: body,
+                    effects: TerminalNotificationStore.fallbackEffects(
+                        effects,
+                        authorizationState: TerminalNotificationStore.authorizationState(from: status)
+                    ),
+                    runCommand: false
+                )
             }
         }
     }
 
     @MainActor
+    func registerQuestionCategoryAndAddIfStillAwaiting(
+        request: UNNotificationRequest,
+        event: WorkstreamEvent,
+        requestId: String,
+        effects: TerminalNotificationPolicyEffects
+    ) {
+        guard request.content.categoryIdentifier.hasPrefix("CMUXFeedQuestion."),
+              let options = Self.inlineQuestionOptions(for: event) else {
+            addNotificationIfStillAwaiting(
+                request: request,
+                requestId: requestId,
+                effects: effects
+            )
+            return
+        }
+
+        let optionActions = options.enumerated().map { index, option in
+            UNNotificationAction(
+                identifier: "feed.question.option.\(index)",
+                title: option.label
+            )
+        }
+        var actions = optionActions
+        if options.count <= 3 {
+            actions.append(UNTextInputNotificationAction(
+                identifier: "feed.question.other",
+                title: String(
+                    localized: "feed.notification.question.other",
+                    defaultValue: "Other…"
+                ),
+                options: [],
+                textInputButtonTitle: String(
+                    localized: "terminal.notification.action.replySend",
+                    defaultValue: "Send"
+                ),
+                textInputPlaceholder: String(
+                    localized: "terminal.notification.action.replyPlaceholder",
+                    defaultValue: "Message the agent…"
+                )
+            ))
+        }
+        let minted = UNNotificationCategory(
+            identifier: request.content.categoryIdentifier,
+            actions: actions,
+            intentIdentifiers: [],
+            options: []
+        )
+        enqueueQuestionCategoryUpdate { [weak self] in
+            guard let self, self.isAwaitingDecision(requestId: requestId) else { return }
+            let center = self.resolvedUserNotificationCenter
+            guard case .success(let current) = await center.notificationCategories() else {
+                // Unresponsive daemon: deliver without inline options instead
+                // of dropping — the plain banner still opens the Feed card.
+                self.addNotificationIfStillAwaiting(
+                    request: request,
+                    requestId: requestId,
+                    effects: effects
+                )
+                return
+            }
+            let liveCategoryIds = self.liveWaiterRequestIds().map { "CMUXFeedQuestion.\($0)" }
+            var categories = Set(current.filter { category in
+                !category.identifier.hasPrefix("CMUXFeedQuestion.")
+                    || liveCategoryIds.contains(category.identifier)
+            })
+            categories.insert(minted)
+            _ = await center.setNotificationCategories(categories)
+            self.addNotificationIfStillAwaiting(
+                request: request,
+                requestId: requestId,
+                effects: effects
+            )
+        }
+    }
+
+    /// Appends one `CMUXFeedQuestion.` category round trip to the serialized
+    /// chain (see `questionCategoryUpdates`). Order between distinct requests
+    /// is irrelevant — a mint whose waiter already resolved aborts on its
+    /// `isAwaitingDecision` guard, and every update prunes dead categories —
+    /// but no two round trips may interleave.
+    @MainActor
+    private func enqueueQuestionCategoryUpdate(_ update: @escaping @MainActor () async -> Void) {
+        let previous = questionCategoryUpdates
+        questionCategoryUpdates = Task { @MainActor in
+            await previous?.value
+            await update()
+        }
+    }
+
+    func liveWaiterRequestIds() -> Set<String> {
+        waiterLock.lock()
+        defer { waiterLock.unlock() }
+        return Set(waiters.compactMap { requestId, waiter in
+            waiter.decision == nil ? requestId : nil
+        })
+    }
+
+    @MainActor
     func addNotificationIfStillAwaiting(
-        center: UNUserNotificationCenter,
         request: UNNotificationRequest,
         requestId: String,
         effects: TerminalNotificationPolicyEffects
@@ -1216,32 +1370,31 @@ private extension FeedCoordinator {
         let title = request.content.title
         let subtitle = request.content.subtitle
         let body = request.content.body
-        center.add(request) { error in
-            let didFail = error != nil
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                if !self.isAwaitingDecision(requestId: requestId) {
-                    self.cancelNotification(requestId: requestId)
-                    return
-                }
-                if didFail {
-                    self.runFallbackEffectsIfStillAwaiting(
-                        requestId: requestId,
-                        title: title,
-                        subtitle: subtitle,
-                        body: body,
-                        effects: effects,
-                        runCommand: false
-                    )
-                    return
-                }
-                if effects.command {
-                    NotificationSoundSettings.runCustomCommand(
-                        title: title,
-                        subtitle: subtitle,
-                        body: body
-                    )
-                }
+        let center = resolvedUserNotificationCenter
+        Task { @MainActor [weak self] in
+            let result = await center.add(request)
+            guard let self else { return }
+            if !self.isAwaitingDecision(requestId: requestId) {
+                self.cancelNotification(requestId: requestId)
+                return
+            }
+            if case .failure = result {
+                self.runFallbackEffectsIfStillAwaiting(
+                    requestId: requestId,
+                    title: title,
+                    subtitle: subtitle,
+                    body: body,
+                    effects: effects,
+                    runCommand: false
+                )
+                return
+            }
+            if effects.command {
+                NotificationSoundSettings.runCustomCommand(
+                    title: title,
+                    subtitle: subtitle,
+                    body: body
+                )
             }
         }
     }
@@ -1266,9 +1419,18 @@ private extension FeedCoordinator {
 
     func cancelNotification(requestId: String) {
         let identifier = "feed.\(requestId)"
-        let center = UNUserNotificationCenter.current()
-        center.removePendingNotificationRequestsOffMain(withIdentifiers: [identifier])
-        center.removeDeliveredNotificationsOffMain(withIdentifiers: [identifier])
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let center = self.resolvedUserNotificationCenter
+            _ = await center.removePendingNotificationRequests(withIdentifiers: [identifier])
+            _ = await center.removeDeliveredNotifications(withIdentifiers: [identifier])
+            let categoryId = "CMUXFeedQuestion.\(requestId)"
+            self.enqueueQuestionCategoryUpdate {
+                guard case .success(let current) = await center.notificationCategories() else { return }
+                let categories = Set(current.filter { $0.identifier != categoryId })
+                _ = await center.setNotificationCategories(categories)
+            }
+        }
     }
 }
 

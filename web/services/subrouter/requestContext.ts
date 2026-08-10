@@ -11,13 +11,14 @@ import {
   verifySubrouterRequest,
   withSubrouterAuthorizationDeadline,
   type AuthedUser,
+  parseNativeStackTokens,
 } from "../vms/auth";
+import { getStackServerApp } from "../../app/lib/stack";
 import {
-  createSubrouterClient,
-  subrouterRuntimeConfig,
-  type SubrouterClient,
-  type SubrouterRuntimeConfig,
-} from "./client";
+  createHostedSubrouterClient,
+  type HostedSubrouterClient,
+} from "./hostedClient";
+import { hostedSubrouterCutoverReadyForTeam } from "./cutover";
 import {
   resolveTeam,
   serviceUnavailableResponse,
@@ -31,14 +32,15 @@ export type SubrouterRequestContext = {
     readonly use: boolean;
     readonly manageAccounts: boolean;
   };
-  readonly config: SubrouterRuntimeConfig;
-  readonly client: SubrouterClient;
+  readonly accessToken: string;
+  readonly client: HostedSubrouterClient;
 };
 
 export async function resolveSubrouterRequestContext(
   request: Request,
   options: {
     readonly permission?: "use" | "manage" | "use-or-manage";
+    readonly allowCookie?: boolean;
   } = {},
 ): Promise<
   | { readonly ok: true; readonly value: SubrouterRequestContext }
@@ -49,7 +51,7 @@ export async function resolveSubrouterRequestContext(
       const requestedTeamId = requestedVmTeamIdFromRequest(request);
       const user = await verifySubrouterRequest(request, signal, {
         requestedTeamId,
-        allowCookie: true,
+        allowCookie: options.allowCookie ?? true,
       });
       if (!user) return { ok: false, response: unauthorized() };
 
@@ -79,11 +81,65 @@ export async function resolveSubrouterRequestContext(
         };
       }
 
-      const config = subrouterRuntimeConfig();
-      if (!config) {
+      let hostedCutoverReady: boolean;
+      try {
+        hostedCutoverReady = await hostedSubrouterCutoverReadyForTeam(
+          team.teamId,
+        );
+      } catch (error) {
+        console.error("Subrouter cutover state unavailable", {
+          errorType: error instanceof Error ? error.name : typeof error,
+        });
         return {
           ok: false,
           response: serviceUnavailableResponse(),
+        };
+      }
+      if (!hostedCutoverReady) {
+        return {
+          ok: false,
+          response: jsonResponse(
+            { error: "subrouter_migration_pending" },
+            503,
+          ),
+        };
+      }
+
+      const client = createHostedSubrouterClient();
+      if (!client.tenantControlConfigured) {
+        return {
+          ok: false,
+          response: serviceUnavailableResponse(),
+        };
+      }
+
+      const nativeTokens = parseNativeStackTokens(request);
+      const tokenStore = nativeTokens ?? {
+        headers: {
+          get: (name: string): string | null => request.headers.get(name),
+        },
+      };
+      // Stack may refresh a native session while verifying it. Forward the
+      // authoritative token instead of the possibly stale request header.
+      let accessToken: string | null | undefined;
+      try {
+        const authoritativeTokens = await getStackServerApp().getAuthJson({
+          tokenStore,
+        });
+        accessToken = authoritativeTokens?.accessToken;
+      } catch (error) {
+        console.error("Subrouter Stack token refresh unavailable", {
+          errorType: error instanceof Error ? error.name : typeof error,
+        });
+        return {
+          ok: false,
+          response: serviceUnavailableResponse(),
+        };
+      }
+      if (!accessToken) {
+        return {
+          ok: false,
+          response: unauthorized(),
         };
       }
 
@@ -92,11 +148,8 @@ export async function resolveSubrouterRequestContext(
         value: {
           user,
           team,
-          config,
-          client: createSubrouterClient({
-            baseUrl: config.baseUrl,
-            adminToken: config.adminToken,
-          }),
+          accessToken,
+          client,
         },
       };
     });

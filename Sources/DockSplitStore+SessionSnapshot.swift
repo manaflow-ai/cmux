@@ -17,6 +17,7 @@ extension DockSplitStore {
             return PIDPresence.current(pid: pid_t($0))
         }
     ) -> SessionSplitContainerSnapshot {
+        flushPendingTerminalTitleUpdates()
         let layoutCodec = SessionSplitContainerLayoutCodec(controller: bonsplitController)
         let rawLayout = layoutCodec.snapshot(panelIdForTabId: { [self] in surfaceIdToPanelId[$0] })
         let orderedPanelIds = orderedSessionPanelIds()
@@ -86,6 +87,61 @@ extension DockSplitStore {
         )
     }
 
+    /// Captures one Dock panel for the Dock-local closed-item history without
+    /// walking every other panel in the split tree.
+    func closedPanelSessionSnapshot(
+        panelId: UUID,
+        restorableAgentIndex: RestorableAgentSessionIndex?
+    ) -> SessionPanelSnapshot? {
+        flushPendingTerminalTitleUpdate(panelId: panelId)
+        let transfer = detachedSurfaceTransfersByPanelId[panelId]
+        let observationWorkspaceId =
+            transfer?.sessionRestoreWorkspaceId ?? workspaceId
+        let terminalFontSizeSnapshotProjection:
+            WorkspaceTerminalFontSizeSnapshotProjection?
+        if panels[panelId] is TerminalPanel {
+            if let workspace = terminalFontSizeOwningWorkspace {
+                terminalFontSizeSnapshotProjection =
+                    terminalFontSizeChangeArbiter?
+                        .snapshotProjection(
+                            for: workspace,
+                            panelIds: [panelId]
+                        )
+            } else {
+                terminalFontSizeSnapshotProjection =
+                    terminalFontSizeChangeArbiter?
+                        .snapshotProjection(
+                            for: self,
+                            panelIds: [panelId]
+                        )
+            }
+        } else {
+            terminalFontSizeSnapshotProjection = nil
+        }
+
+        return sessionPanelSnapshot(
+            panelId: panelId,
+            includeScrollback: true,
+            observation: restorableAgentIndex?.entry(
+                workspaceId: observationWorkspaceId,
+                panelId: panelId
+            ),
+            detectedResumeBinding: nil,
+            terminalFontSizeSnapshotProjection:
+                terminalFontSizeSnapshotProjection,
+            currentAgentProcessIdentity: {
+                guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
+                return AgentPIDProcessIdentity(pid: pid_t($0))
+            },
+            agentProcessPresence: {
+                guard $0 > 0, $0 <= Int(Int32.max) else {
+                    return .absent
+                }
+                return PIDPresence.current(pid: pid_t($0))
+            }
+        )
+    }
+
     private func orderedSessionPanelIds() -> [UUID] {
         var result: [UUID] = []
         var seen: Set<UUID> = []
@@ -117,8 +173,11 @@ extension DockSplitStore {
         guard let panel = panels[panelId] else { return nil }
         let transfer = detachedSurfaceTransfersByPanelId[panelId]
         let tab = surfaceId(forPanelId: panelId).flatMap { bonsplitController.tab($0) }
-        let tabTitle = tab?.title
-        let customTitle = transfer?.customTitle ?? (tab?.hasCustomTitle == true ? tabTitle : nil)
+        let titleMetadata = resolvedDockTitleMetadata(
+            panel: panel,
+            transfer: transfer,
+            tab: tab
+        )
         let directory = sessionWorkingDirectory(panel: panel, transfer: transfer)
 
         let terminalSnapshot: SessionTerminalPanelSnapshot?
@@ -260,9 +319,9 @@ extension DockSplitStore {
             id: panelId,
             stableSurfaceId: panel.stableSurfaceId,
             type: panel.panelType,
-            title: tabTitle ?? panel.displayTitle,
-            customTitle: customTitle,
-            customTitleSource: transfer?.customTitleSource ?? (customTitle == nil ? nil : .user),
+            title: titleMetadata.title,
+            customTitle: titleMetadata.customTitle,
+            customTitleSource: titleMetadata.customTitleSource,
             directory: directory,
             directoryIsTrustedRemoteReport: transfer?.directoryIsTrustedRemoteReport,
             isPinned: false,

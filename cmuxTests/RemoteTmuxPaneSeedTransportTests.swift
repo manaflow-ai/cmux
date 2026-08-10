@@ -19,6 +19,48 @@ import Testing
 /// after the capture block must be replayed exactly once after pane state.
 @MainActor
 @Suite struct RemoteTmuxPaneSeedTransportTests {
+    @Test func peerDetachReplaysEveryRecordedSizeClaimInStableOrder() throws {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+
+        fixture.connection.lastClientSize = (columns: 242, rows: 62)
+        fixture.connection.lastWindowSizes = [
+            9: (242, 62),
+            3: (180, 50),
+        ]
+        fixture.connection.sentWindowSizes = fixture.connection.lastWindowSizes
+        fixture.connection.windowClaimParityRearmsSpent = [3: 1, 9: 3]
+        _ = fixture.pipe.fileHandleForReading.availableData
+
+        fixture.connection.handleMessageForTesting(
+            .clientDetached(client: "/dev/pts/22")
+        )
+
+        let commands = String(
+            decoding: fixture.pipe.fileHandleForReading.availableData,
+            as: UTF8.self
+        )
+        let envelope = try #require(commands.range(of: "refresh-client -C 242x62"))
+        let window3 = try #require(
+            commands.range(of: "refresh-client -C '@3:180x50'")
+        )
+        let window9 = try #require(
+            commands.range(of: "refresh-client -C '@9:242x62'")
+        )
+
+        #expect(envelope.lowerBound < window3.lowerBound)
+        #expect(window3.lowerBound < window9.lowerBound)
+        #expect(commands.components(separatedBy: "refresh-client -C 242x62").count - 1 == 1)
+        #expect(commands.components(separatedBy: "refresh-client -C '@3:180x50'").count - 1 == 1)
+        #expect(commands.components(separatedBy: "refresh-client -C '@9:242x62'").count - 1 == 1)
+        #expect(fixture.connection.sentWindowSizes[3]?.0 == 180)
+        #expect(fixture.connection.sentWindowSizes[3]?.1 == 50)
+        #expect(fixture.connection.sentWindowSizes[9]?.0 == 242)
+        #expect(fixture.connection.sentWindowSizes[9]?.1 == 62)
+        #expect(fixture.connection.windowClaimParityRearmsSpent.isEmpty)
+        #expect(fixture.connection.snapshot().recentEvents.last == "client-detached")
+    }
+
     @Test func laggingControlOutputCursorCannotReplayCapturedReconnectOutput() throws {
         let fixture = attachedConnection()
         defer { fixture.close() }
@@ -474,7 +516,13 @@ import Testing
         #expect(!terminal.surface.hostedView.surfaceView.localRenderedFrameNotificationDemandIsActive)
     }
 
-    @Test func aggregateConnectionSeedBudgetReconnectsAndReleasesBytes() throws {
+    /// Crossing the shared seed budget releases the pane that crossed it and leaves the stream alone.
+    ///
+    /// This asserted `.reconnecting` and a wholly empty seed table, both of which described the old
+    /// remedy: the budget path called `beginReconnecting()` under an explicit connected guard, so a
+    /// producer running out of room restarted a healthy stream and the reattach reseeded every pane
+    /// with `clearScrollback`. One pane's ceiling cost every other pane its scrollback.
+    @Test func aggregateConnectionSeedBudgetReleasesBytesWithoutRestartingTheStream() async throws {
         let fixture = attachedConnection(pendingPaneSeedByteLimit: 5)
         defer { fixture.close() }
         _ = try #require(
@@ -502,8 +550,159 @@ import Testing
             data: Data("def".utf8)
         ))
 
-        #expect(fixture.connection.connectionState == .reconnecting)
+        #expect(
+            fixture.connection.connectionState == .connected,
+            "a producer budget ceiling is not a transport failure"
+        )
+        // Only the pane that crossed the budget pays. Pane 8 asked for room there was none for, so its
+        // seed is released; pane 7 did nothing wrong and keeps its 3 retained bytes.
+        #expect(fixture.connection.pendingPaneSeeds[8] == nil, "the pane that overflowed is released")
+        #expect(
+            fixture.connection.pendingPaneSeeds[7]?.isEmpty == false,
+            "a pane that did not overflow keeps its seed"
+        )
+        #expect(
+            fixture.connection.pendingPaneSeedByteCount == 3,
+            "only the offending pane's bytes are returned to the budget"
+        )
+        #expect(
+            fixture.connection.snapshot().recentEvents
+                .contains { $0.hasPrefix("pane-seed-total-backpressure") },
+            "the marker proves which branch released the bytes"
+        )
+        #expect(
+            !fixture.connection.snapshot().recentEvents
+                .contains { $0.hasPrefix("pane-seed-backpressure") },
+            "a total-budget overflow recovers the pane once, not again under the per-pane marker"
+        )
+
+        // The injected five-byte budget cannot fit the 11-byte clear-scrollback framing. Recovery
+        // must remain deferred instead of recursively scheduling another attempt every actor turn.
+        await Task.yield()
+        await Task.yield()
+        let events = fixture.connection.snapshot().recentEvents
+        #expect(fixture.connection.connectionState == .connected)
+        #expect(fixture.connection.deferredPaneSeedBudgetRecoveryPaneIDs == [8])
+        #expect(events.filter { $0.hasPrefix("pane-seed-total-backpressure") }.count == 1)
+        #expect(events.filter { $0.hasPrefix("pane-seed-reservation-too-large") }.count == 1)
+    }
+
+    /// Crossing one pane's live catch-up ceiling takes the pane-local recovery path.
+    @Test func paneLiveSeedCeilingRecoversOnlyThatPane() throws {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+        _ = try #require(
+            fixture.connection.beginPaneSeed(
+                paneId: 7,
+                clearScrollback: false,
+                kind: .fullHistory
+            )
+        )
+
+        #expect(fixture.connection.absorbPaneOutputIntoPendingSeed(
+            paneId: 7,
+            data: Data(
+                repeating: UInt8(ascii: "x"),
+                count: RemoteTmuxControlConnection.maximumPendingPaneSeedLiveBytes + 1
+            )
+        ))
+
+        #expect(fixture.connection.connectionState == .connected)
+        #expect(fixture.connection.pendingPaneSeeds[7] == nil)
         #expect(fixture.connection.pendingPaneSeedByteCount == 0)
+        let events = fixture.connection.snapshot().recentEvents
+        #expect(events.filter { $0.hasPrefix("pane-seed-backpressure") }.count == 1)
+        #expect(!events.contains { $0.hasPrefix("pane-seed-total-backpressure") })
+    }
+
+    /// A recovery waits for another pane to release capacity, then re-seeds exactly once.
+    @Test func aggregateConnectionSeedBudgetRetriesAfterCapacityReturns() async throws {
+        let fixture = attachedConnection(pendingPaneSeedByteLimit: 16)
+        defer { fixture.close() }
+        let blockingSeedID = try #require(
+            fixture.connection.beginPaneSeed(
+                paneId: 7,
+                clearScrollback: false,
+                kind: .fullHistory
+            )
+        )
+        #expect(fixture.connection.absorbPaneOutputIntoPendingSeed(
+            paneId: 7,
+            data: Data(repeating: UInt8(ascii: "a"), count: 10)
+        ))
+        _ = try #require(
+            fixture.connection.beginPaneSeed(
+                paneId: 8,
+                clearScrollback: false,
+                kind: .fullHistory
+            )
+        )
+
+        #expect(fixture.connection.absorbPaneOutputIntoPendingSeed(
+            paneId: 8,
+            data: Data(repeating: UInt8(ascii: "b"), count: 7)
+        ))
+        await Task.yield()
+        await Task.yield()
+
+        #expect(fixture.connection.connectionState == .connected)
+        #expect(fixture.connection.pendingPaneSeeds[8] == nil)
+        #expect(
+            fixture.connection.snapshot().recentEvents
+                .filter { $0.hasPrefix("pane-seed-total-backpressure") }.count == 1,
+            "a blocked recovery must not enqueue itself again on every main-actor turn"
+        )
+
+        fixture.connection.cancelPaneSeed(paneId: 7, seedID: blockingSeedID)
+        for _ in 0..<10 {
+            if fixture.connection.pendingPaneSeeds[8] != nil { break }
+            await Task.yield()
+        }
+
+        #expect(fixture.connection.pendingPaneSeeds[8]?.count == 1)
+        #expect(fixture.connection.pendingPaneSeedByteCount == 11)
+        #expect(
+            fixture.connection.snapshot().recentEvents
+                .filter { $0.hasPrefix("pane-seed-total-backpressure") }.count == 1,
+            "capacity release should start the one deferred recovery without duplicating it"
+        )
+    }
+
+    /// Ending the connection cancels a budget recovery that is still waiting for capacity.
+    @Test func deferredPaneSeedBudgetRecoveryStopsWithConnection() async throws {
+        let fixture = attachedConnection(pendingPaneSeedByteLimit: 16)
+        defer { fixture.close() }
+        _ = try #require(
+            fixture.connection.beginPaneSeed(
+                paneId: 7,
+                clearScrollback: false,
+                kind: .fullHistory
+            )
+        )
+        #expect(fixture.connection.absorbPaneOutputIntoPendingSeed(
+            paneId: 7,
+            data: Data(repeating: UInt8(ascii: "a"), count: 10)
+        ))
+        _ = try #require(
+            fixture.connection.beginPaneSeed(
+                paneId: 8,
+                clearScrollback: false,
+                kind: .fullHistory
+            )
+        )
+        #expect(fixture.connection.absorbPaneOutputIntoPendingSeed(
+            paneId: 8,
+            data: Data(repeating: UInt8(ascii: "b"), count: 7)
+        ))
+        await Task.yield()
+        await Task.yield()
+        #expect(fixture.connection.deferredPaneSeedBudgetRecoveryPaneIDs == [8])
+
+        fixture.connection.stop()
+        await Task.yield()
+
+        #expect(fixture.connection.connectionState == .ended)
+        #expect(fixture.connection.deferredPaneSeedBudgetRecoveryPaneIDs.isEmpty)
         #expect(fixture.connection.pendingPaneSeeds.isEmpty)
     }
 
@@ -1656,4 +1855,124 @@ import Testing
             try? pipe.fileHandleForReading.close()
         }
     }
+
+    // MARK: - a pane that retains too much recovers itself, not the whole session
+    //
+    // The same condition used to call `beginReconnecting()`. The stream was healthy, so a renderer
+    // memory ceiling was reported as a transport failure, and the reattach reseeded EVERY pane with
+    // `clearScrollback: true`, so one slow pane truncated every sibling pane scrollback.
+
+    /// Live output appended to a pending seed, past this pane ceiling, recovers only that pane.
+    @Test func liveOutputOverflowRecoversOnePaneWithoutRestartingTheTransport() throws {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+        fixture.connection.windowsByID[1] = RemoteTmuxWindow(
+            id: 1,
+            width: 80,
+            height: 24,
+            layout: RemoteTmuxLayoutNode(
+                width: 80, height: 24, x: 0, y: 0, content: .pane(7)
+            )
+        )
+        fixture.connection.windowOrder = [1]
+        fixture.connection.recordPublishedPaneOwnership(windowId: 1, paneIds: [7])
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = manager.selectedWorkspace!
+        workspace.isRemoteTmuxMirror = true
+        let sessionMirror = RemoteTmuxSessionMirror(
+            host: fixture.connection.host,
+            sessionName: "work",
+            connection: fixture.connection,
+            tabManager: manager,
+            workspace: workspace,
+            pendingPaneSeedByteLimit: 64
+        )
+        defer { sessionMirror.detachObserver() }
+
+        sessionMirror.routeSeed(
+            paneId: 7,
+            seed: RemoteTmuxPaneSeed(
+                kind: .fullHistory,
+                discardedOutput: [],
+                snapshot: Data("1234".utf8),
+                catchUpOutput: [],
+                state: Data()
+            )
+        )
+        #expect(sessionMirror.pendingPaneSeedByteCounts[7] == 4)
+
+        // 4 + 61 crosses the injected 64-byte ceiling for this pane.
+        sessionMirror.routeOutput(paneId: 7, data: Data(repeating: UInt8(ascii: "A"), count: 61))
+
+        #expect(
+            fixture.connection.connectionState == .connected,
+            "one pane retention ceiling is not a transport failure"
+        )
+        #expect(sessionMirror.deferredFullPaneReseeds == [7])
+        #expect(sessionMirror.pendingPaneSeedBytes[7] == nil)
+        #expect(sessionMirror.pendingPaneSeedTotalByteCount == 0)
+    }
+
+    /// A visible repaint stacked on a pending full seed, past the ceiling, recovers only that pane.
+    @Test func visibleRepaintOverflowRecoversOnePaneWithoutRestartingTheTransport() throws {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+        fixture.connection.windowsByID[1] = RemoteTmuxWindow(
+            id: 1,
+            width: 80,
+            height: 24,
+            layout: RemoteTmuxLayoutNode(
+                width: 80, height: 24, x: 0, y: 0, content: .pane(7)
+            )
+        )
+        fixture.connection.windowOrder = [1]
+        fixture.connection.recordPublishedPaneOwnership(windowId: 1, paneIds: [7])
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = manager.selectedWorkspace!
+        workspace.isRemoteTmuxMirror = true
+        let sessionMirror = RemoteTmuxSessionMirror(
+            host: fixture.connection.host,
+            sessionName: "work",
+            connection: fixture.connection,
+            tabManager: manager,
+            workspace: workspace,
+            pendingPaneSeedByteLimit: 64
+        )
+        defer { sessionMirror.detachObserver() }
+
+        sessionMirror.routeSeed(
+            paneId: 7,
+            seed: RemoteTmuxPaneSeed(
+                kind: .fullHistory,
+                discardedOutput: [],
+                snapshot: Data("1234".utf8),
+                catchUpOutput: [],
+                state: Data()
+            )
+        )
+        #expect(sessionMirror.pendingPaneSeedByteCounts[7] == 4)
+
+        // A repaint cannot replace a full snapshot, so it queues behind it and crosses the ceiling.
+        sessionMirror.routeSeed(
+            paneId: 7,
+            seed: RemoteTmuxPaneSeed(
+                kind: .visibleRepaint,
+                discardedOutput: [],
+                snapshot: Data(repeating: UInt8(ascii: "B"), count: 61),
+                catchUpOutput: [],
+                state: Data()
+            )
+        )
+
+        #expect(
+            fixture.connection.connectionState == .connected,
+            "one pane retention ceiling is not a transport failure"
+        )
+        #expect(sessionMirror.deferredFullPaneReseeds == [7])
+        #expect(sessionMirror.pendingPaneSeedBytes[7] == nil)
+        #expect(sessionMirror.pendingPaneSeedTotalByteCount == 0)
+    }
+
 }

@@ -328,6 +328,186 @@ struct CmxConnectivityEngineTests {
     }
 
     @Test
+    func reorderedCapabilitiesOnRevisionBumpKeepsTheLivePeerSession() async throws {
+        let rig = try await Self.admittedPeerRig(responses: [
+            Self.peerRouteResponse(
+                revision: 9,
+                lastSeenAt: "2026-07-30T00:00:00Z",
+                capabilities: ["artifact", "terminal"]
+            ),
+            Self.peerRouteResponse(
+                revision: 10,
+                lastSeenAt: "2026-07-30T00:00:45Z",
+                capabilities: ["terminal", "artifact"]
+            ),
+        ])
+        let session = try await rig.engine.acquireControl(
+            for: rig.request,
+            ownerID: UUID()
+        )
+
+        try await rig.engine.reconcileRoutes()
+
+        #expect(await rig.engine.snapshot().routeRevision == 10)
+        #expect(await rig.connection.observedCloseCallCount() == 0)
+        #expect(await session.isClosed() == false)
+        await rig.engine.stop()
+    }
+
+    @Test
+    func reorderedRelayFleetOnRevisionBumpKeepsTheLivePeerSession() async throws {
+        let rig = try await Self.admittedPeerRig(responses: [
+            Self.peerRouteResponse(
+                revision: 9,
+                lastSeenAt: "2026-07-30T00:00:00Z",
+                relayFleet: [
+                    "https://relay-a.example/",
+                    "https://relay-b.example/",
+                ]
+            ),
+            Self.peerRouteResponse(
+                revision: 10,
+                lastSeenAt: "2026-07-30T00:00:45Z",
+                relayFleet: [
+                    "https://relay-b.example/",
+                    "https://relay-a.example/",
+                ]
+            ),
+        ])
+        let session = try await rig.engine.acquireControl(
+            for: rig.request,
+            ownerID: UUID()
+        )
+
+        try await rig.engine.reconcileRoutes()
+
+        #expect(await rig.engine.snapshot().routeRevision == 10)
+        #expect(await rig.connection.observedCloseCallCount() == 0)
+        #expect(await session.isClosed() == false)
+        await rig.engine.stop()
+    }
+
+    @Test
+    func reorderedGrantVerificationKeysOnRevisionBumpKeepsTheLivePeerSession() async throws {
+        let rig = try await Self.admittedPeerRig(responses: [
+            Self.peerRouteResponse(
+                revision: 9,
+                lastSeenAt: "2026-07-30T00:00:00Z",
+                grantVerificationKeyIDs: ["current", "previous"]
+            ),
+            Self.peerRouteResponse(
+                revision: 10,
+                lastSeenAt: "2026-07-30T00:00:45Z",
+                grantVerificationKeyIDs: ["previous", "current"]
+            ),
+        ])
+        let session = try await rig.engine.acquireControl(
+            for: rig.request,
+            ownerID: UUID()
+        )
+
+        try await rig.engine.reconcileRoutes()
+
+        #expect(await rig.engine.snapshot().routeRevision == 10)
+        #expect(await rig.connection.observedCloseCallCount() == 0)
+        #expect(await session.isClosed() == false)
+        await rig.engine.stop()
+    }
+
+    @Test
+    func snapshotInstallForARevisionRecordedWithoutContentFailsClosed() async throws {
+        let rig = try await Self.admittedPeerRig(
+            responses: [
+                Self.peerRouteResponse(
+                    revision: 9,
+                    lastSeenAt: "2026-07-30T00:00:00Z"
+                ),
+                Self.unchangedResponse(revision: 12),
+            ],
+            dialableConnections: 2
+        )
+        let first = try await rig.engine.acquireControl(
+            for: rig.request,
+            ownerID: UUID()
+        )
+        try await rig.engine.reconcileRoutes()
+        #expect(await first.isClosed())
+        let second = try await rig.engine.acquireControl(
+            for: rig.request,
+            ownerID: UUID()
+        )
+        #expect(await second.isClosed() == false)
+        let snapshot = try #require(Self.peerRouteResponse(
+            revision: 12,
+            lastSeenAt: "2026-07-30T00:00:45Z"
+        ).snapshot)
+
+        await rig.engine.didInstallRouteRevision(12, routes: snapshot)
+
+        #expect(await rig.engine.snapshot().routeRevision == 12)
+        #expect(await rig.connections[1].observedCloseCallCount() == 1)
+        #expect(await second.isClosed())
+        await rig.engine.stop()
+    }
+
+    @Test
+    func sameRevisionReinstallWithUnchangedContentKeepsTheLivePeerSession() async throws {
+        let rig = try await Self.admittedPeerRig(responses: [
+            Self.peerRouteResponse(
+                revision: 9,
+                lastSeenAt: "2026-07-30T00:00:00Z"
+            ),
+        ])
+        let session = try await rig.engine.acquireControl(
+            for: rig.request,
+            ownerID: UUID()
+        )
+        let snapshot = try #require(Self.peerRouteResponse(
+            revision: 10,
+            lastSeenAt: "2026-07-30T00:00:45Z"
+        ).snapshot)
+
+        await rig.engine.didInstallRouteRevision(10, routes: snapshot)
+        await rig.engine.didInstallRouteRevision(10, routes: snapshot)
+
+        #expect(await rig.engine.snapshot().routeRevision == 10)
+        #expect(await rig.connection.observedCloseCallCount() == 0)
+        #expect(await session.isClosed() == false)
+        await rig.engine.stop()
+    }
+
+    @Test
+    func olderRouteRevisionInstallCannotRollBackANewerInstall() async throws {
+        let rig = try await Self.admittedPeerRig(responses: [
+            Self.peerRouteResponse(
+                revision: 9,
+                lastSeenAt: "2026-07-30T00:00:00Z"
+            ),
+        ])
+        let session = try await rig.engine.acquireControl(
+            for: rig.request,
+            ownerID: UUID()
+        )
+        let newer = try #require(Self.peerRouteResponse(
+            revision: 11,
+            lastSeenAt: "2026-07-30T00:00:45Z"
+        ).snapshot)
+        let older = try #require(Self.peerRouteResponse(
+            revision: 10,
+            lastSeenAt: "2026-07-30T00:00:30Z",
+            identityGeneration: 2
+        ).snapshot)
+
+        await rig.engine.didInstallRouteRevision(11, routes: newer)
+        await rig.engine.didInstallRouteRevision(10, routes: older)
+
+        #expect(await rig.engine.snapshot().routeRevision == 11)
+        #expect(await rig.connection.observedCloseCallCount() == 0)
+        #expect(await session.isClosed() == false)
+        await rig.engine.stop()
+    }
+
+    @Test
     func stopFinishesNetworkChangeObservers() async throws {
         let identity = try CmxIrohPeerIdentity(
             endpointID: String(repeating: "e", count: 64)
@@ -358,34 +538,38 @@ struct CmxConnectivityEngineTests {
 
     private struct AdmittedPeerRig {
         let engine: CmxConnectivityEngine
-        let connection: TestIrohConnection
+        let connections: [TestIrohConnection]
         let authority: ScriptedConnectivityAuthority
         let request: CmxByteTransportRequest
+
+        var connection: TestIrohConnection { connections[0] }
     }
 
     private static func admittedPeerRig(
-        responses: [CmxConnectivitySyncResponse]
+        responses: [CmxConnectivitySyncResponse],
+        dialableConnections: Int = 1
     ) async throws -> AdmittedPeerRig {
         let localIdentity = try CmxIrohPeerIdentity(
             endpointID: String(repeating: "1", count: 64)
         )
         let peerIdentity = try CmxIrohPeerIdentity(endpointID: peerEndpointID)
-        let control = CmxIrohBidirectionalStream(
-            receiveStream: TestIrohReceiveStream(
-                buffer: CmxIrohAdmissionAckCodec()
-                    .encodeFrame(.acceptedPendingNatTraversal)
-                    + admissionFrame(status: 3)
-            ),
-            sendStream: TestIrohSendStream()
-        )
-        let connection = TestIrohConnection(
-            remoteIdentity: peerIdentity,
-            bidirectionalStreams: [control],
-            selectedPath: .direct
-        )
+        let connections = (0 ..< dialableConnections).map { _ in
+            TestIrohConnection(
+                remoteIdentity: peerIdentity,
+                bidirectionalStreams: [CmxIrohBidirectionalStream(
+                    receiveStream: TestIrohReceiveStream(
+                        buffer: CmxIrohAdmissionAckCodec()
+                            .encodeFrame(.acceptedPendingNatTraversal)
+                            + admissionFrame(status: 3)
+                    ),
+                    sendStream: TestIrohSendStream()
+                )],
+                selectedPath: .direct
+            )
+        }
         let endpoint = TestDialingIrohEndpoint(
             localIdentity: localIdentity,
-            dialResults: [.connection(connection)]
+            dialResults: connections.map { .connection($0) }
         )
         let supervisor = CmxIrohEndpointSupervisor(
             factory: TestIrohEndpointFactory(endpoints: [endpoint]),
@@ -414,7 +598,7 @@ struct CmxConnectivityEngineTests {
         )
         return AdmittedPeerRig(
             engine: engine,
-            connection: connection,
+            connections: connections,
             authority: authority,
             request: request
         )
@@ -425,8 +609,13 @@ struct CmxConnectivityEngineTests {
         lastSeenAt: String,
         identityGeneration: Int = 1,
         relayFleet: [String] = ["https://relay.example/"],
+        capabilities: [String] = ["terminal"],
+        grantVerificationKeyIDs: [String] = [],
         includesPeerBinding: Bool = true
     ) throws -> CmxConnectivitySyncResponse {
+        let capabilityList = capabilities
+            .map { "\"\($0)\"" }
+            .joined(separator: ", ")
         let binding = """
             {
               "binding_id": "0a0a0a0a-0000-4000-8000-000000000001",
@@ -437,13 +626,20 @@ struct CmxConnectivityEngineTests {
               "endpoint_id": "\(peerEndpointID)",
               "identity_generation": \(identityGeneration),
               "pairing_enabled": true,
-              "capabilities": ["terminal"],
+              "capabilities": [\(capabilityList)],
               "path_hints": [],
               "last_seen_at": "\(lastSeenAt)"
             }
             """
         let fleet = relayFleet
             .map { "\"\($0)\"" }
+            .joined(separator: ", ")
+        let keys = grantVerificationKeyIDs
+            .map {
+                """
+                {"kid": "\($0)", "alg": "ed25519", "spki_der_base64": "QUJD"}
+                """
+            }
             .joined(separator: ", ")
         return try decodeResponse(
             """
@@ -464,7 +660,7 @@ struct CmxConnectivityEngineTests {
                 "grant_verification_keys": {
                   "version": 1,
                   "current_kid": "current",
-                  "keys": []
+                  "keys": [\(keys)]
                 }
               }
             }

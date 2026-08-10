@@ -1,4 +1,4 @@
-# Terminal Host Protocol v1
+# Terminal Host Protocol v3
 
 The terminal-host protocol is the bounded local binary data plane between a durable PTY host, the mux daemon, and disposable renderers. It is separate from the JSON mux control protocol. All integer fields are little-endian.
 
@@ -9,7 +9,7 @@ Every frame has a 32-byte header followed by `payload_len` bytes:
 | Offset | Width | Field |
 | --- | --- | --- |
 | 0 | 4 | Magic bytes `CMTH` |
-| 4 | 2 | Protocol version, currently `1` |
+| 4 | 2 | Protocol version, currently `3` |
 | 6 | 2 | Message kind |
 | 8 | 4 | Flags |
 | 12 | 4 | Payload length |
@@ -51,28 +51,35 @@ The private bootstrap pipe uses:
 1. Parent sends `Bootstrap`.
 2. Host returns `Ready`, echoing the request id and creating the incarnation.
 3. Parent sends `Launch`.
-4. Host starts the PTY, publishes its discovery record, then returns `Ready`.
+4. On success, the host starts the PTY, publishes its discovery record, then
+   returns `Ready`. If the PTY cannot be launched, it returns `LaunchFailed`
+   with the same request id and exits without publishing a discovery record.
 
 | Payload | Exact layout |
 | --- | --- |
 | `Bootstrap`, 52 bytes | `min_version:u16, max_version:u16, terminal_id:[u8;16], owner_token:[u8;32]` |
 | `Ready`, 34 bytes | `selected_version:u16, terminal_id:[u8;16], incarnation:[u8;16]` |
+| `LaunchFailed`, 5 to 4,100 bytes | `version:u16=1, kind:u16, message:UTF-8[1..4096]` |
 
 A zero owner token is invalid. Negotiation selects the highest common version.
+`LaunchFailed.kind` is 1 for exhausted PTY capacity and 2 for another launch
+failure. The message is bounded diagnostic text for the local parent.
 
 Every Unix-socket client sends `ClientHello`; the host replies with
 `HostHello`, then `Snapshot`, then a full `Colors` frame at the snapshot's
-sequence boundary.
+sequence boundary. A smart renderer then receives same-boundary `Ready` before
+it may publish the snapshot or send input.
 
 | Payload | Exact layout |
 | --- | --- |
 | `ClientHello`, 60 bytes | `min_version:u16, max_version:u16, role:u8, reserved:[u8;3]=0, requested_rights:u32, terminal_id:[u8;16], token:[u8;32]` |
 | `HostHello`, 40 bytes | `selected_version:u16, reserved:u16=0, granted_rights:u32, terminal_id:[u8;16], incarnation:[u8;16]` |
 
-`ClientHello.sequence` is zero. Its only permitted flag is
-`FLAG_VIEWER_SIZE_ACKS`. The host echoes that flag only when requested and
-`RESIZE` was granted. Daemon adoption applies a two-second read and write
-handshake timeout.
+`ClientHello.sequence` is zero. Its permitted flags are
+`FLAG_VIEWER_SIZE_ACKS` and `FLAG_SMART_RENDERER`. The host echoes viewer-size
+acknowledgements only when `RESIZE` was granted, and echoes smart mode only for
+renderer or admin roles negotiating protocol v3 or newer. Daemon adoption
+applies a two-second read and write handshake timeout.
 
 ## Payload primitives
 
@@ -91,7 +98,7 @@ indexes are fatal.
 | Value | Name | Direction | Required right | Payload |
 | --- | --- | --- | --- | --- |
 | 1 | `Bootstrap` | parent to host | private pipe | fixed handshake |
-| 2 | `Ready` | host to parent | private pipe | fixed handshake |
+| 2 | `Ready` | host to parent or client | handshake | fixed private payload or empty smart barrier |
 | 3 | `ClientHello` | client to host | pre-authentication | fixed handshake |
 | 4 | `HostHello` | host to client | handshake | fixed handshake |
 | 5 | `Snapshot` | host to client | `READ` | snapshot layout |
@@ -102,10 +109,15 @@ indexes are fatal.
 | 10 | `Pwd` | host to client | `READ` | UTF-8 cwd; empty means cleared |
 | 11 | `Bell` | host to client | `READ` | empty |
 | 12 | `Exit` | host to client | `READ` | versioned process outcome |
-| 13 | `ResyncRequired` | host to client | `READ` | empty |
+| 13 | `ResyncRequired` | host to client | `READ` | empty or attach-gap layout |
 | 14 | `Launch` | parent to host | private pipe | launch layout |
 | 15 | `Capability` | host to client | response | 32-byte token |
 | 16 | `ResizeAck` | host to client | response | `cols:u16, rows:u16, result_flags:u32` |
+| 17 | `ClearHistoryAck` | host to client | response | `status:u8`; a negotiated smart client receives clear-history replay bytes after a successful status |
+| 18 | `CellPixelSizeAck` | host to client | response | `width_px:u16, height_px:u16` |
+| 19 | `KittyGraphicsLimitsAck` | host to client | response | four little-endian `u64` limits |
+| 20 | `LaunchFailed` | host to parent | private pipe | versioned launch failure |
+| 21 | `TerminateAck` | host to client | response | empty; confirms the authoritative host received `Terminate` |
 | 100 | `Input` | client to host | `INPUT` | raw PTY bytes |
 | 101 | `Paste` | client to host | `INPUT` | raw bytes; host applies DEC 2004 wrapping |
 | 102 | `ViewerSize` | client to host | `RESIZE` | `cols:u16, rows:u16` |
@@ -113,6 +125,9 @@ indexes are fatal.
 | 104 | `Terminate` | client to host | `TERMINATE` | empty |
 | 105 | `MintCapability` | client to host | `MINT_CAPABILITY` | `rights:u32, ttl_ms:u32` |
 | 106 | `SetDefaults` | client to host | `MINT_CAPABILITY` | default-color layout |
+| 107 | `ClearHistory` | client to host | `INPUT` | optional encoded fallback key |
+| 108 | `SetCellPixelSize` | client to host | `RESIZE` | `width_px:u16, height_px:u16` |
+| 109 | `SetKittyGraphicsLimits` | client to host | `MINT_CAPABILITY` | four little-endian `u64` limits |
 
 `ResizeAck.result_flags & 1` means the request changed canonical geometry;
 other bits are invalid. Acknowledgements require negotiated
@@ -136,9 +151,17 @@ argv[argc]:string
 envc:u16
 env[envc]:{key:string,value:string}
 defaults:DefaultColors
+cell_width_px:u16
+cell_height_px:u16
+kitty_limits:{image_bytes:u64,inflight_bytes:u64,images:u64,placements:u64}
 ```
 
 `argc` is from 1 through 256. `envc` is at most 1,024.
+
+`LaunchFailed` starts with little-endian `version:u16=1, kind:u16`, followed
+by 1 through 4,096 bytes of UTF-8 diagnostic text. Kind 1 means PTY capacity
+is exhausted. Kind 2 covers another launch failure. Unknown versions, kinds,
+empty messages, invalid UTF-8, and oversized messages are malformed.
 
 `Exit` starts with little-endian
 `version:u16=1, outcome_kind:u8, flags:u8, exited_at_ms:u64`. Exit-code
@@ -158,18 +181,38 @@ replay:blob
 cwd:optional_string
 argc:u16
 argv[argc]:string
+kitty_alias_count:u16
+kitty_aliases[kitty_alias_count]:{image_id:u32,image_number:u32}
+cell_width_px:u16
+cell_height_px:u16
+kitty_replay_state:KittyReplayState
 ```
 
 PID zero means absent. Snapshot `argc` may be zero.
 
-`Resized` producer payload:
+Legacy `Resized` producer payload:
 
 ```text
 cols:u16
 rows:u16
 replay_len:u32
 replay:[u8;replay_len]
+kitty_alias_count:u16
+kitty_aliases[kitty_alias_count]:{image_id:u32,image_number:u32}
+cell_width_px:u16
+cell_height_px:u16
+kitty_replay_state:KittyReplayState
 ```
+
+A smart renderer instead receives an unflagged four-byte
+`cols:u16,rows:u16` payload, or an eight-byte payload that appends
+`cell_width_px:u16,cell_height_px:u16`. Smart `Output` is the unmodified PTY
+byte stream. Smart live frames never use a following `Colors` pair.
+
+`KittyReplayState` is four `u64` limits followed by
+`replay_cursor_offset:u32`, then replay and live next-image ids for the primary
+screen, followed by the same pair for the alternate screen. Alias counts are
+limited to 4,096 and image ids and numbers are nonzero.
 
 Geometry clamps to `1..=10,000` per dimension and rejects an area above
 4,000,000 cells.
@@ -217,15 +260,33 @@ after two seconds.
 
 ## Atomic color transitions
 
-`FLAG_COLORS_FOLLOW` is bit 0. A live `Output` that changes authored color or cursor semantics and every `Resized` frame set it. The immediately following sequence must be `Colors`. Producers enqueue the pair atomically and consumers stage both before publishing state. The flag is invalid on other messages.
+`FLAG_COLORS_FOLLOW` is bit 0. A legacy live `Output` that changes authored
+color or cursor semantics and every legacy `Resized` frame set it. The
+immediately following sequence must be `Colors`. Producers enqueue the pair
+atomically and consumers stage both before publishing state. Smart `Output`
+and `Resized` frames carry raw source transitions with flags zero. The flag is
+invalid on other messages.
 
 `FLAG_VIEWER_SIZE_ACKS` is bit 1 and is valid only in `ClientHello` and `HostHello`. When negotiated, a `ViewerSize` request receives `ResizeAck`. Resize acknowledgement flag bit 0 means the request changed the canonical grid and the corresponding sequenced `Resized` plus `Colors` transition was enqueued first.
+
+`FLAG_SMART_RENDERER` is bit 2 and is valid only in `ClientHello` and
+`HostHello`. A smart stream snapshots at the authoritative parser-applied
+source cursor, replays retained raw PTY frames after that cursor, then tees
+future PTY bytes to each client independently. Each client owns its viewer
+size and local scroll viewport.
 
 ## Ordering and recovery
 
 A renderer applies every live sequence exactly once. A gap, duplicate, flagged frame without the required next `Colors`, or invalid flag is fatal. The renderer disconnects and obtains a new `Snapshot`; continuing from a damaged sequence would corrupt its mirror.
 
 `ResyncRequired` is also terminal for the current mirror. The host publishes
+an empty payload for an ordered live reset. When an attach cannot join the
+retained stream, the payload is `requested_after:u64, retained_after:u64,
+reason:u8`; reason `0` is a retention gap and reason `1` is subscriber queue
+overflow. All fields are little-endian and clients must reconnect for either
+reason.
+
+The host publishes
 `Exit` only after the final `Output`. It uses the normal live sequence,
 `request_id:0`, and frame flags zero. `Exit` ends live process output but does
 not by itself tombstone the durable terminal registry entry. The host writes
@@ -271,10 +332,14 @@ Terminal-host protocol changes use their own version and do not change `identify
 - VT replay or blob: 8 MiB.
 - Launch payload: 1 MiB.
 - String: 256 KiB.
-- Per-client outbound queue: 256 frames and 8 MiB including headers.
+- Per-client outbound queue: 256 legacy frames or 4,096 smart frames; raw PTY
+  output is capped at 8 MiB, with bounded headroom for one maximum state
+  transition.
+- Smart replay retention: 4,096 frames and 8 MiB including headers.
 - Renderer grant TTL: 60 seconds maximum.
 
-There is no wire error frame. Invalid magic, zero or unsupported version,
+`LaunchFailed` is the only typed failure frame and is valid only as the
+private-pipe response to `Launch`. Invalid magic, zero or unsupported version,
 unknown kind, oversized or truncated payload, malformed handshake, denied
 rights, malformed control payload, unknown flags, invalid sequence, or queue
 overflow closes or rejects the connection. A client reconnects, authenticates
@@ -286,12 +351,10 @@ Discovery records use JSON `record_version:2`. Terminal and incarnation are
 PID is nonzero. Record directories are mode `0700`; records and sockets are
 mode `0600`.
 
-## Known v1 constraints
+## Version compatibility
 
-The current producer encodes `Resized` with `replay_len`, but the consumer in
-`surface.rs` treats bytes after the first four as replay and includes that
-length word. This makes terminal-host v1 partial rather than interoperable for
-resize replay. The decoder must consume `replay_len`, validate the remaining
-length, and pass only replay bytes to the VT state. Producer-consumer and
-cross-language fixtures must pass before the domain is promoted to
-`implemented`.
+Protocol v1 carries the base snapshot and legacy replay stream. Protocol v2
+adds Kitty image aliases and cell-pixel metrics. Protocol v3 adds Kitty replay
+state, Kitty quota controls, and the smart raw-byte stream. A v3 client may
+negotiate v1 or v2 only in legacy mode; smart renderers require v3 and restart
+their handshake on any gap or `ResyncRequired` frame.

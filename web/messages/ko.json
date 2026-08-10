@@ -135,6 +135,31 @@
     "faqFeatureA": "여러분의 의견을 듣고 싶습니다. GitHub에서 <issuesLink>issue</issuesLink>나 <prLink>pull request</prLink>를 열거나 <mailLink>이메일을 보내주세요</mailLink>."
   },
   "dashboard": {
+    "nav": {
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "개요",
+      "team": "팀"
+    },
+    "home": {
+      "coderouterName": "coderouter",
+      "coderouterDescription": "장애 조치와 사용량 기반 일정 관리를 통해 공급자 계정 간에 LLM 요청을 라우팅합니다.",
+      "coderouterLink": "coderouter 열기"
+    },
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "공유 AI 계정을 관리하고 coderouter로 요청을 라우팅합니다.",
+      "title": "coderouter",
+      "description": "coderouter는 장애 조치와 사용량 기반 일정 관리를 통해 공급자 계정 간에 LLM 요청을 라우팅합니다."
+    },
+    "accountMenu": {
+      "label": "계정 메뉴",
+      "settings": "설정",
+      "billing": "결제",
+      "signOut": "로그아웃",
+      "signingOut": "로그아웃 중…",
+      "signOutError": "로그아웃할 수 없습니다. 다시 시도하세요.",
+      "signIn": "로그인"
+    },
     "aiAccounts": {
       "metaTitle": "AI 계정 — cmux",
       "metaDescription": "cmux 팀 AI 제공업체 계정을 관리합니다.",
@@ -867,6 +892,8 @@
       "concepts": "개념",
       "anchorTitle": "앵커 워크스페이스",
       "anchorDesc": "모든 그룹은 앵커라고 하는 정확히 하나의 워크스페이스가 소유합니다. 사이드바의 그룹 헤더가 앵커를 나타내며, 앵커를 위한 별도의 행은 없습니다. 헤더의 이름 영역을 클릭하면 앵커의 패널에 포커스가 가고, 셰브론을 클릭하면 접기가 전환됩니다.",
+      "anchorNew": "그룹의 앵커는 그룹을 만들 때 항상 완전히 새로운 워크스페이스입니다. 선택 항목을 그룹화하거나 그룹을 만들 때 기존 워크스페이스 중 하나를 앵커로 승격하지 않습니다. (나중에 앵커를 닫으면 그룹에서 첫 번째로 남은 구성원이 승격됩니다. 아래를 참조하세요.) 선택 항목을 그룹화할 때는 처음 선택한 워크스페이스의 작업 디렉터리를, --cwd 없이 CLI에서 만들 때는 활성 워크스페이스의 작업 디렉터리를 앵커가 상속합니다.",
+      "anchorClose": "앵커 워크스페이스를 닫으면 해당 워크스페이스만 닫히고 그룹에서 첫 번째로 남은 구성원(그룹 순서상 아직 남아 있는 구성원 중 가장 앞선 구성원)이 새 앵커로 승격되므로 그룹과 다른 구성원은 그대로 유지됩니다(승격된 구성원은 이후 헤더에 그룹 이름을 표시합니다). 앵커가 그룹의 유일한 워크스페이스이면 그룹이 제거됩니다. 그룹을 그룹화되지 않은 워크스페이스로 펼치려면 작업 공간 그룹 해제를 사용하고, 그룹의 모든 워크스페이스를 닫으려면 그룹 삭제를 사용하세요.",
       "identityTitle": "그룹 정체성",
       "identityDesc": "그룹에는 이름, 아이콘(SF Symbol, 기본값 folder.fill), 선택적 사용자 정의 색상이 있습니다. 이들은 앵커 워크스페이스 자체의 사용자 정의와 독립적입니다. 앵커의 색상과 아이콘은 생성 시 그룹에서 시드되지만, 이후에는 서로 달라질 수 있습니다.",
       "pinningTitle": "고정",
@@ -1405,7 +1432,16 @@
     "changelog": {
       "title": "변경 로그",
       "metaDescription": "cmux 릴리스 노트 및 버전 히스토리. 네이티브 macOS 터미널의 새로운 기능, 버그 수정, 변경 사항.",
-      "metaTitle": "변경 내역"
+      "metaTitle": "변경 내역",
+      "versionTitle": "cmux {version} · 변경 내역",
+      "releaseNavLabel": "cmux {version} 전후 릴리스",
+      "sections": {
+        "added": "추가",
+        "changed": "변경",
+        "fixed": "수정",
+        "removed": "제거",
+        "contributors": "기여자"
+      }
     },
     "navItems": {
       "gettingStarted": "시작하기",
@@ -3557,7 +3593,6 @@
     "title": "{platform}용 cmux",
     "tagline": "Chromium 브라우저와 에이전트 작업 공간을 하나로 만들었습니다.",
     "logoAlt": "cmux 앱 아이콘",
-    "portableCta": "포터블 ZIP",
     "featuresTitle": "에이전트 작업을 위한 설계",
     "features": {
       "chromium": {
@@ -3579,7 +3614,7 @@
     },
     "installTitle": "설치",
     "releaseTitle": "릴리스 및 업데이트",
-    "releaseBody": "이 링크는 항상 <github>GitHub Releases</github>의 최신 안정 버전을 가리킵니다. cmux는 업데이트를 설치하기 전에 서명된 업데이트 매니페스트를 확인합니다.",
+    "releaseBody": "이 링크는 항상 <github>GitHub Releases</github>의 최신 나이틀리 버전을 가리킵니다. cmux는 업데이트를 설치하기 전에 서명된 업데이트 매니페스트를 확인합니다.",
     "sourceLink": "GitHub에서 소스 보기",
     "otherPlatform": "{platform}용 cmux",
     "macLink": "Mac용 cmux 터미널",
@@ -3589,6 +3624,7 @@
       "metaDescription": "Windows x64용 cmux를 다운로드하세요. 작업 중심 탭과 터미널 화면을 갖춘 무료 오픈 소스 Chromium 브라우저이자 에이전트 작업 공간입니다.",
       "subtitle": "Chromium 탭, cmux 워크스페이스, 익숙한 Windows 키보드 사용 방식을 갖춘 네이티브 x64 빌드입니다.",
       "primaryCta": "설치 프로그램(.exe) 다운로드",
+      "secondaryCta": "포터블 ZIP",
       "requirements": "Windows 10 이상 · x64",
       "installBody": "설치 프로그램을 실행하고 Windows 안내를 따르세요. 시스템 전체에 설치하지 않고 폴더에 cmux를 보관하려면 포터블 ZIP을 선택하세요."
     },
@@ -3597,9 +3633,10 @@
       "metaTitle": "Linux용 cmux 다운로드",
       "metaDescription": "Linux x64용 cmux를 다운로드하세요. 작업 중심 탭과 터미널 화면을 갖춘 무료 오픈 소스 Chromium 브라우저이자 에이전트 작업 공간입니다.",
       "subtitle": "Chromium 탭, cmux 워크스페이스, 통합 터미널 화면을 갖춘 네이티브 x64 빌드입니다.",
-      "primaryCta": ".deb 다운로드",
-      "requirements": "Debian 또는 Ubuntu · x64",
-      "installBody": "Debian 패키지를 다운로드하여 패키지 관리자로 설치하세요. 사용자별 설치와 앱 내 업데이트가 필요하면 포터블 ZIP을 선택하세요."
+      "primaryCta": "자동 업데이트 설치 프로그램(.run) 다운로드",
+      "secondaryCta": "Debian 패키지(.deb)",
+      "requirements": "Linux · x64",
+      "installBody": "사용자별 설치 프로그램을 한 번 실행하세요. root 권한 없이 ~/.local에 설치되며 서명된 앱 내 업데이트가 활성화됩니다. 패키지 관리자로 업데이트를 관리하려면 대신 Debian 패키지를 선택하세요."
     }
   },
   "emails": {

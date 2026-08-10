@@ -20,7 +20,15 @@ async function main() {
 }
 
 main().catch((error) => {
-  const message = error instanceof Error ? error.message : String(error);
+  const messages: string[] = [];
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current; depth++) {
+    messages.push(current instanceof Error ? current.message : String(current));
+    current = typeof current === "object" && current !== null && "cause" in current
+      ? current.cause
+      : undefined;
+  }
+  const message = messages.join(": ");
   console.error(`aws-rds-iam migration failed: ${message}`);
   process.exit(1);
 });

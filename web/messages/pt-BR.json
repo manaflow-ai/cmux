@@ -135,6 +135,31 @@
     "faqFeatureA": "Queremos saber. Abra uma <issuesLink>issue</issuesLink> ou um <prLink>pull request</prLink> no GitHub, ou <mailLink>envie um e-mail para nós</mailLink>."
   },
   "dashboard": {
+    "nav": {
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "visão geral",
+      "team": "equipe"
+    },
+    "home": {
+      "coderouterName": "coderouter",
+      "coderouterDescription": "Distribua solicitações LLM entre contas de provedores com failover e agendamento conforme o uso.",
+      "coderouterLink": "abrir coderouter"
+    },
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "Gerencie contas de IA compartilhadas e distribua solicitações com o coderouter.",
+      "title": "coderouter",
+      "description": "O coderouter distribui solicitações LLM entre contas de provedores com failover e agendamento conforme o uso."
+    },
+    "accountMenu": {
+      "label": "Menu da conta",
+      "settings": "Configurações",
+      "billing": "Cobrança",
+      "signOut": "Sair",
+      "signingOut": "Saindo…",
+      "signOutError": "Não foi possível sair. Tente novamente.",
+      "signIn": "Entrar"
+    },
     "aiAccounts": {
       "metaTitle": "Contas de IA — cmux",
       "metaDescription": "Gerencie as contas de provedores de IA da equipe no cmux.",
@@ -867,6 +892,8 @@
       "concepts": "Conceitos",
       "anchorTitle": "Workspace âncora",
       "anchorDesc": "Todo grupo pertence a exatamente um workspace chamado âncora. O cabeçalho do grupo na barra lateral é a representação da âncora — não há uma linha separada para ela. Clicar na área do nome do cabeçalho foca os painéis da âncora; clicar no chevron alterna o recolhimento.",
+      "anchorNew": "A âncora de um grupo é sempre um workspace totalmente novo no momento da criação; agrupar uma seleção ou criar um grupo nunca promove um dos seus workspaces existentes a âncora. (Fechar uma âncora mais tarde promove, sim, o primeiro membro restante do grupo; veja abaixo.) O diretório de trabalho da âncora é herdado do primeiro workspace selecionado ao agrupar uma seleção, ou do workspace ativo ao criar via CLI sem --cwd.",
+      "anchorClose": "Fechar o workspace âncora fecha apenas esse workspace e promove o primeiro membro restante do grupo (o primeiro que ainda aparece na ordem do grupo) a nova âncora, de modo que o grupo e os outros membros permaneçam intactos (o membro promovido passa então a exibir o nome do grupo como cabeçalho). Quando a âncora é o único workspace do grupo, o grupo é removido. Para transformar um grupo em workspaces desagrupados, use Desagrupar áreas de trabalho; para fechar todos os workspaces de um grupo, use Excluir grupo.",
       "identityTitle": "Identidade do grupo",
       "identityDesc": "Um grupo tem um nome, um ícone (um SF Symbol, por padrão folder.fill) e uma cor personalizada opcional. Esses elementos são independentes das próprias personalizações do workspace âncora. A cor e o ícone da âncora são inicializados a partir do grupo na criação, mas podem divergir depois.",
       "pinningTitle": "Fixação",
@@ -1405,7 +1432,16 @@
     "changelog": {
       "title": "Changelog",
       "metaDescription": "Notas de lançamento e histórico de versões do cmux. Novos recursos, correções de bugs e mudanças para o terminal macOS nativo.",
-      "metaTitle": "Registro de alterações"
+      "metaTitle": "Registro de alterações",
+      "versionTitle": "cmux {version} · Registro de alterações",
+      "releaseNavLabel": "Versões próximas do cmux {version}",
+      "sections": {
+        "added": "Adicionado",
+        "changed": "Alterado",
+        "fixed": "Corrigido",
+        "removed": "Removido",
+        "contributors": "Colaboradores"
+      }
     },
     "navItems": {
       "gettingStarted": "Primeiros Passos",
@@ -3560,7 +3596,6 @@
     "title": "cmux para {platform}",
     "tagline": "Um navegador Chromium e um espaço de trabalho para agentes, criados em conjunto.",
     "logoAlt": "Ícone do aplicativo cmux",
-    "portableCta": "ZIP portátil",
     "featuresTitle": "Feito para trabalho com agentes",
     "features": {
       "chromium": {
@@ -3582,7 +3617,7 @@
     },
     "installTitle": "Instalação",
     "releaseTitle": "Versões e atualizações",
-    "releaseBody": "Estes links sempre apontam para a versão estável mais recente no <github>GitHub Releases</github>. O cmux verifica manifestos de atualização assinados antes de instalar uma atualização.",
+    "releaseBody": "Estes links sempre apontam para a versão nightly mais recente no <github>GitHub Releases</github>. O cmux verifica manifestos de atualização assinados antes de instalar uma atualização.",
     "sourceLink": "Ver o código-fonte no GitHub",
     "otherPlatform": "cmux para {platform}",
     "macLink": "Terminal cmux para Mac",
@@ -3592,6 +3627,7 @@
       "metaDescription": "Baixe o cmux para Windows x64: um navegador Chromium e espaço de trabalho para agentes, gratuito e de código aberto, com abas por tarefa e superfícies de terminal.",
       "subtitle": "Uma compilação x64 nativa com abas Chromium, espaços de trabalho cmux e convenções de teclado conhecidas do Windows.",
       "primaryCta": "Baixar instalador (.exe)",
+      "secondaryCta": "ZIP portátil",
       "requirements": "Windows 10 ou mais recente · x64",
       "installBody": "Execute o instalador e siga as instruções do Windows. Escolha o ZIP portátil se preferir manter o cmux em uma pasta sem instalação em todo o sistema."
     },
@@ -3600,9 +3636,10 @@
       "metaTitle": "Baixar o cmux para Linux",
       "metaDescription": "Baixe o cmux para Linux x64: um navegador Chromium e espaço de trabalho para agentes, gratuito e de código aberto, com abas por tarefa e superfícies de terminal.",
       "subtitle": "Uma compilação x64 nativa com abas Chromium, espaços de trabalho cmux e superfícies de terminal integradas.",
-      "primaryCta": "Baixar .deb",
-      "requirements": "Debian ou Ubuntu · x64",
-      "installBody": "Baixe o pacote Debian e instale-o com seu gerenciador de pacotes. Escolha o ZIP portátil para uma instalação por usuário e atualizações dentro do aplicativo."
+      "primaryCta": "Baixar instalador com atualizações automáticas (.run)",
+      "secondaryCta": "Pacote Debian (.deb)",
+      "requirements": "Linux · x64",
+      "installBody": "Execute uma vez o instalador por usuário. Ele instala o cmux em ~/.local sem privilégios de root e habilita atualizações assinadas dentro do aplicativo. Se quiser que as atualizações sejam gerenciadas pelo seu gerenciador de pacotes, escolha o pacote Debian em vez disso."
     }
   },
   "emails": {

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { stripeSubscriptions } from "../db/schema";
@@ -24,6 +24,7 @@ const getUser = mock(async () => proUser);
 const redirect = mock((href: unknown) => {
   throw Object.assign(new Error("redirect"), { href });
 });
+const originalVaultEnabled = process.env.CMUX_VAULT_ENABLED;
 
 mock.module("next/navigation", () => createNextNavigationMock(redirect));
 
@@ -67,13 +68,22 @@ const { default: PricingPage } = await import("../app/[locale]/pricing/page");
 
 describe("localized pricing page", () => {
   beforeEach(() => {
+    process.env.CMUX_VAULT_ENABLED = "0";
     stackConfigured = false;
     stripeSubscriptionRows = [];
     getUser.mockClear();
     proUser.update.mockClear();
   });
 
-  test("does not render Manage billing for non-Pro snapshots", async () => {
+  afterEach(() => {
+    if (originalVaultEnabled === undefined) {
+      delete process.env.CMUX_VAULT_ENABLED;
+    } else {
+      process.env.CMUX_VAULT_ENABLED = originalVaultEnabled;
+    }
+  });
+
+  test("defaults public pricing to annual billing with compact paid-plan CTAs", async () => {
     const element = await PricingPage({ params: Promise.resolve({ locale: "en" }) });
     const html = renderToStaticMarkup(element);
 
@@ -82,13 +92,36 @@ describe("localized pricing page", () => {
     expect(html).toContain("/mo");
     expect(html).toContain("/user/mo");
     expect(html).not.toContain("/mo.");
-    expect(html).toContain("$35/user/mo");
+    expect(html).toContain("$28/user/mo");
     expect(html).toContain(
-      "/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;interval=month",
+      "/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;interval=year",
+    );
+    expect(html).toContain(
+      "/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;interval=year",
+    );
+    expect(html).toMatch(
+      /href="\/api\/billing\/checkout\?plan=pro[^"]*interval=year"[^>]*class="[^"]*px-3 py-1\.5 text-xs[^"]*"[^>]*><span>Get Pro/,
+    );
+    expect(html).toMatch(
+      /href="\/api\/billing\/checkout\?plan=team[^"]*interval=year"[^>]*class="[^"]*px-3 py-1\.5 text-xs[^"]*"[^>]*><span>Get Teams/,
     );
     expect(html).toContain('<p class="mt-5 text-sm font-medium">Includes:</p>');
     expect(html).not.toContain('style="min-height:4rem"');
     expect(html).toContain("text-3xl font-medium tabular-nums tracking-tight");
+    expect(html).toContain("CodeRouter");
+    expect(html).not.toContain("Subrouter");
+    expect(html).not.toContain("cmux Vault");
+  });
+
+  test("only advertises Vault when its release flag is enabled", async () => {
+    process.env.CMUX_VAULT_ENABLED = "1";
+
+    const element = await PricingPage({
+      params: Promise.resolve({ locale: "en" }),
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain("cmux Vault");
   });
 
   test("renders Stack metadata-only Pro snapshots as Free", async () => {
@@ -144,6 +177,26 @@ describe("localized pricing page", () => {
     expect(html).toContain('<button type="button" role="radio" aria-checked="true"');
     expect(html).not.toContain('href="?interval=');
     expect(html).toContain("mx-auto mt-6 flex w-fit");
+  });
+
+  test("honors an explicit monthly billing interval", async () => {
+    const element = await PricingPage({
+      params: Promise.resolve({ locale: "en" }),
+      searchParams: Promise.resolve({ interval: "month" }),
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain("$30");
+    expect(html).toContain("$35");
+    expect(html).toContain(
+      "/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;interval=month",
+    );
+    expect(html).toContain(
+      "/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;interval=month",
+    );
+    expect(html).toContain(
+      '<button type="button" role="radio" aria-checked="true" tabindex="0" class="bg-foreground px-3 py-1.5 font-medium text-background">Monthly</button>',
+    );
   });
 });
 

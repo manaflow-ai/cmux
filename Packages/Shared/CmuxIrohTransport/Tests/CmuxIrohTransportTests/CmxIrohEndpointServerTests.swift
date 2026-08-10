@@ -265,7 +265,7 @@ struct CmxIrohEndpointServerTests {
     }
 
     @Test
-    func newlyAdmittedConnectionSupersedesOlderConnectionFromSameEndpointIdentity() async throws {
+    func newlyAdmittedConnectionPreservesOlderConnectionFromSameEndpointIdentity() async throws {
         let localIdentity = try CmxIrohPeerIdentity(
             endpointID: String(repeating: "a", count: 64)
         )
@@ -304,8 +304,6 @@ struct CmxIrohEndpointServerTests {
             remoteIdentity: remoteIdentity,
             bidirectionalStreams: []
         )
-        var firstCloses = await first.closeEvents().makeAsyncIterator()
-
         await server.start()
         await endpoint.enqueue(first)
         #expect(await recorder.next().identity == remoteIdentity)
@@ -313,12 +311,68 @@ struct CmxIrohEndpointServerTests {
         #expect(await recorder.next().identity == remoteIdentity)
 
         for _ in 0 ..< 20 { await Task.yield() }
-        let firstCloseCount = await first.observedCloseCallCount()
-        #expect(firstCloseCount == 1)
-        if firstCloseCount == 1 {
-            let close = try #require(await firstCloses.next())
-            #expect(close.reason == "superseded_connection")
+        #expect(await first.observedCloseCallCount() == 0)
+        #expect(await replacement.observedCloseCallCount() == 0)
+
+        await blocker.releaseAll()
+        await server.stop()
+        await supervisor.deactivate()
+    }
+
+    @Test
+    func usableConnectionRetiresOlderConnectionsFromSameEndpointIdentity() async throws {
+        let localIdentity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "c", count: 64)
+        )
+        let remoteIdentity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "d", count: 64)
+        )
+        let endpoint = TestAcceptingIrohEndpoint(identity: localIdentity)
+        let supervisor = CmxIrohEndpointSupervisor(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            configuration: try CmxIrohEndpointConfiguration(
+                secretKey: CmxIrohSecretKey(bytes: Data(repeating: 9, count: 32)),
+                alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
+                managedRelayURLs: [],
+                relays: []
+            )
+        )
+        _ = try await supervisor.activate()
+        let blocker = EndpointServerHandlerBlocker()
+        let recorder = EndpointServerRecorder()
+        let server = CmxIrohEndpointServer(supervisor: supervisor) {
+            connection,
+            generation,
+            admission in
+            await recorder.record(
+                identity: await connection.remoteIdentity(),
+                generation: generation
+            )
+            #expect(await admission())
+            if await recorder.recordedCount() == 2 {
+                #expect(await admission.markUsable())
+            }
+            await blocker.wait()
         }
+        let first = TestIrohConnection(
+            remoteIdentity: remoteIdentity,
+            bidirectionalStreams: []
+        )
+        let replacement = TestIrohConnection(
+            remoteIdentity: remoteIdentity,
+            bidirectionalStreams: []
+        )
+        var firstCloses = await first.closeEvents().makeAsyncIterator()
+
+        await server.start()
+        await endpoint.enqueue(first)
+        #expect(await recorder.next().identity == remoteIdentity)
+        await endpoint.enqueue(replacement)
+        #expect(await recorder.next().identity == remoteIdentity)
+        await first.waitUntilClosed()
+
+        let close = try #require(await firstCloses.next())
+        #expect(close.reason == "superseded_connection")
         #expect(await replacement.observedCloseCallCount() == 0)
 
         await blocker.releaseAll()

@@ -377,6 +377,7 @@ extension MobileHostIrohRuntime {
         await stopLANPublication()
         guard ownsDeactivationCleanup(revision: revision) else { return }
         clearHostRuntime()
+        clearIrohRoutePublication(revision: revision)
         guard ownsDeactivationCleanup(revision: revision) else { return }
         await noteActiveRuntimeDeactivated(revision: revision)
     }

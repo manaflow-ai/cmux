@@ -95,6 +95,9 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.profiles.delete",
         "browser.import.cookies",
         "mobile.attach_ticket.create",
+        // Provider discovery may read configuration or run `opencode models`;
+        // it must never hold the main actor while waiting for process I/O.
+        "mobile.task.models.list",
         // `mobile.terminal.set_font` only validates params and emits a push
         // event via thread-safe MobileHostService statics, so it runs on the worker
         // like the other mobile data-plane verbs. Without this entry the policy
@@ -142,6 +145,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "sidebar.custom.reload",
         "sidebar.custom.select",
         "sidebar.custom.open",
+        // Window screenshot capture waits for ScreenCaptureKit's async
+        // compositor before falling back to AppKit. Keep that wait on the
+        // socket worker so WebKit-backed panels can render on the main actor.
+        "debug.window.screenshot",
         // debug.sidebar.simulate_drag intentionally runs on the socket worker
         // so its Thread.sleep between drag-state ticks doesn't block the main
         // actor (which still owns the SidebarDragState mutations via
@@ -442,10 +449,12 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     ]
 
     /// v1 commands that run on the socket-worker thread instead of the main
-    /// actor: `ping` (the dispatcher's former hard-coded fast path) plus the
-    /// sidebar telemetry, notification, terminal-read, resolution-read, and
-    /// terminal-send families. Internal (not private) so the package tests
-    /// can pin the exact set.
+    /// actor: `ping` (the dispatcher's former hard-coded fast path),
+    /// `screenshot` (which waits for ScreenCaptureKit's async compositor),
+    /// plus the blocking configuration mutations and the sidebar telemetry,
+    /// notification, terminal-read, resolution-read, and terminal-send
+    /// families. Internal (not private) so the package tests can pin the exact
+    /// set.
     static let socketWorkerV1Commands: Set<String> =
         sidebarTelemetryV1Commands
             .union(notificationV1Commands)
@@ -454,7 +463,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
             .union(resolutionReadV1Commands)
             .union(terminalSendV1Commands)
             .union(configurationMutationV1Commands)
-            .union(["ping"])
+            .union(["ping", "screenshot"])
 
     /// Worker-lane v1 commands that are also safe to invoke from the main
     /// thread. Must be a subset of ``socketWorkerV1Commands``, and is

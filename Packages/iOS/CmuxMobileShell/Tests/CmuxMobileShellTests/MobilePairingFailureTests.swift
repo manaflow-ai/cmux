@@ -314,6 +314,7 @@ import Testing
         // wrong "code" was entered.
         let message = MobilePairingFailureCategory.invalidCode.message
         #expect(!message.lowercased().contains("pairing code"))
+        #expect(message.localizedCaseInsensitiveContains("Tailscale"))
         #expect(!message.isEmpty)
     }
 
