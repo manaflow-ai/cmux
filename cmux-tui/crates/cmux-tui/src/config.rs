@@ -3385,7 +3385,7 @@ fn ghostty_helper_process_table_snapshot() -> Option<String> {
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .process_group(0);
-    let Ok(mut child) = command.spawn() else {
+    let Ok(mut child) = cmux_tui_process::spawn(&mut command) else {
         return None;
     };
     let Some(stdout) = child.stdout.take() else {
