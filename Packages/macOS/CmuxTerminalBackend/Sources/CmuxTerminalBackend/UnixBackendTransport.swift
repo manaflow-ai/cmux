@@ -477,7 +477,8 @@ public actor UnixBackendTransport: BackendPeerIdentityTransport {
                 readSource = source
                 readWaiter = continuation
                 source.setEventHandler { [weak self] in
-                    Task { await self?.finishReadWait() }
+                    guard let self else { return }
+                    Task { [self] in await self.finishReadWait() }
                 }
                 source.resume()
             }
@@ -499,7 +500,8 @@ public actor UnixBackendTransport: BackendPeerIdentityTransport {
                 writeSource = source
                 writeWaiter = continuation
                 source.setEventHandler { [weak self] in
-                    Task { await self?.finishWriteWait() }
+                    guard let self else { return }
+                    Task { [self] in await self.finishWriteWait() }
                 }
                 source.resume()
             }
