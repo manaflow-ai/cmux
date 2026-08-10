@@ -25,9 +25,9 @@ public struct MobilePendingAttachment: Identifiable, Equatable, Sendable {
     /// matching the clipboard paste path's format argument.
     public let format: String
 
-    /// Compatibility byte access for focused legacy tests and callers.
-    public var data: Data {
-        (try? Data(contentsOf: localFileURL, options: .mappedIfSafe)) ?? Data()
+    /// Failable compatibility byte access for focused legacy tests and callers.
+    public var data: Data? {
+        try? Data(contentsOf: localFileURL, options: .mappedIfSafe)
     }
 
     /// Creates a pending attachment.
