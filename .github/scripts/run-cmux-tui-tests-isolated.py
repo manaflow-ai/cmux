@@ -6,12 +6,16 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 import json
+import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
+import time
 
 
 TESTABLE_TARGET_KINDS = frozenset({"lib", "bin", "test", "example"})
+PROCESS_CLEANUP_GRACE_SECONDS = 1.0
 
 
 @dataclass(frozen=True)
@@ -132,6 +136,51 @@ def tests_in(binary: TestBinary) -> list[str]:
     return tests
 
 
+def process_group_exists(group_id: int) -> bool:
+    try:
+        os.killpg(group_id, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def terminate_process_group(group_id: int) -> None:
+    if not process_group_exists(group_id):
+        return
+
+    try:
+        os.killpg(group_id, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+
+    deadline = time.monotonic() + PROCESS_CLEANUP_GRACE_SECONDS
+    while time.monotonic() < deadline:
+        if not process_group_exists(group_id):
+            return
+        time.sleep(0.05)
+
+    try:
+        os.killpg(group_id, signal.SIGKILL)
+    except ProcessLookupError:
+        return
+    print(f"Cleaned surviving child process group {group_id}", flush=True)
+
+
+def run_test(binary: TestBinary, test_name: str) -> None:
+    command = [str(binary.path), test_name, "--exact", "--test-threads=1"]
+    process = subprocess.Popen(
+        command,
+        cwd=binary.package_root,
+        start_new_session=True,
+    )
+    try:
+        return_code = process.wait()
+    finally:
+        terminate_process_group(process.pid)
+    if return_code != 0:
+        raise subprocess.CalledProcessError(return_code, command)
+
+
 def main() -> int:
     args = parse_args()
     workspace_root = args.workspace_root.resolve()
@@ -148,11 +197,7 @@ def main() -> int:
         )
         for index, test_name in enumerate(tests, start=1):
             print(f"[{index}/{len(tests)}] {test_name}", flush=True)
-            subprocess.run(
-                [str(binary.path), test_name, "--exact", "--test-threads=1"],
-                check=True,
-                cwd=binary.package_root,
-            )
+            run_test(binary, test_name)
             total += 1
     if total == 0:
         raise SystemExit("cmux-tui workspace test binaries listed no tests")
