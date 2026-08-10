@@ -125,17 +125,18 @@ async function queryCoderouterTeamMetrics(
       dependencies.reportFailure?.("endpoint_status", response.status);
       return { kind: "unavailable" };
     }
-    let body: {
-      readonly columns?: unknown;
-      readonly results?: unknown;
-      readonly hasMore?: unknown;
-    };
+    let parsedBody: unknown;
     try {
-      body = await response.json() as typeof body;
+      parsedBody = await response.json();
     } catch {
       dependencies.reportFailure?.("malformed_response");
       return { kind: "unavailable" };
     }
+    if (!isPlainRecord(parsedBody)) {
+      dependencies.reportFailure?.("malformed_response");
+      return { kind: "unavailable" };
+    }
+    const body = parsedBody;
     const columns = body.columns;
     const results = body.results;
     if (

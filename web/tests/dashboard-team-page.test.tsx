@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import { createNextNavigationMock } from "./helpers/next-navigation-mock";
 
 let signedIn = true;
 let stackConfigured = true;
@@ -16,16 +17,13 @@ mock.module("@stackframe/stack", () => ({
   TeamSwitcher: () => <span data-testid="team-switcher" />,
 }));
 
-mock.module("next/navigation", () => ({
-  redirect: (target: string) => {
-    redirectedTo = target;
+mock.module("next/navigation", () => {
+  const navigation = createNextNavigationMock((target: unknown) => {
+    redirectedTo = String(target);
     throw new Error(`redirect:${target}`);
-  },
-  useRouter: () => ({
-    push: () => undefined,
-    refresh: () => undefined,
-  }),
-}));
+  });
+  return navigation;
+});
 
 mock.module("@tanstack/react-query", () => ({
   useQuery: () => ({ data: undefined, isPending: true, isError: false }),

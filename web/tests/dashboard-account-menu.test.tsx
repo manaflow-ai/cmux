@@ -1,6 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type React from "react";
+import { createNextNavigationMock } from "./helpers/next-navigation-mock";
 
 let currentUser: {
   displayName: string;
@@ -64,11 +65,10 @@ mock.module("@tanstack/react-query", () => ({
   useQuery: () => organizationQuery,
 }));
 
-mock.module("next/navigation", () => ({
-  redirect: (target: string) => {
+mock.module("next/navigation", () =>
+  createNextNavigationMock((target: unknown) => {
     throw new Error(`redirect:${target}`);
-  },
-}));
+  }));
 
 mock.module("@base-ui-components/react/menu", () => ({
   Menu: {

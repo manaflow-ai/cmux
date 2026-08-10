@@ -126,7 +126,7 @@ function DashboardOrganizationSwitcher() {
   const [selectedOrganizationId, setSelectedOrganizationId] = useState<
     string | undefined
   >(undefined);
-  const { data, isPending, isError } = useQuery({
+  const { data, isPending } = useQuery({
     queryKey: ["coderouter-organizations"],
     queryFn: loadOrganizationCatalog,
     staleTime: 60_000,
@@ -135,7 +135,7 @@ function DashboardOrganizationSwitcher() {
   if (isPending) {
     return <div aria-hidden="true" className="h-9 w-full animate-pulse bg-code-bg" />;
   }
-  if (isError || !data) {
+  if (!data) {
     return (
       <Link
         href="/dashboard/team"
