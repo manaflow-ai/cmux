@@ -2339,7 +2339,18 @@ impl Mux {
         // reaches the registry transaction. Validate the canonical terminal
         // first so a stale incarnation has one stable protocol error even
         // while the in-memory runtime catalog is being restored.
-        if let Some(expected) = terminal_incarnation {
+        let replay_incarnation = registry
+            .replay_terminal(
+                mutation,
+                &json!({
+                    "op": "close-terminal",
+                    "terminal_id": terminal_id,
+                    "incarnation": terminal_incarnation,
+                }),
+            )?
+            .and_then(|commit| commit.result["incarnation"].as_str().map(str::to_owned));
+        let planned_incarnation = replay_incarnation.as_deref().or(terminal_incarnation);
+        if let Some(expected) = planned_incarnation {
             let terminal = registry
                 .terminal_record(terminal_id)?
                 .ok_or_else(|| anyhow::anyhow!("unknown terminal {terminal_id}"))?;
@@ -2351,13 +2362,13 @@ impl Mux {
 
         let mut plan = self.resource_terminal_close_plan_locked(
             terminal_id,
-            terminal_incarnation,
+            planned_incarnation,
             &public_id,
             &state,
         )?;
         anyhow::ensure!(
             plan.terminal_batch
-                == [(terminal_id.to_string(), terminal_incarnation.map(str::to_owned))],
+                == [(terminal_id.to_string(), planned_incarnation.map(str::to_owned))],
             "terminal close plan changed host identity"
         );
         let mut projection =
@@ -2373,7 +2384,7 @@ impl Mux {
             // tombstoned. Explicit close must delete that tabless receipt.
             projection.patch.changes.push(ResourceChange::TombstoneTerminal {
                 public_id: public_id.clone(),
-                expected_incarnation: terminal_incarnation.map(str::to_owned),
+                expected_incarnation: planned_incarnation.map(str::to_owned),
             });
         }
         let public_changes = projection

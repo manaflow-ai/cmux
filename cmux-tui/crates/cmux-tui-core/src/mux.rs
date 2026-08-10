@@ -20808,6 +20808,55 @@ mod tests {
         assert_eq!(terminal.lifecycle, TerminalLifecycle::Tombstoned);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn terminal_only_close_replay_does_not_remove_a_newer_incarnation() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let host = mux.resource_terminal_host_identity(&surface).unwrap();
+        let public_id = surface.terminal_public_id().cloned().unwrap();
+        let resource_revision = mux.with_state(|state| state.resource_revision);
+        let mutation = WorkspaceMutation::new("terminal-only-new-incarnation", "test").unwrap();
+
+        mux.workspace_registry
+            .lock()
+            .unwrap()
+            .close_terminal(&mutation, None, None, &host.terminal_id, None)
+            .unwrap();
+
+        let runtime_id = surface.terminal_runtime_id().unwrap();
+        {
+            let mut state = mux.state.lock().unwrap();
+            state.surfaces.remove(&surface.id);
+            state.terminal_catalog.remove(&public_id);
+            state.terminal_catalog_by_runtime.remove(&runtime_id);
+        }
+        let mut new_incarnation = host.incarnation.clone();
+        let replacement = if new_incarnation.starts_with('0') { "1" } else { "0" };
+        new_incarnation.replace_range(0..1, replacement);
+        let new_surface = Surface::exited_terminal_placeholder_with_terminal_public_id(
+            mux.next_id(),
+            mux.surface_options.lock().unwrap().clone(),
+            Arc::downgrade(&mux),
+            TerminalHostIdentity {
+                terminal_id: host.terminal_id.clone(),
+                incarnation: new_incarnation,
+            },
+            public_id,
+        )
+        .unwrap();
+        let new_surface_id = new_surface.id;
+        insert_surface_checked(&mut mux.state.lock().unwrap(), new_surface).unwrap();
+
+        let error = mux
+            .close_terminal_with_mutation(&host.terminal_id, None, None, None, &mutation)
+            .unwrap_err();
+
+        assert!(error.to_string().contains("terminal_incarnation_mismatch"));
+        assert!(mux.surface(new_surface_id).is_some());
+        assert_eq!(mux.with_state(|state| state.resource_revision), resource_revision);
+    }
+
     #[test]
     fn failed_browser_surface_attach_kills_worker() {
         let mux = test_mux();
