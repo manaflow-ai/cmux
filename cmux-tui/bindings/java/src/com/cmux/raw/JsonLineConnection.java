@@ -103,9 +103,14 @@ final class JsonLineConnection implements AutoCloseable {
             try {
                 writeFully(ByteBuffer.wrap(message), deadline);
                 writeFully(ByteBuffer.wrap(new byte[] {'\n'}), deadline);
+            } catch (CmuxException error) {
+                close();
+                throw error;
             } catch (ClosedChannelException error) {
+                close();
                 throw new CmuxTransportException("connection is closed", error);
             } catch (IOException error) {
+                close();
                 throw new CmuxTransportException("socket write failed", error);
             }
         }
