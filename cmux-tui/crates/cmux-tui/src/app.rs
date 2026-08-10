@@ -39401,6 +39401,23 @@ mod tests {
     }
 
     #[test]
+    fn local_owner_without_an_active_machine_applies_one_reload_for_both_event_paths() {
+        let owner = Mux::new("owner-reload-without-active-machine", SurfaceOptions::default());
+        let session = crate::session::test_remote_session_with_browser_pointer_range(7, 1, 1);
+        let (mut app, _) = test_app_with_events(session);
+        let mut machine_ui = provider_machine_ui();
+        machine_ui.snapshot.active = None;
+        app.owner_mux = Some(owner);
+        app.machine_ui = Some(machine_ui);
+        app.machine_presented = None;
+
+        app.handle(AppEvent::Mux(MuxEvent::ConfigReloadRequested)).unwrap();
+        app.handle(AppEvent::OwnerConfigReloadRequested).unwrap();
+
+        assert_eq!(app.config_reload_applications, 1);
+    }
+
+    #[test]
     fn local_owner_shutdown_survives_machine_session_replacement() {
         let owner = Mux::new("owner-shutdown-source", SurfaceOptions::default());
         let initial = crate::session::test_remote_session_with_browser_pointer_range(7, 1, 1);

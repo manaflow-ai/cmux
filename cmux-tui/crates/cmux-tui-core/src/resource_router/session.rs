@@ -354,6 +354,7 @@ mod tests {
 
         assert_eq!(first.code, "mutation.indeterminate");
         assert_eq!(replay, first);
+        assert!(events.recv_timeout(std::time::Duration::from_millis(50)).is_err());
     }
 
     #[test]
