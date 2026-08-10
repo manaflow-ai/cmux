@@ -6,7 +6,7 @@ import {
   UserAvatar,
   useUser,
 } from "@stackframe/stack";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
@@ -122,12 +122,14 @@ function DashboardOrganizationSwitcher() {
   const user = useUser({ or: "throw" });
   const teams = user.useTeams();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const t = useTranslations("dashboard.accountMenu");
-  const [selectedOrganizationId, setSelectedOrganizationId] = useState<
-    string | undefined
-  >(undefined);
+  const organizationQueryKey = [
+    "coderouter-organizations",
+    user.id,
+  ] as const;
   const { data, isPending } = useQuery({
-    queryKey: ["coderouter-organizations"],
+    queryKey: organizationQueryKey,
     queryFn: loadOrganizationCatalog,
     staleTime: 60_000,
   });
@@ -149,17 +151,21 @@ function DashboardOrganizationSwitcher() {
   const authorizedIds = new Set(data.teams.map((team) => team.id));
   const selectableTeams = teams.filter((team) => authorizedIds.has(team.id));
   const personal = data.teams.find((team) => team.personal);
-  const selectedTeamId = selectedOrganizationId ??
-    (user.selectedTeam && authorizedIds.has(user.selectedTeam.id)
+  const selectedTeamId =
+    user.selectedTeam && authorizedIds.has(user.selectedTeam.id)
       ? user.selectedTeam.id
-      : data.selectedTeamId ?? data.teams[0]?.id);
+      : data.selectedTeamId ?? data.teams[0]?.id;
   const switchOrganization = async (
     team: (typeof selectableTeams)[number] | null,
   ) => {
     const organizationId = team?.id ?? personal?.id;
     if (!organizationId) return;
     await user.setSelectedTeam(team);
-    setSelectedOrganizationId(organizationId);
+    queryClient.setQueryData<OrganizationCatalog>(
+      organizationQueryKey,
+      (current) =>
+        current ? { ...current, selectedTeamId: organizationId } : current,
+    );
     router.push(
       `/dashboard/coderouter?team=${
         encodeURIComponent(organizationId)
@@ -194,16 +200,57 @@ async function loadOrganizationCatalog(): Promise<OrganizationCatalog> {
     throw new Error("Could not load CodeRouter organizations");
   }
   const body: unknown = await response.json();
-  if (
-    typeof body !== "object" ||
-    body === null ||
-    !("teams" in body) ||
-    !Array.isArray(body.teams)
-  ) {
+  const parsed = parseOrganizationCatalog(body);
+  if (!parsed) {
     throw new Error("Invalid CodeRouter organization response");
   }
-  return body as OrganizationCatalog;
+  return parsed;
 }
+
+function parseOrganizationCatalog(value: unknown): OrganizationCatalog | null {
+  if (!isPlainRecord(value) || !Array.isArray(value.teams)) return null;
+  const selectedTeamId = value.selectedTeamId;
+  if (
+    selectedTeamId !== null &&
+    !validOrganizationText(selectedTeamId)
+  ) {
+    return null;
+  }
+  const teams: Array<OrganizationCatalog["teams"][number]> = [];
+  const seen = new Set<string>();
+  for (const raw of value.teams) {
+    if (
+      !isPlainRecord(raw) ||
+      !validOrganizationText(raw.id) ||
+      !validOrganizationText(raw.name) ||
+      typeof raw.personal !== "boolean" ||
+      seen.has(raw.id)
+    ) {
+      return null;
+    }
+    seen.add(raw.id);
+    teams.push({
+      id: raw.id,
+      name: raw.name,
+      personal: raw.personal,
+    });
+  }
+  if (selectedTeamId !== null && !seen.has(selectedTeamId)) return null;
+  return { selectedTeamId, teams };
+}
+
+function validOrganizationText(value: unknown): value is string {
+  return typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= 200 &&
+    value === value.trim();
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+export const __test = { parseOrganizationCatalog };
 
 function ChevronsUpDown() {
   return (
