@@ -225,16 +225,6 @@ struct AppDelegateSurfaceShortcutRoutingTests {
             #expect(foregroundPanel.surface.hasLiveSurface)
             #expect(backgroundPanel.surface.hasLiveSurface)
 
-            let configuredRuntimePoints = GhosttyApp.shared
-                .terminalFontConfigurationSnapshot()
-                .configuredRuntimePoints
-            let mobileFitState = MobileViewportFontFitState(
-                baseRuntimePointSize: configuredRuntimePoints,
-                fittedRuntimePointSize: TerminalFontSizePolicy.minimumRuntimePoints
-            )
-            foregroundPanel.surface.mobileViewportFontFitState = mobileFitState
-            backgroundPanel.surface.mobileViewportFontFitState = mobileFitState
-
             workspace.focusPanel(foregroundPanelId)
             #expect(window.makeFirstResponder(foregroundPanel.hostedView.surfaceView))
             workspace.markPanelUnread(foregroundPanelId)
