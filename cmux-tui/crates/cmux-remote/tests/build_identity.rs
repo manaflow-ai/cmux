@@ -253,10 +253,8 @@ fn release_override_remains_exact_and_stable_for_dirty_sources() {
 #[test]
 fn packaged_fingerprint_outranks_source_commit() {
     let fixture = BuildFixture::new();
-    let output = fixture.run_output_with_fingerprint(
-        Some("source-commit"),
-        Some("packaged-content-fingerprint"),
-    );
+    let output = fixture
+        .run_output_with_fingerprint(Some("source-commit"), Some("packaged-content-fingerprint"));
     assert_success("run build.rs with packaged fingerprint", &output);
     let identity = String::from_utf8(output.stdout)
         .unwrap()

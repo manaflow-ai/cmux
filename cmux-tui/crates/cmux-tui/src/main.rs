@@ -2218,10 +2218,7 @@ mod tests {
         let build_identity = requested_build_identity(&["--build-id".to_owned()]);
 
         assert_eq!(build_identity, Some(cmux_remote::ssh_bootstrap::BUILD_IDENTITY));
-        assert_eq!(
-            requested_build_identity(&["--build-id".to_owned(), "extra".to_owned()]),
-            None
-        );
+        assert_eq!(requested_build_identity(&["--build-id".to_owned(), "extra".to_owned()]), None);
         assert!(!usage().contains("--build-id"));
     }
 
