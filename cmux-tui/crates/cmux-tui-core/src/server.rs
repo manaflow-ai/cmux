@@ -13502,6 +13502,40 @@ mod tests {
     }
 
     #[test]
+    fn zero_view_cell_pixel_update_reports_the_terminal_resource() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let terminal_id = surface.terminal_public_id().unwrap().clone();
+        assert!(mux.close_surface(surface.id).unwrap());
+        assert!(mux.surface(surface.id).is_none());
+        assert!(mux.terminal_resource(&terminal_id).is_some());
+
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let request = resource_request(
+            "zero-view-cell-pixels",
+            "client.cell_pixels.set",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "client":"current",
+                "width_px":9,
+                "height_px":18,
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &request, &writer, &scheduler));
+
+        let response = pop_json(&outbound);
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["result"]["resized_terminals"], json!([terminal_id]));
+        assert_eq!(response["result"]["failures"], json!({}));
+        assert_eq!(surface.test_cell_pixel_size(), (9, 18));
+    }
+
+    #[test]
     fn zero_view_terminal_attach_sizes_and_streams_the_resource() {
         let mux = test_mux();
         let created = crate::resource_router::handle_resource_message(
