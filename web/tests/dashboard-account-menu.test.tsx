@@ -13,6 +13,15 @@ mock.module("@stackframe/stack", () => ({
   UserAvatar: ({ size }: { size: number }) => (
     <span data-testid="avatar" data-size={size} />
   ),
+  SelectedTeamSwitcher: ({
+    urlMap,
+  }: {
+    urlMap: (team: { id: string }) => string;
+  }) => (
+    <a data-testid="team-switcher" href={urlMap({ id: "team-2" })}>
+      team-switcher
+    </a>
+  ),
 }));
 
 mock.module("@base-ui-components/react/menu", () => ({
@@ -69,6 +78,8 @@ describe("dashboard account menu", () => {
     expect(html).toContain('data-size="24"');
     expect(html).toContain('href="/dashboard/team"');
     expect(html).toContain('href="/dashboard/billing"');
+    expect(html).toContain('data-testid="team-switcher"');
+    expect(html).toContain('href="/dashboard/coderouter?organization=team-2"');
     expect(html).toContain("signOut");
   });
 
