@@ -6,6 +6,9 @@ let currentUser: {
   displayName: string;
   primaryEmail: string;
   signOut: () => Promise<void>;
+  selectedTeam: { id: string } | null;
+  useTeams: () => Array<{ id: string; displayName: string }>;
+  setSelectedTeam: (team: unknown) => Promise<void>;
 } | null = null;
 
 mock.module("@stackframe/stack", () => ({
@@ -14,15 +17,45 @@ mock.module("@stackframe/stack", () => ({
   UserAvatar: ({ size }: { size: number }) => (
     <span data-testid="avatar" data-size={size} />
   ),
-  SelectedTeamSwitcher: ({
-    urlMap,
+  TeamSwitcher: ({
+    teams,
+    teamId,
   }: {
-    urlMap: (team: { id: string }) => string;
+    teams: Array<{ id: string }>;
+    teamId?: string;
   }) => (
-    <a data-testid="team-switcher" href={urlMap({ id: "team-2" })}>
-      team-switcher
-    </a>
+    <span
+      data-testid="team-switcher"
+      data-team-id={teamId}
+      data-team-ids={teams.map((team) => team.id).join(",")}
+    />
   ),
+}));
+
+mock.module("@tanstack/react-query", () => ({
+  useQuery: () => ({
+    data: {
+      selectedTeamId: "team-2",
+      teams: [
+        {
+          id: "team-2",
+          name: "Authorized",
+          personal: false,
+          permissions: { use: true, manageAccounts: false },
+        },
+      ],
+    },
+  }),
+}));
+
+mock.module("next/navigation", () => ({
+  redirect: (target: string) => {
+    throw new Error(`redirect:${target}`);
+  },
+  useRouter: () => ({
+    push: () => undefined,
+    refresh: () => undefined,
+  }),
 }));
 
 mock.module("@base-ui-components/react/menu", () => ({
@@ -71,6 +104,12 @@ describe("dashboard account menu", () => {
       displayName: "Lawrence",
       primaryEmail: "lawrence@example.com",
       signOut: async () => undefined,
+      selectedTeam: { id: "team-1" },
+      useTeams: () => [
+        { id: "team-1", displayName: "Not authorized" },
+        { id: "team-2", displayName: "Authorized" },
+      ],
+      setSelectedTeam: async () => undefined,
     };
     const html = renderToStaticMarkup(<DashboardAccountMenu />);
 
@@ -80,7 +119,9 @@ describe("dashboard account menu", () => {
     expect(html).toContain('href="/dashboard/team"');
     expect(html).toContain('href="/dashboard/billing"');
     expect(html).toContain('data-testid="team-switcher"');
-    expect(html).toContain('href="/dashboard/coderouter?organization=team-2"');
+    expect(html).toContain('data-team-id="team-2"');
+    expect(html).toContain('data-team-ids="team-2"');
+    expect(html).not.toContain("Not authorized");
     expect(html).toContain("signOut");
   });
 

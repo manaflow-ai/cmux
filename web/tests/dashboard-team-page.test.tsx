@@ -13,7 +13,7 @@ mock.module("@stackframe/stack", () => ({
   ),
   useUser: () => null,
   UserAvatar: () => <span data-testid="avatar" />,
-  SelectedTeamSwitcher: () => <span data-testid="team-switcher" />,
+  TeamSwitcher: () => <span data-testid="team-switcher" />,
 }));
 
 mock.module("next/navigation", () => ({
@@ -21,6 +21,14 @@ mock.module("next/navigation", () => ({
     redirectedTo = target;
     throw new Error(`redirect:${target}`);
   },
+  useRouter: () => ({
+    push: () => undefined,
+    refresh: () => undefined,
+  }),
+}));
+
+mock.module("@tanstack/react-query", () => ({
+  useQuery: () => ({ data: undefined }),
 }));
 
 mock.module("../app/lib/stack", () => ({
