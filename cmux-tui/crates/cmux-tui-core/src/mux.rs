@@ -20318,7 +20318,43 @@ mod tests {
                 .resource_indexes
                 .content_placements
                 .insert(ContentPublicId::Terminal(terminal_id.clone()), vec![source.id]);
+            for index in 0..512_u64 {
+                let runtime_id = 1_000_000 + index;
+                let unrelated_public_id = restore_terminal_id(10_000 + index as u128);
+                let unrelated_host = format!("unrelated-terminal-{index}");
+                state
+                    .terminal_catalog_by_runtime
+                    .insert(runtime_id, unrelated_public_id.clone());
+                state
+                    .terminal_catalog_by_host
+                    .insert(unrelated_host.clone(), HashSet::from([unrelated_public_id]));
+                state
+                    .terminal_placements_by_runtime
+                    .insert(runtime_id, HashSet::from([runtime_id]));
+                state
+                    .terminal_placements_by_host
+                    .insert(unrelated_host, HashSet::from([runtime_id]));
+            }
         }
+        let terminal_index_scope_sizes = {
+            let registry = mux.workspace_registry.lock().unwrap();
+            let state = mux.state.lock().unwrap();
+            mux.terminal_exit_detach_projection_locked(
+                &registry,
+                &state,
+                &host.terminal_id,
+                Some(&host.incarnation),
+                &terminal_id,
+            )
+            .unwrap()
+            .unwrap()
+            .terminal_index_scope_sizes()
+        };
+        assert_eq!(
+            terminal_index_scope_sizes,
+            [1, 1, 1, 1],
+            "terminal exit copied unrelated terminal index entries"
+        );
         let before_revision = mux.workspace_registry.lock().unwrap().resource_revision().unwrap();
         let events = mux.subscribe();
 
@@ -20342,6 +20378,10 @@ mod tests {
             assert!(!state.terminal_catalog_by_host.contains_key(&host.terminal_id));
             assert!(!state.terminal_placements_by_runtime.contains_key(&runtime_id));
             assert!(!state.terminal_placements_by_host.contains_key(&host.terminal_id));
+            assert_eq!(state.terminal_catalog_by_runtime.len(), 512);
+            assert_eq!(state.terminal_catalog_by_host.len(), 512);
+            assert_eq!(state.terminal_placements_by_runtime.len(), 512);
+            assert_eq!(state.terminal_placements_by_host.len(), 512);
             assert!(!state.surfaces.contains_key(&source.id));
             assert!(!state.surfaces.contains_key(&projected.id));
         });

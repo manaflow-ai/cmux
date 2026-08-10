@@ -882,6 +882,31 @@ pub struct State {
 }
 
 impl State {
+    /// Clone the public topology without copying terminal-wide reverse
+    /// indexes. Close projections fill only their affected index entries and
+    /// merge those entries into the live indexes after the durable commit.
+    pub(crate) fn clone_without_terminal_indexes(&self) -> Self {
+        Self {
+            workspaces: self.workspaces.clone(),
+            workspace_index_by_id: self.workspace_index_by_id.clone(),
+            workspace_id_by_key: self.workspace_id_by_key.clone(),
+            workspace_revision: self.workspace_revision,
+            pane_revision: self.pane_revision,
+            resource_revision: self.resource_revision,
+            focus_sequence: self.focus_sequence,
+            active_workspace: self.active_workspace,
+            panes: self.panes.clone(),
+            surfaces: self.surfaces.clone(),
+            terminal_catalog: self.terminal_catalog.clone(),
+            terminal_catalog_by_runtime: HashMap::new(),
+            terminal_catalog_by_host: HashMap::new(),
+            terminal_placements_by_runtime: HashMap::new(),
+            terminal_placements_by_host: HashMap::new(),
+            split_screens: self.split_screens.clone(),
+            resource_indexes: self.resource_indexes.clone(),
+        }
+    }
+
     pub(crate) fn next_focus_sequence(&mut self) -> u64 {
         self.focus_sequence = self.focus_sequence.saturating_add(1);
         self.focus_sequence

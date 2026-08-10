@@ -64,8 +64,153 @@ struct ResourceCloseInputs {
     allow_missing_terminal_runtime: bool,
 }
 
+#[derive(Default)]
+struct TerminalIndexProjection {
+    catalog_by_runtime: HashMap<SurfaceId, TerminalPublicId>,
+    catalog_by_host: HashMap<String, HashSet<TerminalPublicId>>,
+    placements_by_runtime: HashMap<SurfaceId, HashSet<SurfaceId>>,
+    placements_by_host: HashMap<String, HashSet<SurfaceId>>,
+}
+
+impl TerminalIndexProjection {
+    fn capture(
+        mux: &Mux,
+        state: &State,
+        terminal_public_ids: &[TerminalPublicId],
+        terminal_hosts: &[(String, Option<String>)],
+        surface_ids: &[SurfaceId],
+    ) -> Self {
+        let mut public_ids = terminal_public_ids.iter().cloned().collect::<HashSet<_>>();
+        let mut runtime_ids = HashSet::new();
+        let mut host_ids = terminal_hosts
+            .iter()
+            .map(|(terminal_id, _)| terminal_id.clone())
+            .collect::<HashSet<_>>();
+
+        for surface in surface_ids.iter().filter_map(|surface| state.surfaces.get(surface)) {
+            if let Some(public_id) = surface.terminal_public_id() {
+                public_ids.insert(public_id.clone());
+            }
+            if let Some(runtime_id) = surface.terminal_runtime_id() {
+                runtime_ids.insert(runtime_id);
+            }
+            if let Some(host) = mux.resource_terminal_host_identity(surface) {
+                host_ids.insert(host.terminal_id);
+            }
+        }
+
+        for public_id in public_ids.clone() {
+            if let Some(runtime) = state.terminal_catalog.get(&public_id) {
+                if let Some(runtime_id) = runtime.terminal_runtime_id() {
+                    runtime_ids.insert(runtime_id);
+                }
+                if let Some(host) = mux.resource_terminal_host_identity(runtime) {
+                    host_ids.insert(host.terminal_id);
+                }
+            }
+        }
+        for host_id in host_ids.clone() {
+            public_ids.extend(
+                state
+                    .terminal_catalog_by_host
+                    .get(&host_id)
+                    .into_iter()
+                    .flatten()
+                    .cloned(),
+            );
+        }
+        for public_id in &public_ids {
+            if let Some(runtime_id) = state
+                .terminal_catalog
+                .get(public_id)
+                .and_then(|runtime| runtime.terminal_runtime_id())
+            {
+                runtime_ids.insert(runtime_id);
+            }
+        }
+
+        let catalog_by_runtime = runtime_ids
+            .iter()
+            .filter_map(|runtime_id| {
+                state
+                    .terminal_catalog_by_runtime
+                    .get(runtime_id)
+                    .cloned()
+                    .map(|public_id| (*runtime_id, public_id))
+            })
+            .collect();
+        let placements_by_runtime = runtime_ids
+            .iter()
+            .filter_map(|runtime_id| {
+                state
+                    .terminal_placements_by_runtime
+                    .get(runtime_id)
+                    .cloned()
+                    .map(|placements| (*runtime_id, placements))
+            })
+            .collect();
+        let catalog_by_host = host_ids
+            .iter()
+            .filter_map(|host_id| {
+                state
+                    .terminal_catalog_by_host
+                    .get(host_id)
+                    .cloned()
+                    .map(|terminal_ids| (host_id.clone(), terminal_ids))
+            })
+            .collect();
+        let placements_by_host = host_ids
+            .iter()
+            .filter_map(|host_id| {
+                state
+                    .terminal_placements_by_host
+                    .get(host_id)
+                    .cloned()
+                    .map(|placements| (host_id.clone(), placements))
+            })
+            .collect();
+        Self { catalog_by_runtime, catalog_by_host, placements_by_runtime, placements_by_host }
+    }
+
+    fn seed(&self, state: &mut State) {
+        state.terminal_catalog_by_runtime = self.catalog_by_runtime.clone();
+        state.terminal_catalog_by_host = self.catalog_by_host.clone();
+        state.terminal_placements_by_runtime = self.placements_by_runtime.clone();
+        state.terminal_placements_by_host = self.placements_by_host.clone();
+    }
+
+    fn install(self, live: &mut State, projected: &mut State) {
+        for runtime_id in self.catalog_by_runtime.keys() {
+            live.terminal_catalog_by_runtime.remove(runtime_id);
+        }
+        for host_id in self.catalog_by_host.keys() {
+            live.terminal_catalog_by_host.remove(host_id);
+        }
+        for runtime_id in self.placements_by_runtime.keys() {
+            live.terminal_placements_by_runtime.remove(runtime_id);
+        }
+        for host_id in self.placements_by_host.keys() {
+            live.terminal_placements_by_host.remove(host_id);
+        }
+
+        live.terminal_catalog_by_runtime.extend(projected.terminal_catalog_by_runtime.drain());
+        live.terminal_catalog_by_host.extend(projected.terminal_catalog_by_host.drain());
+        live.terminal_placements_by_runtime
+            .extend(projected.terminal_placements_by_runtime.drain());
+        live.terminal_placements_by_host.extend(projected.terminal_placements_by_host.drain());
+
+        projected.terminal_catalog_by_runtime = std::mem::take(&mut live.terminal_catalog_by_runtime);
+        projected.terminal_catalog_by_host = std::mem::take(&mut live.terminal_catalog_by_host);
+        projected.terminal_placements_by_runtime =
+            std::mem::take(&mut live.terminal_placements_by_runtime);
+        projected.terminal_placements_by_host =
+            std::mem::take(&mut live.terminal_placements_by_host);
+    }
+}
+
 struct ResourceClosePlan {
     state: State,
+    terminal_indexes: TerminalIndexProjection,
     removed: Vec<Arc<Surface>>,
     terminal_runtime: Option<Arc<Surface>>,
     closed_terminal_public_id: Option<TerminalPublicId>,
@@ -115,6 +260,7 @@ impl ResourceClosePlan {
         }
         let empty_revision =
             self.state.workspaces.is_empty().then_some(self.state.workspace_revision);
+        self.terminal_indexes.install(state, &mut self.state);
         *state = self.state;
         ResourceCloseEffects {
             removed: self.removed,
@@ -133,6 +279,7 @@ impl ResourceClosePlan {
 
 pub(super) struct TerminalExitDetachProjection {
     state: State,
+    terminal_indexes: TerminalIndexProjection,
     runtime: Option<Arc<Surface>>,
     removed: Vec<Arc<Surface>>,
     targets: Vec<SurfaceId>,
@@ -153,6 +300,16 @@ pub(super) struct TerminalExitDetachEffects {
 }
 
 impl TerminalExitDetachProjection {
+    #[cfg(test)]
+    pub(super) fn terminal_index_scope_sizes(&self) -> [usize; 4] {
+        [
+            self.terminal_indexes.catalog_by_runtime.len(),
+            self.terminal_indexes.catalog_by_host.len(),
+            self.terminal_indexes.placements_by_runtime.len(),
+            self.terminal_indexes.placements_by_host.len(),
+        ]
+    }
+
     pub(super) fn install(
         mut self,
         state: &mut State,
@@ -161,6 +318,7 @@ impl TerminalExitDetachProjection {
         self.state.resource_revision = resource_revision;
         let empty_revision =
             self.state.workspaces.is_empty().then_some(self.state.workspace_revision);
+        self.terminal_indexes.install(state, &mut self.state);
         *state = self.state;
         TerminalExitDetachEffects {
             runtime: self.runtime,
@@ -2562,13 +2720,25 @@ impl Mux {
             targets.iter().filter_map(|target| surface_screen_id(state, *target)),
         );
         let selection_before = active_tree_selection(state);
-        let mut projected = state.clone();
         let mut cleanup_public_ids = vec![terminal_public_id.clone()];
         for catalog_public_id in catalog_public_ids {
             if !cleanup_public_ids.contains(&catalog_public_id) {
                 cleanup_public_ids.push(catalog_public_id);
             }
         }
+        let terminal_hosts = vec![(
+            terminal_id.to_string(),
+            terminal_incarnation.map(str::to_owned),
+        )];
+        let terminal_indexes = TerminalIndexProjection::capture(
+            self,
+            state,
+            &cleanup_public_ids,
+            &terminal_hosts,
+            &targets,
+        );
+        let mut projected = state.clone_without_terminal_indexes();
+        terminal_indexes.seed(&mut projected);
         let (runtime, removed, _) = remove_terminal_catalogs_and_targets_from_state(
             self,
             &mut projected,
@@ -2643,6 +2813,7 @@ impl Mux {
 
         Ok(Some(TerminalExitDetachProjection {
             state: projected,
+            terminal_indexes,
             runtime,
             removed,
             targets,
@@ -3011,7 +3182,6 @@ impl Mux {
         state: &State,
     ) -> anyhow::Result<ResourceClosePlan> {
         let selection_before = active_tree_selection(state);
-        let mut projected = state.clone();
         let ResourceCloseInputs {
             surface_ids,
             mut delta,
@@ -3022,6 +3192,16 @@ impl Mux {
             terminal_public_id,
             allow_missing_terminal_runtime,
         } = inputs;
+        let terminal_public_ids = terminal_public_id.iter().cloned().collect::<Vec<_>>();
+        let terminal_indexes = TerminalIndexProjection::capture(
+            self,
+            state,
+            &terminal_public_ids,
+            &terminal_batch,
+            &surface_ids,
+        );
+        let mut projected = state.clone_without_terminal_indexes();
+        terminal_indexes.seed(&mut projected);
 
         let mut removed = Vec::new();
         let mut split_index_changed = false;
@@ -3115,6 +3295,7 @@ impl Mux {
         }
         Ok(ResourceClosePlan {
             state: projected,
+            terminal_indexes,
             removed,
             terminal_runtime,
             closed_terminal_public_id: terminal_public_id,
