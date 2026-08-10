@@ -684,7 +684,9 @@ impl ClientState {
             .ok_or_else(|| "terminal keyboard state is not ready".to_string())?;
         self.key_encoder.sync_from_terminal(terminal);
         let mut encoded = Vec::new();
-        self.key_encoder.encode(&input, &mut encoded)?;
+        self.key_encoder
+            .encode(&input, &mut encoded)
+            .map_err(|error| format!("{error}"))?;
         Ok(encoded)
     }
 
