@@ -2744,7 +2744,7 @@ mod tests {
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
         ));
         std::fs::write(&socket_path, b"test socket marker").unwrap();
-        let mux = Arc::new(Mux::new("normal-shutdown", SurfaceOptions::default()));
+        let mux = Mux::new("normal-shutdown", SurfaceOptions::default());
         let mut cleanup = ServedMuxCleanup::new(mux.clone(), socket_path.clone());
 
         finish_server_shutdown(
