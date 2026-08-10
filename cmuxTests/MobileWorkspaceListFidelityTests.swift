@@ -3,6 +3,7 @@ import AppKit
 import Bonsplit
 import CMUXMobileCore
 import CmuxCore
+import CmuxNotifications
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -395,6 +396,78 @@ struct MobileWorkspaceListFidelityTests {
             previewSignatures: [workspace.id: 43]
         )
         #expect(after != changed, "a newer notification must change the mobile summary hash")
+    }
+
+    /// Agent notification hooks can publish several authoritative summary
+    /// snapshots in one turn. The mobile observer must scan and broadcast the
+    /// first snapshot immediately, collapse the middle of the burst, and retain
+    /// the newest snapshot for one trailing publication.
+    @Test func notificationSummaryBurstEmitsLeadingAndLatestTrailingSnapshot() async throws {
+        let previousOverride = MobileWorkspaceListObserver.subscriberPresenceOverrideForTesting
+        defer { MobileWorkspaceListObserver.subscriberPresenceOverrideForTesting = previousOverride }
+        MobileWorkspaceListObserver.subscriberPresenceOverrideForTesting = true
+
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let sidebarUnread = SidebarUnreadModel()
+        let clock = SidebarTestManualClock()
+        let events = AsyncStream<String>.makeStream(bufferingPolicy: .unbounded)
+        defer { events.continuation.finish() }
+        var emittedNotificationIDs: [String] = []
+        let observer = MobileWorkspaceListObserver(
+            tabManager: manager,
+            sidebarUnread: sidebarUnread,
+            workspaceUpdateEmitter: {
+                let id = sidebarUnread.snapshot
+                    .summary(forWorkspaceId: workspace.id)
+                    .latestNotificationId?
+                    .uuidString ?? "none"
+                emittedNotificationIDs.append(id)
+                events.continuation.yield(id)
+            },
+            emissionSleep: { duration in
+                try await clock.sleep(for: duration)
+            }
+        )
+        var eventIterator = events.stream.makeAsyncIterator()
+        let initialEvent = await eventIterator.next()
+        #expect(initialEvent == "none", "attachment publishes the initial snapshot")
+
+        let notificationIDs = (0..<5).map { _ in UUID() }
+        for (index, notificationID) in notificationIDs.enumerated() {
+            sidebarUnread.applyWorkspaceSummaryProjection(
+                forWorkspaceId: workspace.id,
+                summary: SidebarWorkspaceUnreadSummary(
+                    unreadCount: index + 1,
+                    latestNotificationText: "notification \(index)",
+                    latestNotificationId: notificationID,
+                    latestNotificationCreatedAt: Date(timeIntervalSince1970: Double(index + 1)),
+                    hasLatestNotification: true
+                ),
+                totalUnreadCount: index + 1
+            )
+        }
+
+        try #require(
+            emittedNotificationIDs == ["none", notificationIDs[0].uuidString],
+            "a synchronous summary burst must perform only its leading scan immediately"
+        )
+        let leadingEvent = await eventIterator.next()
+        #expect(leadingEvent == notificationIDs[0].uuidString)
+
+        await clock.waitUntilSleeping(for: .milliseconds(80))
+        clock.advance(by: .milliseconds(80))
+        let trailingEvent = await eventIterator.next()
+        #expect(
+            trailingEvent == notificationIDs[4].uuidString,
+            "the trailing publication must read the newest authoritative snapshot"
+        )
+        #expect(emittedNotificationIDs == [
+            "none",
+            notificationIDs[0].uuidString,
+            notificationIDs[4].uuidString,
+        ])
+        _ = observer
     }
 
     @Test func remoteDirectoryTrustChangesObserverHashAndPayload() throws {
