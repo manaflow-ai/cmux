@@ -19,15 +19,19 @@ final class TerminalFrontendAccessibilityBridge {
     }
 
     deinit {
-        observationTask?.cancel()
-        observationTask = nil
-        demandStarted = false
-        observedSnapshot = nil
-        for gate in linkActionGates {
-            gate.invalidate()
+        // The bridge is owned and released by its main-actor AppKit view.
+        // Keep teardown synchronous until isolated deinit is available here.
+        MainActor.assumeIsolated {
+            observationTask?.cancel()
+            observationTask = nil
+            demandStarted = false
+            observedSnapshot = nil
+            for gate in linkActionGates {
+                gate.invalidate()
+            }
+            linkActionGates.removeAll(keepingCapacity: false)
+            linkElements.removeAll(keepingCapacity: false)
         }
-        linkActionGates.removeAll(keepingCapacity: false)
-        linkElements.removeAll(keepingCapacity: false)
     }
 
     func bind(to owner: TerminalFrontendInteractionView) {
