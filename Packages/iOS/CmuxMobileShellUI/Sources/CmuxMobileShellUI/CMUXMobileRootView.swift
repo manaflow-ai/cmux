@@ -16,6 +16,20 @@ import AppKit
 struct CMUXMobileRootView: View {
     private static let startupRestoringGateSeconds: Double = 6
 
+    #if os(iOS)
+    /// One stable sheet item owns both the introduction and its Settings route.
+    private enum AutoConnectMigrationPresentation: Identifiable {
+        case active
+
+        var id: String { "auto-connect-migration" }
+    }
+
+    private enum AutoConnectMigrationDestination: Equatable {
+        case introduction
+        case connectionSettings
+    }
+    #endif
+
     @Bindable var store: CMUXMobileShellStore
     @Environment(\.scenePhase) private var scenePhase
     @Environment(AuthCoordinator.self) private var authManager
@@ -28,10 +42,16 @@ struct CMUXMobileRootView: View {
     private let startupConnectionCoordinator: MobileStartupConnectionCoordinator
     #if os(iOS)
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
+    /// Optional so previews and package hosts remain migration-free by default.
+    @Environment(MobileAutoConnectMigrationStore.self) private var autoConnectMigrationStore:
+        MobileAutoConnectMigrationStore?
     /// Persists the last durable milestone in first-run onboarding.
     @Bindable private var onboardingStore: MobileOnboardingStore
     @State private var isAwaitingOnboardingReconnectStart = false
     @State private var onboardingMacDiscoveryKeepAlive = OnboardingMacDiscoveryKeepAlive()
+    @State private var autoConnectMigrationPresentation: AutoConnectMigrationPresentation?
+    @State private var autoConnectMigrationDestination: AutoConnectMigrationDestination = .introduction
+    @State private var pendingPairingPresentationAfterMigration: PairingPresentation?
     #endif
     @State private var pendingAttachURL: String?
     @State private var didAuthenticateWithAttachTicket = false
@@ -195,7 +215,19 @@ struct CMUXMobileRootView: View {
 
     var body: some View {
         rootContent
-        .sheet(isPresented: addDeviceSheetBinding) {
+        #if os(iOS)
+        .sheet(
+            item: autoConnectMigrationPresentationBinding,
+            onDismiss: autoConnectMigrationPresentationDidDismiss
+        ) { _ in
+            autoConnectMigrationPresentationContent
+        }
+        #endif
+        .sheet(isPresented: addDeviceSheetBinding, onDismiss: {
+            #if os(iOS)
+            presentAutoConnectMigrationIfEligible()
+            #endif
+        }) {
             pairingSheet
         }
         .animation(.snappy(duration: 0.18), value: isAuthenticated)
@@ -214,6 +246,7 @@ struct CMUXMobileRootView: View {
             reconnectStoredMacIfNeeded()
             #if os(iOS)
             updateOnboardingMacDiscoveryKeepAlive()
+            presentAutoConnectMigrationIfEligible()
             #endif
         }
         .onDisappear {
@@ -237,6 +270,7 @@ struct CMUXMobileRootView: View {
             store.currentTeamDidChange()
             #if os(iOS)
             updateOnboardingMacDiscoveryKeepAlive()
+            presentAutoConnectMigrationIfEligible()
             #endif
         }
         .onChange(of: scenePhase) { _, phase in
@@ -253,6 +287,7 @@ struct CMUXMobileRootView: View {
             }
             #if os(iOS)
             updateOnboardingMacDiscoveryKeepAlive()
+            presentAutoConnectMigrationIfEligible()
             #endif
         }
         .onOpenURL { url in
@@ -280,6 +315,7 @@ struct CMUXMobileRootView: View {
             }
             #if os(iOS)
             updateOnboardingMacDiscoveryKeepAlive()
+            presentAutoConnectMigrationIfEligible()
             #endif
         }
         .onChange(of: authManager.isRestoringSession) { _, isRestoringSession in
@@ -289,6 +325,7 @@ struct CMUXMobileRootView: View {
             }
             #if os(iOS)
             updateOnboardingMacDiscoveryKeepAlive()
+            presentAutoConnectMigrationIfEligible()
             #endif
         }
         .onChange(of: store.connectionState) { _, connectionState in
@@ -310,6 +347,7 @@ struct CMUXMobileRootView: View {
         }
         .onChange(of: onboardingStore.progress) { _, _ in
             updateOnboardingMacDiscoveryKeepAlive()
+            presentAutoConnectMigrationIfEligible()
         }
         .onChange(of: store.isReconnectingStoredMac) { _, isReconnecting in
             if isReconnecting {
@@ -435,6 +473,84 @@ struct CMUXMobileRootView: View {
         .presentationDragIndicator(.visible)
         #endif
     }
+
+    #if os(iOS)
+    /// Intercepts only an interactive dismissal of the introduction. Programmatic
+    /// preemption writes the backing state directly, leaving the notice pending.
+    private var autoConnectMigrationPresentationBinding:
+        Binding<AutoConnectMigrationPresentation?> {
+        Binding(
+            get: { autoConnectMigrationPresentation },
+            set: { presentation in
+                let dismissedIntroduction = presentation == nil
+                    && autoConnectMigrationPresentation != nil
+                    && autoConnectMigrationDestination == .introduction
+                if dismissedIntroduction {
+                    autoConnectMigrationStore?.acknowledge()
+                }
+                autoConnectMigrationPresentation = presentation
+            }
+        )
+    }
+
+    @ViewBuilder
+    private var autoConnectMigrationPresentationContent: some View {
+        switch autoConnectMigrationDestination {
+        case .introduction:
+            MobileAutoConnectMigrationSheet(
+                continueWithAutoConnect: {
+                    autoConnectMigrationStore?.acknowledge()
+                    autoConnectMigrationPresentation = nil
+                },
+                openConnectionSettings: {
+                    autoConnectMigrationStore?.acknowledge()
+                    autoConnectMigrationDestination = .connectionSettings
+                }
+            )
+        case .connectionSettings:
+            MobileSettingsView(
+                connectedHostName: store.connectedHostName,
+                startPairingScanner: requestPairingScannerAfterMigrationSettings,
+                signOut: signOut,
+                store: store,
+                initialFocus: .connectionMethod
+            )
+        }
+    }
+
+    /// Presents only after the authenticated shell owns the screen and no
+    /// higher-priority pairing or explicit-attach flow owns a modal slot.
+    private func presentAutoConnectMigrationIfEligible() {
+        guard autoConnectMigrationStore?.resolution == .pending,
+              onboardingStore.progress == .complete,
+              authManager.isAuthenticated,
+              !authManager.isRestoringSession,
+              scenePhase == .active,
+              !hasInjectedAttachLaunchRoute,
+              !isShowingAddDeviceSheet,
+              pendingPairingPresentationAfterMigration == nil,
+              autoConnectMigrationPresentation == nil else {
+            return
+        }
+        autoConnectMigrationDestination = .introduction
+        autoConnectMigrationPresentation = .active
+    }
+
+    private func requestPairingScannerAfterMigrationSettings() {
+        pendingPairingPresentationAfterMigration = .scanner(entry: .settingsReplay)
+        autoConnectMigrationPresentation = nil
+    }
+
+    private func autoConnectMigrationPresentationDidDismiss() {
+        autoConnectMigrationDestination = .introduction
+        guard let pendingPairingPresentationAfterMigration else {
+            presentAutoConnectMigrationIfEligible()
+            return
+        }
+        self.pendingPairingPresentationAfterMigration = nil
+        presentAddDevice(pendingPairingPresentationAfterMigration)
+    }
+    #endif
 
     /// Which setup gate the disconnected screen's "Trouble connecting?" help marks
     /// as the user's current step. When the host rejected this device on
@@ -667,6 +783,13 @@ struct CMUXMobileRootView: View {
     }
 
     private func presentAddDevice(_ presentation: PairingPresentation) {
+        #if os(iOS)
+        if autoConnectMigrationPresentation != nil {
+            pendingPairingPresentationAfterMigration = presentation
+            autoConnectMigrationPresentation = nil
+            return
+        }
+        #endif
         if isShowingAddDeviceSheet {
             guard pairingPresentation != presentation else { return }
             pairingPresentation = presentation

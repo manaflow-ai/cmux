@@ -30,6 +30,8 @@ final class AppCompositionRoot {
     /// The user's Auto-Connect vs Tailscale connection-method choice, shared by
     /// the shell store (dial ordering) and the Settings/onboarding UI.
     let connectionMethodStore: MobileConnectionMethodStore
+    /// One-time BETA migration eligibility, snapshotted before launch writes.
+    let autoConnectMigrationStore: MobileAutoConnectMigrationStore
     /// First-run onboarding progress, persisted to `UserDefaults.standard`.
     /// Built with `forceComplete` set when a UI-test mock harness or a dogfood
     /// auto-pair attach URL is active, so neither path is wedged behind the
@@ -150,6 +152,22 @@ final class AppCompositionRoot {
             }
         }
         self.displaySettings = MobileDisplaySettings()
+        // Snapshot raw upgrade eligibility before either current-launch store is
+        // constructed. The migration model persists pending/ineligible now and
+        // never recomputes after onboarding or Settings writes.
+        #if DEBUG
+        if let fixture = UITestConfig.autoConnectMigrationConfiguration {
+            self.autoConnectMigrationStore = MobileAutoConnectMigrationStore(
+                defaults: .standard,
+                resolutionKey: "\(MobileAutoConnectMigrationStore.resolutionKey).uitest.\(fixture.identifier)",
+                eligibilityOverride: fixture.eligibility == .eligible
+            )
+        } else {
+            self.autoConnectMigrationStore = MobileAutoConnectMigrationStore(defaults: .standard)
+        }
+        #else
+        self.autoConnectMigrationStore = MobileAutoConnectMigrationStore(defaults: .standard)
+        #endif
         self.connectionMethodStore = MobileConnectionMethodStore(defaults: .standard)
         // Skip first-run onboarding when a UI-test mock harness
         // (`CMUX_UITEST_MOCK_DATA`/XCUITest) or a dogfood auto-pair attach URL is

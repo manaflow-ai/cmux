@@ -32,6 +32,8 @@ struct MobileSettingsView: View {
     /// The shell store, used for the live connection rows and the onboarding
     /// replay's connection state. `nil` in previews.
     var store: CMUXMobileShellStore?
+    /// An optional row that should be visible immediately on presentation.
+    var initialFocus: MobileSettingsFocus? = nil
     @AppStorage(MobileSettingsView.sendAnonymousTelemetryKey) private var sendAnonymousTelemetry = false
 
     @Environment(\.dismiss) private var dismiss
@@ -46,6 +48,7 @@ struct MobileSettingsView: View {
 #endif
     @State private var showingOnboarding = false
     @State private var showingSetupHelp = false
+    @State private var scrollPosition: MobileSettingsFocus?
     #if DEBUG
     @State private var showingChatDemo = false
     @State private var showingTerminalDemo = false
@@ -167,6 +170,7 @@ struct MobileSettingsView: View {
                         store: connectionMethodStore,
                         startPairingScanner: startPairingScanner
                     )
+                    .id(MobileSettingsFocus.connectionMethod)
                 }
 
                 if let irohSettingsController {
@@ -501,7 +505,9 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsVersionRow")
                 }
             }
+            .scrollPosition(id: $scrollPosition, anchor: .top)
             .task {
+                scrollPosition = initialFocus
                 notificationsEnabled = pushCoordinator.isEnabled
                 await pushCoordinator.refreshReadiness()
             }
