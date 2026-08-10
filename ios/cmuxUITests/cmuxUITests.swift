@@ -2234,9 +2234,12 @@ final class cmuxUITests: XCTestCase {
     func testTaskComposerHostDiscoveredAndColdEmptyCatalogSubmissions() async throws {
         let discoveredModelID = "us.anthropic.claude-opus-5[1m]"
         let discoveredModelName = "Opus (1M context)"
-        let server = try MobileSyncMockHostServer(taskModelsByProvider: [
-            "claude": [(id: discoveredModelID, displayName: discoveredModelName)],
-        ])
+        let server = try MobileSyncMockHostServer(
+            supportsManualAttachTicket: true,
+            taskModelsByProvider: [
+                "claude": [(id: discoveredModelID, displayName: discoveredModelName)],
+            ]
+        )
         let port = try await server.start()
 
         // Use the established production pairing fixture: it enables the New
