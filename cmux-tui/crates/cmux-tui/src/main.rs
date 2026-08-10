@@ -1783,13 +1783,14 @@ fn run_server(
     let _provider_management = provider_management_listener
         .map(|listener| cmux_tui_core::provider_management::serve(listener, mux.clone()))
         .transpose()?;
-    let owner_event_loop = background_owner_reload_completion(args.headless).map(|complete_reload| {
-        if complete_reload {
-            start_headless_local_owner_event_loop(&mux)
-        } else {
-            start_local_owner_event_loop(&mux)
-        }
-    });
+    let owner_event_loop =
+        background_owner_reload_completion(args.headless).map(|complete_reload| {
+            if complete_reload {
+                start_headless_local_owner_event_loop(&mux)
+            } else {
+                start_local_owner_event_loop(&mux)
+            }
+        });
     let pending_server =
         match cmux_tui_core::server::serve_paused(mux.clone(), Some(socket_path.clone())) {
             Ok(server) => server,
