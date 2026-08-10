@@ -2232,29 +2232,60 @@ impl Mux {
             return Ok(None);
         };
         let mut state = self.state.lock().unwrap();
-        let runtime =
-            state.terminal_catalog.get(&public_id).cloned().with_context(|| {
-                format!("live terminal resource {public_id} has no runtime owner")
-            })?;
-        let host = self
-            .resource_terminal_host_identity(&runtime)
-            .context("terminal runtime omitted its durable host identity")?;
-        anyhow::ensure!(host.terminal_id == terminal_id, "terminal resource changed hosts");
-        if let Some(expected) = expected_incarnation {
-            anyhow::ensure!(host.incarnation == expected, "terminal_incarnation_mismatch");
-        }
-        let surface = runtime.id;
-        let target =
-            state.placements_of_content(&ContentPublicId::Terminal(public_id)).first().copied();
-        let mut plan = self.resource_close_plan_locked(
-            ResourceOperation::TerminalClose,
-            EffectSlots { workspace: None, screen: None, pane: None, tab: Some(surface) },
-            &registry,
-            &state,
-            &notifications,
-        )?;
+        let durable_host = registry
+            .terminal_host_id(&public_id)?
+            .with_context(|| format!("terminal {public_id} has no durable host"))?;
+        anyhow::ensure!(durable_host == terminal_id, "terminal resource changed hosts");
+        let content_id = ContentPublicId::Terminal(public_id.clone());
+        let (target, mut plan) = if let Some(runtime) =
+            state.terminal_catalog.get(&public_id).cloned()
+        {
+            let host = self
+                .resource_terminal_host_identity(&runtime)
+                .context("terminal runtime omitted its durable host identity")?;
+            anyhow::ensure!(host.terminal_id == terminal_id, "terminal resource changed hosts");
+            if let Some(expected) = expected_incarnation {
+                anyhow::ensure!(host.incarnation == expected, "terminal_incarnation_mismatch");
+            }
+            let target = state.placements_of_content(&content_id).first().copied();
+            let plan = self.resource_close_plan_locked(
+                ResourceOperation::TerminalClose,
+                EffectSlots { workspace: None, screen: None, pane: None, tab: Some(runtime.id) },
+                &registry,
+                &state,
+                &notifications,
+            )?;
+            (target, plan)
+        } else {
+            anyhow::ensure!(
+                state.placements_of_content(&content_id).is_empty(),
+                "live terminal resource {public_id} has views but no runtime owner"
+            );
+            (
+                None,
+                ResourceClosePlan {
+                    state: state.clone(),
+                    removed: Vec::new(),
+                    terminal_runtime: None,
+                    closed_terminal_public_id: Some(public_id.clone()),
+                    terminal_batch: Vec::new(),
+                    workspace_close: None,
+                    delta: None,
+                    changed_screens: Vec::new(),
+                    selection_resync: false,
+                },
+            )
+        };
         let projection =
             self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
+        anyhow::ensure!(
+            projection.patch.changes.iter().any(|change| matches!(
+                change,
+                ResourceChange::TombstoneTerminal { public_id: closing, .. }
+                    if closing == &public_id
+            )),
+            "terminal close projection omitted {public_id}"
+        );
         #[cfg(test)]
         if let Some(hook) = self.resource_projection_before_commit.lock().unwrap().clone() {
             hook();
