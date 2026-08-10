@@ -474,7 +474,13 @@ final class cmuxUITests: XCTestCase {
         settings.tap()
         let retainedPicker = relaunched.descendants(matching: .any)["MobileSettingsConnectionMethod"]
         XCTAssertTrue(retainedPicker.waitForExistence(timeout: 4))
-        XCTAssertEqual(retainedPicker.value as? String, "Tailscale Only")
+        XCTAssertTrue(retainedPicker.isHittable)
+        retainedPicker.tap()
+        let retainedTailscale = relaunched.descendants(matching: .any)[
+            "MobileSettingsConnectionMethodTailscale"
+        ]
+        XCTAssertTrue(retainedTailscale.waitForExistence(timeout: 4))
+        XCTAssertTrue(retainedTailscale.isSelected)
     }
 
     /// The same deterministic shell can prove an ineligible fresh-install

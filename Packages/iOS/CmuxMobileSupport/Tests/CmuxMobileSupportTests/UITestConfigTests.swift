@@ -64,7 +64,7 @@ import Testing
     #if DEBUG
     @Test(arguments: ["eligible", "ineligible"])
     func autoConnectMigrationFixtureRequiresMockDataAndParsesEligibility(_ raw: String) {
-        let configuration = UITestConfig.autoConnectMigrationConfiguration(from: [
+        let configuration = AutoConnectMigrationUITestConfiguration(environment: [
             "CMUX_UITEST_MOCK_DATA": "1",
             "CMUX_UITEST_AUTOCONNECT_MIGRATION": raw,
             "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": "  migration-run  ",
@@ -72,20 +72,24 @@ import Testing
 
         #expect(configuration?.eligibility.rawValue == raw)
         #expect(configuration?.identifier == "migration-run")
+        #expect(
+            configuration?.defaultsSuiteName
+                == "dev.cmux.uitest.autoConnectMigration.migration-run"
+        )
     }
 
     @Test func autoConnectMigrationFixtureRejectsUnsafeOrIncompleteInputs() {
-        #expect(UITestConfig.autoConnectMigrationConfiguration(from: [
+        #expect(AutoConnectMigrationUITestConfiguration(environment: [
             "CMUX_UITEST_MOCK_DATA": "0",
             "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
             "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": "run",
         ]) == nil)
-        #expect(UITestConfig.autoConnectMigrationConfiguration(from: [
+        #expect(AutoConnectMigrationUITestConfiguration(environment: [
             "CMUX_UITEST_MOCK_DATA": "1",
             "CMUX_UITEST_AUTOCONNECT_MIGRATION": "unknown",
             "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": "run",
         ]) == nil)
-        #expect(UITestConfig.autoConnectMigrationConfiguration(from: [
+        #expect(AutoConnectMigrationUITestConfiguration(environment: [
             "CMUX_UITEST_MOCK_DATA": "1",
             "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
             "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": "   ",

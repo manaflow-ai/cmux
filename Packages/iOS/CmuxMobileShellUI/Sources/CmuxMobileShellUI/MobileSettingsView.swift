@@ -48,7 +48,6 @@ struct MobileSettingsView: View {
 #endif
     @State private var showingOnboarding = false
     @State private var showingSetupHelp = false
-    @State private var scrollPosition: MobileSettingsFocus?
     #if DEBUG
     @State private var showingChatDemo = false
     @State private var showingTerminalDemo = false
@@ -63,6 +62,10 @@ struct MobileSettingsView: View {
         @Bindable var toasts = self.toasts
         return NavigationStack {
             Form {
+                if initialFocus == .connectionMethod {
+                    connectionMethodSettingsSection
+                }
+
                 MobileSettingsAccountSection(signOut: signOut)
 
                 // Stack team switcher. Only shown when the user belongs to more than
@@ -165,12 +168,8 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsHowPairingWorks")
                 }
 
-                if let connectionMethodStore {
-                    MobileConnectionMethodSection(
-                        store: connectionMethodStore,
-                        startPairingScanner: startPairingScanner
-                    )
-                    .id(MobileSettingsFocus.connectionMethod)
+                if initialFocus != .connectionMethod {
+                    connectionMethodSettingsSection
                 }
 
                 if let irohSettingsController {
@@ -505,9 +504,7 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsVersionRow")
                 }
             }
-            .scrollPosition(id: $scrollPosition, anchor: .top)
             .task {
-                scrollPosition = initialFocus
                 notificationsEnabled = pushCoordinator.isEnabled
                 await pushCoordinator.refreshReadiness()
             }
@@ -571,6 +568,17 @@ struct MobileSettingsView: View {
             }
         }
         .accessibilityIdentifier("MobileSettingsView")
+    }
+
+    @ViewBuilder
+    private var connectionMethodSettingsSection: some View {
+        if let connectionMethodStore {
+            MobileConnectionMethodSection(
+                store: connectionMethodStore,
+                startPairingScanner: startPairingScanner
+            )
+            .id(MobileSettingsFocus.connectionMethod)
+        }
     }
 
     private func activeTransportName(_ kind: CmxAttachTransportKind) -> String {

@@ -9,29 +9,20 @@ public struct AutoConnectMigrationUITestConfiguration: Equatable, Sendable {
         case ineligible
     }
 
-    /// The forced eligibility used only by the DEBUG composition root.
+    /// The eligibility prerequisites seeded into this fixture's isolated suite.
     public let eligibility: Eligibility
-    /// A per-test identifier used to isolate persisted resolution across runs.
+    /// A per-test identifier used to isolate all migration-owned defaults.
     public let identifier: String
-}
-
-public extension UITestConfig {
-    /// The deterministic Auto-Connect migration launch fixture, when requested.
-    static var autoConnectMigrationConfiguration: AutoConnectMigrationUITestConfiguration? {
-        autoConnectMigrationConfiguration(from: ProcessInfo.processInfo.environment)
-    }
 
     /// Parses a DEBUG-only migration fixture from explicit process inputs.
     ///
     /// Both a recognized eligibility and a non-empty test identifier are
     /// required. The mock-data gate prevents normal dogfood launches from
     /// accidentally replacing production eligibility.
-    static func autoConnectMigrationConfiguration(
-        from environment: [String: String]
-    ) -> AutoConnectMigrationUITestConfiguration? {
-        guard mockDataEnabled(from: environment),
+    public init?(environment: [String: String]) {
+        guard UITestConfig.mockDataEnabled(from: environment),
               let rawEligibility = environment["CMUX_UITEST_AUTOCONNECT_MIGRATION"],
-              let eligibility = AutoConnectMigrationUITestConfiguration.Eligibility(
+              let eligibility = Eligibility(
                 rawValue: rawEligibility.trimmingCharacters(in: .whitespacesAndNewlines)
               ),
               let identifier = environment["CMUX_UITEST_AUTOCONNECT_MIGRATION_ID"]?
@@ -39,10 +30,13 @@ public extension UITestConfig {
               !identifier.isEmpty else {
             return nil
         }
-        return AutoConnectMigrationUITestConfiguration(
-            eligibility: eligibility,
-            identifier: identifier
-        )
+        self.eligibility = eligibility
+        self.identifier = identifier
+    }
+
+    /// A stable suite shared across relaunches of one UI-test fixture.
+    public var defaultsSuiteName: String {
+        "dev.cmux.uitest.autoConnectMigration.\(identifier)"
     }
 }
 #endif

@@ -164,36 +164,17 @@ import Testing
 
     @Test func aDifferentVersionedResolutionKeyTakesANewSnapshot() {
         let defaults = makeDefaults()
-        let priorKey = "dev.cmux.mobile.autoConnectIntroduction.v0"
         defaults.set(
             MobileAutoConnectMigrationResolution.acknowledged.rawValue,
-            forKey: priorKey
+            forKey: "dev.cmux.mobile.autoConnectIntroduction.v0"
         )
         defaults.set(
             MobileOnboardingProgress.complete.rawValue,
             forKey: MobileOnboardingStore.progressKey
         )
 
-        let store = MobileAutoConnectMigrationStore(
-            defaults: defaults,
-            resolutionKey: "dev.cmux.mobile.autoConnectIntroduction.v2"
-        )
+        let store = MobileAutoConnectMigrationStore(defaults: defaults)
 
         #expect(store.resolution == .pending)
-    }
-
-    @Test(arguments: [true, false])
-    func injectedEligibilitySupportsIsolatedUIEvidence(_ eligible: Bool) {
-        let defaults = makeDefaults()
-        let key = "dev.cmux.mobile.autoConnectIntroduction.uitest.\(UUID().uuidString)"
-
-        let store = MobileAutoConnectMigrationStore(
-            defaults: defaults,
-            resolutionKey: key,
-            eligibilityOverride: eligible
-        )
-
-        #expect(store.resolution == (eligible ? .pending : .ineligible))
-        #expect(defaults.object(forKey: MobileAutoConnectMigrationStore.resolutionKey) == nil)
     }
 }

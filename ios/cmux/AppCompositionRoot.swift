@@ -154,21 +154,45 @@ final class AppCompositionRoot {
         self.displaySettings = MobileDisplaySettings()
         // Snapshot raw upgrade eligibility before either current-launch store is
         // constructed. The migration model persists pending/ineligible now and
-        // never recomputes after onboarding or Settings writes.
+        // never recomputes after onboarding or Settings writes. UI fixtures use
+        // one isolated defaults suite for both pieces of durable state, so a
+        // relaunch proves the production persistence path without touching the
+        // simulator's normal connection preference.
+        let connectionPreferenceDefaults: UserDefaults
         #if DEBUG
-        if let fixture = UITestConfig.autoConnectMigrationConfiguration {
-            self.autoConnectMigrationStore = MobileAutoConnectMigrationStore(
-                defaults: .standard,
-                resolutionKey: "\(MobileAutoConnectMigrationStore.resolutionKey).uitest.\(fixture.identifier)",
-                eligibilityOverride: fixture.eligibility == .eligible
-            )
+        if let fixture = AutoConnectMigrationUITestConfiguration(
+            environment: ProcessInfo.processInfo.environment
+        ) {
+            guard let fixtureDefaults = UserDefaults(suiteName: fixture.defaultsSuiteName) else {
+                preconditionFailure("Unable to create Auto-Connect migration UI-test defaults")
+            }
+            if fixtureDefaults.object(
+                forKey: MobileAutoConnectMigrationStore.resolutionKey
+            ) == nil {
+                fixtureDefaults.removeObject(forKey: MobileConnectionMethodStore.methodKey)
+                switch fixture.eligibility {
+                case .eligible:
+                    fixtureDefaults.set(
+                        MobileOnboardingProgress.complete.rawValue,
+                        forKey: MobileOnboardingStore.progressKey
+                    )
+                case .ineligible:
+                    fixtureDefaults.removeObject(forKey: MobileOnboardingStore.progressKey)
+                }
+            }
+            connectionPreferenceDefaults = fixtureDefaults
         } else {
-            self.autoConnectMigrationStore = MobileAutoConnectMigrationStore(defaults: .standard)
+            connectionPreferenceDefaults = .standard
         }
         #else
-        self.autoConnectMigrationStore = MobileAutoConnectMigrationStore(defaults: .standard)
+        connectionPreferenceDefaults = .standard
         #endif
-        self.connectionMethodStore = MobileConnectionMethodStore(defaults: .standard)
+        self.autoConnectMigrationStore = MobileAutoConnectMigrationStore(
+            defaults: connectionPreferenceDefaults
+        )
+        self.connectionMethodStore = MobileConnectionMethodStore(
+            defaults: connectionPreferenceDefaults
+        )
         // Skip first-run onboarding when a UI-test mock harness
         // (`CMUX_UITEST_MOCK_DATA`/XCUITest) or a dogfood auto-pair attach URL is
         // active: those launches expect to land on sign-in / add-device / a live
