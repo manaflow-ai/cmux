@@ -6,6 +6,18 @@ import SwiftUI
 import UniformTypeIdentifiers
 import UIKit
 
+struct MobileAttachmentCardLayout: Sendable {
+    let side: CGFloat
+    let spacing: CGFloat
+    let removalHitTarget: CGFloat
+
+    static let standard = Self(
+        side: 120,
+        spacing: 6,
+        removalHitTarget: 44
+    )
+}
+
 /// File-backed Photos transfer that avoids loading full-resolution bytes into memory.
 public struct MobileImportedImageFile: Transferable, Sendable {
     public let url: URL
@@ -123,8 +135,9 @@ public struct MobileAttachmentCardStrip: View {
     private let progress: [UUID: Double]
     private let remove: (UUID) -> Void
     private let onPreviewDismiss: () -> Void
+    private let layout = MobileAttachmentCardLayout.standard
     @State private var preview: MobileStagedAttachment?
-    @ScaledMetric(relativeTo: .body) private var cardSide: CGFloat = 112
+    @ScaledMetric(relativeTo: .body) private var cardSide: CGFloat = MobileAttachmentCardLayout.standard.side
 
     public init(
         attachments: [MobileStagedAttachment],
@@ -144,7 +157,7 @@ public struct MobileAttachmentCardStrip: View {
 
     public var body: some View {
         ScrollView(.horizontal) {
-            HStack(spacing: 10) {
+            HStack(spacing: layout.spacing) {
                 ForEach(Array(attachments.enumerated()), id: \.element.id) { index, attachment in
                     card(attachment, index: index)
                 }
@@ -203,7 +216,11 @@ public struct MobileAttachmentCardStrip: View {
                     .font(.system(size: 19, weight: .semibold))
                     .symbolRenderingMode(.palette)
                     .foregroundStyle(.white, .black.opacity(0.72))
-                    .frame(width: 44, height: 44, alignment: .topTrailing)
+                    .frame(
+                        width: layout.removalHitTarget,
+                        height: layout.removalHitTarget,
+                        alignment: .topTrailing
+                    )
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -213,10 +230,7 @@ public struct MobileAttachmentCardStrip: View {
                 attachment.fileName
             ))
             .accessibilityIdentifier("MobileAttachmentRemove.\(index)")
-            .offset(x: 7, y: -7)
         }
-        .padding(.top, 7)
-        .padding(.trailing, 7)
     }
 
     @ViewBuilder
