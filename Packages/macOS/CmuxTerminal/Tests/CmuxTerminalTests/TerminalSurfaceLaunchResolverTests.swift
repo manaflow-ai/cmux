@@ -105,6 +105,54 @@ struct TerminalSurfaceLaunchResolverTests {
         #expect(resolved.environment["SHELL"] == "/opt/homebrew/bin/fish")
     }
 
+    @Test func userGhosttyCommandOutranksResolvedShellFallback() {
+        let resolver = makeResolver(
+            defaultArguments: ["/usr/bin/login", "-flp", "tester"],
+            resolvedUserShell: "/opt/homebrew/bin/fish",
+            hasUserGhosttyCommand: true
+        )
+
+        let resolved = resolver.resolve(
+            TerminalSurfaceLaunchRequest(
+                workspaceID: UUID(),
+                surfaceID: UUID(),
+                configTemplate: nil,
+                workingDirectory: nil,
+                portOrdinal: 0,
+                initialCommand: nil,
+                initialInput: nil,
+                initialEnvironmentOverrides: [:],
+                additionalEnvironment: [:]
+            ),
+            commandShims: nil
+        )
+
+        #expect(resolved.command == nil)
+        #expect(resolved.arguments == ["/usr/bin/login", "-flp", "tester"])
+        #expect(resolved.environment["SHELL"] == "/opt/homebrew/bin/fish")
+    }
+
+    @Test func emptyDefaultArgumentsUseSafeFallbackLaunchForm() {
+        let resolver = makeResolver(defaultArguments: [])
+        let resolved = resolver.resolve(
+            TerminalSurfaceLaunchRequest(
+                workspaceID: UUID(),
+                surfaceID: UUID(),
+                configTemplate: nil,
+                workingDirectory: nil,
+                portOrdinal: 0,
+                initialCommand: nil,
+                initialInput: nil,
+                initialEnvironmentOverrides: [:],
+                additionalEnvironment: [:]
+            ),
+            commandShims: nil
+        )
+
+        #expect(resolved.command == nil)
+        #expect(resolved.arguments == ["/bin/zsh", "-l"])
+    }
+
     @Test func commandShimInstallUsesInjectedFiveSecondDeadline() async throws {
         let clock = LaunchResolverManualClock()
         let installer = BlockingCommandShimInstaller()
@@ -139,15 +187,16 @@ struct TerminalSurfaceLaunchResolverTests {
 
         clock.advance(by: .seconds(5))
         let resolved = await resolution.value
-        await installer.complete()
 
         #expect(resolved.environment["CMUX_AGENT_COMMAND_SHIM_ROOT"] == nil)
         #expect(resolved.command == nil)
+        #expect(await installer.cancellationCount == 1)
     }
 
     private func makeResolver(
         defaultArguments: [String],
         resolvedUserShell: String? = nil,
+        hasUserGhosttyCommand: Bool = false,
         runtimeFilesystem: TerminalSurfaceRuntimeFilesystem? = nil,
         resourceURL: URL? = nil,
         agentCommandShimInstallDeadline: Duration = .seconds(5),
@@ -156,6 +205,7 @@ struct TerminalSurfaceLaunchResolverTests {
         TerminalSurfaceLaunchResolver(
             userGhosttyShellIntegrationMode: { "none" },
             resolvedUserShell: { resolvedUserShell },
+            hasUserGhosttyCommand: { hasUserGhosttyCommand },
             spawnPolicyProvider: FakeSpawnPolicyProvider(),
             runtimeFilesystem: runtimeFilesystem ?? TerminalSurfaceRuntimeFilesystem(
                 agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp"),
@@ -178,14 +228,19 @@ private actor BlockingCommandShimInstaller {
     private var started = false
     private var startWaiters: [CheckedContinuation<Void, Never>] = []
     private var completion: CheckedContinuation<TerminalSurfaceAgentCommandShimSet?, Never>?
+    private(set) var cancellationCount = 0
 
     func install() async -> TerminalSurfaceAgentCommandShimSet? {
         started = true
         let waiters = startWaiters
         startWaiters.removeAll()
         for waiter in waiters { waiter.resume() }
-        return await withCheckedContinuation { continuation in
-            completion = continuation
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                completion = continuation
+            }
+        } onCancel: {
+            Task { await self.cancelInstall() }
         }
     }
 
@@ -196,7 +251,8 @@ private actor BlockingCommandShimInstaller {
         }
     }
 
-    func complete() {
+    private func cancelInstall() {
+        cancellationCount += 1
         completion?.resume(returning: nil)
         completion = nil
     }

@@ -122,14 +122,27 @@ struct TerminalSurfaceExternalRuntimeTests {
         #expect(fixture.surface.surface == nil)
     }
 
-    @Test func explicitTeardownClosesOnceThenDetachesWhileDeinitOnlyDetaches() {
+    @Test func canonicalProjectionOwnsCloseCommitAndPresentationRetirement() {
         let explicitlyClosed = makeFixture()
         let closeLease = explicitlyClosed.runtime.leases[0]
+
         explicitlyClosed.surface.teardownSurface()
         explicitlyClosed.surface.teardownSurface()
 
-        #expect(explicitlyClosed.runtime.mutations.filter { $0 == .closeCanonicalTerminal }.count == 1)
+        #expect(explicitlyClosed.runtime.mutations.isEmpty)
+        #expect(closeLease.detachCount == 0)
+        #expect(explicitlyClosed.surface.hasLiveSurface)
+
+        #expect(explicitlyClosed.surface.requestCanonicalClose().accepted)
+        #expect(explicitlyClosed.runtime.mutations == [.closeCanonicalTerminal])
+        #expect(closeLease.detachCount == 0)
+        #expect(explicitlyClosed.surface.hasLiveSurface)
+
+        explicitlyClosed.surface.detachExternalPresentationPreservingCanonicalTerminal()
+        explicitlyClosed.surface.teardownSurface()
+
         #expect(closeLease.detachCount == 1)
+        #expect(!explicitlyClosed.surface.hasLiveSurface)
 
         let detachedRuntime = FakeExternalTerminalRuntime(snapshot: Self.liveSnapshot)
         var detachedSurface: TerminalSurface? = makeFixture(runtime: detachedRuntime).surface
@@ -155,19 +168,24 @@ struct TerminalSurfaceExternalRuntimeTests {
         #expect(deinitLease.detachCount == 1)
     }
 
-    @Test func rejectedTeardownKeepsPresentationAttachedAndRetriesClose() {
+    @Test func rejectedCanonicalCloseKeepsPresentationAttachedAndRemainsRetryable() {
         let fixture = makeFixture()
         let lease = fixture.runtime.leases[0]
         fixture.runtime.rejectNext(.queueFull)
 
-        fixture.surface.teardownSurface()
+        #expect(!fixture.surface.requestCanonicalClose().accepted)
 
         #expect(fixture.runtime.mutations.isEmpty)
         #expect(lease.detachCount == 0)
 
-        fixture.surface.teardownSurface()
+        #expect(fixture.surface.requestCanonicalClose().accepted)
 
         #expect(fixture.runtime.mutations == [.closeCanonicalTerminal])
+        #expect(lease.detachCount == 0)
+        #expect(fixture.surface.hasLiveSurface)
+
+        fixture.surface.detachExternalPresentationPreservingCanonicalTerminal()
+        fixture.surface.teardownSurface()
         #expect(lease.detachCount == 1)
     }
 

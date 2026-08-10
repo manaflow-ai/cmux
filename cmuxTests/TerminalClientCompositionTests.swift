@@ -4970,10 +4970,12 @@ private actor SuspendedTerminalLaunchResolver {
     private static func resolvedLaunch(
         for request: TerminalSurfaceLaunchRequest
     ) -> TerminalSurfaceResolvedLaunch {
-        TerminalSurfaceResolvedLaunch(
+        let launchForm = request.initialCommand
+            .flatMap(TerminalSurfaceLaunchForm.init(command:))
+            ?? .arguments(first: "/bin/zsh", remaining: ["-l"])
+        return TerminalSurfaceResolvedLaunch(
             workingDirectory: request.workingDirectory,
-            command: request.initialCommand,
-            arguments: request.initialCommand == nil ? ["/bin/zsh", "-l"] : nil,
+            launchForm: launchForm,
             environment: ["CMUX_WORKSPACE_ID": request.workspaceID.uuidString],
             initialInput: request.initialInput,
             waitAfterCommand: request.configTemplate?.waitAfterCommand ?? false

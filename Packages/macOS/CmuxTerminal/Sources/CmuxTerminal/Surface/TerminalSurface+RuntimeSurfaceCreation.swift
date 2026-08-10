@@ -27,6 +27,9 @@ extension TerminalSurface {
             resolvedUserShell: { [engine] in
                 engine.resolvedUserShell
             },
+            hasUserGhosttyCommand: { [engine] in
+                engine.hasUserGhosttyCommand
+            },
             spawnPolicyProvider: spawnPolicyProvider,
             runtimeFilesystem: runtimeFilesystem,
             sessionPortBase: sessionPortBase,

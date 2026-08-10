@@ -274,15 +274,13 @@ extension TerminalSurface {
     /// before deinit; deinit will skip the free if already torn down.
     @MainActor
     public func teardownSurface() {
-        recordTeardownRequest(reason: "surface.teardown")
-        if externalRuntime != nil,
-           !externalCanonicalCloseSuppressedForAppTermination,
-           !externalCanonicalCloseRequested,
-           !requestCanonicalClose().accepted {
-            // The backend still owns a live terminal. Keep this presentation
-            // attached so a later teardown attempt can retry admission.
+        if externalRuntime != nil, !externalPresentationRetirementAuthorized {
+            // Local lifecycle teardown cannot commit backend-owned closure.
+            // Canonical projection or app termination must first retire the
+            // presentation lease explicitly.
             return
         }
+        recordTeardownRequest(reason: "surface.teardown")
         markPortalLifecycleClosed(reason: "teardown")
         backgroundSurfaceStartSource = .normal
         cancelAgentCommandShimInstallLifecycle()

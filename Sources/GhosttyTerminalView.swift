@@ -463,6 +463,9 @@ class GhosttyApp {
         },
         resolvedUserShell: {
             GhosttyApp.shared.resolvedUserShell
+        },
+        hasUserGhosttyCommand: {
+            GhosttyApp.shared.hasUserGhosttyCommand
         }
     )
 

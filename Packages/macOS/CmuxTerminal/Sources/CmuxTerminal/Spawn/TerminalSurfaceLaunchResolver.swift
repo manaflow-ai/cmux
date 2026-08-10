@@ -18,6 +18,7 @@ public final class TerminalSurfaceLaunchResolver {
     private let ambientEnvironment: [String: String]
     private let defaultShellArguments: DefaultShellArguments
     private let resolvedUserShell: @MainActor () -> String?
+    private let hasUserGhosttyCommand: @MainActor () -> Bool
     private let agentCommandShimInstallDeadline: Duration
     private let agentCommandShimInstallDeadlineClock: any Clock<Duration>
 
@@ -30,6 +31,7 @@ public final class TerminalSurfaceLaunchResolver {
         self.init(
             userGhosttyShellIntegrationMode: dependencies.userGhosttyShellIntegrationMode,
             resolvedUserShell: dependencies.resolvedUserShell,
+            hasUserGhosttyCommand: dependencies.hasUserGhosttyCommand,
             spawnPolicyProvider: dependencies.spawnPolicyProvider,
             runtimeFilesystem: dependencies.runtimeFilesystem,
             sessionPortBase: dependencies.sessionPortBase,
@@ -46,6 +48,7 @@ public final class TerminalSurfaceLaunchResolver {
     public init(
         userGhosttyShellIntegrationMode: @escaping @MainActor () -> String,
         resolvedUserShell: @escaping @MainActor () -> String? = { nil },
+        hasUserGhosttyCommand: @escaping @MainActor () -> Bool = { false },
         spawnPolicyProvider: any TerminalSurfaceSpawnPolicyProviding,
         runtimeFilesystem: TerminalSurfaceRuntimeFilesystem,
         sessionPortBase: Int,
@@ -59,6 +62,7 @@ public final class TerminalSurfaceLaunchResolver {
     ) {
         self.userGhosttyShellIntegrationMode = userGhosttyShellIntegrationMode
         self.resolvedUserShell = resolvedUserShell
+        self.hasUserGhosttyCommand = hasUserGhosttyCommand
         self.spawnPolicyProvider = spawnPolicyProvider
         self.runtimeFilesystem = runtimeFilesystem
         self.sessionPortBase = sessionPortBase
@@ -80,21 +84,6 @@ public final class TerminalSurfaceLaunchResolver {
             let filesystem = runtimeFilesystem
             let temporaryDirectory = filesystem.agentCommandShimTemporaryDirectory
             let surfaceID = request.surfaceID
-            let (results, continuation) = AsyncStream<TerminalSurfaceAgentCommandShimSet?>
-                .makeStream(bufferingPolicy: .bufferingNewest(1))
-            let installTask = Task.detached(priority: .utility) {
-                let installed = await filesystem.installAgentCommandShims(
-                    wrapperDirectoryURL,
-                    surfaceID,
-                    temporaryDirectory
-                )
-                continuation.yield(installed)
-                continuation.finish()
-            }
-            defer {
-                installTask.cancel()
-                continuation.finish()
-            }
             let deadline = agentCommandShimInstallDeadline
             let clock = agentCommandShimInstallDeadlineClock
             shims = await withTaskGroup(
@@ -102,8 +91,11 @@ public final class TerminalSurfaceLaunchResolver {
                 returning: TerminalSurfaceAgentCommandShimSet?.self
             ) { group in
                 group.addTask {
-                    var iterator = results.makeAsyncIterator()
-                    return await iterator.next() ?? nil
+                    await filesystem.installAgentCommandShims(
+                        wrapperDirectoryURL,
+                        surfaceID,
+                        temporaryDirectory
+                    )
                 }
                 group.addTask {
                     do {
@@ -115,6 +107,8 @@ public final class TerminalSurfaceLaunchResolver {
                 }
                 let first = await group.next() ?? nil
                 group.cancelAll()
+                // Leaving the structured group waits for the losing child to
+                // confirm cancellation. No installer outlives its resolution.
                 return first
             }
         } else {
@@ -240,6 +234,7 @@ public final class TerminalSurfaceLaunchResolver {
             )
         }
 
+        var managedShellCommand: String?
         if spawnPolicy.shellIntegrationEnabled,
            let integrationDir = resourceURL?.appendingPathComponent("shell-integration").path,
            TerminalSurface.shellIntegrationDirectoryExists(integrationDir) {
@@ -259,7 +254,7 @@ public final class TerminalSurfaceLaunchResolver {
                 to: &environment,
                 protectedKeys: &protectedKeys
             ), baseConfig.command?.isEmpty != false {
-                baseConfig.command = command
+                managedShellCommand = command
             }
         }
 
@@ -274,14 +269,22 @@ public final class TerminalSurfaceLaunchResolver {
 
         let workingDirectory = request.workingDirectory?.nilIfEmpty
             ?? baseConfig.workingDirectory?.nilIfEmpty
-        let command = request.initialCommand?.nilIfEmpty ?? baseConfig.command?.nilIfEmpty
+        let command = TerminalLaunchCommandPolicy().resolve(
+            initialCommand: request.initialCommand?.nilIfEmpty,
+            surfaceCommand: baseConfig.command?.nilIfEmpty,
+            hasUserGhosttyCommand: hasUserGhosttyCommand(),
+            managedShellCommand: managedShellCommand,
+            resolvedShell: resolvedShell
+        )
         let initialInput = request.runtimeInitialInput?.nilIfEmpty
             ?? request.initialInput?.nilIfEmpty
             ?? baseConfig.initialInput?.nilIfEmpty
+        let launchForm = command.flatMap(TerminalSurfaceLaunchForm.init(command:))
+            ?? TerminalSurfaceLaunchForm(arguments: defaultShellArguments())
+            ?? .fallbackLoginShell
         return TerminalSurfaceResolvedLaunch(
             workingDirectory: workingDirectory,
-            command: command,
-            arguments: command == nil ? defaultShellArguments() : nil,
+            launchForm: launchForm,
             environment: environment,
             initialInput: initialInput,
             waitAfterCommand: baseConfig.waitAfterCommand

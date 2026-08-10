@@ -57,16 +57,19 @@ extension TerminalSurface {
         hermesProfileAliasCatalog: HermesProfileAliasCatalog,
         fileManager: FileManager = .default
     ) async -> TerminalSurfaceAgentCommandShimSet? {
+        guard !Task.isCancelled else { return nil }
         guard let wrapperDirectoryURL = wrapperDirectoryURL?.standardizedFileURL else { return nil }
         let aliases = await hermesProfileAliasCatalog.aliases(
             excluding: reservedAgentCommandShimNames
         )
+        guard !Task.isCancelled else { return nil }
         return installAgentCommandShimsIfPossible(
             wrapperDirectoryURL: wrapperDirectoryURL,
             surfaceId: surfaceId,
             temporaryDirectory: temporaryDirectory,
             hermesProfileAliases: aliases,
-            fileManager: fileManager
+            fileManager: fileManager,
+            isCancelled: { Task.isCancelled }
         )
     }
 
@@ -79,13 +82,15 @@ extension TerminalSurface {
         surfaceId: UUID,
         temporaryDirectory: URL,
         hermesProfileAliases: [HermesProfileAliasResolver.Alias],
-        fileManager: FileManager
+        fileManager: FileManager,
+        isCancelled: () -> Bool = { false }
     ) -> TerminalSurfaceAgentCommandShimSet? {
         var availableDefinitions: [(
             definition: TerminalSurfaceAgentCommandShimDefinition,
             wrapperURL: URL
         )] = []
         for definition in TerminalSurfaceAgentCommandShimDefinition.bundled {
+            guard !isCancelled() else { return nil }
             let wrapperURL = wrapperDirectoryURL
                 .appendingPathComponent(definition.wrapperName, isDirectory: false)
                 .standardizedFileURL
@@ -100,6 +105,7 @@ extension TerminalSurface {
         let shimDirectory = shimParentDirectory
             .appendingPathComponent(surfaceId.uuidString, isDirectory: true)
             .standardizedFileURL
+        guard !isCancelled() else { return nil }
         do {
             try fileManager.createDirectory(at: shimDirectory, withIntermediateDirectories: true)
             for directory in [shimParentDirectory, shimDirectory] {
@@ -114,6 +120,7 @@ extension TerminalSurface {
             $0.definition.commandName == "hermes"
         }) {
             for alias in hermesProfileAliases {
+                guard !isCancelled() else { return nil }
                 guard let shim = installAgentCommandShim(
                     definition: hermesDefinition.definition,
                     commandName: alias.commandName,
@@ -129,6 +136,7 @@ extension TerminalSurface {
             }
         }
         for (definition, wrapperURL) in availableDefinitions {
+            guard !isCancelled() else { return nil }
             guard let shim = installAgentCommandShim(
                 definition: definition,
                 wrapperURL: wrapperURL,

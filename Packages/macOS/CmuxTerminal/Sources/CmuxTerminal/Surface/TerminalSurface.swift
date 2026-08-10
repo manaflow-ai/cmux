@@ -85,10 +85,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let externalRuntime: (any TerminalExternalRuntime)?
     /// Detaches this Swift presentation without closing the backend-owned PTY.
     var externalPresentationLease: (any TerminalExternalPresentationLease)? = nil
-    /// Guards the explicit close path independently from presentation teardown.
-    var externalCanonicalCloseRequested = false
-    /// App Quit preserves daemon-owned PTYs even if AppKit subsequently closes panels.
-    var externalCanonicalCloseSuppressedForAppTermination = false
+    /// Canonical projection or app termination has authorized local presentation retirement.
+    var externalPresentationRetirementAuthorized = false
     let spawnPolicyProvider: any TerminalSurfaceSpawnPolicyProviding
     let hibernationRecorder: any AgentHibernationRecording
     let scrollbackReplayEnvironmentKey: String
@@ -824,14 +822,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         guard let externalRuntime else {
             return .rejected(.unsupported)
         }
-        if externalCanonicalCloseRequested {
-            return .rejected(.processExited)
-        }
-        let result = externalRuntime.enqueue(.closeCanonicalTerminal)
-        if result.accepted {
-            externalCanonicalCloseRequested = true
-        }
-        return result
+        // Admission only places the request in the backend ingress. The
+        // canonical topology projection owns the commit and panel retirement.
+        // Keep later user attempts retryable until that projection arrives.
+        return externalRuntime.enqueue(.closeCanonicalTerminal)
     }
 
     /// Moves this surface between focus-routing placements (workspace ↔

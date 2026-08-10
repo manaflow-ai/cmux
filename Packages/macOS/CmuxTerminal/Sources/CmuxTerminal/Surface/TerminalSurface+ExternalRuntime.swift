@@ -12,7 +12,7 @@ extension TerminalSurface {
     @MainActor
     public func detachExternalPresentationPreservingCanonicalTerminal() {
         guard externalRuntime != nil else { return }
-        externalCanonicalCloseSuppressedForAppTermination = true
+        externalPresentationRetirementAuthorized = true
         externalPresentationLease?.detach()
         externalPresentationLease = nil
     }
