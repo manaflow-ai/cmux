@@ -93,6 +93,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let hibernationRecorder: any AgentHibernationRecording
     let scrollbackReplayEnvironmentKey: String
     let globalFontMagnificationPercent: @Sendable () -> Int
+    let fontConfigurationSnapshotProvider:
+        @MainActor @Sendable () -> TerminalFontConfigurationSnapshot?
 
     private var requiredEmbeddedRuntime: TerminalSurfaceEmbeddedRuntimeDependencies {
         guard let embeddedRuntime else {
@@ -654,6 +656,14 @@ public final class TerminalSurface: Identifiable, ObservableObject {
             (externalRuntime == nil) != (embeddedRuntime == nil),
             "Terminal ownership must be exactly embedded or external"
         )
+        let initialFontConfiguration =
+            presentationDependencies.fontConfigurationSnapshot()
+            ?? embeddedRuntime.map {
+                TerminalFontConfigurationSnapshot(
+                    generation: $0.engine.terminalFontConfigurationGeneration,
+                    runtimePoints: $0.engine.terminalFontConfigurationRuntimePoints
+                )
+            }
         self.id = id
         self.terminalLifecycleId = UUID()
         self.tabId = tabId
@@ -665,8 +675,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.transferReconciledFontSizeChangeTokens =
             configTemplate?.fontSizeChangeTokens ?? []
         self.fontSizeLineageConfigurationGeneration =
-            dependencies.engine
-                .terminalFontConfigurationGeneration
+            initialFontConfiguration?.generation ?? 0
         self.followsConfiguredFontSize = configTemplate?.fontSizeLineage == nil
         self.workingDirectory = workingDirectory.flatMap { $0.isEmpty ? nil : $0 }
         self.portOrdinal = portOrdinal
@@ -691,6 +700,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.requiresRestoreSpawnPacing = runtimeSpawnPolicy == .pacedSessionRestore
         self.scrollbackReplayEnvironmentKey = presentationDependencies.scrollbackReplayEnvironmentKey
         self.globalFontMagnificationPercent = presentationDependencies.globalFontMagnificationPercent
+        self.fontConfigurationSnapshotProvider =
+            presentationDependencies.fontConfigurationSnapshot
         // Match Ghostty's own SurfaceView: ensure a non-zero initial frame so the backing layer
         // has non-zero bounds and the renderer can initialize without presenting a blank/stretched
         // intermediate frame on the first real resize.

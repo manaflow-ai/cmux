@@ -421,7 +421,13 @@ class GhosttyApp {
         spawnPolicy: TerminalSurfaceSpawnPolicyBridge(),
         hibernationRecorder: TerminalAgentHibernationRecorder(),
         scrollbackReplayEnvironmentKey: SessionScrollbackReplayStore.environmentKey,
-        globalFontMagnificationPercent: { GlobalFontMagnification.storedPercent }
+        globalFontMagnificationPercent: { GlobalFontMagnification.storedPercent },
+        fontConfigurationSnapshot: {
+            TerminalFontConfigurationSnapshot(
+                generation: GhosttyApp.shared.terminalFontConfigurationGeneration,
+                runtimePoints: GhosttyApp.shared.terminalFontConfigurationRuntimePoints
+            )
+        }
     )
 
     /// Capabilities that exist only in the legacy embedded ownership graph.

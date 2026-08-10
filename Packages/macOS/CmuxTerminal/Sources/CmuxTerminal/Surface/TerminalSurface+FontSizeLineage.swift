@@ -30,6 +30,18 @@ public func retireTerminalFontSizeChangeReconciliationToken(
 
 extension TerminalSurface {
     @MainActor
+    private var currentFontConfigurationSnapshot:
+        TerminalFontConfigurationSnapshot? {
+        fontConfigurationSnapshotProvider()
+            ?? embeddedRuntime.map {
+                TerminalFontConfigurationSnapshot(
+                    generation: $0.engine.terminalFontConfigurationGeneration,
+                    runtimePoints: $0.engine.terminalFontConfigurationRuntimePoints
+                )
+            }
+    }
+
+    @MainActor
     fileprivate static var activeTransferReconciliationTokens: Set<UUID> = []
 
     @MainActor
@@ -878,8 +890,10 @@ extension TerminalSurface {
     /// config when its own runtime is recreated.
     @MainActor
     func recordCurrentFontSizeLineage(_ lineage: TerminalFontSizeLineage) {
-        fontSizeLineageConfigurationGeneration =
-            engine.terminalFontConfigurationGeneration
+        if let currentFontConfigurationSnapshot {
+            fontSizeLineageConfigurationGeneration =
+                currentFontConfigurationSnapshot.generation
+        }
         if lineage.isExplicitOverride {
             followsConfiguredFontSize = false
         }
@@ -941,8 +955,9 @@ extension TerminalSurface {
                 .isExplicitOverride == false else {
             return
         }
+        guard let currentFontConfigurationSnapshot else { return }
         let appliedGeneration =
-            engine.terminalFontConfigurationGeneration
+            currentFontConfigurationSnapshot.generation
         guard fontSizeLineageConfigurationGeneration
                 != appliedGeneration else {
             return
@@ -952,7 +967,7 @@ extension TerminalSurface {
             ?? globalFontMagnificationPercent()
         let configuredRuntimePoints =
             TerminalFontSizePolicy().clampedRuntimePoints(
-                engine.terminalFontConfigurationRuntimePoints
+                currentFontConfigurationSnapshot.runtimePoints
             )
         followsConfiguredFontSize = true
         recordCurrentFontSizeLineage(

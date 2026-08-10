@@ -1,5 +1,18 @@
 public import CmuxTerminalCore
 
+/// The font configuration values a presentation needs for durable lineage.
+///
+/// This value exposes no embedded Ghostty handle or runtime ownership.
+public struct TerminalFontConfigurationSnapshot: Sendable, Equatable {
+    public let generation: UInt64
+    public let runtimePoints: Float32
+
+    public init(generation: UInt64, runtimePoints: Float32) {
+        self.generation = generation
+        self.runtimePoints = runtimePoints
+    }
+}
+
 /// Capabilities shared by embedded and externally-owned terminal presentations.
 ///
 /// This bundle deliberately contains no Ghostty app/config handle, PTY output
@@ -26,6 +39,10 @@ public struct TerminalSurfacePresentationDependencies {
     /// Provides the app's current global font magnification percent.
     public let globalFontMagnificationPercent: @Sendable () -> Int
 
+    /// Reads the current font configuration without exposing its runtime owner.
+    public let fontConfigurationSnapshot:
+        @MainActor @Sendable () -> TerminalFontConfigurationSnapshot?
+
     /// Creates the dependency bundle.
     public init(
         registry: any TerminalSurfaceRegistering,
@@ -33,7 +50,9 @@ public struct TerminalSurfacePresentationDependencies {
         spawnPolicy: any TerminalSurfaceSpawnPolicyProviding,
         hibernationRecorder: any AgentHibernationRecording,
         scrollbackReplayEnvironmentKey: String,
-        globalFontMagnificationPercent: @escaping @Sendable () -> Int = { 100 }
+        globalFontMagnificationPercent: @escaping @Sendable () -> Int = { 100 },
+        fontConfigurationSnapshot: @escaping
+            @MainActor @Sendable () -> TerminalFontConfigurationSnapshot? = { nil }
     ) {
         self.registry = registry
         self.viewProvider = viewProvider
@@ -41,6 +60,7 @@ public struct TerminalSurfacePresentationDependencies {
         self.hibernationRecorder = hibernationRecorder
         self.scrollbackReplayEnvironmentKey = scrollbackReplayEnvironmentKey
         self.globalFontMagnificationPercent = globalFontMagnificationPercent
+        self.fontConfigurationSnapshot = fontConfigurationSnapshot
     }
 }
 

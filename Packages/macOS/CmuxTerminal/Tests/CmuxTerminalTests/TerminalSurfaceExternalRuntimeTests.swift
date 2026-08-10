@@ -6,6 +6,40 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct TerminalSurfaceExternalRuntimeTests {
+    @Test func externalSurfaceRebasesFontLineageWithoutEmbeddedRuntimeOwnership() {
+        let fontConfiguration = FakeTerminalFontConfigurationSource(
+            snapshot: TerminalFontConfigurationSnapshot(
+                generation: 1,
+                runtimePoints: 12
+            )
+        )
+        var template = CmuxSurfaceConfigTemplate()
+        template.fontSizeLineage = TerminalFontSizeLineage(
+            basePoints: 12,
+            isExplicitOverride: false
+        )
+        let fixture = makeFixture(
+            configTemplate: template,
+            fontConfigurationSnapshot: { fontConfiguration.snapshot }
+        )
+        defer { fixture.surface.detachExternalPresentationPreservingCanonicalTerminal() }
+
+        fontConfiguration.snapshot = TerminalFontConfigurationSnapshot(
+            generation: 2,
+            runtimePoints: 18
+        )
+
+        #expect(
+            fixture.surface.fontSizeLineageSnapshot(magnificationPercent: 100)
+                == TerminalFontSizeLineage(
+                    basePoints: 18,
+                    isExplicitOverride: false
+                )
+        )
+        #expect(fixture.surface.fontSizeLineageConfigurationGeneration == 2)
+        #expect(fixture.surface.embeddedRuntime == nil)
+    }
+
     @Test func externalSurfaceNeverCreatesEmbeddedGhosttyRuntimeOrBootstrapWindow() {
         let fixture = makeFixture(initialInput: "echo should-run-in-backend")
         defer { fixture.surface.detachExternalPresentationPreservingCanonicalTerminal() }
@@ -176,7 +210,10 @@ struct TerminalSurfaceExternalRuntimeTests {
 
     private func makeFixture(
         initialInput: String? = nil,
-        runtime: FakeExternalTerminalRuntime? = nil
+        runtime: FakeExternalTerminalRuntime? = nil,
+        configTemplate: CmuxSurfaceConfigTemplate? = nil,
+        fontConfigurationSnapshot: @escaping
+            @MainActor @Sendable () -> TerminalFontConfigurationSnapshot? = { nil }
     ) -> (
         surface: TerminalSurface,
         runtime: FakeExternalTerminalRuntime
@@ -193,7 +230,7 @@ struct TerminalSurfaceExternalRuntimeTests {
         let surface = TerminalSurface(
             tabId: UUID(),
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
+            configTemplate: configTemplate,
             initialInput: initialInput,
             externalRuntime: resolvedRuntime,
             presentationDependencies: TerminalSurfacePresentationDependencies(
@@ -204,10 +241,20 @@ struct TerminalSurfaceExternalRuntimeTests {
                 ),
                 spawnPolicy: FakeSpawnPolicyProvider(),
                 hibernationRecorder: FakeHibernationRecorder(),
-                scrollbackReplayEnvironmentKey: "CMUX_TEST_SCROLLBACK_REPLAY"
+                scrollbackReplayEnvironmentKey: "CMUX_TEST_SCROLLBACK_REPLAY",
+                fontConfigurationSnapshot: fontConfigurationSnapshot
             )
         )
         return (surface, resolvedRuntime)
+    }
+}
+
+@MainActor
+private final class FakeTerminalFontConfigurationSource {
+    var snapshot: TerminalFontConfigurationSnapshot
+
+    init(snapshot: TerminalFontConfigurationSnapshot) {
+        self.snapshot = snapshot
     }
 }
 
