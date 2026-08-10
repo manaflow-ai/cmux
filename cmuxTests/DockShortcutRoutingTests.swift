@@ -17,6 +17,37 @@ private typealias AppStoredShortcut = cmux.StoredShortcut
 
 @Suite("Dock shortcut routing", .serialized)
 struct DockShortcutRoutingTests {
+    @Test("Focused browser resolution prefers the Dock browser over the background workspace")
+    @MainActor
+    func focusedBrowserResolutionPrefersDockBrowser() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let mainPane = try #require(
+                    harness.mainWorkspace.bonsplitController.focusedPaneId
+                )
+                let mainBrowser = try #require(
+                    harness.mainWorkspace.newBrowserSurface(
+                        inPane: mainPane,
+                        focus: true
+                    )
+                )
+                let dockBrowserId = try #require(
+                    harness.dock.newSurface(
+                        kind: .browser,
+                        inPane: harness.rootPane,
+                        focus: true
+                    )
+                )
+                let dockBrowser = try #require(
+                    harness.dock.browserPanel(for: dockBrowserId)
+                )
+
+                #expect(harness.tabManager.focusedBrowserPanel === dockBrowser)
+                #expect(harness.tabManager.focusedBrowserPanel !== mainBrowser)
+            }
+        }
+    }
+
     @Test("Customized next-surface shortcut targets the focused Dock")
     @MainActor
     func customizedNextSurfaceTargetsFocusedDock() async throws {
