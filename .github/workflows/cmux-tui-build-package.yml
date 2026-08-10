@@ -477,6 +477,13 @@ jobs:
           cd ../cmux-tui
           cargo build -p cmux-tui --bin cmux-tui --release --locked --target x86_64-pc-windows-gnu
 
+      - name: Verify Windows ConPTY resize
+        shell: bash
+        run: |
+          python -m pip install --disable-pip-version-check pywinpty
+          python cmux-tui/scripts/smoke-windows-conpty-resize.py \
+            --binary cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe
+
       - name: Verify remote commands fail clearly on Windows
         shell: bash
         run: |
