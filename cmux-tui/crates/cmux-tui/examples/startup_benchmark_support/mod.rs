@@ -114,6 +114,13 @@ pub struct Evidence {
     pub schema_rejections: usize,
     pub process_exits: usize,
     pub terminal_probe_responses: usize,
+    pub terminal_cpr_responses: usize,
+    pub terminal_foreground_color_responses: usize,
+    pub terminal_background_color_responses: usize,
+    pub terminal_window_pixel_responses: usize,
+    pub terminal_kitty_responses: usize,
+    pub terminal_da1_responses: usize,
+    pub terminal_keyboard_responses: usize,
     pub frame_cursor_shows: usize,
     pub frame_cursor_hides: usize,
 }
@@ -131,6 +138,13 @@ impl Evidence {
             schema_rejections,
             process_exits,
             terminal_probe_responses,
+            terminal_cpr_responses,
+            terminal_foreground_color_responses,
+            terminal_background_color_responses,
+            terminal_window_pixel_responses,
+            terminal_kitty_responses,
+            terminal_da1_responses,
+            terminal_keyboard_responses,
             frame_cursor_shows,
             frame_cursor_hides,
         } = other;
@@ -144,6 +158,13 @@ impl Evidence {
         self.schema_rejections += *schema_rejections;
         self.process_exits += *process_exits;
         self.terminal_probe_responses += *terminal_probe_responses;
+        self.terminal_cpr_responses += *terminal_cpr_responses;
+        self.terminal_foreground_color_responses += *terminal_foreground_color_responses;
+        self.terminal_background_color_responses += *terminal_background_color_responses;
+        self.terminal_window_pixel_responses += *terminal_window_pixel_responses;
+        self.terminal_kitty_responses += *terminal_kitty_responses;
+        self.terminal_da1_responses += *terminal_da1_responses;
+        self.terminal_keyboard_responses += *terminal_keyboard_responses;
         self.frame_cursor_shows += *frame_cursor_shows;
         self.frame_cursor_hides += *frame_cursor_hides;
     }

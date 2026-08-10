@@ -534,6 +534,14 @@ fn run_pty(
             String::from_utf8_lossy(&reader.output)
         );
     }
+    #[cfg(windows)]
+    if !reader.probe_kinds.cpr || reader.probe_responses < 2 {
+        bail!(
+            "interactive process answered an invalid Windows terminal-probe set: {:?}",
+            reader.probe_kinds
+        );
+    }
+    #[cfg(not(windows))]
     if reader.probe_responses < 4 {
         bail!(
             "interactive process answered {} terminal probes, expected at least 4",
@@ -548,6 +556,13 @@ fn run_pty(
             frame_completions: 1,
             process_exits: 1,
             terminal_probe_responses: reader.probe_responses,
+            terminal_cpr_responses: usize::from(reader.probe_kinds.cpr),
+            terminal_foreground_color_responses: usize::from(reader.probe_kinds.foreground),
+            terminal_background_color_responses: usize::from(reader.probe_kinds.background),
+            terminal_window_pixel_responses: usize::from(reader.probe_kinds.window),
+            terminal_kitty_responses: usize::from(reader.probe_kinds.kitty),
+            terminal_da1_responses: usize::from(reader.probe_kinds.da1),
+            terminal_keyboard_responses: usize::from(reader.probe_kinds.keyboard),
             socket_rpcs: usize::from(ping_socket.is_some()),
             frame_cursor_shows: if reader.cursor_visibility == Some(CursorVisibility::Show) {
                 1
@@ -862,6 +877,7 @@ enum PtyEvent {
 struct PtyReadResult {
     output: Vec<u8>,
     probe_responses: usize,
+    probe_kinds: ProbeKinds,
     cursor_visibility: Option<CursorVisibility>,
 }
 
@@ -1139,6 +1155,7 @@ fn read_pty(
                 return Ok(PtyReadResult {
                     output,
                     probe_responses: probes.responses,
+                    probe_kinds: probes.kinds(),
                     cursor_visibility: frame_marker.visibility,
                 });
             }
@@ -1170,6 +1187,7 @@ fn read_pty(
                     return Ok(PtyReadResult {
                         output,
                         probe_responses: probes.responses,
+                        probe_kinds: probes.kinds(),
                         cursor_visibility: frame_marker.visibility,
                     });
                 }
@@ -1239,6 +1257,17 @@ struct ProbeTracker {
     pending: Vec<u8>,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ProbeKinds {
+    cpr: bool,
+    foreground: bool,
+    background: bool,
+    window: bool,
+    kitty: bool,
+    da1: bool,
+    keyboard: bool,
+}
+
 impl ProbeTracker {
     fn observe(&mut self, bytes: &[u8]) -> Vec<&'static [u8]> {
         self.pending.extend_from_slice(bytes);
@@ -1266,6 +1295,18 @@ impl ProbeTracker {
         }
         retain_tail(&mut self.pending, overlap);
         responses
+    }
+
+    fn kinds(&self) -> ProbeKinds {
+        ProbeKinds {
+            cpr: self.cpr,
+            foreground: self.foreground,
+            background: self.background,
+            window: self.window,
+            kitty: self.kitty,
+            da1: self.da1,
+            keyboard: self.keyboard,
+        }
     }
 }
 

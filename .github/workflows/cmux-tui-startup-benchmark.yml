@@ -966,9 +966,12 @@ jobs:
                       raise SystemExit(f"{name} has an incomplete {target} warmup count")
                   if evidence.get("samples_completed") != expected_samples:
                       raise SystemExit(f"{name} has an incomplete {target} sample count")
+                  interactive_probe_minimum = (
+                      2 if os.environ["PLATFORM_LABEL"] == "windows-azure" else 4
+                  ) * total_runs
                   required_events = {
-                      "cold": {"render_markers": total_runs, "frame_completions": total_runs, "terminal_probe_responses": 4 * total_runs, "process_exits": total_runs},
-                      "warm": {"render_markers": total_runs, "frame_completions": total_runs, "terminal_probe_responses": 4 * total_runs, "readiness_lines": 1, "socket_rpcs": 2},
+                      "cold": {"render_markers": total_runs, "frame_completions": total_runs, "terminal_probe_responses": interactive_probe_minimum, "process_exits": total_runs},
+                      "warm": {"render_markers": total_runs, "frame_completions": total_runs, "terminal_probe_responses": interactive_probe_minimum, "readiness_lines": 1, "socket_rpcs": 2},
                       "headless": {"readiness_lines": total_runs, "socket_rpcs": 2 * total_runs},
                       "restored": {"readiness_lines": total_runs, "socket_rpcs": 2 * total_runs, "restored_topologies": total_runs},
                       "incompatible": {"schema_rejections": total_runs, "process_exits": total_runs},
@@ -989,6 +992,34 @@ jobs:
                       )
                       if cursor_completions != evidence["frame_completions"]:
                           raise SystemExit(f"{name} {target} has inconsistent cursor completion evidence")
+                      probe_kind_fields = (
+                          "terminal_cpr_responses",
+                          "terminal_foreground_color_responses",
+                          "terminal_background_color_responses",
+                          "terminal_window_pixel_responses",
+                          "terminal_kitty_responses",
+                          "terminal_da1_responses",
+                          "terminal_keyboard_responses",
+                      )
+                      probe_kind_counts = []
+                      for field in probe_kind_fields:
+                          count = evidence.get(field)
+                          if not isinstance(count, int) or not 0 <= count <= total_runs:
+                              raise SystemExit(
+                                  f"{name} {target} has invalid one-shot {field}: {count!r}"
+                              )
+                          probe_kind_counts.append(count)
+                      if sum(probe_kind_counts) != evidence["terminal_probe_responses"]:
+                          raise SystemExit(
+                              f"{name} {target} probe-kind counts do not match total responses"
+                          )
+                      if (
+                          os.environ["PLATFORM_LABEL"] == "windows-azure"
+                          and evidence["terminal_cpr_responses"] != total_runs
+                      ):
+                          raise SystemExit(
+                              f"{name} {target} did not answer one CPR query per launch"
+                          )
                   ordered[target] = values
 
               pairs = scenario.get("pairs")

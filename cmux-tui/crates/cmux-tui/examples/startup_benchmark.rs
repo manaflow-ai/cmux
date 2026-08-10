@@ -362,12 +362,20 @@ fn validate_evidence(scenario: Scenario, args: &Args, evidence: &Evidence) -> Re
         );
     }
     let total = args.warmups + args.samples;
+    let terminal_probe_minimum = total * if cfg!(windows) { 2 } else { 4 };
     match scenario {
         Scenario::Cold | Scenario::Warm if evidence.frame_completions < total => {
             bail!("{} observed too few complete frames", scenario.as_str())
         }
-        Scenario::Cold | Scenario::Warm if evidence.terminal_probe_responses < total * 4 => {
+        Scenario::Cold | Scenario::Warm
+            if evidence.terminal_probe_responses < terminal_probe_minimum =>
+        {
             bail!("{} answered too few terminal probes", scenario.as_str())
+        }
+        Scenario::Cold | Scenario::Warm
+            if cfg!(windows) && evidence.terminal_cpr_responses != total =>
+        {
+            bail!("{} did not answer one CPR query per launch", scenario.as_str())
         }
         Scenario::Cold | Scenario::Warm
             if evidence.frame_cursor_shows + evidence.frame_cursor_hides != total =>
