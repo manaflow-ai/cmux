@@ -1820,6 +1820,7 @@ impl LocalPtyProcess {
             if let Some(pty) = surface.as_pty() {
                 *pty.exit.lock().unwrap() = Some(exit);
             }
+            #[cfg(windows)]
             close_local_terminal_master_after_exit(&surface);
             *process.exited.0.lock().unwrap() = true;
             process.exited.1.notify_all();
@@ -2631,9 +2632,6 @@ fn close_local_terminal_master_after_exit(surface: &Arc<Surface>) {
     // final bytes and then observe EOF.
     drop(master);
 }
-
-#[cfg(not(windows))]
-fn close_local_terminal_master_after_exit(_surface: &Arc<Surface>) {}
 
 fn terminal_public_id_from_resource_identity(
     identity: &TabResourceIdentity,
