@@ -2297,21 +2297,18 @@ final class cmuxUITests: XCTestCase {
         XCTAssertEqual(app.buttons["MobileAttachmentCard.1"].label, "-release notes.txtをプレビュー")
         XCTAssertEqual(app.buttons["MobileAttachmentRemove.1"].label, "-release notes.txtを削除")
 
-        sourceMenu.tap()
-        XCTAssertTrue(app.buttons["写真"].waitForExistence(timeout: 2))
-        XCTAssertTrue(app.buttons["ファイル"].exists)
-        keepScreenshot(named: "task-attachments-japanese-source-menu", app: app)
-        app.textFields["MobileTaskComposerPrompt"]
-            .coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-            .tap()
-        XCTAssertTrue(app.buttons["写真"].waitForNonExistence(timeout: 2))
-
         app.buttons["MobileAttachmentCard.0"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["MobileAttachmentPreview"].waitForExistence(timeout: 4))
         let done = app.buttons["完了"]
         XCTAssertTrue(done.waitForExistence(timeout: 2))
         done.tap()
         XCTAssertTrue(app.descendants(matching: .any)["MobileAttachmentPreview"].waitForNonExistence(timeout: 4))
+
+        dismissTaskComposerKeyboard(in: app)
+        tap(sourceMenu, in: app)
+        XCTAssertTrue(app.buttons["写真"].waitForExistence(timeout: 4))
+        XCTAssertTrue(app.buttons["ファイル"].waitForExistence(timeout: 2))
+        keepScreenshot(named: "task-attachments-japanese-source-menu", app: app)
     }
 
     @MainActor
@@ -2369,9 +2366,17 @@ final class cmuxUITests: XCTestCase {
         app.buttons["Done"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["MobileAttachmentPreview"].waitForNonExistence(timeout: 4))
 
+        let cards = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "MobileAttachmentCard.")
+        )
+        XCTAssertEqual(cards.count, 2)
         app.buttons["MobileAttachmentRemove.0"].tap()
-        XCTAssertTrue(emptyCard.waitForNonExistence(timeout: 3))
-        XCTAssertEqual(app.buttons["MobileAttachmentCard.0"].label, "Preview unsupported.cmuxfixture")
+        let remainingCard = app.buttons["MobileAttachmentCard.0"]
+        let reindexed = NSPredicate(format: "label == %@", "Preview unsupported.cmuxfixture")
+        expectation(for: reindexed, evaluatedWith: remainingCard)
+        waitForExpectations(timeout: 3)
+        XCTAssertEqual(cards.count, 1)
+        XCTAssertEqual(remainingCard.label, "Preview unsupported.cmuxfixture")
     }
 
     @MainActor
@@ -2441,14 +2446,6 @@ final class cmuxUITests: XCTestCase {
         try typeText("Keep chat draft", into: field, in: app)
         let capturedDraft = try XCTUnwrap(field.value as? String)
 
-        let sourceMenu = app.buttons["ChatComposerAttach"]
-        XCTAssertTrue(sourceMenu.waitForExistence(timeout: 3))
-        sourceMenu.tap()
-        XCTAssertTrue(app.buttons["Photos"].waitForExistence(timeout: 2))
-        XCTAssertTrue(app.buttons["Files"].exists)
-        field.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-        XCTAssertTrue(app.buttons["Photos"].waitForNonExistence(timeout: 2))
-
         let imageCard = app.buttons["MobileAttachmentCard.0"]
         let fileCard = app.buttons["MobileAttachmentCard.1"]
         XCTAssertTrue(imageCard.waitForExistence(timeout: 3))
@@ -2474,6 +2471,14 @@ final class cmuxUITests: XCTestCase {
         XCTAssertEqual(field.value as? String, capturedDraft)
         XCTAssertEqual(table.cells.count, initialMessageCount)
         keepScreenshot(named: "agent-chat-file-removed", app: app)
+
+        let sourceMenu = app.buttons["ChatComposerAttach"]
+        XCTAssertTrue(sourceMenu.waitForExistence(timeout: 3))
+        sourceMenu.tap()
+        XCTAssertTrue(app.buttons["Photos"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.buttons["Files"].waitForExistence(timeout: 2))
+        XCTAssertEqual(field.value as? String, capturedDraft)
+        XCTAssertEqual(table.cells.count, initialMessageCount)
     }
 
     @MainActor
@@ -6112,6 +6117,32 @@ final class cmuxUITests: XCTestCase {
         app.coordinate(withNormalizedOffset: .zero)
             .withOffset(CGVector(dx: frame.midX, dy: frame.midY))
             .tap()
+    }
+
+    @MainActor
+    private func dismissTaskComposerKeyboard(
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard app.keyboards.firstMatch.exists else { return }
+        let composerScrollView = app.scrollViews.containing(
+            .textField,
+            identifier: "MobileTaskComposerPrompt"
+        ).firstMatch
+        XCTAssertTrue(
+            composerScrollView.waitForExistence(timeout: 3),
+            "Task composer must expose its keyboard-dismissable vertical scroll view",
+            file: file,
+            line: line
+        )
+        composerScrollView.swipeDown(velocity: .fast)
+        XCTAssertTrue(
+            waitForKeyboardDismissal(in: app),
+            "Task composer keyboard must be fully dismissed before opening a source menu",
+            file: file,
+            line: line
+        )
     }
 
     @MainActor
