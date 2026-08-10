@@ -258,9 +258,14 @@ public struct MobileTaskAttachmentStore {
         ), let path = result.path else {
             throw invalidParams("Attachment upload is not complete")
         }
-        let candidate = URL(fileURLWithPath: path).standardizedFileURL
+        let resolvedRootURL = rootURL.resolvingSymlinksInPath().standardizedFileURL
+        let resolvedOperationURL = operationURL.resolvingSymlinksInPath().standardizedFileURL
+        let candidate = URL(fileURLWithPath: path)
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
         let parent = candidate.deletingLastPathComponent().standardizedFileURL
-        guard parent == operationURL.standardizedFileURL,
+        guard resolvedOperationURL.deletingLastPathComponent() == resolvedRootURL,
+              parent == resolvedOperationURL,
               try candidate.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else {
             throw invalidParams("Attachment path is invalid")
         }

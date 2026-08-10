@@ -63,6 +63,10 @@ struct TaskComposerSheet: View {
         _ offset: Int
     ) async -> Result<MobileTaskDirectoryListResponse, MobileTaskDirectoryListFailure>)?
 
+    /// Creates a task composer.
+    ///
+    /// Files in `initialAttachments` become this sheet's owned draft. The
+    /// sheet removes them when that draft is discarded or completes.
     init(
         store: CMUXMobileShellStore,
         availableMachines: [MobilePairedMac]? = nil,

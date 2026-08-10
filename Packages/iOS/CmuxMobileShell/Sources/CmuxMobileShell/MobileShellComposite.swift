@@ -7384,7 +7384,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @discardableResult
     public func addPendingAttachment(_ data: Data, format: String, forTerminalID terminalID: String? = nil) -> MobilePendingAttachment.ID? {
         guard !data.isEmpty else { return nil }
-        let attachment = MobilePendingAttachment(data: data, format: format)
+        guard let attachment = MobilePendingAttachment(data: data, format: format) else {
+            return nil
+        }
         guard let result = admitPendingAttachment(
             attachment,
             forTerminalID: terminalID,
@@ -10370,13 +10372,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return true
         } catch {
             guard generation == connectionGeneration else { return false }
-            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return false }
+            let userFacingError = MobileAttachmentTransferError.sanitizing(error)
+            guard !disconnectForAuthorizationFailureIfNeeded(userFacingError) else { return false }
             handleMacAvailabilityFailureIfCurrent(
-                after: error,
+                after: userFacingError,
                 expectedClient: client,
                 expectedGeneration: generation
             )
-            applyOperationalError(error)
+            if let transferError = userFacingError as? MobileAttachmentTransferError {
+                connectionError = transferError.localizedDescription
+                connectionErrorGuidance = nil
+            } else {
+                applyOperationalError(userFacingError)
+            }
             return false
         }
     }

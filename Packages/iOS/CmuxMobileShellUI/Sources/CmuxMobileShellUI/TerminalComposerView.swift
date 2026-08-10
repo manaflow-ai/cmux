@@ -581,6 +581,9 @@ struct TerminalComposerView: View {
 
     /// Stage each selected photo as an exact-byte, file-backed attachment.
     private func stagePickedItems(_ items: [PhotosPickerItem]) {
+        let remainingCount = max(Self.maxAttachmentCount - pendingAttachments.count, 0)
+        let selectedItems = items.prefix(remainingCount)
+        let didOverflow = items.count > remainingCount
         let sessionGeneration = store.currentSessionGeneration
         stagingTask.task?.cancel()
         let stagingGeneration = UUID()
@@ -593,7 +596,7 @@ struct TerminalComposerView: View {
                     stagingTask.task = nil
                 }
             }
-            for item in items {
+            for item in selectedItems {
                 guard !Task.isCancelled,
                       stagingTask.generation == stagingGeneration,
                       sessionGeneration == store.currentSessionGeneration else { break }
@@ -626,6 +629,9 @@ struct TerminalComposerView: View {
                     attachmentError = attachmentStagingErrorMessage(error)
                 }
             }
+            if didOverflow {
+                attachmentError = attachmentAdmissionErrorMessage(.perTerminalCountLimit)
+            }
             pickerSelection = []
             requestHeightRemeasure()
         }
@@ -641,6 +647,9 @@ struct TerminalComposerView: View {
             )
             return
         }
+        let remainingCount = max(Self.maxAttachmentCount - pendingAttachments.count, 0)
+        let selectedURLs = urls.prefix(remainingCount)
+        let didOverflow = urls.count > remainingCount
         let sessionGeneration = store.currentSessionGeneration
         stagingTask.task?.cancel()
         let stagingGeneration = UUID()
@@ -653,7 +662,7 @@ struct TerminalComposerView: View {
                     stagingTask.task = nil
                 }
             }
-            for url in urls {
+            for url in selectedURLs {
                 guard !Task.isCancelled,
                       stagingTask.generation == stagingGeneration,
                       sessionGeneration == store.currentSessionGeneration else { break }
@@ -676,6 +685,9 @@ struct TerminalComposerView: View {
                     attachmentError = attachmentStagingErrorMessage(error)
                 }
             }
+            if didOverflow {
+                attachmentError = attachmentAdmissionErrorMessage(.perTerminalCountLimit)
+            }
             requestHeightRemeasure()
         }
     }
@@ -683,12 +695,12 @@ struct TerminalComposerView: View {
     private func attachmentStagingErrorMessage(_ error: any Error) -> String {
         if case MobileAttachmentStager.StagingError.fileTooLarge = error {
             return L10n.string(
-                "mobile.taskComposer.attachments.fileTooLarge",
+                "mobile.attachment.error.itemSize",
                 defaultValue: "Each attachment must be 32 MB or smaller."
             )
         }
         return L10n.string(
-            "mobile.taskComposer.attachments.unreadable",
+            "mobile.attachment.error.unreadable",
             defaultValue: "The selected file couldn’t be read."
         )
     }

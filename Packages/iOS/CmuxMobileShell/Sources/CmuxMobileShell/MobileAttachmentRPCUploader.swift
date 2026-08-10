@@ -24,6 +24,28 @@ actor MobileAttachmentRPCUploader {
         uploadID: UUID,
         progress: (@Sendable (Double) -> Void)? = nil
     ) async throws -> Receipt {
+        do {
+            return try await uploadUnredacted(
+                fileURL: fileURL,
+                byteCount: byteCount,
+                fileName: fileName,
+                operationID: operationID,
+                uploadID: uploadID,
+                progress: progress
+            )
+        } catch {
+            throw MobileAttachmentTransferError.sanitizing(error)
+        }
+    }
+
+    private func uploadUnredacted(
+        fileURL: URL,
+        byteCount: Int,
+        fileName: String,
+        operationID: UUID,
+        uploadID: UUID,
+        progress: (@Sendable (Double) -> Void)?
+    ) async throws -> Receipt {
         let actualSize = try fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize
         guard actualSize == byteCount else {
             throw MobileShellConnectionError.invalidResponse

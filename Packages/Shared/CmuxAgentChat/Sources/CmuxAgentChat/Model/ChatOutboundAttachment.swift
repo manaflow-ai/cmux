@@ -51,7 +51,9 @@ public struct ChatOutboundAttachment: Sendable, Equatable {
         self.payload = .inMemoryImage(data: data, format: format)
         self.fileName = format == .png ? "attachment.png" : "attachment.jpg"
         self.kind = .image
-        self.thumbnailData = data
+        // Legacy callers have no bounded preview. Retaining `data` here would
+        // duplicate the full image payload in view-facing state.
+        self.thumbnailData = nil
     }
 
     public init(

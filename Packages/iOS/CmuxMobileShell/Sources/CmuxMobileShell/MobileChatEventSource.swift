@@ -253,11 +253,10 @@ public actor MobileChatEventSource: ChatEventSource {
             params["attachments"] = stagedReferences
         }
         let request = try MobileCoreRPCClient.requestData(method: "mobile.chat.send", params: params)
-        _ = try await client.sendRequest(request)
-        for attachment in attachments {
-            if case let .stagedFile(url, _) = attachment.payload {
-                try? FileManager.default.removeItem(at: url)
-            }
+        do {
+            _ = try await client.sendRequest(request)
+        } catch {
+            throw MobileAttachmentTransferError.sanitizing(error)
         }
     }
 

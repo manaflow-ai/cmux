@@ -280,13 +280,7 @@ extension TerminalController {
                 "session_id": sessionID
             ])
         }
-        let attachmentStore = MobileTaskAttachmentStore(
-            rootURL: MobileTaskAttachmentStore.defaultRootURL(
-                homeDirectory: FileManager.default.homeDirectoryForCurrentUser
-            ),
-            now: Date(),
-            fileManager: FileManager.default
-        )
+        let attachmentStore = mobileTaskAttachmentStore()
         var stagedReferences: [MobileTaskAttachmentReference] = []
         var stagedIndexes: [Int] = []
         for (index, attachment) in attachments.enumerated() {

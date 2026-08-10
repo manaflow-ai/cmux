@@ -343,13 +343,10 @@ public final class ChatConversationStore {
     ///
     /// - Parameter pendingID: The pending row to discard.
     public func discard(pendingID: String) {
-        guard let item = pending.first(where: { $0.id == pendingID }) else { return }
-        for attachment in item.attachments {
-            if case let .stagedFile(url, _) = attachment.payload {
-                try? FileManager.default.removeItem(at: url)
-            }
-        }
+        let removed = pending.filter { $0.id == pendingID }
+        guard !removed.isEmpty else { return }
         pending.removeAll { $0.id == pendingID }
+        releaseStagedFiles(ownedBy: removed)
         reproject()
     }
 
@@ -479,7 +476,7 @@ public final class ChatConversationStore {
         firstUnreadSeq = nil
         terminalBlocks = [:]
         terminalBlockOrder = []
-        pending.removeAll { $0.delivery == .delivered }
+        removePending { $0.delivery == .delivered }
         hasMoreHistory = false
         historyTruncatedAtHead = false
         initialLoadFailed = false
@@ -646,7 +643,7 @@ public final class ChatConversationStore {
             // permanently if the resync history fetch fails).
             terminalBlocks = [:]
             terminalBlockOrder = []
-            pending.removeAll { $0.delivery == .delivered }
+            removePending { $0.delivery == .delivered }
             hasMoreHistory = false
             // The new transcript re-anchors paging from scratch; a stale
             // truncated-at-head flag would render the "earlier history is on
@@ -746,6 +743,7 @@ public final class ChatConversationStore {
             }
             if let index {
                 let removed = pending.remove(at: index)
+                releaseStagedFiles(ownedBy: [removed])
                 onReconciled(message)
                 if let counter = Self.pendingCounter(removed.id) {
                     maxReconciledCounter = max(maxReconciledCounter ?? counter, counter)
@@ -763,7 +761,7 @@ public final class ChatConversationStore {
         // so they keep their own reconcile lifecycle. Only `.delivered` rows
         // (RPC-confirmed) are swept; sending/queued/failed keep their state.
         if let maxReconciledCounter {
-            pending.removeAll { item in
+            removePending { item in
                 guard item.delivery == .delivered,
                       item.attachmentCount == 0,
                       !item.text.isEmpty,
@@ -819,8 +817,32 @@ public final class ChatConversationStore {
                 $0.isReconcilable
                     && $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == command
             }) {
-                pending.remove(at: index)
+                let removed = pending.remove(at: index)
+                releaseStagedFiles(ownedBy: [removed])
             }
+        }
+    }
+
+    /// Removes matching rows and releases file-backed payloads no remaining
+    /// pending row owns. Failed and queued rows retain their files for retry.
+    private func removePending(where shouldRemove: (ChatPendingOutbound) -> Bool) {
+        let removed = pending.filter(shouldRemove)
+        guard !removed.isEmpty else { return }
+        pending.removeAll(where: shouldRemove)
+        releaseStagedFiles(ownedBy: removed)
+    }
+
+    /// Releases staged payloads after their owning pending rows leave the store.
+    /// A shared URL stays alive until its last pending owner is removed.
+    private func releaseStagedFiles(ownedBy removed: [ChatPendingOutbound]) {
+        let retainedURLs = Set(pending.flatMap { item in
+            item.attachments.compactMap(\.localFileURL)
+        })
+        let releasedURLs = Set(removed.flatMap { item in
+            item.attachments.compactMap(\.localFileURL)
+        })
+        for url in releasedURLs where !retainedURLs.contains(url) {
+            try? FileManager.default.removeItem(at: url)
         }
     }
 

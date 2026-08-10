@@ -3,6 +3,17 @@ import CmuxTerminal
 import Foundation
 
 extension TerminalController {
+    /// Creates the shared-policy attachment store used by every mobile route.
+    func mobileTaskAttachmentStore() -> MobileTaskAttachmentStore {
+        MobileTaskAttachmentStore(
+            rootURL: MobileTaskAttachmentStore.defaultRootURL(
+                homeDirectory: FileManager.default.homeDirectoryForCurrentUser
+            ),
+            now: Date(),
+            fileManager: FileManager.default
+        )
+    }
+
     /// Handles one `mobile.task.attachment.upload` chunk.
     func v2MobileTaskAttachmentUpload(params: [String: Any]) -> V2CallResult {
         guard let operationIDString = v2RawString(params, "operation_id"),
@@ -20,13 +31,7 @@ extension TerminalController {
                 data: nil
             )
         }
-        let store = MobileTaskAttachmentStore(
-            rootURL: MobileTaskAttachmentStore.defaultRootURL(
-                homeDirectory: FileManager.default.homeDirectoryForCurrentUser
-            ),
-            now: Date(),
-            fileManager: FileManager.default
-        )
+        let store = mobileTaskAttachmentStore()
         do {
             let result = try store.upload(MobileTaskAttachmentUploadRequest(
                 operationID: operationID,
@@ -74,13 +79,7 @@ extension TerminalController {
               let terminalPanel = resolved.workspace.terminalInputTarget(forPanelID: surfaceID)?.panel else {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
-        let store = MobileTaskAttachmentStore(
-            rootURL: MobileTaskAttachmentStore.defaultRootURL(
-                homeDirectory: FileManager.default.homeDirectoryForCurrentUser
-            ),
-            now: Date(),
-            fileManager: FileManager.default
-        )
+        let store = mobileTaskAttachmentStore()
         let fileURL: URL
         do {
             fileURL = try store.completedAttachmentURL(

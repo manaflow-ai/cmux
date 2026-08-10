@@ -58,6 +58,7 @@ actor RoutingHostRouter {
     private(set) var pasteImages: [PasteImageRecord] = []
     private var uploadFileNames: [String: String] = [:]
     private var uploadOperationIDs: [String: String] = [:]
+    private var uploadTotalBytes: [String: Int] = [:]
     private var uploadOffsets: [String: Int] = [:]
     private var uploadBytes: [String: Data] = [:]
     private var completedUploads: [UploadRecord] = []
@@ -419,19 +420,25 @@ actor RoutingHostRouter {
                   !isLast || offset + chunk.count == totalBytes else {
                 return try? Self.errorFrame(id: id, message: "invalid upload chunk")
             }
-            if offset == 0, uploadOffsets[uploadID, default: 0] > 0 {
+            if uploadOffsets[uploadID] != nil {
                 guard uploadFileNames[uploadID] == fileName,
-                      uploadOperationIDs[uploadID] == operationID else {
+                      uploadOperationIDs[uploadID] == operationID,
+                      uploadTotalBytes[uploadID] == totalBytes else {
                     return try? Self.errorFrame(id: id, message: "upload identity changed")
                 }
+            }
+            if offset == 0, uploadOffsets[uploadID, default: 0] > 0 {
                 uploadOffsets[uploadID] = 0
                 uploadBytes[uploadID] = Data()
             }
             guard offset == (uploadOffsets[uploadID] ?? 0) else {
                 return try? Self.errorFrame(id: id, message: "noncontiguous upload chunk")
             }
-            uploadFileNames[uploadID] = fileName
-            uploadOperationIDs[uploadID] = operationID
+            if uploadOffsets[uploadID] == nil {
+                uploadFileNames[uploadID] = fileName
+                uploadOperationIDs[uploadID] = operationID
+                uploadTotalBytes[uploadID] = totalBytes
+            }
             uploadOffsets[uploadID] = offset + chunk.count
             uploadBytes[uploadID, default: Data()].append(chunk)
             var result: [String: Any] = ["received_bytes": offset + chunk.count]

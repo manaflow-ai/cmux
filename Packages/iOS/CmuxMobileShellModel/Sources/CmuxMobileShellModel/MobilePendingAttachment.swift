@@ -35,13 +35,34 @@ public struct MobilePendingAttachment: Identifiable, Equatable, Sendable {
     ///   - id: Stable identity; defaults to a fresh `UUID`.
     ///   - data: The encoded image bytes.
     ///   - format: A lowercase format hint (`"png"`/`"jpg"`).
-    public init(id: UUID = UUID(), operationID: UUID = UUID(), data: Data, format: String) {
+    public init?(id: UUID = UUID(), operationID: UUID = UUID(), data: Data, format: String) {
+        self.init(
+            id: id,
+            operationID: operationID,
+            data: data,
+            format: format,
+            temporaryDirectory: FileManager.default.temporaryDirectory
+        )
+    }
+
+    init?(
+        id: UUID = UUID(),
+        operationID: UUID = UUID(),
+        data: Data,
+        format: String,
+        temporaryDirectory: URL
+    ) {
+        let fileName = "attachment-\(id.uuidString).\(format)"
+        let url = temporaryDirectory.appendingPathComponent(fileName)
+        do {
+            try data.write(to: url, options: .atomic)
+        } catch {
+            try? FileManager.default.removeItem(at: url)
+            return nil
+        }
         self.id = id
         self.operationID = operationID
         self.format = format
-        let fileName = "attachment-\(id.uuidString).\(format)"
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
-        try? data.write(to: url, options: .atomic)
         self.localFileURL = url
         self.byteCount = data.count
         self.fileName = fileName
