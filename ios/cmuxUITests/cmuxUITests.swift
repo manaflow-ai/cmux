@@ -436,8 +436,8 @@ final class cmuxUITests: XCTestCase {
         let app = launchApp(mockData: true, environment: environment)
         defer { app.terminate() }
 
-        let sheet = app.descendants(matching: .any)["MobileAutoConnectMigrationSheet"]
-        XCTAssertTrue(sheet.waitForExistence(timeout: 8))
+        let migrationTitle = app.staticTexts["MobileAutoConnectMigrationTitle"]
+        XCTAssertTrue(migrationTitle.waitForExistence(timeout: 8))
         XCTAssertTrue(app.staticTexts["cmux now uses Auto-Connect"].exists)
         XCTAssertTrue(app.staticTexts.matching(
             NSPredicate(format: "label CONTAINS %@", "end-to-end encrypted")
@@ -466,7 +466,7 @@ final class cmuxUITests: XCTestCase {
         let relaunched = launchApp(mockData: true, environment: environment)
         defer { relaunched.terminate() }
         XCTAssertFalse(
-            relaunched.descendants(matching: .any)["MobileAutoConnectMigrationSheet"]
+            relaunched.staticTexts["MobileAutoConnectMigrationTitle"]
                 .waitForExistence(timeout: 2)
         )
         let settings = relaunched.buttons["MobileWorkspaceSettingsMenu"]
@@ -492,7 +492,7 @@ final class cmuxUITests: XCTestCase {
         let secondRelaunch = launchApp(mockData: true, environment: environment)
         defer { secondRelaunch.terminate() }
         XCTAssertFalse(
-            secondRelaunch.descendants(matching: .any)["MobileAutoConnectMigrationSheet"]
+            secondRelaunch.staticTexts["MobileAutoConnectMigrationTitle"]
                 .waitForExistence(timeout: 2)
         )
         let secondSettings = secondRelaunch.buttons["MobileWorkspaceSettingsMenu"]
@@ -523,12 +523,12 @@ final class cmuxUITests: XCTestCase {
         let app = launchApp(mockData: true, environment: environment)
         defer { app.terminate() }
 
-        let sheet = app.descendants(matching: .any)["MobileAutoConnectMigrationSheet"]
-        XCTAssertTrue(sheet.waitForExistence(timeout: 8))
+        let migrationTitle = app.staticTexts["MobileAutoConnectMigrationTitle"]
+        XCTAssertTrue(migrationTitle.waitForExistence(timeout: 8))
         let continueButton = app.buttons["MobileAutoConnectMigrationContinue"]
         XCTAssertTrue(continueButton.isHittable)
         continueButton.tap()
-        XCTAssertTrue(sheet.waitForNonExistence(timeout: 4))
+        XCTAssertTrue(migrationTitle.waitForNonExistence(timeout: 4))
 
         let settings = app.buttons["MobileWorkspaceSettingsMenu"]
         XCTAssertTrue(settings.waitForExistence(timeout: 8))
@@ -547,7 +547,7 @@ final class cmuxUITests: XCTestCase {
         let relaunched = launchApp(mockData: true, environment: environment)
         defer { relaunched.terminate() }
         XCTAssertFalse(
-            relaunched.descendants(matching: .any)["MobileAutoConnectMigrationSheet"]
+            relaunched.staticTexts["MobileAutoConnectMigrationTitle"]
                 .waitForExistence(timeout: 2)
         )
         XCTAssertTrue(
@@ -566,7 +566,7 @@ final class cmuxUITests: XCTestCase {
         defer { app.terminate() }
 
         XCTAssertTrue(
-            app.descendants(matching: .any)["MobileAutoConnectMigrationSheet"]
+            app.staticTexts["MobileAutoConnectMigrationTitle"]
                 .waitForExistence(timeout: 8)
         )
         app.terminate()
@@ -574,7 +574,7 @@ final class cmuxUITests: XCTestCase {
         let relaunched = launchApp(mockData: true, environment: environment)
         defer { relaunched.terminate() }
         XCTAssertTrue(
-            relaunched.descendants(matching: .any)["MobileAutoConnectMigrationSheet"]
+            relaunched.staticTexts["MobileAutoConnectMigrationTitle"]
                 .waitForExistence(timeout: 8)
         )
     }
@@ -590,20 +590,22 @@ final class cmuxUITests: XCTestCase {
         let app = launchApp(mockData: true, environment: environment)
         defer { app.terminate() }
 
-        let sheet = app.descendants(matching: .any)["MobileAutoConnectMigrationSheet"]
-        XCTAssertTrue(sheet.waitForExistence(timeout: 8))
-        let dragIndicator = sheet.coordinate(
+        let migrationTitle = app.staticTexts["MobileAutoConnectMigrationTitle"]
+        XCTAssertTrue(migrationTitle.waitForExistence(timeout: 8))
+        let systemSheet = app.sheets.firstMatch
+        XCTAssertTrue(systemSheet.waitForExistence(timeout: 4))
+        let dragIndicator = systemSheet.coordinate(
             withNormalizedOffset: CGVector(dx: 0.5, dy: 0.02)
         )
         let bottom = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95))
         dragIndicator.press(forDuration: 0.05, thenDragTo: bottom)
-        XCTAssertTrue(sheet.waitForNonExistence(timeout: 4))
+        XCTAssertTrue(migrationTitle.waitForNonExistence(timeout: 4))
         app.terminate()
 
         let relaunched = launchApp(mockData: true, environment: environment)
         defer { relaunched.terminate() }
         XCTAssertFalse(
-            relaunched.descendants(matching: .any)["MobileAutoConnectMigrationSheet"]
+            relaunched.staticTexts["MobileAutoConnectMigrationTitle"]
                 .waitForExistence(timeout: 2)
         )
         XCTAssertTrue(
@@ -624,9 +626,7 @@ final class cmuxUITests: XCTestCase {
 
         let settings = settingsApp.descendants(matching: .any)["MobileSettingsView"]
         XCTAssertTrue(settings.waitForExistence(timeout: 8))
-        let settingsMigration = settingsApp.descendants(matching: .any)[
-            "MobileAutoConnectMigrationSheet"
-        ]
+        let settingsMigration = settingsApp.staticTexts["MobileAutoConnectMigrationTitle"]
         XCTAssertFalse(settingsMigration.exists)
 
         let setupHelpButton = settingsApp.buttons["MobileSettingsSetUpYourMac"]
@@ -688,7 +688,7 @@ final class cmuxUITests: XCTestCase {
                 host.waitForExistence(timeout: 12),
                 "Expected the real \(modalHost.name) host."
             )
-            let migration = app.descendants(matching: .any)["MobileAutoConnectMigrationSheet"]
+            let migration = app.staticTexts["MobileAutoConnectMigrationTitle"]
             XCTAssertFalse(migration.exists, "Migration competed with \(modalHost.name).")
             let dismissButton = app.buttons[modalHost.dismiss]
             XCTAssertTrue(dismissButton.waitForExistence(timeout: 4))
@@ -723,7 +723,7 @@ final class cmuxUITests: XCTestCase {
             defer { gatedApp.terminate() }
 
             XCTAssertFalse(
-                gatedApp.descendants(matching: .any)["MobileAutoConnectMigrationSheet"]
+                gatedApp.staticTexts["MobileAutoConnectMigrationTitle"]
                     .waitForExistence(timeout: 2),
                 "Migration ignored the \(readinessGate) gate."
             )
@@ -735,7 +735,7 @@ final class cmuxUITests: XCTestCase {
             let relaunched = launchApp(mockData: true, environment: baseEnvironment)
             defer { relaunched.terminate() }
             XCTAssertTrue(
-                relaunched.descendants(matching: .any)["MobileAutoConnectMigrationSheet"]
+                relaunched.staticTexts["MobileAutoConnectMigrationTitle"]
                     .waitForExistence(timeout: 8),
                 "Migration did not present after removing the \(readinessGate) gate."
             )
@@ -754,7 +754,7 @@ final class cmuxUITests: XCTestCase {
         defer { app.terminate() }
 
         XCTAssertFalse(
-            app.descendants(matching: .any)["MobileAutoConnectMigrationSheet"]
+            app.staticTexts["MobileAutoConnectMigrationTitle"]
                 .waitForExistence(timeout: 2)
         )
         XCTAssertTrue(app.buttons["MobileWorkspaceSettingsMenu"].waitForExistence(timeout: 8))
@@ -787,14 +787,14 @@ final class cmuxUITests: XCTestCase {
             )
             defer { app.terminate() }
 
-            let sheet = app.descendants(matching: .any)["MobileAutoConnectMigrationSheet"]
-            let content = app.descendants(matching: .any)["MobileAutoConnectMigrationContent"]
             let title = app.staticTexts["MobileAutoConnectMigrationTitle"]
             let body = app.staticTexts["MobileAutoConnectMigrationBody"]
             let guidance = app.staticTexts["MobileAutoConnectMigrationGuidance"]
             let continueButton = app.buttons["MobileAutoConnectMigrationContinue"]
             let finalButton = app.buttons["MobileAutoConnectMigrationOpenSettings"]
-            let scrollFallback = app.scrollViews["MobileAutoConnectMigrationScrollView"]
+            let systemSheet = app.sheets.firstMatch
+            let internalScrollViews = systemSheet.descendants(matching: .scrollView)
+            let scrollView = internalScrollViews.firstMatch
             let window = app.windows.firstMatch
 
             func capture(_ layout: String) {
@@ -804,14 +804,15 @@ final class cmuxUITests: XCTestCase {
                 add(attachment)
             }
 
-            XCTAssertTrue(sheet.waitForExistence(timeout: 8))
-            for element in [content, title, body, guidance, continueButton, finalButton] {
+            XCTAssertTrue(title.waitForExistence(timeout: 8))
+            XCTAssertTrue(systemSheet.waitForExistence(timeout: 4))
+            XCTAssertTrue(scrollView.waitForExistence(timeout: 4))
+            for element in [title, body, guidance, continueButton, finalButton] {
                 XCTAssertTrue(element.waitForExistence(timeout: 4))
             }
             XCTAssertTrue(window.exists)
 
             let localizedElements = [
-                ("content", content),
                 ("title", title),
                 ("body", body),
                 ("guidance", guidance),
@@ -819,12 +820,27 @@ final class cmuxUITests: XCTestCase {
                 ("Settings action", finalButton),
             ]
 
-            func assertDeclaredBottomPadding() throws {
-                let contentFrame = try XCTUnwrap(waitForUsableFrame(of: content, timeout: 4))
+            func assertDeclaredBottomPadding(scrollingIfNeeded: Bool) throws {
+                if scrollingIfNeeded {
+                    for _ in 0..<8 {
+                        let scrollFrame = try XCTUnwrap(
+                            waitForUsableFrame(of: scrollView, timeout: 2)
+                        )
+                        let finalButtonFrame = try XCTUnwrap(
+                            waitForUsableFrame(of: finalButton, timeout: 2)
+                        )
+                        if scrollFrame.maxY - finalButtonFrame.maxY >= 22 {
+                            break
+                        }
+                        scrollView.swipeUp()
+                    }
+                }
+
+                let scrollFrame = try XCTUnwrap(waitForUsableFrame(of: scrollView, timeout: 4))
                 let finalButtonFrame = try XCTUnwrap(
                     waitForUsableFrame(of: finalButton, timeout: 4)
                 )
-                let renderedBottomGap = contentFrame.maxY - finalButtonFrame.maxY
+                let renderedBottomGap = scrollFrame.maxY - finalButtonFrame.maxY
                 XCTAssertEqual(
                     renderedBottomGap,
                     24,
@@ -838,27 +854,65 @@ final class cmuxUITests: XCTestCase {
                 )
             }
 
+            func allContentFitsInScrollViewport() throws -> Bool {
+                let scrollFrame = try XCTUnwrap(waitForUsableFrame(of: scrollView, timeout: 4))
+                    .insetBy(dx: -1, dy: -1)
+                for (_, element) in localizedElements {
+                    guard element.isHittable,
+                          let frame = waitForUsableFrame(of: element, timeout: 2),
+                          scrollFrame.contains(frame)
+                    else {
+                        return false
+                    }
+                }
+                return true
+            }
+
             func assertIntrinsicLayout(_ orientation: String) throws -> CGRect {
-                XCTAssertTrue(
-                    scrollFallback.waitForNonExistence(timeout: 4),
-                    "Normal \(localization.name) content unexpectedly used the scroll fallback in \(orientation)."
+                XCTAssertEqual(
+                    internalScrollViews.count,
+                    1,
+                    "The migration sheet must expose exactly one internal scroll view."
                 )
-                let sheetFrame = try XCTUnwrap(waitForUsableFrame(of: sheet, timeout: 4))
-                let contentFrame = try XCTUnwrap(waitForUsableFrame(of: content, timeout: 4))
+                let sheetFrame = try XCTUnwrap(
+                    waitForUsableFrame(of: systemSheet, timeout: 4)
+                )
+                let scrollFrame = try XCTUnwrap(waitForUsableFrame(of: scrollView, timeout: 4))
                 let windowFrame = try XCTUnwrap(waitForUsableFrame(of: window, timeout: 4))
                 let containedFrame = sheetFrame.insetBy(dx: -1, dy: -1)
+                let visibleFrame = scrollFrame.insetBy(dx: -1, dy: -1)
+                var verticalPositions: [CGFloat] = []
 
                 for (name, element) in localizedElements {
+                    XCTAssertTrue(
+                        element.isHittable,
+                        "The \(localization.name) \(name) must be visible in \(orientation)."
+                    )
                     let frame = try XCTUnwrap(waitForUsableFrame(of: element, timeout: 2))
                     XCTAssertTrue(
                         containedFrame.contains(frame),
                         "The \(name) escaped the \(localization.name) sheet in \(orientation)."
                     )
+                    XCTAssertTrue(
+                        visibleFrame.contains(frame),
+                        "The \(localization.name) \(name) was clipped in \(orientation)."
+                    )
+                    verticalPositions.append(frame.minY)
                 }
 
-                try assertDeclaredBottomPadding()
+                scrollView.swipeUp(velocity: .slow)
+                for (index, (_, element)) in localizedElements.enumerated() {
+                    let frame = try XCTUnwrap(waitForUsableFrame(of: element, timeout: 2))
+                    XCTAssertEqual(
+                        frame.minY,
+                        verticalPositions[index],
+                        accuracy: 2,
+                        "Fitted \(localization.name) content moved after a swipe in \(orientation)."
+                    )
+                }
+                try assertDeclaredBottomPadding(scrollingIfNeeded: false)
 
-                let systemBottomGap = sheetFrame.maxY - contentFrame.maxY
+                let systemBottomGap = sheetFrame.maxY - scrollFrame.maxY
                 XCTAssertGreaterThanOrEqual(systemBottomGap, 0)
                 XCTAssertLessThanOrEqual(
                     systemBottomGap,
@@ -866,7 +920,7 @@ final class cmuxUITests: XCTestCase {
                     "The system sheet left excess space below the padded content."
                 )
                 XCTAssertLessThanOrEqual(
-                    sheetFrame.height - contentFrame.height,
+                    sheetFrame.height - scrollFrame.height,
                     96,
                     "The sheet occupied unnecessary full-screen height around fitted content."
                 )
@@ -874,34 +928,28 @@ final class cmuxUITests: XCTestCase {
                 return sheetFrame
             }
 
-            func assertScrollableLandscape() throws -> CGRect {
-                XCTAssertTrue(
-                    scrollFallback.waitForExistence(timeout: 4),
-                    "Normal \(localization.name) content must use the bounded scroll fallback in iPhone landscape."
-                )
+            func assertScrollableLayout() throws -> CGRect {
                 XCTAssertEqual(
-                    app.scrollViews.matching(
-                        identifier: "MobileAutoConnectMigrationScrollView"
-                    ).count,
+                    internalScrollViews.count,
                     1,
                     "The migration sheet must expose exactly one internal scroll fallback."
                 )
-                let sheetFrame = try XCTUnwrap(waitForUsableFrame(of: sheet, timeout: 4))
-                let scrollFrame = try XCTUnwrap(
-                    waitForUsableFrame(of: scrollFallback, timeout: 4)
+                let sheetFrame = try XCTUnwrap(
+                    waitForUsableFrame(of: systemSheet, timeout: 4)
                 )
+                let scrollFrame = try XCTUnwrap(waitForUsableFrame(of: scrollView, timeout: 4))
                 let windowFrame = try XCTUnwrap(waitForUsableFrame(of: window, timeout: 4))
                 let containedSheetFrame = sheetFrame.insetBy(dx: -1, dy: -1)
                 XCTAssertTrue(containedSheetFrame.contains(scrollFrame))
                 XCTAssertTrue(windowFrame.insetBy(dx: -1, dy: -1).contains(sheetFrame))
 
-                for (name, element) in localizedElements.dropFirst() {
+                for (name, element) in localizedElements {
                     for _ in 0..<8 where !element.isHittable {
-                        scrollFallback.swipeUp()
+                        scrollView.swipeUp()
                     }
                     XCTAssertTrue(
                         element.isHittable,
-                        "The \(localization.name) \(name) was not reachable in iPhone landscape."
+                        "The \(localization.name) \(name) was not reachable in landscape."
                     )
                     let frame = try XCTUnwrap(waitForUsableFrame(of: element, timeout: 2))
                     XCTAssertTrue(
@@ -910,7 +958,7 @@ final class cmuxUITests: XCTestCase {
                     )
                 }
 
-                try assertDeclaredBottomPadding()
+                try assertDeclaredBottomPadding(scrollingIfNeeded: true)
                 XCTAssertEqual(sheetFrame.midX, windowFrame.midX, accuracy: 2)
                 return sheetFrame
             }
@@ -926,10 +974,10 @@ final class cmuxUITests: XCTestCase {
             })
             capture("landscape-initial")
             let landscapeSheetFrame: CGRect
-            if UIDevice.current.userInterfaceIdiom == .phone {
-                landscapeSheetFrame = try assertScrollableLandscape()
+            if try allContentFitsInScrollViewport() {
+                landscapeSheetFrame = try assertIntrinsicLayout("landscape")
             } else {
-                landscapeSheetFrame = try assertIntrinsicLayout("iPad landscape")
+                landscapeSheetFrame = try assertScrollableLayout()
             }
             XCTAssertNotEqual(
                 landscapeSheetFrame.midX,
@@ -967,10 +1015,20 @@ final class cmuxUITests: XCTestCase {
             )
             defer { app.terminate() }
 
-            let scrollView = app.scrollViews["MobileAutoConnectMigrationScrollView"]
+            let title = app.staticTexts["MobileAutoConnectMigrationTitle"]
+            XCTAssertTrue(title.waitForExistence(timeout: 8))
+            let systemSheet = app.sheets.firstMatch
+            XCTAssertTrue(systemSheet.waitForExistence(timeout: 4))
+            let internalScrollViews = systemSheet.descendants(matching: .scrollView)
+            let scrollView = internalScrollViews.firstMatch
             XCTAssertTrue(
-                scrollView.waitForExistence(timeout: 8),
+                scrollView.waitForExistence(timeout: 4),
                 "Expected the migration scroll view in \(name)."
+            )
+            XCTAssertEqual(
+                internalScrollViews.count,
+                1,
+                "The migration sheet must expose exactly one internal scroll view in \(name)."
             )
 
             func reveal(_ element: XCUIElement, named elementName: String) {
@@ -1004,6 +1062,29 @@ final class cmuxUITests: XCTestCase {
                 named: "Open Connection Settings"
             )
 
+            let finalButton = app.buttons["MobileAutoConnectMigrationOpenSettings"]
+            for _ in 0..<8 {
+                let scrollFrame = try XCTUnwrap(
+                    waitForUsableFrame(of: scrollView, timeout: 2)
+                )
+                let finalButtonFrame = try XCTUnwrap(
+                    waitForUsableFrame(of: finalButton, timeout: 2)
+                )
+                if scrollFrame.maxY - finalButtonFrame.maxY >= 22 {
+                    break
+                }
+                scrollView.swipeUp()
+            }
+            let scrollFrame = try XCTUnwrap(waitForUsableFrame(of: scrollView, timeout: 4))
+            let finalButtonFrame = try XCTUnwrap(
+                waitForUsableFrame(of: finalButton, timeout: 4)
+            )
+            XCTAssertEqual(
+                scrollFrame.maxY - finalButtonFrame.maxY,
+                24,
+                accuracy: 2,
+                "The scrolled content must retain its declared 24-point bottom padding in \(name)."
+            )
         }
     }
 

@@ -9,11 +9,6 @@ struct MobileAutoConnectMigrationSheet: View {
     /// The system caps an oversized height detent, turning the scroll view into
     /// the fallback only when the wrapped content exceeds the available screen.
     @State private var contentHeight: CGFloat = 1
-    @State private var viewportHeight: CGFloat = 0
-
-    private var usesScrollFallback: Bool {
-        viewportHeight > 0 && contentHeight > viewportHeight + 1
-    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -30,23 +25,10 @@ struct MobileAutoConnectMigrationSheet: View {
                 }
             }
             .scrollBounceBehavior(.basedOnSize)
-            .onGeometryChange(for: CGFloat.self) { proxy in
-                proxy.size.height
-            } action: { newHeight in
-                viewportHeight = newHeight
-            }
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier(
-                usesScrollFallback
-                    ? "MobileAutoConnectMigrationScrollView"
-                    : "MobileAutoConnectMigrationIntrinsicContainer"
-            )
         }
         .presentationDetents([.height(contentHeight)])
         .presentationContentInteraction(.scrolls)
         .presentationDragIndicator(.visible)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("MobileAutoConnectMigrationSheet")
     }
 }
 
@@ -66,8 +48,6 @@ private struct MobileAutoConnectMigrationContent: View {
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.horizontal, 24)
         .padding(.vertical, 24)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("MobileAutoConnectMigrationContent")
     }
 }
 #endif
