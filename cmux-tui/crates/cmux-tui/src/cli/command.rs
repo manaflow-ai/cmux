@@ -2614,39 +2614,18 @@ mod tests {
     #[test]
     fn pane_split_viewport_width_is_bounded_and_right_only() {
         const PANE: &str = "pane_33333333333333333333333333333333";
-        let plan = protocol(&[
-            "pane",
-            PANE,
-            "split",
-            "--right",
-            "--viewport-width",
-            "0.66",
-        ]);
+        let plan = protocol(&["pane", PANE, "split", "--right", "--viewport-width", "0.66"]);
         assert_eq!(plan.params["viewport_width"], json!(0.66));
 
         for invalid in ["nan", "0.09", "1.01"] {
             assert!(
-                parse(&strings(&[
-                    "pane",
-                    PANE,
-                    "split",
-                    "--right",
-                    "--viewport-width",
-                    invalid,
-                ]))
-                .is_err()
+                parse(&strings(&["pane", PANE, "split", "--right", "--viewport-width", invalid,]))
+                    .is_err()
             );
         }
         assert!(
-            parse(&strings(&[
-                "pane",
-                PANE,
-                "split",
-                "--down",
-                "--viewport-width",
-                "0.66",
-            ]))
-            .is_err()
+            parse(&strings(&["pane", PANE, "split", "--down", "--viewport-width", "0.66",]))
+                .is_err()
         );
     }
 
