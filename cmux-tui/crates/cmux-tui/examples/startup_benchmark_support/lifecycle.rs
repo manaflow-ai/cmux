@@ -359,6 +359,26 @@ mod tests {
     }
 
     #[test]
+    fn rejected_root_transfer_preserves_ownership_for_a_valid_recorder() {
+        let parent = tempfile::tempdir().unwrap();
+        let other_parent = tempfile::tempdir().unwrap();
+        let output = tempfile::tempdir().unwrap();
+        let mut wrong_recorder =
+            LifecycleRecorder::new(other_parent.path().to_path_buf(), output.path().to_path_buf())
+                .unwrap();
+        let mut recorder =
+            LifecycleRecorder::new(parent.path().to_path_buf(), output.path().to_path_buf())
+                .unwrap();
+        let mut root = FixtureRoot::new(parent.path()).unwrap();
+        let root_path = root.path().to_path_buf();
+        root.mark_quiescent();
+
+        assert!(root.defer(&mut wrong_recorder).is_err());
+        assert_eq!(root.path(), root_path);
+        assert_eq!(root.defer(&mut recorder).unwrap().count, 1);
+    }
+
+    #[test]
     fn checkpoints_enforce_pair_order_and_persist_complete_diagnostics() {
         let parent = tempfile::tempdir().unwrap();
         let output = tempfile::tempdir().unwrap();
