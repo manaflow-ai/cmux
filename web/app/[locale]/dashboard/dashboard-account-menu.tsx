@@ -161,6 +161,16 @@ function DashboardOrganizationSwitcher() {
   const permittedCatalogTeams = data.teams.filter(
     (team) => team.permissions.use || team.permissions.manageAccounts,
   );
+  if (permittedCatalogTeams.length === 0) {
+    return (
+      <Link
+        href="/dashboard/team"
+        className="block min-h-9 border border-border px-2 py-2 text-sm text-muted hover:bg-code-bg hover:text-foreground"
+      >
+        {t("settings")}
+      </Link>
+    );
+  }
   const permittedIds = new Set(permittedCatalogTeams.map((team) => team.id));
   const selectableTeams = teams.filter((team) => permittedIds.has(team.id));
   const personal = permittedCatalogTeams.find((team) => team.personal);
