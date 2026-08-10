@@ -21103,7 +21103,17 @@ mod tests {
         assert!(surface.terminal_public_id().is_none());
         let host = mux.resource_terminal_host_identity(&surface).unwrap();
         let public_id = restore_terminal_id(901);
+        let stale_public_id = restore_terminal_id(902);
+        let stale = Surface::exited_terminal_placeholder_with_terminal_public_id(
+            mux.next_id(),
+            mux.surface_options.lock().unwrap().clone(),
+            Arc::downgrade(&mux),
+            host.clone(),
+            stale_public_id,
+        )
+        .unwrap();
         insert_surface_checked(&mut mux.state.lock().unwrap(), surface.clone()).unwrap();
+        insert_surface_checked(&mut mux.state.lock().unwrap(), stale.clone()).unwrap();
 
         let placements = {
             let state = mux.state.lock().unwrap();
@@ -21116,9 +21126,12 @@ mod tests {
             )
         };
 
-        assert_eq!(placements, vec![surface.id]);
+        let mut expected = vec![surface.id, stale.id];
+        expected.sort_unstable();
+        assert_eq!(placements, expected);
         mux.unregister_kitty_image_surface(&surface).unwrap();
         surface.kill();
+        stale.kill();
     }
 
     #[test]
