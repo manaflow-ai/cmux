@@ -25,17 +25,14 @@ struct MobileTaskModelAvailabilityTests {
         #expect(availability.validatedModelID("gpt-5.6-sol") == nil)
     }
 
-    @Test func missingDiscoveryFallsBackToCuratedModels() {
+    @Test func missingDiscoveryDoesNotInventModelsOnDevice() {
         let availability = MobileTaskModelAvailability(
             template: template,
             discoveredModels: nil
         )
 
-        #expect(availability.models == MobileTaskAgentProvider.codex.models)
-        #expect(
-            availability.validatedModelID("gpt-5.6-sol")
-                == "gpt-5.6-sol"
-        )
+        #expect(availability.models.isEmpty)
+        #expect(availability.validatedModelID("gpt-5.6-sol") == nil)
         #expect(availability.validatedModelID("unknown") == nil)
     }
 

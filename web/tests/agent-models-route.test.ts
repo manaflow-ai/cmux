@@ -19,7 +19,7 @@ describe("agent models route", () => {
     expect(await response.json()).toEqual(agentModelCatalog);
   });
 
-  test("preserves current curated Claude, Gemini, and Codex seed models", () => {
+  test("serves backend fallbacks for every task-composer provider", () => {
     expect(agentModelCatalog.providers.claude).toMatchObject({
       defaultModel: "claude-sonnet-5",
       models: [
@@ -58,6 +58,15 @@ describe("agent models route", () => {
       "high",
       "xhigh",
     ]);
+
+    expect(agentModelCatalog.providers.opencode).toEqual({
+      defaultModel: "anthropic/claude-sonnet-5",
+      models: [
+        { id: "anthropic/claude-sonnet-5", label: "Claude Sonnet 5" },
+        { id: "anthropic/claude-opus-4-8", label: "Claude Opus 4.8" },
+        { id: "openai/gpt-5.5", label: "GPT-5.5" },
+      ],
+    });
   });
 
   test("uses the strong ETag for conditional revalidation", async () => {

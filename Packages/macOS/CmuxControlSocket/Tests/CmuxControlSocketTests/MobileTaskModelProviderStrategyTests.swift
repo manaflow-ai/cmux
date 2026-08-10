@@ -23,11 +23,11 @@ private actor MobileTaskModelStrategyProbe {
 struct MobileTaskModelProviderStrategyTests {
     private let home = URL(fileURLWithPath: "/Users/tester", isDirectory: true)
 
-    @Test func openCodeDiscoveryReplacesCuratedModelsAndKeepsCuratedNames() async {
+    @Test func openCodeUsesAgentCommandAsAuthoritativeCatalog() async {
         let probe = MobileTaskModelStrategyProbe()
         await probe.setCommandOutput("""
-        openai/gpt-5.5
-        opencode/big-pickle
+        test-provider/host-next-999
+        test-provider/host-second-998
         """)
         let strategy = makeStrategy(probe: probe)
 
@@ -35,10 +35,13 @@ struct MobileTaskModelProviderStrategyTests {
 
         #expect(result == MobileTaskModelListResult(
             models: [
-                MobileTaskModel(id: "openai/gpt-5.5", displayName: "GPT-5.5"),
                 MobileTaskModel(
-                    id: "opencode/big-pickle",
-                    displayName: "opencode/big-pickle"
+                    id: "test-provider/host-next-999",
+                    displayName: "test-provider/host-next-999"
+                ),
+                MobileTaskModel(
+                    id: "test-provider/host-second-998",
+                    displayName: "test-provider/host-second-998"
                 ),
             ],
             source: .discovered
@@ -50,90 +53,58 @@ struct MobileTaskModelProviderStrategyTests {
         #expect(await probe.readPaths.isEmpty)
     }
 
-    @Test func emptyOrFailedOpenCodeDiscoveryFallsBackToCuratedModels() async {
+    @Test func claudeUsesControlStreamAsAuthoritativeCatalog() async {
         let probe = MobileTaskModelStrategyProbe()
-        await probe.setCommandOutput("\n \n")
-        let strategy = makeStrategy(probe: probe)
-        #expect(
-            await strategy.models(for: .openCode)
-                == MobileTaskModelListResult(
-                    models: MobileTaskModelProvider.openCode.curatedModels,
-                    source: .fallback
-                )
-        )
-        await probe.setCommandOutput(nil)
-        #expect(
-            await strategy.models(for: .openCode)
-                == MobileTaskModelListResult(
-                    models: MobileTaskModelProvider.openCode.curatedModels,
-                    source: .fallback
-                )
-        )
+        await probe.setCommandOutput(#"{"type":"control_response","response":{"subtype":"success","request_id":"cmux-list-options","response":{"models":[{"value":"default","displayName":"Default"},{"value":"host-next-999","displayName":"Host Next 999"}]}}}"#)
+
+        let result = await makeStrategy(probe: probe).models(for: .claude)
+
+        #expect(result == MobileTaskModelListResult(
+            models: [
+                MobileTaskModel(id: "host-next-999", displayName: "Host Next 999"),
+            ],
+            source: .discovered
+        ))
+        let commands = await probe.commands
+        #expect(commands.count == 1)
+        #expect(commands[0].0.contains("claude -p"))
+        #expect(commands[0].0.contains("list_models"))
+        #expect(commands[0].1 == .seconds(30))
+        #expect(await probe.readPaths.isEmpty)
     }
 
-    @Test func codexPrependsNovelConfiguredModelWithoutSpawningACommand() async {
+    @Test func codexUsesAgentOwnedCacheAsAuthoritativeCatalog() async {
         let probe = MobileTaskModelStrategyProbe()
         await probe.setFile(
-            path: "/Users/tester/.codex/config.toml",
-            data: Data("model = \"gpt-private-preview\"".utf8)
+            path: "/Users/tester/.codex/models_cache.json",
+            data: Data(#"{"models":[{"slug":"host-next-999","display_name":"Host Next 999","visibility":"list"},{"slug":"hidden-model","display_name":"Hidden","visibility":"hide"}]}"#.utf8)
         )
+
         let result = await makeStrategy(probe: probe).models(for: .codex)
 
-        #expect(result.source == .augmented)
-        #expect(result.models.map(\.id) == [
-            "gpt-private-preview",
-            "gpt-5.6-luna",
-            "gpt-5.6-sol",
-            "gpt-5.5",
-        ])
-        #expect(result.models.first?.displayName == "gpt-private-preview")
+        #expect(result == MobileTaskModelListResult(
+            models: [
+                MobileTaskModel(id: "host-next-999", displayName: "Host Next 999"),
+            ],
+            source: .discovered
+        ))
         #expect(await probe.commands.isEmpty)
-        #expect(await probe.readPaths == ["/Users/tester/.codex/config.toml"])
+        #expect(await probe.readPaths == ["/Users/tester/.codex/models_cache.json"])
     }
 
-    @Test func configuredCuratedModelMovesFirstAndIsDeduplicated() async {
-        let codexProbe = MobileTaskModelStrategyProbe()
-        await codexProbe.setFile(
-            path: "/Users/tester/.codex/config.toml",
-            data: Data("model = \"gpt-5.6-sol\"".utf8)
-        )
-        let codex = await makeStrategy(probe: codexProbe).models(for: .codex)
-        #expect(codex.source == .augmented)
-        #expect(codex.models.map(\.id) == [
-            "gpt-5.6-sol",
-            "gpt-5.6-luna",
-            "gpt-5.5",
-        ])
-        #expect(codex.models.first?.displayName == "GPT-5.6 Sol")
-
-        let claudeProbe = MobileTaskModelStrategyProbe()
-        await claudeProbe.setFile(
-            path: "/Users/tester/.claude/settings.json",
-            data: Data(#"{"model":"claude-opus-4-8"}"#.utf8)
-        )
-        let claude = await makeStrategy(probe: claudeProbe).models(for: .claude)
-        #expect(claude.source == .augmented)
-        #expect(claude.models.map(\.id) == [
-            "claude-opus-4-8",
-            "claude-fable-5",
-            "claude-sonnet-5",
-            "claude-haiku-4-5",
-        ])
-        #expect(claude.models.first?.displayName == "Opus 4.8")
-        #expect(await claudeProbe.commands.isEmpty)
-    }
-
-    @Test func missingConfigurationFilesReturnCuratedFallbacks() async {
+    @Test func failedAgentDiscoveryReturnsNoInventedValues() async {
         let probe = MobileTaskModelStrategyProbe()
         let strategy = makeStrategy(probe: probe)
         let codex = await strategy.models(for: .codex)
         let claude = await strategy.models(for: .claude)
+        let openCode = await strategy.models(for: .openCode)
 
         #expect(codex.source == .fallback)
-        #expect(codex.models == MobileTaskModelProvider.codex.curatedModels)
+        #expect(codex.models.isEmpty)
         #expect(claude.source == .fallback)
-        #expect(claude.models == MobileTaskModelProvider.claude.curatedModels)
-        #expect(await probe.commands.isEmpty)
+        #expect(claude.models.isEmpty)
+        #expect(openCode.source == .fallback)
+        #expect(openCode.models.isEmpty)
     }
 
     private func makeStrategy(
