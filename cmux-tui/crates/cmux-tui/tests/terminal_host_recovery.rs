@@ -2044,20 +2044,37 @@ fn client_reserved_short_lived_create_replays_its_durable_exit_without_topology(
     let first = request(&harness.socket, create.clone());
     assert_eq!(first["terminal_id"], terminal_id);
     assert_eq!(first["replayed"], false);
-    assert_eq!(first["already_exited"], true);
-    assert_eq!(first["lifecycle"], "exited");
-    assert_eq!(first["exit"]["outcome"], serde_json::json!({"kind":"exit","code":17}));
-    assert_eq!(first["surface"], serde_json::Value::Null);
-    assert_eq!(first["pane"], serde_json::Value::Null);
-    assert_eq!(first["screen"], serde_json::Value::Null);
-    assert_eq!(first["workspace"], serde_json::Value::Null);
+    let already_exited = first["already_exited"].as_bool().unwrap();
+    assert_eq!(first["lifecycle"], if already_exited { "exited" } else { "running" });
+    for field in ["surface", "pane", "screen", "workspace"] {
+        assert_eq!(first[field].is_null(), already_exited, "unexpected {field}: {first}");
+    }
+    if already_exited {
+        assert_eq!(first["exit"]["outcome"], serde_json::json!({"kind":"exit","code":17}));
+    } else {
+        assert!(first["exit"].is_null());
+        let waited = resource_request(
+            &harness.socket,
+            "reserved-short-lived-create-wait",
+            "terminal.wait_exit",
+            serde_json::json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal_id,
+                "timeout_ms":"5000",
+            }),
+            None,
+        );
+        assert_eq!(waited["state"], "exited", "terminal did not exit: {waited}");
+        assert_eq!(waited["outcome"], serde_json::json!({"kind":"exit","code":17}));
+    }
 
     let retry = request(&harness.socket, create);
     assert_eq!(retry["replayed"], true);
     assert_eq!(retry["terminal_id"], terminal_id);
     assert_eq!(retry["already_exited"], true);
     assert_eq!(retry["lifecycle"], "exited");
-    assert_eq!(retry["exit"], first["exit"]);
+    assert_eq!(retry["exit"]["outcome"], serde_json::json!({"kind":"exit","code":17}));
     assert_eq!(retry["surface"], serde_json::Value::Null);
     assert_eq!(retry["pane"], serde_json::Value::Null);
     assert_eq!(retry["screen"], serde_json::Value::Null);

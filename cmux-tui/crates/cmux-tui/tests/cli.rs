@@ -605,6 +605,7 @@ struct LegacyServerProcess {
     socket: PathBuf,
     dir: PathBuf,
     descendant_pid_file: PathBuf,
+    descendant_pid_published: Option<TestFifoSignal>,
 }
 
 #[cfg(unix)]
@@ -623,6 +624,9 @@ impl LegacyServerProcess {
         fs::create_dir_all(&dir).unwrap();
         let socket = dir.join("mux.sock");
         let descendant_pid_file = dir.join("descendant.pid");
+        let descendant_pid_published_path = dir.join("descendant-pid-published");
+        let descendant_pid_published = (scenario == "reparent-on-close")
+            .then(|| TestFifoSignal::create(&descendant_pid_published_path));
         let ready_path = dir.join("ready");
         let mut ready = TestFifoSignal::create(&ready_path);
         let mut command = Command::new(std::env::current_exe().unwrap());
@@ -634,6 +638,12 @@ impl LegacyServerProcess {
             .env("CMUX_TUI_TEST_LEGACY_READY_SIGNAL", &ready_path)
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
+        if descendant_pid_published.is_some() {
+            command.env(
+                "CMUX_TUI_TEST_LEGACY_DESCENDANT_PID_PUBLISHED_SIGNAL",
+                &descendant_pid_published_path,
+            );
+        }
         if let Some(reported_pid) = reported_pid {
             command.env("CMUX_TUI_TEST_LEGACY_REPORTED_PID", reported_pid.to_string());
         }
@@ -642,11 +652,19 @@ impl LegacyServerProcess {
         }
         let child = command.spawn().unwrap();
         ready.receive(Duration::from_secs(15));
-        Self { child, socket, dir, descendant_pid_file }
+        Self { child, socket, dir, descendant_pid_file, descendant_pid_published }
     }
 
     fn descendant_pid(&self) -> Option<u32> {
         fs::read_to_string(&self.descendant_pid_file).ok()?.trim().parse().ok()
+    }
+
+    fn receive_descendant_pid(&mut self, timeout: Duration) -> u32 {
+        self.descendant_pid_published
+            .as_mut()
+            .expect("legacy descendant PID receipt was not configured")
+            .receive(timeout);
+        self.descendant_pid().expect("legacy descendant PID receipt preceded its complete file")
     }
 }
 
@@ -770,7 +788,8 @@ fn legacy_server_process_helper() {
                 concat!(
                     "set -m; trap '' HUP; ",
                     "(trap '' HUP; while :; do sleep 60; done) & ",
-                    "printf '%s' \"$!\" > \"$CMUX_TUI_TEST_LEGACY_DESCENDANT_PID_FILE\"; wait"
+                    "printf '%s' \"$!\" > \"$CMUX_TUI_TEST_LEGACY_DESCENDANT_PID_FILE\"; ",
+                    "printf '1' > \"$CMUX_TUI_TEST_LEGACY_DESCENDANT_PID_PUBLISHED_SIGNAL\"; wait"
                 ),
             ])
             .stdout(Stdio::null())
@@ -3205,9 +3224,12 @@ fn server_stop_kills_ephemeral_pty_process_groups() {
         true,
     );
     let descendant_pid_file = server.dir.join("ephemeral-descendant.pid");
+    let descendant_pid_published_path = server.dir.join("ephemeral-descendant-pid-published");
+    let mut descendant_pid_published = TestFifoSignal::create(&descendant_pid_published_path);
     let command = format!(
-        "trap '' HUP; (trap '' HUP; while :; do sleep 1; done) & echo $! > {}; wait",
-        descendant_pid_file.display()
+        "trap '' HUP; (trap '' HUP; while :; do sleep 1; done) & echo $! > {}; printf 1 > {}; wait",
+        descendant_pid_file.display(),
+        descendant_pid_published_path.display()
     );
     let surface =
         raw_json(&server, serde_json::json!({"id":"ephemeral-run","cmd":"run","command":command}))
@@ -3219,7 +3241,9 @@ fn server_stop_kills_ephemeral_pty_process_groups() {
         serde_json::json!({"id":"ephemeral-process","cmd":"process-info","surface":surface}),
     );
     let direct_pid = u32::try_from(info["pid"].as_u64().unwrap()).unwrap();
-    let descendant_pid = wait_for_pid_file(&descendant_pid_file, Duration::from_secs(5));
+    descendant_pid_published.receive(Duration::from_secs(5));
+    let descendant_pid =
+        fs::read_to_string(&descendant_pid_file).unwrap().trim().parse::<u32>().unwrap();
 
     let stop = cli(&server, &["--json", "server", "stop"]);
     let shutdown_diagnostic = server.shutdown_owner_diagnostic();
@@ -3239,14 +3263,17 @@ fn server_stop_kills_background_jobs_in_separate_pty_process_groups() {
         true,
     );
     let descendant_pid_file = server.dir.join("ephemeral-background-job.pid");
+    let descendant_pid_published_path = server.dir.join("ephemeral-background-job-pid-published");
+    let mut descendant_pid_published = TestFifoSignal::create(&descendant_pid_published_path);
     let command = format!(
         concat!(
             "exec /bin/bash --noprofile --norc -i -c '",
             "trap \"\" HUP; ",
             "(trap \"\" HUP; while :; do sleep 60; done) & ",
-            "printf \"%s\" \"$!\" > {}; wait'",
+            "printf \"%s\" \"$!\" > {}; printf \"1\" > {}; wait'",
         ),
-        descendant_pid_file.display()
+        descendant_pid_file.display(),
+        descendant_pid_published_path.display()
     );
     let surface = raw_json(
         &server,
@@ -3259,7 +3286,9 @@ fn server_stop_kills_background_jobs_in_separate_pty_process_groups() {
         serde_json::json!({"id":"job-control-process","cmd":"process-info","surface":surface}),
     );
     let direct_pid = u32::try_from(info["pid"].as_u64().unwrap()).unwrap();
-    let descendant_pid = wait_for_pid_file(&descendant_pid_file, Duration::from_secs(5));
+    descendant_pid_published.receive(Duration::from_secs(5));
+    let descendant_pid =
+        fs::read_to_string(&descendant_pid_file).unwrap().trim().parse::<u32>().unwrap();
     let direct_pid_raw = libc::pid_t::try_from(direct_pid).unwrap();
     let descendant_pid_raw = libc::pid_t::try_from(descendant_pid).unwrap();
     // SAFETY: both fixture processes are live and owned by this test.
@@ -3500,7 +3529,7 @@ fn published_host_launch_errors_reap_the_complete_pty_session() {
 fn legacy_stop_retains_pty_ownership_captured_before_surface_close() {
     let mut server =
         LegacyServerProcess::start("legacy-server-reparent-on-close", "reparent-on-close", None);
-    let descendant_pid = wait_for_pid_file(&server.descendant_pid_file, Duration::from_secs(5));
+    let descendant_pid = server.receive_descendant_pid(Duration::from_secs(5));
 
     let output = Command::new(bin())
         .args(["server", "stop", "--socket"])

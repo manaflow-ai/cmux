@@ -327,9 +327,8 @@ fn terminal_effect(mux: &Arc<Mux>, request: ParsedResourceRequest) -> Result<Val
     let fields = request.fields.clone();
     let preparation = effects::prepare(mux, &request, || {
         let terminal_id = if request.envelope.operation == ResourceOperation::TerminalClose {
-            mux.resolve_resource_path(ResourceTarget::Terminal, &request.selectors)?
-                .terminal
-                .ok_or_else(|| ResourceError::not_found("terminal", "<resolved>"))?
+            mux.resolve_resource_terminal_close_id(&request.selectors)
+                .map_err(resource_operation_error)?
         } else {
             resolve_terminal_surface(mux, &request.selectors)?.0
         };
@@ -358,6 +357,15 @@ fn execute_terminal_effect(
         Ok(fields) => fields.clone(),
         Err(error) => return effects::commit_known_failure(mux, prepared, error),
     };
+    if prepared.operation == "terminal.close" {
+        let commit = mux.commit_resource_terminal_close_effect(
+            &terminal_id,
+            &prepared.idempotency_key,
+            &prepared.operation,
+            &prepared.fingerprint,
+        );
+        return finish_projection_commit(mux, prepared, commit);
+    }
     let Some(surface_id) = mux.resource_surface_for_terminal(&terminal_id) else {
         return effects::commit_known_failure(
             mux,
@@ -389,7 +397,6 @@ fn execute_terminal_effect(
             surface.clear_history().map_err(|error| ActionFailure::Indeterminate(error.to_string()))
         }
         "terminal.viewport.scroll" => terminal_scroll_viewport(mux, &surface, &fields),
-        "terminal.close" => Ok(()),
         operation => Err(ActionFailure::Known(ResourceError::operation_failed(
             operation,
             "stored terminal effect operation is invalid",
@@ -398,16 +405,6 @@ fn execute_terminal_effect(
     };
     if let Err(failure) = action {
         return finish_action_failure(mux, prepared, failure);
-    }
-
-    if prepared.operation == "terminal.close" {
-        let commit = mux.commit_resource_terminal_close_effect(
-            surface_id,
-            &prepared.idempotency_key,
-            &prepared.operation,
-            &prepared.fingerprint,
-        );
-        return finish_projection_commit(mux, prepared, commit);
     }
 
     debug_assert!(effects::receipt_only_operation(&prepared.operation));
