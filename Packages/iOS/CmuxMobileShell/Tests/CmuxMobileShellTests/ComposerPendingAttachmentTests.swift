@@ -44,7 +44,7 @@ import Testing
         #expect(composite.pendingAttachments(forTerminalID: "term-a").isEmpty)
     }
 
-    @Test func fileBackedZeroByteAttachmentIsVisibleAndSendable() throws {
+    @Test func fileBackedZeroByteAttachmentIsVisibleAndEnablesSend() throws {
         let composite = Self.makeComposite()
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("empty-attachment-\(UUID()).txt")

@@ -70,6 +70,25 @@ struct MobileTaskAttachmentStoreTests {
         #expect(URL(fileURLWithPath: try #require(second.path)).lastPathComponent == "report-2.txt")
     }
 
+    @Test func emptyFinalChunkProducesACompletedRegularFile() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let result = try fixture.store.upload(.init(
+            operationID: UUID(),
+            uploadID: UUID(),
+            fileName: "empty.txt",
+            totalBytes: 0,
+            offset: 0,
+            dataBase64: "",
+            isLast: true
+        ))
+
+        let path = try #require(result.path)
+        #expect(result.receivedBytes == 0)
+        #expect(try URL(fileURLWithPath: path).resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true)
+        #expect(try Data(contentsOf: URL(fileURLWithPath: path)).isEmpty)
+    }
+
     @Test func completedAttachmentLookupReturnsOnlyValidatedUploadBytes() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
