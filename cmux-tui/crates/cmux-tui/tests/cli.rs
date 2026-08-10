@@ -528,6 +528,7 @@ fn server_lifecycle_start_rejects_inline_relay_ticket_without_echoing_secret() {
         &["server", "start", "--relay-ticket", secret][..],
         &["--json", "server", "start", "--relay-ticket", secret][..],
         &["server", "start", "--relay-ticket=inline-server-start-secret-marker"][..],
+        &["server", "start", "--relay-ticket", "--help"][..],
     ] {
         let output = lifecycle_cli(args);
         assert_eq!(output.status.code(), Some(2));
@@ -566,6 +567,30 @@ fn server_lifecycle_start_rejects_output_modes_without_starting_an_owner() {
     assert!(quiet_error.contains("server start does not support output modes"), "{quiet_error}");
     assert!(!socket.exists());
 
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn failed_remote_server_start_removes_its_served_socket() {
+    let dir = unique_temp_dir("failed-server-start-cleanup");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("mux.sock");
+    let invalid_state_root = dir.join("state-root-is-a-file");
+    fs::write(&invalid_state_root, "not a directory").unwrap();
+
+    let output = lifecycle_cli(&[
+        "server",
+        "start",
+        "--socket",
+        socket.to_str().unwrap(),
+        "--remote",
+        "--remote-state-dir",
+        invalid_state_root.to_str().unwrap(),
+    ]);
+
+    assert!(!output.status.success(), "invalid remote state root unexpectedly started a server");
+    assert!(!socket.exists(), "failed startup left its served socket behind");
     fs::remove_dir_all(dir).unwrap();
 }
 
