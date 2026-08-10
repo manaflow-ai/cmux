@@ -2376,14 +2376,14 @@ impl Mux {
     /// no public resource uses the same creation fence and exact host indexes,
     /// so a late resource adoption cannot race the compatibility cleanup.
     #[allow(clippy::too_many_arguments)]
-    pub(super) fn commit_terminal_close(
+    pub(super) fn commit_legacy_terminal_close(
         &self,
         terminal_id: &str,
         expected_incarnation: Option<&str>,
         expected_generation: Option<&str>,
         expected_terminal_revision: Option<u64>,
         mutation: &WorkspaceMutation,
-    ) -> anyhow::Result<TerminalCloseResult> {
+    ) -> anyhow::Result<Option<TerminalCloseResult>> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let _creation_fence = self.resource_creation_execution.lock().unwrap();
         let mut registry = self.workspace_registry.lock().unwrap();
@@ -2400,7 +2400,7 @@ impl Mux {
             drop(registry);
             drop(_creation_fence);
             drop(_creation_handoff);
-            return Ok(result);
+            return Ok(Some(result));
         }
         let Some(public_id) = registry.terminal_resource_id(terminal_id)? else {
             let terminal = registry.close_terminal(
@@ -2461,7 +2461,7 @@ impl Mux {
                 self.notify_terminal_exit_waiters(catalog_public_ids.first().cloned());
             }
             self.emit_empty_if_current(empty_revision);
-            return Ok(TerminalCloseResult {
+            return Ok(Some(TerminalCloseResult {
                 surface: target,
                 terminal_id: terminal_id.to_string(),
                 terminal_incarnation: closed_incarnation,
@@ -2469,7 +2469,7 @@ impl Mux {
                     .as_bool()
                     .unwrap_or(terminal.replayed),
                 terminal_revision: terminal.revision,
-            });
+            }));
         };
         let mut state = self.state.lock().unwrap();
         let durable_host = registry.terminal_host_id(&public_id)?.ok_or_else(|| {
@@ -2490,6 +2490,14 @@ impl Mux {
         }
         let catalog_public_ids =
             terminal_catalog_public_ids_by_host(self, &state, terminal_id, planned_incarnation);
+        let target = terminal_content_placements(
+            self,
+            &state,
+            &public_id,
+            Some((terminal_id, planned_incarnation)),
+        )
+        .first()
+        .copied();
         let mut plan = self.resource_terminal_close_plan_locked(
             terminal_id,
             planned_incarnation,
@@ -2523,7 +2531,6 @@ impl Mux {
                 plan.terminal_runtime = Some(retained_runtime);
             }
         }
-        let target = plan.removed.first().map(|surface| surface.id);
         let had_runtime = plan.terminal_runtime.is_some();
         let mut projection =
             self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
@@ -2584,7 +2591,7 @@ impl Mux {
                 drop(registry);
                 drop(_creation_fence);
                 drop(_creation_handoff);
-                return Ok(result);
+                return Ok(Some(result));
             }
             TerminalResourceCloseCommit::Committed { terminal, resource } => (terminal, resource),
         };
@@ -2609,13 +2616,13 @@ impl Mux {
         if !had_runtime {
             self.terminate_discovered_terminal_host(terminal_id, closed_incarnation.as_deref());
         }
-        Ok(TerminalCloseResult {
+        Ok(Some(TerminalCloseResult {
             surface: target,
             terminal_id: terminal_id.to_string(),
             terminal_incarnation: closed_incarnation,
             already_closed: terminal.result["already_closed"].as_bool().unwrap_or(false),
             terminal_revision: terminal.revision,
-        })
+        }))
     }
 
     pub(super) fn terminal_exit_detach_projection_locked(
