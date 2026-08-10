@@ -15550,13 +15550,9 @@ mod tests {
     #[test]
     fn identify_and_ping_return_build_metadata() {
         let mux = test_mux();
-        let identity = handle_command(
-            &mux,
-            0,
-            Command::Identify { lifecycle: false },
-            &test_writer(),
-        )
-        .unwrap();
+        let identity =
+            handle_command(&mux, 0, Command::Identify { lifecycle: false }, &test_writer())
+                .unwrap();
         assert_eq!(identity["app"].as_str(), Some("cmux-tui"));
         assert_eq!(identity["version"].as_str(), Some(env!("CARGO_PKG_VERSION")));
         assert_eq!(identity["protocol"].as_u64(), Some(PROTOCOL_VERSION as u64));
@@ -18545,13 +18541,9 @@ mod tests {
     #[test]
     fn identify_advertises_additive_capabilities() {
         let mux = test_mux();
-        let identity = handle_command(
-            &mux,
-            0,
-            Command::Identify { lifecycle: false },
-            &test_writer(),
-        )
-        .unwrap();
+        let identity =
+            handle_command(&mux, 0, Command::Identify { lifecycle: false }, &test_writer())
+                .unwrap();
 
         let capabilities = identity["capabilities"].as_array().expect("capabilities");
         for expected in [
