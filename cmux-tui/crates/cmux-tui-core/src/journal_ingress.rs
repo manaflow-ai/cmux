@@ -1589,6 +1589,69 @@ mod tests {
     }
 
     #[test]
+    fn shutdown_returns_when_an_admitted_commit_stays_blocked() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-admitted-shutdown-deadline-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent(
+            "journal-admitted-shutdown-deadline",
+            crate::SurfaceOptions::default(),
+            &root,
+        )
+        .unwrap();
+        let (entered, entered_receiver) = sync_channel(1);
+        let (release, release_receiver) = sync_channel(1);
+        mux.install_journal_after_commit_admission_for_test(entered, release_receiver);
+        let ingress = crate::agent_hook_journal_ingress(
+            "codex",
+            "SubagentStop",
+            None,
+            serde_json::json!({
+                "session_id":"admitted-shutdown-root",
+                "root_session_id":"admitted-shutdown-root",
+                "parent_session_id":"admitted-shutdown-root",
+                "child_agent_id":"admitted-shutdown-child",
+                "message":"admitted-shutdown-marker",
+            }),
+        )
+        .unwrap();
+        let producer_mux = mux.clone();
+        let (producer_result, producer_result_receiver) = sync_channel(1);
+        let producer = std::thread::spawn(move || {
+            producer_result
+                .send(producer_mux.append_journal_ingress(
+                    &ingress,
+                    "client_admitted_shutdown",
+                    "admitted_shutdown_1",
+                ))
+                .unwrap();
+        });
+        entered_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let shutdown_mux = mux.clone();
+        let (shutdown_completed, shutdown_completion) = sync_channel(1);
+        let shutdown = std::thread::spawn(move || {
+            shutdown_mux.shutdown();
+            shutdown_completed.send(()).unwrap();
+        });
+        let returned = shutdown_completion.recv_timeout(Duration::from_secs(5));
+
+        release.send(()).unwrap();
+        let result = producer_result_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(
+            result.is_ok() || result.unwrap_err().to_string().contains("indeterminate"),
+            "the admitted producer returned an invalid final result"
+        );
+        producer.join().unwrap();
+        shutdown.join().unwrap();
+        assert!(returned.is_ok(), "shutdown waited without a limit for an admitted commit");
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn shutdown_joins_terminal_readers_before_the_final_journal_fence() {
         let root = std::env::temp_dir().join(format!(
             "cmux-terminal-reader-shutdown-{}-{}",

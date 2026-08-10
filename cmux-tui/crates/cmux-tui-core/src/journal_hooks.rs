@@ -1366,7 +1366,7 @@ mod tests {
         assert_eq!(delivery_worker_count(usize::MAX), 32);
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     #[test]
     fn unix_hook_tree_kills_a_descendant_that_created_a_new_session() {
         const HELPER: &str = "CMUX_TEST_DETACHED_JOURNAL_HOOK";
@@ -1389,32 +1389,29 @@ mod tests {
                     std::env::remove_var("CMUX_TUI_PROCESS_SCOPE");
                 },
                 "close-fds-and-clear-environment" => {
-                    // The parent test coordinates both cleanup steps after
-                    // tracker admission. Its launching ancestor does not wait.
+                    for fd in 3..1024 {
+                        unsafe {
+                            libc::close(fd);
+                        }
+                    }
+                    unsafe {
+                        std::env::remove_var("CMUX_TUI_PROCESS_SCOPE");
+                    }
                 }
                 "fork-during-cleanup" => {}
                 other => panic!("unexpected detached hook helper mode {other}"),
             }
             let session = unsafe { libc::setsid() };
-            assert!(session > 0, "detached hook helper could not create a session");
+            if mode == "fork-during-cleanup" {
+                assert!(session > 0, "the test-only tracker path could not create a session");
+            } else {
+                assert_eq!(session, -1, "the Linux process-group fence allowed setsid");
+                assert_eq!(std::io::Error::last_os_error().raw_os_error(), Some(libc::EPERM));
+            }
             let mut signal = std::os::unix::net::UnixStream::connect(signal_path).unwrap();
             signal.write_all(&std::process::id().to_ne_bytes()).unwrap();
             let mut release = [0_u8; 1];
             let _ = signal.read_exact(&mut release);
-            if mode == "close-fds-and-clear-environment" {
-                for fd in 3..1024 {
-                    if fd != signal.as_raw_fd() {
-                        unsafe {
-                            libc::close(fd);
-                        }
-                    }
-                }
-                unsafe {
-                    std::env::remove_var("CMUX_TUI_PROCESS_SCOPE");
-                }
-                signal.write_all(b"c").unwrap();
-                let _ = signal.read_exact(&mut release);
-            }
             if mode == "fork-during-cleanup" {
                 let input = signal.try_clone().unwrap();
                 let mut child = Command::new("/bin/sh")
@@ -1475,20 +1472,6 @@ mod tests {
             let mut detached = [0_u8; size_of::<u32>()];
             signal.read_exact(&mut detached).unwrap();
             let detached = u32::from_ne_bytes(detached);
-            if mode == "close-fds-and-clear-environment" {
-                assert!(
-                    tree.wait_until_tracked_for_test(
-                        detached,
-                        Instant::now() + Duration::from_secs(5),
-                    ),
-                    "detached hook {detached} did not enter the process scope"
-                );
-                signal.write_all(b"c").unwrap();
-                let mut closed = [0_u8; 1];
-                signal.read_exact(&mut closed).unwrap();
-                assert_eq!(closed, *b"c");
-            }
-
             tree.terminate();
             let _ = child.kill();
             let _ = child.wait();
