@@ -426,5 +426,6 @@ adds Kitty image aliases and cell-pixel metrics. Protocol v3 adds Kitty replay
 state, Kitty quota controls, and the smart raw-byte stream. Protocol v4 adds
 the launch activation barrier. Protocol v5 adds the unspecified terminal id
 for public one-use renderer grants. A v5 daemon probes discovery-record v4
-hosts at older protocol versions. Smart renderers require v3 and restart their
-handshake on any gap or `ResyncRequired` frame.
+hosts at protocol v4 in smart mode before it probes the non-smart compatibility
+path. Smart renderers require v3 and restart their handshake on any gap or
+`ResyncRequired` frame.

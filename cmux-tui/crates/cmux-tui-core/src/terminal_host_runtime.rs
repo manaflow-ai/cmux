@@ -2316,9 +2316,20 @@ mod unix {
                 .with_context(|| format!("connect terminal host at {}", endpoint.display()))?,
         );
         let mut failures = Vec::new();
-        let attempts = std::iter::once((PROTOCOL_VERSION, true)).chain(
-            (LEGACY_PROTOCOL_VERSION..=PROTOCOL_VERSION).rev().map(|version| (version, false)),
-        );
+        let record_smart_version =
+            (SMART_RENDERER_PROTOCOL_VERSION as u32..PROTOCOL_VERSION as u32)
+                .contains(&record.record_version)
+                .then_some(record.record_version as u16);
+        let attempts = std::iter::once((PROTOCOL_VERSION, true))
+            // A prior-generation record identifies the newest smart protocol
+            // that its live host can speak. Preserve smart replay on adoption
+            // before probing the non-smart compatibility path.
+            .chain(record_smart_version.map(|version| (version, true)))
+            .chain(
+                (LEGACY_PROTOCOL_VERSION..=PROTOCOL_VERSION)
+                    .rev()
+                    .map(|version| (version, false)),
+            );
         'protocols: for (protocol_version, smart_renderer) in attempts {
             let mut transient_retries = 0;
             loop {
@@ -7392,6 +7403,10 @@ mod unix {
                     if hello_frame.version != 4 {
                         continue;
                     }
+                    assert_eq!(
+                        hello_frame.flags,
+                        FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS
+                    );
 
                     let hello = ClientHello::decode(&hello_frame.payload)?;
                     let response = HostHello {
@@ -7402,6 +7417,7 @@ mod unix {
                     };
                     let mut host_hello = Frame::new(MessageKind::HostHello, response.encode());
                     host_hello.version = 4;
+                    host_hello.flags = FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS;
                     host_hello.request_id = hello_frame.request_id;
                     write_frame(&mut stream, &host_hello)?;
 
@@ -7432,6 +7448,9 @@ mod unix {
                     );
                     colors.version = 4;
                     write_frame(&mut stream, &colors)?;
+                    let mut ready = Frame::new(MessageKind::Ready, Vec::new());
+                    ready.version = 4;
+                    write_frame(&mut stream, &ready)?;
 
                     let release = read_required_frame(&mut stream, "viewer release")?;
                     return Ok(release.kind == MessageKind::ReleaseViewer);
