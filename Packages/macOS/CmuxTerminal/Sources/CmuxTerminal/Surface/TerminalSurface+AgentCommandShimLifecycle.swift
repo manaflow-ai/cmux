@@ -24,11 +24,6 @@ extension TerminalSurface {
 
         if agentCommandShimInstallTask == nil {
             let runtimeFilesystem = embeddedRuntime.runtimeFilesystem
-            guard let installToken = runtimeFilesystem.agentCommandShimInstallGate.claim() else {
-                agentCommandShimInstallCompleted = true
-                agentCommandShimPendingCreationSource = nil
-                return (true, nil)
-            }
             let surfaceId = id
             // Explicit captures and arguments: the region-based isolation
             // checker cannot analyze the legacy closure's implicit captures
@@ -36,7 +31,10 @@ extension TerminalSurface {
             let temporaryDirectory = runtimeFilesystem.agentCommandShimTemporaryDirectory
             #if compiler(>=6.2)
             let installOperation: @concurrent @Sendable () async -> AgentCommandShimSet? = {
-                [wrapperDirectoryURL, surfaceId, temporaryDirectory, runtimeFilesystem, installToken] in
+                [wrapperDirectoryURL, surfaceId, temporaryDirectory, runtimeFilesystem] in
+                guard let installToken = await runtimeFilesystem.agentCommandShimInstallGate.acquire() else {
+                    return nil
+                }
                 defer {
                     runtimeFilesystem.agentCommandShimInstallGate.release(installToken)
                 }
@@ -49,7 +47,10 @@ extension TerminalSurface {
             }
             #else
             let installOperation: @Sendable () async -> AgentCommandShimSet? = {
-                [wrapperDirectoryURL, surfaceId, temporaryDirectory, runtimeFilesystem, installToken] in
+                [wrapperDirectoryURL, surfaceId, temporaryDirectory, runtimeFilesystem] in
+                guard let installToken = await runtimeFilesystem.agentCommandShimInstallGate.acquire() else {
+                    return nil
+                }
                 defer {
                     runtimeFilesystem.agentCommandShimInstallGate.release(installToken)
                 }

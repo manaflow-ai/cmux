@@ -88,14 +88,10 @@ public final class TerminalSurfaceLaunchResolver {
                 deadline: agentCommandShimInstallDeadline,
                 clock: agentCommandShimInstallDeadlineClock
             )
-            if let attempt {
-                shims = await withTaskCancellationHandler {
-                    await attempt.value()
-                } onCancel: {
-                    attempt.cancel()
-                }
-            } else {
-                shims = nil
+            shims = await withTaskCancellationHandler {
+                await attempt.value()
+            } onCancel: {
+                attempt.cancel()
             }
         } else {
             shims = nil
@@ -310,18 +306,19 @@ private final class TerminalSurfaceCommandShimInstallAttempt: @unchecked Sendabl
     private var installTask: Task<Void, Never>?
     private var deadlineTask: Task<Void, Never>?
 
-    init?(
+    init(
         filesystem: TerminalSurfaceRuntimeFilesystem,
         wrapperDirectoryURL: URL,
         surfaceID: UUID,
         deadline: Duration,
         clock: any Clock<Duration>
     ) {
-        guard let installToken = filesystem.agentCommandShimInstallGate.claim() else {
-            return nil
-        }
         let temporaryDirectory = filesystem.agentCommandShimTemporaryDirectory
         let installTask = Task.detached(priority: .utility) { [weak self] in
+            guard let installToken = await filesystem.agentCommandShimInstallGate.acquire() else {
+                self?.resolve(nil)
+                return
+            }
             defer {
                 filesystem.agentCommandShimInstallGate.release(installToken)
             }

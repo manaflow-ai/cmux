@@ -18,16 +18,8 @@ public struct TerminalSurfaceLaunchForm: Equatable, Sendable {
     }
 
     public init?(arguments: [String]) {
-        guard !arguments.isEmpty else { return nil }
+        guard let executable = arguments.first, !executable.isEmpty else { return nil }
         storage = .arguments(arguments)
-    }
-
-    /// Creates an argument-vector form whose non-empty shape is explicit.
-    public static func arguments(
-        first: String,
-        remaining: [String] = []
-    ) -> TerminalSurfaceLaunchForm {
-        TerminalSurfaceLaunchForm(storage: .arguments([first] + remaining))
     }
 
     public init?(command: String?, arguments: [String]?) {
@@ -51,7 +43,8 @@ public struct TerminalSurfaceLaunchForm: Equatable, Sendable {
         return arguments
     }
 
-    static let fallbackLoginShell = TerminalSurfaceLaunchForm(
+    /// Safe login-shell fallback used when no configured launch form is valid.
+    public static let fallbackLoginShell = TerminalSurfaceLaunchForm(
         storage: .arguments(["/bin/zsh", "-l"])
     )
 

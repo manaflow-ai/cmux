@@ -5014,7 +5014,7 @@ private actor SuspendedTerminalLaunchResolver {
     ) -> TerminalSurfaceResolvedLaunch {
         let launchForm = request.initialCommand
             .flatMap(TerminalSurfaceLaunchForm.init(command:))
-            ?? .arguments(first: "/bin/zsh", remaining: ["-l"])
+            ?? .fallbackLoginShell
         return TerminalSurfaceResolvedLaunch(
             workingDirectory: request.workingDirectory,
             launchForm: launchForm,

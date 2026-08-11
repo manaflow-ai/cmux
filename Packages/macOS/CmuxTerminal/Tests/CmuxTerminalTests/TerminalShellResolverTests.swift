@@ -129,6 +129,12 @@ struct TerminalShellResolverTests {
     }
 
     @Test
+    func emptyGhosttyDirectCommandIsRejectedBeforeLaunch() {
+        #expect(GhosttyConfiguredCommand(rawValue: "direct:") == nil)
+        #expect(TerminalSurfaceLaunchForm(arguments: [""]) == nil)
+    }
+
+    @Test
     func managedFishCommandWinsOverPlainResolvedShell() {
         let launchForm = TerminalLaunchCommandPolicy().resolve(
             initialCommand: nil,

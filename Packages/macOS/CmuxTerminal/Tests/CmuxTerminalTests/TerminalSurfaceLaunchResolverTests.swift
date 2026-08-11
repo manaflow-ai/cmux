@@ -195,11 +195,17 @@ struct TerminalSurfaceLaunchResolverTests {
         #expect(await installer.cancellationCount == 1)
         #expect(await installer.isBlocked)
 
-        let secondResolved = await resolver.resolveInstallingCommandShim(request)
-        #expect(secondResolved.environment["CMUX_AGENT_COMMAND_SHIM_ROOT"] == nil)
+        let secondResolution = Task { await resolver.resolveInstallingCommandShim(request) }
+        try await clock.waitUntilSleepers()
         #expect(await installer.invocationCount == 1)
         #expect(await installer.isBlocked)
+
         await installer.complete()
+        await installer.waitUntilBlocked()
+        #expect(await installer.invocationCount == 2)
+        await installer.complete()
+        let secondResolved = await secondResolution.value
+        #expect(secondResolved.environment["CMUX_AGENT_COMMAND_SHIM_ROOT"] == nil)
     }
 
     private func makeResolver(
