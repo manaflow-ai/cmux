@@ -51,6 +51,43 @@ struct ConnectedHandle: Sendable {
 
 typealias TerminalConnector = @Sendable (String, String) -> ConnectedHandle
 
+struct TerminalModelClock: Sendable {
+    private let currentTime: @Sendable () -> Duration
+    private let sleepUntilTime: @Sendable (Duration, Duration?) async throws -> Void
+
+    init(
+        now: @escaping @Sendable () -> Duration,
+        sleepUntil: @escaping @Sendable (Duration, Duration?) async throws -> Void
+    ) {
+        currentTime = now
+        sleepUntilTime = sleepUntil
+    }
+
+    var now: Duration { currentTime() }
+
+    func sleep(for delay: Duration) async throws {
+        try await sleep(until: now + delay)
+    }
+
+    func sleep(until deadline: Duration, tolerance: Duration? = nil) async throws {
+        try await sleepUntilTime(deadline, tolerance)
+    }
+
+    static func continuous() -> TerminalModelClock {
+        let clock = ContinuousClock()
+        let origin = clock.now
+        return TerminalModelClock(
+            now: { origin.duration(to: clock.now) },
+            sleepUntil: { deadline, tolerance in
+                try await clock.sleep(
+                    until: origin.advanced(by: deadline),
+                    tolerance: tolerance
+                )
+            }
+        )
+    }
+}
+
 private let terminalConnectionTimeoutError = "terminal connection timed out"
 private let terminalConnectionTimeoutMilliseconds: UInt64 = 15_000
 
@@ -546,6 +583,7 @@ final class TerminalModel {
     @ObservationIgnored private var resizeRetryExhausted = false
     @ObservationIgnored private var geometryDelivery = GeometryDeliveryState()
     @ObservationIgnored private let connectClient: TerminalConnector
+    @ObservationIgnored private let clock: TerminalModelClock
     @ObservationIgnored private let shouldAutoConnect: Bool
     @ObservationIgnored private var didAttemptAutoConnect = false
     @ObservationIgnored private var isShuttingDown = false
@@ -555,7 +593,8 @@ final class TerminalModel {
         configuration: DemoLaunchConfiguration = .processEnvironment(),
         retainedClient: TerminalClientHandle? = nil,
         initiallyConnected: Bool = false,
-        connectClient: TerminalConnector? = nil
+        connectClient: TerminalConnector? = nil,
+        clock: TerminalModelClock = .continuous()
     ) {
         let inputWake = AsyncStream.makeStream(
             of: Void.self,
@@ -566,6 +605,7 @@ final class TerminalModel {
         invitation = configuration.invitation
         terminalID = configuration.terminalID
         self.connectClient = connectClient ?? defaultTerminalConnector
+        self.clock = clock
         shouldAutoConnect = configuration.autoConnect
         client = retainedClient
         let retainedInvitation = configuration.invitation.trimmingCharacters(
@@ -872,7 +912,7 @@ final class TerminalModel {
         resizeRetryAttempt += 1
         resizeRetryTask = Task {
             do {
-                try await ContinuousClock().sleep(for: delay)
+                try await clock.sleep(for: delay)
             } catch {
                 return
             }
@@ -896,7 +936,6 @@ final class TerminalModel {
         updateTask?.cancel()
         updateTask = Task { [weak self] in
             let updates = await client.updates()
-            let clock = ContinuousClock()
             var nextRender = clock.now
             for await _ in updates.stream {
                 guard !Task.isCancelled else { break }
