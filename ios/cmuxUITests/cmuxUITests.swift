@@ -6823,7 +6823,7 @@ final class cmuxUITests: XCTestCase {
         pairButton.tap()
 
         XCTAssertTrue(
-            pairingForm.waitForNonExistence(timeout: 20),
+            hostField.waitForNonExistence(timeout: 20),
             "Successful manual loopback pairing must dismiss the Add Computer sheet"
         )
 
