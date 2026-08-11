@@ -222,8 +222,10 @@ pub(super) fn terminate_process_tree_until(
     process: ProcessIdentity,
     deadline: Instant,
 ) -> io::Result<()> {
-    let tree = FrozenProcessTree::freeze(process, deadline)?;
-    tree.terminate_until(deadline)
+    retry_process_tree_termination(process, deadline, |_| {
+        let tree = FrozenProcessTree::freeze(process, deadline)?;
+        tree.terminate_until(deadline)
+    })
 }
 
 #[cfg(test)]
