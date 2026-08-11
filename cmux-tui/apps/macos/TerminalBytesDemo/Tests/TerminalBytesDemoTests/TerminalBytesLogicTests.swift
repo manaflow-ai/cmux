@@ -5,12 +5,10 @@ import Testing
 
 @testable import TerminalBytesDemo
 
-private final class TestProgress: @unchecked Sendable {
-    static let shared = TestProgress()
-
+private final class TestSignal: @unchecked Sendable {
     private let lock = NSLock()
     private var generationStorage: UInt64 = 0
-    private var waiters: [(UInt64, CheckedContinuation<Void, Never>)] = []
+    private var waiters: [CheckedContinuation<Void, Never>] = []
 
     var generation: UInt64 {
         lock.lock()
@@ -24,7 +22,7 @@ private final class TestProgress: @unchecked Sendable {
         let ready = waiters
         waiters.removeAll()
         lock.unlock()
-        for (_, continuation) in ready {
+        for continuation in ready {
             continuation.resume()
         }
     }
@@ -36,7 +34,7 @@ private final class TestProgress: @unchecked Sendable {
                 lock.unlock()
                 continuation.resume()
             } else {
-                waiters.append((observedGeneration, continuation))
+                waiters.append(continuation)
                 lock.unlock()
             }
         }
@@ -113,6 +111,7 @@ private final class LockedFlag: @unchecked Sendable {
     // NSLock protects every access to storage, including calls from injected
     // C-operation closures that the compiler must treat as concurrent.
     private let lock = NSLock()
+    private let signal = TestSignal()
     private var storage = false
 
     var value: Bool {
@@ -125,13 +124,22 @@ private final class LockedFlag: @unchecked Sendable {
         lock.lock()
         storage = true
         lock.unlock()
-        TestProgress.shared.signal()
+        signal.signal()
+    }
+
+    func waitUntilSet() async {
+        while !value {
+            let generation = signal.generation
+            if value { return }
+            await signal.wait(after: generation)
+        }
     }
 }
 
 private final class LockedCounter: @unchecked Sendable {
     // NSLock protects every access from injected concurrent client operations.
     private let lock = NSLock()
+    private let signal = TestSignal()
     private var storage = 0
 
     var value: Int {
@@ -144,12 +152,21 @@ private final class LockedCounter: @unchecked Sendable {
         lock.lock()
         storage += 1
         lock.unlock()
-        TestProgress.shared.signal()
+        signal.signal()
+    }
+
+    func wait(until predicate: @Sendable (Int) -> Bool) async {
+        while !predicate(value) {
+            let generation = signal.generation
+            if predicate(value) { return }
+            await signal.wait(after: generation)
+        }
     }
 }
 
 private final class LockedInputs: @unchecked Sendable {
     private let lock = NSLock()
+    private let signal = TestSignal()
     private var storage: [String] = []
 
     var values: [String] {
@@ -164,8 +181,16 @@ private final class LockedInputs: @unchecked Sendable {
         storage.append(value)
         let count = storage.count
         lock.unlock()
-        TestProgress.shared.signal()
+        signal.signal()
         return count
+    }
+
+    func wait(until predicate: @Sendable ([String]) -> Bool) async {
+        while !predicate(values) {
+            let generation = signal.generation
+            if predicate(values) { return }
+            await signal.wait(after: generation)
+        }
     }
 }
 
@@ -273,19 +298,26 @@ private final class LockedClientCalls: @unchecked Sendable {
 @Suite
 struct TerminalBytesLogicTests {
     @MainActor
-    private func waitUntil(
+    private func waitUntilObserved(
         _ predicate: @escaping @MainActor () -> Bool
-    ) async -> Bool {
+    ) async {
         while true {
-            let generation = TestProgress.shared.generation
             var satisfied = false
-            withObservationTracking {
+            let changes = AsyncStream.makeStream(
+                of: Void.self,
+                bufferingPolicy: .bufferingNewest(1)
+            )
+            withObservationTracking({
                 satisfied = predicate()
-            } onChange: {
-                TestProgress.shared.signal()
+            }, onChange: {
+                changes.continuation.yield()
+                changes.continuation.finish()
+            })
+            if satisfied {
+                changes.continuation.finish()
+                return
             }
-            if satisfied { return true }
-            await TestProgress.shared.wait(after: generation)
+            for await _ in changes.stream { break }
         }
     }
 
@@ -505,11 +537,11 @@ struct TerminalBytesLogicTests {
         )
 
         model.resize(to: TerminalGeometry(cols: 120, rows: 40))
-        #expect(await waitUntil { attempts.value > 0 })
+        await attempts.wait { $0 > 0 }
         for _ in 0..<100 {
             model.resize(to: TerminalGeometry(cols: 120, rows: 40))
         }
-        #expect(await waitUntil { attempts.value >= 4 })
+        await attempts.wait { $0 >= 4 }
         await Task.yield()
         #expect(attempts.value == 4)
         model.shutdown()
@@ -544,11 +576,11 @@ struct TerminalBytesLogicTests {
         )
 
         model.resize(to: TerminalGeometry(cols: 120, rows: 40))
-        #expect(await waitUntil { attempts.value == 1 })
+        await attempts.wait { $0 == 1 }
         #expect(await clock.nextSleepDeadline() == .milliseconds(50))
 
         clock.advance(by: .milliseconds(50))
-        #expect(await waitUntil { attempts.value == 2 })
+        await attempts.wait { $0 == 2 }
         #expect(await clock.nextSleepDeadline() == .milliseconds(150))
 
         model.shutdown()
@@ -644,14 +676,14 @@ struct TerminalBytesLogicTests {
         )
 
         model.submit(.bytes(Data("0".utf8)))
-        #expect(await waitUntil { firstStarted.value })
+        await firstStarted.waitUntilSet()
         for value in 1...300 {
             model.submit(.bytes(Data(String(value).utf8)))
         }
         #expect(!model.errorMessage.isEmpty)
 
         releaseFirst.signal()
-        #expect(await waitUntil { inputs.values.count == 257 })
+        await inputs.wait { $0.count == 257 }
         #expect(inputs.values == (0...256).map(String.init))
         model.shutdown()
     }
@@ -660,7 +692,7 @@ struct TerminalBytesLogicTests {
     func terminalInputRejectsAnOversizedPayloadBeforeTheEntryLimit() async throws {
         let harness = makeBlockingInputHarness()
         harness.model.submit(.bytes(Data("blocked".utf8)))
-        #expect(await waitUntil { harness.firstStarted.value })
+        await harness.firstStarted.waitUntilSet()
 
         harness.model.submit(.bytes(Data(repeating: 0x61, count: 1_048_577)))
         #expect(!harness.model.errorMessage.isEmpty)
@@ -673,7 +705,7 @@ struct TerminalBytesLogicTests {
     func terminalInputRejectsAggregateBytesBeforeTheEntryLimit() async throws {
         let harness = makeBlockingInputHarness()
         harness.model.submit(.bytes(Data("blocked".utf8)))
-        #expect(await waitUntil { harness.firstStarted.value })
+        await harness.firstStarted.waitUntilSet()
 
         let chunk = Data(repeating: 0x61, count: 1_048_576)
         for _ in 0..<5 {
@@ -714,11 +746,11 @@ struct TerminalBytesLogicTests {
 
         model.connect()
         #expect(model.isConnecting)
-        #expect(await waitUntil { attachStarted.value })
+        await attachStarted.waitUntilSet()
         #expect(model.isConnecting)
 
         releaseAttach.signal()
-        #expect(await waitUntil { model.isConnected && !model.isConnecting })
+        await waitUntilObserved { model.isConnected && !model.isConnecting }
         model.shutdown()
     }
 
@@ -738,11 +770,13 @@ struct TerminalBytesLogicTests {
         )
 
         model.connect()
-        #expect(await waitUntil { attempts.value == 1 && !model.isConnecting })
+        await attempts.wait { $0 == 1 }
+        await waitUntilObserved { !model.isConnecting }
         #expect(!model.errorMessage.isEmpty)
 
         model.connect()
-        #expect(await waitUntil { attempts.value == 2 && !model.isConnecting })
+        await attempts.wait { $0 == 2 }
+        await waitUntilObserved { !model.isConnecting }
         #expect(!model.errorMessage.isEmpty)
         model.shutdown()
     }
@@ -778,15 +812,13 @@ struct TerminalBytesLogicTests {
         )
 
         model.connect()
-        #expect(await waitUntil { timeouts.values == ["15000"] && !model.isConnecting })
+        await timeouts.wait { $0 == ["15000"] }
+        await waitUntilObserved { !model.isConnecting }
         #expect(!model.errorMessage.isEmpty)
 
         model.connect()
-        #expect(
-            await waitUntil {
-                timeouts.values == ["15000", "15000"] && !model.isConnecting
-            }
-        )
+        await timeouts.wait { $0 == ["15000", "15000"] }
+        await waitUntilObserved { !model.isConnecting }
         #expect(!model.errorMessage.isEmpty)
         model.shutdown()
     }
@@ -825,12 +857,9 @@ struct TerminalBytesLogicTests {
         model.invitation = "cmux://enroll/new"
         model.connect()
 
-        #expect(
-            await waitUntil {
-                invitations.values == ["cmux://enroll/new"] && destroyed.value
-                    && !model.isConnecting
-            }
-        )
+        await invitations.wait { $0 == ["cmux://enroll/new"] }
+        await destroyed.waitUntilSet()
+        await waitUntilObserved { !model.isConnecting }
         #expect(!attached.value)
         model.shutdown()
     }
@@ -864,11 +893,11 @@ struct TerminalBytesLogicTests {
         model.disconnect()
         #expect(!model.isConnected)
         #expect(model.isConnecting)
-        #expect(await waitUntil { detachStarted.value })
+        await detachStarted.waitUntilSet()
         #expect(model.isConnecting)
 
         releaseDetach.signal()
-        #expect(await waitUntil { !model.isConnecting })
+        await waitUntilObserved { !model.isConnecting }
         model.shutdown()
     }
 
@@ -901,7 +930,7 @@ struct TerminalBytesLogicTests {
         )
 
         model.connect()
-        #expect(await waitUntil { model.frame == "terminal A" })
+        await waitUntilObserved { model.frame == "terminal A" }
         model.disconnect()
         #expect(model.frame.isEmpty)
         model.shutdown()
@@ -943,7 +972,7 @@ struct TerminalBytesLogicTests {
         )
 
         model.connect()
-        #expect(await waitUntil { model.diagnostics == exitedDiagnostics })
+        await waitUntilObserved { model.diagnostics == exitedDiagnostics }
         #expect(!model.isConnected)
         model.submit(.bytes(Data("x".utf8)))
         #expect(model.errorMessage.isEmpty)
