@@ -2217,7 +2217,7 @@ impl Mux {
             agent_records,
             terminal_notifications,
             notification_ledger,
-        } = restore_public_projections(&state, registry.public_projections()?)?;
+        } = restore_public_projections(&state, registry.public_projections_for_cache_restore()?)?;
         let journal_producers = registry.journal_producer_manifests()?;
         let session_public_id = registry.session_id().clone();
         let journal_kernel = crate::journal_kernel::JournalKernel::new(

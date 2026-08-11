@@ -195,6 +195,22 @@ impl WorkspaceRegistry {
         })
     }
 
+    pub(crate) fn public_projections_for_cache_restore(
+        &self,
+    ) -> anyhow::Result<RegistryPublicProjections> {
+        let live_terminals = self.live_terminal_public_ids()?;
+        let notifications = self.durable_notifications(&live_terminals)?;
+        let agents = self.stable_durable_agents()?;
+        let terminal_defaults = self.durable_terminal_defaults()?;
+        let frontend_projections = self.public_frontend_projections()?;
+        Ok(RegistryPublicProjections {
+            notifications,
+            agents,
+            terminal_defaults,
+            frontend_projections,
+        })
+    }
+
     pub(crate) fn public_agent_projections(
         &self,
         terminal: Option<&TerminalPublicId>,
@@ -284,22 +300,10 @@ impl WorkspaceRegistry {
         let mut statement = self.connection.prepare(
             "WITH selected AS MATERIALIZED (
                SELECT projection.terminal_id,
-                      CASE
-                        WHEN changed.terminal_id IS NULL THEN projection.result_json
-                        ELSE changed.previous_result_json
-                      END AS result_json,
-                      CASE
-                        WHEN changed.terminal_id IS NULL THEN projection.committed_revision
-                        ELSE changed.previous_committed_revision
-                      END AS committed_revision
+                      projection.result_json,
+                      projection.committed_revision
                FROM resource_agent_projections projection
-               LEFT JOIN resource_agent_projection_rebuild_changes changed
-                 ON changed.terminal_id = projection.terminal_id
                WHERE (?1 IS NULL OR projection.terminal_id = ?1)
-                 AND (
-                   changed.terminal_id IS NULL
-                   OR changed.previous_result_json IS NOT NULL
-                 )
              )
              SELECT terminal_id, result_json, committed_revision
              FROM selected
@@ -317,6 +321,43 @@ impl WorkspaceRegistry {
             agents.push(decode_agent_projection(
                 &result_json,
                 &projected_terminal_id,
+                &self.session_id,
+                committed_revision,
+            )?);
+        }
+        agents.reverse();
+        Ok(agents)
+    }
+
+    fn stable_durable_agents(&self) -> anyhow::Result<Vec<RegistryAgentProjection>> {
+        let mut statement = self.connection.prepare(
+            "SELECT projection.terminal_id,
+                    CASE
+                      WHEN changed.terminal_id IS NULL THEN projection.result_json
+                      ELSE changed.previous_result_json
+                    END AS result_json,
+                    CASE
+                      WHEN changed.terminal_id IS NULL THEN projection.committed_revision
+                      ELSE changed.previous_committed_revision
+                    END AS committed_revision
+             FROM resource_agent_projections projection
+             LEFT JOIN resource_agent_projection_rebuild_changes changed
+               ON changed.terminal_id = projection.terminal_id
+             WHERE changed.terminal_id IS NULL
+                OR changed.previous_result_json IS NOT NULL
+             ORDER BY json_extract(result_json, '$.id') ASC, projection.terminal_id ASC",
+        )?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut agents = Vec::with_capacity(rows.len());
+        for (terminal_id, result_json, committed_revision) in rows {
+            let terminal_id = TerminalPublicId::parse(terminal_id)?;
+            agents.push(decode_agent_projection(
+                &result_json,
+                &terminal_id,
                 &self.session_id,
                 committed_revision,
             )?);

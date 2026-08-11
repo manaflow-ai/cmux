@@ -5844,7 +5844,7 @@ fn journal_agent_startup_hides_partial_projection_checkpoint() {
     let reopened = WorkspaceRegistry::open(&root, session).unwrap();
     assert!(reopened.agent_projection_rebuild_pending().unwrap());
     assert!(
-        reopened.public_projections().unwrap().agents.is_empty(),
+        reopened.public_projections_for_cache_restore().unwrap().agents.is_empty(),
         "startup exposed a projection before its fixed checkpoint was ready"
     );
     let mut complete = false;
