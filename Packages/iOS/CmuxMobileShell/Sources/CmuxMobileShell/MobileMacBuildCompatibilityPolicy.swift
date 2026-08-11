@@ -46,6 +46,23 @@ public enum MobileMacBuildCompatibilityPolicy: Equatable, Sendable {
         }
     }
 
+    /// Returns whether an authenticated host status belongs to this policy.
+    ///
+    /// Official Mac releases before instance tags shipped report no tag. They
+    /// remain compatible after RPC authentication, while tagged discovery and
+    /// every development build continue to fail closed through ``allows(instanceTag:)``.
+    /// The caller still enforces device and route authority for the response.
+    ///
+    /// - Parameter instanceTag: The tag reported by authenticated host status.
+    /// - Returns: `true` for a compatible tagged host or a tagless legacy host
+    ///   used by an official iOS build.
+    func allowsAuthenticatedHostStatus(instanceTag: String?) -> Bool {
+        if case .official = self, Self.normalized(instanceTag) == nil {
+            return true
+        }
+        return allows(instanceTag: instanceTag)
+    }
+
     /// Wraps a paired-Mac store so every read and mutation follows this policy.
     ///
     /// - Parameter store: The underlying persistence implementation.

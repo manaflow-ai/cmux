@@ -5,7 +5,8 @@ internal import Foundation
 extension MobileShellComposite {
     /// Whether authenticated host status belongs to this iOS build's audience.
     func macBuildIsCompatible(instanceTag: String?) -> Bool {
-        buildCompatibilityPolicy?.allows(instanceTag: instanceTag) ?? true
+        buildCompatibilityPolicy?
+            .allowsAuthenticatedHostStatus(instanceTag: instanceTag) ?? true
     }
 
     /// Removes registry app instances this iOS build is not allowed to use.
