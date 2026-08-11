@@ -160,10 +160,17 @@ struct DeviceTreeView: View {
     @ViewBuilder
     private var emptySection: some View {
         Section {
-            Text(L10n.string(
-                "mobile.computers.empty",
-                defaultValue: "No computers yet. Add one to see its workspaces here."
-            ))
+            Text(
+                showAddDevice != nil
+                    ? L10n.string(
+                        "mobile.computers.empty",
+                        defaultValue: "No computers yet. Add one to see its workspaces here."
+                    )
+                    : L10n.string(
+                        "mobile.devices.emptyDescription",
+                        defaultValue: "Sign in to cmux on your computer with this account and it appears here automatically."
+                    )
+            )
             .foregroundStyle(.secondary)
         }
     }
