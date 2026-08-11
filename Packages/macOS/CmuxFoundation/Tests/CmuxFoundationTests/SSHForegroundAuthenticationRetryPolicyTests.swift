@@ -5537,14 +5537,110 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(claimAcquisition.lowerBound < cleanupTransaction.lowerBound)
     }
 
-    @Test func failedOwnershipHandoffUsesBoundedBackgroundOwner() {
+    @Test func failedOwnershipHandoffUsesBoundedBackgroundOwner() throws {
         let functions = SSHForegroundAuthenticationRetryPolicy()
             .processTreeTerminationShellFunction()
+        let workerStart = try #require(
+            functions.range(of: "cmux_ssh_auth_background_state=")
+        )
+        let workerEnd = try #require(
+            functions.range(
+                of: "cmux_ssh_auth_background_owner_pid=$!",
+                range: workerStart.lowerBound..<functions.endIndex
+            )
+        )
+        let worker = functions[workerStart.lowerBound..<workerEnd.upperBound]
 
         #expect(functions.contains("cmux_ssh_auth_handoff_deadline_millis"))
         #expect(functions.contains("cmux_ssh_auth_handoff_attempt"))
         #expect(functions.contains("cmux_ssh_auth_background_owner_pid=$!"))
         #expect(functions.contains("cmux_ssh_auth_durable_cleanup_pending=1"))
+        #expect(worker.contains("cmux_ssh_auth_background_attempt"))
+        #expect(worker.contains("-lt 8"))
+        #expect(!worker.contains("while :; do"))
+        #expect(worker.contains("cmux_ssh_auth_publish_current_worker"))
+        #expect(functions.contains("cmux_ssh_auth_recorded_process_is_live"))
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func cleanupRetainsAcknowledgedUnpublishedHandoff(shellPath: String) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-ssh-auth-acknowledged-handoff-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let cleanupBody = SSHForegroundAuthenticationRetryPolicy()
+            .authenticationGroupDirectoryCleanupShellBody(terminatesPublishedGroup: false)
+        let command = """
+        cmux_test_group="$CMUX_SSH_AUTH_GROUP_DIR"
+        : > "$CMUX_SSH_AUTH_GROUP_DIR/handoff.owner"
+        cmux_ssh_auth_recorded_process_is_live() {
+          test "$1" = "$cmux_test_group/handoff.owner"
+        }
+        cmux_ssh_schedule_failed_auth_group_recovery() { :; }
+        \(cleanupBody)
+        test -d "$cmux_test_group" || exit 99
+        test -f "$cmux_test_group/handoff.owner" || exit 98
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: ["CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func durablePendingHandoffResumesBoundedTreeCleanup(shellPath: String) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-ssh-auth-pending-recovery-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let groupDirectory = root.appendingPathComponent(
+            "cmux-ssh-auth-group.pending",
+            isDirectory: true
+        )
+        let calls = root.appendingPathComponent("calls")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        try Data().write(to: groupDirectory.appendingPathComponent("handoff-pending"))
+        try "101 1 777 Thu_Jan_1_00:00:00_1970\n".write(
+            to: groupDirectory.appendingPathComponent("unpublished.root"),
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_force_unpublished_process_tree() {
+          printf '%s\n' "$*" > "$CMUX_TEST_CALLS"
+        }
+        cmux_ssh_auth_resume_pending_handoff "$CMUX_TEST_GROUP" || exit 99
+        /usr/bin/grep -Fqx '101 1 777 Thu_Jan_1_00:00:00_1970' \
+          "$CMUX_TEST_CALLS" || exit 98
+        test ! -d "$CMUX_TEST_GROUP" || exit 97
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_TEST_CALLS": calls.path,
+                "CMUX_TEST_GROUP": groupDirectory.path,
+                "TMPDIR": root.path,
+            ],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
