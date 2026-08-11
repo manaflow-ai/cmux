@@ -2,15 +2,15 @@ import CmuxTerminal
 import Foundation
 
 extension Workspace {
-    /// Holds native startup for structured Vault restores until their owning
-    /// topology has committed panel-scoped responder state.
+    /// Adds topology admission to any structured restore without changing its
+    /// immediate-versus-paced spawn timing.
     nonisolated static func terminalRuntimeSpawnPolicy(
         requestedPolicy: TerminalSurfaceRuntimeSpawnPolicy,
-        startupRestoreAgent: SessionRestorableAgentSnapshot?
+        requiresStartupRestoreAdmission: Bool
     ) -> TerminalSurfaceRuntimeSpawnPolicy {
-        startupRestoreAgent == nil
-            ? requestedPolicy
-            : .heldForStartupRestoreAdmission
+        requiresStartupRestoreAdmission
+            ? requestedPolicy.requiringStartupRestoreAdmission()
+            : requestedPolicy
     }
 
     /// Commits one terminal's restore lifecycle and chat-session binding, then
@@ -31,7 +31,7 @@ extension Workspace {
             willRunStartupInput: hasQueuedStartupInput,
             resumeSessionWorkingDirectory: snapshot.workingDirectory
         )
-        AgentChatTranscriptService.recordResumeIntent(
+        agentChatResumeIntentRecorder.record(
             sessionID: snapshot.sessionId,
             source: snapshot.kind.rawValue,
             surfaceID: panel.id.uuidString,
@@ -39,5 +39,16 @@ extension Workspace {
             workingDirectory: snapshot.workingDirectory
         )
         panel.surface.admitStartupRestoreRuntime()
+    }
+
+    /// Releases every structured terminal restored by this workspace.
+    ///
+    /// Full-window restoration calls this only after `TabManager.tabs` is
+    /// authoritative. Direct workspace and closed-item restores call it once
+    /// their own panel topology is complete.
+    func admitSessionRestoredTerminalRuntimes() {
+        for terminalPanel in panels.values.compactMap({ $0 as? TerminalPanel }) {
+            terminalPanel.surface.admitStartupRestoreRuntime()
+        }
     }
 }

@@ -557,17 +557,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.runtimeFilesystem = dependencies.runtimeFilesystem
         self.agentCommandShimInstallDeadline = dependencies.agentCommandShimInstallDeadline
         self.agentCommandShimInstallDeadlineClock = dependencies.agentCommandShimInstallDeadlineClock
-        switch runtimeSpawnPolicy {
-        case .immediate:
-            self.requiresRestoreSpawnPacing = false
-            self.startupRestoreAdmissionPhase = .unrestricted
-        case .pacedSessionRestore:
-            self.requiresRestoreSpawnPacing = true
-            self.startupRestoreAdmissionPhase = .unrestricted
-        case .heldForStartupRestoreAdmission:
-            self.requiresRestoreSpawnPacing = false
-            self.startupRestoreAdmissionPhase = .awaitingAdmission
-        }
+        self.requiresRestoreSpawnPacing = runtimeSpawnPolicy.spawnTiming == .pacedSessionRestore
+        self.startupRestoreAdmissionPhase = runtimeSpawnPolicy.requiresStartupRestoreAdmission
+            ? .awaitingAdmission
+            : .unrestricted
         self.sessionPortBase = dependencies.sessionPortBase
         self.sessionPortRangeSize = dependencies.sessionPortRangeSize
         self.scrollbackReplayEnvironmentKey = dependencies.scrollbackReplayEnvironmentKey

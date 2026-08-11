@@ -189,8 +189,14 @@ extension Workspace {
         return snapshot
     }
 
+    /// Rebuilds workspace state while keeping structured terminal startups
+    /// behind the topology boundary selected by `startupRestoreAdmissionOwner`.
     @discardableResult
-    func restoreSessionSnapshot(_ snapshot: SessionWorkspaceSnapshot, excludingStableIdentities: Set<UUID> = []) -> [UUID: UUID] {
+    func restoreSessionSnapshot(
+        _ snapshot: SessionWorkspaceSnapshot,
+        excludingStableIdentities: Set<UUID> = [],
+        startupRestoreAdmissionOwner: WorkspaceTerminalStartupRestoreAdmissionOwner = .workspaceTopology
+    ) -> [UUID: UUID] {
         let previousSuppressClosedPanelHistory = suppressClosedPanelHistory
         suppressClosedPanelHistory = true
         defer { suppressClosedPanelHistory = previousSuppressClosedPanelHistory }
@@ -333,6 +339,9 @@ extension Workspace {
         }
         AppDelegate.shared?.notificationStore?.restoreSessionNotifications(restoredNotifications, forTabId: id)
         syncUnreadBadgeStateForAllPanels()
+        if startupRestoreAdmissionOwner == .workspaceTopology {
+            admitSessionRestoredTerminalRuntimes()
+        }
         return oldToNewPanelIds
     }
 
@@ -882,6 +891,7 @@ extension Workspace {
             snapshotWorkspaceId: nil,
             shouldRestoreSingleDefaultCloudTerminal: false
         ) else { return nil }
+        terminalPanel(for: panelId)?.surface.admitStartupRestoreRuntime()
 
         let maxIndex = max(0, bonsplitController.tabs(inPane: pane).count - 1)
         _ = reorderSurface(panelId: panelId, toIndex: min(max(entry.tabIndex, 0), maxIndex))
@@ -929,6 +939,7 @@ extension Workspace {
         guard panels[panelId] != nil else {
             return nil
         }
+        terminalPanel(for: panelId)?.surface.admitStartupRestoreRuntime()
         focusPanel(panelId)
         return panelId
     }
@@ -1628,7 +1639,11 @@ extension Workspace {
                 tmuxStartCommand: restoredTmuxStartCommand,
                 initialInput: restoredStartupInput,
                 startupEnvironment: replayEnvironment,
-                runtimeSpawnPolicy: .pacedSessionRestore,
+                runtimeSpawnPolicy: Self.terminalRuntimeSpawnPolicy(
+                    requestedPolicy: .pacedSessionRestore,
+                    requiresStartupRestoreAdmission:
+                        restorableAgent != nil || restoredAgentWillRunStartupInput
+                ),
                 remotePTYSessionID: restoredRemotePTYSessionID,
                 suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
                 restoredSurfaceId: reusableSurfaceId,
@@ -1670,7 +1685,7 @@ extension Workspace {
                 // in), so it must be the resume launcher's real target, not
                 // the persisted terminal cwd a stray report may have parked
                 // on home (#7155).
-                AgentChatTranscriptService.recordResumeIntent(
+                agentChatResumeIntentRecorder.record(
                     sessionID: resumeReboundSession.sessionID,
                     source: resumeReboundSession.source,
                     surfaceID: terminalPanel.id.uuidString,
@@ -2202,6 +2217,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published private(set) var surfaceTabBarDirectory: String?
     private(set) var preferredBrowserProfileID: UUID?
     let closeTabWarningDefaults, agentSessionAutoResumeDefaults: UserDefaults
+    let agentChatResumeIntentRecorder: AgentChatResumeIntentRecorder
     private let settings: any SettingsReading
 
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
@@ -2234,7 +2250,8 @@ final class Workspace: Identifiable, ObservableObject {
                 )
             },
             settings: settings,
-            agentSessionAutoResumeDefaults: agentSessionAutoResumeDefaults
+            agentSessionAutoResumeDefaults: agentSessionAutoResumeDefaults,
+            agentChatResumeIntentRecorder: agentChatResumeIntentRecorder
         )
         store.terminalFontSizeChangeCoordinator =
             terminalFontSizeChangeCoordinator
@@ -3215,6 +3232,7 @@ final class Workspace: Identifiable, ObservableObject {
         initialTerminalCommand: String? = nil,
         initialTerminalInput: String? = nil,
         initialTerminalStartupRestoreAgent: SessionRestorableAgentSnapshot? = nil,
+        initialTerminalStartupRestoreAdmissionOwner: WorkspaceTerminalStartupRestoreAdmissionOwner = .workspaceTopology,
         initialTerminalEnvironment: [String: String] = [:],
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
@@ -3227,6 +3245,7 @@ final class Workspace: Identifiable, ObservableObject {
         initialDetachedSurface: DetachedSurfaceTransfer? = nil,
         sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>? = nil,
         sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel? = nil,
+        agentChatResumeIntentRecorder: AgentChatResumeIntentRecorder = AgentChatResumeIntentRecorder(),
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker()
     ) {
         self.id = id ?? UUID()
@@ -3236,6 +3255,7 @@ final class Workspace: Identifiable, ObservableObject {
         self.settings = settings
         self.closeTabWarningDefaults = closeTabWarningDefaults
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
+        self.agentChatResumeIntentRecorder = agentChatResumeIntentRecorder
         let sanitizedWorkspaceEnvironment = Self.sanitizedWorkspaceEnvironment(workspaceEnvironment)
         self.workspaceEnvironment = sanitizedWorkspaceEnvironment
         self.portOrdinal = portOrdinal
@@ -3365,7 +3385,8 @@ final class Workspace: Identifiable, ObservableObject {
                 ),
                 runtimeSpawnPolicy: Self.terminalRuntimeSpawnPolicy(
                     requestedPolicy: .immediate,
-                    startupRestoreAgent: initialTerminalStartupRestoreAgent
+                    requiresStartupRestoreAdmission:
+                        initialTerminalStartupRestoreAgent != nil
                 )
             )
             configureNewTerminalPanel(
@@ -3386,6 +3407,18 @@ final class Workspace: Identifiable, ObservableObject {
                 bindSurface(tabId, toPanelId: terminalPanel.id)
                 initialTabId = tabId
                 rememberTerminalConfigInheritanceSource(terminalPanel)
+                if let initialTerminalStartupRestoreAgent,
+                   initialTerminalStartupRestoreAdmissionOwner == .workspaceTopology {
+                    commitTerminalStartupRestore(
+                        panel: terminalPanel,
+                        snapshot: initialTerminalStartupRestoreAgent,
+                        hasQueuedStartupInput: initialTerminalInput != nil
+                    )
+                }
+            } else if initialTerminalStartupRestoreAgent != nil {
+                panels.removeValue(forKey: terminalPanel.id)
+                panelTitles.removeValue(forKey: terminalPanel.id)
+                terminalPanel.surface.teardownSurface()
             }
         }
 
@@ -8036,7 +8069,7 @@ final class Workspace: Identifiable, ObservableObject {
             additionalEnvironment: effectiveStartupEnvironment,
             runtimeSpawnPolicy: Self.terminalRuntimeSpawnPolicy(
                 requestedPolicy: runtimeSpawnPolicy,
-                startupRestoreAgent: startupRestoreAgent
+                requiresStartupRestoreAdmission: startupRestoreAgent != nil
             )
         )
         configureNewTerminalPanel(
@@ -11554,7 +11587,7 @@ final class Workspace: Identifiable, ObservableObject {
             additionalEnvironment: effectiveStartupEnvironment,
             runtimeSpawnPolicy: Self.terminalRuntimeSpawnPolicy(
                 requestedPolicy: .immediate,
-                startupRestoreAgent: startupRestoreAgent
+                requiresStartupRestoreAdmission: startupRestoreAgent != nil
             )
         )
         configureNewTerminalPanel(newPanel)

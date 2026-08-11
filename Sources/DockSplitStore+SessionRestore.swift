@@ -249,6 +249,9 @@ extension DockSplitStore {
             : nil
         let initialCommand = tmuxLauncher
         let initialInput = bindingLaunch?.initialInput ?? agentLaunch?.initialInput
+        let willRunAgentInput =
+            agentLaunch?.initialInput != nil ||
+            (bindingLaunch?.initialInput != nil && resumeBinding?.isAgentHookBinding == true)
         let startupHandlesWorkingDirectory =
             tmuxLauncher != nil || agentLaunch != nil || bindingLaunch != nil
         let hostShellWorkingDirectory: String? = {
@@ -292,7 +295,9 @@ extension DockSplitStore {
             initialInput: initialInput,
             additionalEnvironment: replayEnvironment,
             focusPlacement: .rightSidebarDock,
-            runtimeSpawnPolicy: .pacedSessionRestore
+            runtimeSpawnPolicy: willRunAgentInput
+                ? .pacedSessionRestore.requiringStartupRestoreAdmission()
+                : .pacedSessionRestore
         )
         terminal.adoptOwnedSessionScrollbackReplayArtifact(replayFileURL)
         terminal.restoreSessionTextBoxDraft(terminalSnapshot.textBoxDraft)
@@ -325,9 +330,6 @@ extension DockSplitStore {
             restoredTerminalScrollbackByPanelId[terminal.id] = restoredScrollback
         }
         let willRunAgentCommand = false
-        let willRunAgentInput =
-            agentLaunch?.initialInput != nil ||
-            (bindingLaunch?.initialInput != nil && resumeBinding?.isAgentHookBinding == true)
         restoredAgentLifecycle.seedSessionRestore(
             panelId: terminal.id,
             snapshot: restorableAgent,
@@ -351,6 +353,7 @@ extension DockSplitStore {
             workingDirectory: resumeSessionWorkingDirectory,
             agentSessionAlreadyActive: agentSessionAlreadyActive
         )
+        terminal.surface.admitStartupRestoreRuntime()
         return terminal.id
     }
 
@@ -466,7 +469,7 @@ extension DockSplitStore {
             nil
         }
         guard let session else { return }
-        AgentChatTranscriptService.recordResumeIntent(
+        agentChatResumeIntentRecorder.record(
             sessionID: session.id,
             source: session.source,
             surfaceID: panelId.uuidString,
