@@ -199,6 +199,33 @@ struct TerminalSurfaceLaunchResolverTests {
         #expect(secondResolved.environment == firstResolved.environment)
     }
 
+    @Test func asyncLaunchCachesDefaultShellArgumentsOffMainActor() async {
+        let recorder = DefaultShellArgumentsRecorder()
+        let resolver = makeResolver(
+            defaultArguments: ["/bin/zsh", "-l"],
+            defaultArgumentsProvider: {
+                recorder.resolve()
+            }
+        )
+        let request = TerminalSurfaceLaunchRequest(
+            workspaceID: UUID(),
+            surfaceID: UUID(),
+            configTemplate: nil,
+            workingDirectory: nil,
+            portOrdinal: 0,
+            initialCommand: nil,
+            initialInput: nil,
+            initialEnvironmentOverrides: [:],
+            additionalEnvironment: [:]
+        )
+
+        _ = await resolver.resolveInstallingCommandShim(request)
+        _ = await resolver.resolveInstallingCommandShim(request)
+
+        #expect(recorder.invocationCount == 1)
+        #expect(!recorder.resolvedOnMainThread)
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func commandShimInstallUsesInjectedFiveSecondDeadline() async throws {
         let clock = LaunchResolverManualClock()
@@ -268,6 +295,7 @@ struct TerminalSurfaceLaunchResolverTests {
 
     private func makeResolver(
         defaultArguments: [String],
+        defaultArgumentsProvider: (@Sendable () -> [String])? = nil,
         resolvedUserShell: String? = nil,
         userGhosttyCommand: String? = nil,
         runtimeFilesystem: TerminalSurfaceRuntimeFilesystem? = nil,
@@ -292,7 +320,7 @@ struct TerminalSurfaceLaunchResolverTests {
             resourceURL: resourceURL,
             bundleIdentifier: "com.cmux.test",
             ambientEnvironment: ["PATH": "/usr/bin", "SHELL": "/bin/zsh"],
-            defaultShellArguments: { defaultArguments },
+            defaultShellArguments: defaultArgumentsProvider ?? { defaultArguments },
             agentCommandShimInstallDeadline: agentCommandShimInstallDeadline,
             agentCommandShimInstallDeadlineClock: agentCommandShimInstallDeadlineClock
         )

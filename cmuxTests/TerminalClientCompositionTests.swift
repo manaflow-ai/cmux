@@ -2395,6 +2395,59 @@ struct TerminalClientCompositionTests {
         #expect(mutationsAfterClose.filter { $0.mutation == .closeCanonicalTerminal }.count == 1)
     }
 
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func persistentCanonicalCloseReleasesInstalledCommandShims() async {
+        let client = RecordingPersistentTerminalBackendClient()
+        let cleanupRecorder = PersistentCommandShimCleanupRecorder()
+        let installedShims = TerminalSurfaceAgentCommandShimSet(
+            directoryPath: "/tmp/cmux-persistent-command-shims",
+            shims: []
+        )
+        let launchDependencies = GhosttyApp.terminalSurfaceLaunchDependencies
+        let resolver = TerminalSurfaceLaunchResolver(
+            userGhosttyShellIntegrationMode: { "none" },
+            resolvedUserShell: { nil },
+            userGhosttyCommand: { nil },
+            spawnPolicyProvider: launchDependencies.spawnPolicyProvider,
+            runtimeFilesystem: TerminalSurfaceRuntimeFilesystem(
+                agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp"),
+                installAgentCommandShims: { _, _, _ in installedShims },
+                removeAgentCommandShims: { shims in
+                    await cleanupRecorder.record(shims)
+                },
+                isExecutableFile: { _ in false }
+            ),
+            sessionPortBase: 40_000,
+            sessionPortRangeSize: 100,
+            resourceURL: URL(fileURLWithPath: "/tmp/cmux-test-resources"),
+            bundleIdentifier: "com.cmux.test.persistent-terminal",
+            ambientEnvironment: ["PATH": "/usr/bin", "SHELL": "/bin/zsh"],
+            defaultShellArguments: { ["/bin/zsh", "-l"] }
+        )
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let runtime = PersistentTerminalExternalRuntime(
+            client: client,
+            launchResolver: resolver,
+            launchRequest: makeLaunchRequest(
+                workspaceID: workspaceID,
+                surfaceID: surfaceID
+            ),
+            presentationRegistry: TerminalBackendPresentationRegistry()
+        )
+        let presentationLease = runtime.attachPresentation(TerminalExternalPresentation(
+            surfaceID: surfaceID,
+            workspaceID: workspaceID
+        ))
+        defer { presentationLease.detach() }
+
+        await client.waitForEnsureCount(1)
+        await client.waitForUXReadCount(1)
+        #expect(runtime.enqueue(.closeCanonicalTerminal).accepted)
+
+        #expect(await cleanupRecorder.next() == installedShims)
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func rendererListenerRegistersBeforeConfigureAndDetachWaitsForQuiescence() async throws {
         let authority = BackendAuthority(
@@ -5061,6 +5114,30 @@ private actor SuspendedTerminalLaunchResolver {
         let satisfied = waiters.keys.filter { $0 <= count }
         for key in satisfied {
             waiters.removeValue(forKey: key)?.forEach { $0.resume() }
+        }
+    }
+}
+
+private actor PersistentCommandShimCleanupRecorder {
+    private var recorded: [TerminalSurfaceAgentCommandShimSet] = []
+    private var waiters: [CheckedContinuation<TerminalSurfaceAgentCommandShimSet, Never>] = []
+
+    func record(_ shims: TerminalSurfaceAgentCommandShimSet) {
+        if let waiter = waiters.first {
+            waiters.removeFirst()
+            waiter.resume(returning: shims)
+        } else {
+            recorded.append(shims)
+        }
+    }
+
+    func next() async -> TerminalSurfaceAgentCommandShimSet {
+        if let shims = recorded.first {
+            recorded.removeFirst()
+            return shims
+        }
+        return await withCheckedContinuation { continuation in
+            waiters.append(continuation)
         }
     }
 }
