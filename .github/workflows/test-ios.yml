@@ -30,6 +30,13 @@ on:
           - auto
           - blacksmith-6vcpu-macos-26
           - tart-ios
+          - xcode-27
+          - xcode-27-xlarge
+      capture_evidence:
+        description: "Capture isolated-simulator video, screenshots, xcresult, identity, and Animation Hitches trace"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -268,6 +275,8 @@ jobs:
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         env:
           DEVICE_FAMILY: ${{ matrix.family }}
+          REQUIRE_IOS_MAJOR: ${{ inputs.capture_evidence && '27' || '' }}
+          UNIQUE_SIM_SUFFIX: ${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.family }}
         run: |
           set -euo pipefail
           SIMULATOR_ENV="${RUNNER_TEMP:-$PWD/.tmp}/simulator-${DEVICE_FAMILY}.env"
@@ -292,6 +301,8 @@ jobs:
               return tuple(parts)
 
           family = os.environ["DEVICE_FAMILY"]
+          require_major = os.environ.get("REQUIRE_IOS_MAJOR", "")
+          unique_suffix = os.environ.get("UNIQUE_SIM_SUFFIX", "")
           data = simctl_json("devices", "available")
           devices = [
               device
@@ -301,8 +312,11 @@ jobs:
           ]
           prefix = "iPad" if family == "ipad" else "iPhone"
           preferred = ["iPad Pro 13-inch (M4)", "iPad Air 13-inch (M3)"] if family == "ipad" else ["iPhone 17", "iPhone 16"]
-          selected = next((d for name in preferred for d in devices if d.get("name") == name), None)
-          selected = selected or next((d for d in devices if d.get("name", "").startswith(prefix)), None)
+          selected = None
+          if not require_major:
+              selected = next((d for name in preferred for d in devices if d.get("name") == name), None)
+              selected = selected or next((d for d in devices if d.get("name", "").startswith(prefix)), None)
+          runtime = None
           if selected is None:
               runtimes = [
                   runtime
@@ -314,6 +328,12 @@ jobs:
                       or runtime.get("identifier", "").startswith("com.apple.CoreSimulator.SimRuntime.iOS")
                   )
               ]
+              if require_major:
+                  runtimes = [
+                      runtime
+                      for runtime in runtimes
+                      if str(runtime.get("version") or "").split(".", 1)[0] == require_major
+                  ]
               device_types = [
                   device_type
                   for device_type in simctl_json("devicetypes").get("devicetypes", [])
@@ -324,7 +344,7 @@ jobs:
               device_type = device_type or (device_types[-1] if device_types else None)
               if runtime is None or device_type is None:
                   raise SystemExit(f"No available {family} simulator or creatable iOS runtime/device type found")
-              created_name = f"cmux CI {device_type['name']}"
+              created_name = f"cmux verify {device_type['name']} {unique_suffix}" if require_major else f"cmux CI {device_type['name']}"
               udid = subprocess.check_output([
                   "xcrun",
                   "simctl",
@@ -340,6 +360,9 @@ jobs:
               )
           print(f"SIMULATOR_ID={selected['udid']}")
           print(f"SIMULATOR_NAME={selected['name']}")
+          if runtime is not None:
+              print(f"SIMULATOR_RUNTIME_IDENTIFIER={runtime['identifier']}")
+              print(f"SIMULATOR_RUNTIME_VERSION={runtime.get('version', '')}")
           PY
           cat "$SIMULATOR_ENV"
           cat "$SIMULATOR_ENV" >> "$GITHUB_ENV"
@@ -354,6 +377,9 @@ jobs:
           rm -rf "$IOS_DERIVED_DATA"
           mkdir -p "$IOS_DERIVED_DATA/logs"
           echo "IOS_DERIVED_DATA=$IOS_DERIVED_DATA" >> "$GITHUB_ENV"
+          IOS_EVIDENCE="$IOS_DERIVED_DATA/evidence"
+          mkdir -p "$IOS_EVIDENCE"
+          echo "IOS_EVIDENCE=$IOS_EVIDENCE" >> "$GITHUB_ENV"
 
       - name: Resolve packages
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
@@ -368,6 +394,8 @@ jobs:
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         env:
           TEST_FILTER: ${{ inputs.test_filter }}
+          CAPTURE_EVIDENCE: ${{ inputs.capture_evidence }}
+          PRODUCT_SOURCE_SHA: ${{ inputs.ref || github.sha }}
         run: |
           set -euo pipefail
           XCODEBUILD_ARGS=(
@@ -385,7 +413,6 @@ jobs:
             # non-UI iOS tests.
             XCODEBUILD_ARGS+=(-skip-testing:cmuxUITests)
           fi
-          XCODEBUILD_ARGS+=(test)
           selected_tests_passed_despite_xcodebuild_status() {
             local log_path="$1"
             # The negative grep must catch BOTH XCTest failure output and Swift
@@ -397,6 +424,30 @@ jobs:
               grep -Eq "Executed [1-9][0-9]* tests, with 0 failures \\(0 unexpected\\)" "$log_path" &&
               ! grep -Eq "Test Suite '.*' failed|Test Case '.*' failed|Assertion Failure|Failing tests:|with [1-9][0-9]* failures|with [0-9]+ failures \\([1-9][0-9]* unexpected\\)|✘ Test|✘ Suite" "$log_path"
           }
+          VIDEO_PID=""
+          TRACE_PID=""
+          EVIDENCE_ATTEMPT=""
+          stop_evidence_capture() {
+            if [ -n "${VIDEO_PID:-}" ]; then
+              kill -INT "$VIDEO_PID" >/dev/null 2>&1 || true
+              wait "$VIDEO_PID" >/dev/null 2>&1 || true
+              VIDEO_PID=""
+            fi
+            if [ -n "${TRACE_PID:-}" ]; then
+              kill -INT "$TRACE_PID" >/dev/null 2>&1 || true
+              wait "$TRACE_PID" >/dev/null 2>&1 || true
+              TRACE_PID=""
+            fi
+            if [ -n "${EVIDENCE_ATTEMPT:-}" ]; then
+              xcrun simctl io "$SIMULATOR_ID" screenshot "$EVIDENCE_ATTEMPT/final.png" >/dev/null 2>&1 || true
+              if [ -d "$EVIDENCE_ATTEMPT/animation-hitches.trace" ]; then
+                xcrun xctrace export \
+                  --input "$EVIDENCE_ATTEMPT/animation-hitches.trace" \
+                  --toc > "$EVIDENCE_ATTEMPT/animation-hitches-toc.xml" 2> "$EVIDENCE_ATTEMPT/animation-hitches-export.log" || true
+              fi
+            fi
+          }
+          trap stop_evidence_capture EXIT
           for attempt in 1 2; do
             LOG_PATH="$IOS_DERIVED_DATA/logs/attempt-${attempt}.log"
             echo "Preparing $SIMULATOR_NAME ($SIMULATOR_ID), attempt $attempt"
@@ -404,13 +455,70 @@ jobs:
             xcrun simctl erase "$SIMULATOR_ID"
             xcrun simctl boot "$SIMULATOR_ID" >/dev/null 2>&1 || true
             xcrun simctl bootstatus "$SIMULATOR_ID" -b
-            if xcodebuild "${XCODEBUILD_ARGS[@]}" 2>&1 | tee "$LOG_PATH"; then
+            ATTEMPT_ARGS=("${XCODEBUILD_ARGS[@]}")
+            if [ "$CAPTURE_EVIDENCE" = "true" ]; then
+              EVIDENCE_ATTEMPT="$IOS_EVIDENCE/attempt-${attempt}"
+              mkdir -p "$EVIDENCE_ATTEMPT"
+              ACTUAL_SOURCE_SHA="$(git rev-parse HEAD)"
+              if [ "$ACTUAL_SOURCE_SHA" != "$PRODUCT_SOURCE_SHA" ]; then
+                echo "::error::Evidence source mismatch: expected $PRODUCT_SOURCE_SHA, got $ACTUAL_SOURCE_SHA"
+                exit 1
+              fi
+              if [ "${SIMULATOR_RUNTIME_VERSION%%.*}" != "27" ]; then
+                echo "::error::Evidence requires iOS 27, got ${SIMULATOR_RUNTIME_VERSION:-unknown}"
+                exit 1
+              fi
+              {
+                echo "product_source_sha=$ACTUAL_SOURCE_SHA"
+                echo "workflow_sha=$GITHUB_SHA"
+                echo "workflow_ref=$GITHUB_REF"
+                echo "runner_name=$RUNNER_NAME"
+                echo "runner_arch=$RUNNER_ARCH"
+                echo "simulator_id=$SIMULATOR_ID"
+                echo "simulator_name=$SIMULATOR_NAME"
+                echo "simulator_runtime_identifier=${SIMULATOR_RUNTIME_IDENTIFIER:-}"
+                echo "simulator_runtime_version=${SIMULATOR_RUNTIME_VERSION:-}"
+                echo "test_filter=${TEST_FILTER:-}"
+                echo "xcode_developer_dir=$(xcode-select -p)"
+                xcodebuild -version
+                xcrun simctl list runtimes available
+                xcrun simctl list devices available
+                xcrun simctl spawn "$SIMULATOR_ID" uname -a
+              } > "$EVIDENCE_ATTEMPT/identity.txt" 2>&1
+              xcrun simctl io "$SIMULATOR_ID" screenshot "$EVIDENCE_ATTEMPT/before.png" >/dev/null
+              xcrun simctl io "$SIMULATOR_ID" recordVideo \
+                --codec h264 \
+                --force "$EVIDENCE_ATTEMPT/full-run.mov" \
+                > "$EVIDENCE_ATTEMPT/video.log" 2>&1 &
+              VIDEO_PID=$!
+              xcrun xctrace record \
+                --template "Animation Hitches" \
+                --device "$SIMULATOR_ID" \
+                --all-processes \
+                --time-limit 20m \
+                --output "$EVIDENCE_ATTEMPT/animation-hitches.trace" \
+                --no-prompt \
+                > "$EVIDENCE_ATTEMPT/animation-hitches.log" 2>&1 &
+              TRACE_PID=$!
+              ATTEMPT_ARGS+=(
+                -resultBundlePath "$EVIDENCE_ATTEMPT/result.xcresult"
+              )
+            fi
+            ATTEMPT_ARGS+=(test)
+            set +e
+            xcodebuild "${ATTEMPT_ARGS[@]}" 2>&1 | tee "$LOG_PATH"
+            status="${PIPESTATUS[0]}"
+            set -e
+            stop_evidence_capture
+            if [ "$CAPTURE_EVIDENCE" = "true" ]; then
+              cp "$LOG_PATH" "$EVIDENCE_ATTEMPT/xcodebuild.log"
+            fi
+            if [ "$status" -eq 0 ]; then
               ./scripts/ci/require_selected_test_execution.sh \
                 "$LOG_PATH" \
                 "${TEST_FILTER:-}"
               exit 0
             fi
-            status="${PIPESTATUS[0]}"
             if selected_tests_passed_despite_xcodebuild_status "$LOG_PATH"; then
               echo "xcodebuild exited $status after XCTest reported the selected tests passed with zero failures; treating this as a runner cleanup failure."
               exit 0
@@ -421,6 +529,17 @@ jobs:
             fi
             exit "$status"
           done
+
+      - name: Upload iOS simulator evidence
+        if: ${{ always() && inputs.capture_evidence && !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-evidence-${{ matrix.family }}-${{ github.run_id }}
+          path: ${{ env.IOS_EVIDENCE }}
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+          include-hidden-files: true
 
   ios-tests:
     name: ios-tests
