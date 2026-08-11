@@ -20383,10 +20383,20 @@ mod tests {
         wait_for_kitty_image_budget(&mux);
 
         let retiring_id = retiring.id;
-        *mux.kitty_image_budget_operation.lock().unwrap() =
-            Some(Arc::new(move |surface, limits, _deadline| {
-                if surface.id == retiring_id {
-                    anyhow::bail!("injected blocked Kitty quota surface");
+        let first_update = AtomicBool::new(true);
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let release = Arc::new((Mutex::new(false), Condvar::new()));
+        *mux.kitty_image_budget_operation.lock().unwrap() = Some(Arc::new({
+            let release = release.clone();
+            move |surface, limits, _deadline| {
+                if surface.id == retiring_id && first_update.swap(false, Ordering::AcqRel) {
+                    started_tx.send(()).unwrap();
+                    let (released, changed) = &*release;
+                    let mut released = released.lock().unwrap();
+                    while !*released {
+                        released = changed.wait(released).unwrap();
+                    }
+                    anyhow::bail!("injected late retiring Kitty quota failure");
                 }
                 surface.set_kitty_graphics_limits(
                     limits.image_bytes,
@@ -20394,35 +20404,14 @@ mod tests {
                     limits.images,
                     limits.placements,
                 )
-            }));
-        close_terminal_runtime_for_test(&mux, &other);
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while mux.kitty_image_budget.lock().unwrap().worker_running && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        assert!(mux.kitty_image_budget.lock().unwrap().blocked_surfaces.contains(&retiring.id));
-
-        let first_removal_attempt = Arc::new(AtomicBool::new(true));
-        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
-        let release = Arc::new((Mutex::new(false), Condvar::new()));
-        *mux.kitty_image_budget_operation.lock().unwrap() = Some(Arc::new({
-            let release = release.clone();
-            move |surface, _limits, _deadline| {
-                if surface.id == retiring_id && first_removal_attempt.swap(false, Ordering::AcqRel)
-                {
-                    started_tx.send(()).unwrap();
-                    let (released, changed) = &*release;
-                    let mut released = released.lock().unwrap();
-                    while !*released {
-                        released = changed.wait(released).unwrap();
-                    }
-                }
-                anyhow::bail!("injected retiring Kitty quota failure")
             }
         }));
 
-        close_terminal_runtime_for_test(&mux, &retiring);
+        close_terminal_runtime_for_test(&mux, &other);
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        close_terminal_runtime_for_test(&mux, &retiring);
+        // Model a stale failure publisher racing after the close removed the
+        // retiring entry. The worker must prune this orphaned block.
         mux.kitty_image_budget.lock().unwrap().blocked_surfaces.insert(retiring.id);
         {
             let (released, changed) = &*release;
