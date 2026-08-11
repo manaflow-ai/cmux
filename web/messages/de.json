@@ -135,6 +135,32 @@
     "faqFeatureA": "Wir möchten davon hören. Öffnen Sie ein <issuesLink>Issue</issuesLink> oder einen <prLink>Pull Request</prLink> auf GitHub, oder <mailLink>schreiben Sie uns</mailLink>."
   },
   "dashboard": {
+    "nav": {
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "Übersicht",
+      "team": "Team"
+    },
+    "home": {
+      "coderouterName": "coderouter",
+      "coderouterDescription": "LLM-Anfragen mit Failover und nutzungsabhängiger Planung über Anbieter-Konten verteilen.",
+      "coderouterLink": "coderouter öffnen"
+    },
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "Gemeinsam genutzte KI-Konten verwalten und Anfragen mit coderouter verteilen.",
+      "title": "coderouter",
+      "description": "coderouter verteilt LLM-Anfragen mit Failover und nutzungsabhängiger Planung über Anbieter-Konten."
+    },
+    "accountMenu": {
+      "label": "Kontomenü",
+      "settings": "Einstellungen",
+      "billing": "Abrechnung",
+      "signOut": "Abmelden",
+      "signingOut": "Wird abgemeldet…",
+      "signOutError": "Abmeldung fehlgeschlagen. Erneut versuchen.",
+      "organizationSwitchError": "Organisation konnte nicht gewechselt werden. Erneut versuchen.",
+      "signIn": "Anmelden"
+    },
     "aiAccounts": {
       "metaTitle": "KI-Konten — cmux",
       "metaDescription": "Verwalte die KI-Anbieterkonten deines Teams für cmux.",
@@ -3571,7 +3597,6 @@
     "title": "cmux für {platform}",
     "tagline": "Ein Chromium-Browser und Agenten-Workspace, gemeinsam entwickelt.",
     "logoAlt": "cmux-App-Symbol",
-    "portableCta": "Portable ZIP-Datei",
     "featuresTitle": "Für agentenbasierte Arbeit entwickelt",
     "features": {
       "chromium": {
@@ -3593,7 +3618,7 @@
     },
     "installTitle": "Installieren",
     "releaseTitle": "Versionen und Updates",
-    "releaseBody": "Diese Links führen immer zur neuesten stabilen Version auf <github>GitHub Releases</github>. cmux prüft signierte Update-Manifeste, bevor ein Update installiert wird.",
+    "releaseBody": "Diese Links führen immer zur neuesten Nightly-Version auf <github>GitHub Releases</github>. cmux prüft signierte Update-Manifeste, bevor ein Update installiert wird.",
     "sourceLink": "Quellcode auf GitHub ansehen",
     "otherPlatform": "cmux für {platform}",
     "macLink": "cmux-Terminal für Mac",
@@ -3603,6 +3628,7 @@
       "metaDescription": "cmux für Windows x64 herunterladen: ein kostenloser, quelloffener Chromium-Browser und Agenten-Workspace mit aufgabenorientierten Tabs und Terminal-Oberflächen.",
       "subtitle": "Ein nativer x64-Build mit Chromium-Tabs, cmux-Workspaces und vertrauter Windows-Tastaturbedienung.",
       "primaryCta": "Installationsprogramm (.exe) herunterladen",
+      "secondaryCta": "Portable ZIP-Datei",
       "requirements": "Windows 10 oder neuer · x64",
       "installBody": "Führe das Installationsprogramm aus und folge den Windows-Anweisungen. Wähle die portable ZIP-Datei, wenn du cmux ohne systemweite Installation in einem Ordner behalten möchtest."
     },
@@ -3611,9 +3637,10 @@
       "metaTitle": "cmux für Linux herunterladen",
       "metaDescription": "cmux für Linux x64 herunterladen: ein kostenloser, quelloffener Chromium-Browser und Agenten-Workspace mit aufgabenorientierten Tabs und Terminal-Oberflächen.",
       "subtitle": "Ein nativer x64-Build mit Chromium-Tabs, cmux-Workspaces und integrierten Terminal-Oberflächen.",
-      "primaryCta": ".deb herunterladen",
-      "requirements": "Debian oder Ubuntu · x64",
-      "installBody": "Lade das Debian-Paket herunter und installiere es mit deiner Paketverwaltung. Wähle die portable ZIP-Datei für eine benutzerspezifische Installation und Updates innerhalb der App."
+      "primaryCta": "Installationsprogramm mit automatischen Updates (.run) herunterladen",
+      "secondaryCta": "Debian-Paket (.deb)",
+      "requirements": "Linux · x64",
+      "installBody": "Führe das Installationsprogramm für deinen Benutzer einmal aus. Es installiert cmux ohne Root-Rechte unter ~/.local und aktiviert signierte Updates innerhalb der App. Wähle stattdessen das Debian-Paket, wenn deine Paketverwaltung die Updates verwalten soll."
     }
   },
   "emails": {

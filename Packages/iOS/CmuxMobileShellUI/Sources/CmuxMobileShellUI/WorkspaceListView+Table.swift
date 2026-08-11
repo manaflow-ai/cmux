@@ -11,7 +11,9 @@ extension WorkspaceListView {
             && !workspaces.isEmpty
     }
 
-    var workspaceTableItems: [WorkspaceListTableItem] {
+    func workspaceTableItems(
+        groupedItems: [MobileWorkspaceListItem]
+    ) -> [WorkspaceListTableItem] {
         var items: [WorkspaceListTableItem] = []
         switch connectionChrome {
         case .recoveryBanner:
@@ -25,7 +27,7 @@ extension WorkspaceListView {
         }
 
         if rendersGroupedSections {
-            items.append(contentsOf: displayedGroupedListItems.map { item in
+            items.append(contentsOf: groupedItems.map { item in
                 switch item {
                 case .groupHeader(let group, _):
                     .groupHeader(group.id)
@@ -45,9 +47,11 @@ extension WorkspaceListView {
         return items
     }
 
-    var workspaceTableGroupHasUnreadByID: [MobileWorkspaceGroupPreview.ID: Bool] {
+    func workspaceTableGroupHasUnreadByID(
+        groupedItems: [MobileWorkspaceListItem]
+    ) -> [MobileWorkspaceGroupPreview.ID: Bool] {
         var result: [MobileWorkspaceGroupPreview.ID: Bool] = [:]
-        for item in displayedGroupedListItems {
+        for item in groupedItems {
             if case .groupHeader(let group, let hasUnread) = item {
                 result[group.id] = hasUnread
             }
@@ -55,7 +59,10 @@ extension WorkspaceListView {
         return result
     }
 
-    var workspaceTable: WorkspaceListTable {
+    func workspaceTable(
+        groupedItems: [MobileWorkspaceListItem],
+        workspacesByID: [MobileWorkspacePreview.ID: MobileWorkspacePreview]
+    ) -> WorkspaceListTable {
         let grouped = rendersGroupedSections
         let enablesReorder = enablesWorkspaceReorder
         // Bound outside the member-wise init: the ternary between `nil` and a
@@ -68,13 +75,12 @@ extension WorkspaceListView {
                     openWorkspaceChanges(workspace)
                 }
         return WorkspaceListTable(
-            items: workspaceTableItems,
-            workspacesByID: Dictionary(
-                workspaces.map { ($0.id, $0) },
-                uniquingKeysWith: { first, _ in first }
-            ),
+            items: workspaceTableItems(groupedItems: groupedItems),
+            workspacesByID: workspacesByID,
             groupsByID: groupsByID,
-            groupHasUnreadByID: workspaceTableGroupHasUnreadByID,
+            groupHasUnreadByID: workspaceTableGroupHasUnreadByID(
+                groupedItems: groupedItems
+            ),
             filter: activeFilter,
             selectedWorkspaceID: selectedWorkspaceID,
             navigationStyle: navigationStyle,
@@ -95,7 +101,7 @@ extension WorkspaceListView {
             initialConnectionDescription: initialConnectionTimedOut
                 ? L10n.string(
                     "mobile.loading.timeout.message",
-                    defaultValue: "cmux could not finish restoring this session. Check that the selected cmux build is running, then retry or add this computer again."
+                    defaultValue: "cmux could not finish restoring this session. Check that the selected cmux build is running, then retry."
                 )
                 : nil,
             enablesReorder: enablesReorder,
@@ -110,6 +116,12 @@ extension WorkspaceListView {
                 canJoinGroupAtEnd(workspaceID: workspaceID, groupID: groupID)
             } : nil,
             dropIntoGroup: enablesReorder && grouped ? { workspaceID, groupID in
+                joinGroupAtEnd(workspaceID: workspaceID, groupID: groupID)
+            } : nil,
+            groupMoveMenu: enablesReorder && grouped ? { workspaceID in
+                groupMoveMenu(for: workspaceID)
+            } : nil,
+            moveToGroup: enablesReorder && grouped ? { workspaceID, groupID in
                 joinGroupAtEnd(workspaceID: workspaceID, groupID: groupID)
             } : nil,
             selectWorkspace: { id in _ = selectWorkspaceFromList(id) },

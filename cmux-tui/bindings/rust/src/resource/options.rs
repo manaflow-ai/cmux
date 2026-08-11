@@ -1,6 +1,6 @@
 use super::id::*;
 use super::model::{Cursor, LayoutDocument};
-use super::typed_stream::ColorHex;
+use super::typed_stream::{ColorHex, JournalClass, JournalSensitivity};
 use crate::{Error, Result};
 use serde::Deserialize;
 use serde_json::Value;
@@ -312,6 +312,7 @@ impl Direction {
 pub struct SplitOptions {
     pub direction: Direction,
     pub ratio: Option<f64>,
+    pub viewport_width: Option<f64>,
     pub cwd: Option<String>,
     pub size: Option<Size>,
     pub correlation_key: Option<String>,
@@ -319,7 +320,19 @@ pub struct SplitOptions {
 
 impl SplitOptions {
     pub fn new(direction: Direction) -> Self {
-        Self { direction, ratio: None, cwd: None, size: None, correlation_key: None }
+        Self {
+            direction,
+            ratio: None,
+            viewport_width: None,
+            cwd: None,
+            size: None,
+            correlation_key: None,
+        }
+    }
+
+    pub fn viewport_width(mut self, width: f64) -> Self {
+        self.viewport_width = Some(width);
+        self
     }
 }
 
@@ -340,6 +353,18 @@ pub struct MoveDestination {
     pub screen: Selector<ScreenId>,
     pub pane: Selector<PaneId>,
     pub index: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TerminalProjectOptions {
+    pub destination: MoveDestination,
+    pub name: Option<String>,
+}
+
+impl TerminalProjectOptions {
+    pub const fn new(destination: MoveDestination) -> Self {
+        Self { destination, name: None }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -733,7 +758,11 @@ pub struct TerminalDefaultsOptions {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProjectionOptions {
+    pub frontend_id: String,
+    pub window_id: String,
+    pub generation: String,
     pub projection: Value,
+    pub expected_projection_revision: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -843,6 +872,59 @@ pub struct SidebarInputOptions {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct EventStreamOptions {
     pub cursor: Option<Cursor>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JournalStart {
+    Tail,
+    Beginning,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct JournalSubjectFilter {
+    pub kind: Option<String>,
+    pub id: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum JournalRegexField {
+    Kind,
+    Subjects,
+    Payload,
+    TerminalOutput,
+    #[default]
+    Record,
+}
+
+impl JournalRegexField {
+    pub(crate) const fn wire_name(self) -> &'static str {
+        match self {
+            Self::Kind => "kind",
+            Self::Subjects => "subjects",
+            Self::Payload => "payload",
+            Self::TerminalOutput => "terminal_output",
+            Self::Record => "record",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct JournalRegexFilter {
+    pub pattern: String,
+    pub field: JournalRegexField,
+    pub case_sensitive: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SessionJournalOptions {
+    pub cursor: Option<Cursor>,
+    pub start: Option<JournalStart>,
+    pub follow: Option<bool>,
+    pub kinds: Vec<String>,
+    pub classes: Vec<JournalClass>,
+    pub subjects: Vec<JournalSubjectFilter>,
+    pub max_sensitivity: Option<JournalSensitivity>,
+    pub regex: Option<JournalRegexFilter>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

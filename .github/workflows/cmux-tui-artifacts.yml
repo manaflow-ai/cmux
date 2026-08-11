@@ -140,9 +140,29 @@ jobs:
           legacy_assets="assets-legacy"
           mkdir -p "$legacy_assets"
           for file in assets/cmux-tui/cmux-tui-*; do
+            if [[ "$(basename "$file")" == cmux-tui-hook-* ]]; then
+              continue
+            fi
             cp "$file" "$legacy_assets/$(basename "$file" | sed 's/^cmux-tui-/cmux-mux-/')"
           done
-          cp assets/cmux-tui/manifest.json "$legacy_assets/manifest.json"
+          python3 - "$GITHUB_SHA" "$legacy_assets" <<'PY'
+          import hashlib
+          import json
+          import pathlib
+          import sys
+          from datetime import datetime, timezone
+
+          root = pathlib.Path(sys.argv[2])
+          files = sorted(path for path in root.glob("cmux-mux-*") if path.is_file())
+          manifest = {
+              "commit": sys.argv[1],
+              "builtAt": datetime.now(timezone.utc).isoformat(),
+              "binaries": {
+                  path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in files
+              },
+          }
+          (root / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+          PY
           publish_legacy_prefix() {
             local prefix="$1"
             local cache="$2"

@@ -188,6 +188,42 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         XCTAssertTrue(shortcutValue?.uppercased().contains("U") == true, "Expected Jump to Latest shortcut to include U")
     }
 
+    func testNotificationsPopoverOpensPhoneForwardingControls() {
+        let app = XCUIApplication.cmuxTestApplication()
+        app.launchEnvironment["CMUX_TAG"] = launchTag
+        launchAllowingHeadlessBackgroundActivation(app)
+        XCTAssertTrue(
+            ensureAppRunningAfterLaunch(app, timeout: 12.0),
+            "Expected app to launch for phone-forwarding discoverability test. state=\(app.state.rawValue)"
+        )
+        XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 8.0))
+        XCTAssertTrue(
+            ensureAppForegroundForInteraction(app, timeout: 6.0),
+            "Expected cmux to be foreground before opening notifications popover. state=\(app.state.rawValue)"
+        )
+
+        app.typeKey("i", modifierFlags: [.command])
+        let phoneForwardingButton = app.buttons["notificationsPopover.phoneForwarding"]
+        XCTAssertTrue(
+            phoneForwardingButton.waitForExistence(timeout: 6.0),
+            "Expected a discoverable phone-forwarding entrypoint in the notifications popover"
+        )
+
+        let forwardingToggle = app.descendants(matching: .any)["notificationsPage.forwardToPhone"]
+        phoneForwardingButton.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)
+        ).click()
+        XCTAssertTrue(
+            forwardingToggle.waitForExistence(timeout: 9.0),
+            "Expected the popover entrypoint to reveal the actual phone-forwarding controls"
+        )
+        let notificationsTab = app.buttons["Notifications"]
+        XCTAssertTrue(
+            notificationsTab.waitForExistence(timeout: 3.0) && notificationsTab.isHittable,
+            "Expected Notifications to open as a selectable pane tab"
+        )
+    }
+
     func testEmptyNotificationsPopoverBlocksTerminalTyping() throws {
         let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += ["-socketControlMode", "allowAll"]

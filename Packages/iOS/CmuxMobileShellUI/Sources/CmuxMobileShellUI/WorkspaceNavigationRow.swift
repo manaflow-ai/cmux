@@ -21,14 +21,21 @@ struct WorkspaceNavigationRow: View {
     /// Rename the workspace on the Mac. When `nil` (e.g. previews) the rename
     /// affordance is hidden.
     var renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)? = nil
-    /// Customize the workspace's name, description, color, and pin state on the Mac.
-    var customizeWorkspace: WorkspaceCustomizationAction? = nil
+    /// Requests the list-owned customization sheet for this workspace.
+    var requestCustomization: ((MobileWorkspacePreview.ID) -> Void)? = nil
     /// Pin or unpin the workspace on the Mac. When `nil` the pin affordance is
     /// hidden.
     var setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil
     /// Mark the workspace read or unread on the Mac. When `nil` the read-state
     /// affordance is hidden.
     var setUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil
+    /// Builds the "Move to Group" picker when the context menu opens; `nil`
+    /// result (or `nil` closure) hides the picker. Lazy so recycled rows never
+    /// compute menu state during list updates.
+    var groupMoveMenu: (() -> MobileWorkspaceGroupMoveMenu?)? = nil
+    /// Move the workspace to the end of a group, or out of its group when the
+    /// target is `nil`. When `nil` the picker is hidden.
+    var moveToGroup: ((MobileWorkspacePreview.ID, MobileWorkspaceGroupPreview.ID?) -> Void)? = nil
     /// Close the workspace on the Mac. When `nil` the delete affordance is
     /// hidden.
     var closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)? = nil
@@ -42,7 +49,6 @@ struct WorkspaceNavigationRow: View {
 
     @State private var isRenaming = false
     @State private var renameDraft = ""
-    @State private var isCustomizing = false
 
     var body: some View {
         rowTarget
@@ -71,13 +77,14 @@ struct WorkspaceNavigationRow: View {
         }
         .accessibilityElement(children: onOpenChanges == nil ? .combine : .contain)
         .accessibilityAddTraits(.isButton)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityIdentifier("MobileWorkspaceRow-\(workspace.id.rawValue)")
         .accessibilityLabel(rowAccessibilityLabel)
         .accessibilityValue(workspace.accessibilitySummary(connectionStatus: connectionStatus))
         .accessibilityActions {
-            if customizeWorkspace != nil {
+            if let requestCustomization {
                 Button(L10n.string("mobile.workspace.customize.action", defaultValue: "Customize")) {
-                    isCustomizing = true
+                    requestCustomization(workspace.id)
                 }
             }
             if renameWorkspace != nil {
@@ -99,11 +106,6 @@ struct WorkspaceNavigationRow: View {
             let trimmed = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return }
             renameWorkspace?(workspace.id, trimmed)
-        }
-        .sheet(isPresented: $isCustomizing) {
-            WorkspaceCustomizationSheet(workspace: workspace) { initialDraft, submittedDraft in
-                await customizeWorkspace?(workspace.id, initialDraft, submittedDraft) ?? .failure()
-            }
         }
         .confirmationDialog(
             L10n.string("mobile.workspace.delete.confirmTitle", defaultValue: "Delete Workspace?"),
@@ -190,9 +192,9 @@ struct WorkspaceNavigationRow: View {
             }
             .accessibilityIdentifier("MobileWorkspacePinButton-\(workspace.id.rawValue)")
         }
-        if customizeWorkspace != nil {
+        if let requestCustomization {
             Button {
-                isCustomizing = true
+                requestCustomization(workspace.id)
             } label: {
                 Label(
                     L10n.string("mobile.workspace.customize.action", defaultValue: "Customize"),
@@ -216,6 +218,46 @@ struct WorkspaceNavigationRow: View {
                 Label(readStateActionTitle, systemImage: readStateActionSystemImage)
             }
             .accessibilityIdentifier("MobileWorkspaceReadStateMenuButton-\(workspace.id.rawValue)")
+        }
+        if let groupMoveMenu, let moveToGroup, let menuModel = groupMoveMenu() {
+            Menu {
+                ForEach(menuModel.entries, id: \.group.id) { entry in
+                    Button {
+                        moveToGroup(workspace.id, entry.group.id)
+                    } label: {
+                        if entry.isCurrent {
+                            Label(entry.group.name, systemImage: "checkmark")
+                        } else {
+                            Text(entry.group.name)
+                        }
+                    }
+                    .disabled(!entry.isEnabled)
+                    .accessibilityIdentifier(
+                        "MobileWorkspaceMoveToGroupTarget-\(workspace.id.rawValue)-\(entry.group.id.rawValue)"
+                    )
+                }
+                if menuModel.canRemoveFromGroup {
+                    Divider()
+                    Button {
+                        moveToGroup(workspace.id, nil)
+                    } label: {
+                        Label(
+                            L10n.string(
+                                "mobile.workspace.removeFromGroup",
+                                defaultValue: "Remove from Group"
+                            ),
+                            systemImage: "folder.badge.minus"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileWorkspaceRemoveFromGroupButton-\(workspace.id.rawValue)")
+                }
+            } label: {
+                Label(
+                    L10n.string("mobile.workspace.moveToGroup", defaultValue: "Move to Group"),
+                    systemImage: "folder"
+                )
+            }
+            .accessibilityIdentifier("MobileWorkspaceMoveToGroupMenu-\(workspace.id.rawValue)")
         }
         if let closeWorkspace {
             Button(role: .destructive) {

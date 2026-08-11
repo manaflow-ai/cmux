@@ -25,11 +25,13 @@ struct MobileConnectionMethodSection: View {
                     defaultValue: "Auto-Connect"
                 ))
                 .tag(MobileConnectionMethod.automatic)
+                .accessibilityIdentifier("MobileSettingsConnectionMethodAutomatic")
                 Text(L10n.string(
                     "mobile.settings.connectionMethod.tailscale",
-                    defaultValue: "Tailscale"
+                    defaultValue: "Tailscale Only"
                 ))
                 .tag(MobileConnectionMethod.tailscale)
+                .accessibilityIdentifier("MobileSettingsConnectionMethodTailscale")
             }
             .accessibilityIdentifier("MobileSettingsConnectionMethod")
             if store.method == .tailscale, startPairingScanner != nil {
@@ -62,8 +64,9 @@ struct MobileConnectionMethodSection: View {
             L10n.string(
                 "mobile.settings.connectionMethod.tailscaleFooter",
                 defaultValue: """
-                Install Tailscale on this iPhone and your Mac, then connect both to the same Tailscale network. \
-                On your Mac, open Tailscale Pairing in cmux to show the QR, then scan it here once.
+                Connects only over Tailscale. If unavailable, cmux stays disconnected instead of using Iroh. \
+                Install Tailscale on both devices, join the same network, then scan the pairing code shown by \
+                cmux on your Mac once.
                 """
             )
         }
