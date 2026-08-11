@@ -1073,10 +1073,11 @@ static int prepare_broker_security(const BootstrapConfig *config, BrokerSecurity
     DWORD error;
     memory_zero(security, sizeof(*security));
     /* CreateRestrictedToken preserves this handle's rights. Low-integrity labeling needs
-       TOKEN_ADJUST_DEFAULT on the returned restricted-token handle. */
+       TOKEN_ADJUST_DEFAULT, and CreateProcessAsUser needs TOKEN_ASSIGN_PRIMARY. */
     if (!OpenProcessToken(
             GetCurrentProcess(),
-            TOKEN_QUERY | TOKEN_DUPLICATE | TOKEN_ADJUST_PRIVILEGES | TOKEN_ADJUST_DEFAULT,
+            TOKEN_QUERY | TOKEN_DUPLICATE | TOKEN_ADJUST_PRIVILEGES | TOKEN_ADJUST_DEFAULT
+                | TOKEN_ASSIGN_PRIMARY,
             &security->primary_token)
         || !enable_se_increase_quota(
             security->primary_token,
