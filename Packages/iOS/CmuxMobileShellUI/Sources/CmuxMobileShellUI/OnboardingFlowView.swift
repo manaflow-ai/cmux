@@ -20,7 +20,9 @@ struct OnboardingFlowView: View {
 
     @State private var stage: OnboardingStage
     @State private var didReachConnection = false
+    @State private var didRecordStart = false
     @Environment(\.analytics) private var analytics
+    @Environment(\.mobileDiagnosticLog) private var diagnosticLog
 
     init(
         initialStage: OnboardingStage,
@@ -65,6 +67,10 @@ struct OnboardingFlowView: View {
         )
         .interactiveDismissDisabled()
         .onAppear {
+            if !didRecordStart {
+                didRecordStart = true
+                diagnosticLog?.recordAppEvent(.onboardingStarted)
+            }
             captureSceneViewed()
             reachConnectionIfNeeded()
         }
@@ -156,6 +162,7 @@ struct OnboardingFlowView: View {
     }
 
     private func skip() {
+        diagnosticLog?.recordAppEvent(.onboardingSkipped)
         analytics.capture("ios_onboarding_skipped", eventProperties)
         onSkip()
     }
@@ -166,6 +173,7 @@ struct OnboardingFlowView: View {
             if connectionMethod == .tailscale {
                 startTailscalePairing()
             } else {
+                diagnosticLog?.recordAppEvent(.onboardingConnectionRetried)
                 onRetryConnection()
             }
         case .searching:
@@ -174,10 +182,12 @@ struct OnboardingFlowView: View {
             if connectionMethod == .tailscale {
                 startTailscalePairing()
             } else {
+                diagnosticLog?.recordAppEvent(.onboardingConnectionRetried)
                 analytics.capture("ios_onboarding_connection_retried", eventProperties)
                 onRetryConnection()
             }
         case .ready:
+            diagnosticLog?.recordAppEvent(.onboardingCompleted)
             analytics.capture("ios_onboarding_completed", eventProperties)
             onComplete()
         }
@@ -187,6 +197,7 @@ struct OnboardingFlowView: View {
     /// "Check Again" when Tailscale owns the primary scan action.
     private func handleSecondary() {
         if connectionMethod == .tailscale, connectionPhase == .fallback {
+            diagnosticLog?.recordAppEvent(.onboardingConnectionRetried)
             analytics.capture("ios_onboarding_connection_retried", eventProperties)
             onRetryConnection()
             return
@@ -196,6 +207,7 @@ struct OnboardingFlowView: View {
 
     private func selectConnectionMethod(_ method: MobileConnectionMethod) {
         guard method != connectionMethod else { return }
+        diagnosticLog?.recordAppEvent(.onboardingConnectionMethodChanged)
         var properties = eventProperties
         properties["connection_method"] = .string(method.rawValue)
         analytics.capture("ios_onboarding_connection_method_selected", properties)
@@ -203,6 +215,7 @@ struct OnboardingFlowView: View {
     }
 
     private func startTailscalePairing() {
+        diagnosticLog?.recordAppEvent(.onboardingPairingStarted)
         var properties = eventProperties
         properties["source"] = .string("tailscale_choice")
         analytics.capture("ios_onboarding_pairing_started", properties)
@@ -215,6 +228,7 @@ struct OnboardingFlowView: View {
     }
 
     private func startFallbackPairing() {
+        diagnosticLog?.recordAppEvent(.onboardingPairingStarted)
         var properties = eventProperties
         properties["source"] = .string("qr_fallback")
         analytics.capture("ios_onboarding_pairing_started", properties)
@@ -222,6 +236,7 @@ struct OnboardingFlowView: View {
     }
 
     private func captureSceneViewed() {
+        diagnosticLog?.recordAppEvent(.onboardingStageChanged)
         var properties = eventProperties
         properties["surface"] = .string(stage.analyticsValue)
         analytics.capture("ios_onboarding_scene_viewed", properties)

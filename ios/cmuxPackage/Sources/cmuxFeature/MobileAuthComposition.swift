@@ -1,4 +1,5 @@
 import CMUXAuthCore
+import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxMobileSupport
 import CmuxMobileTransport
@@ -39,6 +40,12 @@ public struct MobileAuthComposition {
     /// A reachability monitor used to fail sign-in flows fast when offline.
     private let reachability: any ReachabilityProviding
 
+    /// Privacy-safe app diagnostics, injected by the executable composition root.
+    private let diagnosticLog: DiagnosticLog?
+
+    /// Whether launch began with a cached session that should restore.
+    private let hadCachedSessionAtLaunch: Bool
+
     /// Build the auth graph.
     ///
     /// - Parameters:
@@ -49,14 +56,17 @@ public struct MobileAuthComposition {
     ///   - defaults: Persistence for the session/user caches and push opt-in.
     ///   - reachability: Connectivity probe for fail-fast sign-in.
     ///   - policy: The build-flag policy (dev-auth `42` shortcut).
+    ///   - diagnosticLog: Optional privacy-safe app diagnostic recorder.
     public init(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         bundle: Bundle = .main,
         defaults: UserDefaults = .standard,
         reachability: any ReachabilityProviding,
-        policy: MobileAuthBuildPolicy = .current
+        policy: MobileAuthBuildPolicy = .current,
+        diagnosticLog: DiagnosticLog? = nil
     ) {
         self.reachability = reachability
+        self.diagnosticLog = diagnosticLog
 
         let overrides = Self.authOverrides(
             localConfig: Self.localConfigStringOverrides(in: bundle),
@@ -87,6 +97,7 @@ public struct MobileAuthComposition {
             keyValueStore: defaults,
             key: Self.sessionCacheDefaultsKey
         )
+        self.hadCachedSessionAtLaunch = sessionCache.hasTokens
         let userCache = CMUXAuthIdentityStore(
             keyValueStore: defaults,
             key: Self.cachedUserDefaultsKey
@@ -154,10 +165,26 @@ public struct MobileAuthComposition {
 
     /// Begin asynchronous session restore (call once after construction).
     public func start() {
+        diagnosticLog?.recordAppEvent(.authRestoreStarted)
         protectedDataAvailability.startObserving { [coordinator] in
             Task { await coordinator.revalidateSession() }
         }
         coordinator.start()
+        guard let diagnosticLog else { return }
+        Task { @MainActor [coordinator, hadCachedSessionAtLaunch] in
+            await coordinator.awaitBootstrapped()
+            if hadCachedSessionAtLaunch, !coordinator.isAuthenticated {
+                diagnosticLog.recordAppEvent(
+                    .authRestoreFailed,
+                    failure: .authorizationFailed
+                )
+            } else {
+                diagnosticLog.recordAppEvent(
+                    .authRestoreSucceeded,
+                    count: coordinator.isAuthenticated ? 1 : 0
+                )
+            }
+        }
     }
 
     private static var isDevelopmentBuild: Bool {

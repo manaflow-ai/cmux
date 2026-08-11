@@ -23,11 +23,13 @@ struct cmuxApp: App {
     @MainActor
     private static let root: AppCompositionRoot = {
         let reachability = ReachabilityService()
-        let auth = MobileAuthComposition(reachability: reachability)
-        auth.start()
         let diagnosticLog = DiagnosticLog(
             buildStamp: AppCompositionRoot.diagnosticBuildStamp,
             role: .iosClient
+        )
+        let auth = MobileAuthComposition(
+            reachability: reachability,
+            diagnosticLog: diagnosticLog
         )
         let buildCompatibilityPolicy = MobileMacBuildCompatibilityPolicy.current(
             buildScope: MobileIOSBuildScope.current()
@@ -120,6 +122,7 @@ struct cmuxApp: App {
         Self.root.pushCoordinator.configure(delegate: appDelegate)
         appDelegate.pushCoordinator = Self.root.pushCoordinator
         appDelegate.analytics = Self.root.analytics.emitter
+        appDelegate.diagnosticLog = Self.root.diagnosticLog
     }
 
     var body: some Scene {

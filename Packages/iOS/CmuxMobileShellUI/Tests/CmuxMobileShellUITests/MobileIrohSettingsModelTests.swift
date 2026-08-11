@@ -8,6 +8,38 @@ import Testing
 @MainActor
 @Suite
 struct MobileIrohSettingsModelTests {
+    @Test func failedCustomRelaySaveRecordsBoundedOutcome() async {
+        let controller = MobileIrohSettingsControllerDouble(snapshot: .unavailable)
+        controller.upsertError = MobileIrohSettingsTestFailure.rejected
+        let log = DiagnosticLog(capacity: 4)
+        let model = MobileIrohSettingsModel(controller: controller, diagnosticLog: log)
+
+        _ = await model.upsertCustomRelay(
+            CmxIrohCustomRelayDraft(
+                displayName: "private relay name",
+                provider: "private provider",
+                region: "private region",
+                url: "https://private.example.test",
+                authMode: .none
+            ),
+            deviceSecret: nil
+        )
+
+        for _ in 0..<100 {
+            if await log.processedCount() >= 2 { break }
+            await Task.yield()
+        }
+        let report = await log.snapshot()
+        #expect(report.events.map(\.a) == [
+            DiagnosticAppEventKind.irohCustomRelayUpsertStarted.rawValue,
+            DiagnosticAppEventKind.irohCustomRelayUpsertFailed.rawValue,
+        ])
+        #expect(report.events.last?.b == DiagnosticFailureKind.unknown.rawValue)
+        let encoded = try? JSONEncoder().encode(report)
+        let text = encoded.map { String(decoding: $0, as: UTF8.self) } ?? ""
+        #expect(!text.contains("private"))
+    }
+
     @Test func failedCustomRelaySavePreservesSnapshot() async {
         let initial = snapshot(sequence: 9)
         let controller = MobileIrohSettingsControllerDouble(snapshot: initial)

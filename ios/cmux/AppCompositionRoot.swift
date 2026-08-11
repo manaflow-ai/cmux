@@ -83,11 +83,17 @@ final class AppCompositionRoot {
         self.reachability = reachability
         self.diagnosticLog = diagnosticLog
         let telemetryConsent = UserDefaultsAnalyticsConsentProvider(defaults: .standard)
+        let crashReportingEvent: DiagnosticAppEventKind
         if Self.crashReportingEnabled {
             MobileCrashReporter().startIfEnabled(
                 consent: telemetryConsent,
                 revocationWatcher: crashRevocationWatcher
             )
+            crashReportingEvent = telemetryConsent.isTelemetryEnabled
+                ? .crashReportingStarted
+                : .crashReportingDisabled
+        } else {
+            crashReportingEvent = .crashReportingDisabled
         }
         // The reporter checks `SentrySDK.isEnabled` per event, so it respects
         // both the build-level kill switch above and mid-session consent
@@ -107,6 +113,8 @@ final class AppCompositionRoot {
             appLog.ingest(event)
             transportSentryReporter.ingest(event)
         }
+        diagnosticLog.recordAppEvent(.appLaunched)
+        diagnosticLog.recordAppEvent(crashReportingEvent)
         // Mirror the string debug log into the app log file so one file holds
         // the whole in-app story in wall-clock order. The string sink keeps
         // its own privacy gating (DEBUG always, Release behind the verbose
@@ -120,11 +128,13 @@ final class AppCompositionRoot {
         self.analytics = MobileAnalyticsComposition(
             apiBaseURL: auth.config.apiBaseURL,
             tokenProvider: auth.coordinator,
-            consent: telemetryConsent
+            consent: telemetryConsent,
+            diagnosticLog: diagnosticLog
         )
         let pushCoordinator = MobilePushCoordinator(
             registration: auth.pushRegistration,
             analytics: analytics.emitter,
+            diagnosticLog: diagnosticLog,
             phoneAPIOrigin: auth.config.apiBaseURL
         )
         self.pushCoordinator = pushCoordinator
@@ -151,7 +161,7 @@ final class AppCompositionRoot {
                 await diagnosticLog.clear()
             }
         }
-        self.displaySettings = MobileDisplaySettings()
+        self.displaySettings = MobileDisplaySettings(diagnosticLog: diagnosticLog)
         // Snapshot raw upgrade eligibility before either current-launch store is
         // constructed. The migration model persists pending/ineligible now and
         // never recomputes after onboarding or Settings writes. UI fixtures use
@@ -191,7 +201,8 @@ final class AppCompositionRoot {
             defaults: connectionPreferenceDefaults
         )
         self.connectionMethodStore = MobileConnectionMethodStore(
-            defaults: connectionPreferenceDefaults
+            defaults: connectionPreferenceDefaults,
+            diagnosticLog: diagnosticLog
         )
         // Skip first-run onboarding when a UI-test mock harness
         // (`CMUX_UITEST_MOCK_DATA`/XCUITest) or a dogfood auto-pair attach URL is
@@ -219,6 +230,10 @@ final class AppCompositionRoot {
                 await pushCoordinator.networkDidBecomeReachable()
             }
         }
+        // Start auth only after the diagnostic tap is durable. Session restore
+        // can complete during launch, and starting earlier would leave its
+        // accepted events in the in-memory ring but absent from cmux-app.log.
+        auth.start()
     }
 
     deinit {
@@ -268,6 +283,7 @@ final class AppCompositionRoot {
         let emitter = analytics.emitter
         switch phase {
         case .active:
+            diagnosticLog.recordAppEvent(.appForegrounded)
             iroh.didBecomeActive()
             Task { await pushCoordinator.refreshReadiness() }
             let now = Date()
@@ -293,10 +309,12 @@ final class AppCompositionRoot {
             emitter.capture("ios_app_foregrounded", foregroundProps)
             hasForegrounded = true
         case .inactive:
+            diagnosticLog.recordAppEvent(.appBecameInactive)
             // The switcher opened; a swipe-kill from here may skip the
             // background transition entirely, so snapshot diagnostics now.
             iroh.archiveDiagnostics()
         case .background:
+            diagnosticLog.recordAppEvent(.appBackgrounded)
             iroh.didEnterBackground()
             let now = Date()
             analytics.sessionStore.recordBackgrounded(at: now)

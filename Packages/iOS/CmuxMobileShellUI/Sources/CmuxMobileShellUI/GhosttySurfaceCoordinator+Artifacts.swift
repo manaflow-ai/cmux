@@ -287,6 +287,38 @@ extension GhosttySurfaceRepresentable.Coordinator {
             }
         }
 
+        func ghosttySurfaceView(
+            _ surfaceView: GhosttySurfaceView,
+            didUseToolbarAction action: TerminalToolbarDiagnosticAction
+        ) {
+            let diagnosticAction: DiagnosticTerminalToolbarAction = switch action {
+            case .accessory(let action):
+                DiagnosticTerminalToolbarAction(rawValue: action.rawValue) ?? .customize
+            case .keyboardToggle: .keyboardToggle
+            case .hideChrome: .hideChrome
+            case .customize: .customize
+            case .zoomResetToDefault: .zoomResetToDefault
+            case .zoomSaveAsDefault: .zoomSaveAsDefault
+            case .zoomRestoreBuiltIn: .zoomRestoreBuiltIn
+            }
+            store?.recordAppEvent(
+                .terminalToolbarActionUsed,
+                correlationID: surfaceID,
+                count: diagnosticAction.rawValue
+            )
+        }
+
+        func ghosttySurfaceView(
+            _ surfaceView: GhosttySurfaceView,
+            didChangeZoom action: TerminalZoomDiagnosticAction
+        ) {
+            store?.recordAppEvent(
+                .terminalZoomChanged,
+                correlationID: surfaceID,
+                count: action.rawValue
+            )
+        }
+
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize, reportID: UInt64) {
             // Report our natural grid to the Mac. The output stream decides
             // whether the phone should keep that natural grid (primary screen)
@@ -526,6 +558,11 @@ extension GhosttySurfaceRepresentable.Coordinator {
         func ghosttySurfaceViewDidResetRenderPipeline(_ surfaceView: GhosttySurfaceView) {
             Task { @MainActor [weak self, weak store, surfaceID] in
                 guard let self, self.surfaceView === surfaceView else { return }
+                store?.recordAppEvent(
+                    .terminalRenderLagDetected,
+                    correlationID: surfaceID,
+                    failure: .timedOut
+                )
                 store?.terminalOutputNeedsReplay(surfaceID: surfaceID)
             }
         }

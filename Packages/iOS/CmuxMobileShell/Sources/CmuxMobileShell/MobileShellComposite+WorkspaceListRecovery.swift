@@ -121,6 +121,18 @@ extension MobileShellComposite {
     /// offline/disconnected state. Pull-to-refresh and the offline status row's
     /// Reconnect button both call this.
     public func reconnectOrRefresh() async {
+        let diagnosticStartedAt = appDiagnosticNow()
+        recordAppEvent(.workspaceListRecoveryStarted, correlationID: foregroundMacDeviceID)
+        defer {
+            let succeeded = workspaceListConnectionStatus == .connected
+            recordAppEvent(
+                succeeded ? .workspaceListRecoverySucceeded : .workspaceListRecoveryFailed,
+                correlationID: foregroundMacDeviceID,
+                startedAt: diagnosticStartedAt,
+                failure: succeeded ? nil : (Task.isCancelled ? .cancelled : .connectionClosed),
+                count: succeeded ? workspaces.count : nil
+            )
+        }
         let listStatus = workspaceListConnectionStatus
         if connectionState == .connected, listStatus == .connected {
             await refreshWorkspaces()

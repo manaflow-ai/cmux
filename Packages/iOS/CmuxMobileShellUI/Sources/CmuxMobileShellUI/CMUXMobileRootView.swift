@@ -20,6 +20,7 @@ struct CMUXMobileRootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(ToastCenter.self) private var toasts
+    @Environment(\.mobileDiagnosticLog) private var diagnosticLog
     /// Optional so previews and hosts without the app root still render.
     @Environment(MobileConnectionMethodStore.self) private var connectionMethodStore:
         MobileConnectionMethodStore?
@@ -271,6 +272,7 @@ struct CMUXMobileRootView: View {
         }
         #endif
         .onChange(of: authManager.resolvedTeamID) { _, _ in
+            diagnosticLog?.recordAppEvent(.authTeamChanged)
             // The effective team can change because the user selected one or
             // because launch-time team loading resolved the cached account's
             // default. Re-scope both transitions so a reconnect that began with
@@ -289,7 +291,20 @@ struct CMUXMobileRootView: View {
                 // Re-check the Stack session on resume so one that died while
                 // backgrounded routes to the sign-in page instead of waiting for a
                 // failed connect to surface a confusing host-side message.
-                Task { await authManager.revalidateSession() }
+                if authManager.isAuthenticated || authManager.isRestoringSession {
+                    diagnosticLog?.recordAppEvent(.authRevalidationStarted)
+                    Task {
+                        await authManager.revalidateSession()
+                        diagnosticLog?.recordAppEvent(
+                            authManager.isAuthenticated
+                                ? .authRevalidationSucceeded
+                                : .authRevalidationFailed,
+                            failure: authManager.isAuthenticated
+                                ? nil
+                                : .authorizationFailed
+                        )
+                    }
+                }
             } else {
                 store.suspendForegroundRefresh()
             }
@@ -298,8 +313,20 @@ struct CMUXMobileRootView: View {
             presentAutoConnectMigrationIfEligible()
             #endif
         }
+        .onChange(of: tailscaleStatusMonitor?.status, initial: true) { _, status in
+            let value: Int = switch status {
+            case .some(.active):
+                1
+            case .some(.inactiveOrNotInstalled):
+                0
+            case .some(.unknown), .none:
+                2
+            }
+            diagnosticLog?.recordAppEvent(.tailscaleStatusChanged, count: value)
+        }
         .onOpenURL { url in
             let rawURL = url.absoluteString
+            diagnosticLog?.recordAppEvent(.appOpenURLReceived)
             if MobileRootAuthGate.isAttachURL(url) {
                 connectAttachURL(rawURL)
                 return
@@ -307,10 +334,19 @@ struct CMUXMobileRootView: View {
 
             guard isAuthenticated else {
                 pendingAttachURL = rawURL
+                diagnosticLog?.recordAppEvent(.appOpenURLDeferredForAuthentication)
                 return
             }
             Task {
                 await store.connectPairingURL(rawURL)
+                diagnosticLog?.recordAppEvent(
+                    store.connectionState == .connected
+                        ? .appOpenURLHandled
+                        : .appOpenURLRejected,
+                    failure: store.connectionState == .connected
+                        ? nil
+                        : .connectionClosed
+                )
             }
         }
         .onChange(of: isAuthenticated) { _, isAuthenticated in
@@ -621,7 +657,24 @@ struct CMUXMobileRootView: View {
 
     /// Applies one root presentation action and performs its domain side effect.
     private func handleRootPresentation(_ action: MobileRootPresentationState.Action) {
-        switch rootPresentation.apply(action) {
+        let previousPresentation = rootPresentation.presentation
+        let effect = rootPresentation.apply(action)
+        if previousPresentation != rootPresentation.presentation {
+            switch action {
+            case .presentAutoConnectMigrationIfIdle:
+                diagnosticLog?.recordAppEvent(.autoConnectMigrationPresented)
+            case .continueWithAutoConnect:
+                diagnosticLog?.recordAppEvent(.autoConnectMigrationAccepted)
+            case .openConnectionSettings:
+                diagnosticLog?.recordAppEvent(.autoConnectMigrationDismissed)
+            case .sheetDidRequestDismissal
+                where previousPresentation == .autoConnectMigrationIntroduction:
+                diagnosticLog?.recordAppEvent(.autoConnectMigrationDismissed)
+            default:
+                break
+            }
+        }
+        switch effect {
         case .none:
             break
         case .acknowledgeAutoConnectMigration:
@@ -911,12 +964,17 @@ struct CMUXMobileRootView: View {
     private func connectAttachURL(_ rawURL: String) {
         guard !authManager.isRestoringSession else {
             pendingAttachURL = rawURL
+            diagnosticLog?.recordAppEvent(.appOpenURLDeferredForAuthentication)
             return
         }
         didAuthenticateWithAttachTicket = true
         syncShellAuthentication(true)
         Task {
             let result = await store.connectPairingURLResult(rawURL)
+            diagnosticLog?.recordAppEvent(
+                result == .failed ? .appOpenURLRejected : .appOpenURLHandled,
+                failure: result == .failed ? .connectionClosed : nil
+            )
             if result == .needsUserApproval {
                 showAddDevice()
             }
@@ -998,6 +1056,7 @@ struct CMUXMobileRootView: View {
 
     private func signOut() {
         cancelInjectedAttachTask()
+        diagnosticLog?.recordAppEvent(.authSignOutStarted)
         Task {
             // Local shell teardown first so the whole UI lands signed out
             // immediately; authManager.signOut clears the local session up
@@ -1014,6 +1073,10 @@ struct CMUXMobileRootView: View {
             store.signOut()
             let serverTeardown = signOutHook.begin()
             await authManager.signOut(onSignedOut: serverTeardown)
+            diagnosticLog?.recordAppEvent(
+                authManager.isAuthenticated ? .authSignOutFailed : .authSignOutSucceeded,
+                failure: authManager.isAuthenticated ? .protocolViolation : nil
+            )
         }
     }
 

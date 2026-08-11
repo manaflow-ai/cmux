@@ -276,6 +276,23 @@
         }
       }
     },
+    "diagnostics.event.appFeatureAction": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App feature event"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリ機能イベント"
+          }
+        }
+      }
+    },
     "diagnostics.event.appLifecycleChanged": {
       "extractionState": "manual",
       "localizations": {
@@ -1330,6 +1347,23 @@
         }
       }
     },
+    "diagnostics.failure.payloadTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Payload too large"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペイロードが大きすぎます"
+          }
+        }
+      }
+    },
     "diagnostics.failure.permissionDenied": {
       "extractionState": "manual",
       "localizations": {
@@ -1377,6 +1411,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "プロトコル違反"
+          }
+        }
+      }
+    },
+    "diagnostics.failure.resourceLimitReached": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resource limit reached"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リソース上限に達しました"
           }
         }
       }
@@ -1581,6 +1632,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "コンポーザー表示中"
+          }
+        }
+      }
+    },
+    "diagnostics.field.count": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Count"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "件数"
           }
         }
       }
@@ -2074,6 +2142,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "トリガー"
+          }
+        }
+      }
+    },
+    "diagnostics.field.value": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Value"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "値"
           }
         }
       }
@@ -3593,6 +3678,23 @@
         }
       }
     },
+    "diagnostics.unknown.appEvent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown app event (%lld)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なアプリイベント（%lld）"
+          }
+        }
+      }
+    },
     "diagnostics.unknown.simulatorStreamState": {
       "extractionState": "manual",
       "localizations": {
@@ -3844,6 +3946,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "停止済み"
+          }
+        }
+      }
+    },
+    "diagnostics.simulator.stream.stopFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止失敗"
           }
         }
       }

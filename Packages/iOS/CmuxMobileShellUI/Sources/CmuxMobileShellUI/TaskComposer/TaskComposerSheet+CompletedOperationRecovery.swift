@@ -1,4 +1,5 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -13,6 +14,10 @@ extension TaskComposerSheet {
 
     func startCompletedOperationReconciliation() {
         guard submitTask == nil, let recovery = activeCompletedOperationRecovery else { return }
+        store.recordAppEvent(
+            .taskComposerRecoveryStarted,
+            correlationID: recovery.submittedSnapshot.operationID.uuidString
+        )
         submitTask = Task { @MainActor in
             await reconcileCompletedOperation(recovery.submittedSnapshot)
             submitTask = nil
@@ -38,14 +43,28 @@ extension TaskComposerSheet {
         guard !Task.isCancelled else { return }
         switch result {
         case .success:
+            store.recordAppEvent(
+                .taskComposerRecovered,
+                correlationID: snapshot.operationID.uuidString
+            )
             completeSubmission(snapshot)
         case .failure(.alreadyCompleted):
+            store.recordAppEvent(
+                .taskComposerRecoveryFailed,
+                correlationID: snapshot.operationID.uuidString,
+                failure: .endpointUnavailable
+            )
             completedOperationRecovery?.recordReconciliationStillMissing()
             failureTitleStyle = .taskAccepted
             let message = recoveryFailureMessage(for: .startAgainAvailable)
             failureText = message
             announceFailure(message)
         case .failure(let failure):
+            store.recordAppEvent(
+                .taskComposerRecoveryFailed,
+                correlationID: snapshot.operationID.uuidString,
+                failure: failure.diagnosticFailureKind
+            )
             failureTitleStyle = .statusUnconfirmed
             let message = Self.failureMessage(failure)
             failureText = message

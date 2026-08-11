@@ -167,6 +167,57 @@ public final class DiagnosticLog: Sendable {
         ingress.record(event)
     }
 
+    /// Records one privacy-safe iOS product event into the same ordered ring
+    /// and durable app-log tap as transport diagnostics.
+    ///
+    /// Callers select only fixed enum values and bounded integers. Never add a
+    /// free-text overload: the absence of strings is what makes this API safe
+    /// to leave enabled in Release builds for every user.
+    ///
+    /// - Parameters:
+    ///   - kind: Stable feature action or outcome.
+    ///   - surface: Optional process-local correlation handle.
+    ///   - elapsedMilliseconds: Optional elapsed time for the operation.
+    ///   - failure: Optional privacy-safe failure category.
+    ///   - count: Optional bounded item/byte/attempt count documented by `kind`.
+    public nonisolated func recordAppEvent(
+        _ kind: DiagnosticAppEventKind,
+        surface: UInt32? = nil,
+        elapsedMilliseconds: UInt32? = nil,
+        failure: DiagnosticFailureKind? = nil,
+        count: Int? = nil
+    ) {
+        let boundedCount = count.map { min(max(0, $0), Int(UInt32.max)) }
+        record(DiagnosticEvent(
+            .appFeatureAction,
+            surface: surface,
+            ms: elapsedMilliseconds,
+            a: kind.rawValue,
+            b: failure?.rawValue,
+            c: boundedCount
+        ))
+    }
+
+    /// Records one app event correlated to an opaque model identifier.
+    ///
+    /// The identifier is immediately reduced to a process-local handle by
+    /// ``DiagnosticCorrelation`` and is never retained or written to disk.
+    public nonisolated func recordAppEvent(
+        _ kind: DiagnosticAppEventKind,
+        correlationID: String?,
+        elapsedMilliseconds: UInt32? = nil,
+        failure: DiagnosticFailureKind? = nil,
+        count: Int? = nil
+    ) {
+        recordAppEvent(
+            kind,
+            surface: DiagnosticCorrelation.handle(for: correlationID),
+            elapsedMilliseconds: elapsedMilliseconds,
+            failure: failure,
+            count: count
+        )
+    }
+
     /// Snapshot the currently-drained ring and format a plain-language report.
     ///
     /// Reads whatever the drain task has already moved into the ring; it does not

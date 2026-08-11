@@ -13,8 +13,14 @@ struct MobileIrohSettingsView: View {
     @State private var editedPrivatePathMacDeviceID: String?
     @State private var pendingPrivatePathRemovalMacDeviceID: String?
 
-    init(controller: any CmxIrohSettingsControlling) {
-        _model = State(initialValue: MobileIrohSettingsModel(controller: controller))
+    init(
+        controller: any CmxIrohSettingsControlling,
+        diagnosticLog: DiagnosticLog? = nil
+    ) {
+        _model = State(initialValue: MobileIrohSettingsModel(
+            controller: controller,
+            diagnosticLog: diagnosticLog
+        ))
     }
 
     var body: some View {
@@ -155,6 +161,7 @@ struct MobileIrohSettingsView: View {
                 needsAttention: !model.snapshot.staleRelayIDs.isEmpty || model.snapshot.failureDescription != nil,
                 verboseLogEnabled: model.verboseLogEnabled,
                 verboseLogShareURL: model.verboseLogShareURL,
+                diagnosticLog: model.diagnosticLogForView,
                 setVerboseLog: { enabled in
                     Task { await model.setVerboseLog(enabled) }
                 },
@@ -494,6 +501,7 @@ private struct MobileIrohDiagnosticsSection: View {
     let needsAttention: Bool
     let verboseLogEnabled: Bool
     let verboseLogShareURL: URL?
+    let diagnosticLog: DiagnosticLog?
     let setVerboseLog: (Bool) -> Void
     let refresh: () -> Void
     let clear: () -> Void
@@ -560,6 +568,9 @@ private struct MobileIrohDiagnosticsSection: View {
             }
             .disabled(exportText.isEmpty)
             .accessibilityIdentifier("MobileIrohShareDiagnosticReport")
+            .simultaneousGesture(TapGesture().onEnded {
+                diagnosticLog?.recordAppEvent(.irohDiagnosticsShared)
+            })
 
             Toggle(isOn: Binding(
                 get: { verboseLogEnabled },
@@ -590,6 +601,9 @@ private struct MobileIrohDiagnosticsSection: View {
                     )
                 }
                 .accessibilityIdentifier("MobileIrohShareVerboseLog")
+                .simultaneousGesture(TapGesture().onEnded {
+                    diagnosticLog?.recordAppEvent(.verboseDiagnosticsShared)
+                })
             }
 
             Button(role: .destructive) {

@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobilePairedMac
 import CmuxMobileRPC
 public import CmuxMobileShellModel
@@ -24,10 +25,17 @@ extension MobileShellComposite {
     /// predate `notification.feed.v1` are excluded without hiding snapshots from
     /// newer or temporarily unavailable Macs.
     public func refreshNotificationFeed() async {
+        let startedAt = appDiagnosticNow()
+        recordAppEvent(.notificationFeedLoadStarted)
         let targets = notificationFeedTargets()
         if targets.isEmpty {
             recomputeNotificationFeedItems()
             notificationFeedStatus = resolvedNotificationFeedStatus()
+            recordAppEvent(
+                .notificationFeedLoadFailed,
+                startedAt: startedAt,
+                failure: .endpointUnavailable
+            )
             return
         }
 
@@ -44,6 +52,11 @@ extension MobileShellComposite {
         }
         recomputeNotificationFeedItems()
         notificationFeedStatus = resolvedNotificationFeedStatus()
+        recordAppEvent(
+            .notificationFeedLoadSucceeded,
+            startedAt: startedAt,
+            count: notificationFeedItems.count
+        )
     }
 
     /// Resolves feed availability for one computer picker scope. A retained
@@ -144,7 +157,15 @@ extension MobileShellComposite {
         isRead: Bool
     ) async {
         guard item.isRead != isRead,
-              let target = notificationFeedTarget(for: notificationFeedOwnerKey(for: item)) else { return }
+              let target = notificationFeedTarget(for: notificationFeedOwnerKey(for: item)) else {
+            recordAppEvent(
+                .notificationFeedItemMarkedRead,
+                correlationID: item.notificationID,
+                failure: .endpointUnavailable,
+                count: isRead ? 1 : 0
+            )
+            return
+        }
         let method = isRead ? "notification.feed.mark_read" : "notification.feed.mark_unread"
         do {
             let request = try MobileCoreRPCClient.requestData(
@@ -165,6 +186,11 @@ extension MobileShellComposite {
                 client: target.client,
                 displayName: target.displayName
             )
+            recordAppEvent(
+                .notificationFeedItemMarkedRead,
+                correlationID: item.notificationID,
+                count: isRead ? 1 : 0
+            )
         } catch {
             notificationFeedLog.error(
                 """
@@ -173,6 +199,12 @@ extension MobileShellComposite {
                 mac=\(item.macDeviceID, privacy: .public) \
                 error=\(String(describing: error), privacy: .private)
                 """
+            )
+            recordAppEvent(
+                .notificationFeedItemMarkedRead,
+                correlationID: item.notificationID,
+                failure: DiagnosticFailureKind.classify(error),
+                count: isRead ? 1 : 0
             )
         }
     }
@@ -208,6 +240,11 @@ extension MobileShellComposite {
     /// finish even though the feed view disappears.
     public func requestOpenNotificationFeedItem(_ item: MobileNotificationFeedItem) {
         cancelPendingNotificationFeedOpen()
+        recordAppEvent(
+            .notificationFeedItemOpened,
+            correlationID: item.notificationID,
+            count: 0
+        )
         let token = UUID()
         notificationFeedOpenToken = token
         notificationFeedOpenTask = Task { @MainActor [weak self] in
@@ -251,7 +288,15 @@ extension MobileShellComposite {
             guard await switchToMac(
                 macDeviceID: item.macDeviceID,
                 instanceTag: item.macInstanceTag
-            ) else { return }
+            ) else {
+                recordAppEvent(
+                    .notificationFeedItemOpened,
+                    correlationID: item.notificationID,
+                    failure: .connectionClosed,
+                    count: 0
+                )
+                return
+            }
         }
         // Sibling builds share the device id and can reuse Mac-local
         // workspace/surface ids: match by the item's exact pairing.
@@ -274,15 +319,34 @@ extension MobileShellComposite {
             notificationFeedLog.error(
                 "open target unavailable mac=\(item.macDeviceID, privacy: .public) notification=\(item.notificationID, privacy: .public)"
             )
+            recordAppEvent(
+                .notificationFeedItemOpened,
+                correlationID: item.notificationID,
+                failure: .endpointUnavailable,
+                count: 0
+            )
             return
         }
-        guard commitNotificationFeedOpenOperation(operationToken) else { return }
+        guard commitNotificationFeedOpenOperation(operationToken) else {
+            recordAppEvent(
+                .notificationFeedItemOpened,
+                correlationID: item.notificationID,
+                failure: .cancelled,
+                count: 0
+            )
+            return
+        }
 
         navigateToWorkspaceForDeeplink(workspaceID, origin: .notificationFeed)
         if let surfaceID = item.remoteSurfaceID,
            workspace(workspaceID, containsSurfaceID: surfaceID) {
             selectTerminal(MobileTerminalPreview.ID(rawValue: surfaceID))
         }
+        recordAppEvent(
+            .notificationFeedItemOpened,
+            correlationID: item.notificationID,
+            count: 1
+        )
         await markNotificationFeedItemRead(item)
     }
 
@@ -801,6 +865,8 @@ extension MobileShellComposite {
         displayName: String,
         requiredRevision: Int? = nil
     ) async -> NotificationFeedFetchOutcome {
+        let startedAt = appDiagnosticNow()
+        recordAppEvent(.notificationFeedLoadStarted, correlationID: macDeviceID)
         do {
             let request = try MobileCoreRPCClient.requestData(
                 method: "notification.feed.list",
@@ -824,18 +890,37 @@ extension MobileShellComposite {
             guard notificationFeedClient(for: macDeviceID) === client else {
                 return .failed
             }
-            return applyNotificationFeedSnapshot(
+            let applied = applyNotificationFeedSnapshot(
                 response,
                 macDeviceID: macDeviceID,
                 displayName: displayName,
                 requiredRevision: requiredRevision
-            ) ? .applied : .stale
+            )
+            recordAppEvent(
+                .notificationFeedLoadSucceeded,
+                correlationID: macDeviceID,
+                startedAt: startedAt,
+                count: response.notifications.count
+            )
+            return applied ? .applied : .stale
         } catch {
             guard notificationFeedClient(for: macDeviceID) === client else {
+                recordAppEvent(
+                    .notificationFeedLoadFailed,
+                    correlationID: macDeviceID,
+                    startedAt: startedAt,
+                    failure: .superseded
+                )
                 return .failed
             }
             notificationFeedLog.error(
                 "list failed mac=\(macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .private)"
+            )
+            recordAppEvent(
+                .notificationFeedLoadFailed,
+                correlationID: macDeviceID,
+                startedAt: startedAt,
+                failure: DiagnosticFailureKind.classify(error)
             )
             return .failed
         }
@@ -862,9 +947,19 @@ extension MobileShellComposite {
                 client: target.client,
                 displayName: target.displayName
             )
+            recordAppEvent(
+                .notificationFeedItemMarkedRead,
+                correlationID: target.ownerKey,
+                count: ids.count
+            )
         } catch {
             notificationFeedLog.error(
                 "mark all read failed mac=\(target.macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .private)"
+            )
+            recordAppEvent(
+                .notificationFeedItemMarkedRead,
+                correlationID: target.ownerKey,
+                failure: DiagnosticFailureKind.classify(error)
             )
         }
     }

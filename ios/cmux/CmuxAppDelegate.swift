@@ -13,6 +13,8 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
     @MainActor var pushCoordinator: MobilePushCoordinator?
     /// The app-root analytics emitter, injected by `cmuxApp` at launch.
     @MainActor var analytics: (any AnalyticsEmitting)?
+    /// The app-root privacy-safe diagnostics recorder.
+    @MainActor var diagnosticLog: DiagnosticLog?
 
     func application(
         _ application: UIApplication,
@@ -25,13 +27,32 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
             "launch_type": .string("cold"),
             "launched_from": .string(launchedFromPush ? "push" : "normal"),
         ])
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(userDidTakeScreenshot),
+            name: UIApplication.userDidTakeScreenshotNotification,
+            object: nil
+        )
         return true
+    }
+
+    func applicationProtectedDataWillBecomeUnavailable(_ application: UIApplication) {
+        diagnosticLog?.recordAppEvent(.appProtectedDataUnavailable)
+    }
+
+    func applicationProtectedDataDidBecomeAvailable(_ application: UIApplication) {
+        diagnosticLog?.recordAppEvent(.appProtectedDataAvailable)
+    }
+
+    @MainActor @objc private func userDidTakeScreenshot() {
+        diagnosticLog?.recordAppEvent(.appScreenshotCaptured)
     }
 
     func application(
         _ application: UIApplication,
         didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
     ) {
+        diagnosticLog?.recordAppEvent(.pushDeviceTokenReceived, count: deviceToken.count)
         Task { @MainActor in await pushCoordinator?.handleDeviceToken(deviceToken) }
     }
 
@@ -40,6 +61,10 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
         didFailToRegisterForRemoteNotificationsWithError error: Error
     ) {
         let nsError = error as NSError
+        diagnosticLog?.recordAppEvent(
+            .pushDeviceTokenRegistrationFailed,
+            failure: DiagnosticFailureKind.classify(error)
+        )
         Task { @MainActor in
             await pushCoordinator?.handleDeviceTokenFailure()
             analytics?.capture("ios_push_token_registration_failed", [
@@ -54,12 +79,16 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
+        await diagnosticLog?.recordAppEvent(.pushReceivedInForeground)
         let ids = Self.cmuxIDs(from: notification.request.content.userInfo)
         let present = await pushCoordinator?.shouldPresentInForeground(
             workspaceId: ids.workspaceId,
             surfaceId: ids.surfaceId,
             macDeviceId: ids.macDeviceId
         ) ?? true
+        await diagnosticLog?.recordAppEvent(
+            present ? .pushPresentedInForeground : .pushSuppressedInForeground
+        )
         return present ? [.banner, .sound, .badge] : []
     }
 
@@ -107,6 +136,7 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
         // (which opens + marks read). The two compose: deep-link locally, clear
         // on the Mac.
         let appState = await UIApplication.shared.applicationState
+        await diagnosticLog?.recordAppEvent(.pushTapped)
         await analytics?.capture("ios_push_tapped", [
             "has_workspace_id": .bool(ids.workspaceId != nil),
             "has_surface_id": .bool(ids.surfaceId != nil),
@@ -138,7 +168,15 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
     ) async -> UIBackgroundFetchResult {
         let dismissedIds = Self.dismissedIDs(from: userInfo)
         guard !dismissedIds.isEmpty else { return .noData }
+        await diagnosticLog?.recordAppEvent(
+            .pushRemoteDismissReceived,
+            count: dismissedIds.count
+        )
         return await handleRemoteDismiss(ids: dismissedIds)
+    }
+
+    func applicationDidReceiveMemoryWarning(_ application: UIApplication) {
+        diagnosticLog?.recordAppEvent(.appMemoryWarningReceived)
     }
 
     @MainActor

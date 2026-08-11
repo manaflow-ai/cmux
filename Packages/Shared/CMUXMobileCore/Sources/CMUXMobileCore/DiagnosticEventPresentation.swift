@@ -74,6 +74,51 @@ public struct DiagnosticEventPresentation: Sendable {
         String(describing: phase)
     }
 
+    /// The stable machine name of an app-wide iOS feature event.
+    public func name(_ kind: DiagnosticAppEventKind) -> String {
+        String(describing: kind)
+    }
+
+    /// The stable machine name of a terminal toolbar action.
+    public func name(_ action: DiagnosticTerminalToolbarAction) -> String {
+        String(describing: action)
+    }
+
+    /// The stable machine name of a terminal zoom action.
+    public func name(_ action: DiagnosticTerminalZoomAction) -> String {
+        String(describing: action)
+    }
+
+    /// The stable machine name of a primary navigation destination.
+    public func name(_ tab: DiagnosticPrimaryTab) -> String {
+        String(describing: tab)
+    }
+
+    /// The stable machine name of a primary search owner.
+    public func name(_ scope: DiagnosticSearchScope) -> String {
+        String(describing: scope)
+    }
+
+    /// The stable machine name of a terminal toolbar configuration mutation.
+    public func name(_ action: DiagnosticToolbarConfigurationAction) -> String {
+        String(describing: action)
+    }
+
+    /// The stable machine name of a feedback delivery route.
+    public func name(_ route: DiagnosticFeedbackRoute) -> String {
+        String(describing: route)
+    }
+
+    /// The stable machine name of a toast style.
+    public func name(_ style: DiagnosticToastStyle) -> String {
+        String(describing: style)
+    }
+
+    /// The stable machine name of a toast dismissal reason.
+    public func name(_ reason: DiagnosticToastDismissReason) -> String {
+        String(describing: reason)
+    }
+
     /// The stable machine name of a runtime role.
     public func name(_ role: DiagnosticRuntimeRole) -> String {
         String(describing: role)
@@ -148,6 +193,8 @@ public struct DiagnosticEventPresentation: Sendable {
         case .admissionRevalidationFailed: localized("diagnostics.failure.admissionRevalidationFailed", defaultValue: "Admission revalidation failed")
         case .sendQueueOverflow: localized("diagnostics.failure.sendQueueOverflow", defaultValue: "Send queue overflow")
         case .routeGated: localized("diagnostics.failure.routeGated", defaultValue: "Route already connecting")
+        case .payloadTooLarge: localized("diagnostics.failure.payloadTooLarge", defaultValue: "Payload too large")
+        case .resourceLimitReached: localized("diagnostics.failure.resourceLimitReached", defaultValue: "Resource limit reached")
         case .unknown: localized("diagnostics.failure.unknown", defaultValue: "Unknown failure")
         }
     }
@@ -276,7 +323,7 @@ public struct DiagnosticEventPresentation: Sendable {
         .pairFail, .transportDialFailed, .recoveryFailed, .endpointFailed,
         .relayPolicyRefreshFailed, .sessionClosed, .routeUnavailable,
         .discoveryFailed, .admissionFailed, .hostAuthenticationFailed,
-        .rpcFailed, .transportCloseAttribution,
+        .rpcFailed, .transportCloseAttribution, .appFeatureAction,
     ]
 
     /// Event codes whose `a` slot carries a ``DiagnosticTransportKind``.
@@ -411,6 +458,8 @@ public struct DiagnosticEventPresentation: Sendable {
             localized("diagnostics.event.simulatorCoordinateMapped", defaultValue: "Simulator touch coordinate mapped")
         case .simulatorOwnershipChanged:
             localized("diagnostics.event.simulatorOwnershipChanged", defaultValue: "Simulator control ownership changed")
+        case .appFeatureAction:
+            localized("diagnostics.event.appFeatureAction", defaultValue: "App feature event")
         }
     }
 
@@ -463,6 +512,8 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "x", value: normalizedCoordinate(raw))
         case .simulatorOwnershipChanged:
             return Field(key: "owner", value: simulatorOwnershipName(raw))
+        case .appFeatureAction:
+            return Field(key: "operation", value: appEventName(raw))
         default:
             return Field(key: "detail_1", value: String(raw))
         }
@@ -549,10 +600,103 @@ public struct DiagnosticEventPresentation: Sendable {
             )
         case .simulatorCoordinateMapped:
             return Field(key: "mapping", value: simulatorCoordinateStateName(raw))
+        case .appFeatureAction:
+            if let kind = event.a.flatMap(DiagnosticAppEventKind.init(rawValue:)) {
+                switch kind {
+                case .terminalToolbarActionUsed:
+                    return Field(key: "action", value: terminalToolbarActionName(raw))
+                case .terminalZoomChanged:
+                    return Field(key: "action", value: terminalZoomActionName(raw))
+                case .primaryTabSelected:
+                    return Field(key: "tab", value: primaryTabName(raw))
+                case .searchPresented, .searchDismissed, .searchResultSelected:
+                    return Field(key: "scope", value: searchScopeName(raw))
+                case .customToolbarChanged, .terminalShortcutChanged:
+                    return Field(key: "change", value: toolbarConfigurationActionName(raw))
+                case .feedbackSubmitStarted, .feedbackSubmitSucceeded, .feedbackSubmitFailed:
+                    return Field(key: "route", value: feedbackRouteName(raw))
+                case .toastPresented, .toastCoalesced, .toastQueued, .toastDropped:
+                    return Field(key: "style", value: toastStyleName(raw))
+                case .toastDismissed:
+                    return Field(key: "reason", value: toastDismissReasonName(raw))
+                default:
+                    if Self.appEventKindsWithValuePayload.contains(kind) {
+                        return Field(key: "value", value: String(raw))
+                    }
+                }
+            }
+            return Field(key: "count", value: String(raw))
         default:
             return Field(key: "detail_3", value: String(raw))
         }
     }
+
+    private func appEventName(_ raw: Int) -> String {
+        guard let kind = DiagnosticAppEventKind(rawValue: raw) else {
+            return localized(
+                "diagnostics.unknown.appEvent",
+                defaultValue: "Unknown app event (\(raw))"
+            )
+        }
+        return name(kind)
+    }
+
+    private func terminalToolbarActionName(_ raw: Int) -> String {
+        DiagnosticTerminalToolbarAction(rawValue: raw).map(name)
+            ?? "unknown(\(raw))"
+    }
+
+    private func terminalZoomActionName(_ raw: Int) -> String {
+        DiagnosticTerminalZoomAction(rawValue: raw).map(name)
+            ?? "unknown(\(raw))"
+    }
+
+    private func primaryTabName(_ raw: Int) -> String {
+        DiagnosticPrimaryTab(rawValue: raw).map(name)
+            ?? "unknown(\(raw))"
+    }
+
+    private func searchScopeName(_ raw: Int) -> String {
+        DiagnosticSearchScope(rawValue: raw).map(name)
+            ?? "unknown(\(raw))"
+    }
+
+    private func toolbarConfigurationActionName(_ raw: Int) -> String {
+        DiagnosticToolbarConfigurationAction(rawValue: raw).map(name)
+            ?? "unknown(\(raw))"
+    }
+
+    private func feedbackRouteName(_ raw: Int) -> String {
+        DiagnosticFeedbackRoute(rawValue: raw).map(name)
+            ?? "unknown(\(raw))"
+    }
+
+    private func toastStyleName(_ raw: Int) -> String {
+        DiagnosticToastStyle(rawValue: raw).map(name)
+            ?? "unknown(\(raw))"
+    }
+
+    private func toastDismissReasonName(_ raw: Int) -> String {
+        DiagnosticToastDismissReason(rawValue: raw).map(name)
+            ?? "unknown(\(raw))"
+    }
+
+    private static let appEventKindsWithValuePayload: Set<DiagnosticAppEventKind> = [
+        .displayAltScreenNoticeChanged,
+        .displayFolderTapChanged,
+        .displayHapticsChanged,
+        .taskComposerFeatureChanged,
+        .terminalFilesFeatureChanged,
+        .toastFeatureChanged,
+        .displayMissingFilesChanged,
+        .displayWorkspaceTitleWrappingChanged,
+        .displayWorkspacePreviewLinesChanged,
+        .terminalScrollbackRowsChanged,
+        .telemetrySharingChanged,
+        .connectionMethodPreferenceChanged,
+        .notificationPreferenceChanged,
+        .terminalDraftStateChanged,
+    ]
 
     private func failureName(_ raw: Int) -> String {
         guard let value = DiagnosticFailureKind(rawValue: raw) else {
@@ -788,6 +932,8 @@ public struct DiagnosticEventPresentation: Sendable {
             return localized("diagnostics.simulator.stream.descriptorApplied", defaultValue: "Descriptor applied")
         case .stalled:
             return localized("diagnostics.simulator.stream.stalled", defaultValue: "Stalled (no frames or keepalives)")
+        case .stopFailed:
+            return localized("diagnostics.simulator.stream.stopFailed", defaultValue: "Stop failed")
         }
     }
 
@@ -1078,6 +1224,7 @@ public struct DiagnosticEventPresentation: Sendable {
         case "input_detail": localized("diagnostics.field.inputDetail", defaultValue: "Input detail")
         case "active_sessions": localized("diagnostics.field.activeSessions", defaultValue: "Active sessions")
         case "count": localized("diagnostics.field.count", defaultValue: "Count")
+        case "value": localized("diagnostics.field.value", defaultValue: "Value")
         case "outcome": localized("diagnostics.field.outcome", defaultValue: "Outcome")
         case "editable_focused": localized("diagnostics.field.editableFocused", defaultValue: "Editable focused")
         case "created": localized("diagnostics.field.created", defaultValue: "Created")

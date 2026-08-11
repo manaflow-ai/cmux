@@ -1,4 +1,5 @@
 import Foundation
+import CMUXMobileCore
 import Testing
 @testable import CmuxMobileShellModel
 
@@ -34,5 +35,23 @@ import Testing
 
         let store = MobileConnectionMethodStore(defaults: defaults)
         #expect(store.method == .automatic)
+    }
+
+    @Test func recordsPreferenceChangesAtThePersistenceOwner() async {
+        let log = DiagnosticLog(capacity: 4)
+        let store = MobileConnectionMethodStore(
+            defaults: makeDefaults(),
+            diagnosticLog: log
+        )
+
+        store.method = .tailscale
+
+        for _ in 0..<100 {
+            if await log.processedCount() >= 1 { break }
+            await Task.yield()
+        }
+        let event = await log.snapshot().events.first
+        #expect(event?.a == DiagnosticAppEventKind.connectionMethodPreferenceChanged.rawValue)
+        #expect(event?.c == 1)
     }
 }

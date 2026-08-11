@@ -1,3 +1,4 @@
+public import CMUXMobileCore
 public import CmuxAgentChat
 public import CmuxMobileRPC
 public import Foundation
@@ -12,6 +13,7 @@ public import Foundation
 /// loop.
 public actor MobileChatEventSource: ChatEventSource {
     private let client: MobileCoreRPCClient
+    let diagnosticLog: DiagnosticLog?
     private let coding = ChatWireCoding()
     public nonisolated let supportsArtifacts: Bool
     /// Whether the connected Mac supports recursive chat folder browsing.
@@ -32,9 +34,11 @@ public actor MobileChatEventSource: ChatEventSource {
         supportsArtifactGallery: Bool = false,
         supportsArtifactFolders: Bool = false,
         supportsTerminalArtifactList: Bool = false,
-        supportsArtifactLane: Bool = false
+        supportsArtifactLane: Bool = false,
+        diagnosticLog: DiagnosticLog? = nil
     ) {
         self.client = client
+        self.diagnosticLog = diagnosticLog
         self.supportsArtifacts = supportsArtifacts
         self.supportsArtifactGallery = supportsArtifactGallery
         self.supportsArtifactFolders = supportsArtifactFolders
@@ -252,13 +256,22 @@ public actor MobileChatEventSource: ChatEventSource {
     }
 
     public func artifactStat(sessionID: String, path: String) async throws -> ChatArtifactStat {
-        try await artifactCall(
-            method: "mobile.chat.artifact.stat",
-            params: [
-                "session_id": sessionID,
-                "path": path,
-            ]
-        )
+        do {
+            return try await artifactCall(
+                method: "mobile.chat.artifact.stat",
+                params: [
+                    "session_id": sessionID,
+                    "path": path,
+                ]
+            )
+        } catch {
+            recordAppEvent(
+                .artifactPreviewFailed,
+                correlationID: sessionID,
+                failure: DiagnosticFailureKind.classify(error)
+            )
+            throw error
+        }
     }
 
     public func artifactFetch(
@@ -266,13 +279,15 @@ public actor MobileChatEventSource: ChatEventSource {
         path: String,
         progress: (@Sendable (_ fetchedBytes: Int64, _ totalBytes: Int64) -> Void)?
     ) async throws -> Data {
-        try await fetchArtifactChunks(
-            method: "mobile.chat.artifact.fetch",
-            stringParams: ["session_id": sessionID, "path": path],
-            collectsData: true,
-            progress: progress,
-            onChunk: { _ in }
-        )
+        try await performArtifactDownload(correlationID: sessionID) {
+            try await fetchArtifactChunks(
+                method: "mobile.chat.artifact.fetch",
+                stringParams: ["session_id": sessionID, "path": path],
+                collectsData: true,
+                progress: progress,
+                onChunk: { _ in }
+            )
+        }
     }
 
     public func artifactFetch(
@@ -280,13 +295,15 @@ public actor MobileChatEventSource: ChatEventSource {
         path: String,
         onChunk: @Sendable (ChatArtifactChunk) async throws -> Void
     ) async throws {
-        _ = try await fetchArtifactChunks(
-            method: "mobile.chat.artifact.fetch",
-            stringParams: ["session_id": sessionID, "path": path],
-            collectsData: false,
-            progress: nil,
-            onChunk: onChunk
-        )
+        _ = try await performArtifactDownload(correlationID: sessionID) {
+            try await fetchArtifactChunks(
+                method: "mobile.chat.artifact.fetch",
+                stringParams: ["session_id": sessionID, "path": path],
+                collectsData: false,
+                progress: nil,
+                onChunk: onChunk
+            )
+        }
     }
 
     public func artifactThumbnail(
@@ -305,16 +322,41 @@ public actor MobileChatEventSource: ChatEventSource {
     }
 
     public func artifactList(sessionID: String, path: String) async throws -> ChatArtifactDirectoryListing {
+        let startedAt = Date()
+        recordAppEvent(.artifactListLoadStarted, correlationID: sessionID)
         guard supportsArtifactFolders else {
+            recordAppEvent(
+                .artifactListLoadFailed,
+                correlationID: sessionID,
+                startedAt: startedAt,
+                failure: .policyUnavailable
+            )
             throw ChatArtifactError.unsupported
         }
-        return try await artifactCall(
-            method: "mobile.chat.artifact.list",
-            params: [
-                "session_id": sessionID,
-                "path": path,
-            ]
-        )
+        do {
+            let listing: ChatArtifactDirectoryListing = try await artifactCall(
+                method: "mobile.chat.artifact.list",
+                params: [
+                    "session_id": sessionID,
+                    "path": path,
+                ]
+            )
+            recordAppEvent(
+                .artifactListLoadSucceeded,
+                correlationID: sessionID,
+                startedAt: startedAt,
+                count: listing.entries.count
+            )
+            return listing
+        } catch {
+            recordAppEvent(
+                .artifactListLoadFailed,
+                correlationID: sessionID,
+                startedAt: startedAt,
+                failure: DiagnosticFailureKind.classify(error)
+            )
+            throw error
+        }
     }
 
     /// Fetches one stable page of the session-wide artifact gallery.
@@ -331,6 +373,8 @@ public actor MobileChatEventSource: ChatEventSource {
         pageSize: Int = 60,
         query: String? = nil
     ) async throws -> ChatArtifactGalleryPage {
+        let startedAt = Date()
+        recordAppEvent(.artifactListLoadStarted, correlationID: sessionID)
         var params: [String: Any] = [
             "session_id": sessionID,
             "page_size": pageSize,
@@ -344,11 +388,75 @@ public actor MobileChatEventSource: ChatEventSource {
         if supportsArtifactFolders {
             params["include_directories"] = true
         }
-        let page: ChatArtifactGalleryPage = try await artifactCall(
-            method: "mobile.chat.artifact.gallery",
-            params: params
+        do {
+            let page: ChatArtifactGalleryPage = try await artifactCall(
+                method: "mobile.chat.artifact.gallery",
+                params: params
+            )
+            let filtered = supportsArtifactFolders ? page : page.excludingDirectories()
+            recordAppEvent(
+                .artifactListLoadSucceeded,
+                correlationID: sessionID,
+                startedAt: startedAt,
+                count: filtered.created.count
+                    + filtered.attached.count
+                    + filtered.referenced.count
+            )
+            return filtered
+        } catch {
+            recordAppEvent(
+                .artifactListLoadFailed,
+                correlationID: sessionID,
+                startedAt: startedAt,
+                failure: DiagnosticFailureKind.classify(error)
+            )
+            throw error
+        }
+    }
+
+    func performArtifactDownload(
+        correlationID: String,
+        operation: () async throws -> Data
+    ) async throws -> Data {
+        let startedAt = Date()
+        recordAppEvent(.artifactDownloadStarted, correlationID: correlationID)
+        do {
+            let data = try await operation()
+            recordAppEvent(
+                .artifactDownloadSucceeded,
+                correlationID: correlationID,
+                startedAt: startedAt,
+                count: data.count
+            )
+            return data
+        } catch {
+            recordAppEvent(
+                .artifactDownloadFailed,
+                correlationID: correlationID,
+                startedAt: startedAt,
+                failure: DiagnosticFailureKind.classify(error)
+            )
+            throw error
+        }
+    }
+
+    func recordAppEvent(
+        _ kind: DiagnosticAppEventKind,
+        correlationID: String? = nil,
+        startedAt: Date? = nil,
+        failure: DiagnosticFailureKind? = nil,
+        count: Int? = nil
+    ) {
+        let elapsedMilliseconds = startedAt.map {
+            UInt32(clamping: Int(max(0, Date().timeIntervalSince($0)) * 1_000))
+        }
+        diagnosticLog?.recordAppEvent(
+            kind,
+            correlationID: correlationID,
+            elapsedMilliseconds: elapsedMilliseconds,
+            failure: failure,
+            count: count
         )
-        return supportsArtifactFolders ? page : page.excludingDirectories()
     }
 
     func artifactCall<T: Decodable>(

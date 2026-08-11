@@ -1,9 +1,40 @@
 import Foundation
+import CMUXMobileCore
 import Testing
 @testable import CmuxMobileToast
 
 @MainActor
 struct ToastCenterTests {
+    @Test func recordsLifecycleWithoutToastCopy() async throws {
+        let suiteName = "toast-diagnostic-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.set(true, forKey: ToastCenter.enabledDefaultsKey)
+        let log = DiagnosticLog(capacity: 8)
+        let center = ToastCenter(defaults: defaults, diagnosticLog: log)
+        let toast = Toast.failure("private message")
+
+        center.present(toast)
+        center.dismissCurrent()
+
+        for _ in 0..<100 {
+            if await log.processedCount() >= 2 { break }
+            await Task.yield()
+        }
+        let report = await log.snapshot()
+        #expect(DiagnosticAppEventKind.toastPresented.rawValue == 537)
+        #expect(DiagnosticAppEventKind.toastDismissed.rawValue == 541)
+        #expect(report.events.map(\.a) == [
+            DiagnosticAppEventKind.toastPresented.rawValue,
+            DiagnosticAppEventKind.toastDismissed.rawValue,
+        ])
+        #expect(report.events.map(\.c) == [
+            DiagnosticToastStyle.failure.rawValue,
+            DiagnosticToastDismissReason.caller.rawValue,
+        ])
+        let encoded = try JSONEncoder().encode(report)
+        #expect(!String(decoding: encoded, as: UTF8.self).contains("private message"))
+    }
+
     private func makeCenter() -> (ToastCenter, ManualClock) {
         let clock = ManualClock()
         let center = ToastCenter(

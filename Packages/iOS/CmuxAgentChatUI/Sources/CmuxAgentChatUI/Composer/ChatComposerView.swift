@@ -19,6 +19,7 @@ public struct ChatComposerView: View {
     private let onSend: (String, [ChatOutboundAttachment]) -> Void
     private let onInterrupt: (Bool) -> Void
     private let onOpenTerminal: () -> Void
+    private let onDiagnosticEvent: (ChatConversationDiagnosticEvent) -> Void
 
     @Binding private var draft: String
     @State private var lastStopTap: Date?
@@ -28,8 +29,10 @@ public struct ChatComposerView: View {
     @State private var isStagingAttachments = false
     #if os(iOS)
     @State private var pickedItems: [PhotosPickerItem] = []
+    @State private var isPhotoPickerPresented = false
+    @State private var photoPickerHadSelection = false
     @State private var attachments: [ChatComposerAttachment] = []
-    @State private var dictation = ComposerDictationController()
+    @State private var dictation: ComposerDictationController
     #endif
 
     @Environment(\.chatTheme) private var theme
@@ -51,7 +54,8 @@ public struct ChatComposerView: View {
         draft: Binding<String>,
         onSend: @escaping (String, [ChatOutboundAttachment]) -> Void,
         onInterrupt: @escaping (Bool) -> Void,
-        onOpenTerminal: @escaping () -> Void
+        onOpenTerminal: @escaping () -> Void,
+        onDiagnosticEvent: @escaping (ChatConversationDiagnosticEvent) -> Void = { _ in }
     ) {
         self.agentState = agentState
         self.agentKind = agentKind
@@ -63,6 +67,12 @@ public struct ChatComposerView: View {
         self.onSend = onSend
         self.onInterrupt = onInterrupt
         self.onOpenTerminal = onOpenTerminal
+        self.onDiagnosticEvent = onDiagnosticEvent
+        #if os(iOS)
+        _dictation = State(initialValue: ComposerDictationController { event in
+            onDiagnosticEvent(Self.chatDiagnosticEvent(for: event))
+        })
+        #endif
     }
 
     public var body: some View {
@@ -366,6 +376,7 @@ public struct ChatComposerView: View {
                jpegQuality: Self.jpegQuality
            ) {
             attachments.append(attachment)
+            onDiagnosticEvent(.composerAttachmentAdded(count: attachments.count))
             isDraftFocused = true
             return
         }
@@ -377,7 +388,11 @@ public struct ChatComposerView: View {
     }
 
     private var attachButton: some View {
-        PhotosPicker(selection: $pickedItems, maxSelectionCount: 4, matching: .images) {
+        Button {
+            photoPickerHadSelection = false
+            onDiagnosticEvent(.photoPickerOpened)
+            isPhotoPickerPresented = true
+        } label: {
             MobileComposerIconLabel(
                 systemImage: "paperclip",
                 foregroundStyle: AnyShapeStyle(Color.secondary.opacity(0.8)),
@@ -393,9 +408,22 @@ public struct ChatComposerView: View {
                 bundle: .module
             )
         )
+        .photosPicker(
+            isPresented: $isPhotoPickerPresented,
+            selection: $pickedItems,
+            maxSelectionCount: 4,
+            matching: .images
+        )
         .onChange(of: pickedItems) {
             let items = pickedItems
+            guard !items.isEmpty else { return }
+            photoPickerHadSelection = true
+            onDiagnosticEvent(.photoPickerSelected(count: items.count))
             Task { await loadPickedItems(items) }
+        }
+        .onChange(of: isPhotoPickerPresented) { oldValue, isPresented in
+            guard oldValue, !isPresented, !photoPickerHadSelection else { return }
+            onDiagnosticEvent(.photoPickerCancelled)
         }
     }
 
@@ -421,6 +449,37 @@ public struct ChatComposerView: View {
     private func toggleDictation() {
         dictation.toggle(existingText: draft) { merged in
             draft = merged
+        }
+    }
+
+    private static func chatDiagnosticEvent(
+        for event: ComposerDictationDiagnosticEvent
+    ) -> ChatConversationDiagnosticEvent {
+        switch event {
+        case .startRequested:
+            return .dictationStartRequested
+        case .started:
+            return .dictationStarted
+        case .stopRequested:
+            return .dictationStopRequested
+        case .stopped:
+            return .dictationStopped
+        case .cancelled:
+            return .dictationCancelled
+        case .unavailable(let reason):
+            let chatReason: ChatDictationUnavailabilityReason = switch reason {
+            case .unsupportedLocale: .unsupportedLocale
+            case .permissionDenied: .permissionDenied
+            case .recognizerUnavailable: .recognizerUnavailable
+            case .audioEngineStartFailed: .audioEngineStartFailed
+            }
+            return .dictationUnavailable(chatReason)
+        case .firstResultReceived:
+            return .dictationFirstResultReceived
+        case .recognitionFailed:
+            return .dictationRecognitionFailed
+        case .stopTimedOut:
+            return .dictationStopTimedOut
         }
     }
 
@@ -474,6 +533,7 @@ public struct ChatComposerView: View {
     private func removeAttachment(id: String) {
         guard let index = attachments.firstIndex(where: { $0.id == id }) else { return }
         attachments.remove(at: index)
+        onDiagnosticEvent(.composerAttachmentRemoved(count: attachments.count))
         if let pickedIndex = pickedItems.firstIndex(where: { $0.itemIdentifier == id }) {
             pickedItems.remove(at: pickedIndex)
         }
@@ -484,16 +544,26 @@ public struct ChatComposerView: View {
         defer { isStagingAttachments = false }
         var staged: [ChatComposerAttachment] = []
         for (index, item) in items.enumerated() {
+            onDiagnosticEvent(.composerAttachmentPreparationStarted)
             guard let data = try? await item.loadTransferable(type: Data.self),
                   let attachment = data.chatComposerImageAttachment(
                       id: item.itemIdentifier ?? "picked-\(index)",
                       maxDimension: Self.maxAttachmentDimension,
                       jpegQuality: Self.jpegQuality
                   )
-            else { continue }
+            else {
+                onDiagnosticEvent(.composerAttachmentPreparationFailed)
+                continue
+            }
             staged.append(attachment)
+            onDiagnosticEvent(
+                .composerAttachmentPreparationSucceeded(byteCount: attachment.data.count)
+            )
         }
         attachments = staged
+        if !staged.isEmpty {
+            onDiagnosticEvent(.composerAttachmentAdded(count: staged.count))
+        }
     }
     #endif
 }
