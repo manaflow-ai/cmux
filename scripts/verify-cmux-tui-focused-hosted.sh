@@ -75,7 +75,12 @@ if [[ "$remote_commit" != "$commit" ]]; then
   exit 1
 fi
 
-request_id="${commit:0:12}-$(date +%s)-$$"
+if command -v uuidgen >/dev/null 2>&1; then
+  request_nonce="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+else
+  request_nonce="$(head -c 32 /dev/urandom | git hash-object --stdin)"
+fi
+request_id="${commit:0:12}-$request_nonce"
 run_title="cmux-tui focused $request_id @ $commit"
 
 gh workflow run "$WORKFLOW" \

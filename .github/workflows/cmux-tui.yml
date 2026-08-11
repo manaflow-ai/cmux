@@ -22,7 +22,7 @@ on:
         type: string
 
 concurrency:
-  group: cmux-tui-${{ github.workflow }}-${{ inputs.commit != '' && inputs.request_id || github.ref }}
+  group: cmux-tui-${{ github.workflow }}-${{ inputs.commit != '' && github.run_id || github.ref }}
   cancel-in-progress: true
 
 permissions:
