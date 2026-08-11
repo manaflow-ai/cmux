@@ -548,22 +548,54 @@ jobs:
             Set-Location cmux-tui
             # The published Rust SDK, sidebar wrapper, terminal-host client, and legacy TUI/core
             # fixtures use Unix sockets or /bin/sh. Test every other workspace crate, then run
-            # the Windows-only core and TUI suites explicitly.
+            # the core and TUI crates with their Windows-incompatible fixtures excluded.
             cargo test --workspace --exclude cmux-sdk --exclude cmux-sidebar --exclude cmux-terminal-client --exclude cmux-tui-core --exclude cmux-tui --locked --target x86_64-pc-windows-gnu
             if ($LASTEXITCODE -ne 0) {
               throw "Native Windows workspace tests failed with exit code $LASTEXITCODE"
             }
-            cargo test -p cmux-tui-core --lib --locked --target x86_64-pc-windows-gnu platform::tests::terminal_pwd_rejects_unc_verbatim_and_device_paths -- --exact
-            if ($LASTEXITCODE -ne 0) {
-              throw "Native Windows core path test failed with exit code $LASTEXITCODE"
+
+            # Keep native coverage for the 898 core tests that pass on Windows. These exact
+            # fixtures require Unix processes, Unix file semantics, or separate timing repair.
+            $windowsIncompatibleCoreTests = @(
+              "browser::tests::explicit_retry_can_verify_pixels_while_surface_is_failed"
+              "browser::tests::loaderless_navigation_response_reconciles_the_unchanged_document"
+              "browser::tests::lifecycle_paint_authorizes_loader_bracketed_capture_end_to_end"
+              "journal_hooks::tests::persistent_hook_delivery_records_started_and_completed_receipts"
+              "journal_hooks::tests::hook_causal_descendants_are_not_rescheduled_by_default"
+              "journal_ingress::tests::shutdown_returns_when_an_admitted_commit_stays_blocked"
+              "mux::tests::kitty_quota_worker_exhausts_deadline_pool_admission_rejections"
+              "mux::tests::persistent_mux_restart_restores_auxiliary_resources_and_exact_replay"
+              "mux::tests::persistent_workspace_registry_recovers_exact_identity_order_and_revision"
+              "mux::tests::replayed_resource_close_does_not_acquire_terminal_effects"
+              "resource_router::auxiliary::tests::sidebar_resource_lifecycle_uses_the_real_plugin_pty_and_exact_receipts"
+              "server::tests::bounded_session_journal_replay_completes_at_its_open_head"
+              "server::tests::bounded_journal_read_includes_the_durable_exact_subject_head"
+              "server::tests::identify_advertises_additive_capabilities"
+              "server::tests::journal_hook_list_omits_absent_optional_filters"
+              "server::tests::persistent_journal_tail_subscribers_share_one_decoded_database_reader"
+              "server::tests::session_journal_stream_replays_filters_and_resumes_from_its_cursor"
+              "server::tests::shutting_down_a_writer_clone_unblocks_the_reader"
+              "server::tests::sidebar_resource_attach_acknowledges_before_styled_snapshot_and_cancels"
+              "server::tests::session_journal_stream_regex_matches_exact_terminal_output_bytes"
+              "server::tests::title_changed_event_includes_authoritative_surface_title"
+              "sidebar_resource::tests::fake_plugin_input_reaches_the_styled_render_attachment"
+              "surface::tests::pty_eof_publishes_final_render_frame_before_surface_removal"
+              "workspace_registry::journal_extensions::tests::journal_hook_states_exclude_disabled_manifest_history"
+              "workspace_registry::tests::durable_commit_recovers_and_changes_generation"
+              "workspace_registry::tests::frontend_projection_is_durable_cas_and_exactly_once"
+              "workspace_registry::tests::personal_and_shared_frontend_projections_coexist_and_restore_independently"
+              "mux::tests::killed_kitty_surface_cannot_block_the_next_terminal_reservation"
+              "workspace_registry::tests::resource_ids_survive_registry_restart"
+              "workspace_registry::tests::schema_four_backfills_safe_browser_restart_metadata"
+              "workspace_registry::tests::schema_one_migrates_transactionally_to_terminal_registry"
+            )
+            $coreTestArgs = @("test", "-p", "cmux-tui-core", "--locked", "--target", "x86_64-pc-windows-gnu", "--")
+            foreach ($testName in $windowsIncompatibleCoreTests) {
+              $coreTestArgs += @("--skip", $testName)
             }
-            cargo test -p cmux-tui-core --lib --locked --target x86_64-pc-windows-gnu platform::tests::windows_sync_directory_accepts_existing_directory -- --exact
+            & cargo @coreTestArgs
             if ($LASTEXITCODE -ne 0) {
-              throw "Native Windows core directory test failed with exit code $LASTEXITCODE"
-            }
-            cargo test -p cmux-tui-core --lib --locked --target x86_64-pc-windows-gnu journal_hooks::tests::portable_hook_stdin_write_obeys_the_execution_timeout -- --exact
-            if ($LASTEXITCODE -ne 0) {
-              throw "Native Windows core hook test failed with exit code $LASTEXITCODE"
+              throw "Native Windows core tests failed with exit code $LASTEXITCODE"
             }
             cargo test -p cmux-tui --bin cmux-tui --locked --target x86_64-pc-windows-gnu windows
             if ($LASTEXITCODE -ne 0) {
