@@ -129,7 +129,8 @@ struct MainActorTaskStoreTests {
         let suspension = AsyncStream<Void>.makeStream()
         defer { suspension.continuation.finish() }
         var store: MainActorTaskStore<String>? = MainActorTaskStore()
-        weak var weakStore = store
+        weak var weakStore: MainActorTaskStore<String>?
+        weakStore = store
 
         store?.replace("search") {
             await withTaskCancellationHandler {
