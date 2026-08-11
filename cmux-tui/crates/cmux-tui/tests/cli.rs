@@ -65,6 +65,38 @@ impl HeadlessServer {
         panic!("headless server did not create socket at {}", self.socket.display());
     }
 
+    fn drain_stderr(&mut self) -> String {
+        #[cfg(unix)]
+        {
+            let Some(stderr) = self.child.stderr.as_mut() else { return String::new() };
+            let descriptor = stderr.as_raw_fd();
+            // SAFETY: descriptor belongs to this live child pipe, and both
+            // calls only read or restore its status flags.
+            let flags = unsafe { libc::fcntl(descriptor, libc::F_GETFL) };
+            if flags < 0 {
+                return String::new();
+            }
+            // SAFETY: the original flags came from F_GETFL for this descriptor.
+            if unsafe { libc::fcntl(descriptor, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+                return String::new();
+            }
+            let mut bytes = Vec::new();
+            let result = stderr.read_to_end(&mut bytes);
+            // SAFETY: restore the exact flags read above before returning.
+            let _ = unsafe { libc::fcntl(descriptor, libc::F_SETFL, flags) };
+            if let Err(error) = result
+                && error.kind() != std::io::ErrorKind::WouldBlock
+            {
+                return format!("could not read server stderr: {error}");
+            }
+            return String::from_utf8_lossy(&bytes).into_owned();
+        }
+        #[cfg(not(unix))]
+        {
+            String::new()
+        }
+    }
+
     fn close_all_resources(&self) -> Result<(), String> {
         let host_root =
             cmux_tui_core::terminal_host_runtime::terminal_host_root(&self.state, "main");
@@ -2039,7 +2071,7 @@ fn raw_command_is_the_explicit_private_protocol_v10_escape() {
 
 #[test]
 fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
-    let server = HeadlessServer::start("matrix");
+    let mut server = HeadlessServer::start("matrix");
 
     let identify = raw_cli(&server, serde_json::json!({"id":"identify-human","cmd":"identify"}));
     assert_success(&identify);
@@ -2455,7 +2487,13 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
         assert_success(&read);
         assert!(!close.status.success(), "successful close left the terminal addressable");
     }
-    assert!(terminal_closed, "terminal remained addressable after three inspected close attempts");
+    if !terminal_closed {
+        let server_stderr = server.drain_stderr();
+        panic!(
+            "terminal remained addressable after three inspected close attempts; \
+             server stderr: {server_stderr}"
+        );
+    }
 
     let bogus = Command::new(bin())
         .args(["--json", "--socket"])
