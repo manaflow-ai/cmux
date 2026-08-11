@@ -86,7 +86,7 @@ struct CLIRemoteShellStartupPerformanceTests {
         let bin: URL
     }
 
-    private func generatedSSHStartupCommandForShellPerformance() throws -> String {
+    fileprivate func generatedSSHStartupCommandForShellPerformance() throws -> String {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("ssh-perf")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -377,5 +377,26 @@ struct CLIRemoteShellStartupPerformanceTests {
         } catch {
             return ProcessRunResult(status: -1, stderr: String(describing: error), timedOut: false, duration: 0)
         }
+    }
+}
+
+@Suite(.serialized)
+struct SSHStartupCompactRecoveryTests {
+    @Test
+    func generatedSSHStartupUsesInstalledRecoveryHelper() throws {
+        let fixture = CLIRemoteShellStartupPerformanceTests()
+        let startupCommand = try fixture.generatedSSHStartupCommandForShellPerformance()
+        let script = try decodedReusableStartupScript(from: startupCommand)
+
+        #expect(script.contains("__ssh-auth-recovery"))
+        #expect(!script.contains("cmux_ssh_auth_kernel_process_identity()"))
+    }
+
+    private func decodedReusableStartupScript(from command: String) throws -> String {
+        let payloadPrefix = try #require(command.range(of: "cmux_payload="))
+        let payloadEnd = try #require(command[payloadPrefix.upperBound...].firstIndex(of: "\n"))
+        let encodedPayload = String(command[payloadPrefix.upperBound..<payloadEnd])
+        let payload = try #require(Data(base64Encoded: encodedPayload))
+        return try #require(String(data: payload, encoding: .utf8))
     }
 }
