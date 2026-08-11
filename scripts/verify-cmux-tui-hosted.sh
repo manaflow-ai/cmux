@@ -132,7 +132,7 @@ gh workflow run "$WORKFLOW" \
 run_id=""
 # The dispatch command does not return a run ID. Poll only until the uniquely
 # titled run appears, and then let GitHub CLI watch the run state.
-for _ in $(seq 1 60); do
+for ((attempt = 1; attempt <= 60; attempt++)); do
   run_query=""
   if run_query="$(
     gh run list \

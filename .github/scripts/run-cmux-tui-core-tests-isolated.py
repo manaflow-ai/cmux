@@ -61,10 +61,11 @@ def test_binaries(cargo_messages: Path, core_root: Path) -> list[Path]:
     return sorted(binaries)
 
 
-def tests_in(binary: Path) -> list[str]:
+def tests_in(binary: Path, core_root: Path) -> list[str]:
     result = subprocess.run(
         [str(binary), "--list"],
         check=True,
+        cwd=core_root,
         stdout=subprocess.PIPE,
         text=True,
     )
@@ -86,13 +87,14 @@ def main() -> int:
     binaries = test_binaries(args.cargo_messages, core_root)
     total = 0
     for binary in binaries:
-        tests = tests_in(binary)
+        tests = tests_in(binary, core_root)
         print(f"Running {len(tests)} tests from {binary.name} in fresh processes")
         for index, test_name in enumerate(tests, start=1):
             print(f"[{index}/{len(tests)}] {test_name}", flush=True)
             subprocess.run(
                 [str(binary), test_name, "--exact", "--test-threads=1"],
                 check=True,
+                cwd=core_root,
             )
             total += 1
     print(f"Passed {total} isolated cmux-tui-core tests")
