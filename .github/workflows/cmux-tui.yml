@@ -1,11 +1,28 @@
 name: cmux-tui
+run-name: ${{ inputs.commit != '' && format('cmux-tui focused {0} @ {1}', inputs.request_id, inputs.commit) || 'cmux-tui' }}
 
 on:
   # Temporarily manual-only beginning 2026-07-13 to pause automatic CI.
   workflow_dispatch:
+    inputs:
+      commit:
+        description: "Exact pushed 40-character commit SHA for a focused run; leave empty for the full workflow"
+        required: false
+        default: ""
+        type: string
+      test_filter:
+        description: "Rust test-name substring; required when commit is set"
+        required: false
+        default: ""
+        type: string
+      request_id:
+        description: "Unique focused-run token; required when commit is set"
+        required: false
+        default: ""
+        type: string
 
 concurrency:
-  group: cmux-tui-${{ github.workflow }}-${{ github.ref }}
+  group: cmux-tui-${{ github.workflow }}-${{ inputs.commit != '' && github.run_id || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -13,6 +30,7 @@ permissions:
 
 jobs:
   web-frontend:
+    if: inputs.commit == ''
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     steps:
@@ -43,6 +61,7 @@ jobs:
           npm test
 
   valgrind-leak-check:
+    if: inputs.commit == ''
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 40
     steps:
@@ -132,6 +151,7 @@ jobs:
 
   test:
     name: test (${{ matrix.os }})
+    if: inputs.commit == ''
     runs-on: ${{ matrix.os == 'macos' && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || 'ubuntu-latest' }}
     timeout-minutes: 40
     strategy:
@@ -188,6 +208,7 @@ jobs:
         run: python3 scripts/smoke-attach.py
 
   bindings-e2e:
+    if: inputs.commit == ''
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 40
     steps:
@@ -267,6 +288,7 @@ jobs:
 
   windows-experimental:
     name: windows experimental (x86_64-gnu)
+    if: inputs.commit == ''
     runs-on: windows-latest
     timeout-minutes: 40
     continue-on-error: true
@@ -304,3 +326,102 @@ jobs:
       - name: cargo build cmux-tui for Windows GNU
         working-directory: cmux-tui
         run: cargo build -p cmux-tui --target x86_64-pc-windows-gnu --locked
+
+  focused-test:
+    name: focused test (${{ matrix.os }})
+    if: inputs.commit != ''
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos
+            runner: blacksmith-6vcpu-macos-15
+          - os: linux
+            runner: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - name: Validate exact focused request
+        env:
+          EXACT_COMMIT: ${{ inputs.commit }}
+          WORKFLOW_COMMIT: ${{ github.sha }}
+          TEST_FILTER: ${{ inputs.test_filter }}
+          REQUEST_ID: ${{ inputs.request_id }}
+        shell: bash
+        run: |
+          if [[ ! "$EXACT_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::commit must be a lowercase 40-character SHA" >&2
+            exit 1
+          fi
+          if [[ "$WORKFLOW_COMMIT" != "$EXACT_COMMIT" ]]; then
+            echo "::error::workflow revision $WORKFLOW_COMMIT does not match requested commit $EXACT_COMMIT" >&2
+            exit 1
+          fi
+          if [[ ! "$TEST_FILTER" =~ ^[A-Za-z0-9_][A-Za-z0-9_:.-]{0,199}$ ]]; then
+            echo "::error::test_filter must be one safe Rust test-name substring" >&2
+            exit 1
+          fi
+          if [[ ! "$REQUEST_ID" =~ ^[A-Za-z0-9._-]{1,100}$ ]]; then
+            echo "::error::request_id contains unsupported characters" >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.commit }}
+
+      - name: Require exact checkout
+        env:
+          EXACT_COMMIT: ${{ inputs.commit }}
+        run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
+
+      - name: Init ghostty submodule
+        run: git submodule update --init --depth 1 ghostty
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Rust version
+        run: |
+          rustc --version || true
+          if ! command -v cargo >/dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: cargo fmt
+        working-directory: cmux-tui
+        run: cargo fmt --check
+
+      - name: Run focused Rust test
+        working-directory: cmux-tui
+        env:
+          TEST_FILTER: ${{ inputs.test_filter }}
+        shell: bash
+        run: |
+          cargo test --workspace --locked "$TEST_FILTER" -- --list \
+            | tee "$RUNNER_TEMP/cmux-tui-focused-tests.txt"
+          if ! grep -Eq ': test$' "$RUNNER_TEMP/cmux-tui-focused-tests.txt"; then
+            echo "::error::test_filter '$TEST_FILTER' selected no Rust tests" >&2
+            exit 1
+          fi
+          cargo test --workspace --locked "$TEST_FILTER" -- --include-ignored
+
+  focused-hosted-verification:
+    name: focused hosted verification
+    if: inputs.commit != '' && always()
+    needs: focused-test
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 5
+    env:
+      FOCUSED_RESULT: ${{ needs.focused-test.result }}
+    steps:
+      - name: Require exact macOS and Linux proof
+        run: test "$FOCUSED_RESULT" = success
