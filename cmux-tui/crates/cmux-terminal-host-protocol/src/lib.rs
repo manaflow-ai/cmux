@@ -24,6 +24,9 @@ pub const MAX_KITTY_IMAGE_BYTES: u64 = 10_000_000;
 pub const MAX_KITTY_INFLIGHT_BYTES: u64 = 13_595_480;
 pub const MAX_KITTY_IMAGES: u64 = 4_096;
 pub const MAX_KITTY_PLACEMENTS: u64 = 16_384;
+/// Maximum terminal replay bytes that a host can send and a renderer must accept.
+pub const MAX_TERMINAL_REPLAY_BYTES: usize =
+    MAX_KITTY_INFLIGHT_BYTES as usize + 2 * 1024 * 1024;
 pub const KITTY_IMAGE_ALIAS_COUNT_LEN: usize = size_of::<u16>();
 pub const KITTY_IMAGE_ALIAS_ENCODED_LEN: usize = 2 * size_of::<u32>();
 const EXIT_PAYLOAD_VERSION: u16 = 1;

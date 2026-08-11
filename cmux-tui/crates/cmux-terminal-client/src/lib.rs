@@ -18,8 +18,8 @@ use cmux_remote::service::{EndpointRole, ServiceMultiplexer, ServiceStream};
 use cmux_remote_protocol::{Lane, LanePolicy, Service, ServiceControl, SessionId};
 use cmux_terminal_host_protocol::{
     Frame, FrameDecoder, MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MAX_KITTY_IMAGE_BYTES,
-    MAX_KITTY_IMAGES, MAX_KITTY_INFLIGHT_BYTES, MAX_KITTY_PLACEMENTS, MessageKind,
-    RESIZE_ACK_CANONICAL_CHANGED, encode_frame,
+    MAX_KITTY_IMAGES, MAX_KITTY_INFLIGHT_BYTES, MAX_KITTY_PLACEMENTS,
+    MAX_TERMINAL_REPLAY_BYTES, MessageKind, RESIZE_ACK_CANONICAL_CHANGED, encode_frame,
 };
 #[cfg(feature = "text-renderer")]
 use ghostty_vt::{
@@ -138,7 +138,7 @@ fn decode_host_snapshot_payload(payload: &[u8]) -> Result<RendererSnapshot, Stri
         return Err("terminal snapshot dimensions must be nonzero".into());
     }
     let _pid = decoder.u32()?;
-    let replay = decoder.bytes(8 * 1024 * 1024)?.to_vec();
+    let replay = decoder.bytes(MAX_TERMINAL_REPLAY_BYTES)?.to_vec();
     match decoder.u8()? {
         0 => {}
         1 => decoder.string()?,
@@ -2341,7 +2341,7 @@ mod tests {
 
     #[test]
     fn snapshot_accepts_the_protocol_replay_ceiling() {
-        let maximum_replay = vec![b'x'; MAX_KITTY_INFLIGHT_BYTES as usize + 2 * 1024 * 1024];
+        let maximum_replay = vec![b'x'; MAX_TERMINAL_REPLAY_BYTES];
         let payload = test_snapshot_payload(&maximum_replay);
 
         let snapshot = decode_host_snapshot_payload(&payload).unwrap();

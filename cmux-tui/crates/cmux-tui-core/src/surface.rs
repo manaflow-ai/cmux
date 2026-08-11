@@ -488,9 +488,13 @@ const ATTACH_STREAM_MAX_BYTES: usize = 16 * 1024 * 1024;
 // both the raw attach queue and its 32 MiB base64-encoded transport.
 const VT_REPLAY_TEXT_HEADROOM_BYTES: usize = 2 * 1024 * 1024;
 pub(crate) const VT_REPLAY_MAX_BYTES: usize =
-    ghostty_vt::KITTY_INFLIGHT_REPLAY_MAX_BYTES + VT_REPLAY_TEXT_HEADROOM_BYTES;
+    crate::terminal_host_protocol::MAX_TERMINAL_REPLAY_BYTES;
 const VT_REPLAY_FRAME_METADATA_HEADROOM_BYTES: usize = 64 * 1024;
 const VT_REPLAY_ENCODED_TRANSPORT_MAX_BYTES: usize = 32 * 1024 * 1024;
+const _: () = assert!(
+    VT_REPLAY_MAX_BYTES
+        == ghostty_vt::KITTY_INFLIGHT_REPLAY_MAX_BYTES + VT_REPLAY_TEXT_HEADROOM_BYTES
+);
 const _: () = assert!(
     VT_REPLAY_MAX_BYTES + VT_REPLAY_FRAME_METADATA_HEADROOM_BYTES <= ATTACH_STREAM_MAX_BYTES
 );

@@ -118,6 +118,8 @@ impl FrontendControlState {
     fn fail(&self, message: String) {
         *self.status.lock().unwrap() = message.clone();
         self.closed.store(true, Ordering::Release);
+        self.resource_stream_end_reason.store(RESOURCE_STREAM_END_ERROR, Ordering::Release);
+        self.resource_stream_ended.store(true, Ordering::Release);
         self.fail_pending(message);
         self.updates.notify();
     }
