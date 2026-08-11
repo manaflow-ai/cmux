@@ -31,6 +31,20 @@ struct MobilePrimarySearchFieldModifier: ViewModifier {
     let submit: () -> Void
 
     func body(content: Content) -> some View {
+        // Without .minimize, a scroll-view root (the notification feed's
+        // List) integrates with the navigation-bar search drawer and pins the
+        // INACTIVE field as a full-width bar under the nav bar after a pop
+        // (measured at y=117); minimize keeps the inactive field out of the
+        // top chrome so the bottom search control stays its only home.
+        if #available(iOS 26.0, *) {
+            searchableContent(content)
+                .searchToolbarBehavior(.minimize)
+        } else {
+            searchableContent(content)
+        }
+    }
+
+    private func searchableContent(_ content: Content) -> some View {
         content
             .searchable(
                 text: searchText,
