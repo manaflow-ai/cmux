@@ -116,7 +116,8 @@ final class SerialFFIExecutor: @unchecked Sendable {
             return
           }
           let result = operation()
-          waiter.complete(cancellation.finishExecution() ? result : nil)
+          cancellation.finishExecution()
+          waiter.complete(result)
         }
         if let timeoutNanoseconds {
           Task.detached {
@@ -194,12 +195,10 @@ final class FFICancellation: @unchecked Sendable {
     return true
   }
 
-  func finishExecution() -> Bool {
+  func finishExecution() {
     lock.lock()
-    let completedNormally = state == .running
     state = .completed
     lock.unlock()
-    return completedNormally
   }
 
   @discardableResult
@@ -397,6 +396,7 @@ actor FrontendService {
       return .success(UInt(bitPattern: terminal))
     }
     guard let result = queuedResult else { throw CancellationError() }
+    try Task.checkCancellation()
     let address: UInt
     switch result {
     case .success(let value): address = value

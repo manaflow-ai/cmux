@@ -67,18 +67,17 @@ struct FrontendResourceStream: Sendable, Equatable {
 }
 
 @MainActor
+@Observable
 final class TerminalTitleOwner {
     let terminalID: String
     private(set) var title: String
 
-    private let onTitleChange: (() -> Void)?
-    private var pendingTitle: String?
-    private var deliveryTask: Task<Void, Never>?
+    @ObservationIgnored private var pendingTitle: String?
+    @ObservationIgnored private var deliveryTask: Task<Void, Never>?
 
-    init(terminalID: String, title: String, onTitleChange: (() -> Void)? = nil) {
+    init(terminalID: String, title: String) {
         self.terminalID = terminalID
         self.title = title
-        self.onTitleChange = onTitleChange
     }
 
     func submit(_ nextTitle: String) {
@@ -90,10 +89,7 @@ final class TerminalTitleOwner {
             let latest = pendingTitle
             pendingTitle = nil
             deliveryTask = nil
-            if let latest, latest != title {
-                title = latest
-                onTitleChange?()
-            }
+            if let latest, latest != title { title = latest }
             if pendingTitle != nil { submit(pendingTitle ?? title) }
         }
     }
@@ -102,10 +98,7 @@ final class TerminalTitleOwner {
         deliveryTask?.cancel()
         deliveryTask = nil
         pendingTitle = nil
-        if title != nextTitle {
-            title = nextTitle
-            onTitleChange?()
-        }
+        if title != nextTitle { title = nextTitle }
     }
 
     func cancel() {
@@ -117,14 +110,14 @@ final class TerminalTitleOwner {
 
 @MainActor
 struct TerminalTitleFn {
-    private let titles: [String: String]
+    private let owners: [String: TerminalTitleOwner]
 
     init(owners: [String: TerminalTitleOwner]) {
-        titles = owners.mapValues(\.title)
+        self.owners = owners
     }
 
-    func callAsFunction(_ terminalID: String) -> String? {
-        titles[terminalID]
+    func callAsFunction(_ terminalID: String) -> TerminalTitleOwner? {
+        owners[terminalID]
     }
 }
 
@@ -140,13 +133,11 @@ final class FrontendModel {
     private(set) var transportDiagnostics = ""
     private(set) var selectedWorkspaceID: String?
     private(set) var selectedScreenID: String?
-    private(set) var terminalTitleRevision: UInt64 = 0
 
     @ObservationIgnored private var service: FrontendService?
     @ObservationIgnored private var updatesTask: Task<Void, Never>?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var connectTask: Task<Void, Never>?
-    @ObservationIgnored private var refreshRequested = false
     @ObservationIgnored private var terminalControllers: [String: NativeTerminalModel] = [:]
     @ObservationIgnored private var terminalTitles: [String: TerminalTitleOwner] = [:]
     @ObservationIgnored private var terminalRetirementTasks: [UUID: Task<Void, Never>] = [:]
@@ -279,7 +270,6 @@ final class FrontendModel {
     private func disconnectAfterFailure(_ error: any Error) async {
         updatesTask?.cancel()
         refreshTask?.cancel()
-        refreshRequested = false
         let controllers = Array(terminalControllers.values)
         let titles = Array(terminalTitles.values)
         let retirements = Array(terminalRetirementTasks.values)
@@ -425,7 +415,6 @@ final class FrontendModel {
             stream: currentStream
         )
         let pendingRefresh = refreshTask
-        refreshRequested = false
         pendingRefresh?.cancel()
         await pendingRefresh?.value
         await service.discardResourceUpdates()
@@ -521,18 +510,14 @@ final class FrontendModel {
     }
 
     private func scheduleRefresh() {
-        refreshRequested = true
         guard refreshTask == nil else { return }
         refreshTask = Task { [weak self] in
             defer { self?.refreshTask = nil }
             guard let self, !Task.isCancelled else { return }
-            while refreshRequested, !Task.isCancelled {
-                refreshRequested = false
-                do {
-                    try await refreshNow()
-                } catch {
-                    errorMessage = error.localizedDescription
-                }
+            do {
+                try await refreshNow()
+            } catch {
+                errorMessage = error.localizedDescription
             }
         }
     }
@@ -628,10 +613,7 @@ final class FrontendModel {
             } else {
                 terminalTitles[terminal.id] = TerminalTitleOwner(
                     terminalID: terminal.id,
-                    title: terminal.title,
-                    onTitleChange: { [weak self] in
-                        if let self { terminalTitleRevision &+= 1 }
-                    }
+                    title: terminal.title
                 )
             }
         }
@@ -650,8 +632,7 @@ final class FrontendModel {
     }
 
     func terminalTitleLookup() -> TerminalTitleFn {
-        _ = terminalTitleRevision
-        return TerminalTitleFn(owners: terminalTitles)
+        TerminalTitleFn(owners: terminalTitles)
     }
 
     func selectWorkspace(_ workspace: WorkspaceSnapshot) {
@@ -1039,7 +1020,6 @@ final class FrontendModel {
         connectTask?.cancel()
         updatesTask?.cancel()
         refreshTask?.cancel()
-        refreshRequested = false
         focusMutations = FocusMutationTracker()
         let controllers = Array(terminalControllers.values)
         let titles = Array(terminalTitles.values)
