@@ -158,6 +158,7 @@
       "signOut": "ออกจากระบบ",
       "signingOut": "กำลังออกจากระบบ…",
       "signOutError": "ออกจากระบบไม่ได้ โปรดลองอีกครั้ง",
+      "organizationSwitchError": "เปลี่ยนองค์กรไม่ได้ โปรดลองอีกครั้ง",
       "signIn": "เข้าสู่ระบบ"
     },
     "aiAccounts": {

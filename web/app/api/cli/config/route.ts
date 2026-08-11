@@ -3,8 +3,6 @@ import {
   hostedSubrouterBaseURL,
 } from "@/services/subrouter/constants";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const DEFAULT_STACK_API_URL = "https://api.stack-auth.com/api/v1";
 
@@ -27,7 +25,7 @@ export function GET(request: Request): Response {
 
   return Response.json(
     {
-      version: 3,
+      version: 4,
       auth: {
         apiUrl:
           process.env.NEXT_PUBLIC_STACK_API_URL?.trim() ||
@@ -41,6 +39,10 @@ export function GET(request: Request): Response {
       coderouter: {
         sessionUrl: new URL("/api/coderouter/session", request.url).toString(),
         accountsUrl: new URL("/api/coderouter/accounts", request.url).toString(),
+        organizationsUrl: new URL(
+          "/api/coderouter/organizations",
+          request.url,
+        ).toString(),
         openaiBaseUrl: new URL("/v1", request.url).toString(),
       },
       // Keep the hosted Subrouter fields for released sr clients while cmux

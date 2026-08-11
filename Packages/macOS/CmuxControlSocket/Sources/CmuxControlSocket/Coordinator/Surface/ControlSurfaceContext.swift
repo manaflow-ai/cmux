@@ -377,13 +377,20 @@ public protocol ControlSurfaceContext: AnyObject {
     ///   - workspaceID: The target workspace.
     ///   - requestedSurfaceID: The explicit `surface_id`, or `nil` for the
     ///     workspace-wide async path.
+    ///   - terminalLifecycleID: The reporting terminal process generation, or
+    ///     `nil` for backward-compatible callers.
     ///   - stateRawValue: The parsed activity state's raw value.
     /// - Returns: The report-shell-state resolution.
     func controlSurfaceReportShellState(
         workspaceID: UUID,
         requestedSurfaceID: UUID?,
+        terminalLifecycleID: UUID?,
         stateRawValue: String
     ) -> ControlSurfaceReportShellStateResolution
+
+    /// Returns the app-bundle-localized v2 error for a malformed terminal
+    /// lifecycle token.
+    func controlSurfaceInvalidTerminalLifecycleIDError() -> String
 
     /// Kicks the port scanner for `surface.ports_kick`.
     ///

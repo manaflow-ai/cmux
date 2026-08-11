@@ -103,6 +103,10 @@ from .models import (
     ScreenSnapshot,
     SessionDelta,
     SessionEvent,
+    JournalAuthority,
+    JournalProducer,
+    JournalSubject,
+    SessionJournalRecord,
     SessionSnapshotItem,
     SessionSnapshot,
     ShellCommand,
@@ -137,6 +141,8 @@ from .models import (
     Size,
     PixelSize,
     Unknown,
+    ViewAttachmentOutcome,
+    ViewerReleaseResult,
     ViewerResizeResult,
     WorkspaceSnapshot,
 )
@@ -158,6 +164,7 @@ from .options import (
     RequestOptions,
     RunOptions,
     SessionEventsOptions,
+    SessionJournalOptions,
     SidebarEnsureOptions,
     SidebarInputOptions,
     SidebarResizeOptions,
@@ -232,6 +239,39 @@ def _options(value: object) -> Dict[str, Any]:
             result[item.name] = _plain(field_value)
         elif name is not None:
             result[name] = _plain(field_value)
+    return result
+
+
+def _journal_options(value: SessionJournalOptions) -> Dict[str, Any]:
+    result: Dict[str, Any] = {}
+    if value.cursor is not None:
+        result["cursor"] = asdict(value.cursor)
+    if value.start is not None:
+        result["start"] = value.start
+    if value.follow is not None:
+        result["follow"] = value.follow
+    if value.filter is None:
+        return result
+    filter_value: Dict[str, Any] = {}
+    if value.filter.kinds is not None:
+        filter_value["kinds"] = list(value.filter.kinds)
+    if value.filter.classes is not None:
+        filter_value["classes"] = list(value.filter.classes)
+    if value.filter.subjects is not None:
+        filter_value["subjects"] = [
+            {
+                key: item
+                for key, item in (("kind", subject.kind), ("id", subject.id))
+                if item is not None
+            }
+            for subject in value.filter.subjects
+        ]
+    if value.filter.max_sensitivity is not None:
+        filter_value["max_sensitivity"] = value.filter.max_sensitivity
+    if value.filter.regex is not None:
+        filter_value["regex"] = asdict(value.filter.regex)
+    if filter_value:
+        result["filter"] = filter_value
     return result
 
 
@@ -398,6 +438,16 @@ def _required_decimal(payload: Mapping[str, Any], key: str) -> str:
     ):
         raise ProtocolError(f"resource field {key} must be a uint64 decimal string")
     return value
+
+
+def _required_nullable_decimal(
+    payload: Mapping[str, Any], key: str
+) -> Optional[str]:
+    if key not in payload:
+        raise ProtocolError(f"resource result omitted required field {key}")
+    if payload[key] is None:
+        return None
+    return _required_decimal(payload, key)
 
 
 def _required_nullable_decimal_int(
@@ -760,26 +810,24 @@ def _tab_snapshot(value: Any) -> TabSnapshot:
 
 def _terminal_snapshot(value: Any) -> TerminalSnapshot:
     payload = _unwrap_resource(value, ("terminal",))
-    if "tab_id" not in payload:
-        raise ProtocolError("resource result omitted required nullable tab_id")
-    raw_tab_id = payload["tab_id"]
-    tab_id = (
-        None
-        if raw_tab_id is None
-        else _required_id(payload, ("tab_id",), TabId)
-    )
-    if "tab_ids" not in payload:
-        # Protocol 1 servers predating terminal projection expose only the
-        # nullable compatibility alias.
-        tab_ids = () if tab_id is None else (tab_id,)
-    else:
+    has_tab_id = "tab_id" in payload
+    has_tab_ids = "tab_ids" in payload
+    if not has_tab_id and not has_tab_ids:
+        raise ProtocolError("terminal snapshot requires tab_ids or tab_id")
+    legacy_tab_id = None
+    if has_tab_id and payload["tab_id"] is not None:
+        legacy_tab_id = _required_id(payload, ("tab_id",), TabId)
+    if has_tab_ids:
         raw_tab_ids = payload["tab_ids"]
         if not isinstance(raw_tab_ids, list):
             raise ProtocolError("terminal tab_ids must be an array")
         tab_ids = tuple(
-            _required_id({"id": item}, ("id",), TabId) for item in raw_tab_ids
+            _required_id({"id": item}, ("id",), TabId)
+            for item in raw_tab_ids
         )
-    if tab_id != (tab_ids[0] if tab_ids else None):
+    else:
+        tab_ids = () if legacy_tab_id is None else (legacy_tab_id,)
+    if has_tab_id and legacy_tab_id != (tab_ids[0] if tab_ids else None):
         raise ProtocolError("terminal tab_id must be the first tab_ids item")
     lifecycle = _required_enum(
         payload,
@@ -816,7 +864,6 @@ def _terminal_snapshot(value: Any) -> TerminalSnapshot:
                 "exit",
             ),
         ),
-        tab_id=tab_id,
         tab_ids=tab_ids,
         title=_required_string(payload, "title"),
         cwd=_optional_present_string(payload, "cwd"),
@@ -945,7 +992,14 @@ def _aux_snapshot(
             "expires_in_seconds",
             "status",
         ),
-        FrontendProjectionSnapshot: ("session_id", "projection"),
+        FrontendProjectionSnapshot: (
+            "session_id",
+            "frontend_id",
+            "window_id",
+            "generation",
+            "projection",
+            "projection_revision",
+        ),
         NotificationSnapshot: (
             "session_id",
             "title",
@@ -995,9 +1049,16 @@ def _aux_snapshot(
             ("session_id",),
             SessionId,
         )
+        arguments["frontend_id"] = _required_string(payload, "frontend_id")
+        arguments["window_id"] = _required_string(payload, "window_id")
+        arguments["generation"] = _required_string(payload, "generation")
         if "projection" not in payload:
             raise ProtocolError("frontend projection omitted projection")
         arguments["projection"] = payload["projection"]
+        arguments["projection_revision"] = _required_decimal(
+            payload,
+            "projection_revision",
+        )
     elif snapshot_type is NotificationSnapshot:
         arguments.update(
             title=_required_string(payload, "title"),
@@ -1343,16 +1404,29 @@ def _process_info_result(value: Any) -> ProcessInfoResult:
 
 def _viewer_resize_result(value: Any) -> ViewerResizeResult:
     payload = _mapping(value, "viewer resize result")
-    _strict_object(payload, ("accepted", "size"), "viewer resize result")
+    _strict_object(
+        payload,
+        ("accepted", "size", "outcome"),
+        "viewer resize result",
+    )
     return ViewerResizeResult(
         _required_bool(payload, "accepted"),
         _size(payload.get("size")),
+        _required_enum(
+            payload,
+            "outcome",
+            ("applied", "passive", "superseded"),
+        ),
     )
 
 
 def _browser_viewer_resize_result(value: Any) -> BrowserViewerResizeResult:
     payload = _mapping(value, "browser viewer resize result")
-    _strict_object(payload, ("accepted", "size"), "browser viewer resize result")
+    _strict_object(
+        payload,
+        ("accepted", "size", "outcome"),
+        "browser viewer resize result",
+    )
     size = _mapping(payload.get("size"), "pixel size")
     _strict_object(size, ("width_px", "height_px"), "pixel size")
     return BrowserViewerResizeResult(
@@ -1361,7 +1435,23 @@ def _browser_viewer_resize_result(value: Any) -> BrowserViewerResizeResult:
             _required_positive_uint32(size, "width_px"),
             _required_positive_uint32(size, "height_px"),
         ),
+        _required_enum(
+            payload,
+            "outcome",
+            ("applied", "passive", "superseded"),
+        ),
     )
+
+
+def _viewer_release_result(value: Any) -> ViewerReleaseResult:
+    payload = _mapping(value, "viewer release result")
+    _strict_object(payload, ("outcome",), "viewer release result")
+    outcome: ViewAttachmentOutcome = _required_enum(
+        payload,
+        "outcome",
+        ("applied", "passive", "superseded"),
+    )
+    return ViewerReleaseResult(outcome)
 
 
 def _cell_pixels_result(value: Any) -> CellPixelsResult:
@@ -1685,6 +1775,91 @@ def _event_item(value: Any) -> SessionEvent:
             tuple(_resource_change(item) for item in values),
         )
     return Unknown(kind, dict(payload))
+
+
+def _journal_record(value: Any) -> SessionJournalRecord:
+    payload = _mapping(value, "session journal record")
+    _strict_object(
+        payload,
+        (
+            "sequence", "event_id", "schema_version", "kind", "class", "replay",
+            "occurred_at_ms", "committed_at_ms", "producer", "authority",
+            "causation_id", "correlation_id", "causation_depth", "subjects",
+            "sensitivity", "payload", "resource_revision",
+            "previous_resource_revision",
+        ),
+        "session journal record",
+    )
+    for required in ("authority", "payload"):
+        if required not in payload:
+            raise ProtocolError(
+                f"session journal record omitted required field {required}"
+            )
+    producer = _mapping(payload.get("producer"), "journal producer")
+    _strict_object(producer, ("kind", "id"), "journal producer")
+    authority_value = payload.get("authority")
+    authority: Optional[JournalAuthority] = None
+    if authority_value is not None:
+        authority_payload = _mapping(authority_value, "journal authority")
+        _strict_object(
+            authority_payload,
+            ("principal_id", "lease_id", "generation", "role"),
+            "journal authority",
+        )
+        authority = JournalAuthority(
+            _required_string(authority_payload, "principal_id"),
+            _required_string(authority_payload, "lease_id"),
+            _required_string(authority_payload, "generation"),
+            _required_string(authority_payload, "role"),
+        )
+    subject_values = payload.get("subjects")
+    if not isinstance(subject_values, list):
+        raise ProtocolError("journal subjects must be an array")
+    subjects = []
+    for subject_value in subject_values:
+        subject = _mapping(subject_value, "journal subject")
+        _strict_object(subject, ("kind", "id"), "journal subject")
+        subjects.append(
+            JournalSubject(
+                _required_string(subject, "kind"),
+                _required_string(subject, "id"),
+            )
+        )
+    return SessionJournalRecord(
+        _required_decimal(payload, "sequence"),
+        _required_string(payload, "event_id"),
+        _required_positive_uint32(payload, "schema_version"),
+        _required_string(payload, "kind"),
+        _required_enum(payload, "class", ("state", "observation", "effect", "checkpoint")),  # type: ignore[arg-type]
+        _required_enum(payload, "replay", ("required", "advisory", "never")),  # type: ignore[arg-type]
+        _required_decimal(payload, "occurred_at_ms"),
+        _required_decimal(payload, "committed_at_ms"),
+        JournalProducer(
+            _required_string(producer, "kind"),
+            _required_string(producer, "id"),
+        ),
+        authority,
+        _required_nullable_string(payload, "causation_id"),
+        _required_nullable_string(payload, "correlation_id"),
+        _required_uint16(payload, "causation_depth"),
+        tuple(subjects),
+        _required_enum(
+            payload,
+            "sensitivity",
+            ("public", "metadata", "sensitive", "secret"),
+        ),  # type: ignore[arg-type]
+        payload["payload"],
+        _required_nullable_decimal(payload, "resource_revision"),
+        _required_nullable_decimal(payload, "previous_resource_revision"),
+    )
+
+
+def _validate_journal_stream_item(
+    record: SessionJournalRecord,
+    cursor: Optional[Cursor],
+) -> None:
+    if cursor is None or record.sequence != cursor.revision:
+        raise ProtocolError("journal sequence must match its stream cursor")
 
 
 def _color(payload: Mapping[str, Any], key: str) -> str:
@@ -2312,6 +2487,10 @@ class Client:
         operation: Operation,
         params: Mapping[str, Any],
         decode: Callable[[Any], StreamValueT],
+        *,
+        validate_item: Optional[
+            Callable[[StreamValueT, Optional[Cursor]], None]
+        ] = None,
     ) -> ResourceStream[StreamValueT]:
         if operation.operation_class != "stream_open":
             raise ValueError(f"{operation.wire_name} is not a stream operation")
@@ -2326,6 +2505,7 @@ class Client:
             decode,
             timeout=context.options.timeout if context is not None else None,
             cancel_event=context.cancel_event if context is not None else None,
+            validate_item=validate_item,
         )
 
     def _local(self, operation: Operation, params: Mapping[str, Any]) -> Any:
@@ -2710,6 +2890,16 @@ class Session(_Handle[SessionId, SessionSnapshot]):
             Operations.SESSION_EVENTS,
             {**self._params(), **_options(options)},
             _event_item,
+        )
+
+    def journal(
+        self, options: SessionJournalOptions = SessionJournalOptions()
+    ) -> ResourceStream[SessionJournalRecord]:
+        return self._client._open_stream(
+            Operations.SESSION_JOURNAL_SUBSCRIBE,
+            {**self._params(), **_journal_options(options)},
+            _journal_record,
+            validate_item=_validate_journal_stream_item,
         )
 
     def close(self, *, idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None) -> MutationResult[ShutdownResult]:
@@ -3927,18 +4117,26 @@ class Terminal(_Handle[TerminalId, TerminalSnapshot]):
             _renderer_grant_result,
         )
 
-    def resize_viewer(self, options: ViewerSizeOptions) -> ViewerResizeResult:
+    def resize_viewer(
+        self,
+        attachment_lease: str,
+        options: ViewerSizeOptions,
+    ) -> ViewerResizeResult:
         return self._client._control(
             Operations.TERMINAL_VIEWER_RESIZE,
-            {**self._params(), **_options(options)},
+            {
+                **self._params(),
+                "attachment_lease": attachment_lease,
+                **_options(options),
+            },
             _viewer_resize_result,
         )
 
-    def release_viewer(self) -> None:
+    def release_viewer(self, attachment_lease: str) -> ViewerReleaseResult:
         return self._client._control(
             Operations.TERMINAL_VIEWER_RELEASE,
-            self._params(),
-            _empty_result,
+            {**self._params(), "attachment_lease": attachment_lease},
+            _viewer_release_result,
         )
 
     def scroll_viewport(
@@ -4172,19 +4370,24 @@ class Browser(_Handle[BrowserId, BrowserSnapshot]):
 
     def resize_viewer(
         self,
+        attachment_lease: str,
         options: BrowserViewerSizeOptions,
     ) -> BrowserViewerResizeResult:
         return self._client._control(
             Operations.BROWSER_VIEWER_RESIZE,
-            {**self._params(), **_options(options)},
+            {
+                **self._params(),
+                "attachment_lease": attachment_lease,
+                **_options(options),
+            },
             _browser_viewer_resize_result,
         )
 
-    def release_viewer(self) -> None:
+    def release_viewer(self, attachment_lease: str) -> ViewerReleaseResult:
         return self._client._control(
             Operations.BROWSER_VIEWER_RELEASE,
-            self._params(),
-            _empty_result,
+            {**self._params(), "attachment_lease": attachment_lease},
+            _viewer_release_result,
         )
 
     def attach(
@@ -4348,11 +4551,26 @@ class FrontendProjection(
         self,
         projection: Mapping[str, Any],
         *,
+        frontend_id: str,
+        window_id: str,
+        generation: str,
+        expected_projection_revision: Optional[str] = None,
         idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None,
     ) -> MutationResult["FrontendProjection"]:
         return self._client._mutation_handle(
             Operations.FRONTEND_PROJECTION_PUT,
-            {**self._params(), "projection": dict(projection)},
+            {
+                **self._params(),
+                "frontend_id": frontend_id,
+                "window_id": window_id,
+                "generation": generation,
+                "projection": dict(projection),
+                **(
+                    {"expected_projection_revision": expected_projection_revision}
+                    if expected_projection_revision is not None
+                    else {}
+                ),
+            },
             idempotency_key,
             expected_revision,
             lambda result: _aux_snapshot(
