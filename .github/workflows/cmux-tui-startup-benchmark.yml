@@ -1,22 +1,6 @@
 name: cmux-tui startup benchmark
 
 on:
-  pull_request_target:
-    paths:
-      - .github/workflows/cmux-tui-startup-benchmark.yml
-      - .gitmodules
-      - ghostty
-      - cmux-tui/.cargo/**
-      - cmux-tui/Cargo.lock
-      - cmux-tui/Cargo.toml
-      - cmux-tui/rust-toolchain.toml
-      - .github/actions/setup-cmux-tui-rust/action.yml
-      - scripts/ghostty-zig-version.sh
-      # Keep this broad so new local startup dependencies cannot bypass the benchmark.
-      - cmux-tui/crates/**
-      - cmux-tui/vendor/**
-      - cmux-tui/scripts/verify-startup-benchmark.py
-      - cmux-tui/docs/startup-performance.md
   workflow_dispatch:
     inputs:
       baseline_sha:
@@ -39,17 +23,14 @@ on:
         type: string
 
 concurrency:
-  group: cmux-tui-startup-${{ github.event.pull_request.number || inputs.candidate_sha || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}
+  group: cmux-tui-startup-${{ inputs.candidate_sha }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
   candidate-product:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      github.event.pull_request.head.repo.full_name == github.repository
     name: candidate product (${{ matrix.platform }})
     permissions:
       contents: read
@@ -75,8 +56,8 @@ jobs:
             rust_target: x86_64-pc-windows-gnu
             binary_suffix: .exe
     env:
-      BASELINE_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.baseline_sha || github.event.pull_request.base.sha }}
-      CANDIDATE_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.event.pull_request.head.sha }}
+      BASELINE_SHA: ${{ inputs.baseline_sha }}
+      CANDIDATE_SHA: ${{ inputs.candidate_sha }}
       BASELINE_SOURCE: ${{ github.workspace }}/source-a
       CANDIDATE_SOURCE: ${{ github.workspace }}/source-b
       DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
@@ -101,12 +82,10 @@ jobs:
             echo "baseline_sha and candidate_sha must differ" >&2
             exit 1
           fi
-          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
-            expected_ref="refs/heads/$DEFAULT_BRANCH"
-            if [[ "$GITHUB_REF" != "$expected_ref" ]]; then
-              echo "manual workflow must run from $expected_ref, not $GITHUB_REF" >&2
-              exit 1
-            fi
+          expected_ref="refs/heads/$DEFAULT_BRANCH"
+          if [[ "$GITHUB_REF" != "$expected_ref" ]]; then
+            echo "manual workflow must run from $expected_ref, not $GITHUB_REF" >&2
+            exit 1
           fi
           if [[ "$GITHUB_SHA" != "$BASELINE_SHA" ]]; then
             echo "trusted workflow SHA $GITHUB_SHA does not match baseline $BASELINE_SHA" >&2
@@ -374,9 +353,6 @@ jobs:
           retention-days: 7
 
   benchmark:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      github.event.pull_request.head.repo.full_name == github.repository
     name: startup benchmark (${{ matrix.platform }})
     needs: candidate-product
     permissions:
@@ -406,10 +382,10 @@ jobs:
             rust_target: x86_64-pc-windows-gnu
             binary_suffix: .exe
     env:
-      BASELINE_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.baseline_sha || github.event.pull_request.base.sha }}
-      CANDIDATE_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.event.pull_request.head.sha }}
-      WARMUPS: ${{ github.event_name == 'workflow_dispatch' && inputs.warmups || '10' }}
-      SAMPLES: ${{ github.event_name == 'workflow_dispatch' && inputs.samples || '50' }}
+      BASELINE_SHA: ${{ inputs.baseline_sha }}
+      CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+      WARMUPS: ${{ inputs.warmups }}
+      SAMPLES: ${{ inputs.samples }}
       SUITE_DEADLINE_SECONDS: ${{ matrix.suite_deadline_seconds }}
       RUST_TARGET: ${{ matrix.rust_target }}
       BINARY_SUFFIX: ${{ matrix.binary_suffix }}
@@ -443,12 +419,10 @@ jobs:
             echo "samples must be an integer from 50 through 500: $SAMPLES" >&2
             exit 1
           fi
-          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
-            expected_ref="refs/heads/$DEFAULT_BRANCH"
-            if [[ "$GITHUB_REF" != "$expected_ref" ]]; then
-              echo "manual workflow must run from $expected_ref, not $GITHUB_REF" >&2
-              exit 1
-            fi
+          expected_ref="refs/heads/$DEFAULT_BRANCH"
+          if [[ "$GITHUB_REF" != "$expected_ref" ]]; then
+            echo "manual workflow must run from $expected_ref, not $GITHUB_REF" >&2
+            exit 1
           fi
           if [[ "$GITHUB_SHA" != "$BASELINE_SHA" ]]; then
             echo "trusted workflow SHA $GITHUB_SHA does not match baseline $BASELINE_SHA" >&2
