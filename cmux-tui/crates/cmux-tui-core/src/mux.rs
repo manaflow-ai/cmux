@@ -18426,9 +18426,7 @@ mod tests {
         )
         .unwrap();
         let before = mux.with_state(|state| {
-            state
-                .placements_of_content(&ContentPublicId::Terminal(shared_id.clone()))
-                .to_vec()
+            state.placements_of_content(&ContentPublicId::Terminal(shared_id.clone())).to_vec()
         });
         assert_eq!(before.first(), Some(&shared.id));
         assert_eq!(before.len(), 2);
@@ -18443,9 +18441,7 @@ mod tests {
         .unwrap();
 
         let after = mux.with_state(|state| {
-            state
-                .placements_of_content(&ContentPublicId::Terminal(shared_id))
-                .to_vec()
+            state.placements_of_content(&ContentPublicId::Terminal(shared_id)).to_vec()
         });
         assert_eq!(after, before);
         mux.shutdown();

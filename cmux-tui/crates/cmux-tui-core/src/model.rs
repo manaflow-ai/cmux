@@ -1174,7 +1174,8 @@ impl State {
             }
         }
         for (content, original) in original_content_placements {
-            let Some(placements) = self.resource_indexes.content_placements.get_mut(&content) else {
+            let Some(placements) = self.resource_indexes.content_placements.get_mut(&content)
+            else {
                 continue;
             };
             let mut remaining = placements.iter().copied().collect::<HashSet<_>>();
