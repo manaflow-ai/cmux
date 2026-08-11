@@ -4,12 +4,11 @@ import UIKit
 
 /// Bridges libghostty C callbacks (which run on the IO read thread or
 /// other Ghostty-internal threads) onto the main actor where the
-/// `GhosttySurfaceView` lives. The single mutable property is the
-/// `weak var surfaceView`; we serialise reads/writes through the main
-/// actor, which lets us conform to `Sendable` for the `Task { @MainActor }`
-/// hops below.
+/// `GhosttySurfaceView` lives. The bridge lock protects the retained view and
+/// the small scrollbar callback gate; UIKit mutations still occur only in the
+/// `Task { @MainActor }` hops below.
 final class GhosttySurfaceBridge: @unchecked Sendable {
-    // lint:allow lock — sanctioned carve-out: serial low-level primitive hidden behind the type, guarding a single weak ref on the libghostty-callback / typing-latency path; actor rewrite tracked as the GhosttySurfaceView split follow-up.
+    // lint:allow lock — sanctioned carve-out: serial low-level primitive hidden behind the type, guarding the retained view and callback gate on the libghostty-callback / typing-latency path; actor rewrite tracked as the GhosttySurfaceView split follow-up.
     private let lock = NSLock()
     // Deliberately STRONG: libghostty holds the raw view pointer
     // (`ghostty_platform_ios_s.uiview`, passUnretained in `makeSurface`), so
@@ -18,6 +17,7 @@ final class GhosttySurfaceBridge: @unchecked Sendable {
     // view<->bridge cycle, and the host releases the retain only after
     // synchronous C-surface teardown has stopped every callback.
     private var _surfaceView: GhosttySurfaceView?
+    private var scrollBoundaryGate = ScrollBoundaryCallbackGate()
 
     var surfaceView: GhosttySurfaceView? {
         get {
@@ -38,6 +38,45 @@ final class GhosttySurfaceBridge: @unchecked Sendable {
 
     func detach() {
         surfaceView = nil
+    }
+
+    func beginScrollBoundaryTransaction(id: UInt64) {
+        lock.lock()
+        scrollBoundaryGate.begin(transactionID: id)
+        lock.unlock()
+    }
+
+    func commitScrollBoundaryTransaction(
+        id: UInt64,
+        boundary: TerminalScrollBoundary
+    ) -> TerminalScrollBoundary? {
+        lock.lock()
+        defer { lock.unlock() }
+        return scrollBoundaryGate.commit(transactionID: id, boundary: boundary)
+    }
+
+    func cancelScrollBoundaryTransaction(id: UInt64) {
+        lock.lock()
+        scrollBoundaryGate.cancel(transactionID: id)
+        lock.unlock()
+    }
+
+    func handleScrollBoundary(_ boundary: TerminalScrollBoundary) {
+        lock.lock()
+        let boundaryToPublish = scrollBoundaryGate.observe(boundary)
+        lock.unlock()
+        guard let boundaryToPublish else { return }
+        Task { @MainActor [weak self] in
+            guard let view = self?.surfaceView else { return }
+            view.handleScrollBoundaryChange(boundaryToPublish)
+            #if DEBUG
+            view.recordBottomScrollStressScrollbar(
+                total: Int(boundaryToPublish.totalRows),
+                offset: Int(boundaryToPublish.viewportOffsetRows),
+                len: Int(boundaryToPublish.visibleRows)
+            )
+            #endif
+        }
     }
 
     func handleWrite(_ bytes: Data) {

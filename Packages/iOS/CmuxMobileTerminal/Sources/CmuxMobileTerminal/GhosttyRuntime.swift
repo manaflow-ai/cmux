@@ -309,23 +309,14 @@ public final class GhosttyRuntime {
             MobileDebugLog.anchormux("scroll.bar total=\(sb.total) offset=\(sb.offset) len=\(sb.len)")
             #endif
             if target.tag == GHOSTTY_TARGET_SURFACE, let surface = target.target.surface {
-                Task { @MainActor in
-                    let view = GhosttySurfaceView.view(for: surface)
-                    view?.handleScrollBoundaryChange(
-                        TerminalScrollBoundary(
-                            totalRows: sb.total,
-                            viewportOffsetRows: sb.offset,
-                            visibleRows: sb.len
-                        )
+                let userdata = ghostty_surface_userdata(surface)
+                GhosttySurfaceBridge.fromOpaque(userdata)?.handleScrollBoundary(
+                    TerminalScrollBoundary(
+                        totalRows: sb.total,
+                        viewportOffsetRows: sb.offset,
+                        visibleRows: sb.len
                     )
-                    #if DEBUG
-                    view?.recordBottomScrollStressScrollbar(
-                        total: Int(sb.total),
-                        offset: Int(sb.offset),
-                        len: Int(sb.len)
-                    )
-                    #endif
-                }
+                )
             }
             return true
         }

@@ -2592,6 +2592,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // the main thread. Feed it on a serial background queue (order
         // preserved) and hop back to main only for the Swift-side UI state.
         let workQueue = outputQueue
+        let scrollBoundaryTransactionID = preservesViewport ? makeSurfaceOperationID() : nil
+        let currentBridge = bridge
+        if let scrollBoundaryTransactionID {
+            currentBridge.beginScrollBoundaryTransaction(id: scrollBoundaryTransactionID)
+        }
         workQueue.async { [weak self] in
             var preOutputScrollbar = ghostty_surface_scrollbar_s()
             let viewportAnchor = preservesViewport
@@ -2612,6 +2617,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 let pointer = baseAddress.assumingMemoryBound(to: CChar.self)
                 ghostty_surface_process_output(surface, pointer, UInt(buffer.count))
             }
+            var committedScrollbar = ghostty_surface_scrollbar_s()
             if let viewportAnchor {
                 var postOutputScrollbar = ghostty_surface_scrollbar_s()
                 if ghostty_surface_scrollbar(surface, &postOutputScrollbar),
@@ -2619,15 +2625,22 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                        postReplayTotalRows: postOutputScrollbar.total,
                        postReplayVisibleRows: postOutputScrollbar.len
                    ) {
-                    var restoredScrollbar = ghostty_surface_scrollbar_s()
                     _ = ghostty_surface_scroll_to_row_if_revision(
                         surface,
                         targetTopRow,
                         postOutputScrollbar.row_space_revision,
-                        &restoredScrollbar
+                        &committedScrollbar
                     )
                 }
             }
+            let hasCommittedScrollbar = ghostty_surface_scrollbar(surface, &committedScrollbar)
+            let committedBoundary = hasCommittedScrollbar
+                ? TerminalScrollBoundary(
+                    totalRows: committedScrollbar.total,
+                    viewportOffsetRows: committedScrollbar.offset,
+                    visibleRows: committedScrollbar.len
+                )
+                : nil
             #if DEBUG
             // `ghostty_surface_read_text` takes the same internal surface lock as
             // `process_output`. Reading it on the MAIN thread per-output (to feed
@@ -2646,6 +2659,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
             #endif
             DispatchQueue.main.async {
+                let publishedBoundary: TerminalScrollBoundary?
+                if let scrollBoundaryTransactionID, let committedBoundary {
+                    publishedBoundary = currentBridge.commitScrollBoundaryTransaction(
+                        id: scrollBoundaryTransactionID,
+                        boundary: committedBoundary
+                    )
+                } else {
+                    if let scrollBoundaryTransactionID {
+                        currentBridge.cancelScrollBoundaryTransaction(id: scrollBoundaryTransactionID)
+                    }
+                    publishedBoundary = nil
+                }
                 guard let self, !self.isDismantled else {
                     completion?(true)
                     return
@@ -2653,6 +2678,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 guard self.surfaceGeneration == generation else {
                     completion?(false)
                     return
+                }
+                if let publishedBoundary {
+                    self.handleScrollBoundaryChange(publishedBoundary)
                 }
                 self.consecutiveOutputTimeoutRecoveries = 0
                 self.needsDraw = true
