@@ -8870,6 +8870,9 @@ impl Mux {
                             }
                         }
                         BrowserSurfaceBootstrap::ExistingTarget { runtime, target_id, url } => {
+                            let _mux = weak_mux
+                                .upgrade()
+                                .ok_or_else(|| anyhow::anyhow!("browser mux was dropped"))?;
                             runtime.bootstrap_surface_sync(
                                 thread_surface.clone(),
                                 BrowserBootstrap::ExistingTarget { target_id, url },
