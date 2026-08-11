@@ -407,17 +407,13 @@ fn reset_child_directory_open_rejects_mount_boundary() {
 
 #[cfg(target_os = "macos")]
 #[test]
-fn reset_child_directory_open_rejects_macos_data_mount_boundary() {
+fn reset_child_directory_open_rejects_macos_dev_mount_boundary() {
     use std::ffi::OsStr;
     use std::os::fd::AsRawFd;
 
-    let parent = File::open("/System/Volumes").unwrap();
-    let error = open_reset_child_dir(
-        parent.as_raw_fd(),
-        OsStr::new("Data"),
-        Path::new("/System/Volumes/Data"),
-    )
-    .unwrap_err();
+    let parent = File::open("/").unwrap();
+    let error =
+        open_reset_child_dir(parent.as_raw_fd(), OsStr::new("dev"), Path::new("/dev")).unwrap_err();
 
     assert!(error.to_string().contains("crosses filesystem boundary"), "{error:#}");
 }
@@ -1223,7 +1219,11 @@ fn reset_session_dir_symlink_swap_does_not_write_outside_state() {
 
     assert_eq!(
         error.downcast_ref::<std::io::Error>().and_then(std::io::Error::raw_os_error),
-        Some(libc::ELOOP),
+        Some(if cfg!(any(target_os = "ios", target_os = "macos")) {
+            libc::ENOTDIR
+        } else {
+            libc::ELOOP
+        }),
         "{error:#}"
     );
     assert_eq!(fs::read(outside.join("sentinel")).unwrap(), b"outside");
@@ -1264,7 +1264,11 @@ fn reset_terminal_host_root_symlink_swap_does_not_write_outside_state() {
 
     assert_eq!(
         error.downcast_ref::<std::io::Error>().and_then(std::io::Error::raw_os_error),
-        Some(libc::ELOOP),
+        Some(if cfg!(any(target_os = "ios", target_os = "macos")) {
+            libc::ENOTDIR
+        } else {
+            libc::ELOOP
+        }),
         "{error:#}"
     );
     assert_eq!(fs::read(outside.join("sentinel")).unwrap(), b"outside");
