@@ -6,44 +6,37 @@ struct MobileAutoConnectMigrationSheet: View {
     let continueWithAutoConnect: () -> Void
     let openConnectionSettings: () -> Void
     let showsLayoutProbe: Bool
-
-    /// The requested detent follows the intrinsic content while the UIKit
-    /// reader feeds the system's actual visible cap back into the ScrollView.
-    @State private var contentHeight: CGFloat = 1
-    @State private var availableViewportHeight: CGFloat?
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     var body: some View {
-        VStack(spacing: 0) {
+        ViewThatFits(in: .vertical) {
+            content
+
             ScrollView {
-                MobileAutoConnectMigrationContent(
-                    continueWithAutoConnect: continueWithAutoConnect,
-                    openConnectionSettings: openConnectionSettings
-                )
-                .fixedSize(horizontal: false, vertical: true)
-                .onGeometryChange(for: CGFloat.self) { proxy in
-                    proxy.size.height
-                } action: { newHeight in
-                    contentHeight = max(newHeight, 1)
-                }
+                content
             }
             .scrollBounceBehavior(.basedOnSize)
-            .frame(maxHeight: availableViewportHeight)
-            #if DEBUG
-            .overlay {
-                if showsLayoutProbe {
-                    MobileAutoConnectMigrationViewportProbe()
-                }
-            }
-            #endif
         }
-        .background {
-            MobileAutoConnectMigrationViewportReader { newHeight in
-                availableViewportHeight = newHeight
+        .frame(idealWidth: 608, maxWidth: 608)
+        #if DEBUG
+        .overlay {
+            if showsLayoutProbe {
+                MobileAutoConnectMigrationViewportProbe()
             }
         }
-        .presentationDetents([.height(contentHeight)])
+        #endif
+        .presentationSizing(.fitted)
         .presentationContentInteraction(.scrolls)
         .presentationDragIndicator(.visible)
+    }
+
+    private var content: some View {
+        MobileAutoConnectMigrationContent(
+            layout: verticalSizeClass == .compact ? .compact : .regular,
+            continueWithAutoConnect: continueWithAutoConnect,
+            openConnectionSettings: openConnectionSettings
+        )
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -60,12 +53,13 @@ private struct MobileAutoConnectMigrationViewportProbe: View {
 #endif
 
 private struct MobileAutoConnectMigrationContent: View {
+    let layout: MobileAutoConnectMigrationLayout
     let continueWithAutoConnect: () -> Void
     let openConnectionSettings: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 28) {
-            MobileAutoConnectMigrationExplanation()
+        VStack(alignment: .leading, spacing: layout.contentSpacing) {
+            MobileAutoConnectMigrationExplanation(layout: layout)
             MobileAutoConnectMigrationActions(
                 continueWithAutoConnect: continueWithAutoConnect,
                 openConnectionSettings: openConnectionSettings
@@ -75,6 +69,20 @@ private struct MobileAutoConnectMigrationContent: View {
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.horizontal, 24)
         .padding(.vertical, 24)
+    }
+}
+
+enum MobileAutoConnectMigrationLayout {
+    case regular
+    case compact
+
+    var contentSpacing: CGFloat {
+        switch self {
+        case .regular:
+            28
+        case .compact:
+            16
+        }
     }
 }
 #endif
