@@ -63,10 +63,7 @@ impl TerminalAgentRecords {
             .or(entry.published.as_ref())
     }
 
-    pub(super) fn get(
-        &self,
-        terminal_id: &TerminalPublicId,
-    ) -> Option<&TerminalAgentRecord> {
+    pub(super) fn get(&self, terminal_id: &TerminalPublicId) -> Option<&TerminalAgentRecord> {
         self.entries
             .get(terminal_id)
             .and_then(|entry| Self::visible_record(entry, self.published_version))
@@ -77,10 +74,10 @@ impl TerminalAgentRecords {
         terminal_id: TerminalPublicId,
         record: TerminalAgentRecord,
     ) -> Option<TerminalAgentRecord> {
-        let entry = self.entries.entry(terminal_id).or_insert(VersionedTerminalAgentRecord {
-            published: None,
-            pending: None,
-        });
+        let entry = self
+            .entries
+            .entry(terminal_id)
+            .or_insert(VersionedTerminalAgentRecord { published: None, pending: None });
         let previous = Self::visible_record(entry, self.published_version).cloned();
         entry.published = Some(record);
         entry.pending = None;
@@ -88,10 +85,8 @@ impl TerminalAgentRecords {
     }
 
     pub(super) fn begin_staging(&mut self) -> anyhow::Result<u64> {
-        self.next_version = self
-            .next_version
-            .checked_add(1)
-            .context("agent cache publication version overflow")?;
+        self.next_version =
+            self.next_version.checked_add(1).context("agent cache publication version overflow")?;
         Ok(self.next_version)
     }
 
@@ -105,10 +100,10 @@ impl TerminalAgentRecords {
             "agent cache staging version {version} is invalid"
         );
         for (terminal_id, record) in records {
-            let entry = self.entries.entry(terminal_id).or_insert(VersionedTerminalAgentRecord {
-                published: None,
-                pending: None,
-            });
+            let entry = self
+                .entries
+                .entry(terminal_id)
+                .or_insert(VersionedTerminalAgentRecord { published: None, pending: None });
             if entry
                 .pending
                 .as_ref()
@@ -134,10 +129,7 @@ impl TerminalAgentRecords {
         Ok(())
     }
 
-    pub(super) fn remove(
-        &mut self,
-        terminal_id: &TerminalPublicId,
-    ) -> Option<TerminalAgentRecord> {
+    pub(super) fn remove(&mut self, terminal_id: &TerminalPublicId) -> Option<TerminalAgentRecord> {
         self.entries
             .remove(terminal_id)
             .and_then(|entry| Self::visible_record(&entry, self.published_version).cloned())

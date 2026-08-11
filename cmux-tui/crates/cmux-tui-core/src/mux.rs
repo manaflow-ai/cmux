@@ -5026,11 +5026,8 @@ impl Mux {
             if mux.agent_projection_cache_refresh.lock().unwrap().is_some() {
                 return mux.continue_agent_projection_cache_refresh();
             }
-            let step = mux
-                .workspace_registry
-                .lock()
-                .unwrap()
-                .continue_agent_projection_rebuild_page()?;
+            let step =
+                mux.workspace_registry.lock().unwrap().continue_agent_projection_rebuild_page()?;
             if !step.checkpoint_ready {
                 return Ok((false, step.pending));
             }
@@ -5069,9 +5066,7 @@ impl Mux {
                             }
                             Ok(false) => {}
                             Err(error) => {
-                                eprintln!(
-                                    "cmux-tui: check agent projection rebuild: {error:#}"
-                                );
+                                eprintln!("cmux-tui: check agent projection rebuild: {error:#}");
                                 mux.request_daemon_shutdown();
                             }
                         }
@@ -5196,10 +5191,7 @@ impl Mux {
         let version = self.agent_records.lock().unwrap().begin_staging()?;
         let mut refresh = self.agent_projection_cache_refresh.lock().unwrap();
         anyhow::ensure!(refresh.is_none(), "agent projection cache refresh is already active");
-        *refresh = Some(AgentProjectionCacheRefresh {
-            version,
-            after_terminal_id: None,
-        });
+        *refresh = Some(AgentProjectionCacheRefresh { version, after_terminal_id: None });
         Ok(())
     }
 
@@ -5238,9 +5230,8 @@ impl Mux {
         self.agent_records.lock().unwrap().stage(refresh.version, records)?;
         drop(registry);
         if !page.complete {
-            let last_terminal_id = page
-                .last_terminal_id
-                .context("agent projection refresh page has no cursor")?;
+            let last_terminal_id =
+                page.last_terminal_id.context("agent projection refresh page has no cursor")?;
             let mut state = self.agent_projection_cache_refresh.lock().unwrap();
             let active = state.as_mut().context("agent projection cache refresh disappeared")?;
             anyhow::ensure!(
@@ -21093,10 +21084,7 @@ mod tests {
 
         let first_version = records.begin_staging().unwrap();
         records
-            .stage(
-                first_version,
-                vec![(terminal_id.clone(), record(AgentState::Idle, 2))],
-            )
+            .stage(first_version, vec![(terminal_id.clone(), record(AgentState::Idle, 2))])
             .unwrap();
         assert_eq!(records.get(&terminal_id).unwrap().state, AgentState::Working);
         records.publish(first_version).unwrap();
@@ -21104,10 +21092,7 @@ mod tests {
 
         let second_version = records.begin_staging().unwrap();
         records
-            .stage(
-                second_version,
-                vec![(terminal_id.clone(), record(AgentState::Blocked, 3))],
-            )
+            .stage(second_version, vec![(terminal_id.clone(), record(AgentState::Blocked, 3))])
             .unwrap();
         records.insert(terminal_id.clone(), record(AgentState::Working, 4));
         records.publish(second_version).unwrap();

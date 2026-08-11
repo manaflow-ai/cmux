@@ -14,8 +14,7 @@ pub(super) const MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES: usize = 16 * 1024 * 102
 pub(super) const MAX_JOURNAL_CONTENT_BYTES: usize = 256 * 1024;
 const MIGRATION_EVENT_ID: &str = "event_session_journal_v9_migration";
 const MIGRATION_EVENT_KIND: &str = "session.journal.migrated";
-const JOURNAL_EVENT_KIND_BACKFILL_CURSOR_KEY: &str =
-    "journal_event_index_kind_backfill_cursor_v1";
+const JOURNAL_EVENT_KIND_BACKFILL_CURSOR_KEY: &str = "journal_event_index_kind_backfill_cursor_v1";
 const JOURNAL_EVENT_KIND_BACKFILL_COMPLETE_KEY: &str =
     "journal_event_index_kind_backfill_complete_v1";
 
@@ -485,7 +484,8 @@ pub(super) fn backfill_journal_event_index_kinds_page(
         let rows = statement.query_map(
             params![
                 i64::try_from(cursor).context("journal kind cursor exceeds SQLite")?,
-                i64::try_from(active_limit).context("journal kind backfill limit exceeds SQLite")?,
+                i64::try_from(active_limit)
+                    .context("journal kind backfill limit exceeds SQLite")?,
             ],
             |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?)),
         )?;
@@ -513,10 +513,7 @@ pub(super) fn backfill_journal_event_index_kinds_page(
             transaction.execute(
                 "UPDATE journal_event_index SET kind = ?1
                  WHERE sequence = ?2 AND kind IS NULL",
-                params![
-                    kind,
-                    i64::try_from(sequence).context("journal sequence exceeds SQLite")?,
-                ],
+                params![kind, i64::try_from(sequence).context("journal sequence exceeds SQLite")?,],
             )?;
             index_agent_journal_sequence(transaction, sequence, &kind)?;
             cursor = sequence;
@@ -643,10 +640,8 @@ fn finish_journal_event_kind_backfill(
         "INSERT OR IGNORE INTO meta(key, value) VALUES(?1, '1')",
         [JOURNAL_EVENT_KIND_BACKFILL_COMPLETE_KEY],
     )?;
-    transaction.execute(
-        "DELETE FROM meta WHERE key = ?1",
-        [JOURNAL_EVENT_KIND_BACKFILL_CURSOR_KEY],
-    )?;
+    transaction
+        .execute("DELETE FROM meta WHERE key = ?1", [JOURNAL_EVENT_KIND_BACKFILL_CURSOR_KEY])?;
     Ok(true)
 }
 
