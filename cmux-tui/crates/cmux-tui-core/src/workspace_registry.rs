@@ -547,6 +547,26 @@ impl PersistentSessionStateResetter {
             restore_reset_directory_after_lock(&RESET_SWAP_RESTORE_SESSION_DIR_AFTER_WRITER_LOCK)?;
             restore_reset_directory_after_lock(&RESET_SWAP_RESTORE_TERMINAL_HOST_ROOT_AFTER_LOCK)?;
         }
+        #[cfg(unix)]
+        {
+            if lock_session_dir_exists {
+                validate_locked_reset_child_directory_for_guard(
+                    &session_guard,
+                    &session_dir,
+                    session_reset_locked_directory(lease.as_ref(), &session_dir)?,
+                )?;
+            }
+            if lock_terminal_host_root_exists {
+                validate_locked_reset_child_directory_for_guard(
+                    &session_guard,
+                    &terminal_host_root,
+                    terminal_host_reset_locked_directory(
+                        terminal_host_reset_lock.as_ref(),
+                        &terminal_host_root,
+                    )?,
+                )?;
+            }
+        }
         let pending_reset_dirs =
             pending_session_reset_dirs_for_guard(&session_guard, root, session_name)?;
         let session_dir_exists =
@@ -592,6 +612,7 @@ impl PersistentSessionStateResetter {
                 session_name,
                 &session_dir,
                 &confirmation.session_fingerprint,
+                lease.as_ref(),
             )?)
         } else {
             None
@@ -603,6 +624,7 @@ impl PersistentSessionStateResetter {
                 session_name,
                 &terminal_host_root,
                 &confirmation.terminal_host_fingerprint,
+                terminal_host_reset_lock.as_ref(),
             )?)
         } else {
             None
@@ -1189,6 +1211,7 @@ fn rename_session_dir_for_reset_at(
     session_name: &str,
     session_dir: &Path,
     expected_fingerprint: &str,
+    locked_directory: &File,
 ) -> anyhow::Result<PathBuf> {
     rename_reset_dir_for_deletion_at(
         root_directory,
@@ -1198,6 +1221,7 @@ fn rename_session_dir_for_reset_at(
         "workspace session state",
         session_dir,
         expected_fingerprint,
+        locked_directory,
     )
 }
 
@@ -1208,6 +1232,7 @@ fn rename_terminal_host_dir_for_reset_at(
     session_name: &str,
     terminal_host_root: &Path,
     expected_fingerprint: &str,
+    locked_directory: &File,
 ) -> anyhow::Result<PathBuf> {
     rename_reset_dir_for_deletion_at(
         root_directory,
@@ -1217,6 +1242,7 @@ fn rename_terminal_host_dir_for_reset_at(
         "terminal host state",
         terminal_host_root,
         expected_fingerprint,
+        locked_directory,
     )
 }
 
@@ -1229,6 +1255,7 @@ fn rename_reset_dir_for_deletion_at(
     label: &str,
     source: &Path,
     expected_fingerprint: &str,
+    locked_directory: &File,
 ) -> anyhow::Result<PathBuf> {
     use std::os::fd::AsRawFd;
 
@@ -1243,6 +1270,12 @@ fn rename_reset_dir_for_deletion_at(
         ));
         let candidate = root.join(&candidate_name);
         ensure_reset_dir_fingerprint_at(root_directory, source, kind, expected_fingerprint)?;
+        validate_reset_child_directory_at(
+            root_directory,
+            source_name,
+            source,
+            locked_directory,
+        )?;
         match reset_rename_child_exclusive(
             root_directory.as_raw_fd(),
             source_name,
@@ -1251,12 +1284,21 @@ fn rename_reset_dir_for_deletion_at(
             &candidate,
         ) {
             Ok(()) => {
-                if let Err(error) = ensure_reset_dir_fingerprint_at(
+                let validation = validate_reset_child_directory_at(
                     root_directory,
+                    &candidate_name,
                     &candidate,
-                    kind,
-                    expected_fingerprint,
-                ) {
+                    locked_directory,
+                )
+                .and_then(|()| {
+                    ensure_reset_dir_fingerprint_at(
+                        root_directory,
+                        &candidate,
+                        kind,
+                        expected_fingerprint,
+                    )
+                });
+                if let Err(error) = validation {
                     restore_reset_staged_child(
                         root_directory.as_raw_fd(),
                         &candidate_name,
@@ -6086,8 +6128,16 @@ fn rename_session_dir_for_guard(
     session_name: &str,
     session_dir: &Path,
     expected: &str,
+    lease: Option<&SessionLease>,
 ) -> anyhow::Result<PathBuf> {
-    rename_session_dir_for_reset_at(&guard.root, root, session_name, session_dir, expected)
+    rename_session_dir_for_reset_at(
+        &guard.root,
+        root,
+        session_name,
+        session_dir,
+        expected,
+        session_reset_locked_directory(lease, session_dir)?,
+    )
 }
 
 #[cfg(not(unix))]
@@ -6097,6 +6147,7 @@ fn rename_session_dir_for_guard(
     session_name: &str,
     session_dir: &Path,
     expected: &str,
+    _lease: Option<&SessionLease>,
 ) -> anyhow::Result<PathBuf> {
     rename_session_dir_for_reset(root, session_name, session_dir, expected)
 }
@@ -6108,6 +6159,7 @@ fn rename_terminal_host_dir_for_guard(
     session_name: &str,
     terminal_host_root: &Path,
     expected: &str,
+    reset_lock: Option<&crate::terminal_host_runtime::TerminalHostResetLock>,
 ) -> anyhow::Result<PathBuf> {
     rename_terminal_host_dir_for_reset_at(
         &guard.root,
@@ -6115,6 +6167,7 @@ fn rename_terminal_host_dir_for_guard(
         session_name,
         terminal_host_root,
         expected,
+        terminal_host_reset_locked_directory(reset_lock, terminal_host_root)?,
     )
 }
 
@@ -6125,6 +6178,7 @@ fn rename_terminal_host_dir_for_guard(
     session_name: &str,
     terminal_host_root: &Path,
     expected: &str,
+    _reset_lock: Option<&crate::terminal_host_runtime::TerminalHostResetLock>,
 ) -> anyhow::Result<PathBuf> {
     rename_terminal_host_dir_for_reset(root, session_name, terminal_host_root, expected)
 }
@@ -6164,6 +6218,44 @@ fn remove_reset_dir_all_for_guard(
     _ignored_lock_file: Option<&File>,
 ) -> anyhow::Result<()> {
     remove_reset_dir_all(path, label, fingerprint_label, expected)
+}
+
+#[cfg(unix)]
+fn session_reset_locked_directory<'a>(
+    lease: Option<&'a SessionLease>,
+    session_dir: &Path,
+) -> anyhow::Result<&'a File> {
+    lease.and_then(SessionLease::reset_directory).ok_or_else(|| {
+        anyhow::anyhow!(
+            "reset lock identity is missing for workspace session state {}",
+            session_dir.display()
+        )
+    })
+}
+
+#[cfg(unix)]
+fn terminal_host_reset_locked_directory<'a>(
+    reset_lock: Option<&'a crate::terminal_host_runtime::TerminalHostResetLock>,
+    terminal_host_root: &Path,
+) -> anyhow::Result<&'a File> {
+    reset_lock.map(|lock| lock.root_directory()).ok_or_else(|| {
+        anyhow::anyhow!(
+            "reset lock identity is missing for terminal host state {}",
+            terminal_host_root.display()
+        )
+    })
+}
+
+#[cfg(unix)]
+fn validate_locked_reset_child_directory_for_guard(
+    guard: &SessionResetGuard,
+    path: &Path,
+    locked_directory: &File,
+) -> anyhow::Result<()> {
+    let name = path
+        .file_name()
+        .ok_or_else(|| anyhow::anyhow!("reset path has no file name: {}", path.display()))?;
+    validate_reset_child_directory_at(&guard.root, name, path, locked_directory)
 }
 
 #[cfg(unix)]
@@ -6995,6 +7087,11 @@ impl SessionLease {
     #[cfg(unix)]
     fn reset_lock_file(&self) -> &File {
         &self.file
+    }
+
+    #[cfg(unix)]
+    fn reset_directory(&self) -> Option<&File> {
+        self._directory.as_ref()
     }
 
     fn validate_current(&self) -> anyhow::Result<()> {
