@@ -6,6 +6,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
 use memmap2::{MmapMut, MmapOptions};
@@ -20,6 +21,8 @@ const T0_OFFSET: usize = 40;
 const GENERATION_OFFSET: usize = 48;
 
 pub const CONTROL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+pub const STARTUP_LINE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+pub const SECURITY_PREPARATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 pub const BOOTSTRAP_STARTUP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 pub const BOOTSTRAP_CLEANUP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
@@ -27,7 +30,15 @@ pub const BOOTSTRAP_CLEANUP_TIMEOUT: std::time::Duration = std::time::Duration::
 #[serde(rename_all = "kebab-case")]
 pub enum BootstrapStage {
     PublicControlConnected,
-    RestrictedTokenCreated,
+    PrivilegeEnabled,
+    AccountLoggedOn,
+    ProfileLoaded,
+    ProfileSkipped,
+    RestrictedTokenReady,
+    AccountAclApplied,
+    RestrictingSidAclApplied,
+    LowIntegrityAclApplied,
+    JobCompletionPortReady,
     ProcessCreatedSuspended,
     JobAssigned,
     HandlesDuplicated,
@@ -45,7 +56,8 @@ pub enum BootstrapTerminal {
     Ready,
     Exit { code: u32 },
     Eof,
-    Timeout,
+    SecurityTimeout,
+    BootstrapTimeout,
     Error,
 }
 
@@ -55,8 +67,15 @@ pub enum BootstrapObservedEvent {
     Ready,
     Exit(u32),
     Eof,
-    Timeout,
+    SecurityTimeout,
+    BootstrapTimeout,
     Error,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct BootstrapStageObservation {
+    pub stage: BootstrapStage,
+    pub elapsed_ms: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -81,23 +100,28 @@ impl BootstrapCleanupResult {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct BootstrapStartupTrace {
-    pub stages: Vec<BootstrapStage>,
+    #[serde(skip)]
+    started_at: Instant,
+    pub stages: Vec<BootstrapStageObservation>,
     pub config_bytes: Option<u64>,
     pub config_sha256: Option<String>,
     pub config_consumed: bool,
     pub process_exit_code: Option<u32>,
     pub terminal: Option<BootstrapTerminal>,
+    pub terminal_elapsed_ms: Option<u64>,
 }
 
 impl BootstrapStartupTrace {
     pub fn new() -> Self {
         Self {
+            started_at: Instant::now(),
             stages: Vec::new(),
             config_bytes: None,
             config_sha256: None,
             config_consumed: false,
             process_exit_code: None,
             terminal: None,
+            terminal_elapsed_ms: None,
         }
     }
 
@@ -107,15 +131,28 @@ impl BootstrapStartupTrace {
     }
 
     pub fn observe(&mut self, event: BootstrapObservedEvent) -> Option<BootstrapTerminal> {
+        let elapsed_ms = u64::try_from(self.started_at.elapsed().as_millis()).unwrap_or(u64::MAX);
+        self.observe_at(event, elapsed_ms)
+    }
+
+    pub fn observe_at(
+        &mut self,
+        event: BootstrapObservedEvent,
+        elapsed_ms: u64,
+    ) -> Option<BootstrapTerminal> {
         if self.terminal.is_some() {
             return self.terminal;
         }
+        let elapsed_ms = self
+            .stages
+            .last()
+            .map_or(elapsed_ms, |observation| elapsed_ms.max(observation.elapsed_ms));
         let terminal = match event {
             BootstrapObservedEvent::Stage(stage) => {
                 if stage == BootstrapStage::ConfigConsumed {
                     self.config_consumed = true;
                 }
-                self.stages.push(stage);
+                self.stages.push(BootstrapStageObservation { stage, elapsed_ms });
                 return None;
             }
             BootstrapObservedEvent::Ready => BootstrapTerminal::Ready,
@@ -124,10 +161,12 @@ impl BootstrapStartupTrace {
                 BootstrapTerminal::Exit { code }
             }
             BootstrapObservedEvent::Eof => BootstrapTerminal::Eof,
-            BootstrapObservedEvent::Timeout => BootstrapTerminal::Timeout,
+            BootstrapObservedEvent::SecurityTimeout => BootstrapTerminal::SecurityTimeout,
+            BootstrapObservedEvent::BootstrapTimeout => BootstrapTerminal::BootstrapTimeout,
             BootstrapObservedEvent::Error => BootstrapTerminal::Error,
         };
         self.terminal = Some(terminal);
+        self.terminal_elapsed_ms = Some(elapsed_ms);
         Some(terminal)
     }
 }
@@ -525,13 +564,20 @@ mod tests {
     }
 
     #[test]
-    fn bootstrap_trace_distinguishes_startup_timeout() {
-        let mut trace = BootstrapStartupTrace::new();
+    fn bootstrap_trace_distinguishes_security_and_child_timeouts() {
+        let mut security = BootstrapStartupTrace::new();
+        let mut bootstrap = BootstrapStartupTrace::new();
 
         assert_eq!(
-            trace.observe(BootstrapObservedEvent::Timeout),
-            Some(BootstrapTerminal::Timeout)
+            security.observe_at(BootstrapObservedEvent::SecurityTimeout, 30_000),
+            Some(BootstrapTerminal::SecurityTimeout)
         );
+        assert_eq!(
+            bootstrap.observe_at(BootstrapObservedEvent::BootstrapTimeout, 10_000),
+            Some(BootstrapTerminal::BootstrapTimeout)
+        );
+        assert_eq!(security.terminal_elapsed_ms, Some(30_000));
+        assert_eq!(bootstrap.terminal_elapsed_ms, Some(10_000));
     }
 
     #[test]
@@ -543,7 +589,7 @@ mod tests {
             None
         );
         assert!(trace.config_consumed);
-        assert_eq!(trace.stages, vec![BootstrapStage::ConfigConsumed]);
+        assert_eq!(trace.stages[0].stage, BootstrapStage::ConfigConsumed);
     }
 
     #[test]
@@ -556,7 +602,28 @@ mod tests {
 
         assert_eq!(trace.terminal, Some(BootstrapTerminal::Error));
         assert!(!trace.config_consumed);
-        assert_eq!(trace.stages, vec![BootstrapStage::LaunchValidated]);
+        assert_eq!(trace.stages[0].stage, BootstrapStage::LaunchValidated);
+    }
+
+    #[test]
+    fn bootstrap_trace_keeps_elapsed_stage_observations_ordered() {
+        let mut trace = BootstrapStartupTrace::new();
+
+        trace.observe_at(BootstrapObservedEvent::Stage(BootstrapStage::PrivilegeEnabled), 7);
+        trace.observe_at(BootstrapObservedEvent::Stage(BootstrapStage::AccountLoggedOn), 3);
+        trace.observe_at(BootstrapObservedEvent::Stage(BootstrapStage::ProfileSkipped), 12);
+
+        assert_eq!(
+            trace.stages,
+            vec![
+                BootstrapStageObservation {
+                    stage: BootstrapStage::PrivilegeEnabled,
+                    elapsed_ms: 7,
+                },
+                BootstrapStageObservation { stage: BootstrapStage::AccountLoggedOn, elapsed_ms: 7 },
+                BootstrapStageObservation { stage: BootstrapStage::ProfileSkipped, elapsed_ms: 12 },
+            ]
+        );
     }
 
     #[test]

@@ -15,9 +15,9 @@ use cmux_tui_core::platform::transport;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use startup_benchmark_protocol::{
-    CONTROL_TIMEOUT, SupervisorStartupLine, TimingPage, arm_line, monotonic_ns,
-    parse_supervisor_startup_line, read_control_line, validate_bootstrap_failure_records,
-    write_control_line,
+    CONTROL_TIMEOUT, STARTUP_LINE_TIMEOUT, SupervisorStartupLine, TimingPage, arm_line,
+    monotonic_ns, parse_supervisor_startup_line, read_control_line,
+    validate_bootstrap_failure_records, write_control_line,
 };
 use wait_timeout::ChildExt;
 
@@ -114,8 +114,12 @@ struct SupervisorEventOwner {
 }
 
 impl SupervisorEventOwner {
-    fn accept_control(&mut self) -> Result<Box<dyn transport::Stream>> {
-        match self.receiver.recv_timeout(CONTROL_TIMEOUT) {
+    fn accept_control(&mut self, deadline: Instant) -> Result<Box<dyn transport::Stream>> {
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .filter(|remaining| !remaining.is_zero())
+            .context("preflight supervisor control accept deadline expired")?;
+        match self.receiver.recv_timeout(remaining) {
             Ok(SupervisorStartupEvent::Connected(stream)) => {
                 self.join_control_thread()?;
                 stream.context("accept preflight supervisor control connection")
@@ -492,10 +496,10 @@ fn run_controller(values: &[String]) -> Result<()> {
         output_closed: false,
     };
     let protocol_result = (|| -> Result<_> {
-        let mut supervisor_stream = events.accept_control()?;
         let public_deadline = Instant::now()
-            .checked_add(CONTROL_TIMEOUT)
+            .checked_add(STARTUP_LINE_TIMEOUT)
             .context("preflight public startup-line deadline overflow")?;
+        let mut supervisor_stream = events.accept_control(public_deadline)?;
         let mut startup =
             read_preflight_startup_line(&mut supervisor_stream, public_deadline, &nonce)?;
         if startup == SupervisorStartupLine::Setup {

@@ -17,10 +17,11 @@ use startup_benchmark_protocol::macos_account_identity;
 use startup_benchmark_protocol::{
     BOOTSTRAP_CLEANUP_TIMEOUT, BOOTSTRAP_STARTUP_TIMEOUT, BootstrapCleanupCheckpoint,
     BootstrapCleanupResult, BootstrapFailureCheckpoint, BootstrapObservedEvent, BootstrapStage,
-    BootstrapStartupTrace, failure_line, setup_line,
+    BootstrapStartupTrace, SECURITY_PREPARATION_TIMEOUT, failure_line, setup_line,
 };
 use startup_benchmark_protocol::{
-    CONTROL_TIMEOUT, TimingSink, arm_line, read_control_line, ready_line, write_control_line,
+    CONTROL_TIMEOUT, STARTUP_LINE_TIMEOUT, TimingSink, arm_line, read_control_line, ready_line,
+    write_control_line,
 };
 
 #[derive(Debug, Clone)]
@@ -50,10 +51,12 @@ fn main() {
 
 fn run() -> Result<()> {
     let launch = parse_args(env::args().skip(1))?;
+    #[cfg(windows)]
     if let Some(config) = &launch.windows_bootstrap {
-        #[cfg(windows)]
         return platform::run_bootstrap(config);
-        #[cfg(not(windows))]
+    }
+    #[cfg(not(windows))]
+    if launch.windows_bootstrap.is_some() {
         bail!("Windows bootstrap mode is unavailable on this platform");
     }
     validate_launch(&launch)?;
@@ -71,8 +74,8 @@ fn run_inner(launch: Launch) -> Result<()> {
     let timing = TimingSink::open(&launch.timing, &launch.nonce)?;
     let mut control = transport::connect(&launch.control)
         .with_context(|| format!("connect control socket {}", launch.control.display()))?;
-    control.set_read_timeout(Some(CONTROL_TIMEOUT))?;
-    control.set_write_timeout(Some(CONTROL_TIMEOUT))?;
+    control.set_read_timeout(Some(STARTUP_LINE_TIMEOUT))?;
+    control.set_write_timeout(Some(STARTUP_LINE_TIMEOUT))?;
     fs::remove_file(&launch.timing).context("unlink live timing page")?;
     fs::remove_file(&launch.control).context("unlink live control socket")?;
     write_control_line(&mut control, &ready_line(&launch.nonce))?;
@@ -819,8 +822,9 @@ mod platform {
     use std::io::{BufRead, BufReader, Write};
     use std::mem::{size_of, size_of_val, zeroed};
     use std::os::windows::ffi::OsStrExt;
-    use std::os::windows::io::{FromRawHandle, RawHandle};
+    use std::os::windows::io::{AsRawHandle, FromRawHandle, RawHandle};
     use std::os::windows::process::ExitStatusExt;
+    use std::process::Stdio;
     use std::ptr::{null, null_mut};
     use std::sync::mpsc;
     use std::thread;
@@ -922,8 +926,8 @@ mod platform {
     pub fn run_outer(launch: &Launch) -> Result<ExitStatus> {
         let mut control = transport::connect(&launch.control)
             .with_context(|| format!("connect control socket {}", launch.control.display()))?;
-        control.set_read_timeout(Some(CONTROL_TIMEOUT))?;
-        control.set_write_timeout(Some(CONTROL_TIMEOUT))?;
+        control.set_read_timeout(Some(STARTUP_LINE_TIMEOUT))?;
+        control.set_write_timeout(Some(STARTUP_LINE_TIMEOUT))?;
         match fs::remove_file(&launch.control) {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -932,13 +936,13 @@ mod platform {
             Err(error) => return Err(error).context("remove live Windows control socket"),
         }
         write_control_line(&mut control, &setup_line(&launch.nonce))?;
-        let startup_deadline = Instant::now()
-            .checked_add(BOOTSTRAP_STARTUP_TIMEOUT)
-            .context("Windows bootstrap startup deadline overflow")?;
         let mut trace = BootstrapStartupTrace::new();
         trace.observe(BootstrapObservedEvent::Stage(BootstrapStage::PublicControlConnected));
+        let security_deadline = Instant::now()
+            .checked_add(SECURITY_PREPARATION_TIMEOUT)
+            .context("Windows security preparation deadline overflow")?;
 
-        let mut restricted = match RestrictedToken::new(launch) {
+        let mut restricted = match RestrictedToken::new(launch, security_deadline, &mut trace) {
             Ok(restricted) => restricted,
             Err(error) => {
                 trace.observe(BootstrapObservedEvent::Error);
@@ -952,18 +956,9 @@ mod platform {
                 );
             }
         };
-        trace.observe(BootstrapObservedEvent::Stage(BootstrapStage::RestrictedTokenCreated));
-        if Instant::now() >= startup_deadline {
-            trace.observe(BootstrapObservedEvent::Timeout);
-            return finish_failed_bootstrap_startup(
-                launch,
-                &mut control,
-                trace,
-                anyhow::anyhow!("restricted-token setup exceeded the private startup deadline"),
-                Some(&mut restricted),
-                None,
-            );
-        }
+        let startup_deadline = Instant::now()
+            .checked_add(BOOTSTRAP_STARTUP_TIMEOUT)
+            .context("Windows bootstrap startup deadline overflow")?;
         let mut bootstrap = match restricted.start_bootstrap(launch, &mut trace) {
             Ok(bootstrap) => bootstrap,
             Err(error) => {
@@ -1108,8 +1103,18 @@ mod platform {
     }
 
     impl RestrictedToken {
-        fn new(launch: &Launch) -> Result<Self> {
-            ensure_caller_impersonate_privilege()?;
+        fn new(
+            launch: &Launch,
+            security_deadline: Instant,
+            trace: &mut BootstrapStartupTrace,
+        ) -> Result<Self> {
+            ensure_caller_impersonate_privilege(security_deadline, trace)?;
+            complete_security_stage(
+                security_deadline,
+                trace,
+                BootstrapStage::PrivilegeEnabled,
+                "enable caller impersonation privilege",
+            )?;
             let user = env::var("CMUX_BENCH_WINDOWS_USER")
                 .context("CMUX_BENCH_WINDOWS_USER is required")?;
             let password = env::var("CMUX_BENCH_WINDOWS_PASSWORD")
@@ -1133,14 +1138,33 @@ mod platform {
                 "log on unique Windows benchmark account",
             )?;
             let mut account_token = Some(OwnedHandle(account_token));
+            complete_security_stage(
+                security_deadline,
+                trace,
+                BootstrapStage::AccountLoggedOn,
+                "log on unique Windows benchmark account",
+            )?;
             let profile = if launch.prove_private_job {
-                Some(LoadedProfile::load(
+                let profile = LoadedProfile::load(
                     account_token
                         .take()
                         .context("Windows account token is required for profile preflight")?,
                     &user,
-                )?)
+                )?;
+                complete_security_stage(
+                    security_deadline,
+                    trace,
+                    BootstrapStage::ProfileLoaded,
+                    "load unique Windows benchmark profile",
+                )?;
+                Some(profile)
             } else {
+                complete_security_stage(
+                    security_deadline,
+                    trace,
+                    BootstrapStage::ProfileSkipped,
+                    "skip Windows profile outside preflight",
+                )?;
                 None
             };
             let source_token = profile
@@ -1149,8 +1173,11 @@ mod platform {
                 .or_else(|| account_token.as_ref().map(|token| token.0))
                 .context("Windows account token owner is missing")?;
             let sid_text = random_restricting_sid()?;
+            check_security_deadline(security_deadline, trace, "create random restricting SID")?;
             let restricting_sid = OwnedSid::from_string(&sid_text)?;
+            check_security_deadline(security_deadline, trace, "allocate restricting SID")?;
             let low_sid = OwnedSid::from_string("S-1-16-4096")?;
+            check_security_deadline(security_deadline, trace, "allocate low-integrity SID")?;
             let restricting = SID_AND_ATTRIBUTES { Sid: restricting_sid.0, Attributes: 0 };
             let mut token = null_mut();
             // SAFETY: all pointers and element counts reference live values for this call.
@@ -1171,6 +1198,7 @@ mod platform {
                 "create restricted primary token",
             )?;
             let token = OwnedHandle(token);
+            check_security_deadline(security_deadline, trace, "create restricted primary token")?;
             let label = TOKEN_MANDATORY_LABEL {
                 Label: SID_AND_ATTRIBUTES { Sid: low_sid.0, Attributes: SE_GROUP_INTEGRITY as u32 },
             };
@@ -1187,9 +1215,27 @@ mod platform {
                 },
                 "set low token integrity",
             )?;
-            configure_fixture_acl(&launch.fixture_root, &user, restricting_sid.0)?;
+            complete_security_stage(
+                security_deadline,
+                trace,
+                BootstrapStage::RestrictedTokenReady,
+                "create restricted low-integrity token",
+            )?;
+            configure_fixture_acl(
+                &launch.fixture_root,
+                &user,
+                restricting_sid.0,
+                security_deadline,
+                trace,
+            )?;
             let (job, query_job, completion_port) =
-                create_non_breakaway_job(launch.prove_private_job)?;
+                create_non_breakaway_job(launch.prove_private_job, security_deadline, trace)?;
+            complete_security_stage(
+                security_deadline,
+                trace,
+                BootstrapStage::JobCompletionPortReady,
+                "create containment Job and completion port",
+            )?;
             Ok(Self {
                 token,
                 profile,
@@ -1449,7 +1495,7 @@ mod platform {
                     match self.receive_until(deadline, "wait for restricted bootstrap READY") {
                         Ok(event) => event,
                         Err(error) if Instant::now() >= deadline => {
-                            trace.observe(BootstrapObservedEvent::Timeout);
+                            trace.observe(BootstrapObservedEvent::BootstrapTimeout);
                             return Err(error);
                         }
                         Err(error) => {
@@ -2070,7 +2116,45 @@ mod platform {
 
     const JOB_COMPLETION_KEY: usize = 0x434d_5558;
 
-    fn ensure_caller_impersonate_privilege() -> Result<()> {
+    fn security_remaining(
+        deadline: Instant,
+        trace: &mut BootstrapStartupTrace,
+        operation: &str,
+    ) -> Result<Duration> {
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .filter(|remaining| !remaining.is_zero());
+        let Some(remaining) = remaining else {
+            trace.observe(BootstrapObservedEvent::SecurityTimeout);
+            bail!("Windows security preparation exceeded its deadline after {operation}");
+        };
+        Ok(remaining)
+    }
+
+    fn check_security_deadline(
+        deadline: Instant,
+        trace: &mut BootstrapStartupTrace,
+        operation: &str,
+    ) -> Result<()> {
+        // LogonUserW and LoadUserProfileW are synchronous and do not expose a cancellation
+        // handle. A late return is detected here and fails closed through the shared cleanup.
+        security_remaining(deadline, trace, operation).map(|_| ())
+    }
+
+    fn complete_security_stage(
+        deadline: Instant,
+        trace: &mut BootstrapStartupTrace,
+        stage: BootstrapStage,
+        operation: &str,
+    ) -> Result<()> {
+        trace.observe(BootstrapObservedEvent::Stage(stage));
+        check_security_deadline(deadline, trace, operation)
+    }
+
+    fn ensure_caller_impersonate_privilege(
+        deadline: Instant,
+        trace: &mut BootstrapStartupTrace,
+    ) -> Result<()> {
         let mut token = null_mut();
         // SAFETY: token points to writable handle storage.
         check(
@@ -2084,12 +2168,14 @@ mod platform {
             "open supervisor process token",
         )?;
         let token = OwnedHandle(token);
+        check_security_deadline(deadline, trace, "open supervisor process token")?;
         let mut luid = Default::default();
         // SAFETY: the privilege name is a static NUL-terminated string and luid is writable.
         check(
             unsafe { LookupPrivilegeValueW(null(), SE_IMPERSONATE_NAME, &mut luid) },
             "resolve SeImpersonatePrivilege",
         )?;
+        check_security_deadline(deadline, trace, "resolve SeImpersonatePrivilege")?;
         let privileges = TOKEN_PRIVILEGES {
             PrivilegeCount: 1,
             Privileges: [LUID_AND_ATTRIBUTES { Luid: luid, Attributes: SE_PRIVILEGE_ENABLED }],
@@ -2101,8 +2187,10 @@ mod platform {
             unsafe { AdjustTokenPrivileges(token.0, 0, &privileges, 0, null_mut(), null_mut()) },
             "enable SeImpersonatePrivilege",
         )?;
+        let adjust_error = unsafe { GetLastError() };
+        check_security_deadline(deadline, trace, "enable SeImpersonatePrivilege")?;
         // AdjustTokenPrivileges can succeed while reporting that the privilege was absent.
-        if unsafe { GetLastError() } == ERROR_NOT_ALL_ASSIGNED {
+        if adjust_error == ERROR_NOT_ALL_ASSIGNED {
             bail!("supervisor token does not contain SeImpersonatePrivilege");
         }
         let mut required = PRIVILEGE_SET {
@@ -2116,6 +2204,7 @@ mod platform {
             unsafe { PrivilegeCheck(token.0, &mut required, &mut enabled) },
             "verify SeImpersonatePrivilege",
         )?;
+        check_security_deadline(deadline, trace, "verify SeImpersonatePrivilege")?;
         if enabled == 0 {
             bail!("supervisor SeImpersonatePrivilege is not enabled");
         }
@@ -2124,6 +2213,8 @@ mod platform {
 
     fn create_non_breakaway_job(
         prove_private_job: bool,
+        deadline: Instant,
+        trace: &mut BootstrapStartupTrace,
     ) -> Result<(OwnedHandle, Option<OwnedHandle>, OwnedHandle)> {
         // SAFETY: null security attributes and name request an unnamed private job.
         let job = unsafe { CreateJobObjectW(null(), null()) };
@@ -2131,6 +2222,7 @@ mod platform {
             return Err(std::io::Error::last_os_error()).context("create containment job");
         }
         let job = OwnedHandle(job);
+        check_security_deadline(deadline, trace, "create containment Job")?;
         let query_job = if prove_private_job {
             let mut query_job = null_mut();
             // SAFETY: the source and target process are current, the source job is live, and
@@ -2149,7 +2241,9 @@ mod platform {
                 },
                 "duplicate preflight query-only containment Job handle",
             )?;
-            Some(OwnedHandle(query_job))
+            let query_job = OwnedHandle(query_job);
+            check_security_deadline(deadline, trace, "duplicate preflight Job query handle")?;
+            Some(query_job)
         } else {
             None
         };
@@ -2167,6 +2261,7 @@ mod platform {
             },
             "configure kill-on-close non-breakaway job",
         )?;
+        check_security_deadline(deadline, trace, "configure containment Job limits")?;
         // SAFETY: INVALID_HANDLE_VALUE requests a new completion port.
         let completion_port =
             unsafe { CreateIoCompletionPort(INVALID_HANDLE_VALUE, null_mut(), 0, 1) };
@@ -2175,6 +2270,7 @@ mod platform {
                 .context("create Job Object completion port");
         }
         let completion_port = OwnedHandle(completion_port);
+        check_security_deadline(deadline, trace, "create Job completion port")?;
         let association = JOBOBJECT_ASSOCIATE_COMPLETION_PORT {
             CompletionKey: JOB_COMPLETION_KEY as *mut c_void,
             CompletionPort: completion_port.0,
@@ -2191,31 +2287,77 @@ mod platform {
             },
             "associate Job Object completion port",
         )?;
+        check_security_deadline(deadline, trace, "associate Job completion port")?;
         Ok((job, query_job, completion_port))
     }
 
-    fn configure_fixture_acl(root: &Path, user: &str, sid: PSID) -> Result<()> {
+    fn configure_fixture_acl(
+        root: &Path,
+        user: &str,
+        sid: PSID,
+        deadline: Instant,
+        trace: &mut BootstrapStartupTrace,
+    ) -> Result<()> {
         let root_text = root.to_string_lossy();
-        run_acl([root_text.as_ref(), "/grant", &format!("{user}:(OI)(CI)(F)"), "/T", "/C"])?;
-        grant_restricting_sid_tree(root, sid)?;
-        run_acl([root_text.as_ref(), "/setintegritylevel", "(OI)(CI)L", "/T", "/C"])
+        run_acl(
+            [root_text.as_ref(), "/grant", &format!("{user}:(OI)(CI)(F)"), "/T", "/C"],
+            deadline,
+            trace,
+        )?;
+        complete_security_stage(
+            deadline,
+            trace,
+            BootstrapStage::AccountAclApplied,
+            "apply benchmark account ACL",
+        )?;
+        grant_restricting_sid_tree(root, sid, deadline, trace)?;
+        complete_security_stage(
+            deadline,
+            trace,
+            BootstrapStage::RestrictingSidAclApplied,
+            "apply restricting-SID ACL",
+        )?;
+        run_acl(
+            [root_text.as_ref(), "/setintegritylevel", "(OI)(CI)L", "/T", "/C"],
+            deadline,
+            trace,
+        )?;
+        complete_security_stage(
+            deadline,
+            trace,
+            BootstrapStage::LowIntegrityAclApplied,
+            "apply low-integrity ACL",
+        )
     }
 
-    fn grant_restricting_sid_tree(path: &Path, sid: PSID) -> Result<()> {
+    fn grant_restricting_sid_tree(
+        path: &Path,
+        sid: PSID,
+        deadline: Instant,
+        trace: &mut BootstrapStartupTrace,
+    ) -> Result<()> {
+        check_security_deadline(deadline, trace, "walk restricting-SID ACL tree")?;
         let metadata = fs::symlink_metadata(path)?;
         if metadata.file_type().is_symlink() {
             bail!("Windows benchmark fixture contains a symbolic link: {}", path.display());
         }
-        grant_restricting_sid(path, sid, metadata.is_dir())?;
+        grant_restricting_sid(path, sid, metadata.is_dir(), deadline, trace)?;
         if metadata.is_dir() {
             for entry in fs::read_dir(path)? {
-                grant_restricting_sid_tree(&entry?.path(), sid)?;
+                check_security_deadline(deadline, trace, "walk restricting-SID ACL entries")?;
+                grant_restricting_sid_tree(&entry?.path(), sid, deadline, trace)?;
             }
         }
         Ok(())
     }
 
-    fn grant_restricting_sid(path: &Path, sid: PSID, container: bool) -> Result<()> {
+    fn grant_restricting_sid(
+        path: &Path,
+        sid: PSID,
+        container: bool,
+        deadline: Instant,
+        trace: &mut BootstrapStartupTrace,
+    ) -> Result<()> {
         let path = wide(path.as_os_str());
         let mut old_dacl: *mut ACL = null_mut();
         let mut security_descriptor: PSECURITY_DESCRIPTOR = null_mut();
@@ -2235,6 +2377,11 @@ mod platform {
             },
             "read Windows fixture DACL",
         )?;
+        if let Err(error) = check_security_deadline(deadline, trace, "read Windows fixture DACL") {
+            // SAFETY: GetNamedSecurityInfoW allocated this descriptor with LocalAlloc.
+            unsafe { LocalFree(security_descriptor.cast()) };
+            return Err(error);
+        }
         let entry = EXPLICIT_ACCESS_W {
             grfAccessPermissions: GENERIC_ALL,
             grfAccessMode: GRANT_ACCESS,
@@ -2255,6 +2402,16 @@ mod platform {
             unsafe { LocalFree(security_descriptor.cast()) };
             return check_windows_error(build_result, "build Windows restricting-SID DACL");
         }
+        if let Err(error) =
+            check_security_deadline(deadline, trace, "build Windows restricting-SID DACL")
+        {
+            // SAFETY: both ACL APIs allocated these buffers with LocalAlloc.
+            unsafe {
+                LocalFree(new_dacl.cast());
+                LocalFree(security_descriptor.cast());
+            }
+            return Err(error);
+        }
         // SAFETY: path and the merged DACL remain live for this assignment call.
         let assign_result = unsafe {
             SetNamedSecurityInfoW(
@@ -2272,7 +2429,8 @@ mod platform {
             LocalFree(new_dacl.cast());
             LocalFree(security_descriptor.cast());
         }
-        check_windows_error(assign_result, "assign Windows restricting-SID DACL")
+        check_windows_error(assign_result, "assign Windows restricting-SID DACL")?;
+        check_security_deadline(deadline, trace, "assign Windows restricting-SID DACL")
     }
 
     fn check_windows_error(error: u32, operation: &str) -> Result<()> {
@@ -2283,8 +2441,35 @@ mod platform {
         Err(std::io::Error::from_raw_os_error(error)).context(operation.to_string())
     }
 
-    fn run_acl<const N: usize>(arguments: [&str; N]) -> Result<()> {
-        let output = Command::new("icacls.exe").args(arguments).output()?;
+    fn run_acl<const N: usize>(
+        arguments: [&str; N],
+        deadline: Instant,
+        trace: &mut BootstrapStartupTrace,
+    ) -> Result<()> {
+        let remaining = security_remaining(deadline, trace, "start icacls")?;
+        let mut child = Command::new("icacls.exe")
+            .args(arguments)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        let wait_ms = u32::try_from(remaining.as_millis().clamp(1, u128::from(u32::MAX)))?;
+        // SAFETY: Child owns a live process handle for this bounded wait.
+        let wait = unsafe { WaitForSingleObject(child.as_raw_handle() as HANDLE, wait_ms) };
+        if wait == WAIT_TIMEOUT {
+            trace.observe(BootstrapObservedEvent::SecurityTimeout);
+            let _ = child.kill();
+            let output = child.wait_with_output()?;
+            bail!(
+                "Windows security preparation exceeded its deadline while running icacls: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        if wait != WAIT_OBJECT_0 {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(std::io::Error::last_os_error()).context("wait for bounded icacls");
+        }
+        let output = child.wait_with_output()?;
         if !output.status.success() {
             bail!(
                 "icacls failed with {}: {}",
@@ -2292,7 +2477,7 @@ mod platform {
                 String::from_utf8_lossy(&output.stderr)
             );
         }
-        Ok(())
+        check_security_deadline(deadline, trace, "complete icacls")
     }
 
     fn random_restricting_sid() -> Result<String> {

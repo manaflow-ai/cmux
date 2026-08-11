@@ -25,8 +25,8 @@ use super::{
 #[cfg(target_os = "macos")]
 use crate::startup_benchmark_protocol::macos_account_identity;
 use crate::startup_benchmark_protocol::{
-    SupervisorStartupLine, TimingPage, arm_line, monotonic_ns, parse_supervisor_startup_line,
-    read_control_line, write_control_line,
+    STARTUP_LINE_TIMEOUT, SupervisorStartupLine, TimingPage, arm_line, monotonic_ns,
+    parse_supervisor_startup_line, read_control_line, write_control_line,
 };
 
 const EVENT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -407,7 +407,12 @@ impl LaunchControl {
     }
 
     fn arm(&mut self, deadline: SuiteDeadline) -> Result<()> {
-        let timeout = deadline.timeout(PROCESS_TIMEOUT, "accepting supervisor READY")?;
+        let public_line_deadline = deadline
+            .instant(STARTUP_LINE_TIMEOUT, "running the bounded supervisor startup protocol")?;
+        let timeout = public_line_deadline
+            .checked_duration_since(Instant::now())
+            .filter(|remaining| !remaining.is_zero())
+            .context("supervisor control accept deadline expired")?;
         let mut stream = self
             .accept_receiver
             .recv_timeout(timeout)
@@ -415,8 +420,6 @@ impl LaunchControl {
         if let Some(thread) = self.accept_thread.take() {
             thread.join().map_err(|_| anyhow!("supervisor control thread panicked"))?;
         }
-        let public_line_deadline =
-            deadline.instant(PROCESS_TIMEOUT, "reading the bounded supervisor startup protocol")?;
         let mut line =
             read_supervisor_startup_line(&mut stream, public_line_deadline, &self.nonce)?;
         if line == SupervisorStartupLine::Setup {
@@ -438,7 +441,10 @@ impl LaunchControl {
                 bail!("product supervisor sent duplicate SETUP events")
             }
         }
-        let timeout = deadline.timeout(PROCESS_TIMEOUT, "writing supervisor ARM")?;
+        let timeout = public_line_deadline
+            .checked_duration_since(Instant::now())
+            .filter(|remaining| !remaining.is_zero())
+            .context("supervisor ARM deadline expired")?;
         stream.set_write_timeout(Some(timeout))?;
         write_control_line(&mut stream, &arm_line(&self.nonce))?;
         stream.shutdown(std::net::Shutdown::Both)?;
@@ -2308,17 +2314,68 @@ fn run_captured_process(
     if let Some(control) = control.as_mut()
         && let Err(error) = control.arm(deadline)
     {
-        let _ = process_tree.terminate();
-        let _ = child.kill();
-        let _ = child.wait_timeout(PROCESS_TIMEOUT);
-        let _ = stdout.cancel();
-        let _ = stderr.cancel();
-        for _ in 0..2 {
-            let _ = capture_receiver.recv_timeout(PROCESS_TIMEOUT);
+        let mut error = error.context("arm captured product supervisor");
+        if let Err(terminate) = process_tree.terminate() {
+            if let Err(kill) = child.kill() {
+                error = error.context(format!(
+                    "process-tree termination failed: {terminate}; child kill failed: {kill}"
+                ));
+            } else {
+                error = error.context(format!("process-tree termination failed: {terminate}"));
+            }
         }
-        let _ = stdout.join();
-        let _ = stderr.join();
-        return Err(error).context("arm captured product supervisor");
+        match child.wait_timeout(PROCESS_TIMEOUT) {
+            Ok(Some(_)) => {}
+            Ok(None) => error = error.context("captured supervisor did not exit after termination"),
+            Err(wait) => error = error.context(format!("reap captured supervisor: {wait}")),
+        }
+        if let Err(cancel) = stdout.cancel() {
+            error = error.context(format!("cancel captured stdout reader: {cancel}"));
+        }
+        if let Err(cancel) = stderr.cancel() {
+            error = error.context(format!("cancel captured stderr reader: {cancel}"));
+        }
+        let mut stdout_result = None;
+        let mut stderr_result = None;
+        if let Err(capture) = collect_capture_results(
+            &capture_receiver,
+            &mut stdout_result,
+            &mut stderr_result,
+            Instant::now() + PROCESS_TIMEOUT,
+        ) {
+            error = error.context(format!("collect captured supervisor diagnostics: {capture:#}"));
+        }
+        if let Err(join) = stdout.join() {
+            error = error.context(format!("join captured stdout reader: {join:#}"));
+        }
+        if let Err(join) = stderr.join() {
+            error = error.context(format!("join captured stderr reader: {join:#}"));
+        }
+        match stdout_result {
+            Some(Ok(stdout)) if !stdout.is_empty() => {
+                error = error.context(format!(
+                    "captured supervisor stdout: {}",
+                    String::from_utf8_lossy(&stdout)
+                ));
+            }
+            Some(Err(stdout)) => {
+                error = error.context(format!("read captured supervisor stdout: {stdout}"));
+            }
+            _ => {}
+        }
+        match stderr_result {
+            Some(Ok(stderr)) if !stderr.is_empty() => {
+                error = error.context(format!(
+                    "captured supervisor stderr: {}",
+                    String::from_utf8_lossy(&stderr)
+                ));
+            }
+            Some(Err(stderr)) => {
+                error = error.context(format!("read captured supervisor stderr: {stderr}"));
+            }
+            _ => {}
+        }
+        return Err(error);
     }
     let mut lifecycle_error = None;
     let mut status = None;
@@ -2877,7 +2934,8 @@ mod tests {
         command.command.env(START_MARKER_PATH_ENV, &start_marker);
         command.command.env(SENTINEL_PATH_ENV, &sentinel);
         let captured =
-            run_captured(command, SuiteDeadline::at(Instant::now() + PROCESS_TIMEOUT)).unwrap();
+            run_captured(command, SuiteDeadline::at(Instant::now() + STARTUP_LINE_TIMEOUT))
+                .unwrap();
         assert!(captured.status.success(), "helper test failed with status {:?}", captured.status);
         common.root.mark_quiescent();
 
