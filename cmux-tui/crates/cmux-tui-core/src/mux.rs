@@ -26449,6 +26449,16 @@ mod tests {
             let mux = mux.clone();
             let injected = injected.clone();
             move |attempt| {
+                if injected.load(Ordering::Acquire) {
+                    return;
+                }
+                if attempt < SHUTDOWN_RECONCILE_MAX_ATTEMPTS {
+                    // Publish real pending work to bypass only the retry
+                    // backoff. The worker consumes this signal before its next
+                    // attempt, so hosted load cannot delay the final hook.
+                    mux.shutdown_owner_reconciler.schedule();
+                    return;
+                }
                 if attempt != SHUTDOWN_RECONCILE_MAX_ATTEMPTS
                     || injected.swap(true, Ordering::AcqRel)
                 {
