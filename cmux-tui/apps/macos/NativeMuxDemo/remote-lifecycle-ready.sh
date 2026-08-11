@@ -1,37 +1,37 @@
 #!/usr/bin/env bash
 
 # Run one remote-demo launcher and publish its ordered lifecycle protocol. The
-# supervisor is the only writer to output_pipe. The launcher publishes progress
-# to progress_pipe, which is private to the supervisor. This lets one process
-# own child identity, phase deadlines, cancellation, and terminal exit.
+# caller gives the supervisor the only output writer. The launcher publishes
+# progress to progress_pipe, which is private to the supervisor. This lets one
+# process own child identity, phase deadlines, cancellation, and terminal exit.
 cmux_supervise_remote_demo() {
-  local output_pipe="$1"
+  local output_fd="$1"
   local progress_pipe="$2"
   local transfer_timeout="$3"
   local startup_timeout="$4"
   local exit_timeout="$5"
   shift 5
   [[ "${1:-}" == "--" ]] || return 2
+  [[ "$output_fd" =~ ^[0-9]+$ ]] || return 2
   shift
   (( $# > 0 )) || return 2
 
   exec 5<&-
-  exec 7<&-
-  exec /usr/bin/perl - "$output_pipe" "$progress_pipe" \
+  exec /usr/bin/perl - "$output_fd" "$progress_pipe" \
     "$transfer_timeout" "$startup_timeout" "$exit_timeout" "$@" <<'PERL'
 use strict;
 use warnings;
-use Fcntl qw(F_GETFL F_SETFL O_NONBLOCK O_RDWR O_WRONLY);
+use Fcntl qw(F_GETFL F_SETFL O_NONBLOCK O_RDWR);
 use IO::Handle;
 use IO::Select;
 use POSIX qw(WNOHANG setsid);
 use Time::HiRes qw(CLOCK_MONOTONIC clock_gettime);
 
-my ($output_path, $progress_path, $transfer_timeout, $startup_timeout,
+my ($output_fd, $progress_path, $transfer_timeout, $startup_timeout,
     $exit_timeout, @command) = @ARGV;
 @command or exit 2;
 
-sysopen(my $output, $output_path, O_WRONLY) or die "open $output_path: $!";
+open(my $output, ">&=$output_fd") or die "open output fd $output_fd: $!";
 $output->autoflush(1);
 sysopen(my $progress, $progress_path, O_RDWR | O_NONBLOCK)
     or die "open $progress_path: $!";
@@ -208,7 +208,6 @@ cmux_wait_for_remote_demo_ready() {
     case "$event" in
       owner-started)
         [[ "$phase" == "transfer" ]] || return 22
-        exec 7>&-
         ;;
       daemon-starting)
         [[ "$phase" == "transfer" ]] || return 22

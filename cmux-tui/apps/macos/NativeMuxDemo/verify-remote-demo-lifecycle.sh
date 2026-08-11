@@ -12,7 +12,6 @@ LIFECYCLE_SUPERVISOR_PID=""
 APP_PID=""
 ATTACH_PID=""
 ATTACH_FD_OPEN=0
-LIFECYCLE_BOOTSTRAP_FD_OPEN=0
 LIFECYCLE_READ_FD_OPEN=0
 TRANSFER_READY_TIMEOUT=300
 DAEMON_READY_TIMEOUT=90
@@ -48,10 +47,6 @@ cleanup() {
   if [[ "$LIFECYCLE_READ_FD_OPEN" == "1" ]]; then
     exec 5<&-
     LIFECYCLE_READ_FD_OPEN=0
-  fi
-  if [[ "$LIFECYCLE_BOOTSTRAP_FD_OPEN" == "1" ]]; then
-    exec 7<&-
-    LIFECYCLE_BOOTSTRAP_FD_OPEN=0
   fi
   rm -rf -- "$TEST_ROOT"
 }
@@ -100,14 +95,11 @@ for run in $(seq 1 "$TOTAL_RUNS"); do
   LIFECYCLE_PIPE="$TEST_ROOT/lifecycle-$run.pipe"
   LIFECYCLE_PROGRESS_PIPE="$TEST_ROOT/lifecycle-progress-$run.pipe"
   /usr/bin/mkfifo "$LIFECYCLE_PIPE" "$LIFECYCLE_PROGRESS_PIPE"
-  exec 7<>"$LIFECYCLE_PIPE"
-  LIFECYCLE_BOOTSTRAP_FD_OPEN=1
-  exec 5<"$LIFECYCLE_PIPE"
-  LIFECYCLE_READ_FD_OPEN=1
   APP_PIDS_BEFORE="$(matching_app_pids)"
   (
+    exec 6>"$LIFECYCLE_PIPE"
     cmux_supervise_remote_demo \
-      "$LIFECYCLE_PIPE" \
+      6 \
       "$LIFECYCLE_PROGRESS_PIPE" \
       "$TRANSFER_READY_TIMEOUT" \
       "$DAEMON_READY_TIMEOUT" \
@@ -117,13 +109,13 @@ for run in $(seq 1 "$TOTAL_RUNS"); do
       "$RUN_REMOTE_DEMO" "$REMOTE_HOST"
   ) >"$LAUNCH_LOG" 2>&1 &
   LIFECYCLE_SUPERVISOR_PID=$!
+  exec 5<"$LIFECYCLE_PIPE"
+  LIFECYCLE_READ_FD_OPEN=1
 
   set +e
   cmux_wait_for_remote_demo_ready 5
   READY_STATUS=$?
   set -e
-  exec 7<&-
-  LIFECYCLE_BOOTSTRAP_FD_OPEN=0
   if [[ "$READY_STATUS" != "0" ]]; then
     case "$READY_STATUS" in
       10) echo "Remote demo run $run exited before becoming ready:" >&2 ;;

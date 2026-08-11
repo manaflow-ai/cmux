@@ -8,7 +8,6 @@ TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/cmux-remote-ready-test.XXXXXX")"
 FIXTURE="$TEST_ROOT/lifecycle-fixture.sh"
 SUPERVISOR_PID=""
 WAITER_PID=""
-EVENT_BOOTSTRAP_FD_OPEN=0
 EVENT_READ_FD_OPEN=0
 OWNER_EXIT_FD_OPEN=0
 RESULT_FD_OPEN=0
@@ -26,10 +25,6 @@ close_event_channel() {
   if [[ "$EVENT_READ_FD_OPEN" == "1" ]]; then
     exec 8<&-
     EVENT_READ_FD_OPEN=0
-  fi
-  if [[ "$EVENT_BOOTSTRAP_FD_OPEN" == "1" ]]; then
-    exec 7<&-
-    EVENT_BOOTSTRAP_FD_OPEN=0
   fi
 }
 
@@ -138,18 +133,17 @@ start_fixture() {
   EVENT_PIPE="$TEST_ROOT/$name-events"
   PROGRESS_PIPE="$TEST_ROOT/$name-progress"
   mkfifo "$EVENT_PIPE" "$PROGRESS_PIPE"
-  exec 7<>"$EVENT_PIPE"
-  EVENT_BOOTSTRAP_FD_OPEN=1
-  exec 8<"$EVENT_PIPE"
-  EVENT_READ_FD_OPEN=1
   (
+    exec 6>"$EVENT_PIPE"
     cmux_supervise_remote_demo \
-      "$EVENT_PIPE" "$PROGRESS_PIPE" \
+      6 "$PROGRESS_PIPE" \
       "$transfer_timeout" "$startup_timeout" "$exit_timeout" \
       -- env CMUX_NATIVE_LIFECYCLE_PIPE="$PROGRESS_PIPE" \
       "$FIXTURE" "$mode" "$STALL_PIPE" "$CLEANUP_MARKER" "$OWNER_EXIT_PIPE"
   ) &
   SUPERVISOR_PID=$!
+  exec 8<"$EVENT_PIPE"
+  EVENT_READ_FD_OPEN=1
 }
 
 finish_supervisor() {
