@@ -121,6 +121,7 @@ url = "2"
 uuid = { version = "1", features = ["serde", "v4"] }
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 zeroize = { version = "1", features = ["derive"] }
+wait-timeout = "0.2.1"
 
 [patch.crates-io]
 # Crossterm 0.29 discards Kitty's shifted key, base-layout key, and associated

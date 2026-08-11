@@ -70,6 +70,21 @@ impl Drop for WindowsSocketBridge {
 }
 
 pub(crate) fn bridge(stream: uds_windows::UnixStream) -> io::Result<WindowsSocketBridge> {
+    bridge_inner(stream, None)
+}
+
+#[cfg(test)]
+fn bridge_with_blocked_signal(
+    stream: uds_windows::UnixStream,
+    blocked: tokio::sync::oneshot::Sender<()>,
+) -> io::Result<WindowsSocketBridge> {
+    bridge_inner(stream, Some(blocked))
+}
+
+fn bridge_inner(
+    stream: uds_windows::UnixStream,
+    blocked: Option<tokio::sync::oneshot::Sender<()>>,
+) -> io::Result<WindowsSocketBridge> {
     let runtime = Handle::try_current().map_err(|error| {
         io::Error::other(format!("Windows socket bridge requires a Tokio runtime: {error}"))
     })?;
@@ -92,7 +107,9 @@ pub(crate) fn bridge(stream: uds_windows::UnixStream) -> io::Result<WindowsSocke
     runtime.spawn(relay_socket_upload(upload_rx, bridge_writer));
     runtime.spawn(relay_socket_download(bridge_reader, download_tx));
     let bridge_closing = closing.clone();
-    runtime.spawn_blocking(move || write_socket(stream, writer_shutdown, download_rx, closing));
+    runtime.spawn_blocking(move || {
+        write_socket(stream, writer_shutdown, download_rx, closing, blocked)
+    });
 
     Ok(WindowsSocketBridge { inner: local, shutdown: bridge_shutdown, closing: bridge_closing })
 }
@@ -169,6 +186,7 @@ fn write_socket(
     shutdown: uds_windows::UnixStream,
     mut source: mpsc::Receiver<Bytes>,
     closing: Arc<AtomicBool>,
+    mut blocked: Option<tokio::sync::oneshot::Sender<()>>,
 ) {
     while let Some(chunk) = source.blocking_recv() {
         let mut offset = 0;
@@ -184,6 +202,9 @@ fn write_socket(
                 }
                 Ok(size) => offset += size,
                 Err(error) if socket_timeout(&error) => {
+                    if let Some(blocked) = blocked.take() {
+                        let _ = blocked.send(());
+                    }
                     if closing.load(Ordering::Acquire) {
                         let _ = shutdown.shutdown(Shutdown::Both);
                         return;
@@ -220,9 +241,7 @@ fn report_failure(direction: &str, error: &io::Error) {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     use tokio::io::AsyncWriteExt as _;
 
@@ -230,6 +249,8 @@ mod tests {
 
     #[test]
     fn windows_dropping_a_saturated_bridge_releases_its_blocking_workers() {
+        use wait_timeout::ChildExt as _;
+
         let mut child = std::process::Command::new(std::env::current_exe().unwrap())
             .args([
                 "--exact",
@@ -239,16 +260,7 @@ mod tests {
             .env("CMUX_TEST_WINDOWS_SATURATED_BRIDGE", "1")
             .spawn()
             .unwrap();
-        let deadline = Instant::now() + Duration::from_secs(10);
-        let status = loop {
-            if let Some(status) = child.try_wait().unwrap() {
-                break Some(status);
-            }
-            if Instant::now() >= deadline {
-                break None;
-            }
-            std::thread::sleep(Duration::from_millis(20));
-        };
+        let status = child.wait_timeout(Duration::from_secs(10)).unwrap();
         let Some(status) = status else {
             let _ = child.kill();
             let _ = child.wait();
@@ -269,28 +281,19 @@ mod tests {
         let accept = std::thread::spawn(move || listener.accept().unwrap().0);
         let client = uds_windows::UnixStream::connect(&socket_path).unwrap();
         let server = accept.join().unwrap();
-        let mut bridge = bridge(client).unwrap();
-        let completed_writes = Arc::new(AtomicUsize::new(0));
-        let writer_progress = completed_writes.clone();
+        let (blocked_tx, blocked_rx) = tokio::sync::oneshot::channel();
+        let mut bridge = bridge_with_blocked_signal(client, blocked_tx).unwrap();
         let writer = tokio::spawn(async move {
             let chunk = vec![0_u8; BRIDGE_CHUNK_BYTES];
             loop {
                 bridge.write_all(&chunk).await.unwrap();
-                writer_progress.fetch_add(1, Ordering::Release);
             }
         });
 
-        let deadline = Instant::now() + Duration::from_secs(3);
-        let mut previous = 0;
-        let mut unchanged_samples = 0;
-        while unchanged_samples < 4 {
-            tokio::time::sleep(Duration::from_millis(50)).await;
-            let current = completed_writes.load(Ordering::Acquire);
-            unchanged_samples =
-                if current > 0 && current == previous { unchanged_samples + 1 } else { 0 };
-            previous = current;
-            assert!(Instant::now() < deadline, "Windows socket writer never reached backpressure");
-        }
+        tokio::time::timeout(Duration::from_secs(3), blocked_rx)
+            .await
+            .expect("Windows socket writer never reached backpressure")
+            .expect("Windows socket bridge dropped its backpressure signal");
 
         writer.abort();
         let _ = writer.await;

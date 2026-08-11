@@ -607,6 +607,7 @@ dependencies = [
  "uds_windows",
  "url",
  "uuid",
+ "wait-timeout",
  "windows-sys 0.61.2",
  "x25519-dalek",
  "zeroize",
@@ -679,6 +680,7 @@ dependencies = [
  "unicode-width",
  "url",
  "uuid",
+ "wait-timeout",
  "windows-sys 0.61.2",
  "zeroize",
 ]
@@ -5225,6 +5227,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bfa7760aed19e106de2c7c0b581b509f2f25d3dacaf737cb82ac61bc6d760b0e"
 dependencies = [
  "try-lock",
+]
+
+[[package]]
+name = "wait-timeout"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09ac3b126d3914f9849036f826e054cbabdc8519970b8998ddaf3b5bd3c65f11"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
