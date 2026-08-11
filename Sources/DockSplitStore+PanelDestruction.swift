@@ -14,10 +14,11 @@ extension DockSplitStore {
         appLinkHandoffCoordinator.cancel(sourcePanelID: panelId)
         panelCancellables[panelId]?.cancel()
         panelCancellables.removeValue(forKey: panelId)
-        AppDelegate.shared?.notificationStore?.clearNotifications(
+        resolvedNotificationStore()?.clearNotifications(
             forTabId: workspaceId,
             surfaceId: panelId
         )
+        TerminalController.shared.cleanupSurfaceState(surfaceIds: [panelId])
         removeDetachedSurfaceTransfer(forPanelID: panelId)
         clearSessionRestoreState(panelId: panelId)
 

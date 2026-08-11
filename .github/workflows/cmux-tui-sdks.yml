@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - "cmux-tui/**"
+      - ".github/actions/setup-cmux-tui-rust/**"
       - ".github/workflows/cmux-tui-nightly.yml"
       - ".github/workflows/cmux-tui-release-cut.yml"
       - ".github/workflows/cmux-tui-release.yml"
@@ -26,6 +27,7 @@ on:
   pull_request:
     paths:
       - "cmux-tui/**"
+      - ".github/actions/setup-cmux-tui-rust/**"
       - ".github/workflows/cmux-tui-nightly.yml"
       - ".github/workflows/cmux-tui-release-cut.yml"
       - ".github/workflows/cmux-tui-release.yml"
@@ -486,11 +488,8 @@ jobs:
           cache: npm
           cache-dependency-path: cmux-tui/bindings/typescript/package-lock.json
 
-      - name: Set up Rust 1.95
-        run: |
-          rustup toolchain install 1.95.0 --profile minimal
-          cargo +1.95.0 --version
-          rustc +1.95.0 --version
+      - name: Set up pinned cmux-tui Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
@@ -519,7 +518,7 @@ jobs:
         working-directory: cmux-tui
         run: |
           test "$(zig version)" = "0.16.0"
-          cargo +1.95.0 build -p cmux-tui --bin cmux-tui --locked
+          cargo build -p cmux-tui --bin cmux-tui --locked
 
       - name: Set up Zig for SDK conformance
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
@@ -532,7 +531,6 @@ jobs:
           CXX: clang++
           CMUX_ZIG: zig
           NODE_OPTIONS: --experimental-websocket
-          RUSTUP_TOOLCHAIN: 1.95.0
         run: |
           test "$(zig version)" = "0.15.2"
           test "$(node -p 'typeof WebSocket')" = "function"

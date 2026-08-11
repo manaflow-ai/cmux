@@ -209,12 +209,9 @@ extension Workspace {
         debugSessionSnapshotScrollbackFallbackPanelIds.removeAll(keepingCapacity: false)
         debugSessionSnapshotSyntheticScrollbackByPanelId.removeAll(keepingCapacity: false)
 #endif
-        restoredAgentSnapshotsByPanelId.removeAll(keepingCapacity: false)
-        restoredAgentResumeStatesByPanelId.removeAll(keepingCapacity: false)
-        invalidatedRestoredAgentFingerprintsByPanelId.removeAll(keepingCapacity: false)
+        restoredAgentLifecycle.removeAllSessionRestores()
         surfaceResumeBindingsByPanelId.removeAll(keepingCapacity: false)
         restoredGuardedWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
-        restoredResumeSessionWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
         restoredPanelTitleBoundariesByPanelId.removeAll(keepingCapacity: false)
         panelShellActivityStates.removeAll(keepingCapacity: false)
 
@@ -1324,6 +1321,10 @@ extension Workspace {
         snapshotWorkspaceId: UUID?,
         shouldRestoreSingleDefaultCloudTerminal: Bool
     ) -> UUID? {
+        let snapshot = Self.repairedLegacyHermesSessionPanelSnapshot(
+            snapshot,
+            workspaceId: snapshotWorkspaceId ?? id
+        )
         let restoresUntrustedSavedDirectory = snapshot.directoryIsTrustedRemoteReport != true &&
             (snapshot.directoryRequiresRemoteTrust == true ||
                 restoresLegacyRemoteDirectoryWithoutProvenance(snapshot))
@@ -1726,7 +1727,10 @@ extension Workspace {
                     panelId: terminalPanel.id,
                     restorableAgent: restorableAgent,
                     willRunStartupCommand: restoredAgentWillRunStartupCommand,
-                    willRunStartupInput: restoredAgentWillRunStartupInput
+                    willRunStartupInput: restoredAgentWillRunStartupInput,
+                    resumeSessionWorkingDirectory: restoredDirectoryIsLocalPath
+                        ? resumeSessionWorkingDirectory
+                        : nil
                 )
                 if let restoredHibernation,
                    restorableAgent.resumeCommand != nil {
@@ -1741,22 +1745,11 @@ extension Workspace {
                     panelId: terminalPanel.id,
                     restorableAgent: nil,
                     willRunStartupCommand: restoredAgentWillRunStartupCommand,
-                    willRunStartupInput: restoredAgentWillRunStartupInput
+                    willRunStartupInput: restoredAgentWillRunStartupInput,
+                    resumeSessionWorkingDirectory: restoredDirectoryIsLocalPath
+                        ? resumeSessionWorkingDirectory
+                        : nil
                 )
-            }
-            // While an auto-resumed agent-hook or restorable-agent launcher
-            // holds the pane's foreground no prompt runs, so a stray
-            // post-restore report can park the tracked cwd on the surface
-            // default with nothing left to repair it. Keep the resolved
-            // session directory for the run's lifetime so split/new-tab
-            // inheritance can rescue it (#7155).
-            if restoredAgentWillRunStartupCommand || restoredAgentWillRunStartupInput,
-               restoredDirectoryIsLocalPath,
-               let resumeSessionDirectory = resumeSessionWorkingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !resumeSessionDirectory.isEmpty {
-                restoredResumeSessionWorkingDirectoriesByPanelId[terminalPanel.id] = resumeSessionDirectory
-            } else {
-                restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: terminalPanel.id)
             }
             terminalPanel.restoreSessionTextBoxDraft(snapshot.terminal?.textBoxDraft)
             applySessionPanelMetadata(snapshot, toPanelId: terminalPanel.id)
@@ -2355,6 +2348,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         get { splitLayout.isProgrammaticSplit }
         set { splitLayout.isProgrammaticSplit = newValue }
     }
+    var activeMovingTabSplitFocusIntent: MovingTabSplitFocusIntent?
     private var debugStressPreloadSelectionDepth = 0
 
     /// Last terminal panel used as an inheritance source (typically last focused terminal).
@@ -2459,9 +2453,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     var panelCustomTitleSources: [UUID: CustomTitleSource] = [:]
     @Published var pinnedPanelIds: Set<UUID> = []
     var pinMutationTokensByPanelId: [UUID: UUID] = [:]
-    @Published var manualUnreadPanelIds: Set<UUID> = [] {
-        didSet {
-            guard manualUnreadPanelIds != oldValue else { return }
+    let panelUnread = WorkspacePanelUnreadModel()
+    var manualUnreadPanelIds: Set<UUID> {
+        get { panelUnread.panelIds }
+        set {
+            guard panelUnread.replace(with: newValue) else { return }
             syncPanelDerivedWorkspaceUnread()
         }
     }
@@ -2641,7 +2637,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// The session directory each restored auto-resume launcher targets, kept
     /// for the resumed run so split/new-tab cwd inheritance can rescue a
     /// clobbered tracked cwd while the agent holds the pane's foreground (#7155).
-    var restoredResumeSessionWorkingDirectoriesByPanelId: [UUID: String] = [:]
+    var restoredResumeSessionWorkingDirectoriesByPanelId: [UUID: String] {
+        get { restoredAgentLifecycle.resumeWorkingDirectoriesByPanelId }
+        set { restoredAgentLifecycle.resumeWorkingDirectoriesByPanelId = newValue }
+    }
     enum RestoredAgentResumeState: Equatable {
         case manualResumeAvailable, awaitingAutoResumeCommand, autoResumeCommandRunning, observedAgentCommandRunning, completedAgentExit
     }
@@ -3207,6 +3206,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         initialSurface: NewWorkspaceInitialSurface = .terminal,
         initialTerminalCommand: String? = nil,
         initialTerminalInput: String? = nil,
+        initialTerminalStartupRestoreAgent: SessionRestorableAgentSnapshot? = nil,
         initialTerminalEnvironment: [String: String] = [:],
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
@@ -3374,6 +3374,15 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 bindSurface(tabId, toPanelId: terminalPanel.id)
                 initialTabId = tabId
                 rememberTerminalConfigInheritanceSource(terminalPanel)
+                if let initialTerminalStartupRestoreAgent {
+                    seedSessionRestoredAgentState(
+                        panelId: terminalPanel.id,
+                        restorableAgent: initialTerminalStartupRestoreAgent,
+                        willRunStartupCommand: false,
+                        willRunStartupInput: initialTerminalInput != nil,
+                        resumeSessionWorkingDirectory: initialTerminalStartupRestoreAgent.workingDirectory
+                    )
+                }
             }
         }
 
@@ -3936,6 +3945,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             }
             self.lastTerminalConfigInheritanceFontSizeLineage = lineage
         }
+        installTerminalVisualBellRouting(for: terminalPanel)
         terminalPanel.onRequestWorkspacePaneFlash = { [weak self, weak terminalPanel] reason in
             guard let self, let terminalPanel else { return }
             let panelID = self.surfaceOwnershipTarget(for: terminalPanel.id)?.containerPanelID
@@ -4728,7 +4738,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     func markPanelUnread(_ panelId: UUID) {
         guard panels[panelId] != nil else { return }
-        let didClearRestored = restoredUnreadPanelIndicators.removeValue(forKey: panelId) != nil
+        let didClearRestored = clearRestoredUnreadIndicatorState(panelId: panelId)
         let didInsertManual = manualUnreadPanelIds.insert(panelId).inserted
         guard didInsertManual || didClearRestored else { return }
         manualUnreadMarkedAt[panelId] = Date()
@@ -4838,7 +4848,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     private func clearRestoredUnreadIndicatorState(panelId: UUID) -> Bool {
-        restoredUnreadPanelIndicators.removeValue(forKey: panelId) != nil
+        guard restoredUnreadPanelIndicators[panelId] != nil else { return false }
+        restoredUnreadPanelIndicators.removeValue(forKey: panelId)
+        return true
     }
 
     static func shouldShowUnreadIndicator(
@@ -7813,6 +7825,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         initialCommand: String? = nil,
         tmuxStartCommand: String? = nil,
         initialInput: String? = nil,
+        startupRestoreAgent: SessionRestorableAgentSnapshot? = nil,
         startupEnvironment: [String: String] = [:],
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
         autoRefreshMetadata: Bool = true,
@@ -7832,6 +7845,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             initialCommand: initialCommand,
             tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
+            startupRestoreAgent: startupRestoreAgent,
             startupEnvironment: startupEnvironment,
             runtimeSpawnPolicy: runtimeSpawnPolicy,
             autoRefreshMetadata: autoRefreshMetadata,
@@ -7846,7 +7860,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         ).panel
     }
 
-    /// Like ``newTerminalSurface(inPane:focus:workingDirectory:initialCommand:tmuxStartCommand:initialInput:startupEnvironment:autoRefreshMetadata:preserveFocusWhenUnfocused:remotePTYSessionID:suppressWorkspaceRemoteStartupCommand:)``
+    /// Like ``newTerminalSurface(inPane:focus:workingDirectory:initialCommand:tmuxStartCommand:initialInput:startupRestoreAgent:startupEnvironment:autoRefreshMetadata:preserveFocusWhenUnfocused:remotePTYSessionID:suppressWorkspaceRemoteStartupCommand:)``
     /// but distinguishes a request routed to the remote tmux mirror from a genuine
     /// failure, so socket/CLI handlers can report the routed request as accepted.
     func newTerminalSurfaceOutcome(
@@ -7856,6 +7870,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         initialCommand: String? = nil,
         tmuxStartCommand: String? = nil,
         initialInput: String? = nil,
+        startupRestoreAgent: SessionRestorableAgentSnapshot? = nil,
         startupEnvironment: [String: String] = [:],
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
         autoRefreshMetadata: Bool = true,
@@ -7905,6 +7920,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             initialCommand: initialCommand,
             tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
+            startupRestoreAgent: startupRestoreAgent,
             startupEnvironment: startupEnvironment,
             runtimeSpawnPolicy: runtimeSpawnPolicy,
             autoRefreshMetadata: autoRefreshMetadata,
@@ -7927,6 +7943,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         initialCommand: String?,
         tmuxStartCommand: String?,
         initialInput: String?,
+        startupRestoreAgent: SessionRestorableAgentSnapshot?,
         startupEnvironment: [String: String],
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy,
         autoRefreshMetadata: Bool,
@@ -8033,6 +8050,15 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
 
         bindSurface(newTabId, toPanelId: newPanel.id)
+        if let startupRestoreAgent {
+            seedSessionRestoredAgentState(
+                panelId: newPanel.id,
+                restorableAgent: startupRestoreAgent,
+                willRunStartupCommand: false,
+                willRunStartupInput: initialInput != nil,
+                resumeSessionWorkingDirectory: startupRestoreAgent.workingDirectory
+            )
+        }
         publishCmuxSurfaceCreated(newPanel.id, paneId: paneId, kind: "terminal", origin: "terminal_tab", focused: shouldFocusNewTab)
 
         // bonsplit's createTab may not reliably emit didSelectTab, and its internal selection
@@ -9839,11 +9865,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             surfaceId: detached.panelId
         )
         seedDetachedRestoredAgentState(from: detached)
-        if let resumeSessionWorkingDirectory = detached.restoredResumeSessionWorkingDirectory {
-            restoredResumeSessionWorkingDirectoriesByPanelId[detached.panelId] = resumeSessionWorkingDirectory
-        } else {
-            restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: detached.panelId)
-        }
         let transferredResumeBinding: SurfaceResumeBindingSnapshot? = {
             if let resumeBinding = detached.resumeBinding,
                !resumeBinding.isProcessDetected {
@@ -10542,21 +10563,28 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     func suppressReparentFocusUntilLayoutFollowUp(
         _ hostedView: GhosttySurfaceScrollView?,
-        reason: String
+        reason: String,
+        terminalFocusPanelId: UUID? = nil
     ) {
-        guard let hostedView else { return }
-        hostedView.suppressReparentFocus()
-        pendingReparentFocusSuppressionViews[ObjectIdentifier(hostedView)] = hostedView
+        guard hostedView != nil || terminalFocusPanelId != nil else { return }
+        if let hostedView {
+            hostedView.suppressReparentFocus()
+            pendingReparentFocusSuppressionViews[ObjectIdentifier(hostedView)] = hostedView
 #if DEBUG
-        cmuxDebugLog("focus.reparent.suppressPending reason=\(reason) count=\(pendingReparentFocusSuppressionViews.count)")
+            cmuxDebugLog("focus.reparent.suppressPending reason=\(reason) count=\(pendingReparentFocusSuppressionViews.count)")
 #endif
+        }
 
         guard portalRenderingEnabled else {
             clearPendingReparentFocusSuppressions(reason: "\(reason).portalDisabled")
             return
         }
 
-        beginEventDrivenLayoutFollowUp(reason: reason, includeGeometry: true)
+        beginEventDrivenLayoutFollowUp(
+            reason: reason,
+            terminalFocusPanelId: terminalFocusPanelId,
+            includeGeometry: true
+        )
     }
 
     private func clearPendingReparentFocusSuppressions(reason: String) {
@@ -11359,15 +11387,15 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         entry: SessionEntry,
         destination: BonsplitController.ExternalTabDropRequest.Destination
     ) -> Bool {
-        guard let resumeCommand = entry.resumeCommand else { return false }
-        let inputWithReturn = resumeCommand + "\n"
+        guard let launch = entry.resumeLaunch else { return false }
         switch destination {
         case .insert(let paneId, _):
             let panel = newTerminalSurface(
                 inPane: paneId,
                 focus: true,
-                workingDirectory: entry.resumeWorkingDirectory,
-                initialInput: inputWithReturn
+                workingDirectory: launch.workingDirectory,
+                initialInput: launch.initialInput,
+                startupRestoreAgent: launch.startupRestoreAgent
             )
             return panel != nil
         case .split(let paneId, let orientation, let insertFirst):
@@ -11375,8 +11403,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 targetPane: paneId,
                 orientation: orientation,
                 insertFirst: insertFirst,
-                workingDirectory: entry.resumeWorkingDirectory,
-                initialInput: inputWithReturn
+                workingDirectory: launch.workingDirectory,
+                initialInput: launch.initialInput,
+                startupRestoreAgent: launch.startupRestoreAgent
             )
             return panel != nil
         }
@@ -11478,6 +11507,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         insertFirst: Bool,
         workingDirectory: String?,
         initialInput: String?,
+        startupRestoreAgent: SessionRestorableAgentSnapshot? = nil,
         remoteStartupCommand: String? = nil
     ) -> TerminalPanel? {
         var inheritedConfig = inheritedTerminalConfig(inPane: paneId)
@@ -11529,6 +11559,15 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 untrackRemoteTerminalSurface(newPanel.id)
             }
             return nil
+        }
+        if let startupRestoreAgent {
+            seedSessionRestoredAgentState(
+                panelId: newPanel.id,
+                restorableAgent: startupRestoreAgent,
+                willRunStartupCommand: false,
+                willRunStartupInput: initialInput != nil,
+                resumeSessionWorkingDirectory: startupRestoreAgent.workingDirectory
+            )
         }
         publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: newPanel.id, kind: "terminal", origin: "terminal_split", focused: true)
 
@@ -12726,7 +12765,8 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didSelectTab tab: Bonsplit.Tab, inPane pane: PaneID) {
         // Mirror bookkeeping restores selection from its transaction snapshot.
-        guard !remoteTmuxMirrorMutations.suppressesFocusActivation else { return }
+        guard !remoteTmuxMirrorMutations.suppressesFocusActivation,
+              !preservesFocusDuringMovingTabSplit else { return }
         applyTabSelection(tabId: tab.id, inPane: pane)
     }
 
@@ -12805,7 +12845,8 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didFocusPane pane: PaneID) {
         // Mirror bookkeeping restores pane focus without re-running activation.
-        guard !remoteTmuxMirrorMutations.suppressesFocusActivation else { return }
+        guard !remoteTmuxMirrorMutations.suppressesFocusActivation,
+              !preservesFocusDuringMovingTabSplit else { return }
         // When a pane is focused, focus its selected tab's panel
         guard let tab = controller.selectedTab(inPane: pane) else { return }
 #if DEBUG
@@ -13036,6 +13077,13 @@ extension Workspace: BonsplitDelegate {
             }
             normalizePinnedTabs(in: originalPane)
             normalizePinnedTabs(in: newPane)
+            // Moving a tab into a new split does not emit didMoveTab or didSelectTab.
+            // Interactive moves activate the selected destination through Workspace's
+            // focus owner; explicit non-focus transactions leave activation untouched.
+            if !preservesFocusDuringMovingTabSplit,
+               let movedTab = controller.selectedTab(inPane: newPane) {
+                activateMovedTabAfterSplit(movedTab.id, inPane: newPane)
+            }
             scheduleTerminalGeometryReconcile()
             return
         }

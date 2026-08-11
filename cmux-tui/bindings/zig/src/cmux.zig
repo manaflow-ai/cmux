@@ -96,6 +96,8 @@ pub const BrowserSnapshot = resource.BrowserSnapshot;
 pub const PixelSize = resource.PixelSize;
 pub const BrowserViewerResizeResult =
     resource.BrowserViewerResizeResult;
+pub const ViewAttachmentOutcome = resource.ViewAttachmentOutcome;
+pub const ViewerReleaseResult = resource.ViewerReleaseResult;
 pub const CellPixelFailure = resource.CellPixelFailure;
 pub const CellPixelsResult = resource.CellPixelsResult;
 pub const LayoutDirection = resource.LayoutDirection;
@@ -126,6 +128,7 @@ pub const TerminalCopyResult = resource.TerminalCopyResult;
 pub const ProcessInfoResult = resource.ProcessInfoResult;
 pub const Size = resource.Size;
 pub const ViewerResizeResult = resource.ViewerResizeResult;
+pub const ProjectionPutOptions = resource.ProjectionPutOptions;
 pub const OwnedMachineSnapshot = resource.OwnedMachineSnapshot;
 pub const OwnedSessionSnapshot = resource.OwnedSessionSnapshot;
 pub const OwnedWorkspaceSnapshot = resource.OwnedWorkspaceSnapshot;
@@ -146,6 +149,7 @@ pub const OwnedTerminalWaitResult = resource.OwnedTerminalWaitResult;
 pub const OwnedTerminalCopyResult = resource.OwnedTerminalCopyResult;
 pub const OwnedProcessInfoResult = resource.OwnedProcessInfoResult;
 pub const OwnedViewerResizeResult = resource.OwnedViewerResizeResult;
+pub const OwnedViewerReleaseResult = resource.OwnedViewerReleaseResult;
 pub const OwnedBrowserViewerResizeResult =
     resource.OwnedBrowserViewerResizeResult;
 pub const OwnedCellPixelsResult = resource.OwnedCellPixelsResult;

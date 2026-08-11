@@ -225,6 +225,9 @@ _cmux_report_shell_activity_state_via_relay() {
     if [[ -n "${CMUX_PANEL_ID:-}" ]]; then
         params+=",\"surface_id\":\"$CMUX_PANEL_ID\""
     fi
+    if [[ -n "${CMUX_TERMINAL_LIFECYCLE_ID:-}" ]]; then
+        params+=",\"terminal_lifecycle_id\":\"$CMUX_TERMINAL_LIFECYCLE_ID\""
+    fi
     params+="}"
     _cmux_relay_rpc_bg "surface.report_shell_state" "$params"
 }
@@ -740,7 +743,11 @@ _cmux_report_shell_activity_state() {
     [[ "$_CMUX_SHELL_ACTIVITY_LAST" == "$state" ]] && return 0
     _CMUX_SHELL_ACTIVITY_LAST="$state"
     if _cmux_socket_is_unix; then
-        _cmux_send_bg "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+        local payload="report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+        if [[ -n "${CMUX_TERMINAL_LIFECYCLE_ID:-}" ]]; then
+            payload+=" --terminal-lifecycle-id=$CMUX_TERMINAL_LIFECYCLE_ID"
+        fi
+        _cmux_send_bg "$payload"
     else
         _cmux_report_shell_activity_state_via_relay "$state" || _CMUX_SHELL_ACTIVITY_LAST=""
     fi
@@ -1798,9 +1805,12 @@ _cmux_install_prompt_command() {
 # Contents/MacOS entry so the GUI cmux binary cannot shadow the CLI cmux.
 # Shell init (.bashrc/.bash_profile) may prepend other dirs after launch.
 _cmux_fix_path() {
-    if [[ -n "${GHOSTTY_BIN_DIR:-}" ]]; then
-        local gui_dir="${GHOSTTY_BIN_DIR%/}"
-        local bin_dir="${gui_dir%/MacOS}/Resources/bin"
+    local integration_dir="${CMUX_SHELL_INTEGRATION_DIR:-}"
+    integration_dir="${integration_dir%/}"
+    if [[ "$integration_dir" == */Resources/shell-integration ]]; then
+        local resources_dir="${integration_dir%/shell-integration}"
+        local gui_dir="${resources_dir%/Resources}/MacOS"
+        local bin_dir="$resources_dir/bin"
         if [[ -d "$bin_dir" ]]; then
             PATH="$(_cmux_path_prepend_unique_directory "$bin_dir" "${PATH-}" "$gui_dir")"
         fi

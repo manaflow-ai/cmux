@@ -222,7 +222,7 @@ extension DockSplitStore {
         if let targetIndex {
             _ = bonsplitController.reorderTab(tabId, toIndex: targetIndex)
         }
-        installSubscription(for: panel, tracksTerminalTitle: false)
+        installSubscription(for: panel)
         recordExplicitPanelCreation()
         return panel
     }
@@ -258,7 +258,7 @@ extension DockSplitStore {
             discardPanelOwnershipAndClose(panelId: panel.id)
             return nil
         }
-        installSubscription(for: panel, tracksTerminalTitle: false)
+        installSubscription(for: panel)
         recordExplicitPanelCreation()
         if focus {
             focusPanelFromDockInteraction(panel.id, window: nil)

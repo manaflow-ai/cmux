@@ -292,6 +292,7 @@ struct PairingView: View {
         } label: {
             Text(L10n.string("mobile.common.cancel", defaultValue: "Cancel"))
         }
+        .accessibilityIdentifier("MobilePairingCancelButton")
     }
 
     private func cancelActivePairingTask() {
