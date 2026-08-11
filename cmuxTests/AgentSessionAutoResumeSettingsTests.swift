@@ -194,6 +194,12 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
             )
             XCTAssertEqual(
                 restored.restoredAgentResumeStatesByPanelId[restoredPanelId],
+                .awaitingAutoResumeCommand
+            )
+
+            restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
+            XCTAssertEqual(
+                restored.restoredAgentResumeStatesByPanelId[restoredPanelId],
                 .autoResumeCommandRunning
             )
 
@@ -585,6 +591,12 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
             restoredPanel,
             sessionID: "codex-binding-auto-resume-session"
         )
+        XCTAssertEqual(
+            restored.restoredAgentResumeStatesByPanelId[restoredPanelId],
+            .awaitingAutoResumeCommand
+        )
+
+        restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
         XCTAssertEqual(
             restored.restoredAgentResumeStatesByPanelId[restoredPanelId],
             .autoResumeCommandRunning
