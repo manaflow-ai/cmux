@@ -498,12 +498,12 @@ struct VerifiedTerminalReplayStateMachineTests {
                 .init(row: 0, column: 0, styleID: styleID, text: text)
             ],
             activeScreen: .primary,
-            anchor: anchor,
             modes: [
                 .init(code: 1, on: true),
                 .init(code: 7, on: true),
                 .init(code: 2004, on: true)
-            ]
+            ],
+            anchor: anchor
         )
     }
 }

@@ -43,6 +43,32 @@ extension GhosttySurfaceView {
         }
     }
 
+    /// Applies a live screen delta without exposing its temporary bottom viewport.
+    ///
+    /// The serial surface operation captures the current above-bottom content
+    /// anchor, processes the VT delta, and restores that anchor against the new
+    /// row space before any draw can be requested. At bottom there is no anchor,
+    /// so ordinary terminal bottom-follow behavior remains unchanged.
+    @discardableResult
+    public func processOutputPreservingViewportAndWait(
+        _ data: Data,
+        terminalConfigTheme: TerminalTheme?
+    ) async -> Bool {
+        await withCheckedContinuation { continuation in
+            let operationID = registerPendingOutputApply(
+                byteCount: data.count,
+                continuation: continuation
+            )
+            processOutput(
+                data,
+                terminalConfigTheme: terminalConfigTheme,
+                preservesViewport: true
+            ) { [weak self] applied in
+                self?.completePendingOutputApply(id: operationID, returning: applied)
+            }
+        }
+    }
+
     /// Enqueues the current raw config defaults on this surface's serial Ghostty queue.
     public func applyTerminalConfigTheme() {
         applyTerminalConfigTheme(terminalConfigTheme, force: false)

@@ -2547,6 +2547,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     func processOutput(
         _ data: Data,
         terminalConfigTheme outputConfigTheme: TerminalTheme? = nil,
+        preservesViewport: Bool = false,
         completion: (@MainActor @Sendable (Bool) -> Void)?
     ) {
         guard !renderPipelineRecoveryPaused else {
@@ -2592,6 +2593,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // preserved) and hop back to main only for the Swift-side UI state.
         let workQueue = outputQueue
         workQueue.async { [weak self] in
+            var preOutputScrollbar = ghostty_surface_scrollbar_s()
+            let viewportAnchor = preservesViewport
+                && ghostty_surface_scrollbar(surface, &preOutputScrollbar)
+                ? VerifiedReplayViewportAnchor(
+                    scrollbarTotal: preOutputScrollbar.total,
+                    offset: preOutputScrollbar.offset,
+                    len: preOutputScrollbar.len
+                )
+                : nil
             if let preparedConfigBits,
                let preparedConfig = ghostty_config_t(bitPattern: preparedConfigBits) {
                 ghostty_surface_update_theme_config(surface, preparedConfig)
@@ -2601,6 +2611,22 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 guard let baseAddress = buffer.baseAddress else { return }
                 let pointer = baseAddress.assumingMemoryBound(to: CChar.self)
                 ghostty_surface_process_output(surface, pointer, UInt(buffer.count))
+            }
+            if let viewportAnchor {
+                var postOutputScrollbar = ghostty_surface_scrollbar_s()
+                if ghostty_surface_scrollbar(surface, &postOutputScrollbar),
+                   let targetTopRow = viewportAnchor.targetTopRow(
+                       postReplayTotalRows: postOutputScrollbar.total,
+                       postReplayVisibleRows: postOutputScrollbar.len
+                   ) {
+                    var restoredScrollbar = ghostty_surface_scrollbar_s()
+                    _ = ghostty_surface_scroll_to_row_if_revision(
+                        surface,
+                        targetTopRow,
+                        postOutputScrollbar.row_space_revision,
+                        &restoredScrollbar
+                    )
+                }
             }
             #if DEBUG
             // `ghostty_surface_read_text` takes the same internal surface lock as
