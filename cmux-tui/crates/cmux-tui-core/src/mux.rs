@@ -20652,9 +20652,7 @@ mod tests {
             }
         };
         assert!(
-            error_without_incarnation
-                .to_string()
-                .contains("runtime changed hosts or incarnations")
+            error_without_incarnation.to_string().contains("runtime changed hosts or incarnations")
         );
         assert!(mux.surface(new_surface.id).is_some());
         removed.kill();
