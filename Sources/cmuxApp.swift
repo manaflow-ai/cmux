@@ -754,7 +754,7 @@ struct cmuxApp: App {
                 }
 
                 if CmuxFeatureFlags.shared.isSimulatorEnabled {
-                    Button(String(localized: "menu.file.newSimulatorPane", defaultValue: "New Simulator Pane")) {
+                    Button(String(localized: "menu.file.newSimulatorPane", defaultValue: "New Simulator Tab")) {
                         performNewSimulatorPaneFromMenu()
                     }
                 }

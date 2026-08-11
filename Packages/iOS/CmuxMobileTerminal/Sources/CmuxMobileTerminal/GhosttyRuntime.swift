@@ -3,6 +3,7 @@ import CMUXMobileCore
 import CmuxMobileDiagnostics
 import Foundation
 import GhosttyKit
+import Observation
 import OSLog
 import UIKit
 
@@ -432,6 +433,50 @@ public final class GhosttyRuntime {
     }
 }
 
+/// Process-lifetime owner for Ghostty initialization.
+///
+/// Construct this before mounting SwiftUI terminal surfaces. Views consume its
+/// observable state and never make C runtime initialization part of their mount
+/// lifecycle. The factory seam keeps initialization-count coverage independent
+/// of libghostty global state.
+@MainActor
+@Observable
+public final class GhosttyRuntimeOwner {
+    public enum State {
+        case ready(GhosttyRuntime)
+        case failed(any Error)
+    }
+
+    public private(set) var state: State
+    @ObservationIgnored private let makeRuntime: @MainActor () throws -> GhosttyRuntime
+
+    public init(
+        makeRuntime: @escaping @MainActor () throws -> GhosttyRuntime = {
+            try GhosttyRuntime.shared()
+        }
+    ) {
+        self.makeRuntime = makeRuntime
+        state = Self.resolve(using: makeRuntime)
+    }
+
+    /// Retries a failed process-owned initialization. A ready runtime is stable
+    /// for the process lifetime and is never replaced.
+    public func retry() {
+        guard case .failed = state else { return }
+        state = Self.resolve(using: makeRuntime)
+    }
+
+    private static func resolve(
+        using makeRuntime: @MainActor () throws -> GhosttyRuntime
+    ) -> State {
+        do {
+            return .ready(try makeRuntime())
+        } catch {
+            return .failed(error)
+        }
+    }
+}
+
 private extension GhosttyRuntime {
     func loadGhosttyConfig(
         _ config: ghostty_config_t?,
@@ -439,20 +484,21 @@ private extension GhosttyRuntime {
     ) {
         guard let config else { return }
         #if os(iOS)
-        setupGhosttyiOSConfigEnvironment()
-        ensureDefaultGhosttyiOSConfig(theme: theme)
-        ghostty_config_load_default_files(config)
+        let configFileURL = ghosttyiOSConfigFileURL
+        ensureDefaultGhosttyiOSConfig(at: configFileURL, theme: theme)
+        configFileURL.path.withCString { path in
+            ghostty_config_load_file(config, path)
+        }
         applyGhosttyiOSDefaults(config, theme: theme)
         #else
         ghostty_config_load_default_files(config)
         #endif
     }
 
-    func setupGhosttyiOSConfigEnvironment() {
-        setenv("XDG_CONFIG_HOME", iOSConfigRootURL.path, 0)
-        if let env = getenv("XDG_CONFIG_HOME") {
-            log.debug("XDG_CONFIG_HOME=\(String(cString: env), privacy: .public)")
-        }
+    var ghosttyiOSConfigFileURL: URL {
+        iOSConfigRootURL
+            .appendingPathComponent("ghostty", isDirectory: true)
+            .appendingPathComponent("config", isDirectory: false)
     }
 
     func applyGhosttyiOSDefaults(_ config: ghostty_config_t, theme: TerminalTheme) {
@@ -510,10 +556,8 @@ private extension GhosttyRuntime {
         }
     }
 
-    func ensureDefaultGhosttyiOSConfig(theme: TerminalTheme) {
-        let configDirectory = iOSConfigRootURL.appendingPathComponent("ghostty", isDirectory: true)
-        let configFile = configDirectory.appendingPathComponent("config", isDirectory: false)
-        guard !fileManager.fileExists(atPath: configFile.path) else { return }
+    func ensureDefaultGhosttyiOSConfig(at configFileURL: URL, theme: TerminalTheme) {
+        guard !fileManager.fileExists(atPath: configFileURL.path) else { return }
 
         let defaultConfig = """
         font-family = Menlo
@@ -526,8 +570,11 @@ private extension GhosttyRuntime {
         """
 
         do {
-            try fileManager.createDirectory(at: configDirectory, withIntermediateDirectories: true)
-            try defaultConfig.write(to: configFile, atomically: true, encoding: .utf8)
+            try fileManager.createDirectory(
+                at: configFileURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try defaultConfig.write(to: configFileURL, atomically: true, encoding: .utf8)
         } catch {
             log.error("ensureDefaultiOSConfig: failed: \(error.localizedDescription, privacy: .public)")
         }

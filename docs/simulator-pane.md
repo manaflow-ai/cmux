@@ -1,14 +1,14 @@
-# Simulator panes
+# Simulator tabs
 
-cmux can host one booted iPhone or iPad Simulator in a native pane. The pane renders live Simulator frames, forwards input, and exposes device tools without a browser server.
+cmux can host one booted iPhone or iPad Simulator in a native tab. The tab renders live Simulator frames, forwards input, and exposes device tools without a browser server.
 
-Create a pane from File > New Simulator Pane, the command palette, or the CLI:
+Create a tab in the current pane from File > New Simulator Tab, the command palette, or the CLI:
 
 ```sh
 cmux new-surface --type simulator --pane pane:1 --focus true
 ```
 
-Choose an installed iPhone or iPad from the pane toolbar. cmux remembers its device identifier. If that identifier disappears, restoration requires an explicit device selection; saved runtime and device-type fields are descriptive metadata only.
+Choose an installed iPhone or iPad from the tab toolbar. cmux remembers its device identifier. If that identifier disappears, restoration requires an explicit device selection; saved runtime and device-type fields are descriptive metadata only.
 
 ## Input
 

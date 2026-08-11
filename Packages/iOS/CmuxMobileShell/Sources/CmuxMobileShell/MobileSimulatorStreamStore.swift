@@ -222,9 +222,10 @@ public final class MobileSimulatorStreamStore {
         guard let state = statesByPanel[panelID] else { return nil }
         activePanelByWorkspace[workspaceID] = panelID
         state.connectionStatus = currentConnectionStatus
-        // Re-selecting a stalled panel must not hide the stall; the overlay
-        // clears when fresh frames actually arrive.
-        if state.streamStatus != .stalled {
+        // Re-selecting a stalled or view-only panel must not hide its truthful
+        // overlay. Those states clear only from a fresh frame or an ownership
+        // update, respectively.
+        if state.streamStatus != .stalled, state.streamStatus != .locked {
             state.streamStatus = .starting
         }
         return state

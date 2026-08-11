@@ -51,6 +51,10 @@ let package = Package(
                 "CmuxMobilePairedMac",
                 "CmuxMobileRPC",
                 "CmuxMobileShell",
+                .product(
+                    name: "CmuxMobileShellDebugSupport",
+                    package: "CmuxMobileShell"
+                ),
                 "CmuxMobileShellModel",
                 "CmuxMobileSupport",
                 "CmuxMobileTerminal",

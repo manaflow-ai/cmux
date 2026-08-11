@@ -116,6 +116,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let browserStreamDialogCapability = MobileBrowserStreamCapability.dialogIdentifier
     static let browserStreamCreateCapability = MobileBrowserStreamCapability.createIdentifier
     static let simulatorStreamCapability = MobileSimulatorStreamCapability.current.identifier
+    static let simulatorStreamCreateCapability = MobileSimulatorStreamCapability.createIdentifier
     static let simulatorInputCapability = MobileSimulatorStreamCapability.current.inputIdentifier
     static let simulatorKeepaliveCapability = MobileSimulatorStreamCapability.current.keepaliveIdentifier
     static let terminalReplayCapability = "terminal.replay.v1"
@@ -189,7 +190,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             if connectionState == .connected {
                 restartTerminalLanesForMountedSurfaces()
                 browserStreamEvents?.setBrowserStreamConnectionStatus(.connected)
-                simulatorStreamStore?.setSimulatorStreamConnectionStatus(.connected)
+                simulatorStreamStore.setSimulatorStreamConnectionStatus(.connected)
                 restartActiveMobileBrowserStreams()
                 restartActiveMobileSimulatorStreams()
                 scheduleWorkspaceChangesSummaryRefresh()
@@ -205,7 +206,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 browserStreamEvents?.setBrowserStreamConnectionStatus(
                     macConnectionStatus == .reconnecting ? .reconnecting : .disconnected
                 )
-                simulatorStreamStore?.setSimulatorStreamConnectionStatus(
+                simulatorStreamStore.setSimulatorStreamConnectionStatus(
                     macConnectionStatus == .reconnecting ? .reconnecting : .disconnected
                 )
                 resetWorkspaceChangesState()
@@ -467,7 +468,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// The connected Mac's `mobile.host.status` capabilities. Feature gates are
     /// computed from this set so version-skew checks cannot drift from the raw
     /// host payload.
-    public internal(set) var supportedHostCapabilities: Set<String> = [] {
+    public package(set) var supportedHostCapabilities: Set<String> = [] {
         didSet {
             guard oldValue != supportedHostCapabilities else { return }
             if workspaceChangesCapable {
@@ -508,8 +509,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Separate app-lifetime browser event sink; never stored in workspace preview state.
     @ObservationIgnored let browserStreamEvents: (any BrowserStreamEventReceiving)?
-    /// Separate app-lifetime simulator stream state; never stored in workspace preview state.
-    @ObservationIgnored let simulatorStreamStore: MobileSimulatorStreamStore?
+    /// Sole owner of Simulator panel selection and lifecycle state. SwiftUI
+    /// injects this exact instance so local presentation and RPC callbacks
+    /// cannot drift onto separate stores.
+    @ObservationIgnored public let simulatorStreamStore: MobileSimulatorStreamStore
     @ObservationIgnored let mobileBrowserStreamLifecycle = MobileBrowserStreamLifecycleCoordinator()
     @ObservationIgnored var startedMobileBrowserPanelIDs: Set<String> = []
     @ObservationIgnored var startedMobileSimulatorPanelIDs: Set<String> = []
@@ -518,6 +521,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// restart can never interleave against the Mac's single-controller
     /// ownership. Entries self-remove when their chain drains.
     @ObservationIgnored var mobileSimulatorStreamOperationsByPanel: [String: Task<Void, Never>] = [:]
+    /// One caller-owned drain for cross-panel selection transitions. Unlike
+    /// the per-panel operation chains, this prevents an older panel start from
+    /// overtaking a newer selection on another panel.
+    @ObservationIgnored var mobileSimulatorStreamSelectionCoordinator:
+        MobileSimulatorStreamSelectionCoordinator?
     /// Clock behind the simulator stream staleness watchdog; injectable so
     /// tests drive the threshold deterministically.
     @ObservationIgnored let simulatorStreamStalenessClock: any Clock<Duration>
@@ -1497,7 +1505,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalInputAckResubscribeClock: any Clock<Duration> = ContinuousClock(),
         taskTemplateStore: (any MobileTaskTemplateStoring)? = nil,
         browserStreamEvents: (any BrowserStreamEventReceiving)? = nil,
-        simulatorStreamStore: MobileSimulatorStreamStore? = nil,
+        simulatorStreamStore: MobileSimulatorStreamStore = MobileSimulatorStreamStore(),
         simulatorStreamStalenessClock: any Clock<Duration> = ContinuousClock(),
         storedMacReconnectRestoringDeadlineSeconds: Double = 15
     ) {
@@ -1663,6 +1671,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     isolated deinit {
+        mobileSimulatorStreamSelectionCoordinator?.cancel()
         connectionRecoveryOwner.cancel()
         automaticReconnectRetryTask?.cancel()
         presenceTask?.cancel()

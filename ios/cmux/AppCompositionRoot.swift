@@ -4,6 +4,7 @@ import CmuxMobileCrashReporting
 import CmuxMobileDiagnostics
 import CmuxMobileShellModel
 import CmuxMobileSupport
+import CmuxMobileTerminal
 import CmuxMobileTransport
 import CmuxSentryReporting
 import Foundation
@@ -26,6 +27,9 @@ final class AppCompositionRoot {
     let signOutHook: MobileSignOutHook
     let analytics: MobileAnalyticsComposition
     let displaySettings: MobileDisplaySettings
+    /// Ghostty is initialized once at process composition, before SwiftUI can
+    /// mount a terminal surface.
+    let terminalRuntimeOwner: GhosttyRuntimeOwner
     private var pushReachabilityTask: Task<Void, Never>? = nil
     /// The user's Auto-Connect vs Tailscale connection-method choice, shared by
     /// the shell store (dial ordering) and the Settings/onboarding UI.
@@ -77,6 +81,7 @@ final class AppCompositionRoot {
         MobileDebugLog.shared.append("app launch · composition root initialized")
         #endif
 
+        self.terminalRuntimeOwner = GhosttyRuntimeOwner()
         self.runtime = runtime
         self.auth = auth
         self.iroh = iroh

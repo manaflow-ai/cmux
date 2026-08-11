@@ -9,12 +9,12 @@ extension CommandPaletteCommandContribution {
         Self(
             commandId: "palette.newSimulatorPane",
             title: { _ in
-                String(localized: "command.newSimulatorPane.title", defaultValue: "New Simulator Pane")
+                String(localized: "command.newSimulatorPane.title", defaultValue: "New Simulator Tab")
             },
             subtitle: { _ in
                 String(localized: "command.newSimulatorPane.subtitle", defaultValue: "iPhone and iPad")
             },
-            keywords: ["new", "simulator", "iphone", "ipad", "ios", "pane"]
+            keywords: ["new", "simulator", "iphone", "ipad", "ios", "tab"]
         )
     }
 }

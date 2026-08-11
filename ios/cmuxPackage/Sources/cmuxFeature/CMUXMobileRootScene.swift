@@ -14,7 +14,7 @@ import Foundation
 import OSLog
 import SwiftUI
 
-#if canImport(UIKit) && DEBUG
+#if canImport(UIKit)
 import CmuxMobileTerminal
 #endif
 
@@ -46,6 +46,8 @@ public struct CMUXMobileRootScene: View {
     /// The user's Auto-Connect vs Tailscale connection-method choice, shared by
     /// the shell store (dial ordering) and the Settings/onboarding UI.
     private let connectionMethodStore: MobileConnectionMethodStore
+    /// Process-lifetime Ghostty result, created before any SwiftUI surface mounts.
+    package let terminalRuntimeOwner: GhosttyRuntimeOwner
     /// The one-time Auto-Connect migration eligibility and acknowledgement.
     private let autoConnectMigrationStore: MobileAutoConnectMigrationStore
     /// The first-run onboarding "seen" flag store, injected into the root view so
@@ -113,6 +115,7 @@ public struct CMUXMobileRootScene: View {
         pushCoordinator: MobilePushCoordinator,
         displaySettings: MobileDisplaySettings,
         connectionMethodStore: MobileConnectionMethodStore,
+        terminalRuntimeOwner: GhosttyRuntimeOwner,
         autoConnectMigrationStore: MobileAutoConnectMigrationStore,
         onboardingStore: MobileOnboardingStore,
         tailscaleStatusMonitor: any TailscaleStatusObserving,
@@ -129,6 +132,7 @@ public struct CMUXMobileRootScene: View {
         self.pushCoordinator = pushCoordinator
         self.displaySettings = displaySettings
         self.connectionMethodStore = connectionMethodStore
+        self.terminalRuntimeOwner = terminalRuntimeOwner
         self.autoConnectMigrationStore = autoConnectMigrationStore
         self.onboardingStore = onboardingStore
         self.tailscaleStatusMonitor = tailscaleStatusMonitor
@@ -322,6 +326,7 @@ public struct CMUXMobileRootScene: View {
             .environment(pushCoordinator)
             .environment(displaySettings)
             .environment(connectionMethodStore)
+            .environment(terminalRuntimeOwner)
             .environment(autoConnectMigrationStore)
             #endif
     }
@@ -332,6 +337,16 @@ public struct CMUXMobileRootScene: View {
         #if DEBUG
         if UITestConfig.taskComposerPreviewEnabled {
             TaskComposerAccessibilityPreviewView()
+        } else if let simulatorMode = ProcessInfo.processInfo.environment[
+            "CMUX_UITEST_SIMULATOR_DISCOVERABILITY"
+        ] {
+            SimulatorDiscoverabilityPreviewView(
+                mode: simulatorMode,
+                state: ProcessInfo.processInfo.environment[
+                    "CMUX_UITEST_SIMULATOR_DISCOVERABILITY_STATE"
+                ] ?? "inactive",
+                terminalRuntimeOwner: terminalRuntimeOwner
+            )
         } else if UITestConfig.notificationFeedPreviewEnabled {
             NotificationFeedPreviewView()
         } else if UITestConfig.workspaceListLayoutPreviewEnabled {
@@ -361,23 +376,26 @@ public struct CMUXMobileRootScene: View {
         let simulatorStreamStore = MobileSimulatorStreamStore()
         #if os(iOS)
         return CMUXMobileAppView(
-            store: makeStore(
-                browserStreamEvents: browserStreamStore,
-                simulatorStreamStore: simulatorStreamStore
+            session: MobileShellUISession(
+                store: makeStore(
+                    browserStreamEvents: browserStreamStore,
+                    simulatorStreamStore: simulatorStreamStore
+                ),
+                browserStreamStore: browserStreamStore,
+                terminalRuntimeOwner: terminalRuntimeOwner
             ),
-            browserStreamStore: browserStreamStore,
-            simulatorStreamStore: simulatorStreamStore,
             onboardingStore: onboardingStore,
             signOutHook: signOutHook
         )
         #else
         return CMUXMobileAppView(
-            store: makeStore(
-                browserStreamEvents: browserStreamStore,
-                simulatorStreamStore: simulatorStreamStore
+            session: MobileShellUISession(
+                store: makeStore(
+                    browserStreamEvents: browserStreamStore,
+                    simulatorStreamStore: simulatorStreamStore
+                ),
+                browserStreamStore: browserStreamStore
             ),
-            browserStreamStore: browserStreamStore,
-            simulatorStreamStore: simulatorStreamStore,
             signOutHook: signOutHook
         )
         #endif
@@ -386,7 +404,7 @@ public struct CMUXMobileRootScene: View {
     @MainActor
     package func makeStore(
         browserStreamEvents: (any BrowserStreamEventReceiving)? = nil,
-        simulatorStreamStore: MobileSimulatorStreamStore? = nil
+        simulatorStreamStore: MobileSimulatorStreamStore = MobileSimulatorStreamStore()
     ) -> CMUXMobileShellStore {
         let coordinator = auth.coordinator
         let buildScope = MobileIOSBuildScope.current()

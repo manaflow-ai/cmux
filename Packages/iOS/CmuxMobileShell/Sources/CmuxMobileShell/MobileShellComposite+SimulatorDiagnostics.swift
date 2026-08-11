@@ -65,7 +65,7 @@ extension MobileShellComposite {
     }
 
     func currentSimulatorOwnership(panelID: String) -> DiagnosticSimulatorOwnershipState {
-        guard let state = simulatorStreamStore?.state(for: panelID) else { return .unknown }
+        guard let state = simulatorStreamStore.state(for: panelID) else { return .unknown }
         return MobileSimulatorStreamStore.diagnosticOwnershipState(
             ownerConnectionID: state.ownerConnectionID,
             isOwnedByCurrentConnection: state.isOwnedByCurrentConnection

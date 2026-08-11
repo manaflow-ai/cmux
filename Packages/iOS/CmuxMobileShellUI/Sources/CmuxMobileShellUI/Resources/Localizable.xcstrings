@@ -35,6 +35,40 @@
         }
       }
     },
+    "mobile.terminal.rendererFailed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal renderer failed to start."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ターミナルレンダラーを起動できませんでした。"
+          }
+        }
+      }
+    },
+    "mobile.terminal.rendererRetry" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retry"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "再試行"
+          }
+        }
+      }
+    },
     "^[%lld file](inflect: true)" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1311,6 +1345,13 @@
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Account Mismatch" } },
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "アカウントが一致しません" } }
+      }
+    },
+    "mobile.simulatorStream.newTab" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "New Simulator Tab" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "新規シミュレータタブ" } }
       }
     },
     "mobile.simulatorStream.connectingControl" : {

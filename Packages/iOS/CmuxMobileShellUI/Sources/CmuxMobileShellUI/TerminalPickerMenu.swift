@@ -124,6 +124,16 @@ struct TerminalPickerMenu: View, Equatable {
                 )
             }
             .accessibilityIdentifier("MobileNewBrowserMenuItem")
+
+            if value.supportsSimulatorStreamCreate {
+                Button(action: actions.createSimulator) {
+                    Label(
+                        L10n.string("mobile.simulatorStream.newTab", defaultValue: "New Simulator Tab"),
+                        systemImage: "iphone"
+                    )
+                }
+                .accessibilityIdentifier("MobileNewSimulatorMenuItem")
+            }
         }
 
         #if canImport(UIKit)

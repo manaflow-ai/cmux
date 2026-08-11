@@ -4,6 +4,90 @@ import Foundation
 
 @MainActor
 extension MobileShellComposite {
+    public func refreshMobileSimulatorPanels(workspaceID: String) async {
+        guard supportsSimulatorStream, let client = remoteClient else {
+            simulatorStreamStore.replaceSimulatorPanels(in: workspaceID, with: [])
+            return
+        }
+        guard let panels = try? await client.listMobileSimulatorPanels(workspaceID: workspaceID),
+              remoteClient === client else { return }
+        simulatorStreamStore.replaceSimulatorPanels(in: workspaceID, with: panels)
+    }
+
+    public func createMobileSimulatorPanel(workspaceID: String) async -> MobileSimulatorPanelDescriptor? {
+        guard connectionState == .connected,
+              supportsSimulatorStreamCreate,
+              let client = remoteClient else { return nil }
+        guard let descriptor = try? await client.createMobileSimulatorPanel(workspaceID: workspaceID),
+              remoteClient === client else {
+            await refreshMobileSimulatorPanels(workspaceID: workspaceID)
+            return nil
+        }
+        simulatorStreamStore.applySimulatorDescriptor(descriptor)
+        return descriptor
+    }
+
+    /// Applies the user's selection to the composite-owned presentation state,
+    /// then reconciles the matching host RPC transition through the same owner.
+    public func selectMobileSimulatorStream(panelID: String, workspaceID: String) {
+        guard simulatorStreamStore.state(for: panelID) != nil else { return }
+        let previousPanelID = simulatorStreamStore.activeState(in: workspaceID).flatMap {
+            $0.id == panelID ? nil : $0.id
+        }
+        if let previousPanelID {
+            simulatorStreamStore.deactivate(panelID: previousPanelID, in: workspaceID)
+        }
+        simulatorStreamStore.activate(panelID: panelID, in: workspaceID)
+        transitionMobileSimulatorStreamSelection(
+            from: previousPanelID,
+            to: panelID,
+            workspaceID: workspaceID
+        )
+    }
+
+    /// Clears the active local Simulator surface and reconciles its host stop.
+    public func clearMobileSimulatorStreamSelection(workspaceID: String) {
+        guard let active = simulatorStreamStore.activeState(in: workspaceID) else { return }
+        simulatorStreamStore.deactivate(in: workspaceID)
+        transitionMobileSimulatorStreamSelection(
+            from: active.id,
+            to: nil,
+            workspaceID: workspaceID
+        )
+    }
+
+    /// Reconciles a workspace's selected Simulator stream through one
+    /// composite-owned latest-intent drain.
+    public func transitionMobileSimulatorStreamSelection(
+        from previousPanelID: String?,
+        to targetPanelID: String?,
+        workspaceID: String
+    ) {
+        if mobileSimulatorStreamSelectionCoordinator == nil {
+            mobileSimulatorStreamSelectionCoordinator =
+                MobileSimulatorStreamSelectionCoordinator { [weak self] operation in
+                    guard let self else { return }
+                    switch operation {
+                    case .start(let panelID, let workspaceID):
+                        await self.startMobileSimulatorStream(
+                            panelID: panelID,
+                            workspaceID: workspaceID
+                        )
+                    case .stop(let panelID, let workspaceID):
+                        await self.stopMobileSimulatorStream(
+                            panelID: panelID,
+                            workspaceID: workspaceID
+                        )
+                    }
+                }
+        }
+        mobileSimulatorStreamSelectionCoordinator?.requestTransition(
+            from: previousPanelID,
+            to: targetPanelID,
+            workspaceID: workspaceID
+        )
+    }
+
     /// Serializes start/stop transitions per panel through the composite-owned
     /// operation chain, so a foreground restart cannot overlap a still-running
     /// background stop against the Mac's single-controller ownership.
@@ -45,7 +129,7 @@ extension MobileShellComposite {
             )
             return
         }
-        simulatorStreamStore?.simulatorStreamWillStart(panelID: panelID)
+        simulatorStreamStore.simulatorStreamWillStart(panelID: panelID)
         do {
             let descriptor = try await client.startMobileSimulatorStream(
                 panelID: panelID,
@@ -62,7 +146,7 @@ extension MobileShellComposite {
                 return
             }
             startedMobileSimulatorPanelIDs.insert(panelID)
-            simulatorStreamStore?.simulatorStreamDidStart(descriptor)
+            simulatorStreamStore.simulatorStreamDidStart(descriptor)
             armSimulatorStreamStalenessWatchdog(panelID: panelID)
             recordSimulatorStream(
                 panelID: panelID,
@@ -71,7 +155,7 @@ extension MobileShellComposite {
                 activeSessions: startedMobileSimulatorPanelIDs.count
             )
         } catch MobileShellConnectionError.rpcError(let code, _) where code == "locked" {
-            simulatorStreamStore?.state(for: panelID)?.markLockedByOtherConnection()
+            simulatorStreamStore.state(for: panelID)?.markLockedByOtherConnection()
             recordSimulatorStream(panelID: panelID, state: .locked, ownership: .otherConnection)
         } catch {
             settleFailedMobileSimulatorStreamStart(panelID: panelID)
@@ -89,7 +173,7 @@ extension MobileShellComposite {
     /// Per-panel serialization guarantees at most one start attempt is in
     /// flight, so a stale response can never settle a newer attempt.
     private func settleFailedMobileSimulatorStreamStart(panelID: String) {
-        guard let state = simulatorStreamStore?.state(for: panelID),
+        guard let state = simulatorStreamStore.state(for: panelID),
               state.streamStatus == .starting else { return }
         state.streamStatus = .idle
     }
@@ -148,6 +232,7 @@ extension MobileShellComposite {
     /// staleness watchdogs disarm with them: once disconnected, the connection
     /// layer owns the pane's truth (reconnecting/disconnected overlays).
     func cancelMobileSimulatorStreamOperations() {
+        mobileSimulatorStreamSelectionCoordinator?.cancel()
         for task in mobileSimulatorStreamOperationsByPanel.values {
             task.cancel()
         }
@@ -176,7 +261,7 @@ extension MobileShellComposite {
             return
         }
         guard connectionState == .connected else { return }
-        guard let state = simulatorStreamStore?.state(for: panelID) else { return }
+        guard let state = simulatorStreamStore.state(for: panelID) else { return }
         state.markStreamStale()
         recordSimulatorStream(
             panelID: panelID,
@@ -254,7 +339,7 @@ extension MobileShellComposite {
 
     func handleMobileSimulatorFrameEvent(_ event: MobileEventEnvelope) {
         guard let payload = event.payloadJSON else { return }
-        switch simulatorStreamStore?.receiveSimulatorFramePayload(payload) {
+        switch simulatorStreamStore.receiveSimulatorFramePayload(payload) {
         case .received(let panelID, let sequence, let payloadBytes):
             simulatorStreamStalenessMonitor.recordActivity(panelID: panelID)
             recordSimulatorFrame(panelID: panelID, state: .received, sequence: sequence, payloadBytes: payloadBytes)
@@ -266,14 +351,12 @@ extension MobileShellComposite {
             recordSimulatorFrame(panelID: "", state: .decodeFailed, payloadBytes: payloadBytes)
         case .unknownPanel(let panelID, let sequence, let payloadBytes):
             recordSimulatorFrame(panelID: panelID, state: .unknownPanel, sequence: sequence, payloadBytes: payloadBytes)
-        case nil:
-            break
         }
     }
 
     func handleMobileSimulatorStateEvent(_ event: MobileEventEnvelope) {
         guard let payload = event.payloadJSON else { return }
-        switch simulatorStreamStore?.receiveSimulatorStatePayload(payload) {
+        switch simulatorStreamStore.receiveSimulatorStatePayload(payload) {
         case .unchanged(let panelID):
             // Keepalive re-emission: feeds the staleness watchdog, records
             // no diagnostic (a healthy session would flood one every 5s).
@@ -290,14 +373,12 @@ extension MobileShellComposite {
             }
         case .decodeFailed(let payloadBytes):
             recordSimulatorFrame(panelID: "", state: .decodeFailed, payloadBytes: payloadBytes)
-        case nil:
-            break
         }
     }
 
     func handleMobileSimulatorClosedEvent(_ event: MobileEventEnvelope) {
         guard let payload = event.payloadJSON else { return }
-        if let panelID = simulatorStreamStore?.receiveSimulatorClosedPayload(payload) {
+        if let panelID = simulatorStreamStore.receiveSimulatorClosedPayload(payload) {
             startedMobileSimulatorPanelIDs.remove(panelID)
             simulatorStreamStalenessMonitor.disarm(panelID: panelID)
             recordSimulatorStream(
@@ -311,7 +392,7 @@ extension MobileShellComposite {
 
     func restartActiveMobileSimulatorStreams() {
         guard connectionState == .connected, supportsSimulatorStream else { return }
-        let selections = simulatorStreamStore?.activeSimulatorStreamSelections() ?? []
+        let selections = simulatorStreamStore.activeSimulatorStreamSelections()
         for selection in selections {
             recordSimulatorStream(
                 panelID: selection.panelID,
@@ -332,8 +413,8 @@ extension MobileShellComposite {
     }
 
     func stopActiveMobileSimulatorStreamsForBackground() {
-        let selections = simulatorStreamStore?.activeSimulatorStreamSelections() ?? []
-        simulatorStreamStore?.pauseSimulatorStreams()
+        let selections = simulatorStreamStore.activeSimulatorStreamSelections()
+        simulatorStreamStore.pauseSimulatorStreams()
         for selection in selections {
             recordSimulatorStream(
                 panelID: selection.panelID,

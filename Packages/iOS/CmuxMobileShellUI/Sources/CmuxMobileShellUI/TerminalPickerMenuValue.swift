@@ -13,6 +13,7 @@ struct TerminalPickerMenuValue: Equatable {
     let activeBrowserStreamPanelID: String?
     let simulatorStreamRows: [SimulatorStreamPickerRow]
     let supportsSimulatorStream: Bool
+    let supportsSimulatorStreamCreate: Bool
     let activeSimulatorStreamPanelID: String?
 
     init(
@@ -27,6 +28,7 @@ struct TerminalPickerMenuValue: Equatable {
         activeBrowserStreamPanelID: String? = nil,
         simulatorStreamRows: [SimulatorStreamPickerRow] = [],
         supportsSimulatorStream: Bool = false,
+        supportsSimulatorStreamCreate: Bool = false,
         activeSimulatorStreamPanelID: String? = nil
     ) {
         rows = snapshotRows.isEmpty
@@ -43,6 +45,7 @@ struct TerminalPickerMenuValue: Equatable {
         self.activeBrowserStreamPanelID = activeBrowserStreamPanelID
         self.simulatorStreamRows = simulatorStreamRows
         self.supportsSimulatorStream = supportsSimulatorStream
+        self.supportsSimulatorStreamCreate = supportsSimulatorStreamCreate
         self.activeSimulatorStreamPanelID = activeSimulatorStreamPanelID
     }
 }

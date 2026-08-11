@@ -1,4 +1,5 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxAgentChatUI
 import CmuxMobileShell
 import CmuxMobileSupport
@@ -15,114 +16,157 @@ extension WorkspaceDetailView {
 
     @ViewBuilder
     func terminalArtifactSurface(terminalID: String) -> some View {
-    let shouldAutoFocus = activeSurface == .terminal
-        && store.shouldAutoFocusTerminalSurface(terminalID)
-        && !store.isComposerPresented
-    GhosttySurfaceRepresentable(
-        workspaceID: workspace.id.rawValue,
-        surfaceID: terminalID,
-        store: store,
-        fontSize: MobileTerminalFontPreference.defaultSize,
-        // Do not let a terminal reattach steal focus while the
-        // composer owns or intentionally withholds the keyboard.
-        autoFocusOnWindowAttach: shouldAutoFocus,
-        isComposerActive: store.isComposerPresented,
-        terminalTheme: store.activeTerminalTheme,
-        terminalConfigTheme: store.activeTerminalConfigTheme,
-        // Drives the live recolor: when the synced theme changes the
-        // shell bumps this, and the representable rebuilds the runtime
-        // config + recolors the mounted surface in place (background,
-        // letterbox, default cell colors) without a remount, so
-        // scrollback survives a theme change.
-        configThemeGeneration: store.terminalConfigThemeGeneration,
-        artifactFilesEnabled: store.supportsTerminalArtifacts,
-        terminalFolderTapEnabled: terminalFolderTapEnabled,
-        terminalFilesChipEnabled: terminalFilesChipEnabled,
-        showMissingFiles: showMissingFiles,
-        sessionArtifactCountEnabled: store.supportsChatArtifactGallery,
-        visibleArtifactCount: visibleArtifactCount,
-        onArtifactFilesRequested: { anchor in
-            terminalArtifactFilesPresentation.present {
-                terminalArtifactFilesContext = TerminalArtifactContext(
+        let shouldAutoFocus =
+            activeSurface == .terminal
+            && store.shouldAutoFocusTerminalSurface(terminalID)
+            && !store.isComposerPresented
+        Group {
+            switch terminalRuntimeOwner.state {
+            case .ready(let runtime):
+                GhosttySurfaceRepresentable(
+                    runtime: runtime,
                     workspaceID: workspace.id.rawValue,
                     surfaceID: terminalID,
-                    anchor: anchor
+                    store: store,
+                    fontSize: MobileTerminalFontPreference.defaultSize,
+                    // Do not let a terminal reattach steal focus while the
+                    // composer owns or intentionally withholds the keyboard.
+                    autoFocusOnWindowAttach: shouldAutoFocus,
+                    isComposerActive: store.isComposerPresented,
+                    terminalTheme: store.activeTerminalTheme,
+                    terminalConfigTheme: store.activeTerminalConfigTheme,
+                    // Drives the live recolor: when the synced theme changes the
+                    // shell bumps this, and the representable rebuilds the runtime
+                    // config + recolors the mounted surface in place (background,
+                    // letterbox, default cell colors) without a remount, so
+                    // scrollback survives a theme change.
+                    configThemeGeneration: store.terminalConfigThemeGeneration,
+                    artifactFilesEnabled: store.supportsTerminalArtifacts,
+                    terminalFolderTapEnabled: terminalFolderTapEnabled,
+                    terminalFilesChipEnabled: terminalFilesChipEnabled,
+                    showMissingFiles: showMissingFiles,
+                    sessionArtifactCountEnabled: store.supportsChatArtifactGallery,
+                    visibleArtifactCount: visibleArtifactCount,
+                    onArtifactFilesRequested: { anchor in
+                        terminalArtifactFilesPresentation.present {
+                            terminalArtifactFilesContext = TerminalArtifactContext(
+                                workspaceID: workspace.id.rawValue,
+                                surfaceID: terminalID,
+                                anchor: anchor
+                            )
+                        }
+                    },
+                    onArtifactPathTapped: { path in
+                        selectedTerminalArtifact = TerminalArtifactSelection(
+                            workspaceID: workspace.id.rawValue,
+                            surfaceID: terminalID,
+                            path: path,
+                            session: chosenChatSession
+                        )
+                    },
+                    onVisibleArtifactCountChanged: { count in
+                        if visibleArtifactCount != count {
+                            visibleArtifactCount = count
+                        }
+                    },
+                    onArtifactGalleryRefreshSignal: { signal in
+                        if artifactGalleryRefreshSignal != signal {
+                            artifactGalleryRefreshSignal = signal
+                        }
+                    }
+                )
+            case .failed:
+                TerminalRendererFailureView(
+                    theme: store.activeTerminalTheme,
+                    retry: { terminalRuntimeOwner.retry() }
                 )
             }
-        },
-        onArtifactPathTapped: { path in
-            selectedTerminalArtifact = TerminalArtifactSelection(
-                workspaceID: workspace.id.rawValue,
-                surfaceID: terminalID,
-                path: path,
-                session: chosenChatSession
-            )
-        },
-        onVisibleArtifactCountChanged: { count in
-            if visibleArtifactCount != count {
-                visibleArtifactCount = count
-            }
-        },
-        onArtifactGalleryRefreshSignal: { signal in
-            if artifactGalleryRefreshSignal != signal {
-                artifactGalleryRefreshSignal = signal
-            }
         }
-    )
-    .popover(
-        isPresented: terminalArtifactFilesPresentation.isPresented,
-        attachmentAnchor: .point(terminalArtifactFilesContext?.anchor ?? .bottom),
-        arrowEdge: .bottom
-    ) {
-        Group {
-            if let context = terminalArtifactFilesContext {
-                TerminalArtifactFilesSheet(
-                    workspaceID: context.workspaceID,
-                    surfaceID: context.surfaceID,
-                    source: store.makeChatEventSource(),
-                    refreshSignal: artifactGalleryRefreshSignal,
-                    loader: terminalArtifactLoader(
+        .popover(
+            isPresented: terminalArtifactFilesPresentation.isPresented,
+            attachmentAnchor: .point(terminalArtifactFilesContext?.anchor ?? .bottom),
+            arrowEdge: .bottom
+        ) {
+            Group {
+                if let context = terminalArtifactFilesContext {
+                    TerminalArtifactFilesSheet(
                         workspaceID: context.workspaceID,
-                        surfaceID: context.surfaceID
+                        surfaceID: context.surfaceID,
+                        source: store.makeChatEventSource(),
+                        refreshSignal: artifactGalleryRefreshSignal,
+                        loader: terminalArtifactLoader(
+                            workspaceID: context.workspaceID,
+                            surfaceID: context.surfaceID
+                        )
                     )
-                )
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+                }
+            }
+            .presentationCompactAdaptation(.sheet)
+            .onDisappear {
+                terminalArtifactFilesContext = nil
+                terminalArtifactFilesPresentation.didDismiss()
             }
         }
-        .presentationCompactAdaptation(.sheet)
-        .onDisappear {
-            terminalArtifactFilesContext = nil
-            terminalArtifactFilesPresentation.didDismiss()
+        // Identity must track the selected terminal. The representable's
+        // coordinator binds its byte sink to the surfaceID at make time and
+        // `updateUIView` is a no-op, so without a per-terminal id SwiftUI
+        // reuses the first terminal's surface and the dropdown never switches.
+        // Keying on terminalID tears down the old surface (unregistering its
+        // sink via dismantleUIView) and builds the newly-selected one.
+        //
+        // The theme is NOT folded into the identity: a theme change recolors
+        // the live surface in place (config rebuild + view recolor driven by
+        // `configThemeGeneration`), so remounting would only throw away scrollback
+        // for no visual benefit.
+        .id(terminalID)
+        .onAppear {
+            store.consumeTerminalAutoFocusSuppression(for: terminalID)
         }
+        .onDisappear {
+            visibleArtifactCount = 0
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(store.activeTerminalTheme.terminalBackgroundColor)
+        // The surface positions its grid + docked toolbar from
+        // `keyboardHeight` directly, so opt out of SwiftUI keyboard
+        // avoidance; otherwise the view ALSO shrinks for the keyboard
+        // and the reservation double-counts (extra gap when open).
+        .ignoresSafeArea(.keyboard, edges: .bottom)
+        // Keep the grid clear of the Dynamic Island and nav bar.
+        .padding(.top, terminalTopPadding)
     }
-    // Identity must track the selected terminal. The representable's
-    // coordinator binds its byte sink to the surfaceID at make time and
-    // `updateUIView` is a no-op, so without a per-terminal id SwiftUI
-    // reuses the first terminal's surface and the dropdown never switches.
-    // Keying on terminalID tears down the old surface (unregistering its
-    // sink via dismantleUIView) and builds the newly-selected one.
-    //
-    // The theme is NOT folded into the identity: a theme change recolors
-    // the live surface in place (config rebuild + view recolor driven by
-    // `configThemeGeneration`), so remounting would only throw away scrollback
-    // for no visual benefit.
-    .id(terminalID)
-    .onAppear {
-        store.consumeTerminalAutoFocusSuppression(for: terminalID)
-    }
-    .onDisappear {
-        visibleArtifactCount = 0
-    }
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    .background(store.activeTerminalTheme.terminalBackgroundColor)
-    // The surface positions its grid + docked toolbar from
-    // `keyboardHeight` directly, so opt out of SwiftUI keyboard
-    // avoidance; otherwise the view ALSO shrinks for the keyboard
-    // and the reservation double-counts (extra gap when open).
-    .ignoresSafeArea(.keyboard, edges: .bottom)
-    // Keep the grid clear of the Dynamic Island and nav bar.
-    .padding(.top, terminalTopPadding)
+}
+
+private struct TerminalRendererFailureView: View {
+    let theme: TerminalTheme
+    let retry: @MainActor () -> Void
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Text(L10n.string(
+                "mobile.terminal.rendererFailed",
+                defaultValue: "Terminal renderer failed to start.",
+                bundle: .module
+            ))
+            Button {
+                retry()
+            } label: {
+                Text(L10n.string(
+                    "mobile.terminal.rendererRetry",
+                    defaultValue: "Retry",
+                    bundle: .module
+                ))
+            }
+            .buttonStyle(.borderedProminent)
+            .accessibilityIdentifier("MobileTerminalRendererRetry")
+        }
+        .foregroundStyle(theme.terminalForegroundColor)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(theme.terminalBackgroundColor)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("MobileTerminalRendererFailure")
     }
 }
 #endif

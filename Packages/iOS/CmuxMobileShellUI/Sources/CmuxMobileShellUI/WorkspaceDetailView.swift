@@ -45,7 +45,14 @@ struct WorkspaceDetailView: View {
     let signOut: (@MainActor @Sendable () -> Void)?
     @Environment(BrowserSurfaceStore.self) var browserStore
     @Environment(BrowserStreamStore.self) var browserStreamStore
-    @Environment(MobileSimulatorStreamStore.self) var simulatorStreamStore
+    /// Simulator presentation and toolbar actions must read the composite's
+    /// exact store. The environment still supplies that store to descendant
+    /// panes, but using the action owner's reference here prevents navigation
+    /// lifecycle/environment propagation from splitting reads from writes.
+    var simulatorStreamStore: MobileSimulatorStreamStore {
+        store.simulatorStreamStore
+    }
+    @Environment(GhosttyRuntimeOwner.self) var terminalRuntimeOwner
     @Environment(MobileDisplaySettings.self) private var displaySettings
     @Environment(ToastCenter.self) private var toasts
     @Environment(\.mobileChildPresentationProvider) private var childPresentationProvider
@@ -79,6 +86,8 @@ struct WorkspaceDetailView: View {
     /// not activate its panel over a selection the user made in the meantime,
     /// so completion applies only while its request is still current.
     @State private var browserCreateRequest: UUID?
+    @State private var simulatorCreateRequest: UUID?
+    @State private var simulatorReturnTarget: SimulatorToolbarReturnTarget?
     @State var terminalPickerRows: [TerminalPickerMenuRow] = []
     /// Chat-mode toggle for inline agent chat in place of the terminal.
     @State var isChatMode = false
@@ -646,8 +655,9 @@ struct WorkspaceDetailView: View {
 
     @ViewBuilder
     private var terminalToolbarButtons: some View {
+        let simulatorPicker = simulatorPickerValue
         newWorkspaceToolbarButton
-        terminalPickerToolbarButton
+        terminalPickerToolbarButton(simulatorPicker: simulatorPicker)
     }
 
     #if os(iOS)
@@ -677,7 +687,9 @@ struct WorkspaceDetailView: View {
 
     // Native menu keeps press-drag-release selection and routes through
     // `selectTerminalFromPicker`; keyboard-dismiss-on-open is unavailable.
-    var terminalPickerToolbarButton: some View {
+    func terminalPickerToolbarButton(
+        simulatorPicker: SimulatorPickerMenuValue
+    ) -> some View {
         TerminalPickerMenu(
             value: TerminalPickerMenuValue(
                 liveTerminals: workspace.terminals,
@@ -689,9 +701,10 @@ struct WorkspaceDetailView: View {
                 browserStreamRows: browserStreamStore.panels(in: workspace.rpcWorkspaceID.rawValue).map(BrowserStreamPickerRow.init),
                 supportsBrowserStream: store.supportsBrowserStream,
                 activeBrowserStreamPanelID: activeBrowserStream?.id,
-                simulatorStreamRows: simulatorStreamStore.panels(in: workspace.rpcWorkspaceID.rawValue).map(SimulatorStreamPickerRow.init),
+                simulatorStreamRows: simulatorPicker.rows,
                 supportsSimulatorStream: store.supportsSimulatorStream,
-                activeSimulatorStreamPanelID: activeSimulatorStream?.id
+                supportsSimulatorStreamCreate: store.supportsSimulatorStreamCreate,
+                activeSimulatorStreamPanelID: simulatorPicker.activePanelID
             ),
             actions: TerminalPickerMenuActions(
                 selectTerminal: selectTerminalFromPicker,
@@ -700,6 +713,7 @@ struct WorkspaceDetailView: View {
                 openBrowser: openBrowserFromToolbar,
                 selectBrowserStream: { selectBrowserStreamFromToolbar($0) },
                 selectSimulatorStream: selectSimulatorStreamFromToolbar,
+                createSimulator: createSimulatorFromToolbar,
                 openTextSheet: openTextSheetFromMenu,
                 copyDebugLogs: {
                     #if DEBUG
@@ -714,6 +728,18 @@ struct WorkspaceDetailView: View {
         .simultaneousGesture(TapGesture().onEnded { syncTerminalPickerRows(includeTitleChanges: true) })
         .onAppear { syncTerminalPickerRows(includeTitleChanges: true) }
         .onChange(of: terminalPickerLiveMembership) { _, _ in syncTerminalPickerRows() }
+    }
+
+    var simulatorPickerValue: SimulatorPickerMenuValue {
+        let supportsSimulatorStream = store.supportsSimulatorStream
+        return SimulatorPickerMenuValue(
+            supportsSimulatorStream: supportsSimulatorStream,
+            rows: supportsSimulatorStream
+                ? simulatorStreamStore.panels(in: workspace.rpcWorkspaceID.rawValue)
+                    .map(SimulatorStreamPickerRow.init)
+                : [],
+            activePanelID: activeSimulatorStream?.id
+        )
     }
 
     #if canImport(UIKit)
@@ -937,6 +963,8 @@ struct WorkspaceDetailView: View {
     private func createTerminalFromToolbar() {
         dismissTerminalKeyboardForChrome()
         browserCreateRequest = nil
+        simulatorCreateRequest = nil
+        simulatorReturnTarget = nil
         // Creating a terminal from the (shared) chrome must surface it. If a
         // browser pane is up, close it so `body` leaves the browser branch and
         // shows the new terminal instead of staying on the browser.
@@ -946,8 +974,29 @@ struct WorkspaceDetailView: View {
         createTerminal()
     }
 
+    private func createSimulatorFromToolbar() {
+        dismissTerminalKeyboardForChrome()
+        guard store.supportsSimulatorStreamCreate else { return }
+        let workspaceID = workspace.rpcWorkspaceID.rawValue
+        let request = UUID()
+        simulatorCreateRequest = request
+        simulatorReturnTarget = currentSimulatorReturnTarget
+        Task {
+            let descriptor = await store.createMobileSimulatorPanel(workspaceID: workspaceID)
+            guard simulatorCreateRequest == request else { return }
+            simulatorCreateRequest = nil
+            guard let descriptor else {
+                simulatorReturnTarget = nil
+                return
+            }
+            selectSimulatorStreamFromToolbar(descriptor.panelID)
+        }
+    }
+
     private func openBrowserFromToolbar() {
         dismissTerminalKeyboardForChrome()
+        simulatorCreateRequest = nil
+        simulatorReturnTarget = nil
         // New Browser creates a real Mac browser pane and streams it, so it
         // shows the same surface as the Mac Browsers rows. The phone-local
         // WKWebView pane remains only as a fallback for Macs that cannot
@@ -975,6 +1024,8 @@ struct WorkspaceDetailView: View {
     /// detail view flips to the browser because `activeBrowser` becomes
     /// non-nil; the picker shows a check next to "New Browser" while it is up.
     private func openLocalBrowserFallback() {
+        simulatorCreateRequest = nil
+        simulatorReturnTarget = nil
         browserStore.openBrowser(for: workspace.id.rawValue)
         stopActiveBrowserStream()
         stopActiveSimulatorStream()
@@ -985,6 +1036,8 @@ struct WorkspaceDetailView: View {
             dismissTerminalKeyboardForChrome()
         }
         browserCreateRequest = nil
+        simulatorCreateRequest = nil
+        simulatorReturnTarget = nil
         browserStore.closeBrowser(for: workspace.id.rawValue)
         stopActiveSimulatorStream()
         if let previous = activeBrowserStream, previous.id != panelID {
@@ -994,36 +1047,56 @@ struct WorkspaceDetailView: View {
         Task { await store.startMobileBrowserStream(panelID: panelID) }
     }
 
-    private func selectSimulatorStreamFromToolbar(_ panelID: String) {
+    func selectSimulatorStreamFromToolbar(_ panelID: String) {
         dismissTerminalKeyboardForChrome()
+        simulatorCreateRequest = nil
+        if let activeSimulatorStream, activeSimulatorStream.id != panelID {
+            simulatorReturnTarget = .simulator(activeSimulatorStream.id)
+        } else if activeSimulatorStream == nil, simulatorReturnTarget == nil {
+            simulatorReturnTarget = currentSimulatorReturnTarget
+        }
         browserStore.closeBrowser(for: workspace.id.rawValue)
         stopActiveBrowserStream()
         let workspaceID = workspace.rpcWorkspaceID.rawValue
-        let previousPanelID: String? = activeSimulatorStream.flatMap {
-            $0.id == panelID ? nil : $0.id
+        store.selectMobileSimulatorStream(panelID: panelID, workspaceID: workspaceID)
+    }
+
+    func toggleSimulatorStreamFromToolbar() {
+        if activeSimulatorStream == nil {
+            guard let panelID = simulatorPickerValue.targetPanelID else { return }
+            simulatorReturnTarget = currentSimulatorReturnTarget
+            selectSimulatorStreamFromToolbar(panelID)
+            return
         }
-        // Settle the previous panel's local state before activating the new
-        // one, so switching A -> B leaves A idle instead of frozen on a stale
-        // `.streaming`/`.starting` status.
-        if let previousPanelID {
-            simulatorStreamStore.deactivate(panelID: previousPanelID, in: workspaceID)
+
+        let target = SimulatorToolbarReturnTarget.resolve(
+            preferred: simulatorReturnTarget,
+            terminalIDs: workspace.terminals.map(\.id.rawValue),
+            browserStreamPanelIDs: browserStreamStore
+                .panels(in: workspace.rpcWorkspaceID.rawValue)
+                .map(\.panelID),
+            otherSimulatorPanelIDs: simulatorPickerValue.rows
+                .map(\.id)
+                .filter { $0 != activeSimulatorStream?.id }
+        )
+        guard let target else { return }
+        simulatorReturnTarget = nil
+        switch target {
+        case let .terminal(id):
+            selectTerminalFromPicker(MobileTerminalPreview.ID(rawValue: id))
+        case let .browserStream(id):
+            selectBrowserStreamFromToolbar(id)
+        case let .simulator(id):
+            selectSimulatorStreamFromToolbar(id)
+        case .localBrowser:
+            openLocalBrowserFallback()
         }
-        _ = simulatorStreamStore.activate(panelID: panelID, in: workspaceID)
-        // One task, stop awaited before start: two independent tasks have no
-        // ordering guarantee, and the reversed order would tear down the new
-        // stream (or churn host sessions) right after it started.
-        Task {
-            if let previousPanelID {
-                await store.stopMobileSimulatorStream(
-                    panelID: previousPanelID,
-                    workspaceID: workspaceID
-                )
-            }
-            await store.startMobileSimulatorStream(
-                panelID: panelID,
-                workspaceID: workspaceID
-            )
-        }
+    }
+
+    private var currentSimulatorReturnTarget: SimulatorToolbarReturnTarget? {
+        if activeBrowser != nil { return .localBrowser }
+        if let activeBrowserStream { return .browserStream(activeBrowserStream.id) }
+        return store.selectedTerminalID.map { .terminal($0.rawValue) }
     }
 
     private func stopActiveBrowserStream() {
@@ -1033,19 +1106,15 @@ struct WorkspaceDetailView: View {
     }
 
     private func stopActiveSimulatorStream() {
-        guard let stream = activeSimulatorStream else { return }
-        simulatorStreamStore.deactivate(in: workspace.rpcWorkspaceID.rawValue)
-        Task {
-            await store.stopMobileSimulatorStream(
-                panelID: stream.id,
-                workspaceID: workspace.rpcWorkspaceID.rawValue
-            )
-        }
+        let workspaceID = workspace.rpcWorkspaceID.rawValue
+        store.clearMobileSimulatorStreamSelection(workspaceID: workspaceID)
     }
 
     private func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {
         dismissTerminalKeyboardForChrome()
         browserCreateRequest = nil
+        simulatorCreateRequest = nil
+        simulatorReturnTarget = nil
         // Choosing a terminal returns from the browser pane (if up) to the
         // terminal. Closing the browser is enough to flip the detail view back.
         browserStore.closeBrowser(for: workspace.id.rawValue)
@@ -1068,8 +1137,9 @@ struct WorkspaceDetailView: View {
     }
 
     private func syncSimulatorStreamPanels() {
+        let workspaceID = workspace.rpcWorkspaceID.rawValue
         simulatorStreamStore.replaceSimulatorPanels(
-            in: workspace.rpcWorkspaceID.rawValue,
+            in: workspaceID,
             with: workspace.simulators
         )
     }

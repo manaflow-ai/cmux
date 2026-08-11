@@ -8496,6 +8496,147 @@ final class cmuxUITests: XCTestCase {
     }
 }
 
+final class SimulatorDiscoverabilityUITests: XCTestCase {
+    private var priorOrientation: UIDeviceOrientation?
+    private var launchedApplications: [XCUIApplication] = []
+
+    override func setUpWithError() throws {
+        continueAfterFailure = false
+        priorOrientation = XCUIDevice.shared.orientation
+        XCUIDevice.shared.orientation = .portrait
+    }
+
+    override func tearDownWithError() throws {
+        launchedApplications.forEach { $0.terminate() }
+        launchedApplications.removeAll()
+        defer {
+            if let priorOrientation {
+                XCUIDevice.shared.orientation = priorOrientation
+            }
+            priorOrientation = nil
+        }
+        try super.tearDownWithError()
+    }
+
+    @MainActor
+    func testProductionColdLaunchMountsTerminalRoot() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchEnvironment = [
+            "CMUX_UITEST_MOCK_DATA": "1",
+            "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1",
+        ]
+        app.launch()
+        launchedApplications.append(app)
+
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        for label in ["Allow", "許可", "許可する"] {
+            let allow = springboard.buttons[label]
+            if allow.waitForExistence(timeout: 4) {
+                allow.tap()
+                break
+            }
+        }
+        if !app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 4) {
+            let row = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
+            XCTAssertTrue(row.waitForExistence(timeout: 8))
+            row.tap()
+        }
+        XCTAssertTrue(app.buttons["MobileTerminalDropdown"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 4))
+    }
+
+    @MainActor
+    func testOneAndTwoPanelChromeSupportsOneTapAndExplicitSelection() throws {
+        let one = launchFixture(mode: "one")
+        XCTAssertTrue(one.buttons["MobileTerminalDropdown"].waitForExistence(timeout: 8))
+        XCTAssertTrue(one.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 4))
+        let onePicker = one.buttons["MobileSimulatorPicker"]
+        XCTAssertTrue(onePicker.waitForExistence(timeout: 8))
+        XCTAssertGreaterThanOrEqual(onePicker.frame.width, 44)
+        XCTAssertGreaterThanOrEqual(onePicker.frame.height, 44)
+        onePicker.tap()
+        XCTAssertTrue(
+            one.descendants(matching: .any)["SimulatorStreamPane"].waitForExistence(timeout: 4)
+        )
+        XCTAssertEqual(onePicker.value as? String, "iPhone A")
+        one.terminate()
+
+        let two = launchFixture(mode: "two")
+        XCTAssertTrue(two.buttons["MobileTerminalDropdown"].waitForExistence(timeout: 8))
+        XCTAssertTrue(two.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 4))
+        let twoPicker = two.buttons["MobileSimulatorPicker"]
+        XCTAssertTrue(twoPicker.waitForExistence(timeout: 8))
+        twoPicker.tap()
+        XCTAssertEqual(twoPicker.value as? String, "iPhone A")
+
+        let terminalPicker = two.buttons["MobileTerminalDropdown"]
+        XCTAssertTrue(terminalPicker.waitForExistence(timeout: 4))
+        terminalPicker.tap()
+        let panelB = two.buttons["SimulatorStreamMenuItem-sim-b"]
+        XCTAssertTrue(panelB.waitForExistence(timeout: 4))
+        panelB.tap()
+        XCTAssertEqual(twoPicker.value as? String, "iPhone B")
+    }
+
+    @MainActor
+    func testUnsupportedAndEmptyWorkspacesHideSimulatorChrome() throws {
+        for mode in ["unsupported", "zero"] {
+            let app = launchFixture(mode: mode)
+            XCTAssertTrue(app.buttons["MobileTerminalDropdown"].waitForExistence(timeout: 8))
+            XCTAssertFalse(app.buttons["MobileSimulatorPicker"].exists)
+            app.terminate()
+        }
+    }
+
+    @MainActor
+    func testStreamEdgeStatesRemainVisibleFromWorkspaceChrome() throws {
+        for fixture in [
+            (state: "disconnected", overlay: "SimulatorStreamDisconnectedOverlay"),
+            (state: "locked", overlay: "SimulatorStreamLockedOverlay"),
+            (state: "stalled", overlay: "SimulatorStreamStalledOverlay"),
+        ] {
+            let app = launchFixture(mode: "one", state: fixture.state)
+            let picker = app.buttons["MobileSimulatorPicker"]
+            XCTAssertTrue(picker.waitForExistence(timeout: 8))
+            picker.tap()
+            XCTAssertTrue(
+                app.descendants(matching: .any)[fixture.overlay].waitForExistence(timeout: 4),
+                "Expected \(fixture.overlay) for \(fixture.state)"
+            )
+            app.terminate()
+        }
+    }
+
+    @MainActor
+    func testRendererFailureRetriesThroughProductionOverlay() throws {
+        let failed = launchFixture(mode: "one", state: "renderer-failed")
+        XCTAssertTrue(
+            failed.otherElements["MobileTerminalRendererFailure"].waitForExistence(timeout: 8)
+        )
+        let retry = failed.buttons["MobileTerminalRendererRetry"]
+        XCTAssertTrue(retry.waitForExistence(timeout: 4))
+        retry.tap()
+        XCTAssertTrue(failed.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8))
+        XCTAssertFalse(failed.otherElements["MobileTerminalRendererFailure"].exists)
+    }
+
+    @MainActor
+    private func launchFixture(mode: String, state: String = "inactive") -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchEnvironment = [
+            "CMUX_UITEST_MOCK_DATA": "0",
+            "CMUX_UITEST_SIMULATOR_DISCOVERABILITY": mode,
+            "CMUX_UITEST_SIMULATOR_DISCOVERABILITY_STATE": state,
+            "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1",
+        ]
+        app.launch()
+        launchedApplications.append(app)
+        return app
+    }
+}
+
 /// Shared definition of the deterministic color-band test pattern, used by
 /// both the mock host (to emit it) and the render test (to verify it).
 private enum MockColorBands {

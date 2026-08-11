@@ -13,6 +13,7 @@ import UIKit
 /// composer into the host-owned bottom dock. Primary-screen output uses the
 /// phone's natural height; alternate-screen replay can pin to the Mac's grid.
 struct GhosttySurfaceRepresentable: UIViewRepresentable {
+    let runtime: GhosttyRuntime
     let workspaceID: String
     let surfaceID: String
     let store: CMUXMobileShellStore
@@ -64,20 +65,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     }
 
     func makeUIView(context: Context) -> UIView {
-        let runtime: GhosttyRuntime
-        do {
-            runtime = try GhosttyRuntime.shared()
-        } catch {
-            let fallback = UILabel()
-            fallback.numberOfLines = 0
-            fallback.textColor = terminalTheme.terminalForegroundUIColor
-            fallback.backgroundColor = terminalTheme.terminalBackgroundUIColor
-            fallback.text = L10n.string(
-                "mobile.terminal.rendererFailed",
-                defaultValue: "Terminal renderer failed to start."
-            )
-            return fallback
-        }
         let view = GhosttySurfaceView(
             runtime: runtime,
             delegate: context.coordinator,

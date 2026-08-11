@@ -95,6 +95,7 @@ let package = Package(
                 ),
                 "CmuxMobileShellModel",
                 "CmuxMobileShellUI",
+                "CmuxMobileTerminal",
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

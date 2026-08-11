@@ -62,7 +62,7 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
         case .newBrowser:
             return (String(localized: "command.newBrowserTab.title", defaultValue: "New Browser Tab"), ["new", "browser", "tab", "surface"])
         case .newSimulator:
-            return (String(localized: "command.newSimulatorPane.title", defaultValue: "New Simulator Pane"), ["new", "simulator", "iphone", "ipad", "ios", "surface"])
+            return (String(localized: "command.newSimulatorPane.title", defaultValue: "New Simulator Tab"), ["new", "simulator", "iphone", "ipad", "ios", "tab", "surface"])
         case .splitRight:
             return (String(localized: "command.terminalSplitRight.title", defaultValue: "Split Right"), ["terminal", "split", "right"])
         case .splitDown:

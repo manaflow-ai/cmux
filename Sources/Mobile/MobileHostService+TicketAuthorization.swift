@@ -50,7 +50,7 @@ extension MobileHostService {
             return nil
         case "mobile.simulator.list":
             return nil
-        case "mobile.simulator.stream.start", "mobile.simulator.stream.stop",
+        case "mobile.simulator.create", "mobile.simulator.stream.start", "mobile.simulator.stream.stop",
              "mobile.simulator.input.pointer",
              "mobile.simulator.input.text",
              "mobile.simulator.input.button":
