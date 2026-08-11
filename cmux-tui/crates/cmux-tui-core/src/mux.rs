@@ -18768,6 +18768,52 @@ mod tests {
     }
 
     #[test]
+    fn terminal_exit_in_an_inactive_workspace_does_not_stamp_focus() {
+        let mux = test_mux();
+        let closing = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let closing_pane = mux.with_state(|state| state.pane_of(closing.id).unwrap());
+        let closing_workspace = mux.with_state(|state| {
+            let (workspace, _) = state.screen_of(closing_pane).unwrap();
+            state.workspaces[workspace].id
+        });
+        let sibling = mux.new_screen(Some(closing_workspace), Some((80, 24))).unwrap();
+        let sibling_pane = mux.with_state(|state| state.pane_of(sibling.id).unwrap());
+        assert!(mux.focus_pane(closing_pane));
+
+        let active = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let active_pane = mux.with_state(|state| state.pane_of(active.id).unwrap());
+        let host = mux.resource_terminal_host_identity(&closing).unwrap();
+        let before = mux.with_state(|state| {
+            (
+                state.workspaces[state.active_workspace].id,
+                state.active_pane(),
+                state.focus_sequence,
+                state.panes[&sibling_pane].active_at,
+            )
+        });
+        assert_ne!(before.0, closing_workspace);
+        assert_eq!(before.1, Some(active_pane));
+
+        mux.persist_terminal_exit(
+            &host.terminal_id,
+            Some(&host.incarnation),
+            &TerminalExit::unknown("inactive-workspace-test"),
+        )
+        .unwrap();
+
+        mux.with_state(|state| {
+            assert_eq!(state.workspaces[state.active_workspace].id, before.0);
+            assert_eq!(state.active_pane(), before.1);
+            assert_eq!(state.focus_sequence, before.2, "inactive detach changed focus sequence");
+            assert_eq!(
+                state.panes[&sibling_pane].active_at, before.3,
+                "inactive detach stamped a sibling pane as active"
+            );
+        });
+        mux.shutdown();
+    }
+
+    #[test]
     fn terminal_close_publishes_newly_focused_sibling_pane() {
         let mux = test_mux();
         let closing = mux.new_workspace(None, Some((80, 24))).unwrap();
