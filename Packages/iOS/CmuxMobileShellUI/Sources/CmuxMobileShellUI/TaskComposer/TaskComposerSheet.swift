@@ -446,7 +446,11 @@ struct TaskComposerSheet: View {
             provider: selectedTemplate.flatMap {
                 MobileTaskAgentProvider(command: $0.command)
             },
-            macPairingID: selectedMacPairingID
+            macPairingID: selectedMacPairingID,
+            supportsHostDiscovery: store.supportsTaskModels(
+                macDeviceID: selectedMacDeviceID,
+                instanceTag: selectedMacInstanceTag
+            )
         )
     }
 
@@ -461,11 +465,22 @@ struct TaskComposerSheet: View {
         let macDeviceID = selectedMacDeviceID
         let instanceTag = selectedMacInstanceTag
         let refreshID = modelRefreshID
-        displayedModels = store.discoveredTaskModels(
+        let cachedModels = store.discoveredTaskModels(
             provider: provider,
             macDeviceID: macDeviceID,
             instanceTag: instanceTag
         ) ?? []
+        let cachedSource = store.taskModelListSource(
+            provider: provider,
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+        // Once a capable host is known, do not leave a backend-only snapshot
+        // selectable while its authoritative agent response is in flight.
+        displayedModels = refreshID.supportsHostDiscovery
+            && cachedSource != .discovered
+            ? []
+            : cachedModels
         modelRefreshTask = Task {
             await store.refreshTaskModels(
                 provider: provider,
