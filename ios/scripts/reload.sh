@@ -967,6 +967,10 @@ reload_device() {
       echo "error: installed $BUNDLE_ID, but the iPhone auth gate failed; refusing an unpaired fallback launch" >&2
       echo "error: retry: scripts/mobile-dev-launch.sh --tag $TAG --device --device-id $selected_device_install_id --ensure-mac" >&2
       return 1
+    elif [[ "$NO_ATTACH" -eq 1 ]]; then
+      # Signed launch without pairing (human-authorized opt-out): the auth gate
+      # never ran, so this install must not be reported as verified.
+      device_auth_status="UNVERIFIED (--no-attach opt-out): sign-in attempted but not proven; check with scripts/verify-iphone-auth.sh --tag $TAG --device-id $selected_device_install_id"
     else
       device_auth_status="verified signed in + paired (iPhone auth gate PASS; re-check: scripts/verify-iphone-auth.sh --tag $TAG --device-id $selected_device_install_id)"
     fi

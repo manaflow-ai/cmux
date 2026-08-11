@@ -162,6 +162,8 @@ if cmux_attach_write_readiness_receipt \
     "$(cmux_attach_socket_path "$TAG")" \
     "$LATENCY_MS" 1 "$READY_EVENT" 2>/dev/null; then
   echo "==> readiness receipt: $RECEIPT_PATH" >&2
+else
+  echo "warning: verification passed but the readiness receipt could not be persisted at $RECEIPT_PATH; this PASS exit code is authoritative, receipt-consuming automation will not see this run" >&2
 fi
 
 printf 'PASS: %s on %s is signed in + paired (usable RPC session with tagged Mac '\''%s'\'' in %sms)\n' \

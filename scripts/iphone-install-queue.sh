@@ -441,8 +441,13 @@ drain_entry() {
     args+=(--ensure-mac)
   fi
   local launch_log="$LOGS_DIR/launch-$slug.log"
-  local drain_started_epoch
-  drain_started_epoch="$(date +%s)"
+  # Compute the expected readiness receipt and REMOVE any pre-existing one
+  # before launching, so a leftover receipt from an earlier run can never
+  # satisfy the freshness backstop (mtime comparisons have whole-second
+  # resolution; existence-after-removal does not).
+  local receipt
+  receipt="$RECEIPT_DIR/$(slugify "$tag")-$(slugify "$device_id").json"
+  [[ "$no_attach" == "1" ]] || rm -f "$receipt" 2>/dev/null || true
   if ! ( cd "$checkout" && env ${mdl_env[@]+"${mdl_env[@]}"} "$mdl" "${args[@]}" ) \
       >"$launch_log" 2>&1; then
     cat "$launch_log" >>"$LOGS_DIR/drain.log" 2>/dev/null || true
@@ -465,12 +470,9 @@ drain_entry() {
 
   # Backstop: the gate pass must be backed by a FRESH readiness receipt (the
   # secret-free proof mobile-dev-launch writes only after observing the
-  # signed-in + paired mobile.rpc.ready event for this exact device).
-  local receipt
-  receipt="$RECEIPT_DIR/$(slugify "$tag")-$(slugify "$device_id").json"
-  local receipt_mtime=0
-  [[ -f "$receipt" ]] && receipt_mtime="$(stat -f %m "$receipt" 2>/dev/null || echo 0)"
-  if (( receipt_mtime < drain_started_epoch )); then
+  # signed-in + paired mobile.rpc.ready event for this exact device). Any
+  # pre-existing receipt was removed above, so existence means this launch.
+  if [[ ! -f "$receipt" ]]; then
     finish_needs_auth "launcher exited 0 but left no fresh readiness receipt ($receipt); treat as NOT signed in"
     return $?
   fi
