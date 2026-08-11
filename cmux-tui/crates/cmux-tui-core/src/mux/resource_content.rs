@@ -1310,11 +1310,8 @@ fn public_layout_node(
 ) -> anyhow::Result<Value> {
     Ok(match node {
         RegistryLayoutNode::Leaf { pane } => {
-            if let Some(pane_state) = state
-                .resource_indexes
-                .panes
-                .get(pane)
-                .and_then(|slot| state.panes.get(slot))
+            if let Some(pane_state) =
+                state.resource_indexes.panes.get(pane).and_then(|slot| state.panes.get(slot))
             {
                 json!({
                     "kind":"leaf",
