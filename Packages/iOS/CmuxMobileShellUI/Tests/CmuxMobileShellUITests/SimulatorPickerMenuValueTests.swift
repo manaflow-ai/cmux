@@ -34,7 +34,7 @@ import Testing
         #expect(value.targetPanelID == "sim-a")
     }
 
-    @Test func multiplePanelsPreferTheActivePanelOrDeterministicFirstFallback() {
+    @Test func activePanelReturnsThroughToolbarWhileInactiveStateUsesDeterministicFirstTarget() {
         let rows = [
             SimulatorStreamPickerRow(descriptor(id: "sim-a")),
             SimulatorStreamPickerRow(descriptor(id: "sim-b")),
@@ -51,7 +51,7 @@ import Testing
         )
 
         #expect(active.activePanelID == "sim-b")
-        #expect(active.targetPanelID == "sim-b")
+        #expect(active.targetPanelID == nil)
         #expect(stale.activePanelID == nil)
         #expect(stale.targetPanelID == "sim-a")
     }
