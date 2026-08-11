@@ -5406,10 +5406,22 @@ impl SessionLease {
                 }
             }
 
-            if !waiter.wait_until(deadline).with_context(|| {
+            if waiter.wait_until(deadline).with_context(|| {
                 format!("wait for workspace session coordinator: {}", path.display())
             })? {
-                return session_coordinator_busy(path);
+                continue;
+            }
+
+            // The file lock remains authoritative when the owner crashes or
+            // its best-effort UDP notification is lost.
+            match FileExt::try_lock(&file) {
+                Ok(()) => return Ok(Self::coordinator(file, path)),
+                Err(fs4::TryLockError::WouldBlock) => return session_coordinator_busy(path),
+                Err(error) => {
+                    return Err(error).with_context(|| {
+                        format!("lock workspace session coordinator: {}", path.display())
+                    });
+                }
             }
         }
     }
