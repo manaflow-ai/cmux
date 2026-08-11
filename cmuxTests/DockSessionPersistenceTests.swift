@@ -266,6 +266,58 @@ struct DockSessionPersistenceTests {
         #expect(decoded.windows.first?.tabManager.workspaces.first?.dock == nil)
     }
 
+    @Test("Dock file-preview session round-trip preserves path, kind, and binding")
+    @MainActor
+    func filePreviewSessionRoundTripPreservesPathKindAndBinding() throws {
+        let sourceStore = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { "/tmp" }
+        )
+        let restoredStore = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { "/tmp" }
+        )
+        defer {
+            sourceStore.closeAllPanels()
+            restoredStore.closeAllPanels()
+        }
+
+        let sourcePaneID = try #require(
+            sourceStore.bonsplitController.allPaneIds.first
+        )
+        let filePath = "/tmp/cmux dock session/preview.md"
+        let sourcePanel = try #require(
+            sourceStore.newFilePreviewSurface(
+                inPane: sourcePaneID,
+                filePath: filePath,
+                focus: false
+            )
+        )
+        let snapshot = sourceStore.sessionSnapshot(includeScrollback: false)
+
+        let restoredPanelIDs = restoredStore.restoreSessionSnapshot(snapshot)
+        let restoredPanelID = try #require(restoredPanelIDs[sourcePanel.id])
+        let restoredPanel = try #require(
+            restoredStore.panels[restoredPanelID] as? FilePreviewPanel
+        )
+        let restoredTabID = try #require(
+            restoredStore.surfaceId(forPanelId: restoredPanelID)
+        )
+        let restoredHost = try #require(restoredPanel.tabMetadataHost)
+
+        #expect(restoredPanel.filePath == filePath)
+        #expect(
+            restoredStore.bonsplitController.tab(restoredTabID)?.kind
+                == SurfaceKind.filePreview.rawValue
+        )
+        #expect(restoredStore.panel(for: restoredTabID) === restoredPanel)
+        #expect(
+            restoredStore.filePreviewTabId(forPanelId: restoredPanelID)
+                == restoredTabID
+        )
+        #expect((restoredHost as AnyObject) === restoredStore)
+    }
+
     @Test(
         "Directly restored Dock terminal protects its persisted title through startup",
         arguments: [DockScope.workspace, DockScope.global]
