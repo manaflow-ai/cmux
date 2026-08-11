@@ -22,7 +22,8 @@ struct TerminalSurfaceLoginShellArgumentsResolver: Sendable {
         }
         return [
             "/usr/bin/login", "-flp", record.name,
-            "/bin/bash", "--noprofile", "--norc", "-c", "exec -l \(record.shell)",
+            "/bin/bash", "--noprofile", "--norc", "-c",
+            "exec -l -- \"$1\"", "cmux-login-shell", record.shell,
         ]
     }
 }
@@ -45,17 +46,35 @@ private func terminalSurfaceCurrentUserPasswordRecord() -> (name: String, shell:
         var record = passwd()
         var result: UnsafeMutablePointer<passwd>?
         var buffer = [CChar](repeating: 0, count: capacity)
-        let status: Int32 = buffer.withUnsafeMutableBufferPointer { buffer in
-            guard let baseAddress = buffer.baseAddress else { return EINVAL }
-            return getpwuid_r(
+        let lookupResult: (
+            status: Int32,
+            record: (name: String, shell: String)?
+        ) = buffer.withUnsafeMutableBufferPointer { buffer in
+            guard let baseAddress = buffer.baseAddress else {
+                return (EINVAL, nil)
+            }
+            let status = getpwuid_r(
                 getuid(),
                 &record,
                 baseAddress,
                 buffer.count,
                 &result
             )
+            guard status == 0,
+                  result != nil,
+                  let namePointer = record.pw_name,
+                  let shellPointer = record.pw_shell else {
+                return (status, nil)
+            }
+            return (
+                status,
+                (
+                    name: String(cString: namePointer),
+                    shell: String(cString: shellPointer)
+                )
+            )
         }
-        if status == ERANGE,
+        if lookupResult.status == ERANGE,
            capacity < terminalSurfaceMaximumPasswordBufferCapacity {
             capacity = min(
                 capacity * 2,
@@ -63,16 +82,10 @@ private func terminalSurfaceCurrentUserPasswordRecord() -> (name: String, shell:
             )
             continue
         }
-        guard status == 0,
-              result != nil,
-              let namePointer = record.pw_name,
-              let shellPointer = record.pw_shell else {
+        guard let ownedRecord = lookupResult.record else {
             return nil
         }
-        return (
-            name: String(cString: namePointer),
-            shell: String(cString: shellPointer)
-        )
+        return ownedRecord
     }
     return nil
 }
