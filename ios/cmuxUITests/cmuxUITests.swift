@@ -2614,25 +2614,27 @@ final class cmuxUITests: XCTestCase {
             "The final computer must leave the production list after Forget succeeds."
         )
 
-        let addComputer = app.buttons["MobileComputersAddButton"]
+        let disconnectedShell = app.descendants(matching: .any)[
+            "MobileDisconnectedWorkspaceShell"
+        ]
+        XCTAssertTrue(disconnectedShell.waitForExistence(timeout: 8))
+
+        let addComputer = app.buttons["MobileShowAddDeviceButton"]
         XCTAssertTrue(addComputer.waitForExistence(timeout: 4))
         XCTAssertTrue(addComputer.isHittable)
         tap(addComputer, in: app)
 
-        let pairingForm = app.otherElements["MobileAddDeviceForm"]
+        let pairingHostField = app.textFields["MobileAddDeviceHostField"]
         XCTAssertTrue(
-            pairingForm.waitForExistence(timeout: 8),
+            pairingHostField.waitForExistence(timeout: 8),
             "Add Computer must present after deleting the final computer."
         )
         let cancelPairing = app.buttons["MobilePairingCancelButton"]
         XCTAssertTrue(cancelPairing.waitForExistence(timeout: 4))
         tap(cancelPairing, in: app)
-        XCTAssertTrue(pairingForm.waitForNonExistence(timeout: 4))
+        XCTAssertTrue(pairingHostField.waitForNonExistence(timeout: 4))
 
-        XCTAssertTrue(
-            app.descendants(matching: .any)["MobileDisconnectedWorkspaceShell"]
-                .waitForExistence(timeout: 8)
-        )
+        XCTAssertTrue(disconnectedShell.waitForExistence(timeout: 8))
         let settings = app.buttons["MobileWorkspaceSettingsMenu"]
         XCTAssertTrue(settings.waitForExistence(timeout: 4))
         XCTAssertTrue(settings.isHittable)
@@ -6796,12 +6798,11 @@ final class cmuxUITests: XCTestCase {
         let app = launchApp(mockData: true, environment: launchEnvironment, launchArguments: [
             "-dev.cmux.mobile.connectionMethod.v1", "tailscale",
             "-cmux.mobile.taskComposerEnabled", "YES",
+            "-cmux.notifications.pushEnabled", "NO",
         ])
-        let pairingForm = app.otherElements["MobileAddDeviceForm"]
-        XCTAssertTrue(pairingForm.waitForExistence(timeout: 8))
 
         let hostField = app.textFields["MobileAddDeviceHostField"]
-        XCTAssertTrue(hostField.waitForExistence(timeout: 4))
+        XCTAssertTrue(hostField.waitForExistence(timeout: 8))
         hostField.tap()
         hostField.typeText("127.0.0.1")
 
