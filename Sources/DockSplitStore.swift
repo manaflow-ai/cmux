@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import Combine
+import CmuxAgentChat
 import CmuxAppKitSupportUI
 import CmuxBrowser
 import CmuxCore
@@ -84,7 +85,10 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     /// is kept in sync so the state survives Dock-to-workspace moves.
     @ObservationIgnored var agentRuntimeByPanelId: [UUID: Workspace.DetachedAgentRuntimeState] = [:]
     @ObservationIgnored var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
-    @ObservationIgnored let restoredAgentLifecycle = RestoredAgentLifecycleCoordinator()
+    @ObservationIgnored let terminalStartupRestoreCoordinator: TerminalStartupRestoreCoordinator
+    var restoredAgentLifecycle: RestoredAgentLifecycleCoordinator {
+        terminalStartupRestoreCoordinator.lifecycle
+    }
     @ObservationIgnored var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
     /// Authoritative agent-hook identity for a Dock panel. The effective
     /// surface binding may temporarily become a process-detected tmux binding,
@@ -290,6 +294,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         terminalTitleUpdateCoalescer: NotificationBurstCoalescer? = nil,
         settings: any SettingsReading = UserDefaultsSettingsClient(defaults: .standard),
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
+        agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
         terminalWorkingDirectoryResolver: TerminalWorkingDirectoryResolver = TerminalWorkingDirectoryResolver(),
         closedItemHistoryStore: ClosedItemHistoryStore? = nil
     ) {
@@ -302,6 +307,11 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             terminalTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.settings = settings
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
+        self.terminalStartupRestoreCoordinator = TerminalStartupRestoreCoordinator(
+            workspaceID: workspaceId,
+            lifecycle: RestoredAgentLifecycleCoordinator(),
+            resumeIntentRecorder: agentChatResumeIntentRecorder
+        )
         self.terminalWorkingDirectoryResolver = terminalWorkingDirectoryResolver
         self.closedItemHistoryStore =
             closedItemHistoryStore
