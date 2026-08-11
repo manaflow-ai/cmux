@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
+from ctypes import wintypes
 import json
 import os
 from pathlib import Path
@@ -16,6 +18,27 @@ import uuid
 
 TIMEOUT_SECONDS = 20.0
 CREATE_NEW_PROCESS_GROUP = 0x00000200
+PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+
+
+def windows_process_exit_code(pid: int) -> int:
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not handle:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        exit_code = wintypes.DWORD()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        return int(exit_code.value)
+    finally:
+        kernel32.CloseHandle(handle)
 
 
 def run_cli(
@@ -163,7 +186,23 @@ def main() -> None:
                 )
             )
             if waited.get("state") != "exited" or waited.get("lifecycle") != "exited":
-                raise AssertionError(f"terminal process remained active: {waited!r}")
+                process = result_value(
+                    run_cli(
+                        binary,
+                        socket_path,
+                        env,
+                        "terminal",
+                        terminal,
+                        "process",
+                        "get",
+                    )
+                )
+                pid = int(process["pid"])
+                native_exit_code = windows_process_exit_code(pid)
+                raise AssertionError(
+                    "terminal process remained active: "
+                    f"{waited!r}; pid={pid}; native_exit_code={native_exit_code}"
+                )
             outcome = waited.get("outcome")
             if not isinstance(outcome, dict) or outcome != {"kind": "exit", "code": 7}:
                 raise AssertionError(f"terminal process lost exit code 7: {waited!r}")
