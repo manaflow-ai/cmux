@@ -134,6 +134,54 @@ struct ControlCommandCoordinatorTabActionTests {
         #expect(data == nil)
     }
 
+    @Test func queuedTabActionsPreserveDistinctReservedSurfaceIdentities() throws {
+        let workspaceID = UUID()
+        let anchorSurfaceID = UUID()
+        let submissions = [
+            (requestID: UUID(), createdSurfaceID: UUID()),
+            (requestID: UUID(), createdSurfaceID: UUID()),
+        ]
+        let context = FakeTabActionControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        for submission in submissions {
+            context.resolution = .completed(ControlTabActionResolution.Outcome(
+                workspaceID: workspaceID,
+                surfaceID: anchorSurfaceID,
+                windowID: nil,
+                paneID: nil,
+                extras: .submittedToBackend(
+                    requestID: submission.requestID,
+                    createdSurfaceID: submission.createdSurfaceID
+                )
+            ))
+
+            let result = coordinator.handle(ControlRequest(
+                id: .string(submission.requestID.uuidString),
+                method: "tab.action",
+                params: [
+                    "action": .string("new_terminal_right"),
+                    "surface_id": .string(anchorSurfaceID.uuidString),
+                ]
+            ))
+
+            guard case .ok(.object(let payload)) = result else {
+                Issue.record("expected queued tab.action payload")
+                continue
+            }
+            #expect(payload["request_id"] == .string(submission.requestID.uuidString))
+            #expect(
+                payload["created_surface_id"]
+                    == .string(submission.createdSurfaceID.uuidString)
+            )
+            #expect(
+                payload["created_tab_id"]
+                    == .string(submission.createdSurfaceID.uuidString)
+            )
+            #expect(payload["retry_safe"] == .bool(false))
+        }
+    }
+
     @Test func backendMutationStatusReportsCanonicalCommit() throws {
         let requestID = UUID()
         let context = FakeTabActionControlCommandContext()
