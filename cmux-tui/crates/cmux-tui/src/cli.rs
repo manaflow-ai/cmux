@@ -638,16 +638,8 @@ mod tests {
 
     #[test]
     fn server_lifecycle_routing_flags_follow_action() {
-        let ParsedCommand::Command {
-            global,
-            plan: CommandPlan::Server(plan),
-        } = parse(&strings(&[
-            "server",
-            "status",
-            "--session",
-            "review-session",
-        ]))
-        .unwrap()
+        let ParsedCommand::Command { global, plan: CommandPlan::Server(plan) } =
+            parse(&strings(&["server", "status", "--session", "review-session"])).unwrap()
         else {
             panic!("server status must produce a server plan");
         };
@@ -655,17 +647,9 @@ mod tests {
         assert!(global.socket.is_none());
         assert!(matches!(plan.action, lifecycle::ServerAction::Status));
 
-        let ParsedCommand::Command {
-            global,
-            plan: CommandPlan::Server(plan),
-        } = parse(&strings(&[
-            "server",
-            "stop",
-            "--socket",
-            "/tmp/review.sock",
-            "--force",
-        ]))
-        .unwrap()
+        let ParsedCommand::Command { global, plan: CommandPlan::Server(plan) } =
+            parse(&strings(&["server", "stop", "--socket", "/tmp/review.sock", "--force"]))
+                .unwrap()
         else {
             panic!("server stop must produce a server plan");
         };
@@ -673,18 +657,16 @@ mod tests {
         assert!(global.session.is_none());
         assert!(matches!(plan.action, lifecycle::ServerAction::Stop { force: true }));
 
-        let ParsedCommand::Command {
-            global,
-            plan: CommandPlan::Server(plan),
-        } = parse(&strings(&[
-            "server",
-            "reload-config",
-            "--session",
-            "review-session",
-            "--socket",
-            "/tmp/review.sock",
-        ]))
-        .unwrap()
+        let ParsedCommand::Command { global, plan: CommandPlan::Server(plan) } =
+            parse(&strings(&[
+                "server",
+                "reload-config",
+                "--session",
+                "review-session",
+                "--socket",
+                "/tmp/review.sock",
+            ]))
+            .unwrap()
         else {
             panic!("server reload-config must produce a server plan");
         };
