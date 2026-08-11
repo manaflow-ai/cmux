@@ -1620,13 +1620,12 @@ fn session_guard_waiter_stays_in_verified_directory_after_root_swap() {
     symlink(&outside, &root).unwrap();
     let waiter_path = session_guard_coordinator_waiter_dir(&lock_dir);
 
-    let waiter_directory =
-        open_reset_child_dir(
-            lock_directory.as_raw_fd(),
-            std::ffi::OsStr::new(SESSION_GUARD_COORDINATOR_WAITER_DIR),
-            &waiter_path,
-        )
-        .unwrap();
+    let waiter_directory = open_reset_child_dir(
+        lock_directory.as_raw_fd(),
+        std::ffi::OsStr::new(SESSION_GUARD_COORDINATOR_WAITER_DIR),
+        &waiter_path,
+    )
+    .unwrap();
     let waiter = SessionCoordinatorWaiter::register_at(&waiter_directory, &waiter_path).unwrap();
 
     let retained_waiters = moved.join(SESSION_GUARD_DIR).join(SESSION_GUARD_COORDINATOR_WAITER_DIR);

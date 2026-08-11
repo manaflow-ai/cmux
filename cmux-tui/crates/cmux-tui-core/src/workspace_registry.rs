@@ -7210,7 +7210,8 @@ impl SessionCoordinatorWaiter {
         use std::sync::atomic::Ordering;
 
         loop {
-            let sequence = SESSION_GUARD_COORDINATOR_WAITER_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+            let sequence =
+                SESSION_GUARD_COORDINATOR_WAITER_SEQUENCE.fetch_add(1, Ordering::Relaxed);
             let token = format!("{:x}-{sequence:x}", std::process::id());
             let registration_name = std::ffi::OsString::from(format!("{token}.waiter"));
             let temporary_name = std::ffi::OsString::from(format!(".{token}.tmp"));
@@ -7218,7 +7219,8 @@ impl SessionCoordinatorWaiter {
             let temporary_path = waiter_dir.join(&temporary_name);
             let fifo_name = reset_child_c_string(&temporary_name, &temporary_path)?;
             // SAFETY: fifo_name is a valid child name relative to the verified waiter directory.
-            let created = unsafe { libc::mkfifoat(directory.as_raw_fd(), fifo_name.as_ptr(), 0o600) };
+            let created =
+                unsafe { libc::mkfifoat(directory.as_raw_fd(), fifo_name.as_ptr(), 0o600) };
             if created != 0 {
                 let error = std::io::Error::last_os_error();
                 if error.kind() == std::io::ErrorKind::AlreadyExists {
@@ -7287,20 +7289,13 @@ impl SessionCoordinatorWaiter {
                 if error.kind() == std::io::ErrorKind::Interrupted {
                     continue;
                 }
-                let _ = reset_unlink_child(
-                    directory.as_raw_fd(),
-                    &temporary_name,
-                    &temporary_path,
-                    0,
-                );
+                let _ =
+                    reset_unlink_child(directory.as_raw_fd(), &temporary_name, &temporary_path, 0);
                 if error.kind() == std::io::ErrorKind::NotFound {
                     break;
                 }
                 return Err(error).with_context(|| {
-                    format!(
-                        "register session coordinator waiter {}",
-                        registration_path.display()
-                    )
+                    format!("register session coordinator waiter {}", registration_path.display())
                 });
             }
         }
@@ -7407,8 +7402,9 @@ fn open_session_coordinator_waiter_at(
         if error.kind() == std::io::ErrorKind::Interrupted {
             continue;
         }
-        return Err(error)
-            .with_context(|| format!("open session coordinator waiter {}", display_path.display()));
+        return Err(error).with_context(|| {
+            format!("open session coordinator waiter {}", display_path.display())
+        });
     }
 }
 
@@ -7420,12 +7416,7 @@ impl Drop for SessionCoordinatorWaiter {
         {
             use std::os::fd::AsRawFd;
 
-            let _ = reset_unlink_child(
-                directory.as_raw_fd(),
-                name,
-                &self.registration_path,
-                0,
-            );
+            let _ = reset_unlink_child(directory.as_raw_fd(), name, &self.registration_path, 0);
             return;
         }
         let _ = fs::remove_file(&self.registration_path);
@@ -7570,11 +7561,9 @@ fn publish_session_coordinator_available_at(waiter_directory: &File, waiter_dir:
     use std::os::fd::AsRawFd;
     use std::os::unix::fs::{FileTypeExt, MetadataExt};
 
-    let Ok(names) = reset_dir_child_names(
-        waiter_directory,
-        waiter_dir,
-        "session coordinator waiter directory",
-    ) else {
+    let Ok(names) =
+        reset_dir_child_names(waiter_directory, waiter_dir, "session coordinator waiter directory")
+    else {
         return;
     };
     for name in names.into_iter().take(SESSION_GUARD_COORDINATOR_PUBLICATION_SCAN_LIMIT) {
@@ -7584,16 +7573,16 @@ fn publish_session_coordinator_available_at(waiter_directory: &File, waiter_dir:
             continue;
         };
         if extension == Some("tmp") {
-            let is_temporary_waiter = matches!(reset_stat_kind(&stat), libc::S_IFREG | libc::S_IFIFO);
-            let modified = u64::try_from(reset_stat_mtime_seconds(&stat))
-                .ok()
-                .and_then(|seconds| {
-                    u32::try_from(reset_stat_mtime_nanoseconds(&stat))
-                        .ok()
-                        .and_then(|nanoseconds| {
+            let is_temporary_waiter =
+                matches!(reset_stat_kind(&stat), libc::S_IFREG | libc::S_IFIFO);
+            let modified =
+                u64::try_from(reset_stat_mtime_seconds(&stat)).ok().and_then(|seconds| {
+                    u32::try_from(reset_stat_mtime_nanoseconds(&stat)).ok().and_then(
+                        |nanoseconds| {
                             std::time::UNIX_EPOCH
                                 .checked_add(std::time::Duration::new(seconds, nanoseconds))
-                        })
+                        },
+                    )
                 });
             let is_stale = is_temporary_waiter
                 && modified
@@ -7611,24 +7600,22 @@ fn publish_session_coordinator_available_at(waiter_directory: &File, waiter_dir:
             let _ = reset_unlink_child(waiter_directory.as_raw_fd(), &name, &path, 0);
             continue;
         }
-        let published = open_session_coordinator_waiter_at(
-            waiter_directory,
-            &name,
-            &path,
-            true,
-        )
-        .and_then(|mut signal| {
-            let metadata = signal.metadata()?;
-            if !metadata.file_type().is_fifo()
-                || metadata.dev() != reset_stat_device(&stat)
-                || metadata.ino() != reset_stat_inode(&stat)
-            {
-                anyhow::bail!("session coordinator waiter changed while opening: {}", path.display());
-            }
-            signal.write_all(&[1])?;
-            Ok(())
-        })
-        .is_ok();
+        let published = open_session_coordinator_waiter_at(waiter_directory, &name, &path, true)
+            .and_then(|mut signal| {
+                let metadata = signal.metadata()?;
+                if !metadata.file_type().is_fifo()
+                    || metadata.dev() != reset_stat_device(&stat)
+                    || metadata.ino() != reset_stat_inode(&stat)
+                {
+                    anyhow::bail!(
+                        "session coordinator waiter changed while opening: {}",
+                        path.display()
+                    );
+                }
+                signal.write_all(&[1])?;
+                Ok(())
+            })
+            .is_ok();
         let _ = reset_unlink_child(waiter_directory.as_raw_fd(), &name, &path, 0);
         if published {
             break;
@@ -7689,8 +7676,8 @@ impl SessionLease {
 
             let waiter = SessionCoordinatorWaiter::register_at(&waiter_directory, &waiter_dir)
                 .with_context(|| {
-                format!("register workspace session coordinator waiter: {}", path.display())
-            })?;
+                    format!("register workspace session coordinator waiter: {}", path.display())
+                })?;
 
             match FileExt::try_lock(&file) {
                 Ok(()) => {
