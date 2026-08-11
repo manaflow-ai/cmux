@@ -337,14 +337,16 @@ mod windows {
             return Err(io::Error::last_os_error());
         }
         let mut encoded = path.as_os_str().encode_wide().chain(Some(0)).collect::<Vec<_>>();
-        // SAFETY: `encoded` is a mutable NUL-terminated path and `acl` remains
-        // live for the duration of the synchronous call.
+        // SAFETY: `encoded` is a mutable NUL-terminated path, and `sid` and
+        // `acl` remain live for the duration of the synchronous call.
         let status = unsafe {
             SetNamedSecurityInfoW(
                 encoded.as_mut_ptr(),
                 SE_FILE_OBJECT,
-                DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
-                std::ptr::null_mut::<c_void>() as PSID,
+                OWNER_SECURITY_INFORMATION
+                    | DACL_SECURITY_INFORMATION
+                    | PROTECTED_DACL_SECURITY_INFORMATION,
+                sid,
                 std::ptr::null_mut::<c_void>() as PSID,
                 acl,
                 std::ptr::null(),
