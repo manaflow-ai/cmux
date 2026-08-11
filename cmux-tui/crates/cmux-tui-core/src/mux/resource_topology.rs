@@ -3741,9 +3741,11 @@ impl Mux {
             &terminal_batch,
             &surface_ids,
         );
-        for public_id in &terminal_indexes.catalog_public_ids {
-            if !terminal_public_ids.contains(public_id) {
-                terminal_public_ids.push(public_id.clone());
+        if !terminal_public_ids.is_empty() {
+            for public_id in &terminal_indexes.catalog_public_ids {
+                if !terminal_public_ids.contains(public_id) {
+                    terminal_public_ids.push(public_id.clone());
+                }
             }
         }
         for public_id in &terminal_public_ids {
