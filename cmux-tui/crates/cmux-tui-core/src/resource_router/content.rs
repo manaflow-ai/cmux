@@ -1841,6 +1841,123 @@ mod tests {
     }
 
     #[test]
+    fn terminal_listed_before_runtime_adoption_closes_by_public_id_atomically() {
+        let (mux, surface, selectors) = terminal_fixture(None);
+        let terminal_id = TerminalPublicId::parse(selectors.terminal.as_deref().unwrap()).unwrap();
+        let tab_id = mux.with_state(|state| state.resource_indexes.tab_ids[&surface.id].clone());
+        let before_resource_revision = mux.with_state(|state| state.resource_revision);
+        let before_terminal_revision = mux.terminal_registry_snapshot().unwrap().revision;
+
+        let removed_surface =
+            mux.remove_surface_runtime_for_test(surface.id).expect("fixture has a live view");
+        let removed_runtime = mux
+            .remove_terminal_catalog_for_test(&terminal_id)
+            .expect("fixture has a catalog runtime");
+        assert!(removed_surface.shares_terminal_runtime(&removed_runtime));
+        assert_eq!(
+            mux.with_state(|state| state
+                .placements_of_content(&ContentPublicId::Terminal(terminal_id.clone()))
+                .to_vec()),
+            vec![surface.id],
+            "pre-adoption fixture must retain its projected view"
+        );
+
+        let session_selectors = ResourceSelectors {
+            machine: Some("current".into()),
+            session: Some("current".into()),
+            ..ResourceSelectors::default()
+        };
+        let listed = super::super::handle_parsed_resource_request(
+            &mux,
+            parsed_request("terminal.list", &session_selectors, json!({}), None),
+        )
+        .unwrap();
+        assert_eq!(listed["ok"], true);
+        assert_eq!(listed["result"].as_array().unwrap().len(), 1);
+        assert_eq!(listed["result"][0]["id"], terminal_id.as_str());
+        assert_eq!(listed["result"][0]["tab_ids"], json!([tab_id]));
+
+        let closed = super::super::handle_parsed_resource_request(
+            &mux,
+            parsed_request(
+                "terminal.close",
+                &selectors,
+                json!({}),
+                Some("close-terminal-before-adoption"),
+            ),
+        )
+        .unwrap();
+        if closed["ok"] != true {
+            mux.shutdown();
+            panic!("a terminal returned by terminal.list was not closable: {closed}");
+        }
+        assert_eq!(closed["result"]["replayed"], false);
+
+        let after = super::super::handle_parsed_resource_request(
+            &mux,
+            parsed_request("terminal.list", &session_selectors, json!({}), None),
+        )
+        .unwrap();
+        assert_eq!(after["result"], json!([]));
+        assert!(mux.with_state(|state| {
+            state.placements_of_content(&ContentPublicId::Terminal(terminal_id.clone())).is_empty()
+        }));
+        assert!(mux.surface(surface.id).is_none());
+
+        let close_events = mux.resource_events_after(before_resource_revision).unwrap();
+        assert_eq!(close_events.batches.len(), 1);
+        let changes = close_events.batches[0].changes.as_array().unwrap();
+        assert_eq!(
+            changes
+                .iter()
+                .filter(|change| {
+                    change["kind"] == "delete"
+                        && change["resource"] == "terminal"
+                        && change["id"] == terminal_id.as_str()
+                })
+                .count(),
+            1
+        );
+        assert_eq!(
+            changes
+                .iter()
+                .filter(|change| {
+                    change["kind"] == "delete"
+                        && change["resource"] == "tab"
+                        && change["id"] == tab_id.as_str()
+                })
+                .count(),
+            1
+        );
+        assert_eq!(mux.with_state(|state| state.resource_revision), before_resource_revision + 1);
+        let (terminal_snapshot, terminal_events) =
+            mux.terminal_registry_events_page(before_terminal_revision).unwrap();
+        assert_eq!(terminal_snapshot.revision, before_terminal_revision + 1);
+        assert_eq!(terminal_events.len(), 1);
+        assert_eq!(terminal_events[0].kind, "terminal-closed");
+
+        let replay = super::super::handle_parsed_resource_request(
+            &mux,
+            parsed_request(
+                "terminal.close",
+                &selectors,
+                json!({}),
+                Some("close-terminal-before-adoption"),
+            ),
+        )
+        .unwrap();
+        assert_eq!(replay["ok"], true);
+        assert_eq!(replay["result"]["replayed"], true);
+        assert_eq!(replay["result"]["revision"], closed["result"]["revision"]);
+        assert_eq!(mux.resource_events_after(before_resource_revision).unwrap().batches.len(), 1);
+        assert_eq!(
+            mux.terminal_registry_snapshot().unwrap().revision,
+            before_terminal_revision + 1
+        );
+        mux.shutdown();
+    }
+
+    #[test]
     fn terminal_wait_coalesces_more_than_attach_capacity_without_losing_a_later_match() {
         let (mux, surface, selectors) = terminal_fixture(Some(vec!["fake-shell".into()]));
         let request = parsed_request(
