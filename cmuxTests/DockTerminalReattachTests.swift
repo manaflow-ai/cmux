@@ -707,6 +707,7 @@ extension DockSocketLifecycleTests {
         )
         let store = DockSplitStore(
             workspaceId: UUID(),
+            terminalClientComposition: .embedded(),
             baseDirectoryProvider: { nil },
             terminalWorkingDirectoryResolver: TerminalWorkingDirectoryResolver(
                 liveDirectoryProvider: { _ in currentDirectory.path }
@@ -1420,6 +1421,7 @@ extension DockSocketLifecycleTests {
         )
         let store = DockSplitStore(
             workspaceId: UUID(),
+            terminalClientComposition: .embedded(),
             baseDirectoryProvider: { nil },
             agentSessionAutoResumeDefaults: defaults
         )

@@ -340,6 +340,7 @@ struct DockWorkingDirectoryInheritanceTests {
 
         let store = DockSplitStore(
             workspaceId: UUID(),
+            terminalClientComposition: .embedded(),
             baseDirectoryProvider: { root.path },
             settings: settings,
             terminalWorkingDirectoryResolver: terminalWorkingDirectoryResolver
