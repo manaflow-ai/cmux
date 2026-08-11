@@ -2340,6 +2340,16 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_accepts_the_protocol_replay_ceiling() {
+        let maximum_replay = vec![b'x'; MAX_KITTY_INFLIGHT_BYTES as usize + 2 * 1024 * 1024];
+        let payload = test_snapshot_payload(&maximum_replay);
+
+        let snapshot = decode_host_snapshot_payload(&payload).unwrap();
+
+        assert_eq!(snapshot.replay.len(), maximum_replay.len());
+    }
+
+    #[test]
     fn native_render_queue_coalesces_and_resets() {
         let mut state =
             ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap();

@@ -7256,7 +7256,7 @@ mod unix {
                 result_tx.send(failed).unwrap();
             });
             accepted_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-            let result = result_rx.recv_timeout(Duration::from_secs(5));
+            let result = result_rx.recv_timeout(Duration::from_secs(1));
             release_tx.send(()).unwrap();
             connecting.join().unwrap();
             stalled.join().unwrap();

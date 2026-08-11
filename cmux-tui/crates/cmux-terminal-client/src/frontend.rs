@@ -1150,6 +1150,19 @@ mod tests {
     }
 
     #[test]
+    fn control_failure_ends_the_resource_stream() {
+        let state = FrontendControlState::new(Arc::new(ClientUpdates::default()));
+
+        state.fail("transport closed".into());
+
+        assert!(state.resource_stream_ended.load(Ordering::Acquire));
+        assert_eq!(
+            state.resource_stream_end_reason.load(Ordering::Acquire),
+            RESOURCE_STREAM_END_ERROR
+        );
+    }
+
+    #[test]
     fn native_render_payload_copy_survives_resync() {
         let runtime = Runtime::new().unwrap();
         let state = Arc::new(Mutex::new(

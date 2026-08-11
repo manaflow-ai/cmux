@@ -19460,9 +19460,8 @@ mod tests {
 
         close_terminal_runtime_for_test(&mux, &second);
         started_receiver.recv_timeout(Duration::from_secs(2)).unwrap();
-        let stopped = mux.wait_for_kitty_image_budget_worker_stopped_for_test(
-            crate::terminal_host_runtime::CONTROL_RESPONSE_TIMEOUT.saturating_mul(15),
-        );
+        let stopped =
+            mux.wait_for_kitty_image_budget_worker_stopped_for_test(Duration::from_secs(4));
         {
             let (released, changed) = &*gate;
             *released.lock().unwrap() = true;
