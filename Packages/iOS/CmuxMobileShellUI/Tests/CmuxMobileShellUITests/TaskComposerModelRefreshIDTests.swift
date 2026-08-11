@@ -22,28 +22,5 @@ import Testing
         #expect(initial != changedMac)
     }
 
-    @Test func settledConnectionMatchesPhysicalMacAndOptionalInstance() {
-        let nightly = TaskComposerModelConnectionSnapshot(
-            macDeviceID: "selected-mac",
-            instanceTag: "nightly"
-        )
-
-        #expect(nightly.matchesSelectedMac(
-            macDeviceID: "selected-mac",
-            instanceTag: "nightly"
-        ))
-        #expect(nightly.matchesSelectedMac(
-            macDeviceID: "selected-mac",
-            instanceTag: nil
-        ))
-        #expect(!nightly.matchesSelectedMac(
-            macDeviceID: "selected-mac",
-            instanceTag: "stable"
-        ))
-        #expect(!nightly.matchesSelectedMac(
-            macDeviceID: "other-mac",
-            instanceTag: nil
-        ))
-    }
 }
 #endif
