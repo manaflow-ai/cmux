@@ -959,19 +959,16 @@ impl State {
                 .filter(|screen| !removed_screens.contains(&screen.id))
                 .collect::<Vec<_>>();
             if !surviving.is_empty() {
-                selected_screens.insert(
-                    surviving[workspace.active_screen.min(surviving.len() - 1)].id,
-                );
+                selected_screens
+                    .insert(surviving[workspace.active_screen.min(surviving.len() - 1)].id);
             }
         }
 
         let mut selected_panes = target_panes.clone();
         for workspace_id in &selected_workspaces {
             let Some(workspace) = self.workspace_by_id(*workspace_id) else { continue };
-            for screen in workspace
-                .screens
-                .iter()
-                .filter(|screen| selected_screens.contains(&screen.id))
+            for screen in
+                workspace.screens.iter().filter(|screen| selected_screens.contains(&screen.id))
             {
                 selected_panes.insert(screen.active_pane);
                 if target_screens.contains(&screen.id)
@@ -994,9 +991,8 @@ impl State {
         }
 
         let mut selected_workspace_ids = selected_workspaces.into_iter().collect::<Vec<_>>();
-        selected_workspace_ids.sort_by_key(|workspace| {
-            self.workspace_index(*workspace).unwrap_or(usize::MAX)
-        });
+        selected_workspace_ids
+            .sort_by_key(|workspace| self.workspace_index(*workspace).unwrap_or(usize::MAX));
         let workspaces = selected_workspace_ids
             .iter()
             .filter_map(|workspace_id| self.workspace_by_id(*workspace_id))
@@ -1040,12 +1036,8 @@ impl State {
         let mut resource_indexes = PublicSlotIndexes::default();
         let mut split_screens = HashMap::new();
         for (workspace_index, workspace) in workspaces.iter().enumerate() {
-            resource_indexes
-                .workspaces
-                .insert(workspace.public_id.clone(), workspace.id);
-            resource_indexes
-                .workspace_ids
-                .insert(workspace.id, workspace.public_id.clone());
+            resource_indexes.workspaces.insert(workspace.public_id.clone(), workspace.id);
+            resource_indexes.workspace_ids.insert(workspace.id, workspace.public_id.clone());
             for (screen_index, screen) in workspace.screens.iter().enumerate() {
                 resource_indexes.screens.insert(screen.public_id.clone(), screen.id);
                 resource_indexes.screen_ids.insert(screen.id, screen.public_id.clone());
@@ -1062,10 +1054,7 @@ impl State {
                         resource_indexes.splits.insert(public_id.clone(), split);
                         resource_indexes.split_ids.insert(split, public_id.clone());
                     }
-                    split_screens.insert(
-                        split,
-                        (workspace_index, screen_index, screen.id),
-                    );
+                    split_screens.insert(split, (workspace_index, screen_index, screen.id));
                 }
             }
         }
@@ -1204,9 +1193,7 @@ impl State {
                     workspace.screens.iter().position(|screen| screen.id == selected)
                 })
                 .unwrap_or_else(|| {
-                    workspace
-                        .active_screen
-                        .min(workspace.screens.len().saturating_sub(1))
+                    workspace.active_screen.min(workspace.screens.len().saturating_sub(1))
                 });
         }
 
@@ -1265,15 +1252,14 @@ impl State {
             }
             self.resource_indexes.tab_pane.remove(surface);
             if let Some(content_id) = self.resource_indexes.content_ids.remove(surface) {
-                let remove_content =
-                    if let Some(placements) =
-                        self.resource_indexes.content_placements.get_mut(&content_id)
-                    {
-                        placements.retain(|placement| placement != surface);
-                        placements.is_empty()
-                    } else {
-                        false
-                    };
+                let remove_content = if let Some(placements) =
+                    self.resource_indexes.content_placements.get_mut(&content_id)
+                {
+                    placements.retain(|placement| placement != surface);
+                    placements.is_empty()
+                } else {
+                    false
+                };
                 if remove_content {
                     self.resource_indexes.content_placements.remove(&content_id);
                 }
@@ -1304,9 +1290,7 @@ impl State {
                 .enumerate()
                 .map(|(screen_index, screen)| (screen.id, screen_index))
                 .collect::<HashMap<_, _>>();
-            for (indexed_workspace, indexed_screen, owner) in
-                self.split_screens.values_mut()
-            {
+            for (indexed_workspace, indexed_screen, owner) in self.split_screens.values_mut() {
                 if *indexed_workspace == workspace_index
                     && let Some(screen_index) = positions.get(owner)
                 {
@@ -1325,8 +1309,7 @@ impl State {
                     continue;
                 }
                 for split in screen_split_slots(screen) {
-                    self.split_screens
-                        .insert(split, (workspace_index, screen_index, screen.id));
+                    self.split_screens.insert(split, (workspace_index, screen_index, screen.id));
                 }
             }
         }

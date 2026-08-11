@@ -15306,8 +15306,7 @@ fn remove_terminal_content_from_state(
     let mut removed = Vec::with_capacity(targets.len());
     let mut split_index_dirty = false;
     for target in targets.iter().copied() {
-        let (candidate, topology_changed) =
-            remove_surface_without_focus_stamp(mux, state, target);
+        let (candidate, topology_changed) = remove_surface_without_focus_stamp(mux, state, target);
         split_index_dirty |= topology_changed;
         if let Some(candidate) = candidate {
             removed.push(candidate);
@@ -15361,14 +15360,13 @@ fn remove_terminal_catalogs_and_targets_from_state(
             current_targets.sort_unstable();
             current_targets.dedup();
         }
-        let (candidate, mut terminal_views, changed) =
-            remove_terminal_content_from_state(
-                mux,
-                state,
-                terminal_id,
-                &current_targets,
-                rebuild_resource_indexes,
-            );
+        let (candidate, mut terminal_views, changed) = remove_terminal_content_from_state(
+            mux,
+            state,
+            terminal_id,
+            &current_targets,
+            rebuild_resource_indexes,
+        );
         split_index_dirty |= changed;
         removed.append(&mut terminal_views);
         if let Some(candidate) = candidate {
