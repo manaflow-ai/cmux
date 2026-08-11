@@ -323,6 +323,7 @@ extension MobileShellComposite {
         recoverForegroundConnectionIfNeeded(resyncAfterHealthy: shouldResync)
         recoverDisconnectedOnForegroundIfNeeded()
         recoverPendingInactiveRecoveryIfNeeded()
+        resumeSecondaryControlMaintenanceAfterForeground()
         // The foreground Mac's workspace list updates live over the sync stream,
         // but the other Macs are a read-only snapshot. Re-aggregate them on
         // foreground so workspaces created on another Mac while backgrounded
@@ -344,6 +345,7 @@ extension MobileShellComposite {
         if connectionRecoveryOwner.cancelProbing() {
             applyConnectionRecoveryOwnerState()
         }
+        suspendSecondaryConnectionEstablishmentForBackground()
         guard lastBackgroundedAt == nil else { return }
         lastBackgroundedAt = runtime?.now() ?? Date()
         stopActiveMobileBrowserStreamsForBackground()

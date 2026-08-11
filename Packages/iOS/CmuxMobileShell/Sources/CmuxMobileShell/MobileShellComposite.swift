@@ -4522,7 +4522,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// after a sign-out, account switch, or team switch would leak old-scope Macs
     /// into the new UI, so every mutation below is gated on this after each await.
     private func isAggregationScopeValid(_ scope: MobileShellScopeSnapshot) async -> Bool {
-        guard !Task.isCancelled else { return false }
+        guard foregroundRefreshIsActive, !Task.isCancelled else { return false }
         return await isScopeCurrent(scope)
     }
 
@@ -4535,6 +4535,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if discoverLivePeers {
             secondaryIrohDiscoveryPending = true
         }
+        guard foregroundRefreshIsActive else { return }
         guard secondaryAggregationTask == nil else {
             secondaryAggregationPending = true
             return
@@ -4564,6 +4565,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         forMacDeviceID macDeviceID: String
     ) {
         secondaryPresencePendingMacIDs.insert(cmxCanonicalDeviceID(macDeviceID))
+        guard foregroundRefreshIsActive else { return }
         guard secondaryPresenceAggregationTask == nil else { return }
         let taskGeneration = UUID()
         secondaryPresenceAggregationTaskGeneration = taskGeneration
@@ -5370,6 +5372,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let macID = mac.macDeviceID
         let pairingKey = MacPairingKey(mac)
         guard let pairedMacStore,
+              foregroundRefreshIsActive,
               !Task.isCancelled,
               secondaryMacSubscriptions[pairingKey] == nil,
               secondaryMacDrainReservation(onDeviceOf: pairingKey) == nil else {
@@ -5406,6 +5409,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // during the connect does not leave an old-scope connection live or write
         // its state; the loser disconnects its client.
         guard !Task.isCancelled,
+              foregroundRefreshIsActive,
               secondaryMacSubscriptions[pairingKey] == nil,
               secondaryMacDrainReservation(onDeviceOf: pairingKey) == nil,
               macConnectionRegistry.sessionCount
@@ -5672,7 +5676,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func ensureSecondaryControlKeepalive() {
-        guard secondaryControlKeepaliveTask == nil else { return }
+        guard foregroundRefreshIsActive,
+              secondaryControlKeepaliveTask == nil else { return }
         let clock = controlPlaneSchedulingClock
         let taskGeneration = UUID()
         secondaryControlKeepaliveTaskGeneration = taskGeneration
@@ -6070,6 +6075,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 true
         }
         guard presence != nil,
+              foregroundRefreshIsActive,
               secondaryAggregationRetryTask == nil,
               (!secondaryAggregationRetryMacIDs.isEmpty
                   || secondaryAggregationRetryNeedsFullRefresh),
@@ -6159,6 +6165,58 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         markSecondaryMacUnavailable(ownerKey)
+    }
+
+    /// Stop only foreground-owned aggregation work when iOS backgrounds the
+    /// process. Established control sessions remain pooled, but no unfinished
+    /// refresh or establishment flight may retain a physical Iroh dial across
+    /// suspension and poison the next foreground recovery.
+    func suspendSecondaryConnectionEstablishmentForBackground() {
+        secondaryAggregationTaskGeneration = UUID()
+        secondaryAggregationTask?.cancel()
+        secondaryAggregationTask = nil
+        secondaryAggregationPending = false
+        // Foreground always performs one authenticated discovery pass. Keep
+        // that intent even if backgrounding cancelled the pass that owned it.
+        secondaryIrohDiscoveryPending = true
+
+        secondaryPresenceAggregationTaskGeneration = UUID()
+        secondaryPresenceAggregationTask?.cancel()
+        secondaryPresenceAggregationTask = nil
+        secondaryPresencePendingMacIDs = []
+
+        let establishmentFlights = Array(secondaryMacEstablishmentFlights.values)
+        secondaryMacEstablishmentFlights = [:]
+        for flight in establishmentFlights {
+            flight.task.cancel()
+        }
+
+        secondaryAggregationAfterPushedRoutesOperationID = UUID()
+        secondaryAggregationAfterPushedRoutesTask?.cancel()
+        secondaryAggregationAfterPushedRoutesTask = nil
+        secondaryAggregationAfterPushedRoutesScope = nil
+        secondaryAggregationAfterPushedRoutesMacIDs = []
+        secondaryAggregationAfterPushedRoutesNeedsFullRefresh = false
+        cancelSecondaryAggregationRetry()
+
+        secondaryControlKeepaliveTaskGeneration = UUID()
+        secondaryControlKeepaliveTask?.cancel()
+        secondaryControlKeepaliveTask = nil
+        for task in secondaryControlReassertionTasksByOwnerKey.values {
+            task.cancel()
+        }
+        secondaryControlReassertionTasksByOwnerKey = [:]
+        secondaryControlReassertionTokensByOwnerKey = [:]
+        secondaryControlReassertionOwnerIDsByOwnerKey = [:]
+    }
+
+    /// Resume the one shared maintenance owner for control sessions that
+    /// survived suspension. The normal foreground aggregation pass separately
+    /// probes and replaces any sessions that did not survive.
+    func resumeSecondaryControlMaintenanceAfterForeground() {
+        guard foregroundRefreshIsActive,
+              !secondaryMacSubscriptions.isEmpty else { return }
+        ensureSecondaryControlKeepalive()
     }
 
     /// Enqueue one per-Mac workspace refresh. Presence reconciliation, event
