@@ -719,6 +719,9 @@ pub unsafe extern "C" fn cmux_frontend_client_attach_terminal(
             Arc::new(Mutex::new(state))
         }
         Err(error) => {
+            client.runtime.block_on(async {
+                let _ = stream.close().await;
+            });
             copy_utf8(&format!("libghostty: {error}"), error_buffer, error_capacity);
             return std::ptr::null_mut();
         }
