@@ -501,14 +501,13 @@ impl Mux {
 
             for (screen_index, screen) in workspace.screens.iter().enumerate() {
                 live_screens.insert(screen.public_id.clone());
-                let durable = super::resource_content::registry_screen_from_live(
+                let durable = resource_content::registry_screen_from_live(
                     projected,
                     &workspace.public_id,
                     screen_index,
                     screen,
                 )?;
-                let layout =
-                    super::resource_content::public_layout_from_registry(&durable, projected)?;
+                let layout = resource_content::public_layout_from_registry(&durable, projected)?;
                 patch.push(ResourceChange::UpsertScreen(durable));
                 public.push((
                     "screen",
@@ -3514,7 +3513,7 @@ impl Mux {
         let mut split_index_changed = false;
         if let Some(public_id) = &terminal_public_id {
             let (removed_runtime, terminal_views, changed) =
-                remove_terminal_content_from_state(self, &mut projected, public_id, &surface_ids);
+                remove_terminal_content_from_state(self, projected, public_id, &surface_ids);
             anyhow::ensure!(
                 match (removed_runtime.as_ref(), terminal_runtime.as_ref()) {
                     (Some(removed), Some(planned)) => removed.shares_terminal_runtime(planned),
@@ -3527,7 +3526,7 @@ impl Mux {
             split_index_changed = changed;
             for surface in surface_ids {
                 if projected.surfaces.contains_key(&surface) {
-                    let (candidate, changed) = remove_surface(self, &mut projected, surface);
+                    let (candidate, changed) = remove_surface(self, projected, surface);
                     split_index_changed |= changed;
                     if let Some(candidate) = candidate {
                         removed.push(candidate);
@@ -3546,7 +3545,7 @@ impl Mux {
                 }
             }
             for surface in surface_ids {
-                let (_, changed) = remove_surface(self, &mut projected, surface);
+                let (_, changed) = remove_surface(self, projected, surface);
                 anyhow::ensure!(
                     projected.pane_of(surface).is_none(),
                     "close target surface {surface} remained attached"
@@ -3570,7 +3569,7 @@ impl Mux {
             projected.active_workspace = active_id
                 .and_then(|id| projected.workspace_index(id))
                 .unwrap_or_else(|| projected.workspaces.len().saturating_sub(1));
-            stamp_changed_active_pane(self, &mut projected, previous_active);
+            stamp_changed_active_pane(self, projected, previous_active);
             let active_workspace = projected
                 .workspaces
                 .get(projected.active_workspace)
@@ -3589,7 +3588,7 @@ impl Mux {
             split_index_changed = true;
         }
         if split_index_changed {
-            Self::rebuild_split_screen_index(&mut projected);
+            Self::rebuild_split_screen_index(projected);
         }
         let selection_resync = if workspace_close.is_some() {
             workspace_was_active && !projected.workspaces.is_empty()
