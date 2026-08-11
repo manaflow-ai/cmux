@@ -99,6 +99,32 @@ func decodesEveryNativeLayoutShape() throws {
 }
 
 @Test
+func visibleLayoutPanesExcludeCollapsedStackMembersAndHonorZoom() {
+    let stack = LayoutNode.stack(
+        paneIDs: ["pane-a", "pane-b", "pane-c"],
+        expandedPaneID: "pane-b"
+    )
+    let split = LayoutNode.split(
+        splitID: "split",
+        direction: .horizontal,
+        ratio: 0.5,
+        first: .leaf(paneID: "pane-visible", tabIDs: [], activeTabID: nil),
+        second: stack
+    )
+    #expect(split.paneIDs == ["pane-visible", "pane-a", "pane-b", "pane-c"])
+    #expect(split.visiblePaneIDs == ["pane-visible", "pane-b"])
+
+    let layout = LayoutDocument(
+        version: 1,
+        screenID: "screen",
+        activePaneID: "pane-c",
+        zoomedPaneID: "pane-c",
+        root: split
+    )
+    #expect(layout.visiblePaneIDs == ["pane-c"])
+}
+
+@Test
 func resourceParametersPreserveMixedJSONTypes() throws {
     let encoded = try [
         "direction": JSONValue.string("right"),

@@ -362,6 +362,10 @@ final class FrontendModel {
             machineID: machineID,
             sessionID: sessionID
         )
+        applySnapshot(next)
+    }
+
+    private func applySnapshot(_ next: ResourceSnapshot) {
         snapshot = next
         resourceRevision = next.cursor.revision
         reconcileSelection(next)
@@ -401,9 +405,12 @@ final class FrontendModel {
     private func reconcileTerminalControllers(_ next: ResourceSnapshot) {
         let live = Set(next.terminals.map(\.id))
         let visible: Set<String> = {
-            guard selectedWorkspaceID != nil,
-                  let screenID = selectedScreenID else { return [] }
-            let paneIDs = Set(next.panes.filter { $0.screenID == screenID }.map(\.id))
+            guard let workspaceID = selectedWorkspaceID,
+                  let screenID = selectedScreenID,
+                  let screen = next.screens.first(where: {
+                      $0.id == screenID && $0.workspaceID == workspaceID
+                  }) else { return [] }
+            let paneIDs = Set(screen.layout.visiblePaneIDs)
             let tabsByPane = Dictionary(grouping: next.tabs.filter { paneIDs.contains($0.paneID) }, by: \.paneID)
             let activeContentIDs = Set(tabsByPane.values.compactMap { tabs in
                 (tabs.first { $0.focused } ?? tabs.first)?.contentID
@@ -523,7 +530,6 @@ final class FrontendModel {
                 sessionID: sessionID
             )
             guard focusMutations.owns(requestID) else { return }
-            snapshot = next
             selectedWorkspaceID = next.workspaces.first { $0.focused }?.id
                 ?? next.workspaces.first?.id
             if let selectedWorkspaceID {
@@ -533,7 +539,7 @@ final class FrontendModel {
                 selectedScreenID = nil
             }
             _ = focusMutations.finish(requestID)
-            reconcileTerminalControllers(next)
+            applySnapshot(next)
         } catch {
             guard focusMutations.finish(requestID) else { return }
             errorMessage = error.localizedDescription
