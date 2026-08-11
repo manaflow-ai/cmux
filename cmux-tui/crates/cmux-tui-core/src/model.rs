@@ -904,9 +904,9 @@ pub struct State {
 
 impl State {
     /// Clone only topology owners that a terminal detach can change. Target
-    /// screens retain their layout trees, while unrelated sibling screens,
-    /// panes, and tabs stay in the live state. The exact current and final
-    /// focus owners keep selection projection complete.
+    /// screens retain their layout trees, while unrelated workspaces, sibling
+    /// screens, panes, and tabs stay in the live state. Active selection outside
+    /// the affected workspaces remains authoritative in the live state.
     pub(crate) fn clone_terminal_scope(
         &self,
         affected_workspaces: &HashSet<WorkspaceId>,
@@ -915,8 +915,7 @@ impl State {
     ) -> (Self, usize) {
         let active_workspace_id =
             self.workspaces.get(self.active_workspace).map(|workspace| workspace.id);
-        let mut selected_workspaces = affected_workspaces.clone();
-        selected_workspaces.extend(active_workspace_id);
+        let selected_workspaces = affected_workspaces.clone();
 
         let target_panes = target_surfaces
             .iter()

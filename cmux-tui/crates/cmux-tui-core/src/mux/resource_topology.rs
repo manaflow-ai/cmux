@@ -459,6 +459,22 @@ impl Drop for ResourceCreationActivity<'_> {
     }
 }
 
+fn active_selection_after_terminal_scope(
+    live: &State,
+    projected: &State,
+    affected_workspaces: &HashSet<WorkspaceId>,
+) -> ActiveTreeSelection {
+    let live_selection = active_tree_selection(live);
+    if live_selection
+        .workspace
+        .is_some_and(|workspace| affected_workspaces.contains(&workspace))
+    {
+        active_tree_selection(projected)
+    } else {
+        live_selection
+    }
+}
+
 impl Mux {
     /// Project only panes, screens, and workspace ordering reached from the
     /// target surface reverse indexes. Unrelated resources in the same
@@ -475,7 +491,8 @@ impl Mux {
         let active_workspace =
             live.workspaces.get(live.active_workspace).map(|workspace| workspace.id);
         let selection_before = active_tree_selection(live);
-        let selection_after = active_tree_selection(projected);
+        let selection_after =
+            active_selection_after_terminal_scope(live, projected, workspace_ids);
         let target_tabs = target_surfaces
             .iter()
             .filter_map(|surface| live.resource_indexes.tab_ids.get(surface).cloned())
@@ -3321,7 +3338,8 @@ impl Mux {
                 .all(|public_id| !projected.terminal_catalog.contains_key(public_id)),
             "terminal exit retained its catalog runtime"
         );
-        let selection_resync = selection_before != active_tree_selection(&projected);
+        let selection_resync = selection_before
+            != active_selection_after_terminal_scope(state, &projected, &workspace_ids);
         let mut projection = self.terminal_resource_effect_projection_locked(
             registry,
             state,
@@ -3929,10 +3947,17 @@ impl Mux {
         if split_index_changed {
             Self::rebuild_split_screen_index(projected);
         }
+        let projected_has_workspaces = !projected.workspaces.is_empty();
+        let projected_selection = match &state_projection {
+            ResourceCloseState::Full(projected) => active_tree_selection(projected),
+            ResourceCloseState::Terminal { state: projected, workspace_ids, .. } => {
+                active_selection_after_terminal_scope(state, projected, workspace_ids)
+            }
+        };
         let selection_resync = if workspace_close.is_some() {
-            workspace_was_active && !projected.workspaces.is_empty()
+            workspace_was_active && projected_has_workspaces
         } else {
-            selection_before != active_tree_selection(projected)
+            selection_before != projected_selection
         };
         // The workspace revision is filled from the atomic registry commit.
         if let Some(delta) = &mut delta {
