@@ -40,13 +40,21 @@ def validate_appcontainer_feasibility(path):
             "profile_folder_absent_after_delete",
             "registry_store_delete_contract",
             "network_isolation_entry_absent_after_delete",
-            "acl_restorations",
+            "staged_probe_sha256",
+            "staging_creation_acl_applied",
+            "fixture_creation_acl_applied",
+            "staging_directory_deleted",
+            "fixture_directory_deleted",
+            "preexisting_parent_path",
+            "preexisting_parent_before_sha256",
+            "preexisting_parent_after_sha256",
+            "preexisting_parent_unchanged",
         },
         "AppContainer feasibility evidence",
     )
     nonce = evidence["nonce"]
     if (
-        evidence["schema_version"] != 2
+        evidence["schema_version"] != 3
         or evidence["backend"] != "windows-appcontainer-feasibility"
         or not isinstance(nonce, str)
         or re.fullmatch(r"[0-9a-f]{64}", nonce) is None
@@ -76,6 +84,11 @@ def validate_appcontainer_feasibility(path):
             "profile_folder_absent_after_delete",
             "registry_store_delete_contract",
             "network_isolation_entry_absent_after_delete",
+            "staging_creation_acl_applied",
+            "fixture_creation_acl_applied",
+            "staging_directory_deleted",
+            "fixture_directory_deleted",
+            "preexisting_parent_unchanged",
         },
         "AppContainer feasibility cleanup",
     )
@@ -90,7 +103,10 @@ def validate_appcontainer_feasibility(path):
             "pre_launch_token",
             "suspended_product_token",
             "product",
-            "create_process_as_user_succeeded",
+            "launch_api",
+            "create_process_w_succeeded",
+            "broker_staging_write_denied",
+            "broker_staged_probe_write_denied",
             "explicit_three_handle_list",
             "security_capabilities_applied",
             "product_exact_job_before_resume",
@@ -103,9 +119,10 @@ def validate_appcontainer_feasibility(path):
         "AppContainer broker evidence",
     )
     if (
-        broker["schema_version"] != 2
+        broker["schema_version"] != 3
         or broker["nonce"] != nonce
         or broker["appcontainer_sid"] != appcontainer_sid
+        or broker["launch_api"] != "CreateProcessW+SECURITY_CAPABILITIES"
         or broker["product_resume_previous_count"] != 1
         or not isinstance(broker["product_process_id"], int)
         or isinstance(broker["product_process_id"], bool)
@@ -118,7 +135,9 @@ def validate_appcontainer_feasibility(path):
     require_true_fields(
         broker,
         {
-            "create_process_as_user_succeeded",
+            "create_process_w_succeeded",
+            "broker_staging_write_denied",
+            "broker_staged_probe_write_denied",
             "explicit_three_handle_list",
             "security_capabilities_applied",
             "product_exact_job_before_resume",
@@ -134,19 +153,26 @@ def validate_appcontainer_feasibility(path):
         {
             "non_appcontainer",
             "restricting_sid_count_zero",
-            "low_integrity",
-            "no_enabled_privileges",
+            "enabled_privilege_count",
+            "se_change_notify_enabled",
+            "traverse_privilege_only",
             "account_authentication_match",
         },
         "AppContainer pre-launch token evidence",
     )
+    if (
+        not isinstance(pre_launch_token["enabled_privilege_count"], int)
+        or isinstance(pre_launch_token["enabled_privilege_count"], bool)
+        or pre_launch_token["enabled_privilege_count"] != 1
+    ):
+        raise SystemExit("AppContainer pre-launch token privilege count is invalid")
     require_true_fields(
         pre_launch_token,
         {
             "non_appcontainer",
             "restricting_sid_count_zero",
-            "low_integrity",
-            "no_enabled_privileges",
+            "se_change_notify_enabled",
+            "traverse_privilege_only",
             "account_authentication_match",
         },
         "AppContainer pre-launch token isolation",
@@ -161,11 +187,19 @@ def validate_appcontainer_feasibility(path):
             "restricting_sid_count_zero",
             "capability_count_zero",
             "low_integrity",
-            "no_enabled_privileges",
+            "enabled_privilege_count",
+            "se_change_notify_enabled",
+            "traverse_privilege_only",
             "account_authentication_match",
         },
         "AppContainer suspended-product token evidence",
     )
+    if (
+        not isinstance(suspended_product_token["enabled_privilege_count"], int)
+        or isinstance(suspended_product_token["enabled_privilege_count"], bool)
+        or suspended_product_token["enabled_privilege_count"] != 1
+    ):
+        raise SystemExit("AppContainer suspended-product token privilege count is invalid")
     require_true_fields(
         suspended_product_token,
         {
@@ -174,7 +208,8 @@ def validate_appcontainer_feasibility(path):
             "restricting_sid_count_zero",
             "capability_count_zero",
             "low_integrity",
-            "no_enabled_privileges",
+            "se_change_notify_enabled",
+            "traverse_privilege_only",
             "account_authentication_match",
         },
         "AppContainer suspended-product token isolation",
@@ -188,6 +223,8 @@ def validate_appcontainer_feasibility(path):
             "nonce",
             "entry_reached",
             "fixture_write",
+            "staging_write_denied",
+            "staged_probe_write_denied",
             "adjacent_write_denied",
             "profile_owned_write",
             "registry_owned_write",
@@ -200,18 +237,20 @@ def validate_appcontainer_feasibility(path):
             "restricting_sid_count_zero",
             "capability_count_zero",
             "low_integrity",
-            "no_enabled_privileges",
+            "traverse_privilege_only",
             "account_authentication_match",
         },
         "AppContainer product evidence",
     )
-    if product["schema_version"] != 2 or product["nonce"] != nonce:
+    if product["schema_version"] != 3 or product["nonce"] != nonce:
         raise SystemExit("AppContainer product identity is invalid")
     require_true_fields(
         product,
         {
             "entry_reached",
             "fixture_write",
+            "staging_write_denied",
+            "staged_probe_write_denied",
             "adjacent_write_denied",
             "profile_owned_write",
             "registry_owned_write",
@@ -223,7 +262,7 @@ def validate_appcontainer_feasibility(path):
             "restricting_sid_count_zero",
             "capability_count_zero",
             "low_integrity",
-            "no_enabled_privileges",
+            "traverse_privilege_only",
             "account_authentication_match",
         },
         "AppContainer product isolation",
@@ -245,45 +284,22 @@ def validate_appcontainer_feasibility(path):
         ):
             raise SystemExit("AppContainer inbound address is not a private probe endpoint")
 
-    restorations = evidence["acl_restorations"]
-    if not isinstance(restorations, list) or len(restorations) < 3:
-        raise SystemExit("AppContainer ACL restoration evidence is incomplete")
-    seen_paths = set()
-    grants = []
-    for restoration in restorations:
-        require_exact_object(
-            restoration,
-            {"path", "grant", "before_sha256", "restored_sha256", "exact_restore"},
-            "AppContainer ACL restoration",
-        )
-        before = restoration["before_sha256"]
-        restored = restoration["restored_sha256"]
-        restored_path = restoration["path"]
-        grant = restoration["grant"]
-        if (
-            not isinstance(restored_path, str)
-            or not restored_path
-            or restored_path in seen_paths
-            or grant
-            not in {
-                "account-full+appcontainer-full+low-label",
-                "target-read-execute",
-                "target-parent-traverse",
-            }
-            or not isinstance(before, str)
-            or re.fullmatch(r"[0-9a-f]{64}", before) is None
-            or restored != before
-            or restoration["exact_restore"] is not True
-        ):
-            raise SystemExit("AppContainer ACL restoration is invalid")
-        seen_paths.add(restored_path)
-        grants.append(grant)
+    staged_probe_sha256 = evidence["staged_probe_sha256"]
+    parent_path = evidence["preexisting_parent_path"]
+    parent_before = evidence["preexisting_parent_before_sha256"]
+    parent_after = evidence["preexisting_parent_after_sha256"]
     if (
-        grants.count("account-full+appcontainer-full+low-label") != 1
-        or grants.count("target-read-execute") != 1
-        or grants.count("target-parent-traverse") < 1
+        not isinstance(staged_probe_sha256, str)
+        or re.fullmatch(r"[0-9a-f]{64}", staged_probe_sha256) is None
+        or not isinstance(parent_path, str)
+        or not parent_path
+        or f"appcontainer-stage-{nonce[:16]}" in parent_path
+        or f"appcontainer-fixture-{nonce[:16]}" in parent_path
+        or not isinstance(parent_before, str)
+        or re.fullmatch(r"[0-9a-f]{64}", parent_before) is None
+        or parent_after != parent_before
     ):
-        raise SystemExit("AppContainer ACL grants are incomplete")
+        raise SystemExit("AppContainer nonce-owned path cleanup evidence is invalid")
 
 
 if len(sys.argv) == 3 and sys.argv[1] == "--appcontainer-feasibility":

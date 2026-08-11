@@ -21,20 +21,18 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use wait_timeout::ChildExt;
 use windows_sys::Win32::Foundation::{
-    CloseHandle, DUPLICATE_SAME_ACCESS, DuplicateHandle, ERROR_SUCCESS, GENERIC_ALL,
-    GENERIC_EXECUTE, GENERIC_READ, HANDLE, HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE, LocalFree,
-    SetHandleInformation, WAIT_OBJECT_0, WAIT_TIMEOUT,
+    CloseHandle, DUPLICATE_SAME_ACCESS, DuplicateHandle, ERROR_SUCCESS, HANDLE,
+    HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE, LocalFree, SetHandleInformation, WAIT_OBJECT_0,
+    WAIT_TIMEOUT,
 };
 use windows_sys::Win32::NetworkManagement::WindowsFirewall::{
     INET_FIREWALL_APP_CONTAINER, NetworkIsolationEnumAppContainers,
     NetworkIsolationFreeAppContainers,
 };
 use windows_sys::Win32::Security::Authorization::{
-    ConvertSidToStringSidW, ConvertStringSidToSidW, EXPLICIT_ACCESS_W, GRANT_ACCESS,
-    GetNamedSecurityInfoW, NO_MULTIPLE_TRUSTEE, SE_FILE_OBJECT, SetEntriesInAclW,
-    SetNamedSecurityInfoW, TRUSTEE_IS_SID, TRUSTEE_IS_UNKNOWN, TRUSTEE_W,
+    ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW,
+    ConvertStringSidToSidW, SDDL_REVISION_1,
 };
 use windows_sys::Win32::Security::Isolation::{
     CreateAppContainerProfile, DeleteAppContainerProfile,
@@ -42,19 +40,16 @@ use windows_sys::Win32::Security::Isolation::{
     GetAppContainerRegistryLocation,
 };
 use windows_sys::Win32::Security::{
-    ACL, AdjustTokenPrivileges, CreateRestrictedToken, DACL_SECURITY_INFORMATION,
-    DISABLE_MAX_PRIVILEGE, EqualSid, GetFileSecurityW, GetLengthSid, GetSidSubAuthority,
-    GetSidSubAuthorityCount, GetTokenInformation, ImpersonateLoggedOnUser,
+    AdjustTokenPrivileges, DACL_SECURITY_INFORMATION, EqualSid, GetFileSecurityW,
+    GetSidSubAuthority, GetSidSubAuthorityCount, GetTokenInformation, ImpersonateLoggedOnUser,
     LABEL_SECURITY_INFORMATION, LOGON32_LOGON_INTERACTIVE, LOGON32_PROVIDER_DEFAULT,
     LUID_AND_ATTRIBUTES, LogonUserW, LookupPrivilegeValueW, PSID, RevertToSelf,
-    SE_PRIVILEGE_ENABLED, SECURITY_ATTRIBUTES, SECURITY_CAPABILITIES, SetFileSecurityW,
-    SetTokenInformation, TOKEN_ADJUST_DEFAULT, TOKEN_ADJUST_PRIVILEGES,
-    TOKEN_APPCONTAINER_INFORMATION, TOKEN_ASSIGN_PRIMARY, TOKEN_DUPLICATE, TOKEN_GROUPS,
-    TOKEN_MANDATORY_LABEL, TOKEN_PRIVILEGES, TOKEN_QUERY, TOKEN_STATISTICS, TOKEN_USER,
-    TokenAppContainerSid, TokenCapabilities, TokenIntegrityLevel, TokenIsAppContainer,
-    TokenPrivileges, TokenStatistics, TokenUser,
+    SE_PRIVILEGE_ENABLED, SECURITY_ATTRIBUTES, SECURITY_CAPABILITIES, TOKEN_ADJUST_PRIVILEGES,
+    TOKEN_APPCONTAINER_INFORMATION, TOKEN_GROUPS, TOKEN_MANDATORY_LABEL, TOKEN_PRIVILEGES,
+    TOKEN_QUERY, TOKEN_STATISTICS, TOKEN_USER, TokenAppContainerSid, TokenCapabilities,
+    TokenIntegrityLevel, TokenIsAppContainer, TokenPrivileges, TokenStatistics, TokenUser,
 };
-use windows_sys::Win32::Storage::FileSystem::{FILE_TRAVERSE, FILE_TYPE_UNKNOWN, GetFileType};
+use windows_sys::Win32::Storage::FileSystem::{CreateDirectoryW, FILE_TYPE_UNKNOWN, GetFileType};
 use windows_sys::Win32::System::Com::CoTaskMemFree;
 use windows_sys::Win32::System::Environment::{CreateEnvironmentBlock, DestroyEnvironmentBlock};
 use windows_sys::Win32::System::IO::{CreateIoCompletionPort, GetQueuedCompletionStatus};
@@ -68,10 +63,10 @@ use windows_sys::Win32::System::JobObjects::{
 use windows_sys::Win32::System::Pipes::CreatePipe;
 use windows_sys::Win32::System::Registry::{KEY_SET_VALUE, RegCloseKey, RegSetValueExW};
 use windows_sys::Win32::System::SystemServices::{
-    JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO, SE_GROUP_INTEGRITY, SECURITY_MANDATORY_LOW_RID,
+    JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO, SECURITY_MANDATORY_LOW_RID,
 };
 use windows_sys::Win32::System::Threading::{
-    CREATE_NO_WINDOW, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, CreateProcessAsUserW,
+    CREATE_NO_WINDOW, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, CreateProcessW,
     CreateProcessWithTokenW, DeleteProcThreadAttributeList, EXTENDED_STARTUPINFO_PRESENT,
     GetCurrentProcess, GetExitCodeProcess, GetProcessId, GetThreadId,
     InitializeProcThreadAttributeList, OpenProcessToken, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
@@ -80,7 +75,7 @@ use windows_sys::Win32::System::Threading::{
 };
 use windows_sys::Win32::UI::Shell::{LoadUserProfileW, PROFILEINFOW, UnloadUserProfile};
 
-const EVIDENCE_SCHEMA_VERSION: u32 = 2;
+const EVIDENCE_SCHEMA_VERSION: u32 = 3;
 const MAX_RECORD_BYTES: usize = 64 * 1024;
 const BROKER_TIMEOUT: Duration = Duration::from_secs(50);
 const PRODUCT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -94,6 +89,7 @@ struct BrokerConfig {
     nonce: String,
     target: PathBuf,
     target_sha256: String,
+    staging_root: PathBuf,
     fixture_root: PathBuf,
     adjacent_path: PathBuf,
     profile_folder: PathBuf,
@@ -120,6 +116,8 @@ struct ProductEvidence {
     nonce: String,
     entry_reached: bool,
     fixture_write: bool,
+    staging_write_denied: bool,
+    staged_probe_write_denied: bool,
     adjacent_write_denied: bool,
     profile_owned_write: bool,
     registry_owned_write: bool,
@@ -132,7 +130,7 @@ struct ProductEvidence {
     restricting_sid_count_zero: bool,
     capability_count_zero: bool,
     low_integrity: bool,
-    no_enabled_privileges: bool,
+    traverse_privilege_only: bool,
     account_authentication_match: bool,
 }
 
@@ -141,8 +139,9 @@ struct ProductEvidence {
 struct PreLaunchTokenEvidence {
     non_appcontainer: bool,
     restricting_sid_count_zero: bool,
-    low_integrity: bool,
-    no_enabled_privileges: bool,
+    enabled_privilege_count: u32,
+    se_change_notify_enabled: bool,
+    traverse_privilege_only: bool,
     account_authentication_match: bool,
 }
 
@@ -150,16 +149,18 @@ impl PreLaunchTokenEvidence {
     fn validate(&self) -> Result<()> {
         if !self.non_appcontainer
             || !self.restricting_sid_count_zero
-            || !self.low_integrity
-            || !self.no_enabled_privileges
+            || self.enabled_privilege_count != 1
+            || !self.se_change_notify_enabled
+            || !self.traverse_privilege_only
             || !self.account_authentication_match
         {
             bail!(
-                "pre-launch AppContainer token proof failed: non_appcontainer={}; restricting_sid_count_zero={}; low_integrity={}; no_enabled_privileges={}; account_authentication_match={}",
+                "pre-launch AppContainer token proof failed: non_appcontainer={}; restricting_sid_count_zero={}; enabled_privilege_count={}; se_change_notify_enabled={}; traverse_privilege_only={}; account_authentication_match={}",
                 self.non_appcontainer,
                 self.restricting_sid_count_zero,
-                self.low_integrity,
-                self.no_enabled_privileges,
+                self.enabled_privilege_count,
+                self.se_change_notify_enabled,
+                self.traverse_privilege_only,
                 self.account_authentication_match,
             );
         }
@@ -175,7 +176,9 @@ struct SuspendedProductTokenEvidence {
     restricting_sid_count_zero: bool,
     capability_count_zero: bool,
     low_integrity: bool,
-    no_enabled_privileges: bool,
+    enabled_privilege_count: u32,
+    se_change_notify_enabled: bool,
+    traverse_privilege_only: bool,
     account_authentication_match: bool,
 }
 
@@ -187,7 +190,9 @@ impl SuspendedProductTokenEvidence {
             restricting_sid_count_zero: proof.restricting_sid_count_zero,
             capability_count_zero: proof.capability_count_zero,
             low_integrity: proof.low_integrity,
-            no_enabled_privileges: proof.no_enabled_privileges,
+            enabled_privilege_count: proof.enabled_privilege_count,
+            se_change_notify_enabled: proof.se_change_notify_enabled,
+            traverse_privilege_only: proof.traverse_privilege_only,
             account_authentication_match: proof.authentication_id == expected_authentication_id,
         }
     }
@@ -198,17 +203,21 @@ impl SuspendedProductTokenEvidence {
             || !self.restricting_sid_count_zero
             || !self.capability_count_zero
             || !self.low_integrity
-            || !self.no_enabled_privileges
+            || self.enabled_privilege_count != 1
+            || !self.se_change_notify_enabled
+            || !self.traverse_privilege_only
             || !self.account_authentication_match
         {
             bail!(
-                "suspended AppContainer token proof failed: token_is_appcontainer={}; appcontainer_sid_match={}; restricting_sid_count_zero={}; capability_count_zero={}; low_integrity={}; no_enabled_privileges={}; account_authentication_match={}",
+                "suspended AppContainer token proof failed: token_is_appcontainer={}; appcontainer_sid_match={}; restricting_sid_count_zero={}; capability_count_zero={}; low_integrity={}; enabled_privilege_count={}; se_change_notify_enabled={}; traverse_privilege_only={}; account_authentication_match={}",
                 self.token_is_appcontainer,
                 self.appcontainer_sid_match,
                 self.restricting_sid_count_zero,
                 self.capability_count_zero,
                 self.low_integrity,
-                self.no_enabled_privileges,
+                self.enabled_privilege_count,
+                self.se_change_notify_enabled,
+                self.traverse_privilege_only,
                 self.account_authentication_match,
             );
         }
@@ -225,7 +234,10 @@ struct BrokerEvidence {
     pre_launch_token: PreLaunchTokenEvidence,
     suspended_product_token: SuspendedProductTokenEvidence,
     product: ProductEvidence,
-    create_process_as_user_succeeded: bool,
+    launch_api: String,
+    create_process_w_succeeded: bool,
+    broker_staging_write_denied: bool,
+    broker_staged_probe_write_denied: bool,
     explicit_three_handle_list: bool,
     security_capabilities_applied: bool,
     product_exact_job_before_resume: bool,
@@ -234,16 +246,6 @@ struct BrokerEvidence {
     product_primary_thread_id: u32,
     descendant_observed_in_job: bool,
     active_process_zero: bool,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct AclRestorationEvidence {
-    path: PathBuf,
-    grant: String,
-    before_sha256: String,
-    restored_sha256: String,
-    exact_restore: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -265,7 +267,15 @@ struct FeasibilityEvidence {
     profile_folder_absent_after_delete: bool,
     registry_store_delete_contract: bool,
     network_isolation_entry_absent_after_delete: bool,
-    acl_restorations: Vec<AclRestorationEvidence>,
+    staged_probe_sha256: String,
+    staging_creation_acl_applied: bool,
+    fixture_creation_acl_applied: bool,
+    staging_directory_deleted: bool,
+    fixture_directory_deleted: bool,
+    preexisting_parent_path: PathBuf,
+    preexisting_parent_before_sha256: String,
+    preexisting_parent_after_sha256: String,
+    preexisting_parent_unchanged: bool,
 }
 
 impl FeasibilityEvidence {
@@ -277,15 +287,18 @@ impl FeasibilityEvidence {
             || self.appcontainer_sid != self.broker.appcontainer_sid
             || !self.broker.pre_launch_token.non_appcontainer
             || !self.broker.pre_launch_token.restricting_sid_count_zero
-            || !self.broker.pre_launch_token.low_integrity
-            || !self.broker.pre_launch_token.no_enabled_privileges
+            || self.broker.pre_launch_token.enabled_privilege_count != 1
+            || !self.broker.pre_launch_token.se_change_notify_enabled
+            || !self.broker.pre_launch_token.traverse_privilege_only
             || !self.broker.pre_launch_token.account_authentication_match
             || !self.broker.suspended_product_token.token_is_appcontainer
             || !self.broker.suspended_product_token.appcontainer_sid_match
             || !self.broker.suspended_product_token.restricting_sid_count_zero
             || !self.broker.suspended_product_token.capability_count_zero
             || !self.broker.suspended_product_token.low_integrity
-            || !self.broker.suspended_product_token.no_enabled_privileges
+            || self.broker.suspended_product_token.enabled_privilege_count != 1
+            || !self.broker.suspended_product_token.se_change_notify_enabled
+            || !self.broker.suspended_product_token.traverse_privilege_only
             || !self.broker.suspended_product_token.account_authentication_match
             || !self.profile_user_sid_matches_account
             || !self.no_capabilities
@@ -293,6 +306,8 @@ impl FeasibilityEvidence {
             || product.nonce != self.nonce
             || !product.entry_reached
             || !product.fixture_write
+            || !product.staging_write_denied
+            || !product.staged_probe_write_denied
             || !product.adjacent_write_denied
             || !product.profile_owned_write
             || !product.registry_owned_write
@@ -304,9 +319,12 @@ impl FeasibilityEvidence {
             || !product.restricting_sid_count_zero
             || !product.capability_count_zero
             || !product.low_integrity
-            || !product.no_enabled_privileges
+            || !product.traverse_privilege_only
             || !product.account_authentication_match
-            || !self.broker.create_process_as_user_succeeded
+            || self.broker.launch_api != "CreateProcessW+SECURITY_CAPABILITIES"
+            || !self.broker.create_process_w_succeeded
+            || !self.broker.broker_staging_write_denied
+            || !self.broker.broker_staged_probe_write_denied
             || !self.broker.explicit_three_handle_list
             || !self.broker.security_capabilities_applied
             || !self.broker.product_exact_job_before_resume
@@ -322,30 +340,46 @@ impl FeasibilityEvidence {
             || !self.profile_folder_absent_after_delete
             || !self.registry_store_delete_contract
             || !self.network_isolation_entry_absent_after_delete
-            || self.acl_restorations.is_empty()
-            || self
-                .acl_restorations
-                .iter()
-                .any(|entry| !entry.exact_restore || entry.before_sha256 != entry.restored_sha256)
+            || !self.staging_creation_acl_applied
+            || !self.fixture_creation_acl_applied
+            || !self.staging_directory_deleted
+            || !self.fixture_directory_deleted
+            || !self.preexisting_parent_unchanged
+            || self.preexisting_parent_before_sha256 != self.preexisting_parent_after_sha256
         {
             bail!("Windows AppContainer feasibility evidence is incomplete");
         }
+        validate_sha256(&self.staged_probe_sha256, "staged AppContainer probe")?;
+        validate_sha256(
+            &self.preexisting_parent_before_sha256,
+            "pre-existing parent before descriptor",
+        )?;
+        validate_sha256(
+            &self.preexisting_parent_after_sha256,
+            "pre-existing parent after descriptor",
+        )?;
         Ok(())
     }
 }
 
 pub(super) fn run_controller(values: &[String]) -> Result<()> {
-    let fixture_parent = required_path(values, "--fixture-parent")?;
+    let fixture_parent = required_path(values, "--fixture-parent")?.canonicalize()?;
     let output = required_path(values, "--output")?;
     if !fixture_parent.is_dir() || output.exists() {
         bail!("AppContainer feasibility paths are not in their initial state");
     }
+    let parent_security_information = DACL_SECURITY_INFORMATION | LABEL_SECURITY_INFORMATION;
+    let parent_security_before = file_security(&fixture_parent, parent_security_information)?;
+    let preexisting_parent_before_sha256 = hash_words(&parent_security_before);
+
     let nonce = random_nonce()?;
     let profile_name = format!("cmux.bench.ac.{}", &nonce[..32]);
-    let root = fixture_parent.join(format!("appcontainer-{}", &nonce[..16]));
+    let staging_path = fixture_parent.join(format!("appcontainer-stage-{}", &nonce[..16]));
+    let fixture_path = fixture_parent.join(format!("appcontainer-fixture-{}", &nonce[..16]));
     let adjacent = fixture_parent.join(format!("appcontainer-adjacent-{}", &nonce[..16]));
-    fs::create_dir(&root).context("create AppContainer feasibility root")?;
-    fs::write(&adjacent, b"protected").context("create AppContainer adjacent sentinel")?;
+    if staging_path.exists() || fixture_path.exists() || adjacent.exists() {
+        bail!("nonce-owned AppContainer paths already existed");
+    }
 
     let current = std::env::current_exe()?.canonicalize()?;
     let target_sha256 = sha256_file(&current)?;
@@ -356,6 +390,7 @@ pub(super) fn run_controller(values: &[String]) -> Result<()> {
     let mut account = AccountProfile::logon(&user, &password)?;
     let account_sid = token_user_sid(account.token())?;
     let account_authentication_id = token_authentication_id(account.token())?;
+    let runner_sid = current_process_user_sid()?;
 
     let account_token = account.token();
     let mut profile =
@@ -367,34 +402,39 @@ pub(super) fn run_controller(values: &[String]) -> Result<()> {
         bail!("AppContainer profile did not enumerate for the benchmark account SID");
     }
 
-    let mut acl_leases = Vec::new();
-    acl_leases.push(AclLease::grant_account_and_appcontainer_root(&root, &user, profile.sid.0)?);
-    acl_leases.push(AclLease::grant_account_and_sid(
-        &current,
-        &user,
-        profile.sid.0,
-        GENERIC_READ | GENERIC_EXECUTE,
-        "target-read-execute",
-    )?);
-    for parent in target_parent_chain(&current)? {
-        acl_leases.push(AclLease::grant_account_and_sid(
-            &parent,
-            &user,
-            profile.sid.0,
-            FILE_TRAVERSE,
-            "target-parent-traverse",
-        )?);
+    let mut staging = OwnedNonceDirectory::create(
+        &staging_path,
+        &runner_sid,
+        &account_sid,
+        &appcontainer_sid,
+        NonceDirectoryAccess::ReadExecute,
+    )?;
+    let mut fixture = OwnedNonceDirectory::create(
+        &fixture_path,
+        &runner_sid,
+        &account_sid,
+        &appcontainer_sid,
+        NonceDirectoryAccess::Full,
+    )?;
+    let staged_target = staging.path().join("startup-benchmark-appcontainer-probe.exe");
+    copy_new_regular_file(&current, &staged_target)
+        .context("stage exact AppContainer probe executable")?;
+    let staged_probe_sha256 = sha256_file(&staged_target)?;
+    if staged_probe_sha256 != target_sha256 {
+        bail!("staged AppContainer probe hash changed");
     }
+    fs::write(&adjacent, b"protected").context("create AppContainer adjacent sentinel")?;
 
-    let broker_output = root.join("appcontainer-broker-evidence.json");
-    let broker_failure = root.join("appcontainer-broker-failure.json");
-    let config_path = root.join("appcontainer-broker-config.json");
+    let broker_output = fixture.path().join("appcontainer-broker-evidence.json");
+    let broker_failure = fixture.path().join("appcontainer-broker-failure.json");
+    let config_path = fixture.path().join("appcontainer-broker-config.json");
     let config = BrokerConfig {
         schema_version: EVIDENCE_SCHEMA_VERSION,
         nonce: nonce.clone(),
-        target: current.clone(),
-        target_sha256,
-        fixture_root: root.clone(),
+        target: staged_target.clone(),
+        target_sha256: staged_probe_sha256.clone(),
+        staging_root: staging.path().to_path_buf(),
+        fixture_root: fixture.path().to_path_buf(),
         adjacent_path: adjacent.clone(),
         profile_folder: profile.folder.clone(),
         profile_name: profile_name.clone(),
@@ -404,19 +444,23 @@ pub(super) fn run_controller(values: &[String]) -> Result<()> {
         failure_output: broker_failure.clone(),
     };
     write_new_json(&config_path, &config)?;
-    let broker_result = run_account_broker(account.token(), &current, &config_path);
+    let broker_result = run_account_broker(account.token(), &staged_target, &config_path);
     let broker = match broker_result {
         Ok(()) => read_bounded_json::<BrokerEvidence>(&broker_output, MAX_RECORD_BYTES)?,
         Err(error) => {
             let copied_failure = copy_broker_failure(&broker_failure, &output);
-            let cleanup = restore_acl_leases(&mut acl_leases);
             let profile_cleanup = account.impersonate(|_| profile.delete());
             let _ = fs::remove_file(&adjacent);
+            let parent_unchanged = parent_security_unchanged(
+                &fixture_parent,
+                parent_security_information,
+                &parent_security_before,
+            );
             return Err(error.context(format!(
-                "AppContainer broker failed; diagnostic: {}; ACL cleanup: {}; profile cleanup: {}",
+                "AppContainer broker failed; diagnostic: {}; profile cleanup: {}; pre-existing parent unchanged: {}; nonce directories retained because Job zero was not accepted",
                 result_label(&copied_failure),
-                result_label(&cleanup),
-                result_label(&profile_cleanup)
+                result_label(&profile_cleanup),
+                result_label(&parent_unchanged),
             )));
         }
     };
@@ -435,10 +479,19 @@ pub(super) fn run_controller(values: &[String]) -> Result<()> {
     })?;
     drop(derived);
 
-    let acl_restorations = restore_acl_leases(&mut acl_leases)?;
     fs::remove_file(&adjacent).context("remove AppContainer adjacent sentinel")?;
     if fs::read(&adjacent).is_ok() {
         bail!("AppContainer adjacent sentinel remained after cleanup");
+    }
+    fixture.remove()?;
+    staging.remove()?;
+    let fixture_directory_deleted = !fixture_path.exists();
+    let staging_directory_deleted = !staging_path.exists();
+    let parent_security_after = file_security(&fixture_parent, parent_security_information)?;
+    let preexisting_parent_after_sha256 = hash_words(&parent_security_after);
+    let preexisting_parent_unchanged = parent_security_before == parent_security_after;
+    if !preexisting_parent_unchanged {
+        bail!("AppContainer feasibility changed the pre-existing fixture-parent descriptor");
     }
     account.unload()?;
 
@@ -459,14 +512,20 @@ pub(super) fn run_controller(values: &[String]) -> Result<()> {
         profile_folder_absent_after_delete,
         registry_store_delete_contract: true,
         network_isolation_entry_absent_after_delete,
-        acl_restorations,
+        staged_probe_sha256,
+        staging_creation_acl_applied: true,
+        fixture_creation_acl_applied: true,
+        staging_directory_deleted,
+        fixture_directory_deleted,
+        preexisting_parent_path: fixture_parent,
+        preexisting_parent_before_sha256,
+        preexisting_parent_after_sha256,
+        preexisting_parent_unchanged,
     };
     evidence.validate()?;
     write_new_json(&output, &evidence)?;
-    fs::remove_dir_all(&root).context("remove AppContainer feasibility root")?;
     Ok(())
 }
-
 pub(super) fn run_broker(values: &[String]) -> Result<()> {
     let config_path = required_path(values, "--config")?;
     let config = read_bounded_json::<BrokerConfig>(&config_path, MAX_RECORD_BYTES)?;
@@ -498,6 +557,8 @@ pub(super) fn run_probe(values: &[String]) -> Result<()> {
     }
     let nonce = required_env("CMUX_APP_CONTAINER_NONCE")?;
     let fixture_root = PathBuf::from(required_env("CMUX_APP_CONTAINER_FIXTURE")?);
+    let staging_root = PathBuf::from(required_env("CMUX_APP_CONTAINER_STAGING")?);
+    let staged_probe = PathBuf::from(required_env("CMUX_APP_CONTAINER_TARGET")?);
     let adjacent = PathBuf::from(required_env("CMUX_APP_CONTAINER_ADJACENT")?);
     let profile_folder = PathBuf::from(required_env("CMUX_APP_CONTAINER_PROFILE")?);
     let appcontainer_sid = required_env("CMUX_APP_CONTAINER_SID")?;
@@ -508,6 +569,10 @@ pub(super) fn run_probe(values: &[String]) -> Result<()> {
     let fixture_write =
         fs::write(fixture_root.join(format!("inside-{}.txt", &nonce[..16])), nonce.as_bytes())
             .is_ok();
+    let staging_write_denied =
+        fs::write(staging_root.join(format!("denied-{}.txt", &nonce[..16])), nonce.as_bytes())
+            .is_err();
+    let staged_probe_write_denied = OpenOptions::new().write(true).open(&staged_probe).is_err();
     let adjacent_write_denied = fs::write(&adjacent, b"changed").is_err();
     let profile_owned_write =
         fs::write(profile_folder.join(format!("cmux-{}.txt", &nonce[..16])), nonce.as_bytes())
@@ -540,6 +605,8 @@ pub(super) fn run_probe(values: &[String]) -> Result<()> {
         nonce,
         entry_reached: true,
         fixture_write,
+        staging_write_denied,
+        staged_probe_write_denied,
         adjacent_write_denied,
         profile_owned_write,
         registry_owned_write,
@@ -552,7 +619,7 @@ pub(super) fn run_probe(values: &[String]) -> Result<()> {
         restricting_sid_count_zero: proof.restricting_sid_count_zero,
         capability_count_zero: proof.capability_count_zero,
         low_integrity: proof.low_integrity,
-        no_enabled_privileges: proof.no_enabled_privileges,
+        traverse_privilege_only: proof.traverse_privilege_only,
         account_authentication_match: proof.authentication_id == account_authentication_id,
     };
     serde_json::to_writer(io::stdout().lock(), &evidence)?;
@@ -886,125 +953,109 @@ impl Drop for AppContainerProfile {
     }
 }
 
-struct AclLease {
-    path: PathBuf,
-    grant: String,
-    security_information: u32,
-    original: Vec<usize>,
-    before_sha256: String,
-    restored: bool,
+enum NonceDirectoryAccess {
+    ReadExecute,
+    Full,
 }
 
-impl AclLease {
-    fn grant_account_and_appcontainer_root(path: &Path, user: &str, sid: PSID) -> Result<Self> {
-        let mut lease = Self::snapshot(path, "account-full+appcontainer-full+low-label")?;
-        let output = run_bounded_command(
-            Command::new("icacls.exe").arg(path).args(["/grant", &format!("{user}:(OI)(CI)(F)")]),
-            "fixture account ACL grant",
-        )?;
-        if !output.status.success() {
-            bail!("fixture account ACL grant failed: {}", String::from_utf8_lossy(&output.stderr));
-        }
-        grant_sid(path, sid, GENERIC_ALL, true)?;
-        let output = run_bounded_command(
-            Command::new("icacls.exe").arg(path).args(["/setintegritylevel", "(OI)(CI)L"]),
-            "fixture low-integrity label",
-        )?;
-        if !output.status.success() {
-            let restore = lease.restore();
-            return Err(anyhow::anyhow!(
-                "fixture low-integrity label failed: {}; restore: {}",
-                String::from_utf8_lossy(&output.stderr),
-                result_label(&restore)
-            ));
-        }
-        Ok(lease)
-    }
+struct OwnedSecurityDescriptor(windows_sys::Win32::Security::PSECURITY_DESCRIPTOR);
 
-    fn grant_account_and_sid(
-        path: &Path,
-        user: &str,
-        sid: PSID,
-        access: u32,
-        grant: &str,
-    ) -> Result<Self> {
-        let mut lease = Self::snapshot(path, grant)?;
-        let output = run_bounded_command(
-            Command::new("icacls.exe").arg(path).args(["/grant", &format!("{user}:(RX)")]),
-            "target account read-execute ACL grant",
-        )?;
-        if !output.status.success() {
-            let restore = lease.restore();
-            return Err(anyhow::anyhow!(
-                "target account read-execute ACL grant failed: {}; restore: {}",
-                String::from_utf8_lossy(&output.stderr),
-                result_label(&restore)
-            ));
-        }
-        if let Err(error) = grant_sid(path, sid, access, false) {
-            let restore = lease.restore();
-            return Err(error
-                .context(format!("restore after failed ACL grant: {}", result_label(&restore))));
-        }
-        Ok(lease)
-    }
-
-    fn snapshot(path: &Path, grant: &str) -> Result<Self> {
-        let information = DACL_SECURITY_INFORMATION | LABEL_SECURITY_INFORMATION;
-        let original = file_security(path, information)?;
-        let before_sha256 = hash_words(&original);
-        Ok(Self {
-            path: path.to_path_buf(),
-            grant: grant.to_string(),
-            security_information: information,
-            original,
-            before_sha256,
-            restored: false,
-        })
-    }
-
-    fn restore(&mut self) -> Result<AclRestorationEvidence> {
-        if self.restored {
-            bail!("ACL lease was restored twice");
-        }
-        let identity = format!("path={}; grant={}", self.path.display(), self.grant);
-        let path = wide(self.path.as_os_str());
-        // SAFETY: original is an aligned, live, self-relative security descriptor returned by
-        // GetFileSecurityW, and path is NUL-terminated.
+impl OwnedSecurityDescriptor {
+    fn from_sddl(sddl: &str) -> Result<Self> {
+        let sddl = wide(OsStr::new(sddl));
+        let mut descriptor = null_mut();
+        // SAFETY: sddl is NUL-terminated and descriptor points to writable storage.
         check(
             unsafe {
-                SetFileSecurityW(
-                    path.as_ptr(),
-                    self.security_information,
-                    self.original.as_ptr().cast_mut().cast(),
+                ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                    sddl.as_ptr(),
+                    SDDL_REVISION_1,
+                    &mut descriptor,
+                    null_mut(),
                 )
             },
-            "restore exact preflight file security descriptor",
-        )
-        .with_context(|| identity.clone())?;
-        let restored = file_security(&self.path, self.security_information)
-            .with_context(|| format!("read restored AppContainer ACL; {identity}"))?;
-        let restored_sha256 = hash_words(&restored);
-        let exact_restore = self.original == restored;
-        if !exact_restore {
-            bail!("ACL restore did not reproduce the exact pre-launch descriptor; {identity}");
-        }
-        self.restored = true;
-        Ok(AclRestorationEvidence {
-            path: self.path.clone(),
-            grant: self.grant.clone(),
-            before_sha256: self.before_sha256.clone(),
-            restored_sha256,
-            exact_restore,
-        })
+            "build nonce-owned AppContainer directory security descriptor",
+        )?;
+        Ok(Self(descriptor))
     }
 }
 
-impl Drop for AclLease {
+impl Drop for OwnedSecurityDescriptor {
     fn drop(&mut self) {
-        if !self.restored {
-            let _ = self.restore();
+        if !self.0.is_null() {
+            // SAFETY: the conversion API allocated this descriptor with LocalAlloc.
+            unsafe { LocalFree(self.0) };
         }
+    }
+}
+
+struct OwnedNonceDirectory {
+    path: PathBuf,
+    removed: bool,
+}
+
+// This owner has no Drop deletion. Explicit remove is allowed only after accepted Job-zero proof;
+// a failed run retains its bounded RUNNER_TEMP directory for evidence and outer-runner cleanup.
+
+impl OwnedNonceDirectory {
+    fn create(
+        path: &Path,
+        runner_sid: &str,
+        account_sid: &str,
+        appcontainer_sid: &str,
+        access: NonceDirectoryAccess,
+    ) -> Result<Self> {
+        if path.exists() {
+            bail!("nonce-owned AppContainer directory already existed: {}", path.display());
+        }
+        for (name, sid) in
+            [("runner", runner_sid), ("account", account_sid), ("AppContainer", appcontainer_sid)]
+        {
+            OwnedSid::from_string(sid)
+                .with_context(|| format!("validate {name} SID for nonce-owned directory"))?;
+        }
+        let access = match access {
+            NonceDirectoryAccess::ReadExecute => "GRGX",
+            NonceDirectoryAccess::Full => "GA",
+        };
+        let sddl = format!(
+            "D:P(A;OICI;GA;;;SY)(A;OICI;GA;;;BA)(A;OICI;GA;;;{runner_sid})(A;OICI;{access};;;{account_sid})(A;OICI;{access};;;{appcontainer_sid})S:(ML;OICI;NW;;;LW)"
+        );
+        let descriptor = OwnedSecurityDescriptor::from_sddl(&sddl)?;
+        let attributes = SECURITY_ATTRIBUTES {
+            nLength: u32::try_from(size_of::<SECURITY_ATTRIBUTES>())?,
+            lpSecurityDescriptor: descriptor.0,
+            bInheritHandle: 0,
+        };
+        let path_wide = wide(path.as_os_str());
+        // SAFETY: path is NUL-terminated. The descriptor and attributes remain live for the call.
+        check(
+            unsafe { CreateDirectoryW(path_wide.as_ptr(), &attributes) },
+            "create nonce-owned AppContainer directory",
+        )
+        .with_context(|| format!("path={}", path.display()))?;
+        Ok(Self { path: path.to_path_buf(), removed: false })
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+
+    fn remove(&mut self) -> Result<()> {
+        if self.removed {
+            bail!("nonce-owned AppContainer directory was removed twice: {}", self.path.display());
+        }
+        fs::remove_dir_all(&self.path).with_context(|| {
+            format!("remove nonce-owned AppContainer directory {}", self.path.display())
+        })?;
+        if self.path.exists() {
+            bail!(
+                "nonce-owned AppContainer directory remained after deletion: {}",
+                self.path.display()
+            );
+        }
+        self.removed = true;
+        Ok(())
     }
 }
 
@@ -1078,49 +1129,33 @@ fn run_account_broker(token: HANDLE, executable: &Path, config: &Path) -> Result
 fn launch_appcontainer_product(config: &BrokerConfig) -> Result<BrokerEvidence> {
     let appcontainer_sid = OwnedSid::from_string(&config.appcontainer_sid)?;
     let mut process_token = null_mut();
-    // SAFETY: process token storage is writable. The broker runs under the exact benchmark
-    // account, so a restricted version is eligible for CreateProcessAsUser's documented waiver.
+    // SAFETY: process token storage is writable. This is the trusted account-owned broker token.
     check(
         unsafe {
             OpenProcessToken(
                 GetCurrentProcess(),
-                TOKEN_QUERY
-                    | TOKEN_DUPLICATE
-                    | TOKEN_ASSIGN_PRIMARY
-                    | TOKEN_ADJUST_DEFAULT
-                    | TOKEN_ADJUST_PRIVILEGES,
+                TOKEN_QUERY | TOKEN_ADJUST_PRIVILEGES,
                 &mut process_token,
             )
         },
         "open account broker primary token",
     )?;
     let process_token = OwnedHandle(process_token);
-    enable_privilege(process_token.0, "SeIncreaseQuotaPrivilege")?;
-    let mut restricted = null_mut();
-    // SAFETY: the source is the broker primary token. Zero restricting SIDs is intentional; the
-    // AppContainer SID is supplied through SECURITY_CAPABILITIES instead.
-    check(
-        unsafe {
-            CreateRestrictedToken(
-                process_token.0,
-                DISABLE_MAX_PRIVILEGE,
-                0,
-                null(),
-                0,
-                null(),
-                0,
-                null(),
-                &mut restricted,
-            )
-        },
-        "create no-privilege AppContainer target token",
-    )?;
-    let restricted = OwnedHandle(restricted);
-    set_low_integrity(restricted.0)?;
-    disable_all_privileges(restricted.0)?;
+    disable_all_privileges(process_token.0)?;
+    enable_privilege(process_token.0, "SeChangeNotifyPrivilege")?;
     let pre_launch_token =
-        pre_launch_token_evidence(restricted.0, &config.account_authentication_id)?;
+        pre_launch_token_evidence(process_token.0, &config.account_authentication_id)?;
     pre_launch_token.validate()?;
+    let broker_staging_write_denied = fs::write(
+        config.staging_root.join(format!("broker-denied-{}.txt", &config.nonce[..16])),
+        config.nonce.as_bytes(),
+    )
+    .is_err();
+    let broker_staged_probe_write_denied =
+        OpenOptions::new().write(true).open(&config.target).is_err();
+    if !broker_staging_write_denied || !broker_staged_probe_write_denied {
+        bail!("trusted account broker had write access to AppContainer staging");
+    }
 
     let (job, completion) = create_job()?;
     let inheritable = SECURITY_ATTRIBUTES {
@@ -1199,11 +1234,11 @@ fn launch_appcontainer_product(config: &BrokerConfig) -> Result<BrokerEvidence> 
     startup.StartupInfo.hStdError = error_write.0;
     startup.lpAttributeList = attribute_list.pointer;
     let mut process = PROCESS_INFORMATION::default();
-    // SAFETY: token, strings, environment, startup attributes, and handle list are live. Only
-    // the exact three standard handles are inheritable and named by the attribute list.
+    // SAFETY: strings, environment, startup attributes, and handle list are live. The trusted
+    // account broker is the source process. SECURITY_CAPABILITIES creates the AppContainer output
+    // token, and only the exact three standard handles are inheritable.
     let created = unsafe {
-        CreateProcessAsUserW(
-            restricted.0,
+        CreateProcessW(
             application.as_ptr(),
             command_line.as_mut_ptr(),
             null(),
@@ -1220,7 +1255,7 @@ fn launch_appcontainer_product(config: &BrokerConfig) -> Result<BrokerEvidence> 
         )
     };
     drop(attribute_list);
-    check(created, "create suspended AppContainer feasibility product")?;
+    check(created, "CreateProcessW suspended AppContainer feasibility product")?;
     let mut product_owner = ProductProcessOwner {
         process: OwnedHandle(process.hProcess),
         thread: OwnedHandle(process.hThread),
@@ -1229,37 +1264,6 @@ fn launch_appcontainer_product(config: &BrokerConfig) -> Result<BrokerEvidence> 
     drop(input_read);
     drop(output_write);
     drop(error_write);
-    // SAFETY: process and Job handles are live.
-    check(
-        unsafe { AssignProcessToJobObject(job.0, product_owner.process.0) },
-        "assign AppContainer product to its private Job",
-    )?;
-    let mut in_job = 0;
-    // SAFETY: process and exact Job handles are live and in_job is writable.
-    check(
-        unsafe {
-            windows_sys::Win32::System::JobObjects::IsProcessInJob(
-                product_owner.process.0,
-                job.0,
-                &mut in_job,
-            )
-        },
-        "query exact AppContainer product Job membership",
-    )?;
-    if in_job == 0 {
-        bail!("AppContainer product was not in its exact private Job before resume");
-    }
-    let after = token_proof_from_process(product_owner.process.0, &config.appcontainer_sid)?;
-    let suspended_product_token =
-        SuspendedProductTokenEvidence::from_proof(&after, &config.account_authentication_id);
-    suspended_product_token.validate()?;
-    // SAFETY: thread_handle is the suspended primary thread.
-    let resume_previous_count = unsafe { ResumeThread(product_owner.thread.0) };
-    if resume_previous_count != 1 {
-        bail!("AppContainer product resume count was {resume_previous_count}, expected 1");
-    }
-    let product_process_id = unsafe { GetProcessId(product_owner.process.0) };
-    let product_primary_thread_id = unsafe { GetThreadId(product_owner.thread.0) };
 
     let (sender, receiver) = mpsc::channel();
     let output_thread = thread::spawn(move || {
@@ -1287,38 +1291,86 @@ fn launch_appcontainer_product(config: &BrokerConfig) -> Result<BrokerEvidence> 
         std::mem::forget(error_read);
         read_bounded_tail(file, 16 * 1024)
     });
-    let post_launch = (|| -> Result<(ProductEvidence, bool)> {
-        let record = receiver
-            .recv_timeout(PRODUCT_TIMEOUT)
-            .context("AppContainer product evidence deadline expired")??;
-        let mut product: ProductEvidence =
-            serde_json::from_slice(record.strip_suffix(b"\n").unwrap_or(&record))?;
-        product.inbound_network_denied = match product.inbound_bound_address {
-            None => true,
-            Some(address) => TcpStream::connect_timeout(&address, Duration::from_secs(2)).is_err(),
-        };
-        validate_product(&product, config)?;
-        let mut accounting = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
-        // SAFETY: accounting matches the requested information class.
-        check(
-            unsafe {
-                QueryInformationJobObject(
-                    job.0,
-                    JobObjectBasicAccountingInformation,
-                    (&mut accounting as *mut JOBOBJECT_BASIC_ACCOUNTING_INFORMATION).cast(),
-                    u32::try_from(size_of::<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>())?,
-                    null_mut(),
-                )
-            },
-            "query AppContainer descendant Job accounting",
-        )?;
-        Ok((product, accounting.ActiveProcesses >= 2))
-    })();
+    let post_launch =
+        (|| -> Result<(ProductEvidence, bool, SuspendedProductTokenEvidence, u32, u32, u32)> {
+            // SAFETY: process and Job handles are live.
+            check(
+                unsafe { AssignProcessToJobObject(job.0, product_owner.process.0) },
+                "assign AppContainer product to its private Job",
+            )?;
+            let mut in_job = 0;
+            // SAFETY: process and exact Job handles are live and in_job is writable.
+            check(
+                unsafe {
+                    windows_sys::Win32::System::JobObjects::IsProcessInJob(
+                        product_owner.process.0,
+                        job.0,
+                        &mut in_job,
+                    )
+                },
+                "query exact AppContainer product Job membership",
+            )?;
+            if in_job == 0 {
+                bail!("AppContainer product was not in its exact private Job before resume");
+            }
+            let after =
+                token_proof_from_process(product_owner.process.0, &config.appcontainer_sid)?;
+            let suspended_product_token = SuspendedProductTokenEvidence::from_proof(
+                &after,
+                &config.account_authentication_id,
+            );
+            suspended_product_token.validate()?;
+            // SAFETY: thread_handle is the suspended primary thread.
+            let resume_previous_count = unsafe { ResumeThread(product_owner.thread.0) };
+            if resume_previous_count != 1 {
+                bail!("AppContainer product resume count was {resume_previous_count}, expected 1");
+            }
+            let product_process_id = unsafe { GetProcessId(product_owner.process.0) };
+            let product_primary_thread_id = unsafe { GetThreadId(product_owner.thread.0) };
+
+            let record = receiver
+                .recv_timeout(PRODUCT_TIMEOUT)
+                .context("AppContainer product evidence deadline expired")??;
+            let mut product: ProductEvidence =
+                serde_json::from_slice(record.strip_suffix(b"\n").unwrap_or(&record))?;
+            product.inbound_network_denied = match product.inbound_bound_address {
+                None => true,
+                Some(address) => {
+                    TcpStream::connect_timeout(&address, Duration::from_secs(2)).is_err()
+                }
+            };
+            validate_product(&product, config)?;
+            let mut accounting = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
+            // SAFETY: accounting matches the requested information class.
+            check(
+                unsafe {
+                    QueryInformationJobObject(
+                        job.0,
+                        JobObjectBasicAccountingInformation,
+                        (&mut accounting as *mut JOBOBJECT_BASIC_ACCOUNTING_INFORMATION).cast(),
+                        u32::try_from(size_of::<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>())?,
+                        null_mut(),
+                    )
+                },
+                "query AppContainer descendant Job accounting",
+            )?;
+            Ok((
+                product,
+                accounting.ActiveProcesses >= 2,
+                suspended_product_token,
+                resume_previous_count,
+                product_process_id,
+                product_primary_thread_id,
+            ))
+        })();
     // SAFETY: job is live. Termination is the sole release for the deliberately blocked probes.
     let terminate =
         check(unsafe { TerminateJobObject(job.0, 125) }, "terminate AppContainer feasibility Job");
-    let active_process_zero =
-        if terminate.is_ok() { wait_active_zero(completion.0, CLEANUP_TIMEOUT) } else { Ok(false) };
+    let active_process_zero = if terminate.is_ok() {
+        wait_active_zero(job.0, completion.0, CLEANUP_TIMEOUT)
+    } else {
+        Ok(false)
+    };
     drop(input_write);
     if active_process_zero.as_ref().is_ok_and(|empty| *empty) {
         product_owner.terminate_on_drop = false;
@@ -1332,7 +1384,14 @@ fn launch_appcontainer_product(config: &BrokerConfig) -> Result<BrokerEvidence> 
         .map_err(|_| anyhow::anyhow!("AppContainer stderr reader panicked"))??;
     terminate?;
     let active_process_zero = active_process_zero?;
-    let (product, descendant_observed_in_job) = post_launch.map_err(|error| {
+    let (
+        product,
+        descendant_observed_in_job,
+        suspended_product_token,
+        resume_previous_count,
+        product_process_id,
+        product_primary_thread_id,
+    ) = post_launch.map_err(|error| {
         error.context(format!("AppContainer product stderr: {}", String::from_utf8_lossy(&stderr)))
     })?;
     if !descendant_observed_in_job || !active_process_zero {
@@ -1346,7 +1405,10 @@ fn launch_appcontainer_product(config: &BrokerConfig) -> Result<BrokerEvidence> 
         pre_launch_token,
         suspended_product_token,
         product,
-        create_process_as_user_succeeded: true,
+        launch_api: "CreateProcessW+SECURITY_CAPABILITIES".into(),
+        create_process_w_succeeded: true,
+        broker_staging_write_denied,
+        broker_staged_probe_write_denied,
         explicit_three_handle_list: true,
         security_capabilities_applied: true,
         product_exact_job_before_resume: true,
@@ -1365,7 +1427,9 @@ struct TokenProof {
     restricting_sid_count_zero: bool,
     capability_count_zero: bool,
     low_integrity: bool,
-    no_enabled_privileges: bool,
+    enabled_privilege_count: u32,
+    se_change_notify_enabled: bool,
+    traverse_privilege_only: bool,
     authentication_id: String,
 }
 
@@ -1374,11 +1438,13 @@ fn pre_launch_token_evidence(
     expected_authentication_id: &str,
 ) -> Result<PreLaunchTokenEvidence> {
     let authentication_id = token_authentication_id(token)?;
+    let privileges = enabled_privilege_proof(token)?;
     Ok(PreLaunchTokenEvidence {
         non_appcontainer: token_u32(token, TokenIsAppContainer)? == 0,
         restricting_sid_count_zero: token_restricting_sid_count_zero(token)?,
-        low_integrity: token_is_low_integrity(token)?,
-        no_enabled_privileges: token_has_no_enabled_privileges(token)?,
+        enabled_privilege_count: privileges.enabled_count,
+        se_change_notify_enabled: privileges.se_change_notify_enabled,
+        traverse_privilege_only: privileges.traverse_privilege_only,
         account_authentication_match: authentication_id == expected_authentication_id,
     })
 }
@@ -1419,13 +1485,16 @@ fn token_proof(token: HANDLE, expected_sid: &str) -> Result<TokenProof> {
     // SAFETY: GetTokenInformation filled this aligned TOKEN_GROUPS header.
     let capabilities = unsafe { &*(capabilities.as_ptr().cast::<TOKEN_GROUPS>()) };
     let authentication_id = token_authentication_id(token)?;
+    let privileges = enabled_privilege_proof(token)?;
     Ok(TokenProof {
         is_appcontainer,
         appcontainer_sid_match,
         restricting_sid_count_zero: token_restricting_sid_count_zero(token)?,
         capability_count_zero: capabilities.GroupCount == 0,
         low_integrity: token_is_low_integrity(token)?,
-        no_enabled_privileges: token_has_no_enabled_privileges(token)?,
+        enabled_privilege_count: privileges.enabled_count,
+        se_change_notify_enabled: privileges.se_change_notify_enabled,
+        traverse_privilege_only: privileges.traverse_privilege_only,
         authentication_id,
     })
 }
@@ -1450,14 +1519,37 @@ fn token_is_low_integrity(token: HANDLE) -> Result<bool> {
     Ok(!rid.is_null() && unsafe { *rid } == SECURITY_MANDATORY_LOW_RID as u32)
 }
 
-fn token_has_no_enabled_privileges(token: HANDLE) -> Result<bool> {
+struct EnabledPrivilegeProof {
+    enabled_count: u32,
+    se_change_notify_enabled: bool,
+    traverse_privilege_only: bool,
+}
+
+fn enabled_privilege_proof(token: HANDLE) -> Result<EnabledPrivilegeProof> {
     let privileges = token_information(token, TokenPrivileges)?;
     // SAFETY: GetTokenInformation filled this aligned TOKEN_PRIVILEGES header and array.
     let privileges = unsafe { &*(privileges.as_ptr().cast::<TOKEN_PRIVILEGES>()) };
     let first = privileges.Privileges.as_ptr();
-    Ok((0..privileges.PrivilegeCount).all(|index| unsafe {
-        (*first.add(index as usize)).Attributes & SE_PRIVILEGE_ENABLED == 0
-    }))
+    let change_notify = privilege_luid("SeChangeNotifyPrivilege")?;
+    let mut enabled_count = 0_u32;
+    let mut se_change_notify_enabled = false;
+    for index in 0..privileges.PrivilegeCount {
+        let privilege = unsafe { &*first.add(index as usize) };
+        if privilege.Attributes & SE_PRIVILEGE_ENABLED == 0 {
+            continue;
+        }
+        enabled_count += 1;
+        if privilege.Luid.LowPart == change_notify.LowPart
+            && privilege.Luid.HighPart == change_notify.HighPart
+        {
+            se_change_notify_enabled = true;
+        }
+    }
+    Ok(EnabledPrivilegeProof {
+        enabled_count,
+        se_change_notify_enabled,
+        traverse_privilege_only: enabled_count == 1 && se_change_notify_enabled,
+    })
 }
 
 fn token_information(token: HANDLE, class: i32) -> Result<Vec<usize>> {
@@ -1501,28 +1593,15 @@ fn token_user_sid(token: HANDLE) -> Result<String> {
     sid_text(user.User.Sid)
 }
 
-fn set_low_integrity(token: HANDLE) -> Result<()> {
-    let sid = OwnedSid::from_string("S-1-16-4096")?;
-    let label = TOKEN_MANDATORY_LABEL {
-        Label: windows_sys::Win32::Security::SID_AND_ATTRIBUTES {
-            Sid: sid.0,
-            Attributes: SE_GROUP_INTEGRITY as u32,
-        },
-    };
-    // SAFETY: label and its SID remain live through the assignment call.
+fn current_process_user_sid() -> Result<String> {
+    let mut token = null_mut();
+    // SAFETY: token points to writable handle storage.
     check(
-        unsafe {
-            SetTokenInformation(
-                token,
-                TokenIntegrityLevel,
-                (&label as *const TOKEN_MANDATORY_LABEL).cast(),
-                u32::try_from(size_of::<TOKEN_MANDATORY_LABEL>())?
-                    .checked_add(unsafe { GetLengthSid(sid.0) })
-                    .context("AppContainer integrity-label size overflow")?,
-            )
-        },
-        "set AppContainer product token low integrity",
-    )
+        unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) },
+        "open trusted controller token for staging ownership",
+    )?;
+    let token = OwnedHandle(token);
+    token_user_sid(token.0)
 }
 
 fn disable_all_privileges(token: HANDLE) -> Result<()> {
@@ -1531,25 +1610,19 @@ fn disable_all_privileges(token: HANDLE) -> Result<()> {
     // SAFETY: token is live. When DisableAllPrivileges is true, Windows ignores NewState.
     check(
         unsafe { AdjustTokenPrivileges(token, 1, null(), 0, null_mut(), null_mut()) },
-        "disable every AppContainer target-token privilege",
+        "disable every AppContainer broker-token privilege",
     )?;
     // SAFETY: this reads the calling thread's last-error value after AdjustTokenPrivileges.
     let windows_error = unsafe { windows_sys::Win32::Foundation::GetLastError() };
     if windows_error != ERROR_SUCCESS {
         return Err(io::Error::from_raw_os_error(i32::try_from(windows_error)?))
-            .context("disable every AppContainer target-token privilege");
+            .context("disable every AppContainer broker-token privilege");
     }
     Ok(())
 }
 
 fn enable_privilege(token: HANDLE, name: &str) -> Result<()> {
-    let name = wide(OsStr::new(name));
-    let mut luid = unsafe { zeroed() };
-    // SAFETY: name is NUL-terminated and luid points to writable storage.
-    check(
-        unsafe { LookupPrivilegeValueW(null(), name.as_ptr(), &mut luid) },
-        "resolve AppContainer broker privilege",
-    )?;
+    let luid = privilege_luid(name)?;
     let requested = TOKEN_PRIVILEGES {
         PrivilegeCount: 1,
         Privileges: [LUID_AND_ATTRIBUTES { Luid: luid, Attributes: SE_PRIVILEGE_ENABLED }],
@@ -1565,6 +1638,17 @@ fn enable_privilege(token: HANDLE, name: &str) -> Result<()> {
         return Err(io::Error::last_os_error()).context("enable AppContainer broker privilege");
     }
     Ok(())
+}
+
+fn privilege_luid(name: &str) -> Result<windows_sys::Win32::Foundation::LUID> {
+    let name = wide(OsStr::new(name));
+    let mut luid = unsafe { zeroed() };
+    // SAFETY: name is NUL-terminated and luid points to writable storage.
+    check(
+        unsafe { LookupPrivilegeValueW(null(), name.as_ptr(), &mut luid) },
+        "resolve AppContainer broker privilege",
+    )?;
+    Ok(luid)
 }
 
 fn create_job() -> Result<(OwnedHandle, OwnedHandle)> {
@@ -1619,7 +1703,10 @@ fn create_pipe(attributes: &SECURITY_ATTRIBUTES, name: &str) -> Result<(OwnedHan
     Ok((OwnedHandle(read), OwnedHandle(write)))
 }
 
-fn wait_active_zero(completion: HANDLE, timeout: Duration) -> Result<bool> {
+fn wait_active_zero(job: HANDLE, completion: HANDLE, timeout: Duration) -> Result<bool> {
+    if job_active_processes(job)? == 0 {
+        return Ok(true);
+    }
     let deadline = Instant::now().checked_add(timeout).context("Job cleanup deadline overflow")?;
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
@@ -1634,7 +1721,7 @@ fn wait_active_zero(completion: HANDLE, timeout: Duration) -> Result<bool> {
             if unsafe { windows_sys::Win32::Foundation::GetLastError() }
                 == windows_sys::Win32::Foundation::WAIT_TIMEOUT
             {
-                return Ok(false);
+                return Ok(job_active_processes(job)? == 0);
             }
             return Err(io::Error::last_os_error()).context("wait for AppContainer Job event");
         }
@@ -1642,6 +1729,24 @@ fn wait_active_zero(completion: HANDLE, timeout: Duration) -> Result<bool> {
             return Ok(true);
         }
     }
+}
+
+fn job_active_processes(job: HANDLE) -> Result<u32> {
+    let mut accounting = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
+    // SAFETY: accounting matches the requested Job information class.
+    check(
+        unsafe {
+            QueryInformationJobObject(
+                job,
+                JobObjectBasicAccountingInformation,
+                (&mut accounting as *mut JOBOBJECT_BASIC_ACCOUNTING_INFORMATION).cast(),
+                u32::try_from(size_of::<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>())?,
+                null_mut(),
+            )
+        },
+        "query AppContainer Job active-process count",
+    )?;
+    Ok(accounting.ActiveProcesses)
 }
 
 fn network_profile_present(
@@ -1738,65 +1843,6 @@ impl Drop for RegistryKey {
     }
 }
 
-fn grant_sid(path: &Path, sid: PSID, access: u32, container: bool) -> Result<()> {
-    let path = wide(path.as_os_str());
-    let mut old_dacl: *mut ACL = null_mut();
-    let mut descriptor = null_mut();
-    check_windows_error(
-        unsafe {
-            GetNamedSecurityInfoW(
-                path.as_ptr(),
-                SE_FILE_OBJECT,
-                DACL_SECURITY_INFORMATION,
-                null_mut(),
-                null_mut(),
-                &mut old_dacl,
-                null_mut(),
-                &mut descriptor,
-            )
-        },
-        "read AppContainer ACL",
-    )?;
-    let entry = EXPLICIT_ACCESS_W {
-        grfAccessPermissions: access,
-        grfAccessMode: GRANT_ACCESS,
-        grfInheritance: if container {
-            windows_sys::Win32::Security::SUB_CONTAINERS_AND_OBJECTS_INHERIT
-        } else {
-            0
-        },
-        Trustee: TRUSTEE_W {
-            pMultipleTrustee: null_mut(),
-            MultipleTrusteeOperation: NO_MULTIPLE_TRUSTEE,
-            TrusteeForm: TRUSTEE_IS_SID,
-            TrusteeType: TRUSTEE_IS_UNKNOWN,
-            ptstrName: sid.cast(),
-        },
-    };
-    let mut new_dacl = null_mut();
-    let build = unsafe { SetEntriesInAclW(1, &entry, old_dacl, &mut new_dacl) };
-    if build != ERROR_SUCCESS {
-        unsafe { LocalFree(descriptor) };
-        return check_windows_error(build, "build AppContainer ACL grant");
-    }
-    let assign = unsafe {
-        SetNamedSecurityInfoW(
-            path.as_ptr(),
-            SE_FILE_OBJECT,
-            DACL_SECURITY_INFORMATION,
-            null_mut(),
-            null_mut(),
-            new_dacl,
-            null_mut(),
-        )
-    };
-    unsafe {
-        LocalFree(new_dacl.cast());
-        LocalFree(descriptor);
-    }
-    check_windows_error(assign, "assign AppContainer ACL grant")
-}
-
 fn file_security(path: &Path, information: u32) -> Result<Vec<usize>> {
     let path = wide(path.as_os_str());
     let mut bytes = 0_u32;
@@ -1822,47 +1868,21 @@ fn file_security(path: &Path, information: u32) -> Result<Vec<usize>> {
     Ok(storage)
 }
 
-fn target_parent_chain(target: &Path) -> Result<Vec<PathBuf>> {
-    let mut parents = Vec::new();
-    let mut current = target.parent().context("AppContainer target has no parent")?;
-    while let Some(parent) = current.parent() {
-        parents.push(current.to_path_buf());
-        if parent == current {
-            break;
-        }
-        current = parent;
+fn parent_security_unchanged(path: &Path, information: u32, before: &[usize]) -> Result<()> {
+    let after = file_security(path, information)?;
+    if before != after {
+        bail!("AppContainer feasibility changed the pre-existing parent security descriptor");
     }
-    Ok(parents)
+    Ok(())
 }
-
-fn restore_acl_leases(leases: &mut Vec<AclLease>) -> Result<Vec<AclRestorationEvidence>> {
-    let mut evidence = Vec::with_capacity(leases.len());
-    let mut first_error = None;
-    for lease in leases.iter_mut().rev() {
-        let path = lease.path.display().to_string();
-        let grant = lease.grant.clone();
-        match lease
-            .restore()
-            .with_context(|| format!("restore AppContainer ACL path={path}; grant={grant}"))
-        {
-            Ok(record) => evidence.push(record),
-            Err(error) if first_error.is_none() => first_error = Some(error),
-            Err(_) => {}
-        }
-    }
-    if let Some(error) = first_error {
-        return Err(error).context("restore all AppContainer ACL leases");
-    }
-    evidence.reverse();
-    Ok(evidence)
-}
-
 fn validate_config(config: &BrokerConfig, path: &Path) -> Result<()> {
     validate_nonce(&config.nonce)?;
     validate_profile_name(&config.profile_name)?;
     if config.schema_version != EVIDENCE_SCHEMA_VERSION
         || config.target_sha256 != sha256_file(&config.target)?
-        || config.target.starts_with(&config.fixture_root)
+        || config.target.parent() != Some(config.staging_root.as_path())
+        || config.staging_root == config.fixture_root
+        || config.staging_root.parent() != config.fixture_root.parent()
         || path.parent() != Some(config.fixture_root.as_path())
         || config.output.parent() != Some(config.fixture_root.as_path())
         || config.failure_output.parent() != Some(config.fixture_root.as_path())
@@ -1870,6 +1890,10 @@ fn validate_config(config: &BrokerConfig, path: &Path) -> Result<()> {
         || config.profile_folder.starts_with(&config.fixture_root)
     {
         bail!("AppContainer broker config violated its identity boundary");
+    }
+    let target = fs::symlink_metadata(&config.target)?;
+    if !target.file_type().is_file() || target.file_type().is_symlink() {
+        bail!("staged AppContainer target was not one regular file");
     }
     let expected_sid = derive_profile_sid(&config.profile_name)?;
     let observed = OwnedSid::from_string(&config.appcontainer_sid)?;
@@ -1884,6 +1908,8 @@ fn validate_product(product: &ProductEvidence, config: &BrokerConfig) -> Result<
         || product.nonce != config.nonce
         || !product.entry_reached
         || !product.fixture_write
+        || !product.staging_write_denied
+        || !product.staged_probe_write_denied
         || !product.adjacent_write_denied
         || !product.profile_owned_write
         || !product.registry_owned_write
@@ -1895,7 +1921,7 @@ fn validate_product(product: &ProductEvidence, config: &BrokerConfig) -> Result<
         || !product.restricting_sid_count_zero
         || !product.capability_count_zero
         || !product.low_integrity
-        || !product.no_enabled_privileges
+        || !product.traverse_privilege_only
         || !product.account_authentication_match
     {
         bail!("AppContainer product feasibility proof failed");
@@ -1910,7 +1936,10 @@ fn validate_broker(broker: &BrokerEvidence, config: &BrokerConfig) -> Result<()>
     if broker.schema_version != EVIDENCE_SCHEMA_VERSION
         || broker.nonce != config.nonce
         || broker.appcontainer_sid != config.appcontainer_sid
-        || !broker.create_process_as_user_succeeded
+        || broker.launch_api != "CreateProcessW+SECURITY_CAPABILITIES"
+        || !broker.create_process_w_succeeded
+        || !broker.broker_staging_write_denied
+        || !broker.broker_staged_probe_write_denied
         || !broker.explicit_three_handle_list
         || !broker.security_capabilities_applied
         || !broker.product_exact_job_before_resume
@@ -1967,6 +1996,8 @@ fn filtered_product_environment(
         ("CMUX_APP_CONTAINER_NONCE", config.nonce.clone()),
         ("CMUX_APP_CONTAINER_PROFILE", config.profile_folder.to_string_lossy().into_owned()),
         ("CMUX_APP_CONTAINER_SID", config.appcontainer_sid.clone()),
+        ("CMUX_APP_CONTAINER_STAGING", config.staging_root.to_string_lossy().into_owned()),
+        ("CMUX_APP_CONTAINER_TARGET", config.target.to_string_lossy().into_owned()),
         ("LOCALAPPDATA", config.fixture_root.to_string_lossy().into_owned()),
         ("TEMP", config.fixture_root.to_string_lossy().into_owned()),
         ("TMP", config.fixture_root.to_string_lossy().into_owned()),
@@ -1987,37 +2018,6 @@ fn filtered_product_environment(
     }
     block.push(0);
     Ok(block)
-}
-
-fn run_bounded_command(command: &mut Command, operation: &str) -> Result<std::process::Output> {
-    let mut child = command.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
-    let mut stdout = child.stdout.take().context("capture bounded command stdout")?;
-    let mut stderr = child.stderr.take().context("capture bounded command stderr")?;
-    let stdout_thread = thread::spawn(move || {
-        let mut bytes = Vec::new();
-        stdout.read_to_end(&mut bytes).map(|_| bytes)
-    });
-    let stderr_thread = thread::spawn(move || {
-        let mut bytes = Vec::new();
-        stderr.read_to_end(&mut bytes).map(|_| bytes)
-    });
-    let status = match child.wait_timeout(CLEANUP_TIMEOUT)? {
-        Some(status) => status,
-        None => {
-            child.kill()?;
-            let _ = child.wait();
-            let _ = stdout_thread.join();
-            let _ = stderr_thread.join();
-            bail!("{operation} exceeded its bounded deadline");
-        }
-    };
-    let stdout = stdout_thread
-        .join()
-        .map_err(|_| anyhow::anyhow!("{operation} stdout reader panicked"))??;
-    let stderr = stderr_thread
-        .join()
-        .map_err(|_| anyhow::anyhow!("{operation} stderr reader panicked"))??;
-    Ok(std::process::Output { status, stdout, stderr })
 }
 
 fn read_bounded_tail(mut reader: impl Read, maximum: usize) -> io::Result<Vec<u8>> {
@@ -2123,6 +2123,13 @@ fn validate_nonce(nonce: &str) -> Result<()> {
     Ok(())
 }
 
+fn validate_sha256(value: &str, name: &str) -> Result<()> {
+    if value.len() != 64 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        bail!("{name} SHA-256 is invalid");
+    }
+    Ok(())
+}
+
 fn validate_profile_name(name: &str) -> Result<()> {
     if name.len() > 64
         || !name.starts_with("cmux.bench.ac.")
@@ -2142,6 +2149,19 @@ fn sha256_file(path: &Path) -> Result<String> {
     let mut digest = Sha256::new();
     io::copy(&mut file, &mut digest)?;
     Ok(format!("{:x}", digest.finalize()))
+}
+
+fn copy_new_regular_file(source: &Path, destination: &Path) -> Result<()> {
+    let source_metadata = fs::symlink_metadata(source)?;
+    if !source_metadata.file_type().is_file() || source_metadata.file_type().is_symlink() {
+        bail!("AppContainer staged source was not one regular file");
+    }
+    let mut source = File::open(source)?;
+    let mut destination = OpenOptions::new().write(true).create_new(true).open(destination)?;
+    io::copy(&mut source, &mut destination)?;
+    destination.flush()?;
+    drop(destination);
+    Ok(())
 }
 
 fn hash_words(words: &[usize]) -> String {
@@ -2243,25 +2263,13 @@ mod tests {
     }
 
     #[test]
-    fn evidence_rejects_an_acl_that_was_not_restored() {
-        let entry = AclRestorationEvidence {
-            path: PathBuf::from("fixture"),
-            grant: "fixture-write".into(),
-            before_sha256: "a".repeat(64),
-            restored_sha256: "b".repeat(64),
-            exact_restore: false,
-        };
-        assert!(!entry.exact_restore);
-        assert_ne!(entry.before_sha256, entry.restored_sha256);
-    }
-
-    #[test]
     fn pre_launch_token_failure_names_every_proof_field() {
         let evidence = PreLaunchTokenEvidence {
             non_appcontainer: false,
             restricting_sid_count_zero: false,
-            low_integrity: false,
-            no_enabled_privileges: false,
+            enabled_privilege_count: 2,
+            se_change_notify_enabled: false,
+            traverse_privilege_only: false,
             account_authentication_match: false,
         };
 
@@ -2269,8 +2277,9 @@ mod tests {
         for field in [
             "non_appcontainer=false",
             "restricting_sid_count_zero=false",
-            "low_integrity=false",
-            "no_enabled_privileges=false",
+            "enabled_privilege_count=2",
+            "se_change_notify_enabled=false",
+            "traverse_privilege_only=false",
             "account_authentication_match=false",
         ] {
             assert!(error.contains(field), "missing field detail: {field}");
@@ -2278,7 +2287,44 @@ mod tests {
     }
 
     #[test]
-    fn broker_failure_record_uses_appcontainer_schema_two() {
+    fn pre_launch_token_accepts_only_the_traverse_privilege() {
+        let evidence = PreLaunchTokenEvidence {
+            non_appcontainer: true,
+            restricting_sid_count_zero: true,
+            enabled_privilege_count: 1,
+            se_change_notify_enabled: true,
+            traverse_privilege_only: true,
+            account_authentication_match: true,
+        };
+
+        evidence.validate().unwrap();
+    }
+
+    #[test]
+    fn nonce_owned_directory_cleanup_does_not_change_its_parent_descriptor() {
+        let parent = tempfile::tempdir().unwrap();
+        let information = DACL_SECURITY_INFORMATION | LABEL_SECURITY_INFORMATION;
+        let before = file_security(parent.path(), information).unwrap();
+        let current_sid = current_process_user_sid().unwrap();
+        let owned_path = parent.path().join("owned");
+        let mut owned = OwnedNonceDirectory::create(
+            &owned_path,
+            &current_sid,
+            &current_sid,
+            &current_sid,
+            NonceDirectoryAccess::Full,
+        )
+        .unwrap();
+
+        fs::write(owned.path().join("probe"), b"owned").unwrap();
+        owned.remove().unwrap();
+
+        assert!(!owned_path.exists());
+        parent_security_unchanged(parent.path(), information, &before).unwrap();
+    }
+
+    #[test]
+    fn broker_failure_record_uses_appcontainer_schema_three() {
         let evidence = BrokerFailureEvidence {
             schema_version: EVIDENCE_SCHEMA_VERSION,
             nonce: "12".repeat(32),
@@ -2287,7 +2333,7 @@ mod tests {
         };
 
         let encoded = serde_json::to_value(evidence).unwrap();
-        assert_eq!(encoded["schema_version"], 2);
+        assert_eq!(encoded["schema_version"], 3);
         assert_eq!(encoded["stage"], "account-broker-product-launch");
     }
 }
