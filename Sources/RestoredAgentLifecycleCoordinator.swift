@@ -16,7 +16,8 @@ final class RestoredAgentLifecycleCoordinator {
     var snapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:] {
         didSet {
             // Assigning directly inside this observer avoids recursively re-entering it.
-            for (panelId, state) in resumeStatesByPanelId where state == .awaitingAutoResumeCommand {
+            for (panelId, state) in resumeStatesByPanelId
+                where Self.retainsStartupRestoreIdentity(state) {
                 if queuedRestoreSnapshotsByPanelId[panelId] == nil {
                     queuedRestoreSnapshotsByPanelId[panelId] = snapshotsByPanelId[panelId]
                 }
@@ -34,6 +35,7 @@ final class RestoredAgentLifecycleCoordinator {
             }
         }
     }
+    /// Immutable session target retained until the staged startup command completes.
     private var queuedRestoreSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:]
     var resumeStatesByPanelId: [UUID: Workspace.RestoredAgentResumeState] = [:] {
         didSet {
@@ -51,10 +53,11 @@ final class RestoredAgentLifecycleCoordinator {
                 )
             }
             queuedRestoreSnapshotsByPanelId = queuedRestoreSnapshotsByPanelId.filter { panelId, _ in
-                resumeStatesByPanelId[panelId] == .awaitingAutoResumeCommand
+                Self.retainsStartupRestoreIdentity(resumeStatesByPanelId[panelId])
             }
             for (panelId, state) in resumeStatesByPanelId
-                where state == .awaitingAutoResumeCommand && queuedRestoreSnapshotsByPanelId[panelId] == nil {
+                where Self.retainsStartupRestoreIdentity(state) &&
+                    queuedRestoreSnapshotsByPanelId[panelId] == nil {
                 queuedRestoreSnapshotsByPanelId[panelId] = snapshotsByPanelId[panelId]
             }
         }
@@ -145,7 +148,7 @@ final class RestoredAgentLifecycleCoordinator {
             resumeState = nil
         }
         replaceQueuedRestoreSnapshot(
-            resumeState == .awaitingAutoResumeCommand ? snapshot : nil,
+            Self.retainsStartupRestoreIdentity(resumeState) ? snapshot : nil,
             panelId: panelId
         )
         snapshotsByPanelId[panelId] = snapshot
@@ -195,7 +198,7 @@ final class RestoredAgentLifecycleCoordinator {
         panelId: UUID,
         proposedSnapshot: SessionRestorableAgentSnapshot?
     ) -> SessionRestorableAgentSnapshot? {
-        guard resumeStatesByPanelId[panelId] == .awaitingAutoResumeCommand,
+        guard Self.retainsStartupRestoreIdentity(resumeStatesByPanelId[panelId]),
               let queuedSnapshot = queuedRestoreSnapshotsByPanelId[panelId] else {
             return proposedSnapshot
         }
@@ -243,7 +246,7 @@ final class RestoredAgentLifecycleCoordinator {
         resumeWorkingDirectory: String?
     ) {
         replaceQueuedRestoreSnapshot(
-            resumeState == .awaitingAutoResumeCommand ? snapshot : nil,
+            Self.retainsStartupRestoreIdentity(resumeState) ? snapshot : nil,
             panelId: panelId
         )
         if let snapshot {
@@ -287,6 +290,18 @@ final class RestoredAgentLifecycleCoordinator {
                 lhs: lhs.sessionId,
                 rhs: rhs.sessionId
             )
+    }
+
+    /// Generic shell activity cannot replace the staged session before startup completes.
+    private static func retainsStartupRestoreIdentity(
+        _ state: Workspace.RestoredAgentResumeState?
+    ) -> Bool {
+        switch state {
+        case .awaitingAutoResumeCommand, .autoResumeCommandRunning:
+            true
+        case .manualResumeAvailable, .observedAgentCommandRunning, .completedAgentExit, nil:
+            false
+        }
     }
 
     private func replaceResumeWorkingDirectory(_ directory: String?, panelId: UUID) {

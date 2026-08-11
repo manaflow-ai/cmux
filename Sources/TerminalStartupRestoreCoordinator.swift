@@ -159,23 +159,23 @@ final class TerminalStartupRestoreCoordinator {
     /// - Returns: Whether a staged transaction was cancelled.
     @discardableResult
     func cancelPendingRestore(panelID: UUID) -> Bool {
-        guard let pending = pendingRestoresByPanelID.removeValue(forKey: panelID) else {
+        guard let pending = removePendingRestore(panelID: panelID) else {
             return false
-        }
-        if let claim = pending.ownedResumeLaunchClaim {
-            AgentResumeLaunchGuard.shared.releaseResumeLaunch(
-                kind: claim.kind.rawValue,
-                sessionId: claim.sessionId
-            )
-        }
-        if pending.stagedWorkspaceID != pending.panel.workspaceId {
-            AgentHibernationController.shared.discardTrackingStateForClosedPanel(
-                workspaceId: pending.stagedWorkspaceID,
-                panelId: pending.panel.id
-            )
         }
         pending.panel.close()
         return true
+    }
+
+    /// Removes staged state while the topology owner performs the panel teardown.
+    ///
+    /// Unlike ``cancelPendingRestore(panelID:)``, this does not close the panel and
+    /// therefore cannot recursively enter the owner's panel-destruction path.
+    ///
+    /// - Parameter panelID: Panel whose owning topology is already discarding it.
+    /// - Returns: Whether a staged transaction was discarded.
+    @discardableResult
+    func discardPendingRestoreForPanelTeardown(panelID: UUID) -> Bool {
+        removePendingRestore(panelID: panelID) != nil
     }
 
     /// Atomically commits staged restore state before releasing terminal runtimes.
@@ -221,6 +221,25 @@ final class TerminalStartupRestoreCoordinator {
             cancelPendingRestore(panelID: panelID)
         }
         lifecycle.removeAllSessionRestores()
+    }
+
+    private func removePendingRestore(panelID: UUID) -> PendingRestore? {
+        guard let pending = pendingRestoresByPanelID.removeValue(forKey: panelID) else {
+            return nil
+        }
+        if let claim = pending.ownedResumeLaunchClaim {
+            AgentResumeLaunchGuard.shared.releaseResumeLaunch(
+                kind: claim.kind.rawValue,
+                sessionId: claim.sessionId
+            )
+        }
+        if pending.stagedWorkspaceID != pending.panel.workspaceId {
+            AgentHibernationController.shared.discardTrackingStateForClosedPanel(
+                workspaceId: pending.stagedWorkspaceID,
+                panelId: pending.panel.id
+            )
+        }
+        return pending
     }
 
     private func chatResumeBinding(

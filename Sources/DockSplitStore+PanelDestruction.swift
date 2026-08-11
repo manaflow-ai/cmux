@@ -20,6 +20,9 @@ extension DockSplitStore {
         )
         TerminalController.shared.cleanupSurfaceState(surfaceIds: [panelId])
         removeDetachedSurfaceTransfer(forPanelID: panelId)
+        terminalStartupRestoreCoordinator.discardPendingRestoreForPanelTeardown(
+            panelID: panelId
+        )
         clearSessionRestoreState(panelId: panelId)
 
         guard let panel = panels.removeValue(forKey: panelId) else { return nil }
