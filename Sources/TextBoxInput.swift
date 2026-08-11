@@ -2260,7 +2260,7 @@ struct TextBoxInputContainer: View {
     @State private var hasMarkedText = false
     @State private var textViewReference = TextBoxInputViewReference()
     @State private var contentRevision: UInt64 = 0
-    @State var pendingProviderLaunchTimeoutTimer: Timer?
+    @State var pendingProviderLaunchTimeoutScheduler = MainActorDeferredActionScheduler()
     @ObservedObject private var commentPool: DiffCommentSubmissionPool = .shared
 
     private var pendingCommentCount: Int {
@@ -2392,8 +2392,7 @@ struct TextBoxInputContainer: View {
             }
         }
         .onDisappear {
-            pendingProviderLaunchTimeoutTimer?.invalidate()
-            pendingProviderLaunchTimeoutTimer = nil
+            pendingProviderLaunchTimeoutScheduler.cancel()
         }
         .onChange(of: configuredSubmitActionsJSON) { _, _ in
             refreshSubmitActionsCacheIfNeeded()

@@ -243,6 +243,12 @@ private struct BrowserChromeStyle {
 
 /// View for rendering a browser panel with address bar
 struct BrowserPanelView: View {
+    private enum TaskKey: Hashable, Sendable {
+        case emptyStateImportBrowserRefresh
+        case omnibarSuggestionRefreshConsumer
+        case suggestion
+    }
+
     @ObservedObject var panel: BrowserPanel
     @ObservedObject private var browserProfileStore = BrowserProfileStore.shared
     let paneId: PaneID
@@ -258,9 +264,8 @@ struct BrowserPanelView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.cmuxCanvasInlineBrowserHosting) private var canvasInlineBrowserHosting
     @Environment(\.paneDropZone) private var paneDropZone
-    /// Held detector instance; the view detects and summarizes installed browsers
-    /// through this rather than the former `BrowserInstalledBrowserDetector` static
-    /// namespace.
+    /// Held detector instance used to summarize installed browsers rather than
+    /// the former `BrowserInstalledBrowserDetector` static namespace.
     private let installedBrowserDetector = BrowserInstalledBrowserDetector()
     @State private var omnibarState = OmnibarState()
     @State private var addressBarFocused: Bool = false
@@ -282,18 +287,16 @@ struct BrowserPanelView: View {
     @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     @State private var omnibarSuggestionRefreshScheduler = OmnibarSuggestionRefreshScheduler()
-    @State private var omnibarSuggestionRefreshConsumerTask: Task<Void, Never>?
-    @State private var suggestionTask: Task<Void, Never>?
+    @State private var tasks = MainActorTaskStore<TaskKey>()
     @State private var isLoadingRemoteSuggestions: Bool = false
     @State private var latestRemoteSuggestionQuery: String = ""
     @State private var latestRemoteSuggestions: [String] = []
     @State private var emptyStateImportBrowsers: [InstalledBrowserCandidate] = []
-    @State private var emptyStateImportBrowserRefreshTask: Task<Void, Never>?
     @State private var emptyStateImportBrowserRefreshGeneration: UInt64 = 0
     @State private var inlineCompletion: OmnibarInlineCompletion?
     @State private var screenshotPageCopied: Bool = false
     @State private var screenshotPageCaptureInProgress: Bool = false
-    @State private var screenshotPageCopiedTimer: Timer?
+    @State private var screenshotPageCopiedScheduler = MainActorDeferredActionScheduler()
     @State private var omnibarSelectionRange: NSRange = NSRange(location: NSNotFound, length: 0)
     @State private var omnibarHasMarkedText: Bool = false
     @State private var suppressNextFocusLostRevert: Bool = false
@@ -620,13 +623,10 @@ struct BrowserPanelView: View {
     }
 
     private func showScreenshotPageCopiedIndicator() {
-        screenshotPageCopiedTimer?.invalidate()
+        screenshotPageCopiedScheduler.cancel()
         screenshotPageCopied = true
-        screenshotPageCopiedTimer = Timer.scheduledTimer(withTimeInterval: 1.4, repeats: false) { _ in
-            MainActor.assumeIsolated {
-                screenshotPageCopiedTimer = nil
-                screenshotPageCopied = false
-            }
+        screenshotPageCopiedScheduler.schedule(after: .seconds(1.4)) {
+            screenshotPageCopied = false
         }
     }
 
@@ -733,8 +733,7 @@ struct BrowserPanelView: View {
         stopOmnibarSuggestionRefreshConsumer()
         cancelPendingOmnibarSuggestionWork()
         focusModeShortcutHintMonitor.stop()
-        screenshotPageCopiedTimer?.invalidate()
-        screenshotPageCopiedTimer = nil
+        screenshotPageCopiedScheduler.cancel()
         screenshotPageCopied = false
     }
 
@@ -2315,27 +2314,24 @@ struct BrowserPanelView: View {
     }
 
     private func refreshEmptyStateImportBrowsers() {
-        emptyStateImportBrowserRefreshTask?.cancel()
+        tasks.cancel(.emptyStateImportBrowserRefresh)
         emptyStateImportBrowserRefreshGeneration &+= 1
         let generation = emptyStateImportBrowserRefreshGeneration
 
         guard shouldShowEmptyStateImportOverlay else {
             emptyStateImportBrowsers = []
-            emptyStateImportBrowserRefreshTask = nil
             return
         }
 
-        let detector = installedBrowserDetector
-        emptyStateImportBrowserRefreshTask = Task {
+        tasks.replaceOnMainActor(.emptyStateImportBrowserRefresh) {
             let browsers = await Task.detached(priority: .utility) {
-                detector.detectInstalledBrowsers()
+                BrowserInstalledBrowserDetector().detectInstalledBrowsers()
             }.value
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 guard emptyStateImportBrowserRefreshGeneration == generation,
                       shouldShowEmptyStateImportOverlay else { return }
                 emptyStateImportBrowsers = browsers
-                emptyStateImportBrowserRefreshTask = nil
             }
         }
     }
@@ -2380,9 +2376,9 @@ struct BrowserPanelView: View {
     }
 
     private func startOmnibarSuggestionRefreshConsumer() {
-        guard omnibarSuggestionRefreshConsumerTask == nil else { return }
+        guard !tasks.contains(.omnibarSuggestionRefreshConsumer) else { return }
         let scheduler = omnibarSuggestionRefreshScheduler
-        omnibarSuggestionRefreshConsumerTask = Task { @MainActor in
+        tasks.replaceOnMainActor(.omnibarSuggestionRefreshConsumer) {
             for await generation in scheduler.refreshStream {
                 guard scheduler.shouldProcessRefresh(generation) else { continue }
                 refreshSuggestions()
@@ -2391,14 +2387,12 @@ struct BrowserPanelView: View {
     }
 
     private func stopOmnibarSuggestionRefreshConsumer() {
-        omnibarSuggestionRefreshConsumerTask?.cancel()
-        omnibarSuggestionRefreshConsumerTask = nil
+        tasks.cancel(.omnibarSuggestionRefreshConsumer)
     }
 
     private func cancelPendingOmnibarSuggestionWork() {
         omnibarSuggestionRefreshScheduler.cancelPendingRefresh()
-        suggestionTask?.cancel()
-        suggestionTask = nil
+        tasks.cancel(.suggestion)
         isLoadingRemoteSuggestions = false
     }
 
@@ -2610,8 +2604,7 @@ struct BrowserPanelView: View {
             )
         }
 #endif
-        suggestionTask?.cancel()
-        suggestionTask = nil
+        tasks.cancel(.suggestion)
         isLoadingRemoteSuggestions = false
 
         guard addressBarFocused, !omnibarHasMarkedText else {
@@ -2708,7 +2701,7 @@ struct BrowserPanelView: View {
         // Keep current remote rows visible while fetching fresh predictions.
         guard let engine = remoteSuggestionsEngine else { return }
         isLoadingRemoteSuggestions = true
-        suggestionTask = Task {
+        tasks.replaceOnMainActor(.suggestion) {
             let remote = await BrowserSearchSuggestionService.shared.suggestions(engine: engine, query: query)
             if Task.isCancelled { return }
 
