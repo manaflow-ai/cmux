@@ -2173,7 +2173,7 @@ mod tests {
         assert_eq!(ready, "ready\n");
 
         let matches_after_exec = process.matches_current();
-        let signal_after_exec = process.signal(0);
+        let signal_after_exec = process.signal(libc::SIGCONT);
 
         writeln!(input, "finish").unwrap();
         input.flush().unwrap();
