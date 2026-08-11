@@ -83,18 +83,29 @@ struct TerminalLinkOpenCoordinatorTests {
 
     @Test("path:line Cmd-click forwards the location to the preferred editor")
     @MainActor
-    func pathLocationUsesPreferredEditor() throws {
+    func pathLocationUsesPreferredEditor() async throws {
         let defaults = makeDefaults()
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-terminal-link-(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cmux-terminal-link-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let fileURL = root.appendingPathComponent("main.swift")
         try "print(\"hello\")\n".write(to: fileURL, atomically: true, encoding: .utf8)
 
+        let marker = root.appendingPathComponent("received.txt")
+        let editorScript = root.appendingPathComponent("editor.sh")
+        try #"""
+        #!/bin/sh
+        printf %s "$1" > '\#(marker.path)'
+        """#.write(to: editorScript, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: editorScript.path
+        )
+        defaults.set(editorScript.path, forKey: "preferredEditorCommand")
+
         let panelID = UUID()
         let container = RecordingTerminalLinkContainer()
-        var preferredEditorOpen: (URL, Int?, Int?)?
         var externallyOpened: [URL] = []
         let coordinator = TerminalLinkOpenCoordinator(
             defaults: defaults,
@@ -105,9 +116,6 @@ struct TerminalLinkOpenCoordinatorTests {
                 externallyOpened.append(openedURL)
                 return true
             },
-            preferredEditorOpen: { url, line, column in
-                preferredEditorOpen = (url, line, column)
-            },
             deferOperation: { operation in operation() }
         )
 
@@ -117,9 +125,12 @@ struct TerminalLinkOpenCoordinatorTests {
             sourcePanelId: panelID,
             workingDirectory: root.path
         )))
-        #expect(preferredEditorOpen?.0 == fileURL)
-        #expect(preferredEditorOpen?.1 == 42)
-        #expect(preferredEditorOpen?.2 == 5)
+
+        for _ in 0..<200 where !FileManager.default.fileExists(atPath: marker.path) {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        let received = try String(contentsOf: marker, encoding: .utf8)
+        #expect(received == "\(fileURL.path):42:5")
         #expect(container.openedFilePaths.isEmpty)
         #expect(externallyOpened.isEmpty)
     }

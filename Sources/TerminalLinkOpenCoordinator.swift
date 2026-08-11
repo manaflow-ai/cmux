@@ -11,14 +11,16 @@ struct TerminalLinkOpenCoordinator {
     private let defaults: UserDefaults
     private let containerResolver: @MainActor (UUID?, UUID?) -> (any TerminalLinkOpenContainer)?
     private let externalOpen: @MainActor @Sendable (URL) -> Bool
-    private let preferredEditorOpen: @MainActor (URL, Int?, Int?) -> Void
     private let deferOperation: @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void
 
+    /// Creates a coordinator using the supplied routing collaborators.
+    ///
+    /// The production preferred-editor service is created at the point of
+    /// opening so it always reads the current editor setting.
     init(
         defaults: UserDefaults = .standard,
         containerResolver: @escaping @MainActor (UUID?, UUID?) -> (any TerminalLinkOpenContainer)? = Self.resolveContainer,
         externalOpen: @escaping @MainActor @Sendable (URL) -> Bool = { NSWorkspace.shared.open($0) },
-        preferredEditorOpen: (@MainActor (URL, Int?, Int?) -> Void)? = nil,
         deferOperation: @escaping @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void = { operation in
             Task { @MainActor in operation() }
         }
@@ -26,12 +28,10 @@ struct TerminalLinkOpenCoordinator {
         self.defaults = defaults
         self.containerResolver = containerResolver
         self.externalOpen = externalOpen
-        self.preferredEditorOpen = preferredEditorOpen ?? { url, line, column in
-            PreferredEditorService(defaults: defaults).open(url, line: line, column: column)
-        }
         self.deferOperation = deferOperation
     }
 
+    /// Opens a terminal link according to the source terminal and URL policy.
     @discardableResult
     func open(_ request: TerminalLinkOpenRequest) -> Bool {
         log("link.openURL raw=\(request.rawValue)")
@@ -57,10 +57,10 @@ struct TerminalLinkOpenCoordinator {
                     "link.openURL resolvedAsFileLocation=\(reference.path):\(line)" +
                     (reference.column.map { ":\($0)" } ?? "")
                 )
-                preferredEditorOpen(
+                PreferredEditorService(defaults: defaults).open(
                     URL(fileURLWithPath: reference.path),
-                    reference.line,
-                    reference.column
+                    line: reference.line,
+                    column: reference.column
                 )
                 return true
             }
@@ -282,6 +282,7 @@ struct TerminalLinkOpenCoordinator {
         return externalOpen(url)
     }
 
+    /// Returns whether a raw link is an explicit local `file` URL.
     private func isExplicitFileURL(_ rawValue: String) -> Bool {
         URL(string: rawValue)?.scheme?.caseInsensitiveCompare("file") == .orderedSame
     }

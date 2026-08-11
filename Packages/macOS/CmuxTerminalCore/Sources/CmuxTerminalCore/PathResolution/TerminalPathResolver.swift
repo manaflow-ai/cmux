@@ -120,8 +120,20 @@ public struct TerminalPathResolver: Sendable {
             }
 
             guard let location = parseLocationSuffix(in: normalizedToken),
-                  let path = localFilePath(for: location.path),
-                  let resolvedPath = resolveQuicklookPath(path, cwd: cwd) else {
+                  let path = localFilePath(for: location.path) else {
+                continue
+            }
+
+            // A relative name such as `report:42` is parsed by Foundation as
+            // a custom URL scheme. Once its suffix is known to be a location
+            // and the location path itself is schemeless, probe the complete
+            // spelling before treating it as `path:line`. This preserves a
+            // real file named `report:42` without admitting non-file URLs.
+            if !isExplicitFileURL(normalizedToken),
+               let literalPath = resolveQuicklookPath(normalizedToken, cwd: cwd) {
+                return TerminalFileReference(path: literalPath)
+            }
+            guard let resolvedPath = resolveQuicklookPath(path, cwd: cwd) else {
                 continue
             }
             return TerminalFileReference(
@@ -148,6 +160,7 @@ public struct TerminalPathResolver: Sendable {
         resolveOpenURLFileReference(rawText, cwd: cwd)?.path
     }
 
+    /// Converts a token into a local path while rejecting non-file URL schemes.
     private func localFilePath(for token: String) -> String? {
         guard let url = URL(string: token), let scheme = url.scheme else {
             return token
@@ -162,6 +175,12 @@ public struct TerminalPathResolver: Sendable {
         return url.path
     }
 
+    /// Returns whether `token` is an explicit local `file` URL.
+    private func isExplicitFileURL(_ token: String) -> Bool {
+        URL(string: token)?.scheme?.caseInsensitiveCompare("file") == .orderedSame
+    }
+
+    /// Parses a positive `:line` or `:line:column` suffix from a token.
     private func parseLocationSuffix(
         in token: String
     ) -> (path: String, line: Int, column: Int?)? {
@@ -185,6 +204,7 @@ public struct TerminalPathResolver: Sendable {
         return (path, lineNumber, lastNumber)
     }
 
+    /// Returns a positive integer for a valid source location component.
     private func positiveInteger(_ rawValue: String) -> Int? {
         guard let value = Int(rawValue), value > 0 else { return nil }
         return value
