@@ -583,6 +583,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         }
 
         if recoveredStalledCloseSlot {
+            updateCloseTeardownAdmission()
             closeTeardownRecoveredObserver(executionSlot)
         }
 
