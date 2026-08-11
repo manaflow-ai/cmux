@@ -2,8 +2,8 @@
   "files": [
     {
       "path": "presence_test.zig",
-      "sha256": "f6593d374d6859533da6b7ecb0f239229844f2e56c55375d66a1eb577891d732",
-      "size": 6439
+      "sha256": "7773acc8b4e9b9a8f7240f4a67cc8482fd3dddd6c9ed822d4523dd2bff8fbd8f",
+      "size": 6530
     },
     {
       "path": "protocol.zig",
