@@ -10,6 +10,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
     static let groupStateFileNames = [
         "identity",
         "identity.new",
+        "identity.ready",
+        "cleanup.ready",
         "created",
         "created.new",
         "publisher",
@@ -45,6 +47,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
         "owner.new",
         "publisher",
         "publisher.new",
+        "owner.ready",
     ]
 
     static let cleanupLockStateFileNames = [
@@ -433,7 +436,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "$cmux_ssh_auth_stale_lock/generation" \
             "$cmux_ssh_auth_stale_lock/generation.new" \
             "$cmux_ssh_auth_stale_lock/pending" \
-            "$cmux_ssh_auth_stale_lock/pending.new" 2>/dev/null || true
+            "$cmux_ssh_auth_stale_lock/pending.new" \
+            "$cmux_ssh_auth_stale_lock/owner.ready" 2>/dev/null || true
           /bin/rmdir "$cmux_ssh_auth_stale_lock" 2>/dev/null
         }
 
@@ -634,17 +638,29 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                 "$cmux_ssh_auth_reaper_slot" "$cmux_ssh_auth_reaper_generation" 0
               return 0
             }
+          cmux_ssh_auth_reaper_owner_fifo="$cmux_ssh_auth_reaper_lock/owner.ready"
+          cmux_ssh_auth_reaper_owner_guard_fd=
+          if ! /usr/bin/mkfifo "$cmux_ssh_auth_reaper_owner_fifo" 2>/dev/null || ! \
+            exec {cmux_ssh_auth_reaper_owner_guard_fd}<> \
+              "$cmux_ssh_auth_reaper_owner_fifo"; then
+            cmux_ssh_auth_release_reaper_lock_if_current \
+              "$cmux_ssh_auth_reaper_lock" "$cmux_ssh_auth_reaper_generation" 0
+            cmux_ssh_auth_release_reaper_lock_if_current \
+              "$cmux_ssh_auth_reaper_slot" "$cmux_ssh_auth_reaper_generation" 0
+            return 0
+          fi
           (
             trap '' HUP INT TERM
             CMUX_SSH_AUTH_GROUP_DIR="$cmux_ssh_auth_reaper_group_dir"
             export CMUX_SSH_AUTH_GROUP_DIR
-            cmux_ssh_auth_reaper_owner_attempt=0
-            while { [ ! -s "$cmux_ssh_auth_reaper_lock/owner" ] || \
-              [ ! -s "$cmux_ssh_auth_reaper_slot/owner" ]; } && \
-              [ "$cmux_ssh_auth_reaper_owner_attempt" -lt 100 ]; do
-              /bin/sleep 0.01
-              cmux_ssh_auth_reaper_owner_attempt=$((cmux_ssh_auth_reaper_owner_attempt + 1))
-            done
+            cmux_ssh_auth_reaper_owner_read_fd=
+            exec {cmux_ssh_auth_reaper_owner_read_fd}< \
+              "$cmux_ssh_auth_reaper_owner_fifo" || exit 0
+            exec {cmux_ssh_auth_reaper_owner_guard_fd}>&-
+            IFS= read -r cmux_ssh_auth_reaper_owner_event \
+              <&$cmux_ssh_auth_reaper_owner_read_fd || exit 0
+            exec {cmux_ssh_auth_reaper_owner_read_fd}<&-
+            if [ "$cmux_ssh_auth_reaper_owner_event" != owner-published ]; then exit 0; fi
             if [ ! -s "$cmux_ssh_auth_reaper_lock/owner" ] || \
               [ ! -s "$cmux_ssh_auth_reaper_slot/owner" ]; then
               exit 0
@@ -715,15 +731,20 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             cmux_ssh_auth_reaper_owner_matches_generation \
               "$cmux_ssh_auth_reaper_lock" "$cmux_ssh_auth_reaper_generation" || ! \
             cmux_ssh_auth_reaper_owner_matches_generation \
-              "$cmux_ssh_auth_reaper_slot" "$cmux_ssh_auth_reaper_generation"; then
+              "$cmux_ssh_auth_reaper_slot" "$cmux_ssh_auth_reaper_generation" || ! \
+            printf 'owner-published\n' \
+              >&$cmux_ssh_auth_reaper_owner_guard_fd; then
             /bin/kill -KILL "$cmux_ssh_auth_reaper_pid" >/dev/null 2>&1 || true
             wait "$cmux_ssh_auth_reaper_pid" 2>/dev/null || true
+            exec {cmux_ssh_auth_reaper_owner_guard_fd}>&-
             cmux_ssh_auth_release_reaper_lock_if_current \
               "$cmux_ssh_auth_reaper_lock" "$cmux_ssh_auth_reaper_generation" 0
             cmux_ssh_auth_release_reaper_lock_if_current \
               "$cmux_ssh_auth_reaper_slot" "$cmux_ssh_auth_reaper_generation" 0
             return 0
           fi
+          exec {cmux_ssh_auth_reaper_owner_guard_fd}>&-
+          /bin/rm -f -- "$cmux_ssh_auth_reaper_owner_fifo" 2>/dev/null || true
           /bin/rm -f -- "$cmux_ssh_auth_reaper_lock/publisher" \
             "$cmux_ssh_auth_reaper_lock/publisher.new" 2>/dev/null || true
           /bin/rm -f -- "$cmux_ssh_auth_reaper_slot/publisher" \
@@ -821,7 +842,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "$cmux_ssh_auth_release_lock/publisher" \
             "$cmux_ssh_auth_release_lock/publisher.new" \
             "$cmux_ssh_auth_release_lock/generation" \
-            "$cmux_ssh_auth_release_lock/generation.new" 2>/dev/null || true
+            "$cmux_ssh_auth_release_lock/generation.new" \
+            "$cmux_ssh_auth_release_lock/owner.ready" 2>/dev/null || true
           if /bin/rmdir "$cmux_ssh_auth_release_lock" 2>/dev/null; then
             CMUX_SSH_AUTH_REAPER_RELEASED=1
           fi
@@ -1027,8 +1049,15 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           if ! printf '%s\n' "$cmux_ssh_auth_create_now" \
             > "$cmux_ssh_auth_create_dir/created.new" 2>/dev/null || ! \
             /bin/mv -f -- "$cmux_ssh_auth_create_dir/created.new" \
-              "$cmux_ssh_auth_create_dir/created" 2>/dev/null; then
-            /bin/rm -f -- "$cmux_ssh_auth_create_dir/created.new" 2>/dev/null || true
+              "$cmux_ssh_auth_create_dir/created" 2>/dev/null || ! \
+            /usr/bin/mkfifo "$cmux_ssh_auth_create_dir/identity.ready" \
+              2>/dev/null || ! \
+            /usr/bin/mkfifo "$cmux_ssh_auth_create_dir/cleanup.ready" \
+              2>/dev/null; then
+            /bin/rm -f -- "$cmux_ssh_auth_create_dir/created" \
+              "$cmux_ssh_auth_create_dir/created.new" \
+              "$cmux_ssh_auth_create_dir/identity.ready" \
+              "$cmux_ssh_auth_create_dir/cleanup.ready" 2>/dev/null || true
             /bin/rmdir "$cmux_ssh_auth_create_dir" 2>/dev/null || true
             cmux_ssh_auth_recovery_unlock
             return 1
@@ -1547,6 +1576,13 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_observed_dir_identity=$(/usr/bin/stat -f '%u:%Lp' "$cmux_ssh_auth_group_dir" 2>/dev/null || true)
           if [ "$cmux_ssh_auth_observed_dir_identity" != "$cmux_ssh_auth_expected_dir_identity" ]; then exit 0; fi
           cmux_ssh_auth_group_file="$cmux_ssh_auth_group_dir/identity"
+          cmux_ssh_auth_group_publisher_file="$cmux_ssh_auth_group_dir/publisher"
+          cmux_ssh_auth_group_publication_fifo="$cmux_ssh_auth_group_dir/identity.ready"
+          cmux_ssh_auth_group_publication_fd=
+          cmux_ssh_auth_group_anchor_fifo="$cmux_ssh_auth_group_dir/anchor"
+          cmux_ssh_auth_group_anchor_cleanup_fd=
+          cmux_ssh_auth_group_cleanup_ready_fifo="$cmux_ssh_auth_group_dir/cleanup.ready"
+          cmux_ssh_auth_group_cleanup_ready_fd=
           cmux_ssh_auth_group_cancel_file="$cmux_ssh_auth_group_dir/cancel"
           cmux_ssh_auth_cleanup_owner_file="$cmux_ssh_auth_group_dir/cleanup.owner"
           cmux_ssh_auth_cleanup_owner_publish_file="$cmux_ssh_auth_group_dir/cleanup.owner.new"
@@ -1596,6 +1632,12 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             fi
             if [ "$cmux_ssh_auth_preserve_group_state" = 1 ]; then
               cmux_ssh_auth_cleanup_claim_release
+              if [ -n "${cmux_ssh_auth_group_anchor_cleanup_fd:-}" ]; then
+                exec {cmux_ssh_auth_group_anchor_cleanup_fd}>&-
+              fi
+              if [ -n "${cmux_ssh_auth_group_cleanup_ready_fd:-}" ]; then
+                exec {cmux_ssh_auth_group_cleanup_ready_fd}>&-
+              fi
               return
             fi
             \#(groupStateFileRemovalShellCommand(includingCancellationMarker: false))
@@ -1606,6 +1648,12 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               /bin/rm -f -- "$cmux_ssh_auth_group_cancel_file" 2>/dev/null || true
             fi
             /bin/rmdir "$cmux_ssh_auth_group_dir" 2>/dev/null || true
+            if [ -n "${cmux_ssh_auth_group_anchor_cleanup_fd:-}" ]; then
+              exec {cmux_ssh_auth_group_anchor_cleanup_fd}>&-
+            fi
+            if [ -n "${cmux_ssh_auth_group_cleanup_ready_fd:-}" ]; then
+              exec {cmux_ssh_auth_group_cleanup_ready_fd}>&-
+            fi
           }
           trap 'cmux_ssh_auth_group_state_cleanup' EXIT
           if [ ! -d "$cmux_ssh_auth_group_dir" ]; then exit 0; fi
@@ -1617,13 +1665,22 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           : > "$cmux_ssh_auth_group_cancel_file" 2>/dev/null || exit 0
           cmux_ssh_auth_cancel_published=1
 
-          cmux_ssh_auth_group_attempt=0
-          while [ -d "$cmux_ssh_auth_group_dir" ] && [ ! -s "$cmux_ssh_auth_group_file" ] && \
-            [ "$cmux_ssh_auth_group_attempt" -lt 200 ]; do
-            /bin/sleep 0.01
-            cmux_ssh_auth_group_attempt=$((cmux_ssh_auth_group_attempt + 1))
-          done
-          if [ ! -s "$cmux_ssh_auth_group_file" ]; then exit 0; fi
+          if [ ! -s "$cmux_ssh_auth_group_file" ] || \
+            [ ! -s "$cmux_ssh_auth_group_publisher_file" ]; then
+            exec {cmux_ssh_auth_group_publication_fd}<> \
+              "$cmux_ssh_auth_group_publication_fifo" || exit 0
+            if [ ! -s "$cmux_ssh_auth_group_file" ] || \
+              [ ! -s "$cmux_ssh_auth_group_publisher_file" ]; then
+              IFS= read -r cmux_ssh_auth_group_publication_event \
+                <&$cmux_ssh_auth_group_publication_fd || exit 0
+              if [ "$cmux_ssh_auth_group_publication_event" != identity-published ]; then
+                exit 0
+              fi
+            fi
+            exec {cmux_ssh_auth_group_publication_fd}>&-
+          fi
+          if [ ! -s "$cmux_ssh_auth_group_file" ] || \
+            [ ! -s "$cmux_ssh_auth_group_publisher_file" ]; then exit 0; fi
           cmux_ssh_auth_preserve_group_state=1
 
           cmux_ssh_auth_group_identity=$(/bin/cat -- "$cmux_ssh_auth_group_file" 2>/dev/null || true)
@@ -1683,6 +1740,25 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           : > "$cmux_ssh_auth_signaled_groups" || exit 0
           : > "$cmux_ssh_auth_signaled_processes" || exit 0
           cmux_ssh_auth_cleanup_started=1
+          if [ -p "$cmux_ssh_auth_group_anchor_fifo" ] && \
+            [ -p "$cmux_ssh_auth_group_cleanup_ready_fifo" ] && \
+            exec {cmux_ssh_auth_group_anchor_cleanup_fd}<> \
+              "$cmux_ssh_auth_group_anchor_fifo" && \
+            exec {cmux_ssh_auth_group_cleanup_ready_fd}<> \
+              "$cmux_ssh_auth_group_cleanup_ready_fifo"; then
+            printf 'cleanup-started\n' \
+              >&$cmux_ssh_auth_group_cleanup_ready_fd || {
+                exec {cmux_ssh_auth_group_anchor_cleanup_fd}>&-
+                exec {cmux_ssh_auth_group_cleanup_ready_fd}>&-
+              }
+          else
+            if [ -n "${cmux_ssh_auth_group_anchor_cleanup_fd:-}" ]; then
+              exec {cmux_ssh_auth_group_anchor_cleanup_fd}>&-
+            fi
+            if [ -n "${cmux_ssh_auth_group_cleanup_ready_fd:-}" ]; then
+              exec {cmux_ssh_auth_group_cleanup_ready_fd}>&-
+            fi
+          fi
           cmux_ssh_auth_run_cleanup_transactions || exit 0
           cmux_ssh_auth_cleanup_complete=1
         )
@@ -1846,13 +1922,26 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "cmux_ssh_auth_group_anchor_guard_fd=",
             "cmux_ssh_auth_group_anchor_fifo=\"$cmux_ssh_auth_group_dir/anchor\"",
             "cmux_ssh_auth_group_publish_file=\"$cmux_ssh_auth_group_dir/identity.new\"",
+            "cmux_ssh_auth_group_publication_fifo=\"$cmux_ssh_auth_group_dir/identity.ready\"",
             "cmux_ssh_auth_group_publisher_file=\"$cmux_ssh_auth_group_dir/publisher\"",
             "cmux_ssh_auth_group_publisher_publish_file=\"$cmux_ssh_auth_group_dir/publisher.new\"",
             "cmux_ssh_auth_group_cancel_file=\"$cmux_ssh_auth_group_dir/cancel\"",
+            "cmux_ssh_auth_group_cleanup_ready_fifo=\"$cmux_ssh_auth_group_dir/cleanup.ready\"",
             "cmux_ssh_auth_group_published=0",
+            "cmux_ssh_auth_group_publication_event() {",
+            "  cmux_ssh_auth_group_publication_event_name=\"$1\"",
+            "  cmux_ssh_auth_group_publication_event_fd=",
+            "  [ -p \"$cmux_ssh_auth_group_publication_fifo\" ] || return 1",
+            "  exec {cmux_ssh_auth_group_publication_event_fd}<> \"$cmux_ssh_auth_group_publication_fifo\" || return 1",
+            "  printf '%s\\n' \"$cmux_ssh_auth_group_publication_event_name\" >&$cmux_ssh_auth_group_publication_event_fd",
+            "  cmux_ssh_auth_group_publication_event_status=$?",
+            "  exec {cmux_ssh_auth_group_publication_event_fd}>&-",
+            "  return \"$cmux_ssh_auth_group_publication_event_status\"",
+            "}",
             "cmux_ssh_auth_group_cleanup() {",
             "  trap - EXIT HUP INT TERM",
             "  if [ \"$cmux_ssh_auth_group_published\" = 1 ]; then return; fi",
+            "  cmux_ssh_auth_group_publication_event unpublished || true",
             "  if [ -n \"${cmux_ssh_auth_group_anchor_pid:-}\" ]; then",
             "    /bin/kill -KILL \"$cmux_ssh_auth_group_anchor_pid\" >/dev/null 2>&1 || true",
             "    wait \"$cmux_ssh_auth_group_anchor_pid\" 2>/dev/null || true",
@@ -1861,7 +1950,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "    exec {cmux_ssh_auth_group_anchor_guard_fd}>&-",
             "    cmux_ssh_auth_group_anchor_guard_fd=",
             "  fi",
-            "  /bin/rm -f -- \"$cmux_ssh_auth_group_publish_file\" \"$cmux_ssh_auth_group_publisher_file\" \"$cmux_ssh_auth_group_publisher_publish_file\" \"$cmux_ssh_auth_group_anchor_fifo\" \"$cmux_ssh_auth_group_file\" \"$cmux_ssh_auth_group_cancel_file\" 2>/dev/null || true",
+            "  /bin/rm -f -- \"$cmux_ssh_auth_group_publish_file\" \"$cmux_ssh_auth_group_publication_fifo\" \"$cmux_ssh_auth_group_cleanup_ready_fifo\" \"$cmux_ssh_auth_group_publisher_file\" \"$cmux_ssh_auth_group_publisher_publish_file\" \"$cmux_ssh_auth_group_anchor_fifo\" \"$cmux_ssh_auth_group_file\" \"$cmux_ssh_auth_group_cancel_file\" 2>/dev/null || true",
             "  /bin/rmdir \"$cmux_ssh_auth_group_dir\" 2>/dev/null || true",
             "}",
             "cmux_ssh_auth_group_handoff() {",
@@ -1895,19 +1984,34 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "  [ \"$cmux_ssh_auth_group_current_publisher\" = \"$cmux_ssh_auth_group_recorded_publisher_group|$cmux_ssh_auth_group_recorded_publisher_started\" ]",
             "}",
             "cmux_ssh_auth_group_anchor_wait() {",
-            "  cmux_ssh_auth_group_missing_publisher_checks=0",
-            "  while [ -s \"$cmux_ssh_auth_group_file\" ]; do",
-            "    if cmux_ssh_auth_group_publisher_is_current; then",
-            "      cmux_ssh_auth_group_missing_publisher_checks=0",
-            "    else",
-            "      cmux_ssh_auth_group_missing_publisher_checks=$((cmux_ssh_auth_group_missing_publisher_checks + 1))",
-            "      if [ \"$cmux_ssh_auth_group_missing_publisher_checks\" -ge 3 ]; then",
-            "        /bin/kill -KILL -- \"-$cmux_ssh_auth_supervisor_group\" >/dev/null 2>&1 || true",
-            "        return 0",
+            "  [ -s \"$cmux_ssh_auth_group_file\" ] || return 0",
+            "  cmux_ssh_auth_group_cleanup_ready_fd=",
+            "  if exec {cmux_ssh_auth_group_cleanup_ready_fd}<> \"$cmux_ssh_auth_group_cleanup_ready_fifo\"; then",
+            "    if [ ! -s \"$cmux_ssh_auth_group_file\" ]; then",
+            "      exec {cmux_ssh_auth_group_cleanup_ready_fd}>&-",
+            "      return 0",
+            "    fi",
+            "    cmux_ssh_auth_group_cleanup_event=",
+            "    IFS= read -r -t 3 cmux_ssh_auth_group_cleanup_event <&$cmux_ssh_auth_group_cleanup_ready_fd || true",
+            "    if [ \"$cmux_ssh_auth_group_cleanup_event\" = cleanup-started ]; then",
+            "      cmux_ssh_auth_group_anchor_wait_guard_fd=",
+            "      cmux_ssh_auth_group_anchor_wait_fd=",
+            "      if exec {cmux_ssh_auth_group_anchor_wait_guard_fd}<> \"$cmux_ssh_auth_group_anchor_fifo\" && exec {cmux_ssh_auth_group_anchor_wait_fd}< \"$cmux_ssh_auth_group_anchor_fifo\"; then",
+            "        exec {cmux_ssh_auth_group_anchor_wait_guard_fd}>&-",
+            "        exec {cmux_ssh_auth_group_cleanup_ready_fd}>&-",
+            "        while IFS= read -r cmux_ssh_auth_group_anchor_input <&$cmux_ssh_auth_group_anchor_wait_fd; do :; done",
+            "        exec {cmux_ssh_auth_group_anchor_wait_fd}<&-",
+            "        [ -s \"$cmux_ssh_auth_group_file\" ] || return 0",
+            "      else",
+            "        if [ -n \"${cmux_ssh_auth_group_anchor_wait_guard_fd:-}\" ]; then exec {cmux_ssh_auth_group_anchor_wait_guard_fd}>&-; fi",
+            "        if [ -n \"${cmux_ssh_auth_group_anchor_wait_fd:-}\" ]; then exec {cmux_ssh_auth_group_anchor_wait_fd}<&-; fi",
             "      fi",
             "    fi",
-            "    /bin/sleep 1 || return 1",
-            "  done",
+            "    if [ -n \"${cmux_ssh_auth_group_cleanup_ready_fd:-}\" ]; then exec {cmux_ssh_auth_group_cleanup_ready_fd}>&-; fi",
+            "  fi",
+            "  if [ -s \"$cmux_ssh_auth_group_file\" ]; then",
+            "    /bin/kill -KILL -- \"-$cmux_ssh_auth_supervisor_group\" >/dev/null 2>&1 || true",
+            "  fi",
             "}",
             "trap 'cmux_ssh_auth_group_cleanup' EXIT",
             "trap 'cmux_ssh_auth_group_signal_exit 129' HUP",
@@ -1941,6 +2045,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "/bin/mv -f -- \"$cmux_ssh_auth_group_publish_file\" \"$cmux_ssh_auth_group_file\" || exit 255",
             "/bin/mv -f -- \"$cmux_ssh_auth_group_publisher_publish_file\" \"$cmux_ssh_auth_group_publisher_file\" || exit 255",
             "cmux_ssh_auth_group_published=1",
+            "cmux_ssh_auth_group_publication_event identity-published || exit 255",
             "if [ -e \"$cmux_ssh_auth_group_cancel_file\" ]; then exit 143; fi",
             "unset CMUX_SSH_AUTH_GROUP_DIR",
             "( exec {cmux_ssh_auth_group_anchor_guard_fd}>&-; exec /usr/bin/env LC_ALL=C LANG=C /bin/zsh -fc \(shellQuote(command)) )",
