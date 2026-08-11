@@ -267,8 +267,30 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
                 failures.append(failure)
                 _ = removeRecoveryAction(recoveryID, from: &state)
             }
+            state.pendingRecoveryFailureCount += failures.count
+            precondition(
+                state.pendingRecoveryFailureCount <= maximumOwnerCount,
+                "stalled recovery failures must remain bounded"
+            )
             state.recoveryRescanRequested = false
             return failures
+        }
+    }
+
+    func completeStalledCloseRecoveryFailures(_ completedCount: Int) {
+        precondition(completedCount > 0)
+        let output = state.withLock { state in
+            precondition(
+                completedCount <= state.pendingRecoveryFailureCount,
+                "completed stalled recovery failures must be owned"
+            )
+            state.pendingRecoveryFailureCount -= completedCount
+            let grant = takeNextRecoveryGrant(from: &state)
+            return (grant, takeRecoveryRescanRequest(from: &state))
+        }
+        schedule(output.0)
+        if output.1 {
+            recoveryRescanScheduler.requestRescan()
         }
     }
 
@@ -350,6 +372,7 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
     ) -> Bool {
         state.recoveryEntriesByID.count
             + state.recoveryCapacityReservationIDs.count
+            + state.pendingRecoveryFailureCount
             < maximumOwnerCount
     }
 
