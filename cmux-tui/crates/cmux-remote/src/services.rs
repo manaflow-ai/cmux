@@ -1,23 +1,20 @@
 use std::collections::BTreeMap;
-use std::fmt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use bytes::{Buf, BufMut, Bytes, BytesMut};
+use bytes::Bytes;
 use cmux_remote_protocol::{
     Lane, MUX_INPUT_V1_FEATURE, ProcessEvent, ProcessId, ProcessReplayRange, RouteId, RpcError,
     RpcErrorDetails, RpcEvent, RpcRequest, RpcResponse, Service, ServiceControl, WorkspaceRequest,
     WorkspaceResponse,
 };
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore, mpsc, watch};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, watch};
 use tokio::task::JoinSet;
 
 use crate::daemon::ServerConnection;
 pub use crate::message::{MessageStream, ServicesError};
-use crate::service::{
-    EndpointRole, IncomingStream, ServiceError, ServiceMultiplexer, ServiceStream, StreamBudget,
-};
+use crate::service::{EndpointRole, IncomingStream, ServiceMultiplexer, ServiceStream};
 use crate::workspace::{ClientScope, ProcessSubscriptionError, WorkspaceService};
 
 use crate::message::MAX_RPC_MESSAGE;
@@ -1082,6 +1079,7 @@ mod tests {
     use std::sync::{Condvar, Mutex as StdMutex};
 
     use async_trait::async_trait;
+    use bytes::BytesMut;
     use cmux_remote_protocol::{
         ByteString, FrameFlags, ProcessEnvironment, ProcessEvent, ProcessIo, ProcessLifetime,
         ProcessSignal, RpcEvent, WorkspaceId, WorkspaceResponse,
@@ -1091,11 +1089,11 @@ mod tests {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     #[cfg(unix)]
     use tokio::sync::oneshot;
-    use tokio::sync::{Notify, mpsc, watch};
+    use tokio::sync::{Mutex, Notify, mpsc, watch};
 
     use super::*;
     use crate::client::WorkspaceClient;
-    use crate::service::{ServiceMultiplexer, SessionEndpoint};
+    use crate::service::{ServiceError, ServiceMultiplexer, SessionEndpoint};
     use crate::session::ReceivedFrame;
 
     struct TestEndpoint {
