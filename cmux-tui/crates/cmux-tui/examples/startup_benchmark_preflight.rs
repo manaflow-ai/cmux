@@ -16,9 +16,10 @@ use cmux_tui_core::platform::transport;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use startup_benchmark_protocol::{
-    CONTROL_TIMEOUT, STARTUP_LINE_TIMEOUT, SupervisorStartupLine, TimingPage, arm_line,
-    monotonic_ns, parse_supervisor_startup_line, read_control_line,
-    validate_bootstrap_failure_records, write_control_line,
+    BootstrapHangDiagnosticReport, CONTROL_TIMEOUT, MAX_BOOTSTRAP_HANG_DUMP_BYTES,
+    MAX_BOOTSTRAP_HANG_REPORT_BYTES, STARTUP_LINE_TIMEOUT, SupervisorStartupLine, TimingPage,
+    arm_line, bootstrap_failure_hang_artifact, monotonic_ns, parse_supervisor_startup_line,
+    read_control_line, validate_bootstrap_failure_records, write_control_line,
 };
 use wait_timeout::ChildExt;
 
@@ -345,7 +346,7 @@ fn copy_bootstrap_failure_checkpoint(
     output: &Path,
     checkpoint_name: Option<&str>,
     expected_nonce: &str,
-) -> Result<PathBuf> {
+) -> Result<Vec<PathBuf>> {
     let checkpoint_name = checkpoint_name
         .context("preflight supervisor failure did not name a bootstrap checkpoint")?;
     let source = fixture_root.join(checkpoint_name);
@@ -359,6 +360,7 @@ fn copy_bootstrap_failure_checkpoint(
     }
     let bytes = fs::read(&source)?;
     validate_bootstrap_failure_records(&bytes, expected_nonce)?;
+    let hang_artifact = bootstrap_failure_hang_artifact(&bytes, expected_nonce)?;
     let stem = output
         .file_stem()
         .and_then(|value| value.to_str())
@@ -371,7 +373,72 @@ fn copy_bootstrap_failure_checkpoint(
     file.write_all(&bytes)?;
     file.flush()?;
     drop(file);
-    Ok(destination)
+    let mut copied = vec![destination];
+    if let Some(reference) = hang_artifact {
+        reference.validate()?;
+        let report_source = fixture_root.join(&reference.report_name);
+        let report_bytes = read_identity_bound_artifact(
+            &report_source,
+            reference.report_bytes,
+            MAX_BOOTSTRAP_HANG_REPORT_BYTES,
+            &reference.report_sha256,
+            "bootstrap hang report",
+        )?;
+        let report: BootstrapHangDiagnosticReport = serde_json::from_slice(&report_bytes)?;
+        report.validate(expected_nonce)?;
+        if report.dump_name != reference.dump_name
+            || report.dump_sha256 != reference.dump_sha256
+            || report.dump_bytes != reference.dump_bytes
+        {
+            bail!("bootstrap hang report and failure checkpoint name different minidumps");
+        }
+        let dump_source = fixture_root.join(&reference.dump_name);
+        let dump_bytes = read_identity_bound_artifact(
+            &dump_source,
+            reference.dump_bytes,
+            MAX_BOOTSTRAP_HANG_DUMP_BYTES,
+            &reference.dump_sha256,
+            "bootstrap minidump",
+        )?;
+        for (suffix, payload) in
+            [("bootstrap-hang.json", report_bytes), ("bootstrap-hang.dmp", dump_bytes)]
+        {
+            let target = output.with_file_name(format!("{stem}-{suffix}"));
+            let mut file = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&target)
+                .with_context(|| format!("create copied hang artifact {}", target.display()))?;
+            file.write_all(&payload)?;
+            file.flush()?;
+            copied.push(target);
+        }
+    }
+    Ok(copied)
+}
+
+fn read_identity_bound_artifact(
+    source: &Path,
+    expected_bytes: u64,
+    maximum_bytes: u64,
+    expected_sha256: &str,
+    name: &str,
+) -> Result<Vec<u8>> {
+    let metadata = fs::symlink_metadata(source)
+        .with_context(|| format!("inspect {name} {}", source.display()))?;
+    if !metadata.file_type().is_file()
+        || metadata.len() != expected_bytes
+        || metadata.len() == 0
+        || metadata.len() > maximum_bytes
+    {
+        bail!("{name} is not the expected bounded regular file");
+    }
+    let bytes = fs::read(source)?;
+    let observed = format!("{:x}", Sha256::digest(&bytes));
+    if observed != expected_sha256 {
+        bail!("{name} SHA-256 mismatch: expected {expected_sha256}, observed {observed}");
+    }
+    Ok(bytes)
 }
 
 fn run_controller(values: &[String]) -> Result<()> {
@@ -591,18 +658,18 @@ fn run_controller(values: &[String]) -> Result<()> {
                 );
                 let finished = events.finish_until(public_deadline);
                 return match (copied, finished) {
-                    (Ok(path), Ok((status, stderr, _))) => Err(anyhow::anyhow!(
-                        "preflight supervisor reported bounded startup failure; checkpoint {}; exit {status}; stderr: {}",
-                        path.display(),
+                    (Ok(paths), Ok((status, stderr, _))) => Err(anyhow::anyhow!(
+                        "preflight supervisor reported bounded startup failure; artifacts {}; exit {status}; stderr: {}",
+                        display_paths(&paths),
                         String::from_utf8_lossy(&stderr)
                     )),
                     (Err(copy), Ok((status, stderr, _))) => Err(copy.context(format!(
                         "preflight supervisor startup failed and exited {status}; stderr: {}",
                         String::from_utf8_lossy(&stderr)
                     ))),
-                    (Ok(path), Err(finish)) => Err(finish.context(format!(
-                        "preflight supervisor startup failed; checkpoint {}",
-                        path.display()
+                    (Ok(paths), Err(finish)) => Err(finish.context(format!(
+                        "preflight supervisor startup failed; artifacts {}",
+                        display_paths(&paths)
                     ))),
                     (Err(copy), Err(finish)) => Err(copy.context(format!(
                         "preflight startup checkpoint copy and natural cleanup failed: {finish:#}"
@@ -716,6 +783,10 @@ fn run_controller(values: &[String]) -> Result<()> {
     fs::remove_file(&adjacent).context("remove successful parent sentinel")?;
     fs::remove_file(&child_adjacent).context("remove successful descendant sentinel")?;
     Ok(())
+}
+
+fn display_paths(paths: &[PathBuf]) -> String {
+    paths.iter().map(|path| path.display().to_string()).collect::<Vec<_>>().join(", ")
 }
 
 fn run_probe(values: &[String]) -> Result<()> {

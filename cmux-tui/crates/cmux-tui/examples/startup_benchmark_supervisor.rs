@@ -1,4 +1,6 @@
 mod startup_benchmark_protocol;
+#[cfg(windows)]
+mod startup_benchmark_windows_diagnostic;
 
 use std::env;
 use std::fs;
@@ -53,7 +55,12 @@ fn main() {
 }
 
 fn run() -> Result<()> {
-    let launch = parse_args(env::args().skip(1))?;
+    let values = env::args().skip(1).collect::<Vec<_>>();
+    #[cfg(windows)]
+    if values.first().map(String::as_str) == Some("--windows-hang-diagnostic") {
+        return platform::run_hang_diagnostic(&values[1..]);
+    }
+    let launch = parse_args(values.into_iter())?;
     validate_launch(&launch)?;
     if launch.inner {
         return run_inner(launch);
@@ -493,12 +500,13 @@ mod platform {
         let profile =
             env::var("CMUX_BENCH_MACOS_PROFILE").context("CMUX_BENCH_MACOS_PROFILE is required")?;
         let current = env::current_exe()?;
-        let mut account = JobAccount::create(launch)?;
+        let fixture_root = canonical_existing_fixture_root(&launch.fixture_root)?;
+        let mut account = JobAccount::create(launch, &fixture_root)?;
         let mut command = Command::new("sudo");
         command.args(["-n", "-u", &account.user, "--", "/usr/bin/env", "-i"]);
         append_product_environment(&mut command);
         command.args(["/usr/bin/sandbox-exec", "-D"]);
-        command.arg(format!("CMUX_FIXTURE_ROOT={}", launch.fixture_root.to_string_lossy()));
+        command.arg(format!("CMUX_FIXTURE_ROOT={}", fixture_root.to_string_lossy()));
         command.arg("-f");
         command.arg(profile).arg(current).arg("--inner").args(forwarded_args(launch));
         let result = command.status().context("launch Seatbelt supervisor");
@@ -524,7 +532,7 @@ mod platform {
     }
 
     impl JobAccount {
-        fn create(launch: &Launch) -> Result<Self> {
+        fn create(launch: &Launch, fixture_root: &Path) -> Result<Self> {
             let prefix = env::var("CMUX_BENCH_MACOS_ACCOUNT_PREFIX")
                 .context("CMUX_BENCH_MACOS_ACCOUNT_PREFIX is required")?;
             let uid_base = env::var("CMUX_BENCH_MACOS_UID_BASE")
@@ -543,7 +551,7 @@ mod platform {
                 uid,
                 group,
                 nonce: launch.nonce.clone(),
-                fixture_root: launch.fixture_root.clone(),
+                fixture_root: fixture_root.to_path_buf(),
                 created: false,
                 launchable: false,
             };
@@ -918,6 +926,8 @@ mod platform {
     use windows_sys::Win32::UI::Shell::{LoadUserProfileW, PROFILEINFOW, UnloadUserProfile};
 
     use super::*;
+    use crate::startup_benchmark_protocol::{BootstrapHangArtifactReference, BootstrapTerminal};
+    use crate::startup_benchmark_windows_diagnostic::{self, CaptureRequest};
 
     const MAX_BOOTSTRAP_CHECKPOINT_BYTES: usize = 64 * 1024;
 
@@ -968,7 +978,14 @@ mod platform {
                 );
             }
         };
-        if let Err(error) = bootstrap.wait_ready(&launch.nonce, &mut trace) {
+        if let Err(mut error) = bootstrap.wait_ready(&launch.nonce, &mut trace) {
+            if trace.terminal == Some(BootstrapTerminal::BootstrapTimeout) {
+                if let Err(diagnostic) = bootstrap.capture_hang_snapshot(&restricted, launch) {
+                    error = error.context(format!(
+                        "trusted pre-cleanup hang diagnostic also failed: {diagnostic:#}"
+                    ));
+                }
+            }
             return finish_failed_bootstrap_startup(
                 launch,
                 &mut control,
@@ -998,6 +1015,10 @@ mod platform {
 
     pub fn exec_product(_command: Command, _timing: TimingSink) -> Result<()> {
         bail!("Windows restricted-token supervisor inner mode is invalid")
+    }
+
+    pub fn run_hang_diagnostic(values: &[String]) -> Result<()> {
+        startup_benchmark_windows_diagnostic::run_helper(values)
     }
 
     struct LoadedProfile {
@@ -1285,6 +1306,11 @@ mod platform {
             let mut process: PROCESS_INFORMATION = unsafe { zeroed() };
             let mut environment =
                 bootstrap_environment_block(&entry_checkpoint_path, &launch.nonce);
+            let target_cmux_bench_environment_filtered =
+                bootstrap_environment_has_only_entry_identity(&environment);
+            if !target_cmux_bench_environment_filtered {
+                bail!("restricted bootstrap environment retained a CMUX_BENCH secret");
+            }
             // SAFETY: all strings are NUL-terminated and output storage remains live.
             check(
                 unsafe {
@@ -1379,6 +1405,7 @@ mod platform {
             trace.observe(BootstrapObservedEvent::Stage(BootstrapStage::ProcessResumed));
             let session = BootstrapSession::new(
                 process_handle,
+                thread_handle,
                 pipes,
                 BootstrapIdentity {
                     config_path,
@@ -1390,6 +1417,9 @@ mod platform {
                     nonce: launch.nonce.clone(),
                     resumed_at,
                     resume_previous_count,
+                    process_id: process.dwProcessId,
+                    primary_thread_id: process.dwThreadId,
+                    target_cmux_bench_environment_filtered,
                 },
             )?;
             let _ = &self.restricting_sid;
@@ -1460,6 +1490,7 @@ mod platform {
 
     struct BootstrapSession {
         process: OwnedHandle,
+        primary_thread: OwnedHandle,
         writer: Option<File>,
         receiver: mpsc::Receiver<BootstrapEvent>,
         reader: Option<thread::JoinHandle<()>>,
@@ -1474,6 +1505,11 @@ mod platform {
         resumed_at: Instant,
         resume_previous_count: u32,
         evidence: Option<BootstrapLaunchEvidence>,
+        hang_diagnostic: Option<BootstrapHangArtifactReference>,
+        hang_diagnostic_error: Option<String>,
+        process_id: u32,
+        primary_thread_id: u32,
+        target_cmux_bench_environment_filtered: bool,
     }
 
     struct BootstrapIdentity {
@@ -1486,6 +1522,9 @@ mod platform {
         nonce: String,
         resumed_at: Instant,
         resume_previous_count: u32,
+        process_id: u32,
+        primary_thread_id: u32,
+        target_cmux_bench_environment_filtered: bool,
     }
 
     enum BootstrapEvent {
@@ -1498,6 +1537,7 @@ mod platform {
     impl BootstrapSession {
         fn new(
             process: OwnedHandle,
+            primary_thread: OwnedHandle,
             mut pipes: BootstrapPipes,
             identity: BootstrapIdentity,
         ) -> Result<Self> {
@@ -1511,6 +1551,9 @@ mod platform {
                 nonce,
                 resumed_at,
                 resume_previous_count,
+                process_id,
+                primary_thread_id,
+                target_cmux_bench_environment_filtered,
             } = identity;
             let wait_handle =
                 duplicate_current_process_handle(process.0, "restricted bootstrap status wait")?;
@@ -1544,6 +1587,7 @@ mod platform {
             });
             Ok(Self {
                 process,
+                primary_thread,
                 writer: Some(writer),
                 receiver,
                 reader: Some(reader),
@@ -1558,7 +1602,39 @@ mod platform {
                 resumed_at,
                 resume_previous_count,
                 evidence: None,
+                hang_diagnostic: None,
+                hang_diagnostic_error: None,
+                process_id,
+                primary_thread_id,
+                target_cmux_bench_environment_filtered,
             })
+        }
+
+        fn capture_hang_snapshot(
+            &mut self,
+            restricted: &RestrictedToken,
+            launch: &Launch,
+        ) -> Result<()> {
+            match startup_benchmark_windows_diagnostic::capture(CaptureRequest {
+                process: self.process.0,
+                primary_thread: self.primary_thread.0,
+                process_id: self.process_id,
+                primary_thread_id: self.primary_thread_id,
+                private_job: restricted.job.0,
+                fixture_root: &self.fixture_root,
+                nonce: &self.nonce,
+                supervisor_sha256: &launch.supervisor_sha256,
+                target_cmux_bench_environment_filtered: self.target_cmux_bench_environment_filtered,
+            }) {
+                Ok(reference) => {
+                    self.hang_diagnostic = Some(reference);
+                    Ok(())
+                }
+                Err(error) => {
+                    self.hang_diagnostic_error = Some(bounded_text(&format!("{error:#}"), 2_048));
+                    Err(error)
+                }
+            }
         }
 
         fn wait_ready(&mut self, nonce: &str, trace: &mut BootstrapStartupTrace) -> Result<()> {
@@ -1858,6 +1934,9 @@ mod platform {
         }
         let config_present = bootstrap_config_path(launch).is_file();
         let reason = bounded_text(&format!("{error:#}"), 2_048);
+        let hang_diagnostic = bootstrap.as_deref().and_then(|value| value.hang_diagnostic.as_ref());
+        let hang_diagnostic_error =
+            bootstrap.as_deref().and_then(|value| value.hang_diagnostic_error.as_deref());
         let checkpoint = BootstrapFailureCheckpoint {
             schema_version: 1,
             record_type: "startup-failure",
@@ -1865,6 +1944,8 @@ mod platform {
             reason: &reason,
             config_present_after_failure: config_present,
             trace: &trace,
+            hang_diagnostic,
+            hang_diagnostic_error,
         };
         let checkpoint_result = create_bootstrap_failure_checkpoint(launch, &checkpoint);
         let cleanup_deadline = Instant::now()
@@ -2509,7 +2590,7 @@ mod platform {
                 let key = key.to_string_lossy();
                 if key.eq_ignore_ascii_case("CMUX_BENCH_WINDOWS_USER")
                     || key.eq_ignore_ascii_case("CMUX_BENCH_WINDOWS_PASSWORD")
-                    || key.starts_with("CMUX_BENCH_")
+                    || key.to_ascii_uppercase().starts_with("CMUX_BENCH_")
                 {
                     return None;
                 }
@@ -2529,6 +2610,19 @@ mod platform {
         }
         block.push(0);
         block
+    }
+
+    fn bootstrap_environment_has_only_entry_identity(block: &[u16]) -> bool {
+        block
+            .split(|value| *value == 0)
+            .take_while(|value| !value.is_empty())
+            .filter_map(|value| String::from_utf16(value).ok())
+            .filter_map(|value| value.split_once('=').map(|(key, _)| key.to_owned()))
+            .all(|key| {
+                !key.to_ascii_uppercase().starts_with("CMUX_BENCH_")
+                    || key.eq_ignore_ascii_case(ENTRY_CHECKPOINT_PATH_ENV)
+                    || key.eq_ignore_ascii_case(ENTRY_NONCE_ENV)
+            })
     }
 
     #[cfg(test)]
@@ -2564,6 +2658,7 @@ mod platform {
             );
             assert!(values.iter().all(|value| !value.contains("forbidden")));
             assert!(values.iter().all(|value| !value.contains("secret")));
+            assert!(bootstrap_environment_has_only_entry_identity(&block));
         }
     }
 
@@ -2666,4 +2761,27 @@ fn forwarded_args(launch: &Launch) -> Vec<String> {
     values.push("--".into());
     values.extend(launch.product_args.clone());
     values
+}
+
+#[cfg(target_os = "macos")]
+fn canonical_existing_fixture_root(path: &Path) -> Result<PathBuf> {
+    let root = path.canonicalize().context("canonicalize macOS benchmark fixture root")?;
+    if !fs::symlink_metadata(&root)?.file_type().is_dir() {
+        bail!("canonical macOS benchmark fixture root is not a directory");
+    }
+    Ok(root)
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod macos_tests {
+    use super::*;
+
+    #[test]
+    fn seatbelt_uses_the_kernel_visible_fixture_root() {
+        let fixture = tempfile::tempdir_in("/tmp").unwrap();
+        let canonical = canonical_existing_fixture_root(fixture.path()).unwrap();
+
+        assert_eq!(canonical, fs::canonicalize(fixture.path()).unwrap());
+        assert_ne!(canonical, fixture.path());
+    }
 }

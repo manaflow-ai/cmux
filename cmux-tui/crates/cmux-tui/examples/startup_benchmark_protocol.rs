@@ -29,6 +29,9 @@ pub const STARTUP_LINE_TIMEOUT: std::time::Duration = if cfg!(windows) {
 pub const SECURITY_PREPARATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 pub const BOOTSTRAP_STARTUP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 pub const BOOTSTRAP_CLEANUP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+pub const BOOTSTRAP_HANG_CAPTURE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+pub const MAX_BOOTSTRAP_HANG_REPORT_BYTES: u64 = 256 * 1024;
+pub const MAX_BOOTSTRAP_HANG_DUMP_BYTES: u64 = 16 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -185,6 +188,209 @@ pub struct BootstrapFailureCheckpoint<'a> {
     pub reason: &'a str,
     pub config_present_after_failure: bool,
     pub trace: &'a BootstrapStartupTrace,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hang_diagnostic: Option<&'a BootstrapHangArtifactReference>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hang_diagnostic_error: Option<&'a str>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct BootstrapHangArtifactReference {
+    pub report_name: String,
+    pub report_sha256: String,
+    pub report_bytes: u64,
+    pub dump_name: String,
+    pub dump_sha256: String,
+    pub dump_bytes: u64,
+}
+
+impl BootstrapHangArtifactReference {
+    pub fn validate(&self) -> Result<()> {
+        validate_portable_artifact_name(&self.report_name, ".json")?;
+        validate_portable_artifact_name(&self.dump_name, ".dmp")?;
+        if self.report_name == self.dump_name {
+            bail!("bootstrap hang diagnostic artifact names must differ");
+        }
+        for (name, digest) in [
+            ("bootstrap hang report", &self.report_sha256),
+            ("bootstrap minidump", &self.dump_sha256),
+        ] {
+            if digest.len() != 64 || !digest.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                bail!("{name} SHA-256 is invalid");
+            }
+        }
+        if self.report_bytes == 0 || self.report_bytes > MAX_BOOTSTRAP_HANG_REPORT_BYTES {
+            bail!("bootstrap hang report size is outside its bound");
+        }
+        if self.dump_bytes == 0 || self.dump_bytes > MAX_BOOTSTRAP_HANG_DUMP_BYTES {
+            bail!("bootstrap minidump size is outside its bound");
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct BootstrapHangModule {
+    pub base_address: u64,
+    pub size: u32,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct BootstrapHangThreadContext {
+    pub instruction_pointer: u64,
+    pub stack_pointer: u64,
+    pub module_path: Option<String>,
+    pub module_base_address: Option<u64>,
+    pub module_offset: Option<u64>,
+    pub owner_source: Option<String>,
+    pub mapping_windows_error: Option<u32>,
+    pub instruction_window: BootstrapHangInstructionWindow,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct BootstrapHangInstructionWindow {
+    pub start_address: u64,
+    pub bytes_hex: Option<String>,
+    pub windows_error: Option<u32>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct BootstrapHangWaitChainNode {
+    pub object_type: i32,
+    pub object_status: i32,
+    pub process_id: Option<u32>,
+    pub thread_id: Option<u32>,
+    pub object_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct BootstrapHangWaitChain {
+    pub captured: bool,
+    pub cycle: bool,
+    pub windows_error: Option<u32>,
+    pub nodes: Vec<BootstrapHangWaitChainNode>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct BootstrapHangDiagnosticReport {
+    pub schema_version: u32,
+    pub nonce: String,
+    pub process_id: u32,
+    pub primary_thread_id: u32,
+    pub suspended_previous_count: u32,
+    pub context: BootstrapHangThreadContext,
+    pub modules: Vec<BootstrapHangModule>,
+    pub module_map_windows_error: Option<u32>,
+    pub wait_chain: BootstrapHangWaitChain,
+    pub dump_name: String,
+    pub dump_sha256: String,
+    pub dump_bytes: u64,
+    pub cmux_bench_environment_filtered: bool,
+    pub helper_cmux_bench_environment_filtered: bool,
+}
+
+impl BootstrapHangDiagnosticReport {
+    pub fn validate(&self, expected_nonce: &str) -> Result<()> {
+        if self.schema_version != 1 || self.nonce != expected_nonce {
+            bail!("bootstrap hang report identity or schema is invalid");
+        }
+        if self.process_id == 0 || self.primary_thread_id == 0 {
+            bail!("bootstrap hang report process identity is invalid");
+        }
+        if self.suspended_previous_count == u32::MAX {
+            bail!("bootstrap hang report did not suspend the primary thread");
+        }
+        if self.modules.len() > 256
+            || (self.modules.is_empty() && self.module_map_windows_error.is_none())
+            || self.module_map_windows_error == Some(0)
+        {
+            bail!("bootstrap hang module map is outside its bound");
+        }
+        if self.modules.iter().any(|module| {
+            module.size == 0 || module.path.is_empty() || module.path.len() > 32 * 1024
+        }) {
+            bail!("bootstrap hang module map contains an invalid entry");
+        }
+        let owner = self
+            .context
+            .module_path
+            .as_ref()
+            .zip(self.context.module_base_address)
+            .zip(self.context.module_offset)
+            .zip(self.context.owner_source.as_deref());
+        if let Some((((path, base), offset), source)) = owner {
+            if path.is_empty()
+                || path.len() > 32 * 1024
+                || !matches!(source, "module-map" | "virtual-query")
+                || self.context.instruction_pointer < base
+                || offset != self.context.instruction_pointer.saturating_sub(base)
+                || self.context.mapping_windows_error.is_some()
+            {
+                bail!("bootstrap hang instruction owner is invalid");
+            }
+        } else if self.context.module_path.is_some()
+            || self.context.module_base_address.is_some()
+            || self.context.module_offset.is_some()
+            || self.context.owner_source.is_some()
+            || self.context.mapping_windows_error.is_none_or(|error| error == 0)
+        {
+            bail!("bootstrap hang instruction owner evidence is incomplete");
+        }
+        if self.context.instruction_window.bytes_hex.is_some()
+            == self.context.instruction_window.windows_error.is_some()
+            || self.context.instruction_window.windows_error == Some(0)
+        {
+            bail!("bootstrap hang instruction window evidence is invalid");
+        }
+        if self.context.instruction_window.bytes_hex.as_ref().is_some_and(|bytes| {
+            bytes.is_empty()
+                || bytes.len() > 64
+                || !bytes.len().is_multiple_of(2)
+                || !bytes.bytes().all(|byte| byte.is_ascii_hexdigit())
+        }) {
+            bail!("bootstrap hang instruction window bytes are invalid");
+        }
+        if self.wait_chain.nodes.len() > 16
+            || (self.wait_chain.captured == self.wait_chain.windows_error.is_some())
+        {
+            bail!("bootstrap hang wait-chain evidence is invalid");
+        }
+        if self.wait_chain.captured && self.wait_chain.nodes.is_empty() {
+            bail!("bootstrap hang wait-chain capture is empty");
+        }
+        validate_portable_artifact_name(&self.dump_name, ".dmp")?;
+        if self.dump_sha256.len() != 64
+            || !self.dump_sha256.bytes().all(|byte| byte.is_ascii_hexdigit())
+            || self.dump_bytes == 0
+            || self.dump_bytes > MAX_BOOTSTRAP_HANG_DUMP_BYTES
+        {
+            bail!("bootstrap hang report minidump evidence is invalid");
+        }
+        if !self.cmux_bench_environment_filtered || !self.helper_cmux_bench_environment_filtered {
+            bail!("bootstrap hang report did not prove CMUX_BENCH environment filtering");
+        }
+        Ok(())
+    }
+}
+
+fn validate_portable_artifact_name(name: &str, suffix: &str) -> Result<()> {
+    if name.len() > 96
+        || !name.ends_with(suffix)
+        || name
+            .bytes()
+            .any(|byte| !(byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_')))
+    {
+        bail!("bootstrap diagnostic artifact name is not portable");
+    }
+    Ok(())
 }
 
 #[derive(Debug, Serialize)]
@@ -217,7 +423,42 @@ pub fn validate_bootstrap_failure_records(bytes: &[u8], expected_nonce: &str) ->
     {
         bail!("bootstrap checkpoint identity, schema, or ordered records are invalid");
     }
+    let hang_diagnostic = records[0].get("hang_diagnostic").filter(|value| !value.is_null());
+    let hang_diagnostic_error =
+        records[0].get("hang_diagnostic_error").filter(|value| !value.is_null());
+    if hang_diagnostic.is_some() && hang_diagnostic_error.is_some() {
+        bail!("bootstrap hang diagnostic result is ambiguous");
+    }
+    if let Some(reference) = hang_diagnostic {
+        let reference = serde_json::from_value::<BootstrapHangArtifactReference>(reference.clone())
+            .context("parse bootstrap hang artifact reference")?;
+        reference.validate()?;
+    }
+    if hang_diagnostic_error.is_some_and(|value| {
+        value.as_str().is_none_or(|error| error.is_empty() || error.len() > 2_048)
+    }) {
+        bail!("bootstrap hang diagnostic error is invalid");
+    }
     Ok(())
+}
+
+pub fn bootstrap_failure_hang_artifact(
+    bytes: &[u8],
+    expected_nonce: &str,
+) -> Result<Option<BootstrapHangArtifactReference>> {
+    validate_bootstrap_failure_records(bytes, expected_nonce)?;
+    let first = bytes
+        .split(|byte| *byte == b'\n')
+        .find(|record| !record.is_empty())
+        .context("bootstrap failure checkpoint has no startup record")?;
+    let record = serde_json::from_slice::<serde_json::Value>(first)?;
+    record
+        .get("hang_diagnostic")
+        .filter(|value| !value.is_null())
+        .cloned()
+        .map(serde_json::from_value)
+        .transpose()
+        .context("parse bootstrap hang artifact reference")
 }
 
 pub fn setup_line(nonce: &str) -> String {
@@ -501,6 +742,84 @@ fn set_owner_only(_file: &File) -> Result<()> {
 mod tests {
     use super::*;
 
+    fn sample_hang_report() -> BootstrapHangDiagnosticReport {
+        BootstrapHangDiagnosticReport {
+            schema_version: 1,
+            nonce: "ab".repeat(NONCE_BYTES),
+            process_id: 41,
+            primary_thread_id: 42,
+            suspended_previous_count: 0,
+            context: BootstrapHangThreadContext {
+                instruction_pointer: 0x1010,
+                stack_pointer: 0x2000,
+                module_path: Some(r"C:\Windows\System32\ntdll.dll".into()),
+                module_base_address: Some(0x1000),
+                module_offset: Some(0x10),
+                owner_source: Some("module-map".into()),
+                mapping_windows_error: None,
+                instruction_window: BootstrapHangInstructionWindow {
+                    start_address: 0x1008,
+                    bytes_hex: Some("00112233".into()),
+                    windows_error: None,
+                },
+            },
+            modules: vec![BootstrapHangModule {
+                base_address: 0x1000,
+                size: 0x100,
+                path: r"C:\Windows\System32\ntdll.dll".into(),
+            }],
+            module_map_windows_error: None,
+            wait_chain: BootstrapHangWaitChain {
+                captured: true,
+                cycle: false,
+                windows_error: None,
+                nodes: vec![BootstrapHangWaitChainNode {
+                    object_type: 8,
+                    object_status: 3,
+                    process_id: Some(41),
+                    thread_id: Some(42),
+                    object_name: None,
+                }],
+            },
+            dump_name: "bootstrap-hang-ab.dmp".into(),
+            dump_sha256: "12".repeat(32),
+            dump_bytes: 4_096,
+            cmux_bench_environment_filtered: true,
+            helper_cmux_bench_environment_filtered: true,
+        }
+    }
+
+    fn bootstrap_failure_records(
+        hang_diagnostic: Option<&BootstrapHangArtifactReference>,
+        hang_diagnostic_error: Option<&str>,
+    ) -> Vec<u8> {
+        let trace = BootstrapStartupTrace::new();
+        let containment = BootstrapCleanupResult::completed();
+        let bootstrap = BootstrapCleanupResult::completed();
+        let failure = BootstrapFailureCheckpoint {
+            schema_version: 1,
+            record_type: "startup-failure",
+            nonce: "nonce",
+            reason: "bootstrap exited",
+            config_present_after_failure: false,
+            trace: &trace,
+            hang_diagnostic,
+            hang_diagnostic_error,
+        };
+        let cleanup = BootstrapCleanupCheckpoint {
+            schema_version: 1,
+            record_type: "cleanup-result",
+            nonce: "nonce",
+            containment_cleanup: &containment,
+            bootstrap_cleanup: &bootstrap,
+        };
+        let mut records = serde_json::to_vec(&failure).unwrap();
+        records.push(b'\n');
+        records.extend(serde_json::to_vec(&cleanup).unwrap());
+        records.push(b'\n');
+        records
+    }
+
     #[test]
     fn timing_page_accepts_one_nonce_bound_pre_exec_record() {
         let directory = tempfile::tempdir().unwrap();
@@ -654,31 +973,108 @@ mod tests {
 
     #[test]
     fn bootstrap_checkpoint_round_trip_preserves_identity_and_order() {
-        let trace = BootstrapStartupTrace::new();
-        let containment = BootstrapCleanupResult::completed();
-        let bootstrap = BootstrapCleanupResult::completed();
-        let failure = BootstrapFailureCheckpoint {
-            schema_version: 1,
-            record_type: "startup-failure",
-            nonce: "nonce",
-            reason: "bootstrap exited",
-            config_present_after_failure: false,
-            trace: &trace,
-        };
-        let cleanup = BootstrapCleanupCheckpoint {
-            schema_version: 1,
-            record_type: "cleanup-result",
-            nonce: "nonce",
-            containment_cleanup: &containment,
-            bootstrap_cleanup: &bootstrap,
-        };
-        let mut records = serde_json::to_vec(&failure).unwrap();
-        records.push(b'\n');
-        records.extend(serde_json::to_vec(&cleanup).unwrap());
-        records.push(b'\n');
+        let records = bootstrap_failure_records(None, None);
 
         validate_bootstrap_failure_records(&records, "nonce").unwrap();
         assert!(validate_bootstrap_failure_records(&records, "different").is_err());
+        assert!(bootstrap_failure_hang_artifact(&records, "nonce").unwrap().is_none());
+    }
+
+    #[test]
+    fn bootstrap_checkpoint_round_trip_preserves_hang_diagnostic_result() {
+        let reference = BootstrapHangArtifactReference {
+            report_name: "bootstrap-hang-ab.json".into(),
+            report_sha256: "12".repeat(32),
+            report_bytes: 4_096,
+            dump_name: "bootstrap-hang-ab.dmp".into(),
+            dump_sha256: "34".repeat(32),
+            dump_bytes: 8_192,
+        };
+        let records = bootstrap_failure_records(Some(&reference), None);
+
+        validate_bootstrap_failure_records(&records, "nonce").unwrap();
+        let decoded = bootstrap_failure_hang_artifact(&records, "nonce").unwrap().unwrap();
+        assert_eq!(decoded.report_name, reference.report_name);
+        assert_eq!(decoded.dump_sha256, reference.dump_sha256);
+    }
+
+    #[test]
+    fn bootstrap_checkpoint_round_trip_preserves_hang_diagnostic_error() {
+        let records = bootstrap_failure_records(None, Some("diagnostic helper timed out"));
+
+        validate_bootstrap_failure_records(&records, "nonce").unwrap();
+        assert!(bootstrap_failure_hang_artifact(&records, "nonce").unwrap().is_none());
+    }
+
+    #[test]
+    fn bootstrap_checkpoint_treats_null_diagnostic_fields_as_absent() {
+        let mut records = bootstrap_failure_records(None, None);
+        let first_newline = records.iter().position(|byte| *byte == b'\n').unwrap();
+        let mut first: serde_json::Value =
+            serde_json::from_slice(&records[..first_newline]).unwrap();
+        first["hang_diagnostic"] = serde_json::Value::Null;
+        first["hang_diagnostic_error"] = serde_json::Value::Null;
+        let mut with_nulls = serde_json::to_vec(&first).unwrap();
+        with_nulls.extend_from_slice(&records[first_newline..]);
+
+        validate_bootstrap_failure_records(&with_nulls, "nonce").unwrap();
+        assert!(bootstrap_failure_hang_artifact(&with_nulls, "nonce").unwrap().is_none());
+
+        let reference = BootstrapHangArtifactReference {
+            report_name: "bootstrap-hang-ab.json".into(),
+            report_sha256: "12".repeat(32),
+            report_bytes: 4_096,
+            dump_name: "bootstrap-hang-ab.dmp".into(),
+            dump_sha256: "34".repeat(32),
+            dump_bytes: 8_192,
+        };
+        records = bootstrap_failure_records(Some(&reference), Some("capture failed"));
+        assert!(validate_bootstrap_failure_records(&records, "nonce").is_err());
+    }
+
+    #[test]
+    fn bootstrap_hang_report_requires_bounded_nonce_bound_owner_evidence() {
+        let report = sample_hang_report();
+
+        report.validate(&report.nonce).unwrap();
+        assert!(report.validate(&"cd".repeat(NONCE_BYTES)).is_err());
+
+        let mut invalid_window = sample_hang_report();
+        invalid_window.context.instruction_window.windows_error = Some(5);
+        assert!(invalid_window.validate(&invalid_window.nonce).is_err());
+
+        let mut oversized_modules = sample_hang_report();
+        oversized_modules.modules = vec![oversized_modules.modules[0].clone(); 257];
+        assert!(oversized_modules.validate(&oversized_modules.nonce).is_err());
+
+        let mut module_map_failed = sample_hang_report();
+        module_map_failed.modules.clear();
+        module_map_failed.module_map_windows_error = Some(299);
+        module_map_failed.context.module_path = None;
+        module_map_failed.context.module_base_address = None;
+        module_map_failed.context.module_offset = None;
+        module_map_failed.context.owner_source = None;
+        module_map_failed.context.mapping_windows_error = Some(299);
+        module_map_failed.validate(&module_map_failed.nonce).unwrap();
+    }
+
+    #[test]
+    fn bootstrap_hang_artifact_reference_rejects_unsafe_names_and_sizes() {
+        let mut reference = BootstrapHangArtifactReference {
+            report_name: "bootstrap-hang-ab.json".into(),
+            report_sha256: "12".repeat(32),
+            report_bytes: 4_096,
+            dump_name: "bootstrap-hang-ab.dmp".into(),
+            dump_sha256: "34".repeat(32),
+            dump_bytes: 8_192,
+        };
+        reference.validate().unwrap();
+
+        reference.dump_name = "../outside.dmp".into();
+        assert!(reference.validate().is_err());
+        reference.dump_name = "bootstrap-hang-ab.dmp".into();
+        reference.dump_bytes = MAX_BOOTSTRAP_HANG_DUMP_BYTES + 1;
+        assert!(reference.validate().is_err());
     }
 
     #[cfg(target_os = "macos")]
