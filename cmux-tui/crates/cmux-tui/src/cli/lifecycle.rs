@@ -330,7 +330,7 @@ fn require_time_remaining(
         .get_mut()
         .set_read_timeout(Some(remaining))
         .and_then(|()| connection.get_mut().set_write_timeout(Some(remaining)))
-        .map_err(|_| ExchangeError::Transport)
+        .map_err(exchange_io_error)
 }
 
 fn exchange_io_error(error: std::io::Error) -> ExchangeError {
@@ -533,6 +533,10 @@ mod tests {
         );
         assert_eq!(
             exchange_io_error(io::Error::from(io::ErrorKind::ConnectionReset)),
+            ExchangeError::Closed
+        );
+        assert_eq!(
+            exchange_io_error(io::Error::from(io::ErrorKind::NotConnected)),
             ExchangeError::Closed
         );
         assert_eq!(
