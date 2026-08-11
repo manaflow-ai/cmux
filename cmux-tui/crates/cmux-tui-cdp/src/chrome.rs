@@ -383,18 +383,18 @@ fn poll_reap_request(request: &mut ReapRequest) -> bool {
     publish_reaper_test_event(ReaperTestEvent::Attempt(request.child.id()));
     #[cfg(test)]
     {
-        if FORCE_REAPER_WAIT_ERROR.load(Ordering::Acquire) {
-            let _ = request.child.kill();
-            return false;
-        }
         if FORCE_REAPER_PENDING.load(Ordering::Acquire) {
             return false;
         }
     }
-    let _ = request.child.kill();
-    match request.child.try_wait() {
+    match chrome_child_try_wait(request) {
         Ok(Some(_)) => {}
-        Ok(None) | Err(_) => return false,
+        Err(error) if chrome_child_wait_lost_ownership(&error) => {}
+        Ok(None) => {
+            let _ = request.child.kill();
+            return false;
+        }
+        Err(_) => return false,
     }
     if let Some(profile_dir) = request.profile_dir.take() {
         let _ = std::fs::remove_dir_all(profile_dir);
@@ -406,6 +406,28 @@ fn poll_reap_request(request: &mut ReapRequest) -> bool {
     #[cfg(test)]
     publish_reaper_test_event(ReaperTestEvent::Complete(request.child.id()));
     true
+}
+
+fn chrome_child_wait_lost_ownership(error: &std::io::Error) -> bool {
+    #[cfg(unix)]
+    {
+        error.raw_os_error() == Some(libc::ECHILD)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = error;
+        false
+    }
+}
+
+fn chrome_child_try_wait(
+    request: &mut ReapRequest,
+) -> std::io::Result<Option<std::process::ExitStatus>> {
+    #[cfg(test)]
+    if FORCE_REAPER_WAIT_ERROR.load(Ordering::Acquire) {
+        return Err(std::io::Error::from(std::io::ErrorKind::Interrupted));
+    }
+    request.child.try_wait()
 }
 
 #[cfg(test)]
