@@ -1618,9 +1618,9 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_take_process_snapshot_until() {
           /bin/cp "$CMUX_TEST_CURRENT" "$1"
         }
-        cmux_ssh_auth_stopped_identity() {
+        cmux_ssh_auth_stable_identity() {
           case "$1" in
-            101|103) printf '1|2|Thu_Jan_1_00:00:00_1970\n' ;;
+            101|103) printf '2|Thu_Jan_1_00:00:00_1970\n' ;;
             *) return 1 ;;
           esac
         }
@@ -1714,8 +1714,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_take_process_snapshot_until() {
           /bin/cp "$CMUX_TEST_CURRENT" "$1"
         }
-        cmux_ssh_auth_stopped_identity() {
-          printf '1|11|Thu_Jan_1_00:00:00_1970\n'
+        cmux_ssh_auth_stable_identity() {
+          printf '11|Thu_Jan_1_00:00:00_1970\n'
         }
         kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
         printf '101 1 11 T Thu Jan 1 00:00:00 1970\n102 1 12 T Thu Jan 1 00:00:00 1970\n' \
@@ -1774,11 +1774,11 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_take_process_snapshot_until() {
           /bin/cp "$CMUX_TEST_CURRENT" "$1"
         }
-        cmux_ssh_auth_stopped_identity() {
+        cmux_ssh_auth_stable_identity() {
           printf '%s\n' "$1" >> "$CMUX_TEST_IDENTITY_CALLS"
           case "$1" in
-            101) printf '1|11|Thu_Jan_1_00:00:00_1970\n' ;;
-            102) printf '1|12|Fri_Jan_2_00:00:00_1970\n' ;;
+            101) printf '11|Thu_Jan_1_00:00:00_1970\n' ;;
+            102) printf '12|Fri_Jan_2_00:00:00_1970\n' ;;
             *) return 1 ;;
           esac
         }
@@ -1839,10 +1839,10 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_take_process_snapshot_until() {
           /bin/cp "$CMUX_TEST_CURRENT" "$1"
         }
-        cmux_ssh_auth_stopped_identity() {
+        cmux_ssh_auth_stable_identity() {
           case "$1" in
-            101) printf '1|11|Thu_Jan_1_00:00:00_1970\n' ;;
-            103) printf '1|13|Thu_Jan_1_00:00:00_1970\n' ;;
+            101) printf '11|Thu_Jan_1_00:00:00_1970\n' ;;
+            103) printf '13|Thu_Jan_1_00:00:00_1970\n' ;;
             *) return 1 ;;
           esac
         }
@@ -1907,8 +1907,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_take_process_snapshot_until() {
           /bin/cp "$CMUX_TEST_CURRENT" "$1"
         }
-        cmux_ssh_auth_stopped_identity() {
-          printf '1|11|Thu_Jan_1_00:00:00_1970\n'
+        cmux_ssh_auth_stable_identity() {
+          printf '11|Thu_Jan_1_00:00:00_1970\n'
         }
         kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
         printf '101 7 11 T Thu Jan 1 00:00:00 1970\n999 7 11 T Fri Jan 2 00:00:00 1970\n' \
@@ -1966,15 +1966,15 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_take_process_snapshot_until() {
           /bin/cp "$CMUX_TEST_CURRENT" "$1"
         }
-        cmux_ssh_auth_stopped_identity() {
+        cmux_ssh_auth_stable_identity() {
           case "$1" in
-            101) printf '1|11|Thu_Jan_1_00:00:00_1970\n' ;;
-            102) printf '1|12|Thu_Jan_1_00:00:00_1970\n' ;;
+            101) printf '11|Thu_Jan_1_00:00:00_1970\n' ;;
+            102) printf '12|Thu_Jan_1_00:00:00_1970\n' ;;
             *) return 1 ;;
           esac
         }
         kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
-        printf '101 1 11 T Thu Jan 1 00:00:00 1970\n102 1 12 T Thu Jan 1 00:00:00 1970\n' \
+        printf '101 1 11 S Thu Jan 1 00:00:00 1970\n102 1 12 S Thu Jan 1 00:00:00 1970\n' \
           > "$CMUX_TEST_CURRENT"
         printf '11 101 1 Thu_Jan_1_00:00:00_1970\n12 102 1 Thu_Jan_1_00:00:00_1970\n' \
           > "$CMUX_TEST_SIGNALED_GROUPS"
@@ -2050,9 +2050,9 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           printf x >> "$CMUX_TEST_SNAPSHOT_CALLS"
           /bin/cp "$CMUX_TEST_CURRENT" "$1"
         }
-        cmux_ssh_auth_stopped_identity() {
+        cmux_ssh_auth_stable_identity() {
           printf x >> "$CMUX_TEST_IDENTITY_CALLS"
-          printf '1|11|Thu_Jan_1_00:00:00_1970\n'
+          printf '11|Thu_Jan_1_00:00:00_1970\n'
         }
         kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
         : > "$CMUX_TEST_SIGNALED_PIDS"
