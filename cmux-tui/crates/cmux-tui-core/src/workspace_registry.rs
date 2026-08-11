@@ -5480,7 +5480,8 @@ impl SessionCoordinatorWaiter {
                     SESSION_GUARD_COORDINATOR_WAITER_SEQUENCE.fetch_add(1, Ordering::Relaxed);
                 let token = format!("{:x}-{sequence:x}", std::process::id());
                 let registration_path = waiter_dir.join(format!("{token}.waiter"));
-                let fifo_path = std::ffi::CString::new(registration_path.as_os_str().as_bytes())?;
+                let temporary_path = waiter_dir.join(format!(".{token}.tmp"));
+                let fifo_path = std::ffi::CString::new(temporary_path.as_os_str().as_bytes())?;
                 // SAFETY: fifo_path is a valid NUL-terminated path and mode
                 // only grants access to the current user.
                 let created = unsafe { libc::mkfifo(fifo_path.as_ptr(), 0o600) };
@@ -5496,10 +5497,10 @@ impl SessionCoordinatorWaiter {
                 reader_options
                     .read(true)
                     .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK);
-                let signal_reader = match reader_options.open(&registration_path) {
+                let signal_reader = match reader_options.open(&temporary_path) {
                     Ok(reader) => reader,
                     Err(error) => {
-                        let _ = fs::remove_file(&registration_path);
+                        let _ = fs::remove_file(&temporary_path);
                         return Err(error.into());
                     }
                 };
@@ -5507,13 +5508,20 @@ impl SessionCoordinatorWaiter {
                 anchor_options
                     .write(true)
                     .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK);
-                let signal_anchor = match anchor_options.open(&registration_path) {
+                let signal_anchor = match anchor_options.open(&temporary_path) {
                     Ok(anchor) => anchor,
                     Err(error) => {
-                        let _ = fs::remove_file(&registration_path);
+                        let _ = fs::remove_file(&temporary_path);
                         return Err(error.into());
                     }
                 };
+                if let Err(error) = fs::rename(&temporary_path, &registration_path) {
+                    let _ = fs::remove_file(&temporary_path);
+                    if error.kind() == std::io::ErrorKind::NotFound {
+                        continue;
+                    }
+                    return Err(error.into());
+                }
                 return Ok(Self {
                     signal_reader,
                     _signal_anchor: signal_anchor,
@@ -5697,7 +5705,15 @@ fn publish_session_coordinator_available(waiter_dir: &Path) {
         };
         match path.extension().and_then(|value| value.to_str()) {
             Some("tmp") => {
-                let is_stale = metadata.file_type().is_file()
+                #[cfg(unix)]
+                let is_temporary_waiter = {
+                    use std::os::unix::fs::FileTypeExt;
+
+                    metadata.file_type().is_file() || metadata.file_type().is_fifo()
+                };
+                #[cfg(not(unix))]
+                let is_temporary_waiter = metadata.file_type().is_file();
+                let is_stale = is_temporary_waiter
                     && metadata
                         .modified()
                         .ok()
