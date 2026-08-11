@@ -2056,6 +2056,51 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func unpublishedCleanupPreservesConcurrentPublishedIdentity(
+        shellPath: String
+    ) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-ssh-auth-publication-handoff-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let groupDirectory = root.appendingPathComponent(
+            "cmux-ssh-auth-group.preallocated",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_run_cleanup_transactions() {
+          printf '202|888|Thu_Jan_1_00:00:00_1970\n' \
+            > "$cmux_ssh_auth_tree_state/identity"
+        }
+        CMUX_SSH_AUTH_GROUP_DIR="$CMUX_TEST_GROUP_DIR"
+        export CMUX_SSH_AUTH_GROUP_DIR
+        cmux_ssh_terminate_unpublished_auth_process_tree \
+          101 1 777 Thu_Jan_1_00:00:00_1970 || exit 99
+        /usr/bin/grep -Fqx '202|888|Thu_Jan_1_00:00:00_1970' \
+          "$CMUX_SSH_AUTH_GROUP_DIR/identity" || exit 98
+        test ! -e "$CMUX_SSH_AUTH_GROUP_DIR/rollback-only" || exit 97
+        test ! -e "$CMUX_SSH_AUTH_GROUP_DIR/unpublished.root" || exit 96
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_TEST_GROUP_DIR": groupDirectory.path,
+                "TMPDIR": root.path,
+            ],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
     func recoverySweepCompletesPreservedUnpublishedOwnership(shellPath: String) throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
