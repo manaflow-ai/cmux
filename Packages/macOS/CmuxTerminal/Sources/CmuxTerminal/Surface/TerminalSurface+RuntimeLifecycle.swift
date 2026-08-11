@@ -948,6 +948,7 @@ extension TerminalSurface {
         }
     }
 
+    @MainActor
     func failRuntimeSurfaceCreationForTeardownCapacity(
         preservingRecoveryOwner: Bool = false
     ) {
