@@ -305,6 +305,17 @@ struct SSHConfiguredRemoteCommandHostTests {
             startupArtifact.contains("\ncmux_ssh_schedule_failed_auth_group_recovery\nwhile :; do\n"),
             "Ordinary SSH startup must schedule durable failed-auth cleanup before its long-lived loop: \(startupArtifact)"
         )
+        let authGroupCreation = try #require(
+            startupArtifact.range(of: "CMUX_SSH_AUTH_GROUP_DIR=$(cmux_ssh_auth_create_group_dir)")
+        )
+        let postCreationRecovery = startupArtifact.range(
+            of: "cmux_ssh_schedule_failed_auth_group_recovery",
+            range: authGroupCreation.upperBound..<startupArtifact.endIndex
+        )
+        #expect(
+            postCreationRecovery != nil,
+            "Foreground authentication must schedule recovery after its new group enters the queue"
+        )
         let configureParams = try #require(
             requests.first { $0["method"] as? String == "workspace.remote.configure" }?["params"]
                 as? [String: Any]
