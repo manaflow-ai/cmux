@@ -427,7 +427,7 @@ import Testing
         )
     }
 
-    @Test func seedLargerThanWireLimitIsSplitWithoutByteLoss() throws {
+    @Test func largeSeedPreservesTypedBoundaryWithoutByteLoss() throws {
         let connection = connection()
         var observed: [RemoteTmuxPaneSeed] = []
         let token = connection.addObserver(onPaneSeed: { _, seed in observed.append(seed) })
@@ -437,16 +437,22 @@ import Testing
             repeating: 0x61,
             count: RemoteTmuxPaneSeed.maximumChunkByteCount + 37
         )
-        connection.beginPaneSeed(paneId: 4, clearScrollback: true)
-        connection.installPaneSeedCapture(paneId: 4, data: capture)
-        connection.finishPaneSeed(paneId: 4, state: Data("state".utf8))
+        let seedID = try #require(connection.beginPaneSeed(
+            paneId: 4,
+            clearScrollback: true,
+            kind: .fullHistory
+        ))
+        connection.installPaneSeedCapture(paneId: 4, seedID: seedID, data: capture)
+        connection.finishPaneSeed(paneId: 4, seedID: seedID, state: Data("state".utf8))
 
         let seed = try #require(observed.only)
-        #expect(seed.reset.count == RemoteTmuxPaneSeed.maximumChunkByteCount)
-        #expect(seed.output.allSatisfy {
-            !$0.isEmpty && $0.count <= RemoteTmuxPaneSeed.maximumChunkByteCount
-        })
-        #expect(seed.bytes == Data("\u{1b}[H\u{1b}[2J\u{1b}[3J".utf8) + capture + Data("state".utf8))
+        let expectedSnapshot = Data("\u{1b}[H\u{1b}[2J\u{1b}[3J".utf8) + capture
+        #expect(seed.kind == .fullHistory)
+        #expect(seed.discardedOutput.isEmpty)
+        #expect(seed.snapshot == expectedSnapshot)
+        #expect(seed.catchUpOutput.isEmpty)
+        #expect(seed.state == Data("state".utf8))
+        #expect(seed.renderedBytes == expectedSnapshot + Data("state".utf8))
     }
 
     @Test func overlappingSeedsPreserveFifoAndPostCaptureOutputOrder() throws {
@@ -455,28 +461,62 @@ import Testing
         let token = connection.addObserver(onPaneSeed: { _, seed in observed.append(seed) })
         defer { connection.removeObserver(token) }
 
-        connection.beginPaneSeed(paneId: 7, clearScrollback: false)
-        connection.beginPaneSeed(paneId: 7, clearScrollback: true)
-        connection.installPaneSeedCapture(paneId: 7, data: Data("capture-1".utf8))
+        let firstSeedID = try #require(connection.beginPaneSeed(
+            paneId: 7,
+            clearScrollback: false,
+            kind: .fullHistory
+        ))
+        let secondSeedID = try #require(connection.beginPaneSeed(
+            paneId: 7,
+            clearScrollback: true,
+            kind: .fullHistory
+        ))
+        connection.installPaneSeedCapture(
+            paneId: 7,
+            seedID: firstSeedID,
+            data: Data("capture-1".utf8)
+        )
         #expect(connection.absorbPaneOutputIntoPendingSeed(
             paneId: 7,
             data: Data("live-1".utf8)
         ))
-        connection.finishPaneSeed(paneId: 7, state: Data("state-1".utf8))
-        connection.installPaneSeedCapture(paneId: 7, data: Data("capture-2".utf8))
+        connection.finishPaneSeed(
+            paneId: 7,
+            seedID: firstSeedID,
+            state: Data("state-1".utf8)
+        )
+        connection.installPaneSeedCapture(
+            paneId: 7,
+            seedID: secondSeedID,
+            data: Data("capture-2".utf8)
+        )
         #expect(connection.absorbPaneOutputIntoPendingSeed(
             paneId: 7,
             data: Data("live-2".utf8)
         ))
-        connection.finishPaneSeed(paneId: 7, state: Data("state-2".utf8))
+        connection.finishPaneSeed(
+            paneId: 7,
+            seedID: secondSeedID,
+            state: Data("state-2".utf8)
+        )
 
-        #expect(observed.map(\.bytes) == [
-            Data("capture-1live-1state-1".utf8),
-            Data("\u{1b}[H\u{1b}[2J\u{1b}[3Jcapture-2live-2state-2".utf8),
-        ])
+        #expect(observed.count == 2)
+        #expect(observed[0].kind == .fullHistory)
+        #expect(observed[0].discardedOutput.isEmpty)
+        #expect(observed[0].snapshot == Data("capture-1".utf8))
+        #expect(observed[0].catchUpOutput == [Data("live-1".utf8)])
+        #expect(observed[0].state == Data("state-1".utf8))
+        #expect(observed[1].kind == .fullHistory)
+        #expect(observed[1].discardedOutput.isEmpty)
+        #expect(
+            observed[1].snapshot
+                == Data("\u{1b}[H\u{1b}[2J\u{1b}[3Jcapture-2".utf8)
+        )
+        #expect(observed[1].catchUpOutput == [Data("live-2".utf8)])
+        #expect(observed[1].state == Data("state-2".utf8))
     }
 
-    @Test func captureCommandFailureStopsAbsorbingUntilItsStateReply() {
+    @Test func captureCommandFailureStopsAbsorbingUntilItsStateReply() throws {
         let connection = connection()
         var failures: [Int] = []
         var live: [Data] = []
@@ -486,25 +526,37 @@ import Testing
         )
         defer { connection.removeObserver(token) }
 
-        connection.beginPaneSeed(paneId: 9, clearScrollback: false)
-        connection.pendingCommands = [.capturePane(9)]
+        let seedID = try #require(connection.beginPaneSeed(
+            paneId: 9,
+            clearScrollback: false,
+            kind: .fullHistory
+        ))
+        connection.pendingCommands = [.capturePane(9, seedID)]
         connection.handleCommandResult(lines: ["capture failed"], isError: true)
         connection.handleMessageForTesting(.output(paneId: 9, data: Data("live".utf8)))
-        connection.finishPaneSeed(paneId: 9, state: Data("state".utf8))
+        connection.finishPaneSeed(paneId: 9, seedID: seedID, state: Data("state".utf8))
 
         #expect(failures == [9])
         #expect(live == [Data("live".utf8), Data("state".utf8)])
         #expect(connection.pendingPaneSeeds[9] == nil)
     }
 
-    @Test func connectionStopCancelsPendingSeedAndReleasesBufferedBytes() {
+    @Test func connectionStopCancelsPendingSeedAndReleasesBufferedBytes() throws {
         let connection = connection()
         var failures: [Int] = []
         let token = connection.addObserver(onPaneSeedFailure: { failures.append($0) })
         defer { connection.removeObserver(token) }
 
-        connection.beginPaneSeed(paneId: 11, clearScrollback: false)
-        connection.installPaneSeedCapture(paneId: 11, data: Data("capture".utf8))
+        let seedID = try #require(connection.beginPaneSeed(
+            paneId: 11,
+            clearScrollback: false,
+            kind: .fullHistory
+        ))
+        connection.installPaneSeedCapture(
+            paneId: 11,
+            seedID: seedID,
+            data: Data("capture".utf8)
+        )
         #expect(connection.absorbPaneOutputIntoPendingSeed(
             paneId: 11,
             data: Data("buffered".utf8)
