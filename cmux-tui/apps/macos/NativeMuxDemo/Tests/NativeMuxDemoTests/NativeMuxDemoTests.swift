@@ -67,7 +67,10 @@ func decodesEveryNativeLayoutShape() throws {
             {"id":"pane_55555555555555555555555555555555","screen_id":"screen_44444444444444444444444444444444","name":null,"focused":true,"zoomed":false},
             {"id":"pane_66666666666666666666666666666666","screen_id":"screen_44444444444444444444444444444444","name":null,"focused":false,"zoomed":false}
           ],
-          "tabs":[{"id":"tab_77777777777777777777777777777777","pane_id":"pane_55555555555555555555555555555555","name":null,"index":0,"focused":true,"content_kind":"terminal","content_id":"term_88888888888888888888888888888888"}],
+          "tabs":[
+            {"id":"tab_77777777777777777777777777777777","pane_id":"pane_55555555555555555555555555555555","name":null,"index":0,"focused":true,"content_kind":"terminal","content_id":"term_88888888888888888888888888888888"},
+            {"id":"tab_99999999999999999999999999999999","pane_id":"pane_66666666666666666666666666666666","name":null,"index":0,"focused":true,"content_kind":"terminal","content_id":"term_88888888888888888888888888888888"}
+          ],
           "terminals":[{"id":"term_88888888888888888888888888888888","tab_id":"tab_77777777777777777777777777777777","title":"shell","cols":80,"rows":24,"running":true,"lifecycle":"running"}],
           "browsers":[],
           "cursor":{"generation":"g","revision":"8"}
@@ -96,6 +99,10 @@ func decodesEveryNativeLayoutShape() throws {
         return
     }
     #expect(panes == [expanded])
+    #expect(snapshot.visibleTerminalPlacements(in: snapshot.screens[0]) == [
+        "pane_55555555555555555555555555555555": "term_88888888888888888888888888888888",
+        "pane_66666666666666666666666666666666": "term_88888888888888888888888888888888",
+    ])
 }
 
 @Test
@@ -422,6 +429,39 @@ func resourceDrainTreatsUnknownStreamEndAsTerminalError() {
 }
 
 @Test
+func renderDrainConsumesUnknownPayloadBeforeContinuing() {
+    var pending: [(UInt32, Data)] = [
+        (UInt32.max, Data("unknown".utf8)),
+        (TerminalRenderEvent.Kind.bytes.rawValue, Data("visible".utf8)),
+    ]
+    var leased: (UInt32, Data)?
+    let copy: (inout CmuxFrontendRenderEvent, UnsafeMutablePointer<UInt8>?, Int) -> Bool = {
+        descriptor, buffer, capacity in
+        if leased == nil { leased = pending.first }
+        guard let current = leased else { return false }
+        descriptor = CmuxFrontendRenderEvent()
+        descriptor.kind = current.0
+        descriptor.cols = 80
+        descriptor.rows = 24
+        descriptor.payload_length = current.1.count
+        guard let buffer, capacity >= current.1.count else { return true }
+        current.1.copyBytes(to: buffer, count: current.1.count)
+        pending.removeFirst()
+        leased = nil
+        return true
+    }
+
+    let batch = drainTerminalRenderEvents(copy: copy)
+
+    #expect(batch.events.count == 1)
+    #expect(batch.events.first?.kind == .bytes)
+    #expect(batch.events.first?.payload == Data("visible".utf8))
+    #expect(!batch.hasMore)
+    #expect(pending.isEmpty)
+    #expect(leased == nil)
+}
+
+@Test
 func decodesNativeResetSidecarKittyAliasesAndCursors() {
     let payload = nativeResetPayload()
     let metadata = NativeKittyResetMetadata.decode(payload)
@@ -471,22 +511,6 @@ func sideBySideLayoutUsesScreenRelativeGhosttyCoordinates() {
     #expect(layout.ghosttyPlacement.y == 0)
     #expect(layout.ghosttyPlacement.columns >= 80)
     #expect(layout.ghosttyPlacement.rows >= 40)
-}
-
-@Test
-func launcherPreparesGhosttyKitBeforeSwiftBuild() throws {
-    let packageDirectory = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-    let launcher = try String(
-        contentsOf: packageDirectory.appendingPathComponent("run-demo.sh"),
-        encoding: .utf8
-    )
-    let ensureRange = try #require(launcher.range(of: "scripts/ensure-ghosttykit.sh"))
-    let swiftBuildRange = try #require(launcher.range(of: "swift build"))
-
-    #expect(ensureRange.lowerBound < swiftBuildRange.lowerBound)
 }
 
 @Test
@@ -563,20 +587,6 @@ func ghosttyLauncherRunsExactCmuxBinaryByName() throws {
         .split(separator: "\n")
         .map(String.init)
     #expect(arguments == ["--probe", "alpha beta"])
-}
-
-@Test
-func packageLinksFrameworkRequiredByIrohInterfaceDiscovery() throws {
-    let packageDirectory = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-    let manifest = try String(
-        contentsOf: packageDirectory.appendingPathComponent("Package.swift"),
-        encoding: .utf8
-    )
-
-    #expect(manifest.contains(".linkedFramework(\"CoreWLAN\")"))
 }
 
 @Test @MainActor

@@ -403,34 +403,30 @@ final class FrontendModel {
     }
 
     private func reconcileTerminalControllers(_ next: ResourceSnapshot) {
-        let live = Set(next.terminals.map(\.id))
-        let visible: Set<String> = {
+        let placements: [String: String] = {
             guard let workspaceID = selectedWorkspaceID,
                   let screenID = selectedScreenID,
                   let screen = next.screens.first(where: {
                       $0.id == screenID && $0.workspaceID == workspaceID
                   }) else { return [] }
-            let paneIDs = Set(screen.layout.visiblePaneIDs)
-            let tabsByPane = Dictionary(grouping: next.tabs.filter { paneIDs.contains($0.paneID) }, by: \.paneID)
-            let activeContentIDs = Set(tabsByPane.values.compactMap { tabs in
-                (tabs.first { $0.focused } ?? tabs.first)?.contentID
-            })
-            return Set(next.terminals.map(\.id).filter { activeContentIDs.contains($0) })
+            return next.visibleTerminalPlacements(in: screen)
         }()
-        let removed = terminalControllers.keys.filter { !live.contains($0) || !visible.contains($0) }
-        for id in removed {
-            guard let controller = terminalControllers.removeValue(forKey: id) else { continue }
+        let removed = terminalControllers.compactMap { paneID, controller in
+            placements[paneID] == controller.terminalID ? nil : paneID
+        }
+        for paneID in removed {
+            guard let controller = terminalControllers.removeValue(forKey: paneID) else { continue }
             retireTerminalController(controller)
         }
         guard let service else { return }
-        for terminal in next.terminals where visible.contains(terminal.id) {
-            guard terminalControllers[terminal.id] == nil else { continue }
+        for (paneID, terminalID) in placements {
+            guard terminalControllers[paneID] == nil else { continue }
             let controller = NativeTerminalModel(
-                terminalID: terminal.id,
+                terminalID: terminalID,
                 service: service,
                 runtime: ghosttyRuntime
             )
-            terminalControllers[terminal.id] = controller
+            terminalControllers[paneID] = controller
             controller.attach()
         }
     }
