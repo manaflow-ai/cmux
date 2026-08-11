@@ -1144,10 +1144,25 @@ mod tests {
             .expect("hook descendant PID");
         let child_exit =
             TestProcessExitSignal::observe(child_pid).expect("observe hook descendant exit");
-        let child_stopped = child_exit.is_none_or(|exit| {
+        let child_stopped = child_exit.as_ref().is_none_or(|exit| {
             exit.wait_until(Instant::now() + Duration::from_secs(1))
                 .expect("wait for hook descendant cleanup")
         });
+        if !child_stopped {
+            let process_group = std::fs::read_to_string(&hook_group_pid_path)
+                .ok()
+                .and_then(|pid| pid.trim().parse::<libc::pid_t>().ok());
+            // SAFETY: both PIDs belong to this isolated test fixture. The
+            // negative group target is preferred when its publication exists.
+            unsafe {
+                libc::kill(process_group.map_or(child_pid, |pid| -pid), libc::SIGKILL);
+            }
+            let cleanup_completed = child_exit.as_ref().is_none_or(|exit| {
+                exit.wait_until(Instant::now() + Duration::from_secs(1))
+                    .expect("wait for failed hook descendant cleanup")
+            });
+            assert!(cleanup_completed, "failed hook descendant cleanup did not complete");
+        }
         let _ = std::fs::remove_file(&child_pid_path);
         let _ = std::fs::remove_file(&child_ready_path);
         let _ = std::fs::remove_file(&hook_group_pid_path);
