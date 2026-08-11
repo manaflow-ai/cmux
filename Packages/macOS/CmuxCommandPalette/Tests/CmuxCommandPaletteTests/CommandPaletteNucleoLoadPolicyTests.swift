@@ -40,4 +40,26 @@ import Testing
             )
         )
     }
+
+    @Test func developerOverridePrecedesBundledLibraryWhenPermitted() {
+        #expect(
+            CommandPaletteNucleoSearchLibrary.prioritizedLibraryPaths(
+                environmentPath: "/tmp/developer/libnucleo.dylib",
+                bundledLibraryPath: "/Applications/cmux.app/Contents/Frameworks/libnucleo.dylib",
+                permitsDeveloperLibraryPaths: true
+            ) == [
+                "/tmp/developer/libnucleo.dylib",
+                "/Applications/cmux.app/Contents/Frameworks/libnucleo.dylib",
+            ]
+        )
+        #expect(
+            CommandPaletteNucleoSearchLibrary.prioritizedLibraryPaths(
+                environmentPath: "/tmp/developer/libnucleo.dylib",
+                bundledLibraryPath: "/Applications/cmux.app/Contents/Frameworks/libnucleo.dylib",
+                permitsDeveloperLibraryPaths: false
+            ) == [
+                "/Applications/cmux.app/Contents/Frameworks/libnucleo.dylib"
+            ]
+        )
+    }
 }
