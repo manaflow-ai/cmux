@@ -9322,6 +9322,21 @@ impl Mux {
                     "could not clean up terminal host {}",
                     record.terminal_id
                 );
+                if let Some((exit_path, exit)) =
+                    crate::terminal_host_runtime::terminal_host_exit_record(&path)?
+                {
+                    anyhow::ensure!(
+                        exit.terminal_id == record.terminal_id
+                            && exit.incarnation == record.incarnation,
+                        "terminal-host exit identity changed while closing {}",
+                        record.terminal_id
+                    );
+                    anyhow::ensure!(
+                        acknowledge_exact_terminal_host_exit(&exit_path, &exit),
+                        "could not acknowledge terminal-host exit {}",
+                        record.terminal_id
+                    );
+                }
             }
             Ok(())
         }
@@ -20186,6 +20201,57 @@ mod tests {
 
         let error = result.expect_err("close acknowledged an unreadable exact host record");
         assert!(format!("{error:#}").contains("terminal-host"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn prepared_terminal_host_cleanup_acknowledges_exit_after_record_disappears() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        let mux = test_mux();
+        let root = std::env::temp_dir().join(format!(
+            "cmux-prepared-host-exit-cleanup-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let terminal_id = TerminalId::random().unwrap().to_hex();
+        let incarnation = TerminalId::random().unwrap().to_hex();
+        let uid = std::fs::metadata(&root).unwrap().uid();
+        let record = crate::terminal_host_runtime::TerminalHostRecord {
+            record_version: 4,
+            terminal_id: terminal_id.clone(),
+            incarnation: incarnation.clone(),
+            endpoint: format!("/tmp/cmux-th-{uid}/{terminal_id}.sock"),
+            owner_token: "01".repeat(crate::terminal_host::CAPABILITY_TOKEN_LEN),
+            host_pid: std::process::id(),
+            host_start_nonce: "02".repeat(32),
+            workspace_key: String::new(),
+            supports_set_defaults: true,
+            supports_terminate_only: true,
+            supports_clear_history: true,
+            supports_terminate_ack: true,
+        };
+        let record_path = record.record_path(&root);
+        let exit_record = crate::terminal_host_runtime::TerminalHostExitRecord::new(
+            &TerminalHostIdentity { terminal_id, incarnation },
+            TerminalExit {
+                outcome: crate::terminal_host_protocol::TerminalExitOutcome::Signal {
+                    signal: libc::SIGHUP,
+                    core_dumped: false,
+                },
+                exited_at_ms: 1_234_567,
+            },
+        );
+        let exit_path = record_path.with_extension("exit");
+        std::fs::write(&exit_path, serde_json::to_vec(&exit_record).unwrap()).unwrap();
+        std::fs::set_permissions(&exit_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+
+        mux.terminate_prepared_terminal_hosts(vec![(record_path, record)]).unwrap();
+
+        let exit_remained = exit_path.exists();
+        let _ = std::fs::remove_dir_all(root);
+        assert!(!exit_remained, "post-commit host cleanup retained its exact exit sidecar");
     }
 
     #[cfg(unix)]
