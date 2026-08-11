@@ -2337,6 +2337,10 @@ pub const Client = struct {
         }
         if (self.isClosed()) return error.ConnectionClosed;
         std.debug.assert(waiter.granted);
+        _ = deadline.remainingNs() catch |failure| {
+            self.grantNextRequestWaiter();
+            return failure;
+        };
     }
 
     fn releaseRequest(self: *Client) void {
