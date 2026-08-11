@@ -8252,6 +8252,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 completed = true
             }
 
+            waitFor(timeout: 5.0, until: {
+                surface.sentKeys == ["paste_from_clipboard"]
+            })
             XCTAssertEqual(surface.sentKeys, ["paste_from_clipboard"])
             waitFor(timeout: 5.0, until: { completed })
 
@@ -8522,7 +8525,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 completions.append("finishing")
             }
 
-            waitFor(timeout: 5.0, until: { completions == ["finishing"] })
+            waitFor(timeout: 5.0, until: {
+                completions == ["finishing"] &&
+                    activeSurface.sentKeys == ["paste_from_clipboard"]
+            })
             XCTAssertEqual(finishingSurface.sentText, ["finishing"])
             XCTAssertEqual(activeSurface.sentText, [])
             XCTAssertEqual(activeSurface.sentKeys, ["paste_from_clipboard"])
