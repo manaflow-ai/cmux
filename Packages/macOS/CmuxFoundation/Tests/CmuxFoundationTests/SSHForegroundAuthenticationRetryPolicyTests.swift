@@ -2316,7 +2316,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_test_force_attempts=0
         cmux_ssh_auth_identity() {
           test "$1" = 101 || return 1
-          if [ "$cmux_test_force_attempts" -ge 2 ]; then return 1; fi
+          if [ "$cmux_test_force_attempts" -ge 3 ]; then return 1; fi
           printf '1|777|Thu_Jan_1_00:00:00_1970\n'
         }
         cmux_ssh_terminate_unpublished_auth_process_tree() { return 1; }
@@ -2324,7 +2324,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_force_unpublished_process_tree() {
           cmux_test_force_attempts=$((cmux_test_force_attempts + 1))
           printf '%s\n' "$cmux_test_force_attempts" > "$CMUX_TEST_ATTEMPTS"
-          test "$cmux_test_force_attempts" -ge 2
+          test "$cmux_test_force_attempts" -ge 3
         }
         cmux_ssh_auth_recovery_enqueue() { return 1; }
         kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
@@ -2332,7 +2332,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         export CMUX_SSH_AUTH_GROUP_DIR
         : > "$CMUX_TEST_SIGNALS"
         cmux_ssh_terminate_auth_process_tree 101 1
-        test "$(/bin/cat "$CMUX_TEST_ATTEMPTS")" -eq 2 || exit 99
+        test "$(/bin/cat "$CMUX_TEST_ATTEMPTS")" -eq 3 || exit 99
         test ! -s "$CMUX_TEST_SIGNALS" || exit 98
         """
 
