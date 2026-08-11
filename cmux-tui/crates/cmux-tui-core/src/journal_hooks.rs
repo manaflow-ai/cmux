@@ -1006,6 +1006,27 @@ mod tests {
     }
 
     #[cfg(any(target_os = "linux", target_vendor = "apple"))]
+    fn wait_for_fifo_eof(reader: &mut std::fs::File, deadline: Instant) -> std::io::Result<bool> {
+        loop {
+            if !wait_for_fifo_event(reader.as_raw_fd(), libc::POLLIN | libc::POLLHUP, deadline)? {
+                return Ok(false);
+            }
+            let mut unexpected = [0; 1];
+            match reader.read(&mut unexpected) {
+                Ok(0) => return Ok(true),
+                Ok(_) => {
+                    return Err(std::io::Error::other(
+                        "hook descendant wrote after its lease publication",
+                    ));
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(error) => return Err(error),
+            }
+        }
+    }
+
+    #[cfg(any(target_os = "linux", target_vendor = "apple"))]
     #[test]
     fn hook_exit_is_not_blocked_by_a_descendant_holding_stdin_open() {
         let fixture_path = std::env::temp_dir().join(format!(
@@ -1070,9 +1091,8 @@ mod tests {
                 .recv_timeout(failure_deadline.saturating_duration_since(Instant::now()))
                 .expect("hook delivery did not complete after release")
         });
-        let descendant_stopped =
-            wait_for_fifo_event(lease_reader.as_raw_fd(), libc::POLLHUP, failure_deadline)
-                .expect("wait for hook descendant lease release");
+        let descendant_stopped = wait_for_fifo_eof(&mut lease_reader, failure_deadline)
+            .expect("wait for hook descendant lease release");
         let _ = std::fs::remove_file(&lease_path);
         let _ = std::fs::remove_file(&release_path);
 
