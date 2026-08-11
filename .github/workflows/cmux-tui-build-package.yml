@@ -650,6 +650,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             $failedSuites += "remote help"
           }
+          cargo test -p cmux-tui --bin cmux-tui --locked --target x86_64-pc-windows-gnu config_overrides_defaults
+          if ($LASTEXITCODE -ne 0) {
+            $failedSuites += "configuration defaults"
+          }
           cargo test -p cmux-tui --test windows_remote_owner --locked --target x86_64-pc-windows-gnu
           if ($LASTEXITCODE -ne 0) {
             $failedSuites += "remote owner"

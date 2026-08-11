@@ -132,7 +132,7 @@ SSH machine targets support macOS, Linux, and native x86_64 Windows OpenSSH host
 | `port` | SSH | integer | unset | SSH port, passed with `-p` |
 | `identity_file` | SSH | string | unset | Local SSH identity path, passed with `-i` |
 | `session` | SSH | string | `"main"` | Remote cmux session started or reused by the managed connection |
-| `binary` | SSH | string | `"~/.local/bin/cmux-tui"` | Shell-safe remote executable path used for compatibility checks and the managed daemon |
+| `binary` | SSH | string | `"~/.local/bin/cmux-tui"` (macOS/Linux); `"%LOCALAPPDATA%\\cmux\\bin\\cmux-tui.exe"` (Windows) | Shell-safe remote executable path used for compatibility checks and the managed daemon |
 
 ```json
 {

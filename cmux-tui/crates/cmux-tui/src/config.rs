@@ -6566,7 +6566,7 @@ mod tests {
                 if host == "mini.local"
                     && user == "lawrence"
                     && session == "main"
-                    && binary == "~/.local/bin/cmux-tui"
+                    && binary == crate::machine_runtime::default_ssh_remote_binary()
         ));
         let plugin = config.sidebar.plugin.as_ref().expect("sidebar plugin config");
         assert_eq!(plugin.command, vec!["/tmp/sidebar-plugin", "--mode", "test"]);

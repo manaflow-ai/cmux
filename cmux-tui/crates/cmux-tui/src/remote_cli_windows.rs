@@ -1202,10 +1202,7 @@ mod tests {
     fn native_ssh_defaults_to_the_installed_windows_companion() {
         let flags = parse_windows_ssh_flags(&["buildbox".into()]).unwrap();
 
-        assert_eq!(
-            flags.options.remote_binary,
-            cmux_remote::ssh_bootstrap::WINDOWS_REMOTE_BINARY
-        );
+        assert_eq!(flags.options.remote_binary, cmux_remote::ssh_bootstrap::WINDOWS_REMOTE_BINARY);
     }
 
     #[test]
