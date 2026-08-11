@@ -1610,6 +1610,62 @@ struct DockShortcutRoutingTests {
         }
     }
 
+    @Test("Dock panel unread toggle clears window manual unread without a tab badge")
+    @MainActor
+    func dockPanelUnreadToggleClearsWindowManualUnread() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let browserId = try #require(
+                    harness.dock.newSurface(
+                        kind: .browser,
+                        inPane: harness.rootPane,
+                        focus: true
+                    )
+                )
+                let tabId = try #require(
+                    harness.dock.surfaceId(forPanelId: browserId)
+                )
+                let notificationStore = try #require(
+                    harness.dock.resolvedNotificationStore()
+                )
+                let previousNotifications = notificationStore.notifications
+                notificationStore.replaceNotificationsForTesting([])
+                defer {
+                    notificationStore.replaceNotificationsForTesting(
+                        previousNotifications
+                    )
+                }
+
+                #expect(
+                    notificationStore.markWindowDockSurfaceUnread(
+                        windowId: harness.dock.workspaceId,
+                        surfaceId: browserId
+                    )
+                )
+                harness.dock.bonsplitController.updateTab(
+                    tabId,
+                    showsNotificationBadge: false
+                )
+
+                #expect(
+                    notificationStore.hasManualUnread(
+                        forTabId: harness.dock.workspaceId,
+                        surfaceId: browserId
+                    )
+                )
+                #expect(harness.dock.panelIsUnread(browserId))
+                #expect(harness.dock.togglePanelUnread(browserId))
+                #expect(
+                    !notificationStore.hasManualUnread(
+                        forTabId: harness.dock.workspaceId,
+                        surfaceId: browserId
+                    )
+                )
+                #expect(!harness.dock.panelIsUnread(browserId))
+            }
+        }
+    }
+
     @Test("Dock manual unread state survives snapshots and live transfer")
     @MainActor
     func dockManualUnreadSurvivesSnapshotsAndTransfer() async throws {
