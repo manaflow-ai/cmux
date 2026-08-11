@@ -245,14 +245,11 @@ function DashboardOrganizationSwitcher() {
   function runSwitch(request: SwitchRequest) {
     setSwitchPending(true);
     setSwitchError(false);
-    let timedOut = false;
     const operation = user.setSelectedTeam(request.team);
     activeSwitchRef.current = operation;
     const timeout = setTimeout(() => {
       if (!mountedRef.current) return;
       if (activeSwitchRef.current !== operation) return;
-      timedOut = true;
-      setSwitchPending(false);
       setSwitchError(true);
     }, ORGANIZATION_SWITCH_TIMEOUT_MS);
     activeSwitchTimerRef.current = timeout;
@@ -270,7 +267,8 @@ function DashboardOrganizationSwitcher() {
         runSwitch(queued);
         return;
       }
-      if (!timedOut) setSwitchPending(false);
+      setSwitchPending(false);
+      setSwitchError(false);
     }, () => {
       if (!mountedRef.current) return;
       if (activeSwitchRef.current !== operation) return;
