@@ -654,6 +654,7 @@ import Testing
 
         #expect(clock.nowEpochSeconds == 1_750_000_000)
         let wait = Task {
+            // test-determinism: injected-clock, the closure above returns immediately.
             try await clock.sleep(for: .seconds(7))
         }
         var iterator = durations.makeAsyncIterator()
