@@ -63,7 +63,7 @@ exec 7<>"$EVENT_PIPE"
 EVENT_FD_OPEN=1
 exec 8<"$EVENT_PIPE"
 EVENT_READ_FD_OPEN=1
-if ! cmux_wait_for_remote_demo_ready 8 "$CHILD_PID" 2 2; then
+if ! cmux_wait_for_remote_demo_ready 8 2 2; then
   echo "A valid lifecycle event sequence did not become ready." >&2
   exit 1
 fi
@@ -93,7 +93,7 @@ EVENT_FD_OPEN=1
 exec 8<"$EVENT_PIPE"
 EVENT_READ_FD_OPEN=1
 set +e
-cmux_wait_for_remote_demo_ready 8 "$CHILD_PID" 2 2
+cmux_wait_for_remote_demo_ready 8 2 2
 STATUS=$?
 set -e
 if [[ "$STATUS" != "22" ]]; then
@@ -120,7 +120,7 @@ EVENT_FD_OPEN=1
 exec 8<"$EVENT_PIPE"
 EVENT_READ_FD_OPEN=1
 set +e
-cmux_wait_for_remote_demo_ready 8 "$CHILD_PID" 1 2
+cmux_wait_for_remote_demo_ready 8 1 2
 STATUS=$?
 set -e
 if [[ "$STATUS" != "20" ]]; then
@@ -149,7 +149,7 @@ EVENT_FD_OPEN=1
 exec 8<"$EVENT_PIPE"
 EVENT_READ_FD_OPEN=1
 set +e
-cmux_wait_for_remote_demo_ready 8 "$CHILD_PID" 2 0
+cmux_wait_for_remote_demo_ready 8 2 0
 STATUS=$?
 set -e
 if [[ "$STATUS" != "21" ]]; then
@@ -177,7 +177,7 @@ EVENT_FD_OPEN=1
 exec 8<"$EVENT_PIPE"
 EVENT_READ_FD_OPEN=1
 set +e
-cmux_wait_for_remote_demo_ready 8 "$CHILD_PID" 2 2
+cmux_wait_for_remote_demo_ready 8 2 2
 STATUS=$?
 set -e
 exec 8<&-
@@ -190,6 +190,27 @@ if [[ "$STATUS" != "10" ]]; then
   echo "An early launcher exit returned $STATUS instead of status 10." >&2
   exit 1
 fi
+
+EVENT_PIPE="$TEST_ROOT/launcher-exit-events"
+mkfifo "$EVENT_PIPE"
+(
+  printf 'launcher-exited 137\n' >"$EVENT_PIPE"
+) &
+CHILD_PID=$!
+exec 7<>"$EVENT_PIPE"
+EVENT_FD_OPEN=1
+if ! cmux_wait_for_remote_demo_exit 7 2; then
+  echo "The lifecycle waiter did not observe launcher completion." >&2
+  exit 1
+fi
+if [[ "$CMUX_REMOTE_DEMO_LAUNCHER_STATUS" != "137" ]]; then
+  echo "The lifecycle waiter lost the launcher exit status." >&2
+  exit 1
+fi
+exec 7<&-
+EVENT_FD_OPEN=0
+wait "$CHILD_PID"
+CHILD_PID=""
 
 EVENT_PIPE="$TEST_ROOT/silent-exit-events"
 OWNER_EXIT_PIPE="$TEST_ROOT/silent-owner-exit"
@@ -212,7 +233,7 @@ exec 9<>"$RESULT_PIPE"
 RESULT_FD_OPEN=1
 (
   set +e
-  cmux_wait_for_remote_demo_ready 8 "$CHILD_PID" 30 30
+  cmux_wait_for_remote_demo_ready 8 30 30
   printf '%s\n' "$?" >&9
 ) &
 WAITER_PID=$!

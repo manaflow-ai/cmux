@@ -8,7 +8,6 @@ READY_HELPER="$SCRIPT_DIR/remote-lifecycle-ready.sh"
 REMOTE_HOST="${1:-cmux-lawrence}"
 RUNS="${2:-3}"
 APP_PROCESS_SUFFIX="/NativeMuxDemo.app/Contents/MacOS/NativeMuxDemo"
-LAUNCHER_PID=""
 LIFECYCLE_SUPERVISOR_PID=""
 APP_PID=""
 ATTACH_PID=""
@@ -39,10 +38,10 @@ cleanup() {
   if [[ -n "$APP_PID" ]] && kill -0 "$APP_PID" 2>/dev/null; then
     kill "$APP_PID" 2>/dev/null
   fi
-  if [[ -n "$LAUNCHER_PID" ]] && kill -0 "$LAUNCHER_PID" 2>/dev/null; then
-    kill "$LAUNCHER_PID" 2>/dev/null
-  fi
   if [[ -n "$LIFECYCLE_SUPERVISOR_PID" ]]; then
+    if kill -0 "$LIFECYCLE_SUPERVISOR_PID" 2>/dev/null; then
+      kill "$LIFECYCLE_SUPERVISOR_PID" 2>/dev/null
+    fi
     wait "$LIFECYCLE_SUPERVISOR_PID" 2>/dev/null
   fi
   if [[ "$LIFECYCLE_READ_FD_OPEN" == "1" ]]; then
@@ -98,8 +97,7 @@ for run in $(seq 1 "$TOTAL_RUNS"); do
   fi
   LAUNCH_LOG="$TEST_ROOT/launcher-$run.log"
   LIFECYCLE_PIPE="$TEST_ROOT/lifecycle-$run.pipe"
-  LIFECYCLE_PID_PIPE="$TEST_ROOT/lifecycle-$run.pid.pipe"
-  /usr/bin/mkfifo "$LIFECYCLE_PIPE" "$LIFECYCLE_PID_PIPE"
+  /usr/bin/mkfifo "$LIFECYCLE_PIPE"
   exec 7<>"$LIFECYCLE_PIPE"
   LIFECYCLE_BOOTSTRAP_FD_OPEN=1
   exec 5<"$LIFECYCLE_PIPE"
@@ -107,6 +105,21 @@ for run in $(seq 1 "$TOTAL_RUNS"); do
   APP_PIDS_BEFORE="$(matching_app_pids)"
   (
     set +e
+    lifecycle_child_pid=""
+    lifecycle_child_status=""
+    lifecycle_stop_child() {
+      local signal="$1"
+      if [[ -n "$lifecycle_child_pid" ]] \
+        && kill -0 "$lifecycle_child_pid" 2>/dev/null; then
+        kill -"$signal" "$lifecycle_child_pid" 2>/dev/null
+      fi
+      if [[ -n "$lifecycle_child_pid" ]]; then
+        wait "$lifecycle_child_pid" 2>/dev/null
+        lifecycle_child_status=$?
+      fi
+    }
+    trap 'lifecycle_stop_child KILL' USR1
+    trap 'lifecycle_stop_child TERM' INT TERM HUP
     exec 5<&-
     exec 7<&-
     exec 6>"$LIFECYCLE_PIPE"
@@ -115,24 +128,20 @@ for run in $(seq 1 "$TOTAL_RUNS"); do
       "$RUN_REMOTE_DEMO" "$REMOTE_HOST" 5<&- 6>&- 7>&- \
       >"$LAUNCH_LOG" 2>&1 &
     lifecycle_child_pid=$!
-    printf '%s\n' "$lifecycle_child_pid" >"$LIFECYCLE_PID_PIPE"
     wait "$lifecycle_child_pid"
-    lifecycle_child_status=$?
+    lifecycle_wait_status=$?
+    if [[ -z "$lifecycle_child_status" ]]; then
+      lifecycle_child_status="$lifecycle_wait_status"
+    fi
+    trap - USR1 INT TERM HUP
     printf 'launcher-exited %s\n' "$lifecycle_child_status" >&6
     exit "$lifecycle_child_status"
   ) &
   LIFECYCLE_SUPERVISOR_PID=$!
-  IFS= read -r LAUNCHER_PID <"$LIFECYCLE_PID_PIPE"
-  rm -f -- "$LIFECYCLE_PID_PIPE"
-  if [[ ! "$LAUNCHER_PID" =~ ^[1-9][0-9]*$ ]]; then
-    echo "Remote demo run $run did not publish its launcher process." >&2
-    exit 1
-  fi
 
   set +e
   cmux_wait_for_remote_demo_ready \
     5 \
-    "$LAUNCHER_PID" \
     "$TRANSFER_READY_TIMEOUT" \
     "$DAEMON_READY_TIMEOUT"
   READY_STATUS=$?
@@ -201,42 +210,46 @@ for run in $(seq 1 "$TOTAL_RUNS"); do
 
   LOCAL_RUN_ROOT="${APP_BUNDLE%/NativeMuxDemo.app}"
   if [[ "$OWNER_LOSS" == "1" ]]; then
-    kill -KILL "$LAUNCHER_PID"
-    set +e
-    wait "$LIFECYCLE_SUPERVISOR_PID" 2>/dev/null
-    LAUNCHER_STATUS=$?
-    set -e
-    if (( LAUNCHER_STATUS != 137 )); then
-      echo "Remote demo owner-loss run exited with $LAUNCHER_STATUS instead of SIGKILL status 137." >&2
-      exit 1
-    fi
-    LAUNCHER_PID=""
-    LIFECYCLE_SUPERVISOR_PID=""
+    kill -USR1 "$LIFECYCLE_SUPERVISOR_PID"
   else
     kill "$APP_PID"
     APP_PID=""
   fi
 
-  for _ in $(seq 1 300); do
-    if [[ "$OWNER_LOSS" == "1" ]]; then
-      if ! cmux_remote_run /bin/test -e "$REMOTE_ROOT" >/dev/null 2>&1; then
-        break
-      fi
-    elif ! kill -0 "$LAUNCHER_PID" 2>/dev/null; then
-      break
-    fi
-    sleep 0.1
-  done
-  if [[ "$OWNER_LOSS" != "1" ]] && kill -0 "$LAUNCHER_PID" 2>/dev/null; then
-    echo "Remote demo run $run did not stop after its app closed." >&2
+  set +e
+  cmux_wait_for_remote_demo_exit 5 30
+  EXIT_EVENT_STATUS=$?
+  set -e
+  if [[ "$EXIT_EVENT_STATUS" != "0" ]]; then
+    echo "Remote demo run $run did not publish launcher completion after cleanup." >&2
+    sed -n '1,220p' "$LAUNCH_LOG" >&2
     exit 1
   fi
-  if [[ "$OWNER_LOSS" != "1" ]] && ! wait "$LIFECYCLE_SUPERVISOR_PID"; then
+  set +e
+  wait "$LIFECYCLE_SUPERVISOR_PID" 2>/dev/null
+  LAUNCHER_STATUS=$?
+  set -e
+  if [[ "$LAUNCHER_STATUS" != "$CMUX_REMOTE_DEMO_LAUNCHER_STATUS" ]]; then
+    echo "Remote demo run $run published launcher status $CMUX_REMOTE_DEMO_LAUNCHER_STATUS but exited with $LAUNCHER_STATUS." >&2
+    exit 1
+  fi
+  if [[ "$OWNER_LOSS" == "1" && "$LAUNCHER_STATUS" != "137" ]]; then
+    echo "Remote demo owner-loss run exited with $LAUNCHER_STATUS instead of SIGKILL status 137." >&2
+    exit 1
+  fi
+  if [[ "$OWNER_LOSS" != "1" && "$LAUNCHER_STATUS" != "0" ]]; then
     echo "Remote demo run $run failed during cleanup:" >&2
     sed -n '1,220p' "$LAUNCH_LOG" >&2
     exit 1
   fi
-  LAUNCHER_PID=""
+  if [[ "$OWNER_LOSS" == "1" ]]; then
+    for _ in $(seq 1 300); do
+      if ! cmux_remote_run /bin/test -e "$REMOTE_ROOT" >/dev/null 2>&1; then
+        break
+      fi
+      sleep 0.1
+    done
+  fi
   LIFECYCLE_SUPERVISOR_PID=""
   exec 5<&-
   LIFECYCLE_READ_FD_OPEN=0

@@ -6,9 +6,8 @@
 # launcher-exited event is the process-death signal.
 cmux_wait_for_remote_demo_ready() {
   local event_fd="$1"
-  local launcher_pid="$2"
-  local transfer_timeout="$3"
-  local startup_timeout="$4"
+  local transfer_timeout="$2"
+  local startup_timeout="$3"
   local app_pid
   local event
   local read_status
@@ -23,7 +22,6 @@ cmux_wait_for_remote_demo_ready() {
   else
     read_status=$?
     if (( read_status > 128 )); then
-      kill -0 "$launcher_pid" 2>/dev/null || return 10
       return 20
     fi
     return 10
@@ -53,7 +51,6 @@ cmux_wait_for_remote_demo_ready() {
     else
       read_status=$?
       if (( read_status > 128 )); then
-        kill -0 "$launcher_pid" 2>/dev/null || return 10
         return 20
       fi
       return 10
@@ -75,7 +72,6 @@ cmux_wait_for_remote_demo_ready() {
     else
       read_status=$?
       if (( read_status > 128 )); then
-        kill -0 "$launcher_pid" 2>/dev/null || return 10
         return 21
       fi
       return 10
@@ -96,4 +92,25 @@ cmux_wait_for_remote_demo_ready() {
       *) return 22 ;;
     esac
   done
+}
+
+cmux_wait_for_remote_demo_exit() {
+  local event_fd="$1"
+  local exit_timeout="$2"
+  local event
+  local launcher_status
+  CMUX_REMOTE_DEMO_LAUNCHER_STATUS=""
+
+  if ! IFS= read -r -t "$exit_timeout" -u "$event_fd" event; then
+    return 1
+  fi
+  case "$event" in
+    launcher-exited\ *)
+      launcher_status="${event#launcher-exited }"
+      [[ "$launcher_status" =~ ^[0-9]+$ ]] || return 22
+      CMUX_REMOTE_DEMO_LAUNCHER_STATUS="$launcher_status"
+      return 0
+      ;;
+    *) return 22 ;;
+  esac
 }
