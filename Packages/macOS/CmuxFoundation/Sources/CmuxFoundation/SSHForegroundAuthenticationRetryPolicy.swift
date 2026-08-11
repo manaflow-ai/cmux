@@ -638,6 +638,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                 "$cmux_ssh_auth_reaper_slot" "$cmux_ssh_auth_reaper_generation" 0
               return 0
             }
+          # The reaper child consumes one owner transition. It never inspects
+          # the two durable owner files while the publisher is still moving them.
           cmux_ssh_auth_reaper_owner_fifo="$cmux_ssh_auth_reaper_lock/owner.ready"
           cmux_ssh_auth_reaper_owner_guard_fd=
           if ! /usr/bin/mkfifo "$cmux_ssh_auth_reaper_owner_fifo" 2>/dev/null || ! \
@@ -1667,6 +1669,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
 
           if [ ! -s "$cmux_ssh_auth_group_file" ] || \
             [ ! -s "$cmux_ssh_auth_group_publisher_file" ]; then
+            # Recheck after opening the channel to close the publication race.
+            # The publisher sends one terminal event on every unpublished path.
             exec {cmux_ssh_auth_group_publication_fd}<> \
               "$cmux_ssh_auth_group_publication_fifo" || exit 0
             if [ ! -s "$cmux_ssh_auth_group_file" ] || \
@@ -1985,6 +1989,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "}",
             "cmux_ssh_auth_group_anchor_wait() {",
             "  [ -s \"$cmux_ssh_auth_group_file\" ] || return 0",
+            "  # Normal cleanup keeps the anchor channel open through state removal.",
+            "  # This bounded gate covers only the handoff-to-cleanup ownership gap.",
             "  cmux_ssh_auth_group_cleanup_ready_fd=",
             "  if exec {cmux_ssh_auth_group_cleanup_ready_fd}<> \"$cmux_ssh_auth_group_cleanup_ready_fifo\"; then",
             "    if [ ! -s \"$cmux_ssh_auth_group_file\" ]; then",
