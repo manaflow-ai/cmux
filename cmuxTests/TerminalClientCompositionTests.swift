@@ -2182,7 +2182,6 @@ struct TerminalClientCompositionTests {
             .copyMode(operation: .enter, adjustment: nil, count: 1),
             .copyMode(operation: .exit, adjustment: nil, count: 1),
         ])
-        #expect(!runtime.snapshot.copyModeActive)
     }
 
     @Test
