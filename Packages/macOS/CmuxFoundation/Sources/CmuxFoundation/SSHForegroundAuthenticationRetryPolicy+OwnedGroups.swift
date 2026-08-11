@@ -421,47 +421,70 @@ extension SSHForegroundAuthenticationRetryPolicy {
               "$cmux_ssh_auth_group" "$cmux_ssh_auth_started" \
               "$cmux_ssh_auth_state" \
               >> "$cmux_ssh_auth_signaled_processes" || return 1
-            kill -STOP "$cmux_ssh_auth_pid" >/dev/null 2>&1 || continue
+            kill -STOP "$cmux_ssh_auth_pid" >/dev/null 2>&1 || true
+            # Confirm each child before STOP reaches its parent. zsh can have a
+            # child in vfork while the parent must run for the child to finish
+            # exec; stopping both without this handoff can leave the child
+            # runnable until the shared deadline expires.
+            while :; do
+              cmux_ssh_auth_take_process_snapshot \
+                "$cmux_ssh_auth_poststop_snapshot" || return 1
+              if /usr/bin/awk \
+                -v cmux_pid="$cmux_ssh_auth_pid" \
+                -v cmux_group="$cmux_ssh_auth_group" \
+                -v cmux_started="$cmux_ssh_auth_started" '
+                NF >= 5 {
+                  cmux_observed_started = $5
+                  if (NF >= 9) {
+                    cmux_observed_started = $5 "_" $6 "_" $7 "_" $8 "_" $9
+                  }
+                  if ($1 == cmux_pid && $3 == cmux_group &&
+                      cmux_observed_started == cmux_started && $4 !~ /Z/) {
+                    cmux_live = 1
+                    if ($4 ~ /T/) cmux_stopped = 1
+                  }
+                }
+                END { exit(cmux_live && !cmux_stopped ? 1 : 0) }
+              ' "$cmux_ssh_auth_poststop_snapshot"; then
+                break
+              fi
+              cmux_ssh_auth_deadline_allows_work || return 1
+              /bin/sleep 0.01
+            done
           done < "$cmux_ssh_auth_ordered_processes"
 
-          cmux_ssh_auth_signaled_count=$(/usr/bin/awk \
-            'NF >= 4 { count += 1 } END { print count + 0 }' \
-            "$cmux_ssh_auth_signaled_processes") || return 1
-          # STOP delivery is asynchronous. Retry the shared confirmation
-          # snapshot within the existing hard deadline before the caller rolls
-          # the whole journal back.
-          while :; do
-            cmux_ssh_auth_take_process_snapshot \
-              "$cmux_ssh_auth_poststop_snapshot" || return 1
-            /usr/bin/awk '
+          cmux_ssh_auth_take_process_snapshot \
+            "$cmux_ssh_auth_poststop_snapshot" || return 1
+          # Keep resume records only for exact identities that remain stopped.
+          # A signaled identity absent from the verified snapshot exited and is
+          # already safe; any matching live identity must still be stopped.
+          /usr/bin/awk '
             FILENAME == ARGV[1] && NF >= 6 {
               cmux_original[$2 SUBSEP $4 SUBSEP $5] = $6
               next
             }
-            FILENAME == ARGV[2] && NF >= 5 && $4 ~ /T/ && $4 !~ /Z/ {
+            FILENAME == ARGV[2] && NF >= 5 {
               cmux_started = $5
               if (NF >= 9) cmux_started = $5 "_" $6 "_" $7 "_" $8 "_" $9
-              cmux_stopped[$1 SUBSEP $3 SUBSEP cmux_started] = 1
+              cmux_key = $1 SUBSEP $3 SUBSEP cmux_started
+              if ($4 !~ /Z/) cmux_live[cmux_key] = 1
+              if ($4 ~ /T/ && $4 !~ /Z/) cmux_stopped[cmux_key] = 1
               next
             }
             FILENAME == ARGV[3] && NF >= 4 {
               cmux_key = $1 SUBSEP $3 SUBSEP $4
+              if (cmux_key in cmux_live && !(cmux_key in cmux_stopped)) {
+                cmux_unconfirmed = 1
+              }
               if (cmux_key in cmux_stopped && cmux_key in cmux_original) {
                 print $1, $2, $3, $4, cmux_original[cmux_key]
               }
             }
-            ' "$cmux_ssh_auth_ordered_processes" \
-              "$cmux_ssh_auth_poststop_snapshot" \
-              "$cmux_ssh_auth_signaled_processes" \
-              > "$cmux_ssh_auth_frozen_processes" || return 1
-            cmux_ssh_auth_frozen_count=$(/usr/bin/awk \
-              'NF >= 5 { count += 1 } END { print count + 0 }' \
-              "$cmux_ssh_auth_frozen_processes") || return 1
-            if [ "$cmux_ssh_auth_signaled_count" = \
-              "$cmux_ssh_auth_frozen_count" ]; then break; fi
-            cmux_ssh_auth_deadline_allows_work || return 1
-            /bin/sleep 0.01
-          done
+            END { exit(cmux_unconfirmed ? 1 : 0) }
+          ' "$cmux_ssh_auth_ordered_processes" \
+            "$cmux_ssh_auth_poststop_snapshot" \
+            "$cmux_ssh_auth_signaled_processes" \
+            > "$cmux_ssh_auth_frozen_processes" || return 1
           cmux_ssh_auth_expand_owned_processes "$cmux_ssh_auth_poststop_snapshot" || return 1
           # A process can fork between the initial snapshot and its own STOP.
           # Roll back unless every post-STOP identity was in the exact initial set.
