@@ -4821,21 +4821,17 @@ impl Mux {
             remaining.min(sqlite_wait_cap),
             admit_commit,
         )?;
-        let terminal_ids = agent_terminal_ids_from_journal_ingresses(events.iter().filter_map(
-            |event| match *event {
+        let projection_current = agent_terminal_ids_from_journal_ingresses(
+            events.iter().filter_map(|event| match *event {
                 crate::journal_ingress::JournalIngressEvent::Producer { ingress, .. } => {
                     Some(ingress)
                 }
                 _ => None,
-            },
-        ))?;
-        let projection_current = self.sync_agent_records_for_terminals(&registry, terminal_ids)?;
+            }),
+        )
+        .and_then(|terminal_ids| self.sync_agent_records_for_terminals(&registry, terminal_ids));
         drop(registry);
-        if projection_current {
-            self.publish_journal_event();
-        } else {
-            self.publish_journal_commit();
-        }
+        self.publish_committed_journal(projection_current);
         Ok(commits)
     }
 
@@ -5066,17 +5062,31 @@ impl Mux {
         let mut registry = self.workspace_registry.lock().unwrap();
         let commit =
             registry.append_journal_ingress(ingress, &validated, origin, idempotency_key)?;
-        let projection_current =
-            self.sync_agent_records_from_journal_ingress(&registry, ingress)?;
+        let projection_current = self.sync_agent_records_from_journal_ingress(&registry, ingress);
         drop(registry);
         if !commit.replayed {
-            if projection_current {
-                self.publish_journal_event();
-            } else {
-                self.publish_journal_commit();
-            }
+            self.publish_committed_journal(projection_current);
+        } else {
+            projection_current?;
         }
         Ok(commit)
+    }
+
+    fn publish_committed_journal(&self, projection_current: anyhow::Result<bool>) {
+        match projection_current {
+            Ok(true) => self.publish_journal_event(),
+            Ok(false) => self.publish_journal_commit(),
+            Err(error) => {
+                // SQLite already accepted the journal transaction. Wake
+                // durable readers, but keep resource readers asleep because
+                // the derived agent cache does not contain this commit.
+                self.publish_journal_commit();
+                eprintln!(
+                    "cmux-tui: refresh agent cache after durable journal commit: {error:#}"
+                );
+                self.request_daemon_shutdown();
+            }
+        }
     }
 
     fn sync_agent_records_from_journal_ingress(
@@ -5097,11 +5107,11 @@ impl Mux {
         if self.agent_projection_refresh_failure.swap(false, Ordering::AcqRel) {
             anyhow::bail!("forced agent projection refresh failure");
         }
-        if terminal_ids.is_empty() {
-            return Ok(true);
-        }
         if registry.agent_projection_rebuild_pending()? {
             return Ok(false);
+        }
+        if terminal_ids.is_empty() {
+            return Ok(true);
         }
 
         let mut projections = Vec::with_capacity(terminal_ids.len());
