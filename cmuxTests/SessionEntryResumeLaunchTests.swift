@@ -258,6 +258,63 @@ struct SessionEntryResumeLaunchTests {
         )
     }
 
+    @Test("Vault terminal creation authoritatively rebinds the resumed chat")
+    func vaultCreationRebindsResumedChat() throws {
+        let sessionID = "vault-chat-rebind-\(UUID().uuidString)"
+        let workingDirectory = "/tmp/vault-chat-rebind"
+        let entry = SessionEntry(
+            id: "codex:\(sessionID)",
+            agent: .codex,
+            sessionId: sessionID,
+            title: "Rebound Vault session",
+            cwd: workingDirectory,
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: 1_800_000_004),
+            fileURL: nil,
+            specifics: .codex(
+                model: nil,
+                approvalPolicy: nil,
+                sandboxMode: nil,
+                effort: nil
+            )
+        )
+        let launch = try #require(entry.resumeLaunch)
+        let restorableAgent = try #require(launch.startupRestoreAgent)
+        let temporaryHome = FileManager.default.temporaryDirectory
+            .appending(path: "cmux-vault-chat-rebind-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(
+            at: temporaryHome,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: temporaryHome) }
+        let registry = AgentChatSessionRegistry(
+            hookStore: AgentChatHookSessionStore(homeDirectory: temporaryHome)
+        )
+        let service = AgentChatTranscriptService(
+            registry: registry,
+            resolver: AgentChatTranscriptResolver(homeDirectory: temporaryHome, environment: [:]),
+            hasEventSubscribers: { false },
+            emitEventPayload: { _ in }
+        )
+        service.start()
+
+        let workspace = Workspace(
+            workingDirectory: launch.workingDirectory,
+            initialTerminalInput: launch.initialInput,
+            initialTerminalStartupRestoreAgent: restorableAgent
+        )
+        defer { workspace.teardownAllPanels() }
+        let panelID = try #require(workspace.focusedPanelId)
+        let record = try #require(registry.record(sessionID: sessionID))
+
+        #expect(record.state == .idle)
+        #expect(record.surfaceID == panelID.uuidString)
+        #expect(record.workspaceID == workspace.id.uuidString)
+        #expect(record.workingDirectory == workingDirectory)
+        withExtendedLifetime(service) {}
+    }
+
     @Test("Vault tab and split placements seed persistent lifecycle state")
     func vaultPlacementPathsSeedLifecycleState() throws {
         let sessionID = "vault-placement-session"
