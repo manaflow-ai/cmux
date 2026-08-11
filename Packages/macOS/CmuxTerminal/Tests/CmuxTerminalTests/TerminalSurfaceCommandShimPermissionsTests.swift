@@ -45,8 +45,83 @@ private final class HermesAliasDirectoryTrackingFileManager: FileManager {
     }
 }
 
+private final class CancelAfterFirstShimFileManager: FileManager {
+    private let didCancel = OSAllocatedUnfairLock(initialState: false)
+
+    override func setAttributes(
+        _ attributes: [FileAttributeKey: Any],
+        ofItemAtPath path: String
+    ) throws {
+        try super.setAttributes(attributes, ofItemAtPath: path)
+        let commandName = URL(fileURLWithPath: path).lastPathComponent
+        guard ["claude", "codex", "hermes"].contains(commandName) else { return }
+        let shouldCancel = didCancel.withLock { cancelled in
+            guard !cancelled else { return false }
+            cancelled = true
+            return true
+        }
+        if shouldCancel {
+            withUnsafeCurrentTask { task in
+                task?.cancel()
+            }
+        }
+    }
+}
+
 @Suite("Terminal surface command shims")
 struct TerminalSurfaceCommandShimPermissionsTests {
+    @Test("Cancellation removes a partial per-surface shim directory")
+    func cancellationRemovesPartialShimDirectory() async throws {
+        let setupFileManager = FileManager.default
+        let root = URL.temporaryDirectory.appending(
+            path: "TerminalSurfaceCommandShimCancellationTests-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        let temporaryDirectory = root.appending(path: "tmp", directoryHint: .isDirectory)
+        let wrapperDirectory = root.appending(path: "bin", directoryHint: .isDirectory)
+        let aliasDirectory = root.appending(path: "aliases", directoryHint: .isDirectory)
+        let surfaceID = UUID()
+        let shimDirectory = temporaryDirectory
+            .appending(path: "cmux-cli-shims", directoryHint: .isDirectory)
+            .appending(path: surfaceID.uuidString, directoryHint: .isDirectory)
+        defer { try? setupFileManager.removeItem(at: root) }
+
+        for directory in [wrapperDirectory, aliasDirectory] {
+            try setupFileManager.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true
+            )
+        }
+        for wrapperName in ["cmux-claude-wrapper", "cmux-codex-wrapper"] {
+            let wrapper = wrapperDirectory.appending(
+                path: wrapperName,
+                directoryHint: .notDirectory
+            )
+            try "#!/bin/sh\nexit 0\n".write(
+                to: wrapper,
+                atomically: true,
+                encoding: .utf8
+            )
+            try setupFileManager.setAttributes(
+                [.posixPermissions: 0o700],
+                ofItemAtPath: wrapper.path
+            )
+        }
+
+        let result = await TerminalSurface.installAgentCommandShimsIfPossible(
+            wrapperDirectoryURL: wrapperDirectory,
+            surfaceId: surfaceID,
+            temporaryDirectory: temporaryDirectory,
+            hermesProfileAliasCatalog: HermesProfileAliasCatalog(
+                wrapperDirectoryURL: aliasDirectory
+            ),
+            fileManager: CancelAfterFirstShimFileManager()
+        )
+
+        #expect(result == nil)
+        #expect(!setupFileManager.fileExists(atPath: shimDirectory.path))
+    }
+
     @Test("Install hardens group-writable managed directories")
     func installHardensGroupWritableManagedDirectories() throws {
         let fileManager = FileManager.default
