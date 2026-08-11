@@ -55,20 +55,27 @@ async fn spawn_plaintext_relay() -> (Server, RelayUrl) {
 }
 
 /// The selected path is published once the carrier settles, which for a relayed
-/// connection happens after the first frames move. Polling keeps the assertion
-/// meaningful without making it a race.
+/// connection happens after the first frames move. Iroh owns this external
+/// state and exposes no path-change signal through `LinkGroup`, so probe it at a
+/// bounded cadence under one final deadline.
 async fn wait_for_path_kind(client: &ClientConnection, expected: TransportPathKind) {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    let mut probes = tokio::time::interval(Duration::from_millis(50));
+    probes.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut last = None;
-    while tokio::time::Instant::now() < deadline {
-        let snapshot = client.snapshot().await;
-        last = snapshot.transport.selected_path.clone();
-        if last.as_ref().is_some_and(|path| path.kind == expected) {
-            return;
+    let selected = tokio::time::timeout(Duration::from_secs(20), async {
+        loop {
+            probes.tick().await;
+            let snapshot = client.snapshot().await;
+            last = snapshot.transport.selected_path.clone();
+            if last.as_ref().is_some_and(|path| path.kind == expected) {
+                return;
+            }
         }
-        tokio::time::sleep(Duration::from_millis(50)).await;
+    })
+    .await;
+    if selected.is_err() {
+        panic!("Iroh never selected a {expected:?} path; last published path was {last:?}");
     }
-    panic!("Iroh never selected a {expected:?} path; last published path was {last:?}");
 }
 
 async fn wait_for_output(events: &ProcessEventStream, transcript: &mut Vec<u8>, expected: &str) {
