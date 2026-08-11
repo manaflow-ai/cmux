@@ -54,7 +54,6 @@ struct FileSearchSnapshot: Equatable, Sendable {
         case searching
         case noMatches
         case matches
-        case limited(Int)
         case failed(String)
     }
 
@@ -62,8 +61,29 @@ struct FileSearchSnapshot: Equatable, Sendable {
     var results: [FileSearchResult]
     var status: Status
     var isSearching: Bool
+    // True when more buffered or in-flight results can be displayed.
+    var hasMore: Bool = false
+    /// Total matches buffered by the controller, including undisplayed pages.
+    var totalMatchCount: Int = 0
+    /// True when the search stopped at the hard result cap.
+    var isTruncated: Bool = false
 
-    static let empty = FileSearchSnapshot(query: "", results: [], status: .idle, isSearching: false)
+    static let empty = FileSearchSnapshot(
+        query: "",
+        results: [],
+        status: .idle,
+        isSearching: false,
+        hasMore: false,
+        totalMatchCount: 0,
+        isTruncated: false
+    )
+}
+
+struct FileSearchOptions: Equatable, Sendable {
+    var matchCase: Bool = false
+    var codeOnly: Bool = false
+
+    static let `default` = FileSearchOptions()
 }
 
 enum RipgrepIntegrationSettings {
@@ -183,14 +203,16 @@ enum FileExplorerSearchMessages {
 protocol FileSearchControlling: AnyObject {
     var onSnapshotChanged: ((FileSearchSnapshot) -> Void)? { get set }
 
-    func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int)
+    func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int, options: FileSearchOptions)
     func cancel(clear: Bool)
+    // scroll-triggered "load next page" hook for the grouped Find view.
+    // Idempotent: extra calls when nothing new is buffered are no-ops.
+    func loadMore()
 }
 
 struct FileSearchPipelineUpdate: Sendable {
     let results: [FileSearchResult]
     let status: FileSearchSnapshot.Status
-    let isSearching: Bool
     let shouldStopProcess: Bool
 }
 
@@ -244,19 +266,30 @@ private actor FileSearchTerminationSignal {
 
 actor FileSearchOutputPipeline {
     private let rootPath: String
-    private let maxResults: Int
-    private let snapshotInterval: TimeInterval
+    private let hardMaxResults: Int
     private var stdoutBuffer = Data()
     private var stderrBuffer = Data()
     private var results: [FileSearchResult] = []
-    private var lastSnapshotEmissionDate = Date.distantPast
     private var isFinished = false
     private var terminalUpdate: FileSearchPipelineUpdate?
+    // pagination, the pipeline buffers up to `hardMaxResults` results
+    // but only emits a settled `.matches` snapshot to the controller when the
+    // buffer first reaches `pendingEmissionTarget`. Initial target = the first
+    // page size; subsequent targets are bumped by the controller from
+    // `requestNextEmission` in response to user scroll. Once a target is hit
+    // the field is cleared until the next request, this is what suppresses
+    // the previous interval-based intermediate-snapshot flicker.
+    private var pendingEmissionTarget: Int?
+    // gate for the early-paint branch, once any pre-finish emit has
+    // been delivered, suppress further early paints. Every emit becomes a
+    // MainActor hop + NSOutlineView diff, so capping pre-finish emits at one
+    // keeps the main thread free for input under heavy `rg`s.
+    private var hasDeliveredInitialEmit = false
 
-    init(rootPath: String, maxResults: Int, snapshotInterval: TimeInterval) {
+    init(rootPath: String, hardMaxResults: Int, initialEmissionTarget: Int) {
         self.rootPath = rootPath
-        self.maxResults = maxResults
-        self.snapshotInterval = snapshotInterval
+        self.hardMaxResults = hardMaxResults
+        self.pendingEmissionTarget = initialEmissionTarget
     }
 
     func consumeStdout(_ data: Data) -> FileSearchPipelineUpdate? {
@@ -265,7 +298,22 @@ actor FileSearchOutputPipeline {
         return consumeBufferedStdout(includeTrailingLine: false)
     }
 
+    /// Asks the pipeline to emit a settled `.matches` update once the buffer
+    /// reaches `targetCount` results (or immediately, if it's already there).
+    /// Returning a non-nil update means the controller should apply it now.
+    func requestNextEmission(targetCount: Int) -> FileSearchPipelineUpdate? {
+        guard !isFinished else { return nil }
+        let clampedTarget = min(targetCount, hardMaxResults)
+        if results.count >= clampedTarget {
+            pendingEmissionTarget = nil
+            return matchesUpdate(shouldStopProcess: false)
+        }
+        pendingEmissionTarget = clampedTarget
+        return nil
+    }
+
     private func consumeBufferedStdout(includeTrailingLine: Bool) -> FileSearchPipelineUpdate? {
+        let resultsCountBefore = results.count
         var latestUpdate: FileSearchPipelineUpdate?
         while let newlineIndex = stdoutBuffer.firstIndex(of: 10) {
             let lineData = stdoutBuffer[..<newlineIndex]
@@ -285,6 +333,20 @@ actor FileSearchOutputPipeline {
             }
         }
 
+        // one-shot early paint so sparse queries don't wait on rg's
+        // full tree walk. Clearing `pendingEmissionTarget` here makes the
+        // target-met branch in `consumeStdoutLine` a no-op for the rest of
+        // the query (loadMore can re-arm it explicitly); together with
+        // `hasDeliveredInitialEmit` this caps pre-finish emits at one.
+        if latestUpdate == nil,
+           !isFinished,
+           !hasDeliveredInitialEmit,
+           results.count > resultsCountBefore {
+            hasDeliveredInitialEmit = true
+            pendingEmissionTarget = nil
+            latestUpdate = matchesUpdate(shouldStopProcess: false)
+        }
+
         return latestUpdate
     }
 
@@ -294,28 +356,26 @@ actor FileSearchOutputPipeline {
             return nil
         }
         results.append(result)
-        if results.count >= maxResults {
-            let update = FileSearchPipelineUpdate(
-                results: results,
-                status: .limited(maxResults),
-                isSearching: false,
-                shouldStopProcess: true
-            )
+        if results.count >= hardMaxResults {
+            let update = matchesUpdate(shouldStopProcess: true)
             isFinished = true
             terminalUpdate = update
+            hasDeliveredInitialEmit = true
             return update
         }
-
-        let now = Date()
-        guard now.timeIntervalSince(lastSnapshotEmissionDate) >= snapshotInterval else {
-            return nil
+        if let target = pendingEmissionTarget, results.count >= target {
+            pendingEmissionTarget = nil
+            hasDeliveredInitialEmit = true
+            return matchesUpdate(shouldStopProcess: false)
         }
-        lastSnapshotEmissionDate = now
-        return FileSearchPipelineUpdate(
+        return nil
+    }
+
+    private func matchesUpdate(shouldStopProcess: Bool) -> FileSearchPipelineUpdate {
+        FileSearchPipelineUpdate(
             results: results,
-            status: .searching,
-            isSearching: true,
-            shouldStopProcess: false
+            status: results.isEmpty ? .noMatches : .matches,
+            shouldStopProcess: shouldStopProcess
         )
     }
 
@@ -351,7 +411,6 @@ actor FileSearchOutputPipeline {
             return FileSearchPipelineUpdate(
                 results: results,
                 status: results.isEmpty ? .noMatches : .matches,
-                isSearching: false,
                 shouldStopProcess: false
             )
         }
@@ -365,7 +424,6 @@ actor FileSearchOutputPipeline {
         return FileSearchPipelineUpdate(
             results: results,
             status: .failed(errorText?.isEmpty == false ? errorText! : fallback),
-            isSearching: false,
             shouldStopProcess: false
         )
     }
@@ -423,12 +481,52 @@ final class FileSearchController: FileSearchControlling {
         let rootPath: String
         let isLocal: Bool
         let contentRevision: Int
+        let options: FileSearchOptions
     }
 
     var onSnapshotChanged: ((FileSearchSnapshot) -> Void)?
 
-    private let maxResults = 500
-    private let snapshotInterval: TimeInterval = 0.05
+    // paginated Find, first chunk shown ASAP, more loaded on scroll
+    // up to the hard cap. Initial page is small so the user sees results within
+    // a frame of ripgrep producing them; the cap protects model + UI from
+    // unbounded queries.
+    private let pageSize = 100
+    private let hardMaxResults = 5000
+    // Config/data files (json, yaml, toml, markdown, lock) are intentionally excluded.
+    private static let codeTypeDefinition = "code:*.{" + [
+        "c", "h", "cc", "cpp", "cxx", "hpp", "hxx",
+        "m", "mm",
+        "swift",
+        "go",
+        "rs",
+        "py", "pyi", "pyx",
+        "rb",
+        "php",
+        "java", "kt", "kts", "scala", "groovy", "clj", "cljs", "cljc",
+        "js", "mjs", "cjs", "jsx", "ts", "tsx", "vue", "svelte",
+        "dart",
+        "lua",
+        "pl", "pm",
+        "r",
+        "sh", "bash", "zsh", "fish",
+        "ps1",
+        "sql",
+        "ex", "exs", "erl", "hrl",
+        "hs", "lhs",
+        "ml", "mli", "fs", "fsx", "fsi",
+        "vb", "cs",
+        "nim", "zig", "v", "sv",
+        "sol",
+        "elm",
+        "jl",
+        "asm", "s", "S",
+        "html", "htm", "xhtml", "css", "scss", "sass", "less",
+        "wat", "wgsl", "metal", "glsl", "frag", "vert",
+        "proto", "thrift",
+        "tf",
+        "gradle",
+        "make", "mk",
+    ].joined(separator: ",") + "}"
     private let excludedSearchGlobs = [
         "!.git/**",
         "!**/.git/**",
@@ -445,16 +543,44 @@ final class FileSearchController: FileSearchControlling {
     private var generation = 0
     private var request: Request?
     private var results: [FileSearchResult] = []
+    // append-only "what's currently rendered" view of `results`. Each
+    // page boundary re-ranks ONLY the new tail and appends, earlier rows stay
+    // in place so scroll position never jumps. `displayedResults.count` is the
+    // cursor into `results` for the next page.
+    private var displayedResults: [FileSearchResult] = []
     private var pipeline: FileSearchOutputPipeline?
     private var searchTask: Task<Void, Never>?
 
-    func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int = 0) {
+    // main-thread coalescing slot. Multiple pipeline updates can arrive
+    // close together (e.g. early-streaming emit immediately followed by the
+    // hard-cap or finish emit when `rg` is fast); without a coalesce step they
+    // each queue an independent MainActor hop and each runs the full
+    // grouping + NSOutlineView diff + group `expandItem` walk in
+    // `FileExplorerSearchResultsView.apply`. Under heavy queries this saturated the
+    // main thread and blocked search-bar / terminal-panel input. With the
+    // slot, any update arriving while a drain is pending overwrites the slot
+    //, only the latest one ever reaches `applyPipelineUpdate`.
+    private var pendingPipelineUpdate: (update: FileSearchPipelineUpdate, generation: Int)?
+    private var pendingPipelineDrainScheduled = false
+    private var isSearchRunning = false
+    private var didHitHardCap = false
+
+#if DEBUG
+    private(set) var debugPipelineDeliveryCount = 0
+
+    func debugEnqueuePipelineUpdate(_ update: FileSearchPipelineUpdate) {
+        enqueuePipelineUpdate(update, generation: generation)
+    }
+#endif
+
+    func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int = 0, options: FileSearchOptions = .default) {
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         let nextRequest = Request(
             query: query,
             rootPath: rootPath,
             isLocal: isLocal,
-            contentRevision: contentRevision
+            contentRevision: contentRevision,
+            options: options
         )
         if nextRequest == request, process?.isRunning == true {
             return
@@ -463,17 +589,19 @@ final class FileSearchController: FileSearchControlling {
 
         stopAndAdvanceGeneration()
         results.removeAll()
+        displayedResults.removeAll()
+        didHitHardCap = false
 
         guard !query.isEmpty else {
-            emit(status: .idle, isSearching: false)
+            emit(status: .idle)
             return
         }
         guard isLocal else {
-            emit(status: .unsupported, isSearching: false)
+            emit(status: .unsupported)
             return
         }
         guard !rootPath.isEmpty else {
-            emit(status: .noMatches, isSearching: false)
+            emit(status: .noMatches)
             return
         }
         let resolution = RipgrepExecutableResolver.resolution()
@@ -482,22 +610,22 @@ final class FileSearchController: FileSearchControlling {
         case .found(let resolvedExecutable):
             executable = resolvedExecutable
         case .configuredPathNotExecutable(let path):
-            emit(
-                status: .failed(FileExplorerSearchMessages.configuredRipgrepPathNotExecutable(path)),
-                isSearching: false
-            )
+            emit(status: .failed(FileExplorerSearchMessages.configuredRipgrepPathNotExecutable(path)))
             return
         case .notFound:
-            emit(
-                status: .failed(String(localized: "fileExplorer.search.rgNotInstalled", defaultValue: "ripgrep (rg) is not installed or is not on PATH.")),
-                isSearching: false
-            )
+            emit(status: .failed(String(localized: "fileExplorer.search.rgNotInstalled", defaultValue: "ripgrep (rg) is not installed or is not on PATH.")))
             return
         }
 
         generation += 1
         let searchGeneration = generation
-        emit(status: .searching, isSearching: true)
+        isSearchRunning = true
+        emit(status: .searching)
+
+        let caseFlag = options.matchCase ? "--case-sensitive" : "--ignore-case"
+        let codeOnlyArgs: [String] = options.codeOnly
+            ? ["--type-add", Self.codeTypeDefinition, "--type", "code"]
+            : []
 
         let process = Process()
         process.executableURL = executable.url
@@ -505,13 +633,13 @@ final class FileSearchController: FileSearchControlling {
             "--json",
             "--line-number",
             "--column",
-            "--smart-case",
+            caseFlag,
             "--fixed-strings",
             "--max-columns", "300",
             "--max-columns-preview",
             "--color", "never",
             "--hidden",
-        ] + excludedSearchGlobs.flatMap { ["--glob", $0] } + [
+        ] + codeOnlyArgs + excludedSearchGlobs.flatMap { ["--glob", $0] } + [
             "--",
             query,
             rootPath,
@@ -523,8 +651,8 @@ final class FileSearchController: FileSearchControlling {
         process.standardError = stderr
         let pipeline = FileSearchOutputPipeline(
             rootPath: rootPath,
-            maxResults: maxResults,
-            snapshotInterval: snapshotInterval
+            hardMaxResults: hardMaxResults,
+            initialEmissionTarget: pageSize
         )
         self.pipeline = pipeline
         let terminationSignal = FileSearchTerminationSignal()
@@ -536,87 +664,217 @@ final class FileSearchController: FileSearchControlling {
             }
         }
 
-        do {
-            try process.run()
-            self.process = process
-            let stdoutReadHandle = FileSearchReadHandle(stdout.fileHandleForReading)
-            let stderrReadHandle = FileSearchReadHandle(stderr.fileHandleForReading)
-            searchTask = Task.detached(priority: .userInitiated) { [weak self, pipeline, terminationSignal, stdoutReadHandle, stderrReadHandle] in
-                // Result completeness is defined by stdout. Stderr stays diagnostic-only:
-                // successful searches do not wait on it, failed searches do before formatting the error.
-                let stderrTask = Task.detached(priority: .utility) { [stderrReadHandle, pipeline] in
-                    await Self.streamStderr(from: stderrReadHandle, pipeline: pipeline)
+        let stdoutReadHandle = FileSearchReadHandle(stdout.fileHandleForReading)
+        let stderrReadHandle = FileSearchReadHandle(stderr.fileHandleForReading)
+        // process.run() takes several ms doing fork/exec/pipe setup.
+        // Doing it inline on @MainActor was visible as typing lag on every
+        // keystroke; the detached task handles spawn, stdout/stderr drains,
+        // and termination off-main. Only the resulting applyUpdate hops
+        // back to main.
+        let task = Task.detached(priority: .userInitiated) { [weak self, pipeline, terminationSignal, process, stdoutReadHandle, stderrReadHandle] in
+            do {
+                try process.run()
+            } catch {
+                let message = error.localizedDescription
+                await MainActor.run { [weak self] in
+                    guard let self, self.generation == searchGeneration else { return }
+                    self.pipeline = nil
+                    self.process = nil
+                    self.isSearchRunning = false
+                    self.emit(status: .failed(message))
                 }
-                let applyUpdate: @Sendable (FileSearchPipelineUpdate, Int) async -> Void = { [weak self] update, generation in
-                    await self?.applyPipelineUpdate(update, generation: generation)
-                }
-                let stdoutTask = Task.detached(priority: .userInitiated) { [stdoutReadHandle, pipeline, searchGeneration, applyUpdate] in
-                    await Self.streamStdout(
-                        from: stdoutReadHandle,
-                        pipeline: pipeline,
-                        generation: searchGeneration,
-                        applyUpdate: applyUpdate
-                    )
-                }
-                defer {
-                    stderrTask.cancel()
-                    stdoutTask.cancel()
-                }
-                guard let status = await terminationSignal.wait() else { return }
-                await stdoutTask.value
-                guard !Task.isCancelled else { return }
-                if status != 0 && status != 1 {
-                    await stderrTask.value
-                }
-                let update = await pipeline.finish(status: status)
-                await self?.finish(generation: searchGeneration, update: update)
+                return
             }
-        } catch {
-            process.standardOutput = nil
-            process.standardError = nil
-            self.pipeline = nil
-            emit(status: .failed(error.localizedDescription), isSearching: false)
+            // Cancellation that arrived while spawning couldn't SIGTERM a
+            // not-yet-running process; do it ourselves now and bail.
+            // Also stash the running process on main so a subsequent
+            // cancel() can find it.
+            let stillCurrent = await MainActor.run { [weak self] () -> Bool in
+                guard let self, self.generation == searchGeneration else { return false }
+                self.process = process
+                return true
+            }
+            if !stillCurrent {
+                if process.isRunning {
+                    _ = Darwin.kill(process.processIdentifier, SIGTERM)
+                }
+                return
+            }
+            // Result completeness is defined by stdout. Stderr stays diagnostic-only:
+            // successful searches do not wait on it, failed searches do before formatting the error.
+            let stderrTask = Task.detached(priority: .utility) { [stderrReadHandle, pipeline] in
+                await Self.streamStderr(from: stderrReadHandle, pipeline: pipeline)
+            }
+            let applyUpdate: @Sendable (FileSearchPipelineUpdate, Int) async -> Void = { [weak self] update, generation in
+                await self?.enqueuePipelineUpdate(update, generation: generation)
+            }
+            let stdoutTask = Task.detached(priority: .userInitiated) { [stdoutReadHandle, pipeline, searchGeneration, applyUpdate] in
+                await Self.streamStdout(
+                    from: stdoutReadHandle,
+                    pipeline: pipeline,
+                    generation: searchGeneration,
+                    applyUpdate: applyUpdate
+                )
+            }
+            defer {
+                stderrTask.cancel()
+                stdoutTask.cancel()
+            }
+            guard let status = await terminationSignal.wait() else { return }
+            await stdoutTask.value
+            guard !Task.isCancelled else { return }
+            if status != 0 && status != 1 {
+                await stderrTask.value
+            }
+            let update = await pipeline.finish(status: status)
+            await self?.finish(generation: searchGeneration, update: update)
         }
+        searchTask = task
     }
 
     func cancel(clear: Bool) {
         request = nil
         stopAndAdvanceGeneration()
+        didHitHardCap = false
         if clear {
             results.removeAll()
-            emit(status: .idle, isSearching: false)
+            displayedResults.removeAll()
+            emit(status: .idle)
+        }
+    }
+
+    func loadMore() {
+        // Drop stale scroll-triggered loadMore after cancel(clear:false), else
+        // we'd re-emit the previous query's buffered results under empty query.
+        guard request != nil else { return }
+        guard displayedResults.count < hardMaxResults else { return }
+        // Fast path: pipeline already buffered more than we've shown (hardMax
+        // burst or post-finish() drain). Drain a page locally instead of
+        // round-tripping the actor.
+        if results.count > displayedResults.count {
+            appendNewlyBufferedToDisplay()
+            emit(status: settledStatus(forFallback: .matches))
+            return
+        }
+        guard let pipeline else { return }
+        let target = min(displayedResults.count + pageSize, hardMaxResults)
+        let searchGeneration = generation
+        Task { [weak self] in
+            guard let update = await pipeline.requestNextEmission(targetCount: target) else { return }
+            self?.applyPipelineUpdate(update, generation: searchGeneration)
+        }
+    }
+
+    /// Coalescing entry point for streaming updates from the pipeline. Stores
+    /// the latest update in `pendingPipelineUpdate` and schedules a single
+    /// drain Task. If a drain is already scheduled, this is a no-op beyond
+    /// overwriting the slot.
+    ///
+    /// terminal updates (`shouldStopProcess == true`) skip coalescing
+    /// and are applied immediately, they carry the "stop the rg" signal and
+    /// must take effect synchronously, and they're also the last update of a
+    /// query so there's nothing to coalesce them against.
+    private func enqueuePipelineUpdate(_ update: FileSearchPipelineUpdate, generation searchGeneration: Int) {
+        guard searchGeneration == generation else { return }
+        if update.shouldStopProcess {
+            pendingPipelineUpdate = nil
+            applyPipelineUpdate(update, generation: searchGeneration)
+            return
+        }
+        pendingPipelineUpdate = (update, searchGeneration)
+        guard !pendingPipelineDrainScheduled else { return }
+        pendingPipelineDrainScheduled = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.pendingPipelineDrainScheduled = false
+            guard let pending = self.pendingPipelineUpdate else { return }
+            self.pendingPipelineUpdate = nil
+            self.applyPipelineUpdate(pending.update, generation: pending.generation)
         }
     }
 
     private func applyPipelineUpdate(_ update: FileSearchPipelineUpdate, generation searchGeneration: Int) {
         guard searchGeneration == generation else { return }
+#if DEBUG
+        debugPipelineDeliveryCount += 1
+#endif
         results = update.results
         if update.shouldStopProcess {
+            didHitHardCap = true
             stopAndAdvanceGeneration()
         }
-        emit(status: update.status, isSearching: update.isSearching)
+        appendNewlyBufferedToDisplay()
+        emit(status: settledStatus(forFallback: update.status))
     }
 
     private func finish(generation searchGeneration: Int, update: FileSearchPipelineUpdate) {
         guard searchGeneration == generation else { return }
+        pendingPipelineUpdate = nil
         process = nil
         pipeline = nil
         searchTask = nil
         results = update.results
-        emit(status: update.status, isSearching: update.isSearching)
+        appendNewlyBufferedToDisplay()
+        isSearchRunning = false
+        emit(status: settledStatus(forFallback: update.status))
     }
 
-    private func emit(status: FileSearchSnapshot.Status, isSearching: Bool) {
+    /// Re-rank the next `pageSize` slice of `results` past `displayedResults`
+    /// and append. Earlier display order stays frozen so the user's scroll
+    /// position never jumps; ranking quality therefore drops across page
+    /// boundaries (a tier-0 basename match in page 2 cannot bubble above a
+    /// tier-2 hit in page 1), the deliberate trade-off vs full-buffer re-rank.
+    private func appendNewlyBufferedToDisplay() {
+        let start = displayedResults.count
+        guard start < results.count else { return }
+        // cap each appended chunk at `pageSize`. A single pipeline
+        // emission can carry far more than a page (the hard-cap stop can hand
+        // us up to 5000 rows at once, or `finish()` drains trailing buffered
+        // rows beyond what the user has scrolled to). Leftovers surface via
+        // subsequent `loadMore` calls without going back to rg.
+        let endIndex = min(start + pageSize, results.count)
+        let newChunk = Array(results[start..<endIndex])
+        let query = request?.query ?? ""
+        let rankedChunk = FileSearchRanking.apply(to: newChunk, query: query)
+        displayedResults.append(contentsOf: rankedChunk)
+    }
+
+    private func settledStatus(forFallback fallback: FileSearchSnapshot.Status) -> FileSearchSnapshot.Status {
+        // Pipeline-derived `.failed` / `.unsupported` pass through unchanged.
+        switch fallback {
+        case .failed, .unsupported:
+            return fallback
+        case .idle, .searching, .noMatches, .matches:
+            return displayedResults.isEmpty ? .noMatches : .matches
+        }
+    }
+
+    private func emit(status: FileSearchSnapshot.Status) {
+        let query = request?.query ?? ""
         onSnapshotChanged?(FileSearchSnapshot(
-            query: request?.query ?? "",
-            results: results,
+            query: query,
+            results: displayedResults,
             status: status,
-            isSearching: isSearching
+            isSearching: isSearchRunning,
+            hasMore: computeHasMore(),
+            totalMatchCount: results.count,
+            isTruncated: didHitHardCap
         ))
     }
 
+    private func computeHasMore() -> Bool {
+        if displayedResults.count >= hardMaxResults { return false }
+        if results.count > displayedResults.count { return true }
+        return process?.isRunning == true
+    }
+
     private func stopAndAdvanceGeneration() {
+        isSearchRunning = false
         generation += 1
+        // Any coalesced update from the prior generation is stale once
+        // generation bumps; the drain Task already guards on generation but
+        // dropping the slot here avoids a redundant drain hop.
+        pendingPipelineUpdate = nil
         stopCurrentProcess()
     }
 

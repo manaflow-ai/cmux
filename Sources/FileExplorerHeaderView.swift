@@ -6,7 +6,10 @@ import CmuxFoundation
 final class FileExplorerHeaderView: NSView {
     private let iconView = CmuxResolvedIconImageView()
     private let pathLabel = NSTextField(labelWithString: "")
+    private let trailingStack = NSStackView()
     private var heightConstraint: NSLayoutConstraint?
+    private var pathAccessoryTrailingConstraint: NSLayoutConstraint?
+    private var pathEdgeTrailingConstraint: NSLayoutConstraint?
     private var displayPath = ""
     private var quickSearchQuery: String?
 
@@ -28,12 +31,29 @@ final class FileExplorerHeaderView: NSView {
         pathLabel.lineBreakMode = .byTruncatingMiddle
         pathLabel.maximumNumberOfLines = 1
         pathLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        pathLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        trailingStack.translatesAutoresizingMaskIntoConstraints = false
+        trailingStack.orientation = .horizontal
+        trailingStack.alignment = .centerY
+        trailingStack.spacing = 4
+        trailingStack.isHidden = true
+        trailingStack.setHuggingPriority(.required, for: .horizontal)
+        trailingStack.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         addSubview(iconView)
         addSubview(pathLabel)
+        addSubview(trailingStack)
 
         let heightConstraint = heightAnchor.constraint(equalToConstant: RightSidebarChromeMetrics.secondaryBarHeight)
         self.heightConstraint = heightConstraint
+        let pathEdgeTrailingConstraint = pathLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8)
+        let pathAccessoryTrailingConstraint = pathLabel.trailingAnchor.constraint(
+            lessThanOrEqualTo: trailingStack.leadingAnchor,
+            constant: -6
+        )
+        self.pathEdgeTrailingConstraint = pathEdgeTrailingConstraint
+        self.pathAccessoryTrailingConstraint = pathAccessoryTrailingConstraint
 
         NSLayoutConstraint.activate([
             heightConstraint,
@@ -45,7 +65,12 @@ final class FileExplorerHeaderView: NSView {
 
             pathLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 4),
             pathLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            pathLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            pathEdgeTrailingConstraint,
+
+            trailingStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            trailingStack.centerYAnchor.constraint(equalTo: centerYAnchor),
+            trailingStack.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 2),
+            trailingStack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -2),
         ])
         applyHeaderState()
     }
@@ -53,6 +78,21 @@ final class FileExplorerHeaderView: NSView {
     func applyFonts() {
         pathLabel.font = GlobalFontMagnification.systemFont(ofSize: 11, weight: .medium)
         heightConstraint?.constant = RightSidebarChromeMetrics.secondaryBarHeight
+    }
+
+    func setTrailingAccessoryViews(_ views: [NSView]) {
+        for view in trailingStack.arrangedSubviews {
+            trailingStack.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+        for view in views {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            trailingStack.addArrangedSubview(view)
+        }
+        let hasAccessories = !views.isEmpty
+        trailingStack.isHidden = !hasAccessories
+        pathEdgeTrailingConstraint?.isActive = !hasAccessories
+        pathAccessoryTrailingConstraint?.isActive = hasAccessories
     }
 
     func update(displayPath: String) {

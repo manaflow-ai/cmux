@@ -151,33 +151,21 @@ extension FileExplorerPanelView.Coordinator {
 
 extension FileExplorerContainerView {
     @MainActor
-    private func searchResultsForContextMenu(row: Int) -> [FileSearchResult] {
-        guard row >= 0, row < searchSnapshot.results.count else { return [] }
-        let selectedRows = searchResultsView.selectedRowIndexes
-        guard selectedRows.contains(row) else {
-            return [searchSnapshot.results[row]]
-        }
-        let results = selectedRows.compactMap { selectedRow -> FileSearchResult? in
-            guard selectedRow >= 0, selectedRow < searchSnapshot.results.count else { return nil }
-            return searchSnapshot.results[selectedRow]
-        }
-        return results.isEmpty ? [searchSnapshot.results[row]] : results
-    }
-
-    @MainActor
     @objc func contextMenuInsertSearchResultPath(_ sender: NSMenuItem) {
-        guard let row = (sender.representedObject as? NSNumber)?.intValue else { return }
+        guard let selection = sender.representedObject
+            as? [FileExplorerSearchResultsView.SearchResultPathPair] else { return }
         FileExplorerTerminalPathInsertion.insert(
-            paths: searchResultsForContextMenu(row: row).map(\.path),
+            paths: selection.map(\.path),
             intoTerminalFor: window
         )
     }
 
     @MainActor
     @objc func contextMenuInsertSearchResultRelativePath(_ sender: NSMenuItem) {
-        guard let row = (sender.representedObject as? NSNumber)?.intValue else { return }
+        guard let selection = sender.representedObject
+            as? [FileExplorerSearchResultsView.SearchResultPathPair] else { return }
         FileExplorerTerminalPathInsertion.insert(
-            paths: searchResultsForContextMenu(row: row).map(\.relativePath),
+            paths: selection.map(\.relativePath),
             intoTerminalFor: window
         )
     }

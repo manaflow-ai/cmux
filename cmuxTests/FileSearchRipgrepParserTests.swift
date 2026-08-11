@@ -121,11 +121,11 @@ final class FileSearchRipgrepParserTests: XCTestCase {
 }
 
 final class FileSearchOutputPipelineTests: XCTestCase {
-    func testFinishPreservesLimitedStatusFromTrailingBufferedLine() async throws {
+    func testFinishStopsAtHardMaxFromTrailingBufferedLine() async throws {
         let pipeline = FileSearchOutputPipeline(
             rootPath: "/tmp/project",
-            maxResults: 1,
-            snapshotInterval: 60
+            hardMaxResults: 1,
+            initialEmissionTarget: 1
         )
         let line = try makeMatchLine(relativePath: "Sources/App.swift")
 
@@ -134,31 +134,69 @@ final class FileSearchOutputPipelineTests: XCTestCase {
 
         let finalUpdate = await pipeline.finish(status: 0)
 
-        XCTAssertEqual(finalUpdate.status, .limited(1))
+        XCTAssertEqual(finalUpdate.status, .matches)
         XCTAssertEqual(finalUpdate.results.map(\.relativePath), ["Sources/App.swift"])
-        XCTAssertFalse(finalUpdate.isSearching)
         XCTAssertTrue(finalUpdate.shouldStopProcess)
     }
 
-    func testFinishKeepsEarlierLimitedStatusAfterStreamingLimit() async throws {
+    func testFinishKeepsStopAfterStreamingHitsHardMax() async throws {
         let pipeline = FileSearchOutputPipeline(
             rootPath: "/tmp/project",
-            maxResults: 1,
-            snapshotInterval: 60
+            hardMaxResults: 1,
+            initialEmissionTarget: 1
         )
         let line = try makeMatchLine(relativePath: "Sources/App.swift") + "\n"
 
         let maybeStreamingUpdate = await pipeline.consumeStdout(Data(line.utf8))
         let streamingUpdate = try XCTUnwrap(maybeStreamingUpdate)
-        XCTAssertEqual(streamingUpdate.status, .limited(1))
+        XCTAssertEqual(streamingUpdate.status, .matches)
         XCTAssertTrue(streamingUpdate.shouldStopProcess)
 
         let finalUpdate = await pipeline.finish(status: 0)
 
-        XCTAssertEqual(finalUpdate.status, .limited(1))
+        XCTAssertEqual(finalUpdate.status, .matches)
         XCTAssertEqual(finalUpdate.results.map(\.relativePath), ["Sources/App.swift"])
-        XCTAssertFalse(finalUpdate.isSearching)
         XCTAssertTrue(finalUpdate.shouldStopProcess)
+    }
+
+    func testEarlyPaintEmitsOnlyOnceBeforeFinish() async throws {
+        let pipeline = FileSearchOutputPipeline(
+            rootPath: "/tmp/project",
+            hardMaxResults: 100,
+            initialEmissionTarget: 100
+        )
+        let firstLine = try makeMatchLine(relativePath: "Sources/First.swift") + "\n"
+        let secondLine = try makeMatchLine(relativePath: "Sources/Second.swift") + "\n"
+
+        let firstUpdate = await pipeline.consumeStdout(Data(firstLine.utf8))
+        XCTAssertEqual(firstUpdate?.results.map(\.relativePath), ["Sources/First.swift"])
+
+        let secondUpdate = await pipeline.consumeStdout(Data(secondLine.utf8))
+        XCTAssertNil(secondUpdate)
+
+        let finalUpdate = await pipeline.finish(status: 0)
+        XCTAssertEqual(
+            finalUpdate.results.map(\.relativePath),
+            ["Sources/First.swift", "Sources/Second.swift"]
+        )
+    }
+
+    func testHardCapRequestsProcessStopAtFiveThousandMatches() async throws {
+        let pipeline = FileSearchOutputPipeline(
+            rootPath: "/tmp/project",
+            hardMaxResults: 5_000,
+            initialEmissionTarget: 5_000
+        )
+        let lines = try (0...5_000).map { index in
+            try makeMatchLine(relativePath: "Sources/File\(index).swift") + "\n"
+        }.joined()
+
+        let maybeUpdate = await pipeline.consumeStdout(Data(lines.utf8))
+        let update = try XCTUnwrap(maybeUpdate)
+
+        XCTAssertEqual(update.results.count, 5_000)
+        XCTAssertEqual(update.status, .matches)
+        XCTAssertTrue(update.shouldStopProcess)
     }
 
     private func makeMatchLine(relativePath: String) throws -> String {
@@ -241,7 +279,13 @@ struct FileSearchWorkspaceScopeTests {
         var onSnapshotChanged: ((FileSearchSnapshot) -> Void)?
         var searchRequests: [String] = []
 
-        func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int) {
+        func search(
+            query rawQuery: String,
+            rootPath: String,
+            isLocal: Bool,
+            contentRevision: Int,
+            options: FileSearchOptions
+        ) {
             searchRequests.append(rawQuery)
         }
 
@@ -250,5 +294,7 @@ struct FileSearchWorkspaceScopeTests {
         }
 
         func cancel(clear: Bool) {}
+
+        func loadMore() {}
     }
 }
