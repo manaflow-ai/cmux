@@ -85,38 +85,39 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler:
     surface: TerminalSurface
   ) -> TerminalSurfaceRuntimeOwnershipRecoveryOverflowRegistration {
     var startGate: TerminalSurfaceRuntimeTeardownStartGate?
-    let registration = state.withLockUnchecked { state in
-      if let entry = state.entriesByID[surfaceID] {
-        entry.surface = surface
+    let registration: TerminalSurfaceRuntimeOwnershipRecoveryOverflowRegistration =
+      state.withLockUnchecked { state in
+        if let entry = state.entriesByID[surfaceID] {
+          entry.surface = surface
+          state.rescanRequested = true
+          prepareRescanTaskIfNeeded(state: &state, startGate: &startGate)
+          return .updated(sequence: entry.sequence)
+        }
+
+        guard state.entriesByID.count < maximumEntryCount else {
+          return .rejected
+        }
+
+        precondition(state.nextSequence < UInt64.max)
+        state.nextSequence += 1
+        let previousID = state.tailID
+        let entry = OverflowEntry(
+          surfaceID: surfaceID,
+          sequence: state.nextSequence,
+          surface: surface,
+          previousID: previousID
+        )
+        state.entriesByID[surfaceID] = entry
+        if let previousID {
+          state.entriesByID[previousID]?.nextID = surfaceID
+        } else {
+          state.headID = surfaceID
+        }
+        state.tailID = surfaceID
         state.rescanRequested = true
         prepareRescanTaskIfNeeded(state: &state, startGate: &startGate)
-        return .updated(sequence: entry.sequence)
+        return .registered(sequence: entry.sequence)
       }
-
-      guard state.entriesByID.count < maximumEntryCount else {
-        return .rejected
-      }
-
-      precondition(state.nextSequence < UInt64.max)
-      state.nextSequence += 1
-      let previousID = state.tailID
-      let entry = OverflowEntry(
-        surfaceID: surfaceID,
-        sequence: state.nextSequence,
-        surface: surface,
-        previousID: previousID
-      )
-      state.entriesByID[surfaceID] = entry
-      if let previousID {
-        state.entriesByID[previousID]?.nextID = surfaceID
-      } else {
-        state.headID = surfaceID
-      }
-      state.tailID = surfaceID
-      state.rescanRequested = true
-      prepareRescanTaskIfNeeded(state: &state, startGate: &startGate)
-      return .registered(sequence: entry.sequence)
-    }
     startGate?.start()
     return registration
   }
