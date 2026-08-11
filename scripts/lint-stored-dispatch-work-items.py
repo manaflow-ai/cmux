@@ -83,6 +83,10 @@ class Allowance:
     reason: str
 
 
+class RequiredSourceRootMissingError(RuntimeError):
+    """Raised when an audited dependency source tree is unavailable."""
+
+
 # These declarations cannot link replaced queued work through their owner's
 # stored state. Context is part of each key so moving a function-local timeout
 # into stored owner state cannot inherit an allowance merely by preserving its
@@ -489,6 +493,47 @@ def _dispatch_type_text(declaration_tokens: list[Token]) -> str | None:
     return None
 
 
+def _content_view_handle_type_text(
+    declaration_tokens: list[Token],
+) -> str | None:
+    for audited_type in CONTENT_VIEW_AUDITED_HANDLE_TYPES:
+        if type_text := _annotated_type_text(declaration_tokens, audited_type):
+            return type_text
+
+    values = [token.value for token in declaration_tokens if token.kind != "newline"]
+    paren_depth = 0
+    bracket_depth = 0
+    angle_depth = 0
+    equals: int | None = None
+    for index, value in enumerate(values):
+        if value == "=" and paren_depth == bracket_depth == angle_depth == 0:
+            equals = index
+            break
+        if value == "(":
+            paren_depth += 1
+        elif value == ")":
+            paren_depth = max(0, paren_depth - 1)
+        elif value == "[":
+            bracket_depth += 1
+        elif value == "]":
+            bracket_depth = max(0, bracket_depth - 1)
+        elif value == "<":
+            angle_depth += 1
+        elif value == ">" and angle_depth:
+            angle_depth -= 1
+
+    if equals is None:
+        return None
+    initializer = values[equals + 1 :]
+    if not initializer:
+        return None
+    if initializer[0] == "Task":
+        return "<inferred:Task>"
+    if initializer[:3] == ["DispatchSource", ".", "makeTimerSource"]:
+        return "<inferred:DispatchSourceTimer>"
+    return None
+
+
 def _is_computed_property(
     tokens: list[Token],
     declaration_start: int,
@@ -571,10 +616,7 @@ def scan_declarations(source: str, path: str) -> list[Declaration]:
             and path == "Sources/ContentView.swift"
             and context == "member:ContentView"
         ):
-            for audited_type in CONTENT_VIEW_AUDITED_HANDLE_TYPES:
-                type_text = _annotated_type_text(declaration_tokens, audited_type)
-                if type_text is not None:
-                    break
+            type_text = _content_view_handle_type_text(declaration_tokens)
         if type_text is None:
             continue
         declarations.append(
@@ -590,6 +632,11 @@ def scan_declarations(source: str, path: str) -> list[Declaration]:
 
 
 def declarations() -> list[Declaration]:
+    if not BONSPLIT_SOURCES_ROOT.is_dir():
+        raise RequiredSourceRootMissingError(
+            f"required audited source root is missing: {BONSPLIT_SOURCES_ROOT}"
+        )
+
     found: list[Declaration] = []
     # CI initializes Bonsplit before this audit so a parent-repository change
     # cannot silently reintroduce the SwiftUI State ownership pattern that
@@ -608,7 +655,11 @@ def declarations() -> list[Declaration]:
 
 
 def main() -> int:
-    found = declarations()
+    try:
+        found = declarations()
+    except RequiredSourceRootMissingError as error:
+        print(f"lint-stored-dispatch-work-items: {error}", file=sys.stderr)
+        return 1
     unexpected, stale = compare_allowances(found)
     if not unexpected and not stale:
         print(

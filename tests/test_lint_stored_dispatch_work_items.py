@@ -3,10 +3,14 @@
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -195,6 +199,31 @@ class StoredDispatchWorkItemScannerTests(unittest.TestCase):
             ],
         )
 
+    def test_audits_inferred_async_handles_in_content_view(self) -> None:
+        declarations = LINT.scan_declarations(
+            """
+            struct ContentView: View {
+                @State private var task = Task {}
+                @State private var detachedTask = Task.detached {}
+                @State private var timer = DispatchSource.makeTimerSource(queue: .main)
+            }
+            """,
+            "Sources/ContentView.swift",
+        )
+
+        self.assertEqual(
+            [(item.name, item.type_text, item.context) for item in declarations],
+            [
+                ("task", "<inferred:Task>", "member:ContentView"),
+                ("detachedTask", "<inferred:Task>", "member:ContentView"),
+                (
+                    "timer",
+                    "<inferred:DispatchSourceTimer>",
+                    "member:ContentView",
+                ),
+            ],
+        )
+
     def test_does_not_audit_stored_async_handles_outside_content_view(self) -> None:
         declarations = self.scan(
             """
@@ -238,6 +267,17 @@ class StoredDispatchWorkItemScannerTests(unittest.TestCase):
                 ): 1
             },
         )
+
+    def test_missing_bonsplit_source_root_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            missing_root = Path(directory) / "missing-bonsplit-sources"
+            stderr = io.StringIO()
+            with mock.patch.object(LINT, "BONSPLIT_SOURCES_ROOT", missing_root):
+                with contextlib.redirect_stderr(stderr):
+                    result = LINT.main()
+
+        self.assertEqual(result, 1)
+        self.assertIn("required audited source root is missing", stderr.getvalue())
 
 
 if __name__ == "__main__":
