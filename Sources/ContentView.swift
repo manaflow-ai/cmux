@@ -3346,6 +3346,7 @@ struct ContentView: View {
             }
             cancelCommandPaletteForkableAgentProbeResultExpiryRefresh()
             removeSidebarResizerPointerMonitor()
+            fileExplorerSSHRootSynchronizer.stop()
         })
 
         let commandPaletteOverlayView = AnyView(commandPaletteOverlay)

@@ -14,6 +14,9 @@ final class FileExplorerSSHRootSynchronizer {
     }
 
     func startObserving(onChange: @escaping @MainActor () -> Void) {
+        // Cancel any in-flight stop/update so a delayed monitor.stop() cannot
+        // finish a freshly opened updates() stream.
+        monitorUpdateTask?.cancel()
         observationTask?.cancel()
         let monitor = monitor
         observationTask = Task { [weak self] in
@@ -27,13 +30,15 @@ final class FileExplorerSSHRootSynchronizer {
     }
 
     func stop() {
-        monitorUpdateTask?.cancel()
         observationTask?.cancel()
-        monitorUpdateTask = nil
         observationTask = nil
         snapshot = nil
+        // Serialize shutdown through the owned monitor-update task so stop
+        // cannot race a newly enqueued update or observation restart.
+        monitorUpdateTask?.cancel()
         let monitor = monitor
-        Task {
+        monitorUpdateTask = Task {
+            guard !Task.isCancelled else { return }
             await monitor.stop()
         }
     }
