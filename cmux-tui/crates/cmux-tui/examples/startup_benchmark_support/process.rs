@@ -24,6 +24,10 @@ use super::{
 };
 #[cfg(target_os = "macos")]
 use crate::startup_benchmark_protocol::macos_account_identity;
+#[cfg(windows)]
+use crate::startup_benchmark_protocol::{
+    PRODUCT_STARTED_TIMEOUT, parse_product_started_line, read_product_started_control_line,
+};
 use crate::startup_benchmark_protocol::{
     STARTUP_LINE_TIMEOUT, SupervisorStartupLine, TimingPage, arm_line, monotonic_ns,
     parse_supervisor_startup_line, read_control_line, write_control_line,
@@ -473,6 +477,31 @@ impl LaunchControl {
             .context("supervisor ARM deadline expired")?;
         stream.set_write_timeout(Some(timeout))?;
         write_control_line(&mut stream, &arm_line(&self.nonce))?;
+        #[cfg(windows)]
+        {
+            let product_started_deadline = deadline.instant(
+                PRODUCT_STARTED_TIMEOUT,
+                "waiting for bounded supervisor product-started evidence",
+            )?;
+            let remaining = product_started_deadline
+                .checked_duration_since(Instant::now())
+                .filter(|remaining| !remaining.is_zero())
+                .context("supervisor product-started deadline expired")?;
+            stream.set_read_timeout(Some(remaining))?;
+            let line = read_product_started_control_line(&mut stream)?;
+            if let Err(product_started) = parse_product_started_line(&line, &self.nonce, None) {
+                match parse_supervisor_startup_line(&line, &self.nonce) {
+                    Ok(SupervisorStartupLine::Failure { checkpoint_name }) => bail!(
+                        "product supervisor failed after ARM; checkpoint: {}",
+                        checkpoint_name.unwrap_or_else(|| "unavailable".into())
+                    ),
+                    _ => {
+                        return Err(product_started)
+                            .context("validate supervisor product-started evidence");
+                    }
+                }
+            }
+        }
         stream.shutdown(std::net::Shutdown::Both)?;
         Ok(())
     }

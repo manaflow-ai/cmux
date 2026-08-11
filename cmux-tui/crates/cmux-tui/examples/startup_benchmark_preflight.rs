@@ -21,6 +21,10 @@ use startup_benchmark_protocol::{
     arm_line, bootstrap_failure_hang_artifact, monotonic_ns, parse_supervisor_startup_line,
     read_control_line, validate_bootstrap_failure_records, write_control_line,
 };
+#[cfg(windows)]
+use startup_benchmark_protocol::{
+    PRODUCT_STARTED_TIMEOUT, parse_product_started_line, read_product_started_control_line,
+};
 use wait_timeout::ChildExt;
 
 const MAX_SUPERVISOR_STDERR_BYTES: usize = 64 * 1024;
@@ -63,6 +67,25 @@ struct PreflightEvidence {
     windows_bootstrap_exact_job: Option<bool>,
     windows_bootstrap_trusted_path_write_denied: Option<bool>,
     windows_bootstrap_self_write_denied: Option<bool>,
+    windows_restricting_sid: Option<String>,
+    windows_broker_authentication_id: Option<String>,
+    windows_restricted_authentication_id: Option<String>,
+    windows_product_authentication_id: Option<String>,
+    windows_restricted_authentication_matches_broker: Option<bool>,
+    windows_product_authentication_matches_broker: Option<bool>,
+    windows_se_increase_quota_present: Option<bool>,
+    windows_se_increase_quota_enabled: Option<bool>,
+    windows_create_process_as_user_succeeded: Option<bool>,
+    windows_restricted_token_write_restricted: Option<bool>,
+    windows_restricted_token_restricting_sid_match: Option<bool>,
+    windows_restricted_token_low_integrity: Option<bool>,
+    windows_restricted_token_no_enabled_privileges: Option<bool>,
+    windows_product_write_restricted: Option<bool>,
+    windows_product_restricting_sid_match: Option<bool>,
+    windows_product_low_integrity: Option<bool>,
+    windows_product_no_enabled_privileges: Option<bool>,
+    windows_product_exact_job: Option<bool>,
+    windows_product_resume_previous_count: Option<u32>,
     supervisor_ready: bool,
     timing_records: u64,
     supervisor_sha256: String,
@@ -417,6 +440,33 @@ fn copy_bootstrap_failure_checkpoint(
     Ok(copied)
 }
 
+#[cfg(windows)]
+fn persist_relayed_product_started_evidence(
+    output: &Path,
+    evidence: &BootstrapLaunchEvidence,
+    expected_nonce: &str,
+    expected_bootstrap_sha256: &str,
+) -> Result<PathBuf> {
+    evidence.validate(expected_nonce, expected_bootstrap_sha256)?;
+    let stem = output.file_stem().and_then(|value| value.to_str()).unwrap_or("preflight");
+    let path = output
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(format!("{stem}-product-bootstrap-failure.json"));
+    let bytes = serde_json::to_vec_pretty(evidence)?;
+    if bytes.len() > MAX_BOOTSTRAP_CHECKPOINT_BYTES as usize {
+        bail!("relayed product-started evidence exceeded its file bound");
+    }
+    let mut file =
+        OpenOptions::new().write(true).create_new(true).open(&path).with_context(|| {
+            format!("create relayed product-started evidence {}", path.display())
+        })?;
+    file.write_all(&bytes)?;
+    file.write_all(b"\n")?;
+    file.flush()?;
+    Ok(path)
+}
+
 fn read_identity_bound_artifact(
     source: &Path,
     expected_bytes: u64,
@@ -589,6 +639,8 @@ fn run_controller(values: &[String]) -> Result<()> {
         stderr: None,
         output_closed: false,
     };
+    #[cfg(windows)]
+    let mut relayed_bootstrap_evidence: Option<BootstrapLaunchEvidence> = None;
     let protocol_result = (|| -> Result<_> {
         let public_deadline = Instant::now()
             .checked_add(STARTUP_LINE_TIMEOUT)
@@ -617,6 +669,33 @@ fn run_controller(values: &[String]) -> Result<()> {
             .context("preflight ARM deadline expired")?;
         supervisor_stream.set_write_timeout(Some(write_timeout))?;
         write_control_line(&mut supervisor_stream, &arm_line(&nonce))?;
+        #[cfg(windows)]
+        {
+            let product_started_deadline = Instant::now()
+                .checked_add(PRODUCT_STARTED_TIMEOUT)
+                .context("preflight product-started deadline overflow")?;
+            let remaining = product_started_deadline
+                .checked_duration_since(Instant::now())
+                .filter(|remaining| !remaining.is_zero())
+                .context("preflight product-started deadline expired")?;
+            supervisor_stream.set_read_timeout(Some(remaining))?;
+            let line = read_product_started_control_line(&mut supervisor_stream)?;
+            match parse_product_started_line(&line, &nonce, Some(&windows_bootstrap_sha256)) {
+                Ok(evidence) => relayed_bootstrap_evidence = Some(evidence),
+                Err(product_started) => match parse_supervisor_startup_line(&line, &nonce) {
+                    Ok(SupervisorStartupLine::Failure { checkpoint_name }) => {
+                        return Ok(PreflightProtocolOutcome::StartupFailure {
+                            checkpoint_name,
+                            public_deadline: product_started_deadline,
+                        });
+                    }
+                    _ => {
+                        return Err(product_started)
+                            .context("validate preflight product-started evidence");
+                    }
+                },
+            }
+        }
         drop(supervisor_stream);
 
         let inbound_probe: InboundProbeEvidence =
@@ -676,7 +755,27 @@ fn run_controller(values: &[String]) -> Result<()> {
                     ))),
                 };
             }
-            Err(error) => return events.abort(error),
+            Err(error) => {
+                #[cfg(windows)]
+                let error = if let Some(evidence) = relayed_bootstrap_evidence.as_ref() {
+                    match persist_relayed_product_started_evidence(
+                        &output,
+                        evidence,
+                        &nonce,
+                        &windows_bootstrap_sha256,
+                    ) {
+                        Ok(path) => error.context(format!(
+                            "relayed product-started evidence: {}",
+                            path.display()
+                        )),
+                        Err(copy) => error
+                            .context(format!("persist relayed product-started evidence: {copy:#}")),
+                    }
+                } else {
+                    error
+                };
+                return events.abort(error);
+            }
         };
     let event_ns = monotonic_ns()?;
     let timing_result = timing.measured_duration_ns(event_ns);
@@ -696,12 +795,15 @@ fn run_controller(values: &[String]) -> Result<()> {
                 .with_context(|| format!("read Windows bootstrap evidence {}", path.display()))?,
         )?;
         evidence.validate(&nonce, &windows_bootstrap_sha256)?;
+        if relayed_bootstrap_evidence.as_ref() != Some(&evidence) {
+            bail!("relayed product-started evidence changed before product exit");
+        }
         Some(evidence)
     };
     #[cfg(not(windows))]
     let bootstrap_evidence: Option<BootstrapLaunchEvidence> = None;
     let evidence = PreflightEvidence {
-        schema_version: 5,
+        schema_version: 6,
         backend,
         policy: "fixture-root-only-write",
         handshake: "nonce-bound-ready-arm-with-pre-exec-t0",
@@ -757,6 +859,63 @@ fn run_controller(values: &[String]) -> Result<()> {
         windows_bootstrap_self_write_denied: bootstrap_evidence
             .as_ref()
             .map(|evidence| evidence.bootstrap_write_denied),
+        windows_restricting_sid: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.restricting_sid.clone()),
+        windows_broker_authentication_id: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.broker_authentication_id.clone()),
+        windows_restricted_authentication_id: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.restricted_authentication_id.clone()),
+        windows_product_authentication_id: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.product_authentication_id.clone()),
+        windows_restricted_authentication_matches_broker: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.restricted_authentication_matches_broker),
+        windows_product_authentication_matches_broker: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.product_authentication_matches_broker),
+        windows_se_increase_quota_present: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.se_increase_quota_present),
+        windows_se_increase_quota_enabled: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.se_increase_quota_enabled),
+        windows_create_process_as_user_succeeded: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.create_process_as_user_succeeded),
+        windows_restricted_token_write_restricted: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.restricted_token_write_restricted),
+        windows_restricted_token_restricting_sid_match: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.restricted_token_restricting_sid_match),
+        windows_restricted_token_low_integrity: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.restricted_token_low_integrity),
+        windows_restricted_token_no_enabled_privileges: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.restricted_token_no_enabled_privileges),
+        windows_product_write_restricted: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.product_write_restricted),
+        windows_product_restricting_sid_match: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.product_restricting_sid_match),
+        windows_product_low_integrity: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.product_low_integrity),
+        windows_product_no_enabled_privileges: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.product_no_enabled_privileges),
+        windows_product_exact_job: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.product_exact_job),
+        windows_product_resume_previous_count: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.product_resume_previous_count),
         supervisor_ready: true,
         timing_records: if timing_result.is_ok() { 1 } else { 0 },
         supervisor_sha256,
@@ -946,6 +1105,7 @@ fn platform_proofs_pass(evidence: &PreflightEvidence) -> bool {
             && evidence.windows_bootstrap_exact_job.is_none()
             && evidence.windows_bootstrap_trusted_path_write_denied.is_none()
             && evidence.windows_bootstrap_self_write_denied.is_none()
+            && windows_account_broker_proofs_absent(evidence)
     }
     #[cfg(target_os = "macos")]
     {
@@ -972,6 +1132,7 @@ fn platform_proofs_pass(evidence: &PreflightEvidence) -> bool {
             && evidence.windows_bootstrap_exact_job.is_none()
             && evidence.windows_bootstrap_trusted_path_write_denied.is_none()
             && evidence.windows_bootstrap_self_write_denied.is_none()
+            && windows_account_broker_proofs_absent(evidence)
     }
     #[cfg(windows)]
     {
@@ -1001,11 +1162,60 @@ fn platform_proofs_pass(evidence: &PreflightEvidence) -> bool {
             && evidence.windows_bootstrap_exact_job == Some(true)
             && evidence.windows_bootstrap_trusted_path_write_denied == Some(true)
             && evidence.windows_bootstrap_self_write_denied == Some(true)
+            && evidence
+                .windows_restricting_sid
+                .as_ref()
+                .is_some_and(|value| value.starts_with("S-1-") && value.len() <= 184)
+            && evidence.windows_broker_authentication_id.as_ref().is_some_and(|value| {
+                value.len() == 16 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+            })
+            && evidence.windows_restricted_authentication_id
+                == evidence.windows_broker_authentication_id
+            && evidence.windows_product_authentication_id
+                == evidence.windows_broker_authentication_id
+            && evidence.windows_restricted_authentication_matches_broker == Some(true)
+            && evidence.windows_product_authentication_matches_broker == Some(true)
+            && evidence.windows_se_increase_quota_present == Some(true)
+            && evidence.windows_se_increase_quota_enabled == Some(true)
+            && evidence.windows_create_process_as_user_succeeded == Some(true)
+            && evidence.windows_restricted_token_write_restricted == Some(true)
+            && evidence.windows_restricted_token_restricting_sid_match == Some(true)
+            && evidence.windows_restricted_token_low_integrity == Some(true)
+            && evidence.windows_restricted_token_no_enabled_privileges == Some(true)
+            && evidence.windows_product_write_restricted == Some(true)
+            && evidence.windows_product_restricting_sid_match == Some(true)
+            && evidence.windows_product_low_integrity == Some(true)
+            && evidence.windows_product_no_enabled_privileges == Some(true)
+            && evidence.windows_product_exact_job == Some(true)
+            && evidence.windows_product_resume_previous_count == Some(1)
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     {
         false
     }
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn windows_account_broker_proofs_absent(evidence: &PreflightEvidence) -> bool {
+    evidence.windows_restricting_sid.is_none()
+        && evidence.windows_broker_authentication_id.is_none()
+        && evidence.windows_restricted_authentication_id.is_none()
+        && evidence.windows_product_authentication_id.is_none()
+        && evidence.windows_restricted_authentication_matches_broker.is_none()
+        && evidence.windows_product_authentication_matches_broker.is_none()
+        && evidence.windows_se_increase_quota_present.is_none()
+        && evidence.windows_se_increase_quota_enabled.is_none()
+        && evidence.windows_create_process_as_user_succeeded.is_none()
+        && evidence.windows_restricted_token_write_restricted.is_none()
+        && evidence.windows_restricted_token_restricting_sid_match.is_none()
+        && evidence.windows_restricted_token_low_integrity.is_none()
+        && evidence.windows_restricted_token_no_enabled_privileges.is_none()
+        && evidence.windows_product_write_restricted.is_none()
+        && evidence.windows_product_restricting_sid_match.is_none()
+        && evidence.windows_product_low_integrity.is_none()
+        && evidence.windows_product_no_enabled_privileges.is_none()
+        && evidence.windows_product_exact_job.is_none()
+        && evidence.windows_product_resume_previous_count.is_none()
 }
 
 #[cfg(target_os = "linux")]

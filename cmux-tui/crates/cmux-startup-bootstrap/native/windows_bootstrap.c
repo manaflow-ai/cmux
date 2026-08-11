@@ -7,32 +7,50 @@
 #include <limits.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <sddl.h>
 
 #pragma comment(lib, "bcrypt.lib")
 #pragma comment(lib, "advapi32.lib")
 
-#define SCHEMA_VERSION 2u
+#define SCHEMA_VERSION 3u
 #define MAX_CONFIG_BYTES (64u * 1024u)
 #define MAX_WIDE_CHARS 32767u
 #define CONFIG_HEADER_BYTES 104u
 #define RECORD_HEADER_BYTES 56u
-#define CONFIG_FIELD_COUNT 6u
+#define CONFIG_FIELD_COUNT 7u
 #define EVENT_STAGE 1u
 #define EVENT_READY 2u
 #define EVENT_EXIT 3u
 #define EVENT_ERROR 4u
+#define EVENT_PRODUCT_STARTED 5u
 #define READY_CONFIG_CONSUMED (1u << 0)
 #define READY_HANDLES_VALID (1u << 1)
 #define READY_HANDLES_INHERITABLE (1u << 2)
 #define READY_PRIVATE_JOB_MEMBER (1u << 3)
 #define READY_TRUSTED_PATH_DENIED (1u << 4)
 #define READY_BOOTSTRAP_WRITE_DENIED (1u << 5)
+#define READY_SE_INCREASE_QUOTA_PRESENT (1u << 6)
+#define READY_SE_INCREASE_QUOTA_ENABLED (1u << 7)
+#define READY_RESTRICTED_TOKEN (1u << 8)
+#define READY_RESTRICTED_LOW_INTEGRITY (1u << 9)
+#define READY_RESTRICTED_NO_ENABLED_PRIVILEGES (1u << 10)
+#define READY_RESTRICTED_AUTHENTICATION_MATCH (1u << 11)
+#define READY_RESTRICTING_SID_MATCH (1u << 12)
+#define READY_WRITE_RESTRICTED_CREATED (1u << 13)
+#define EXIT_CREATE_PROCESS_AS_USER_SUCCEEDED (1u << 0)
+#define EXIT_PRODUCT_AUTHENTICATION_MATCH (1u << 1)
+#define EXIT_PRODUCT_LOW_INTEGRITY (1u << 2)
+#define EXIT_PRODUCT_WRITE_RESTRICTED (1u << 3)
+#define EXIT_PRODUCT_NO_ENABLED_PRIVILEGES (1u << 4)
+#define EXIT_PRODUCT_RESTRICTING_SID_MATCH (1u << 5)
+#define MAX_RESTRICTING_SID_BYTES 184u
 #define STAGE_CONFIG_CONSUMED 1u
 #define STAGE_LAUNCH_VALIDATED 2u
 #define STAGE_STANDARD_HANDLES_VALIDATED 3u
 #define STAGE_TIMING_CONSUMED 4u
 #define STAGE_NATIVE_ENTRY_REACHED 5u
 #define STAGE_NATIVE_CONFIG_READ_STARTED 6u
+#define STAGE_RESTRICTED_PRODUCT_TOKEN_READY 7u
 #define ENTRY_STAGE_REACHED 1u
 #define ENTRY_STAGE_CONFIG_READ_STARTED 2u
 #define ENTRY_STAGE_CONFIG_CONSUMED 3u
@@ -64,6 +82,7 @@ typedef struct BootstrapConfig {
     char target_sha256[65];
     WCHAR *trusted_probe;
     char bootstrap_sha256[65];
+    char restricting_sid[MAX_RESTRICTING_SID_BYTES + 1u];
     WCHAR **arguments;
     uint32_t argument_count;
 } BootstrapConfig;
@@ -240,9 +259,9 @@ static int send_event(
     const unsigned char *payload,
     uint32_t payload_length
 ) {
-    unsigned char record[RECORD_HEADER_BYTES + 32];
+    unsigned char record[RECORD_HEADER_BYTES + 256];
     uint32_t total = RECORD_HEADER_BYTES + payload_length;
-    if (payload_length > 32u) {
+    if (payload_length > 256u) {
         SetLastError(ERROR_BUFFER_OVERFLOW);
         return 0;
     }
@@ -318,6 +337,22 @@ static int take_hash(BufferCursor *cursor, char output[65]) {
     return 1;
 }
 
+static int take_sid(BufferCursor *cursor, char output[MAX_RESTRICTING_SID_BYTES + 1u]) {
+    const unsigned char *value;
+    uint32_t length;
+    uint32_t index;
+    if (!take_field(cursor, &value, &length) || length < 5u || length > MAX_RESTRICTING_SID_BYTES) {
+        return 0;
+    }
+    for (index = 0; index < length; ++index) {
+        unsigned char byte = value[index];
+        if (!((byte >= '0' && byte <= '9') || byte == '-' || byte == 'S')) return 0;
+        output[index] = (char)byte;
+    }
+    output[length] = '\0';
+    return output[0] == 'S' && output[1] == '-' && output[2] == '1' && output[3] == '-';
+}
+
 static void free_config(BootstrapConfig *config) {
     uint32_t index;
     heap_release(config->timing);
@@ -367,7 +402,8 @@ static int parse_config(const unsigned char *bytes, SIZE_T length, BootstrapConf
         return 0;
     }
     config->trusted_probe = take_utf16(&cursor);
-    if (config->trusted_probe == NULL || !take_hash(&cursor, config->bootstrap_sha256)) {
+    if (config->trusted_probe == NULL || !take_hash(&cursor, config->bootstrap_sha256)
+        || !take_sid(&cursor, config->restricting_sid)) {
         free_config(config);
         return 0;
     }
@@ -842,11 +878,263 @@ static WCHAR *product_command_line(const BootstrapConfig *config) {
     return line;
 }
 
+typedef struct TokenProof {
+    LUID authentication_id;
+    int low_integrity;
+    int no_enabled_privileges;
+    int restricted;
+    int restricting_sid_match;
+} TokenProof;
+
+typedef struct BrokerSecurity {
+    HANDLE primary_token;
+    HANDLE restricted_token;
+    PSID restricting_sid;
+    TokenProof broker;
+    TokenProof restricted;
+    int se_increase_quota_present;
+    int se_increase_quota_enabled;
+    int write_restricted_created;
+} BrokerSecurity;
+
+typedef struct ProductProof {
+    TokenProof token;
+    int created_with_create_process_as_user;
+    int contained;
+    DWORD resume_previous_count;
+} ProductProof;
+
+static void *token_information(HANDLE token, TOKEN_INFORMATION_CLASS class_id) {
+    DWORD length = 0;
+    void *value;
+    (void)GetTokenInformation(token, class_id, NULL, 0, &length);
+    if (length == 0u) return NULL;
+    value = heap_array(length, 1u, 1);
+    if (value == NULL) return NULL;
+    if (!GetTokenInformation(token, class_id, value, length, &length)) {
+        heap_release(value);
+        return NULL;
+    }
+    return value;
+}
+
+static int luid_equal(LUID left, LUID right) {
+    return left.LowPart == right.LowPart && left.HighPart == right.HighPart;
+}
+
+static uint32_t product_proof_flags(
+    const BrokerSecurity *security,
+    const ProductProof *proof
+) {
+    uint32_t flags = 0u;
+    if (proof->created_with_create_process_as_user) {
+        flags |= EXIT_CREATE_PROCESS_AS_USER_SUCCEEDED;
+    }
+    if (luid_equal(proof->token.authentication_id, security->broker.authentication_id)) {
+        flags |= EXIT_PRODUCT_AUTHENTICATION_MATCH;
+    }
+    if (proof->token.low_integrity) flags |= EXIT_PRODUCT_LOW_INTEGRITY;
+    if (security->write_restricted_created && proof->token.restricted) {
+        flags |= EXIT_PRODUCT_WRITE_RESTRICTED;
+    }
+    if (proof->token.no_enabled_privileges) flags |= EXIT_PRODUCT_NO_ENABLED_PRIVILEGES;
+    if (proof->token.restricting_sid_match) flags |= EXIT_PRODUCT_RESTRICTING_SID_MATCH;
+    return flags;
+}
+
+static int token_proof(HANDLE token, PSID expected_sid, TokenProof *proof) {
+    TOKEN_STATISTICS *statistics = NULL;
+    TOKEN_MANDATORY_LABEL *label = NULL;
+    TOKEN_PRIVILEGES *privileges = NULL;
+    TOKEN_GROUPS *restricted_sids = NULL;
+    DWORD index;
+    UCHAR *subauthority_count;
+    DWORD *integrity_rid;
+    int result = 0;
+    memory_zero(proof, sizeof(*proof));
+    statistics = (TOKEN_STATISTICS *)token_information(token, TokenStatistics);
+    label = (TOKEN_MANDATORY_LABEL *)token_information(token, TokenIntegrityLevel);
+    privileges = (TOKEN_PRIVILEGES *)token_information(token, TokenPrivileges);
+    restricted_sids = (TOKEN_GROUPS *)token_information(token, TokenRestrictedSids);
+    if (statistics == NULL || label == NULL || privileges == NULL || restricted_sids == NULL) {
+        goto cleanup;
+    }
+    proof->authentication_id = statistics->AuthenticationId;
+    subauthority_count = GetSidSubAuthorityCount(label->Label.Sid);
+    if (subauthority_count == NULL || *subauthority_count == 0u) goto cleanup;
+    integrity_rid = GetSidSubAuthority(label->Label.Sid, (DWORD)*subauthority_count - 1u);
+    if (integrity_rid == NULL) goto cleanup;
+    proof->low_integrity = *integrity_rid == SECURITY_MANDATORY_LOW_RID;
+    proof->no_enabled_privileges = 1;
+    for (index = 0; index < privileges->PrivilegeCount; ++index) {
+        if ((privileges->Privileges[index].Attributes & SE_PRIVILEGE_ENABLED) != 0u) {
+            proof->no_enabled_privileges = 0;
+            break;
+        }
+    }
+    proof->restricted = IsTokenRestricted(token) != FALSE;
+    proof->restricting_sid_match = expected_sid == NULL ? restricted_sids->GroupCount == 0u : 0;
+    if (expected_sid != NULL) {
+        for (index = 0; index < restricted_sids->GroupCount; ++index) {
+            if (EqualSid(restricted_sids->Groups[index].Sid, expected_sid)) {
+                proof->restricting_sid_match = 1;
+                break;
+            }
+        }
+    }
+    result = 1;
+cleanup:
+    heap_release(statistics);
+    heap_release(label);
+    heap_release(privileges);
+    heap_release(restricted_sids);
+    return result;
+}
+
+static int enable_se_increase_quota(
+    HANDLE token,
+    int *present,
+    int *enabled
+) {
+    TOKEN_PRIVILEGES *privileges = NULL;
+    TOKEN_PRIVILEGES requested;
+    LUID luid;
+    DWORD index;
+    int result = 0;
+    *present = 0;
+    *enabled = 0;
+    if (!LookupPrivilegeValueW(NULL, L"SeIncreaseQuotaPrivilege", &luid)) return 0;
+    privileges = (TOKEN_PRIVILEGES *)token_information(token, TokenPrivileges);
+    if (privileges == NULL) return 0;
+    for (index = 0; index < privileges->PrivilegeCount; ++index) {
+        if (luid_equal(privileges->Privileges[index].Luid, luid)) {
+            *present = 1;
+            break;
+        }
+    }
+    if (!*present) {
+        SetLastError(ERROR_PRIVILEGE_NOT_HELD);
+        goto cleanup;
+    }
+    memory_zero(&requested, sizeof(requested));
+    requested.PrivilegeCount = 1u;
+    requested.Privileges[0].Luid = luid;
+    requested.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+    SetLastError(ERROR_SUCCESS);
+    if (!AdjustTokenPrivileges(token, FALSE, &requested, 0, NULL, NULL)
+        || GetLastError() == ERROR_NOT_ALL_ASSIGNED) goto cleanup;
+    heap_release(privileges);
+    privileges = (TOKEN_PRIVILEGES *)token_information(token, TokenPrivileges);
+    if (privileges == NULL) return 0;
+    for (index = 0; index < privileges->PrivilegeCount; ++index) {
+        if (luid_equal(privileges->Privileges[index].Luid, luid)
+            && (privileges->Privileges[index].Attributes & SE_PRIVILEGE_ENABLED) != 0u) {
+            *enabled = 1;
+            break;
+        }
+    }
+    if (!*enabled) {
+        SetLastError(ERROR_PRIVILEGE_NOT_HELD);
+        goto cleanup;
+    }
+    result = 1;
+cleanup:
+    heap_release(privileges);
+    return result;
+}
+
+static int disable_all_privileges(HANDLE token) {
+    TOKEN_PRIVILEGES *privileges =
+        (TOKEN_PRIVILEGES *)token_information(token, TokenPrivileges);
+    DWORD index;
+    int result;
+    if (privileges == NULL) return 0;
+    for (index = 0; index < privileges->PrivilegeCount; ++index) {
+        privileges->Privileges[index].Attributes = 0u;
+    }
+    SetLastError(ERROR_SUCCESS);
+    result = AdjustTokenPrivileges(token, FALSE, privileges, 0, NULL, NULL) != FALSE
+        && GetLastError() != ERROR_NOT_ALL_ASSIGNED;
+    heap_release(privileges);
+    return result;
+}
+
+static void close_broker_security(BrokerSecurity *security) {
+    if (security->restricted_token != NULL) CloseHandle(security->restricted_token);
+    if (security->primary_token != NULL) CloseHandle(security->primary_token);
+    if (security->restricting_sid != NULL) LocalFree(security->restricting_sid);
+    memory_zero(security, sizeof(*security));
+}
+
+static int prepare_broker_security(const BootstrapConfig *config, BrokerSecurity *security) {
+    PSID low_sid = NULL;
+    SID_AND_ATTRIBUTES restricting;
+    TOKEN_MANDATORY_LABEL label;
+    memory_zero(security, sizeof(*security));
+    if (!OpenProcessToken(
+            GetCurrentProcess(),
+            TOKEN_QUERY | TOKEN_DUPLICATE | TOKEN_ADJUST_PRIVILEGES,
+            &security->primary_token)
+        || !enable_se_increase_quota(
+            security->primary_token,
+            &security->se_increase_quota_present,
+            &security->se_increase_quota_enabled)
+        || !ConvertStringSidToSidA(config->restricting_sid, &security->restricting_sid)
+        || !ConvertStringSidToSidW(L"S-1-16-4096", &low_sid)) {
+        goto failure;
+    }
+    memory_zero(&restricting, sizeof(restricting));
+    restricting.Sid = security->restricting_sid;
+    if (!CreateRestrictedToken(
+            security->primary_token,
+            DISABLE_MAX_PRIVILEGE | WRITE_RESTRICTED,
+            0,
+            NULL,
+            0,
+            NULL,
+            1,
+            &restricting,
+            &security->restricted_token)) {
+        goto failure;
+    }
+    security->write_restricted_created = 1;
+    memory_zero(&label, sizeof(label));
+    label.Label.Sid = low_sid;
+    label.Label.Attributes = SE_GROUP_INTEGRITY;
+    if (!SetTokenInformation(
+            security->restricted_token,
+            TokenIntegrityLevel,
+            &label,
+            (DWORD)sizeof(label) + GetLengthSid(low_sid))
+        || !disable_all_privileges(security->restricted_token)
+        || !token_proof(security->primary_token, NULL, &security->broker)
+        || !token_proof(
+            security->restricted_token,
+            security->restricting_sid,
+            &security->restricted)
+        || !luid_equal(
+            security->broker.authentication_id,
+            security->restricted.authentication_id)
+        || !security->restricted.restricted
+        || !security->restricted.low_integrity
+        || !security->restricted.no_enabled_privileges
+        || !security->restricted.restricting_sid_match) {
+        goto failure;
+    }
+    LocalFree(low_sid);
+    return 1;
+failure:
+    if (low_sid != NULL) LocalFree(low_sid);
+    close_broker_security(security);
+    return 0;
+}
+
 static int create_product(
     const BootstrapConfig *config,
     TimingPage *timing,
+    const BrokerSecurity *security,
     DWORD *exit_code,
-    int *contained
+    ProductProof *proof
 ) {
     SIZE_T attribute_bytes = 0;
     LPPROC_THREAD_ATTRIBUTE_LIST attributes = NULL;
@@ -855,6 +1143,10 @@ static int create_product(
     HANDLE handles[3];
     WCHAR *command_line = NULL;
     DWORD resume_count;
+    HANDLE product_token = NULL;
+    unsigned char payload[16];
+    uint32_t flags;
+    DWORD error;
     int result = 0;
     int attributes_initialized = 0;
     handles[0] = config->standard_handles[0];
@@ -878,11 +1170,20 @@ static int create_product(
     startup.StartupInfo.hStdError = handles[2];
     startup.lpAttributeList = attributes;
     if (!record_t0(timing)) goto cleanup;
-    if (!CreateProcessW(config->target, command_line, NULL, NULL, TRUE,
+    if (!CreateProcessAsUserW(security->restricted_token, config->target, command_line, NULL, NULL, TRUE,
         CREATE_SUSPENDED | EXTENDED_STARTUPINFO_PRESENT, NULL, config->fixture_root,
         &startup.StartupInfo, &process)) goto cleanup;
-    if (!IsProcessInJob(process.hProcess, config->query_job, contained) || !*contained) {
-        if (!*contained) SetLastError(ERROR_ACCESS_DENIED);
+    proof->created_with_create_process_as_user = 1;
+    if (!IsProcessInJob(process.hProcess, config->query_job, &proof->contained)
+        || !proof->contained
+        || !OpenProcessToken(process.hProcess, TOKEN_QUERY, &product_token)
+        || !token_proof(product_token, security->restricting_sid, &proof->token)
+        || !luid_equal(proof->token.authentication_id, security->broker.authentication_id)
+        || !proof->token.restricted
+        || !proof->token.low_integrity
+        || !proof->token.no_enabled_privileges
+        || !proof->token.restricting_sid_match) {
+        if (!proof->contained) SetLastError(ERROR_ACCESS_DENIED);
         TerminateProcess(process.hProcess, 125);
         WaitForSingleObject(process.hProcess, INFINITE);
         goto process_cleanup;
@@ -894,10 +1195,24 @@ static int create_product(
         WaitForSingleObject(process.hProcess, INFINITE);
         goto process_cleanup;
     }
+    proof->resume_previous_count = resume_count;
+    flags = product_proof_flags(security, proof);
+    write_u32(payload, proof->contained ? 1u : 0u);
+    write_u32(payload + 4, proof->token.authentication_id.LowPart);
+    write_u32(payload + 8, (uint32_t)proof->token.authentication_id.HighPart);
+    write_u32(payload + 12, proof->resume_previous_count);
+    if (!send_event(config->control_write, config->nonce, EVENT_PRODUCT_STARTED, flags, payload, 16)) {
+        error = GetLastError();
+        TerminateProcess(process.hProcess, 125);
+        WaitForSingleObject(process.hProcess, INFINITE);
+        SetLastError(error);
+        goto process_cleanup;
+    }
     if (WaitForSingleObject(process.hProcess, INFINITE) != WAIT_OBJECT_0
         || !GetExitCodeProcess(process.hProcess, exit_code)) goto process_cleanup;
     result = 1;
 process_cleanup:
+    if (product_token != NULL) CloseHandle(product_token);
     CloseHandle(process.hThread);
     CloseHandle(process.hProcess);
 cleanup:
@@ -1039,16 +1354,19 @@ static int bootstrap_run(const EntryArguments *entry) {
     int bootstrap_in_job = 0;
     int trusted_denied = 0;
     int bootstrap_write_denied = 0;
+    BrokerSecurity security;
+    ProductProof product;
     TimingPage timing;
     DWORD exit_code = 125;
-    int product_contained = 0;
-    unsigned char payload[32];
+    unsigned char payload[256];
     uint32_t flags;
     DWORD query_handle_flags = 0;
     DWORD error;
     uint32_t stage = 0;
     int result = 0;
     memory_zero(&config, sizeof(config));
+    memory_zero(&security, sizeof(security));
+    memory_zero(&product, sizeof(product));
     memory_zero(&timing, sizeof(timing));
     if (!write_entry_checkpoint(entry->checkpoint_path, entry->nonce,
         ENTRY_STAGE_CONFIG_READ_STARTED, OPEN_EXISTING)) return 125;
@@ -1089,8 +1407,23 @@ static int bootstrap_run(const EntryArguments *entry) {
     if (!open_timing(&config, &timing)) goto failure;
     stage = STAGE_TIMING_CONSUMED;
     if (!send_stage(config.control_write, config.nonce, stage)) goto failure;
+    stage = STAGE_RESTRICTED_PRODUCT_TOKEN_READY;
+    if (!prepare_broker_security(&config, &security)) goto failure;
+    if (!send_stage(config.control_write, config.nonce, stage)) goto failure;
     flags = READY_CONFIG_CONSUMED | READY_HANDLES_VALID | READY_HANDLES_INHERITABLE
         | READY_PRIVATE_JOB_MEMBER | READY_TRUSTED_PATH_DENIED | READY_BOOTSTRAP_WRITE_DENIED;
+    if (security.se_increase_quota_present) flags |= READY_SE_INCREASE_QUOTA_PRESENT;
+    if (security.se_increase_quota_enabled) flags |= READY_SE_INCREASE_QUOTA_ENABLED;
+    if (security.restricted.restricted) flags |= READY_RESTRICTED_TOKEN;
+    if (security.restricted.low_integrity) flags |= READY_RESTRICTED_LOW_INTEGRITY;
+    if (security.restricted.no_enabled_privileges) {
+        flags |= READY_RESTRICTED_NO_ENABLED_PRIVILEGES;
+    }
+    if (luid_equal(security.broker.authentication_id, security.restricted.authentication_id)) {
+        flags |= READY_RESTRICTED_AUTHENTICATION_MATCH;
+    }
+    if (security.restricted.restricting_sid_match) flags |= READY_RESTRICTING_SID_MATCH;
+    if (security.write_restricted_created) flags |= READY_WRITE_RESTRICTED_CREATED;
     {
         SIZE_T index;
         for (index = 0; index < 32u; ++index) {
@@ -1103,13 +1436,28 @@ static int bootstrap_run(const EntryArguments *entry) {
             payload[index] = (unsigned char)((high << 4) | low);
         }
     }
-    if (!send_event(config.control_write, config.nonce, EVENT_READY, flags,
-        payload, (uint32_t)sizeof(payload))) goto failure;
+    write_u32(payload + 32, security.broker.authentication_id.LowPart);
+    write_u32(payload + 36, (uint32_t)security.broker.authentication_id.HighPart);
+    write_u32(payload + 40, security.restricted.authentication_id.LowPart);
+    write_u32(payload + 44, (uint32_t)security.restricted.authentication_id.HighPart);
+    {
+        SIZE_T sid_length = 0;
+        while (sid_length <= MAX_RESTRICTING_SID_BYTES
+            && config.restricting_sid[sid_length] != '\0') ++sid_length;
+        if (sid_length == 0u || sid_length > MAX_RESTRICTING_SID_BYTES) goto failure;
+        write_u32(payload + 48, (uint32_t)sid_length);
+        memory_copy(payload + 52, config.restricting_sid, sid_length);
+        if (!send_event(config.control_write, config.nonce, EVENT_READY, flags,
+            payload, (uint32_t)(52u + sid_length))) goto failure;
+    }
     if (!read_arm(config.control_read, config.nonce)) goto failure;
-    if (!create_product(&config, &timing, &exit_code, &product_contained)) goto failure;
+    if (!create_product(&config, &timing, &security, &exit_code, &product)) goto failure;
+    flags = product_proof_flags(&security, &product);
     write_u32(payload, exit_code);
-    write_u32(payload + 4, product_contained ? 1u : 0u);
-    if (!send_event(config.control_write, config.nonce, EVENT_EXIT, 0, payload, 8)) goto failure;
+    write_u32(payload + 4, product.contained ? 1u : 0u);
+    write_u32(payload + 8, product.token.authentication_id.LowPart);
+    write_u32(payload + 12, (uint32_t)product.token.authentication_id.HighPart);
+    if (!send_event(config.control_write, config.nonce, EVENT_EXIT, flags, payload, 16)) goto failure;
     result = (int)exit_code;
     goto cleanup;
 failure:
@@ -1117,6 +1465,7 @@ failure:
     send_error(config.control_write, config.nonce, error, stage);
     result = 125;
 cleanup:
+    close_broker_security(&security);
     close_timing(&timing);
     if (config.control_read != NULL) CloseHandle(config.control_read);
     if (config.control_write != NULL) CloseHandle(config.control_write);

@@ -333,6 +333,25 @@ struct SandboxPreflightEvidence {
     windows_bootstrap_exact_job: Option<bool>,
     windows_bootstrap_trusted_path_write_denied: Option<bool>,
     windows_bootstrap_self_write_denied: Option<bool>,
+    windows_restricting_sid: Option<String>,
+    windows_broker_authentication_id: Option<String>,
+    windows_restricted_authentication_id: Option<String>,
+    windows_product_authentication_id: Option<String>,
+    windows_restricted_authentication_matches_broker: Option<bool>,
+    windows_product_authentication_matches_broker: Option<bool>,
+    windows_se_increase_quota_present: Option<bool>,
+    windows_se_increase_quota_enabled: Option<bool>,
+    windows_create_process_as_user_succeeded: Option<bool>,
+    windows_restricted_token_write_restricted: Option<bool>,
+    windows_restricted_token_restricting_sid_match: Option<bool>,
+    windows_restricted_token_low_integrity: Option<bool>,
+    windows_restricted_token_no_enabled_privileges: Option<bool>,
+    windows_product_write_restricted: Option<bool>,
+    windows_product_restricting_sid_match: Option<bool>,
+    windows_product_low_integrity: Option<bool>,
+    windows_product_no_enabled_privileges: Option<bool>,
+    windows_product_exact_job: Option<bool>,
+    windows_product_resume_previous_count: Option<u32>,
     supervisor_ready: bool,
     timing_records: u64,
     supervisor_sha256: String,
@@ -345,7 +364,7 @@ impl SandboxPreflightEvidence {
         supervisor_sha256: &str,
         windows_bootstrap_sha256: Option<&str>,
     ) -> Result<()> {
-        if self.schema_version != 5
+        if self.schema_version != 6
             || self.backend != backend
             || self.policy != "fixture-root-only-write"
             || self.handshake != "nonce-bound-ready-arm-with-pre-exec-t0"
@@ -401,6 +420,32 @@ impl SandboxPreflightEvidence {
                     && self.windows_bootstrap_exact_job == Some(true)
                     && self.windows_bootstrap_trusted_path_write_denied == Some(true)
                     && self.windows_bootstrap_self_write_denied == Some(true)
+                    && self
+                        .windows_restricting_sid
+                        .as_ref()
+                        .is_some_and(|value| value.starts_with("S-1-") && value.len() <= 184)
+                    && self.windows_broker_authentication_id.as_ref().is_some_and(|value| {
+                        value.len() == 16 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+                    })
+                    && self.windows_restricted_authentication_id
+                        == self.windows_broker_authentication_id
+                    && self.windows_product_authentication_id
+                        == self.windows_broker_authentication_id
+                    && self.windows_restricted_authentication_matches_broker == Some(true)
+                    && self.windows_product_authentication_matches_broker == Some(true)
+                    && self.windows_se_increase_quota_present == Some(true)
+                    && self.windows_se_increase_quota_enabled == Some(true)
+                    && self.windows_create_process_as_user_succeeded == Some(true)
+                    && self.windows_restricted_token_write_restricted == Some(true)
+                    && self.windows_restricted_token_restricting_sid_match == Some(true)
+                    && self.windows_restricted_token_low_integrity == Some(true)
+                    && self.windows_restricted_token_no_enabled_privileges == Some(true)
+                    && self.windows_product_write_restricted == Some(true)
+                    && self.windows_product_restricting_sid_match == Some(true)
+                    && self.windows_product_low_integrity == Some(true)
+                    && self.windows_product_no_enabled_privileges == Some(true)
+                    && self.windows_product_exact_job == Some(true)
+                    && self.windows_product_resume_previous_count == Some(1)
             }
             _ => false,
         };
@@ -428,6 +473,25 @@ impl SandboxPreflightEvidence {
             && self.windows_bootstrap_exact_job.is_none()
             && self.windows_bootstrap_trusted_path_write_denied.is_none()
             && self.windows_bootstrap_self_write_denied.is_none()
+            && self.windows_restricting_sid.is_none()
+            && self.windows_broker_authentication_id.is_none()
+            && self.windows_restricted_authentication_id.is_none()
+            && self.windows_product_authentication_id.is_none()
+            && self.windows_restricted_authentication_matches_broker.is_none()
+            && self.windows_product_authentication_matches_broker.is_none()
+            && self.windows_se_increase_quota_present.is_none()
+            && self.windows_se_increase_quota_enabled.is_none()
+            && self.windows_create_process_as_user_succeeded.is_none()
+            && self.windows_restricted_token_write_restricted.is_none()
+            && self.windows_restricted_token_restricting_sid_match.is_none()
+            && self.windows_restricted_token_low_integrity.is_none()
+            && self.windows_restricted_token_no_enabled_privileges.is_none()
+            && self.windows_product_write_restricted.is_none()
+            && self.windows_product_restricting_sid_match.is_none()
+            && self.windows_product_low_integrity.is_none()
+            && self.windows_product_no_enabled_privileges.is_none()
+            && self.windows_product_exact_job.is_none()
+            && self.windows_product_resume_previous_count.is_none()
     }
 
     fn linux_provenance_absent(&self) -> bool {

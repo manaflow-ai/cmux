@@ -4,6 +4,7 @@ mod startup_benchmark_windows_diagnostic;
 
 use std::env;
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 
@@ -25,7 +26,8 @@ use startup_benchmark_protocol::macos_account_identity;
 use startup_benchmark_protocol::{
     BOOTSTRAP_CLEANUP_TIMEOUT, BOOTSTRAP_STARTUP_TIMEOUT, BootstrapCleanupCheckpoint,
     BootstrapCleanupResult, BootstrapFailureCheckpoint, BootstrapObservedEvent, BootstrapStage,
-    BootstrapStartupTrace, SECURITY_PREPARATION_TIMEOUT, failure_line, setup_line,
+    BootstrapStartupTrace, SECURITY_PREPARATION_TIMEOUT, failure_line, product_started_line,
+    setup_line,
 };
 use startup_benchmark_protocol::{
     STARTUP_LINE_TIMEOUT, TimingSink, arm_line, read_control_line, ready_line, write_control_line,
@@ -85,6 +87,7 @@ fn run_inner(launch: Launch) -> Result<()> {
     if arm != arm_line(&launch.nonce).trim_end() {
         bail!("control ARM identity mismatch");
     }
+    accept_already_closed_control(control.shutdown(std::net::Shutdown::Both))?;
     drop(control);
 
     let mut command = Command::new(&launch.target);
@@ -106,6 +109,32 @@ fn run_inner(launch: Launch) -> Result<()> {
         command.env_remove(key);
     }
     platform::exec_product(command, timing)
+}
+
+fn accept_already_closed_control(result: io::Result<()>) -> io::Result<()> {
+    match result {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotConnected => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+#[cfg(test)]
+mod control_tests {
+    use super::*;
+
+    #[test]
+    fn control_shutdown_accepts_only_success_or_an_already_closed_peer() {
+        assert!(accept_already_closed_control(Ok(())).is_ok());
+        assert!(
+            accept_already_closed_control(Err(io::Error::from(io::ErrorKind::NotConnected)))
+                .is_ok()
+        );
+        let error =
+            accept_already_closed_control(Err(io::Error::from(io::ErrorKind::PermissionDenied)))
+                .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+    }
 }
 
 fn parse_args(values: impl Iterator<Item = String>) -> Result<Launch> {
@@ -893,13 +922,11 @@ mod platform {
         TRUSTEE_IS_SID, TRUSTEE_IS_UNKNOWN, TRUSTEE_W,
     };
     use windows_sys::Win32::Security::{
-        ACL, AdjustTokenPrivileges, CreateRestrictedToken, DACL_SECURITY_INFORMATION,
-        DISABLE_MAX_PRIVILEGE, GetLengthSid, LOGON32_LOGON_INTERACTIVE, LOGON32_PROVIDER_DEFAULT,
-        LUID_AND_ATTRIBUTES, LogonUserW, LookupPrivilegeValueW, PRIVILEGE_SET,
-        PSECURITY_DESCRIPTOR, PSID, PrivilegeCheck, SE_IMPERSONATE_NAME, SE_PRIVILEGE_ENABLED,
-        SID_AND_ATTRIBUTES, SUB_CONTAINERS_AND_OBJECTS_INHERIT, SetTokenInformation,
-        TOKEN_ADJUST_PRIVILEGES, TOKEN_MANDATORY_LABEL, TOKEN_PRIVILEGES, TOKEN_QUERY,
-        TokenIntegrityLevel, WRITE_RESTRICTED,
+        ACL, AdjustTokenPrivileges, DACL_SECURITY_INFORMATION, LOGON32_LOGON_INTERACTIVE,
+        LOGON32_PROVIDER_DEFAULT, LUID_AND_ATTRIBUTES, LogonUserW, LookupPrivilegeValueW,
+        PRIVILEGE_SET, PSECURITY_DESCRIPTOR, PSID, PrivilegeCheck, SE_IMPERSONATE_NAME,
+        SE_PRIVILEGE_ENABLED, SUB_CONTAINERS_AND_OBJECTS_INHERIT, TOKEN_ADJUST_PRIVILEGES,
+        TOKEN_PRIVILEGES, TOKEN_QUERY,
     };
     use windows_sys::Win32::Storage::FileSystem::{FILE_TYPE_UNKNOWN, GetFileType};
     use windows_sys::Win32::System::Console::{
@@ -915,7 +942,6 @@ mod platform {
     use windows_sys::Win32::System::Pipes::CreatePipe;
     use windows_sys::Win32::System::SystemServices::{
         JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO, JOB_OBJECT_QUERY, PRIVILEGE_SET_ALL_NECESSARY,
-        SE_GROUP_INTEGRITY,
     };
     use windows_sys::Win32::System::Threading::{
         CREATE_NO_WINDOW, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, CreateProcessWithTokenW,
@@ -949,8 +975,8 @@ mod platform {
             .checked_add(SECURITY_PREPARATION_TIMEOUT)
             .context("Windows security preparation deadline overflow")?;
 
-        let mut restricted = match RestrictedToken::new(launch, security_deadline, &mut trace) {
-            Ok(restricted) => restricted,
+        let mut owner = match WindowsLaunchOwner::new(launch, security_deadline, &mut trace) {
+            Ok(owner) => owner,
             Err(error) => {
                 trace.observe(BootstrapObservedEvent::Error);
                 return finish_failed_bootstrap_startup(
@@ -963,7 +989,7 @@ mod platform {
                 );
             }
         };
-        let mut bootstrap = match restricted.start_bootstrap(launch, &mut trace) {
+        let mut bootstrap = match owner.start_bootstrap(launch, &mut trace) {
             Ok(bootstrap) => bootstrap,
             Err(error) => {
                 trace.observe(BootstrapObservedEvent::Error);
@@ -972,14 +998,14 @@ mod platform {
                     &mut control,
                     trace,
                     error.context("start Windows restricted bootstrap"),
-                    Some(&mut restricted),
+                    Some(&mut owner),
                     None,
                 );
             }
         };
         if let Err(mut error) = bootstrap.wait_ready(&launch.nonce, &mut trace) {
             if trace.terminal == Some(BootstrapTerminal::BootstrapTimeout) {
-                if let Err(diagnostic) = bootstrap.capture_hang_snapshot(&restricted, launch) {
+                if let Err(diagnostic) = bootstrap.capture_hang_snapshot(&owner, launch) {
                     error = error.context(format!(
                         "trusted pre-cleanup hang diagnostic also failed: {diagnostic:#}"
                     ));
@@ -990,7 +1016,7 @@ mod platform {
                 &mut control,
                 trace,
                 error,
-                Some(&mut restricted),
+                Some(&mut owner),
                 Some(&mut bootstrap),
             );
         }
@@ -1000,15 +1026,34 @@ mod platform {
             if arm != arm_line(&launch.nonce).trim_end() {
                 bail!("control ARM identity mismatch");
             }
-            drop(control);
-            bootstrap.arm_and_wait(&launch.nonce, launch.prove_private_job)
+            bootstrap.arm_and_wait(&launch.nonce, launch.prove_private_job, &mut control)
         })();
         let cleanup_deadline = Instant::now()
             .checked_add(BOOTSTRAP_CLEANUP_TIMEOUT)
             .context("Windows containment cleanup deadline overflow")?;
-        let cleanup = restricted.cleanup(cleanup_deadline);
+        let cleanup = owner.cleanup(cleanup_deadline);
         let bootstrap_cleanup = bootstrap.finish(cleanup_deadline);
-        combine_windows_results(result, cleanup, bootstrap_cleanup)
+        let mut result = combine_windows_results(result, cleanup, bootstrap_cleanup);
+        if result.is_err() && !bootstrap.product_started_relayed {
+            let relay = failure_line(&launch.nonce, None)
+                .and_then(|line| write_control_line(&mut control, &line));
+            if let Err(relay) = relay {
+                result = result.map_err(|error| {
+                    error.context(format!("relay bounded post-ARM failure: {relay}"))
+                });
+            }
+        }
+        let control_close =
+            accept_already_closed_control(control.shutdown(std::net::Shutdown::Both));
+        drop(control);
+        match (result, control_close) {
+            (Ok(status), Ok(())) => Ok(status),
+            (Err(error), Ok(())) => Err(error),
+            (Ok(_), Err(close)) => Err(close).context("close Windows public control channel"),
+            (Err(error), Err(close)) => {
+                Err(error.context(format!("close Windows public control channel: {close:#}")))
+            }
+        }
     }
 
     pub fn exec_product(_command: Command, _timing: TimingSink) -> Result<()> {
@@ -1068,16 +1113,16 @@ mod platform {
         }
     }
 
-    struct RestrictedToken {
-        token: OwnedHandle,
+    struct WindowsLaunchOwner {
+        account_token: Option<OwnedHandle>,
         job: OwnedHandle,
         query_job: Option<OwnedHandle>,
         completion_port: OwnedHandle,
         // Keep the profile after all Job handles so field-drop fallback closes the containment
         // boundary before it tries to unload a profile after an error.
         profile: Option<LoadedProfile>,
-        restricting_sid: OwnedSid,
-        product_assigned: bool,
+        restricting_sid_text: String,
+        broker_assigned: bool,
     }
 
     struct TrustedPathProbe {
@@ -1123,7 +1168,7 @@ mod platform {
         }
     }
 
-    impl RestrictedToken {
+    impl WindowsLaunchOwner {
         fn new(
             launch: &Launch,
             security_deadline: Instant,
@@ -1188,59 +1233,15 @@ mod platform {
                 )?;
                 None
             };
-            let source_token = profile
-                .as_ref()
-                .map(LoadedProfile::token)
-                .or_else(|| account_token.as_ref().map(|token| token.0))
-                .context("Windows account token owner is missing")?;
             let sid_text = random_restricting_sid()?;
             check_security_deadline(security_deadline, trace, "create random restricting SID")?;
             let restricting_sid = OwnedSid::from_string(&sid_text)?;
             check_security_deadline(security_deadline, trace, "allocate restricting SID")?;
-            let low_sid = OwnedSid::from_string("S-1-16-4096")?;
-            check_security_deadline(security_deadline, trace, "allocate low-integrity SID")?;
-            let restricting = SID_AND_ATTRIBUTES { Sid: restricting_sid.0, Attributes: 0 };
-            let mut token = null_mut();
-            // SAFETY: all pointers and element counts reference live values for this call.
-            check(
-                unsafe {
-                    CreateRestrictedToken(
-                        source_token,
-                        DISABLE_MAX_PRIVILEGE | WRITE_RESTRICTED,
-                        0,
-                        null(),
-                        0,
-                        null(),
-                        1,
-                        &restricting,
-                        &mut token,
-                    )
-                },
-                "create restricted primary token",
-            )?;
-            let token = OwnedHandle(token);
-            check_security_deadline(security_deadline, trace, "create restricted primary token")?;
-            let label = TOKEN_MANDATORY_LABEL {
-                Label: SID_AND_ATTRIBUTES { Sid: low_sid.0, Attributes: SE_GROUP_INTEGRITY as u32 },
-            };
-            // SAFETY: the label contains a live SID and the byte count includes its payload.
-            check(
-                unsafe {
-                    SetTokenInformation(
-                        token.0,
-                        TokenIntegrityLevel,
-                        (&label as *const TOKEN_MANDATORY_LABEL).cast::<c_void>(),
-                        u32::try_from(size_of::<TOKEN_MANDATORY_LABEL>())?
-                            + unsafe { GetLengthSid(low_sid.0) },
-                    )
-                },
-                "set low token integrity",
-            )?;
             complete_security_stage(
                 security_deadline,
                 trace,
-                BootstrapStage::RestrictedTokenReady,
-                "create restricted low-integrity token",
+                BootstrapStage::AccountBrokerReady,
+                "prepare account-owned broker identity",
             )?;
             configure_fixture_acl(
                 &launch.fixture_root,
@@ -1258,14 +1259,22 @@ mod platform {
                 "create containment Job and completion port",
             )?;
             Ok(Self {
-                token,
+                account_token,
                 profile,
                 job,
                 query_job,
                 completion_port,
-                restricting_sid,
-                product_assigned: false,
+                restricting_sid_text: sid_text,
+                broker_assigned: false,
             })
+        }
+
+        fn account_token(&self) -> Result<HANDLE> {
+            self.profile
+                .as_ref()
+                .map(LoadedProfile::token)
+                .or_else(|| self.account_token.as_ref().map(|token| token.0))
+                .context("Windows account token owner is missing")
         }
 
         fn start_bootstrap(
@@ -1313,7 +1322,7 @@ mod platform {
             check(
                 unsafe {
                     CreateProcessWithTokenW(
-                        self.token.0,
+                        self.account_token()?,
                         0,
                         application.as_ptr(),
                         command_line.as_mut_ptr(),
@@ -1324,7 +1333,7 @@ mod platform {
                         &mut process,
                     )
                 },
-                "create suspended restricted bootstrap",
+                "create suspended account-owned bootstrap",
             )?;
             trace.observe(BootstrapObservedEvent::Stage(BootstrapStage::ProcessCreatedSuspended));
             let process_handle = OwnedHandle(process.hProcess);
@@ -1338,7 +1347,7 @@ mod platform {
                 let _ = unsafe { WaitForSingleObject(process_handle.0, INFINITE) };
                 return Err(error).context("assign bootstrap to non-breakaway job");
             }
-            self.product_assigned = true;
+            self.broker_assigned = true;
             trace.observe(BootstrapObservedEvent::Stage(BootstrapStage::JobAssigned));
             let pipes = BootstrapPipes::create()?;
             let control_read = duplicate_into_process(
@@ -1379,6 +1388,7 @@ mod platform {
                         product_args: launch.product_args.clone(),
                         trusted_path_probe,
                         expected_bootstrap_sha256: launch.windows_bootstrap_sha256.clone(),
+                        restricting_sid: self.restricting_sid_text.clone(),
                     },
                     control_read,
                     control_write,
@@ -1418,16 +1428,16 @@ mod platform {
                     process_id: process.dwProcessId,
                     primary_thread_id: process.dwThreadId,
                     target_cmux_bench_environment_filtered,
+                    restricting_sid: self.restricting_sid_text.clone(),
                 },
             )?;
-            let _ = &self.restricting_sid;
             Ok(session)
         }
 
         fn cleanup(&mut self, deadline: Instant) -> Result<()> {
-            if self.product_assigned {
+            if self.broker_assigned {
                 self.terminate_descendants_and_wait_empty(deadline)?;
-                self.product_assigned = false;
+                self.broker_assigned = false;
             }
             if Instant::now() >= deadline {
                 bail!("Windows containment cleanup deadline expired before profile cleanup");
@@ -1508,6 +1518,8 @@ mod platform {
         process_id: u32,
         primary_thread_id: u32,
         target_cmux_bench_environment_filtered: bool,
+        restricting_sid: String,
+        product_started_relayed: bool,
     }
 
     struct BootstrapIdentity {
@@ -1523,6 +1535,7 @@ mod platform {
         process_id: u32,
         primary_thread_id: u32,
         target_cmux_bench_environment_filtered: bool,
+        restricting_sid: String,
     }
 
     enum BootstrapEvent {
@@ -1552,6 +1565,8 @@ mod platform {
                 process_id,
                 primary_thread_id,
                 target_cmux_bench_environment_filtered,
+                restricting_sid,
+                product_started_relayed: false,
             } = identity;
             let wait_handle =
                 duplicate_current_process_handle(process.0, "restricted bootstrap status wait")?;
@@ -1605,12 +1620,13 @@ mod platform {
                 process_id,
                 primary_thread_id,
                 target_cmux_bench_environment_filtered,
+                restricting_sid,
             })
         }
 
         fn capture_hang_snapshot(
             &mut self,
-            restricted: &RestrictedToken,
+            owner: &WindowsLaunchOwner,
             launch: &Launch,
         ) -> Result<()> {
             match startup_benchmark_windows_diagnostic::capture(CaptureRequest {
@@ -1618,7 +1634,7 @@ mod platform {
                 primary_thread: self.primary_thread.0,
                 process_id: self.process_id,
                 primary_thread_id: self.primary_thread_id,
-                private_job: restricted.job.0,
+                private_job: owner.job.0,
                 fixture_root: &self.fixture_root,
                 nonce: &self.nonce,
                 supervisor_sha256: &launch.supervisor_sha256,
@@ -1675,6 +1691,17 @@ mod platform {
                         private_job_member,
                         trusted_path_write_denied,
                         bootstrap_write_denied,
+                        se_increase_quota_present,
+                        se_increase_quota_enabled,
+                        restricted_token,
+                        restricted_low_integrity,
+                        restricted_no_enabled_privileges,
+                        restricted_authentication_match,
+                        restricting_sid_match,
+                        write_restricted_created,
+                        broker_authentication_id,
+                        restricted_authentication_id,
+                        restricting_sid,
                     }) if observed == nonce
                         && bootstrap_sha256 == self.bootstrap_sha256
                         && config_consumed
@@ -1682,7 +1709,16 @@ mod platform {
                         && standard_handles_inheritable
                         && private_job_member
                         && trusted_path_write_denied
-                        && bootstrap_write_denied =>
+                        && bootstrap_write_denied
+                        && se_increase_quota_present
+                        && se_increase_quota_enabled
+                        && restricted_token
+                        && restricted_low_integrity
+                        && restricted_no_enabled_privileges
+                        && restricted_authentication_match
+                        && restricting_sid_match
+                        && write_restricted_created
+                        && restricting_sid == self.restricting_sid =>
                     {
                         if self.record_native_entry_checkpoint(trace)?
                             != Some(NativeEntryCheckpointStage::ConfigConsumed)
@@ -1707,6 +1743,30 @@ mod platform {
                             exact_job_proof: private_job_member,
                             trusted_path_write_denied,
                             bootstrap_write_denied,
+                            restricting_sid,
+                            broker_authentication_id: broker_authentication_id.evidence_value(),
+                            restricted_authentication_id: restricted_authentication_id
+                                .evidence_value(),
+                            product_authentication_id: String::new(),
+                            restricted_authentication_matches_broker:
+                                restricted_authentication_match,
+                            product_authentication_matches_broker: false,
+                            se_increase_quota_present,
+                            se_increase_quota_enabled,
+                            create_process_as_user_succeeded: false,
+                            restricted_token_write_restricted: write_restricted_created
+                                && restricted_token
+                                && restricting_sid_match,
+                            restricted_token_restricting_sid_match: restricting_sid_match,
+                            restricted_token_low_integrity: restricted_low_integrity,
+                            restricted_token_no_enabled_privileges:
+                                restricted_no_enabled_privileges,
+                            product_write_restricted: false,
+                            product_restricting_sid_match: false,
+                            product_low_integrity: false,
+                            product_no_enabled_privileges: false,
+                            product_exact_job: false,
+                            product_resume_previous_count: 0,
                         });
                         fs::remove_file(&self.entry_checkpoint_path).with_context(|| {
                             format!(
@@ -1788,7 +1848,12 @@ mod platform {
             Ok(Some(stage))
         }
 
-        fn arm_and_wait(&mut self, nonce: &str, require_descendant: bool) -> Result<ExitStatus> {
+        fn arm_and_wait(
+            &mut self,
+            nonce: &str,
+            require_descendant: bool,
+            public_control: &mut Box<dyn transport::Stream>,
+        ) -> Result<ExitStatus> {
             let writer =
                 self.writer.as_mut().context("Windows bootstrap command pipe is closed")?;
             let arm = encode_arm(nonce)?;
@@ -1797,13 +1862,89 @@ mod platform {
             let deadline = Instant::now()
                 .checked_add(CONTROL_TIMEOUT)
                 .context("restricted product status deadline overflow")?;
+            let mut product_started = false;
             let (code, contained) = loop {
                 match self.receive_until(deadline, "wait for restricted product status")? {
+                    BootstrapEvent::Message(BootstrapMessage::ProductStarted {
+                        nonce: observed,
+                        private_job_descendant_contained,
+                        create_process_as_user_succeeded,
+                        product_authentication_match,
+                        product_low_integrity,
+                        product_write_restricted,
+                        product_no_enabled_privileges,
+                        product_restricting_sid_match,
+                        product_authentication_id,
+                        resume_previous_count,
+                    }) if observed == nonce => {
+                        if product_started
+                            || !private_job_descendant_contained
+                            || !create_process_as_user_succeeded
+                            || !product_authentication_match
+                            || !product_low_integrity
+                            || !product_write_restricted
+                            || !product_no_enabled_privileges
+                            || !product_restricting_sid_match
+                            || resume_previous_count != 1
+                        {
+                            bail!("restricted bootstrap product-started evidence mismatch");
+                        }
+                        let evidence = self
+                            .evidence
+                            .as_mut()
+                            .context("Windows bootstrap READY evidence is missing")?;
+                        evidence.product_authentication_id =
+                            product_authentication_id.evidence_value();
+                        evidence.product_authentication_matches_broker =
+                            product_authentication_match;
+                        evidence.create_process_as_user_succeeded =
+                            create_process_as_user_succeeded;
+                        evidence.product_write_restricted =
+                            product_write_restricted && product_restricting_sid_match;
+                        evidence.product_restricting_sid_match = product_restricting_sid_match;
+                        evidence.product_low_integrity = product_low_integrity;
+                        evidence.product_no_enabled_privileges = product_no_enabled_privileges;
+                        evidence.product_exact_job = private_job_descendant_contained;
+                        evidence.product_resume_previous_count = resume_previous_count;
+                        evidence.validate(&self.nonce, &self.bootstrap_sha256)?;
+                        write_control_line(
+                            public_control,
+                            &product_started_line(&self.nonce, evidence)?,
+                        )?;
+                        self.product_started_relayed = true;
+                        product_started = true;
+                    }
                     BootstrapEvent::Message(BootstrapMessage::Exit {
                         nonce: observed,
                         code,
                         private_job_descendant_contained,
-                    }) if observed == nonce => break (code, private_job_descendant_contained),
+                        create_process_as_user_succeeded,
+                        product_authentication_match,
+                        product_low_integrity,
+                        product_write_restricted,
+                        product_no_enabled_privileges,
+                        product_restricting_sid_match,
+                        product_authentication_id,
+                    }) if observed == nonce => {
+                        let evidence = self
+                            .evidence
+                            .as_mut()
+                            .context("Windows bootstrap READY evidence is missing")?;
+                        if !product_started
+                            || !private_job_descendant_contained
+                            || !create_process_as_user_succeeded
+                            || !product_authentication_match
+                            || !product_low_integrity
+                            || !product_write_restricted
+                            || !product_no_enabled_privileges
+                            || !product_restricting_sid_match
+                            || product_authentication_id.evidence_value()
+                                != evidence.product_authentication_id
+                        {
+                            bail!("restricted bootstrap exit evidence changed after product start");
+                        }
+                        break (code, private_job_descendant_contained);
+                    }
                     BootstrapEvent::Message(BootstrapMessage::Error {
                         nonce: observed,
                         windows_error,
@@ -1910,6 +2051,9 @@ mod platform {
             BootstrapChildStage::TimingConsumed => BootstrapStage::TimingConsumed,
             BootstrapChildStage::NativeEntryReached => BootstrapStage::NativeEntryReached,
             BootstrapChildStage::NativeConfigReadStarted => BootstrapStage::NativeConfigReadStarted,
+            BootstrapChildStage::RestrictedProductTokenReady => {
+                BootstrapStage::RestrictedProductTokenReady
+            }
         }
     }
 
@@ -1924,7 +2068,7 @@ mod platform {
         control: &mut Box<dyn transport::Stream>,
         mut trace: BootstrapStartupTrace,
         error: anyhow::Error,
-        restricted: Option<&mut RestrictedToken>,
+        owner: Option<&mut WindowsLaunchOwner>,
         bootstrap: Option<&mut BootstrapSession>,
     ) -> Result<ExitStatus> {
         if trace.terminal.is_none() {
@@ -1949,10 +2093,10 @@ mod platform {
         let cleanup_deadline = Instant::now()
             .checked_add(BOOTSTRAP_CLEANUP_TIMEOUT)
             .context("Windows failed-startup cleanup deadline overflow")?;
-        let containment_started = restricted.is_some();
+        let containment_started = owner.is_some();
         let bootstrap_started = bootstrap.is_some();
-        let containment_result = match restricted {
-            Some(restricted) => restricted.cleanup(cleanup_deadline),
+        let containment_result = match owner {
+            Some(owner) => owner.cleanup(cleanup_deadline),
             None => Ok(()),
         };
         let bootstrap_result = match bootstrap {

@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
+use cmux_startup_bootstrap::BootstrapLaunchEvidence;
 use memmap2::{MmapMut, MmapOptions};
 use serde::{Deserialize, Serialize};
 
@@ -19,6 +20,7 @@ const NONCE_OFFSET: usize = 8;
 const NONCE_BYTES: usize = 32;
 const T0_OFFSET: usize = 40;
 const GENERATION_OFFSET: usize = 48;
+const MAX_PRODUCT_STARTED_LINE_BYTES: usize = 4096;
 
 pub const CONTROL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 pub const STARTUP_LINE_TIMEOUT: std::time::Duration = if cfg!(windows) {
@@ -26,6 +28,7 @@ pub const STARTUP_LINE_TIMEOUT: std::time::Duration = if cfg!(windows) {
 } else {
     std::time::Duration::from_secs(60)
 };
+pub const PRODUCT_STARTED_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(50);
 pub const SECURITY_PREPARATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 pub const BOOTSTRAP_STARTUP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 pub const BOOTSTRAP_CLEANUP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
@@ -41,7 +44,7 @@ pub enum BootstrapStage {
     AccountLoggedOn,
     ProfileLoaded,
     ProfileSkipped,
-    RestrictedTokenReady,
+    AccountBrokerReady,
     AccountAclApplied,
     RestrictingSidAclApplied,
     LowIntegrityAclApplied,
@@ -57,6 +60,7 @@ pub enum BootstrapStage {
     LaunchValidated,
     StandardHandlesValidated,
     TimingConsumed,
+    RestrictedProductTokenReady,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -477,6 +481,36 @@ pub fn failure_line(nonce: &str, checkpoint_name: Option<&str>) -> Result<String
     Ok(format!("FAILURE {nonce} {checkpoint_name}\n"))
 }
 
+pub fn product_started_line(nonce: &str, evidence: &BootstrapLaunchEvidence) -> Result<String> {
+    evidence.validate(nonce, &evidence.bootstrap_sha256)?;
+    let payload = serde_json::to_string(evidence)?;
+    let line = format!("PRODUCT_STARTED {nonce} {payload}\n");
+    if line.len() > MAX_PRODUCT_STARTED_LINE_BYTES {
+        bail!("supervisor product-started line exceeded its bound");
+    }
+    Ok(line)
+}
+
+pub fn parse_product_started_line(
+    line: &str,
+    nonce: &str,
+    expected_bootstrap_sha256: Option<&str>,
+) -> Result<BootstrapLaunchEvidence> {
+    if line.len() > MAX_PRODUCT_STARTED_LINE_BYTES {
+        bail!("supervisor product-started line exceeded its bound");
+    }
+    let prefix = format!("PRODUCT_STARTED {nonce} ");
+    let payload =
+        line.strip_prefix(&prefix).context("supervisor product-started line identity mismatch")?;
+    let evidence: BootstrapLaunchEvidence = serde_json::from_str(payload)?;
+    let expected_bootstrap_sha256 = expected_bootstrap_sha256.unwrap_or(&evidence.bootstrap_sha256);
+    evidence.validate(nonce, expected_bootstrap_sha256)?;
+    if product_started_line(nonce, &evidence)?.trim_end() != line {
+        bail!("supervisor product-started line was not canonical");
+    }
+    Ok(evidence)
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum SupervisorStartupLine {
     Setup,
@@ -635,16 +669,29 @@ pub fn macos_account_identity(nonce: &str, prefix: &str, uid_base: u32) -> Resul
 }
 
 pub fn read_control_line(reader: &mut impl Read) -> Result<String> {
-    let mut bytes = Vec::with_capacity(80);
+    read_bounded_control_line(reader, 256, "control")
+}
+
+pub fn read_product_started_control_line(reader: &mut impl Read) -> Result<String> {
+    read_bounded_control_line(reader, MAX_PRODUCT_STARTED_LINE_BYTES, "product-started control")
+}
+
+fn read_bounded_control_line(
+    reader: &mut impl Read,
+    bound: usize,
+    description: &str,
+) -> Result<String> {
+    let mut bytes = Vec::with_capacity(bound.min(256));
     let mut byte = [0_u8; 1];
-    while bytes.len() < 256 {
+    while bytes.len() < bound {
         reader.read_exact(&mut byte)?;
         if byte[0] == b'\n' {
-            return String::from_utf8(bytes).context("control line was not UTF-8");
+            return String::from_utf8(bytes)
+                .with_context(|| format!("{description} line was not UTF-8"));
         }
         bytes.push(byte[0]);
     }
-    bail!("control line exceeded 255 bytes")
+    bail!("{description} line exceeded its bound")
 }
 
 pub fn write_control_line(writer: &mut impl Write, line: &str) -> Result<()> {
@@ -849,6 +896,54 @@ mod tests {
         let nonce = "ab".repeat(NONCE_BYTES);
         assert_eq!(ready_line(&nonce), format!("READY {nonce}\n"));
         assert_eq!(arm_line(&nonce), format!("ARM {nonce}\n"));
+    }
+
+    #[test]
+    fn product_started_line_is_bounded_nonce_bound_and_canonical() {
+        let nonce = "ab".repeat(NONCE_BYTES);
+        let bootstrap_sha256 = "cd".repeat(32);
+        let evidence = BootstrapLaunchEvidence {
+            schema_version: cmux_startup_bootstrap::BOOTSTRAP_SCHEMA_VERSION,
+            bootstrap_sha256: bootstrap_sha256.clone(),
+            config_nonce: nonce.clone(),
+            config_consumed: true,
+            resume_previous_count: 1,
+            ready_elapsed_ms: 1,
+            exact_job_proof: true,
+            trusted_path_write_denied: true,
+            bootstrap_write_denied: true,
+            restricting_sid: "S-1-5-21-1-2-3-4".into(),
+            broker_authentication_id: "0000000900000007".into(),
+            restricted_authentication_id: "0000000900000007".into(),
+            product_authentication_id: "0000000900000007".into(),
+            restricted_authentication_matches_broker: true,
+            product_authentication_matches_broker: true,
+            se_increase_quota_present: true,
+            se_increase_quota_enabled: true,
+            create_process_as_user_succeeded: true,
+            restricted_token_write_restricted: true,
+            restricted_token_restricting_sid_match: true,
+            restricted_token_low_integrity: true,
+            restricted_token_no_enabled_privileges: true,
+            product_write_restricted: true,
+            product_restricting_sid_match: true,
+            product_low_integrity: true,
+            product_no_enabled_privileges: true,
+            product_exact_job: true,
+            product_resume_previous_count: 1,
+        };
+        let line = product_started_line(&nonce, &evidence).unwrap();
+        assert_eq!(
+            parse_product_started_line(&line, &nonce, Some(&bootstrap_sha256)).unwrap(),
+            evidence
+        );
+        assert!(
+            parse_product_started_line(&line, &"ef".repeat(NONCE_BYTES), Some(&bootstrap_sha256))
+                .is_err()
+        );
+        assert!(
+            parse_product_started_line(&(line + " "), &nonce, Some(&bootstrap_sha256)).is_err()
+        );
     }
 
     #[test]

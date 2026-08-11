@@ -804,6 +804,10 @@ jobs:
           Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $user
           $sid = (Get-LocalUser -Name $user).SID.Value
           "sid=$sid" | Add-Content -Encoding utf8 $env:GITHUB_OUTPUT
+          $quotaRight = "SeIncreaseQuotaPrivilege"
+          "quota_right=$quotaRight" | Add-Content -Encoding utf8 $env:GITHUB_OUTPUT
+          & "$env:GITHUB_WORKSPACE/cmux-tui/scripts/windows-account-right.ps1" `
+            -Operation Add -Sid $sid -Right $quotaRight
           $localUser = "D:(A;;CC;;;$sid)"
           New-NetFirewallRule -Name "$rule-out" -DisplayName "$rule outbound" -Direction Outbound -Action Block -Profile Any -LocalUser $localUser | Out-Null
           "outbound_rule=$rule-out" | Add-Content -Encoding utf8 $env:GITHUB_OUTPUT
@@ -936,6 +940,7 @@ jobs:
         env:
           WINDOWS_CONTAINMENT_USER: ${{ steps.windows-account.outputs.username }}
           WINDOWS_CONTAINMENT_SID: ${{ steps.windows-account.outputs.sid }}
+          WINDOWS_CONTAINMENT_QUOTA_RIGHT: ${{ steps.windows-account.outputs.quota_right }}
           WINDOWS_CONTAINMENT_OUTBOUND_RULE: ${{ steps.windows-account.outputs.outbound_rule }}
           WINDOWS_CONTAINMENT_INBOUND_RULE: ${{ steps.windows-account.outputs.inbound_rule }}
         run: |
@@ -943,8 +948,9 @@ jobs:
           $user = $env:WINDOWS_CONTAINMENT_USER
           $rules = @($env:WINDOWS_CONTAINMENT_OUTBOUND_RULE, $env:WINDOWS_CONTAINMENT_INBOUND_RULE) |
             Where-Object { $_ }
-          if (-not $user -and $rules.Count -eq 0) { exit 0 }
           $sid = if ($env:WINDOWS_CONTAINMENT_SID) { $env:WINDOWS_CONTAINMENT_SID } elseif ($user -and (Get-LocalUser -Name $user -ErrorAction SilentlyContinue)) { (Get-LocalUser -Name $user).SID.Value } else { "" }
+          $quotaRight = $env:WINDOWS_CONTAINMENT_QUOTA_RIGHT
+          if (-not $user -and $rules.Count -eq 0 -and -not $sid -and -not $quotaRight) { exit 0 }
           function Get-OwnedProcess {
             @(Get-CimInstance Win32_Process | ForEach-Object {
               $owner = Invoke-CimMethod -InputObject $_ -MethodName GetOwner -ErrorAction SilentlyContinue
@@ -968,6 +974,10 @@ jobs:
             if (@($profiles | Where-Object { $_.Loaded }).Count -ne 0) { throw "the Windows containment profile is still loaded" }
             $profiles | Remove-CimInstance
             if (@(Get-CimInstance Win32_UserProfile | Where-Object { $_.SID -eq $sid }).Count -ne 0) { throw "the Windows containment profile remains" }
+          }
+          if ($sid -and $quotaRight) {
+            & "$env:GITHUB_WORKSPACE/cmux-tui/scripts/windows-account-right.ps1" `
+              -Operation Remove -Sid $sid -Right $quotaRight
           }
           if ($user -and (Get-LocalUser -Name $user -ErrorAction SilentlyContinue)) { Remove-LocalUser -Name $user }
           foreach ($rule in $rules) {
