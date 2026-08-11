@@ -61,7 +61,7 @@ struct ResourceCloseInputs {
     workspace_metadata: Option<(WorkspaceId, usize, String)>,
     terminal_runtime: Option<Arc<Surface>>,
     terminal_batch: Vec<(String, Option<String>)>,
-    terminal_public_id: Option<TerminalPublicId>,
+    terminal_public_ids: Vec<TerminalPublicId>,
     allow_missing_terminal_runtime: bool,
 }
 
@@ -2862,6 +2862,23 @@ impl Mux {
         )?;
         let catalog_public_ids =
             terminal_catalog_public_ids_by_host(self, &state, terminal_id, planned_incarnation);
+        let mut cleanup_public_ids = vec![public_id.clone()];
+        for catalog_public_id in catalog_public_ids {
+            if !cleanup_public_ids.contains(&catalog_public_id) {
+                cleanup_public_ids.push(catalog_public_id);
+            }
+        }
+        for cleanup_public_id in &cleanup_public_ids {
+            let cleanup_host = registry.terminal_host_id(cleanup_public_id)?.ok_or_else(|| {
+                terminal_close_state_error(format!(
+                    "terminal {cleanup_public_id} has no durable host"
+                ))
+            })?;
+            anyhow::ensure!(
+                cleanup_host == terminal_id,
+                "terminal resource changed hosts before close"
+            );
+        }
         let target = terminal_content_placements(
             self,
             &state,
@@ -2873,65 +2890,42 @@ impl Mux {
         let mut plan = self.resource_terminal_close_plan_locked(
             terminal_id,
             planned_incarnation,
-            &public_id,
+            &cleanup_public_ids,
             &state,
         )?;
-        let mut cleanup_public_ids = vec![public_id.clone()];
-        for catalog_public_id in catalog_public_ids {
-            if !cleanup_public_ids.contains(&catalog_public_id) {
-                cleanup_public_ids.push(catalog_public_id);
-            }
-        }
         plan.closed_terminal_public_ids = cleanup_public_ids.clone();
-        let (retained_runtime, retained_views, retained_split_change) =
-            remove_terminal_catalogs_and_targets_from_state(
-                self,
-                plan.state.state_mut(),
-                &cleanup_public_ids,
-                &[],
-            );
-        anyhow::ensure!(
-            retained_views.is_empty() && !retained_split_change,
-            "tabless terminal cleanup changed a view"
-        );
-        if let Some(retained_runtime) = retained_runtime {
-            if let Some(planned_runtime) = plan.terminal_runtime.as_ref() {
-                anyhow::ensure!(
-                    retained_runtime.shares_terminal_runtime(planned_runtime),
-                    "terminal close plan retained a different catalog runtime"
-                );
-            } else {
-                plan.terminal_runtime = Some(retained_runtime);
-            }
-        }
         let had_runtime = plan.terminal_runtime.is_some();
         let mut projection = plan.state.project(self, &registry, &state, json!({}))?;
-        if !projection.patch.changes.iter().any(|change| {
-            matches!(
-                change,
-                ResourceChange::TombstoneTerminal { public_id: closing, .. }
-                    if closing == &public_id
-            )
-        }) {
-            projection.patch.changes.push(ResourceChange::TombstoneTerminal {
-                public_id: public_id.clone(),
-                expected_incarnation: planned_incarnation.map(str::to_owned),
-            });
+        for cleanup_public_id in &cleanup_public_ids {
+            if !projection.patch.changes.iter().any(|change| {
+                matches!(
+                    change,
+                    ResourceChange::TombstoneTerminal { public_id: closing, .. }
+                        if closing == cleanup_public_id
+                )
+            }) {
+                projection.patch.changes.push(ResourceChange::TombstoneTerminal {
+                    public_id: cleanup_public_id.clone(),
+                    expected_incarnation: planned_incarnation.map(str::to_owned),
+                });
+            }
         }
         let changes = projection.changes.as_array_mut().ok_or_else(|| {
             terminal_close_state_error("terminal close projection changes are not an array")
         })?;
-        if !changes.iter().any(|change| {
-            change["kind"] == "delete"
-                && change["resource"] == "terminal"
-                && change["id"].as_str() == Some(public_id.as_str())
-        }) {
-            changes.push(json!({
-                "kind":"delete",
-                "sequence":changes.len(),
-                "resource":"terminal",
-                "id":public_id,
-            }));
+        for cleanup_public_id in &cleanup_public_ids {
+            if !changes.iter().any(|change| {
+                change["kind"] == "delete"
+                    && change["resource"] == "terminal"
+                    && change["id"].as_str() == Some(cleanup_public_id.as_str())
+            }) {
+                changes.push(json!({
+                    "kind":"delete",
+                    "sequence":changes.len(),
+                    "resource":"terminal",
+                    "id":cleanup_public_id,
+                }));
+            }
         }
         #[cfg(test)]
         if let Some(hook) = self.resource_projection_before_commit.lock().unwrap().clone() {
@@ -3467,7 +3461,7 @@ impl Mux {
                     changed_screens: screens,
                     terminal_runtime: Some(runtime),
                     terminal_batch: vec![(host.terminal_id, Some(host.incarnation))],
-                    terminal_public_id: Some(public_id),
+                    terminal_public_ids: vec![public_id],
                     ..Default::default()
                 }
             }
@@ -3480,10 +3474,11 @@ impl Mux {
         &self,
         terminal_id: &str,
         terminal_incarnation: Option<&str>,
-        public_id: &TerminalPublicId,
+        public_ids: &[TerminalPublicId],
         state: &State,
     ) -> anyhow::Result<ResourceClosePlan> {
-        let terminal_runtime = state.terminal_catalog.get(public_id).cloned();
+        let terminal_runtime =
+            public_ids.iter().find_map(|public_id| state.terminal_catalog.get(public_id).cloned());
         if let Some(runtime) = &terminal_runtime {
             let identity = self
                 .resource_terminal_host_identity(runtime)
@@ -3493,12 +3488,19 @@ impl Mux {
                 "terminal_incarnation_mismatch"
             );
         }
-        let placements = terminal_content_placements(
-            self,
-            state,
-            public_id,
-            Some((terminal_id, terminal_incarnation)),
-        );
+        let mut placements = public_ids
+            .iter()
+            .flat_map(|public_id| {
+                terminal_content_placements(
+                    self,
+                    state,
+                    public_id,
+                    Some((terminal_id, terminal_incarnation)),
+                )
+            })
+            .collect::<Vec<_>>();
+        placements.sort_unstable();
+        placements.dedup();
         let changed_screens = unique_screen_ids(
             placements.iter().filter_map(|surface| surface_screen_id(state, *surface)),
         );
@@ -3511,7 +3513,7 @@ impl Mux {
                     terminal_id.to_string(),
                     terminal_incarnation.map(str::to_owned),
                 )],
-                terminal_public_id: Some(public_id.clone()),
+                terminal_public_ids: public_ids.to_vec(),
                 // Protocol close repairs the known gap where durable topology
                 // exists before terminal_catalog is restored. Its caller uses
                 // discovery-based termination when this runtime is absent.
@@ -3529,16 +3531,15 @@ impl Mux {
     ) -> anyhow::Result<ResourceClosePlan> {
         let selection_before = active_tree_selection(state);
         let ResourceCloseInputs {
-            surface_ids,
+            mut surface_ids,
             mut delta,
-            changed_screens,
+            mut changed_screens,
             workspace_metadata,
             terminal_runtime,
             terminal_batch,
-            terminal_public_id,
+            mut terminal_public_ids,
             allow_missing_terminal_runtime,
         } = inputs;
-        let terminal_public_ids = terminal_public_id.iter().cloned().collect::<Vec<_>>();
         let terminal_indexes = TerminalIndexProjection::capture(
             self,
             state,
@@ -3546,6 +3547,19 @@ impl Mux {
             &terminal_batch,
             &surface_ids,
         );
+        for public_id in &terminal_indexes.catalog_public_ids {
+            if !terminal_public_ids.contains(public_id) {
+                terminal_public_ids.push(public_id.clone());
+            }
+        }
+        for public_id in &terminal_public_ids {
+            surface_ids.extend(terminal_content_placements(self, state, public_id, None));
+        }
+        surface_ids.sort_unstable();
+        surface_ids.dedup();
+        changed_screens = unique_screen_ids(changed_screens.into_iter().chain(
+            surface_ids.iter().filter_map(|surface| surface_screen_id(state, *surface)),
+        ));
         let workspace_ids = surface_ids
             .iter()
             .filter_map(|surface| state.pane_of(*surface))
@@ -3553,14 +3567,14 @@ impl Mux {
             .map(|(workspace, _)| state.workspaces[workspace].id)
             .collect::<HashSet<_>>();
         let catalog_public_ids = terminal_indexes.catalog_public_ids.clone();
-        let mut closed_terminal_public_ids = if terminal_public_id.is_some() {
+        let mut closed_terminal_public_ids = if !terminal_public_ids.is_empty() {
             catalog_public_ids.iter().cloned().collect::<Vec<_>>()
         } else {
             Vec::new()
         };
         closed_terminal_public_ids.sort_by(|left, right| left.as_str().cmp(right.as_str()));
         let target_surfaces = surface_ids.iter().copied().collect::<HashSet<_>>();
-        let mut state_projection = if terminal_public_id.is_some() {
+        let mut state_projection = if !terminal_public_ids.is_empty() {
             ResourceCloseState::Terminal {
                 state: state.clone_terminal_scope(
                     &workspace_ids,
@@ -3579,9 +3593,14 @@ impl Mux {
 
         let mut removed = Vec::new();
         let mut split_index_changed = false;
-        if let Some(public_id) = &terminal_public_id {
+        if !terminal_public_ids.is_empty() {
             let (removed_runtime, terminal_views, changed) =
-                remove_terminal_content_from_state(self, projected, public_id, &surface_ids);
+                remove_terminal_catalogs_and_targets_from_state(
+                    self,
+                    projected,
+                    &terminal_public_ids,
+                    &surface_ids,
+                );
             anyhow::ensure!(
                 match (removed_runtime.as_ref(), terminal_runtime.as_ref()) {
                     (Some(removed), Some(planned)) => removed.shares_terminal_runtime(planned),
