@@ -77,7 +77,7 @@ struct MobileTaskModelProviderStrategyTests {
         let probe = MobileTaskModelStrategyProbe()
         await probe.setFile(
             path: "/Users/tester/.codex/models_cache.json",
-            data: Data(#"{"models":[{"slug":"host-next-999","display_name":"Host Next 999","visibility":"list"},{"slug":"hidden-model","display_name":"Hidden","visibility":"hide"}]}"#.utf8)
+            data: Data(#"{"models":[{"slug":"host-next-999","display_name":"Host Next 999","visibility":"list"},{"slug":"hidden-model","display_name":"Hidden","visibility":"hide"},{"slug":"internal-model","display_name":"Internal","visibility":"none"}]}"#.utf8)
         )
 
         let result = await makeStrategy(probe: probe).models(for: .codex)
