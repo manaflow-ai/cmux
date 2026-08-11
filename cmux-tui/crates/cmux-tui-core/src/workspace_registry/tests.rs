@@ -5556,11 +5556,9 @@ fn journal_agent_legacy_upgrade_backfills_archived_agent_event_kinds() {
     assert!(reopened.public_projections().unwrap().agents.is_empty());
     let missing_kinds = reopened
         .connection
-        .query_row(
-            "SELECT COUNT(*) FROM journal_event_index WHERE kind IS NULL",
-            [],
-            |row| row.get::<_, u64>(0),
-        )
+        .query_row("SELECT COUNT(*) FROM journal_event_index WHERE kind IS NULL", [], |row| {
+            row.get::<_, u64>(0)
+        })
         .unwrap();
     assert!(missing_kinds > 0, "open must defer archived segment decoding");
     assert!(reopened.continue_agent_projection_rebuild().unwrap());
