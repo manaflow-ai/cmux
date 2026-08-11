@@ -6,6 +6,10 @@ inputs:
     description: Exact rust-toolchain.toml file to read with this trusted action.
     required: false
     default: ""
+  python-command:
+    description: Pre-resolved trusted Python 3 command. The action resolves Python when omitted.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -14,16 +18,20 @@ runs:
       shell: bash
       env:
         REQUESTED_TOOLCHAIN_FILE: ${{ inputs.toolchain-file }}
+        REQUESTED_PYTHON_COMMAND: ${{ inputs.python-command }}
         DEFAULT_TOOLCHAIN_FILE: ${{ github.action_path }}/../../../cmux-tui/rust-toolchain.toml
       run: |
-        if command -v python3 >/dev/null 2>&1; then
-          python_cmd=python3
+        if [[ -n "$REQUESTED_PYTHON_COMMAND" ]]; then
+          python_cmd="$REQUESTED_PYTHON_COMMAND"
+        elif command -v python3 >/dev/null 2>&1; then
+          python_cmd="$(command -v python3)"
         elif command -v python >/dev/null 2>&1; then
-          python_cmd=python
+          python_cmd="$(command -v python)"
         else
           echo "::error::Python is required to read the pinned Rust toolchain" >&2
           exit 1
         fi
+        "$python_cmd" -c 'import sys; raise SystemExit(sys.version_info < (3, 9))'
         "$python_cmd" <<'PY'
         import os
         import pathlib

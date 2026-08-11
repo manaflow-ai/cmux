@@ -46,11 +46,341 @@ permissions:
   contents: read
 
 jobs:
+  candidate-product:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    name: candidate product (${{ matrix.platform }})
+    permissions:
+      contents: read
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: ${{ matrix.timeout_minutes }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-blacksmith
+            runner: blacksmith-6vcpu-macos-15
+            timeout_minutes: 90
+            rust_target: ""
+            binary_suffix: ""
+          - platform: linux-azure
+            runner: ubuntu-24.04
+            timeout_minutes: 90
+            rust_target: ""
+            binary_suffix: ""
+          - platform: windows-azure
+            runner: windows-latest
+            timeout_minutes: 120
+            rust_target: x86_64-pc-windows-gnu
+            binary_suffix: .exe
+    env:
+      BASELINE_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.baseline_sha || github.event.pull_request.base.sha }}
+      CANDIDATE_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.event.pull_request.head.sha }}
+      BASELINE_SOURCE: ${{ github.workspace }}/source-a
+      CANDIDATE_SOURCE: ${{ github.workspace }}/source-b
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      RUST_TARGET: ${{ matrix.rust_target }}
+      BINARY_SUFFIX: ${{ matrix.binary_suffix }}
+      PLATFORM_LABEL: ${{ matrix.platform }}
+    steps:
+      - name: Validate requested commits
+        id: requested
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$BASELINE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "baseline_sha must be a full lowercase commit SHA: $BASELINE_SHA" >&2
+            exit 1
+          fi
+          if [[ ! "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "candidate_sha must be a full lowercase commit SHA: $CANDIDATE_SHA" >&2
+            exit 1
+          fi
+          if [[ "$BASELINE_SHA" == "$CANDIDATE_SHA" ]]; then
+            echo "baseline_sha and candidate_sha must differ" >&2
+            exit 1
+          fi
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            expected_ref="refs/heads/$DEFAULT_BRANCH"
+            if [[ "$GITHUB_REF" != "$expected_ref" ]]; then
+              echo "manual workflow must run from $expected_ref, not $GITHUB_REF" >&2
+              exit 1
+            fi
+          fi
+          if [[ "$GITHUB_SHA" != "$BASELINE_SHA" ]]; then
+            echo "trusted workflow SHA $GITHUB_SHA does not match baseline $BASELINE_SHA" >&2
+            exit 1
+          fi
+          printf 'baseline_sha=%s\n' "$BASELINE_SHA" >> "$GITHUB_OUTPUT"
+          printf 'candidate_sha=%s\n' "$CANDIDATE_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve trusted Python
+        id: trusted-python
+        shell: bash
+        run: |
+          set -euo pipefail
+          python_cmd=""
+          for command_name in python3 python; do
+            candidate="$(command -v "$command_name" 2>/dev/null || true)"
+            if [[ -n "$candidate" ]] && "$candidate" -c 'import sys; raise SystemExit(sys.version_info < (3, 9))'; then
+              python_cmd="$candidate"
+              break
+            fi
+          done
+          if [[ -z "$python_cmd" ]]; then
+            echo "Python 3.9 or newer is required" >&2
+            exit 1
+          fi
+          printf 'command=%s\n' "$python_cmd" >> "$GITHUB_OUTPUT"
+          printf 'PYTHON_CMD=%s\n' "$python_cmd" >> "$GITHUB_ENV"
+          "$python_cmd" --version
+
+      - name: Checkout exact baseline infrastructure
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: source-a
+          persist-credentials: false
+          ref: ${{ env.BASELINE_SHA }}
+
+      - name: Checkout exact candidate product
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: source-b
+          persist-credentials: false
+          ref: ${{ env.CANDIDATE_SHA }}
+
+      - name: Verify exact checkouts
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C "$BASELINE_SOURCE" rev-parse HEAD)" = "${{ steps.requested.outputs.baseline_sha }}"
+          test "$(git -C "$CANDIDATE_SOURCE" rev-parse HEAD)" = "${{ steps.requested.outputs.candidate_sha }}"
+
+      - name: Initialize exact candidate Ghostty revision
+        id: candidate-identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(git -C "$CANDIDATE_SOURCE" rev-parse HEAD:ghostty)"
+          if ! git -C "$CANDIDATE_SOURCE" submodule update --init --depth 1 ghostty; then
+            if [[ "$(git -C "$CANDIDATE_SOURCE/ghostty" rev-parse --is-shallow-repository 2>/dev/null)" == "true" ]]; then
+              git -C "$CANDIDATE_SOURCE/ghostty" fetch --unshallow origin
+            fi
+            git -C "$CANDIDATE_SOURCE" submodule update --init ghostty
+          fi
+          test "$(git -C "$CANDIDATE_SOURCE/ghostty" rev-parse HEAD)" = "$expected"
+          printf 'ghostty_sha=%s\n' "$expected" >> "$GITHUB_OUTPUT"
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+
+      - name: Resolve candidate Zig version with trusted parser
+        id: zig-version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version_parser="$BASELINE_SOURCE/scripts/ghostty-zig-version.sh"
+          test -f "$version_parser"
+          candidate_version="$(bash "$version_parser" "$CANDIDATE_SOURCE")"
+          [[ "$candidate_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          printf 'candidate=%s\n' "$candidate_version" >> "$GITHUB_OUTPUT"
+
+      - name: Install candidate Zig
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.zig-version.outputs.candidate }}
+
+      - name: Capture candidate Zig
+        id: candidate-zig
+        shell: bash
+        env:
+          EXPECTED_ZIG_VERSION: ${{ steps.zig-version.outputs.candidate }}
+        run: |
+          set -euo pipefail
+          zig_binary="$(command -v zig)"
+          actual_version="$("$zig_binary" version)"
+          test "$actual_version" = "$EXPECTED_ZIG_VERSION"
+          printf 'binary=%s\n' "$zig_binary" >> "$GITHUB_OUTPUT"
+          printf 'version=%s\n' "$actual_version" >> "$GITHUB_OUTPUT"
+
+      - name: Install candidate Rust toolchain with trusted action
+        uses: ./source-a/.github/actions/setup-cmux-tui-rust
+        with:
+          toolchain-file: ${{ env.CANDIDATE_SOURCE }}/cmux-tui/rust-toolchain.toml
+          python-command: ${{ steps.trusted-python.outputs.command }}
+
+      - name: Install candidate Rust target
+        id: candidate-rust
+        shell: bash
+        run: |
+          set -euo pipefail
+          toolchain="$(cd "$CANDIDATE_SOURCE/cmux-tui" && rustup show active-toolchain | awk '{print $1}')"
+          if [[ -n "$RUST_TARGET" ]]; then
+            rustup target add --toolchain "$toolchain" "$RUST_TARGET"
+          fi
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            printf '%s\n' 'C:\msys64\mingw64\bin' >> "$GITHUB_PATH"
+          fi
+          printf 'toolchain=%s\n' "$toolchain" >> "$GITHUB_OUTPUT"
+
+      - name: Build untrusted candidate product
+        shell: bash
+        env:
+          CANDIDATE_TARGET_ROOT: ${{ runner.temp }}/cmux-startup-candidate
+          CANDIDATE_ZIG_BIN: ${{ steps.candidate-zig.outputs.binary }}
+          CANDIDATE_ZIG_VERSION: ${{ steps.candidate-zig.outputs.version }}
+          CANDIDATE_RUST_TOOLCHAIN: ${{ steps.candidate-rust.outputs.toolchain }}
+          EXPECTED_CANDIDATE_SHA: ${{ steps.requested.outputs.candidate_sha }}
+          EXPECTED_CANDIDATE_GHOSTTY: ${{ steps.candidate-identity.outputs.ghostty_sha }}
+        run: |
+          set -euo pipefail
+          test "$("$CANDIDATE_ZIG_BIN" version)" = "$CANDIDATE_ZIG_VERSION"
+          args=(rustup run "$CANDIDATE_RUST_TOOLCHAIN" cargo build -p cmux-tui --bin cmux-tui --release --locked)
+          if [[ -n "$RUST_TARGET" ]]; then
+            args+=(--target "$RUST_TARGET")
+          fi
+          (
+            cd "$CANDIDATE_SOURCE/cmux-tui"
+            unset CMUX_GHOSTTY_SRC
+            CMUX_TUI_BUILD_COMMIT="$EXPECTED_CANDIDATE_SHA" \
+            CMUX_TUI_GHOSTTY_COMMIT="$EXPECTED_CANDIDATE_GHOSTTY" \
+            CARGO_TARGET_DIR="$CANDIDATE_TARGET_ROOT" \
+            PATH="$(dirname "$CANDIDATE_ZIG_BIN"):$PATH" \
+              "${args[@]}"
+          )
+
+      - name: Package closed candidate product artifact
+        shell: bash
+        env:
+          PYTHON_CMD: ${{ steps.trusted-python.outputs.command }}
+          CANDIDATE_TARGET_ROOT: ${{ runner.temp }}/cmux-startup-candidate
+          PACKAGE_ROOT: ${{ runner.temp }}/candidate-product-${{ matrix.platform }}
+          EXPECTED_CANDIDATE_SHA: ${{ steps.requested.outputs.candidate_sha }}
+          EXPECTED_CANDIDATE_GHOSTTY: ${{ steps.candidate-identity.outputs.ghostty_sha }}
+          EXPECTED_CANDIDATE_RUST: ${{ steps.candidate-rust.outputs.toolchain }}
+          EXPECTED_CANDIDATE_ZIG: ${{ steps.candidate-zig.outputs.version }}
+          EXPECTED_PLATFORM: ${{ matrix.platform }}
+          EXPECTED_RUST_TARGET: ${{ matrix.rust_target }}
+          EXPECTED_BINARY_SUFFIX: ${{ matrix.binary_suffix }}
+        run: |
+          set -euo pipefail
+          "$PYTHON_CMD" - <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import shutil
+
+          target_root = pathlib.Path(os.environ["CANDIDATE_TARGET_ROOT"])
+          release = target_root
+          if os.environ["EXPECTED_RUST_TARGET"]:
+              release /= os.environ["EXPECTED_RUST_TARGET"]
+          release /= "release"
+          binary_name = f"cmux-tui{os.environ['EXPECTED_BINARY_SUFFIX']}"
+          binary = release / binary_name
+          if not binary.is_file() or binary.is_symlink():
+              raise SystemExit(f"candidate binary is not a regular file: {binary}")
+
+          package_root = pathlib.Path(os.environ["PACKAGE_ROOT"])
+          if package_root.exists():
+              raise SystemExit(f"candidate package root already exists: {package_root}")
+          package_release = package_root / "release"
+          package_release.mkdir(parents=True)
+
+          def digest(path):
+              sha256 = hashlib.sha256()
+              with path.open("rb") as source:
+                  for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                      sha256.update(chunk)
+              return sha256.hexdigest()
+
+          records = []
+          package_stats = {"size_bytes": 0}
+
+          def copy_regular(source, destination, role):
+              if source.is_symlink() or not source.is_file():
+                  raise SystemExit(f"candidate artifact source is not a regular file: {source}")
+              source_size = source.stat().st_size
+              if len(records) >= 50_000:
+                  raise SystemExit("candidate artifact exceeds the 50000-file package limit")
+              if package_stats["size_bytes"] + source_size > 4 * 1024 * 1024 * 1024:
+                  raise SystemExit("candidate artifact exceeds the 4 GiB package limit")
+              destination.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copy2(source, destination)
+              package_stats["size_bytes"] += source_size
+              records.append({
+                  "path": destination.relative_to(package_root).as_posix(),
+                  "role": role,
+                  "sha256": digest(destination),
+                  "size_bytes": destination.stat().st_size,
+              })
+
+          copy_regular(binary, package_release / binary_name, "binary")
+          sidecars = []
+          for suffix in (".dSYM", ".pdb", ".dwp", ".debug"):
+              path = binary.with_suffix(suffix)
+              if path.exists() and path not in sidecars:
+                  sidecars.append(path)
+          appended_dsym = binary.with_name(f"{binary.name}.dSYM")
+          if appended_dsym.exists() and appended_dsym not in sidecars:
+              sidecars.append(appended_dsym)
+
+          for sidecar in sidecars:
+              destination = package_release / sidecar.name
+              if sidecar.is_symlink():
+                  raise SystemExit(f"candidate symbol path is a symlink: {sidecar}")
+              if sidecar.is_dir():
+                  for path in sorted(sidecar.rglob("*")):
+                      if path.is_symlink():
+                          raise SystemExit(f"candidate symbol tree contains a symlink: {path}")
+                      if path.is_file():
+                          copy_regular(path, destination / path.relative_to(sidecar), "symbol")
+                      elif not path.is_dir():
+                          raise SystemExit(f"candidate symbol tree has an unsafe entry: {path}")
+              elif sidecar.is_file():
+                  copy_regular(sidecar, destination, "symbol")
+              else:
+                  raise SystemExit(f"candidate symbol path is not regular: {sidecar}")
+
+          manifest = {
+              "schema_version": 1,
+              "platform_label": os.environ["EXPECTED_PLATFORM"],
+              "candidate_sha": os.environ["EXPECTED_CANDIDATE_SHA"],
+              "ghostty_sha": os.environ["EXPECTED_CANDIDATE_GHOSTTY"],
+              "rust_toolchain": os.environ["EXPECTED_CANDIDATE_RUST"],
+              "zig_version": os.environ["EXPECTED_CANDIDATE_ZIG"],
+              "binary_path": f"release/{binary_name}",
+              "files": sorted(records, key=lambda record: record["path"]),
+          }
+          (package_root / "manifest.json").write_text(
+              json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Upload candidate product artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-tui-startup-candidate-${{ matrix.platform }}
+          path: ${{ runner.temp }}/candidate-product-${{ matrix.platform }}/
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 7
+
   benchmark:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       github.event.pull_request.head.repo.full_name == github.repository
     name: startup benchmark (${{ matrix.platform }})
+    needs: candidate-product
+    permissions:
+      contents: read
     runs-on: ${{ matrix.runner }}
     timeout-minutes: ${{ matrix.timeout_minutes }}
     strategy:
@@ -124,6 +454,27 @@ jobs:
             echo "trusted workflow SHA $GITHUB_SHA does not match baseline $BASELINE_SHA" >&2
             exit 1
           fi
+
+      - name: Resolve trusted Python
+        id: trusted-python
+        shell: bash
+        run: |
+          set -euo pipefail
+          python_cmd=""
+          for command_name in python3 python; do
+            candidate="$(command -v "$command_name" 2>/dev/null || true)"
+            if [[ -n "$candidate" ]] && "$candidate" -c 'import sys; raise SystemExit(sys.version_info < (3, 9))'; then
+              python_cmd="$candidate"
+              break
+            fi
+          done
+          if [[ -z "$python_cmd" ]]; then
+            echo "Python 3.9 or newer is required" >&2
+            exit 1
+          fi
+          printf 'command=%s\n' "$python_cmd" >> "$GITHUB_OUTPUT"
+          printf 'PYTHON_CMD=%s\n' "$python_cmd" >> "$GITHUB_ENV"
+          "$python_cmd" --version
 
       - name: Checkout exact baseline
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -231,11 +582,13 @@ jobs:
         uses: ./source-a/.github/actions/setup-cmux-tui-rust
         with:
           toolchain-file: ${{ env.BASELINE_SOURCE }}/cmux-tui/rust-toolchain.toml
+          python-command: ${{ steps.trusted-python.outputs.command }}
 
       - name: Install candidate Rust toolchain
         uses: ./source-a/.github/actions/setup-cmux-tui-rust
         with:
           toolchain-file: ${{ env.CANDIDATE_SOURCE }}/cmux-tui/rust-toolchain.toml
+          python-command: ${{ steps.trusted-python.outputs.command }}
 
       - name: Install Rust target and verify toolchains
         shell: bash
@@ -281,6 +634,225 @@ jobs:
             printf 'FIXTURE_PARENT=%s\n' "$fixture_parent"
           } >> "$GITHUB_ENV"
 
+      - name: Download isolated candidate product
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-tui-startup-candidate-${{ matrix.platform }}
+          path: ${{ runner.temp }}/candidate-product-download
+
+      - name: Validate and import candidate product
+        id: imported-candidate
+        shell: bash
+        env:
+          PYTHON_CMD: ${{ steps.trusted-python.outputs.command }}
+          CANDIDATE_DOWNLOAD_ROOT: ${{ runner.temp }}/candidate-product-download
+          EXPECTED_PLATFORM: ${{ matrix.platform }}
+          EXPECTED_BINARY_SUFFIX: ${{ matrix.binary_suffix }}
+        run: |
+          set -euo pipefail
+          export EXPECTED_CANDIDATE_GHOSTTY
+          EXPECTED_CANDIDATE_GHOSTTY="$(git -C "$CANDIDATE_SOURCE/ghostty" rev-parse HEAD)"
+          "$PYTHON_CMD" - <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import re
+          import shutil
+          import stat
+
+          download_root = pathlib.Path(os.environ["CANDIDATE_DOWNLOAD_ROOT"])
+          manifest_path = download_root / "manifest.json"
+          if not manifest_path.is_file() or manifest_path.is_symlink():
+              raise SystemExit("candidate artifact has no regular manifest.json")
+          if manifest_path.stat().st_size > 8 * 1024 * 1024:
+              raise SystemExit("candidate artifact manifest is too large")
+
+          def unique_object(pairs):
+              result = {}
+              for key, value in pairs:
+                  if key in result:
+                      raise ValueError(f"duplicate JSON key: {key}")
+                  result[key] = value
+              return result
+
+          try:
+              manifest = json.loads(
+                  manifest_path.read_text(encoding="utf-8"),
+                  object_pairs_hook=unique_object,
+              )
+          except (OSError, UnicodeError, ValueError) as error:
+              raise SystemExit(f"invalid candidate artifact manifest: {error}") from error
+
+          top_keys = {
+              "schema_version",
+              "platform_label",
+              "candidate_sha",
+              "ghostty_sha",
+              "rust_toolchain",
+              "zig_version",
+              "binary_path",
+              "files",
+          }
+          if not isinstance(manifest, dict) or set(manifest) != top_keys:
+              raise SystemExit("candidate artifact manifest has an unknown or missing field")
+          expected_values = {
+              "schema_version": 1,
+              "platform_label": os.environ["EXPECTED_PLATFORM"],
+              "candidate_sha": os.environ["CANDIDATE_SHA"],
+              "ghostty_sha": os.environ["EXPECTED_CANDIDATE_GHOSTTY"],
+              "rust_toolchain": os.environ["CANDIDATE_RUST_TOOLCHAIN"],
+              "zig_version": os.environ["CANDIDATE_ZIG_VERSION"],
+              "binary_path": f"release/cmux-tui{os.environ['EXPECTED_BINARY_SUFFIX']}",
+          }
+          for key, expected in expected_values.items():
+              if manifest.get(key) != expected:
+                  raise SystemExit(
+                      f"candidate artifact {key} mismatch: {manifest.get(key)!r} != {expected!r}"
+                  )
+
+          files = manifest["files"]
+          if not isinstance(files, list) or not files or len(files) > 50_000:
+              raise SystemExit("candidate artifact file list must contain 1 through 50000 entries")
+          binary_path = pathlib.PurePosixPath(manifest["binary_path"])
+          binary_name = binary_path.name
+          symbol_file_names = {
+              str(pathlib.PurePosixPath("release") / pathlib.PurePosixPath(binary_name).with_suffix(suffix))
+              for suffix in (".pdb", ".dwp", ".debug")
+          }
+          symbol_directory_names = {
+              pathlib.PurePosixPath(binary_name).with_suffix(".dSYM").name,
+              f"{binary_name}.dSYM",
+          }
+
+          def normalized_path(raw):
+              if not isinstance(raw, str) or not raw or "\\" in raw:
+                  raise SystemExit(f"unsafe candidate artifact path: {raw!r}")
+              path = pathlib.PurePosixPath(raw)
+              if path.is_absolute() or any(part in ("", ".", "..") for part in path.parts):
+                  raise SystemExit(f"unsafe candidate artifact path: {raw!r}")
+              if path.as_posix() != raw:
+                  raise SystemExit(f"non-normal candidate artifact path: {raw!r}")
+              return path
+
+          def digest(path):
+              sha256 = hashlib.sha256()
+              with path.open("rb") as source:
+                  for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                      sha256.update(chunk)
+              return sha256.hexdigest()
+
+          records = {}
+          total_size = 0
+          binary_count = 0
+          for record in files:
+              if not isinstance(record, dict) or set(record) != {
+                  "path", "role", "sha256", "size_bytes"
+              }:
+                  raise SystemExit("candidate artifact file record has an unknown or missing field")
+              path = normalized_path(record["path"])
+              raw_path = path.as_posix()
+              if raw_path in records:
+                  raise SystemExit(f"duplicate candidate artifact path: {raw_path}")
+              role = record["role"]
+              if role == "binary":
+                  binary_count += 1
+                  if raw_path != manifest["binary_path"]:
+                      raise SystemExit(f"unexpected candidate binary path: {raw_path}")
+              elif role == "symbol":
+                  is_symbol_file = raw_path in symbol_file_names
+                  is_symbol_tree = (
+                      len(path.parts) >= 3
+                      and path.parts[0] == "release"
+                      and path.parts[1] in symbol_directory_names
+                  )
+                  if not (is_symbol_file or is_symbol_tree):
+                      raise SystemExit(f"unexpected candidate symbol path: {raw_path}")
+              else:
+                  raise SystemExit(f"unknown candidate artifact role: {role!r}")
+              size = record["size_bytes"]
+              checksum = record["sha256"]
+              if not isinstance(size, int) or isinstance(size, bool) or size < 0:
+                  raise SystemExit(f"invalid candidate artifact size: {raw_path}")
+              if not isinstance(checksum, str) or re.fullmatch(r"[0-9a-f]{64}", checksum) is None:
+                  raise SystemExit(f"invalid candidate artifact digest: {raw_path}")
+              total_size += size
+              if total_size > 4 * 1024 * 1024 * 1024:
+                  raise SystemExit("candidate artifact exceeds the 4 GiB import limit")
+              records[raw_path] = record
+          if binary_count != 1:
+              raise SystemExit("candidate artifact must contain exactly one product binary")
+
+          actual_files = set()
+          for path in download_root.rglob("*"):
+              relative = path.relative_to(download_root).as_posix()
+              mode = path.lstat().st_mode
+              if stat.S_ISLNK(mode):
+                  raise SystemExit(f"candidate artifact contains a symlink: {relative}")
+              if stat.S_ISREG(mode):
+                  if relative != "manifest.json":
+                      actual_files.add(relative)
+              elif not stat.S_ISDIR(mode):
+                  raise SystemExit(f"candidate artifact contains an unsafe entry: {relative}")
+          if actual_files != set(records):
+              missing = sorted(set(records) - actual_files)
+              extra = sorted(actual_files - set(records))
+              raise SystemExit(f"candidate artifact file set mismatch; missing={missing}, extra={extra}")
+
+          for raw_path, record in records.items():
+              source = download_root.joinpath(*pathlib.PurePosixPath(raw_path).parts)
+              if source.stat().st_size != record["size_bytes"]:
+                  raise SystemExit(f"candidate artifact size mismatch: {raw_path}")
+              if digest(source) != record["sha256"]:
+                  raise SystemExit(f"candidate artifact digest mismatch: {raw_path}")
+
+          target_root = pathlib.Path(os.environ["CANDIDATE_TARGET_ROOT"])
+          if target_root.exists():
+              raise SystemExit(f"candidate import target already exists: {target_root}")
+          release = target_root
+          if os.environ["RUST_TARGET"]:
+              release /= os.environ["RUST_TARGET"]
+          release /= "release"
+          for raw_path, record in records.items():
+              source = download_root.joinpath(*pathlib.PurePosixPath(raw_path).parts)
+              relative_release = pathlib.PurePosixPath(raw_path).relative_to("release")
+              destination = release.joinpath(*relative_release.parts)
+              destination.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copy2(source, destination)
+              if record["role"] == "binary" and os.name != "nt":
+                  destination.chmod(0o755)
+              if destination.stat().st_size != record["size_bytes"] or digest(destination) != record["sha256"]:
+                  raise SystemExit(f"candidate artifact changed during import: {raw_path}")
+
+          binary_record = records[manifest["binary_path"]]
+          imported_binary = release / binary_name
+          imported_binary_sha256 = digest(imported_binary)
+          if imported_binary_sha256 != binary_record["sha256"]:
+              raise SystemExit("candidate binary content changed while normalizing its executable mode")
+          manifest_sha256 = digest(manifest_path)
+          artifact_root = pathlib.Path(os.environ["ARTIFACT_DIR"])
+          shutil.copy2(manifest_path, artifact_root / "candidate-product-manifest.json")
+          (artifact_root / "candidate-product-validation.json").write_text(
+              json.dumps(
+                  {
+                      "schema_version": 1,
+                      "manifest_sha256": manifest_sha256,
+                      "file_count": len(records),
+                      "total_size_bytes": total_size,
+                      "binary_sha256": binary_record["sha256"],
+                      "imported_binary_sha256": imported_binary_sha256,
+                      "unix_executable_mode_normalized": os.name != "nt",
+                  },
+                  indent=2,
+                  sort_keys=True,
+              ) + "\n",
+              encoding="utf-8",
+          )
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              print(f"binary_sha256={binary_record['sha256']}", file=output)
+              print(f"manifest_sha256={manifest_sha256}", file=output)
+          PY
+
       - name: Capture common runner metadata
         shell: bash
         run: |
@@ -311,9 +883,11 @@ jobs:
       - name: Capture macOS hardware metadata
         if: runner.os == 'macOS'
         shell: bash
+        env:
+          PYTHON_CMD: ${{ steps.trusted-python.outputs.command }}
         run: |
           set -euo pipefail
-          system_profiler SPHardwareDataType -json | python3 -c '
+          system_profiler SPHardwareDataType -json | "$PYTHON_CMD" -c '
           import json
           import sys
 
@@ -369,43 +943,29 @@ jobs:
             [System.Environment]::OSVersion.VersionString
           ) | Set-Content -Encoding utf8 "$env:ARTIFACT_DIR/runner-os.txt"
 
-      - name: Build exact release binaries and trusted benchmark harness
+      - name: Build trusted baseline product and benchmark harness
+        id: trusted-build
         shell: bash
+        env:
+          PYTHON_CMD: ${{ steps.trusted-python.outputs.command }}
         run: |
           set -euo pipefail
+          test "$("$BASELINE_ZIG_BIN" version)" = "$BASELINE_ZIG_VERSION"
+          product_args=(rustup run "$BASELINE_RUST_TOOLCHAIN" cargo build -p cmux-tui --bin cmux-tui --release --locked)
+          if [[ -n "$RUST_TARGET" ]]; then
+            product_args+=(--target "$RUST_TARGET")
+          fi
+          (
+            cd "$BASELINE_SOURCE/cmux-tui"
+            unset CMUX_GHOSTTY_SRC
+            CMUX_TUI_BUILD_COMMIT="$BASELINE_SHA" \
+            CMUX_TUI_GHOSTTY_COMMIT="$(git -C "$BASELINE_SOURCE/ghostty" rev-parse HEAD)" \
+            CARGO_TARGET_DIR="$BASELINE_TARGET_ROOT" \
+            PATH="$(dirname "$BASELINE_ZIG_BIN"):$PATH" \
+              "${product_args[@]}"
+          )
 
-          build_product() {
-            local source="$1"
-            local target_root="$2"
-            local commit="$3"
-            local zig_binary="$4"
-            local zig_version="$5"
-            local ghostty_commit
-            ghostty_commit="$(git -C "$source/ghostty" rev-parse HEAD)"
-            test "$("$zig_binary" version)" = "$zig_version"
-            local args=(cargo build -p cmux-tui --bin cmux-tui --release --locked)
-            if [[ -n "$RUST_TARGET" ]]; then
-              args+=(--target "$RUST_TARGET")
-            fi
-            (
-              cd "$source/cmux-tui"
-              unset CMUX_GHOSTTY_SRC
-              CMUX_TUI_BUILD_COMMIT="$commit" \
-              CMUX_TUI_GHOSTTY_COMMIT="$ghostty_commit" \
-              CARGO_TARGET_DIR="$target_root" \
-              PATH="$(dirname "$zig_binary"):$PATH" \
-                "${args[@]}"
-            )
-          }
-
-          build_product \
-            "$BASELINE_SOURCE" "$BASELINE_TARGET_ROOT" "$BASELINE_SHA" \
-            "$BASELINE_ZIG_BIN" "$BASELINE_ZIG_VERSION"
-          build_product \
-            "$CANDIDATE_SOURCE" "$CANDIDATE_TARGET_ROOT" "$CANDIDATE_SHA" \
-            "$CANDIDATE_ZIG_BIN" "$CANDIDATE_ZIG_VERSION"
-
-          harness_args=(cargo build -p cmux-tui --example startup_benchmark --release --locked)
+          harness_args=(rustup run "$BASELINE_RUST_TOOLCHAIN" cargo build -p cmux-tui --example startup_benchmark --release --locked)
           if [[ -n "$RUST_TARGET" ]]; then
             harness_args+=(--target "$RUST_TARGET")
           fi
@@ -419,7 +979,7 @@ jobs:
               "${harness_args[@]}"
           )
 
-          python3 - <<'PY' >> "$GITHUB_ENV"
+          "$PYTHON_CMD" - <<'PY'
           import hashlib
           import os
           import pathlib
@@ -440,15 +1000,18 @@ jobs:
                       sha256.update(chunk)
               return sha256.hexdigest()
 
-          print(f"BASELINE_BINARY_SHA256={digest(binary('BASELINE_TARGET_ROOT'))}")
-          print(f"CANDIDATE_BINARY_SHA256={digest(binary('CANDIDATE_TARGET_ROOT'))}")
+          baseline_sha256 = digest(binary("BASELINE_TARGET_ROOT"))
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              print(f"binary_sha256={baseline_sha256}", file=output)
           PY
 
       - name: Package profile attribution binaries
         shell: bash
+        env:
+          PYTHON_CMD: ${{ steps.trusted-python.outputs.command }}
         run: |
           set -euo pipefail
-          python3 - <<'PY'
+          "$PYTHON_CMD" - <<'PY'
           import hashlib
           import json
           import os
@@ -531,7 +1094,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          args=(cargo test -p cmux-tui --example startup_benchmark --release --locked)
+          args=(rustup run "$BASELINE_RUST_TOOLCHAIN" cargo test -p cmux-tui --example startup_benchmark --release --locked)
           if [[ -n "$RUST_TARGET" ]]; then
             args+=(--target "$RUST_TARGET")
           fi
@@ -547,6 +1110,9 @@ jobs:
 
       - name: Run paired startup benchmark
         shell: bash
+        env:
+          BASELINE_BINARY_SHA256: ${{ steps.trusted-build.outputs.binary_sha256 }}
+          CANDIDATE_BINARY_SHA256: ${{ steps.imported-candidate.outputs.binary_sha256 }}
         run: |
           set -euo pipefail
           baseline_release="$BASELINE_TARGET_ROOT/release"
@@ -593,18 +1159,23 @@ jobs:
 
       - name: Verify benchmark evidence contract
         shell: bash
+        env:
+          PYTHON_CMD: ${{ steps.trusted-python.outputs.command }}
         run: |
           set -euo pipefail
           EXPECTED_BASELINE_GHOSTTY="$(git -C "$BASELINE_SOURCE/ghostty" rev-parse HEAD)"
           EXPECTED_CANDIDATE_GHOSTTY="$(git -C "$CANDIDATE_SOURCE/ghostty" rev-parse HEAD)"
           export EXPECTED_BASELINE_GHOSTTY EXPECTED_CANDIDATE_GHOSTTY
-          python3 "$BASELINE_SOURCE/cmux-tui/scripts/verify-startup-benchmark.py" \
+          "$PYTHON_CMD" "$BASELINE_SOURCE/cmux-tui/scripts/verify-startup-benchmark.py" \
             "$ARTIFACT_DIR/startup-benchmark.json"
 
       - name: Capture macOS startup profiles
         if: ${{ always() && runner.os == 'macOS' }}
         continue-on-error: true
         shell: bash
+        env:
+          BASELINE_BINARY_SHA256: ${{ steps.trusted-build.outputs.binary_sha256 }}
+          CANDIDATE_BINARY_SHA256: ${{ steps.imported-candidate.outputs.binary_sha256 }}
         run: |
           set +e
           profile_root="$ARTIFACT_DIR/profiles"
@@ -721,6 +1292,9 @@ jobs:
         if: ${{ always() && runner.os == 'Linux' }}
         continue-on-error: true
         shell: bash
+        env:
+          BASELINE_BINARY_SHA256: ${{ steps.trusted-build.outputs.binary_sha256 }}
+          CANDIDATE_BINARY_SHA256: ${{ steps.imported-candidate.outputs.binary_sha256 }}
         run: |
           set +e
           profile_root="$ARTIFACT_DIR/profiles"
@@ -810,6 +1384,9 @@ jobs:
         if: ${{ always() && runner.os == 'Windows' }}
         continue-on-error: true
         shell: pwsh
+        env:
+          BASELINE_BINARY_SHA256: ${{ steps.trusted-build.outputs.binary_sha256 }}
+          CANDIDATE_BINARY_SHA256: ${{ steps.imported-candidate.outputs.binary_sha256 }}
         run: |
           $ErrorActionPreference = "Continue"
           $profileRoot = Join-Path $env:ARTIFACT_DIR "profiles/wpr"
@@ -893,9 +1470,10 @@ jobs:
         shell: bash
         env:
           EVIDENCE_UPLOAD_OUTCOME: ${{ steps.upload_startup_evidence.outcome }}
+          PYTHON_CMD: ${{ steps.trusted-python.outputs.command }}
         run: |
           set +e
-          python3 - <<'PY'
+          "$PYTHON_CMD" - <<'PY'
           import json
           import os
           import pathlib
