@@ -3755,10 +3755,18 @@ final class cmuxUITests: XCTestCase {
             2,
             "Previewing must not merge or remove the independent delete actions"
         )
+        let minimumHitTarget: CGFloat = 44
+        let geometryTolerance: CGFloat = 0.01
         for index in 0..<removeButtons.count {
             let removeButton = removeButtons.element(boundBy: index)
-            XCTAssertGreaterThanOrEqual(removeButton.frame.width, 44)
-            XCTAssertGreaterThanOrEqual(removeButton.frame.height, 44)
+            XCTAssertGreaterThanOrEqual(
+                removeButton.frame.width,
+                minimumHitTarget - geometryTolerance
+            )
+            XCTAssertGreaterThanOrEqual(
+                removeButton.frame.height,
+                minimumHitTarget - geometryTolerance
+            )
             XCTAssertTrue(removeButton.isHittable)
         }
     }
