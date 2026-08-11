@@ -1,7 +1,6 @@
 public import CmuxTerminalCore
 public import Foundation
 internal import CMUXAgentLaunch
-internal import Darwin
 
 /// Resolves one authoritative terminal launch for either process ownership model.
 @MainActor
@@ -42,7 +41,8 @@ public final class TerminalSurfaceLaunchResolver {
             bundleIdentifier: bundleIdentifier,
             ambientEnvironment: ambientEnvironment,
             defaultShellArguments: ["/bin/zsh", "-l"],
-            asynchronousDefaultShellArguments: Self.macOSLoginShellArguments,
+            asynchronousDefaultShellArguments:
+                terminalSurfaceCurrentUserLoginShellArguments,
             agentCommandShimInstallDeadline: dependencies.agentCommandShimInstallDeadline,
             agentCommandShimInstallDeadlineClock: dependencies.agentCommandShimInstallDeadlineClock
         )
@@ -327,20 +327,6 @@ public final class TerminalSurfaceLaunchResolver {
         )
     }
 
-    private nonisolated static func macOSLoginShellArguments() -> [String] {
-        guard let entry = getpwuid(getuid()) else {
-            return ["/bin/zsh", "-l"]
-        }
-        let shell = String(cString: entry.pointee.pw_shell)
-        let name = String(cString: entry.pointee.pw_name)
-        guard !name.isEmpty else {
-            return [shell, "-l"]
-        }
-        return [
-            "/usr/bin/login", "-flp", name,
-            "/bin/bash", "--noprofile", "--norc", "-c", "exec -l \(shell)"
-        ]
-    }
 }
 
 /// Owns a best-effort shim install without making terminal launch wait for a
