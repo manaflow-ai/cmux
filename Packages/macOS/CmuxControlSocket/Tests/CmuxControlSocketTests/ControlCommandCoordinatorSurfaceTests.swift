@@ -149,6 +149,57 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(payload["workspace_id"] == .string(workspaceID.uuidString))
     }
 
+    @Test func backendSubmittedSurfaceCreatesReturnDistinctReservedIdentities() throws {
+        let workspaceID = UUID()
+        let paneID = UUID()
+        let firstRequestID = UUID()
+        let firstSurfaceID = UUID()
+        let secondRequestID = UUID()
+        let secondSurfaceID = UUID()
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        context.createResolution = .submittedToBackend(
+            requestID: firstRequestID,
+            windowID: nil,
+            workspaceID: workspaceID,
+            paneID: paneID,
+            surfaceID: firstSurfaceID,
+            typeRawValue: "terminal"
+        )
+        let firstResult = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.create",
+            params: ["type": .string("terminal")]
+        ))
+        context.createResolution = .submittedToBackend(
+            requestID: secondRequestID,
+            windowID: nil,
+            workspaceID: workspaceID,
+            paneID: paneID,
+            surfaceID: secondSurfaceID,
+            typeRawValue: "terminal"
+        )
+        let secondResult = coordinator.handle(ControlRequest(
+            id: .int(2),
+            method: "surface.create",
+            params: ["type": .string("terminal")]
+        ))
+
+        guard case .ok(.object(let firstPayload)) = firstResult,
+              case .ok(.object(let secondPayload)) = secondResult else {
+            Issue.record("expected submitted backend creation payloads")
+            return
+        }
+        #expect(firstPayload["request_id"] == .string(firstRequestID.uuidString))
+        #expect(firstPayload["pane_id"] == .string(paneID.uuidString))
+        #expect(firstPayload["surface_id"] == .string(firstSurfaceID.uuidString))
+        #expect(secondPayload["request_id"] == .string(secondRequestID.uuidString))
+        #expect(secondPayload["pane_id"] == .string(paneID.uuidString))
+        #expect(secondPayload["surface_id"] == .string(secondSurfaceID.uuidString))
+        #expect(firstPayload["surface_id"] != secondPayload["surface_id"])
+    }
+
     @Test func surfaceCreateDockUnsupportedTypeReturnsInvalidParams() throws {
         let (coordinator, context) = coordinator(createResolution: .dockUnsupportedType(
             typeRawValue: "agentSession",
