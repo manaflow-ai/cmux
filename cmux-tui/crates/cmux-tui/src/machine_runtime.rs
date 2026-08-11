@@ -623,6 +623,7 @@ impl MachineConnectionHub {
                         deadline: Instant::now() + MACHINE_CONNECTION_TIMEOUT,
                         cancellation: Arc::new(MachineConnectCancellation::default()),
                     };
+                    let attempt_id = attempt.id;
                     slot.active_attempt = Some(attempt.clone());
                     slot.state = MachineConnectionState::Connecting;
                     drop(slots);
@@ -633,7 +634,7 @@ impl MachineConnectionHub {
                             && slot
                                 .active_attempt
                                 .as_ref()
-                                .is_some_and(|active| active.id == attempt.id)
+                                .is_some_and(|active| active.id == attempt_id)
                         {
                             slot.active_attempt = None;
                             slot.state = MachineConnectionState::Failed(message);
