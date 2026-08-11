@@ -121,6 +121,14 @@ final class PaneDropTargetView: NSView {
         clearActiveDropContainer()
     }
 
+    override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        guard let dropContext else {
+            clearActiveDropContainer()
+            return false
+        }
+        return dropContainer(for: dropContext) != nil
+    }
+
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         let modifierFlags = DragOverlayRoutingPolicy.currentModifierFlags
         defer {
@@ -136,7 +144,7 @@ final class PaneDropTargetView: NSView {
             return false
         }
 
-        guard let container = cachedDropContainer(for: dropContext) else {
+        guard let container = dropContainer(for: dropContext) else {
 #if DEBUG
             cmuxDebugLog("terminal.paneDrop.perform allowed=0 reason=missingContainer")
 #endif
@@ -232,7 +240,7 @@ final class PaneDropTargetView: NSView {
         return handled
     }
 
-    /// Resolves the current drag operation using the cached entry-time owner.
+    /// Resolves the current drag operation using the owner fixed for this context.
     private func updateDragState(
         _ sender: any NSDraggingInfo,
         phase: String
@@ -248,7 +256,7 @@ final class PaneDropTargetView: NSView {
             return []
         }
 
-        guard let container = cachedDropContainer(for: dropContext) else {
+        guard let container = dropContainer(for: dropContext) else {
             clearDragState(phase: "\(phase).reject")
             return []
         }
@@ -328,12 +336,14 @@ final class PaneDropTargetView: NSView {
         return container
     }
 
-    /// Reuses the entry-time owner during drag updates and drop execution.
-    private func cachedDropContainer(
+    /// Reuses the active owner, resolving it once when overlay forwarding starts late.
+    private func dropContainer(
         for context: PaneDropContext
     ) -> (any PaneDropContainer)? {
-        guard activeDropContainerContext == context else { return nil }
-        return activeDropContainer
+        if activeDropContainerContext == context {
+            return activeDropContainer
+        }
+        return resolveAndCacheDropContainer(for: context)
     }
 
     /// Releases cached ownership when the drag or target context ends.
