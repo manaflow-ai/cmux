@@ -5,7 +5,7 @@ import CmuxMobileSupport
 import SwiftUI
 
 /// A short product tour that routes into authentication after the tour, then
-/// same-account computer discovery, with QR available only as fallback.
+/// same-account computer discovery, with pairing available for Tailscale.
 struct OnboardingFlowView: View {
     let context: OnboardingContext
     let isAuthenticated: Bool
@@ -15,7 +15,7 @@ struct OnboardingFlowView: View {
     let onReachedConnection: () -> Void
     let onSkip: () -> Void
     let onRetryConnection: () -> Void
-    let onStartFallbackPairing: () -> Void
+    let onStartTailscalePairing: () -> Void
     let onComplete: () -> Void
 
     @State private var stage: OnboardingStage
@@ -32,7 +32,7 @@ struct OnboardingFlowView: View {
         onReachedConnection: @escaping () -> Void,
         onSkip: @escaping () -> Void,
         onRetryConnection: @escaping () -> Void,
-        onStartFallbackPairing: @escaping () -> Void,
+        onStartTailscalePairing: @escaping () -> Void,
         onComplete: @escaping () -> Void
     ) {
         self.context = context
@@ -43,7 +43,7 @@ struct OnboardingFlowView: View {
         self.onReachedConnection = onReachedConnection
         self.onSkip = onSkip
         self.onRetryConnection = onRetryConnection
-        self.onStartFallbackPairing = onStartFallbackPairing
+        self.onStartTailscalePairing = onStartTailscalePairing
         self.onComplete = onComplete
         _stage = State(initialValue: initialStage)
     }
@@ -183,15 +183,12 @@ struct OnboardingFlowView: View {
         }
     }
 
-    /// Secondary is "Use QR Code Instead" in the automatic fallback, but
-    /// "Check Again" when Tailscale owns the primary scan action.
+    /// Tailscale's secondary action retries discovery. Auto-Connect has no
+    /// secondary manual-pairing action.
     private func handleSecondary() {
-        if connectionMethod == .tailscale, connectionPhase == .fallback {
-            analytics.capture("ios_onboarding_connection_retried", eventProperties)
-            onRetryConnection()
-            return
-        }
-        startFallbackPairing()
+        guard connectionMethod == .tailscale, connectionPhase == .fallback else { return }
+        analytics.capture("ios_onboarding_connection_retried", eventProperties)
+        onRetryConnection()
     }
 
     private func selectConnectionMethod(_ method: MobileConnectionMethod) {
@@ -206,19 +203,12 @@ struct OnboardingFlowView: View {
         var properties = eventProperties
         properties["source"] = .string("tailscale_choice")
         analytics.capture("ios_onboarding_pairing_started", properties)
-        onStartFallbackPairing()
+        onStartTailscalePairing()
     }
 
     private func finishBeforeAuthentication() {
         analytics.capture("ios_onboarding_tour_completed", eventProperties)
         onComplete()
-    }
-
-    private func startFallbackPairing() {
-        var properties = eventProperties
-        properties["source"] = .string("qr_fallback")
-        analytics.capture("ios_onboarding_pairing_started", properties)
-        onStartFallbackPairing()
     }
 
     private func captureSceneViewed() {

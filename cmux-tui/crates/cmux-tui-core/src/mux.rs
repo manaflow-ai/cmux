@@ -30134,7 +30134,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn pending_topology_accepts_current_host_reconnect_without_advancing_lifecycle() {
+    fn pending_topology_accepts_reconnect_for_the_exact_live_host() {
         const TERMINAL: &str = "00000000000040008000000000000012";
         const INCARNATION: &str = "10000000000040008000000000000012";
         const PENDING_SURFACE: SurfaceId = 4242;
@@ -30160,40 +30160,27 @@ mod tests {
                 },
             )
             .unwrap();
+            commit_terminal_lifecycle(
+                &mut registry,
+                "terminal-ready",
+                "terminal-ready",
+                TERMINAL,
+                TerminalLifecycle::Running,
+                Some(INCARNATION),
+                None,
+            )
+            .unwrap();
         }
-
-        assert!(mux.terminal_host_connection_lost(PENDING_SURFACE, &identity));
-        assert!(mux.terminal_host_reconnected(
+        let surface = Surface::spawn_for_test_with_terminal_host_identity(
             PENDING_SURFACE,
-            &identity,
-            KittyGraphicsLimits::disabled(),
-        ));
-        assert_eq!(
-            mux.workspace_registry
-                .lock()
-                .unwrap()
-                .terminal_record(TERMINAL)
-                .unwrap()
-                .unwrap()
-                .lifecycle,
-            TerminalLifecycle::Launching
-        );
-
-        mux.transition_terminal_lifecycle(
-            "terminal-adopting",
-            "test-adoption",
-            TERMINAL,
-            TerminalLifecycle::Adopting,
-            Some(INCARNATION),
-            None,
+            mux.surface_options.lock().unwrap().clone(),
+            Arc::downgrade(&mux),
+            identity.clone(),
         )
         .unwrap();
+        insert_surface_checked(&mux, &mut mux.state.lock().unwrap(), surface).unwrap();
+
         assert!(mux.terminal_host_connection_lost(PENDING_SURFACE, &identity));
-        assert!(mux.terminal_host_reconnected(
-            PENDING_SURFACE,
-            &identity,
-            KittyGraphicsLimits::disabled(),
-        ));
         assert_eq!(
             mux.workspace_registry
                 .lock()
@@ -30204,6 +30191,22 @@ mod tests {
                 .lifecycle,
             TerminalLifecycle::Adopting
         );
+        assert!(mux.terminal_host_reconnected(
+            PENDING_SURFACE,
+            &identity,
+            KittyGraphicsLimits::disabled(),
+        ));
+        assert_eq!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .terminal_record(TERMINAL)
+                .unwrap()
+                .unwrap()
+                .lifecycle,
+            TerminalLifecycle::Running
+        );
+        mux.shutdown().unwrap();
     }
 
     #[test]
