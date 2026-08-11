@@ -69,6 +69,57 @@ struct SSHPTYAttachNoProgressRetryTests {
         #expect(loggedBudget == "0/3\n")
     }
 
+    @Test("A no-progress retry resets terminal reporting modes before reattaching")
+    func noProgressRetryResetsTerminalModesBeforeReattaching() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-no-progress-terminal-reset-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let attemptFile = root.appendingPathComponent("attempts")
+        let scriptFile = root.appendingPathComponent("loop.sh")
+        let retryLines = SSHPTYAttachExitCode.noProgressRetryLoopLines(
+            command: "cmux_test_attach"
+        )
+        try Self.writeShellFile(at: scriptFile, lines: [
+            "cmux_test_attach() {",
+            "  count=$(cat \"$CMUX_TEST_ATTEMPT_FILE\" 2>/dev/null || printf 0)",
+            "  count=$((count + 1))",
+            "  printf '%s' \"$count\" > \"$CMUX_TEST_ATTEMPT_FILE\"",
+            "  printf 'attempt:%s\\n' \"$count\" >&2",
+            "  if [ \"$count\" -eq 1 ]; then return \(SSHPTYAttachExitCode.bridgeClosedWithoutProgress.rawValue); fi",
+            "  return 0",
+            "}",
+        ] + retryLines)
+
+        let execution = Self.run(
+            command: "/usr/bin/script -q -F /dev/null /bin/sh \(Self.shellQuote(scriptFile.path)) 1>&2",
+            environment: ["CMUX_TEST_ATTEMPT_FILE": attemptFile.path]
+        )
+
+        #expect(!execution.timedOut, Comment(rawValue: execution.stderr))
+        #expect(execution.status == 0, Comment(rawValue: execution.stderr))
+        let secondAttempt = execution.stderr.range(of: "attempt:2")
+        #expect(secondAttempt != nil, Comment(rawValue: execution.stderr))
+        let requiredResets = [
+            "\u{1B}[?1004l", // focus reporting
+            "\u{1B}[?1000l", // mouse reporting
+            "\u{1B}[?2004l", // bracketed paste
+            "\u{1B}[999<u", // Kitty keyboard stack
+            "\u{1B}[0;1=u", // Kitty keyboard flags
+            "\u{1B}[?2048l", // in-band resize reports
+            "\u{1B}[?2026l", // synchronized output
+        ]
+        for reset in requiredResets {
+            let resetRange = execution.stderr.range(of: reset)
+            #expect(resetRange != nil, Comment(rawValue: execution.stderr))
+            if let resetRange, let secondAttempt {
+                #expect(resetRange.lowerBound < secondAttempt.lowerBound)
+            }
+        }
+    }
+
     @Test("Output or a sustained connection proves bridge progress")
     func bridgeProgressClassification() {
         #expect(
