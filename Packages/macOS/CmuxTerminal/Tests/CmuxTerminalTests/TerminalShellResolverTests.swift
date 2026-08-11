@@ -107,6 +107,20 @@ struct TerminalShellResolverTests {
     }
 
     @Test
+    func inheritedSurfaceDirectCommandKeepsItsArgumentLaunchForm() {
+        let launchForm = TerminalLaunchCommandPolicy().resolve(
+            initialCommand: nil,
+            surfaceCommand: "direct:/usr/local/bin/nu --login",
+            userGhosttyCommand: nil,
+            managedShellCommand: nil,
+            resolvedShell: "/bin/zsh"
+        )
+
+        #expect(launchForm?.command == nil)
+        #expect(launchForm?.arguments == ["/usr/local/bin/nu", "--login"])
+    }
+
+    @Test
     func ghosttyDirectCommandTreatsQuotesAsLiteralCharacters() {
         let configuredCommand = GhosttyConfiguredCommand(
             rawValue: "direct:/bin/zsh -c 'printf hello world'"
