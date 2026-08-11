@@ -6,6 +6,8 @@ on:
       - main
     paths:
       - "cmux-tui/**"
+      - "ghostty"
+      - "scripts/ghostty-zig-version.sh"
       - ".github/actions/setup-cmux-tui-rust/**"
       - ".github/workflows/cmux-tui-nightly.yml"
       - ".github/workflows/cmux-tui-release-cut.yml"
@@ -27,6 +29,8 @@ on:
   pull_request:
     paths:
       - "cmux-tui/**"
+      - "ghostty"
+      - "scripts/ghostty-zig-version.sh"
       - ".github/actions/setup-cmux-tui-rust/**"
       - ".github/workflows/cmux-tui-nightly.yml"
       - ".github/workflows/cmux-tui-release-cut.yml"
@@ -505,10 +509,18 @@ jobs:
           "$JAVA_HOME_17_X64/bin/java" -version
           "$JAVA_HOME_17_X64/bin/javac" -version
 
+      - name: Resolve Ghostty Zig version
+        id: ghostty-zig-version
+        shell: bash
+        run: |
+          source scripts/ghostty-zig-version.sh
+          version="$(ghostty_minimum_zig_version "$GITHUB_WORKSPACE")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - name: Set up Zig for Ghostty
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
-          version: 0.16.0
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
 
       - name: Install TypeScript adapter build tools
         working-directory: cmux-tui/bindings/typescript
@@ -517,7 +529,7 @@ jobs:
       - name: Build exact headless cmux-tui
         working-directory: cmux-tui
         run: |
-          test "$(zig version)" = "0.16.0"
+          test "$(zig version)" = "${{ steps.ghostty-zig-version.outputs.version }}"
           cargo build -p cmux-tui --bin cmux-tui --locked
 
       - name: Set up Zig for SDK conformance

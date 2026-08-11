@@ -93,6 +93,7 @@ def main() -> int:
             subprocess.run(
                 [str(binary), test_name, "--exact", "--test-threads=1"],
                 check=True,
+                cwd=core_root,
             )
             total += 1
     print(f"Passed {total} isolated cmux-tui-core tests")

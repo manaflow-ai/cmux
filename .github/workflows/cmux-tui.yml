@@ -122,13 +122,13 @@ jobs:
     needs: validate-inputs
     if: inputs.mode == 'full'
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    # Full behavior stays in the normal macOS and Linux suites. Valgrind owns
-    # the bounded startup parsers and terminal replay state only.
+    # Split the complete workspace leak check across two runners. Every test
+    # binary reported by Cargo is assigned to exactly one shard.
     timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
-        shard: [startup]
+        shard: [startup, remainder]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -172,7 +172,7 @@ jobs:
           import sys
 
           shard = os.environ["VALGRIND_SHARD"]
-          known_shards = {"startup"}
+          known_shards = {"startup", "remainder"}
           if shard not in known_shards:
               raise SystemExit(f"unknown Valgrind shard: {shard}")
 
@@ -180,7 +180,7 @@ jobs:
               name = os.path.basename(executable)
               if re.fullmatch(r"(?:cmux_tui|terminal)-[0-9a-f]+", name):
                   return "startup"
-              return None
+              return "remainder"
 
           seen = set()
           selected = []
@@ -214,92 +214,25 @@ jobs:
           )
           PY
 
-      - name: Verify baseline terminal replay behavior
-        if: matrix.shard == 'startup'
-        working-directory: cmux-tui
-        run: |
-          matches=0
-          while IFS= read -r bin; do
-            [ -n "$bin" ] || continue
-            case "$(basename "$bin")" in
-              terminal-*)
-                if ! "$bin" --list \
-                  | grep -Fqx 'pending_wrap_replay_preserves_cursor_with_origin_mode: test'; then
-                  echo "::error::terminal replay test binary does not contain the exact baseline test" >&2
-                  exit 1
-                fi
-                "$bin" pending_wrap_replay_preserves_cursor_with_origin_mode \
-                  --exact \
-                  --test-threads=1
-                matches=$((matches + 1))
-                ;;
-            esac
-          done < target/valgrind-test-binaries.txt
-          if [[ "$matches" -ne 1 ]]; then
-            echo "::error::expected one terminal integration test binary, found $matches" >&2
-            exit 1
-          fi
-
       - name: Run test binaries under valgrind
         working-directory: cmux-tui
+        env:
+          # Valgrind slows all instructions. Keep the same final failure
+          # thresholds used by the former complete-workspace leak check.
+          CMUX_TEST_WS_LATENCY_BUDGET_MS: "2000"
+          CMUX_TEST_TIMEOUT_SCALE: "4"
         run: |
-          run_valgrind() {
-            local bin="$1"
-            shift
+          while IFS= read -r bin; do
+            [ -n "$bin" ] || continue
+            echo "Running valgrind for $bin"
             valgrind \
-              "${valgrind_args[@]}" \
               --error-exitcode=1 \
               --leak-check=full \
               --show-leak-kinds=definite \
               --errors-for-leak-kinds=definite \
-              -- "$bin" "$@"
-          }
-
-          require_exact_test() {
-            local bin="$1"
-            local test_name="$2"
-            if ! "$bin" --list | grep -Fqx "$test_name: test"; then
-              echo "::error::$(basename "$bin") does not contain exact test '$test_name'" >&2
-              exit 1
-            fi
-          }
-
-          cmux_tui_bin=""
-          terminal_bin=""
-          while IFS= read -r bin; do
-            case "$(basename "$bin")" in
-              cmux_tui-*) cmux_tui_bin="$bin" ;;
-              terminal-*) terminal_bin="$bin" ;;
-            esac
+              --track-origins=yes \
+              -- "$bin"
           done < target/valgrind-test-binaries.txt
-          if [[ -z "$cmux_tui_bin" || -z "$terminal_bin" ]]; then
-            echo "::error::startup memory check did not find both test binaries" >&2
-            exit 1
-          fi
-
-          valgrind_args=(--track-origins=yes)
-          require_exact_test \
-            "$terminal_bin" \
-            pending_wrap_replay_preserves_cursor_with_origin_mode
-          run_valgrind \
-            "$terminal_bin" \
-            pending_wrap_replay_preserves_cursor_with_origin_mode \
-            --exact \
-            --test-threads=1
-
-          startup_tests=(
-            config::tests::load_uses_file_ghostty_defaults_without_invoking_external_resolver
-            config::tests::ghostty_file_reader_enforces_byte_limit_during_read
-            config::tests::ghostty_config_helper_output_reader_enforces_byte_limit
-          )
-          for test_name in "${startup_tests[@]}"; do
-            require_exact_test "$cmux_tui_bin" "$test_name"
-            run_valgrind \
-              "$cmux_tui_bin" \
-              "$test_name" \
-              --exact \
-              --test-threads=1
-          done
 
   valgrind-leak-check:
     name: valgrind-leak-check
