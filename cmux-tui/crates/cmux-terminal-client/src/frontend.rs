@@ -5,7 +5,6 @@ use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use bytes::Bytes;
 use cmux_remote::mux_codec::{MuxLineAssembler, encode_line};
 use cmux_remote::service::{ServiceMultiplexer, ServiceStream, StreamChunk};
 use cmux_remote_protocol::{
@@ -18,7 +17,7 @@ use tokio::sync::{Notify, oneshot};
 
 use super::{
     ActiveTerminal, ClientState, ClientUpdates, ConnectedTransport, TerminalUpdateCallback,
-    bytes_from_ffi, connect_transport, connect_with_timeout, copy_utf8, encode_frame,
+    bytes_from_ffi, connect_transport, connect_with_timeout, copy_utf8, enqueue_active_terminal,
     open_terminal_stream_with_timeout_and_cancel, start_terminal_tasks, terminal_id_from_ffi,
 };
 
@@ -1171,13 +1170,9 @@ pub unsafe extern "C" fn cmux_frontend_terminal_discard_render_events(
 }
 
 fn enqueue_terminal(terminal: &CmuxFrontendTerminal, frame: Frame) -> bool {
-    let Ok(encoded) = encode_frame(&frame) else { return false };
     let active = terminal.active.lock().unwrap();
     let Some(active) = active.as_ref() else { return false };
-    if active.closed.load(Ordering::Acquire) {
-        return false;
-    }
-    active.command_sender.try_send(Bytes::from(encoded)).is_ok()
+    enqueue_active_terminal(active, &terminal.state, frame)
 }
 
 /// Registers a signal-only callback for one terminal's rendered state.
@@ -1238,7 +1233,13 @@ pub unsafe extern "C" fn cmux_frontend_terminal_send_key(
             return false;
         }
     };
-    let encoded_result = terminal.state.lock().unwrap().encode_key(chord, repeat);
+    let encoded_result = {
+        let mut state = terminal.state.lock().unwrap();
+        if !super::client_state_accepts_terminal_commands(&state) {
+            return false;
+        }
+        state.encode_key(chord, repeat)
+    };
     let encoded = match encoded_result {
         Ok(encoded) => encoded,
         Err(error) => {
