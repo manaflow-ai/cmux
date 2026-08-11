@@ -22,6 +22,10 @@ fn workspace(id: u64, key: &str, name: &str) -> RegistryWorkspace {
 }
 
 fn seed_workspace(registry: &mut WorkspaceRegistry, key: &str) {
+    seed_workspace_with_id(registry, 1, key);
+}
+
+fn seed_workspace_with_id(registry: &mut WorkspaceRegistry, id: u64, key: &str) {
     registry
         .commit(
             &WorkspaceMutation::new(format!("create-{key}"), "test").unwrap(),
@@ -30,7 +34,7 @@ fn seed_workspace(registry: &mut WorkspaceRegistry, key: &str) {
             Some(registry.snapshot().unwrap().revision),
             "workspace-added",
             key,
-            &[workspace(1, key, "Workspace")],
+            &[workspace(id, key, "Workspace")],
             &json!({"key":key}),
         )
         .unwrap();
@@ -146,7 +150,11 @@ fn resource_event_replay_pages_a_far_behind_cursor() {
 
     let mut registry = WorkspaceRegistry::in_memory("bounded-resource-replay").unwrap();
     for index in 0..EVENT_COUNT {
-        seed_workspace(&mut registry, &format!("bounded-resource-replay-{index}"));
+        seed_workspace_with_id(
+            &mut registry,
+            u64::try_from(index + 1).unwrap(),
+            &format!("bounded-resource-replay-{index}"),
+        );
     }
 
     let page = registry.resource_events_after(0).unwrap();
@@ -3064,30 +3072,34 @@ fn current_schema_normalizes_legacy_single_view_resource_tabs() {
 }
 
 #[test]
-fn schema_eight_rejects_multiple_live_views_for_one_browser() {
-    let root = temp_root("schema-eight-duplicate-browser-views");
+fn multiview_migration_rejects_multiple_live_views_for_one_browser() {
+    let root = temp_root("multiview-duplicate-browser-views");
     let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    let browser = browser_id(1);
     {
         let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
-        commit_terminal_topology(&mut registry, "duplicate-browser-seed");
+        commit_terminal_topology(&mut registry, "duplicate-browser-terminal-seed");
+        commit_browser_topology(
+            &mut registry,
+            "duplicate-browser-seed",
+            RegistryBrowser::recreate(browser.clone(), "https://cmux.dev".into(), 80, 24),
+        );
     }
     let legacy = Connection::open(&database).unwrap();
     legacy
         .execute_batch(
             "PRAGMA foreign_keys=OFF;
              DROP INDEX live_resource_browser_view;
-             CREATE INDEX live_resource_browser_view ON resource_tabs(content_id);
-             UPDATE resource_tabs SET content_kind = 'browser';
-             UPDATE meta SET value = '8' WHERE key = 'schema_version';",
+             CREATE INDEX live_resource_browser_view ON resource_tabs(content_id);",
         )
         .unwrap();
-    let second_tab = tab_id(2);
+    let duplicate_tab = tab_id(3);
     legacy
         .execute(
             "INSERT INTO resource_identities(
                public_id, kind, created_revision, updated_revision, deleted_revision
-             ) VALUES(?1, 'tab', 1, 1, NULL)",
-            [second_tab.as_str()],
+             ) VALUES(?1, 'tab', 2, 2, NULL)",
+            [duplicate_tab.as_str()],
         )
         .unwrap();
     legacy
@@ -3095,23 +3107,29 @@ fn schema_eight_rejects_multiple_live_views_for_one_browser() {
             "INSERT INTO resource_tabs(
                public_id, pane_id, position, content_kind, content_id, name,
                created_revision, updated_revision, deleted_revision
-             ) VALUES(?1, ?2, 1, 'browser', ?3, NULL, 1, 1, NULL)",
-            params![
-                second_tab.as_str(),
-                pane_id(1).as_str(),
-                terminal_resource(TERMINAL_ONE).as_str()
-            ],
+             ) VALUES(?1, ?2, 1, 'browser', ?3, NULL, 2, 2, NULL)",
+            params![duplicate_tab.as_str(), pane_id(2).as_str(), browser.as_str()],
         )
         .unwrap();
-    drop(legacy);
-
-    let error = WorkspaceRegistry::open(&root, "session").unwrap_err();
+    let live_views = legacy
+        .query_row(
+            "SELECT COUNT(*) FROM resource_tabs
+             WHERE content_kind = 'browser' AND content_id = ?1 AND deleted_revision IS NULL",
+            [browser.as_str()],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap();
+    assert_eq!(live_views, 2, "fixture must contain two live views of one valid browser");
+    let migration = legacy.unchecked_transaction().unwrap();
+    let error = migrate_resource_tabs_to_multiview(&migration).unwrap_err();
     assert!(
         error
             .to_string()
             .contains("workspace registry contains multiple live views for one browser"),
-        "unexpected migration error: {error:#}"
+        "{error:#}"
     );
+    drop(migration);
+    drop(legacy);
     fs::remove_dir_all(root).unwrap();
 }
 
