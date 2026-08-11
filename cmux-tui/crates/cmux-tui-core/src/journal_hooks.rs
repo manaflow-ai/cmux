@@ -902,7 +902,7 @@ fn execute_delivery_with_shutdown(
     }
     #[cfg(unix)]
     tree.configure(&mut command);
-    let mut child = match command.spawn() {
+    let mut child = match cmux_tui_process::spawn(&mut command) {
         Ok(child) => child,
         Err(error) => return (None, Some(format!("start hook executable: {error}"))),
     };

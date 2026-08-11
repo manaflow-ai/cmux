@@ -744,7 +744,8 @@ fn run_hermes_command_with_timeout(
     command.creation_flags(CREATE_SUSPENDED);
     #[cfg(unix)]
     tree.configure(&mut command);
-    let mut child = command.spawn().with_context(|| format!("run {}", binary.display()))?;
+    let mut child = cmux_tui_process::spawn(&mut command)
+        .with_context(|| format!("run {}", binary.display()))?;
     #[cfg(unix)]
     if let Err(error) = tree.bind(child.id()) {
         tree.terminate_until(deadline);
