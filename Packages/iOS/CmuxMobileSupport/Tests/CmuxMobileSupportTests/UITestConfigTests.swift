@@ -394,4 +394,5 @@ import Testing
             environment: ["CMUX_UITEST_SCANNER_PREVIEW": "0"]
         ).pairingScannerPreviewEnabled == false)
     }
-    #endif}
+    #endif
+}
