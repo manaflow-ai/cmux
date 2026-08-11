@@ -3085,7 +3085,7 @@ fn multiview_migration_rejects_multiple_live_views_for_one_browser() {
             RegistryBrowser::recreate(browser.clone(), "https://cmux.dev".into(), 80, 24),
         );
     }
-    let mut legacy = Connection::open(&database).unwrap();
+    let legacy = Connection::open(&database).unwrap();
     legacy
         .execute_batch(
             "PRAGMA foreign_keys=OFF;
@@ -3121,7 +3121,7 @@ fn multiview_migration_rejects_multiple_live_views_for_one_browser() {
         .unwrap();
     assert_eq!(live_views, 2, "fixture must contain two live views of one valid browser");
     let migration = legacy.unchecked_transaction().unwrap();
-    let error = resource_store::migrate_resource_tabs_to_multiview(&migration).unwrap_err();
+    let error = migrate_resource_tabs_to_multiview(&migration).unwrap_err();
     assert!(
         error
             .to_string()
