@@ -41,6 +41,12 @@ actor RoutingHostRouter {
         var surfaceID: String
         var text: String
     }
+    struct UploadRecord: Sendable, Equatable {
+        var uploadID: String
+        var operationID: String
+        var fileName: String
+        var bytes: Data
+    }
     struct WorkspaceCreateRecord: Sendable, Equatable {
         var groupID: String?
         var title: String?
@@ -50,6 +56,12 @@ actor RoutingHostRouter {
         var operationID: String? = nil
     }
     private(set) var pasteImages: [PasteImageRecord] = []
+    private var uploadFileNames: [String: String] = [:]
+    private var uploadOperationIDs: [String: String] = [:]
+    private var uploadTotalBytes: [String: Int] = [:]
+    private var uploadOffsets: [String: Int] = [:]
+    private var uploadBytes: [String: Data] = [:]
+    private var completedUploads: [UploadRecord] = []
     private(set) var pastes: [PasteRecord] = []
     let terminalInputRecorder = RoutingTerminalInputRecorder()
     private(set) var directorySearchQueries: [String] = []
@@ -58,6 +70,7 @@ actor RoutingHostRouter {
     private var workspaceCreates: [WorkspaceCreateRecord] = []
     /// Reject the Nth (0-based) and later paste_image requests; `nil` accepts all.
     private var rejectPasteImageFromIndex: Int?
+    private var terminalPasteError: (code: String?, message: String)?
     private var holdFirstPasteImage = false
     private var firstPasteImageHeld = false
     private var firstPasteImageContinuation: CheckedContinuation<Void, Never>?
@@ -91,6 +104,10 @@ actor RoutingHostRouter {
     /// acknowledged attachments.
     func rejectPasteImage(fromIndex index: Int) {
         rejectPasteImageFromIndex = index
+    }
+
+    func setTerminalPasteError(code: String?, message: String) {
+        terminalPasteError = (code, message)
     }
 
     /// Park the FIRST paste_image response until ``releaseFirstPasteImage()``,
@@ -162,6 +179,7 @@ actor RoutingHostRouter {
 
     func recordedPasteImages() -> [PasteImageRecord] { pasteImages }
     func recordedPastes() -> [PasteRecord] { pastes }
+    func recordedUploads() -> [UploadRecord] { completedUploads }
     func recordedDirectorySearchQueries() -> [String] { directorySearchQueries }
     func recordedDirectoryListRequests() -> [(path: String, offset: Int, limit: Int)] {
         directoryListRequests
@@ -186,10 +204,53 @@ actor RoutingHostRouter {
         var initialCommand: String?
         var initialEnv: [String: String]?
         var operationID: String?
+        var uploadID: String?
+        var fileName: String?
+        var totalBytes: Int?
+        var uploadOffset: Int?
+        var uploadDataBase64: String?
+        var uploadIsLast: Bool?
         var query: String?
         var directoryPath: String?
         var directoryOffset: Int?
         var directoryLimit: Int?
+
+        static func attachmentUpload(
+            operationID: UUID,
+            uploadID: UUID,
+            fileName: String,
+            totalBytes: Int,
+            offset: Int,
+            data: Data,
+            isLast: Bool
+        ) -> Self {
+            Self(
+                method: "mobile.task.attachment.upload",
+                id: UUID().uuidString,
+                streamID: nil,
+                surfaceID: nil,
+                imageFormat: nil,
+                text: nil,
+                notificationIDs: nil,
+                clientID: nil,
+                groupID: nil,
+                title: nil,
+                workingDirectory: nil,
+                initialCommand: nil,
+                initialEnv: nil,
+                operationID: operationID.uuidString,
+                uploadID: uploadID.uuidString,
+                fileName: fileName,
+                totalBytes: totalBytes,
+                uploadOffset: offset,
+                uploadDataBase64: data.base64EncodedString(),
+                uploadIsLast: isLast,
+                query: nil,
+                directoryPath: nil,
+                directoryOffset: nil,
+                directoryLimit: nil
+            )
+        }
     }
 
     func response(_ info: RequestInfo) async -> Data? {
@@ -349,9 +410,78 @@ actor RoutingHostRouter {
                 "total_count": allEntries.count,
                 "next_offset": end < allEntries.count ? end : NSNull() as Any,
             ])
-        case "terminal.paste_image":
+        case "mobile.task.attachment.upload":
+            guard let operationID = info.operationID,
+                  UUID(uuidString: operationID) != nil,
+                  let uploadID = info.uploadID,
+                  UUID(uuidString: uploadID) != nil,
+                  let fileName = info.fileName,
+                  let totalBytes = info.totalBytes,
+                  let offset = info.uploadOffset,
+                  let encoded = info.uploadDataBase64,
+                  let chunk = Data(base64Encoded: encoded),
+                  let isLast = info.uploadIsLast,
+                  offset + chunk.count <= totalBytes,
+                  !isLast || offset + chunk.count == totalBytes else {
+                return try? Self.errorFrame(id: id, message: "invalid upload chunk")
+            }
+            // Production treats its completion record as authoritative before
+            // inspecting chunk state. A delivery retry starts again at offset
+            // zero with the same identities and receives the completed receipt
+            // immediately, without rewriting the finalized bytes.
+            if let completed = completedUploads.first(where: {
+                $0.uploadID == uploadID && $0.operationID == operationID
+            }) {
+                return try? Self.resultFrame(id: id, result: [
+                    "received_bytes": completed.bytes.count,
+                    "path": "/tmp/\(uploadID)/\(completed.fileName)",
+                ])
+            }
+            if uploadOffsets[uploadID] != nil {
+                guard uploadFileNames[uploadID] == fileName,
+                      uploadOperationIDs[uploadID] == operationID,
+                      uploadTotalBytes[uploadID] == totalBytes else {
+                    return try? Self.errorFrame(id: id, message: "upload identity changed")
+                }
+            }
+            if offset == 0, uploadOffsets[uploadID, default: 0] > 0 {
+                uploadOffsets[uploadID] = 0
+                uploadBytes[uploadID] = Data()
+            }
+            guard offset == (uploadOffsets[uploadID] ?? 0) else {
+                return try? Self.errorFrame(id: id, message: "noncontiguous upload chunk")
+            }
+            if uploadOffsets[uploadID] == nil {
+                uploadFileNames[uploadID] = fileName
+                uploadOperationIDs[uploadID] = operationID
+                uploadTotalBytes[uploadID] = totalBytes
+            }
+            uploadOffsets[uploadID] = offset + chunk.count
+            uploadBytes[uploadID, default: Data()].append(chunk)
+            var result: [String: Any] = ["received_bytes": offset + chunk.count]
+            if isLast {
+                guard uploadBytes[uploadID]?.count == totalBytes else {
+                    return try? Self.errorFrame(id: id, message: "upload byte count mismatch")
+                }
+                completedUploads.append(UploadRecord(
+                    uploadID: uploadID,
+                    operationID: operationID,
+                    fileName: fileName,
+                    bytes: uploadBytes[uploadID] ?? Data()
+                ))
+                result["path"] = "/tmp/\(uploadID)/\(fileName)"
+            }
+            return try? Self.resultFrame(id: id, result: result)
+        case "mobile.terminal.paste_attachment":
             let surfaceID = info.surfaceID ?? ""
-            let format = info.imageFormat ?? ""
+            guard let uploadID = info.uploadID,
+                  let operationID = info.operationID,
+                  uploadOperationIDs[uploadID] == operationID,
+                  let fileName = uploadFileNames[uploadID],
+                  completedUploads.contains(where: { $0.uploadID == uploadID }) else {
+                return try? Self.errorFrame(id: id, message: "unknown attachment upload")
+            }
+            let format = (fileName as NSString).pathExtension.lowercased()
             let index = pasteImages.count
             pasteImages.append(PasteImageRecord(surfaceID: surfaceID, format: format))
             if index == 0 && holdFirstPasteImage {
@@ -362,13 +492,25 @@ actor RoutingHostRouter {
                 await withCheckedContinuation { firstPasteImageContinuation = $0 }
             }
             if let rejectFrom = rejectPasteImageFromIndex, index >= rejectFrom {
-                return try? Self.errorFrame(id: id, message: "paste_image rejected")
+                return try? Self.errorFrame(id: id, message: "paste_attachment rejected")
             }
+            return try? Self.resultFrame(id: id, result: [:])
+        case "terminal.paste_image":
+            let surfaceID = info.surfaceID ?? ""
+            let format = info.imageFormat ?? ""
+            pasteImages.append(PasteImageRecord(surfaceID: surfaceID, format: format))
             return try? Self.resultFrame(id: id, result: [:])
         case "terminal.paste":
             let surfaceID = info.surfaceID ?? ""
             let text = info.text ?? ""
             pastes.append(PasteRecord(surfaceID: surfaceID, text: text))
+            if let terminalPasteError {
+                return try? Self.errorFrame(
+                    id: id,
+                    code: terminalPasteError.code,
+                    message: terminalPasteError.message
+                )
+            }
             return try? Self.resultFrame(id: id, result: [:])
         case "terminal.input":
             return await terminalInputResponse(info)
@@ -474,6 +616,12 @@ private actor RoutingTransport: CmxByteTransport {
                 initialCommand: params?["initial_command"] as? String,
                 initialEnv: params?["initial_env"] as? [String: String],
                 operationID: params?["operation_id"] as? String,
+                uploadID: params?["upload_id"] as? String,
+                fileName: params?["file_name"] as? String,
+                totalBytes: params?["total_bytes"] as? Int,
+                uploadOffset: params?["offset"] as? Int,
+                uploadDataBase64: params?["data_b64"] as? String,
+                uploadIsLast: params?["last"] as? Bool,
                 query: params?["query"] as? String,
                 directoryPath: params?["path"] as? String,
                 directoryOffset: params?["offset"] as? Int,

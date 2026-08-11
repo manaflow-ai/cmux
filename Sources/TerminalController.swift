@@ -14187,6 +14187,8 @@ class TerminalController {
             result = await v2MobileWorkspaceCreate(params: request.params)
         case "mobile.task.attachment.upload":
             result = v2MobileTaskAttachmentUpload(params: request.params)
+        case "mobile.terminal.paste_attachment", "terminal.paste_attachment":
+            result = v2MobileTerminalPasteAttachment(params: request.params)
         case "mobile.task.models.list":
             result = await v2MobileTaskModelsList(params: request.params)
         case "mobile.terminal.create", "terminal.create":
@@ -15138,7 +15140,8 @@ class TerminalController {
         return .ok(payload)
     }
 
-    private func applyMobileViewportReport(
+    /// Applies viewport metadata shared by mobile terminal-input handlers.
+    func applyMobileViewportReport(
         params: [String: Any],
         terminalPanel: TerminalPanel,
         sticky: Bool = false,

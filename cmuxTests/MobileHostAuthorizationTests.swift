@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxControlSocket
 import CmuxIrohTransport
 import Foundation
 @preconcurrency import Network
@@ -11,6 +12,38 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct MobileHostAuthorizationTests {
+    @Test func testAttachmentStoreErrorsPreserveCodeWithoutExposingInternalCopy() {
+        let privateMessage = "staging path escaped /Users/private/secret.txt"
+        let cases = [
+            (
+                MobileTaskAttachmentStoreError(
+                    code: "invalid_params",
+                    message: privateMessage
+                ),
+                TerminalController.mobileAttachmentInvalidRequestMessage
+            ),
+            (
+                MobileTaskAttachmentStoreError(
+                    code: "internal_error",
+                    message: privateMessage
+                ),
+                TerminalController.mobileAttachmentStorageFailedMessage
+            ),
+        ]
+
+        for (error, expectedMessage) in cases {
+            let result = TerminalController.mobileAttachmentStoreProtocolError(error)
+            guard case let .err(code, message, _) = result else {
+                Issue.record("attachment store error unexpectedly succeeded")
+                continue
+            }
+            #expect(code == error.code)
+            #expect(message == expectedMessage)
+            #expect(!message.contains("/Users/private"))
+            #expect(!message.contains("secret.txt"))
+        }
+    }
+
     @Test func testAttachTicketStoreKeepsMultipleTicketsForSameTerminal() throws {
         let store = MobileAttachTicketStore()
         let route = try CmxAttachRoute(
@@ -415,6 +448,33 @@ struct MobileHostAuthorizationTests {
         )
         let error = MobileHostService.ticketAuthorizationError(ticket: ticket, request: request)
         #expect(error?.code == "forbidden")
+    }
+
+    @Test func testStagedTerminalAttachmentRequiresMatchingTerminalScopeAndOrdering() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
+        let accepted = MobileHostRPCRequest(
+            id: "staged-attachment",
+            method: "mobile.terminal.paste_attachment",
+            params: [
+                "workspace_id": "workspace",
+                "surface_id": "terminal",
+                "operation_id": UUID().uuidString,
+                "upload_id": UUID().uuidString,
+            ],
+            auth: MobileHostRPCAuth(attachToken: ticket.authToken, stackAccessToken: nil)
+        )
+        #expect(MobileHostService.ticketAuthorizationError(ticket: ticket, request: accepted) == nil)
+        #expect(accepted.isOrderedTerminalInput)
+
+        var wrongTerminalParams = accepted.params
+        wrongTerminalParams["surface_id"] = "other-terminal"
+        let rejected = MobileHostRPCRequest(
+            id: "staged-attachment-wrong-terminal",
+            method: accepted.method,
+            params: wrongTerminalParams,
+            auth: accepted.auth
+        )
+        #expect(MobileHostService.ticketAuthorizationError(ticket: ticket, request: rejected)?.code == "forbidden")
     }
     @Test func testAttachTicketAcceptsUnscopedWorkspaceListForPairedDevice() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")

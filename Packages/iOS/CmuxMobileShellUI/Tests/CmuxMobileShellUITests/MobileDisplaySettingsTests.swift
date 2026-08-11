@@ -246,6 +246,21 @@ import Testing
         #expect(settings.taskComposerModelPickerVariant == .contextRow)
     }
 
+    @Test func explicitTaskComposerLayoutOverridesPersistedDebugLayoutWithoutWriting() throws {
+        let defaults = try makeDefaults("previewExplicitLayoutPrecedence")
+        let key = "cmux.mobile.debug.taskComposerLayoutStyle.v1"
+        defaults.set("composer", forKey: key)
+        let environment = [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_COMPOSER_LAYOUT": "classic",
+        ]
+
+        let settings = MobileDisplaySettings(defaults: defaults, environment: environment)
+
+        #expect(settings.taskComposerLayoutStyle == .classic)
+        #expect(defaults.string(forKey: key) == "composer")
+    }
+
     @Test func taskComposerPreviewPrefersPersistedLabValues() throws {
         // The dev screenshot recipe writes defaults then relaunches with the
         // preview env; the persisted choice must win over the preview fallback.

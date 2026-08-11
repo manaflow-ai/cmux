@@ -1,6 +1,7 @@
 #if os(iOS)
 import CMUXMobileCore
 import CmuxMobileShell
+import CmuxAgentChatUI
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileTerminal
@@ -22,7 +23,7 @@ import UniformTypeIdentifiers
 /// presented does NOT mean focused: the field appears with the keyboard down and
 /// takes focus only on a user tap or an explicit focus request from the store
 /// (an explicit open/reveal, or a terminal switch mid-compose). The button to
-/// the left of the field opens the photo picker for image attachments; the
+/// the left of the field opens the anchored Photos/Files menu; the
 /// composer is dismissed from the accessory toolbar's compose toggle.
 ///
 /// The bottom dock (terminal grid / composer band / accessory toolbar / keyboard)
@@ -53,17 +54,17 @@ struct TerminalComposerView: View {
     let photoPickerWillPresent: () -> Void
     let photoPickerDidPresent: () -> Void
     let photoPickerDidDismiss: () -> Void
+    let attachmentPreparationProvider: MobileAttachmentPreparationProvider?
     @FocusState private var isFieldFocused: Bool
     /// Photo-picker selection bound to the system `PhotosPicker`. Cleared after
-    /// each batch is encoded and staged so re-picking the same image fires again.
+    /// each batch is staged so re-picking the same image fires again.
     @State private var pickerSelection: [PhotosPickerItem] = []
     /// Drives the photo picker's presentation from the attach button.
     @State private var isPickerPresented = false
-    /// Small downsampled thumbnails keyed by attachment id, built ONCE when each
-    /// attachment is staged. The chip row renders these instead of decoding the
-    /// full multi-MB `Data` from inside the view body on every composer
-    /// re-render (e.g. every keystroke).
-    @State private var thumbnailCache = AttachmentThumbnailCache()
+    @State private var isFileImporterPresented = false
+    @State private var attachmentError: String?
+    @State private var isStagingAttachments = false
+    @State private var didStartInjectedAttachmentPreparation = false
     /// The in-flight staging task for the current picker batch, if any. A new
     /// picker batch cancels the previous one so stale encode jobs do not pile up
     /// (and keep mutating the store) after the user re-picks or the view's
@@ -85,7 +86,8 @@ struct TerminalComposerView: View {
         inputFocusChanged: @escaping (Bool) -> Void,
         photoPickerWillPresent: @escaping () -> Void,
         photoPickerDidPresent: @escaping () -> Void,
-        photoPickerDidDismiss: @escaping () -> Void
+        photoPickerDidDismiss: @escaping () -> Void,
+        attachmentPreparationProvider: MobileAttachmentPreparationProvider? = nil
     ) {
         self.store = store
         self.terminalID = terminalID
@@ -95,6 +97,7 @@ struct TerminalComposerView: View {
         self.photoPickerWillPresent = photoPickerWillPresent
         self.photoPickerDidPresent = photoPickerDidPresent
         self.photoPickerDidDismiss = photoPickerDidDismiss
+        self.attachmentPreparationProvider = attachmentPreparationProvider
     }
 
     /// Single-line height of the round attach button beside the field. It stays
@@ -139,34 +142,16 @@ struct TerminalComposerView: View {
         sendStatus == .sending
     }
 
-    /// This terminal's staged image attachments, shown as the chip row above the
-    /// field and sent (in order) ahead of the text on submit.
+    /// This terminal's staged attachments, shown above the field and sent in
+    /// order ahead of the text on submit.
     private var pendingAttachments: [MobilePendingAttachment] {
         store.pendingAttachments(forTerminalID: terminalID)
     }
 
-    /// The Mac decodes the image to a temp file with a 10 MB cap; mirror the
-    /// clipboard paste path and keep the bounded encode under ~8 MB. The store
-    /// re-enforces this as the authoritative per-image cap; this constant only
-    /// bounds the encode loop below it.
-    /// Cap how many images one message may carry, mirrored from the store so the
+    /// Cap how many attachments one message may carry, mirrored from the store so the
     /// picker's `maxSelectionCount` matches the store's authoritative count cap.
     /// The store enforces it atomically; this is only a pre-filter for picker UX.
     private static let maxAttachmentCount = CMUXMobileShellStore.maxPendingAttachmentCount
-
-    /// Total encoded-bytes budget across this terminal's staged attachments,
-    /// mirrored from the store. The store is the authoritative budget (checked
-    /// atomically at mutation time); the view pre-filters against it only for
-    /// responsiveness so an obviously-over-budget pick skips the encode.
-    private static let maxTotalAttachmentBytes = CMUXMobileShellStore.maxPendingAttachmentTotalBytes
-
-    /// Raw-input file-size ceiling for one picked asset, checked on disk BEFORE
-    /// any bytes are read. The source is a file-backed import (see
-    /// ``ImportedImageFile``), so an enormous ProRAW/DNG/panorama is rejected
-    /// without ever being decoded. A compressed HEIC can decode larger than its
-    /// file size, so this is a generous multiple of the 8 MB per-image cap rather
-    /// than the cap itself; whatever passes is still downsampled by ImageIO.
-    private static let maxRawInputBytes = MobileImageAttachmentPreparer.maximumRawInputBytes
 
     var body: some View {
         composerSurface
@@ -195,8 +180,12 @@ struct TerminalComposerView: View {
         .onChange(of: sendStatus) { _, _ in
             requestHeightRemeasure()
         }
+        .onChange(of: isStagingAttachments) { _, _ in
+            requestHeightRemeasure()
+        }
         .onAppear {
             recordComposerEvent(.composerViewAppear)
+            startInjectedAttachmentPreparationIfNeeded()
             // Focus only when an explicit request preceded this mount (an
             // explicit open after a dismissal, or a terminal switch while the
             // user was mid-compose). A default-open presentation arrives with no
@@ -219,7 +208,7 @@ struct TerminalComposerView: View {
             // propagates into the decode and stops fanning out temp files for a
             // composer the user has already left. Without this, a switch right
             // after a big pick leaves the encode running unobserved.
-            stagingTask.task?.cancel()
+            cancelAttachmentPreparation()
             // Never leave the mic hot after the composer leaves the screen; the
             // user navigated away, so hard-cancel (losing the tail is fine).
             dictation.cancel()
@@ -229,7 +218,7 @@ struct TerminalComposerView: View {
             // a terminal switch (rather than recreating it), the `let terminalID`
             // changing must also cancel the prior terminal's in-flight batch so its
             // encode does not stage onto, or burn CPU for, the new terminal.
-            stagingTask.task?.cancel()
+            cancelAttachmentPreparation()
             // A terminal switch must stop dictation so the live transcript does not
             // bleed into the incoming terminal's draft. Hard-cancel, not finalize.
             dictation.cancel()
@@ -268,6 +257,25 @@ struct TerminalComposerView: View {
             guard store.consumePendingComposerFocusRequest(for: terminalID) else { return }
             requestInputFocus()
         }
+        .onChange(of: isFileImporterPresented) { _, presented in
+            if presented { photoPickerDidPresent() } else { photoPickerDidDismiss() }
+        }
+        .fileImporter(
+            isPresented: $isFileImporterPresented,
+            allowedContentTypes: [.item],
+            allowsMultipleSelection: true
+        ) { result in
+            stagePickedFiles(result)
+        }
+        .alert(
+            L10n.string("mobile.attachment.error.title", defaultValue: "Couldn’t Add Attachment"),
+            isPresented: Binding(
+                get: { attachmentError != nil },
+                set: { if !$0 { attachmentError = nil } }
+            )
+        ) { Button(L10n.string("mobile.common.ok", defaultValue: "OK"), role: .cancel) {} } message: {
+            Text(attachmentError ?? "")
+        }
     }
 
     /// Record a composer diagnostic event into the store's structured log (DEBUG
@@ -296,13 +304,6 @@ struct TerminalComposerView: View {
 
     private var composerBar: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // iMessage-style chip row of staged image attachments, ABOVE the
-            // field. Shown only when something is staged so the empty composer
-            // keeps its compact one-line height (and the host's measurement).
-            if !pendingAttachments.isEmpty {
-                attachmentChipRow
-            }
-
             if sendStatus == .failed {
                 Label(
                     L10n.string(
@@ -318,17 +319,18 @@ struct TerminalComposerView: View {
             }
 
             HStack(alignment: .bottom, spacing: 8) {
-                MobileComposerIconButton(
-                    systemImage: "paperclip",
-                    foregroundStyle: AnyShapeStyle(
-                        store.activeTerminalTheme.terminalChromeForegroundColor.opacity(0.78)
-                    ),
-                    size: controlHeight,
-                    accessibilityIdentifier: "MobileComposerAttach",
-                    accessibilityLabel: L10n.string("mobile.composer.attach", defaultValue: "Attach Photo")
-                ) {
-                    presentPhotoPicker()
-                }
+                MobileAttachmentPickerButton(
+                    style: .circularPlus,
+                    isDisabled: isSending
+                        || isStagingAttachments
+                        || pendingAttachments.count >= Self.maxAttachmentCount,
+                    choosePhotos: { presentPhotoPicker() },
+                    chooseFiles: {
+                        photoPickerWillPresent()
+                        isFileImporterPresented = true
+                    }
+                )
+                .accessibilityIdentifier("MobileComposerAttach")
 
                 micButton
 
@@ -336,44 +338,55 @@ struct TerminalComposerView: View {
                 // rendered through the same support component as GUI chat. `.bottom`
                 // alignment pins the button to the field's last line as it grows.
                 MobileComposerFieldContainer(minHeight: composerFieldMinHeight) {
-                    TextField(
-                        L10n.string("mobile.composer.placeholder", defaultValue: "Message"),
-                        text: $store.terminalInputText,
-                        axis: .vertical
-                    )
-                    // Opens at a single line and grows up to 14 lines so a long message has
-                    // room. Each added line grows this view, which the host reserves above the
-                    // always-visible toolbar; the toolbar and keyboard never move.
-                    .lineLimit(composerLineLimit)
-                    // Natural-language to an agent, so normal iOS text assistance
-                    // is on (autocorrect, sentence-case, spell check). The raw
-                    // terminal input field keeps these OFF; only the composer
-                    // enables them.
-                    .textInputAutocapitalization(.sentences)
-                    .autocorrectionDisabled(false)
-                    .focused($isFieldFocused)
-                    .simultaneousGesture(
-                        TapGesture().onEnded {
-                            guard !dictation.locksComposerField else { return }
-                            requestInputFocus()
+                    VStack(alignment: .leading, spacing: 6) {
+                        // Attachments belong to the same input affordance as the
+                        // draft. Keeping them above the text inside this container
+                        // preserves one shared leading inset while the send action
+                        // stays pinned to the bottom-right.
+                        if !pendingAttachments.isEmpty || isStagingAttachments {
+                            attachmentChipRow
                         }
-                    )
-                    // Lock the field while dictation owns the text (`.listening`
-                    // or `.stopping`). Every recognition callback rewrites the
-                    // field as base + transcript, so an edit the user made
-                    // mid-dictation would be silently discarded by the next
-                    // partial/final. Disabling input until dictation settles to
-                    // idle makes that edit impossible rather than letting it be
-                    // clobbered. The field stays visible showing the live
-                    // transcript; the mic toggle and send stay live (send
-                    // hard-cancels dictation -> idle, re-enabling the field).
-                    .disabled(dictation.locksComposerField)
-                    .foregroundStyle(store.activeTerminalTheme.terminalForegroundColor)
-                    // 6pt container padding + 3pt here keeps the text's 9pt inset
-                    // from the round-7 layout, and bottom-aligns the single-line text
-                    // with the inline button's circle.
-                    .padding(.vertical, 3)
-                    .accessibilityIdentifier("MobileComposerField")
+
+                        TextField(
+                            L10n.string("mobile.composer.placeholder", defaultValue: "Message"),
+                            text: $store.terminalInputText,
+                            axis: .vertical
+                        )
+                        // Opens at a single line and grows up to 14 lines so a long message has
+                        // room. Each added line grows this view, which the host reserves above the
+                        // always-visible toolbar; the toolbar and keyboard never move.
+                        .lineLimit(composerLineLimit)
+                        // Natural-language to an agent, so normal iOS text assistance
+                        // is on (autocorrect, sentence-case, spell check). The raw
+                        // terminal input field keeps these OFF; only the composer
+                        // enables them.
+                        .textInputAutocapitalization(.sentences)
+                        .autocorrectionDisabled(false)
+                        .focused($isFieldFocused)
+                        .simultaneousGesture(
+                            TapGesture().onEnded {
+                                guard !dictation.locksComposerField else { return }
+                                requestInputFocus()
+                            }
+                        )
+                        // Lock the field while dictation owns the text (`.listening`
+                        // or `.stopping`). Every recognition callback rewrites the
+                        // field as base + transcript, so an edit the user made
+                        // mid-dictation would be silently discarded by the next
+                        // partial/final. Disabling input until dictation settles to
+                        // idle makes that edit impossible rather than letting it be
+                        // clobbered. The field stays visible showing the live
+                        // transcript; the mic toggle and send stay live (send
+                        // hard-cancels dictation -> idle, re-enabling the field).
+                        .disabled(dictation.locksComposerField)
+                        .foregroundStyle(store.activeTerminalTheme.terminalForegroundColor)
+                        // 6pt container padding + 3pt here keeps the text's 9pt inset
+                        // from the round-7 layout, and bottom-aligns the single-line text
+                        // with the inline button's circle.
+                        .padding(.vertical, 3)
+                        .accessibilityIdentifier("MobileComposerField")
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 } trailing: {
                     Button {
@@ -382,7 +395,7 @@ struct TerminalComposerView: View {
                         composerSendButtonLabel
                     }
                     .buttonStyle(.plain)
-                    .disabled(isSending || !canSend)
+                    .disabled(isSending || isStagingAttachments || !canSend)
                     .accessibilityIdentifier("MobileComposerSend")
                     .accessibilityLabel(composerSendAccessibilityLabel)
                 }
@@ -397,7 +410,8 @@ struct TerminalComposerView: View {
         .photosPicker(
             isPresented: $isPickerPresented,
             selection: $pickerSelection,
-            maxSelectionCount: Self.maxAttachmentCount,
+            maxSelectionCount: max(Self.maxAttachmentCount - pendingAttachments.count, 1),
+            selectionBehavior: .ordered,
             matching: .images
         )
         .onChange(of: pickerSelection) { _, items in
@@ -518,24 +532,29 @@ struct TerminalComposerView: View {
         }
     }
 
-    /// Horizontal, removable thumbnail chips for the staged attachments. Each
-    /// chip shows the picked image with an x to remove it.
+    /// Horizontal, removable preview cards for staged images and files.
     private var attachmentChipRow: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(pendingAttachments) { attachment in
-                    AttachmentChip(
-                        thumbnail: thumbnailCache.image(for: attachment.id),
-                        theme: store.activeTerminalTheme
-                    ) {
-                        store.removePendingAttachment(id: attachment.id, forTerminalID: terminalID)
-                        thumbnailCache.remove(attachment.id)
-                        requestHeightRemeasure()
-                    }
-                }
+        MobileAttachmentCardStrip(
+            attachments: pendingAttachments.map {
+                MobileStagedAttachment(
+                    id: $0.id,
+                    kind: $0.kind,
+                    fileName: $0.fileName,
+                    localFileURL: $0.localFileURL,
+                    byteCount: $0.byteCount,
+                    thumbnailData: $0.thumbnailData
+                )
+            },
+            isDisabled: isSending,
+            isPreparing: isStagingAttachments,
+            onCancelPreparing: cancelAttachmentPreparation,
+            onPreviewDismiss: {
+                requestInputFocus()
+                isFieldFocused = true
             }
-            .padding(.leading, controlHeight + 8)
-            .padding(.trailing, 12)
+        ) { id in
+            store.removePendingAttachment(id: id, forTerminalID: terminalID)
+            requestHeightRemeasure()
         }
     }
 
@@ -560,137 +579,250 @@ struct TerminalComposerView: View {
             // attachments are removed from the staged set; a failed send keeps the
             // rest staged for a retry.
             await store.submitComposer()
-            // Drop cached thumbnails for attachments that are no longer staged
-            // (the acknowledged ones), keeping any that a failed send left behind.
-            thumbnailCache.retain(ids: pendingAttachments.map(\.id))
             // The chip row shrank (or emptied) as part of the send; re-measure so
             // the band tracks the new height.
             requestHeightRemeasure()
         }
     }
 
-    /// Encode each picked photo the same way the clipboard paste path does (PNG,
-    /// falling back to JPEG when over the ~8 MB cap) and stage it as a pending
-    /// attachment for this terminal, bounded by both a count cap and a total
-    /// byte budget so a large batch cannot balloon observable state. A small
-    /// thumbnail is downsampled ONCE per attachment and cached by id, so the
-    /// chip row never decodes the full `Data` in the view body. Runs off the
-    /// picker callback; the selection is cleared so re-picking the same asset
-    /// fires again.
+    /// Stage each selected photo as an exact-byte, file-backed attachment.
     private func stagePickedItems(_ items: [PhotosPickerItem]) {
-        // Capture the signed-in session token before any await. If a sign-out
-        // lands while a photo is loading/encoding below, the store bumps this
-        // token and the guarded add drops the stale result instead of re-staging
-        // the previous user's bytes under a (possibly reused) terminal id.
+        let remainingCount = max(Self.maxAttachmentCount - pendingAttachments.count, 0)
+        let selectedItems = items.prefix(remainingCount)
+        let didOverflow = items.count > remainingCount
         let sessionGeneration = store.currentSessionGeneration
-        // Cancel any still-running batch before starting this one, so two picker
-        // opens in quick succession do not run overlapping encode loops that both
-        // mutate the store. The store enforces the count/byte caps atomically, so
-        // even an un-cancelled overlap could not exceed the cap; cancelling just
-        // stops stale encode work from piling up after the user re-picks.
         stagingTask.task?.cancel()
+        let stagingGeneration = UUID()
+        stagingTask.generation = stagingGeneration
+        isStagingAttachments = true
         stagingTask.task = Task { @MainActor in
-            for item in items {
-                if Task.isCancelled { break }
-                // Cheap pre-filter for responsiveness: stop once the store is at
-                // the count cap or the budget is already full. The store remains
-                // the authoritative cap (checked atomically at add time); this
-                // only avoids loading/encoding picks that obviously cannot land.
-                let staged = pendingAttachments
-                guard staged.count < Self.maxAttachmentCount else { break }
-                let stagedBytes = staged.reduce(0) { $0 + $1.data.count }
-                guard stagedBytes < Self.maxTotalAttachmentBytes else { break }
-                // Load the asset file-backed: PhotosUI copies the imported image to
-                // a temp file on disk and hands back only its URL, so the FULL
-                // original (a ProRAW/DNG/panorama can be hundreds of MB) is never
-                // slurped into memory as `Data` the way `loadTransferable(Data)`
-                // would. ImageIO then downsamples straight from the file below.
-                guard let imported = try? await item.loadTransferable(type: ImportedImageFile.self) else { continue }
-                if Task.isCancelled {
-                    try? FileManager.default.removeItem(at: imported.url)
-                    break
-                }
-                let fileURL = imported.url
-                // Always release the temp file, on every exit from this iteration.
-                defer { try? FileManager.default.removeItem(at: fileURL) }
-                // Reject an absurdly large source BEFORE reading any bytes. A
-                // compressed HEIC can decode larger than its file size, so the
-                // bound is a generous multiple of the per-image cap, not the cap
-                // itself; ImageIO still downsamples whatever passes.
-                if let fileSize = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size]) as? Int,
-                   fileSize > Self.maxRawInputBytes {
-                    continue
-                }
-                // Bounded encode + downsample off the main thread, reading the
-                // image straight from the temp FILE (CGImageSourceCreateWithURL),
-                // so a giant HEIC/panorama is never materialized as a
-                // full-resolution raster in memory. This is the expensive part and
-                // must not block the composer's keyboard/typing.
-                guard let prepared = await MobileImageAttachmentPreparer().prepare(url: fileURL) else {
-                    continue
-                }
-                if Task.isCancelled { break }
-                // The store is the single source of truth for the count/byte caps
-                // and the session-generation guard: it re-checks the CURRENT
-                // staged set atomically, so even if a prior (cancelled-too-late)
-                // batch already appended, this add cannot push past the cap.
-                guard let id = store.addPendingAttachment(
-                    prepared.data,
-                    format: prepared.format,
-                    forTerminalID: terminalID,
-                    ifSessionGeneration: sessionGeneration
-                ) else { continue }
-                // The off-main path hands back the downsampled thumbnail as
-                // Sendable PNG bytes; build the UIKit image here on the main
-                // actor (UIImage is not Sendable and must not cross the task
-                // boundary). A nil/undecodable thumbnail just leaves the chip's
-                // placeholder.
-                if let thumbnailData = prepared.thumbnailData,
-                   let thumbnail = UIImage(data: thumbnailData) {
-                    thumbnailCache.set(thumbnail, for: id)
+            defer {
+                if stagingTask.generation == stagingGeneration {
+                    isStagingAttachments = false
+                    stagingTask.task = nil
                 }
             }
+            for item in selectedItems {
+                guard !Task.isCancelled,
+                      stagingTask.generation == stagingGeneration,
+                      sessionGeneration == store.currentSessionGeneration else { break }
+                do {
+                    let imported = try await item.loadTransferable(
+                        type: MobileImportedImageFile.self
+                    )
+                    guard !Task.isCancelled,
+                          stagingTask.generation == stagingGeneration,
+                          sessionGeneration == store.currentSessionGeneration else {
+                        if let imported {
+                            try? FileManager.default.removeItem(at: imported.url)
+                        }
+                        break
+                    }
+                    guard let imported else {
+                        attachmentError = L10n.string(
+                            "mobile.attachment.error.unreadable",
+                            defaultValue: "The selected file couldn’t be read."
+                        )
+                        continue
+                    }
+                    defer { try? FileManager.default.removeItem(at: imported.url) }
+                    let attachment = try await MobileAttachmentStager().stage(
+                        sourceURL: imported.url,
+                        kind: .image,
+                        originalFileName: imported.originalFileName
+                    )
+                    guard !Task.isCancelled,
+                          stagingTask.generation == stagingGeneration,
+                          sessionGeneration == store.currentSessionGeneration else {
+                        try? FileManager.default.removeItem(at: attachment.localFileURL)
+                        break
+                    }
+                    admitStagedAttachment(attachment)
+                } catch is CancellationError {
+                    break
+                } catch {
+                    guard !Task.isCancelled,
+                          stagingTask.generation == stagingGeneration,
+                          sessionGeneration == store.currentSessionGeneration else { break }
+                    attachmentError = attachmentStagingErrorMessage(error)
+                }
+            }
+            guard !Task.isCancelled,
+                  stagingTask.generation == stagingGeneration,
+                  sessionGeneration == store.currentSessionGeneration else { return }
+            if didOverflow {
+                attachmentError = attachmentAdmissionErrorMessage(.perTerminalCountLimit)
+            }
             pickerSelection = []
-            // A new chip grows the band; ask the host to re-measure.
             requestHeightRemeasure()
         }
     }
 
-}
-
-/// A file-backed `Transferable` for loading a `PhotosPickerItem` as an on-disk
-/// file rather than in-memory `Data`. `FileRepresentation` hands PhotosUI a temp
-/// destination and copies the imported image there, so loading this type yields a
-/// file URL WITHOUT reading the (possibly hundreds-of-MB ProRAW/panorama) image
-/// into memory. The composer then size-gates on disk and downsamples straight
-/// from the URL via ImageIO, never materializing the full-resolution raster.
-///
-/// The framework deletes the import staging area, so we copy the file into our
-/// own temp location we control and delete after encoding (the composer's
-/// `defer` cleanup). `url` is `Sendable`, so the value crosses task boundaries.
-struct ImportedImageFile: Transferable, Sendable {
-    let url: URL
-    let originalFileName: String
-
-    static var transferRepresentation: some TransferRepresentation {
-        FileRepresentation(contentType: .image) { imported in
-            SentTransferredFile(imported.url)
-        } importing: { received in
-            // Copy out of the framework-owned staging area into our own uniquely
-            // named temp file, which the composer deletes after encoding. Keep the
-            // source extension so ImageIO can identify the format from the URL.
-            let ext = received.file.pathExtension
-            let name = UUID().uuidString + (ext.isEmpty ? "" : ".\(ext)")
-            let destination = FileManager.default.temporaryDirectory
-                .appendingPathComponent("cmux-composer-import-" + name)
-            try? FileManager.default.removeItem(at: destination)
-            try FileManager.default.copyItem(at: received.file, to: destination)
-            return ImportedImageFile(
-                url: destination,
-                originalFileName: received.file.lastPathComponent
+    private func stagePickedFiles(_ result: Result<[URL], any Error>) {
+        guard case let .success(urls) = result else {
+            if case let .failure(error) = result,
+               (error as? CocoaError)?.code == .userCancelled { return }
+            attachmentError = L10n.string(
+                "mobile.attachment.error.unreadable",
+                defaultValue: "The selected file couldn’t be read."
             )
+            return
+        }
+        let remainingCount = max(Self.maxAttachmentCount - pendingAttachments.count, 0)
+        let selectedURLs = urls.prefix(remainingCount)
+        let didOverflow = urls.count > remainingCount
+        let sessionGeneration = store.currentSessionGeneration
+        stagingTask.task?.cancel()
+        let stagingGeneration = UUID()
+        stagingTask.generation = stagingGeneration
+        isStagingAttachments = true
+        stagingTask.task = Task { @MainActor in
+            defer {
+                if stagingTask.generation == stagingGeneration {
+                    isStagingAttachments = false
+                    stagingTask.task = nil
+                }
+            }
+            for url in selectedURLs {
+                guard !Task.isCancelled,
+                      stagingTask.generation == stagingGeneration,
+                      sessionGeneration == store.currentSessionGeneration else { break }
+                do {
+                    let attachment = try await MobileAttachmentStager().stage(
+                        sourceURL: url,
+                        kind: .file,
+                        originalFileName: url.lastPathComponent
+                    )
+                    guard !Task.isCancelled,
+                          stagingTask.generation == stagingGeneration,
+                          sessionGeneration == store.currentSessionGeneration else {
+                        try? FileManager.default.removeItem(at: attachment.localFileURL)
+                        break
+                    }
+                    admitStagedAttachment(attachment)
+                } catch is CancellationError {
+                    break
+                } catch {
+                    guard !Task.isCancelled,
+                          stagingTask.generation == stagingGeneration,
+                          sessionGeneration == store.currentSessionGeneration else { break }
+                    attachmentError = attachmentStagingErrorMessage(error)
+                }
+            }
+            guard !Task.isCancelled,
+                  stagingTask.generation == stagingGeneration,
+                  sessionGeneration == store.currentSessionGeneration else { return }
+            if didOverflow {
+                attachmentError = attachmentAdmissionErrorMessage(.perTerminalCountLimit)
+            }
+            requestHeightRemeasure()
         }
     }
+
+    private func startInjectedAttachmentPreparationIfNeeded() {
+        guard !didStartInjectedAttachmentPreparation,
+              let attachmentPreparationProvider else { return }
+        didStartInjectedAttachmentPreparation = true
+        stagingTask.task?.cancel()
+        let stagingGeneration = UUID()
+        let sessionGeneration = store.currentSessionGeneration
+        stagingTask.generation = stagingGeneration
+        isStagingAttachments = true
+        stagingTask.task = Task { @MainActor in
+            let attachment = await attachmentPreparationProvider()
+            guard let attachment else {
+                if stagingTask.generation == stagingGeneration {
+                    isStagingAttachments = false
+                    stagingTask.task = nil
+                }
+                return
+            }
+            guard !Task.isCancelled,
+                  stagingTask.generation == stagingGeneration,
+                  sessionGeneration == store.currentSessionGeneration else {
+                try? FileManager.default.removeItem(at: attachment.localFileURL)
+                return
+            }
+            admitStagedAttachment(attachment)
+            if stagingTask.generation == stagingGeneration {
+                isStagingAttachments = false
+                stagingTask.task = nil
+            }
+            requestHeightRemeasure()
+        }
+    }
+
+    private func cancelAttachmentPreparation() {
+        stagingTask.generation = UUID()
+        stagingTask.task?.cancel()
+        stagingTask.task = nil
+        isStagingAttachments = false
+        pickerSelection = []
+        isPickerPresented = false
+        isFileImporterPresented = false
+        requestHeightRemeasure()
+    }
+
+    private func attachmentStagingErrorMessage(_ error: any Error) -> String {
+        if case MobileAttachmentStager.StagingError.fileTooLarge = error {
+            return L10n.string(
+                "mobile.attachment.error.itemSize",
+                defaultValue: "Each attachment must be 32 MB or smaller."
+            )
+        }
+        return L10n.string(
+            "mobile.attachment.error.unreadable",
+            defaultValue: "The selected file couldn’t be read."
+        )
+    }
+
+    /// The single Photos/Files handoff into the shell's atomic draft owner.
+    private func admitStagedAttachment(_ attachment: MobileStagedAttachment) {
+        switch store.admitPendingAttachment(attachment, forTerminalID: terminalID) {
+        case .accepted:
+            return
+        case let .rejected(reason):
+            try? FileManager.default.removeItem(at: attachment.localFileURL)
+            if let message = attachmentAdmissionErrorMessage(reason) {
+                attachmentError = message
+            }
+        }
+    }
+
+    private func attachmentAdmissionErrorMessage(
+        _ reason: MobileAttachmentAdmissionRejectionReason
+    ) -> String? {
+        switch reason {
+        case .unreadableFile:
+            return L10n.string(
+                "mobile.attachment.error.unreadable",
+                defaultValue: "The selected file couldn’t be read."
+            )
+        case .itemSizeLimit:
+            return L10n.string(
+                "mobile.attachment.error.itemSize",
+                defaultValue: "Each attachment must be 32 MB or smaller."
+            )
+        case .perTerminalCountLimit:
+            return L10n.string(
+                "mobile.attachment.error.terminalCount",
+                defaultValue: "You can attach up to 10 files to this terminal."
+            )
+        case .perTerminalTotalBytesLimit:
+            return L10n.string(
+                "mobile.attachment.error.terminalTotalSize",
+                defaultValue: "Attachments in this terminal can use up to 64 MB in total."
+            )
+        case .globalCapacity:
+            return L10n.string(
+                "mobile.attachment.error.globalCapacity",
+                defaultValue: "Attachment capacity is full. Send or remove an attachment and try again."
+            )
+        case .missingTerminal:
+            return nil
+        }
+    }
+
 }
 
 /// Holds the in-flight photo-staging `Task` so a new picker batch can cancel the
@@ -699,76 +831,7 @@ struct ImportedImageFile: Transferable, Sendable {
 @MainActor
 final class StagingTaskBox {
     var task: Task<Void, Never>?
+    var generation = UUID()
 }
 
-/// A side cache of downsampled chip thumbnails keyed by attachment id, built
-/// once per attachment at stage time. A reference type so it survives the
-/// composer view's frequent value-type re-creation (held as `@State`); reads in
-/// the view body are cheap dictionary lookups, never a full-`Data` decode.
-@MainActor
-final class AttachmentThumbnailCache {
-    private var images: [UUID: UIImage] = [:]
-
-    func image(for id: UUID) -> UIImage? { images[id] }
-
-    func set(_ image: UIImage, for id: UUID) { images[id] = image }
-
-    func remove(_ id: UUID) { images[id] = nil }
-
-    /// Drop every cached thumbnail whose attachment is no longer staged.
-    func retain(ids: [UUID]) {
-        let keep = Set(ids)
-        images = images.filter { keep.contains($0.key) }
-    }
-}
-
-/// A removable thumbnail chip for one staged image attachment. Renders a
-/// pre-built, downsampled thumbnail (cached by the composer at stage time) so
-/// the view body never decodes the full encoded `Data` on a re-render.
-private struct AttachmentChip: View {
-    let thumbnail: UIImage?
-    let theme: TerminalTheme
-    let onRemove: () -> Void
-
-    private let side: CGFloat = 56
-
-    var body: some View {
-        ZStack(alignment: .topTrailing) {
-            thumbnailView
-                .frame(width: side, height: side)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(theme.terminalForegroundColor.opacity(0.15), lineWidth: 1)
-                )
-
-            Button(action: onRemove) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 18, weight: .bold))
-                    .symbolRenderingMode(.palette)
-                    .foregroundStyle(.white, Color.black.opacity(0.55))
-            }
-            .buttonStyle(.plain)
-            .padding(2)
-            .accessibilityIdentifier("MobileComposerAttachmentRemove")
-            .accessibilityLabel(L10n.string("mobile.composer.attachment.remove", defaultValue: "Remove Attachment"))
-        }
-    }
-
-    @ViewBuilder
-    private var thumbnailView: some View {
-        if let thumbnail {
-            Image(uiImage: thumbnail)
-                .resizable()
-                .scaledToFill()
-        } else {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(theme.terminalForegroundColor.opacity(0.12))
-                .overlay(
-                    Image(systemName: "photo")
-                        .foregroundStyle(theme.terminalForegroundColor.opacity(0.5))
-                )
-        }
-    }
-}
 #endif

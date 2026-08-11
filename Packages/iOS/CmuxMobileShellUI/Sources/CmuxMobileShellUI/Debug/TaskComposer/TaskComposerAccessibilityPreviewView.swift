@@ -10,6 +10,7 @@ import SwiftUI
 /// Deterministic host for accessibility UI tests. It presents the production
 /// composer as a real sheet, including its iPad presentation behavior.
 public struct TaskComposerAccessibilityPreviewView: View {
+    @Environment(MobileDisplaySettings.self) private var displaySettings
     @State private var isPresented = false
     @State private var draftWasPersistedAtSubmit: Bool?
     @State private var submittedMacDeviceID: String?
@@ -24,6 +25,9 @@ public struct TaskComposerAccessibilityPreviewView: View {
     private let presentsDirectoryPermissionFailure: Bool
     private let presentsDirectoryScrollStress: Bool
     private let holdsSubmissionInPreparation: Bool
+    private let attachmentFixtures: [TaskComposerAttachment]
+    private let requestsInitialFocus: Bool
+    @State private var attachmentPreparationFixture: MobileAttachmentPreparationAccessibilityFixture?
     @State private var directoryPaginationRecoveryPreview: TaskComposerDirectoryPaginationRecoveryPreview?
 
     /// Creates the preview with isolated, in-memory task state so repeated UI
@@ -35,7 +39,9 @@ public struct TaskComposerAccessibilityPreviewView: View {
     /// `CMUX_UITEST_TASK_DIRECTORY_PICKER_PREVIEW=1` to present the production
     /// directory picker with deterministic filesystem results. Set
     /// `CMUX_UITEST_TASK_DIRECTORY_PAGINATION_RECOVERY_PREVIEW=1` to make the
-    /// first page-2 request fail and its exact retry succeed.
+    /// first page-2 request fail and its exact retry succeed. Set
+    /// `CMUX_UITEST_TASK_COMPOSER_ATTACHMENTS=1` to seed production image/file
+    /// cards whose bodies, previews, remove controls, and filenames are stable.
     public init() {
         let environment = ProcessInfo.processInfo.environment
         let presentsDirectoryPaginationRecovery = environment[
@@ -51,7 +57,16 @@ public struct TaskComposerAccessibilityPreviewView: View {
             "CMUX_UITEST_TASK_COMPOSER_OPEN_DIRECTORY_PREVIEW"
         ] == "1"
         let templateStore = TaskComposerAccessibilityTemplateStore()
-        if environment["CMUX_UITEST_TASK_COMPOSER_LONG_PROMPT"] == "1" {
+        if let prompt = environment["CMUX_UITEST_TASK_COMPOSER_DRAFT"] {
+            templateStore.setComposerDraft(MobileTaskComposerDraft(
+                prompt: prompt,
+                templateID: templateStore.listTemplates().first?.id,
+                macDeviceID: Self.previewMac.macDeviceID,
+                macInstanceTag: Self.previewMac.instanceTag,
+                directory: "~",
+                didEditDirectory: false
+            ))
+        } else if environment["CMUX_UITEST_TASK_COMPOSER_LONG_PROMPT"] == "1" {
             templateStore.setComposerDraft(MobileTaskComposerDraft(
                 prompt: Self.longPrompt,
                 templateID: templateStore.listTemplates().first?.id,
@@ -89,6 +104,28 @@ public struct TaskComposerAccessibilityPreviewView: View {
         self.holdsSubmissionInPreparation = environment[
             "CMUX_UITEST_TASK_COMPOSER_HOLD_PREPARATION"
         ] == "1"
+        let attachmentFixtures = MobileAttachmentAccessibilityFixtures()
+        let preparesAttachment = environment[
+            "CMUX_UITEST_TASK_COMPOSER_PREPARING_ATTACHMENTS"
+        ] == "1"
+        let preparationFixture = preparesAttachment
+            ? MobileAttachmentPreparationAccessibilityFixture(
+                attachment: attachmentFixtures.delayedResult()
+            )
+            : nil
+        _attachmentPreparationFixture = State(initialValue: preparationFixture)
+        if environment["CMUX_UITEST_TASK_COMPOSER_ORIENTED_ATTACHMENT"] == "1" {
+            self.attachmentFixtures = [attachmentFixtures.orientedLargeImage()]
+        } else if environment["CMUX_UITEST_TASK_COMPOSER_MAX_ATTACHMENTS"] == "1" {
+            self.attachmentFixtures = attachmentFixtures.maximumCount()
+        } else if environment["CMUX_UITEST_TASK_COMPOSER_ATTACHMENT_EDGE_CASES"] == "1" {
+            self.attachmentFixtures = attachmentFixtures.edgeCases()
+        } else if environment["CMUX_UITEST_TASK_COMPOSER_ATTACHMENTS"] == "1" || preparesAttachment {
+            self.attachmentFixtures = attachmentFixtures.basic()
+        } else {
+            self.attachmentFixtures = []
+        }
+        self.requestsInitialFocus = self.attachmentFixtures.isEmpty
         _directoryPaginationRecoveryPreview = State(
             initialValue: presentsDirectoryPaginationRecovery
                 ? TaskComposerDirectoryPaginationRecoveryPreview()
@@ -134,6 +171,11 @@ public struct TaskComposerAccessibilityPreviewView: View {
                             Self.stablePreviewMac,
                             Self.backupPreviewMac,
                         ],
+                        initialAttachments: attachmentFixtures,
+                        requestsInitialFocus: requestsInitialFocus,
+                        taskAttachmentCapabilityPredicate: attachmentFixtures.isEmpty
+                            ? nil
+                            : { _, _ in true },
                         submitTaskComposer: { macDeviceID, _, spec, willStartCreate in
                             let attemptNumber = submissionAttempts.count + 1
                             submittedMacDeviceID = macDeviceID
@@ -172,6 +214,9 @@ public struct TaskComposerAccessibilityPreviewView: View {
                         },
                         listTaskDirectories: { _, _, path, offset in
                             await listDirectoriesForPreview(path, offset)
+                        },
+                        attachmentPreparationProvider: attachmentPreparationFixture.map { fixture in
+                            { await fixture.prepare() }
                         }
                     )
                     .overlay(alignment: .top) {
@@ -192,6 +237,33 @@ public struct TaskComposerAccessibilityPreviewView: View {
                             }
                             TaskComposerSubmissionHistoryProbe(attempts: submissionAttempts)
                         }
+                    }
+                    .overlay(alignment: .topTrailing) {
+                        VStack(spacing: 4) {
+                            if let attachmentPreparationFixture {
+                                MobileAttachmentPreparationAccessibilityControls(
+                                    fixture: attachmentPreparationFixture
+                                )
+                            }
+                            if !attachmentFixtures.isEmpty {
+                            Button {
+                                displaySettings.taskComposerLayoutStyle =
+                                    displaySettings.taskComposerLayoutStyle == .classic
+                                        ? .composer
+                                        : .classic
+                            } label: {
+                                Image(systemName: "rectangle.2.swap")
+                                    .font(.system(size: 17))
+                                    .frame(width: 44, height: 44)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(displaySettings.taskComposerLayoutStyle.title)
+                            .accessibilityValue(displaySettings.taskComposerLayoutStyle.rawValue)
+                            .accessibilityIdentifier("MobileTaskComposerToggleLayoutFixture")
+                            }
+                        }
+                        .padding(.trailing, 8)
                     }
                 }
             }

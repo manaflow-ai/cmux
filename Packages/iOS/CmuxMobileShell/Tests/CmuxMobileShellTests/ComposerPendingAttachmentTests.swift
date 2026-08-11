@@ -1,4 +1,5 @@
 import CmuxMobileShellModel
+import CmuxMobileSupport
 import Foundation
 import Testing
 @testable import CmuxMobileShell
@@ -25,6 +26,40 @@ import Testing
 
     private static func bytes(_ s: String) -> Data { Data(s.utf8) }
 
+    private static func stagedAttachment(
+        byteCount: Int = 1,
+        actualByteCount: Int? = nil,
+        kind: MobileStagedAttachment.Kind = .file
+    ) -> MobileStagedAttachment {
+        let id = UUID()
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("typed-admission-\(id).bin")
+        guard FileManager.default.createFile(atPath: url.path, contents: nil) else {
+            Issue.record("could not create sparse attachment fixture")
+            return MobileStagedAttachment(
+                id: id,
+                kind: kind,
+                fileName: "attachment.bin",
+                localFileURL: url,
+                byteCount: byteCount
+            )
+        }
+        do {
+            let handle = try FileHandle(forWritingTo: url)
+            try handle.truncate(atOffset: UInt64(actualByteCount ?? byteCount))
+            try handle.close()
+        } catch {
+            Issue.record("could not size sparse attachment fixture: \(error)")
+        }
+        return MobileStagedAttachment(
+            id: id,
+            kind: kind,
+            fileName: "attachment.bin",
+            localFileURL: url,
+            byteCount: byteCount
+        )
+    }
+
     @Test func addAppendsInPickOrder() {
         let composite = Self.makeComposite()
         composite.addPendingAttachment(Self.bytes("one"), format: "png", forTerminalID: "term-a")
@@ -42,6 +77,26 @@ import Testing
         let composite = Self.makeComposite()
         composite.addPendingAttachment(Data(), format: "png", forTerminalID: "term-a")
         #expect(composite.pendingAttachments(forTerminalID: "term-a").isEmpty)
+    }
+
+    @Test func fileBackedZeroByteAttachmentIsVisibleAndEnablesSend() throws {
+        let composite = Self.makeComposite()
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("empty-attachment-\(UUID()).txt")
+        try Data().write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let attachment = MobileStagedAttachment(
+            kind: .file,
+            fileName: "empty.txt",
+            localFileURL: url,
+            byteCount: 0
+        )
+
+        let id = composite.addPendingAttachment(attachment, forTerminalID: "term-a")
+
+        #expect(id == attachment.id)
+        #expect(composite.pendingAttachments(forTerminalID: "term-a").count == 1)
+        #expect(composite.composerCanSend(forTerminalID: "term-a"))
     }
 
     @Test func removeDropsOnlyTheTargetedAttachment() {
@@ -252,32 +307,30 @@ import Testing
 
     @Test func addRejectsBeyondTotalByteBudget() {
         let composite = Self.makeComposite()
-        let budget = MobileShellComposite.maxPendingAttachmentTotalBytes
-        // A single image just under the per-image cap, staged a few times to
-        // approach the total budget. 4 MB each, under the 8 MB per-image cap.
-        let chunk = 4 * 1024 * 1024
-        var staged = 0
-        var fill: UInt8 = 1
-        while staged + chunk <= budget {
+        let chunk = MobileShellComposite.maxPendingAttachmentImageBytes
+        for index in 0..<8 {
             let id = composite.addPendingAttachment(
-                Self.bytes(count: chunk, fill: fill),
+                Self.bytes(count: chunk, fill: UInt8(index + 1)),
                 format: "jpg",
                 forTerminalID: "term-a"
             )
             #expect(id != nil)
-            staged += chunk
-            fill &+= 1
         }
-        // The remaining headroom is now smaller than one more chunk: that add
-        // exceeds the budget and must be rejected, leaving the set unchanged.
-        let countBefore = composite.pendingAttachments(forTerminalID: "term-a").count
+        let staged = composite.pendingAttachments(forTerminalID: "term-a")
+        #expect(staged.count == 8)
+        let stagedByteCount: Int = staged.reduce(into: 0) { total, attachment in
+            total += attachment.byteCount
+        }
+        let expectedByteCount: Int = 64 * 1024 * 1024
+        #expect(stagedByteCount == expectedByteCount)
+
         let overflow = composite.addPendingAttachment(
-            Self.bytes(count: chunk, fill: 0xFF),
+            Self.bytes(count: 1, fill: 0xFF),
             format: "jpg",
             forTerminalID: "term-a"
         )
         #expect(overflow == nil)
-        #expect(composite.pendingAttachments(forTerminalID: "term-a").count == countBefore)
+        #expect(composite.pendingAttachments(forTerminalID: "term-a").count == 8)
     }
 
     @Test func addRejectsSingleImageOverPerImageCap() {
@@ -290,6 +343,129 @@ import Testing
         )
         #expect(id == nil)
         #expect(composite.pendingAttachments(forTerminalID: "term-a").isEmpty)
+    }
+
+    @Test func typedAdmissionReportsItemSizeLimit() {
+        let composite = Self.makeComposite()
+        let attachment = Self.stagedAttachment(
+            byteCount: MobileStagedAttachment.maximumFileBytes + 1
+        )
+        defer { try? FileManager.default.removeItem(at: attachment.localFileURL) }
+
+        let result = composite.admitPendingAttachment(attachment, forTerminalID: "term-a")
+
+        #expect(result == .rejected(.itemSizeLimit))
+    }
+
+    @Test func typedAdmissionRejectsMissingBackingFileWithoutMutation() {
+        let composite = Self.makeComposite()
+        let missingURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("missing-typed-admission-\(UUID()).bin")
+        let attachment = MobileStagedAttachment(
+            kind: .file,
+            fileName: "missing.bin",
+            localFileURL: missingURL,
+            byteCount: 1
+        )
+
+        let result = composite.admitPendingAttachment(attachment, forTerminalID: "term-a")
+
+        #expect(result == .rejected(.unreadableFile))
+        #expect(composite.pendingAttachments(forTerminalID: "term-a").isEmpty)
+    }
+
+    @Test func typedAdmissionRejectsMismatchedBackingFileSizeWithoutMutation() {
+        let composite = Self.makeComposite()
+        let attachment = Self.stagedAttachment(byteCount: 4, actualByteCount: 3)
+        defer { try? FileManager.default.removeItem(at: attachment.localFileURL) }
+
+        let result = composite.admitPendingAttachment(attachment, forTerminalID: "term-a")
+
+        #expect(result == .rejected(.unreadableFile))
+        #expect(composite.pendingAttachments(forTerminalID: "term-a").isEmpty)
+    }
+
+    @Test func typedAdmissionReportsPerTerminalCountLimit() {
+        let composite = Self.makeComposite()
+        var attachments: [MobileStagedAttachment] = []
+        defer { attachments.forEach { try? FileManager.default.removeItem(at: $0.localFileURL) } }
+        for _ in 0..<MobileShellComposite.maxPendingAttachmentCount {
+            let attachment = Self.stagedAttachment()
+            attachments.append(attachment)
+            #expect(composite.admitPendingAttachment(attachment, forTerminalID: "term-a").acceptedID != nil)
+        }
+        let overflow = Self.stagedAttachment()
+        attachments.append(overflow)
+
+        let result = composite.admitPendingAttachment(overflow, forTerminalID: "term-a")
+
+        #expect(result == .rejected(.perTerminalCountLimit))
+    }
+
+    @Test func typedAdmissionReportsPerTerminalTotalBytesLimit() {
+        let composite = Self.makeComposite()
+        let first = Self.stagedAttachment(
+            byteCount: MobileStagedAttachment.maximumFileBytes
+        )
+        let second = Self.stagedAttachment(
+            byteCount: MobileStagedAttachment.maximumFileBytes
+        )
+        let overflow = Self.stagedAttachment(byteCount: 1)
+        let attachments = [first, second, overflow]
+        defer { attachments.forEach { try? FileManager.default.removeItem(at: $0.localFileURL) } }
+        #expect(composite.admitPendingAttachment(first, forTerminalID: "term-a").acceptedID != nil)
+        #expect(composite.admitPendingAttachment(second, forTerminalID: "term-a").acceptedID != nil)
+
+        let result = composite.admitPendingAttachment(overflow, forTerminalID: "term-a")
+
+        #expect(result == .rejected(.perTerminalTotalBytesLimit))
+    }
+
+    @Test func typedAdmissionReportsGlobalCapacity() {
+        let globalCount = MobileShellComposite.maxPendingAttachmentCountAllTerminals
+        let composite = Self.makeMultiTerminalComposite(terminalCount: globalCount + 1)
+        var attachments: [MobileStagedAttachment] = []
+        defer { attachments.forEach { try? FileManager.default.removeItem(at: $0.localFileURL) } }
+        for index in 0..<globalCount {
+            let attachment = Self.stagedAttachment()
+            attachments.append(attachment)
+            #expect(composite.admitPendingAttachment(attachment, forTerminalID: "term-\(index)").acceptedID != nil)
+        }
+        let overflow = Self.stagedAttachment()
+        attachments.append(overflow)
+
+        let result = composite.admitPendingAttachment(overflow, forTerminalID: "term-\(globalCount)")
+
+        #expect(result == .rejected(.globalCapacity))
+    }
+
+    @Test func typedAdmissionReportsGlobalByteCapacity() {
+        let composite = Self.makeMultiTerminalComposite(terminalCount: 3)
+        let first = Self.stagedAttachment(
+            byteCount: MobileStagedAttachment.maximumFileBytes
+        )
+        let second = Self.stagedAttachment(
+            byteCount: MobileStagedAttachment.maximumFileBytes
+        )
+        let overflow = Self.stagedAttachment(byteCount: 1)
+        let attachments = [first, second, overflow]
+        defer { attachments.forEach { try? FileManager.default.removeItem(at: $0.localFileURL) } }
+        #expect(composite.admitPendingAttachment(first, forTerminalID: "term-0").acceptedID != nil)
+        #expect(composite.admitPendingAttachment(second, forTerminalID: "term-1").acceptedID != nil)
+
+        let result = composite.admitPendingAttachment(overflow, forTerminalID: "term-2")
+
+        #expect(result == .rejected(.globalCapacity))
+    }
+
+    @Test func typedAdmissionReportsMissingTerminal() {
+        let composite = Self.makeComposite()
+        let attachment = Self.stagedAttachment()
+        defer { try? FileManager.default.removeItem(at: attachment.localFileURL) }
+
+        let result = composite.admitPendingAttachment(attachment, forTerminalID: "term-gone")
+
+        #expect(result == .rejected(.missingTerminal))
     }
 
     /// Two batches that each snapshot the SAME starting budget and then interleave
@@ -320,9 +496,9 @@ import Testing
     @Test func racingAddsCannotExceedByteBudget() {
         let composite = Self.makeComposite()
         let budget = MobileShellComposite.maxPendingAttachmentTotalBytes
-        // Each chunk is 4 MB; budget/4MB = 8 chunks fit. Two batches each try to
-        // add 8 chunks interleaved; only 8 total may land.
-        let chunk = 4 * 1024 * 1024
+        // Eight 8 MB images fill the 64 MB byte budget before the 10-item cap.
+        // Two batches each try to fill the budget; only eight total may land.
+        let chunk = MobileShellComposite.maxPendingAttachmentImageBytes
         let fits = budget / chunk
         var accepted = 0
         var fill: UInt8 = 1
@@ -337,7 +513,7 @@ import Testing
             fill &+= 1
         }
         #expect(accepted == fits)
-        let total = composite.pendingAttachments(forTerminalID: "term-a").reduce(0) { $0 + $1.data.count }
+        let total = composite.pendingAttachments(forTerminalID: "term-a").reduce(0) { $0 + $1.byteCount }
         #expect(total <= budget)
     }
 
@@ -378,7 +554,7 @@ import Testing
     /// though every individual terminal stays under its own per-terminal cap:
     /// without the global cap the all-terminals total grows linearly with
     /// terminal count and can OOM. One 4 MB image per terminal keeps each terminal
-    /// far under its 32 MB per-terminal budget, so only the global cap can bind.
+        /// far under its 64 MB per-terminal budget, so only the global cap can bind.
     @Test func globalByteBudgetRejectsAcrossManyTerminalsEachUnderPerTerminalCap() {
         let globalBudget = MobileShellComposite.maxPendingAttachmentTotalBytesAllTerminals
         let chunk = 4 * 1024 * 1024
@@ -390,7 +566,7 @@ import Testing
         var fill: UInt8 = 1
         for i in 0..<(fits + 2) {
             // Each terminal gets exactly one 4 MB image: per-terminal byte cap
-            // (32 MB) and per-terminal count cap (10) are never the binding limit.
+            // (64 MB) and per-terminal count cap (10) are never the binding limit.
             let id = composite.addPendingAttachment(
                 Self.bytes(count: chunk, fill: fill),
                 format: "jpg",
@@ -404,7 +580,7 @@ import Testing
         #expect(accepted == fits)
         var globalBytes = 0
         for i in 0..<(fits + 2) {
-            globalBytes += composite.pendingAttachments(forTerminalID: "term-\(i)").reduce(0) { $0 + $1.data.count }
+            globalBytes += composite.pendingAttachments(forTerminalID: "term-\(i)").reduce(0) { $0 + $1.byteCount }
         }
         #expect(globalBytes <= globalBudget)
     }

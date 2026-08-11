@@ -32,10 +32,24 @@ let package = Package(
     ],
     targets: [
         .target(
+            name: "CmuxMobileAttachmentTransfer",
+            dependencies: [
+                "CMUXMobileCore",
+                "CmuxMobileRPC",
+                "CmuxMobileSupport",
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("ExistentialAny"),
+                .enableUpcomingFeature("InternalImportsByDefault"),
+            ]
+        ),
+        .target(
             name: "CmuxMobileShell",
             dependencies: [
                 "CMUXMobileCore",
                 "CmuxAgentChat",
+                "CmuxMobileAttachmentTransfer",
                 "CmuxMobileChanges",
                 "CmuxMobileDiagnostics",
                 "CmuxMobileBrowserStream",
@@ -59,6 +73,19 @@ let package = Package(
                 "CmuxAgentChat",
                 "CmuxMobileRPC",
                 "CmuxMobileShellModel",
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("ExistentialAny"),
+                .enableUpcomingFeature("InternalImportsByDefault"),
+            ]
+        ),
+        .testTarget(
+            name: "CmuxMobileAttachmentTransferTests",
+            dependencies: [
+                "CMUXMobileCore",
+                "CmuxMobileAttachmentTransfer",
+                "CmuxMobileRPC",
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

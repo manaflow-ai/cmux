@@ -1,4 +1,5 @@
 public import CmuxAgentChat
+internal import CmuxMobileAttachmentTransfer
 public import CmuxMobileRPC
 public import Foundation
 
@@ -213,20 +214,51 @@ public actor MobileChatEventSource: ChatEventSource {
     }
 
     public func send(text: String, attachments: [ChatOutboundAttachment], sessionID: String) async throws {
+        let uploader = MobileAttachmentRPCUploader(client: client)
+        var stagedReferences: [[String: Any]] = []
+        var temporaryURLs: [URL] = []
+        defer {
+            for url in temporaryURLs { try? FileManager.default.removeItem(at: url) }
+        }
+        for attachment in attachments {
+            let fileURL: URL
+            switch attachment.payload {
+            case let .stagedFile(url, _):
+                fileURL = url
+            case let .inMemoryImage(data, _):
+                let temporary = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("cmux-chat-legacy-\(UUID().uuidString)")
+                try data.write(to: temporary, options: .atomic)
+                temporaryURLs.append(temporary)
+                fileURL = temporary
+            }
+            let receipt = try await uploader.upload(
+                fileURL: fileURL,
+                byteCount: attachment.byteCount,
+                fileName: attachment.fileName,
+                operationID: attachment.operationID,
+                uploadID: attachment.uploadID
+            )
+            stagedReferences.append([
+                "operation_id": receipt.operationID.uuidString,
+                "upload_id": receipt.uploadID.uuidString,
+                "file_name": attachment.fileName,
+                "kind": attachment.kind.rawValue,
+            ])
+        }
         var params: [String: Any] = [
             "session_id": sessionID,
             "text": text,
         ]
-        if !attachments.isEmpty {
-            params["attachments"] = attachments.map { attachment in
-                [
-                    "data_b64": attachment.data.base64EncodedString(),
-                    "format": attachment.format.rawValue,
-                ]
-            }
+        if !stagedReferences.isEmpty {
+            params["attachments"] = stagedReferences
         }
         let request = try MobileCoreRPCClient.requestData(method: "mobile.chat.send", params: params)
-        _ = try await client.sendRequest(request)
+        do {
+            _ = try await client.sendRequest(request)
+        } catch {
+            throw MobileAttachmentTransferError.sanitizing(error)
+        }
     }
 
     public func interrupt(sessionID: String, hard: Bool) async throws {

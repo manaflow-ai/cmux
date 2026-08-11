@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxAgentChatUI
 import CmuxMobilePairedMac
 import CmuxMobileRPC
 import CmuxMobileShell
@@ -40,9 +41,16 @@ struct TaskComposerSheet: View {
     @State var attachmentPhotoSelection: [PhotosPickerItem] = []
     @State var isAttachmentFileImporterPresented = false
     @State var attachmentStagingTask: Task<Void, Never>?
+    @State var attachmentStagingGeneration = UUID()
     @State var attachmentAlertMessage: String?
+    @State var didStartInjectedAttachmentPreparation = false
 
     let sessionGeneration: Int
+    private let requestsInitialFocus: Bool
+    let taskAttachmentCapabilityPredicate: @MainActor (
+        _ macDeviceID: String,
+        _ instanceTag: String?
+    ) -> Bool
     private let availableMachines: [MobilePairedMac]?
     let submitTaskComposer: @MainActor (
         _ macDeviceID: String,
@@ -61,10 +69,21 @@ struct TaskComposerSheet: View {
         _ path: String,
         _ offset: Int
     ) async -> Result<MobileTaskDirectoryListResponse, MobileTaskDirectoryListFailure>)?
+    let attachmentPreparationProvider: MobileAttachmentPreparationProvider?
 
+    /// Creates a task composer.
+    ///
+    /// Files in `initialAttachments` become this sheet's owned draft. The
+    /// sheet removes them when that draft is discarded or completes.
     init(
         store: CMUXMobileShellStore,
         availableMachines: [MobilePairedMac]? = nil,
+        initialAttachments: [TaskComposerAttachment] = [],
+        requestsInitialFocus: Bool = true,
+        taskAttachmentCapabilityPredicate: (@MainActor (
+            _ macDeviceID: String,
+            _ instanceTag: String?
+        ) -> Bool)? = nil,
         submitTaskComposer: (@MainActor (
             _ macDeviceID: String,
             _ instanceTag: String?,
@@ -81,13 +100,25 @@ struct TaskComposerSheet: View {
             _ instanceTag: String?,
             _ path: String,
             _ offset: Int
-        ) async -> Result<MobileTaskDirectoryListResponse, MobileTaskDirectoryListFailure>)? = nil
+        ) async -> Result<MobileTaskDirectoryListResponse, MobileTaskDirectoryListFailure>)? = nil,
+        attachmentPreparationProvider: MobileAttachmentPreparationProvider? = nil
     ) {
         self.store = store
+        _attachments = State(initialValue: initialAttachments)
+        self.requestsInitialFocus = requestsInitialFocus
         self.availableMachines = availableMachines
         self.sessionGeneration = store.currentSessionGeneration
+        self.taskAttachmentCapabilityPredicate = taskAttachmentCapabilityPredicate ?? {
+            macDeviceID,
+            instanceTag in
+            store.supportsTaskAttachments(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
+        }
         self.searchTaskDirectories = searchTaskDirectories
         self.listTaskDirectories = listTaskDirectories
+        self.attachmentPreparationProvider = attachmentPreparationProvider
         self.submitTaskComposer = submitTaskComposer ?? {
             macDeviceID,
             instanceTag,
@@ -268,7 +299,7 @@ struct TaskComposerSheet: View {
             .onDisappear {
                 // Parent-driven dismissal must cancel result application.
                 submitTask?.cancel()
-                attachmentStagingTask?.cancel()
+                cancelAttachmentPreparation()
                 removeStagedAttachmentFiles()
                 if shouldPersistDraftOnDisappear {
                     persistDraft()
@@ -280,6 +311,9 @@ struct TaskComposerSheet: View {
             }
             .onChange(of: machines.map(\.id)) { _, _ in
                 validateMacSelection()
+            }
+            .onAppear {
+                startInjectedAttachmentPreparationIfNeeded()
             }
             .task(id: modelRefreshID) {
                 guard let provider = modelRefreshID.provider,
@@ -331,7 +365,7 @@ struct TaskComposerSheet: View {
         .presentationDragIndicator(.visible)
         .interactiveDismissDisabled(submissionPhase.locksDismissal)
         .background(TaskComposerInitialFocusCoordinator(
-            isEnabled: !submissionPhase.disablesRequestEditing
+            isEnabled: requestsInitialFocus && !submissionPhase.disablesRequestEditing
         ))
     }
 
@@ -353,6 +387,7 @@ struct TaskComposerSheet: View {
                         models: availableModels,
                         selectedModelID: selectedModelID,
                         attachments: attachments,
+                        isPreparingAttachments: attachmentStagingTask != nil,
                         showsAttachmentButton: showsAttachmentButton,
                         selectTemplate: selectTemplateFromPicker,
                         selectTemplateAndModel: selectTemplateAndModelFromPicker,
@@ -360,6 +395,7 @@ struct TaskComposerSheet: View {
                         editTemplates: presentTemplateEditor,
                         chooseAttachmentPhotos: presentAttachmentPhotoPicker,
                         chooseAttachmentFiles: presentAttachmentFileImporter,
+                        cancelAttachmentPreparation: cancelAttachmentPreparation,
                         removeAttachment: removeAttachment
                     )
 
@@ -444,6 +480,7 @@ struct TaskComposerSheet: View {
             failureText: failureText,
             completedOperationRecovery: blockingCompletedOperationRecovery,
             attachments: attachments,
+            isPreparingAttachments: attachmentStagingTask != nil,
             showsAttachmentButton: showsAttachmentButton,
             optionsSheet: { minimalOptionsSheet },
             endEditing: resolveCompletedOperationRecoveryAfterEditing,
@@ -457,6 +494,7 @@ struct TaskComposerSheet: View {
             requestStartAgain: { isStartAgainConfirmationPresented = true },
             chooseAttachmentPhotos: presentAttachmentPhotoPicker,
             chooseAttachmentFiles: presentAttachmentFileImporter,
+            cancelAttachmentPreparation: cancelAttachmentPreparation,
             removeAttachment: removeAttachment
         )
     }

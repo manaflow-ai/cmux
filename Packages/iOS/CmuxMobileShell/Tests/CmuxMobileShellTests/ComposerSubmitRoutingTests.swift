@@ -1,4 +1,6 @@
 import CmuxMobileShellModel
+import CmuxMobileRPC
+import CmuxMobileSupport
 import Foundation
 import Testing
 @testable import CmuxMobileShell
@@ -27,7 +29,7 @@ import Testing
         #expect(store.terminalSendStatus(forTerminalID: terminalID) == .sending)
 
         await router.releaseFirstPasteImage()
-        await submit.value
+        _ = await submit.value
 
         #expect(store.terminalSendStatus(forTerminalID: terminalID) == .sent)
     }
@@ -43,6 +45,30 @@ import Testing
         await store.submitComposer()
 
         #expect(store.terminalSendStatus(forTerminalID: terminalID) == .failed)
+    }
+
+    @Test func textPasteFailureUsesTerminalErrorHandling() async throws {
+        let router = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(router: router)
+        let terminalID = RoutingHostRouter.terminalA
+        let code = "invalid_params"
+        let message = "terminal paste rejected for /Users/private/project"
+        let expectedError = MobileShellConnectionError.rpcError(code, message)
+        let expectedCategory = MobilePairingFailureCategory.classify(
+            error: expectedError,
+            route: store.activeRoute
+        )
+        store.selectTerminal(MobileTerminalPreview.ID(rawValue: terminalID))
+        store.terminalInputText = "keep me"
+        await router.setTerminalPasteError(code: code, message: message)
+
+        #expect(await store.submitComposer() == false)
+
+        #expect(await router.recordedPastes().map(\.text) == ["keep me"])
+        #expect(store.terminalInputText == "keep me")
+        #expect(store.connectionError == expectedCategory.message)
+        #expect(store.connectionErrorGuidance == expectedCategory.guidance)
+        #expect(store.connectionError != "The attachment couldn’t be sent. Try again.")
     }
 
     @Test func restoredFailedDraftKeepsFailureSettlement() async throws {
@@ -91,6 +117,35 @@ import Testing
         #expect(store.pendingAttachments(forTerminalID: termA).isEmpty)
     }
 
+    @Test func sendsEmptyFileBackedAttachmentThroughChunkedRoute() async throws {
+        let router = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(router: router)
+        let terminalID = RoutingHostRouter.terminalA
+        store.selectTerminal(MobileTerminalPreview.ID(rawValue: terminalID))
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-empty-\(UUID()).txt")
+        try Data().write(to: url, options: .atomic)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let attachment = MobileStagedAttachment(
+            kind: .file,
+            fileName: "empty file.txt",
+            localFileURL: url,
+            byteCount: 0
+        )
+
+        #expect(store.addPendingAttachment(attachment, forTerminalID: terminalID) != nil)
+        #expect(store.composerCanSend(forTerminalID: terminalID))
+        await store.submitComposer()
+
+        let uploads = await router.recordedUploads()
+        #expect(uploads.count == 1)
+        #expect(uploads.first?.uploadID == attachment.id.uuidString)
+        #expect(uploads.first?.fileName == "empty file.txt")
+        #expect(uploads.first?.bytes == Data())
+        #expect(await router.recordedPasteImages().map(\.surfaceID) == [terminalID])
+        #expect(store.pendingAttachments(forTerminalID: terminalID).isEmpty)
+    }
+
     /// A terminal switch WHILE the first image send is in flight must not reroute
     /// the later image or the text: both still target the captured terminal.
     @Test func midSendSwitchDoesNotRerouteLaterImageOrText() async throws {
@@ -113,7 +168,7 @@ import Testing
         await router.awaitFirstPasteImageReached()
         store.selectTerminal(MobileTerminalPreview.ID(rawValue: termB))
         await router.releaseFirstPasteImage()
-        await submit.value
+        _ = await submit.value
 
         let images = await router.recordedPasteImages()
         let pastes = await router.recordedPastes()
@@ -148,7 +203,7 @@ import Testing
         await router.awaitFirstPasteImageReached()
         store.terminalInputText = "edited after send"
         await router.releaseFirstPasteImage()
-        await submit.value
+        _ = await submit.value
 
         let pastes = await router.recordedPastes()
         #expect(pastes.map(\.surfaceID) == [termA])
@@ -181,7 +236,7 @@ import Testing
         store.selectTerminal(MobileTerminalPreview.ID(rawValue: termB))
         store.terminalInputText = "b-draft"
         await router.releaseFirstPasteImage()
-        await submit.value
+        _ = await submit.value
 
         let pastes = await router.recordedPastes()
         #expect(pastes.map(\.surfaceID) == [termA])
@@ -208,9 +263,9 @@ import Testing
         let first = Task { await store.submitComposer() }
         await router.awaitFirstPasteImageReached()
         let second = Task { await store.submitComposer() }
-        await second.value
+        _ = await second.value
         await router.releaseFirstPasteImage()
-        await first.value
+        _ = await first.value
 
         let images = await router.recordedPasteImages()
         let pastes = await router.recordedPastes()
@@ -245,6 +300,40 @@ import Testing
         #expect(store.terminalInputText == "keep me")
     }
 
+    @Test func retryRecognizesCompletedMultiChunkUploadAfterDeliveryFailure() async throws {
+        let router = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(router: router)
+        let terminalID = RoutingHostRouter.terminalA
+        store.selectTerminal(MobileTerminalPreview.ID(rawValue: terminalID))
+        let bytes = Data(repeating: 0xA7, count: 3 * 1024 * 1024 + 17)
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-multichunk-retry-\(UUID()).bin")
+        try bytes.write(to: fileURL, options: .atomic)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let attachment = MobileStagedAttachment(
+            kind: .file,
+            fileName: "large-retry.bin",
+            localFileURL: fileURL,
+            byteCount: bytes.count
+        )
+        #expect(store.addPendingAttachment(attachment, forTerminalID: terminalID) != nil)
+
+        await router.setRejectPasteImage(true)
+        #expect(await store.submitComposer() == false)
+        #expect(store.pendingAttachments(forTerminalID: terminalID).count == 1)
+        var uploads = await router.recordedUploads()
+        #expect(uploads.count == 1)
+        #expect(uploads.first?.bytes == bytes)
+
+        await router.setRejectPasteImage(false)
+        #expect(await store.submitComposer() == true)
+        uploads = await router.recordedUploads()
+        #expect(uploads.count == 1, "the completed upload must not be rewritten")
+        #expect(uploads.first?.bytes == bytes)
+        #expect(await router.recordedPasteImages().count == 2)
+        #expect(store.pendingAttachments(forTerminalID: terminalID).isEmpty)
+    }
+
     /// A chip the user deletes WHILE an earlier image's send is in flight must not
     /// upload: submitComposer iterates a snapshot taken before the awaits, but it
     /// re-checks each attachment is still staged for the captured terminal before
@@ -268,7 +357,7 @@ import Testing
         await router.awaitFirstPasteImageReached()
         store.removePendingAttachment(id: secondID, forTerminalID: termA)
         await router.releaseFirstPasteImage()
-        await submit.value
+        _ = await submit.value
 
         let images = await router.recordedPasteImages()
         let pastes = await router.recordedPastes()
@@ -334,7 +423,7 @@ import Testing
         let newRouter = RoutingHostRouter()
         try installFreshRemoteClient(on: store, router: newRouter)
         await firstRouter.releaseFirstPasteImage()
-        await submit.value
+        _ = await submit.value
 
         // The first image reached the OLD session (it was already in flight); the
         // second image and the text never sent at all.
@@ -373,7 +462,7 @@ import Testing
         let newRouter = RoutingHostRouter()
         try installFreshRemoteClient(on: store, router: newRouter)
         await firstRouter.releaseFirstPasteImage()
-        await submit.value
+        _ = await submit.value
 
         // Only the in-flight first image reached the old connection; nothing else.
         #expect(await firstRouter.recordedPasteImages().count == 1)
@@ -388,5 +477,81 @@ import Testing
         #expect(remaining.count == 1)
         #expect(remaining.first?.data == Self.bytes("img-2"))
         #expect(store.terminalInputText == "keep me")
+    }
+
+    @Test func routingHostRejectsMetadataChangesOnNonzeroUploadChunks() async {
+        let router = RoutingHostRouter()
+        let operationID = UUID()
+        let changedOperationID = UUID()
+        let uploadID = UUID()
+        _ = await router.response(.attachmentUpload(
+            operationID: operationID,
+            uploadID: uploadID,
+            fileName: "original.txt",
+            totalBytes: 5,
+            offset: 0,
+            data: Data("he".utf8),
+            isLast: false
+        ))
+
+        _ = await router.response(.attachmentUpload(
+            operationID: changedOperationID,
+            uploadID: uploadID,
+            fileName: "changed.txt",
+            totalBytes: 5,
+            offset: 2,
+            data: Data("llo".utf8),
+            isLast: true
+        ))
+        #expect(await router.recordedUploads().isEmpty)
+
+        _ = await router.response(.attachmentUpload(
+            operationID: operationID,
+            uploadID: uploadID,
+            fileName: "original.txt",
+            totalBytes: 5,
+            offset: 2,
+            data: Data("llo".utf8),
+            isLast: true
+        ))
+        let completed = await router.recordedUploads()
+        #expect(completed.count == 1)
+        #expect(completed.first?.operationID == operationID.uuidString)
+        #expect(completed.first?.fileName == "original.txt")
+        #expect(completed.first?.bytes == Data("hello".utf8))
+    }
+
+    @Test func routingHostKeepsEveryUploadMetadataFieldImmutable() async {
+        let operationID = UUID()
+        let uploadID = UUID()
+        let mutations: [(operationID: UUID, fileName: String, totalBytes: Int, data: Data)] = [
+            (UUID(), "original.txt", 5, Data("llo".utf8)),
+            (operationID, "changed.txt", 5, Data("llo".utf8)),
+            (operationID, "original.txt", 6, Data("llox".utf8)),
+        ]
+
+        for mutation in mutations {
+            let router = RoutingHostRouter()
+            _ = await router.response(.attachmentUpload(
+                operationID: operationID,
+                uploadID: uploadID,
+                fileName: "original.txt",
+                totalBytes: 5,
+                offset: 0,
+                data: Data("he".utf8),
+                isLast: false
+            ))
+            _ = await router.response(.attachmentUpload(
+                operationID: mutation.operationID,
+                uploadID: uploadID,
+                fileName: mutation.fileName,
+                totalBytes: mutation.totalBytes,
+                offset: 2,
+                data: mutation.data,
+                isLast: true
+            ))
+
+            #expect(await router.recordedUploads().isEmpty)
+        }
     }
 }

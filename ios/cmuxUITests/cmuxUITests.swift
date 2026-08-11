@@ -3715,6 +3715,842 @@ final class cmuxUITests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testTaskComposerAttachmentCardsPreviewMenuAndRemoval() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_COMPOSER_ATTACHMENTS": "1",
+        ])
+        defer { app.terminate() }
+
+        let prompt = app.textFields["MobileTaskComposerPrompt"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+        try typeText("Keep this draft", into: prompt, in: app)
+        let capturedPromptValue = try XCTUnwrap(prompt.value as? String)
+        XCTAssertTrue(capturedPromptValue.contains("Keep this draft"))
+
+        let imageCard = app.buttons["MobileAttachmentCard.0"]
+        let fileCard = app.buttons["MobileAttachmentCard.1"]
+        let imageRemove = app.buttons["MobileAttachmentRemove.0"]
+        let fileRemove = app.buttons["MobileAttachmentRemove.1"]
+        XCTAssertTrue(imageCard.waitForExistence(timeout: 4))
+        XCTAssertTrue(fileCard.waitForExistence(timeout: 4))
+        XCTAssertEqual(imageCard.frame.width, 120, accuracy: 1)
+        XCTAssertEqual(imageCard.frame.height, 120, accuracy: 1)
+        XCTAssertEqual(fileCard.frame.width, 120, accuracy: 1)
+        XCTAssertEqual(fileCard.frame.height, 120, accuracy: 1)
+        XCTAssertEqual(fileCard.frame.minX - imageCard.frame.maxX, 6, accuracy: 1)
+        XCTAssertTrue(imageRemove.waitForExistence(timeout: 2))
+        XCTAssertTrue(fileRemove.waitForExistence(timeout: 2))
+        XCTAssertGreaterThanOrEqual(imageRemove.frame.width, 44)
+        XCTAssertGreaterThanOrEqual(imageRemove.frame.height, 44)
+        XCTAssertGreaterThanOrEqual(fileRemove.frame.width, 44)
+        XCTAssertGreaterThanOrEqual(fileRemove.frame.height, 44)
+        keepAttachmentGeometry(
+            named: "task-classic-attachment-geometry",
+            firstCard: imageCard,
+            secondCard: fileCard
+        )
+        keepScreenshot(named: "task-classic-attachments", app: app)
+
+        imageCard.tap()
+        let customPreview = app.descendants(matching: .any)["MobileAttachmentPreview"]
+        XCTAssertTrue(customPreview.waitForExistence(timeout: 4))
+        keepScreenshot(named: "task-classic-image-preview-open", app: app)
+        let customDone = app.buttons["MobileAttachmentPreviewDone"]
+        XCTAssertTrue(customDone.waitForExistence(timeout: 2))
+        customDone.tap()
+        XCTAssertTrue(customPreview.waitForNonExistence(timeout: 4))
+        XCTAssertEqual(prompt.value as? String, capturedPromptValue)
+        XCTAssertTrue(imageCard.exists)
+        XCTAssertTrue(fileCard.exists)
+        keepScreenshot(named: "task-classic-image-preview-dismissed", app: app)
+
+        fileCard.tap()
+        let nativeDone = app.buttons.matching(
+            NSPredicate(
+                format: "identifier == %@ OR label == %@ OR label == %@",
+                "QLOverlayDoneButtonAccessibilityIdentifier",
+                "Close",
+                "Done"
+            )
+        ).firstMatch
+        XCTAssertTrue(nativeDone.waitForExistence(timeout: 4))
+        XCTAssertFalse(
+            customPreview.exists,
+            "File previews must use SwiftUI's native Quick Look presentation, not the custom image sheet"
+        )
+        XCTAssertFalse(app.buttons["MobileAttachmentPreviewDone"].exists)
+        let nativeTitle = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label BEGINSWITH %@", "-release notes")
+        ).firstMatch
+        XCTAssertTrue(nativeTitle.waitForExistence(timeout: 3))
+        keepScreenshot(named: "task-classic-file-quick-look-open", app: app)
+        nativeDone.tap()
+        XCTAssertTrue(nativeDone.waitForNonExistence(timeout: 4))
+        XCTAssertEqual(prompt.value as? String, capturedPromptValue)
+        XCTAssertTrue(imageCard.exists)
+        XCTAssertTrue(fileCard.exists)
+        keepScreenshot(named: "task-classic-file-preview-dismissed", app: app)
+
+        let sourceMenu = app.buttons["MobileTaskComposerAttachmentButton"]
+        XCTAssertTrue(sourceMenu.waitForExistence(timeout: 2))
+        sourceMenu.tap()
+        let photos = app.buttons["Photos"]
+        let files = app.buttons["Files"]
+        XCTAssertTrue(photos.waitForExistence(timeout: 2))
+        XCTAssertTrue(files.waitForExistence(timeout: 2))
+        XCTAssertFalse(app.descendants(matching: .any)["MobileAttachmentPreview"].exists)
+        XCTAssertEqual(prompt.value as? String, capturedPromptValue)
+        prompt.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)
+        ).tap()
+        XCTAssertTrue(photos.waitForNonExistence(timeout: 2))
+        XCTAssertTrue(files.waitForNonExistence(timeout: 2))
+
+        fileRemove.tap()
+        XCTAssertTrue(fileCard.waitForNonExistence(timeout: 3))
+        XCTAssertTrue(imageCard.exists)
+        XCTAssertEqual(prompt.value as? String, capturedPromptValue)
+        keepScreenshot(named: "task-classic-file-removed", app: app)
+    }
+
+    @MainActor
+    func testTaskComposerAttachmentsSurviveClassicMinimalLayoutSwitch() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_COMPOSER_ATTACHMENTS": "1",
+            "CMUX_UITEST_TASK_COMPOSER_LAYOUT": "classic",
+        ])
+        defer { app.terminate() }
+
+        let prompt = app.descendants(matching: .any)["MobileTaskComposerPrompt"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+        try typeText("Draft survives both layouts", into: prompt, in: app)
+        let capturedPromptValue = try XCTUnwrap(prompt.value as? String)
+
+        let toggle = app.buttons["MobileTaskComposerToggleLayoutFixture"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 3))
+        XCTAssertEqual(toggle.value as? String, "classic")
+        XCTAssertTrue(app.buttons["MobileAttachmentCard.0"].exists)
+        XCTAssertTrue(app.buttons["MobileAttachmentCard.1"].exists)
+        keepScreenshot(named: "task-classic-attachments-before-layout-switch", app: app)
+
+        toggle.tap()
+        let composerLayout = NSPredicate(format: "value == %@", "composer")
+        expectation(for: composerLayout, evaluatedWith: toggle)
+        waitForExpectations(timeout: 3)
+        XCTAssertEqual(prompt.value as? String, capturedPromptValue)
+        XCTAssertTrue(app.buttons["MobileAttachmentCard.0"].exists)
+        XCTAssertTrue(app.buttons["MobileAttachmentCard.1"].exists)
+        XCTAssertTrue(app.buttons["MobileTaskComposerAttachmentButton"].exists)
+        keepScreenshot(named: "task-minimal-attachments-after-layout-switch", app: app)
+
+        toggle.tap()
+        let classicLayout = NSPredicate(format: "value == %@", "classic")
+        expectation(for: classicLayout, evaluatedWith: toggle)
+        waitForExpectations(timeout: 3)
+        XCTAssertEqual(prompt.value as? String, capturedPromptValue)
+        XCTAssertTrue(app.buttons["MobileAttachmentCard.0"].exists)
+        XCTAssertTrue(app.buttons["MobileAttachmentCard.1"].exists)
+    }
+
+    @MainActor
+    func testTaskComposerAttachmentLabelsAndActionsAreLocalizedInJapanese() throws {
+        let app = launchApp(
+            mockData: false,
+            environment: [
+                "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+                "CMUX_UITEST_TASK_COMPOSER_ATTACHMENTS": "1",
+            ],
+            launchArguments: [
+                "-AppleLanguages", "(ja)",
+                "-AppleLocale", "ja_JP",
+            ]
+        )
+        defer { app.terminate() }
+
+        let sourceMenu = app.buttons["MobileTaskComposerAttachmentButton"]
+        XCTAssertTrue(sourceMenu.waitForExistence(timeout: 8))
+        XCTAssertEqual(sourceMenu.label, "添付ファイルを追加")
+        XCTAssertEqual(app.buttons["MobileAttachmentCard.0"].label, "設計 🖼️.pngをプレビュー")
+        XCTAssertEqual(app.buttons["MobileAttachmentRemove.0"].label, "設計 🖼️.pngを削除")
+        XCTAssertEqual(app.buttons["MobileAttachmentCard.1"].label, "-release notes.txtをプレビュー")
+        XCTAssertEqual(app.buttons["MobileAttachmentRemove.1"].label, "-release notes.txtを削除")
+        keepScreenshot(named: "task-attachments-japanese", app: app)
+
+        app.buttons["MobileAttachmentCard.0"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["MobileAttachmentPreview"].waitForExistence(timeout: 4))
+        let done = app.buttons["MobileAttachmentPreviewDone"]
+        XCTAssertTrue(done.waitForExistence(timeout: 2))
+        XCTAssertEqual(done.label, "完了")
+        done.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["MobileAttachmentPreview"].waitForNonExistence(timeout: 4))
+    }
+
+    @MainActor
+    func testTaskComposerAttachmentsRemainUsableAtAccessibilityTextSize() throws {
+        let app = launchApp(
+            mockData: false,
+            environment: [
+                "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+                "CMUX_UITEST_TASK_COMPOSER_ATTACHMENTS": "1",
+                "CMUX_UITEST_TASK_COMPOSER_LAYOUT": "classic",
+            ],
+            launchArguments: [
+                "-UIPreferredContentSizeCategoryName",
+                "UICTContentSizeCategoryAccessibilityXXXL",
+            ]
+        )
+        defer { app.terminate() }
+
+        let firstCard = app.buttons["MobileAttachmentCard.0"]
+        let secondCard = app.buttons["MobileAttachmentCard.1"]
+        XCTAssertTrue(firstCard.waitForExistence(timeout: 8))
+        XCTAssertTrue(secondCard.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.scrollViews["MobileAttachmentCardStrip"].isHittable)
+        assertReferenceAttachmentGeometry(in: app)
+        XCTAssertTrue(app.buttons["MobileTaskComposerAttachmentButton"].isHittable)
+        keepAttachmentGeometry(
+            named: "task-classic-attachments-accessibility-xxxl-geometry",
+            firstCard: firstCard,
+            secondCard: secondCard
+        )
+        keepScreenshot(named: "task-classic-attachments-accessibility-xxxl", app: app)
+
+        firstCard.tap()
+        let preview = app.descendants(matching: .any)["MobileAttachmentPreview"]
+        XCTAssertTrue(preview.waitForExistence(timeout: 4))
+        app.buttons["MobileAttachmentPreviewDone"].tap()
+        XCTAssertTrue(preview.waitForNonExistence(timeout: 4))
+
+        let toggle = app.buttons["MobileTaskComposerToggleLayoutFixture"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 3))
+        XCTAssertEqual(toggle.value as? String, "classic")
+        toggle.tap()
+        let composerLayout = NSPredicate(format: "value == %@", "composer")
+        expectation(for: composerLayout, evaluatedWith: toggle)
+        waitForExpectations(timeout: 3)
+
+        XCTAssertTrue(firstCard.waitForExistence(timeout: 3))
+        XCTAssertTrue(secondCard.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.scrollViews["MobileAttachmentCardStrip"].isHittable)
+        assertReferenceAttachmentGeometry(in: app)
+        XCTAssertTrue(app.buttons["MobileTaskComposerAttachmentButton"].isHittable)
+        keepAttachmentGeometry(
+            named: "task-minimal-attachments-accessibility-xxxl-geometry",
+            firstCard: firstCard,
+            secondCard: secondCard
+        )
+        keepScreenshot(named: "task-minimal-attachments-accessibility-xxxl", app: app)
+    }
+
+    /// The fixture's layout switch exposes only its 44-point button through
+    /// accessibility, so rendered pixels must catch a symbol that draws beyond
+    /// that frame. Both layouts share the control and must keep its glyph inset.
+    @MainActor
+    func testTaskComposerLayoutToggleGlyphStaysInsideControlAtAccessibilityXXXL() throws {
+        let app = launchApp(
+            mockData: false,
+            environment: [
+                "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+                "CMUX_UITEST_TASK_COMPOSER_ATTACHMENTS": "1",
+                "CMUX_UITEST_TASK_COMPOSER_LAYOUT": "classic",
+            ],
+            launchArguments: [
+                "-UIPreferredContentSizeCategoryName",
+                "UICTContentSizeCategoryAccessibilityXXXL",
+            ]
+        )
+        defer { app.terminate() }
+
+        let toggle = app.buttons["MobileTaskComposerToggleLayoutFixture"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 8))
+
+        func overflowPixelCount(layout: String) throws -> Int {
+            let frame = toggle.frame
+            XCTAssertEqual(frame.width, 44, accuracy: 1)
+            XCTAssertEqual(frame.height, 44, accuracy: 1)
+
+            let screenshot = app.screenshot()
+            let allowedGlyphFrame = frame.insetBy(dx: 2, dy: 2)
+            let scanFrame = CGRect(
+                x: frame.minX - 16,
+                y: frame.minY - 2,
+                width: frame.width + 32,
+                height: frame.height + 14
+            )
+            let overflowRegions = [
+                CGRect(
+                    x: scanFrame.minX,
+                    y: scanFrame.minY,
+                    width: allowedGlyphFrame.minX - scanFrame.minX,
+                    height: scanFrame.height
+                ),
+                CGRect(
+                    x: allowedGlyphFrame.maxX,
+                    y: scanFrame.minY,
+                    width: scanFrame.maxX - allowedGlyphFrame.maxX,
+                    height: scanFrame.height
+                ),
+                CGRect(
+                    x: allowedGlyphFrame.minX,
+                    y: scanFrame.minY,
+                    width: allowedGlyphFrame.width,
+                    height: allowedGlyphFrame.minY - scanFrame.minY
+                ),
+                CGRect(
+                    x: allowedGlyphFrame.minX,
+                    y: allowedGlyphFrame.maxY,
+                    width: allowedGlyphFrame.width,
+                    height: scanFrame.maxY - allowedGlyphFrame.maxY
+                ),
+            ]
+            let overflowPixels = try overflowRegions.reduce(into: 0) { count, region in
+                count += try nearBlackPixelCount(
+                    in: region,
+                    screenshot: screenshot.image,
+                    screenFrame: app.frame
+                )
+            }
+            let glyphPixels = try nearBlackPixelCount(
+                in: allowedGlyphFrame,
+                screenshot: screenshot.image,
+                screenFrame: app.frame
+            )
+            XCTAssertGreaterThan(
+                glyphPixels,
+                0,
+                "The screenshot probe must observe the \(layout) layout-switch glyph"
+            )
+
+            let attachment = XCTAttachment(screenshot: screenshot)
+            attachment.name = "task-\(layout)-layout-toggle-accessibility-xxxl"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            return overflowPixels
+        }
+
+        XCTAssertEqual(toggle.value as? String, "classic")
+        let classicOverflowPixels = try overflowPixelCount(layout: "classic")
+
+        toggle.tap()
+        let composerLayout = NSPredicate(format: "value == %@", "composer")
+        expectation(for: composerLayout, evaluatedWith: toggle)
+        waitForExpectations(timeout: 3)
+        let minimalOverflowPixels = try overflowPixelCount(layout: "minimal")
+
+        XCTAssertEqual(
+            classicOverflowPixels + minimalOverflowPixels,
+            0,
+            "The layout-switch SF Symbol rendered outside its inset 44-point control frame "
+                + "(classic: \(classicOverflowPixels) pixels, minimal: \(minimalOverflowPixels) pixels)"
+        )
+    }
+
+    @MainActor
+    func testTaskComposerLandscapeStagedImageCardUsesReferenceGeometry() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_COMPOSER_ORIENTED_ATTACHMENT": "1",
+        ])
+        defer { app.terminate() }
+
+        let card = app.buttons["MobileAttachmentCard.0"]
+        XCTAssertTrue(card.waitForExistence(timeout: 8))
+        XCTAssertEqual(
+            card.frame.size,
+            CGSize(width: 120, height: 120),
+            "A landscape staged thumbnail must not widen its attachment card accessibility frame"
+        )
+    }
+
+    @MainActor
+    func testTaskComposerFullImagePreviewAppliesOrientationAndBoundsDecode() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_COMPOSER_ORIENTED_ATTACHMENT": "1",
+        ])
+        defer { app.terminate() }
+
+        let card = app.buttons["MobileAttachmentCard.0"]
+        XCTAssertTrue(card.waitForExistence(timeout: 8))
+        card.tap()
+
+        let preview = app.descendants(matching: .any)["MobileAttachmentPreview"]
+        XCTAssertTrue(preview.waitForExistence(timeout: 4))
+        let decodedSize = app.descendants(matching: .any)[
+            "MobileAttachmentPreviewDecodedPixelSize"
+        ]
+        XCTAssertTrue(decodedSize.waitForExistence(timeout: 8))
+        let normalizedDecodedSize = decodedSize.label
+            .split(separator: "x", omittingEmptySubsequences: false)
+            .map { String($0.filter(\.isNumber)) }
+            .joined(separator: "x")
+        XCTAssertEqual(normalizedDecodedSize, "2048x4096")
+        keepScreenshot(named: "task-oriented-large-image-preview", app: app)
+
+        app.buttons["MobileAttachmentPreviewDone"].tap()
+        XCTAssertTrue(preview.waitForNonExistence(timeout: 4))
+        XCTAssertTrue(card.exists)
+    }
+
+    @MainActor
+    func testTaskComposerCanCancelSlowAttachmentPreparationAcrossLifecycleChanges() throws {
+        XCUIDevice.shared.orientation = .portrait
+        defer { XCUIDevice.shared.orientation = .portrait }
+        let draft = "Keep this preparation draft"
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_COMPOSER_LAYOUT": "classic",
+            "CMUX_UITEST_TASK_COMPOSER_PREPARING_ATTACHMENTS": "1",
+            "CMUX_UITEST_TASK_COMPOSER_DRAFT": draft,
+        ])
+        defer { app.terminate() }
+
+        let prompt = app.textFields["MobileTaskComposerPrompt"]
+        let preparing = app.descendants(matching: .any)["MobileAttachmentPreparing"]
+        let cancelPreparing = app.buttons["MobileAttachmentCancelPreparing"]
+        let sourceMenu = app.buttons["MobileTaskComposerAttachmentButton"]
+        let submit = app.buttons["MobileTaskComposerCreateButton"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+        XCTAssertEqual(prompt.value as? String, draft)
+        XCTAssertTrue(preparing.waitForExistence(timeout: 4))
+        XCTAssertTrue(cancelPreparing.waitForExistence(timeout: 2))
+        XCTAssertGreaterThanOrEqual(cancelPreparing.frame.width, 44)
+        XCTAssertGreaterThanOrEqual(cancelPreparing.frame.height, 44)
+        XCTAssertFalse(sourceMenu.isEnabled)
+        XCTAssertFalse(submit.isEnabled)
+        let complete = app.buttons["MobileAttachmentPreparationFixtureComplete"]
+        XCTAssertTrue(complete.waitForExistence(timeout: 3))
+        waitForAttachmentPreparationFixturePhase("waiting", on: complete)
+
+        let cards = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "MobileAttachmentCard.")
+        )
+        XCTAssertEqual(cards.count, 2)
+        let removedCard = app.buttons["MobileAttachmentCard.1"]
+        let removeExisting = app.buttons["MobileAttachmentRemove.1"]
+        XCTAssertTrue(removeExisting.isEnabled)
+        removeExisting.tap()
+        XCTAssertTrue(removedCard.waitForNonExistence(timeout: 3))
+        XCTAssertEqual(cards.count, 1)
+        XCTAssertTrue(preparing.exists)
+        XCTAssertEqual(prompt.value as? String, draft)
+
+        XCUIDevice.shared.orientation = .landscapeLeft
+        XCTAssertTrue(preparing.waitForExistence(timeout: 4))
+        XCTAssertTrue(cancelPreparing.isHittable)
+        XCTAssertEqual(prompt.value as? String, draft)
+        XCUIDevice.shared.orientation = .portrait
+        XCTAssertTrue(preparing.waitForExistence(timeout: 4))
+        XCTAssertEqual(prompt.value as? String, draft)
+
+        XCUIDevice.shared.press(.home)
+        app.activate()
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+        XCTAssertTrue(preparing.waitForExistence(timeout: 4))
+        XCTAssertTrue(cancelPreparing.isHittable)
+        XCTAssertEqual(prompt.value as? String, draft)
+        XCTAssertEqual(cards.count, 1)
+
+        cancelPreparing.tap()
+        XCTAssertTrue(preparing.waitForNonExistence(timeout: 4))
+        XCTAssertTrue(cancelPreparing.waitForNonExistence(timeout: 2))
+        XCTAssertTrue(sourceMenu.isEnabled)
+        XCTAssertTrue(submit.isEnabled)
+        XCTAssertEqual(prompt.value as? String, draft)
+        XCTAssertEqual(cards.count, 1)
+        XCTAssertFalse(app.descendants(matching: .any)["MobileTaskComposerSubmittedOperationID-1"].exists)
+
+        complete.tap()
+        waitForAttachmentPreparationFixturePhase("returned", on: complete)
+        XCTAssertEqual(cards.count, 1, "A cancelled generation must reject a late staged result")
+        XCTAssertEqual(prompt.value as? String, draft)
+        XCTAssertFalse(app.descendants(matching: .any)["MobileTaskComposerSubmittedOperationID-1"].exists)
+        keepScreenshot(named: "task-attachment-preparation-cancelled", app: app)
+    }
+
+    @MainActor
+    func testTaskComposerAttachmentEdgeCasesKeepStableNamesAndActions() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_COMPOSER_ATTACHMENT_EDGE_CASES": "1",
+        ])
+        defer { app.terminate() }
+
+        let emptyCard = app.buttons["MobileAttachmentCard.0"]
+        let unsupportedCard = app.buttons["MobileAttachmentCard.1"]
+        XCTAssertTrue(emptyCard.waitForExistence(timeout: 8))
+        XCTAssertEqual(emptyCard.label, "Preview empty file.txt")
+        XCTAssertEqual(app.buttons["MobileAttachmentRemove.0"].label, "Remove empty file.txt")
+        XCTAssertEqual(unsupportedCard.label, "Preview unsupported.cmuxfixture")
+        XCTAssertEqual(app.buttons["MobileAttachmentRemove.1"].label, "Remove unsupported.cmuxfixture")
+        keepScreenshot(named: "task-attachment-edge-cases", app: app)
+
+        emptyCard.tap()
+        let customPreview = app.descendants(matching: .any)["MobileAttachmentPreview"]
+        XCTAssertTrue(customPreview.waitForExistence(timeout: 4))
+        XCTAssertTrue(app.staticTexts["Preview Unavailable"].waitForExistence(timeout: 2))
+        keepScreenshot(named: "task-empty-preview-fallback", app: app)
+        app.buttons["MobileAttachmentPreviewDone"].tap()
+        XCTAssertTrue(customPreview.waitForNonExistence(timeout: 4))
+
+        unsupportedCard.tap()
+        XCTAssertTrue(customPreview.waitForExistence(timeout: 4))
+        XCTAssertTrue(app.staticTexts["Preview Unavailable"].waitForExistence(timeout: 2))
+        keepScreenshot(named: "task-unsupported-preview-open", app: app)
+        app.buttons["MobileAttachmentPreviewDone"].tap()
+        XCTAssertTrue(customPreview.waitForNonExistence(timeout: 4))
+
+        let cards = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "MobileAttachmentCard.")
+        )
+        XCTAssertEqual(cards.count, 2)
+        app.buttons["MobileAttachmentRemove.0"].tap()
+        let remainingCard = app.buttons["MobileAttachmentCard.0"]
+        let reindexed = NSPredicate(format: "label == %@", "Preview unsupported.cmuxfixture")
+        expectation(for: reindexed, evaluatedWith: remainingCard)
+        waitForExpectations(timeout: 3)
+        XCTAssertEqual(cards.count, 1)
+        XCTAssertEqual(remainingCard.label, "Preview unsupported.cmuxfixture")
+    }
+
+    @MainActor
+    func testTaskComposerMaxAttachmentFixtureDisablesSourceAction() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_COMPOSER_MAX_ATTACHMENTS": "1",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.buttons["MobileAttachmentCard.0"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["MobileAttachmentCard.9"].exists)
+        let sourceMenu = app.buttons["MobileTaskComposerAttachmentButton"]
+        XCTAssertTrue(sourceMenu.exists)
+        XCTAssertFalse(sourceMenu.isEnabled)
+        keepScreenshot(named: "task-attachment-max-count", app: app)
+    }
+
+    @MainActor
+    func testTaskComposerAttachmentLifecycleRemainsCleanAcrossFiveLaunches() throws {
+        for cycle in 1...5 {
+            let app = launchApp(mockData: false, environment: [
+                "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+                "CMUX_UITEST_TASK_COMPOSER_ATTACHMENTS": "1",
+                "CMUX_UITEST_TASK_COMPOSER_DRAFT": "Lifecycle draft \(cycle)",
+            ])
+            let prompt = app.textFields["MobileTaskComposerPrompt"]
+            XCTAssertTrue(prompt.waitForExistence(timeout: 8), "cycle \(cycle)")
+            let capturedDraft = try XCTUnwrap(prompt.value as? String)
+            XCTAssertEqual(capturedDraft, "Lifecycle draft \(cycle)")
+
+            let cards = app.buttons.matching(
+                NSPredicate(format: "identifier BEGINSWITH %@", "MobileAttachmentCard.")
+            )
+            XCTAssertEqual(cards.count, 2, "cycle \(cycle) must seed exactly two cards")
+            let removedCard = app.buttons["MobileAttachmentCard.1"]
+            app.buttons["MobileAttachmentRemove.1"].tap()
+            XCTAssertTrue(removedCard.waitForNonExistence(timeout: 3), "cycle \(cycle)")
+            XCTAssertEqual(cards.count, 1, "cycle \(cycle) must remove exactly one card")
+            XCTAssertEqual(prompt.value as? String, capturedDraft)
+
+            app.buttons["MobileAttachmentCard.0"].tap()
+            let preview = app.descendants(matching: .any)["MobileAttachmentPreview"]
+            XCTAssertTrue(preview.waitForExistence(timeout: 4), "cycle \(cycle)")
+            app.buttons["MobileAttachmentPreviewDone"].tap()
+            XCTAssertTrue(preview.waitForNonExistence(timeout: 4), "cycle \(cycle)")
+            XCTAssertEqual(prompt.value as? String, capturedDraft)
+            XCTAssertEqual(app.alerts.count, 0, "cycle \(cycle) must not surface attachment errors")
+            if cycle == 5 {
+                keepScreenshot(named: "task-attachment-lifecycle-cycle-5", app: app)
+            }
+            app.terminate()
+        }
+    }
+
+    @MainActor
+    func testTaskComposerImagePreviewRemainsStableAcrossFiveSameProcessCycles() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_COMPOSER_ATTACHMENTS": "1",
+            "CMUX_UITEST_TASK_COMPOSER_DRAFT": "Same-process preview draft",
+        ])
+        defer { app.terminate() }
+
+        let prompt = app.textFields["MobileTaskComposerPrompt"]
+        let card = app.buttons["MobileAttachmentCard.0"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+        XCTAssertTrue(card.waitForExistence(timeout: 3))
+        let draft = try XCTUnwrap(prompt.value as? String)
+
+        for cycle in 1...5 {
+            card.tap()
+            let preview = app.descendants(matching: .any)["MobileAttachmentPreview"]
+            XCTAssertTrue(preview.waitForExistence(timeout: 4), "cycle \(cycle)")
+            let decodedSize = app.descendants(matching: .any)[
+                "MobileAttachmentPreviewDecodedPixelSize"
+            ]
+            XCTAssertTrue(decodedSize.waitForExistence(timeout: 4), "cycle \(cycle)")
+            app.buttons["MobileAttachmentPreviewDone"].tap()
+            XCTAssertTrue(preview.waitForNonExistence(timeout: 4), "cycle \(cycle)")
+            XCTAssertTrue(card.exists, "cycle \(cycle)")
+            XCTAssertEqual(prompt.value as? String, draft, "cycle \(cycle)")
+        }
+        keepScreenshot(named: "task-image-preview-same-process-cycle-5", app: app)
+    }
+
+    @MainActor
+    func testAgentChatComposerAttachmentActionsPreserveDraftAndDoNotSend() throws {
+        let app = launchAgentChatPreviewApp(environment: [
+            "CMUX_UITEST_AGENT_CHAT_ATTACHMENTS": "1",
+        ])
+        defer { app.terminate() }
+
+        let table = app.tables["ChatTranscriptTableView"]
+        let initialMessageCount = table.cells.count
+        let field = chatComposerField(in: app)
+        XCTAssertTrue(field.waitForExistence(timeout: 4))
+        try typeText("Keep chat draft", into: field, in: app)
+        let capturedDraft = try XCTUnwrap(field.value as? String)
+
+        let imageCard = app.buttons["MobileAttachmentCard.0"]
+        let fileCard = app.buttons["MobileAttachmentCard.1"]
+        XCTAssertTrue(imageCard.waitForExistence(timeout: 3))
+        XCTAssertTrue(fileCard.exists)
+        keepAttachmentGeometry(
+            named: "agent-chat-attachment-geometry",
+            firstCard: imageCard,
+            secondCard: fileCard
+        )
+        keepScreenshot(named: "agent-chat-attachments", app: app)
+        imageCard.tap()
+        let preview = app.descendants(matching: .any)["MobileAttachmentPreview"]
+        XCTAssertTrue(preview.waitForExistence(timeout: 4))
+        keepScreenshot(named: "agent-chat-image-preview-open", app: app)
+        app.buttons["MobileAttachmentPreviewDone"].tap()
+        XCTAssertTrue(preview.waitForNonExistence(timeout: 4))
+        XCTAssertEqual(field.value as? String, capturedDraft)
+        keepScreenshot(named: "agent-chat-preview-dismissed", app: app)
+
+        app.buttons["MobileAttachmentRemove.1"].tap()
+        XCTAssertTrue(fileCard.waitForNonExistence(timeout: 3))
+        XCTAssertTrue(imageCard.exists)
+        XCTAssertEqual(field.value as? String, capturedDraft)
+        XCTAssertEqual(table.cells.count, initialMessageCount)
+        keepScreenshot(named: "agent-chat-file-removed", app: app)
+
+        let sourceMenu = app.buttons["ChatComposerAttach"]
+        XCTAssertTrue(sourceMenu.waitForExistence(timeout: 3))
+        sourceMenu.tap()
+        XCTAssertTrue(app.buttons["Photos"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.buttons["Files"].waitForExistence(timeout: 2))
+        XCTAssertEqual(field.value as? String, capturedDraft)
+        XCTAssertEqual(table.cells.count, initialMessageCount)
+    }
+
+    @MainActor
+    func testAgentChatComposerCanCancelSlowAttachmentPreparationWithoutSending() throws {
+        let app = launchAgentChatPreviewApp(environment: [
+            "CMUX_UITEST_AGENT_CHAT_ATTACHMENTS": "1",
+            "CMUX_UITEST_AGENT_CHAT_PREPARING_ATTACHMENTS": "1",
+        ])
+        defer { app.terminate() }
+
+        let table = app.tables["ChatTranscriptTableView"]
+        let initialMessageCount = table.cells.count
+        let field = chatComposerField(in: app)
+        XCTAssertTrue(field.waitForExistence(timeout: 4))
+        try typeText("Keep chat preparation draft", into: field, in: app)
+        let capturedDraft = try XCTUnwrap(field.value as? String)
+        let preparing = app.descendants(matching: .any)["MobileAttachmentPreparing"]
+        let cancelPreparing = app.buttons["MobileAttachmentCancelPreparing"]
+        let sourceMenu = app.buttons["ChatComposerAttach"]
+        let send = app.buttons["ChatComposerSend"]
+        XCTAssertTrue(preparing.waitForExistence(timeout: 4))
+        XCTAssertTrue(cancelPreparing.waitForExistence(timeout: 2))
+        XCTAssertGreaterThanOrEqual(cancelPreparing.frame.width, 44)
+        XCTAssertGreaterThanOrEqual(cancelPreparing.frame.height, 44)
+        XCTAssertFalse(sourceMenu.isEnabled)
+        XCTAssertFalse(send.isEnabled)
+        let complete = app.buttons["MobileAttachmentPreparationFixtureComplete"]
+        XCTAssertTrue(complete.waitForExistence(timeout: 3))
+        waitForAttachmentPreparationFixturePhase("waiting", on: complete)
+
+        let cards = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "MobileAttachmentCard.")
+        )
+        XCTAssertEqual(cards.count, 2)
+        cancelPreparing.tap()
+        XCTAssertTrue(preparing.waitForNonExistence(timeout: 4))
+        XCTAssertTrue(cancelPreparing.waitForNonExistence(timeout: 2))
+        XCTAssertTrue(sourceMenu.isEnabled)
+        XCTAssertTrue(send.isEnabled)
+        XCTAssertEqual(field.value as? String, capturedDraft)
+        XCTAssertEqual(cards.count, 2)
+        XCTAssertEqual(table.cells.count, initialMessageCount)
+
+        complete.tap()
+        waitForAttachmentPreparationFixturePhase("returned", on: complete)
+        XCTAssertEqual(cards.count, 2, "A cancelled generation must reject a late staged result")
+        XCTAssertEqual(field.value as? String, capturedDraft)
+        XCTAssertEqual(table.cells.count, initialMessageCount)
+        keepScreenshot(named: "agent-chat-attachment-preparation-cancelled", app: app)
+    }
+
+    @MainActor
+    func testTerminalComposerAttachmentCardsShareFieldContainerAndPreserveDraft() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TERMINAL_PREVIEW": "1",
+            "CMUX_UITEST_TERMINAL_ATTACHMENT_COMPOSER": "1",
+            "CMUX_UITEST_TERMINAL_ATTACHMENT_DRAFT": "Keep terminal draft",
+        ])
+        defer { app.terminate() }
+
+        let container = app.descendants(matching: .any)["MobileComposerFieldContainer"]
+        XCTAssertTrue(container.waitForExistence(timeout: 8))
+        let field = container.textFields["MobileComposerField"]
+        XCTAssertTrue(field.exists)
+        let capturedDraft = try XCTUnwrap(field.value as? String)
+        XCTAssertEqual(capturedDraft, "Keep terminal draft")
+
+        let imageCard = container.buttons["MobileAttachmentCard.0"]
+        let fileCard = container.buttons["MobileAttachmentCard.1"]
+        let send = container.buttons["MobileComposerSend"]
+        let attach = app.buttons["MobileComposerAttach"]
+        XCTAssertTrue(imageCard.waitForExistence(timeout: 3))
+        XCTAssertTrue(fileCard.exists)
+        XCTAssertTrue(send.exists)
+        XCTAssertTrue(attach.exists)
+        XCTAssertEqual(fileCard.frame.minX - imageCard.frame.maxX, 6, accuracy: 1)
+        XCTAssertGreaterThanOrEqual(imageCard.frame.minX, container.frame.minX)
+        XCTAssertLessThanOrEqual(imageCard.frame.maxX, container.frame.maxX)
+        XCTAssertGreaterThan(imageCard.frame.maxY, container.frame.minY)
+        XCTAssertLessThanOrEqual(imageCard.frame.maxY, field.frame.minY)
+        XCTAssertLessThanOrEqual(send.frame.maxX, container.frame.maxX)
+        XCTAssertLessThanOrEqual(send.frame.maxY, container.frame.maxY)
+        XCTAssertLessThan(attach.frame.maxX, container.frame.minX)
+        keepAttachmentGeometry(
+            named: "terminal-attachment-container-geometry",
+            firstCard: imageCard,
+            secondCard: fileCard,
+            container: container,
+            field: field
+        )
+        keepScreenshot(named: "terminal-attachments-inside-field-container", app: app)
+
+        imageCard.tap()
+        let preview = app.descendants(matching: .any)["MobileAttachmentPreview"]
+        XCTAssertTrue(preview.waitForExistence(timeout: 4))
+        keepScreenshot(named: "terminal-image-preview-open", app: app)
+        app.buttons["MobileAttachmentPreviewDone"].tap()
+        XCTAssertTrue(preview.waitForNonExistence(timeout: 4))
+        XCTAssertEqual(field.value as? String, capturedDraft)
+        keepScreenshot(named: "terminal-preview-dismissed", app: app)
+
+        app.buttons["MobileAttachmentRemove.1"].tap()
+        XCTAssertTrue(fileCard.waitForNonExistence(timeout: 3))
+        XCTAssertEqual(field.value as? String, capturedDraft)
+        XCTAssertFalse(app.staticTexts["MobileComposerSendFailure"].exists)
+        keepScreenshot(named: "terminal-file-removed", app: app)
+    }
+
+    @MainActor
+    func testTerminalComposerCanCancelSlowAttachmentPreparationWithoutSending() throws {
+        let draft = "Keep terminal preparation draft"
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TERMINAL_PREVIEW": "1",
+            "CMUX_UITEST_TERMINAL_ATTACHMENT_COMPOSER": "1",
+            "CMUX_UITEST_TERMINAL_PREPARING_ATTACHMENTS": "1",
+            "CMUX_UITEST_TERMINAL_ATTACHMENT_DRAFT": draft,
+        ])
+        defer { app.terminate() }
+
+        let container = app.descendants(matching: .any)["MobileComposerFieldContainer"]
+        XCTAssertTrue(container.waitForExistence(timeout: 8))
+        let field = container.textFields["MobileComposerField"]
+        let preparing = app.descendants(matching: .any)["MobileAttachmentPreparing"]
+        let cancelPreparing = app.buttons["MobileAttachmentCancelPreparing"]
+        let sourceMenu = app.buttons["MobileComposerAttach"]
+        let send = container.buttons["MobileComposerSend"]
+        XCTAssertTrue(field.exists)
+        XCTAssertEqual(field.value as? String, draft)
+        XCTAssertTrue(preparing.waitForExistence(timeout: 4))
+        XCTAssertTrue(cancelPreparing.waitForExistence(timeout: 2))
+        XCTAssertGreaterThanOrEqual(cancelPreparing.frame.width, 44)
+        XCTAssertGreaterThanOrEqual(cancelPreparing.frame.height, 44)
+        XCTAssertFalse(sourceMenu.isEnabled)
+        XCTAssertFalse(send.isEnabled)
+        let complete = app.buttons["MobileAttachmentPreparationFixtureComplete"]
+        XCTAssertTrue(complete.waitForExistence(timeout: 3))
+        waitForAttachmentPreparationFixturePhase("waiting", on: complete)
+
+        let cards = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "MobileAttachmentCard.")
+        )
+        XCTAssertEqual(cards.count, 2)
+        cancelPreparing.tap()
+        XCTAssertTrue(preparing.waitForNonExistence(timeout: 4))
+        XCTAssertTrue(cancelPreparing.waitForNonExistence(timeout: 2))
+        XCTAssertTrue(sourceMenu.isEnabled)
+        XCTAssertTrue(send.isEnabled)
+        XCTAssertEqual(field.value as? String, draft)
+        XCTAssertEqual(cards.count, 2)
+        XCTAssertFalse(app.staticTexts["MobileComposerSendFailure"].exists)
+
+        complete.tap()
+        waitForAttachmentPreparationFixturePhase("returned", on: complete)
+        XCTAssertEqual(cards.count, 2, "A cancelled generation must reject a late staged result")
+        XCTAssertEqual(field.value as? String, draft)
+        XCTAssertFalse(app.staticTexts["MobileComposerSendFailure"].exists)
+        keepScreenshot(named: "terminal-attachment-preparation-cancelled", app: app)
+    }
+
+    @MainActor
+    func testTerminalComposerAttachmentsScrollInConstrainedWidth() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TERMINAL_PREVIEW": "1",
+            "CMUX_UITEST_TERMINAL_ATTACHMENT_COMPOSER": "1",
+            "CMUX_UITEST_TERMINAL_ATTACHMENT_FIXTURE": "overflow",
+        ])
+        defer { app.terminate() }
+
+        let container = app.descendants(matching: .any)["MobileComposerFieldContainer"]
+        let strip = app.scrollViews["MobileAttachmentCardStrip"]
+        let field = app.textFields["MobileComposerField"]
+        let send = app.buttons["MobileComposerSend"]
+        let attach = app.buttons["MobileComposerAttach"]
+        let firstCard = app.buttons["MobileAttachmentCard.0"]
+        let secondCard = app.buttons["MobileAttachmentCard.1"]
+        let lastCard = app.buttons["MobileAttachmentCard.3"]
+        XCTAssertTrue(container.waitForExistence(timeout: 8))
+        XCTAssertLessThanOrEqual(container.frame.width, 440)
+        XCTAssertTrue(strip.exists)
+        XCTAssertTrue(field.exists)
+        XCTAssertTrue(send.exists)
+        XCTAssertTrue(attach.exists)
+        XCTAssertTrue(firstCard.exists)
+        XCTAssertTrue(secondCard.exists)
+        XCTAssertEqual(secondCard.frame.minX - firstCard.frame.maxX, 6, accuracy: 1)
+        XCTAssertFalse(lastCard.isHittable)
+
+        strip.swipeLeft()
+        XCTAssertTrue(lastCard.waitForExistence(timeout: 2))
+        XCTAssertTrue(waitForHittable(lastCard, timeout: 3))
+        XCTAssertTrue(send.isHittable)
+        XCTAssertTrue(attach.isHittable)
+        XCTAssertLessThanOrEqual(send.frame.maxX, container.frame.maxX)
+        XCTAssertLessThanOrEqual(field.frame.maxX, send.frame.minX)
+        keepAttachmentGeometry(
+            named: "terminal-constrained-attachment-geometry",
+            firstCard: firstCard,
+            secondCard: secondCard,
+            container: container,
+            field: field
+        )
+        keepScreenshot(named: "terminal-attachments-constrained-width", app: app)
+    }
+
     /// The Composer pill scroller must clip between its neighboring controls;
     /// it must not underlap them to render a blur or fade at either edge.
     @MainActor
@@ -5472,6 +6308,19 @@ final class cmuxUITests: XCTestCase {
             let o = y * bytesPerRow + x * 4
             return RGB(r: Int(data[o]), g: Int(data[o + 1]), b: Int(data[o + 2]))
         }
+
+        func nearBlackPixelCount(maxChannel: UInt8 = 96) -> Int {
+            var count = 0
+            for y in 0..<height {
+                for x in 0..<width {
+                    let offset = y * bytesPerRow + x * 4
+                    if max(data[offset], data[offset + 1], data[offset + 2]) <= maxChannel {
+                        count += 1
+                    }
+                }
+            }
+            return count
+        }
     }
 
     @MainActor
@@ -6669,6 +7518,101 @@ final class cmuxUITests: XCTestCase {
             .replacingOccurrences(of: "=", with: "")
     }
 
+    private func keepScreenshot(named name: String, app: XCUIApplication) {
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
+    private func nearBlackPixelCount(
+        in screenRect: CGRect,
+        screenshot: UIImage,
+        screenFrame: CGRect
+    ) throws -> Int {
+        let clippedScreenRect = screenRect.intersection(screenFrame)
+        guard !clippedScreenRect.isNull,
+              !clippedScreenRect.isEmpty,
+              screenFrame.width > 0,
+              screenFrame.height > 0 else {
+            return 0
+        }
+
+        let scaleX = screenshot.size.width / screenFrame.width
+        let scaleY = screenshot.size.height / screenFrame.height
+        let imageRect = CGRect(
+            x: (clippedScreenRect.minX - screenFrame.minX) * scaleX,
+            y: (clippedScreenRect.minY - screenFrame.minY) * scaleY,
+            width: clippedScreenRect.width * scaleX,
+            height: clippedScreenRect.height * scaleY
+        ).intersection(CGRect(origin: .zero, size: screenshot.size))
+        guard !imageRect.isNull, !imageRect.isEmpty else { return 0 }
+
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = screenshot.scale
+        format.opaque = true
+        let cropped = UIGraphicsImageRenderer(size: imageRect.size, format: format).image { _ in
+            screenshot.draw(at: CGPoint(x: -imageRect.minX, y: -imageRect.minY))
+        }
+        let cgImage = try XCTUnwrap(
+            cropped.cgImage,
+            "Could not read the task-composer screenshot crop"
+        )
+        return BitmapPixels(cgImage).nearBlackPixelCount()
+    }
+
+    private func keepAttachmentGeometry(
+        named name: String,
+        firstCard: XCUIElement,
+        secondCard: XCUIElement,
+        container: XCUIElement? = nil,
+        field: XCUIElement? = nil
+    ) {
+        var lines = [
+            "firstCard=\(firstCard.frame)",
+            "secondCard=\(secondCard.frame)",
+            "visibleGap=\(secondCard.frame.minX - firstCard.frame.maxX)",
+        ]
+        if let container {
+            lines.append("container=\(container.frame)")
+        }
+        if let field {
+            lines.append("field=\(field.frame)")
+            lines.append("cardFieldLeadingDelta=\(firstCard.frame.minX - field.frame.minX)")
+        }
+        let attachment = XCTAttachment(string: lines.joined(separator: "\n"))
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    private func assertReferenceAttachmentGeometry(
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let firstCard = app.buttons["MobileAttachmentCard.0"]
+        let secondCard = app.buttons["MobileAttachmentCard.1"]
+        XCTAssertEqual(firstCard.frame.width, 120, accuracy: 1, file: file, line: line)
+        XCTAssertEqual(firstCard.frame.height, 120, accuracy: 1, file: file, line: line)
+        XCTAssertEqual(secondCard.frame.width, 120, accuracy: 1, file: file, line: line)
+        XCTAssertEqual(secondCard.frame.height, 120, accuracy: 1, file: file, line: line)
+        XCTAssertEqual(
+            secondCard.frame.minX - firstCard.frame.maxX,
+            6,
+            accuracy: 1,
+            file: file,
+            line: line
+        )
+        for index in 0...1 {
+            let remove = app.buttons["MobileAttachmentRemove.\(index)"]
+            XCTAssertTrue(remove.exists, file: file, line: line)
+            XCTAssertGreaterThanOrEqual(remove.frame.width, 44, file: file, line: line)
+            XCTAssertGreaterThanOrEqual(remove.frame.height, 44, file: file, line: line)
+        }
+    }
+
     @MainActor
     private func launchAddDeviceApp(environment: [String: String] = [:]) -> XCUIApplication {
         let app = launchApp(
@@ -6681,10 +7625,14 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchAgentChatPreviewApp() -> XCUIApplication {
-        let app = launchApp(mockData: false, environment: [
+    private func launchAgentChatPreviewApp(environment: [String: String] = [:]) -> XCUIApplication {
+        var launchEnvironment = [
             "CMUX_UITEST_AGENT_CHAT_PREVIEW": "1",
-        ])
+        ]
+        for (key, value) in environment {
+            launchEnvironment[key] = value
+        }
+        let app = launchApp(mockData: false, environment: launchEnvironment)
         XCTAssertTrue(app.tables["ChatTranscriptTableView"].waitForExistence(timeout: 8))
         return app
     }
@@ -9329,6 +10277,26 @@ final class cmuxUITests: XCTestCase {
         assertTerminalRenderBottomAttachedToViewport(
             dock,
             context: "iOS 27 notification fallback"
+        )
+    }
+
+    @MainActor
+    private func waitForAttachmentPreparationFixturePhase(
+        _ phase: String,
+        on completeButton: XCUIElement,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", phase),
+            object: completeButton
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [expectation], timeout: 4),
+            .completed,
+            "Attachment preparation fixture did not reach the \(phase) phase",
+            file: file,
+            line: line
         )
     }
 

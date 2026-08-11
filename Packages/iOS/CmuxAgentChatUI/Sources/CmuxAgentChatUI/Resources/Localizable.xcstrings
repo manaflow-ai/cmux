@@ -2585,6 +2585,125 @@
         }
       }
     },
+    "mobile.attachment.add": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Add Attachment" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "添付ファイルを追加" } }
+      }
+    },
+    "mobile.attachment.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cancel" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "キャンセル" } }
+      }
+    },
+    "mobile.attachment.done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Done" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "完了" } }
+      }
+    },
+    "mobile.attachment.files": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Files" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイル" } }
+      }
+    },
+    "mobile.attachment.file": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "FILE" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイル" } }
+      }
+    },
+    "mobile.attachment.preparing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Preparing…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "準備中…" } }
+      }
+    },
+    "mobile.attachment.photos": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Photos" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "写真" } }
+      }
+    },
+    "mobile.attachment.preview.named": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Preview %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@をプレビュー" } }
+      }
+    },
+    "mobile.attachment.preview.unsupported.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This file type can’t be previewed." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このファイル形式はプレビューできません。" } }
+      }
+    },
+    "mobile.attachment.preview.unsupported.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Preview Unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プレビューできません" } }
+      }
+    },
+    "mobile.attachment.remove.named": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remove %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@を削除" } }
+      }
+    },
+    "mobile.attachment.error.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn’t Add Attachment" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "添付ファイルを追加できませんでした" } }
+      }
+    },
+    "mobile.attachment.error.ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "OK" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "OK" } }
+      }
+    },
+    "mobile.attachment.error.tooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Attachments must be 32 MB or smaller." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "添付ファイルは32 MB以下にしてください。" } }
+      }
+    },
+    "mobile.attachment.error.unreadable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The selected file couldn’t be read." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "選択したファイルを読み込めませんでした。" } }
+      }
+    },
+    "mobile.attachment.error.count": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "You can attach up to 10 files." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "添付できるファイルは10個までです。" } }
+      }
+    },
+    "mobile.attachment.error.total": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Attachments can use up to 64 MB in total." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "添付ファイルの合計サイズは64 MBまでです。" } }
+      }
+    },
     "chat.unsupported": {
       "extractionState": "manual",
       "localizations": {

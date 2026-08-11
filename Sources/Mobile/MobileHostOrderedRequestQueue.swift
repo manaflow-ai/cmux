@@ -37,6 +37,7 @@ extension MobileHostRPCRequest {
         case "mobile.terminal.input", "terminal.input",
              "mobile.terminal.paste", "terminal.paste",
              "mobile.terminal.paste_image", "terminal.paste_image",
+             "mobile.terminal.paste_attachment", "terminal.paste_attachment",
              "mobile.terminal.scroll", "terminal.scroll",
              "mobile.terminal.mouse", "terminal.mouse":
             true

@@ -17,6 +17,7 @@ struct TaskComposerPromptCard: View {
     let models: [MobileTaskAgentModel]
     let selectedModelID: String?
     let attachments: [TaskComposerAttachment]
+    let isPreparingAttachments: Bool
     let showsAttachmentButton: Bool
     let selectTemplate: (MobileTaskTemplate.ID) -> Void
     let selectTemplateAndModel: (MobileTaskTemplate.ID, String?) -> Void
@@ -24,6 +25,7 @@ struct TaskComposerPromptCard: View {
     let editTemplates: () -> Void
     let chooseAttachmentPhotos: () -> Void
     let chooseAttachmentFiles: () -> Void
+    let cancelAttachmentPreparation: () -> Void
     let removeAttachment: (UUID) -> Void
 
     @FocusState private var isFocused: Bool
@@ -68,10 +70,13 @@ struct TaskComposerPromptCard: View {
                     endEditing: endEditing
                 )
 
-            if !attachments.isEmpty {
+            if !attachments.isEmpty || isPreparingAttachments {
                 TaskComposerAttachmentStrip(
                     attachments: attachments,
                     isDisabled: isDisabled,
+                    isPreparing: isPreparingAttachments,
+                    onCancelPreparing: cancelAttachmentPreparation,
+                    onPreviewDismiss: { isFocused = true },
                     remove: removeAttachment
                 )
             }
@@ -102,7 +107,9 @@ struct TaskComposerPromptCard: View {
             if showsAttachmentButton {
                 TaskComposerAttachmentPickerMenu(
                     style: .paperclip,
-                    isDisabled: isDisabled,
+                    isDisabled: isDisabled
+                        || isPreparingAttachments
+                        || attachments.count >= TaskComposerAttachment.maximumCount,
                     choosePhotos: chooseAttachmentPhotos,
                     chooseFiles: chooseAttachmentFiles
                 )
