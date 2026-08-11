@@ -81,6 +81,6 @@ final class FakeSurfaceRegistry: @unchecked Sendable, TerminalSurfaceRegistering
     }
     func allSurfaces() -> [any TerminalSurfacing] {
         allSurfacesCallCountLock.withLock { $0 += 1 }
-        backing.allSurfaces()
+        return backing.allSurfaces()
     }
 }
