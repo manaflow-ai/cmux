@@ -224,7 +224,8 @@ impl MachineRuntime {
             .iter()
             .map(|entry| {
                 let target = entry.target.clone();
-                let connector: MachineConnectFn = Arc::new(move || connect_target(&target));
+                let connector: MachineConnectFn =
+                    Arc::new(move |cancellation| connect_target(&target, cancellation));
                 (entry.descriptor.key, connector)
             })
             .collect()
@@ -232,7 +233,7 @@ impl MachineRuntime {
 
     pub(crate) fn connection_connector(&self, key: MachineKey) -> Option<MachineConnectFn> {
         let target = self.entry(key)?.target.clone();
-        Some(Arc::new(move || connect_target(&target)))
+        Some(Arc::new(move |cancellation| connect_target(&target, cancellation)))
     }
 
     pub fn connect_machine(&mut self, target: &str) -> anyhow::Result<MachineKey> {
@@ -429,7 +430,38 @@ pub(crate) struct MachineConnection {
     pub _lease: Option<Box<dyn MachineConnectionLease>>,
 }
 
-pub(crate) type MachineConnectFn = Arc<dyn Fn() -> anyhow::Result<MachineConnection> + Send + Sync>;
+#[derive(Default)]
+pub(crate) struct MachineConnectCancellation {
+    cancelled: AtomicBool,
+    state: Mutex<()>,
+    changed: Condvar,
+}
+
+impl MachineConnectCancellation {
+    pub(crate) fn cancel(&self) {
+        let _state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.cancelled.store(true, Ordering::Release);
+        self.changed.notify_all();
+    }
+
+    pub(crate) fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn wait_until_cancelled(&self) {
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        while !self.is_cancelled() {
+            state = self
+                .changed
+                .wait(state)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+    }
+}
+
+pub(crate) type MachineConnectFn = Arc<
+    dyn Fn(Arc<MachineConnectCancellation>) -> anyhow::Result<MachineConnection> + Send + Sync,
+>;
 
 #[derive(Clone)]
 pub(crate) struct MachineConnectionHub {
@@ -449,10 +481,11 @@ struct MachineConnectionSlot {
     active_attempt: Option<MachineConnectionAttempt>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct MachineConnectionAttempt {
     id: u64,
     deadline: Instant,
+    cancellation: Arc<MachineConnectCancellation>,
 }
 
 enum MachineConnectionState {
@@ -492,7 +525,14 @@ impl MachineConnectionHub {
     pub(crate) fn register(&self, key: MachineKey, connector: MachineConnectFn) {
         let Ok(mut slots) = self.inner.slots.lock() else { return };
         match slots.get_mut(&key) {
-            Some(slot) => slot.connector = connector,
+            Some(slot) => {
+                if let Some(attempt) = slot.active_attempt.take() {
+                    attempt.cancellation.cancel();
+                }
+                slot.connector = connector;
+                slot.state = MachineConnectionState::Disconnected;
+                self.inner.changed.notify_all();
+            }
             None => {
                 slots.insert(
                     key,
@@ -509,7 +549,9 @@ impl MachineConnectionHub {
     pub(crate) fn insert_ready(&self, key: MachineKey, connection: MachineConnection) {
         let Ok(mut slots) = self.inner.slots.lock() else { return };
         let Some(slot) = slots.get_mut(&key) else { return };
-        slot.active_attempt = None;
+        if let Some(attempt) = slot.active_attempt.take() {
+            attempt.cancellation.cancel();
+        }
         slot.state = MachineConnectionState::Ready(connection);
         self.inner.changed.notify_all();
     }
@@ -538,11 +580,15 @@ impl MachineConnectionHub {
                 MachineConnectionState::Connecting => {
                     let deadline = slot
                         .active_attempt
+                        .as_ref()
                         .map(|attempt| attempt.deadline)
                         .unwrap_or_else(Instant::now);
                     let remaining = deadline.saturating_duration_since(Instant::now());
                     if remaining.is_zero() {
                         let message = machine_connection_timeout_message();
+                        if let Some(attempt) = slot.active_attempt.take() {
+                            attempt.cancellation.cancel();
+                        }
                         slot.state = MachineConnectionState::Failed(message.clone());
                         self.inner.changed.notify_all();
                         return Err(anyhow::anyhow!(message));
@@ -560,6 +606,9 @@ impl MachineConnectionHub {
                         && matches!(slot.state, MachineConnectionState::Connecting)
                     {
                         let message = machine_connection_timeout_message();
+                        if let Some(attempt) = slot.active_attempt.take() {
+                            attempt.cancellation.cancel();
+                        }
                         slot.state = MachineConnectionState::Failed(message.clone());
                         self.inner.changed.notify_all();
                         return Err(anyhow::anyhow!(message));
@@ -576,15 +625,19 @@ impl MachineConnectionHub {
                     let attempt = MachineConnectionAttempt {
                         id: self.inner.next_attempt.fetch_add(1, Ordering::Relaxed),
                         deadline: Instant::now() + MACHINE_CONNECTION_TIMEOUT,
+                        cancellation: Arc::new(MachineConnectCancellation::default()),
                     };
-                    slot.active_attempt = Some(attempt);
+                    slot.active_attempt = Some(attempt.clone());
                     slot.state = MachineConnectionState::Connecting;
                     drop(slots);
                     if let Err(error) = self.spawn_attempt(key, attempt, connector) {
                         let message = error.to_string();
                         if let Ok(mut slots) = self.inner.slots.lock()
                             && let Some(slot) = slots.get_mut(&key)
-                            && slot.active_attempt.is_some_and(|active| active.id == attempt.id)
+                            && slot
+                                .active_attempt
+                                .as_ref()
+                                .is_some_and(|active| active.id == attempt.id)
                         {
                             slot.active_attempt = None;
                             slot.state = MachineConnectionState::Failed(message);
@@ -606,7 +659,10 @@ impl MachineConnectionHub {
         let hub = self.clone();
         std::thread::Builder::new()
             .name(format!("machine-connect-{}", key.0))
-            .spawn(move || hub.finish_attempt(key, attempt, connector()))?;
+            .spawn(move || {
+                let result = connector(Arc::clone(&attempt.cancellation));
+                hub.finish_attempt(key, attempt, result);
+            })?;
         Ok(())
     }
 
@@ -618,7 +674,11 @@ impl MachineConnectionHub {
     ) {
         let Ok(mut slots) = self.inner.slots.lock() else { return };
         let Some(slot) = slots.get_mut(&key) else { return };
-        if slot.active_attempt.is_none_or(|active| active.id != attempt.id) {
+        if slot
+            .active_attempt
+            .as_ref()
+            .is_none_or(|active| active.id != attempt.id)
+        {
             return;
         }
         slot.active_attempt = None;
@@ -693,11 +753,16 @@ impl MachineConnectionHub {
 
     pub(crate) fn remove(&self, key: MachineKey) {
         let connection = self.inner.slots.lock().ok().and_then(|mut slots| {
-            slots.remove(&key).and_then(|slot| match slot.state {
-                MachineConnectionState::Ready(connection) => Some(connection),
-                MachineConnectionState::Disconnected
-                | MachineConnectionState::Connecting
-                | MachineConnectionState::Failed(_) => None,
+            slots.remove(&key).and_then(|mut slot| {
+                if let Some(attempt) = slot.active_attempt.take() {
+                    attempt.cancellation.cancel();
+                }
+                match slot.state {
+                    MachineConnectionState::Ready(connection) => Some(connection),
+                    MachineConnectionState::Disconnected
+                    | MachineConnectionState::Connecting
+                    | MachineConnectionState::Failed(_) => None,
+                }
             })
         });
         if let Some(connection) = connection {
@@ -713,11 +778,16 @@ impl MachineConnectionHub {
             removed
                 .into_iter()
                 .filter_map(|key| slots.remove(&key))
-                .filter_map(|slot| match slot.state {
-                    MachineConnectionState::Ready(connection) => Some(connection),
-                    MachineConnectionState::Disconnected
-                    | MachineConnectionState::Connecting
-                    | MachineConnectionState::Failed(_) => None,
+                .filter_map(|mut slot| {
+                    if let Some(attempt) = slot.active_attempt.take() {
+                        attempt.cancellation.cancel();
+                    }
+                    match slot.state {
+                        MachineConnectionState::Ready(connection) => Some(connection),
+                        MachineConnectionState::Disconnected
+                        | MachineConnectionState::Connecting
+                        | MachineConnectionState::Failed(_) => None,
+                    }
                 })
                 .collect::<Vec<_>>()
         });
@@ -735,7 +805,9 @@ impl MachineConnectionHub {
             slots
                 .values_mut()
                 .filter_map(|slot| {
-                    slot.active_attempt = None;
+                    if let Some(attempt) = slot.active_attempt.take() {
+                        attempt.cancellation.cancel();
+                    }
                     match std::mem::replace(&mut slot.state, MachineConnectionState::Disconnected) {
                         MachineConnectionState::Ready(connection) => Some(connection),
                         MachineConnectionState::Disconnected
@@ -758,14 +830,20 @@ fn machine_connection_timeout_message() -> String {
         .machine_connection_timed_out(MACHINE_CONNECTION_TIMEOUT.as_secs())
 }
 
-fn connect_target(target: &MachineTargetConfig) -> anyhow::Result<MachineConnection> {
+fn connect_target(
+    target: &MachineTargetConfig,
+    cancellation: Arc<MachineConnectCancellation>,
+) -> anyhow::Result<MachineConnection> {
+    if cancellation.is_cancelled() {
+        anyhow::bail!("machine connection was canceled");
+    }
     match target {
         MachineTargetConfig::Unix { socket } => Ok(MachineConnection {
             session: Session::Remote(RemoteSession::connect(socket)?),
             _lease: None,
         }),
         MachineTargetConfig::Ssh { host, user, port, identity_file, session, binary } => {
-            #[cfg(unix)]
+            #[cfg(any(unix, windows))]
             {
                 let connected = crate::remote_cli::connect_managed_ssh(managed_ssh_options(
                     host,
@@ -774,22 +852,22 @@ fn connect_target(target: &MachineTargetConfig) -> anyhow::Result<MachineConnect
                     identity_file.as_deref(),
                     session,
                     binary,
-                )?)?;
+                )?, cancellation)?;
                 Ok(MachineConnection {
                     session: connected.session,
                     _lease: Some(Box::new(connected.lease)),
                 })
             }
-            #[cfg(not(unix))]
+            #[cfg(not(any(unix, windows)))]
             {
-                let _ = (host, user, port, identity_file, session, binary);
+                let _ = (host, user, port, identity_file, session, binary, cancellation);
                 anyhow::bail!(crate::localization::catalog().sidebar.managed_ssh_requires_unix)
             }
         }
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn managed_ssh_options(
     host: &str,
     user: Option<&str>,
@@ -824,7 +902,6 @@ fn managed_ssh_options(
         "BatchMode=yes".into(),
         "-o".into(),
         "StrictHostKeyChecking=yes".into(),
-        "-o".into(),
         "ForwardAgent=no".into(),
         "-o".into(),
         "ForwardX11=no".into(),
@@ -840,7 +917,9 @@ fn managed_ssh_options(
         destination,
         session: session.to_string(),
         remote_binary: binary.to_string(),
+        remote_state_dir: None,
         ssh_args,
+        connect_timeout: MACHINE_CONNECTION_TIMEOUT,
     };
     crate::remote_cli::validate_managed_ssh_options(&options)?;
     Ok(options)
@@ -860,17 +939,11 @@ mod tests {
         let key = MachineKey(41);
         let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
         let (finished_tx, finished_rx) = std::sync::mpsc::sync_channel(1);
-        let release = Arc::new((Mutex::new(false), Condvar::new()));
-        let connector_release = release.clone();
-        let connector: MachineConnectFn = Arc::new(move || {
+        let connector: MachineConnectFn = Arc::new(move |cancellation| {
             started_tx.send(()).unwrap();
-            let (lock, changed) = &*connector_release;
-            let mut released = lock.lock().unwrap();
-            while !*released {
-                released = changed.wait(released).unwrap();
-            }
+            cancellation.wait_until_cancelled();
             finished_tx.send(()).unwrap();
-            anyhow::bail!("test connector released")
+            anyhow::bail!("test connector canceled")
         });
         let hub = MachineConnectionHub::new([(key, connector)]);
         let connecting = hub.clone();
@@ -883,9 +956,6 @@ mod tests {
         hub.close();
         let result = result_rx.recv_timeout(Duration::from_millis(250));
 
-        let (lock, changed) = &*release;
-        *lock.lock().unwrap() = true;
-        changed.notify_all();
         finished_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         caller.join().unwrap();
 

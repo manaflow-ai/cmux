@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, anyhow};
 use async_trait::async_trait;
@@ -592,6 +592,20 @@ impl Drop for ClientRuntimeHandle {
 }
 
 pub fn start_client_runtime(options: ClientRuntimeOptions) -> anyhow::Result<ClientRuntimeHandle> {
+    start_client_runtime_inner(options, None)
+}
+
+pub(crate) fn start_client_runtime_cancelable(
+    options: ClientRuntimeOptions,
+    cancellation: Arc<crate::machine_runtime::MachineConnectCancellation>,
+) -> anyhow::Result<ClientRuntimeHandle> {
+    start_client_runtime_inner(options, Some(cancellation))
+}
+
+fn start_client_runtime_inner(
+    options: ClientRuntimeOptions,
+    cancellation: Option<Arc<crate::machine_runtime::MachineConnectCancellation>>,
+) -> anyhow::Result<ClientRuntimeHandle> {
     if options.routes.is_empty() {
         return Err(anyhow!("remote connection has no route candidates"));
     }
@@ -614,20 +628,36 @@ pub fn start_client_runtime(options: ClientRuntimeOptions) -> anyhow::Result<Cli
             result
         })
         .context("could not start remote client thread")?;
-    let ready = match ready_rx.recv_timeout(startup_timeout) {
-        Ok(Ok(ready)) => ready,
-        Ok(Err(error)) => {
+    let startup_deadline = Instant::now() + startup_timeout;
+    let ready = loop {
+        if cancellation.as_ref().is_some_and(|signal| signal.is_cancelled()) {
             let _ = shutdown_tx.send(true);
             reap_failed_startup(thread, "cmux-remote-client");
-            return Err(anyhow!(error));
+            return Err(anyhow!("remote connection startup was canceled"));
         }
-        Err(error) => {
+        let remaining = startup_deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
             let _ = shutdown_tx.send(true);
             reap_failed_startup(thread, "cmux-remote-client");
             return Err(anyhow!(
-                "remote connection did not become ready within {}s: {error}",
+                "remote connection did not become ready within {}s",
                 startup_timeout.as_secs()
             ));
+        }
+        let wait = remaining.min(Duration::from_millis(25));
+        match ready_rx.recv_timeout(wait) {
+            Ok(Ok(ready)) => break ready,
+            Ok(Err(error)) => {
+                let _ = shutdown_tx.send(true);
+                reap_failed_startup(thread, "cmux-remote-client");
+                return Err(anyhow!(error));
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                let _ = shutdown_tx.send(true);
+                reap_failed_startup(thread, "cmux-remote-client");
+                return Err(anyhow!("remote connection startup worker stopped before readiness"));
+            }
         }
     };
     Ok(ClientRuntimeHandle {
@@ -1129,7 +1159,7 @@ async fn bootstrap_initial_ssh_route(
             Ok::<_, BootstrapError>(target)
         }) => {
             let target = result.map_err(|_| BootstrapError::Timeout)??;
-            register_resolved_ssh_target(&destination, port, target)?;
+            register_resolved_ssh_target(&destination, port, ssh, target)?;
             Ok(())
         }
         () = wait_for_shutdown_request(shutdown) => Err(anyhow!("SSH bootstrap interrupted")),

@@ -36,19 +36,42 @@ pub struct SshRemoteTarget {
     pub shell: SshRemoteShell,
 }
 
-static RESOLVED_REMOTE_TARGETS: OnceLock<RwLock<HashMap<String, SshRemoteTarget>>> =
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct ResolvedSshTargetKey {
+    destination: String,
+    port: Option<u16>,
+    ssh_binary: String,
+    remote_binary: String,
+    remote_session: String,
+    remote_state_dir: Option<String>,
+    extra_args: Vec<String>,
+    maximum_frame_bytes: usize,
+}
+
+static RESOLVED_REMOTE_TARGETS: OnceLock<RwLock<HashMap<ResolvedSshTargetKey, SshRemoteTarget>>> =
     OnceLock::new();
 
-fn target_key(destination: &str, port: Option<u16>) -> String {
-    match port {
-        Some(port) => format!("{destination}:{port}"),
-        None => destination.to_owned(),
+fn target_key(
+    destination: &str,
+    port: Option<u16>,
+    config: &SshProviderConfig,
+) -> ResolvedSshTargetKey {
+    ResolvedSshTargetKey {
+        destination: destination.to_owned(),
+        port,
+        ssh_binary: config.ssh_binary.clone(),
+        remote_binary: config.remote_binary.clone(),
+        remote_session: config.remote_session.clone(),
+        remote_state_dir: config.remote_state_dir.clone(),
+        extra_args: config.extra_args.clone(),
+        maximum_frame_bytes: config.maximum_frame_bytes,
     }
 }
 
 pub fn register_resolved_ssh_target(
     destination: &str,
     port: Option<u16>,
+    config: &SshProviderConfig,
     target: SshRemoteTarget,
 ) -> Result<(), ProviderError> {
     validate_remote_target(&target)?;
@@ -56,23 +79,23 @@ pub fn register_resolved_ssh_target(
         .get_or_init(|| RwLock::new(HashMap::new()))
         .write()
         .map_err(|_| ProviderError::Transport("SSH target registry is poisoned".into()))?
-        .insert(target_key(destination, port), target);
+        .insert(target_key(destination, port, config), target);
     Ok(())
 }
 
 fn resolved_ssh_target(
     destination: &str,
     port: Option<u16>,
-    fallback: &str,
+    config: &SshProviderConfig,
 ) -> Result<SshRemoteTarget, ProviderError> {
     let target = RESOLVED_REMOTE_TARGETS
         .get_or_init(|| RwLock::new(HashMap::new()))
         .read()
         .map_err(|_| ProviderError::Transport("SSH target registry is poisoned".into()))?
-        .get(&target_key(destination, port))
+        .get(&target_key(destination, port, config))
         .cloned()
         .unwrap_or_else(|| SshRemoteTarget {
-            binary: fallback.to_owned(),
+            binary: config.remote_binary.clone(),
             shell: SshRemoteShell::Posix,
         });
     validate_remote_target(&target)?;
@@ -148,7 +171,7 @@ impl TransportProvider for SshProvider {
         }
         let (destination, description) = ssh_destination(&request.endpoint)?;
         let port = request.endpoint.port();
-        let target = resolved_ssh_target(&destination, port, &self.config.remote_binary)?;
+        let target = resolved_ssh_target(&destination, port, &self.config)?;
         Ok(Arc::new(SshLinkGroup {
             description: description.clone(),
             destination,
@@ -582,19 +605,40 @@ mod tests {
     }
 
     #[test]
-    fn resolved_windows_targets_are_scoped_by_destination_and_port() {
+    fn resolved_windows_targets_are_scoped_by_full_ssh_configuration() {
         let host = "windows-target-registry.test";
-        let target = SshRemoteTarget {
+        let config_a = SshProviderConfig {
+            ssh_binary: "ssh-a".into(),
+            remote_binary: "remote-a".into(),
+            extra_args: vec!["-F".into(), "config-a".into()],
+            ..SshProviderConfig::default()
+        };
+        let config_b = SshProviderConfig {
+            ssh_binary: "ssh-b".into(),
+            remote_binary: "remote-b".into(),
+            extra_args: vec!["-F".into(), "config-b".into()],
+            ..SshProviderConfig::default()
+        };
+        let target_a = SshRemoteTarget {
             binary: r"%LOCALAPPDATA%\cmux\bin\cmux-tui.exe".into(),
             shell: SshRemoteShell::WindowsCmd,
         };
-        register_resolved_ssh_target(host, Some(2201), target.clone()).unwrap();
-
-        assert_eq!(resolved_ssh_target(host, Some(2201), "fallback").unwrap(), target);
-        assert_eq!(
-            resolved_ssh_target(host, Some(2202), "fallback").unwrap(),
-            SshRemoteTarget { binary: "fallback".into(), shell: SshRemoteShell::Posix }
-        );
+        let target_b =
+            SshRemoteTarget { binary: "remote-b".into(), shell: SshRemoteShell::Posix };
+        let ready = Arc::new(std::sync::Barrier::new(2));
+        std::thread::scope(|scope| {
+            for (config, target) in [(&config_a, &target_a), (&config_b, &target_b)] {
+                let ready = Arc::clone(&ready);
+                scope.spawn(move || {
+                    register_resolved_ssh_target(host, Some(2201), config, target.clone()).unwrap();
+                    ready.wait();
+                    assert_eq!(
+                        resolved_ssh_target(host, Some(2201), config).unwrap(),
+                        (*target).clone()
+                    );
+                });
+            }
+        });
     }
 
     #[test]

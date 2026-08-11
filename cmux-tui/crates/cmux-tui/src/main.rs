@@ -2434,7 +2434,7 @@ mod tests {
         let connector = |key: machine::MachineKey| {
             let dropped = Arc::clone(&dropped);
             let connects = Arc::clone(&connects);
-            let connector: machine_runtime::MachineConnectFn = Arc::new(move || {
+            let connector: machine_runtime::MachineConnectFn = Arc::new(move |_| {
                 connects.fetch_add(1, Ordering::SeqCst);
                 Ok(MachineConnection {
                     session: Session::Local(Mux::new(

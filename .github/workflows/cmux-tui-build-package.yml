@@ -512,16 +512,27 @@ jobs:
           printf '%s\n' "$output"
           python -c 'import json,sys; probe=json.load(sys.stdin); assert probe["app"] == "cmux-tui"; assert probe["os"] == "windows"' <<<"$output"
 
-      - name: Verify native Windows remote state startup
+      - name: Verify native Windows remote startup is bounded
         shell: bash
         run: |
           set +e
-          output="$(cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe remote-link --stdio --session ci-smoke </dev/null 2>&1)"
+          output="$(timeout 15s cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe remote-link --stdio --session ci-smoke </dev/null 2>&1)"
           status=$?
           set -e
           printf '%s\n' "$output"
-          test "$status" -ne 0
-          grep -F "Windows SSH carrier was rejected" <<<"$output"
+          test "$status" -ne 124
+          if [[ "$status" -ne 0 ]]; then
+            # Hosted Windows jobs forbid process breakaway. Production must
+            # fail instead of starting an owner that dies with its carrier.
+            grep -F "could not start Windows mux owner: Access is denied" <<<"$output"
+          fi
+          cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe remote-stop --session ci-smoke
+
+      - name: Verify native Windows SSH through hosted OpenSSH
+        shell: pwsh
+        run: |
+          cmux-tui/scripts/smoke-windows-native-ssh.ps1 `
+            -Binary cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe
 
       - name: Verify native Windows ConPTY terminal
         shell: bash

@@ -233,6 +233,14 @@ impl SshBootstrapper {
         Ok(Some(probe))
     }
 
+    async fn probe_binary(&self, binary: &str) -> Result<Option<RemoteProbe>, BootstrapError> {
+        self.probe_remote_target(&SshRemoteTarget {
+            binary: binary.to_owned(),
+            shell: SshRemoteShell::Posix,
+        })
+        .await
+    }
+
     pub async fn ensure_installed(&self) -> Result<BootstrapOutcome, BootstrapError> {
         self.ensure_installed_target().await.map(|resolved| resolved.outcome)
     }
@@ -378,7 +386,7 @@ impl SshBootstrapper {
         if let Some(port) = self.config.port {
             command.arg("-P").arg(port.to_string());
         }
-        let remote = format!("{}:{remote_filename}", self.config.destination);
+        let remote = scp_remote_path(&self.config.destination, remote_filename);
         command
             .args(&self.config.extra_args)
             .arg(source)
@@ -823,6 +831,19 @@ fn scp_binary_for(ssh_binary: &str) -> PathBuf {
     }
 }
 
+fn scp_remote_path(destination: &str, remote_filename: &str) -> String {
+    let (prefix, host) = destination
+        .rsplit_once('@')
+        .map_or(("", destination), |(user, host)| (user, host));
+    let host = if host.contains(':') && !host.starts_with('[') {
+        format!("[{host}]")
+    } else {
+        host.to_owned()
+    };
+    let destination = if prefix.is_empty() { host } else { format!("{prefix}@{host}") };
+    format!("{destination}:{remote_filename}")
+}
+
 async fn read_bounded(
     mut reader: impl tokio::io::AsyncRead + Unpin,
     stream: &'static str,
@@ -1045,6 +1066,18 @@ mod tests {
         assert_eq!(scp_binary_for("/opt/openssh/bin/ssh"), PathBuf::from("/opt/openssh/bin/scp"));
         assert_eq!(scp_binary_for("ssh.exe"), PathBuf::from("scp.exe"));
         assert_eq!(scp_binary_for("ssh-wrapper"), PathBuf::from("scp"));
+    }
+
+    #[test]
+    fn scp_remote_path_brackets_ipv6_hosts() {
+        assert_eq!(
+            scp_remote_path("alice@2001:db8::1", "cmux-tui.exe"),
+            "alice@[2001:db8::1]:cmux-tui.exe"
+        );
+        assert_eq!(
+            scp_remote_path("alice@[2001:db8::1]", "cmux-tui.exe"),
+            "alice@[2001:db8::1]:cmux-tui.exe"
+        );
     }
 
     #[cfg(unix)]

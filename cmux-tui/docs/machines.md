@@ -24,6 +24,8 @@ Unix targets connect directly to another local cmux control socket. Use an absol
 
 SSH targets use the same managed lifecycle as `cmux-tui ssh`. The client resolves the destination through OpenSSH, probes the configured remote binary, and then opens the remote link. The link starts the named remote session runtime when it does not exist, so the session does not need a separately installed supervisor just to connect.
 
+On a native Windows client, `cmux-tui ssh` and the machine rail use the installed `ssh.exe` client and publish a private local AF_UNIX bridge. Each local mux connection gets one noninteractive OpenSSH process. A Windows target starts or reuses its detached session owner through the private `remote-relay` command. The Windows client requires an exact, already installed remote binary; it does not perform the Unix bootstrap or package installation path. Closing the machine hub cancels the bridge and terminates all active SSH processes.
+
 ```text
 ssh -T [-p PORT] -o BatchMode=yes -o StrictHostKeyChecking=yes -o ForwardAgent=no -o ForwardX11=no -o ClearAllForwardings=yes [-i IDENTITY_FILE] [USER@]HOST BINARY remote-probe --json
 ```
