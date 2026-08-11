@@ -14,7 +14,7 @@ public enum ChatArtifactError: Error, Sendable, Equatable {
     case unsupportedMedia
     /// The Mac-side artifact service is not wired.
     case unavailable
-    /// The source answered, but the artifact response could not be loaded safely.
+    /// The artifact operation failed without confirmed closure of the control transport.
     case loadFailed
     /// The control transport to the Mac closed before the request completed.
     case macUnreachable
