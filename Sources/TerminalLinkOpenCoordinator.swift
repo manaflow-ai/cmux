@@ -20,6 +20,10 @@ struct TerminalLinkOpenCoordinator {
     private let fileOpen: any FileOpening
     private let deferOperation: @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void
 
+    /// Creates a coordinator using the supplied routing collaborators.
+    ///
+    /// The production preferred-editor service is created at the point of
+    /// opening so it always reads the current editor setting.
     init(
         defaults: UserDefaults = .standard,
         containerResolver: (@MainActor (UUID?, UUID?) -> (any TerminalLinkOpenContainer)?)? = nil,
@@ -40,6 +44,7 @@ struct TerminalLinkOpenCoordinator {
         self.deferOperation = deferOperation
     }
 
+    /// Opens a terminal link according to the source terminal and URL policy.
     @discardableResult
     func open(_ request: TerminalLinkOpenRequest) -> Bool {
         log("link.openURL raw=\(request.rawValue)")
@@ -67,8 +72,8 @@ struct TerminalLinkOpenCoordinator {
                 )
                 PreferredEditorService(defaults: defaults).open(
                     URL(fileURLWithPath: reference.path),
-                    reference.line,
-                    reference.column
+                    line: reference.line,
+                    column: reference.column
                 )
                 return true
             }
@@ -306,6 +311,7 @@ struct TerminalLinkOpenCoordinator {
         return externalOpen(url)
     }
 
+    /// Returns whether a raw link is an explicit local `file` URL.
     private func isExplicitFileURL(_ rawValue: String) -> Bool {
         URL(string: rawValue)?.scheme?.caseInsensitiveCompare("file") == .orderedSame
     }

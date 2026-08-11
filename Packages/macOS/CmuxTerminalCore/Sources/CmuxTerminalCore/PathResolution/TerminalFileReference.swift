@@ -7,6 +7,12 @@ public struct TerminalFileReference: Equatable, Sendable {
     public let line: Int?
     public let column: Int?
 
+    /// Creates a reference for an existing local file and optional location.
+    ///
+    /// - Parameters:
+    ///   - path: The standardized local file path.
+    ///   - line: An optional one-based source line.
+    ///   - column: An optional one-based source column.
     public init(path: String, line: Int? = nil, column: Int? = nil) {
         self.path = path
         self.line = line

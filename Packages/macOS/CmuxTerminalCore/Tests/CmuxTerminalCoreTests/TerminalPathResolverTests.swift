@@ -174,6 +174,15 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         )
     }
 
+    @Test func rejectsNonFileSchemeEvenWithNumericLocationSuffix() {
+        #expect(
+            TerminalPathResolver(fileExists: { _ in true }).resolveOpenURLFileReference(
+                "https://example.com:8080/page:5",
+                cwd: "/tmp"
+            ) == nil
+        )
+    }
+
     @Test func schemelessRelativeAndAbsoluteTextStaysEligible() {
         let relative = "/Users/dev/project/docs/specs/2026-05-22-test.md"
         #expect(
@@ -214,7 +223,20 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         let literalPath = "/tmp/report:42"
         let reference = try #require(
             TerminalPathResolver(fileExists: existsIn([literalPath, "/tmp/report"])).resolveOpenURLFileReference(
-                literalPath,
+                "report:42",
+                cwd: "/tmp"
+            )
+        )
+        #expect(reference.path == literalPath)
+        #expect(reference.line == nil)
+        #expect(reference.column == nil)
+    }
+
+    @Test func resolvesRelativeLiteralColonPathWhenBasePathIsMissing() throws {
+        let literalPath = "/tmp/report:42"
+        let reference = try #require(
+            TerminalPathResolver(fileExists: existsIn([literalPath])).resolveOpenURLFileReference(
+                "report:42",
                 cwd: "/tmp"
             )
         )

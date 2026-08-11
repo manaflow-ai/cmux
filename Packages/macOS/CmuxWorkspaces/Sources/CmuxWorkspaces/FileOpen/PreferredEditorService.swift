@@ -103,6 +103,7 @@ public struct PreferredEditorService: FileOpening {
         }
     }
 
+    /// Formats the configured editor's single file argument.
     private func editorArgument(path: String, line: Int?, column: Int?) -> String {
         guard let line else { return path }
         if let column {
