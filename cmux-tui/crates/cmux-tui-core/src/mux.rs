@@ -4812,9 +4812,12 @@ impl Mux {
                 _ => None,
             },
         ))?;
-        self.sync_agent_records_for_terminals(&registry, terminal_ids)?;
+        let projection_current =
+            self.sync_agent_records_for_terminals(&registry, terminal_ids)?;
         drop(registry);
-        self.publish_journal_event();
+        if projection_current {
+            self.publish_journal_event();
+        }
         Ok(commits)
     }
 
@@ -5040,9 +5043,10 @@ impl Mux {
         let mut registry = self.workspace_registry.lock().unwrap();
         let commit =
             registry.append_journal_ingress(ingress, &validated, origin, idempotency_key)?;
-        self.sync_agent_records_from_journal_ingress(&registry, ingress)?;
+        let projection_current =
+            self.sync_agent_records_from_journal_ingress(&registry, ingress)?;
         drop(registry);
-        if !commit.replayed {
+        if !commit.replayed && projection_current {
             self.publish_journal_event();
         }
         Ok(commit)
@@ -5052,7 +5056,7 @@ impl Mux {
         &self,
         registry: &WorkspaceRegistry,
         ingress: &crate::JournalIngress,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<bool> {
         let terminal_ids = agent_terminal_ids_from_journal_ingresses(std::iter::once(ingress))?;
         self.sync_agent_records_for_terminals(registry, terminal_ids)
     }
@@ -5061,9 +5065,12 @@ impl Mux {
         &self,
         registry: &WorkspaceRegistry,
         terminal_ids: HashSet<TerminalPublicId>,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<bool> {
         if terminal_ids.is_empty() {
-            return Ok(());
+            return Ok(true);
+        }
+        if registry.agent_projection_rebuild_pending()? {
+            return Ok(false);
         }
 
         let mut projections = Vec::with_capacity(terminal_ids.len());
@@ -5080,7 +5087,7 @@ impl Mux {
             )?;
             records.insert(projection.terminal_id, record);
         }
-        Ok(())
+        Ok(true)
     }
 
     pub(crate) fn journal_hook_states(

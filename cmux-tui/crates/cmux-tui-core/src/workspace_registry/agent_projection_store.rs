@@ -989,12 +989,7 @@ fn merge_projection(
     let same_session_identity = current.source_session.is_some()
         && current.source_session == next.source_session
         && current.provider == next.provider;
-    let same_provider_without_session = current.source_session.is_none()
-        && next.source_session.is_none()
-        && current.provider.is_some()
-        && current.provider == next.provider
-        && next.updated_at_ms >= current.updated_at_ms;
-    if same_session_identity || same_provider_without_session {
+    if same_session_identity {
         let begins_new_structured_turn = next.begins_turn
             && current.turn_id.is_some()
             && next.turn_id.is_some()
