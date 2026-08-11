@@ -17,21 +17,17 @@ struct VaultRestoreRelaunchPersistenceTests {
         let snapshot = try #require(launch.startupRestoreAgent)
         let defaults = try makeAutoResumeDefaults()
         defer { defaults.store.removePersistentDomain(forName: defaults.name) }
+        let resumeIntentRecorder = AgentChatResumeIntentRecorder { _ in }
 
         let source = Workspace(
             workingDirectory: launch.workingDirectory,
             initialTerminalInput: launch.initialInput,
             initialTerminalStartupRestoreAgent: snapshot,
-            agentSessionAutoResumeDefaults: defaults.store
+            agentSessionAutoResumeDefaults: defaults.store,
+            agentChatResumeIntentRecorder: resumeIntentRecorder
         )
         defer { source.teardownAllPanels() }
         let sourcePanelID = try #require(source.focusedPanelId)
-        let sourcePanel = try #require(source.terminalPanel(for: sourcePanelID))
-        source.commitTerminalStartupRestore(
-            panel: sourcePanel,
-            snapshot: snapshot,
-            hasQueuedStartupInput: true
-        )
 
         // The shell can report its initial prompt before the restore selector
         // starts or before the resumed agent process becomes observable.
@@ -50,7 +46,10 @@ struct VaultRestoreRelaunchPersistenceTests {
 
         let data = try JSONEncoder().encode(persisted)
         let decoded = try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: data)
-        let restored = Workspace(agentSessionAutoResumeDefaults: defaults.store)
+        let restored = Workspace(
+            agentSessionAutoResumeDefaults: defaults.store,
+            agentChatResumeIntentRecorder: resumeIntentRecorder
+        )
         defer { restored.teardownAllPanels() }
         let restoredPanelIDs = restored.restoreSessionSnapshot(decoded)
         let restoredPanelID = try #require(restoredPanelIDs[sourcePanelID])
@@ -63,14 +62,92 @@ struct VaultRestoreRelaunchPersistenceTests {
         )
     }
 
+    @Test("Relaunch restore stays held until its tab topology owner admits it")
+    func relaunchRestoreWaitsForTabTopologyAdmission() throws {
+        let launch = try makeLaunch(sessionID: "vault-topology-admission")
+        let snapshot = try #require(launch.startupRestoreAgent)
+        let defaults = try makeAutoResumeDefaults()
+        defer { defaults.store.removePersistentDomain(forName: defaults.name) }
+        let resumeIntentRecorder = AgentChatResumeIntentRecorder { _ in }
+        let source = Workspace(
+            workingDirectory: launch.workingDirectory,
+            initialTerminalInput: launch.initialInput,
+            initialTerminalStartupRestoreAgent: snapshot,
+            agentSessionAutoResumeDefaults: defaults.store,
+            agentChatResumeIntentRecorder: resumeIntentRecorder
+        )
+        defer { source.teardownAllPanels() }
+        let persisted = source.sessionSnapshot(includeScrollback: false)
+        let sourcePanelID = try #require(source.focusedPanelId)
+
+        let restored = Workspace(
+            agentSessionAutoResumeDefaults: defaults.store,
+            agentChatResumeIntentRecorder: resumeIntentRecorder
+        )
+        defer { restored.teardownAllPanels() }
+        let restoredPanelIDs = restored.restoreSessionSnapshot(
+            persisted,
+            startupRestoreAdmissionOwner: .tabManagerTopology
+        )
+        let restoredPanelID = try #require(restoredPanelIDs[sourcePanelID])
+        let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
+
+        #expect(!restoredPanel.surface.canCreateRuntimeSurface)
+        #expect(restoredPanel.surface.debugInitialInputForTesting() == launch.initialInput)
+
+        restored.admitSessionRestoredTerminalRuntimes()
+
+        #expect(restoredPanel.surface.canCreateRuntimeSurface)
+    }
+
+    @Test("Tab manager publishes restored workspaces before releasing terminals")
+    func tabManagerRestoreReleasesDeferredAdmission() throws {
+        let launch = try makeLaunch(sessionID: "vault-tab-manager-admission")
+        let snapshot = try #require(launch.startupRestoreAgent)
+        let defaults = try makeAutoResumeDefaults()
+        defer { defaults.store.removePersistentDomain(forName: defaults.name) }
+        let resumeIntentRecorder = AgentChatResumeIntentRecorder { _ in }
+        let source = Workspace(
+            workingDirectory: launch.workingDirectory,
+            initialTerminalInput: launch.initialInput,
+            initialTerminalStartupRestoreAgent: snapshot,
+            agentSessionAutoResumeDefaults: defaults.store,
+            agentChatResumeIntentRecorder: resumeIntentRecorder
+        )
+        defer { source.teardownAllPanels() }
+        let persistedWorkspace = source.sessionSnapshot(includeScrollback: false)
+        let sourcePanelID = try #require(source.focusedPanelId)
+
+        let manager = TabManager(
+            autoWelcomeIfNeeded: false,
+            agentChatResumeIntentRecorder: resumeIntentRecorder
+        )
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
+        let restoredPanelIDs = manager.restoreSessionSnapshot(SessionTabManagerSnapshot(
+            selectedWorkspaceIndex: 0,
+            workspaces: [persistedWorkspace]
+        ))
+        let restoredWorkspace = try #require(manager.tabs.first)
+        let restoredPanelID = try #require(restoredPanelIDs.first?[sourcePanelID])
+        let restoredPanel = try #require(restoredWorkspace.terminalPanel(for: restoredPanelID))
+
+        #expect(manager.tabs.contains { $0 === restoredWorkspace })
+        #expect(restoredPanel.surface.canCreateRuntimeSurface)
+        #expect(restoredPanel.surface.debugInitialInputForTesting() == launch.initialInput)
+    }
+
     @Test("Manual Vault continuation does not auto-resume after relaunch")
     func manualContinuationDoesNotAutoResume() throws {
         let launch = try makeLaunch(sessionID: "vault-manual-relaunch")
         let snapshot = try #require(launch.startupRestoreAgent)
         let defaults = try makeAutoResumeDefaults()
         defer { defaults.store.removePersistentDomain(forName: defaults.name) }
+        let resumeIntentRecorder = AgentChatResumeIntentRecorder { _ in }
 
-        let source = Workspace(agentSessionAutoResumeDefaults: defaults.store)
+        let source = Workspace(
+            agentSessionAutoResumeDefaults: defaults.store,
+            agentChatResumeIntentRecorder: resumeIntentRecorder
+        )
         defer { source.teardownAllPanels() }
         let sourcePanelID = try #require(source.focusedPanelId)
         source.seedSessionRestoredAgentState(
@@ -92,7 +169,10 @@ struct VaultRestoreRelaunchPersistenceTests {
         )
         #expect(persistedTerminal.wasAgentRunning == false)
 
-        let restored = Workspace(agentSessionAutoResumeDefaults: defaults.store)
+        let restored = Workspace(
+            agentSessionAutoResumeDefaults: defaults.store,
+            agentChatResumeIntentRecorder: resumeIntentRecorder
+        )
         defer { restored.teardownAllPanels() }
         let restoredPanelIDs = restored.restoreSessionSnapshot(persisted)
         let restoredPanelID = try #require(restoredPanelIDs[sourcePanelID])

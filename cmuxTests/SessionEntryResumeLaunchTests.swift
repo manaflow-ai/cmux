@@ -214,6 +214,10 @@ struct SessionEntryResumeLaunchTests {
         )
         let launch = try #require(entry.resumeLaunch)
         let restorableAgent = try #require(launch.startupRestoreAgent)
+        var resumeIntents: [AgentChatResumeIntentRecorder.Intent] = []
+        let resumeIntentRecorder = AgentChatResumeIntentRecorder {
+            resumeIntents.append($0)
+        }
 
         let defaultsName = "cmux-vault-restore-persistence-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: defaultsName))
@@ -224,16 +228,11 @@ struct SessionEntryResumeLaunchTests {
             workingDirectory: launch.workingDirectory,
             initialTerminalInput: launch.initialInput,
             initialTerminalStartupRestoreAgent: restorableAgent,
-            agentSessionAutoResumeDefaults: defaults
+            agentSessionAutoResumeDefaults: defaults,
+            agentChatResumeIntentRecorder: resumeIntentRecorder
         )
         defer { source.teardownAllPanels() }
         let sourcePanelID = try #require(source.focusedPanelId)
-        let sourcePanel = try #require(source.terminalPanel(for: sourcePanelID))
-        source.commitTerminalStartupRestore(
-            panel: sourcePanel,
-            snapshot: restorableAgent,
-            hasQueuedStartupInput: true
-        )
         #expect(
             source.restoredResumeSessionWorkingDirectoriesByPanelId[sourcePanelID]
                 == launch.workingDirectory
@@ -246,7 +245,10 @@ struct SessionEntryResumeLaunchTests {
 
         let encoded = try JSONEncoder().encode(persisted)
         let decoded = try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: encoded)
-        let restored = Workspace(agentSessionAutoResumeDefaults: defaults)
+        let restored = Workspace(
+            agentSessionAutoResumeDefaults: defaults,
+            agentChatResumeIntentRecorder: resumeIntentRecorder
+        )
         defer { restored.teardownAllPanels() }
         let restoredPanelIDs = restored.restoreSessionSnapshot(decoded)
         let restoredPanelID = try #require(restoredPanelIDs[sourcePanelID])
@@ -262,6 +264,11 @@ struct SessionEntryResumeLaunchTests {
                 .panels.first { $0.id == restoredPanelID }?.terminal?.agent?.sessionId
                 == sessionID
         )
+        let restoredIntent = try #require(resumeIntents.last)
+        #expect(restoredIntent.sessionID == sessionID)
+        #expect(restoredIntent.surfaceID == restoredPanelID.uuidString)
+        #expect(restoredIntent.workspaceID == restored.id.uuidString)
+        #expect(restoredIntent.workingDirectory == launch.workingDirectory)
     }
 
     @Test("Vault terminal creation authoritatively rebinds the resumed chat")
@@ -287,25 +294,15 @@ struct SessionEntryResumeLaunchTests {
         )
         let launch = try #require(entry.resumeLaunch)
         let restorableAgent = try #require(launch.startupRestoreAgent)
-        let temporaryHome = FileManager.default.temporaryDirectory
-            .appending(path: "cmux-vault-chat-rebind-\(UUID().uuidString)", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(
-            at: temporaryHome,
-            withIntermediateDirectories: true
-        )
-        defer { try? FileManager.default.removeItem(at: temporaryHome) }
-        let registry = AgentChatSessionRegistry(
-            hookStore: AgentChatHookSessionStore(homeDirectory: temporaryHome)
-        )
-        let service = AgentChatTranscriptService(
-            registry: registry,
-            resolver: AgentChatTranscriptResolver(homeDirectory: temporaryHome, environment: [:]),
-            hasEventSubscribers: { false },
-            emitEventPayload: { _ in }
-        )
-        service.start()
+        var resumeIntents: [AgentChatResumeIntentRecorder.Intent] = []
+        let resumeIntentRecorder = AgentChatResumeIntentRecorder {
+            resumeIntents.append($0)
+        }
 
-        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        let tabManager = TabManager(
+            autoWelcomeIfNeeded: false,
+            agentChatResumeIntentRecorder: resumeIntentRecorder
+        )
         defer { tabManager.tabs.forEach { $0.teardownAllPanels() } }
         let workspace = tabManager.addWorkspace(
             workingDirectory: launch.workingDirectory,
@@ -314,13 +311,13 @@ struct SessionEntryResumeLaunchTests {
             autoWelcomeIfNeeded: false
         )
         let panelID = try #require(workspace.focusedPanelId)
-        let record = try #require(registry.record(sessionID: sessionID))
+        let intent = try #require(resumeIntents.last)
 
-        #expect(record.state == .idle)
-        #expect(record.surfaceID == panelID.uuidString)
-        #expect(record.workspaceID == workspace.id.uuidString)
-        #expect(record.workingDirectory == workingDirectory)
-        withExtendedLifetime(service) {}
+        #expect(intent.sessionID == sessionID)
+        #expect(intent.source == "codex")
+        #expect(intent.surfaceID == panelID.uuidString)
+        #expect(intent.workspaceID == workspace.id.uuidString)
+        #expect(intent.workingDirectory == workingDirectory)
     }
 
     @Test("Vault tab and split placements seed persistent lifecycle state")
