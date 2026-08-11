@@ -163,6 +163,7 @@ public final class TerminalSurfaceLaunchResolver {
             ownedCommandShimLease = TerminalSurfaceAgentCommandShimLease(
                 shims: shims,
                 removalAttemptLimit: runtimeFilesystem.agentCommandShimRemovalAttemptLimit,
+                removalLane: runtimeFilesystem.agentCommandShimRemovalLane,
                 remove: runtimeFilesystem.removeAgentCommandShims,
                 reportRemovalFailure: runtimeFilesystem.reportAgentCommandShimRemovalFailure
             )

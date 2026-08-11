@@ -738,6 +738,7 @@ struct TerminalSurfaceLaunchResolverTests {
         let state = TerminalSurfaceAgentCommandShimLeaseState(
             shims: shims,
             removalAttemptLimit: 3,
+            removalLane: TerminalSurfaceAgentCommandShimRemovalLane(),
             remove: { shims in
                 try recorder.remove(shims)
             },
@@ -810,6 +811,27 @@ struct TerminalSurfaceLaunchResolverTests {
         await remover.complete()
     }
 
+    @Test
+    func runtimeFilesystemsOwnIndependentCommandShimRemovalLanes() async {
+        func makeFilesystem() -> TerminalSurfaceRuntimeFilesystem {
+            TerminalSurfaceRuntimeFilesystem(
+                agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp"),
+                installAgentCommandShims: { _, _, _ in nil },
+                removeAgentCommandShims: { _ in },
+                isExecutableFile: { _ in false },
+                directoryExists: { _ in false }
+            )
+        }
+        let firstFilesystem = makeFilesystem()
+        let secondFilesystem = makeFilesystem()
+
+        #expect(await firstFilesystem.agentCommandShimRemovalLane.claim())
+        #expect(await secondFilesystem.agentCommandShimRemovalLane.claim())
+
+        await firstFilesystem.agentCommandShimRemovalLane.release()
+        await secondFilesystem.agentCommandShimRemovalLane.release()
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func lateCommandShimCleanupRetriesThroughInjectedClock() async throws {
         let shims = TerminalSurfaceAgentCommandShimSet(
@@ -820,6 +842,7 @@ struct TerminalSurfaceLaunchResolverTests {
         let recorder = CommandShimRemovalRecorder(failuresBeforeSuccess: 1)
         let owner = TerminalSurfaceAgentCommandShimCleanupOwner(
             removalAttemptLimit: 1,
+            removalLane: TerminalSurfaceAgentCommandShimRemovalLane(),
             retryDelays: [.seconds(5)],
             remove: { shims in
                 try recorder.remove(shims)

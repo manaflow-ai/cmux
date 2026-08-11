@@ -27,9 +27,6 @@ actor TerminalSurfaceAgentCommandShimRemovalLane {
     }
 }
 
-let terminalSurfaceAgentCommandShimRemovalLane =
-    TerminalSurfaceAgentCommandShimRemovalLane()
-
 private actor TerminalSurfaceShimRemovalRace {
     private var outcome: TerminalSurfaceShimRemovalOutcome?
     private var waiter: CheckedContinuation<TerminalSurfaceShimRemovalOutcome, Never>?
@@ -64,8 +61,7 @@ actor TerminalSurfaceAgentCommandShimLeaseState {
         shims: TerminalSurfaceAgentCommandShimSet,
         removalAttemptLimit: Int,
         removalAttemptTimeout: Duration = .seconds(5),
-        removalLane: TerminalSurfaceAgentCommandShimRemovalLane =
-            terminalSurfaceAgentCommandShimRemovalLane,
+        removalLane: TerminalSurfaceAgentCommandShimRemovalLane,
         remove: @escaping @Sendable (TerminalSurfaceAgentCommandShimSet) async throws -> Void,
         reportRemovalFailure:
             @escaping @Sendable (TerminalSurfaceAgentCommandShimSet, String) -> Void

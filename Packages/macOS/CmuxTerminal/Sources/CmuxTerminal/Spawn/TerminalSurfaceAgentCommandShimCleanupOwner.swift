@@ -2,6 +2,7 @@ internal import CmuxTerminalCore
 
 actor TerminalSurfaceAgentCommandShimCleanupOwner {
     private let removalAttemptLimit: Int
+    private let removalLane: TerminalSurfaceAgentCommandShimRemovalLane
     private let retryDelays: [Duration]
     private let remove: @Sendable (TerminalSurfaceAgentCommandShimSet) async throws -> Void
     private let reportRemovalFailure:
@@ -14,6 +15,7 @@ actor TerminalSurfaceAgentCommandShimCleanupOwner {
 
     init(
         removalAttemptLimit: Int,
+        removalLane: TerminalSurfaceAgentCommandShimRemovalLane,
         retryDelays: [Duration] = [.seconds(1), .seconds(5), .seconds(30)],
         remove: @escaping @Sendable (TerminalSurfaceAgentCommandShimSet) async throws -> Void,
         reportRemovalFailure:
@@ -22,6 +24,7 @@ actor TerminalSurfaceAgentCommandShimCleanupOwner {
         precondition(removalAttemptLimit > 0)
         precondition(retryDelays.allSatisfy { $0 > .zero })
         self.removalAttemptLimit = removalAttemptLimit
+        self.removalLane = removalLane
         self.retryDelays = retryDelays
         self.remove = remove
         self.reportRemovalFailure = reportRemovalFailure
@@ -45,6 +48,7 @@ actor TerminalSurfaceAgentCommandShimCleanupOwner {
             lease = TerminalSurfaceAgentCommandShimLease(
                 shims: shims,
                 removalAttemptLimit: removalAttemptLimit,
+                removalLane: removalLane,
                 remove: remove,
                 reportRemovalFailure: reportRemovalFailure
             )

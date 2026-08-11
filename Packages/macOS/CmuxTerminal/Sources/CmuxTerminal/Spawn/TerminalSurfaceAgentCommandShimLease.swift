@@ -13,6 +13,7 @@ public final class TerminalSurfaceAgentCommandShimLease: Sendable {
     init(
         shims: TerminalSurfaceAgentCommandShimSet,
         removalAttemptLimit: Int,
+        removalLane: TerminalSurfaceAgentCommandShimRemovalLane,
         remove: @escaping @Sendable (TerminalSurfaceAgentCommandShimSet) async throws -> Void,
         reportRemovalFailure:
             @escaping @Sendable (TerminalSurfaceAgentCommandShimSet, String) -> Void
@@ -21,6 +22,7 @@ public final class TerminalSurfaceAgentCommandShimLease: Sendable {
         self.state = TerminalSurfaceAgentCommandShimLeaseState(
             shims: shims,
             removalAttemptLimit: removalAttemptLimit,
+            removalLane: removalLane,
             remove: remove,
             reportRemovalFailure: reportRemovalFailure
         )

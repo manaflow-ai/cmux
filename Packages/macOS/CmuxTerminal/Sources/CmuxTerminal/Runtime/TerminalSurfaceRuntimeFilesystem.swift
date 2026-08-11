@@ -34,6 +34,7 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
     /// Shared ownership gate for installs that can outlive a launch deadline.
     public let agentCommandShimInstallGate: TerminalSurfaceCommandShimInstallGate
 
+    let agentCommandShimRemovalLane: TerminalSurfaceAgentCommandShimRemovalLane
     private let agentCommandShimCleanupOwner: TerminalSurfaceAgentCommandShimCleanupOwner
 
     /// Creates the runtime filesystem seam.
@@ -51,6 +52,7 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
         agentCommandShimInstallGate: TerminalSurfaceCommandShimInstallGate = .init()
     ) {
         let removalAttemptLimit = max(1, agentCommandShimRemovalAttemptLimit)
+        let removalLane = TerminalSurfaceAgentCommandShimRemovalLane()
         let removalFailureReporter =
             reportAgentCommandShimRemovalFailure ?? { shims, errorDescription in
                 Logger(
@@ -65,8 +67,10 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
         self.removeAgentCommandShims = removeAgentCommandShims
         self.reportAgentCommandShimRemovalFailure = removalFailureReporter
         self.agentCommandShimRemovalAttemptLimit = removalAttemptLimit
+        agentCommandShimRemovalLane = removalLane
         agentCommandShimCleanupOwner = TerminalSurfaceAgentCommandShimCleanupOwner(
             removalAttemptLimit: removalAttemptLimit,
+            removalLane: removalLane,
             remove: removeAgentCommandShims,
             reportRemovalFailure: removalFailureReporter
         )
