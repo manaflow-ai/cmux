@@ -4098,6 +4098,55 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func workerPublicationUsesFinalOwnerPaths(shellPath: String) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-owner-paths-\(UUID().uuidString)", isDirectory: true)
+        let groupDirectory = root.appendingPathComponent(
+            "cmux-ssh-auth-group.test",
+            isDirectory: true
+        )
+        let calls = root.appendingPathComponent("calls")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_publish_current_worker() {
+          printf 'worker-record\n' > "$1" || return 1
+          printf '%s\n' "$1" >> "$CMUX_TEST_CALLS"
+        }
+        cmux_ssh_auth_cleanup_owner_file="$CMUX_TEST_GROUP/cleanup.owner"
+        cmux_ssh_auth_cleanup_owner_publish_file="$CMUX_TEST_GROUP/cleanup.owner.new"
+        cmux_ssh_auth_cleanup_lock="$CMUX_TEST_GROUP/cleanup.lock"
+        cmux_ssh_auth_cleanup_lock_owner_file="$cmux_ssh_auth_cleanup_lock/owner"
+        cmux_ssh_auth_cleanup_lock_owner_publish_file="$cmux_ssh_auth_cleanup_lock/owner.new"
+        cmux_ssh_auth_cleanup_claim || exit 99
+        cmux_ssh_auth_cleanup_claim_release
+        cmux_ssh_auth_recovery_enqueue "$CMUX_TEST_GROUP" || exit 98
+        cmux_ssh_auth_recovery_claim_segment || exit 97
+        /usr/bin/grep -Fqx "$CMUX_TEST_GROUP/cleanup.owner" "$CMUX_TEST_CALLS" || exit 96
+        /usr/bin/grep -Fqx \
+          "$TMPDIR/cmux-ssh-auth-recovery.$(/usr/bin/id -u)/queue.0.claim" \
+          "$CMUX_TEST_CALLS" || exit 95
+        test "$(/usr/bin/awk 'END { print NR + 0 }' "$CMUX_TEST_CALLS")" -eq 2 || exit 94
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_TEST_CALLS": calls.path,
+                "CMUX_TEST_GROUP": groupDirectory.path,
+                "TMPDIR": root.path,
+            ],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
     func recoveryCompletionFailureCannotLeaveLiveClaimOwner(shellPath: String) throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
