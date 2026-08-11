@@ -1187,13 +1187,13 @@ private func requireTeardownTicket(
         for failure in firstFailures {
             failure()
         }
-        admission.completeStalledCloseRecoveryFailures(firstFailures.count)
+        admission.completeStalledCloseRecoveryFailures(firstFailures)
         for failure in duplicateFailures {
             failure()
         }
         if !duplicateFailures.isEmpty {
             admission.completeStalledCloseRecoveryFailures(
-                duplicateFailures.count
+                duplicateFailures
             )
         }
         #expect(firstFailureCount == 1)

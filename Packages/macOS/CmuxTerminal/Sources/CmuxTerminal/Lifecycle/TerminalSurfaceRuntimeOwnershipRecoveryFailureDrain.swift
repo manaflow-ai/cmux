@@ -11,7 +11,9 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryFailureDrain:
   private static let maximumBatchCount = 32
 
   private struct State {
-    var failures: [TerminalSurfaceRuntimeOwnershipRecoveryFailure] = []
+    var failures: [
+      TerminalSurfaceRuntimeOwnershipRecoveryFailureDelivery
+    ] = []
     var nextFailureIndex = 0
     var task: Task<Void, Never>?
   }
@@ -32,7 +34,7 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryFailureDrain:
   }
 
   internal func enqueue(
-    _ failures: [TerminalSurfaceRuntimeOwnershipRecoveryFailure]
+    _ failures: [TerminalSurfaceRuntimeOwnershipRecoveryFailureDelivery]
   ) {
     guard !failures.isEmpty else { return }
     var startGate: TerminalSurfaceRuntimeTeardownStartGate?
@@ -86,7 +88,7 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryFailureDrain:
     for failure in batch {
       failure()
     }
-    admission.completeStalledCloseRecoveryFailures(batch.count)
+    admission.completeStalledCloseRecoveryFailures(batch)
 
     var startGate: TerminalSurfaceRuntimeTeardownStartGate?
     state.withLockUnchecked { state in

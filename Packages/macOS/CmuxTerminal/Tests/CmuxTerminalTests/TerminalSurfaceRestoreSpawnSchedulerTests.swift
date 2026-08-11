@@ -944,7 +944,9 @@ import CmuxTerminalCore
         )
 
         coordinator.runtimeOwnershipAdmission
-            .completeStalledCloseRecoveryFailures(32)
+            .completeStalledCloseRecoveryFailures(
+                Array(failures.prefix(32))
+            )
         await waitForMainActorQueueBarrier()
         #expect(
             coordinator.debugRuntimeSurfaceOwnershipRecoveryOverflowSnapshot
@@ -955,7 +957,9 @@ import CmuxTerminalCore
             failure()
         }
         coordinator.runtimeOwnershipAdmission
-            .completeStalledCloseRecoveryFailures(capacity - 32)
+            .completeStalledCloseRecoveryFailures(
+                Array(failures.suffix(from: 32))
+            )
         #expect(target.paneHost.runtimeSurfaceCreationFailureMessages.isEmpty)
         overflow.surface.beginPortalCloseLifecycle(
             reason: "test.completedFailureBatch"

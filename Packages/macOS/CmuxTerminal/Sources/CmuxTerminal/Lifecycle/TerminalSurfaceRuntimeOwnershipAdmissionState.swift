@@ -13,7 +13,7 @@ struct TerminalSurfaceRuntimeOwnershipAdmissionState {
     var recoveryCapacityReservationIDs: Set<UUID> = []
     var recoveryHeadID: UUID?
     var recoveryTailID: UUID?
-    var pendingRecoveryFailureCount = 0
+    var pendingRecoveryFailureDeliveryIDs: Set<UUID> = []
     var recoveryGrantIsScheduled = false
     var recoveryRescanRequested = false
 }

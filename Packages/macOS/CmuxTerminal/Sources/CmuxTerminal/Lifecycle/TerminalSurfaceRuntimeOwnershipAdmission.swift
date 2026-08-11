@@ -92,7 +92,6 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
             if state.recoveryEntriesByID[recoveryID] != nil {
                 state.recoveryEntriesByID[recoveryID]?.action = onRecovery
                 state.recoveryEntriesByID[recoveryID]?.failure = onFailure
-                state.recoveryEntriesByID[recoveryID]?.failureReported = false
                 return (.deferred, claimedCapacity)
             }
             guard claimedCapacity || recoveryCapacityIsOpen(in: state) else {
@@ -256,21 +255,33 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
     }
 
     func failRecoveriesForAllStalledCloseTeardowns()
-        -> [TerminalSurfaceRuntimeOwnershipRecoveryFailure] {
+        -> [TerminalSurfaceRuntimeOwnershipRecoveryFailureDelivery] {
         state.withLock { state in
             state.closeTeardownAllStalled = true
-            var failures: [TerminalSurfaceRuntimeOwnershipRecoveryFailure] = []
+            var failures: [
+                TerminalSurfaceRuntimeOwnershipRecoveryFailureDelivery
+            ] = []
             var recoveryID = state.recoveryHeadID
             while let currentID = recoveryID,
                   let entry = state.recoveryEntriesByID[currentID] {
                 recoveryID = entry.nextID
-                guard !entry.failureReported else { continue }
-                state.recoveryEntriesByID[currentID]?.failureReported = true
-                failures.append(entry.failure)
+                guard entry.pendingFailureDeliveryID == nil else { continue }
+                let delivery =
+                    TerminalSurfaceRuntimeOwnershipRecoveryFailureDelivery(
+                        recoveryID: currentID,
+                        deliveryID: UUID(),
+                        failure: entry.failure
+                    )
+                state.recoveryEntriesByID[currentID]?
+                    .pendingFailureDeliveryID = delivery.deliveryID
+                state.pendingRecoveryFailureDeliveryIDs.insert(
+                    delivery.deliveryID
+                )
+                failures.append(delivery)
             }
-            state.pendingRecoveryFailureCount += failures.count
             precondition(
-                state.pendingRecoveryFailureCount <= maximumOwnerCount,
+                state.pendingRecoveryFailureDeliveryIDs.count
+                    <= maximumOwnerCount,
                 "stalled recovery failures must remain bounded"
             )
             state.recoveryRescanRequested = false
@@ -278,15 +289,27 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
         }
     }
 
-    func completeStalledCloseRecoveryFailures(_ completedCount: Int) {
-        precondition(completedCount > 0)
+    func completeStalledCloseRecoveryFailures(
+        _ completedDeliveries: [
+            TerminalSurfaceRuntimeOwnershipRecoveryFailureDelivery
+        ]
+    ) {
+        precondition(!completedDeliveries.isEmpty)
         let output = state.withLock { state in
-            precondition(
-                completedCount <= state.pendingRecoveryFailureCount,
-                "completed stalled recovery failures must be owned"
-            )
             let capacityWasOpen = recoveryCapacityIsOpen(in: state)
-            state.pendingRecoveryFailureCount -= completedCount
+            for delivery in completedDeliveries {
+                precondition(
+                    state.pendingRecoveryFailureDeliveryIDs.remove(
+                        delivery.deliveryID
+                    ) != nil,
+                    "completed stalled recovery failure must be owned"
+                )
+                if state.recoveryEntriesByID[delivery.recoveryID]?
+                    .pendingFailureDeliveryID == delivery.deliveryID {
+                    state.recoveryEntriesByID[delivery.recoveryID]?
+                        .pendingFailureDeliveryID = nil
+                }
+            }
             let recoveryCapacityOpened =
                 !capacityWasOpen && recoveryCapacityIsOpen(in: state)
             let grant = takeNextRecoveryGrant(from: &state)
@@ -377,7 +400,7 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
     ) -> Bool {
         state.recoveryEntriesByID.count
             + state.recoveryCapacityReservationIDs.count
-            + state.pendingRecoveryFailureCount
+            + state.pendingRecoveryFailureDeliveryIDs.count
             < maximumOwnerCount
     }
 
