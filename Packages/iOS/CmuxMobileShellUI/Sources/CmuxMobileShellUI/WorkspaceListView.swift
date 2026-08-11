@@ -453,15 +453,23 @@ struct WorkspaceListView: View {
             visibleSelection: currentVisibleMacSelection
         )
         // Recent Activity grouping performs one O(n log n) block projection
-        // per body evaluation. Reuse this immutable snapshot for table rows,
-        // unread headers, and the optimistic-order observation key.
+        // per body evaluation. Reuse this immutable snapshot for table rows
+        // and unread headers.
         let currentDisplayedGroupedListItems = rendersGroupedSections
             ? displayedGroupedListItems
             : []
         let currentFilteredWorkspaceOrderKey = rendersGroupedSections
             ? []
             : filteredWorkspaceOrderKey
-        let currentGroupedWorkspaceOrderKey = currentDisplayedGroupedListItems.map {
+        // Reconciliation must observe the authoritative host order while an
+        // optimistic drag is pending. Once optimism clears, the displayed and
+        // authoritative projections are identical, so reuse the render snapshot.
+        let currentAuthoritativeGroupedListItems = rendersGroupedSections
+            ? (optimisticGroupedState.optimisticOrder == nil
+                ? currentDisplayedGroupedListItems
+                : groupedListItems)
+            : []
+        let currentGroupedWorkspaceOrderKey = currentAuthoritativeGroupedListItems.map {
             WorkspaceListStableOrderKey(item: $0)
         }
         #if os(iOS)
