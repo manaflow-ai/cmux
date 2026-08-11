@@ -78,6 +78,7 @@ struct SessionEntryResumeLaunchTests {
 
         let launch = try #require(entry.resumeLaunch)
         #expect(launch.strategy == .restoreVerb)
+        #expect(launch.workingDirectory == "/tmp/custom-project")
         #expect(
             launch.initialInput
                 == " \(AgentRestoreLaunch.cliStartupExecutableToken) restore my-agent custom-session\n"
@@ -92,8 +93,8 @@ struct SessionEntryResumeLaunchTests {
         )
     }
 
-    @Test("Restore responder resolves a Vault startup snapshot without restored-panel state")
-    func responderResolvesVaultStartupSnapshot() throws {
+    @Test("Restore responder resolves a Vault snapshot through lifecycle state")
+    func responderResolvesVaultLifecycleSnapshot() throws {
         let entry = SessionEntry(
             id: "claude:vault-claude-session",
             agent: .claude,
@@ -119,7 +120,10 @@ struct SessionEntryResumeLaunchTests {
         )
         defer { workspace.teardownAllPanels() }
         let panelID = try #require(workspace.focusedPanelId)
-        #expect(workspace.restoredAgentSnapshotsByPanelId[panelID] == nil)
+        #expect(
+            workspace.restoredAgentSnapshotsByPanelId[panelID]?.sessionId
+                == "vault-claude-session"
+        )
 
         let tabManager = TabManager(autoWelcomeIfNeeded: false)
         defer { tabManager.tabs.forEach { $0.teardownAllPanels() } }
@@ -136,7 +140,7 @@ struct SessionEntryResumeLaunchTests {
         #expect(record.modeRawValue == AgentRestoreRequestMode.resumeAgent.rawValue)
         #expect(record.kind == "claude")
         #expect(record.checkpointID == "vault-claude-session")
-        #expect(record.source == "vault")
+        #expect(record.source == "session-snapshot")
         #expect(record.workingDirectory == "/tmp")
         #expect(record.permissionMode == "acceptEdits")
         #expect(record.environment.isEmpty)
@@ -144,5 +148,69 @@ struct SessionEntryResumeLaunchTests {
         #expect(record.preparedArguments?.contains("--resume") == true)
         #expect(record.preparedArguments?.contains("vault-claude-session") == true)
         #expect(record.legacyCommand == nil)
+
+        workspace.clearRestoredAgentSnapshot(panelId: panelID)
+        #expect(TerminalController.shared.controlSurfaceRestoreRecord(
+            target: target,
+            binding: nil
+        ) == nil)
+    }
+
+    @Test("Vault-restored chats persist and resume after a session round trip")
+    func vaultRestorePersistsAcrossRelaunch() throws {
+        let sessionID = "vault-persisted-session"
+        let entry = SessionEntry(
+            id: "codex:\(sessionID)",
+            agent: .codex,
+            sessionId: sessionID,
+            title: "Persisted Vault session",
+            cwd: "/tmp/vault-persisted-project",
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: 1_800_000_003),
+            fileURL: nil,
+            specifics: .codex(
+                model: "gpt-5.5",
+                approvalPolicy: "never",
+                sandboxMode: "disabled",
+                effort: "high"
+            )
+        )
+        let launch = try #require(entry.resumeLaunch)
+        let restorableAgent = try #require(launch.startupRestoreAgent)
+
+        let defaultsName = "cmux-vault-restore-persistence-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+        let source = Workspace(
+            workingDirectory: launch.workingDirectory,
+            initialTerminalInput: launch.initialInput,
+            initialTerminalStartupRestoreAgent: restorableAgent,
+            agentSessionAutoResumeDefaults: defaults
+        )
+        defer { source.teardownAllPanels() }
+        let sourcePanelID = try #require(source.focusedPanelId)
+        let persisted = source.sessionSnapshot(includeScrollback: false)
+        #expect(
+            persisted.panels.first { $0.id == sourcePanelID }?.terminal?.agent?.sessionId
+                == sessionID
+        )
+
+        let encoded = try JSONEncoder().encode(persisted)
+        let decoded = try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: encoded)
+        let restored = Workspace(agentSessionAutoResumeDefaults: defaults)
+        defer { restored.teardownAllPanels() }
+        let restoredPanelIDs = restored.restoreSessionSnapshot(decoded)
+        let restoredPanelID = try #require(restoredPanelIDs[sourcePanelID])
+        let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
+
+        #expect(restoredPanel.surface.debugInitialInputForTesting() == launch.initialInput)
+        #expect(
+            restored.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == restoredPanelID }?.terminal?.agent?.sessionId
+                == sessionID
+        )
     }
 }
