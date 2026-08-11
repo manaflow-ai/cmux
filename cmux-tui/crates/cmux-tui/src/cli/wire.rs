@@ -1,6 +1,7 @@
 use std::io::{self, BufRead, BufReader, Read, Write};
 #[cfg(unix)]
 use std::net::Shutdown;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use cmux_tui_core::platform::transport;

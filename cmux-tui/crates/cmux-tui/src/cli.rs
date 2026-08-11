@@ -108,24 +108,26 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             }
             CommandPlan::RawCommand(command) => raw::run(global, command),
         },
-        Err(failure) => {
-            let message = if matches!(failure.output, OutputMode::Quiet | OutputMode::Human) {
-                format!("cmux: {}", failure.error)
-            } else {
-                failure.error.to_string()
-            };
-            wire::print_local_error(
-                &serde_json::json!({
-                    "code":"usage.invalid",
-                    "message":message,
-                    "details":{},
-                    "retryable":false,
-                }),
-                failure.output,
-                2,
-            )
-        }
+        Err(failure) => print_usage_error(failure.error, failure.output),
     }
+}
+
+fn print_usage_error(error: UsageError, output: OutputMode) -> i32 {
+    let message = if matches!(output, OutputMode::Quiet | OutputMode::Human) {
+        format!("cmux: {error}")
+    } else {
+        error.to_string()
+    };
+    wire::print_local_error(
+        &serde_json::json!({
+            "code":"usage.invalid",
+            "message":message,
+            "details":{},
+            "retryable":false,
+        }),
+        output,
+        2,
+    )
 }
 
 fn parse(args: &[String]) -> Result<ParsedCommand, ParseFailure> {
@@ -610,10 +612,9 @@ escape for the legacy control protocol and provides no compatibility promise.
 fn run_server_lifecycle_if_requested(args: &[String]) -> Option<i32> {
     let (global, command) = match parse_globals(args) {
         Ok(parsed) => parsed,
-        Err(error) => {
+        Err((error, output)) => {
             if args.iter().any(|value| value == "server") {
-                eprintln!("cmux: {error}");
-                return Some(2);
+                return Some(print_usage_error(error, output));
             }
             return None;
         }

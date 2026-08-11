@@ -92,12 +92,6 @@ fn wait_for_child_exit(
     child.wait().unwrap()
 }
 
-#[cfg(unix)]
-fn native_pty_child(child: &mut (dyn cmux_pty::Child + Send + Sync)) -> &mut Child {
-    let child: &mut dyn cmux_pty::Child = child;
-    child.downcast_mut::<Child>().expect("cmux-pty Unix test child is a native process")
-}
-
 struct HeadlessServer {
     child: Child,
     socket: PathBuf,
@@ -2024,7 +2018,12 @@ fn named_server_status_stop_alias_and_durable_restart_preserve_topology() {
         socket.to_str().unwrap(),
     ]);
     assert_success(&stop_alias);
-    assert!(wait_for_child_exit(&mut first, Duration::from_secs(10)));
+    let status = wait_for_child_exit(
+        &mut first,
+        Duration::from_secs(10),
+        "server remained alive after session stop",
+    );
+    assert!(status.success(), "server exited with {status}");
 
     let mut restarted = spawn();
     wait_for_socket_path(&socket);
@@ -3579,7 +3578,7 @@ fn plain_launch_attaches_to_existing_local_session() {
     );
 
     ready.receive(Duration::from_secs(10));
-    if let Some(status) = tui.child.try_wait().unwrap() {
+    if let Some(status) = tui.child.as_mut().unwrap().try_wait().unwrap() {
         panic!("plain launch exited instead of attaching: {status}");
     }
     let clients = json_cli(&server, &["client", "list"]);
@@ -3979,11 +3978,9 @@ fn server_shutdown_exits_when_the_interactive_driver_cannot_progress() {
     let response = json_socket_request(&socket, serde_json::json!({"id": 1, "cmd": "shutdown"}));
     assert_eq!(response, serde_json::json!({}));
 
-    let status = wait_for_child_exit(
-        native_pty_child(server.child.as_mut()),
-        Duration::from_secs(3),
-        "server remained alive after acknowledging shutdown",
-    );
+    let status = server
+        .wait_for_exit(Duration::from_secs(3))
+        .expect("server remained alive after acknowledging shutdown");
     assert!(status.success(), "server exited with {status}");
     assert!(transport::connect(&socket).is_err());
     drop(server);
@@ -4038,17 +4035,15 @@ fn forced_exit_waits_for_remote_runtime_cleanup() {
     assert_eq!(response, serde_json::json!({}));
     remote_shutdown_started.receive(Duration::from_secs(3));
     assert!(
-        server.child.try_wait().unwrap().is_none(),
+        server.child.as_mut().unwrap().try_wait().unwrap().is_none(),
         "server forced exit before remote runtime cleanup completed"
     );
 
     remote_shutdown_release.send();
     remote_shutdown_complete.receive(Duration::from_secs(5));
-    let status = wait_for_child_exit(
-        native_pty_child(server.child.as_mut()),
-        Duration::from_secs(5),
-        "server remained alive after remote runtime cleanup completed",
-    );
+    let status = server
+        .wait_for_exit(Duration::from_secs(5))
+        .expect("server remained alive after remote runtime cleanup completed");
     assert!(status.success(), "server exited with {status}");
     drop(server);
     fs::remove_dir_all(dir).unwrap();
@@ -4103,11 +4098,9 @@ fn daemon_handoff_cleans_local_ptys_before_forcing_a_blocked_interactive_driver_
     );
     assert_eq!(response["accepted"], true);
 
-    let status = wait_for_child_exit(
-        native_pty_child(server.child.as_mut()),
-        Duration::from_secs(3),
-        "server remained alive after acknowledging daemon handoff",
-    );
+    let status = server
+        .wait_for_exit(Duration::from_secs(3))
+        .expect("server remained alive after acknowledging daemon handoff");
     assert!(status.success(), "server exited with {status}");
     assert!(transport::connect(&socket).is_err());
     let cleaned = !process_is_active(local_pid) && !process_group_is_active(local_pid);
@@ -5108,11 +5101,9 @@ fn configured_websocket_server_does_not_attach_to_existing_session() {
         &["--socket", server.socket.to_str().unwrap()],
         &[("CMUX_TUI_CONFIG", config.as_os_str())],
     );
-    let status = wait_for_child_exit(
-        native_pty_child(tui.child.as_mut()),
-        Duration::from_secs(10),
-        "configured WebSocket server attached instead of preserving server mode",
-    );
+    let status = tui
+        .wait_for_exit(Duration::from_secs(10))
+        .expect("configured WebSocket server attached instead of preserving server mode");
     assert!(!status.success(), "server launch unexpectedly succeeded");
 }
 

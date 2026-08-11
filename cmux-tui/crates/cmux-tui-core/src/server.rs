@@ -14810,6 +14810,14 @@ mod tests {
             self.outbound.push_control(text)
         }
 
+        fn send_control_confirmed(
+            &self,
+            text: Arc<BudgetedText>,
+            _timeout: Duration,
+        ) -> std::io::Result<()> {
+            self.send_control(text)
+        }
+
         fn send_terminal(
             &self,
             text: Arc<BudgetedText>,
@@ -14871,6 +14879,14 @@ mod tests {
 
         fn send_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()> {
             self.outbound.push_control(text)
+        }
+
+        fn send_control_confirmed(
+            &self,
+            text: Arc<BudgetedText>,
+            _timeout: Duration,
+        ) -> std::io::Result<()> {
+            self.send_control(text)
         }
 
         fn send_terminal(
@@ -20882,7 +20898,7 @@ mod tests {
         assert_eq!(response["ok"], false);
         assert!(!mux.daemon_shutdown_requested());
         assert!(
-            !mux.daemon_handoff_pending.load(Ordering::Acquire),
+            !mux.control_clients.daemon_handoff_pending(),
             "failed preflight left daemon handoff admission fenced"
         );
     }

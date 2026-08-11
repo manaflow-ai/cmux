@@ -3339,7 +3339,7 @@ mod tests {
             let _ = returned.send(());
         });
 
-        let result = observed.recv_timeout(std::time::Duration::from_millis(350));
+        let result = observed.recv_timeout(Duration::from_millis(350));
         if result.is_ok() {
             worker.join().unwrap();
         }
@@ -3383,19 +3383,19 @@ mod tests {
             cmux_tui_core::server::serve_owned(mux.clone(), Some(socket_path.clone())).unwrap();
         let cleanup = Arc::new(ServerShutdownCleanup::new_with_process_owners(mux, process_owners));
         cleanup.set_shutdown_attempt_for_test(|| Ok(()));
-        cleanup.set_process_owner_timeout_for_test(std::time::Duration::from_millis(50));
+        cleanup.set_process_owner_timeout_for_test(Duration::from_millis(50));
         let worker_cleanup = cleanup.clone();
         let (returned, observed) = std::sync::mpsc::channel();
         let worker = std::thread::spawn(move || {
             let _ = returned.send(worker_cleanup.run_until_complete());
         });
 
-        let bounded = observed.recv_timeout(std::time::Duration::from_millis(350));
+        let bounded = observed.recv_timeout(Duration::from_millis(350));
         let returned_in_time = bounded.is_ok();
         let returned_incomplete = matches!(&bounded, Ok(Err(_)));
         let retained_remote_owner = !cleanup.process_owners.remote_is_finished();
         let mut stream = UnixStream::connect(&socket_path).unwrap();
-        stream.set_read_timeout(Some(std::time::Duration::from_secs(1))).unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
         stream.write_all(b"{\"id\":1,\"cmd\":\"identify\"}\n").unwrap();
         stream.flush().unwrap();
         let mut response = String::new();
@@ -3449,19 +3449,19 @@ mod tests {
             let _ = returned.send(result);
         });
 
-        let first_deadline = std::time::Instant::now() + std::time::Duration::from_millis(350);
+        let first_deadline = std::time::Instant::now() + Duration::from_millis(350);
         while attempts.load(Ordering::SeqCst) == 0 && std::time::Instant::now() < first_deadline {
             std::thread::yield_now();
         }
         assert_eq!(attempts.load(Ordering::SeqCst), 1);
         assert!(
-            observed.recv_timeout(std::time::Duration::from_millis(75)).is_err(),
+            observed.recv_timeout(Duration::from_millis(75)).is_err(),
             "a failed cleanup released the server's process owners"
         );
 
         mux.request_shutdown();
         observed
-            .recv_timeout(std::time::Duration::from_secs(1))
+            .recv_timeout(Duration::from_secs(1))
             .expect("an explicit shutdown retry did not release the server")
             .unwrap();
         worker.join().unwrap();
@@ -3497,21 +3497,21 @@ mod tests {
             let _ = returned.send(result);
         });
 
-        let first_deadline = std::time::Instant::now() + std::time::Duration::from_millis(350);
+        let first_deadline = std::time::Instant::now() + Duration::from_millis(350);
         while attempts.load(Ordering::SeqCst) == 0 && std::time::Instant::now() < first_deadline {
             std::thread::yield_now();
         }
         assert_eq!(attempts.load(Ordering::SeqCst), 1);
         assert!(
-            observed.recv_timeout(std::time::Duration::from_millis(75)).is_err(),
+            observed.recv_timeout(Duration::from_millis(75)).is_err(),
             "a panicked cleanup released the server's process owners"
         );
 
         mux.request_shutdown();
-        let retried = observed.recv_timeout(std::time::Duration::from_secs(1));
+        let retried = observed.recv_timeout(Duration::from_secs(1));
         if retried.is_err() {
             cleanup.abandon();
-            let _ = observed.recv_timeout(std::time::Duration::from_secs(1));
+            let _ = observed.recv_timeout(Duration::from_secs(1));
         }
         worker.join().unwrap();
         assert!(retried.is_ok(), "an explicit shutdown retry did not recover from a panic");
@@ -3540,15 +3540,15 @@ mod tests {
             let _ = returned.send(result);
         });
 
-        let first_deadline = std::time::Instant::now() + std::time::Duration::from_millis(350);
+        let first_deadline = std::time::Instant::now() + Duration::from_millis(350);
         while attempts.load(Ordering::SeqCst) == 0 && std::time::Instant::now() < first_deadline {
             std::thread::yield_now();
         }
         assert_eq!(attempts.load(Ordering::SeqCst), 1);
-        let early = observed.recv_timeout(std::time::Duration::from_millis(75));
+        let early = observed.recv_timeout(Duration::from_millis(75));
         if early.is_err() {
             mux.request_shutdown();
-            let _ = observed.recv_timeout(std::time::Duration::from_secs(1));
+            let _ = observed.recv_timeout(Duration::from_secs(1));
         }
         worker.join().unwrap();
 

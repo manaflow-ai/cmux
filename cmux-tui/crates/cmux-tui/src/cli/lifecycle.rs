@@ -438,6 +438,14 @@ mod tests {
             Ok(())
         }
 
+        fn read_timeout(&self) -> io::Result<Option<Duration>> {
+            Ok(None)
+        }
+
+        fn write_timeout(&self) -> io::Result<Option<Duration>> {
+            Ok(None)
+        }
+
         fn shutdown(&self, _: Shutdown) -> io::Result<()> {
             Ok(())
         }
@@ -482,6 +490,14 @@ mod tests {
             Ok(())
         }
 
+        fn read_timeout(&self) -> io::Result<Option<Duration>> {
+            Ok(*self.read_timeout.lock().unwrap())
+        }
+
+        fn write_timeout(&self) -> io::Result<Option<Duration>> {
+            Ok(*self.write_timeout.lock().unwrap())
+        }
+
         fn shutdown(&self, _: Shutdown) -> io::Result<()> {
             Ok(())
         }
@@ -516,6 +532,14 @@ mod tests {
 
         fn set_write_timeout(&self, _: Option<Duration>) -> io::Result<()> {
             Ok(())
+        }
+
+        fn read_timeout(&self) -> io::Result<Option<Duration>> {
+            Ok(None)
+        }
+
+        fn write_timeout(&self) -> io::Result<Option<Duration>> {
+            Ok(None)
         }
 
         fn shutdown(&self, _: Shutdown) -> io::Result<()> {
