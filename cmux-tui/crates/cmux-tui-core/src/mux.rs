@@ -15154,6 +15154,31 @@ fn terminal_host_matches(
         && expected_incarnation.is_none_or(|expected| identity.incarnation == expected)
 }
 
+fn ensure_terminal_host_indexes_match_incarnation(
+    mux: &Mux,
+    state: &State,
+    terminal_id: &str,
+    expected_incarnation: Option<&str>,
+) -> anyhow::Result<()> {
+    let matches = |surface: &Arc<Surface>| {
+        mux.resource_terminal_host_identity(surface).is_some_and(|identity| {
+            identity.terminal_id == terminal_id
+                && expected_incarnation == Some(identity.incarnation.as_str())
+        })
+    };
+    for public_id in state.terminal_catalog_by_host.get(terminal_id).into_iter().flatten() {
+        if let Some(runtime) = state.terminal_catalog.get(public_id) {
+            anyhow::ensure!(matches(runtime), "terminal_incarnation_mismatch");
+        }
+    }
+    for surface_id in state.terminal_placements_by_host.get(terminal_id).into_iter().flatten() {
+        if let Some(surface) = state.surfaces.get(surface_id) {
+            anyhow::ensure!(matches(surface), "terminal_incarnation_mismatch");
+        }
+    }
+    Ok(())
+}
+
 fn terminal_surface_matches(
     mux: &Mux,
     candidate: &Arc<Surface>,
@@ -21342,6 +21367,78 @@ mod tests {
             mux.resolve_terminal(&host.terminal_id).unwrap().unwrap().terminal.lifecycle,
             TerminalLifecycle::Tombstoned
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminal_close_without_a_resource_row_rejects_a_newer_live_incarnation() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let host = mux.resource_terminal_host_identity(&surface).unwrap();
+        let public_id = surface.terminal_public_id().cloned().unwrap();
+
+        assert!(mux.close_surface(surface.id).unwrap());
+        let current_revision = mux.with_state(|state| state.resource_revision);
+        let mutation = WorkspaceMutation::new("remove-resource-before-incarnation-race", "test")
+            .unwrap();
+        let commit = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .commit_resource_patch(
+                &mutation,
+                "test.remove-resource-before-incarnation-race",
+                &serde_json::json!({"terminal":public_id}),
+                None,
+                Some(current_revision),
+                &ResourcePatch {
+                    changes: vec![ResourceChange::TombstoneTerminal {
+                        public_id: public_id.clone(),
+                        expected_incarnation: Some(host.incarnation.clone()),
+                    }],
+                },
+                &serde_json::json!({}),
+                &serde_json::json!([]),
+            )
+            .unwrap();
+        mux.state.lock().unwrap().resource_revision = commit.revision;
+        assert!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .terminal_resource_id(&host.terminal_id)
+                .unwrap()
+                .is_none()
+        );
+        let old_runtime = mux.remove_terminal_catalog_for_test(&public_id).unwrap();
+
+        let mut new_incarnation = host.incarnation.clone();
+        let replacement = if new_incarnation.starts_with('0') { "1" } else { "0" };
+        new_incarnation.replace_range(0..1, replacement);
+        let new_surface = Surface::exited_terminal_placeholder_with_terminal_public_id(
+            mux.next_id(),
+            mux.surface_options.lock().unwrap().clone(),
+            Arc::downgrade(&mux),
+            TerminalHostIdentity {
+                terminal_id: host.terminal_id.clone(),
+                incarnation: new_incarnation,
+            },
+            public_id.clone(),
+        )
+        .unwrap();
+        insert_surface_checked(&mux, &mut mux.state.lock().unwrap(), new_surface.clone()).unwrap();
+
+        let error = mux.close_terminal(&host.terminal_id, &host.incarnation).unwrap_err();
+
+        assert!(error.to_string().contains("terminal_incarnation_mismatch"));
+        assert!(mux.surface(new_surface.id).is_some());
+        assert_eq!(
+            mux.resolve_terminal(&host.terminal_id).unwrap().unwrap().terminal.lifecycle,
+            TerminalLifecycle::Running,
+            "failed close tombstoned durable state before rejecting the newer incarnation"
+        );
+        old_runtime.kill();
+        new_surface.kill();
     }
 
     #[cfg(unix)]

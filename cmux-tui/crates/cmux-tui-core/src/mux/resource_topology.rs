@@ -2403,6 +2403,24 @@ impl Mux {
             return Ok(Some(result));
         }
         let Some(public_id) = registry.terminal_resource_id(terminal_id)? else {
+            let durable_terminal = registry.terminal_record(terminal_id)?.ok_or_else(|| {
+                terminal_close_state_error(format!("unknown terminal {terminal_id}"))
+            })?;
+            if let Some(expected) = expected_incarnation {
+                anyhow::ensure!(
+                    durable_terminal.incarnation.as_deref() == Some(expected),
+                    "terminal_incarnation_mismatch"
+                );
+            }
+            let planned_incarnation =
+                expected_incarnation.or(durable_terminal.incarnation.as_deref());
+            let mut state = self.state.lock().unwrap();
+            ensure_terminal_host_indexes_match_incarnation(
+                self,
+                &state,
+                terminal_id,
+                planned_incarnation,
+            )?;
             let terminal = registry.close_terminal(
                 mutation,
                 expected_generation,
@@ -2416,7 +2434,6 @@ impl Mux {
                 self.emit_terminal_registry_changed(&registry, terminal.revision);
             }
             let closed_incarnation = terminal.result["incarnation"].as_str().map(str::to_owned);
-            let mut state = self.state.lock().unwrap();
             let catalog_public_ids = terminal_catalog_public_ids_by_host(
                 self,
                 &state,
