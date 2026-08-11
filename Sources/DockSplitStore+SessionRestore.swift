@@ -328,12 +328,14 @@ extension DockSplitStore {
         let willRunAgentInput =
             agentLaunch?.initialInput != nil ||
             (bindingLaunch?.initialInput != nil && resumeBinding?.isAgentHookBinding == true)
-        seedSessionRestoredAgentState(
+        restoredAgentLifecycle.seedSessionRestore(
             panelId: terminal.id,
-            restorableAgent: restorableAgent,
-            resumeBinding: managedResumeBinding ?? resumeBinding,
+            snapshot: restorableAgent,
+            manualResumeAvailable: restorableAgent != nil ||
+                (managedResumeBinding ?? resumeBinding)?.isAgentHookBinding == true,
             willRunStartupCommand: willRunAgentCommand,
-            willRunStartupInput: willRunAgentInput
+            willRunStartupInput: willRunAgentInput,
+            resumeWorkingDirectory: resumeSessionWorkingDirectory
         )
         if let hibernation, let restorableAgent, restorableAgent.resumeCommand != nil {
             terminal.enterAgentHibernation(
@@ -341,10 +343,6 @@ extension DockSplitStore {
                 lastActivityAt: Date(timeIntervalSince1970: hibernation.lastActivityAt),
                 hibernatedAt: Date(timeIntervalSince1970: hibernation.hibernatedAt)
             )
-        }
-        if willRunAgentCommand || willRunAgentInput,
-           let resumeSessionWorkingDirectory {
-            restoredResumeSessionWorkingDirectoriesByPanelId[terminal.id] = resumeSessionWorkingDirectory
         }
         recordSessionResumeIntent(
             panelId: terminal.id,
@@ -425,25 +423,6 @@ extension DockSplitStore {
               let tabId = surfaceId(forPanelId: panelId) else { return }
         bonsplitController.focusPane(paneId)
         bonsplitController.selectTab(tabId)
-    }
-
-    private func seedSessionRestoredAgentState(
-        panelId: UUID,
-        restorableAgent: SessionRestorableAgentSnapshot?,
-        resumeBinding: SurfaceResumeBindingSnapshot?,
-        willRunStartupCommand: Bool,
-        willRunStartupInput: Bool
-    ) {
-        restoredAgentLifecycle.snapshotsByPanelId[panelId] = restorableAgent
-        if willRunStartupCommand {
-            restoredAgentLifecycle.resumeStatesByPanelId[panelId] = .autoResumeCommandRunning
-        } else if willRunStartupInput {
-            restoredAgentLifecycle.resumeStatesByPanelId[panelId] = .awaitingAutoResumeCommand
-        } else if restorableAgent != nil || resumeBinding?.isAgentHookBinding == true {
-            restoredAgentLifecycle.resumeStatesByPanelId[panelId] = .manualResumeAvailable
-        } else {
-            restoredAgentLifecycle.resumeStatesByPanelId.removeValue(forKey: panelId)
-        }
     }
 
     private func sessionAgentAlreadyActive(
