@@ -23,6 +23,7 @@ struct MobilePushSettingsContent: View {
     let macStatus: MobileHostPhonePushStatus?
     let supportsMacSettings: Bool
     let supportsMacTest: Bool
+    let canConnectMac: Bool
     let onPhoneEnabledChange: @MainActor (Bool) async -> Bool
     let onRepair: @MainActor (MobilePushReadiness.Repair) async -> Bool
     let onMacMutation: @MainActor (MobilePushMacMutation) async -> Bool
@@ -44,6 +45,7 @@ struct MobilePushSettingsContent: View {
         macStatus: MobileHostPhonePushStatus?,
         supportsMacSettings: Bool,
         supportsMacTest: Bool,
+        canConnectMac: Bool,
         onPhoneEnabledChange: @escaping @MainActor (Bool) async -> Bool,
         onRepair: @escaping @MainActor (MobilePushReadiness.Repair) async -> Bool,
         onMacMutation: @escaping @MainActor (MobilePushMacMutation) async -> Bool,
@@ -54,6 +56,7 @@ struct MobilePushSettingsContent: View {
         self.macStatus = macStatus
         self.supportsMacSettings = supportsMacSettings
         self.supportsMacTest = supportsMacTest
+        self.canConnectMac = canConnectMac
         self.onPhoneEnabledChange = onPhoneEnabledChange
         self.onRepair = onRepair
         self.onMacMutation = onMacMutation
@@ -83,6 +86,7 @@ struct MobilePushSettingsContent: View {
             .disabled(isMutatingPhone)
 
             if let repair = readiness.repair,
+               Self.shouldPresentRepair(repair, canConnectMac: canConnectMac),
                let repairPresentation = repairPresentation(for: repair) {
                 Button {
                     guard !isMutatingPhone else { return }
@@ -215,6 +219,13 @@ struct MobilePushSettingsContent: View {
             macHideContent = confirmed.hideContent
             mutationFailed = false
         }
+    }
+
+    static func shouldPresentRepair(
+        _ repair: MobilePushReadiness.Repair,
+        canConnectMac: Bool
+    ) -> Bool {
+        repair != .connectMac || canConnectMac
     }
 
     private var statusRow: some View {

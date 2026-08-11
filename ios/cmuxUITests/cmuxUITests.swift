@@ -50,10 +50,10 @@ final class cmuxUITests: XCTestCase {
     /// path. The first product scene uses the shipped workspace-list capture,
     /// while the notification scene shows the shipped chronological feed. The
     /// connection scene keeps its live connection-state illustration. Relaunching
-    /// after the simulated search finishes must resume at Connect and expose QR
-    /// as an explicit fallback.
+    /// after the simulated search finishes must resume at Connect without
+    /// exposing manual pairing until Tailscale is selected.
     @MainActor
-    func testOnboardingScenesNotificationFeedResumeAndScannerFallback() throws {
+    func testOnboardingScenesNotificationFeedResumeAndTailscaleScanner() throws {
         let app = XCUIApplication()
         XCUIDevice.shared.orientation = .portrait
         let baseArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
@@ -284,44 +284,53 @@ final class cmuxUITests: XCTestCase {
 
         assertPageVisible(connectScene, timeout: 8)
         XCTAssertTrue(app.buttons["Check Again"].exists)
-        XCTAssertTrue(app.buttons["Use QR Code Instead"].exists)
+        XCTAssertFalse(app.buttons["Use QR Code Instead"].exists)
         let tailscaleMethod = app.buttons["MobileOnboardingConnectionMethodTailscale"]
         let automaticMethod = app.buttons["MobileOnboardingConnectionMethodAutomatic"]
         XCTAssertTrue(tailscaleMethod.waitForExistence(timeout: 4))
         XCTAssertTrue(tailscaleMethod.label.contains("Tailscale Only"))
         tap(tailscaleMethod, in: app)
         XCTAssertTrue(app.staticTexts["Connect over Tailscale"].waitForExistence(timeout: 4))
-        XCTAssertTrue(app.staticTexts[
-            "Connect only over Tailscale. Install it on both devices, join the same network, then scan the pairing code shown by cmux on your Mac."
-        ].waitForExistence(timeout: 4))
+        let tailscaleDescription = app.staticTexts.matching(
+            NSPredicate(
+                format: "label == %@",
+                "Connect only over Tailscale. Install it on both devices, join the same network, then scan the pairing code shown by cmux on your Mac."
+            )
+        ).firstMatch
+        XCTAssertTrue(tailscaleDescription.waitForExistence(timeout: 4))
         // The choice is exclusive: selecting one method must deselect the other.
         XCTAssertTrue(tailscaleMethod.isSelected)
         XCTAssertFalse(automaticMethod.isSelected)
+        let tailscaleRetry = app.buttons["MobileOnboardingSecondaryButton"]
+        XCTAssertTrue(tailscaleRetry.waitForExistence(timeout: 4))
+        XCTAssertTrue(tailscaleRetry.label.contains("Check Again"))
         tap(automaticMethod, in: app)
         XCTAssertTrue(app.staticTexts["Your Mac connects automatically"].waitForExistence(timeout: 4))
         XCTAssertTrue(automaticMethod.isSelected)
         XCTAssertFalse(tailscaleMethod.isSelected)
+        XCTAssertFalse(app.buttons["MobileOnboardingSecondaryButton"].exists)
+        tap(tailscaleMethod, in: app)
+        XCTAssertTrue(tailscaleRetry.waitForExistence(timeout: 4))
 
-        let qrFallbackButton = app.buttons["MobileOnboardingSecondaryButton"]
-        XCTAssertTrue(qrFallbackButton.waitForExistence(timeout: 4))
-        XCTAssertTrue(footer.frame.insetBy(dx: -0.5, dy: -0.5).contains(qrFallbackButton.frame))
-        XCTAssertTrue(app.frame.insetBy(dx: -0.5, dy: -0.5).contains(qrFallbackButton.frame))
-        XCTAssertTrue(qrFallbackButton.isHittable)
+        let scanPairingCodeButton = app.buttons["MobileOnboardingPrimaryButton"]
+        XCTAssertTrue(scanPairingCodeButton.waitForExistence(timeout: 4))
+        XCTAssertTrue(scanPairingCodeButton.label.contains("Scan Pairing Code"))
+        XCTAssertTrue(footer.frame.insetBy(dx: -0.5, dy: -0.5).contains(scanPairingCodeButton.frame))
+        XCTAssertTrue(app.frame.insetBy(dx: -0.5, dy: -0.5).contains(scanPairingCodeButton.frame))
+        XCTAssertTrue(scanPairingCodeButton.isHittable)
         recordChromeReferenceFrames()
         assertPageContentFitsWithoutScrolling(
-            title: app.staticTexts["Your Mac connects automatically"],
+            title: app.staticTexts["Connect over Tailscale"],
             visual: element("MobileOnboardingConnectionPreview"),
             additionalContent: [
-                app.staticTexts[
-                    "Use the same cmux account on both devices. Your Mac connects automatically."
-                ],
+                tailscaleDescription,
                 element("MobileOnboardingConnectionMethodPicker"),
             ],
             includeFooter: true
         )
         capture("onboarding-04-resumed-connect")
 
-        qrFallbackButton.tap()
+        scanPairingCodeButton.tap()
 
         let scannerPreview = element("MobilePairingScannerPreview")
         let scannerGuidance = element("MobilePairingScannerGuidance")
@@ -339,6 +348,8 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(connectScene.waitForExistence(timeout: 4))
         XCTAssertTrue(scannerPreview.waitForNonExistence(timeout: 2))
         capture("onboarding-06-scanner-cancelled")
+        tap(automaticMethod, in: app)
+        XCTAssertTrue(app.staticTexts["Your Mac connects automatically"].waitForExistence(timeout: 4))
 
         app.terminate()
         XCUIDevice.shared.orientation = .landscapeRight
@@ -369,11 +380,13 @@ final class cmuxUITests: XCTestCase {
 
         primaryButton.tap()
         assertPageVisible(connectScene)
-        let compactFallbackButton = app.buttons["MobileOnboardingSecondaryButton"]
-        XCTAssertTrue(compactFallbackButton.waitForExistence(timeout: 4))
-        XCTAssertTrue(footer.frame.insetBy(dx: -0.5, dy: -0.5).contains(compactFallbackButton.frame))
-        XCTAssertTrue(app.frame.insetBy(dx: -0.5, dy: -0.5).contains(compactFallbackButton.frame))
-        XCTAssertTrue(compactFallbackButton.isHittable)
+        XCTAssertFalse(app.buttons["MobileOnboardingSecondaryButton"].exists)
+        let compactRetryButton = app.buttons["MobileOnboardingPrimaryButton"]
+        XCTAssertTrue(compactRetryButton.waitForExistence(timeout: 4))
+        XCTAssertTrue(compactRetryButton.label.contains("Check Again"))
+        XCTAssertTrue(footer.frame.insetBy(dx: -0.5, dy: -0.5).contains(compactRetryButton.frame))
+        XCTAssertTrue(app.frame.insetBy(dx: -0.5, dy: -0.5).contains(compactRetryButton.frame))
+        XCTAssertTrue(compactRetryButton.isHittable)
         recordChromeReferenceFrames()
         assertPageContentFitsWithoutScrolling(
             title: app.staticTexts["Your Mac connects automatically"],
@@ -386,6 +399,101 @@ final class cmuxUITests: XCTestCase {
             ]
         )
         capture("onboarding-09-connect-compact-height")
+    }
+
+    /// Manual pairing only authorizes a Tailscale route, so Auto-Connect must
+    /// not expose Add Computer. Switching Settings still reveals the scanner
+    /// owned by the Tailscale method.
+    @MainActor
+    func testAutomaticConnectionMethodHidesAddComputer() throws {
+        let automaticEnvironment = [
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "ineligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": UUID().uuidString,
+        ]
+        let app = launchApp(
+            mockData: true,
+            environment: automaticEnvironment
+        )
+        defer { app.terminate() }
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileDisconnectedWorkspaceShell"]
+                .waitForExistence(timeout: 12)
+        )
+        XCTAssertFalse(app.buttons["MobileShowAddDeviceButton"].exists)
+        XCTAssertFalse(app.buttons["MobileShowAddDeviceToolbarButton"].exists)
+
+        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 4))
+        tap(settings, in: app)
+        let picker = app.descendants(matching: .any)["MobileSettingsConnectionMethod"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 4))
+        tap(picker, in: app)
+        let tailscale = app.descendants(matching: .any)[
+            "MobileSettingsConnectionMethodTailscale"
+        ]
+        XCTAssertTrue(tailscale.waitForExistence(timeout: 4))
+        tap(tailscale, in: app)
+        XCTAssertTrue(
+            app.buttons["MobileSettingsTailscaleScanButton"].waitForExistence(timeout: 4)
+        )
+
+        let done = app.buttons["MobileSettingsDone"]
+        XCTAssertTrue(done.waitForExistence(timeout: 4))
+        tap(done, in: app)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileSettingsView"]
+                .waitForNonExistence(timeout: 4)
+        )
+    }
+
+    /// An externally supplied Auto-Connect attach ticket may still need an
+    /// explicit compatibility approval. That approval must remain reachable
+    /// without restoring any manual Add Computer controls.
+    @MainActor
+    func testAutomaticAttachVersionApprovalDoesNotExposeManualPairing() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let attachURL = try attachURL(
+            port: port,
+            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion + 1
+        )
+        let app = launchApp(
+            mockData: true,
+            environment: [
+                "CMUX_UITEST_ATTACH_URL": attachURL.absoluteString,
+                "CMUX_UITEST_AUTOCONNECT_MIGRATION": "ineligible",
+                "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": UUID().uuidString,
+            ],
+            launchArguments: [
+                "-dev.cmux.mobile.connectionMethod.v1", "automatic",
+            ]
+        )
+        defer { app.terminate() }
+
+        XCTAssertTrue(
+            app.staticTexts["MobilePairingVersionWarning"].waitForExistence(timeout: 8)
+        )
+        XCTAssertTrue(app.buttons["MobilePairingVersionWarningContinueButton"].exists)
+        XCTAssertFalse(app.otherElements["MobileAddDeviceForm"].exists)
+        XCTAssertFalse(app.buttons["MobileScanQRCodeButton"].exists)
+        XCTAssertFalse(app.buttons["MobilePairButton"].exists)
+
+        tap(app.buttons["MobilePairingVersionWarningContinueButton"], in: app)
+        XCTAssertTrue(
+            app.staticTexts["MobilePairingVersionWarning"].waitForNonExistence(timeout: 20)
+        )
+        waitForWorkspaceShell(in: app)
+
+        let devices = app.buttons["MobileWorkspaceDevicesButton"]
+        XCTAssertTrue(devices.waitForExistence(timeout: 8))
+        tap(devices, in: app)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileDeviceTree"].waitForExistence(timeout: 4)
+        )
+        XCTAssertFalse(app.buttons["MobileComputersAddButton"].exists)
     }
 
     @MainActor
@@ -6487,6 +6595,7 @@ final class cmuxUITests: XCTestCase {
         let app = launchApp(mockData: true, environment: [
             "CMUX_UITEST_ADD_DEVICE_PORT": String(portText.dropLast()),
         ], launchArguments: [
+            "-dev.cmux.mobile.connectionMethod.v1", "tailscale",
             "-cmux.mobile.taskComposerEnabled", "YES",
         ])
         let pairingForm = app.otherElements["MobileAddDeviceForm"]
@@ -6525,7 +6634,10 @@ final class cmuxUITests: XCTestCase {
         return app
     }
 
-    private func attachURL(port: UInt16) throws -> URL {
+    private func attachURL(
+        port: UInt16,
+        macPairingCompatibilityVersion: Int = CmxMobileDefaults.pairingCompatibilityVersion
+    ) throws -> URL {
         let route = try CmxAttachRoute(
             id: "debug_loopback",
             kind: .debugLoopback,
@@ -6536,7 +6648,7 @@ final class cmuxUITests: XCTestCase {
             terminalID: nil,
             macDeviceID: "ui-test-mac",
             macDisplayName: "UI Test Mac",
-            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
+            macPairingCompatibilityVersion: macPairingCompatibilityVersion,
             routes: [route],
             expiresAt: Date(timeIntervalSinceNow: 60 * 60),
             authToken: "ui-test-ticket"
@@ -6559,7 +6671,11 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     private func launchAddDeviceApp(environment: [String: String] = [:]) -> XCUIApplication {
-        let app = launchApp(mockData: true, environment: environment)
+        let app = launchApp(
+            mockData: true,
+            environment: environment,
+            launchArguments: ["-dev.cmux.mobile.connectionMethod.v1", "tailscale"]
+        )
         XCTAssertTrue(app.otherElements["MobileAddDeviceForm"].waitForExistence(timeout: 8))
         return app
     }
