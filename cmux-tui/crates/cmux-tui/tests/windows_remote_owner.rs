@@ -4,7 +4,7 @@ use std::fs::OpenOptions;
 use std::io::{ErrorKind, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
@@ -23,6 +23,23 @@ use wait_timeout::ChildExt as _;
 
 fn wait_for_exit(child: &mut Child, timeout: Duration) -> bool {
     child.wait_timeout(timeout).is_ok_and(|status| status.is_some())
+}
+
+fn wait_until(timeout: Duration, mut condition: impl FnMut() -> bool) -> bool {
+    let deadline = Instant::now() + timeout;
+    let wait = Condvar::new();
+    let state = Mutex::new(());
+    let mut guard = state.lock().unwrap();
+    loop {
+        if condition() {
+            return true;
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return condition();
+        }
+        (guard, _) = wait.wait_timeout(guard, remaining.min(Duration::from_millis(20))).unwrap();
+    }
 }
 
 fn socket_accepts(path: &Path) -> bool {

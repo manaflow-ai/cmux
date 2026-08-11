@@ -635,6 +635,7 @@ fn start_connected_inner(
         remote_state_dir: flags.remote_state_dir.clone(),
         extra_args: flags.ssh_args.clone(),
         maximum_frame_bytes: crate::remote_runtime::MAX_CARRIER_FRAME_BYTES,
+        resolved_targets: Default::default(),
     };
     let relay_route_names = relay_routes.keys().cloned().collect::<Vec<_>>();
     let providers = Arc::new(client_provider_registry(ssh.clone(), relay_routes, flags.iroh_path)?);
@@ -1167,9 +1168,10 @@ pub(crate) fn validate_managed_ssh_options(options: &ManagedSshOptions) -> anyho
         ssh_binary: "ssh".into(),
         remote_binary: options.remote_binary.clone(),
         remote_session: options.session.clone(),
-        remote_state_dir: None,
+        remote_state_dir: options.remote_state_dir.clone(),
         extra_args: options.ssh_args.clone(),
         maximum_frame_bytes: crate::remote_runtime::MAX_CARRIER_FRAME_BYTES,
+        resolved_targets: Default::default(),
     })?;
     Ok(())
 }

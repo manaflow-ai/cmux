@@ -218,13 +218,22 @@ _ASYNC_ITERATOR_BINDING = re.compile(
     r"([A-Za-z_]\w*)\.makeAsyncIterator\s*\("
 )
 _ASYNC_STREAM_BINDING = re.compile(
-    r"\blet\s*\(\s*([A-Za-z_]\w*)\s*,\s*[A-Za-z_]\w*\s*\)\s*"
+    r"\blet\s*\(\s*([A-Za-z_]\w*)\s*,\s*([A-Za-z_]\w*)\s*\)\s*"
     r"=\s*AsyncStream(?:<[^>]+>)?\.makeStream\s*\("
 )
 _SWIFT_TEST_FUNCTION = re.compile(
     r"^(\s*)(?:(@Test(?:\s*\([^)]*\))?)\s+)?func\s+\w+.*\{\s*$"
 )
 _SWIFT_TEST_ATTRIBUTE = re.compile(r"^\s*@Test(?:\s*\([^)]*\))?\s*$")
+_SIMPLE_CLOCK_SLEEP = re.compile(
+    r"^\s*try\s+await\s+([A-Za-z_]\w*)\.sleep\s*\([^;]*\)\s*$"
+)
+_CLOCK_CONSTRUCTION = re.compile(
+    r"^\s*let\s+([A-Za-z_]\w*)\s*=\s*[A-Za-z_]\w*Clock\s*\(\s*$"
+)
+_INJECTED_SLEEP_CLOSURE = re.compile(
+    r"^\s*sleep\s*:\s*\{\s*([A-Za-z_]\w*)\s+in\s*$"
+)
 
 # The shell BARE-COMMAND sleep form (`sleep 0.3`) has no parentheses, so it can
 # only be recognized positionally. It is matched ONLY in shell files: in Swift /
@@ -466,16 +475,18 @@ def _sleep_in_loop(lines: list[str], idx: int) -> bool:
 
 
 def _async_stream_signal_controls_next_assertion(
-    lines: list[str], idx: int, path_suffix: str
+    lines: list[str], sleep_idx: int, signal_idx: int, path_suffix: str
 ) -> bool:
     if path_suffix != ".swift":
         return False
-    scope = _swift_test_function_scope(lines, idx)
+    scope = _swift_test_function_scope(lines, signal_idx)
     if scope is None:
         return False
     scope_start, scope_end = scope
 
-    signal = _AWAITED_ITERATOR_NEXT.search(_strip_comment(lines[idx], path_suffix))
+    signal = _AWAITED_ITERATOR_NEXT.search(
+        _strip_comment(lines[signal_idx], path_suffix)
+    )
     if not signal:
         return False
     value_name = signal.group(1)
@@ -483,7 +494,7 @@ def _async_stream_signal_controls_next_assertion(
 
     iterator_idx: Optional[int] = None
     stream_name: Optional[str] = None
-    for candidate_idx in range(idx - 1, -1, -1):
+    for candidate_idx in range(signal_idx - 1, -1, -1):
         code = _strip_comment(lines[candidate_idx], path_suffix)
         if not code.strip():
             continue
@@ -505,8 +516,9 @@ def _async_stream_signal_controls_next_assertion(
     if len(re.findall(rf"\b{re.escape(iterator_name)}\b", source)) != 2:
         return False
 
-    signal_indent = len(lines[idx]) - len(lines[idx].lstrip())
+    signal_indent = len(lines[signal_idx]) - len(lines[signal_idx].lstrip())
     has_async_stream_binding = False
+    continuation_name: Optional[str] = None
     for candidate_idx in range(iterator_idx - 1, scope_start - 1, -1):
         code = _strip_comment(lines[candidate_idx], path_suffix)
         if not code.strip():
@@ -524,11 +536,23 @@ def _async_stream_signal_controls_next_assertion(
             )
         ):
             has_async_stream_binding = True
+            continuation_name = stream.group(2)
             break
-    if not has_async_stream_binding:
+    if (
+        not has_async_stream_binding
+        or continuation_name is None
+        or not _sleep_closure_yields_owner_signal(
+            lines,
+            sleep_idx,
+            scope_start,
+            signal_idx,
+            continuation_name,
+            path_suffix,
+        )
+    ):
         return False
 
-    for candidate in lines[idx + 1 :]:
+    for candidate in lines[signal_idx + 1 :]:
         code = _strip_comment(candidate, path_suffix)
         if not code.strip():
             continue
@@ -543,6 +567,99 @@ def _async_stream_signal_controls_next_assertion(
                 code,
             )
         )
+    return False
+
+
+def _sleep_closure_yields_owner_signal(
+    lines: list[str],
+    sleep_idx: int,
+    scope_start: int,
+    signal_idx: int,
+    continuation_name: str,
+    path_suffix: str,
+) -> bool:
+    sleep = _SIMPLE_CLOCK_SLEEP.fullmatch(
+        _strip_comment(lines[sleep_idx], path_suffix)
+    )
+    if not sleep:
+        return False
+    receiver_name = sleep.group(1)
+
+    sleep_call_count = 0
+    for candidate_idx in range(scope_start, signal_idx):
+        candidate_sleep = _SIMPLE_CLOCK_SLEEP.fullmatch(
+            _strip_comment(lines[candidate_idx], path_suffix)
+        )
+        if candidate_sleep and candidate_sleep.group(1) == receiver_name:
+            sleep_call_count += 1
+    if sleep_call_count != 1:
+        return False
+
+    receiver_use_count = sum(
+        len(
+            re.findall(
+                rf"\b{re.escape(receiver_name)}\b",
+                _strip_comment(line, path_suffix),
+            )
+        )
+        for line in lines[scope_start:signal_idx]
+    )
+    if receiver_use_count != 2:
+        return False
+
+    construction_idx: Optional[int] = None
+    for candidate_idx in range(scope_start, sleep_idx):
+        construction = _CLOCK_CONSTRUCTION.fullmatch(
+            _strip_comment(lines[candidate_idx], path_suffix)
+        )
+        if construction and construction.group(1) == receiver_name:
+            if construction_idx is not None:
+                return False
+            construction_idx = candidate_idx
+    if construction_idx is None:
+        return False
+
+    initializer_end: Optional[int] = None
+    depth = 0
+    saw_open = False
+    for candidate_idx in range(construction_idx, sleep_idx):
+        code = _strip_comment(lines[candidate_idx], path_suffix)
+        depth += code.count("(") - code.count(")")
+        saw_open = saw_open or "(" in code
+        if saw_open and depth <= 0:
+            initializer_end = candidate_idx
+            break
+    if initializer_end is None:
+        return False
+
+    for candidate_idx in range(construction_idx + 1, initializer_end + 1):
+        closure = _INJECTED_SLEEP_CLOSURE.fullmatch(
+            _strip_comment(lines[candidate_idx], path_suffix)
+        )
+        if not closure:
+            continue
+        duration_name = closure.group(1)
+        body: list[str] = []
+        for body_idx in range(candidate_idx + 1, initializer_end + 1):
+            code = _strip_comment(lines[body_idx], path_suffix).strip()
+            if not code:
+                continue
+            if code == "}":
+                break
+            body.append(code)
+        expected_yield = f"{continuation_name}.yield({duration_name})"
+        if body != [expected_yield]:
+            return False
+        yield_count = sum(
+            len(
+                re.findall(
+                    rf"\b{re.escape(continuation_name)}\.yield\s*\(",
+                    _strip_comment(line, path_suffix),
+                )
+            )
+            for line in lines[scope_start:signal_idx]
+        )
+        return yield_count == 1
     return False
 
 
@@ -619,7 +736,9 @@ def detect_sleep_then_assert(
         # assert is inside a poll, not gated solely by the sleep.
         if _LOOP_HEADER.search(nxt):
             return False
-        if _async_stream_signal_controls_next_assertion(lines, j, path_suffix):
+        if _async_stream_signal_controls_next_assertion(
+            lines, idx, j, path_suffix
+        ):
             return False
         if _is_assertion_line(nxt):
             return True
@@ -920,6 +1039,108 @@ def _self_test() -> int:
             "}\n",
             {RULE_SLEEP_THEN_ASSERT},
         ),
+        # Yielding shared state does not prove that the injected clock owns the
+        # observed value.
+        (
+            "cmuxTests/sleep-controlled-stream-value.swift",
+            "@Test func sharedState() async throws {\n"
+            "    let (events, continuation) = AsyncStream.makeStream(of: Int.self)\n"
+            "    let testClock = TestClock(\n"
+            "        sleep: { _ in\n"
+            "            continuation.yield(currentState)\n"
+            "        }\n"
+            "    )\n"
+            "    try await testClock.sleep(for: .seconds(7))\n"
+            "    var iterator = events.makeAsyncIterator()\n"
+            "    let observed = await iterator.next()\n"
+            "    #expect(observed == 7)\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        # An unrelated helper closure cannot prove that the real clock owns the
+        # stream signal.
+        (
+            "cmuxTests/unrelated-sleep-closure.swift",
+            "@Test func unrelatedClosure() async throws {\n"
+            "    let (events, continuation) = AsyncStream.makeStream(of: Duration.self)\n"
+            "    let realClock = ContinuousClock(\n"
+            "    )\n"
+            "    let helper = Helper(\n"
+            "        sleep: { value in\n"
+            "            continuation.yield(value)\n"
+            "        }\n"
+            "    )\n"
+            "    try await realClock.sleep(for: .seconds(7))\n"
+            "    var iterator = events.makeAsyncIterator()\n"
+            "    let observed = await iterator.next()\n"
+            "    #expect(observed == .seconds(7))\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        # More than one call can publish different values through one clock
+        # closure. Task scheduling can then select either stream value.
+        (
+            "cmuxTests/multiple-clock-calls.swift",
+            "@Test func multipleCalls() async throws {\n"
+            "    let (events, continuation) = AsyncStream.makeStream(of: Duration.self)\n"
+            "    let testClock = TestClock(\n"
+            "        sleep: { value in\n"
+            "            continuation.yield(value)\n"
+            "        }\n"
+            "    )\n"
+            "    var iterator = events.makeAsyncIterator()\n"
+            "    Task {\n"
+            "        try await testClock.sleep(for: .seconds(7))\n"
+            "    }\n"
+            "    Task {\n"
+            "        try await testClock.sleep(for: .seconds(8))\n"
+            "    }\n"
+            "    let observed = await iterator.next()\n"
+            "    #expect(observed == .seconds(7))\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        # Copying the clock can hide a second call behind a different receiver
+        # name. Any use beyond construction and the one direct call is unsafe.
+        (
+            "cmuxTests/aliased-clock-call.swift",
+            "@Test func aliasedCall() async throws {\n"
+            "    let (events, continuation) = AsyncStream.makeStream(of: Duration.self)\n"
+            "    let testClock = TestClock(\n"
+            "        sleep: { value in\n"
+            "            continuation.yield(value)\n"
+            "        }\n"
+            "    )\n"
+            "    let clockAlias = testClock\n"
+            "    var iterator = events.makeAsyncIterator()\n"
+            "    Task {\n"
+            "        try await clockAlias.sleep(for: .seconds(8))\n"
+            "    }\n"
+            "    try await testClock.sleep(for: .seconds(7))\n"
+            "    let observed = await iterator.next()\n"
+            "    #expect(observed == .seconds(7))\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        # Passing the clock to a helper can also hide another call to the same
+        # injected closure.
+        (
+            "cmuxTests/passed-clock-call.swift",
+            "@Test func passedClock() async throws {\n"
+            "    let (events, continuation) = AsyncStream.makeStream(of: Duration.self)\n"
+            "    let testClock = TestClock(\n"
+            "        sleep: { value in\n"
+            "            continuation.yield(value)\n"
+            "        }\n"
+            "    )\n"
+            "    startOtherSleep(using: testClock)\n"
+            "    var iterator = events.makeAsyncIterator()\n"
+            "    try await testClock.sleep(for: .seconds(7))\n"
+            "    let observed = await iterator.next()\n"
+            "    #expect(observed == .seconds(7))\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
         (
             "tests/sh.sh",
             "sleep 1\ntest -f /tmp/out || exit 1\n",
@@ -1062,6 +1283,11 @@ def _self_test() -> int:
             "cmuxTests/n22.swift",
             "@Test func ownerSignal() async throws {\n"
             "    let (events, continuation) = AsyncStream.makeStream(of: Int.self)\n"
+            "    let testClock = TestClock(\n"
+            "        sleep: { value in\n"
+            "            continuation.yield(value)\n"
+            "        }\n"
+            "    )\n"
             "    try await testClock.sleep(for: .seconds(7))\n"
             "    var iterator = events.makeAsyncIterator()\n"
             "    let observed = await iterator.next()\n"
@@ -1074,6 +1300,11 @@ def _self_test() -> int:
             "@Test\n"
             "func first() async throws {\n"
             "    let (events, continuation) = AsyncStream.makeStream(of: Int.self)\n"
+            "    let firstClock = TestClock(\n"
+            "        sleep: { value in\n"
+            "            continuation.yield(value)\n"
+            "        }\n"
+            "    )\n"
             "    try await firstClock.sleep(for: .seconds(7))\n"
             "    var iterator = events.makeAsyncIterator()\n"
             "    let observed = await iterator.next()\n"
@@ -1082,6 +1313,11 @@ def _self_test() -> int:
             "@Test(\"named\")\n"
             "func second() async throws {\n"
             "    let (events, continuation) = AsyncStream.makeStream(of: Int.self)\n"
+            "    let secondClock = TestClock(\n"
+            "        sleep: { value in\n"
+            "            continuation.yield(value)\n"
+            "        }\n"
+            "    )\n"
             "    try await secondClock.sleep(for: .seconds(7))\n"
             "    var iterator = events.makeAsyncIterator()\n"
             "    let observed = await iterator.next()\n"

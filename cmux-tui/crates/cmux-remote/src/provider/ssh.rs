@@ -2,7 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex as StdMutex, OnceLock, RwLock};
+use std::sync::{Arc, Mutex as StdMutex, RwLock};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -48,8 +48,10 @@ struct ResolvedSshTargetKey {
     maximum_frame_bytes: usize,
 }
 
-static RESOLVED_REMOTE_TARGETS: OnceLock<RwLock<HashMap<ResolvedSshTargetKey, SshRemoteTarget>>> =
-    OnceLock::new();
+#[derive(Debug, Clone, Default)]
+pub struct SshResolvedTargets {
+    targets: Arc<RwLock<HashMap<ResolvedSshTargetKey, SshRemoteTarget>>>,
+}
 
 fn target_key(
     destination: &str,
@@ -68,38 +70,42 @@ fn target_key(
     }
 }
 
-pub fn register_resolved_ssh_target(
-    destination: &str,
-    port: Option<u16>,
-    config: &SshProviderConfig,
-    target: SshRemoteTarget,
-) -> Result<(), ProviderError> {
-    validate_remote_target(&target)?;
-    RESOLVED_REMOTE_TARGETS
-        .get_or_init(|| RwLock::new(HashMap::new()))
-        .write()
-        .map_err(|_| ProviderError::Transport("SSH target registry is poisoned".into()))?
-        .insert(target_key(destination, port, config), target);
-    Ok(())
-}
+impl SshResolvedTargets {
+    fn register(
+        &self,
+        destination: &str,
+        port: Option<u16>,
+        config: &SshProviderConfig,
+        target: SshRemoteTarget,
+    ) -> Result<(), ProviderError> {
+        validate_remote_target(&target)?;
+        self.targets
+            .write()
+            .map_err(|_| ProviderError::Transport("SSH target registry is poisoned".into()))?
+            .insert(target_key(destination, port, config), target);
+        Ok(())
+    }
 
-fn resolved_ssh_target(
-    destination: &str,
-    port: Option<u16>,
-    config: &SshProviderConfig,
-) -> Result<SshRemoteTarget, ProviderError> {
-    let target = RESOLVED_REMOTE_TARGETS
-        .get_or_init(|| RwLock::new(HashMap::new()))
-        .read()
-        .map_err(|_| ProviderError::Transport("SSH target registry is poisoned".into()))?
-        .get(&target_key(destination, port, config))
-        .cloned()
-        .unwrap_or_else(|| SshRemoteTarget {
-            binary: config.remote_binary.clone(),
-            shell: SshRemoteShell::Posix,
-        });
-    validate_remote_target(&target)?;
-    Ok(target)
+    fn resolve(
+        &self,
+        destination: &str,
+        port: Option<u16>,
+        config: &SshProviderConfig,
+    ) -> Result<SshRemoteTarget, ProviderError> {
+        let target = self
+            .targets
+            .read()
+            .map_err(|_| ProviderError::Transport("SSH target registry is poisoned".into()))?
+            .get(&target_key(destination, port, config))
+            .cloned()
+            .ok_or_else(|| {
+                ProviderError::Configuration(
+                    "SSH remote shell was not resolved for this route; run bootstrap first".into(),
+                )
+            })?;
+        validate_remote_target(&target)?;
+        Ok(target)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -110,6 +116,7 @@ pub struct SshProviderConfig {
     pub remote_state_dir: Option<String>,
     pub extra_args: Vec<String>,
     pub maximum_frame_bytes: usize,
+    pub resolved_targets: SshResolvedTargets,
 }
 
 impl Default for SshProviderConfig {
@@ -121,13 +128,26 @@ impl Default for SshProviderConfig {
             remote_state_dir: None,
             extra_args: Vec::new(),
             maximum_frame_bytes: 65_535,
+            resolved_targets: SshResolvedTargets::default(),
         }
+    }
+}
+
+impl SshProviderConfig {
+    pub fn register_resolved_target(
+        &self,
+        destination: &str,
+        port: Option<u16>,
+        target: SshRemoteTarget,
+    ) -> Result<(), ProviderError> {
+        self.resolved_targets.register(destination, port, self, target)
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct SshProvider {
     config: SshProviderConfig,
+    resolved_targets: SshResolvedTargets,
 }
 
 impl SshProvider {
@@ -135,9 +155,10 @@ impl SshProvider {
         validate_remote_word(&config.remote_binary)?;
         validate_remote_word(&config.remote_session)?;
         if let Some(state_dir) = &config.remote_state_dir {
-            validate_remote_word(state_dir)?;
+            validate_remote_state_dir(state_dir)?;
         }
-        Ok(Self { config })
+        let resolved_targets = config.resolved_targets.clone();
+        Ok(Self { config, resolved_targets })
     }
 }
 
@@ -171,7 +192,7 @@ impl TransportProvider for SshProvider {
         }
         let (destination, description) = ssh_destination(&request.endpoint)?;
         let port = request.endpoint.port();
-        let target = resolved_ssh_target(&destination, port, &self.config)?;
+        let target = self.resolved_targets.resolve(&destination, port, &self.config)?;
         Ok(Arc::new(SshLinkGroup {
             description: description.clone(),
             destination,
@@ -266,6 +287,9 @@ impl LinkGroup for SshLinkGroup {
         command.arg(&self.destination);
         match self.target.shell {
             SshRemoteShell::Posix => {
+                if let Some(state_dir) = &self.config.remote_state_dir {
+                    validate_posix_remote_state_dir(state_dir)?;
+                }
                 command
                     .arg(&self.target.binary)
                     .arg("remote-link")
@@ -400,6 +424,7 @@ impl SshProcessLink {
         let detail = self
             .diagnostics
             .summary()
+            .map(|summary| crate::ssh_bootstrap::sanitize(&summary))
             .unwrap_or_else(|| "SSH carrier closed without diagnostics".into());
         LinkError::Transport(format!("SSH carrier closed: {detail}"))
     }
@@ -482,6 +507,28 @@ fn validate_remote_word(value: &str) -> Result<(), ProviderError> {
     {
         return Err(ProviderError::Configuration(
             "remote SSH binary must be a shell-safe path".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_remote_state_dir(value: &str) -> Result<(), ProviderError> {
+    if value.is_empty()
+        || !value.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"_./\\%~:@+-".contains(&byte))
+    {
+        return Err(ProviderError::Configuration(
+            "remote SSH state directory must be a shell-safe path".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_posix_remote_state_dir(value: &str) -> Result<(), ProviderError> {
+    if value.is_empty()
+        || !value.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"_./~:@+-".contains(&byte))
+    {
+        return Err(ProviderError::Configuration(
+            "remote POSIX state directory must be a shell-safe path".into(),
         ));
     }
     Ok(())
@@ -624,20 +671,36 @@ mod tests {
             shell: SshRemoteShell::WindowsCmd,
         };
         let target_b = SshRemoteTarget { binary: "remote-b".into(), shell: SshRemoteShell::Posix };
-        let ready = Arc::new(std::sync::Barrier::new(2));
-        std::thread::scope(|scope| {
-            for (config, target) in [(&config_a, &target_a), (&config_b, &target_b)] {
-                let ready = Arc::clone(&ready);
-                scope.spawn(move || {
-                    register_resolved_ssh_target(host, Some(2201), config, target.clone()).unwrap();
-                    ready.wait();
-                    assert_eq!(
-                        resolved_ssh_target(host, Some(2201), config).unwrap(),
-                        (*target).clone()
-                    );
-                });
-            }
-        });
+        config_a.register_resolved_target(host, Some(2201), target_a.clone()).unwrap();
+        config_b.register_resolved_target(host, Some(2201), target_b.clone()).unwrap();
+        assert_eq!(
+            config_a.resolved_targets.resolve(host, Some(2201), &config_a).unwrap(),
+            target_a
+        );
+        assert_eq!(
+            config_b.resolved_targets.resolve(host, Some(2201), &config_b).unwrap(),
+            target_b
+        );
+    }
+
+    #[test]
+    fn unresolved_ssh_target_fails_closed() {
+        let config = SshProviderConfig::default();
+        let error = config.resolved_targets.resolve("unresolved.test", None, &config).unwrap_err();
+        assert!(matches!(
+            error,
+            ProviderError::Configuration(message) if message.contains("run bootstrap first")
+        ));
+    }
+
+    #[test]
+    fn provider_accepts_a_safe_windows_state_directory_before_shell_resolution() {
+        let config = SshProviderConfig {
+            remote_state_dir: Some(r"%LOCALAPPDATA%\cmux\remote".into()),
+            ..SshProviderConfig::default()
+        };
+
+        SshProvider::new(config).unwrap();
     }
 
     #[test]

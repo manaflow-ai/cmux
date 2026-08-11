@@ -2082,7 +2082,7 @@ fn connect_provider_machine(
     cancellation: Arc<crate::machine_runtime::MachineConnectCancellation>,
 ) -> anyhow::Result<MachineConnection> {
     if cancellation.is_cancelled() {
-        anyhow::bail!("machine connection was canceled");
+        anyhow::bail!(crate::machine_runtime::machine_connection_canceled_message());
     }
     let provider_managed =
         matches!(machine.workspace_create, protocol::WorkspaceCreatePolicy::Provider { .. });
@@ -2096,7 +2096,7 @@ fn connect_provider_machine(
     let connection_id = opened.connection_id.clone();
     if cancellation.is_cancelled() {
         let _ = client.close_machine(connection_id);
-        anyhow::bail!("machine connection was canceled");
+        anyhow::bail!(crate::machine_runtime::machine_connection_canceled_message());
     }
     let workspace_mirror_authority = opened.workspace_mirror_authority;
     let authority_is_valid = workspace_mirror_authority.as_ref().is_some_and(|authority| {
@@ -2130,19 +2130,30 @@ fn connect_provider_machine(
     if cancellation.is_cancelled() {
         session.begin_shutdown();
         let _ = client.close_machine(connection_id);
-        anyhow::bail!("machine connection was canceled");
+        anyhow::bail!(crate::machine_runtime::machine_connection_canceled_message());
     }
     let open = OpenConnection { client, connection_id, machine_id: machine.id };
-    let mut connections = match registry.lock() {
-        Ok(connections) => connections,
-        Err(_) => {
+    let published = cancellation.with_active(|| {
+        registry
+            .lock()
+            .map(|mut connections| {
+                connections.insert(key, open.clone());
+            })
+            .map_err(|_| ())
+    });
+    match published {
+        Some(Ok(())) => {}
+        Some(Err(())) => {
             session.begin_shutdown();
-            let _ = open.client.close_machine(open.connection_id);
+            let _ = open.client.close_machine(open.connection_id.clone());
             anyhow::bail!(localization::catalog().sidebar.machine_provider_update_failed);
         }
-    };
-    connections.insert(key, open.clone());
-    drop(connections);
+        None => {
+            session.begin_shutdown();
+            let _ = open.client.close_machine(open.connection_id.clone());
+            anyhow::bail!(crate::machine_runtime::machine_connection_canceled_message());
+        }
+    }
     Ok(MachineConnection {
         session,
         _lease: Some(Box::new(ProviderMachineConnectionLease { open, key, registry })),
