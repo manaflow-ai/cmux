@@ -2700,11 +2700,8 @@ mod tests {
             let (shutdown, mut shutdown_events) =
                 tokio::sync::watch::channel(TerminalTaskPhase::Running);
             let waiter = tokio::spawn(async move {
-                wait_for_reconnect_backoff(
-                    &mut shutdown_events,
-                    std::time::Duration::from_secs(60),
-                )
-                .await
+                wait_for_reconnect_backoff(&mut shutdown_events, std::time::Duration::from_secs(60))
+                    .await
             });
             tokio::task::yield_now().await;
             shutdown.send_replace(TerminalTaskPhase::Stopped);

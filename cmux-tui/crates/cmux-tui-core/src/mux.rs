@@ -1706,9 +1706,7 @@ impl TerminalExitDetachSignal {
         let state = self.state.lock().unwrap();
         let (state, _) = self
             .changed
-            .wait_timeout_while(state, timeout, |state| {
-                state.generation == observed_generation
-            })
+            .wait_timeout_while(state, timeout, |state| state.generation == observed_generation)
             .unwrap();
         state.generation
     }

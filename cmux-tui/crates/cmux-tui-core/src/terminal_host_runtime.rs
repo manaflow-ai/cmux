@@ -6740,7 +6740,8 @@ mod unix {
                         let timeout_ms = deadline
                             .saturating_duration_since(now)
                             .as_millis()
-                            .clamp(1, i32::MAX as u128) as i32;
+                            .clamp(1, i32::MAX as u128)
+                            as i32;
                         let mut poll_fd = libc::pollfd {
                             fd: listener.as_raw_fd(),
                             events: libc::POLLIN | libc::POLLHUP | libc::POLLERR,
