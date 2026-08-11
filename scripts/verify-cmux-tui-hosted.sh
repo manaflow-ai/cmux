@@ -182,7 +182,12 @@ exec 3<> "$watch_result_fifo"
       wait "$watcher_pid" 2>/dev/null || true
     fi
   }
-  trap stop_watcher TERM INT EXIT
+  stop_watch_owner() {
+    stop_watcher
+    exit 143
+  }
+  trap stop_watch_owner TERM INT
+  trap stop_watcher EXIT
 
   while true; do
     set +e
@@ -211,6 +216,7 @@ exec 3<> "$watch_result_fifo"
         exit 0
       fi
     fi
+    sleep 10
   done
 ) &
 watch_owner_pid=$!
