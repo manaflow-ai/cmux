@@ -1054,6 +1054,16 @@ impl State {
                 .iter()
                 .filter_map(|surface| scoped.resource_indexes.content_ids.get(surface).cloned()),
         );
+        let original_content_placements = affected_contents
+            .iter()
+            .filter_map(|content| {
+                self.resource_indexes
+                    .content_placements
+                    .get(content)
+                    .cloned()
+                    .map(|placements| (content.clone(), placements))
+            })
+            .collect::<HashMap<_, _>>();
 
         for workspace in scoped
             .workspaces
@@ -1162,6 +1172,25 @@ impl State {
                     live.push(placement);
                 }
             }
+        }
+        for (content, original) in original_content_placements {
+            let Some(placements) = self.resource_indexes.content_placements.get_mut(&content) else {
+                continue;
+            };
+            let mut remaining = placements.iter().copied().collect::<HashSet<_>>();
+            let mut ordered = Vec::with_capacity(placements.len());
+            for placement in original {
+                if remaining.remove(&placement) {
+                    ordered.push(placement);
+                }
+            }
+            for placement in placements.iter().copied() {
+                if remaining.remove(&placement) {
+                    ordered.push(placement);
+                }
+            }
+            debug_assert!(remaining.is_empty(), "scoped content placement merge lost an entry");
+            *placements = ordered;
         }
     }
 
