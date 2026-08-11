@@ -18451,15 +18451,16 @@ mod tests {
     }
 
     #[test]
-    fn lifecycle_readiness_bumps_public_protocol() {
-        assert_eq!(PROTOCOL_VERSION, TERMINAL_LIFECYCLE_PROTOCOL_VERSION + 1);
+    fn lifecycle_ready_identity_advertises_new_public_protocol() {
+        let mux = test_mux();
+        mux.mark_server_lifecycle_ready();
+        let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
 
-        let schema: Value =
-            serde_json::from_str(include_str!("../../../spec/sdk-schema.json")).unwrap();
-        assert_eq!(schema["protocol"]["version"], 12);
+        assert_eq!(identity["lifecycle_ready"], true);
+        assert_eq!(identity["protocol"].as_u64(), Some(12));
         assert_eq!(
-            schema["types"]["IdentifyResult"]["fields"]["lifecycle_ready"]["since"],
-            12
+            identity["protocol"].as_u64(),
+            Some(u64::from(TERMINAL_LIFECYCLE_PROTOCOL_VERSION) + 1)
         );
     }
 
