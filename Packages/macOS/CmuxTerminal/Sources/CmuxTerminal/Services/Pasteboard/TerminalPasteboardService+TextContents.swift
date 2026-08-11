@@ -21,10 +21,10 @@ extension TerminalPasteboardService: TerminalClipboardReading {
         let hasRTFDAttachmentPayload = types.contains(.rtfd)
         let plainText = plainTextContents(from: pasteboard)
         let parsedHTMLOutcome: HTMLPlainTextParseOutcome?
-        if hasImagePayload {
+        if hasImagePayload || hasRTFDAttachmentPayload {
             parsedHTMLOutcome = htmlOutcome(from: pasteboard)
             if let parsedHTMLOutcome {
-                if parsedHTMLOutcome.confirmsNoVisibleText {
+                if hasImagePayload && parsedHTMLOutcome.confirmsNoVisibleText {
                     return nil
                 }
             }
