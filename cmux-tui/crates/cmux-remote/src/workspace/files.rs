@@ -1014,21 +1014,17 @@ pub(crate) async fn search(
                     .await?;
                     continue;
                 }
-                PreparedUnixSearchEntry::File { target, file, metadata } => {
-                    if metadata.len() > MAX_SEARCH_FILE_BYTES
-                        || !matches_globs(&entry.protocol_path, globs)
+                PreparedUnixSearchEntry::File { target, file, length } => {
+                    if length > MAX_SEARCH_FILE_BYTES || !matches_globs(&entry.protocol_path, globs)
                     {
                         continue;
                     }
-                    if continuation.total_bytes.saturating_add(metadata.len())
-                        > MAX_SEARCH_TOTAL_BYTES
-                    {
+                    if continuation.total_bytes.saturating_add(length) > MAX_SEARCH_TOTAL_BYTES {
                         continuation.discovery_truncated = true;
                         continuation.clear_queue();
                         break;
                     }
-                    continuation.total_bytes =
-                        continuation.total_bytes.saturating_add(metadata.len());
+                    continuation.total_bytes = continuation.total_bytes.saturating_add(length);
                     let mut file = tokio::fs::File::from_std(file);
                     let bytes = read_open_file_bounded(
                         &mut file,
@@ -1745,7 +1741,7 @@ fn prepare_unix_stat(
 #[cfg(unix)]
 enum PreparedUnixSearchEntry {
     Directory(UnixWorkspaceDirectory),
-    File { target: UnixWorkspaceTarget, file: File, metadata: std::fs::Metadata },
+    File { target: UnixWorkspaceTarget, file: File, length: u64 },
     Other,
 }
 
@@ -1784,7 +1780,7 @@ fn prepare_unix_search_entry(
                 "file changed while it was being opened for search",
             ));
         }
-        return Ok(PreparedUnixSearchEntry::File { target, file, metadata });
+        return Ok(PreparedUnixSearchEntry::File { target, file, length: metadata.len() });
     }
     Ok(PreparedUnixSearchEntry::Other)
 }

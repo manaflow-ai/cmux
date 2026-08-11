@@ -148,7 +148,7 @@ mod tests {
                 title: "build".into(),
                 body: String::new(),
                 level: "info".into(),
-                terminal_id: Some(terminal.clone()),
+                terminal_id: Some(terminal),
                 created_at_ms: 1,
                 unread: false,
             }],
