@@ -11,22 +11,24 @@ struct MainActorTaskStoreTests {
         private var minimumAddress = UInt.max
         private var maximumAddress: UInt = 0
         private var releaseCount = 0
+        private var mainThreadReleaseCount = 0
 
         func record(address: UInt, isMainThread: Bool) {
             lock.lock()
             releaseCount += 1
             if isMainThread {
+                mainThreadReleaseCount += 1
                 minimumAddress = min(minimumAddress, address)
                 maximumAddress = max(maximumAddress, address)
             }
             lock.unlock()
         }
 
-        var snapshot: (count: Int, addressSpan: UInt) {
+        var snapshot: (count: Int, mainThreadCount: Int, addressSpan: UInt) {
             lock.lock()
             defer { lock.unlock() }
             let span = minimumAddress == UInt.max ? 0 : maximumAddress - minimumAddress
-            return (releaseCount, span)
+            return (releaseCount, mainThreadReleaseCount, span)
         }
     }
 
@@ -76,7 +78,7 @@ struct MainActorTaskStoreTests {
                 recorder: recorder,
                 deinitialized: deinitializations.continuation
             )
-            store.replace("search") {
+            store.replaceOnMainActor("search") {
                 for await _ in releaseOperations.stream {}
                 guard !Task.isCancelled else { return }
                 _ = probe
@@ -97,6 +99,7 @@ struct MainActorTaskStoreTests {
 
         let snapshot = recorder.snapshot
         #expect(snapshot.count == replacementCount)
+        #expect(snapshot.mainThreadCount == replacementCount)
         #expect(snapshot.addressSpan < 512 * 1_024)
     }
 
