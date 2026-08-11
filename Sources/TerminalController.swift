@@ -506,7 +506,7 @@ class TerminalController {
         }
     }
 
-    private nonisolated static func socketCommandAllowsInAppFocusMutations(commandKey: String, isV2: Bool, params: [String: Any] = [:]) -> Bool {
+    nonisolated static func socketCommandAllowsInAppFocusMutations(commandKey: String, isV2: Bool, params: [String: Any] = [:]) -> Bool {
         if isV2 {
             return focusIntentV2Methods.contains(commandKey)
                 || explicitFocusParamAllowsFocus(commandKey: commandKey, params: params)
@@ -14288,17 +14288,6 @@ class TerminalController {
         return Self.rightSidebarCommandAllowsInAppFocusMutations(args: parts.count > 1 ? parts[1] : "")
     }
 
-    func socketCommandAllowsInAppFocusMutationsForTesting(
-        commandKey: String,
-        isV2: Bool = true,
-        params: [String: Any] = [:]
-    ) -> Bool {
-        Self.socketCommandAllowsInAppFocusMutations(
-            commandKey: commandKey,
-            isV2: isV2,
-            params: params
-        )
-    }
 #endif
 
     private func viewDepth(of view: NSView, maxDepth: Int = 128) -> Int {

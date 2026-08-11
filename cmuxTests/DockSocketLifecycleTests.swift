@@ -15,20 +15,18 @@ struct DockSocketLifecycleTests {
     @Test("Browser focus mode is explicit socket focus intent")
     @MainActor
     func browserFocusModeIsExplicitSocketFocusIntent() {
-#if DEBUG
         #expect(
-            TerminalController.shared
-                .socketCommandAllowsInAppFocusMutationsForTesting(
-                    commandKey: "browser.focus_mode.set"
-                )
+            TerminalController.socketCommandAllowsInAppFocusMutations(
+                commandKey: "browser.focus_mode.set",
+                isV2: true
+            )
         )
         #expect(
-            !TerminalController.shared
-                .socketCommandAllowsInAppFocusMutationsForTesting(
-                    commandKey: "browser.reload"
-                )
+            !TerminalController.socketCommandAllowsInAppFocusMutations(
+                commandKey: "browser.reload",
+                isV2: true
+            )
         )
-#endif
     }
 
     @MainActor
