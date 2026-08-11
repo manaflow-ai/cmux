@@ -110,8 +110,9 @@ const Deadline = struct {
         const deadline = self.deadline orelse return null;
         const remaining_ns = std.Io.Clock.awake.now(self.io).durationTo(deadline).raw.toNanoseconds();
         if (remaining_ns <= 0) return error.Timeout;
+        const positive_remaining_ns: u64 = @intCast(remaining_ns);
         return @intCast(
-            (remaining_ns - 1) / std.time.ns_per_ms + 1,
+            (positive_remaining_ns - 1) / std.time.ns_per_ms + 1,
         );
     }
 };
