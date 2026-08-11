@@ -912,10 +912,8 @@ impl State {
             .filter(|(id, _)| selected_panes.contains(id))
             .map(|(id, pane)| (*id, pane.clone()))
             .collect::<HashMap<_, _>>();
-        let selected_surfaces = panes
-            .values()
-            .flat_map(|pane| pane.tabs.iter().copied())
-            .collect::<HashSet<_>>();
+        let selected_surfaces =
+            panes.values().flat_map(|pane| pane.tabs.iter().copied()).collect::<HashSet<_>>();
         let surfaces = self
             .surfaces
             .iter()
@@ -981,9 +979,7 @@ impl State {
                 for split in selected_splits.iter().filter(|split| {
                     self.split_screens.get(split).is_some_and(|(_, _, id)| *id == screen.id)
                 }) {
-                    scoped
-                        .split_screens
-                        .insert(*split, (workspace_index, screen_index, screen.id));
+                    scoped.split_screens.insert(*split, (workspace_index, screen_index, screen.id));
                 }
             }
         }
@@ -1043,10 +1039,8 @@ impl State {
             .filter_map(|pane| scoped.panes.get(pane))
             .flat_map(|pane| pane.tabs.iter().copied())
             .collect::<HashSet<_>>();
-        let scoped_surface_slots = old_surfaces
-            .union(&new_surfaces)
-            .copied()
-            .collect::<HashSet<_>>();
+        let scoped_surface_slots =
+            old_surfaces.union(&new_surfaces).copied().collect::<HashSet<_>>();
         let mut affected_contents = scoped_surface_slots
             .iter()
             .filter_map(|surface| self.resource_indexes.content_ids.get(surface).cloned())
@@ -1062,9 +1056,8 @@ impl State {
             .drain(..)
             .filter(|workspace| scoped_workspaces.contains(&workspace.id))
         {
-            let index = self
-                .workspace_index(workspace.id)
-                .expect("terminal scope workspace remained live");
+            let index =
+                self.workspace_index(workspace.id).expect("terminal scope workspace remained live");
             self.workspaces[index] = workspace;
         }
         self.workspace_revision = scoped.workspace_revision;

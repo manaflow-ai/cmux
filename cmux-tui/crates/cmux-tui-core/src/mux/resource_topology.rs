@@ -385,11 +385,7 @@ impl TerminalExitDetachProjection {
         let empty_revision =
             self.state.workspaces.is_empty().then_some(self.state.workspace_revision);
         self.terminal_indexes.install(state, &mut self.state);
-        state.install_terminal_scope(
-            self.state,
-            &self.workspace_ids,
-            &self.catalog_public_ids,
-        );
+        state.install_terminal_scope(self.state, &self.workspace_ids, &self.catalog_public_ids);
         TerminalExitDetachEffects {
             runtime: self.runtime,
             removed: self.removed,
@@ -430,10 +426,8 @@ impl Mux {
         workspace_ids: &HashSet<WorkspaceId>,
         result: Value,
     ) -> anyhow::Result<ResourceEffectProjection> {
-        let active_workspace = live
-            .workspaces
-            .get(live.active_workspace)
-            .map(|workspace| workspace.id);
+        let active_workspace =
+            live.workspaces.get(live.active_workspace).map(|workspace| workspace.id);
         let before_workspaces = live
             .workspaces
             .iter()
@@ -567,11 +561,7 @@ impl Mux {
                             .and_then(|surface| surface.resource_identity().cloned())
                             .or_else(|| {
                                 Some(TabResourceIdentity::new(
-                                    projected
-                                        .resource_indexes
-                                        .tab_ids
-                                        .get(surface_slot)?
-                                        .clone(),
+                                    projected.resource_indexes.tab_ids.get(surface_slot)?.clone(),
                                     projected
                                         .resource_indexes
                                         .content_ids
@@ -636,7 +626,10 @@ impl Mux {
             })
             .collect::<Vec<_>>();
         for (resource, ids) in [
-            ("tab", before_tabs.difference(&live_tabs).map(ToString::to_string).collect::<Vec<_>>()),
+            (
+                "tab",
+                before_tabs.difference(&live_tabs).map(ToString::to_string).collect::<Vec<_>>(),
+            ),
             ("pane", before_panes.difference(&live_panes).map(ToString::to_string).collect()),
             ("screen", before_screens.difference(&live_screens).map(ToString::to_string).collect()),
         ] {
@@ -3046,8 +3039,7 @@ impl Mux {
             .map(|(workspace, _)| state.workspaces[workspace].id)
             .collect::<HashSet<_>>();
         let catalog_public_ids = terminal_indexes.catalog_public_ids.clone();
-        let mut projected =
-            state.clone_terminal_scope(&workspace_ids, &catalog_public_ids);
+        let mut projected = state.clone_terminal_scope(&workspace_ids, &catalog_public_ids);
         terminal_indexes.seed(&mut projected);
         let (runtime, removed, _) = remove_terminal_catalogs_and_targets_from_state(
             self,
