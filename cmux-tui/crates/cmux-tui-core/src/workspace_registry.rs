@@ -2780,153 +2780,6 @@ fn reset_rename_child_exclusive(
     }
 }
 
-#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
-fn reset_exclusive_rename_probe_error_supported(error: &std::io::Error) -> bool {
-    error.raw_os_error() == Some(libc::EEXIST)
-}
-
-#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
-struct ResetExclusiveRenameProbeEntry {
-    name: std::ffi::OsString,
-    display_path: PathBuf,
-    device: u64,
-    inode: u64,
-}
-
-#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
-struct ResetExclusiveRenameProbeCleanup {
-    parent_fd: std::os::fd::RawFd,
-    entries: Vec<ResetExclusiveRenameProbeEntry>,
-}
-
-#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
-impl ResetExclusiveRenameProbeCleanup {
-    fn remove_entries(&mut self) -> bool {
-        let mut removed = true;
-        for entry in &self.entries {
-            let current = match reset_child_stat(self.parent_fd, &entry.name, &entry.display_path) {
-                Ok(current) => current,
-                Err(error)
-                    if error
-                        .downcast_ref::<std::io::Error>()
-                        .is_some_and(|error| error.kind() == std::io::ErrorKind::NotFound) =>
-                {
-                    removed = false;
-                    continue;
-                }
-                Err(_) => {
-                    removed = false;
-                    continue;
-                }
-            };
-            let exact_entry = reset_stat_device(&current) == entry.device
-                && reset_stat_inode(&current) == entry.inode;
-            let owned_entry = self.entries.iter().any(|owned| {
-                reset_stat_device(&current) == owned.device
-                    && reset_stat_inode(&current) == owned.inode
-            });
-            if !owned_entry {
-                removed = false;
-                continue;
-            }
-            if !exact_entry {
-                removed = false;
-            }
-            if reset_unlink_child(self.parent_fd, &entry.name, &entry.display_path, 0).is_err() {
-                removed = false;
-            }
-        }
-        removed
-    }
-}
-
-#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
-impl Drop for ResetExclusiveRenameProbeCleanup {
-    fn drop(&mut self) {
-        let _ = self.remove_entries();
-    }
-}
-
-#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
-fn create_reset_exclusive_rename_probe_entry(
-    parent_fd: std::os::fd::RawFd,
-    name: std::ffi::OsString,
-    root: &Path,
-) -> anyhow::Result<ResetExclusiveRenameProbeEntry> {
-    use std::os::fd::FromRawFd;
-    use std::os::unix::fs::MetadataExt;
-
-    let display_path = root.join(&name);
-    let c_name = reset_child_c_string(&name, &display_path)?;
-    let file = loop {
-        // SAFETY: openat reads a nul-terminated name relative to a valid directory fd.
-        let fd = unsafe {
-            libc::openat(
-                parent_fd,
-                c_name.as_ptr(),
-                libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_CLOEXEC | libc::O_NOFOLLOW,
-                0o600,
-            )
-        };
-        if fd >= 0 {
-            // SAFETY: openat returned a new owned file descriptor.
-            break unsafe { File::from_raw_fd(fd) };
-        }
-        let error = std::io::Error::last_os_error();
-        if error.kind() != std::io::ErrorKind::Interrupted {
-            return Err(error).with_context(|| {
-                format!("create reset capability probe {}", display_path.display())
-            });
-        }
-    };
-    let metadata = match file.metadata() {
-        Ok(metadata) => metadata,
-        Err(error) => {
-            let _ = reset_unlink_child(parent_fd, &name, &display_path, 0);
-            return Err(error).with_context(|| {
-                format!("inspect reset capability probe {}", display_path.display())
-            });
-        }
-    };
-    Ok(ResetExclusiveRenameProbeEntry {
-        name,
-        display_path,
-        device: metadata.dev(),
-        inode: metadata.ino(),
-    })
-}
-
-#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
-fn checked_reset_exclusive_rename_supported(parent_fd: std::os::fd::RawFd, root: &Path) -> bool {
-    let Ok(probe_id) = try_new_uuid_v4() else {
-        return false;
-    };
-    let mut cleanup = ResetExclusiveRenameProbeCleanup { parent_fd, entries: Vec::new() };
-    for suffix in ["source", "target"] {
-        let name = std::ffi::OsString::from(format!(".cmux-reset-capability-{probe_id}-{suffix}"));
-        let Ok(entry) = create_reset_exclusive_rename_probe_entry(parent_fd, name, root) else {
-            return false;
-        };
-        cleanup.entries.push(entry);
-    }
-
-    let source = &cleanup.entries[0];
-    let target = &cleanup.entries[1];
-    let supported = reset_rename_child_exclusive(
-        parent_fd,
-        &source.name,
-        &target.name,
-        &source.display_path,
-        &target.display_path,
-    )
-    .is_err_and(|error| {
-        error
-            .downcast_ref::<std::io::Error>()
-            .is_some_and(reset_exclusive_rename_probe_error_supported)
-    });
-    supported && cleanup.remove_entries()
-}
-
 #[cfg(all(
     unix,
     not(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))
@@ -3093,20 +2946,15 @@ pub fn checked_reset_deletion_supported(root: &Path) -> bool {
     use std::ffi::OsStr;
     use std::os::fd::AsRawFd;
 
-    let parent = open_verified_reset_directory(root, "workspace state root");
-    parent.is_ok_and(|parent| {
+    open_verified_reset_directory(root, "workspace state root").is_ok_and(|parent| {
         open_reset_child_dir(parent.as_raw_fd(), OsStr::new("."), root).is_ok()
-            && checked_reset_exclusive_rename_supported(parent.as_raw_fd(), root)
     })
 }
 
 /// Return whether this process can enforce descriptor-relative reset deletion boundaries.
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 pub fn checked_reset_deletion_supported(root: &Path) -> bool {
-    use std::os::fd::AsRawFd;
-
-    open_verified_reset_directory(root, "workspace state root")
-        .is_ok_and(|parent| checked_reset_exclusive_rename_supported(parent.as_raw_fd(), root))
+    open_verified_reset_directory(root, "workspace state root").is_ok()
 }
 
 /// Return whether this process can enforce descriptor-relative reset deletion boundaries.

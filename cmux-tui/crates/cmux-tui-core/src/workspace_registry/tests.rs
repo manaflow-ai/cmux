@@ -480,19 +480,6 @@ fn checked_reset_deletion_support_uses_state_root() {
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 #[test]
-fn reset_exclusive_rename_probe_rejects_blocked_syscalls() {
-    assert!(reset_exclusive_rename_probe_error_supported(&std::io::Error::from_raw_os_error(
-        libc::EEXIST
-    )));
-    for error_code in [libc::ENOSYS, libc::EPERM, libc::EINVAL, libc::ENOTSUP] {
-        assert!(!reset_exclusive_rename_probe_error_supported(&std::io::Error::from_raw_os_error(
-            error_code
-        )));
-    }
-}
-
-#[cfg(any(target_os = "macos", target_os = "linux"))]
-#[test]
 fn checked_reset_deletion_support_does_not_require_writable_state_root() {
     use std::os::unix::fs::PermissionsExt;
 
@@ -511,36 +498,6 @@ fn checked_reset_deletion_support_does_not_require_writable_state_root() {
     fs::set_permissions(&root, original_permissions).unwrap();
     fs::remove_dir_all(root).unwrap();
     assert!(supported, "capability detection must not create probe files");
-}
-
-#[cfg(any(target_os = "macos", target_os = "linux"))]
-#[test]
-fn reset_exclusive_rename_probe_rejects_swapped_entries() {
-    use std::ffi::OsString;
-    use std::os::fd::AsRawFd;
-
-    let root = temp_root("reset-capability-swapped-entries");
-    fs::create_dir_all(&root).unwrap();
-    let directory = File::open(&root).unwrap();
-    let mut cleanup =
-        ResetExclusiveRenameProbeCleanup { parent_fd: directory.as_raw_fd(), entries: Vec::new() };
-    for suffix in ["source", "target"] {
-        let name = OsString::from(format!("probe-{suffix}"));
-        cleanup.entries.push(
-            create_reset_exclusive_rename_probe_entry(directory.as_raw_fd(), name, &root).unwrap(),
-        );
-    }
-    let source = cleanup.entries[0].display_path.clone();
-    let target = cleanup.entries[1].display_path.clone();
-    let temporary = root.join("probe-temporary");
-    fs::rename(&source, &temporary).unwrap();
-    fs::rename(&target, &source).unwrap();
-    fs::rename(&temporary, &target).unwrap();
-
-    assert!(!cleanup.remove_entries(), "swapped probe entries reported support");
-    assert!(!source.exists(), "swapped source probe was not cleaned up");
-    assert!(!target.exists(), "swapped target probe was not cleaned up");
-    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
