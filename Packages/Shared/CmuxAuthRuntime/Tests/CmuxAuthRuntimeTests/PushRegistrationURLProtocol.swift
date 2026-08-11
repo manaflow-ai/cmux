@@ -170,18 +170,27 @@ final class PushRegistrationURLScript: @unchecked Sendable {
         }
     }
 
+    var requestCountObserverCount: Int {
+        lock.withLock { requestCountContinuations.count }
+    }
+
     func waitForRequestCount(
         _ expectedCount: Int,
-        timeout: Duration = .seconds(1)
+        timeout: Duration = .seconds(30)
     ) async -> Bool {
-        let counts = requestCounts()
+        let updates = requestCountUpdates()
         return await withTaskGroup(of: Bool.self) { group in
             group.addTask {
-                for await count in counts {
-                    if count >= expectedCount { return true }
+                for await count in updates {
+                    guard !Task.isCancelled else { return false }
+                    if count >= expectedCount {
+                        return true
+                    }
                 }
                 return false
             }
+            // Request-count publication decides success. This deadline only
+            // bounds a broken test and cancels its stream observation.
             group.addTask {
                 try? await Task.sleep(for: timeout)
                 return false
@@ -227,7 +236,7 @@ final class PushRegistrationURLScript: @unchecked Sendable {
         return stub
     }
 
-    private func requestCounts() -> AsyncStream<Int> {
+    func requestCountUpdates() -> AsyncStream<Int> {
         let id = UUID()
         return AsyncStream { continuation in
             continuation.onTermination = { [weak self] _ in
@@ -243,7 +252,7 @@ final class PushRegistrationURLScript: @unchecked Sendable {
 
     private func removeRequestCountContinuation(_ id: UUID) {
         lock.withLock {
-            requestCountContinuations.removeValue(forKey: id)
+            _ = requestCountContinuations.removeValue(forKey: id)
         }
     }
 }
