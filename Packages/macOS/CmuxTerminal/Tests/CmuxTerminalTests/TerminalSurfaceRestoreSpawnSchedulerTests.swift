@@ -794,6 +794,86 @@ import CmuxTerminalCore
         #expect(coordinator.debugRuntimeSurfaceOwnerCount == 0)
     }
 
+    @Test func completedFailureBatchRescansOverflowAndIgnoresStaleFailure() async throws {
+        let capacity = 34
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
+            maximumRuntimeSurfaceOwnerCount: capacity
+        )
+        let owners = try (0..<capacity).map { _ in
+            try #require(coordinator.reserveRuntimeSurfaceOwnership())
+        }
+        defer {
+            for owner in owners {
+                coordinator.cancelRuntimeSurfaceOwnership(owner)
+            }
+        }
+        let registry = FakeSurfaceRegistry()
+        let scheduler = RecordingRestoreSpawnScheduler()
+        let fixtures = (0..<capacity).map { _ in
+            makeSurfaceFixture(
+                registry: registry,
+                scheduler: scheduler,
+                runtimeTeardown: coordinator
+            )
+        }
+        for (index, fixture) in fixtures.enumerated() {
+            fixture.surface.createSurface(for: fixture.nativeView)
+            scheduler.runScheduledOperation(at: index)
+        }
+
+        let failures = coordinator.runtimeOwnershipAdmission
+            .failRecoveriesForAllStalledCloseTeardowns()
+        #expect(failures.count == capacity)
+        coordinator.runtimeOwnershipAdmission.clearAllStalledCloseTeardowns()
+
+        let overflow = makeSurfaceFixture(
+            registry: registry,
+            scheduler: scheduler,
+            runtimeTeardown: coordinator
+        )
+        overflow.surface.createSurface(for: overflow.nativeView)
+        scheduler.runScheduledOperation(at: capacity)
+        await waitForMainActorQueueBarrier()
+        #expect(
+            coordinator.debugRuntimeSurfaceOwnershipRecoveryOverflowSnapshot
+                .headID == overflow.surface.id
+        )
+
+        for failure in failures.prefix(32) {
+            failure()
+        }
+        coordinator.cancelRuntimeSurfaceOwnership(owners[0])
+        let target = try #require(fixtures.last)
+        let targetAttemptCount = target.surface
+            .debugRuntimeSurfaceCreateAttemptCountForTesting()
+        target.surface.createSurface(
+            for: target.nativeView,
+            source: .inputDemand
+        )
+        #expect(
+            target.surface.debugRuntimeSurfaceCreateAttemptCountForTesting()
+                == targetAttemptCount + 1
+        )
+
+        coordinator.runtimeOwnershipAdmission
+            .completeStalledCloseRecoveryFailures(32)
+        await waitForMainActorQueueBarrier()
+        #expect(
+            coordinator.debugRuntimeSurfaceOwnershipRecoveryOverflowSnapshot
+                .headID == nil
+        )
+
+        for failure in failures.suffix(from: 32) {
+            failure()
+        }
+        coordinator.runtimeOwnershipAdmission
+            .completeStalledCloseRecoveryFailures(capacity - 32)
+        #expect(target.paneHost.runtimeSurfaceCreationFailureMessages.isEmpty)
+        overflow.surface.beginPortalCloseLifecycle(
+            reason: "test.completedFailureBatch"
+        )
+    }
+
     @Test func lifecycleCancellationSynchronouslyRemovesOverflowEntries() throws {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
             maximumRuntimeSurfaceOwnerCount: 2
@@ -1420,5 +1500,11 @@ import CmuxTerminalCore
         #expect(snapshot.linkedNodeCount == 0)
         #expect(snapshot.headID == nil)
         #expect(snapshot.tailID == nil)
+    }
+
+    private func waitForMainActorQueueBarrier() async {
+        await Task.detached {
+            await MainActor.run {}
+        }.value
     }
 }
