@@ -46,6 +46,7 @@
 "error.connection_closed" = "The frontend connection is closed.";
 "error.connection_failure" = "The frontend could not connect. See diagnostics for details.";
 "error.request_failure" = "The frontend request failed. See diagnostics for details.";
+"error.request_queue_full" = "Too many frontend requests are waiting. Try again after they finish.";
 "error.no_machine" = "The daemon did not identify exactly one machine.";
 "error.no_session" = "The daemon did not identify exactly one session.";
 "error.too_many_changes" = "Too many changes are waiting. Try again after they finish.";

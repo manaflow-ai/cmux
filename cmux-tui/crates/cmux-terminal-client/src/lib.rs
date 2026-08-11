@@ -432,11 +432,26 @@ struct ActiveTerminal {
     terminal_id: TerminalPublicId,
     streams: tokio::sync::watch::Sender<Option<Arc<ServiceStream>>>,
     closed: Arc<AtomicBool>,
-    command_sender: tokio::sync::mpsc::Sender<Bytes>,
+    command_sender: tokio::sync::mpsc::Sender<TerminalCommand>,
     resize_delivery: Arc<ResizeDelivery>,
     receiver_task: tokio::task::JoinHandle<()>,
     command_task: tokio::task::JoinHandle<()>,
     resize_task: tokio::task::JoinHandle<()>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TerminalCommand {
+    stream_id: u64,
+    requires_ready: bool,
+    payload: Bytes,
+}
+
+fn terminal_command_is_current(
+    command: &TerminalCommand,
+    current_stream_id: Option<u64>,
+    ready: bool,
+) -> bool {
+    (!command.requires_ready || ready) && current_stream_id == Some(command.stream_id)
 }
 
 impl ActiveTerminal {
@@ -474,6 +489,7 @@ struct ClientState {
     terminal_id: TerminalPublicId,
     snapshot_boundary: u64,
     snapshot_applied: bool,
+    bootstrap_colors_applied: bool,
     snapshot_bytes: u64,
     bootstrap_frames: u64,
     bootstrap_committed: bool,
@@ -568,6 +584,7 @@ impl ClientState {
             terminal_id,
             snapshot_boundary: 0,
             snapshot_applied: false,
+            bootstrap_colors_applied: false,
             snapshot_bytes: 0,
             bootstrap_frames: 0,
             bootstrap_committed: false,
@@ -667,6 +684,7 @@ impl ClientState {
         self.terminal_id = terminal_id;
         self.snapshot_boundary = 0;
         self.snapshot_applied = false;
+        self.bootstrap_colors_applied = false;
         self.snapshot_bytes = 0;
         self.bootstrap_frames = 0;
         self.bootstrap_committed = false;
@@ -779,7 +797,9 @@ impl ClientState {
                 )
             }
             MessageKind::Colors
-                if self.snapshot_applied && frame.sequence == self.snapshot_boundary =>
+                if self.snapshot_applied
+                    && !self.bootstrap_colors_applied
+                    && frame.sequence == self.snapshot_boundary =>
             {
                 let native_colors = decode_terminal_color_overrides(&frame.payload)?;
                 #[cfg(feature = "text-renderer")]
@@ -789,6 +809,7 @@ impl ClientState {
                         .ok_or_else(|| "Colors arrived before snapshot".to_string())?
                         .vt_write(&native_colors);
                 }
+                self.bootstrap_colors_applied = true;
                 self.bootstrap_frames = self.bootstrap_frames.saturating_add(1);
                 #[cfg(feature = "text-renderer")]
                 {
@@ -802,7 +823,9 @@ impl ClientState {
                 )
             }
             MessageKind::Ready
-                if self.snapshot_applied && frame.sequence == self.snapshot_boundary =>
+                if self.snapshot_applied
+                    && self.bootstrap_colors_applied
+                    && frame.sequence == self.snapshot_boundary =>
             {
                 self.ready = true;
                 self.bootstrap_committed = true;
@@ -931,6 +954,9 @@ impl ClientState {
     }
 
     fn require_sequence(&mut self, sequence: u64) -> Result<(), String> {
+        if !self.ready {
+            return Err("live frame arrived before Ready".to_string());
+        }
         let expected = self
             .expected_sequence
             .ok_or_else(|| "live frame arrived before snapshot".to_string())?;
@@ -1000,6 +1026,33 @@ impl ClientState {
         })
         .unwrap_or_else(|_| "{\"status\":\"diagnostics-error\"}".into())
     }
+}
+
+fn client_state_accepts_terminal_commands(state: &ClientState) -> bool {
+    state.ready && !state.exited
+}
+
+fn enqueue_active_terminal(
+    terminal: &ActiveTerminal,
+    state: &Arc<Mutex<ClientState>>,
+    frame: Frame,
+) -> bool {
+    let Ok(encoded) = encode_frame(&frame) else { return false };
+    let requires_ready = matches!(frame.kind, MessageKind::Input | MessageKind::Paste);
+    if terminal.closed.load(Ordering::Acquire)
+        || (requires_ready && !client_state_accepts_terminal_commands(&state.lock().unwrap()))
+    {
+        return false;
+    }
+    let Some(stream) = terminal.streams.borrow().clone() else { return false };
+    terminal
+        .command_sender
+        .try_send(TerminalCommand {
+            stream_id: stream.id(),
+            requires_ready,
+            payload: Bytes::from(encoded),
+        })
+        .is_ok()
 }
 
 #[cfg(feature = "text-renderer")]
@@ -1497,7 +1550,7 @@ fn start_terminal_tasks(
     updates: Arc<ClientUpdates>,
 ) -> ActiveTerminal {
     let closed = Arc::new(AtomicBool::new(false));
-    let (streams, mut command_streams) = tokio::sync::watch::channel(Some(stream.clone()));
+    let (streams, command_streams) = tokio::sync::watch::channel(Some(stream.clone()));
     let resize_streams = streams.subscribe();
     let resize_delivery = Arc::new(ResizeDelivery::default());
     {
@@ -1514,7 +1567,7 @@ fn start_terminal_tasks(
         state.clone(),
         updates.clone(),
     ));
-    let (command_sender, mut commands) = tokio::sync::mpsc::channel::<Bytes>(256);
+    let (command_sender, mut commands) = tokio::sync::mpsc::channel::<TerminalCommand>(256);
     let command_state = state.clone();
     let command_updates = updates.clone();
     let command_closed = closed.clone();
@@ -1522,47 +1575,25 @@ fn start_terminal_tasks(
     let command_send_lock = send_lock.clone();
     let command_task = runtime.spawn(async move {
         while let Some(command) = commands.recv().await {
-            loop {
-                if command_closed.load(Ordering::Acquire) {
-                    return;
-                }
-                let current = command_streams.borrow().clone();
-                let Some(current) = current else {
-                    if command_streams.changed().await.is_err() {
-                        return;
-                    }
-                    continue;
-                };
-                let send_result = {
-                    let _guard = command_send_lock.lock().await;
-                    current.send(command.clone()).await
-                };
-                match send_result {
-                    Ok(()) => break,
-                    Err(error) => {
-                        set_client_status(
-                            &command_state,
-                            &command_updates,
-                            format!("write: {error}"),
-                        );
-                        let failed = current.id();
-                        loop {
-                            if command_closed.load(Ordering::Acquire) {
-                                return;
-                            }
-                            let replaced = command_streams
-                                .borrow()
-                                .as_ref()
-                                .is_none_or(|stream| stream.id() != failed);
-                            if replaced {
-                                break;
-                            }
-                            if command_streams.changed().await.is_err() {
-                                return;
-                            }
-                        }
-                    }
-                }
+            if command_closed.load(Ordering::Acquire) {
+                return;
+            }
+            let current = command_streams.borrow().clone();
+            let ready = client_state_accepts_terminal_commands(&command_state.lock().unwrap());
+            if !terminal_command_is_current(
+                &command,
+                current.as_ref().map(|stream| stream.id()),
+                ready,
+            ) {
+                continue;
+            }
+            let Some(current) = current else { continue };
+            let send_result = {
+                let _guard = command_send_lock.lock().await;
+                current.send(command.payload).await
+            };
+            if let Err(error) = send_result {
+                set_client_status(&command_state, &command_updates, format!("write: {error}"));
             }
         }
     });
@@ -1688,13 +1719,9 @@ fn copy_utf8(value: &str, buffer: *mut c_char, capacity: usize) -> usize {
 }
 
 fn enqueue_command(client: &CmuxTerminalClient, frame: Frame) -> bool {
-    let Ok(encoded) = encode_frame(&frame) else { return false };
     let terminal = client.terminal.lock().unwrap();
     let Some(terminal) = terminal.as_ref() else { return false };
-    if terminal.closed.load(Ordering::Acquire) {
-        return false;
-    }
-    terminal.command_sender.try_send(Bytes::from(encoded)).is_ok()
+    enqueue_active_terminal(terminal, &client.state, frame)
 }
 
 unsafe fn terminal_id_from_ffi(terminal_id: *const c_char) -> Result<TerminalPublicId, String> {
@@ -2055,7 +2082,13 @@ pub unsafe extern "C" fn cmux_terminal_client_send_key(
             return false;
         }
     };
-    let key_result = client.state.lock().unwrap().encode_key(chord, repeat);
+    let key_result = {
+        let mut state = client.state.lock().unwrap();
+        if !client_state_accepts_terminal_commands(&state) {
+            return false;
+        }
+        state.encode_key(chord, repeat)
+    };
     let encoded = match key_result {
         Ok(encoded) => encoded,
         Err(error) => {
@@ -2640,6 +2673,7 @@ mod tests {
         let mut snapshot = Frame::new(MessageKind::Snapshot, test_snapshot_payload(b"prompt> "));
         snapshot.sequence = boundary;
         state.apply(snapshot).unwrap();
+        apply_test_colors(&mut state, boundary);
         let mut ready = Frame::new(MessageKind::Ready, Vec::new());
         ready.sequence = boundary;
         state.apply(ready).unwrap();
@@ -2794,6 +2828,12 @@ mod tests {
         output
     }
 
+    fn apply_test_colors(state: &mut ClientState, boundary: u64) {
+        let mut colors = Frame::new(MessageKind::Colors, test_colors_payload());
+        colors.sequence = boundary;
+        state.apply(colors).unwrap();
+    }
+
     async fn send_test_terminal_frame(stream: &ServiceStream, frame: Frame) {
         stream
             .send_on(Lane::Interactive, Bytes::from(encode_frame(&frame).unwrap()))
@@ -2804,9 +2844,11 @@ mod tests {
     #[test]
     fn bounded_command_queue_preserves_order_and_reports_backpressure() {
         let runtime = Runtime::new().unwrap();
-        let (sender, mut receiver) = mpsc::channel::<Bytes>(2);
-        let encode = |kind, payload: &'static [u8]| {
-            Bytes::from(encode_frame(&Frame::new(kind, payload.to_vec())).unwrap())
+        let (sender, mut receiver) = mpsc::channel::<TerminalCommand>(2);
+        let encode = |kind, payload: &'static [u8]| TerminalCommand {
+            stream_id: 7,
+            requires_ready: true,
+            payload: Bytes::from(encode_frame(&Frame::new(kind, payload.to_vec())).unwrap()),
         };
         let first = encode(MessageKind::Input, b"one");
         let second = encode(MessageKind::Paste, b"two");
@@ -2820,6 +2862,27 @@ mod tests {
             assert_eq!(receiver.recv().await.unwrap(), first);
             assert_eq!(receiver.recv().await.unwrap(), second);
         });
+    }
+
+    #[test]
+    fn terminal_commands_do_not_cross_readiness_or_stream_epochs() {
+        let input = TerminalCommand {
+            stream_id: 7,
+            requires_ready: true,
+            payload: Bytes::from_static(b"input"),
+        };
+        assert!(!terminal_command_is_current(&input, Some(7), false));
+        assert!(!terminal_command_is_current(&input, Some(8), true));
+        assert!(!terminal_command_is_current(&input, None, true));
+        assert!(terminal_command_is_current(&input, Some(7), true));
+
+        let resize = TerminalCommand {
+            stream_id: 7,
+            requires_ready: false,
+            payload: Bytes::from_static(b"resize"),
+        };
+        assert!(terminal_command_is_current(&resize, Some(7), false));
+        assert!(!terminal_command_is_current(&resize, Some(8), true));
     }
 
     #[test]
@@ -2857,6 +2920,10 @@ mod tests {
         let mut snapshot = Frame::new(MessageKind::Snapshot, test_snapshot_payload(b"ready"));
         snapshot.sequence = 7;
         state.apply(snapshot).unwrap();
+        apply_test_colors(&mut state, 7);
+        let mut ready = Frame::new(MessageKind::Ready, Vec::new());
+        ready.sequence = 7;
+        state.apply(ready).unwrap();
 
         let mut resized = Frame::new(MessageKind::Resized, vec![100, 0, 30, 0, 9, 0, 18, 0]);
         resized.sequence = 8;
@@ -2879,6 +2946,35 @@ mod tests {
     }
 
     #[test]
+    fn input_readiness_requires_snapshot_colors_and_ready() {
+        let mut state =
+            ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap();
+        let boundary = 7;
+        assert!(!client_state_accepts_terminal_commands(&state));
+
+        let mut snapshot = Frame::new(MessageKind::Snapshot, test_snapshot_payload(b"prompt> "));
+        snapshot.sequence = boundary;
+        state.apply(snapshot).unwrap();
+        let mut ready = Frame::new(MessageKind::Ready, Vec::new());
+        ready.sequence = boundary;
+        assert!(state.apply(ready.clone()).is_err());
+        assert!(!client_state_accepts_terminal_commands(&state));
+
+        apply_test_colors(&mut state, boundary);
+        let mut early_output = Frame::new(MessageKind::Output, b"early".to_vec());
+        early_output.sequence = boundary + 1;
+        assert_eq!(
+            state.apply(early_output).unwrap_err(),
+            "live frame arrived before Ready"
+        );
+        state.apply(ready).unwrap();
+        assert!(client_state_accepts_terminal_commands(&state));
+
+        state.prepare_handshake(test_terminal_id()).unwrap();
+        assert!(!client_state_accepts_terminal_commands(&state));
+    }
+
+    #[test]
     #[cfg(feature = "text-renderer")]
     fn snapshot_render_is_published_only_after_same_boundary_ready() {
         let mut state =
@@ -2887,6 +2983,7 @@ mod tests {
         let mut snapshot = Frame::new(MessageKind::Snapshot, test_snapshot_payload(b"prompt> "));
         snapshot.sequence = boundary;
         state.apply(snapshot).unwrap();
+        apply_test_colors(&mut state, boundary);
 
         state.materialize_frame().unwrap();
         assert!(state.frame_text.is_empty());
@@ -2908,6 +3005,7 @@ mod tests {
         let mut snapshot = Frame::new(MessageKind::Snapshot, test_snapshot_payload(b"done"));
         snapshot.sequence = boundary;
         state.apply(snapshot).unwrap();
+        apply_test_colors(&mut state, boundary);
         let mut ready = Frame::new(MessageKind::Ready, Vec::new());
         ready.sequence = boundary;
         state.apply(ready).unwrap();
@@ -3140,6 +3238,10 @@ mod tests {
                     sequence: boundary,
                     ..Frame::new(MessageKind::Snapshot, test_snapshot_payload(b"snapshot"))
                 },
+                Frame {
+                    sequence: boundary,
+                    ..Frame::new(MessageKind::Colors, test_colors_payload())
+                },
                 Frame { sequence: boundary, ..Frame::new(MessageKind::Ready, Vec::new()) },
                 Frame {
                     sequence: boundary + 1,
@@ -3286,6 +3388,9 @@ mod tests {
                         Frame::new(MessageKind::Snapshot, test_snapshot_payload(b"prompt> "));
                     snapshot.sequence = boundary;
                     send_test_terminal_frame(&incoming.stream, snapshot).await;
+                    let mut colors = Frame::new(MessageKind::Colors, test_colors_payload());
+                    colors.sequence = boundary;
+                    send_test_terminal_frame(&incoming.stream, colors).await;
                     let mut ready = Frame::new(MessageKind::Ready, Vec::new());
                     ready.sequence = boundary;
                     send_test_terminal_frame(&incoming.stream, ready).await;

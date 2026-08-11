@@ -18,11 +18,13 @@ final class GhosttyTerminalInputRelay: Sendable {
 
   @discardableResult
   func send(_ data: Data) -> Bool {
-    if case .dropped = continuation.yield(.bytes(data)) {
+    switch continuation.yield(.bytes(data)) {
+    case .enqueued:
+      return true
+    case .dropped, .terminated:
       dropContinuation.yield()
       return false
     }
-    return true
   }
 }
 
@@ -248,7 +250,10 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
       setGrid(event.geometry)
     case .ready:
       ready = true
-      if let surface { ghostty_surface_refresh(surface) }
+      if let surface {
+        ghostty_surface_set_focus(surface, window?.firstResponder === self)
+        ghostty_surface_refresh(surface)
+      }
     case .exit:
       ready = false
     }
@@ -347,7 +352,7 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
   override func viewDidMoveToWindow() {
     super.viewDidMoveToWindow()
     updateSurfaceSize(reportGeometry: true)
-    if window?.firstResponder === self, let surface {
+    if ready, window?.firstResponder === self, let surface {
       ghostty_surface_set_focus(surface, true)
     }
   }
@@ -377,13 +382,13 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
 
   override func becomeFirstResponder() -> Bool {
     let accepted = super.becomeFirstResponder()
-    if accepted, let surface { ghostty_surface_set_focus(surface, true) }
+    if accepted, ready, let surface { ghostty_surface_set_focus(surface, true) }
     return accepted
   }
 
   override func resignFirstResponder() -> Bool {
     let resigned = super.resignFirstResponder()
-    if resigned, let surface { ghostty_surface_set_focus(surface, false) }
+    if resigned, ready, let surface { ghostty_surface_set_focus(surface, false) }
     return resigned
   }
 
@@ -488,7 +493,7 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
     text: String? = nil,
     composing: Bool = false
   ) -> Bool {
-    guard let surface else { return false }
+    guard ready, let surface else { return false }
     var key = event.nativeGhosttyKeyEvent(
       action,
       translationModifiers: translatedEvent?.modifierFlags
@@ -531,7 +536,7 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
 
   @objc func paste(_ sender: Any?) {
     _ = sender
-    guard let surface,
+    guard ready, let surface,
       let text = NSPasteboard.general.string(forType: .string),
       !text.isEmpty
     else { return }
@@ -561,7 +566,7 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
   }
 
   override func rightMouseDown(with event: NSEvent) {
-    guard let surface else {
+    guard ready, let surface else {
       super.rightMouseDown(with: event)
       return
     }
@@ -584,7 +589,7 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
   }
 
   override func rightMouseUp(with event: NSEvent) {
-    guard sentRightMousePress, let surface else {
+    guard ready, sentRightMousePress, let surface else {
       super.rightMouseUp(with: event)
       return
     }
@@ -613,7 +618,7 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
     _ button: ghostty_input_mouse_button_e,
     event: NSEvent
   ) {
-    guard let surface else { return }
+    guard ready, let surface else { return }
     ghostty_surface_mouse_button(
       surface, state, button, nativeGhosttyModifiers(event.modifierFlags))
   }
@@ -652,12 +657,12 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
   override func otherMouseDragged(with event: NSEvent) { sendMousePosition(event) }
 
   override func mouseExited(with event: NSEvent) {
-    guard let surface, NSEvent.pressedMouseButtons == 0 else { return }
+    guard ready, let surface, NSEvent.pressedMouseButtons == 0 else { return }
     ghostty_surface_mouse_pos(surface, -1, -1, nativeGhosttyModifiers(event.modifierFlags))
   }
 
   private func sendMousePosition(_ event: NSEvent) {
-    guard let surface else { return }
+    guard ready, let surface else { return }
     let point = convert(event.locationInWindow, from: nil)
     ghostty_surface_mouse_pos(
       surface,
@@ -668,7 +673,7 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
   }
 
   override func scrollWheel(with event: NSEvent) {
-    guard let surface else { return }
+    guard ready, let surface else { return }
     var x = event.scrollingDeltaX
     var y = event.scrollingDeltaY
     if event.hasPreciseScrollingDeltas {
@@ -690,16 +695,16 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
   }
 
   override func pressureChange(with event: NSEvent) {
-    guard let surface else { return }
+    guard ready, let surface else { return }
     ghostty_surface_mouse_pressure(surface, UInt32(event.stage), Double(event.pressure))
   }
 
   override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-    sender.draggingPasteboard.string(forType: .string) == nil ? [] : .copy
+    !ready || sender.draggingPasteboard.string(forType: .string) == nil ? [] : .copy
   }
 
   override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-    guard let surface, let text = sender.draggingPasteboard.string(forType: .string) else {
+    guard ready, let surface, let text = sender.draggingPasteboard.string(forType: .string) else {
       return false
     }
     text.withCString { pointer in
@@ -808,7 +813,7 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
       keyTextAccumulator?.append(text)
       return
     }
-    guard let surface, !text.isEmpty else { return }
+    guard ready, let surface, !text.isEmpty else { return }
     text.withCString { pointer in
       ghostty_surface_text_input(surface, pointer, UInt(text.utf8.count))
     }
