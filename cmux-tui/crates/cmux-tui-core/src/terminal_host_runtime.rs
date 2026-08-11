@@ -7445,6 +7445,7 @@ mod unix {
             )
             .expect("protocol-v4 discovery record did not fall back to its live host");
             assert_eq!(attachment.protocol_version(), 4);
+            assert!(attachment.is_smart_renderer());
             assert_eq!(attachment.snapshot.replay, b"protocol-four-live-state");
             assert!(attachment.supports_journal_detach_fence());
             drop(attachment);
