@@ -448,6 +448,11 @@ jobs:
             fi
           }
           trap stop_evidence_capture EXIT
+          if [ "$CAPTURE_EVIDENCE" = "true" ]; then
+            # The temporary hosted runner must draw the software keyboard so the
+            # recording and XCUI geometry checks exercise the reported iOS 27 path.
+            defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false
+          fi
           for attempt in 1 2; do
             LOG_PATH="$IOS_DERIVED_DATA/logs/attempt-${attempt}.log"
             echo "Preparing $SIMULATOR_NAME ($SIMULATOR_ID), attempt $attempt"
