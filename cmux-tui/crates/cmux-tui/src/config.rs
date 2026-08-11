@@ -129,9 +129,9 @@
 
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
+use std::ops::Deref;
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
-use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::process::Child;
 use std::process::Command;
