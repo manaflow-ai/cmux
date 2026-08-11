@@ -787,8 +787,14 @@ fn version_string() -> String {
     }
 }
 
+#[cfg(unix)]
 fn requested_build_identity(args: &[String]) -> Option<&'static str> {
     (args == ["--build-id"]).then_some(cmux_remote::ssh_bootstrap::BUILD_IDENTITY)
+}
+
+#[cfg(not(unix))]
+fn requested_build_identity(_args: &[String]) -> Option<&'static str> {
+    None
 }
 
 #[cfg(unix)]
