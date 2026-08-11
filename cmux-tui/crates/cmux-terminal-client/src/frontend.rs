@@ -1338,6 +1338,24 @@ pub unsafe extern "C" fn cmux_frontend_terminal_has_exited(
     terminal.state.lock().unwrap().exited
 }
 
+fn terminal_is_closed(closed: Option<&AtomicBool>) -> bool {
+    closed.is_none_or(|closed| closed.load(Ordering::Acquire))
+}
+
+/// Returns whether this terminal attachment can no longer recover its stream.
+///
+/// # Safety
+///
+/// The terminal must remain live during this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_frontend_terminal_is_closed(
+    terminal: *const CmuxFrontendTerminal,
+) -> bool {
+    let Some(terminal) = (unsafe { terminal.as_ref() }) else { return true };
+    let active = terminal.active.lock().unwrap();
+    terminal_is_closed(active.as_ref().map(|active| active.closed.as_ref()))
+}
+
 /// Closes and consumes one terminal attachment without closing the frontend.
 ///
 /// # Safety
@@ -1609,6 +1627,15 @@ mod tests {
             state.resource_stream_end_reason.load(Ordering::Acquire),
             RESOURCE_STREAM_END_ERROR
         );
+    }
+
+    #[test]
+    fn terminal_closed_state_is_explicit_and_fail_closed() {
+        let closed = AtomicBool::new(false);
+        assert!(!terminal_is_closed(Some(&closed)));
+        closed.store(true, Ordering::Release);
+        assert!(terminal_is_closed(Some(&closed)));
+        assert!(terminal_is_closed(None));
     }
 
     #[test]

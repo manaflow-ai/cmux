@@ -34,6 +34,21 @@ func terminalGeometry(width: CGFloat, height: CGFloat) -> TerminalGeometry {
   )
 }
 
+enum TerminalAttachmentDisposition: Equatable, Sendable {
+  case active
+  case exited
+  case reconnectRequired
+}
+
+func terminalAttachmentDisposition(
+  didExit: Bool,
+  connectionClosed: Bool
+) -> TerminalAttachmentDisposition {
+  if didExit { return .exited }
+  if connectionClosed { return .reconnectRequired }
+  return .active
+}
+
 @MainActor
 @Observable
 final class NativeTerminalModel {
@@ -205,25 +220,12 @@ final class NativeTerminalModel {
         let batch = await handle.drainRenderEvents()
         guard !Task.isCancelled, !isShuttingDown else { return }
         if batch.overflowed {
-          let workers = [updateTask, inputTask, inputDropTask, resizeTask].compactMap { $0 }
-          for worker in workers { worker.cancel() }
-          updateTask = nil
-          inputTask = nil
-          inputDropTask = nil
-          resizeTask = nil
-          drainRequested = false
-          self.handle = nil
-          isAttached = false
-          didStart = false
-          didExit = false
-          inputErrorMessage = nil
-          resizeQueue = NewestResizeQueue()
-          errorMessage = ""
-          await handle.shutdown()
-          for worker in workers { await worker.value }
-          errorMessage = localization.text(
-            "error.terminal_render_limit",
-            "Terminal output exceeded the safe display limit. Select Retry."
+          await failAttachment(
+            handle,
+            message: localization.text(
+              "error.terminal_render_limit",
+              "Terminal output exceeded the safe display limit. Select Retry."
+            )
           )
           return
         }
@@ -237,11 +239,45 @@ final class NativeTerminalModel {
         }
         let nextDidExit = await handle.hasExited()
         if didExit != nextDidExit { didExit = nextDidExit }
+        let connectionClosed = await handle.isClosed()
+        if terminalAttachmentDisposition(
+          didExit: nextDidExit,
+          connectionClosed: connectionClosed
+        ) == .reconnectRequired {
+          await failAttachment(
+            handle,
+            message: localization.text(
+              "error.terminal_connection_stopped",
+              "The terminal connection stopped. Select Retry."
+            )
+          )
+          return
+        }
         guard !Task.isCancelled, !isShuttingDown else { return }
         if batch.hasMore { drainRequested = true }
         if !drainRequested { return }
       }
     }
+  }
+
+  private func failAttachment(_ handle: TerminalHandle, message: String) async {
+    let workers = [updateTask, inputTask, inputDropTask, resizeTask].compactMap { $0 }
+    for worker in workers { worker.cancel() }
+    updateTask = nil
+    inputTask = nil
+    inputDropTask = nil
+    resizeTask = nil
+    drainRequested = false
+    self.handle = nil
+    isAttached = false
+    didStart = false
+    didExit = false
+    inputErrorMessage = nil
+    resizeQueue = NewestResizeQueue()
+    errorMessage = ""
+    await handle.shutdown()
+    for worker in workers { await worker.value }
+    errorMessage = message
   }
 
   func submit(_ input: TerminalInput) {

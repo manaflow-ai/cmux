@@ -663,7 +663,7 @@ final class FrontendModel {
                   let screenID = selectedScreenID,
                   let screen = next.screens.first(where: {
                       $0.id == screenID && $0.workspaceID == workspaceID
-                  }) else { return [] }
+                  }) else { return [:] }
             return next.visibleTerminalPlacements(in: screen)
         }()
         let removed = terminalControllers.compactMap { paneID, controller in

@@ -640,6 +640,13 @@ actor TerminalHandle {
     }
   }
 
+  func isClosed() async -> Bool {
+    guard let rawAddress = raw.map({ UInt(bitPattern: $0) }) else { return true }
+    return await enqueue {
+      cmux_frontend_terminal_is_closed(OpaquePointer(bitPattern: rawAddress))
+    }
+  }
+
   func drainRenderEvents() async -> TerminalRenderEventBatch {
     guard let rawAddress = raw.map({ UInt(bitPattern: $0) }) else {
       return TerminalRenderEventBatch(events: [], hasMore: false, overflowed: false)
@@ -698,7 +705,8 @@ struct TerminalRenderEventBatch: Sendable {
 
 func drainTerminalRenderEvents(
   maximumEvents: Int = 16,
-  maximumEventBytes: Int = 262_144,
+  maximumEventBytes: Int = Int(CMUX_TERMINAL_CLIENT_COPY_MAX_BYTES),
+  maximumBytesEventBytes: Int = 65_536,
   maximumBytes: Int = 262_144,
   discard: () -> Void = {},
   copy: (
@@ -709,7 +717,8 @@ func drainTerminalRenderEvents(
 ) -> TerminalRenderEventBatch {
   let eventBudget = max(1, maximumEvents)
   let eventByteBudget = max(1, maximumEventBytes)
-  let byteBudget = max(eventByteBudget, maximumBytes)
+  let bytesEventByteBudget = max(1, min(eventByteBudget, maximumBytesEventBytes))
+  let byteBudget = max(1, maximumBytes)
   var processed = 0
   var retainedBytes = 0
   var result: [TerminalRenderEvent] = []
@@ -717,7 +726,11 @@ func drainTerminalRenderEvents(
   while processed < eventBudget {
     var descriptor = CmuxFrontendRenderEvent()
     guard copy(&descriptor, nil, 0) else { break }
-    if descriptor.payload_length > eventByteBudget {
+    let kind = TerminalRenderEvent.Kind(rawValue: descriptor.kind)
+    let payloadByteBudget = descriptor.kind == TerminalRenderEvent.Kind.reset.rawValue
+      ? eventByteBudget
+      : bytesEventByteBudget
+    if descriptor.payload_length > payloadByteBudget {
       discard()
       return TerminalRenderEventBatch(events: [], hasMore: false, overflowed: true)
     }
@@ -740,7 +753,7 @@ func drainTerminalRenderEvents(
     }
     processed += 1
     retainedBytes += payload.count
-    guard let kind = TerminalRenderEvent.Kind(rawValue: descriptor.kind) else { continue }
+    guard let kind else { continue }
     result.append(TerminalRenderEvent(
       kind: kind,
       geometry: TerminalGeometry(cols: descriptor.cols, rows: descriptor.rows),
@@ -749,7 +762,7 @@ func drainTerminalRenderEvents(
   }
   return TerminalRenderEventBatch(
     events: result,
-    hasMore: processed >= eventBudget || retainedBytes >= byteBudget,
+    hasMore: processed >= eventBudget,
     overflowed: false
   )
 }

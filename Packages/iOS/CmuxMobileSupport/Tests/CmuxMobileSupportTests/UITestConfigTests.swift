@@ -188,6 +188,12 @@ import Testing
             "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": "run",
             "CMUX_UITEST_AUTOCONNECT_MIGRATION_READINESS_GATE": "unknown",
         ]) == nil)
+        #expect(AutoConnectMigrationUITestConfiguration(environment: [
+            "CMUX_UITEST_MOCK_DATA": "1",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "ineligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": "run",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_CONNECTION_METHOD": "unknown",
+        ]) == nil)
     }
     #endif
 
