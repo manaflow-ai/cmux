@@ -3734,8 +3734,8 @@ final class cmuxUITests: XCTestCase {
         add(attachment)
     }
 
-    /// The fully populated production row must leave every fixed edge action
-    /// tappable while only the provider/model viewport absorbs width pressure.
+    /// The fully populated production row must group its two leading utilities
+    /// while only the provider/model viewport absorbs width pressure.
     @MainActor
     func testTaskComposerAccessibilityXXXLKeepsAttachmentAndEdgeControlsVisible() throws {
         let app = launchApp(
@@ -3775,7 +3775,13 @@ final class cmuxUITests: XCTestCase {
             XCTAssertTrue(control.isHittable)
         }
         XCTAssertTrue(scroller.waitForExistence(timeout: 3))
-        XCTAssertGreaterThanOrEqual(attachment.frame.minX - options.frame.maxX, 9)
+        let leadingUtilityGap = attachment.frame.minX - options.frame.maxX
+        XCTAssertGreaterThanOrEqual(leadingUtilityGap, -0.5)
+        XCTAssertLessThanOrEqual(
+            leadingUtilityGap,
+            1,
+            "Task Options and Add Attachment should read as one compact utility group"
+        )
         XCTAssertGreaterThanOrEqual(scroller.frame.minX - attachment.frame.maxX, 9)
         XCTAssertGreaterThanOrEqual(submit.frame.minX - scroller.frame.maxX, 9)
         XCTAssertGreaterThan(scroller.frame.width, 0)
