@@ -70,8 +70,9 @@ use windows_sys::Win32::System::Threading::{
     CreateProcessWithTokenW, DeleteProcThreadAttributeList, EXTENDED_STARTUPINFO_PRESENT,
     GetCurrentProcess, GetExitCodeProcess, GetProcessId, GetThreadId,
     InitializeProcThreadAttributeList, OpenProcessToken, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
-    PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES, PROCESS_INFORMATION, ResumeThread, STARTUPINFOEXW,
-    STARTUPINFOW, UpdateProcThreadAttribute, WaitForSingleObject,
+    PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES, PROCESS_INFORMATION, ResumeThread,
+    STARTF_USESTDHANDLES, STARTUPINFOEXW, STARTUPINFOW, UpdateProcThreadAttribute,
+    WaitForSingleObject,
 };
 use windows_sys::Win32::UI::Shell::{LoadUserProfileW, PROFILEINFOW, UnloadUserProfile};
 
@@ -105,8 +106,18 @@ struct BrokerConfig {
 struct BrokerFailureEvidence {
     schema_version: u32,
     nonce: String,
-    stage: String,
+    stage: BrokerFailureStage,
     error: String,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum BrokerFailureStage {
+    ConfigRead,
+    ConfigValidate,
+    ConfigConsume,
+    ProductLaunch,
+    EvidenceWrite,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -444,11 +455,11 @@ pub(super) fn run_controller(values: &[String]) -> Result<()> {
         failure_output: broker_failure.clone(),
     };
     write_new_json(&config_path, &config)?;
-    let broker_result = run_account_broker(account.token(), &staged_target, &config_path);
+    let broker_result = run_account_broker(account.token(), &staged_target, &config_path, &nonce);
     let broker = match broker_result {
         Ok(()) => read_bounded_json::<BrokerEvidence>(&broker_output, MAX_RECORD_BYTES)?,
         Err(error) => {
-            let copied_failure = copy_broker_failure(&broker_failure, &output);
+            let copied_failure = copy_broker_failure(&broker_failure, &output, &nonce);
             let profile_cleanup = account.impersonate(|_| profile.delete());
             let _ = fs::remove_file(&adjacent);
             let parent_unchanged = parent_security_unchanged(
@@ -528,27 +539,60 @@ pub(super) fn run_controller(values: &[String]) -> Result<()> {
 }
 pub(super) fn run_broker(values: &[String]) -> Result<()> {
     let config_path = required_path(values, "--config")?;
-    let config = read_bounded_json::<BrokerConfig>(&config_path, MAX_RECORD_BYTES)?;
-    validate_config(&config, &config_path)?;
-    fs::remove_file(&config_path).context("consume AppContainer broker config")?;
-    match launch_appcontainer_product(&config) {
-        Ok(evidence) => write_new_json(&config.output, &evidence),
+    let expected_nonce = required_value(values, "--nonce")?;
+    validate_nonce(&expected_nonce)?;
+    let failure_output = config_path
+        .parent()
+        .context("AppContainer broker config has no parent")?
+        .join("appcontainer-broker-failure.json");
+    let config = match read_bounded_json::<BrokerConfig>(&config_path, MAX_RECORD_BYTES) {
+        Ok(config) => config,
         Err(error) => {
-            let failure = BrokerFailureEvidence {
-                schema_version: EVIDENCE_SCHEMA_VERSION,
-                nonce: config.nonce.clone(),
-                stage: "account-broker-product-launch".into(),
-                error: bounded_error(&error),
-            };
-            let write = write_new_json(&config.failure_output, &failure);
-            match write {
-                Ok(()) => Err(error),
-                Err(write) => Err(error.context(format!(
-                    "also failed to write AppContainer broker failure evidence: {write:#}"
-                ))),
-            }
+            return Err(record_broker_failure(
+                &failure_output,
+                &expected_nonce,
+                BrokerFailureStage::ConfigRead,
+                error,
+            ));
         }
+    };
+    if let Err(error) = validate_config(&config, &config_path, &expected_nonce) {
+        return Err(record_broker_failure(
+            &failure_output,
+            &expected_nonce,
+            BrokerFailureStage::ConfigValidate,
+            error,
+        ));
     }
+    if let Err(error) = fs::remove_file(&config_path).context("consume AppContainer broker config")
+    {
+        return Err(record_broker_failure(
+            &failure_output,
+            &expected_nonce,
+            BrokerFailureStage::ConfigConsume,
+            error,
+        ));
+    }
+    let evidence = match launch_appcontainer_product(&config) {
+        Ok(evidence) => evidence,
+        Err(error) => {
+            return Err(record_broker_failure(
+                &failure_output,
+                &expected_nonce,
+                BrokerFailureStage::ProductLaunch,
+                error,
+            ));
+        }
+    };
+    if let Err(error) = write_new_json(&config.output, &evidence) {
+        return Err(record_broker_failure(
+            &failure_output,
+            &expected_nonce,
+            BrokerFailureStage::EvidenceWrite,
+            error,
+        ));
+    }
+    Ok(())
 }
 
 pub(super) fn run_probe(values: &[String]) -> Result<()> {
@@ -1059,7 +1103,23 @@ impl OwnedNonceDirectory {
     }
 }
 
-fn run_account_broker(token: HANDLE, executable: &Path, config: &Path) -> Result<()> {
+fn run_account_broker(token: HANDLE, executable: &Path, config: &Path, nonce: &str) -> Result<()> {
+    let broker_wait_ms = u32::try_from(BROKER_TIMEOUT.as_millis())?;
+    let inheritable = SECURITY_ATTRIBUTES {
+        nLength: u32::try_from(size_of::<SECURITY_ATTRIBUTES>())?,
+        lpSecurityDescriptor: null_mut(),
+        bInheritHandle: 1,
+    };
+    let (input_read, input_write) = create_pipe(&inheritable, "AppContainer broker stdin")?;
+    let (output_read, output_write) = create_pipe(&inheritable, "AppContainer broker stdout")?;
+    let (error_read, error_write) = create_pipe(&inheritable, "AppContainer broker stderr")?;
+    for handle in [input_write.0, output_read.0, error_read.0] {
+        // SAFETY: these controller ends are live and must not be copied into the broker.
+        check(
+            unsafe { SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0) },
+            "make AppContainer broker controller pipe end non-inheritable",
+        )?;
+    }
     let mut environment = null_mut();
     // SAFETY: environment points to writable storage and token is a live account token.
     check(
@@ -1071,6 +1131,8 @@ fn run_account_broker(token: HANDLE, executable: &Path, config: &Path) -> Result
         OsStr::new("--appcontainer-broker"),
         OsStr::new("--config"),
         config.as_os_str(),
+        OsStr::new("--nonce"),
+        OsStr::new(nonce),
     ]);
     let application = wide(executable.as_os_str());
     let current_dir =
@@ -1078,9 +1140,13 @@ fn run_account_broker(token: HANDLE, executable: &Path, config: &Path) -> Result
     let mut command_line = command_line;
     let mut startup =
         STARTUPINFOW { cb: u32::try_from(size_of::<STARTUPINFOW>())?, ..STARTUPINFOW::default() };
+    startup.dwFlags = STARTF_USESTDHANDLES;
+    startup.hStdInput = input_read.0;
+    startup.hStdOutput = output_write.0;
+    startup.hStdError = error_write.0;
     let mut process = PROCESS_INFORMATION::default();
-    // SAFETY: all pointers remain live for the call. No standard handles are redirected. The
-    // account environment comes from UserEnv and does not contain runner CMUX_BENCH secrets.
+    // SAFETY: all pointers and dedicated standard handles remain live for the call. The account
+    // environment comes from UserEnv and does not contain runner CMUX_BENCH secrets.
     let created = unsafe {
         CreateProcessWithTokenW(
             token,
@@ -1102,28 +1168,88 @@ fn run_account_broker(token: HANDLE, executable: &Path, config: &Path) -> Result
         _thread: OwnedHandle(process.hThread),
         terminate_on_drop: true,
     };
-    check(destroyed, "destroy trusted AppContainer broker environment")?;
+    drop(input_read);
+    drop(input_write);
+    drop(output_write);
+    drop(error_write);
+    let output_thread = thread::spawn(move || {
+        // SAFETY: output_read exclusively owns this pipe handle after the move.
+        let file = unsafe { File::from_raw_handle(output_read.0 as RawHandle) };
+        std::mem::forget(output_read);
+        read_bounded_tail(file, 16 * 1024)
+    });
+    let error_thread = thread::spawn(move || {
+        // SAFETY: error_read exclusively owns this pipe handle after the move.
+        let file = unsafe { File::from_raw_handle(error_read.0 as RawHandle) };
+        std::mem::forget(error_read);
+        read_bounded_tail(file, 16 * 1024)
+    });
+    let environment_cleanup = check(destroyed, "destroy trusted AppContainer broker environment");
     // SAFETY: process_handle is live for this bounded wait.
-    let wait =
-        unsafe { WaitForSingleObject(owner.process.0, u32::try_from(BROKER_TIMEOUT.as_millis())?) };
-    if wait == WAIT_TIMEOUT {
-        // SAFETY: process_handle is live and trusted workflow cleanup remains the fallback.
-        bail!("trusted AppContainer broker exceeded its bounded deadline");
-    }
+    let wait = unsafe { WaitForSingleObject(owner.process.0, broker_wait_ms) };
+    let outcome = if let Err(error) = environment_cleanup {
+        Err(error)
+    } else if wait == WAIT_OBJECT_0 {
+        let mut code = 0_u32;
+        // SAFETY: process_handle is live and code points to writable storage.
+        match check(
+            unsafe { GetExitCodeProcess(owner.process.0, &mut code) },
+            "read trusted AppContainer broker exit code",
+        ) {
+            Ok(()) if code == 0 => Ok(()),
+            Ok(()) => Err(anyhow::anyhow!("trusted AppContainer broker exited with code {code}")),
+            Err(error) => Err(error),
+        }
+    } else if wait == WAIT_TIMEOUT {
+        Err(anyhow::anyhow!("trusted AppContainer broker exceeded its bounded deadline"))
+    } else {
+        Err(io::Error::last_os_error()).context("wait for trusted AppContainer broker")
+    };
     if wait != WAIT_OBJECT_0 {
-        return Err(io::Error::last_os_error()).context("wait for trusted AppContainer broker");
-    }
-    let mut code = 0_u32;
-    // SAFETY: process_handle is live and code points to writable storage.
-    check(
-        unsafe { GetExitCodeProcess(owner.process.0, &mut code) },
-        "read trusted AppContainer broker exit code",
-    )?;
-    if code != 0 {
-        bail!("trusted AppContainer broker exited with code {code}");
+        // SAFETY: the process is live. This bounded cleanup owns EOF for both reader threads.
+        let terminated = check(
+            unsafe {
+                windows_sys::Win32::System::Threading::TerminateProcess(owner.process.0, 125)
+            },
+            "terminate failed AppContainer broker",
+        );
+        let reaped = if terminated.is_ok() {
+            let waited = unsafe { WaitForSingleObject(owner.process.0, 10_000) };
+            if waited == WAIT_OBJECT_0 {
+                Ok(())
+            } else {
+                Err(io::Error::last_os_error()).context("reap failed AppContainer broker")
+            }
+        } else {
+            Err(anyhow::anyhow!("broker termination did not run"))
+        };
+        if terminated.is_err() || reaped.is_err() {
+            let primary = match outcome {
+                Err(error) => error,
+                Ok(()) => anyhow::anyhow!("broker wait failed without a primary error"),
+            };
+            return Err(primary.context(format!(
+                "broker cleanup failed: terminate={}; reap={}",
+                result_label(&terminated),
+                result_label(&reaped),
+            )));
+        }
     }
     owner.terminate_on_drop = false;
-    Ok(())
+    drop(owner);
+    let stdout = output_thread
+        .join()
+        .map_err(|_| anyhow::anyhow!("AppContainer broker stdout reader panicked"))??;
+    let stderr = error_thread
+        .join()
+        .map_err(|_| anyhow::anyhow!("AppContainer broker stderr reader panicked"))??;
+    outcome.map_err(|error| {
+        error.context(format!(
+            "broker stderr: {}; broker stdout: {}",
+            String::from_utf8_lossy(&stderr),
+            String::from_utf8_lossy(&stdout),
+        ))
+    })
 }
 
 fn launch_appcontainer_product(config: &BrokerConfig) -> Result<BrokerEvidence> {
@@ -1875,17 +2001,20 @@ fn parent_security_unchanged(path: &Path, information: u32, before: &[usize]) ->
     }
     Ok(())
 }
-fn validate_config(config: &BrokerConfig, path: &Path) -> Result<()> {
+fn validate_config(config: &BrokerConfig, path: &Path, expected_nonce: &str) -> Result<()> {
     validate_nonce(&config.nonce)?;
     validate_profile_name(&config.profile_name)?;
+    let expected_output = path.with_file_name("appcontainer-broker-evidence.json");
+    let expected_failure = path.with_file_name("appcontainer-broker-failure.json");
     if config.schema_version != EVIDENCE_SCHEMA_VERSION
+        || config.nonce != expected_nonce
         || config.target_sha256 != sha256_file(&config.target)?
         || config.target.parent() != Some(config.staging_root.as_path())
         || config.staging_root == config.fixture_root
         || config.staging_root.parent() != config.fixture_root.parent()
         || path.parent() != Some(config.fixture_root.as_path())
-        || config.output.parent() != Some(config.fixture_root.as_path())
-        || config.failure_output.parent() != Some(config.fixture_root.as_path())
+        || config.output != expected_output
+        || config.failure_output != expected_failure
         || config.adjacent_path.starts_with(&config.fixture_root)
         || config.profile_folder.starts_with(&config.fixture_root)
     {
@@ -1954,11 +2083,11 @@ fn validate_broker(broker: &BrokerEvidence, config: &BrokerConfig) -> Result<()>
     Ok(())
 }
 
-fn copy_broker_failure(source: &Path, output: &Path) -> Result<PathBuf> {
+fn copy_broker_failure(source: &Path, output: &Path, expected_nonce: &str) -> Result<PathBuf> {
     let failure: BrokerFailureEvidence = read_bounded_json(source, MAX_RECORD_BYTES)?;
     validate_nonce(&failure.nonce)?;
     if failure.schema_version != EVIDENCE_SCHEMA_VERSION
-        || failure.stage != "account-broker-product-launch"
+        || failure.nonce != expected_nonce
         || failure.error.is_empty()
         || failure.error.len() > 4096
     {
@@ -1968,6 +2097,26 @@ fn copy_broker_failure(source: &Path, output: &Path) -> Result<PathBuf> {
     let destination = output.with_file_name(format!("{stem}-failure.json"));
     write_new_json(&destination, &failure)?;
     Ok(destination)
+}
+
+fn record_broker_failure(
+    output: &Path,
+    nonce: &str,
+    stage: BrokerFailureStage,
+    error: anyhow::Error,
+) -> anyhow::Error {
+    let failure = BrokerFailureEvidence {
+        schema_version: EVIDENCE_SCHEMA_VERSION,
+        nonce: nonce.to_string(),
+        stage,
+        error: bounded_error(&error),
+    };
+    match write_new_json(output, &failure) {
+        Ok(()) => error,
+        Err(write) => error.context(format!(
+            "also failed to write AppContainer broker failure evidence: {write:#}"
+        )),
+    }
 }
 
 fn bounded_error(error: &anyhow::Error) -> String {
@@ -2324,16 +2473,55 @@ mod tests {
     }
 
     #[test]
-    fn broker_failure_record_uses_appcontainer_schema_three() {
+    fn broker_failure_record_uses_schema_three_and_the_fixed_stage_allowlist() {
+        for (stage, expected) in [
+            (BrokerFailureStage::ConfigRead, "config-read"),
+            (BrokerFailureStage::ConfigValidate, "config-validate"),
+            (BrokerFailureStage::ConfigConsume, "config-consume"),
+            (BrokerFailureStage::ProductLaunch, "product-launch"),
+            (BrokerFailureStage::EvidenceWrite, "evidence-write"),
+        ] {
+            let evidence = BrokerFailureEvidence {
+                schema_version: EVIDENCE_SCHEMA_VERSION,
+                nonce: "12".repeat(32),
+                stage,
+                error: "denied".into(),
+            };
+
+            let encoded = serde_json::to_value(&evidence).unwrap();
+            assert_eq!(encoded["schema_version"], 3);
+            assert_eq!(encoded["stage"], expected);
+            let decoded: BrokerFailureEvidence = serde_json::from_value(encoded).unwrap();
+            assert_eq!(decoded.stage, stage);
+        }
+
+        let unknown = serde_json::json!({
+            "schema_version": 3,
+            "nonce": "12".repeat(32),
+            "stage": "unknown",
+            "error": "denied",
+        });
+        assert!(serde_json::from_value::<BrokerFailureEvidence>(unknown).is_err());
+    }
+
+    #[test]
+    fn copied_broker_failure_requires_the_exact_launch_nonce() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("broker-failure.json");
+        let requested_output = directory.path().join("preflight.json");
+        let nonce = "12".repeat(32);
         let evidence = BrokerFailureEvidence {
             schema_version: EVIDENCE_SCHEMA_VERSION,
-            nonce: "12".repeat(32),
-            stage: "account-broker-product-launch".into(),
+            nonce: nonce.clone(),
+            stage: BrokerFailureStage::ConfigValidate,
             error: "denied".into(),
         };
+        write_new_json(&source, &evidence).unwrap();
 
-        let encoded = serde_json::to_value(evidence).unwrap();
-        assert_eq!(encoded["schema_version"], 3);
-        assert_eq!(encoded["stage"], "account-broker-product-launch");
+        assert!(copy_broker_failure(&source, &requested_output, &"34".repeat(32)).is_err());
+        let copied = copy_broker_failure(&source, &requested_output, &nonce).unwrap();
+        let copied: BrokerFailureEvidence = read_bounded_json(&copied, MAX_RECORD_BYTES).unwrap();
+        assert_eq!(copied.nonce, nonce);
+        assert_eq!(copied.stage, BrokerFailureStage::ConfigValidate);
     }
 }
