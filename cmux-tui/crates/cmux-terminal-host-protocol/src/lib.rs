@@ -18,12 +18,17 @@ pub const HEADER_LEN: usize = 32;
 pub const PROTOCOL_VERSION: u16 = 3;
 pub const MAX_FRAME_PAYLOAD: usize = 16 * 1024 * 1024;
 pub const MAX_KITTY_IMAGE_ALIASES: usize = 4_096;
+/// Maximum retained terminal replay bytes in one snapshot.
 pub const MAX_SNAPSHOT_REPLAY_BYTES: usize = 8 * 1024 * 1024;
+/// Maximum UTF-8 bytes in one snapshot command argument or working directory.
 pub const MAX_SNAPSHOT_STRING_BYTES: usize = 256 * 1024;
+/// Maximum command arguments in one snapshot.
 pub const MAX_SNAPSHOT_ARGUMENTS: usize = 256;
 pub const KITTY_IMAGE_ALIAS_COUNT_LEN: usize = size_of::<u16>();
 pub const KITTY_IMAGE_ALIAS_ENCODED_LEN: usize = 2 * size_of::<u32>();
+/// Cell size used when decoding a version-1 snapshot, which did not send it.
 pub const DEFAULT_SNAPSHOT_CELL_PIXELS: (u16, u16) = (8, 16);
+/// Disabled Kitty image-id cursor used by snapshots before version 3.
 pub const DEFAULT_SNAPSHOT_NEXT_IMAGE_ID: u32 = 2_147_483_647;
 const LEGACY_PROTOCOL_VERSION: u16 = 1;
 const TERMINAL_DIMENSION_MAX: u16 = 10_000;
@@ -77,15 +82,21 @@ pub const CLEAR_HISTORY_ACK_AMBIGUOUS: u8 = 5;
 /// bounded write deadline expired.
 pub const CLEAR_HISTORY_ACK_FALLBACK_WRITE_TIMEOUT: u8 = 6;
 
+/// Version-3 Kitty graphics state needed to replay a terminal snapshot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SnapshotKittyReplayState {
+    /// Image bytes, in-flight bytes, image count, and placement count limits.
     pub limits: (u64, u64, u64, u64),
+    /// Byte offset at which Kitty graphics replay starts.
     pub replay_cursor_offset: u32,
+    /// Primary and alternate image-id cursors at the replay boundary.
     pub replay_next_image_ids: (u32, u32),
+    /// Primary and alternate image-id cursors after the retained replay.
     pub next_image_ids: (u32, u32),
 }
 
 impl SnapshotKittyReplayState {
+    /// Returns the state used when a protocol version has no Kitty replay fields.
     pub const fn disabled() -> Self {
         Self {
             limits: (0, 0, 0, 0),
@@ -96,20 +107,31 @@ impl SnapshotKittyReplayState {
     }
 }
 
+/// Owned snapshot fields decoded from the versioned terminal-host wire payload.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SnapshotPayload {
+    /// Grid columns. Decoding requires a nonzero value within the protocol limit.
     pub cols: u16,
+    /// Grid rows. Decoding requires a nonzero value within the protocol limit.
     pub rows: u16,
+    /// Cell width and height in pixels. Version 1 uses [`DEFAULT_SNAPSHOT_CELL_PIXELS`].
     pub cell_pixels: (u16, u16),
+    /// Retained VT bytes used to restore parser state.
     pub replay: Vec<u8>,
+    /// Version-2 Kitty image-id to image-number aliases, unique and nonzero.
     pub kitty_image_aliases: Vec<(u32, u32)>,
+    /// Version-3 Kitty graphics replay state.
     pub kitty_state: SnapshotKittyReplayState,
+    /// Terminal process ID. A zero wire value decodes as `None`.
     pub pid: Option<u32>,
+    /// Terminal process command and arguments.
     pub command: Vec<String>,
+    /// Terminal working directory.
     pub cwd: Option<String>,
 }
 
 impl SnapshotPayload {
+    /// Borrows this payload for encoding without cloning replay bytes or strings.
     pub fn view(&self) -> SnapshotPayloadRef<'_> {
         SnapshotPayloadRef {
             cols: self.cols,
@@ -125,19 +147,30 @@ impl SnapshotPayload {
     }
 }
 
+/// Borrowed current-version snapshot fields accepted by [`encode_snapshot_payload`].
 #[derive(Debug, Clone, Copy)]
 pub struct SnapshotPayloadRef<'a> {
+    /// Grid columns. Encoding clamps this value to the supported dimension range.
     pub cols: u16,
+    /// Grid rows. Encoding clamps this value to the supported dimension range.
     pub rows: u16,
+    /// Cell width and height in pixels. Encoding changes zero values to one.
     pub cell_pixels: (u16, u16),
+    /// Retained VT bytes used to restore parser state.
     pub replay: &'a [u8],
+    /// Kitty image-id to image-number aliases, which must be unique and nonzero.
     pub kitty_image_aliases: &'a [(u32, u32)],
+    /// Kitty graphics replay state for the current protocol version.
     pub kitty_state: SnapshotKittyReplayState,
+    /// Terminal process ID. `None` encodes as the zero sentinel.
     pub pid: Option<u32>,
+    /// Terminal process command and arguments.
     pub command: &'a [String],
+    /// Terminal working directory.
     pub cwd: Option<&'a str>,
 }
 
+/// Validation or decoding failure for a terminal snapshot payload.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SnapshotCodecError(String);
 
@@ -155,6 +188,10 @@ impl fmt::Display for SnapshotCodecError {
 
 impl std::error::Error for SnapshotCodecError {}
 
+/// Encodes a current-version snapshot after enforcing protocol bounds.
+///
+/// Grid dimensions are clamped to the supported per-dimension range, zero cell
+/// pixel values become one, and `None` process IDs use the zero wire sentinel.
 pub fn encode_snapshot_payload(
     snapshot: SnapshotPayloadRef<'_>,
 ) -> Result<Vec<u8>, SnapshotCodecError> {
@@ -202,6 +239,11 @@ pub fn encode_snapshot_payload(
     Ok(output)
 }
 
+/// Decodes a complete snapshot payload for protocol versions 1 through 3.
+///
+/// Versions before 2 receive default cell pixels and no Kitty aliases. Versions
+/// before 3 receive disabled Kitty replay state. Invalid dimensions, bounds,
+/// sentinels, UTF-8, or trailing bytes cause an error.
 pub fn decode_snapshot_payload(
     payload: &[u8],
     protocol_version: u16,
