@@ -634,6 +634,32 @@ import CmuxTerminalCore
         #expect(scheduler.scheduledSurfaceIds.last == fixtures[0].surface.id)
     }
 
+    @Test func successfulRuntimeSurfaceCreationClearsCapacityFailure() {
+        let fixture = makeSurfaceFixture(
+            registry: FakeSurfaceRegistry(),
+            scheduler: RecordingRestoreSpawnScheduler(),
+            runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator()
+        )
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in }
+        defer {
+            fixture.surface.releaseSurfaceForTesting()
+            TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil
+        }
+
+        fixture.surface.failRuntimeSurfaceCreationForTeardownCapacity()
+        #expect(
+            fixture.paneHost.activeRuntimeSurfaceCreationFailureMessage != nil
+        )
+
+        fixture.surface.installRuntimeSurfaceForTesting(
+            UnsafeMutableRawPointer(bitPattern: 0x7542)!
+        )
+
+        #expect(
+            fixture.paneHost.activeRuntimeSurfaceCreationFailureMessage == nil
+        )
+    }
+
     @Test func stalledCloseWorkersFailDeferredCreationAndRecoverSafely() async throws {
         let clock = ManualTerminalSurfaceRuntimeTeardownClock()
         let stalledSlots = AsyncStream<Int>.makeStream()
