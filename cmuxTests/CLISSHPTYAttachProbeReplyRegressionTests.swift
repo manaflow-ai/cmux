@@ -311,7 +311,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         #expect(methods.filter { $0 == "workspace.remote.pty_bridge" }.count == 1)
         #expect(methods.filter { $0 == "workspace.remote.pty_sessions" }.count == 1)
         #expect(!methods.contains("workspace.remote.pty_attach_end"), Comment(rawValue: "\(methods)"))
-        let reconciliationParams = requests.compactMap { request in
+        let reconciliationParams: [[String: Any]] = requests.compactMap { request in
             guard request["method"] as? String == "workspace.remote.pty_sessions" else { return nil }
             return request["params"] as? [String: Any]
         }
