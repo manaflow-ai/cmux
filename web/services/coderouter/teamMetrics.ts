@@ -125,9 +125,10 @@ async function queryCoderouterTeamMetrics(
       dependencies.reportFailure?.("endpoint_status", response.status);
       return { kind: "unavailable" };
     }
+    const responseText = await response.text();
     let parsedBody: unknown;
     try {
-      parsedBody = await response.json();
+      parsedBody = JSON.parse(responseText);
     } catch {
       dependencies.reportFailure?.("malformed_response");
       return { kind: "unavailable" };

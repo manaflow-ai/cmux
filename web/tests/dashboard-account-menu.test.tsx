@@ -129,6 +129,7 @@ mock.module("@/i18n/navigation", () => ({
     replace: routerReplace,
     refresh: routerRefresh,
   }),
+  usePathname: () => "/dashboard/coderouter",
 }));
 
 const { DashboardAccountMenu, __test } = await import(

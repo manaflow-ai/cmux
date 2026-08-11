@@ -15,7 +15,7 @@ import { Link, useRouter } from "@/i18n/navigation";
 
 const menuItemClass =
   "flex min-h-9 w-full cursor-default select-none items-center gap-2 px-2.5 py-2 text-left text-sm text-foreground no-underline outline-none data-[highlighted]:bg-code-bg";
-const ORGANIZATION_CATALOG_TIMEOUT_MS = 5_000;
+const ORGANIZATION_CATALOG_TIMEOUT_MS = 15_000;
 const ORGANIZATION_SWITCH_TIMEOUT_MS = 10_000;
 
 export function DashboardAccountMenu() {
@@ -139,7 +139,6 @@ function DashboardOrganizationSwitcher() {
     null,
   );
   const queuedSwitchRef = useRef<SwitchRequest | null>(null);
-  const latestSwitchRef = useRef<SwitchRequest | null>(null);
   const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;
@@ -147,7 +146,6 @@ function DashboardOrganizationSwitcher() {
       mountedRef.current = false;
       activeSwitchRef.current = null;
       queuedSwitchRef.current = null;
-      latestSwitchRef.current = null;
       if (activeSwitchTimerRef.current) {
         clearTimeout(activeSwitchTimerRef.current);
         activeSwitchTimerRef.current = null;
@@ -217,7 +215,6 @@ function DashboardOrganizationSwitcher() {
       team,
       organizationId,
     };
-    latestSwitchRef.current = request;
     // The URL is the dashboard's authoritative organization scope, so reflect
     // the user's choice immediately. Stack selection is serialized below only
     // to persist the default for later visits without an explicit team.
@@ -253,29 +250,15 @@ function DashboardOrganizationSwitcher() {
     const timeout = setTimeout(() => {
       if (!mountedRef.current) return;
       if (activeSwitchRef.current !== operation) return;
-      activeSwitchRef.current = null;
       activeSwitchTimerRef.current = null;
-      const queued = queuedSwitchRef.current;
-      queuedSwitchRef.current = null;
       setSwitchPending(false);
       setSwitchError(true);
-      if (queued) runSwitch(queued);
     }, ORGANIZATION_SWITCH_TIMEOUT_MS);
     activeSwitchTimerRef.current = timeout;
 
     void operation.then(() => {
       if (!mountedRef.current) return;
-      if (activeSwitchRef.current !== operation) {
-        if (activeSwitchRef.current) return;
-        const latest = latestSwitchRef.current;
-        if (!latest || latest === request) {
-          recordSuccessfulSwitch(request);
-          setSwitchError(false);
-        } else {
-          runSwitch(latest);
-        }
-        return;
-      }
+      if (activeSwitchRef.current !== operation) return;
       clearTimeout(timeout);
       activeSwitchTimerRef.current = null;
       activeSwitchRef.current = null;
