@@ -888,18 +888,14 @@ impl BrowserRuntime {
     pub(crate) fn bootstrap_surface_sync(
         self: &Arc<Self>,
         surface: Arc<Surface>,
-        bootstrap: BrowserBootstrap,
+        target_id: String,
+        url: String,
         mux: Weak<Mux>,
     ) -> anyhow::Result<()> {
         if self.is_closed() {
             anyhow::bail!("CDP browser connection is closed");
         }
-        let (target_id, normalized_url) = match bootstrap {
-            BrowserBootstrap::ExistingTarget { target_id, url } => (target_id, normalize_url(&url)),
-            BrowserBootstrap::Provider { .. } => {
-                anyhow::bail!("browser provider target was not resolved before CDP bootstrap")
-            }
-        };
+        let normalized_url = normalize_url(&url);
         let session_id = self.client.attach_to_target(&target_id)?;
         let events = self.register(&target_id, &session_id);
         if surface.as_browser().is_none() {
@@ -1168,11 +1164,6 @@ impl BrowserRuntime {
         let browser_stopped = self.chrome.as_ref().is_none_or(|chrome| chrome.kill_until(deadline));
         outbound_flushed && transport_closed && browser_stopped
     }
-}
-
-pub(crate) enum BrowserBootstrap {
-    ExistingTarget { target_id: String, url: String },
-    Provider { tab_id: crate::resource::TabPublicId, url: String },
 }
 
 pub(crate) fn new_surface(

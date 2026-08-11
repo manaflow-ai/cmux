@@ -27,7 +27,7 @@ use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use zeroize::Zeroize;
 
-use crate::browser::{self, BrowserBootstrap, BrowserRuntime, BrowserSource};
+use crate::browser::{self, BrowserRuntime, BrowserSource};
 use crate::browser_provider::{
     BrowserProviderRegistration, BrowserProviderRegistry, BrowserProviderSnapshot,
     BrowserProviderTargetLease,
@@ -2188,6 +2188,7 @@ impl AsyncSurfaceCreationGate {
     fn stop_and_wait_until(&self, deadline: Instant) -> bool {
         let mut state = self.inner.state.lock().unwrap();
         state.shutting_down = true;
+        self.inner.idle.notify_all();
         while state.active != 0 {
             let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
                 return false;
@@ -2195,6 +2196,22 @@ impl AsyncSurfaceCreationGate {
             let (next, timeout) = self.inner.idle.wait_timeout(state, remaining).unwrap();
             state = next;
             if timeout.timed_out() && state.active != 0 {
+                return false;
+            }
+        }
+        true
+    }
+
+    #[cfg(test)]
+    fn wait_until_stopping(&self, deadline: Instant) -> bool {
+        let mut state = self.inner.state.lock().unwrap();
+        while !state.shutting_down {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return false;
+            };
+            let (next, timeout) = self.inner.idle.wait_timeout(state, remaining).unwrap();
+            state = next;
+            if timeout.timed_out() && !state.shutting_down {
                 return false;
             }
         }
@@ -2248,8 +2265,85 @@ struct BrowserRuntimeSlot {
 }
 
 impl BrowserRuntimeSlot {
-    fn stop(&self) {
+    fn get_or_connect(
+        &self,
+        is_shutting_down: impl Fn() -> bool,
+        can_reuse: impl Fn(&BrowserRuntime) -> bool,
+        connect: impl FnOnce() -> anyhow::Result<Arc<BrowserRuntime>>,
+    ) -> anyhow::Result<Arc<BrowserRuntime>> {
+        loop {
+            let mut state = self.state.lock().unwrap();
+            if is_shutting_down() {
+                anyhow::bail!("server is shutting down");
+            }
+            match &*state {
+                BrowserRuntimeSlotState::Ready(runtime) if can_reuse(runtime) => {
+                    return Ok(runtime.clone());
+                }
+                BrowserRuntimeSlotState::Ready(_) => {
+                    *state = BrowserRuntimeSlotState::Empty;
+                }
+                BrowserRuntimeSlotState::Empty => {
+                    *state = BrowserRuntimeSlotState::Connecting;
+                    break;
+                }
+                BrowserRuntimeSlotState::Connecting => {
+                    drop(self.changed.wait(state).unwrap());
+                }
+                BrowserRuntimeSlotState::Stopping(_) => {
+                    anyhow::bail!("server is shutting down");
+                }
+            }
+        }
+
+        // The connector can block on process or network work. The slot owner
+        // has already published Connecting and released its state lock here.
+        let connected = connect();
         let mut state = self.state.lock().unwrap();
+        // This read belongs to the Connecting -> Ready transition. Shutdown
+        // can start while the connector runs without holding this lock.
+        let shutting_down = is_shutting_down();
+        match connected {
+            Ok(created)
+                if matches!(*state, BrowserRuntimeSlotState::Connecting) && !shutting_down =>
+            {
+                *state = BrowserRuntimeSlotState::Ready(created.clone());
+                self.changed.notify_all();
+                Ok(created)
+            }
+            Ok(created) => {
+                self.changed.notify_all();
+                drop(state);
+                created.shutdown();
+                anyhow::bail!("server is shutting down");
+            }
+            Err(error) => {
+                let stopping =
+                    shutting_down || matches!(*state, BrowserRuntimeSlotState::Stopping(_));
+                if matches!(*state, BrowserRuntimeSlotState::Connecting) {
+                    *state = BrowserRuntimeSlotState::Empty;
+                }
+                self.changed.notify_all();
+                drop(state);
+                if stopping {
+                    anyhow::bail!("server is shutting down");
+                }
+                Err(error)
+            }
+        }
+    }
+
+    fn stop(&self) {
+        self.stop_with_fence(|| {});
+    }
+
+    fn stop_with_fence(&self, fence: impl FnOnce()) {
+        let mut state = self.state.lock().unwrap();
+        // The global shutdown fence and this owner transition share one
+        // critical section, so a connector publishes before both or after
+        // neither. There is no state where shutdown is fenced but this slot
+        // can still publish Ready.
+        fence();
         let current = std::mem::take(&mut *state);
         *state = match current {
             BrowserRuntimeSlotState::Ready(runtime) => {
@@ -2311,6 +2405,11 @@ impl BrowserRuntimeSlot {
     fn lock_available_for_test(&self) -> bool {
         self.state.try_lock().is_ok()
     }
+}
+
+enum BrowserSurfaceBootstrap {
+    ExistingTarget { runtime: Arc<BrowserRuntime>, target_id: String, url: String },
+    Provider { tab_id: TabPublicId, url: String },
 }
 
 enum SurfaceResizeRestore {
@@ -2849,10 +2948,6 @@ pub struct Mux {
     #[cfg(all(test, unix))]
     terminal_host_record_loader: Mutex<Option<TerminalHostRecordLoader>>,
     #[cfg(test)]
-    browser_bootstrap_before_runtime: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
-    #[cfg(test)]
-    browser_runtime_connect: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
-    #[cfg(test)]
     shutdown_owner_capacity: AtomicUsize,
     #[cfg(test)]
     shutdown_attempt_timeout: Mutex<Option<Duration>>,
@@ -3241,10 +3336,6 @@ impl Mux {
             #[cfg(all(test, unix))]
             terminal_host_record_loader: Mutex::new(None),
             #[cfg(test)]
-            browser_bootstrap_before_runtime: Mutex::new(None),
-            #[cfg(test)]
-            browser_runtime_connect: Mutex::new(None),
-            #[cfg(test)]
             shutdown_owner_capacity: AtomicUsize::new(usize::MAX),
             #[cfg(test)]
             shutdown_attempt_timeout: Mutex::new(None),
@@ -3487,8 +3578,10 @@ impl Mux {
                 RegistryBrowserReconnect::Recreate => {
                     self.start_browser_bootstrap(
                         surface,
-                        BrowserBootstrap::Provider { tab_id: content.identity.tab_id.clone(), url },
-                        None,
+                        BrowserSurfaceBootstrap::Provider {
+                            tab_id: content.identity.tab_id.clone(),
+                            url,
+                        },
                     );
                 }
             }
@@ -7628,8 +7721,7 @@ impl Mux {
             .clone();
         self.start_browser_bootstrap(
             surface.clone(),
-            BrowserBootstrap::Provider { tab_id, url },
-            None,
+            BrowserSurfaceBootstrap::Provider { tab_id, url },
         );
         Ok(surface)
     }
@@ -8644,70 +8736,6 @@ impl Mux {
         self.workspace_registry.lock().unwrap().set_terminal_close_failure(enabled)
     }
 
-    fn browser_runtime(&self) -> anyhow::Result<Arc<BrowserRuntime>> {
-        loop {
-            let mut state = self.browser_runtime.state.lock().unwrap();
-            if self.is_shutting_down() {
-                anyhow::bail!("server is shutting down");
-            }
-            match &*state {
-                BrowserRuntimeSlotState::Ready(runtime) if !runtime.is_closed() => {
-                    return Ok(runtime.clone());
-                }
-                BrowserRuntimeSlotState::Ready(_) => {
-                    *state = BrowserRuntimeSlotState::Empty;
-                }
-                BrowserRuntimeSlotState::Empty => {
-                    *state = BrowserRuntimeSlotState::Connecting;
-                    break;
-                }
-                BrowserRuntimeSlotState::Connecting => {
-                    drop(self.browser_runtime.changed.wait(state).unwrap());
-                }
-                BrowserRuntimeSlotState::Stopping(_) => {
-                    anyhow::bail!("server is shutting down");
-                }
-            }
-        }
-
-        let opts = self.surface_options.lock().unwrap().clone();
-        #[cfg(test)]
-        if let Some(hook) = self.browser_runtime_connect.lock().unwrap().clone() {
-            hook();
-        }
-        let connected = BrowserRuntime::connect(&opts);
-        let mut state = self.browser_runtime.state.lock().unwrap();
-        match connected {
-            Ok(created)
-                if matches!(*state, BrowserRuntimeSlotState::Connecting)
-                    && !self.is_shutting_down() =>
-            {
-                *state = BrowserRuntimeSlotState::Ready(created.clone());
-                self.browser_runtime.changed.notify_all();
-                Ok(created)
-            }
-            Ok(created) => {
-                self.browser_runtime.changed.notify_all();
-                drop(state);
-                created.shutdown();
-                anyhow::bail!("server is shutting down");
-            }
-            Err(error) => {
-                let stopping = self.is_shutting_down()
-                    || matches!(*state, BrowserRuntimeSlotState::Stopping(_));
-                if matches!(*state, BrowserRuntimeSlotState::Connecting) {
-                    *state = BrowserRuntimeSlotState::Empty;
-                }
-                self.browser_runtime.changed.notify_all();
-                drop(state);
-                if stopping {
-                    anyhow::bail!("server is shutting down");
-                }
-                Err(error)
-            }
-        }
-    }
-
     pub(crate) fn register_browser_provider(
         self: &Arc<Self>,
         client: u64,
@@ -8756,76 +8784,20 @@ impl Mux {
         &self,
         lease: &BrowserProviderTargetLease,
     ) -> anyhow::Result<Arc<BrowserRuntime>> {
-        loop {
-            let mut state = self.browser_runtime.state.lock().unwrap();
-            if self.is_shutting_down() {
-                anyhow::bail!("server is shutting down");
-            }
-            match &*state {
-                BrowserRuntimeSlotState::Ready(runtime)
-                    if !runtime.is_closed()
-                        && runtime.matches_provider(&lease.endpoint, &lease.authentication) =>
-                {
-                    return Ok(runtime.clone());
-                }
-                BrowserRuntimeSlotState::Ready(_) => {
-                    *state = BrowserRuntimeSlotState::Empty;
-                }
-                BrowserRuntimeSlotState::Empty => {
-                    *state = BrowserRuntimeSlotState::Connecting;
-                    break;
-                }
-                BrowserRuntimeSlotState::Connecting => {
-                    drop(self.browser_runtime.changed.wait(state).unwrap());
-                }
-                BrowserRuntimeSlotState::Stopping(_) => {
-                    anyhow::bail!("server is shutting down");
-                }
-            }
-        }
-
-        #[cfg(test)]
-        if let Some(hook) = self.browser_runtime_connect.lock().unwrap().clone() {
-            hook();
-        }
-        let connected = BrowserRuntime::connect_provider(&lease.endpoint, &lease.authentication);
-        let mut state = self.browser_runtime.state.lock().unwrap();
-        match connected {
-            Ok(created)
-                if matches!(*state, BrowserRuntimeSlotState::Connecting)
-                    && !self.is_shutting_down() =>
-            {
-                *state = BrowserRuntimeSlotState::Ready(created.clone());
-                self.browser_runtime.changed.notify_all();
-                Ok(created)
-            }
-            Ok(created) => {
-                self.browser_runtime.changed.notify_all();
-                drop(state);
-                created.shutdown();
-                anyhow::bail!("server is shutting down");
-            }
-            Err(error) => {
-                let stopping = self.is_shutting_down()
-                    || matches!(*state, BrowserRuntimeSlotState::Stopping(_));
-                if matches!(*state, BrowserRuntimeSlotState::Connecting) {
-                    *state = BrowserRuntimeSlotState::Empty;
-                }
-                self.browser_runtime.changed.notify_all();
-                drop(state);
-                if stopping {
-                    anyhow::bail!("server is shutting down");
-                }
-                Err(error)
-            }
-        }
+        self.browser_runtime.get_or_connect(
+            || self.is_shutting_down(),
+            |runtime| {
+                !runtime.is_closed()
+                    && runtime.matches_provider(&lease.endpoint, &lease.authentication)
+            },
+            || BrowserRuntime::connect_provider(&lease.endpoint, &lease.authentication),
+        )
     }
 
     fn start_browser_bootstrap(
         self: &Arc<Self>,
         surface: Arc<Surface>,
-        bootstrap: BrowserBootstrap,
-        runtime: Option<Arc<BrowserRuntime>>,
+        bootstrap: BrowserSurfaceBootstrap,
     ) {
         let bootstrap_guard = match self.async_surface_creations.begin() {
             Ok(guard) => guard,
@@ -8834,7 +8806,7 @@ impl Mux {
                 return;
             }
         };
-        let provider_bootstrap = matches!(&bootstrap, BrowserBootstrap::Provider { .. });
+        let provider_bootstrap = matches!(&bootstrap, BrowserSurfaceBootstrap::Provider { .. });
         let weak_mux = Arc::downgrade(self);
         let providers = self.browser_providers.clone();
         let id = surface.id;
@@ -8845,11 +8817,7 @@ impl Mux {
                 let _bootstrap_guard = bootstrap_guard;
                 let result = (|| -> anyhow::Result<()> {
                     match bootstrap {
-                        BrowserBootstrap::Provider { tab_id, url } => {
-                            anyhow::ensure!(
-                                runtime.is_none(),
-                                "provider bootstrap cannot override its CDP runtime"
-                            );
+                        BrowserSurfaceBootstrap::Provider { tab_id, url } => {
                             let mut retry_delay = Duration::from_millis(250);
                             loop {
                                 let canceled = || {
@@ -8878,10 +8846,8 @@ impl Mux {
                                     );
                                     runtime.bootstrap_surface_sync(
                                         thread_surface.clone(),
-                                        BrowserBootstrap::ExistingTarget {
-                                            target_id: lease.target_id.clone(),
-                                            url: url.clone(),
-                                        },
+                                        lease.target_id.clone(),
+                                        url.clone(),
                                         weak_mux.clone(),
                                     )
                                 })();
@@ -8943,17 +8909,14 @@ impl Mux {
                                 }
                             }
                         }
-                        bootstrap => {
-                            let mux = weak_mux
+                        BrowserSurfaceBootstrap::ExistingTarget { runtime, target_id, url } => {
+                            let _mux = weak_mux
                                 .upgrade()
                                 .ok_or_else(|| anyhow::anyhow!("browser mux was dropped"))?;
-                            let runtime = match runtime {
-                                Some(runtime) => runtime,
-                                None => mux.browser_runtime()?,
-                            };
                             runtime.bootstrap_surface_sync(
                                 thread_surface.clone(),
-                                bootstrap,
+                                target_id,
+                                url,
                                 weak_mux.clone(),
                             )
                         }
@@ -9003,7 +8966,7 @@ impl Mux {
         }
         let tab_id = identity.tab_id.clone();
         let url = surface.browser_url().unwrap_or_else(|| "about:blank".to_string());
-        self.start_browser_bootstrap(surface, BrowserBootstrap::Provider { tab_id, url }, None);
+        self.start_browser_bootstrap(surface, BrowserSurfaceBootstrap::Provider { tab_id, url });
     }
 
     /// A fresh single-tab pane wrapping `surface`.
@@ -10173,8 +10136,7 @@ impl Mux {
         crate::process_session::require_stable_process_signaling_until(deadline)
             .context("preflight process control for daemon exit")?;
         let _coordinator = self.lock_shutdown_coordinator_until(deadline)?;
-        self.shutting_down.store(true, Ordering::Release);
-        self.browser_runtime.stop();
+        self.browser_runtime.stop_with_fence(|| self.shutting_down.store(true, Ordering::Release));
         self.journal_kernel.wake_waiters();
         let hook_deadline = deadline.min(Instant::now() + crate::journal_hooks::SHUTDOWN_WAIT);
         if !self.journal_hook_runtime.shutdown_until(hook_deadline) {
@@ -10407,8 +10369,7 @@ impl Mux {
             .context("preflight process control for server shutdown")?;
         let _coordinator = self.lock_shutdown_coordinator_until(deadline)?;
         let cleanup_lifecycle = self.shutdown_cleanup_lifecycle.begin();
-        self.shutting_down.store(true, Ordering::Release);
-        self.browser_runtime.stop();
+        self.browser_runtime.stop_with_fence(|| self.shutting_down.store(true, Ordering::Release));
         #[cfg(unix)]
         self.request_terminal_adoption_stop();
         if !self.surface_creations.stop_and_wait_until(deadline) {
@@ -10754,10 +10715,9 @@ impl Mux {
     /// and remain available for the replacement daemon to adopt.
     pub fn request_daemon_shutdown(&self) {
         self.shutdown_cleanup_lifecycle.schedule();
-        self.shutting_down.store(true, Ordering::Release);
+        self.browser_runtime.stop_with_fence(|| self.shutting_down.store(true, Ordering::Release));
         self.surface_creations.stop();
         self.async_surface_creations.stop();
-        self.browser_runtime.stop();
         self.daemon_shutdown_requested.store(true, Ordering::Release);
         #[cfg(unix)]
         self.request_terminal_adoption_stop();
@@ -13822,8 +13782,7 @@ impl Mux {
         }
         self.start_browser_bootstrap(
             surface,
-            BrowserBootstrap::ExistingTarget { target_id, url },
-            Some(runtime),
+            BrowserSurfaceBootstrap::ExistingTarget { runtime, target_id, url },
         );
         Ok(true)
     }
@@ -23890,15 +23849,6 @@ mod tests {
         let mux = test_mux();
         let initial = mux.new_workspace(None, Some((80, 24))).unwrap();
         let pane = mux.with_state(|state| state.pane_of(initial.id).unwrap());
-        let (bootstrap_reached_tx, bootstrap_reached_rx) = std::sync::mpsc::sync_channel(1);
-        let (release_bootstrap_tx, release_bootstrap_rx) = std::sync::mpsc::sync_channel(1);
-        let release_bootstrap_rx = Arc::new(Mutex::new(release_bootstrap_rx));
-        *mux.browser_bootstrap_before_runtime.lock().unwrap() = Some(Arc::new({
-            move || {
-                bootstrap_reached_tx.send(()).unwrap();
-                release_bootstrap_rx.lock().unwrap().recv().unwrap();
-            }
-        }));
         *mux.browser_tab_after_spawn.lock().unwrap() = Some(Arc::new({
             let mux = Arc::downgrade(&mux);
             let runtime = runtime.clone();
@@ -23914,9 +23864,7 @@ mod tests {
         }));
 
         let result = mux.new_browser_tab("about:blank".into(), Some(pane), Some((80, 24)));
-        bootstrap_reached_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         mux.request_daemon_shutdown();
-        release_bootstrap_tx.send(()).unwrap();
         assert!(
             mux.async_surface_creations.wait_until_idle(Instant::now() + Duration::from_secs(1)),
             "async browser creation did not finish"
@@ -27911,19 +27859,9 @@ mod tests {
     }
 
     #[test]
-    fn server_shutdown_waits_for_async_browser_bootstrap() {
+    fn server_shutdown_waits_for_active_async_surface_creation() {
         let mux = test_mux();
-        let (bootstrap_reached_tx, bootstrap_reached_rx) = std::sync::mpsc::sync_channel(1);
-        let (release_bootstrap_tx, release_bootstrap_rx) = std::sync::mpsc::sync_channel(1);
-        let release_bootstrap_rx = Arc::new(Mutex::new(release_bootstrap_rx));
-        *mux.browser_bootstrap_before_runtime.lock().unwrap() = Some(Arc::new({
-            move || {
-                bootstrap_reached_tx.send(()).unwrap();
-                release_bootstrap_rx.lock().unwrap().recv().unwrap();
-            }
-        }));
-        mux.new_browser_tab("about:blank".into(), None, Some((80, 24))).unwrap();
-        bootstrap_reached_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let creation = mux.async_surface_creations.begin().unwrap();
 
         let (shutdown_done_tx, shutdown_done_rx) = std::sync::mpsc::sync_channel(1);
         let shutdown = std::thread::spawn({
@@ -27934,48 +27872,41 @@ mod tests {
         });
         assert!(shutdown_done_rx.recv_timeout(Duration::from_millis(100)).is_err());
 
-        release_bootstrap_tx.send(()).unwrap();
-        assert_eq!(shutdown_done_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap(), 1);
+        drop(creation);
+        assert_eq!(shutdown_done_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap(), 0);
         shutdown.join().unwrap();
         assert!(!mux.browser_runtime.has_runtime_for_test());
     }
 
     #[test]
-    fn daemon_exit_retries_until_async_browser_bootstrap_releases_ownership() {
+    fn daemon_exit_waits_for_async_surface_creation_release() {
         let mux = test_mux();
-        mux.set_shutdown_attempt_timeout_for_test(crate::test_timeout(Duration::from_millis(25)));
-        let (bootstrap_reached_tx, bootstrap_reached_rx) = std::sync::mpsc::sync_channel(1);
-        let (release_bootstrap_tx, release_bootstrap_rx) = std::sync::mpsc::sync_channel(1);
-        let release_bootstrap_rx = Arc::new(Mutex::new(release_bootstrap_rx));
-        *mux.browser_bootstrap_before_runtime.lock().unwrap() = Some(Arc::new({
-            move || {
-                bootstrap_reached_tx.send(()).unwrap();
-                release_bootstrap_rx.lock().unwrap().recv().unwrap();
-            }
-        }));
-        mux.new_browser_tab("about:blank".into(), None, Some((80, 24))).unwrap();
-        bootstrap_reached_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let creation = mux.async_surface_creations.begin().unwrap();
 
         let (shutdown_done_tx, shutdown_done_rx) = std::sync::mpsc::sync_channel(1);
         let shutdown = std::thread::spawn({
             let mux = mux.clone();
             move || {
-                mux.shutdown().unwrap();
-                shutdown_done_tx.send(()).unwrap();
+                shutdown_done_tx.send(mux.shutdown()).unwrap();
             }
         });
-        let finished_early =
-            shutdown_done_rx.recv_timeout(crate::test_timeout(Duration::from_millis(100))).is_ok();
-        release_bootstrap_tx.send(()).unwrap();
-        if !finished_early {
-            shutdown_done_rx.recv_timeout(crate::test_timeout(Duration::from_secs(2))).unwrap();
-        }
+        assert!(
+            mux.async_surface_creations
+                .wait_until_stopping(Instant::now() + Duration::from_secs(1)),
+            "daemon exit did not stop the async creation owner"
+        );
+        assert!(
+            matches!(shutdown_done_rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)),
+            "daemon exit completed while an async creation still owned in-flight work"
+        );
+
+        drop(creation);
+        shutdown_done_rx
+            .recv_timeout(crate::test_timeout(Duration::from_secs(2)))
+            .unwrap()
+            .unwrap();
         shutdown.join().unwrap();
 
-        assert!(
-            !finished_early,
-            "daemon exit completed while browser bootstrap still owned in-flight work"
-        );
         assert!(!mux.browser_runtime.has_runtime_for_test());
     }
 
@@ -28037,52 +27968,109 @@ mod tests {
 
     #[test]
     fn browser_runtime_connection_does_not_hold_the_shared_slot() {
-        let mux = Mux::new_for_test("browser-runtime-slot", SurfaceOptions::default());
+        let slot = Arc::new(BrowserRuntimeSlot::default());
         let (connect_started_tx, connect_started_rx) = std::sync::mpsc::sync_channel(1);
         let (release_connect_tx, release_connect_rx) = std::sync::mpsc::sync_channel(1);
-        let release_connect_rx = Arc::new(Mutex::new(release_connect_rx));
-        *mux.browser_runtime_connect.lock().unwrap() = Some(Arc::new({
-            move || {
-                connect_started_tx.send(()).unwrap();
-                release_connect_rx.lock().unwrap().recv().unwrap();
-            }
-        }));
-        let lease = BrowserProviderTargetLease {
-            provider_id: "browser-runtime-slot".into(),
-            endpoint: "ws://127.0.0.1:9/devtools/browser/unreachable".into(),
-            authentication: crate::browser_provider::BrowserProviderAuthentication::None,
-            tab_id: TabPublicId::parse("tab_00000000000000000000000000000001").unwrap(),
-            target_id: "target-1".into(),
-            revision: 1,
-        };
         let (connect_done_tx, connect_done_rx) = std::sync::mpsc::sync_channel(1);
         let connect = std::thread::spawn({
-            let mux = mux.clone();
+            let slot = slot.clone();
             move || {
-                connect_done_tx.send(mux.browser_runtime_for_provider(&lease).is_err()).unwrap();
+                let result = slot.get_or_connect(
+                    || false,
+                    |_| false,
+                    || -> anyhow::Result<Arc<BrowserRuntime>> {
+                        connect_started_tx.send(()).unwrap();
+                        release_connect_rx.recv().unwrap();
+                        anyhow::bail!("test connector released")
+                    },
+                );
+                connect_done_tx.send(result.is_err()).unwrap();
             }
         });
-        let connect_started = connect_started_rx.recv_timeout(Duration::from_secs(1)).is_ok();
+        connect_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
 
-        let slot_available = mux.browser_runtime.lock_available_for_test();
-        let _ = release_connect_tx.send(());
-        let connect_failed = connect_done_rx.recv_timeout(Duration::from_secs(1)).ok();
-        if connect_failed.is_some() {
-            connect.join().unwrap();
-        }
-        mux.request_daemon_shutdown();
-        mux.shutdown().unwrap();
+        let slot_available = slot.lock_available_for_test();
+        release_connect_tx.send(()).unwrap();
+        let connect_failed = connect_done_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        connect.join().unwrap();
 
-        assert!(connect_started, "provider connection did not reach the blocking test hook");
         assert!(
             slot_available,
             "browser connection setup held the shared runtime slot across blocking work"
         );
-        assert_eq!(
-            connect_failed,
-            Some(true),
-            "provider connection did not fail within the final bound"
+        assert!(connect_failed, "test connector result was not published");
+    }
+
+    #[test]
+    fn browser_runtime_connection_does_not_publish_after_shutdown_starts() {
+        fn read_ws_json(ws: &mut tungstenite::WebSocket<std::net::TcpStream>) -> Value {
+            loop {
+                match ws.read().unwrap() {
+                    tungstenite::Message::Text(text) => {
+                        return serde_json::from_str(&text).unwrap();
+                    }
+                    tungstenite::Message::Binary(bytes) => {
+                        return serde_json::from_slice(&bytes).unwrap();
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = tungstenite::accept(stream).unwrap();
+            let discover = read_ws_json(&mut ws);
+            assert_eq!(discover["method"], "Target.setDiscoverTargets");
+            ws.send(tungstenite::Message::Text(
+                serde_json::json!({"id": discover["id"], "result": {}}).to_string().into(),
+            ))
+            .unwrap();
+            while ws.read().is_ok() {}
+        });
+        let runtime = BrowserRuntime::connect_external_for_test(&format!(
+            "ws://{address}/devtools/browser/fake"
+        ))
+        .unwrap();
+        let slot = Arc::new(BrowserRuntimeSlot::default());
+        let shutting_down = Arc::new(AtomicBool::new(false));
+        let (connect_started_tx, connect_started_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_connect_tx, release_connect_rx) = std::sync::mpsc::sync_channel(1);
+        let (connect_done_tx, connect_done_rx) = std::sync::mpsc::sync_channel(1);
+        let connect = std::thread::spawn({
+            let slot = slot.clone();
+            let shutting_down = shutting_down.clone();
+            let runtime = runtime.clone();
+            move || {
+                let result = slot.get_or_connect(
+                    || shutting_down.load(Ordering::Acquire),
+                    |_| false,
+                    || {
+                        connect_started_tx.send(()).unwrap();
+                        release_connect_rx.recv().unwrap();
+                        Ok(runtime)
+                    },
+                );
+                connect_done_tx.send(result.is_err()).unwrap();
+            }
+        });
+        connect_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        slot.stop_with_fence(|| shutting_down.store(true, Ordering::Release));
+        release_connect_tx.send(()).unwrap();
+        assert!(connect_done_rx.recv_timeout(Duration::from_secs(1)).unwrap());
+        connect.join().unwrap();
+        assert!(
+            !slot.has_runtime_for_test(),
+            "browser runtime was published after shutdown started"
         );
+        assert!(
+            runtime.wait_until_closed(Instant::now() + Duration::from_secs(1)),
+            "browser runtime created during shutdown was not closed"
+        );
+        server.join().unwrap();
     }
 
     #[test]
