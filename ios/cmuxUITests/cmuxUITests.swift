@@ -581,6 +581,58 @@ final class cmuxUITests: XCTestCase {
         )
     }
 
+    /// The corrected notice must reach a completed INTERNAL upgrade whose
+    /// automatic method and v1 ineligible result were already persisted.
+    @MainActor
+    func testAutoConnectMigrationCorrectedNoticeReachesPersistedLegacyUpgrade() throws {
+        let fixtureID = UUID().uuidString
+        let environment = [
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": fixtureID,
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_PERSISTED_METHOD": "automatic",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_V1_RESOLUTION": "ineligible",
+        ]
+        let app = launchApp(mockData: true, environment: environment)
+        defer { app.terminate() }
+
+        let migrationTitle = app.staticTexts["MobileAutoConnectMigrationTitle"]
+        XCTAssertTrue(
+            migrationTitle.waitForExistence(timeout: 8),
+            "Saved automatic and v1 ineligible state must not suppress the corrected notice."
+        )
+        let useAutoConnect = app.buttons["MobileAutoConnectMigrationUseAutoConnect"]
+        XCTAssertTrue(useAutoConnect.waitForExistence(timeout: 4))
+        XCTAssertTrue(useAutoConnect.isHittable)
+        useAutoConnect.tap()
+        XCTAssertTrue(migrationTitle.waitForNonExistence(timeout: 4))
+        app.terminate()
+
+        let relaunched = launchApp(mockData: true, environment: environment)
+        defer { relaunched.terminate() }
+        XCTAssertFalse(
+            relaunched.staticTexts["MobileAutoConnectMigrationTitle"]
+                .waitForExistence(timeout: 2),
+            "The corrected v2 acknowledgement must persist across relaunch."
+        )
+        let settings = relaunched.buttons["MobileWorkspaceSettingsMenu"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 8))
+        settings.tap()
+        let picker = relaunched.descendants(matching: .any)[
+            "MobileSettingsConnectionMethod"
+        ]
+        XCTAssertTrue(picker.waitForExistence(timeout: 4))
+        XCTAssertTrue(picker.isHittable)
+        picker.tap()
+        let automatic = relaunched.descendants(matching: .any)[
+            "MobileSettingsConnectionMethodAutomatic"
+        ]
+        XCTAssertTrue(automatic.waitForExistence(timeout: 4))
+        XCTAssertTrue(
+            automatic.isSelected,
+            "Acknowledging the corrected notice must preserve the saved automatic method."
+        )
+    }
+
     /// Terminating with the notice visible cannot consume its one-time state.
     @MainActor
     func testAutoConnectMigrationTerminationWhileVisibleRepeatsOnRelaunch() throws {
