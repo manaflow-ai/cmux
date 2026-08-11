@@ -13,9 +13,9 @@ use crate::resource::{
 use crate::resource_mutation::ResourceMutationPlan;
 use crate::server::MAX_CREATION_SELECTOR_FALLBACKS;
 use crate::workspace_registry::{
-    RegistryPane, RegistryScreen, RegistryViewportColumn, ResourceCreationPreparation,
-    ResourceCreationRecovery, ResourcePatchCommit, ResourceWorkspaceClose, TerminalLifecycle,
-    TerminalResourceCloseCommit,
+    RegistryPane, RegistryScreen, RegistryViewportColumn, RegistryWorkspace,
+    ResourceCreationPreparation, ResourceCreationRecovery, ResourcePatchCommit,
+    ResourceWorkspaceClose, TerminalLifecycle, TerminalResourceCloseCommit,
 };
 use crate::{ResolvedResourcePath, ResourceSelectors, ResourceTarget, SurfaceKind};
 
@@ -67,6 +67,7 @@ struct ResourceCloseInputs {
 
 #[derive(Default)]
 struct TerminalIndexProjection {
+    catalog_public_ids: HashSet<TerminalPublicId>,
     catalog_by_runtime: HashMap<SurfaceId, TerminalPublicId>,
     catalog_by_host: HashMap<String, HashSet<TerminalPublicId>>,
     placements_by_runtime: HashMap<SurfaceId, HashSet<SurfaceId>>,
@@ -165,7 +166,13 @@ impl TerminalIndexProjection {
                     .map(|placements| (host_id.clone(), placements))
             })
             .collect();
-        Self { catalog_by_runtime, catalog_by_host, placements_by_runtime, placements_by_host }
+        Self {
+            catalog_public_ids: public_ids,
+            catalog_by_runtime,
+            catalog_by_host,
+            placements_by_runtime,
+            placements_by_host,
+        }
     }
 
     fn seed(&self, state: &mut State) {
@@ -205,8 +212,60 @@ impl TerminalIndexProjection {
     }
 }
 
+enum ResourceCloseState {
+    Full(State),
+    Terminal {
+        state: State,
+        workspace_ids: HashSet<WorkspaceId>,
+        catalog_public_ids: HashSet<TerminalPublicId>,
+    },
+}
+
+impl ResourceCloseState {
+    fn state(&self) -> &State {
+        match self {
+            Self::Full(state) | Self::Terminal { state, .. } => state,
+        }
+    }
+
+    fn state_mut(&mut self) -> &mut State {
+        match self {
+            Self::Full(state) | Self::Terminal { state, .. } => state,
+        }
+    }
+
+    fn install(self, live: &mut State) {
+        match self {
+            Self::Full(state) => *live = state,
+            Self::Terminal { state, workspace_ids, catalog_public_ids } => {
+                live.install_terminal_scope(state, &workspace_ids, &catalog_public_ids);
+            }
+        }
+    }
+
+    fn project(
+        &mut self,
+        mux: &Mux,
+        registry: &WorkspaceRegistry,
+        live: &State,
+        result: Value,
+    ) -> anyhow::Result<ResourceEffectProjection> {
+        match self {
+            Self::Full(state) => mux.resource_effect_projection_locked(registry, state, result),
+            Self::Terminal { state, workspace_ids, .. } => mux
+                .terminal_resource_effect_projection_locked(
+                    registry,
+                    live,
+                    state,
+                    workspace_ids,
+                    result,
+                ),
+        }
+    }
+}
+
 struct ResourceClosePlan {
-    state: State,
+    state: ResourceCloseState,
     terminal_indexes: TerminalIndexProjection,
     removed: Vec<Arc<Surface>>,
     terminal_runtime: Option<Arc<Surface>>,
@@ -252,17 +311,21 @@ impl ResourceClosePlan {
         resource_revision: u64,
         workspace_revision: Option<u64>,
     ) -> ResourceCloseEffects {
-        self.state.resource_revision = resource_revision;
+        self.state.state_mut().resource_revision = resource_revision;
         if let Some(revision) = workspace_revision {
-            self.state.workspace_revision = revision;
+            self.state.state_mut().workspace_revision = revision;
             if let Some(delta) = &mut self.delta {
                 delta.workspace_revision = Some(revision);
             }
         }
-        let empty_revision =
-            self.state.workspaces.is_empty().then_some(self.state.workspace_revision);
-        self.terminal_indexes.install(state, &mut self.state);
-        *state = self.state;
+        let empty_revision = self
+            .state
+            .state()
+            .workspaces
+            .is_empty()
+            .then_some(self.state.state().workspace_revision);
+        self.terminal_indexes.install(state, self.state.state_mut());
+        self.state.install(state);
         ResourceCloseEffects {
             removed: self.removed,
             terminal_runtime: self.terminal_runtime,
@@ -280,6 +343,8 @@ impl ResourceClosePlan {
 
 pub(super) struct TerminalExitDetachProjection {
     state: State,
+    workspace_ids: HashSet<WorkspaceId>,
+    catalog_public_ids: HashSet<TerminalPublicId>,
     terminal_indexes: TerminalIndexProjection,
     runtime: Option<Arc<Surface>>,
     removed: Vec<Arc<Surface>>,
@@ -320,7 +385,11 @@ impl TerminalExitDetachProjection {
         let empty_revision =
             self.state.workspaces.is_empty().then_some(self.state.workspace_revision);
         self.terminal_indexes.install(state, &mut self.state);
-        *state = self.state;
+        state.install_terminal_scope(
+            self.state,
+            &self.workspace_ids,
+            &self.catalog_public_ids,
+        );
         TerminalExitDetachEffects {
             runtime: self.runtime,
             removed: self.removed,
@@ -350,6 +419,243 @@ impl Drop for ResourceCreationActivity<'_> {
 }
 
 impl Mux {
+    /// Project only workspaces touched by a terminal detach. This keeps close
+    /// cost proportional to the affected topology and leaves unrelated
+    /// resources out of both the in-memory clone and the durable patch.
+    fn terminal_resource_effect_projection_locked(
+        &self,
+        registry: &WorkspaceRegistry,
+        live: &State,
+        projected: &mut State,
+        workspace_ids: &HashSet<WorkspaceId>,
+        result: Value,
+    ) -> anyhow::Result<ResourceEffectProjection> {
+        let active_workspace = live
+            .workspaces
+            .get(live.active_workspace)
+            .map(|workspace| workspace.id);
+        let before_workspaces = live
+            .workspaces
+            .iter()
+            .filter(|workspace| workspace_ids.contains(&workspace.id))
+            .collect::<Vec<_>>();
+        let before_screens = before_workspaces
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .map(|screen| screen.public_id.clone())
+            .collect::<HashSet<_>>();
+        let before_panes = before_workspaces
+            .iter()
+            .flat_map(|workspace| &workspace.screens)
+            .flat_map(|screen| screen.root.pane_ids_vec())
+            .filter_map(|pane| live.panes.get(&pane).map(|pane| pane.public_id.clone()))
+            .collect::<HashSet<_>>();
+        let before_tabs = before_workspaces
+            .iter()
+            .flat_map(|workspace| &workspace.screens)
+            .flat_map(|screen| screen.root.pane_ids_vec())
+            .filter_map(|pane| live.panes.get(&pane))
+            .flat_map(|pane| pane.tabs.iter())
+            .filter_map(|surface| live.resource_indexes.tab_ids.get(surface).cloned())
+            .collect::<HashSet<_>>();
+
+        let mut live_screens = HashSet::new();
+        let mut live_panes = HashSet::new();
+        let mut live_tabs = HashSet::new();
+        let mut patch = Vec::new();
+        let mut public = Vec::new();
+        for workspace_id in workspace_ids {
+            let workspace = projected
+                .workspace_by_id(*workspace_id)
+                .with_context(|| format!("terminal scope lost workspace {workspace_id}"))?;
+            let position = live
+                .workspace_index(*workspace_id)
+                .with_context(|| format!("terminal scope lost live workspace {workspace_id}"))?;
+            patch.push(ResourceChange::UpsertWorkspace {
+                workspace: RegistryWorkspace {
+                    id: workspace.id,
+                    public_id: workspace.public_id.clone(),
+                    key: workspace.key.clone(),
+                    name: workspace.name.clone(),
+                    group_key: self.session.clone(),
+                },
+                position,
+                active_screen: workspace
+                    .screens
+                    .get(workspace.active_screen)
+                    .map(|screen| screen.public_id.clone()),
+            });
+            patch.push(ResourceChange::SetScreenOrder {
+                workspace_id: workspace.public_id.clone(),
+                screen_ids: workspace
+                    .screens
+                    .iter()
+                    .map(|screen| screen.public_id.clone())
+                    .collect(),
+            });
+            public.push((
+                "workspace",
+                workspace.public_id.to_string(),
+                json!({
+                    "id":workspace.public_id,
+                    "session_id":registry.session_id(),
+                    "name":workspace.name,
+                    "index":position,
+                    "focused":active_workspace == Some(workspace.id),
+                }),
+            ));
+
+            for (screen_index, screen) in workspace.screens.iter().enumerate() {
+                live_screens.insert(screen.public_id.clone());
+                let durable = super::resource_content::registry_screen_from_live(
+                    projected,
+                    &workspace.public_id,
+                    screen_index,
+                    screen,
+                )?;
+                let layout =
+                    super::resource_content::public_layout_from_registry(&durable, projected)?;
+                patch.push(ResourceChange::UpsertScreen(durable));
+                public.push((
+                    "screen",
+                    screen.public_id.to_string(),
+                    json!({
+                        "id":screen.public_id,
+                        "workspace_id":workspace.public_id,
+                        "name":screen.name,
+                        "index":screen_index,
+                        "focused":active_workspace == Some(workspace.id)
+                            && workspace.active_screen == screen_index,
+                        "layout":layout,
+                    }),
+                ));
+
+                for pane_slot in screen.root.pane_ids_vec() {
+                    let pane = projected.panes.get(&pane_slot).with_context(|| {
+                        format!("terminal scope screen references missing pane {pane_slot}")
+                    })?;
+                    live_panes.insert(pane.public_id.clone());
+                    let active_tab = pane
+                        .tabs
+                        .get(pane.active_tab)
+                        .and_then(|surface| projected.resource_indexes.tab_ids.get(surface))
+                        .cloned();
+                    patch.push(ResourceChange::UpsertPane(RegistryPane {
+                        public_id: pane.public_id.clone(),
+                        screen_id: screen.public_id.clone(),
+                        name: pane.name.clone(),
+                        active_tab,
+                        creation_ordinal: pane.active_at,
+                    }));
+                    let mut tab_order = Vec::with_capacity(pane.tabs.len());
+                    public.push((
+                        "pane",
+                        pane.public_id.to_string(),
+                        json!({
+                            "id":pane.public_id,
+                            "screen_id":screen.public_id,
+                            "name":pane.name,
+                            "focused":active_workspace == Some(workspace.id)
+                                && workspace.active_screen == screen_index
+                                && screen.active_pane == pane.id,
+                            "zoomed":screen.zoomed_pane == Some(pane.id),
+                        }),
+                    ));
+                    for (tab_index, surface_slot) in pane.tabs.iter().enumerate() {
+                        let surface = projected.surfaces.get(surface_slot);
+                        let identity = surface
+                            .and_then(|surface| surface.resource_identity().cloned())
+                            .or_else(|| {
+                                Some(TabResourceIdentity::new(
+                                    projected
+                                        .resource_indexes
+                                        .tab_ids
+                                        .get(surface_slot)?
+                                        .clone(),
+                                    projected
+                                        .resource_indexes
+                                        .content_ids
+                                        .get(surface_slot)?
+                                        .clone(),
+                                ))
+                            })
+                            .with_context(|| {
+                                format!("terminal scope tab {surface_slot} has no identity")
+                            })?;
+                        live_tabs.insert(identity.tab_id.clone());
+                        tab_order.push(identity.tab_id.clone());
+                        let content_kind = match &identity.content_id {
+                            ContentPublicId::Terminal(_) => "terminal",
+                            ContentPublicId::Browser(_) => "browser",
+                        };
+                        public.push((
+                            "tab",
+                            identity.tab_id.to_string(),
+                            json!({
+                                "id":identity.tab_id,
+                                "pane_id":pane.public_id,
+                                "index":tab_index,
+                                "name":surface.and_then(|surface| surface.name()),
+                                "focused":pane.active_tab == tab_index,
+                                "content_kind":content_kind,
+                                "content_id":identity.content_id.as_str(),
+                            }),
+                        ));
+                    }
+                    patch.push(ResourceChange::SetTabOrder {
+                        pane_id: pane.public_id.clone(),
+                        tab_ids: tab_order,
+                    });
+                }
+            }
+        }
+        for tab_id in before_tabs.difference(&live_tabs) {
+            patch.push(ResourceChange::TombstoneTab {
+                tab_id: tab_id.clone(),
+                close_content: false,
+            });
+        }
+        for pane_id in before_panes.difference(&live_panes) {
+            patch.push(ResourceChange::TombstonePane { pane_id: pane_id.clone() });
+        }
+        for screen_id in before_screens.difference(&live_screens) {
+            patch.push(ResourceChange::TombstoneScreen { screen_id: screen_id.clone() });
+        }
+
+        let mut deltas = public
+            .into_iter()
+            .enumerate()
+            .map(|(sequence, (resource, id, value))| {
+                json!({
+                    "kind":"upsert",
+                    "sequence":sequence,
+                    "resource":resource,
+                    "id":id,
+                    "value":value,
+                })
+            })
+            .collect::<Vec<_>>();
+        for (resource, ids) in [
+            ("tab", before_tabs.difference(&live_tabs).map(ToString::to_string).collect::<Vec<_>>()),
+            ("pane", before_panes.difference(&live_panes).map(ToString::to_string).collect()),
+            ("screen", before_screens.difference(&live_screens).map(ToString::to_string).collect()),
+        ] {
+            for id in ids {
+                deltas.push(json!({
+                    "kind":"delete",
+                    "sequence":deltas.len(),
+                    "resource":resource,
+                    "id":id,
+                }));
+            }
+        }
+        Ok(ResourceEffectProjection {
+            patch: ResourcePatch { changes: patch },
+            changes: Value::Array(deltas),
+            result,
+        })
+    }
+
     #[cfg(test)]
     pub(crate) fn set_resource_terminal_reservation_hook_for_test(
         &self,
@@ -2403,6 +2709,8 @@ impl Mux {
             return Ok(Some(result));
         }
         let Some(public_id) = registry.terminal_resource_id(terminal_id)? else {
+            let durable_public_id =
+                registry.terminal_resource_id_including_tombstone(terminal_id)?;
             let durable_terminal = registry.terminal_record(terminal_id)?.ok_or_else(|| {
                 terminal_close_state_error(format!("unknown terminal {terminal_id}"))
             })?;
@@ -2440,6 +2748,8 @@ impl Mux {
                 terminal_id,
                 closed_incarnation.as_deref(),
             );
+            let mut waiter_public_ids = catalog_public_ids.iter().cloned().collect::<HashSet<_>>();
+            waiter_public_ids.extend(durable_public_id);
             let targets =
                 terminal_host_placements(self, &state, terminal_id, closed_incarnation.as_deref());
             let target = targets.first().copied();
@@ -2475,7 +2785,9 @@ impl Mux {
                 self.terminate_discovered_terminal_host(terminal_id, closed_incarnation.as_deref());
             }
             if newly_closed {
-                self.notify_terminal_exit_waiters(catalog_public_ids.first().cloned());
+                for public_id in waiter_public_ids {
+                    self.notify_terminal_exit_waiters(Some(public_id));
+                }
             }
             self.emit_empty_if_current(empty_revision);
             return Ok(Some(TerminalCloseResult {
@@ -2536,7 +2848,7 @@ impl Mux {
         let (retained_runtime, retained_views, retained_split_change) =
             remove_terminal_catalogs_and_targets_from_state(
                 self,
-                &mut plan.state,
+                plan.state.state_mut(),
                 &cleanup_public_ids,
                 &[],
             );
@@ -2555,8 +2867,7 @@ impl Mux {
             }
         }
         let had_runtime = plan.terminal_runtime.is_some();
-        let mut projection =
-            self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
+        let mut projection = plan.state.project(self, &registry, &state, json!({}))?;
         if !projection.patch.changes.iter().any(|change| {
             matches!(
                 change,
@@ -2728,7 +3039,15 @@ impl Mux {
             &terminal_hosts,
             &targets,
         );
-        let mut projected = state.clone_without_terminal_indexes();
+        let workspace_ids = targets
+            .iter()
+            .filter_map(|surface| state.pane_of(*surface))
+            .filter_map(|pane| state.screen_of(pane))
+            .map(|(workspace, _)| state.workspaces[workspace].id)
+            .collect::<HashSet<_>>();
+        let catalog_public_ids = terminal_indexes.catalog_public_ids.clone();
+        let mut projected =
+            state.clone_terminal_scope(&workspace_ids, &catalog_public_ids);
         terminal_indexes.seed(&mut projected);
         let (runtime, removed, _) = remove_terminal_catalogs_and_targets_from_state(
             self,
@@ -2756,25 +3075,13 @@ impl Mux {
             "terminal exit retained its catalog runtime"
         );
         let selection_resync = selection_before != active_tree_selection(&projected);
-        let mut projection =
-            self.resource_effect_projection_locked(registry, &mut projected, json!({}))?;
-
-        let mut preserved_terminal = false;
-        projection.patch.changes.retain(|change| match change {
-            ResourceChange::TombstoneTerminal { public_id, .. }
-                if public_id == terminal_public_id =>
-            {
-                preserved_terminal = true;
-                false
-            }
-            _ => true,
-        });
-        if !tab_ids.is_empty() {
-            anyhow::ensure!(
-                preserved_terminal,
-                "terminal exit projection did not preserve its durable receipt"
-            );
-        }
+        let mut projection = self.terminal_resource_effect_projection_locked(
+            registry,
+            state,
+            &mut projected,
+            &workspace_ids,
+            json!({}),
+        )?;
         let detached_tabs = projection
             .patch
             .changes
@@ -2804,6 +3111,8 @@ impl Mux {
 
         Ok(Some(TerminalExitDetachProjection {
             state: projected,
+            workspace_ids,
+            catalog_public_ids,
             terminal_indexes,
             runtime,
             removed,
@@ -2919,8 +3228,7 @@ impl Mux {
         }
         let mut plan =
             self.resource_close_plan_locked(operation, slots, &registry, &state, &notifications)?;
-        let projection =
-            self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
+        let projection = plan.state.project(self, &registry, &state, json!({}))?;
         #[cfg(test)]
         if let Some(hook) = self.resource_projection_before_commit.lock().unwrap().clone() {
             hook();
@@ -3191,8 +3499,24 @@ impl Mux {
             &terminal_batch,
             &surface_ids,
         );
-        let mut projected = state.clone_without_terminal_indexes();
-        terminal_indexes.seed(&mut projected);
+        let workspace_ids = surface_ids
+            .iter()
+            .filter_map(|surface| state.pane_of(*surface))
+            .filter_map(|pane| state.screen_of(pane))
+            .map(|(workspace, _)| state.workspaces[workspace].id)
+            .collect::<HashSet<_>>();
+        let catalog_public_ids = terminal_indexes.catalog_public_ids.clone();
+        let mut state_projection = if terminal_public_id.is_some() {
+            ResourceCloseState::Terminal {
+                state: state.clone_terminal_scope(&workspace_ids, &catalog_public_ids),
+                workspace_ids,
+                catalog_public_ids,
+            }
+        } else {
+            ResourceCloseState::Full(state.clone())
+        };
+        terminal_indexes.seed(state_projection.state_mut());
+        let projected = state_projection.state_mut();
 
         let mut removed = Vec::new();
         let mut split_index_changed = false;
@@ -3285,7 +3609,7 @@ impl Mux {
             delta.workspace_revision = None;
         }
         Ok(ResourceClosePlan {
-            state: projected,
+            state: state_projection,
             terminal_indexes,
             removed,
             terminal_runtime,

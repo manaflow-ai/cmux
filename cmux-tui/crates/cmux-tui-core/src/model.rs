@@ -882,28 +882,289 @@ pub struct State {
 }
 
 impl State {
-    /// Clone the public topology without copying terminal-wide reverse
-    /// indexes. Close projections fill only their affected index entries and
-    /// merge those entries into the live indexes after the durable commit.
-    pub(crate) fn clone_without_terminal_indexes(&self) -> Self {
-        Self {
-            workspaces: self.workspaces.clone(),
-            workspace_index_by_id: self.workspace_index_by_id.clone(),
-            workspace_id_by_key: self.workspace_id_by_key.clone(),
+    /// Clone only the workspaces that a terminal detach can change. The active
+    /// workspace is included because removing its selected tab can change the
+    /// focus sequence. Terminal reverse indexes are installed separately by
+    /// the close projection.
+    pub(crate) fn clone_terminal_scope(
+        &self,
+        affected_workspaces: &HashSet<WorkspaceId>,
+        terminal_public_ids: &HashSet<TerminalPublicId>,
+    ) -> Self {
+        let active_workspace_id =
+            self.workspaces.get(self.active_workspace).map(|workspace| workspace.id);
+        let mut selected_workspaces = affected_workspaces.clone();
+        selected_workspaces.extend(active_workspace_id);
+        let workspaces = self
+            .workspaces
+            .iter()
+            .filter(|workspace| selected_workspaces.contains(&workspace.id))
+            .cloned()
+            .collect::<Vec<_>>();
+        let selected_panes = workspaces
+            .iter()
+            .flat_map(|workspace| &workspace.screens)
+            .flat_map(|screen| screen.root.pane_ids_vec())
+            .collect::<HashSet<_>>();
+        let panes = self
+            .panes
+            .iter()
+            .filter(|(id, _)| selected_panes.contains(id))
+            .map(|(id, pane)| (*id, pane.clone()))
+            .collect::<HashMap<_, _>>();
+        let selected_surfaces = panes
+            .values()
+            .flat_map(|pane| pane.tabs.iter().copied())
+            .collect::<HashSet<_>>();
+        let surfaces = self
+            .surfaces
+            .iter()
+            .filter(|(id, _)| selected_surfaces.contains(id))
+            .map(|(id, surface)| (*id, surface.clone()))
+            .collect::<HashMap<_, _>>();
+        let selected_screens = workspaces
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter().map(|screen| screen.id))
+            .collect::<HashSet<_>>();
+        let selected_splits = self
+            .split_screens
+            .iter()
+            .filter(|(_, (_, _, screen))| selected_screens.contains(screen))
+            .map(|(split, _)| *split)
+            .collect::<HashSet<_>>();
+
+        let mut resource_indexes = PublicSlotIndexes::default();
+        for surface in &selected_surfaces {
+            if let Some(tab_id) = self.resource_indexes.tab_ids.get(surface) {
+                resource_indexes.tab_ids.insert(*surface, tab_id.clone());
+            }
+            if let Some(content_id) = self.resource_indexes.content_ids.get(surface) {
+                resource_indexes.content_ids.insert(*surface, content_id.clone());
+            }
+        }
+        for split in &selected_splits {
+            if let Some(public_id) = self.resource_indexes.split_ids.get(split) {
+                resource_indexes.split_ids.insert(*split, public_id.clone());
+            }
+        }
+
+        let mut scoped = Self {
+            workspaces,
+            workspace_index_by_id: HashMap::new(),
+            workspace_id_by_key: HashMap::new(),
             workspace_revision: self.workspace_revision,
             pane_revision: self.pane_revision,
             resource_revision: self.resource_revision,
             focus_sequence: self.focus_sequence,
-            active_workspace: self.active_workspace,
-            panes: self.panes.clone(),
-            surfaces: self.surfaces.clone(),
-            terminal_catalog: self.terminal_catalog.clone(),
+            active_workspace: 0,
+            panes,
+            surfaces,
+            terminal_catalog: self
+                .terminal_catalog
+                .iter()
+                .filter(|(public_id, _)| terminal_public_ids.contains(public_id))
+                .map(|(public_id, surface)| (public_id.clone(), surface.clone()))
+                .collect(),
             terminal_catalog_by_runtime: HashMap::new(),
             terminal_catalog_by_host: HashMap::new(),
             terminal_placements_by_runtime: HashMap::new(),
             terminal_placements_by_host: HashMap::new(),
-            split_screens: self.split_screens.clone(),
-            resource_indexes: self.resource_indexes.clone(),
+            split_screens: HashMap::new(),
+            resource_indexes,
+        };
+        scoped.rebuild_workspace_indexes();
+        scoped.active_workspace = active_workspace_id
+            .and_then(|workspace| scoped.workspace_index(workspace))
+            .unwrap_or(0);
+        for (workspace_index, workspace) in scoped.workspaces.iter().enumerate() {
+            for (screen_index, screen) in workspace.screens.iter().enumerate() {
+                for split in selected_splits.iter().filter(|split| {
+                    self.split_screens.get(split).is_some_and(|(_, _, id)| *id == screen.id)
+                }) {
+                    scoped
+                        .split_screens
+                        .insert(*split, (workspace_index, screen_index, screen.id));
+                }
+            }
+        }
+        scoped.rebuild_resource_indexes();
+        scoped
+    }
+
+    /// Merge a committed terminal detach without reading or copying unrelated
+    /// workspaces. Terminal close never removes the stable workspace itself.
+    pub(crate) fn install_terminal_scope(
+        &mut self,
+        mut scoped: Self,
+        scoped_workspaces: &HashSet<WorkspaceId>,
+        terminal_public_ids: &HashSet<TerminalPublicId>,
+    ) {
+        let old_workspaces = self
+            .workspaces
+            .iter()
+            .filter(|workspace| scoped_workspaces.contains(&workspace.id))
+            .cloned()
+            .collect::<Vec<_>>();
+        let old_screens = old_workspaces
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter().map(|screen| screen.id))
+            .collect::<HashSet<_>>();
+        let old_panes = old_workspaces
+            .iter()
+            .flat_map(|workspace| &workspace.screens)
+            .flat_map(|screen| screen.root.pane_ids_vec())
+            .collect::<HashSet<_>>();
+        let old_surfaces = old_panes
+            .iter()
+            .filter_map(|pane| self.panes.get(pane))
+            .flat_map(|pane| pane.tabs.iter().copied())
+            .collect::<HashSet<_>>();
+        let old_splits = self
+            .split_screens
+            .iter()
+            .filter(|(_, (_, _, screen))| old_screens.contains(screen))
+            .map(|(split, _)| *split)
+            .collect::<HashSet<_>>();
+        let new_workspaces = scoped
+            .workspaces
+            .iter()
+            .filter(|workspace| scoped_workspaces.contains(&workspace.id))
+            .map(|workspace| workspace.id)
+            .collect::<HashSet<_>>();
+        let new_panes = scoped
+            .workspaces
+            .iter()
+            .filter(|workspace| new_workspaces.contains(&workspace.id))
+            .flat_map(|workspace| &workspace.screens)
+            .flat_map(|screen| screen.root.pane_ids_vec())
+            .collect::<HashSet<_>>();
+        let new_surfaces = new_panes
+            .iter()
+            .filter_map(|pane| scoped.panes.get(pane))
+            .flat_map(|pane| pane.tabs.iter().copied())
+            .collect::<HashSet<_>>();
+        let scoped_surface_slots = old_surfaces
+            .union(&new_surfaces)
+            .copied()
+            .collect::<HashSet<_>>();
+        let mut affected_contents = scoped_surface_slots
+            .iter()
+            .filter_map(|surface| self.resource_indexes.content_ids.get(surface).cloned())
+            .collect::<HashSet<_>>();
+        affected_contents.extend(
+            scoped_surface_slots
+                .iter()
+                .filter_map(|surface| scoped.resource_indexes.content_ids.get(surface).cloned()),
+        );
+
+        for workspace in scoped
+            .workspaces
+            .drain(..)
+            .filter(|workspace| scoped_workspaces.contains(&workspace.id))
+        {
+            let index = self
+                .workspace_index(workspace.id)
+                .expect("terminal scope workspace remained live");
+            self.workspaces[index] = workspace;
+        }
+        self.workspace_revision = scoped.workspace_revision;
+        self.resource_revision = scoped.resource_revision;
+        self.focus_sequence = scoped.focus_sequence;
+        self.pane_revision = scoped.pane_revision;
+        for pane in &old_panes {
+            self.panes.remove(pane);
+        }
+        self.panes.extend(scoped.panes.drain().filter(|(pane, _)| new_panes.contains(pane)));
+        for surface in &old_surfaces {
+            self.surfaces.remove(surface);
+        }
+        self.surfaces
+            .extend(scoped.surfaces.drain().filter(|(surface, _)| new_surfaces.contains(surface)));
+        for public_id in terminal_public_ids {
+            self.terminal_catalog.remove(public_id);
+        }
+        self.terminal_catalog.extend(scoped.terminal_catalog.drain());
+
+        for split in &old_splits {
+            self.split_screens.remove(split);
+        }
+        for (split, (_, _, screen)) in scoped.split_screens.drain() {
+            if old_screens.contains(&screen) {
+                let (workspace_index, screen_index) = self
+                    .workspaces
+                    .iter()
+                    .enumerate()
+                    .find_map(|(workspace_index, workspace)| {
+                        workspace
+                            .screens
+                            .iter()
+                            .position(|candidate| candidate.id == screen)
+                            .map(|screen_index| (workspace_index, screen_index))
+                    })
+                    .expect("scoped split screen remained live");
+                self.split_screens.insert(split, (workspace_index, screen_index, screen));
+            }
+        }
+
+        for workspace in &old_workspaces {
+            self.resource_indexes.workspaces.remove(&workspace.public_id);
+            self.resource_indexes.workspace_ids.remove(&workspace.id);
+            for screen in &workspace.screens {
+                self.resource_indexes.screens.remove(&screen.public_id);
+                self.resource_indexes.screen_ids.remove(&screen.id);
+                self.resource_indexes.screen_workspace.remove(&screen.id);
+            }
+        }
+        for pane in &old_panes {
+            if let Some(public_id) = self.resource_indexes.pane_ids.remove(pane) {
+                self.resource_indexes.panes.remove(&public_id);
+            }
+            self.resource_indexes.pane_screen.remove(pane);
+        }
+        for surface in &old_surfaces {
+            if let Some(public_id) = self.resource_indexes.tab_ids.remove(surface) {
+                self.resource_indexes.tabs.remove(&public_id);
+            }
+            self.resource_indexes.content_ids.remove(surface);
+            self.resource_indexes.tab_pane.remove(surface);
+        }
+        for split in &old_splits {
+            if let Some(public_id) = self.resource_indexes.split_ids.remove(split) {
+                self.resource_indexes.splits.remove(&public_id);
+            }
+        }
+        for content in &affected_contents {
+            if let Some(placements) = self.resource_indexes.content_placements.get_mut(content) {
+                placements.retain(|surface| !scoped_surface_slots.contains(surface));
+                if placements.is_empty() {
+                    self.resource_indexes.content_placements.remove(content);
+                }
+            }
+        }
+
+        self.resource_indexes.workspaces.extend(scoped.resource_indexes.workspaces.drain());
+        self.resource_indexes.workspace_ids.extend(scoped.resource_indexes.workspace_ids.drain());
+        self.resource_indexes.screens.extend(scoped.resource_indexes.screens.drain());
+        self.resource_indexes.screen_ids.extend(scoped.resource_indexes.screen_ids.drain());
+        self.resource_indexes
+            .screen_workspace
+            .extend(scoped.resource_indexes.screen_workspace.drain());
+        self.resource_indexes.panes.extend(scoped.resource_indexes.panes.drain());
+        self.resource_indexes.pane_ids.extend(scoped.resource_indexes.pane_ids.drain());
+        self.resource_indexes.pane_screen.extend(scoped.resource_indexes.pane_screen.drain());
+        self.resource_indexes.tabs.extend(scoped.resource_indexes.tabs.drain());
+        self.resource_indexes.tab_ids.extend(scoped.resource_indexes.tab_ids.drain());
+        self.resource_indexes.content_ids.extend(scoped.resource_indexes.content_ids.drain());
+        self.resource_indexes.tab_pane.extend(scoped.resource_indexes.tab_pane.drain());
+        self.resource_indexes.splits.extend(scoped.resource_indexes.splits.drain());
+        self.resource_indexes.split_ids.extend(scoped.resource_indexes.split_ids.drain());
+        for (content, placements) in scoped.resource_indexes.content_placements.drain() {
+            let live = self.resource_indexes.content_placements.entry(content).or_default();
+            for placement in placements {
+                if !live.contains(&placement) {
+                    live.push(placement);
+                }
+            }
         }
     }
 

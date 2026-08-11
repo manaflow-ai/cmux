@@ -1151,7 +1151,7 @@ fn ordered_terminal_tab_ids(
     Ok(terminal_tab_ids_in_canonical_order(tabs))
 }
 
-fn registry_screen_from_live(
+pub(super) fn registry_screen_from_live(
     state: &State,
     workspace_id: &WorkspacePublicId,
     position: usize,
@@ -1274,7 +1274,10 @@ fn split_public_id(state: &State, split: crate::SplitId) -> anyhow::Result<Split
         .with_context(|| format!("split {split} has no public identity"))
 }
 
-fn public_layout_from_registry(screen: &RegistryScreen, state: &State) -> anyhow::Result<Value> {
+pub(super) fn public_layout_from_registry(
+    screen: &RegistryScreen,
+    state: &State,
+) -> anyhow::Result<Value> {
     Ok(json!({
         "version":1,
         "screen_id":screen.public_id,

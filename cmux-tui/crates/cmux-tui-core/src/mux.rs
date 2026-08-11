@@ -21334,6 +21334,7 @@ mod tests {
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
         let host = mux.resource_terminal_host_identity(&surface).unwrap();
         let public_id = surface.terminal_public_id().cloned().unwrap();
+        let secondary_id = restore_terminal_id(902);
         let runtime_id = surface.terminal_runtime_id().unwrap();
 
         assert!(mux.close_surface(surface.id).unwrap());
@@ -21373,10 +21374,29 @@ mod tests {
                 .is_none()
         );
 
+        {
+            let mut state = mux.state.lock().unwrap();
+            state.terminal_catalog.insert(secondary_id.clone(), surface.clone());
+            state
+                .terminal_catalog_by_host
+                .entry(host.terminal_id.clone())
+                .or_default()
+                .insert(secondary_id.clone());
+        }
+        let primary_waiter = mux.subscribe_terminal_exit(&public_id);
+        let secondary_waiter = mux.subscribe_terminal_exit(&secondary_id);
+        assert_eq!(mux.terminal_exit_waiter_count_for_test(&public_id), 1);
+        assert_eq!(mux.terminal_exit_waiter_count_for_test(&secondary_id), 1);
+
         mux.close_terminal(&host.terminal_id, &host.incarnation).unwrap();
 
+        assert_eq!(mux.terminal_exit_waiter_count_for_test(&public_id), 0);
+        assert_eq!(mux.terminal_exit_waiter_count_for_test(&secondary_id), 0);
+        drop(primary_waiter);
+        drop(secondary_waiter);
         mux.with_state(|state| {
             assert!(!state.terminal_catalog.contains_key(&public_id));
+            assert!(!state.terminal_catalog.contains_key(&secondary_id));
             assert!(!state.terminal_catalog_by_runtime.contains_key(&runtime_id));
             assert!(!state.terminal_catalog_by_host.contains_key(&host.terminal_id));
         });
