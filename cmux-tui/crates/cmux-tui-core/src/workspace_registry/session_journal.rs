@@ -980,15 +980,17 @@ pub(super) fn append_journal_record(
         agent_projection_store::note_agent_projection_journal_candidate(transaction, sequence)?;
         agent_projection_store::apply_agent_projection_journal_record(
             transaction,
-            sequence,
-            append.kind,
-            append.occurred_at_ms,
-            append.producer,
-            append.subjects,
-            append.payload,
-            append.resource_revision,
-            false,
-            false,
+            agent_projection_store::AgentProjectionJournalInput {
+                sequence,
+                kind: append.kind,
+                occurred_at_ms: append.occurred_at_ms,
+                producer: append.producer,
+                subjects: append.subjects,
+                payload: append.payload,
+                resource_revision: append.resource_revision,
+                rebuilding_generation_history: false,
+                replaying_projection_journal: false,
+            },
         )?;
     }
     Ok(sequence)

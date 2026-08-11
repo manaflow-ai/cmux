@@ -1174,7 +1174,7 @@ mod tests {
             "context":{"cwd":"/tmp/project"},
             "provider_only":{"opaque":42}
         });
-        let ingress = agent_hook_journal_ingress("amp", "Stop", None, native.clone()).unwrap();
+        let ingress = agent_hook_journal_ingress("amp", "Stop", None, native).unwrap();
         assert_eq!(ingress.kind, "agent.turn.completed");
         assert_eq!(ingress.payload["native"]["format"], "cmux.agent-native.canonical.v1");
         assert_eq!(ingress.payload["normalized"]["agent_session_id"], "amp-thread-1");
@@ -1213,8 +1213,7 @@ mod tests {
             "context": {"worktree":"/tmp/opencode"}
         });
         let ingress =
-            agent_hook_journal_ingress("opencode", "session.created", None, native.clone())
-                .unwrap();
+            agent_hook_journal_ingress("opencode", "session.created", None, native).unwrap();
         assert_eq!(ingress.payload["native"]["format"], "cmux.agent-native.canonical.v1");
         assert_eq!(ingress.payload["normalized"]["agent_session_id"], "opencode-session");
         assert_eq!(ingress.payload["normalized"]["cwd"], "/tmp/opencode");
@@ -1502,7 +1501,7 @@ mod tests {
             "future-agent",
             "NewLifecycle",
             Some(terminal),
-            native.clone(),
+            native,
         )
         .unwrap();
         assert_eq!(ingress.kind, "agent.state.changed");

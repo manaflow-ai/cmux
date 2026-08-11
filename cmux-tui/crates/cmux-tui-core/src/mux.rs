@@ -5014,12 +5014,11 @@ impl Mux {
         }
         let result = (|| -> anyhow::Result<(bool, bool)> {
             let registry = mux.workspace_registry.lock().unwrap();
-            let (checkpoint_ready, pending, refresh_range) =
-                registry.continue_agent_projection_rebuild_page()?;
-            if !checkpoint_ready {
-                return Ok((false, pending));
+            let step = registry.continue_agent_projection_rebuild_page()?;
+            if !step.checkpoint_ready {
+                return Ok((false, step.pending));
             }
-            if let Some((after_sequence, through_sequence)) = refresh_range {
+            if let Some((after_sequence, through_sequence)) = step.refresh_range {
                 // Refresh one fixed prefix through a single streamed query.
                 // The records lock keeps list-agents from observing a partial
                 // checkpoint while the registry lock excludes a newer write.
@@ -5029,7 +5028,7 @@ impl Mux {
                     through_sequence,
                 )?;
             }
-            Ok((true, pending))
+            Ok((true, step.pending))
         })();
         match result {
             Ok((checkpoint_ready, pending)) => {

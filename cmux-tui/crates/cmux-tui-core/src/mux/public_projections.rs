@@ -85,8 +85,7 @@ pub(super) fn restore_agent_projections(
         let previous = agent_records.insert(terminal_id.clone(), record);
         anyhow::ensure!(
             previous.is_none(),
-            "multiple durable agents resolve to terminal {}",
-            terminal_id
+            "multiple durable agents resolve to terminal {terminal_id}"
         );
     }
     Ok(agent_records)

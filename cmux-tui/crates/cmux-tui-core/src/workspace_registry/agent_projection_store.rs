@@ -39,18 +39,40 @@ struct AgentProjectionRow {
     begins_turn: bool,
 }
 
+pub(super) struct AgentProjectionJournalInput<'a> {
+    pub(super) sequence: u64,
+    pub(super) kind: &'a str,
+    pub(super) occurred_at_ms: u64,
+    pub(super) producer: &'a JournalProducer,
+    pub(super) subjects: &'a [JournalSubject],
+    pub(super) payload: &'a Value,
+    pub(super) resource_revision: Option<u64>,
+    pub(super) rebuilding_generation_history: bool,
+    pub(super) replaying_projection_journal: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct AgentProjectionRebuildStep {
+    pub(crate) checkpoint_ready: bool,
+    pub(crate) pending: bool,
+    pub(crate) refresh_range: Option<(u64, u64)>,
+}
+
 pub(super) fn apply_agent_projection_journal_record(
     transaction: &Transaction<'_>,
-    sequence: u64,
-    kind: &str,
-    occurred_at_ms: u64,
-    producer: &JournalProducer,
-    subjects: &[JournalSubject],
-    payload: &Value,
-    resource_revision: Option<u64>,
-    rebuilding_generation_history: bool,
-    replaying_projection_journal: bool,
+    input: AgentProjectionJournalInput<'_>,
 ) -> anyhow::Result<Option<TerminalPublicId>> {
+    let AgentProjectionJournalInput {
+        sequence,
+        kind,
+        occurred_at_ms,
+        producer,
+        subjects,
+        payload,
+        resource_revision,
+        rebuilding_generation_history,
+        replaying_projection_journal,
+    } = input;
     let advances_cursor = kind.starts_with("agent.");
     let Some(next) = projection_from_journal_record(
         sequence,
@@ -670,16 +692,19 @@ impl WorkspaceRegistry {
 
     #[cfg(test)]
     pub(crate) fn continue_agent_projection_rebuild(&self) -> anyhow::Result<bool> {
-        let (_, pending, _) = self.continue_agent_projection_rebuild_page()?;
-        Ok(!pending)
+        Ok(!self.continue_agent_projection_rebuild_page()?.pending)
     }
 
     pub(crate) fn continue_agent_projection_rebuild_page(
         &self,
-    ) -> anyhow::Result<(bool, bool, Option<(u64, u64)>)> {
+    ) -> anyhow::Result<AgentProjectionRebuildStep> {
         let (checkpoint_ready, refresh_range) =
             rebuild_agent_projections_from_journal(&self.connection, true)?;
-        Ok((checkpoint_ready, self.agent_projection_rebuild_pending()?, refresh_range))
+        Ok(AgentProjectionRebuildStep {
+            checkpoint_ready,
+            pending: self.agent_projection_rebuild_pending()?,
+            refresh_range,
+        })
     }
 
     pub(crate) fn visit_agent_projection_rebuild_range<F>(
@@ -689,7 +714,7 @@ impl WorkspaceRegistry {
         mut visit: F,
     ) -> anyhow::Result<()>
     where
-        F: FnMut(public_projection_store::RegistryAgentProjection) -> anyhow::Result<()>,
+        F: FnMut(RegistryAgentProjection) -> anyhow::Result<()>,
     {
         anyhow::ensure!(
             after_sequence < through_sequence,
@@ -876,15 +901,18 @@ fn replay_agent_projection_journal_page(
         }
         let _ = apply_agent_projection_journal_record(
             transaction,
-            record.sequence,
-            &record.kind,
-            record.occurred_at_ms,
-            &record.producer,
-            &record.subjects,
-            &record.payload,
-            record.resource_revision,
-            live_sequence.is_none_or(|live_sequence| record.sequence < live_sequence),
-            true,
+            AgentProjectionJournalInput {
+                sequence: record.sequence,
+                kind: &record.kind,
+                occurred_at_ms: record.occurred_at_ms,
+                producer: &record.producer,
+                subjects: &record.subjects,
+                payload: &record.payload,
+                resource_revision: record.resource_revision,
+                rebuilding_generation_history: live_sequence
+                    .is_none_or(|live_sequence| record.sequence < live_sequence),
+                replaying_projection_journal: true,
+            },
         )?;
     }
     let (checkpoint_ready, refresh_range) = match last_sequence {
