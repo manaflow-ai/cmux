@@ -612,12 +612,12 @@ pub fn parse_product_started_line(
 }
 
 pub fn product_exit_line(nonce: &str, code: u32) -> Result<String> {
-    validate_hex(nonce, NONCE_BYTES * 2, "product-exit nonce")?;
+    decode_nonce(nonce).context("product-exit nonce is invalid")?;
     Ok(format!("PRODUCT_EXIT {nonce} {code}\n"))
 }
 
 pub fn parse_product_exit_line(line: &str, nonce: &str) -> Result<u32> {
-    validate_hex(nonce, NONCE_BYTES * 2, "product-exit nonce")?;
+    decode_nonce(nonce).context("product-exit nonce is invalid")?;
     let prefix = format!("PRODUCT_EXIT {nonce} ");
     let code = line
         .strip_prefix(&prefix)

@@ -11,21 +11,22 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
+#[cfg(windows)]
 use cmux_startup_bootstrap::BootstrapLaunchEvidence;
 use cmux_tui_core::platform::transport;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-#[cfg(windows)]
 use startup_benchmark_protocol::{
     BOOTSTRAP_FAILURE_SCHEMA_VERSION, BootstrapControllerFailureObservation,
-    MAX_PRODUCT_FAILURE_STDOUT_TAIL_BYTES, PRODUCT_STARTED_TIMEOUT, parse_product_exit_line,
-    parse_product_started_line, read_product_started_control_line,
-};
-use startup_benchmark_protocol::{
     BootstrapHangDiagnosticReport, CONTROL_TIMEOUT, MAX_BOOTSTRAP_HANG_DUMP_BYTES,
-    MAX_BOOTSTRAP_HANG_REPORT_BYTES, STARTUP_LINE_TIMEOUT, SupervisorStartupLine, TimingPage,
-    arm_line, bootstrap_failure_hang_artifact, monotonic_ns, parse_supervisor_startup_line,
-    read_control_line, validate_bootstrap_failure_records, write_control_line,
+    MAX_BOOTSTRAP_HANG_REPORT_BYTES, MAX_PRODUCT_FAILURE_STDOUT_TAIL_BYTES, STARTUP_LINE_TIMEOUT,
+    SupervisorStartupLine, TimingPage, arm_line, bootstrap_failure_hang_artifact, monotonic_ns,
+    parse_product_exit_line, parse_supervisor_startup_line, read_control_line,
+    validate_bootstrap_failure_records, write_control_line,
+};
+#[cfg(windows)]
+use startup_benchmark_protocol::{
+    PRODUCT_STARTED_TIMEOUT, parse_product_started_line, read_product_started_control_line,
 };
 use wait_timeout::ChildExt;
 
@@ -133,7 +134,7 @@ enum SupervisorStartupEvent {
     ProductOutput(Vec<u8>),
     ProductOutputClosed(io::Result<()>),
     StderrClosed(io::Result<Vec<u8>>),
-    PostArmControl(io::Result<String>),
+    PostArmControl(Result<String>),
 }
 
 enum ProductAwaitOutcome {
@@ -442,10 +443,8 @@ impl SupervisorEventOwner {
             }
         }
         if !self.product_buffer.is_empty() {
-            return self.fail(
-                "preflight product output closed with a partial event",
-                String::from_utf8_lossy(&self.product_buffer),
-            );
+            let partial = String::from_utf8_lossy(&self.product_buffer).into_owned();
+            return self.fail("preflight product output closed with a partial event", partial);
         }
         self.join_event_threads()?;
         Ok((status, self.stderr.take().unwrap_or_default(), self.output_closed))
