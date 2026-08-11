@@ -3316,6 +3316,23 @@
         }
       }
     },
+    "mobile.devices.savedDescription.reconnectOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap a saved computer to reconnect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存したコンピュータをタップして再接続します。"
+          }
+        }
+      }
+    },
     "mobile.devices.savedTitle": {
       "extractionState": "manual",
       "localizations": {
@@ -13797,13 +13814,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux could not finish restoring this session. Check that the selected cmux build is running, then retry or add this computer again."
+            "value": "cmux could not finish restoring this session. Check that the selected cmux build is running, then retry."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux はこのセッションの復元を完了できませんでした。選択した cmux ビルドが起動していることを確認してから、再試行するか、このコンピュータをもう一度追加してください。"
+            "value": "cmux はこのセッションの復元を完了できませんでした。選択した cmux ビルドが起動していることを確認してから、再試行してください。"
           }
         }
       }
