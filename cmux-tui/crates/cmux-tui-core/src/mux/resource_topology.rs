@@ -278,7 +278,7 @@ struct ResourceClosePlan {
     terminal_indexes: TerminalIndexProjection,
     removed: Vec<Arc<Surface>>,
     terminal_runtime: Option<Arc<Surface>>,
-    closed_terminal_public_id: Option<TerminalPublicId>,
+    closed_terminal_public_ids: Vec<TerminalPublicId>,
     terminal_batch: Vec<(String, Option<String>)>,
     workspace_close: Option<ResourceWorkspaceClose>,
     delta: Option<TreeDelta>,
@@ -289,7 +289,7 @@ struct ResourceClosePlan {
 struct ResourceCloseEffects {
     removed: Vec<Arc<Surface>>,
     terminal_runtime: Option<Arc<Surface>>,
-    closed_terminal_public_id: Option<TerminalPublicId>,
+    closed_terminal_public_ids: Vec<TerminalPublicId>,
     tree_publication: ResourceCloseTreePublication,
     changed_screens: Vec<ScreenId>,
     selection_resync: bool,
@@ -345,7 +345,7 @@ impl ResourceClosePlan {
         ResourceCloseEffects {
             removed: self.removed,
             terminal_runtime: self.terminal_runtime,
-            closed_terminal_public_id: self.closed_terminal_public_id,
+            closed_terminal_public_ids: self.closed_terminal_public_ids,
             tree_publication: self.delta.map_or(
                 ResourceCloseTreePublication::PendingSnapshot,
                 ResourceCloseTreePublication::PendingDelta,
@@ -2864,6 +2864,7 @@ impl Mux {
                 cleanup_public_ids.push(catalog_public_id);
             }
         }
+        plan.closed_terminal_public_ids = cleanup_public_ids.clone();
         let (retained_runtime, retained_views, retained_split_change) =
             remove_terminal_catalogs_and_targets_from_state(
                 self,
@@ -3293,9 +3294,7 @@ impl Mux {
     }
     fn finish_resource_close(&self, committed: CommittedResourceClose) -> ResourcePatchCommit {
         let effects = committed.effects;
-        if let Some(terminal_id) = effects.closed_terminal_public_id {
-            self.notify_terminal_exit_waiters(Some(terminal_id));
-        }
+        self.notify_terminal_exit_waiters(effects.closed_terminal_public_ids);
 
         #[cfg(test)]
         if let Some(hook) = self.resource_close_cleanup.lock().unwrap().clone() {
@@ -3527,6 +3526,12 @@ impl Mux {
             .map(|(workspace, _)| state.workspaces[workspace].id)
             .collect::<HashSet<_>>();
         let catalog_public_ids = terminal_indexes.catalog_public_ids.clone();
+        let mut closed_terminal_public_ids = if terminal_public_id.is_some() {
+            catalog_public_ids.iter().cloned().collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+        closed_terminal_public_ids.sort_by(|left, right| left.as_str().cmp(right.as_str()));
         let target_surfaces = surface_ids.iter().copied().collect::<HashSet<_>>();
         let mut state_projection = if terminal_public_id.is_some() {
             ResourceCloseState::Terminal {
@@ -3640,7 +3645,7 @@ impl Mux {
             terminal_indexes,
             removed,
             terminal_runtime,
-            closed_terminal_public_id: terminal_public_id,
+            closed_terminal_public_ids,
             terminal_batch,
             workspace_close,
             delta,
