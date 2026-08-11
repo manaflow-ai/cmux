@@ -1,5 +1,8 @@
 public import Foundation
 public import CmuxTerminalCore
+internal import os
+
+private let terminalSurfacePartialShimRemovalAttemptLimit = 3
 
 extension TerminalSurface {
     /// Writes every available bundled agent wrapper shim into one per-install directory.
@@ -112,7 +115,10 @@ extension TerminalSurface {
         var removeShimDirectoryOnExit = false
         defer {
             if removeShimDirectoryOnExit {
-                try? fileManager.removeItem(at: shimDirectory)
+                removePartialAgentCommandShimDirectory(
+                    shimDirectory,
+                    fileManager: fileManager
+                )
             }
         }
         do {
@@ -182,6 +188,28 @@ extension TerminalSurface {
         )
         removeShimDirectoryOnExit = false
         return shimSet
+    }
+
+    private static func removePartialAgentCommandShimDirectory(
+        _ shimDirectory: URL,
+        fileManager: FileManager
+    ) {
+        var lastError: (any Error)?
+        for _ in 0..<terminalSurfacePartialShimRemovalAttemptLimit {
+            do {
+                try fileManager.removeItem(at: shimDirectory)
+                return
+            } catch {
+                lastError = error
+            }
+        }
+        guard let lastError else { return }
+        Logger(
+            subsystem: "com.cmuxterm.app",
+            category: "agent-command-shims"
+        ).error(
+            "Failed to remove partial command shims at \(shimDirectory.path, privacy: .public): \(String(reflecting: lastError), privacy: .public)"
+        )
     }
 
     private static func installAgentCommandShim(

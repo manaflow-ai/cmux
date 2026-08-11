@@ -47,6 +47,9 @@ private final class HermesAliasDirectoryTrackingFileManager: FileManager {
 
 private final class CancelAfterFirstShimFileManager: FileManager {
     private let didCancel = OSAllocatedUnfairLock(initialState: false)
+    private let removalAttempts = OSAllocatedUnfairLock(initialState: 0)
+
+    var removalAttemptCount: Int { removalAttempts.withLock { $0 } }
 
     override func setAttributes(
         _ attributes: [FileAttributeKey: Any],
@@ -65,6 +68,17 @@ private final class CancelAfterFirstShimFileManager: FileManager {
                 task?.cancel()
             }
         }
+    }
+
+    override func removeItem(at url: URL) throws {
+        let attempt = removalAttempts.withLock { attempts in
+            attempts += 1
+            return attempts
+        }
+        if attempt < 3 {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        try super.removeItem(at: url)
     }
 }
 
@@ -107,6 +121,7 @@ struct TerminalSurfaceCommandShimPermissionsTests {
             )
         }
 
+        let fileManager = CancelAfterFirstShimFileManager()
         let installTask = Task {
             await TerminalSurface.installAgentCommandShimsIfPossible(
                 wrapperDirectoryURL: wrapperDirectory,
@@ -115,12 +130,13 @@ struct TerminalSurfaceCommandShimPermissionsTests {
                 hermesProfileAliasCatalog: HermesProfileAliasCatalog(
                     wrapperDirectoryURL: aliasDirectory
                 ),
-                fileManager: CancelAfterFirstShimFileManager()
+                fileManager: fileManager
             )
         }
         let result = await installTask.value
 
         #expect(result == nil)
+        #expect(fileManager.removalAttemptCount == 3)
         let remainingShimDirectories = (
             try? setupFileManager.contentsOfDirectory(
                 at: shimParentDirectory,
