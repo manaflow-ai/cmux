@@ -1954,6 +1954,10 @@ pub struct Mux {
     /// reread SQLite by cursor, so missed or coalesced notifications are safe.
     journal_event_epoch: Mutex<u64>,
     journal_event_changed: Condvar,
+    /// Resource listeners may read derived caches after every wake. Publish
+    /// this signal only after those caches include the durable commit.
+    resource_event_epoch: Mutex<u64>,
+    resource_event_changed: Condvar,
     #[cfg(test)]
     journal_segment_prepare_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     terminal_exit_waiters: TerminalExitWaiters,
@@ -2315,6 +2319,8 @@ impl Mux {
             journal_hook_runtime: Arc::new(crate::journal_hooks::JournalHookRuntime::default()),
             journal_event_epoch: Mutex::new(0),
             journal_event_changed: Condvar::new(),
+            resource_event_epoch: Mutex::new(0),
+            resource_event_changed: Condvar::new(),
             #[cfg(test)]
             journal_segment_prepare_hook: Mutex::new(None),
             terminal_exit_waiters: TerminalExitWaiters::default(),
@@ -4644,6 +4650,9 @@ impl Mux {
             hook();
         }
         self.publish_journal_commit();
+        let mut epoch = self.resource_event_epoch.lock().unwrap();
+        *epoch = epoch.wrapping_add(1);
+        self.resource_event_changed.notify_all();
     }
 
     fn publish_journal_commit(&self) {
@@ -4883,11 +4892,16 @@ impl Mux {
     }
 
     pub(crate) fn resource_event_epoch(&self) -> u64 {
-        self.journal_event_epoch()
+        *self.resource_event_epoch.lock().unwrap()
     }
 
     pub(crate) fn wait_for_resource_event(&self, epoch: u64, timeout: Duration) -> u64 {
-        self.wait_for_journal_event(epoch, timeout)
+        let current = self.resource_event_epoch.lock().unwrap();
+        if *current != epoch {
+            return *current;
+        }
+        let (current, _) = self.resource_event_changed.wait_timeout(current, timeout).unwrap();
+        *current
     }
 
     pub(crate) fn resource_events_after(
