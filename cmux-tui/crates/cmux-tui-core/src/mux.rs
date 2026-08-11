@@ -8801,10 +8801,8 @@ impl Mux {
             };
             return Ok(pending.then_some(TerminalHostCallbackTarget::Pending));
         };
-        let callback_surface = state
-            .surfaces
-            .get(&runtime_id)
-            .or_else(|| state.terminal_runtime_by_id(runtime_id));
+        let callback_surface =
+            state.surfaces.get(&runtime_id).or_else(|| state.terminal_runtime_by_id(runtime_id));
         let identity_matches = callback_surface.is_some_and(|callback_surface| {
             callback_surface.shares_terminal_runtime(&surface)
                 && self
