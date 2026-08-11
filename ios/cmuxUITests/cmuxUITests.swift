@@ -1920,6 +1920,34 @@ final class cmuxUITests: XCTestCase {
         ]
         XCTAssertTrue(workspaceDestination.waitForExistence(timeout: 3))
         XCTAssertTrue(app.navigationBars["Release"].waitForExistence(timeout: 3))
+        XCTAssertTrue(
+            waitForNotHittable(app.tabBars.buttons["Notifications"], timeout: 3),
+            "Tab bar must hide while the search-opened notification workspace is presented"
+        )
+
+        // Popping back restores the notification search exactly as left: the
+        // field at the bottom with the query, results still filtered.
+        let systemBack = app.navigationBars.buttons.element(boundBy: 0)
+        XCTAssertTrue(waitForHittable(systemBack, timeout: 3))
+        tap(systemBack, in: app)
+        XCTAssertTrue(
+            searchField.waitForExistence(timeout: 3),
+            "Notification search field missing after popping back"
+        )
+        XCTAssertTrue(
+            waitForSearchFieldValue(searchField, "Tests passed", timeout: 3),
+            "Restored notification search field must carry the query, got \(String(describing: searchField.value))"
+        )
+        guard let fieldFrame = waitForUsableFrame(of: searchField, timeout: 3) else {
+            return XCTFail("Restored notification search field had no usable frame")
+        }
+        XCTAssertGreaterThan(
+            fieldFrame.midY,
+            app.frame.midY,
+            "Notification search field must restore at the bottom, got \(fieldFrame)"
+        )
+        XCTAssertTrue(waitForHittable(matchingRow, timeout: 3))
+        XCTAssertTrue(waitForNotHittable(nonmatchingRow, timeout: 3))
     }
 
     @MainActor

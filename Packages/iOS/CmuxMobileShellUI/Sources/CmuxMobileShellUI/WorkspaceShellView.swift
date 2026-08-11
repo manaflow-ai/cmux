@@ -263,8 +263,12 @@ struct WorkspaceShellView: View {
                                 createWorkspace: createWorkspaceInCompactStack,
                                 canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
                             )
-                            .toolbarVisibility(.hidden, for: .tabBar)
                     }
+                    // Path-state-driven so the bar returns as the pop commits.
+                    .toolbarVisibility(
+                        notificationNavigationPath.isEmpty ? .automatic : .hidden,
+                        for: .tabBar
+                    )
                 }
                 .onAppear {
                     notificationsStackIsOnScreen = true
@@ -464,8 +468,13 @@ struct WorkspaceShellView: View {
                     createWorkspace: createWorkspaceInCompactStack,
                     canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
                 )
-                .toolbarVisibility(.hidden, for: .tabBar)
             }
+            // Path-state-driven like the workspace search stack: the bar (and
+            // the search field's bottom anchor) return when the pop commits.
+            .toolbarVisibility(
+                notificationSearchNavigationPath.isEmpty ? .automatic : .hidden,
+                for: .tabBar
+            )
         }
     }
 

@@ -81,8 +81,13 @@ public struct NotificationFeedPreviewView: View {
                                     defaultValue: "Workspace"
                                 )
                         )
-                        .toolbarVisibility(.hidden, for: .tabBar)
                     }
+                    // Route-state-driven so the bar (and the search field's
+                    // bottom anchor) return as the pop commits.
+                    .toolbarVisibility(
+                        notificationRoute == nil ? .automatic : .hidden,
+                        for: .tabBar
+                    )
                 }
             }
             .background {
@@ -136,8 +141,12 @@ public struct NotificationFeedPreviewView: View {
                         defaultValue: "Workspace"
                     )
             )
-            .toolbarVisibility(.hidden, for: .tabBar)
         }
+        // Route-state-driven so the bar returns as the pop commits.
+        .toolbarVisibility(
+            notificationRoute == nil ? .automatic : .hidden,
+            for: .tabBar
+        )
     }
 
     private var actions: NotificationFeedActions {
