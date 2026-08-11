@@ -521,14 +521,7 @@ impl MachineConnectionHub {
     pub(crate) fn register(&self, key: MachineKey, connector: MachineConnectFn) {
         let Ok(mut slots) = self.inner.slots.lock() else { return };
         match slots.get_mut(&key) {
-            Some(slot) => {
-                if let Some(attempt) = slot.active_attempt.take() {
-                    attempt.cancellation.cancel();
-                }
-                slot.connector = connector;
-                slot.state = MachineConnectionState::Disconnected;
-                self.inner.changed.notify_all();
-            }
+            Some(slot) => slot.connector = connector,
             None => {
                 slots.insert(
                     key,
