@@ -72,6 +72,15 @@ pub(super) fn apply_agent_projection_journal_record(
         return Ok(None);
     }
     let current = stored_projection(transaction, &next.terminal_id)?;
+    if replaying_projection_journal
+        && !rebuilding_generation_history
+        && deferred_live_agent_session_is_superseded(transaction, &next)?
+    {
+        if advances_cursor {
+            advance_agent_projection_journal_cursor(transaction, sequence)?;
+        }
+        return Ok(None);
+    }
     validate_projection_transition(current.as_ref(), &next)?;
     // Pre-journal and generation migration use the stored projections as their
     // baseline, so live events must keep those projections current. Ordered
@@ -83,6 +92,7 @@ pub(super) fn apply_agent_projection_journal_record(
         && agent_projection_journal_rebuild_target(transaction)?.is_some()
     {
         validate_deferred_agent_session_generation(transaction, current.as_ref(), &next)?;
+        record_agent_session_generation(transaction, current.as_ref(), &next, false)?;
         note_agent_projection_journal_live_sequence(transaction, sequence)?;
         return Ok(None);
     }
@@ -214,6 +224,40 @@ fn agent_session_identity_precedes_deferred_live_boundary(
     agent_session_identity_precedes_record(transaction, journal_identity, boundary)
 }
 
+fn deferred_live_agent_session_is_superseded(
+    transaction: &Transaction<'_>,
+    next: &AgentProjectionRow,
+) -> anyhow::Result<bool> {
+    let Some(source_session) = next.source_session.as_deref() else {
+        return Ok(false);
+    };
+    let Some(live_sequence) = agent_projection_journal_live_sequence(transaction)? else {
+        return Ok(false);
+    };
+    let provider = agent_generation_provider(next.provider.as_deref());
+    let superseded = transaction
+        .query_row(
+            "SELECT superseded
+             FROM resource_agent_session_generations
+             WHERE terminal_id = ?1 AND provider = ?2 AND source_session = ?3",
+            params![next.terminal_id.as_str(), provider, source_session],
+            |row| row.get::<_, bool>(0),
+        )
+        .optional()?
+        .unwrap_or(false);
+    if !superseded {
+        return Ok(false);
+    }
+    let journal_identity =
+        crate::agent_hooks::agent_session_subject(next.terminal_id.as_str(), provider, source_session)
+            .id;
+    Ok(!agent_session_identity_precedes_record(
+        transaction,
+        &journal_identity,
+        live_sequence,
+    )?)
+}
+
 /// Keep accepted structured sessions in the same transaction as their journal
 /// projection. A retired identity must stay retired after the current session
 /// becomes final and after the registry reopens.
@@ -247,6 +291,8 @@ fn record_agent_session_generation(
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?)),
         )
         .optional()?;
+    let preserve_deferred_live_active = rebuilding_generation_history
+        && active_agent_session_started_in_deferred_live_tail(transaction, &next.terminal_id)?;
     if let Some((generation, superseded)) = existing {
         transaction.execute(
             "UPDATE resource_agent_session_generations
@@ -256,6 +302,9 @@ fn record_agent_session_generation(
         )?;
         anyhow::ensure!(generation > 0, "agent session generation is not positive");
         if superseded {
+            if preserve_deferred_live_active {
+                return Ok(());
+            }
             let stored_current_matches = current.is_some_and(|projection| {
                 agent_generation_provider(projection.provider.as_deref()) == provider
                     && projection.source_session.as_deref() == Some(source_session)
@@ -330,6 +379,10 @@ fn record_agent_session_generation(
         );
     }
 
+    if preserve_deferred_live_active {
+        return record_superseded_agent_session_generation(transaction, next);
+    }
+
     if let Some((active_provider, active_session, active_generation)) = active {
         anyhow::ensure!(active_generation > 0, "active agent session generation is not positive");
         transaction.execute(
@@ -351,6 +404,42 @@ fn record_agent_session_generation(
         compact_agent_session_generations(transaction, Some(&next.terminal_id))?;
     }
     Ok(())
+}
+
+fn active_agent_session_started_in_deferred_live_tail(
+    transaction: &Transaction<'_>,
+    terminal_id: &TerminalPublicId,
+) -> anyhow::Result<bool> {
+    let Some(live_sequence) = agent_projection_journal_live_sequence(transaction)? else {
+        return Ok(false);
+    };
+    let live_sequence =
+        i64::try_from(live_sequence).context("agent projection live sequence exceeds SQLite range")?;
+    transaction
+        .query_row(
+            "SELECT EXISTS(
+               SELECT 1
+               FROM resource_agent_session_generations AS generation
+               WHERE generation.terminal_id = ?1
+                 AND generation.superseded = 0
+                 AND generation.journal_identity IS NOT NULL
+                 AND EXISTS(
+                   SELECT 1 FROM journal_subject_index AS live_subject
+                   WHERE live_subject.kind = 'agent_session'
+                     AND live_subject.id = generation.journal_identity
+                     AND live_subject.sequence >= ?2
+                 )
+                 AND NOT EXISTS(
+                   SELECT 1 FROM journal_subject_index AS historical_subject
+                   WHERE historical_subject.kind = 'agent_session'
+                     AND historical_subject.id = generation.journal_identity
+                     AND historical_subject.sequence < ?2
+                 )
+             )",
+            params![terminal_id.as_str(), live_sequence],
+            |row| row.get::<_, bool>(0),
+        )
+        .map_err(Into::into)
 }
 
 /// A missing provider is one explicit legacy namespace. It never aliases a
