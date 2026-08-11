@@ -19020,6 +19020,70 @@ mod tests {
     }
 
     #[test]
+    fn pending_killed_kitty_expansion_cannot_block_the_next_terminal_reservation() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        wait_for_kitty_image_budget(&mux);
+
+        let gate = Arc::new((Mutex::new(false), Condvar::new()));
+        let (started_sender, started_receiver) = std::sync::mpsc::sync_channel(1);
+        let first_id = first.id;
+        *mux.kitty_image_budget_operation.lock().unwrap() = Some(Arc::new({
+            let gate = gate.clone();
+            move |surface, limits, _deadline| {
+                if surface.id == first_id {
+                    let _ = started_sender.try_send(());
+                    let (released, changed) = &*gate;
+                    let mut released = released.lock().unwrap();
+                    while !*released {
+                        released = changed.wait(released).unwrap();
+                    }
+                }
+                surface.set_kitty_graphics_limits(
+                    limits.image_bytes,
+                    limits.inflight_bytes,
+                    limits.images,
+                    limits.placements,
+                )
+            }
+        }));
+
+        second.kill();
+        started_receiver.recv_timeout(Duration::from_secs(2)).unwrap();
+        first.kill();
+
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let creating_mux = mux.clone();
+        let creator = std::thread::spawn(move || {
+            let _ = sender.send(creating_mux.new_tab(Some(pane), None, Some((80, 24))));
+        });
+        let created_before_release = receiver.recv_timeout(Duration::from_millis(250)).ok();
+        let returned_before_release = created_before_release.is_some();
+        {
+            let (released, changed) = &*gate;
+            *released.lock().unwrap() = true;
+            changed.notify_all();
+        }
+        let replacement = match created_before_release {
+            Some(result) => result.unwrap(),
+            None => receiver.recv_timeout(Duration::from_secs(3)).unwrap().unwrap(),
+        };
+        creator.join().unwrap();
+
+        *mux.kitty_image_budget_operation.lock().unwrap() = None;
+        assert!(mux.close_surface(replacement.id).unwrap());
+        assert!(mux.close_surface(second.id).unwrap());
+        assert!(mux.close_surface(first.id).unwrap());
+        wait_for_kitty_image_budget(&mux);
+        assert!(
+            returned_before_release,
+            "a pending killed-surface expansion blocked terminal creation"
+        );
+    }
+
+    #[test]
     fn kitty_quota_updates_delay_terminal_creation_until_startup_is_safe() {
         let mux = test_mux();
         let first = mux.new_workspace(None, Some((80, 24))).unwrap();
