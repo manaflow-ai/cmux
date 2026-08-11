@@ -767,10 +767,13 @@ import CmuxTerminalCore
             )
             #expect(
                 deferredFixtures[index].surface
-                    .runtimeSurfaceAdmissionDeferredCreationSource == nil
+                    .runtimeSurfaceAdmissionDeferredCreationSource != nil
             )
         }
-        assertOverflowStorageIsEmpty(coordinator)
+        #expect(
+            coordinator.debugRuntimeSurfaceOwnershipRecoveryOverflowSnapshot
+                .entryCount == 1
+        )
 
         let rejectedAfterStall = makeSurfaceFixture(
             registry: registry,
@@ -787,6 +790,12 @@ import CmuxTerminalCore
             try #require(await postStallFailureIterator.next())
                 == expectedMessage
         )
+        #expect(
+            rejectedAfterStall.surface
+                .runtimeSurfaceAdmissionDeferredCreationSource != nil
+        )
+        let firstDeferredAttemptCount = deferredFixtures[0].surface
+            .debugRuntimeSurfaceCreateAttemptCountForTesting()
 
         let stalledStateAfterFree = Task.detached {
             finishFreeStarted.wait()
@@ -801,6 +810,16 @@ import CmuxTerminalCore
             "returned close worker retained the all-stalled admission failure"
         )
         #expect(await tickets[0].wait(timeout: nil))
+        await waitForMainActorQueueBarrier()
+        #expect(
+            deferredFixtures[0].surface
+                .debugRuntimeSurfaceCreateAttemptCountForTesting()
+                == firstDeferredAttemptCount + 1
+        )
+        #expect(
+            deferredFixtures[0].surface
+                .runtimeSurfaceAdmissionDeferredCreationSource == nil
+        )
         #expect(
             freedPointerBits.withLock { $0 }
                 == [UInt(bitPattern: pointers[0])]
