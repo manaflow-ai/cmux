@@ -412,7 +412,7 @@ jobs:
             echo "::error::test_filter '$TEST_FILTER' selected no Rust tests" >&2
             exit 1
           fi
-          cargo test --workspace --locked "$TEST_FILTER"
+          cargo test --workspace --locked "$TEST_FILTER" -- --include-ignored
 
   focused-hosted-verification:
     name: focused hosted verification
