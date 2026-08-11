@@ -169,6 +169,87 @@ import Testing
         ])
     }
 
+    @Test func groupedProjectionCacheInvalidatesFullInputsSynchronously() throws {
+        let cache = WorkspaceListGroupedProjectionCache()
+        let groupID: MobileWorkspaceGroupPreview.ID = "group-a"
+        var workspaces = [
+            workspace(id: "root", macDeviceID: "mac-a", activityAt: 400),
+            workspace(
+                id: "anchor",
+                macDeviceID: "mac-a",
+                activityAt: 100,
+                groupID: groupID
+            ),
+            workspace(
+                id: "member",
+                macDeviceID: "mac-a",
+                activityAt: 500,
+                groupID: groupID
+            ),
+        ]
+        let expandedGroup = group(
+            id: groupID,
+            anchorID: "anchor",
+            macDeviceID: "mac-a"
+        )
+
+        let initial = cache.items(
+            workspaces: workspaces,
+            groups: [expandedGroup],
+            appliesRecencySort: true
+        )
+        #expect(initial.map(\.id) == [
+            "group.group-a",
+            "workspace.member",
+            "groupFooter.group-a",
+            "workspace.root",
+        ])
+        #expect(cache.items(
+            workspaces: workspaces,
+            groups: [expandedGroup],
+            appliesRecencySort: true
+        ) == initial)
+
+        workspaces[2].name = "Renamed member"
+        let renamed = cache.items(
+            workspaces: workspaces,
+            groups: [expandedGroup],
+            appliesRecencySort: true
+        )
+        guard case .workspace(let renamedMember, _)? = renamed.first(where: {
+            $0.id == "workspace.member"
+        }) else {
+            Issue.record("Renamed grouped member was not projected")
+            return
+        }
+        #expect(renamedMember.name == "Renamed member")
+
+        let collapsedGroup = group(
+            id: groupID,
+            anchorID: "anchor",
+            macDeviceID: "mac-a",
+            isCollapsed: true
+        )
+        let collapsed = cache.items(
+            workspaces: workspaces,
+            groups: [collapsedGroup],
+            appliesRecencySort: true
+        )
+        #expect(collapsed.map(\.id) == ["group.group-a", "workspace.root"])
+
+        let computerOrder = cache.items(
+            workspaces: workspaces,
+            groups: [expandedGroup],
+            appliesRecencySort: false
+        )
+        #expect(computerOrder.map(\.id) == [
+            "workspace.root",
+            "group.group-a",
+            "workspace.member",
+            "groupFooter.group-a",
+        ])
+    }
+
     @Test func recencySortDoesNotApplyToSingleMachineScope() async throws {
         let store = await shellStore(pairedMacs: [
             pairedMac(id: "mac-a", name: "Mac A", lastSeenAt: 20),

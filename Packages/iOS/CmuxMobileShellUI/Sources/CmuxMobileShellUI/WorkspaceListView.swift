@@ -181,6 +181,8 @@ struct WorkspaceListView: View {
     }
     @State var optimisticFlatState = MobileWorkspaceOptimisticOrderReconciler()
     @State var optimisticGroupedState = MobileWorkspaceOptimisticOrderReconciler()
+    @State private var displayedGroupedProjectionCache = WorkspaceListGroupedProjectionCache()
+    @State private var authoritativeGroupedProjectionCache = WorkspaceListGroupedProjectionCache()
     /// In-flight move RPC count plus the tail of the send chain. Moves stay
     /// enabled while pending (disabling mid-gesture cancels the reorder
     /// interaction), so rapid drags can pipeline; sends are chained so the Mac
@@ -452,11 +454,15 @@ struct WorkspaceListView: View {
             machineSnapshots: displayedMachineSnapshots,
             visibleSelection: currentVisibleMacSelection
         )
-        // Recent Activity grouping performs one O(n log n) block projection
-        // per body evaluation. Reuse this immutable snapshot for table rows
-        // and unread headers.
+        // Group projection is synchronous and input-keyed across body updates.
+        // Keep displayed and authoritative caches separate so a pending
+        // optimistic drag cannot evict the rendered projection on every pass.
         let currentDisplayedGroupedListItems = rendersGroupedSections
-            ? displayedGroupedListItems
+            ? displayedGroupedProjectionCache.items(
+                workspaces: displayedGroupedWorkspaces,
+                groups: groups,
+                appliesRecencySort: appliesRecencySort
+            )
             : []
         let currentFilteredWorkspaceOrderKey = rendersGroupedSections
             ? []
@@ -467,7 +473,11 @@ struct WorkspaceListView: View {
         let currentAuthoritativeGroupedListItems = rendersGroupedSections
             ? (optimisticGroupedState.optimisticOrder == nil
                 ? currentDisplayedGroupedListItems
-                : groupedListItems)
+                : authoritativeGroupedProjectionCache.items(
+                    workspaces: groupedWorkspaces,
+                    groups: groups,
+                    appliesRecencySort: appliesRecencySort
+                ))
             : []
         let currentGroupedWorkspaceOrderKey = currentAuthoritativeGroupedListItems.map {
             WorkspaceListStableOrderKey(item: $0)
