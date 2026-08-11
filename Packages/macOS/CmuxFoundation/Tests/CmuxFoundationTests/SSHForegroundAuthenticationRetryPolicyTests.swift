@@ -5190,6 +5190,44 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(!fileManager.fileExists(atPath: inheritedMarker.path))
     }
 
+    @Test func nestedAuthenticationCleanupRetainsLiveHandoffOwner() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-nested-handoff-\(UUID().uuidString)", isDirectory: true)
+        let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let policy = SSHForegroundAuthenticationRetryPolicy()
+        let classifiedAuthentication = policy.classifyingTransientFailure(in: ":")
+        let command = """
+        \(policy.processIdentityShellFunctions())
+        ( trap '' HUP INT TERM; while :; do /bin/sleep 30; done ) &
+        cmux_test_handoff_owner=$!
+        trap '/bin/kill -KILL "$cmux_test_handoff_owner" >/dev/null 2>&1 || true' EXIT
+        cmux_test_handoff_identity=$(cmux_ssh_auth_identity "$cmux_test_handoff_owner") || exit 99
+        printf '%s|%s\n' "$cmux_test_handoff_owner" "$cmux_test_handoff_identity" \
+          > "$CMUX_SSH_AUTH_GROUP_DIR/handoff.owner" || exit 98
+        printf 'preserved\n' > "$CMUX_SSH_AUTH_GROUP_DIR/identity" || exit 97
+        : > "$CMUX_SSH_AUTH_GROUP_DIR/cancel"
+        \(classifiedAuthentication) >/dev/null 2>&1 || true
+        /usr/bin/grep -Fqx 'preserved' "$CMUX_SSH_AUTH_GROUP_DIR/identity" || exit 96
+        test -f "$CMUX_SSH_AUTH_GROUP_DIR/cancel" || exit 95
+        test -s "$CMUX_SSH_AUTH_GROUP_DIR/handoff.owner" || exit 94
+        /bin/kill -KILL "$cmux_test_handoff_owner" >/dev/null 2>&1 || true
+        wait "$cmux_test_handoff_owner" 2>/dev/null || true
+        trap - EXIT
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: ["CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path]
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
     @Test func killedPublisherCannotStrandPublishedAnchor() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
