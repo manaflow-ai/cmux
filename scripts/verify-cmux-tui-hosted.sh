@@ -9,15 +9,13 @@ usage() {
   cat <<'EOF'
 Usage:
   ./scripts/verify-cmux-tui-hosted.sh --filter <rust-test-name>
-  ./scripts/verify-cmux-tui-hosted.sh --full
 
 --filter runs matching Rust tests on hosted Linux and macOS.
---full runs the cross-platform merge gate, including real Windows execution.
-Both modes build and download a macOS arm64 cmux-tui artifact from the exact pushed HEAD.
+It also builds and downloads a macOS arm64 cmux-tui artifact from the exact pushed HEAD.
 EOF
 }
 
-mode=""
+mode="focused"
 test_filter=""
 case "${1:-}" in
   --filter)
@@ -25,15 +23,7 @@ case "${1:-}" in
       usage >&2
       exit 2
     fi
-    mode="focused"
     test_filter="$2"
-    ;;
-  --full)
-    if [[ $# -ne 1 ]]; then
-      usage >&2
-      exit 2
-    fi
-    mode="full"
     ;;
   -h|--help)
     usage
@@ -45,7 +35,7 @@ case "${1:-}" in
     ;;
 esac
 
-if [[ "$mode" == "focused" && ! "$test_filter" =~ ^[A-Za-z0-9_][A-Za-z0-9_:.-]{0,199}$ ]]; then
+if [[ ! "$test_filter" =~ ^[A-Za-z0-9_][A-Za-z0-9_:.-]{0,199}$ ]]; then
   echo "error: --filter must be one Rust test-name substring without shell syntax" >&2
   exit 2
 fi
