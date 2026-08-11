@@ -1,7 +1,9 @@
 import AppKit
+import CmuxCore
 import CmuxTerminal
 import CmuxTerminalBackend
 import CmuxTerminalBackendService
+import CmuxTerminalCore
 import CmuxTerminalRenderCompositor
 import CmuxTerminalRenderProtocol
 import CmuxTerminalRenderTransport
@@ -446,12 +448,18 @@ struct TerminalClientCompositionTests {
         )
         var ledger = TerminalBackendRendererWorkerExitLedger()
 
-        #expect(ledger.register(old) == .installed)
-        #expect(ledger.register(current) == .installed)
-        #expect(ledger.register(current) == .existing)
-        #expect(ledger.register(stale) == .conflict(current))
-        #expect(!ledger.markExited(stale))
-        #expect(ledger.markExited(old))
+        let oldRegistration = ledger.register(old)
+        let currentRegistration = ledger.register(current)
+        let duplicateRegistration = ledger.register(current)
+        let staleRegistration = ledger.register(stale)
+        let staleExited = ledger.markExited(stale)
+        let oldExited = ledger.markExited(old)
+        #expect(oldRegistration == .installed)
+        #expect(currentRegistration == .installed)
+        #expect(duplicateRegistration == .existing)
+        #expect(staleRegistration == .conflict(current))
+        #expect(!staleExited)
+        #expect(oldExited)
         #expect(ledger.hasExited(oldEpoch) == true)
         #expect(ledger.hasExited(currentEpoch) == false)
     }
@@ -472,8 +480,10 @@ struct TerminalClientCompositionTests {
                     startTimeMicroseconds: 1
                 )
             )
-            #expect(ledger.register(identity) == .installed)
-            #expect(ledger.markExited(identity))
+            let registration = ledger.register(identity)
+            let exited = ledger.markExited(identity)
+            #expect(registration == .installed)
+            #expect(exited)
         }
         #expect(ledger.entryCount <= TerminalBackendRendererWorkerExitLedger
             .maximumRetainedExitedEntries)
@@ -2132,13 +2142,20 @@ struct TerminalClientCompositionTests {
         )
         var queue = TerminalBackendMutationQueue(capacity: 5)
 
-        #expect(queue.append(queued(1, .focus(true))))
-        #expect(queue.append(queued(2, .resize(firstViewport))))
-        #expect(queue.append(queued(3, .focus(false))))
-        #expect(queue.append(queued(4, .input(.namedKey("Enter")))))
-        #expect(queue.append(queued(5, .focus(true))))
-        #expect(queue.append(queued(6, .focus(false))))
-        #expect(queue.append(queued(7, .resize(finalViewport))))
+        let admittedFocusOne = queue.append(queued(1, .focus(true)))
+        let admittedFirstResize = queue.append(queued(2, .resize(firstViewport)))
+        let admittedFocusTwo = queue.append(queued(3, .focus(false)))
+        let admittedInput = queue.append(queued(4, .input(.namedKey("Enter"))))
+        let admittedFocusThree = queue.append(queued(5, .focus(true)))
+        let admittedFocusFour = queue.append(queued(6, .focus(false)))
+        let admittedFinalResize = queue.append(queued(7, .resize(finalViewport)))
+        #expect(admittedFocusOne)
+        #expect(admittedFirstResize)
+        #expect(admittedFocusTwo)
+        #expect(admittedInput)
+        #expect(admittedFocusThree)
+        #expect(admittedFocusFour)
+        #expect(admittedFinalResize)
 
         var drained: [TerminalBackendQueuedMutation] = []
         while let mutation = queue.removeFirst() {
@@ -2223,8 +2240,10 @@ struct TerminalClientCompositionTests {
             #expect(queue.count == 4)
         }
 
-        #expect(!queue.append(queued(50_000, .input(.namedKey("Enter")))))
-        #expect(queue.append(queued(50_001, .focus(true))))
+        let admittedOverflowInput = queue.append(queued(50_000, .input(.namedKey("Enter"))))
+        let admittedFinalFocus = queue.append(queued(50_001, .focus(true)))
+        #expect(!admittedOverflowInput)
+        #expect(admittedFinalFocus)
         var mutations: [TerminalExternalRuntimeMutation] = []
         while let queued = queue.removeFirst() {
             mutations.append(queued.mutation)
@@ -3574,16 +3593,20 @@ struct TerminalClientCompositionTests {
 
         let capture = Data(
             repeating: 0x61,
-            count: RemoteTmuxControlConnection.maximumPendingPaneSeedByteCount + 1
+            count: RemoteTmuxControlConnection.maximumPendingPaneSeedLiveBytes + 1
         )
         let live = Data("live-after-early-seed".utf8)
         let state = Data("pane-state-after-live".utf8)
-        connection.beginPaneSeed(paneId: paneID, clearScrollback: false)
-        connection.installPaneSeedCapture(paneId: paneID, data: capture)
+        let seedID = try #require(connection.beginPaneSeed(
+            paneId: paneID,
+            clearScrollback: false,
+            kind: .fullHistory
+        ))
+        connection.installPaneSeedCapture(paneId: paneID, seedID: seedID, data: capture)
         await service.waitForResetCount(1)
 
         connection.handleMessageForTesting(.output(paneId: paneID, data: live))
-        connection.finishPaneSeed(paneId: paneID, state: state)
+        connection.finishPaneSeed(paneId: paneID, seedID: seedID, state: state)
         await service.releaseResets()
         await bridge.waitForIdleForTesting()
 
@@ -4064,6 +4087,10 @@ actor RecordingExternalTerminalService: TerminalBackendExternalTerminalServing,
             acceptedSequence: 0,
             nextSequence: 1,
             noReflow: noReflow,
+            terminalEpoch: 0,
+            interactionRevision: 0,
+            interactionRevisionExhausted: false,
+            mouseTracking: false,
             egress: Data("reset-egress".utf8),
             replayed: false
         )
@@ -4090,6 +4117,10 @@ actor RecordingExternalTerminalService: TerminalBackendExternalTerminalServing,
             acceptedSequence: sequence,
             nextSequence: sequence + 1,
             noReflow: currentNoReflow,
+            terminalEpoch: 0,
+            interactionRevision: 0,
+            interactionRevisionExhausted: false,
+            mouseTracking: false,
             egress: Data("output-egress-\(sequence)".utf8),
             replayed: false
         )
@@ -4378,7 +4409,8 @@ private actor BackendCompatibilityReporterRecorder {
         guard reports.count < expectedCount else { return }
         let identifier = UUID()
         try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Void, any Error>) in
                 if Task.isCancelled {
                     continuation.resume(throwing: CancellationError())
                 } else if reports.count >= expectedCount {
@@ -4736,7 +4768,8 @@ private actor OverflowingBackendSession: TerminalBackendSessionServing {
         guard recordedEventSubscriptionCount < expectedCount else { return }
         let identifier = UUID()
         try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Void, any Error>) in
                 if Task.isCancelled {
                     continuation.resume(throwing: CancellationError())
                 } else if recordedEventSubscriptionCount >= expectedCount {
@@ -5402,7 +5435,9 @@ private actor FrontendRouterDeliveryProbe {
     }
 }
 
-private actor RecordingPersistentTerminalBackendClient: TerminalBackendClient {
+private actor RecordingPersistentTerminalBackendClient:
+    TerminalBackendClient,
+    TerminalBackendTopologyMutating {
     private let suspendEnsures: Bool
     private let suspendUXReads: Bool
     private let suspendMutations: Bool
@@ -5453,6 +5488,218 @@ private actor RecordingPersistentTerminalBackendClient: TerminalBackendClient {
         self.detachFailuresRemaining = detachFailures
         self.releaseFailuresRemaining = releaseFailures
         self.permanentReleaseFailure = permanentReleaseFailure
+    }
+
+    func createWorkspace(
+        requestID: UUID,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        name: String?,
+        launch: BackendTerminalLaunch,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        try rejectTopologyMutation()
+    }
+
+    func createTerminalTab(
+        requestID: UUID,
+        surfaceID: SurfaceID,
+        in paneID: PaneID,
+        launch: BackendTerminalLaunch,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        try rejectTopologyMutation()
+    }
+
+    func createBrowserWorkspace(
+        requestID: UUID,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        name: String?,
+        url: URL,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        try rejectTopologyMutation()
+    }
+
+    func createBrowserTab(
+        requestID: UUID,
+        surfaceID: SurfaceID,
+        in paneID: PaneID,
+        url: URL,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        try rejectTopologyMutation()
+    }
+
+    func splitBrowserPane(
+        requestID: UUID,
+        surfaceID: SurfaceID,
+        _ paneID: PaneID,
+        direction: BackendSplitDirection,
+        initialRatio: Float,
+        url: URL,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        try rejectTopologyMutation()
+    }
+
+    func materializeTerminal(
+        requestID: UUID,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        launch: BackendTerminalLaunch,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        try rejectTopologyMutation()
+    }
+
+    func respawnTerminal(
+        requestID: UUID,
+        surfaceID: SurfaceID,
+        launch: BackendTerminalLaunch,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        try rejectTopologyMutation()
+    }
+
+    func newExternalWorkspace(
+        requestID: UUID,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        columns: UInt16,
+        rows: UInt16,
+        noReflow: Bool,
+        provenance: CanonicalExternalTerminalProvenance,
+        producerSource: BackendRemoteTmuxProducerSource
+    ) async throws -> BackendSurfacePlacement {
+        try rejectTopologyMutation()
+    }
+
+    func materializeExternalTerminal(
+        requestID: UUID,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        columns: UInt16,
+        rows: UInt16,
+        noReflow: Bool,
+        provenance: CanonicalExternalTerminalProvenance
+    ) async throws -> BackendSurfacePlacement {
+        try rejectTopologyMutation()
+    }
+
+    func splitPane(
+        requestID: UUID,
+        surfaceID: SurfaceID,
+        _ paneID: PaneID,
+        direction: BackendSplitDirection,
+        initialRatio: Float,
+        launch: BackendTerminalLaunch,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        try rejectTopologyMutation()
+    }
+
+    func splitTab(
+        requestID: UUID,
+        _ surfaceID: SurfaceID,
+        around paneID: PaneID,
+        direction: BackendSplitDirection,
+        initialRatio: Float
+    ) async throws -> BackendSurfacePlacement {
+        try rejectTopologyMutation()
+    }
+
+    func closePane(
+        requestID: UUID,
+        _ paneID: PaneID
+    ) async throws -> BackendTopologyMutationReceipt {
+        try rejectTopologyMutation()
+    }
+
+    func closeSurface(
+        requestID: UUID,
+        _ surfaceID: SurfaceID
+    ) async throws -> BackendTopologyMutationReceipt {
+        try rejectTopologyMutation()
+    }
+
+    func closeWorkspace(
+        requestID: UUID,
+        _ workspaceID: WorkspaceID
+    ) async throws -> BackendTopologyMutationReceipt {
+        try rejectTopologyMutation()
+    }
+
+    func renameWorkspace(
+        requestID: UUID,
+        _ workspaceID: WorkspaceID,
+        name: String
+    ) async throws -> BackendTopologyMutationReceipt {
+        try rejectTopologyMutation()
+    }
+
+    func renameSurface(
+        requestID: UUID,
+        _ surfaceID: SurfaceID,
+        name: String
+    ) async throws -> BackendTopologyMutationReceipt {
+        try rejectTopologyMutation()
+    }
+
+    func moveTab(
+        requestID: UUID,
+        _ surfaceID: SurfaceID,
+        to paneID: PaneID,
+        index: Int
+    ) async throws -> BackendTopologyMutationReceipt {
+        try rejectTopologyMutation()
+    }
+
+    func reorderTabs(
+        requestID: UUID,
+        in paneID: PaneID,
+        surfaceIDs: [SurfaceID]
+    ) async throws -> BackendTopologyMutationReceipt {
+        try rejectTopologyMutation()
+    }
+
+    func reorderWorkspaces(
+        requestID: UUID,
+        _ workspaceIDs: [WorkspaceID]
+    ) async throws -> BackendTopologyMutationReceipt {
+        try rejectTopologyMutation()
+    }
+
+    func moveTabToNewWorkspace(
+        requestID: UUID,
+        _ surfaceID: SurfaceID,
+        workspaceID: WorkspaceID,
+        name: String?,
+        index: Int?
+    ) async throws -> BackendSurfacePlacement {
+        try rejectTopologyMutation()
+    }
+
+    func setSplitRatio(
+        requestID: UUID,
+        around paneID: PaneID,
+        direction: BackendSplitDirection,
+        ratio: Float
+    ) async throws -> BackendTopologyMutationReceipt {
+        try rejectTopologyMutation()
+    }
+
+    private func rejectTopologyMutation<Result>() throws -> Result {
+        throw BackendProtocolError.connectionClosed
     }
 
     func rendererEvents() async -> AsyncStream<TerminalBackendRendererEvent> {
