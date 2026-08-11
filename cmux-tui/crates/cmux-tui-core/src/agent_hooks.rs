@@ -1497,13 +1497,9 @@ mod tests {
     fn terminal_identity_is_a_subject_and_unknown_events_remain_canonical() {
         let terminal = "term_00000000000000000000000000000001";
         let native = json!({"future":true,"session_id":"future-session"});
-        let ingress = agent_hook_journal_ingress(
-            "future-agent",
-            "NewLifecycle",
-            Some(terminal),
-            native,
-        )
-        .unwrap();
+        let ingress =
+            agent_hook_journal_ingress("future-agent", "NewLifecycle", Some(terminal), native)
+                .unwrap();
         assert_eq!(ingress.kind, "agent.state.changed");
         assert_eq!(ingress.payload["native"]["format"], "cmux.agent-native.canonical.v1");
         assert_eq!(ingress.payload["native"]["provider"], "future-agent");
