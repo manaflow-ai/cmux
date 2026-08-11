@@ -79,6 +79,22 @@ jobs:
               ;;
           esac
 
+  cross-platform-package:
+    name: cross-platform package smoke checks
+    needs: validate-inputs
+    if: inputs.mode == 'full'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/cmux-tui-build-package.yml
+    with:
+      version: 0.0.0-test.${{ inputs.commit }}
+      package_npm: false
+      package_pypi: false
+      include_windows: true
+      build_cloudflare_relay: false
+      verify_linux_arm64: false
+      checkout_ref: ${{ inputs.commit }}
+
   web-frontend:
     needs: validate-inputs
     if: inputs.mode == 'full'
