@@ -20,6 +20,16 @@ import CmuxNotifications
 @MainActor
 @Suite(.serialized)
 struct MobileWorkspaceListFidelityTests {
+    /// Makes the injected delay explicitly virtual: tests advance this manual
+    /// clock themselves and never wait on wall-clock time.
+    private func virtualEmissionSleep(
+        using clock: SidebarTestManualClock
+    ) -> MobileWorkspaceEmissionCoalescer.Sleep {
+        { duration in
+            try await clock.sleep(for: duration)
+        }
+    }
+
     /// Builds a workspace with `count` terminals as tabs in a single pane so that
     /// a within-pane `reorderTab` genuinely changes their on-screen order. Returns
     /// the workspace and panel ids in spatial (tab) order.
@@ -425,9 +435,7 @@ struct MobileWorkspaceListFidelityTests {
                 emittedNotificationIDs.append(id)
                 events.continuation.yield(id)
             },
-            emissionSleep: { duration in
-                try await clock.sleep(for: duration)
-            }
+            emissionSleep: virtualEmissionSleep(using: clock)
         )
         var eventIterator = events.stream.makeAsyncIterator()
         let initialEvent = await eventIterator.next()
@@ -477,9 +485,7 @@ struct MobileWorkspaceListFidelityTests {
         defer { events.continuation.finish() }
         let coalescer = MobileWorkspaceEmissionCoalescer(
             window: .milliseconds(80),
-            sleep: { duration in
-                try await clock.sleep(for: duration)
-            }
+            sleep: virtualEmissionSleep(using: clock)
         )
         var emittedValues: [String] = []
         coalescer.request { false }
@@ -519,9 +525,7 @@ struct MobileWorkspaceListFidelityTests {
             tabManager: manager,
             sidebarUnread: sidebarUnread,
             workspaceUpdateEmitter: { emissionCount += 1 },
-            emissionSleep: { duration in
-                try await clock.sleep(for: duration)
-            }
+            emissionSleep: virtualEmissionSleep(using: clock)
         )
         #expect(observer != nil)
         #expect(emissionCount == 1)
