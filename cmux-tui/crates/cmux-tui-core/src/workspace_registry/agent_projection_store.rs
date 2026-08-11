@@ -15,6 +15,7 @@ const AGENT_PROJECTION_JOURNAL_REBUILD_TARGET_KEY: &str =
     "agent_projection_journal_rebuild_target_sequence_v1";
 const AGENT_PROJECTION_PREJOURNAL_MIGRATION_CURSOR_KEY: &str =
     "agent_projection_prejournal_migration_terminal_v1";
+const UNKNOWN_AGENT_PROVIDER_GENERATION_KEY: &str = "";
 const AGENT_PROJECTION_PREJOURNAL_MIGRATION_PAGE_SIZE: usize = 64;
 const AGENT_PROJECTION_JOURNAL_REBUILD_PAGE_SIZE: usize = 1_024;
 
@@ -42,6 +43,7 @@ pub(super) fn apply_agent_projection_journal_record(
     subjects: &[JournalSubject],
     payload: &Value,
     resource_revision: Option<u64>,
+    rebuilding_generation_history: bool,
 ) -> anyhow::Result<()> {
     let advances_cursor = kind.starts_with("agent.");
     let Some(next) = projection_from_journal_record(
@@ -70,7 +72,14 @@ pub(super) fn apply_agent_projection_journal_record(
     let selected = merge_projection(current.clone(), next.clone());
     upsert_projection(transaction, &selected)?;
     if selected.committed_sequence == next.committed_sequence {
-        record_agent_session_generation(transaction, current.as_ref(), &next)?;
+        record_agent_session_generation(
+            transaction,
+            current.as_ref(),
+            &next,
+            rebuilding_generation_history,
+        )?;
+    } else if rebuilding_generation_history {
+        record_superseded_agent_session_generation(transaction, &next)?;
     }
     if advances_cursor {
         advance_agent_projection_journal_cursor(transaction, sequence)?;
@@ -92,14 +101,17 @@ fn validate_projection_transition(
         return Ok(());
     }
     let current_is_active = matches!(current.state.as_str(), "working" | "blocked" | "idle");
-    let conflicting_structured_session = current.source_session.is_some()
+    let conflicting_structured_identity = current.source_session.is_some()
         && next.source_session.is_some()
-        && current.source_session != next.source_session;
+        && (current.source_session != next.source_session
+            || current.provider.is_some()
+                && next.provider.is_some()
+                && current.provider != next.provider);
     anyhow::ensure!(
         current.source != "hook"
             || next.source != "socket"
             || !current_is_active
-            || !conflicting_structured_session,
+            || !conflicting_structured_identity,
         "agent socket report session {:?} conflicts with active hook session {:?}",
         next.source_session,
         current.source_session
@@ -108,7 +120,7 @@ fn validate_projection_transition(
         current.source != "socket"
             || next.source != "socket"
             || !current_is_active
-            || !conflicting_structured_session,
+            || !conflicting_structured_identity,
         "agent socket report session {:?} conflicts with active socket session {:?}",
         next.source_session,
         current.source_session
@@ -123,26 +135,34 @@ fn record_agent_session_generation(
     transaction: &Transaction<'_>,
     current: Option<&AgentProjectionRow>,
     next: &AgentProjectionRow,
+    rebuilding_generation_history: bool,
 ) -> anyhow::Result<()> {
     let Some(source_session) = next.source_session.as_deref() else {
         return Ok(());
     };
+    let provider = agent_generation_provider(next.provider.as_deref());
     let existing = transaction
         .query_row(
             "SELECT generation, superseded
              FROM resource_agent_session_generations
-             WHERE terminal_id = ?1 AND source_session = ?2",
-            params![next.terminal_id.as_str(), source_session],
+             WHERE terminal_id = ?1 AND provider = ?2 AND source_session = ?3",
+            params![next.terminal_id.as_str(), provider, source_session],
             |row| Ok((row.get::<_, i64>(0)?, row.get::<_, bool>(1)?)),
         )
         .optional()?;
     let active = transaction
         .query_row(
-            "SELECT source_session, generation
+            "SELECT provider, source_session, generation
              FROM resource_agent_session_generations
              WHERE terminal_id = ?1 AND superseded = 0",
             [next.terminal_id.as_str()],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            },
         )
         .optional()?;
     if let Some((generation, superseded)) = existing {
@@ -150,8 +170,11 @@ fn record_agent_session_generation(
         if superseded {
             let active_source = current
                 .filter(|projection| {
-                    projection.source_session.as_deref()
-                        == active.as_ref().map(|(session, _)| session.as_str())
+                    active.as_ref().is_some_and(|(provider, session, _)| {
+                        agent_generation_provider(projection.provider.as_deref())
+                            == provider.as_str()
+                            && projection.source_session.as_deref() == Some(session.as_str())
+                    })
                 })
                 .map(|projection| projection.source.as_str())
                 .unwrap_or("agent");
@@ -160,45 +183,99 @@ fn record_agent_session_generation(
                 next.source,
                 next.source_session,
                 active_source,
-                active.as_ref().map(|(session, _)| session),
+                active.as_ref().map(|(_, session, _)| session),
             );
         }
         anyhow::ensure!(
-            active.as_ref().is_some_and(|(session, active_generation)| {
-                session == source_session && *active_generation == generation
+            active.as_ref().is_some_and(|(
+                active_provider,
+                session,
+                active_generation,
+            )| {
+                active_provider.as_str() == provider
+                    && session == source_session
+                    && *active_generation == generation
             }),
             "current agent session generation is inconsistent"
         );
         return Ok(());
     }
 
-    let generation = match active {
-        Some((active_session, active_generation)) => {
-            anyhow::ensure!(
-                active_generation > 0,
-                "active agent session generation is not positive"
-            );
-            transaction.execute(
-                "UPDATE resource_agent_session_generations
+    if active.is_some()
+        && !rebuilding_generation_history
+        && (prejournal_projection_migration_cursor(transaction)?.is_some()
+            || agent_projection_journal_rebuild_target(transaction)?.is_some())
+    {
+        anyhow::bail!("agent session generation history rebuild is pending");
+    }
+    if let Some((active_provider, active_session, active_generation)) = active {
+        anyhow::ensure!(
+            active_generation > 0,
+            "active agent session generation is not positive"
+        );
+        transaction.execute(
+            "UPDATE resource_agent_session_generations
                  SET superseded = 1
-                 WHERE terminal_id = ?1 AND source_session = ?2 AND superseded = 0",
-                params![next.terminal_id.as_str(), active_session],
-            )?;
-            active_generation.checked_add(1).context("agent session generation exhausted")?
-        }
-        None => transaction.query_row(
-            "SELECT COALESCE(MAX(generation), 0) + 1
-                 FROM resource_agent_session_generations
-                 WHERE terminal_id = ?1",
-            [next.terminal_id.as_str()],
-            |row| row.get::<_, i64>(0),
-        )?,
-    };
+                 WHERE terminal_id = ?1 AND provider = ?2
+                   AND source_session = ?3 AND superseded = 0",
+            params![next.terminal_id.as_str(), active_provider, active_session],
+        )?;
+    }
+    let generation = next_agent_session_generation(transaction, &next.terminal_id)?;
     transaction.execute(
         "INSERT INTO resource_agent_session_generations(
-           terminal_id, source_session, generation, superseded
-         ) VALUES(?1, ?2, ?3, 0)",
-        params![next.terminal_id.as_str(), source_session, generation],
+           terminal_id, provider, source_session, generation, superseded
+         ) VALUES(?1, ?2, ?3, ?4, 0)",
+        params![next.terminal_id.as_str(), provider, source_session, generation],
+    )?;
+    Ok(())
+}
+
+/// A missing provider is one explicit legacy namespace. It never aliases a
+/// named provider, but missing-provider reports still fence each other.
+fn agent_generation_provider(provider: Option<&str>) -> &str {
+    provider.unwrap_or(UNKNOWN_AGENT_PROVIDER_GENERATION_KEY)
+}
+
+fn next_agent_session_generation(
+    transaction: &Transaction<'_>,
+    terminal_id: &TerminalPublicId,
+) -> anyhow::Result<i64> {
+    let maximum = transaction.query_row(
+        "SELECT COALESCE(MAX(generation), 0)
+         FROM resource_agent_session_generations
+         WHERE terminal_id = ?1",
+        [terminal_id.as_str()],
+        |row| row.get::<_, i64>(0),
+    )?;
+    maximum.checked_add(1).context("agent session generation exhausted")
+}
+
+fn record_superseded_agent_session_generation(
+    transaction: &Transaction<'_>,
+    next: &AgentProjectionRow,
+) -> anyhow::Result<()> {
+    let Some(source_session) = next.source_session.as_deref() else {
+        return Ok(());
+    };
+    let provider = agent_generation_provider(next.provider.as_deref());
+    let exists = transaction.query_row(
+        "SELECT EXISTS(
+           SELECT 1 FROM resource_agent_session_generations
+           WHERE terminal_id = ?1 AND provider = ?2 AND source_session = ?3
+         )",
+        params![next.terminal_id.as_str(), provider, source_session],
+        |row| row.get::<_, bool>(0),
+    )?;
+    if exists {
+        return Ok(());
+    }
+    let generation = next_agent_session_generation(transaction, &next.terminal_id)?;
+    transaction.execute(
+        "INSERT INTO resource_agent_session_generations(
+           terminal_id, provider, source_session, generation, superseded
+         ) VALUES(?1, ?2, ?3, ?4, 1)",
+        params![next.terminal_id.as_str(), provider, source_session, generation],
     )?;
     Ok(())
 }
@@ -330,6 +407,7 @@ fn replay_agent_projection_journal_page(
             &record.subjects,
             &record.payload,
             record.resource_revision,
+            true,
         )?;
     }
     match last_sequence {
@@ -887,7 +965,6 @@ fn merge_projection(
     }
     let same_session_identity = current.source_session.is_some()
         && current.source_session == next.source_session
-        && current.provider.is_some()
         && current.provider == next.provider;
     let same_provider_without_session = current.source_session.is_none()
         && next.source_session.is_none()

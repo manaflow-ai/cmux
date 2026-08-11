@@ -972,6 +972,7 @@ pub(super) fn append_journal_record(
             append.subjects,
             append.payload,
             append.resource_revision,
+            false,
         )?;
     }
     Ok(sequence)

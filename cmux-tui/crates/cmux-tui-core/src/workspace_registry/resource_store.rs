@@ -153,10 +153,11 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
          CREATE TABLE IF NOT EXISTS resource_agent_session_generations (
            terminal_id TEXT NOT NULL
              REFERENCES resource_agent_projections(terminal_id) ON DELETE CASCADE,
+           provider TEXT NOT NULL,
            source_session TEXT NOT NULL CHECK(length(source_session) > 0),
            generation INTEGER NOT NULL CHECK(generation > 0),
            superseded INTEGER NOT NULL CHECK(superseded IN (0, 1)),
-           PRIMARY KEY(terminal_id, source_session),
+           PRIMARY KEY(terminal_id, provider, source_session),
            UNIQUE(terminal_id, generation)
          );
          CREATE UNIQUE INDEX IF NOT EXISTS resource_agent_session_generation_current
@@ -168,42 +169,74 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
            FROM resource_agent_projections projection
            WHERE projection.terminal_id = resource_agent_session_generations.terminal_id
          );
-         WITH first_seen AS (
+         WITH reports AS (
            SELECT json_extract(result_json, '$.terminal_id') AS terminal_id,
                   json_extract(result_json, '$.source_session') AS source_session,
-                  MIN(committed_revision) AS first_revision
+                  CASE
+                    WHEN json_type(result_json, '$.extra.provider') = 'text'
+                     AND length(json_extract(result_json, '$.extra.provider')) > 0
+                    THEN json_extract(result_json, '$.extra.provider')
+                    ELSE ''
+                  END AS provider,
+                  committed_revision
            FROM resource_mutations
            WHERE operation = 'agent.report'
              AND json_type(result_json, '$.terminal_id') = 'text'
              AND json_type(result_json, '$.source_session') = 'text'
              AND length(json_extract(result_json, '$.source_session')) > 0
-           GROUP BY terminal_id, source_session
+         ), first_seen AS (
+           SELECT terminal_id, provider, source_session,
+                  MIN(committed_revision) AS first_revision
+           FROM reports
+           GROUP BY terminal_id, provider, source_session
          ), ranked AS (
-           SELECT terminal_id, source_session,
+           SELECT terminal_id, provider, source_session,
                   ROW_NUMBER() OVER (
                     PARTITION BY terminal_id
-                    ORDER BY first_revision, source_session
+                    ORDER BY first_revision, provider, source_session
                   ) AS generation
            FROM first_seen
          )
          INSERT OR IGNORE INTO resource_agent_session_generations(
-           terminal_id, source_session, generation, superseded
+           terminal_id, provider, source_session, generation, superseded
          )
-         SELECT ranked.terminal_id, ranked.source_session, ranked.generation, 1
+         SELECT ranked.terminal_id, ranked.provider, ranked.source_session,
+                ranked.generation, 1
          FROM ranked
          JOIN resource_agent_projections projection
            ON projection.terminal_id = ranked.terminal_id;
+         UPDATE resource_agent_session_generations
+         SET superseded = 1;
          UPDATE resource_agent_session_generations AS generation
          SET superseded = 0
          WHERE generation.source_session = (
            SELECT json_extract(projection.result_json, '$.source_session')
            FROM resource_agent_projections projection
            WHERE projection.terminal_id = generation.terminal_id
+         ) AND generation.provider = (
+           SELECT CASE
+                    WHEN json_type(projection.result_json, '$.extra.provider') = 'text'
+                     AND length(json_extract(
+                       projection.result_json, '$.extra.provider'
+                     )) > 0
+                    THEN json_extract(projection.result_json, '$.extra.provider')
+                    ELSE ''
+                  END
+           FROM resource_agent_projections projection
+           WHERE projection.terminal_id = generation.terminal_id
          );
          INSERT OR IGNORE INTO resource_agent_session_generations(
-           terminal_id, source_session, generation, superseded
+           terminal_id, provider, source_session, generation, superseded
          )
          SELECT projection.terminal_id,
+                CASE
+                  WHEN json_type(projection.result_json, '$.extra.provider') = 'text'
+                   AND length(json_extract(
+                     projection.result_json, '$.extra.provider'
+                   )) > 0
+                  THEN json_extract(projection.result_json, '$.extra.provider')
+                  ELSE ''
+                END,
                 json_extract(projection.result_json, '$.source_session'),
                 COALESCE(MAX(generation.generation), 0) + 1,
                 0
@@ -216,6 +249,14 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
              SELECT 1
              FROM resource_agent_session_generations existing
              WHERE existing.terminal_id = projection.terminal_id
+               AND existing.provider = CASE
+                 WHEN json_type(projection.result_json, '$.extra.provider') = 'text'
+                  AND length(json_extract(
+                    projection.result_json, '$.extra.provider'
+                  )) > 0
+                 THEN json_extract(projection.result_json, '$.extra.provider')
+                 ELSE ''
+               END
                AND existing.source_session = json_extract(
                  projection.result_json,
                  '$.source_session'
