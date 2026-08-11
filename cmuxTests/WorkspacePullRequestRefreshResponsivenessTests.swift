@@ -43,11 +43,15 @@ private final class LoadBlockingRepositoryDiscovery: GitRepositoryDiscovering, @
     func repositorySlugs(forDirectory directory: String) async -> [String] {
         recordInvocation()
         await started.signal()
+        blockUntilReleased()
+        await finished.signal()
+        return []
+    }
+
+    private func blockUntilReleased() {
         if releaseGate.wait(timeout: .now() + 5) == .timedOut {
             recordCleanupDeadline()
         }
-        await finished.signal()
-        return []
     }
 
     func checkedOutBranch(forDirectory directory: String) async -> GitCheckedOutBranch {
