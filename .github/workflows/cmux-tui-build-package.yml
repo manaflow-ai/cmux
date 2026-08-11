@@ -35,7 +35,12 @@ on:
       build_cloudflare_relay:
         description: "Build and verify the Cloudflare relay"
         required: false
-        default: true
+        default: false
+        type: boolean
+      build_remote_components:
+        description: "Build remote and relay components when they exist on the target branch"
+        required: false
+        default: false
         type: boolean
       verify_linux_arm64:
         description: "Run package entrypoint verification on native Linux ARM64"
@@ -223,6 +228,7 @@ jobs:
       - name: Build cmux-tui (native)
         if: matrix.cross == false
         env:
+          BUILD_REMOTE_COMPONENTS: ${{ inputs.build_remote_components }}
           CMUX_TUI_DISTRIBUTION_VERSION: ${{ inputs.version }}
           PACKAGE_NPM: ${{ inputs.package_npm }}
         working-directory: cmux-tui
@@ -239,11 +245,14 @@ jobs:
             export CMUX_TUI_NPM_BOOTSTRAP_VERSION
           fi
           cargo build -p cmux-tui --bin cmux-tui --release --locked --target ${{ matrix.build_target }}
-          cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
+          if [[ "$BUILD_REMOTE_COMPONENTS" == "true" ]]; then
+            cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
+          fi
 
       - name: Build cmux-tui (Linux cross)
         if: matrix.cross == true && runner.os == 'Linux'
         env:
+          BUILD_REMOTE_COMPONENTS: ${{ inputs.build_remote_components }}
           CMUX_TUI_DISTRIBUTION_VERSION: ${{ inputs.version }}
           PACKAGE_NPM: ${{ inputs.package_npm }}
         working-directory: cmux-tui
@@ -260,11 +269,14 @@ jobs:
             export CMUX_TUI_NPM_BOOTSTRAP_VERSION
           fi
           cargo zigbuild -p cmux-tui --bin cmux-tui --release --locked --target ${{ matrix.build_target }}
-          cargo zigbuild -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
+          if [[ "$BUILD_REMOTE_COMPONENTS" == "true" ]]; then
+            cargo zigbuild -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
+          fi
 
       - name: Build cmux-tui (macOS cross)
         if: matrix.cross == true && runner.os == 'macOS'
         env:
+          BUILD_REMOTE_COMPONENTS: ${{ inputs.build_remote_components }}
           CMUX_TUI_DISTRIBUTION_VERSION: ${{ inputs.version }}
           PACKAGE_NPM: ${{ inputs.package_npm }}
         working-directory: cmux-tui
@@ -281,24 +293,32 @@ jobs:
             export CMUX_TUI_NPM_BOOTSTRAP_VERSION
           fi
           cargo build -p cmux-tui --bin cmux-tui --release --locked --target ${{ matrix.build_target }}
-          cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
+          if [[ "$BUILD_REMOTE_COMPONENTS" == "true" ]]; then
+            cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
+          fi
 
       - name: Stage binary
+        env:
+          BUILD_REMOTE_COMPONENTS: ${{ inputs.build_remote_components }}
         shell: bash
         run: |
           mkdir -p dist
           binary="dist/cmux-tui-${{ matrix.target }}${{ matrix.ext }}"
-          relay_binary="dist/cmux-relay-${{ matrix.target }}${{ matrix.ext }}"
           cp "cmux-tui/target/${{ matrix.target }}/release/cmux-tui${{ matrix.ext }}" "$binary"
-          cp "cmux-tui/target/${{ matrix.target }}/release/cmux-relay${{ matrix.ext }}" "$relay_binary"
           if [[ -n "${{ matrix.compatibility_target }}" ]]; then
             cp "$binary" "dist/cmux-tui-${{ matrix.compatibility_target }}${{ matrix.ext }}"
-            cp "$relay_binary" "dist/cmux-relay-${{ matrix.compatibility_target }}${{ matrix.ext }}"
+          fi
+          if [[ "$BUILD_REMOTE_COMPONENTS" == "true" ]]; then
+            relay_binary="dist/cmux-relay-${{ matrix.target }}${{ matrix.ext }}"
+            cp "cmux-tui/target/${{ matrix.target }}/release/cmux-relay${{ matrix.ext }}" "$relay_binary"
+            if [[ -n "${{ matrix.compatibility_target }}" ]]; then
+              cp "$relay_binary" "dist/cmux-relay-${{ matrix.compatibility_target }}${{ matrix.ext }}"
+            fi
           fi
           ls -la dist
 
       - name: Verify non-npm binaries disable SSH auto-install
-        if: runner.os == 'Linux' && matrix.target == 'x86_64-unknown-linux-musl' && inputs.package_npm == false
+        if: inputs.build_remote_components && runner.os == 'Linux' && matrix.target == 'x86_64-unknown-linux-musl' && inputs.package_npm == false
         shell: bash
         run: |
           CMUX_TUI_PROBE="$(dist/cmux-tui-${{ matrix.target }} remote-probe --json)"
@@ -323,12 +343,12 @@ jobs:
           PY
 
       - name: Smoke-test release remote sessions
-        if: matrix.target == 'x86_64-unknown-linux-musl'
+        if: inputs.build_remote_components && matrix.target == 'x86_64-unknown-linux-musl'
         shell: bash
         run: cmux-tui/scripts/smoke-remote-release.sh "dist/cmux-tui-${{ matrix.target }}"
 
       - name: Test release remote sequence rollback
-        if: matrix.target == 'x86_64-unknown-linux-musl'
+        if: inputs.build_remote_components && matrix.target == 'x86_64-unknown-linux-musl'
         working-directory: cmux-tui
         shell: bash
         run: >-
@@ -343,6 +363,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload relay binary artifact
+        if: inputs.build_remote_components
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: cmux-relay-${{ matrix.target }}
@@ -351,7 +372,7 @@ jobs:
 
   cloudflare-relay:
     name: Cloudflare Durable Object relay
-    if: inputs.build_cloudflare_relay
+    if: inputs.build_remote_components && inputs.build_cloudflare_relay
     runs-on: ${{ inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     env:
@@ -472,6 +493,7 @@ jobs:
           cargo build -p cmux-tui --bin cmux-tui --release --locked --target x86_64-pc-windows-gnu
 
       - name: Verify remote commands fail clearly on Windows
+        if: inputs.build_remote_components
         shell: bash
         run: |
           set +e
@@ -563,6 +585,8 @@ jobs:
 
       - name: Smoke verify npm packages
         if: inputs.package_npm
+        env:
+          BUILD_REMOTE_COMPONENTS: ${{ inputs.build_remote_components }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -598,10 +622,11 @@ jobs:
           chmod +x dist/binaries/cmux-tui-x86_64-unknown-linux-musl
           dist/binaries/cmux-tui-x86_64-unknown-linux-musl --version >/tmp/cmux-tui-version.txt 2>&1 || \
             dist/binaries/cmux-tui-x86_64-unknown-linux-musl --help >/tmp/cmux-tui-version.txt 2>&1
-          CMUX_TUI_PROBE="$(dist/binaries/cmux-tui-x86_64-unknown-linux-musl remote-probe --json)"
-          CMUX_TUI_EXPECTED_BUILD_IDENTITY="$(git rev-parse HEAD)"
-          export CMUX_TUI_PROBE CMUX_TUI_EXPECTED_BUILD_IDENTITY
-          python3 - <<'PY'
+          if [[ "$BUILD_REMOTE_COMPONENTS" == "true" ]]; then
+            CMUX_TUI_PROBE="$(dist/binaries/cmux-tui-x86_64-unknown-linux-musl remote-probe --json)"
+            CMUX_TUI_EXPECTED_BUILD_IDENTITY="$(git rev-parse HEAD)"
+            export CMUX_TUI_PROBE CMUX_TUI_EXPECTED_BUILD_IDENTITY
+            python3 - <<'PY'
           import json
           import os
 
@@ -622,6 +647,7 @@ jobs:
                   f"binary npm bootstrap version {probe.get('npm_bootstrap_version')!r} != {expected!r}"
               )
           PY
+          fi
 
       - name: Archive npm package directories with executable modes
         if: inputs.package_npm
@@ -666,7 +692,7 @@ jobs:
     needs:
       - plan-build
       - package
-    if: ${{ inputs.package_npm || inputs.package_pypi }}
+    if: ${{ inputs.build_remote_components && (inputs.package_npm || inputs.package_pypi) }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     permissions:
