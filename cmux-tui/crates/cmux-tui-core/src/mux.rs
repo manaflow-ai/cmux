@@ -21015,12 +21015,19 @@ mod tests {
             serde_json::json!({"context":{"session_id":"scoped-checkpoint-session"}}),
         )
         .unwrap();
-        mux.append_journal_ingress(
-            &ingress,
-            "journal-agent-scoped-checkpoint",
-            "journal-agent-scoped-checkpoint-start",
-        )
-        .unwrap();
+        {
+            let mut registry = mux.workspace_registry.lock().unwrap();
+            let validated = mux.journal_kernel.validate_ingress(&ingress).unwrap();
+            registry
+                .append_journal_ingress(
+                    &ingress,
+                    &validated,
+                    "journal-agent-scoped-checkpoint",
+                    "journal-agent-scoped-checkpoint-start",
+                )
+                .unwrap();
+            assert!(mux.sync_agent_records_from_journal_ingress(&registry, &ingress).unwrap());
+        }
         assert_eq!(mux.list_agents(Some(surface_id), None)[0].state, AgentState::Working);
 
         mux.workspace_registry.lock().unwrap().seed_agent_projection_checkpoint_for_test().unwrap();
