@@ -10882,12 +10882,13 @@ impl Mux {
         let surface = Arc::downgrade(surface);
         let retry_signal = self.terminal_exit_detach_signal.clone();
         retry_signal.register_worker();
+        let retry_generation = retry_signal.snapshot();
         let spawn_result = std::thread::Builder::new()
             .name(format!("terminal-exit-detach-{terminal_id}"))
             .spawn(move || {
                 let _worker = TerminalExitDetachWorkerGuard { signal: retry_signal.clone() };
                 let mut delay = Duration::from_millis(25);
-                let mut generation = retry_signal.snapshot();
+                let mut generation = retry_generation;
                 loop {
                     generation = retry_signal.wait(generation, delay);
                     let Some(mux) = mux.upgrade() else {
