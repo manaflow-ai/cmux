@@ -171,7 +171,6 @@ pub(crate) struct ProviderMachineRuntime {
     mutation_sequence: AtomicU64,
     open: Option<OpenConnection>,
     connections: MachineConnectionHub,
-    connection_warming_enabled: Arc<AtomicBool>,
     connection_registry: Arc<Mutex<HashMap<MachineKey, OpenConnection>>>,
     pending: Option<PendingConnection>,
     pending_external_connect: Option<PendingExternalConnect>,
@@ -221,7 +220,6 @@ impl ProviderMachineController {
     ) -> anyhow::Result<Self> {
         let local = MachineRuntime::external(configured, connect_external);
         let local_connections = MachineConnectionHub::new(local.connection_connectors());
-        local_connections.warm_all();
         Ok(Self {
             provider: ProviderMachineRuntime::connect_with(connector, state_root)?,
             local,
@@ -237,8 +235,8 @@ impl ProviderMachineController {
         Ok((session, label, self.merge_local_ui(ui)))
     }
 
-    pub(crate) fn warm_connections(&self) {
-        self.provider.warm_connections();
+    pub(crate) fn sync_connections(&self) {
+        self.provider.sync_connections();
     }
 
     pub(crate) fn placeholder(
@@ -549,7 +547,6 @@ impl ProviderMachineRuntime {
                 MachineKey,
                 MachineConnectFn,
             )>()),
-            connection_warming_enabled: Arc::new(AtomicBool::new(false)),
             connection_registry: Arc::new(Mutex::new(HashMap::new())),
             pending: None,
             pending_external_connect: None,
@@ -1034,7 +1031,6 @@ impl ProviderMachineRuntime {
         let client = self.client.clone();
         let keys = self.keys.clone();
         let connections = self.connections.clone();
-        let connection_warming_enabled = self.connection_warming_enabled.clone();
         let connection_registry = self.connection_registry.clone();
         let provider_connect_supported = client
             .supports_capability(protocol::EXTERNAL_MACHINE_CONNECT_CAPABILITY)
@@ -1247,9 +1243,6 @@ impl ProviderMachineRuntime {
                         &connections,
                         &connection_registry,
                     );
-                    if connection_warming_enabled.load(Ordering::Acquire) {
-                        connections.warm_all();
-                    }
                     let session_available = snapshot.selected_machine_id.is_some()
                         && connected_session.as_ref().is_some_and(|(_, machine_id)| {
                             snapshot.selected_machine_id.as_ref() == Some(machine_id)
@@ -1705,10 +1698,8 @@ impl ProviderMachineRuntime {
         );
     }
 
-    fn warm_connections(&self) {
+    fn sync_connections(&self) {
         self.sync_connection_hub();
-        self.connection_warming_enabled.store(true, Ordering::Release);
-        self.connections.warm_all();
     }
 
     fn ui_state(&self, session_available: bool) -> MachineUiState {
@@ -4178,7 +4169,11 @@ mod tests {
         let listener = socket.listener();
         let mut catalog = snapshot(1, "Existing", protocol::MachineStatus::Running);
         catalog.capabilities.connect_external_machine = true;
+        let mut enrolled = catalog.clone();
+        enrolled.revision = 2;
+        enrolled.machines[0].connectable = true;
         let server_catalog = catalog;
+        let (finish, finished) = mpsc::channel();
         let server = thread::spawn(move || {
             let first_mutation_id = {
                 let (mut stream, mut reader) = serve_initial_snapshot_with_capabilities(
@@ -4216,12 +4211,13 @@ mod tests {
                     request.id,
                     protocol::ConnectExternalMachineResult {
                         machine_id: id("machine-1"),
-                        revision: server_catalog.revision,
+                        revision: enrolled.revision,
                         notice: None,
                     },
                 ),
             );
-            serve_runtime_refresh(&mut stream, &mut reader, &server_catalog, None);
+            serve_runtime_refresh(&mut stream, &mut reader, &enrolled, None);
+            finished.recv().unwrap();
         });
 
         let provider = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
@@ -4256,7 +4252,10 @@ mod tests {
         controller.provider.reconnect_control().unwrap();
         let result = controller.perform_request(provider_connect("PAIR 4J7K")).unwrap();
 
-        assert!(result.ui.request.is_some());
+        let connected =
+            result.ui.snapshot.machines.iter().find(|machine| machine.id == "machine-1").unwrap();
+        assert_eq!(result.ui.request, Some(MachineRequest::Switch(connected.key)));
+        finish.send(()).unwrap();
         controller.close();
         server.join().unwrap();
     }

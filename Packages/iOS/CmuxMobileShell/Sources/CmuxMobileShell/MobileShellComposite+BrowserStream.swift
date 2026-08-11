@@ -1,5 +1,6 @@
 public import CMUXMobileCore
 import CmuxMobileBrowserStream
+import CmuxMobileDiagnostics
 import CmuxMobileRPC
 import Foundation
 
@@ -15,6 +16,35 @@ extension MobileShellComposite {
         guard let panels = try? await client.listMobileBrowserPanels(workspaceID: workspaceID),
               remoteClient === client else { return }
         browserStreamEvents?.replaceBrowserPanels(in: workspaceID, with: panels)
+    }
+
+    /// Creates a new Mac browser panel in a workspace so the phone can stream
+    /// it with the same surface as discovered panels.
+    /// - Parameter workspaceID: The Mac-local workspace identifier.
+    /// - Returns: The created panel's descriptor, or `nil` when creation is
+    ///   unsupported, disconnected, or rejected by the Mac.
+    public func createMobileBrowserPanel(workspaceID: String) async -> MobileBrowserPanelDescriptor? {
+        guard connectionState == .connected,
+              supportsBrowserStreamCreate,
+              let client = remoteClient else {
+            MobileDebugLog.anchormux(
+                "browser.create skipped connected=\(connectionState == .connected ? 1 : 0) supported=\(supportsBrowserStreamCreate ? 1 : 0)"
+            )
+            return nil
+        }
+        guard let descriptor = try? await client.createMobileBrowserPanel(workspaceID: workspaceID),
+              remoteClient === client else {
+            // The Mac may have committed the panel even though the outcome was
+            // lost (timeout, decode failure, or a client swap mid-flight).
+            // Reconcile discovery so a committed panel surfaces in the picker
+            // instead of becoming an orphan the phone never learns about.
+            MobileDebugLog.anchormux("browser.create uncertain-failure ws=\(workspaceID.prefix(8)) reconciling")
+            await refreshMobileBrowserPanels(workspaceID: workspaceID)
+            return nil
+        }
+        MobileDebugLog.anchormux("browser.create ok panel=\(descriptor.panelID.prefix(8))")
+        browserStreamEvents?.browserPanelCreated(descriptor)
+        return descriptor
     }
 
     /// Starts streaming a discovered Mac browser panel.
@@ -33,7 +63,10 @@ extension MobileShellComposite {
         let viewport = supportsBrowserStreamViewport
             ? browserStreamEvents?.browserStreamViewport(for: panelID)
             : nil
-        guard !supportsBrowserStreamViewport || viewport != nil else { return }
+        guard !supportsBrowserStreamViewport || viewport != nil else {
+            MobileDebugLog.anchormux("browser.stream start-deferred panel=\(panelID.prefix(8)) awaiting-viewport")
+            return
+        }
         await browserStreamEvents?.browserStreamWillStart(panelID: panelID)
         guard connectionState == .connected,
               supportsBrowserStream,
@@ -43,8 +76,12 @@ extension MobileShellComposite {
             viewport: viewport
         ),
               connectionState == .connected,
-              remoteClient === client else { return }
+              remoteClient === client else {
+            MobileDebugLog.anchormux("browser.stream start-failed panel=\(panelID.prefix(8))")
+            return
+        }
         startedMobileBrowserPanelIDs.insert(panelID)
+        MobileDebugLog.anchormux("browser.stream started panel=\(panelID.prefix(8))")
         browserStreamEvents?.browserStreamDidStart(descriptor)
     }
 
@@ -162,6 +199,7 @@ extension MobileShellComposite {
     func handleMobileBrowserClosedEvent(_ event: MobileEventEnvelope) {
         guard let payload = event.payloadJSON else { return }
         if let panelID = browserStreamEvents?.receiveBrowserClosedPayload(payload) {
+            MobileDebugLog.anchormux("browser.stream closed-by-mac panel=\(panelID.prefix(8))")
             startedMobileBrowserPanelIDs.remove(panelID)
         }
     }
@@ -197,6 +235,7 @@ extension MobileShellComposite {
     /// started-dedupe set must not suppress the re-arm in that case, or the
     /// mirror freezes with no path back short of closing the surface.
     func forceRestartMobileBrowserStream(panelID: String) async {
+        MobileDebugLog.anchormux("browser.stream force-restart panel=\(panelID.prefix(8))")
         startedMobileBrowserPanelIDs.remove(panelID)
         await startMobileBrowserStream(panelID: panelID)
     }
@@ -215,6 +254,7 @@ extension MobileShellComposite {
 
     private func performStopMobileBrowserStream(panelID: String) async {
         startedMobileBrowserPanelIDs.remove(panelID)
+        MobileDebugLog.anchormux("browser.stream stop panel=\(panelID.prefix(8))")
         guard let client = remoteClient else { return }
         _ = try? await client.stopMobileBrowserStream(panelID: panelID)
     }

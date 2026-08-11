@@ -52,7 +52,7 @@ export function vaultConfig(env: Env = process.env): VaultStorageConfig {
     throw new Error("CMUX_VAULT_S3_ACCESS_KEY_ID and CMUX_VAULT_S3_SECRET_ACCESS_KEY must be set together");
   }
 
-  const enabled = parseBoolean(envValue(env, "CMUX_VAULT_ENABLED"), Boolean(bucket));
+  const enabled = isVaultEnabled(env);
   return {
     enabled,
     bucket,
@@ -76,6 +76,12 @@ export function vaultConfig(env: Env = process.env): VaultStorageConfig {
       DEFAULT_MAX_USER_BYTES,
     ),
   };
+}
+
+// Vault is a release-gated product. Storage credentials alone must never
+// expose its UI or API surface.
+export function isVaultEnabled(env: Env = process.env): boolean {
+  return parseBoolean(envValue(env, "CMUX_VAULT_ENABLED"), false);
 }
 
 export function isVaultConfigured(env: Env = process.env): boolean {

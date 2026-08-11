@@ -414,6 +414,7 @@ extension MobileShellComposite {
         // original device-id spelling, which is what the store accepted when
         // this control connection was established.
         let macID = sub.macDeviceID
+        let priorSecondaryGroups = workspacesByMac[ownerKey]?.groups ?? []
         guard let scope = await currentScopeSnapshot() else {
             await retireSecondaryPromotionCandidate(sub)
             return .unavailable
@@ -732,7 +733,7 @@ extension MobileShellComposite {
             )
             return .unavailable
         }
-        guard case let .received(authoritativePreviews) =
+        guard case let .received(authoritativeSnapshot) =
                 authoritativeWorkspaceAttempt else {
             stopTerminalRefreshPolling()
             await retirePromotedConnectionForFreshDial(
@@ -776,7 +777,10 @@ extension MobileShellComposite {
                 macDeviceID: macID,
                 instanceTag: activeMacInstanceTag,
                 displayName: displayName,
-                workspaces: authoritativePreviews,
+                workspaces: authoritativeSnapshot.workspaces,
+                groups: authoritativeSnapshot.groups
+                    ?? workspacesByMac[foregroundMacKey]?.groups
+                    ?? priorSecondaryGroups,
                 status: .connected,
                 actionCapabilities: sub.actionCapabilities
             )

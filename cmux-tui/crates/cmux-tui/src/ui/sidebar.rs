@@ -393,8 +393,13 @@ pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
     let focused = app.projection_sidebar_focused(view_index);
     let palette = rail::RailPalette::for_app(app, focused);
     rail::prepare(frame, area, palette);
-    let header =
-        spec.levels.iter().copied().map(projection_resource_label).collect::<Vec<_>>().join(" › ");
+    let header = spec
+        .levels
+        .iter()
+        .copied()
+        .map(projection_resource_label)
+        .collect::<Vec<_>>()
+        .join(localization::catalog().sidebar.projection_path_separator);
     let header = rail::header(frame, area, &header, palette);
 
     let selectable_rows = rows.len().saturating_add(actions.len());

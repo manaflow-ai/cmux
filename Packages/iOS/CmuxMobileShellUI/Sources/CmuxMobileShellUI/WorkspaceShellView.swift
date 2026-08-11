@@ -168,8 +168,21 @@ struct WorkspaceShellView: View {
     @State private var selectedPrimaryTab: MobilePrimaryTab = .workspaces
     @State private var notificationNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var notificationSearchNavigationPath: [MobileWorkspacePreview.ID] = []
+    @State private var workspaceSearchNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var pendingPrimarySearchWorkspaceNavigationID: MobileWorkspacePreview.ID?
     @State private var pendingPrimarySearchNotificationNavigationID: MobileWorkspacePreview.ID?
+    // A NavigationStack path write only reaches UIKit while the stack is in the
+    // window. Writing a push mid tab-transition (search morph still animating)
+    // records the pushed state without pushing, which strands the root list
+    // with the tab bar and toolbar hidden. These flags defer pending pushes to
+    // the destination stack's own onAppear.
+    @State private var workspacesStackIsOnScreen = false
+    @State private var notificationsStackIsOnScreen = false
+    // Set when a workspace is opened from search results: popping back then
+    // finishes the search round on the Workspaces tab with the query cleared,
+    // instead of stranding the user on a deactivated search tab whose selected
+    // (tinted) search control suggests a search is still in progress.
+    @State private var searchSelectionReturnsToWorkspaces = false
     @State private var showingRootSettings = false
     @State private var settingsPairingScannerHandoff = SettingsPairingScannerHandoff()
     @State private var showingRootDeviceTree = false
@@ -259,7 +272,11 @@ struct WorkspaceShellView: View {
                     }
                 }
                 .onAppear {
+                    notificationsStackIsOnScreen = true
                     consumePendingPrimarySearchNavigation(for: .notifications)
+                }
+                .onDisappear {
+                    notificationsStackIsOnScreen = false
                 }
                 .onChange(of: pendingPrimarySearchNotificationNavigationID) { _, _ in
                     consumePendingPrimarySearchNavigation(for: .notifications)
@@ -286,7 +303,16 @@ struct WorkspaceShellView: View {
             .onChange(of: selectedPrimaryTab) { oldValue, newValue in
                 if oldValue == .search, newValue != .search {
                     notificationSearchNavigationPath = []
+                    workspaceSearchNavigationPath = []
+                    searchSelectionReturnsToWorkspaces = false
                 }
+            }
+            .onChange(of: workspaceSearchNavigationPath) { _, path in
+                guard path.isEmpty, searchSelectionReturnsToWorkspaces else { return }
+                searchSelectionReturnsToWorkspaces = false
+                guard selectedPrimaryTab == .search else { return }
+                primarySearchCoordinator.workspaces = ""
+                selectedPrimaryTab = .workspaces
             }
             .onChange(of: store.deeplinkWorkspaceNavigationRequest) { _, request in
                 guard request != nil else { return }
@@ -344,7 +370,7 @@ struct WorkspaceShellView: View {
 
     private func workspaceSearchTabContent(canCreateWorkspaceForSelection: Bool) -> some View {
         workspaceActionToastOverlay {
-            NavigationStack {
+            NavigationStack(path: $workspaceSearchNavigationPath) {
                 MobilePrimaryWorkspaceSearchContentHost(
                     searchCoordinator: primarySearchCoordinator
                 ) { searchText in
@@ -360,7 +386,23 @@ struct WorkspaceShellView: View {
                     )
                 }
                 .toolbar {
-                    rootToolbarContent
+                    if workspaceSearchNavigationPath.isEmpty {
+                        rootToolbarContent
+                    }
+                }
+                // Selecting a search result opens the workspace inside the
+                // search tab's own stack, exactly like notification search.
+                // Transitioning to the Workspaces tab and pushing on its stack
+                // from here raced the search-field dismissal and could record
+                // the push without performing it, stranding the list with no
+                // tab bar (the "stuck after selecting from search" bug).
+                .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
+                    workspaceDestination(
+                        for: workspaceID,
+                        createWorkspace: createWorkspaceInCompactStack,
+                        canCreateWorkspaceForSelection: canCreateWorkspaceForSelection
+                    )
+                    .toolbarVisibility(.hidden, for: .tabBar)
                 }
             }
         }
@@ -518,8 +560,12 @@ struct WorkspaceShellView: View {
             autoOpenSelectedWorkspaceForSoakIfNeeded()
         }
         .onAppear {
+            workspacesStackIsOnScreen = true
             autoOpenSelectedWorkspaceForSoakIfNeeded()
             consumePendingPrimarySearchNavigation(for: .workspaces)
+        }
+        .onDisappear {
+            workspacesStackIsOnScreen = false
         }
         .onChange(of: pendingPrimarySearchWorkspaceNavigationID) { _, _ in
             consumePendingPrimarySearchNavigation(for: .workspaces)
@@ -645,6 +691,10 @@ struct WorkspaceShellView: View {
             isInitialConnectionLoading: isInitialConnectionLoading,
             initialConnectionTimedOut: initialConnectionTimedOut,
             retryInitialConnection: retryInitialConnection,
+            workspaceSortMode: store.workspaceSortMode,
+            setWorkspaceSortMode: { store.setWorkspaceSortMode($0) },
+            workspaceComputerPriority: store.workspaceComputerPriority,
+            setWorkspaceComputerPriority: { store.setWorkspaceComputerPriority($0) },
             filterState: workspaceListFilterState,
             searchText: searchText
         )
@@ -851,10 +901,15 @@ struct WorkspaceShellView: View {
         guard !primarySearchCoordinator.isPresented else { return }
         switch tab {
         case .workspaces:
+            // Compact pushes must wait for the workspaces stack to be in the
+            // window (its onAppear re-runs this); the split layout only writes
+            // the store selection, which is safe at any time.
+            guard !usesCompactStack || workspacesStackIsOnScreen else { return }
             guard let workspaceID = pendingPrimarySearchWorkspaceNavigationID else { return }
             pendingPrimarySearchWorkspaceNavigationID = nil
             selectWorkspaceImmediately(workspaceID)
         case .notifications:
+            guard notificationsStackIsOnScreen else { return }
             guard let workspaceID = pendingPrimarySearchNotificationNavigationID else { return }
             pendingPrimarySearchNotificationNavigationID = nil
             if notificationNavigationPath.last != workspaceID {
@@ -899,9 +954,21 @@ struct WorkspaceShellView: View {
         }
     }
 
+    /// Opens a workspace tapped in the search results by pushing it onto the
+    /// search tab's own stack — no tab transition, so the push cannot land on
+    /// an off-window stack. Choosing a result also ends the search session
+    /// (committing the query, like every other search exit): left presented,
+    /// the field re-presents after popping anchored to the navigation bar at
+    /// the top instead of the search tab's bottom control. Popping back lands
+    /// on the still-filtered results with the bottom search control collapsed.
     private func selectWorkspaceFromSearch(_ id: MobileWorkspacePreview.ID) {
-        pendingPrimarySearchWorkspaceNavigationID = id
-        transitionPrimaryTab(to: .workspaces)
+        pendingCompactCreateNavigationWorkspaceIDs = nil
+        primarySearchCoordinator.deactivateCurrentSearch()
+        searchSelectionReturnsToWorkspaces = true
+        store.selectedWorkspaceID = id
+        if workspaceSearchNavigationPath.last != id {
+            workspaceSearchNavigationPath = [id]
+        }
     }
 
     private func createWorkspaceFromSearch() {

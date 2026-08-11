@@ -15,6 +15,15 @@ use crate::localization::catalog;
 
 use super::{ScrollbarState, ScrollbarStyle};
 
+#[derive(Clone, Copy)]
+struct ConnectionPromptStyles {
+    base: Style,
+    title: Style,
+    input: Style,
+    button_accent: ratatui::style::Color,
+    button_hover: ratatui::style::Color,
+}
+
 /// Trusted approval dialog for a browser pairing request.
 pub fn draw_pairing_dialog(app: &mut App, frame: &mut Frame) {
     let screen = frame.area();
@@ -132,7 +141,19 @@ pub fn draw_prompt(app: &mut App, frame: &mut Frame) {
     if let Some(transaction) = connection
         && !matches!(transaction.phase, crate::app::ConnectionDialogPhase::Editing)
     {
-        draw_connection_prompt(frame, prompt, &transaction, hover, chrome);
+        draw_connection_prompt(
+            frame,
+            prompt,
+            &transaction,
+            hover,
+            ConnectionPromptStyles {
+                base,
+                title: title_style,
+                input: input_style,
+                button_accent: chrome.prompt_button_accent_fg,
+                button_hover: chrome.prompt_button_hover_bg,
+            },
+        );
         return;
     }
     buf.set_stringn(x + 2, y + 2, prompt.label.as_str(), (width - 4) as usize, title_style);
@@ -200,13 +221,10 @@ fn draw_connection_prompt(
     prompt: &mut crate::app::Prompt,
     transaction: &crate::app::ConnectionTransaction,
     hover: Option<(u16, u16)>,
-    chrome: crate::config::ChromeTheme,
+    styles: ConnectionPromptStyles,
 ) {
     use crate::app::ConnectionDialogPhase;
 
-    let base = Style::default().bg(chrome.prompt_bg).fg(chrome.prompt_fg);
-    let title_style = base.fg(chrome.prompt_title_fg).add_modifier(Modifier::BOLD);
-    let input_style = Style::default().bg(chrome.prompt_input_bg).fg(chrome.prompt_input_fg);
     let Rect { x, y, width, height } = prompt.rect;
     let copy = &catalog().sidebar;
     let (title, error) = match &transaction.phase {
@@ -219,19 +237,19 @@ fn draw_connection_prompt(
             (copy.failed_to_connect_message(&transaction.target), Some(error.as_str()))
         }
     };
-    frame.buffer_mut().set_stringn(x + 2, y + 2, &title, (width - 4) as usize, title_style);
+    frame.buffer_mut().set_stringn(x + 2, y + 2, &title, (width - 4) as usize, styles.title);
 
     let input_w = width.saturating_sub(4);
     prompt.input_rect = Rect::default();
     for dx in 0..input_w {
-        set_cell(frame.buffer_mut(), x + 2 + dx, y + 4, " ", input_style);
+        set_cell(frame.buffer_mut(), x + 2 + dx, y + 4, " ", styles.input);
     }
     frame.buffer_mut().set_stringn(
         x + 2,
         y + 4,
         &transaction.target,
         input_w as usize,
-        input_style,
+        styles.input,
     );
 
     if let Some(error) = error {
@@ -243,7 +261,7 @@ fn draw_connection_prompt(
                 y + 6 + index as u16,
                 &line,
                 (width - 4) as usize,
-                base,
+                styles.base,
             );
         }
     }
@@ -277,9 +295,9 @@ fn draw_connection_prompt(
     };
     let button_style = |rect: Rect, accent: bool| {
         let hovered = hover.is_some_and(|(hx, hy)| rect.contains(hx, hy));
-        let mut style = if accent { base.fg(chrome.prompt_button_accent_fg) } else { base };
+        let mut style = if accent { styles.base.fg(styles.button_accent) } else { styles.base };
         if hovered {
-            style = style.add_modifier(Modifier::BOLD).bg(chrome.prompt_button_hover_bg);
+            style = style.add_modifier(Modifier::BOLD).bg(styles.button_hover);
         }
         style
     };

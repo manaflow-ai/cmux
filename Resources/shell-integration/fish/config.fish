@@ -289,6 +289,9 @@ if test "$_cmux_integration_enabled" != 0
         if test -n "$CMUX_PANEL_ID"
             set params "$params,\"surface_id\":\"$CMUX_PANEL_ID\""
         end
+        if test -n "$CMUX_TERMINAL_LIFECYCLE_ID"
+            set params "$params,\"terminal_lifecycle_id\":\"$CMUX_TERMINAL_LIFECYCLE_ID\""
+        end
         set params "$params}"
         _cmux_relay_rpc_bg surface.report_shell_state "$params"
     end
@@ -447,7 +450,11 @@ if test "$_cmux_integration_enabled" != 0
         test "$_CMUX_SHELL_ACTIVITY_LAST" = "$state"; and return 0
         set -g _CMUX_SHELL_ACTIVITY_LAST "$state"
         if _cmux_socket_is_unix
-            _cmux_send_bg "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+            set -l payload "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+            if test -n "$CMUX_TERMINAL_LIFECYCLE_ID"
+                set payload "$payload --terminal-lifecycle-id=$CMUX_TERMINAL_LIFECYCLE_ID"
+            end
+            _cmux_send_bg "$payload"
         else
             _cmux_report_shell_activity_state_via_relay "$state"; or set -g _CMUX_SHELL_ACTIVITY_LAST ""
         end

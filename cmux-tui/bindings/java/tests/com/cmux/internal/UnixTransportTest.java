@@ -57,14 +57,14 @@ public final class UnixTransportTest {
     private static void coalescedOpenResponsePreservesStreamItem()
             throws Exception {
         byte[] opened = frame(Map.of(
-            "protocol", "cmux.protocol/1",
+            "protocol", "cmux.protocol/2",
             "type", "response",
             "id", "java-1",
             "ok", true,
             "result", Map.of("stream_id", "stream-test")
         ));
         byte[] item = frame(Map.of(
-            "protocol", "cmux.protocol/1",
+            "protocol", "cmux.protocol/2",
             "type", "stream_item",
             "stream_id", "stream-test",
             "sequence", "1",

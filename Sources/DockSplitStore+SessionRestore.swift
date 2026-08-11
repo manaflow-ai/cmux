@@ -154,6 +154,10 @@ extension DockSplitStore {
         inPane paneId: PaneID,
         excludingStableIdentities: Set<UUID>
     ) -> UUID? {
+        let snapshot = Workspace.repairedLegacyHermesSessionPanelSnapshot(
+            snapshot,
+            workspaceId: workspaceId
+        )
         guard let terminalSnapshot = snapshot.terminal else { return nil }
         let policy = Workspace.makeSessionRestorePolicyService()
         let restorableAgent = Workspace.restorableAgentForSessionRestore(
@@ -263,6 +267,11 @@ extension DockSplitStore {
         let reusableSurfaceId = GhosttyApp.terminalSurfaceRegistry.surface(id: snapshot.id) == nil
             ? snapshot.id
             : UUID()
+        // A rebuilt shell must not inherit socket-report dedupe state from a
+        // closed surface whose persisted ID it is reusing.
+        TerminalController.shared.cleanupSurfaceState(
+            surfaceIds: [reusableSurfaceId]
+        )
         let terminal = TerminalPanel(
             id: reusableSurfaceId,
             workspaceId: workspaceId,
@@ -298,6 +307,10 @@ extension DockSplitStore {
             }
             return nil
         }
+        armRestoredPanelTitleBoundary(
+            panelId: terminal.id,
+            internallySeededInput: initialInput
+        )
         if let stableSurfaceId = snapshot.stableSurfaceId,
            !excludingStableIdentities.contains(stableSurfaceId) {
             terminal.adoptStableSurfaceId(stableSurfaceId)
@@ -398,7 +411,7 @@ extension DockSplitStore {
             return nil
         }
         surfaceIdToPanelId[tabId] = panel.id
-        installSubscription(for: panel, tracksTerminalTitle: true)
+        installSubscription(for: panel)
         applyVisibility(to: panel)
         return tabId
     }

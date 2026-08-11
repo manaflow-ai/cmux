@@ -5,6 +5,7 @@ import type { Locale } from "../../../i18n/routing";
 import { LanguageSwitcher } from "./language-switcher";
 import { ProUpgradeVisibility } from "./pro-upgrade-visibility";
 import { ContentLocaleLink } from "./content-locale-link";
+import { getCurrentYear } from "@/app/lib/current-year";
 
 function isExternal(href: string) {
   return href.startsWith("http") || href.startsWith("mailto:");
@@ -26,7 +27,7 @@ type FooterColumn = {
 export async function SiteFooter() {
   const t = await getTranslations("footer");
   const locale = await getLocale();
-  const year = new Date().getFullYear();
+  const year = await getCurrentYear();
 
   const columns: FooterColumn[] = [
     {
