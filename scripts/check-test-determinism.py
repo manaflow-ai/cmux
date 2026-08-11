@@ -30,7 +30,10 @@ Detectors (all line/regex heuristics, never an AST):
 - sleep-then-assert: a real sleep immediately followed (within 3 non-blank
   lines) by an assertion, where the sleep is NOT a loop body (i.e. not a poll).
   This is the "sleep as synchronization" ban. Deadline-bounded polls and
-  scenario-pacing sleeps with no trailing assert are allowed.
+  scenario-pacing sleeps with no trailing assert are allowed. An injected Swift
+  test clock can use an adjacent `test-determinism: injected-clock` annotation;
+  the annotation is accepted only on an instance receiver whose name ends in
+  `Clock`.
 
 Usage:
     check-test-determinism.py                 # scan, print findings, exit 0
@@ -202,6 +205,16 @@ _SLEEP_CALL = re.compile(
   | \basyncio\.sleep\s*\(
   | \bsetTimeout\s*\(                       # JS, when used as a bare delay
     """
+)
+
+# An injected test clock can keep the production sleep-shaped API while its
+# test closure returns immediately. The audited annotation is deliberately
+# local: it applies only to this call, only in Swift, and only to an instance
+# receiver named like a clock. It cannot suppress Task.sleep, Thread.sleep, or
+# a constructed ContinuousClock().sleep call.
+_INSTANCE_SLEEP = re.compile(r"\b([A-Za-z_]\w*)\.sleep\s*\(")
+_INJECTED_CLOCK_ANNOTATION = re.compile(
+    r"\btest-determinism:\s*injected-clock\b"
 )
 
 # The shell BARE-COMMAND sleep form (`sleep 0.3`) has no parentheses, so it can
@@ -443,13 +456,36 @@ def _sleep_in_loop(lines: list[str], idx: int) -> bool:
     return False
 
 
-def detect_sleep_then_assert(lines: list[str], idx: int, path_suffix: str) -> bool:
+def _is_audited_injected_clock_sleep(
+    raw_lines: list[str], idx: int, path_suffix: str
+) -> bool:
+    if path_suffix != ".swift":
+        return False
+    instance_sleep = _INSTANCE_SLEEP.search(raw_lines[idx])
+    if not instance_sleep or not instance_sleep.group(1).lower().endswith("clock"):
+        return False
+    annotation_lines = [raw_lines[idx]]
+    if idx > 0:
+        annotation_lines.append(raw_lines[idx - 1])
+    return any(_INJECTED_CLOCK_ANNOTATION.search(line) for line in annotation_lines)
+
+
+def detect_sleep_then_assert(
+    lines: list[str],
+    idx: int,
+    path_suffix: str,
+    raw_lines: Optional[list[str]] = None,
+) -> bool:
     """Sleep on lines[idx] followed by an assertion within 3 non-blank lines."""
     line = lines[idx]
     is_sleep = bool(_SLEEP_CALL.search(line))
     if not is_sleep and path_suffix == ".sh":
         is_sleep = bool(_SHELL_BARE_SLEEP.search(line))
     if not is_sleep:
+        return False
+    if raw_lines is not None and _is_audited_injected_clock_sleep(
+        raw_lines, idx, path_suffix
+    ):
         return False
     if _sleep_in_loop(lines, idx):
         return False
@@ -508,7 +544,7 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
             findings.append(Finding(rel_posix, line_no, RULE_LIVE_NETWORK_HOST, snippet))
         if detect_fixed_port_bind(code):
             findings.append(Finding(rel_posix, line_no, RULE_FIXED_PORT_BIND, snippet))
-        if detect_sleep_then_assert(code_lines, i, suffix):
+        if detect_sleep_then_assert(code_lines, i, suffix, raw_lines):
             findings.append(Finding(rel_posix, line_no, RULE_SLEEP_THEN_ASSERT, snippet))
 
     return findings
@@ -647,6 +683,25 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "cmuxTests/unannotated-clock.swift",
+            "try await testClock.sleep(for: .seconds(7))\n#expect(done)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "cmuxTests/annotated-runtime-clock.swift",
+            "// test-determinism: injected-clock\n"
+            "try await Task.sleep(for: .seconds(7))\n"
+            "#expect(done)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "cmuxTests/annotated-continuous-clock.swift",
+            "// test-determinism: injected-clock\n"
+            "try await ContinuousClock().sleep(for: .seconds(7))\n"
+            "#expect(done)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "tests/sh.sh",
             "sleep 1\ntest -f /tmp/out || exit 1\n",
             set(),  # shell `test -f` is not in our assertion vocabulary; ensure no false negative is required
@@ -782,6 +837,14 @@ def _self_test() -> int:
             "                break\n"
             "            time.sleep(0.3)\n"
             "        _must('ok' in body, body)\n",
+        ),
+        # The named clock delegates to an injected closure that returns
+        # immediately. The adjacent audited annotation documents that fact.
+        (
+            "cmuxTests/n22.swift",
+            "// test-determinism: injected-clock\n"
+            "try await testClock.sleep(for: .seconds(7))\n"
+            "#expect(await iterator.next() == .seconds(7))\n",
         ),
     ]
 
