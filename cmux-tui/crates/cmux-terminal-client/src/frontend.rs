@@ -161,6 +161,7 @@ impl FrontendControlState {
     fn discard_resource_updates(&self) {
         self.resource_updates.lock().unwrap().clear();
         self.resource_updates_overflowed.store(false, Ordering::Release);
+        self.updates.notify();
     }
 
     fn begin_resource_stream(&self) {

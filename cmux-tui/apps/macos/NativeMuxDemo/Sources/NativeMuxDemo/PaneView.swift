@@ -121,10 +121,10 @@ struct PaneView: View {
     @ViewBuilder
     private var tabContent: some View {
         if let activeTab, activeTab.contentKind == "terminal",
-            let state = terminalStates[activeTab.contentID]
+            let state = terminalStates[paneID]
         {
             TerminalSurfaceView(state: state)
-                .id(activeTab.contentID)
+                .id("\(paneID):\(activeTab.contentID)")
         } else if let activeTab, activeTab.contentKind == "browser",
             let browser = snapshot.browser(for: activeTab)
         {

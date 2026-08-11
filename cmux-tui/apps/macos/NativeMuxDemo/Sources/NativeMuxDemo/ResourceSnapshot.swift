@@ -356,6 +356,19 @@ struct ResourceSnapshot: Decodable, Sendable {
         tabsByPaneID[paneID] ?? []
     }
 
+    func visibleTerminalPlacements(in screen: ScreenSnapshot) -> [String: String] {
+        var placements: [String: String] = [:]
+        for paneID in screen.layout.visiblePaneIDs {
+            let tabs = tabs(in: paneID)
+            guard let activeTab = tabs.first(where: { $0.focused }) ?? tabs.first,
+                  activeTab.contentKind == "terminal",
+                  terminalsByID[activeTab.contentID] != nil
+            else { continue }
+            placements[paneID] = activeTab.contentID
+        }
+        return placements
+    }
+
     func terminal(for tab: TabSnapshot) -> TerminalSnapshot? {
         terminalsByID[tab.contentID]
     }
