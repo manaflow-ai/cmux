@@ -408,6 +408,59 @@ import CmuxTerminalCore
         )
     }
 
+    @Test func newCreationStaysBehindOlderOverflowWhenCapacityReturns() throws {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
+            maximumRuntimeSurfaceOwnerCount: 2
+        )
+        let owners = try (0..<2).map { _ in
+            try #require(coordinator.reserveRuntimeSurfaceOwnership())
+        }
+        let registry = FakeSurfaceRegistry()
+        let scheduler = RecordingRestoreSpawnScheduler()
+        let fixtures = (0..<4).map { _ in
+            makeSurfaceFixture(
+                registry: registry,
+                scheduler: scheduler,
+                runtimeTeardown: coordinator
+            )
+        }
+        var firstOwnerReleased = false
+        defer {
+            for fixture in fixtures {
+                fixture.surface.beginPortalCloseLifecycle(
+                    reason: "test.overflowAdmissionOrder"
+                )
+            }
+            if !firstOwnerReleased {
+                coordinator.cancelRuntimeSurfaceOwnership(owners[0])
+            }
+            coordinator.cancelRuntimeSurfaceOwnership(owners[1])
+        }
+
+        for (index, fixture) in fixtures.prefix(3).enumerated() {
+            fixture.surface.createSurface(for: fixture.nativeView)
+            scheduler.runScheduledOperation(at: index)
+        }
+        coordinator.cancelRuntimeSurfaceOwnershipRecovery(fixtures[0].surface.id)
+        coordinator.cancelRuntimeSurfaceOwnershipRecovery(fixtures[1].surface.id)
+        let olderOverflow =
+            coordinator.debugRuntimeSurfaceOwnershipRecoveryOverflowSnapshot
+        #expect(olderOverflow.headID == fixtures[2].surface.id)
+        #expect(olderOverflow.tailID == fixtures[2].surface.id)
+
+        coordinator.cancelRuntimeSurfaceOwnership(owners[0])
+        firstOwnerReleased = true
+        fixtures[3].surface.createSurface(for: fixtures[3].nativeView)
+        scheduler.runScheduledOperation(at: 3)
+
+        let orderedOverflow =
+            coordinator.debugRuntimeSurfaceOwnershipRecoveryOverflowSnapshot
+        #expect(orderedOverflow.entryCount == 2)
+        #expect(orderedOverflow.linkedNodeCount == 2)
+        #expect(orderedOverflow.headID == fixtures[2].surface.id)
+        #expect(orderedOverflow.tailID == fixtures[3].surface.id)
+    }
+
     @Test func overflowRecoveryWaitsForEveryOlderPrimaryRequest() async throws {
         let ownerCount = 4
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(

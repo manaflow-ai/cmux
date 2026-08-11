@@ -64,53 +64,61 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
         let output: (
             result: TerminalSurfaceRuntimeOwnershipRecoveryAdmissionResult,
             requestRescan: Bool
-        ) = state.withLock { state in
-            let claimedCapacity: Bool
-            if let capacityReservation {
-                guard state.recoveryCapacityReservationIDs.remove(
-                    capacityReservation.id
-                ) != nil else {
+        ) = recoveryRescanScheduler.withOverflowQueueFence {
+            hasPendingOverflow in
+            state.withLock { state in
+                let claimedCapacity: Bool
+                if let capacityReservation {
+                    guard state.recoveryCapacityReservationIDs.remove(
+                        capacityReservation.id
+                    ) != nil else {
+                        return (.rejected, false)
+                    }
+                    claimedCapacity = true
+                } else {
+                    claimedCapacity = false
+                }
+                guard !state.closeTeardownAllStalled else {
+                    if state.recoveryEntriesByID[recoveryID] != nil {
+                        state.recoveryEntriesByID[recoveryID]?.action = onRecovery
+                        state.recoveryEntriesByID[recoveryID]?.failure = onFailure
+                        return (.deferred, claimedCapacity)
+                    }
+                    return (.closeTeardownStalled, claimedCapacity)
+                }
+                if hasPendingOverflow,
+                   capacityReservation == nil,
+                   state.recoveryEntriesByID[recoveryID] == nil {
                     return (.rejected, false)
                 }
-                claimedCapacity = true
-            } else {
-                claimedCapacity = false
-            }
-            guard !state.closeTeardownAllStalled else {
+                if !state.closeTeardownDegraded,
+                    state.recoveryHeadID == nil,
+                    !state.recoveryGrantIsScheduled,
+                    state.reservationIDs.count < maximumOwnerCount,
+                    state.ingressReservationIDs.count < maximumOwnerCount
+                {
+                    _ = removeRecoveryAction(recoveryID, from: &state)
+                    return (
+                        .reserved(reserveOwnershipAndIngress(in: &state)),
+                        takeRecoveryRescanRequest(from: &state) || claimedCapacity
+                    )
+                }
                 if state.recoveryEntriesByID[recoveryID] != nil {
                     state.recoveryEntriesByID[recoveryID]?.action = onRecovery
                     state.recoveryEntriesByID[recoveryID]?.failure = onFailure
                     return (.deferred, claimedCapacity)
                 }
-                return (.closeTeardownStalled, claimedCapacity)
-            }
-            if !state.closeTeardownDegraded,
-                state.recoveryHeadID == nil,
-                !state.recoveryGrantIsScheduled,
-                state.reservationIDs.count < maximumOwnerCount,
-                state.ingressReservationIDs.count < maximumOwnerCount
-            {
-                _ = removeRecoveryAction(recoveryID, from: &state)
-                return (
-                    .reserved(reserveOwnershipAndIngress(in: &state)),
-                    takeRecoveryRescanRequest(from: &state) || claimedCapacity
+                guard claimedCapacity || recoveryCapacityIsOpen(in: state) else {
+                    return (.rejected, false)
+                }
+                enqueueRecoveryAction(
+                    onRecovery,
+                    onFailure: onFailure,
+                    id: recoveryID,
+                    in: &state
                 )
+                return (.deferred, false)
             }
-            if state.recoveryEntriesByID[recoveryID] != nil {
-                state.recoveryEntriesByID[recoveryID]?.action = onRecovery
-                state.recoveryEntriesByID[recoveryID]?.failure = onFailure
-                return (.deferred, claimedCapacity)
-            }
-            guard claimedCapacity || recoveryCapacityIsOpen(in: state) else {
-                return (.rejected, false)
-            }
-            enqueueRecoveryAction(
-                onRecovery,
-                onFailure: onFailure,
-                id: recoveryID,
-                in: &state
-            )
-            return (.deferred, false)
         }
         if output.requestRescan {
             recoveryRescanScheduler.requestRescan()

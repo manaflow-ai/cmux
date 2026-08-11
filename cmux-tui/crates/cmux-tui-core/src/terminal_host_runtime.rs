@@ -2948,6 +2948,22 @@ mod unix {
                 .unwrap_or(TerminalHostLiveness::Indeterminate)
             {
                 TerminalHostLiveness::Dead => {
+                    let exit = match terminal_host_exit_record(record_path) {
+                        Ok(exit) => exit,
+                        Err(_) => return false,
+                    };
+                    if let Some((exit_path, exit)) = exit {
+                        if exit.terminal_id != record.terminal_id
+                            || exit.incarnation != record.incarnation
+                        {
+                            return false;
+                        }
+                        match acknowledge_terminal_host_exit_record(&exit_path, &exit) {
+                            Ok(true) => {}
+                            Ok(false) if !exit_path.exists() => {}
+                            Ok(false) | Err(_) => return false,
+                        }
+                    }
                     return match remove_stale_terminal_host_record(record_path, record) {
                         Ok(removed) => removed,
                         Err(_) if !record_path.exists() => true,
@@ -9147,6 +9163,35 @@ mod unix {
 
             drop(lease);
             assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+            let _ = fs::remove_dir_all(root);
+        }
+
+        #[test]
+        fn confirmed_host_termination_acknowledges_its_exact_exit_sidecar() {
+            let (record_path, record, lease) = record_fixture("confirmed-exit-sidecar");
+            let root = record_path.parent().unwrap().to_path_buf();
+            let exit_record = TerminalHostExitRecord::new(
+                &TerminalHostIdentity {
+                    terminal_id: record.terminal_id.clone(),
+                    incarnation: record.incarnation.clone(),
+                },
+                TerminalExit {
+                    outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 17 },
+                    exited_at_ms: 1_234_567,
+                },
+            );
+            let exit_path = record_path.with_extension("exit");
+            write_exit_record(&exit_path, &exit_record).unwrap();
+            drop(lease);
+
+            assert!(terminate_and_confirm_terminal_host_record(
+                &record,
+                &record_path,
+                Instant::now() + Duration::from_secs(1),
+            ));
+            assert!(!record_path.exists(), "confirmed termination retained its discovery record");
+            assert!(!exit_path.exists(), "confirmed termination retained its exact exit sidecar");
+
             let _ = fs::remove_dir_all(root);
         }
 
