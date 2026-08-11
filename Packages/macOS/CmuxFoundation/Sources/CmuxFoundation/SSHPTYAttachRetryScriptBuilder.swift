@@ -36,7 +36,8 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
             terminalFailureCommand: "exit \"$cmux_ssh_attach_status\""
         )
         let authenticationGroupCreation = authPolicy.authenticationGroupCreationShellLine(
-            failureCommand: "cmux_ssh_attach_auth_launching=0; if [ -n \"${cmux_ssh_attach_pending_signal:-}\" ]; then cmux_ssh_attach_signal_exit \"$cmux_ssh_attach_pending_signal\" \"${cmux_ssh_attach_pending_signal_name:-TERM}\"; fi; exit 255"
+            failureCommand: "cmux_ssh_attach_auth_launching=0; if [ -n \"${cmux_ssh_attach_pending_signal:-}\" ]; then cmux_ssh_attach_signal_exit \"$cmux_ssh_attach_pending_signal\" \"${cmux_ssh_attach_pending_signal_name:-TERM}\"; fi; exit 255",
+            capacityRetryInterruptionCondition: "[ -n \"${cmux_ssh_attach_pending_signal:-}\" ]"
         )
         let backoffBuilder = SSHRetryBackoffScriptBuilder(context: .attach)
         let initialReauthentication = reauthenticates ? 1 : 0

@@ -482,7 +482,8 @@ extension CMUXCLI {
         if hasOneTimeCommand {
             scriptLines.append("  if [ \"$cmux_ssh_reauth_required\" -eq 1 ]; then")
             let authenticationGroupCreation = authRetryPolicy.authenticationGroupCreationShellLine(
-                failureCommand: "if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_retire_for_signal \"$CMUX_SSH_PENDING_SIGNAL\"; fi; cmux_ssh_status=255; break"
+                failureCommand: "if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_retire_for_signal \"$CMUX_SSH_PENDING_SIGNAL\"; fi; cmux_ssh_status=255; break",
+                capacityRetryInterruptionCondition: "[ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]"
             )
             scriptLines += [
                 "    \(authenticationGroupCreation)",

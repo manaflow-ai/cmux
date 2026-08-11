@@ -7,6 +7,9 @@ internal import Foundation
 /// The persistent PTY wrappers therefore need stderr context before deciding
 /// whether an initial authentication attempt belongs in their reconnect loop.
 public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
+    /// Exit status used only when the fixed recovery queue has no free slot.
+    static let recoveryQueueCapacityStatus = 75
+
     static let groupStateFileNames = [
         "identity",
         "identity.new",
@@ -145,10 +148,37 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
     /// preserve any entrypoint-specific pending signal. Recovery is scheduled
     /// only after the new directory is exported and present in the queue.
     ///
-    /// - Parameter failureCommand: Trusted shell commands for group-creation failure.
-    /// - Returns: One POSIX-shell line that creates and publishes the group.
-    public func authenticationGroupCreationShellLine(failureCommand: String) -> String {
-        "CMUX_SSH_AUTH_GROUP_DIR=$(cmux_ssh_auth_create_group_dir) || { \(failureCommand); }; export CMUX_SSH_AUTH_GROUP_DIR; cmux_ssh_schedule_failed_auth_group_recovery"
+    /// Queue capacity starts a signal-interruptible one-second recovery retry. It
+    /// does not consume an SSH authentication attempt or report an SSH failure.
+    ///
+    /// - Parameters:
+    ///   - failureCommand: Trusted shell commands for non-capacity group-creation failure.
+    ///   - capacityRetryInterruptionCondition: Trusted shell condition that becomes true
+    ///     when the caller has received a signal while it waits for queue capacity.
+    /// - Returns: A POSIX-shell snippet that creates and publishes the group.
+    public func authenticationGroupCreationShellLine(
+        failureCommand: String,
+        capacityRetryInterruptionCondition: String
+    ) -> String {
+        """
+        cmux_ssh_auth_group_creation_status=0
+        while :; do
+          CMUX_SSH_AUTH_GROUP_DIR=$(cmux_ssh_auth_create_group_dir)
+          cmux_ssh_auth_group_creation_status=$?
+          if [ "$cmux_ssh_auth_group_creation_status" -eq 0 ]; then break; fi
+          if [ "$cmux_ssh_auth_group_creation_status" -ne \(Self.recoveryQueueCapacityStatus) ]; then break; fi
+          cmux_ssh_schedule_failed_auth_group_recovery
+          sleep 1
+          if \(capacityRetryInterruptionCondition); then
+            cmux_ssh_auth_group_creation_status=1
+            break
+          fi
+        done
+        if [ "$cmux_ssh_auth_group_creation_status" -ne 0 ]; then \(failureCommand); fi
+        unset cmux_ssh_auth_group_creation_status
+        export CMUX_SSH_AUTH_GROUP_DIR
+        cmux_ssh_schedule_failed_auth_group_recovery
+        """
     }
 
     /// Builds the final removal command for a reaped authentication attempt's bounded state.
@@ -1177,7 +1207,9 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           ))
           # Eight segments of eight records put a fixed 64-group limit on
           # pending recovery work. Check only that bounded window for duplicates.
-          if [ "$cmux_ssh_auth_recovery_segment_span" -ge 8 ]; then return 1; fi
+          if [ "$cmux_ssh_auth_recovery_segment_span" -ge 8 ]; then
+            return \(Self.recoveryQueueCapacityStatus)
+          fi
           cmux_ssh_auth_recovery_check_index="$cmux_ssh_auth_recovery_read_index_value"
           while [ "$cmux_ssh_auth_recovery_check_index" -le \
             "$cmux_ssh_auth_recovery_write_index" ]; do
@@ -1209,7 +1241,9 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             ''|*[!0-9]*) return 1 ;;
           esac
           if [ "$cmux_ssh_auth_recovery_segment_count" -ge 8 ]; then
-            if [ "$cmux_ssh_auth_recovery_segment_span" -ge 7 ]; then return 1; fi
+            if [ "$cmux_ssh_auth_recovery_segment_span" -ge 7 ]; then
+              return \(Self.recoveryQueueCapacityStatus)
+            fi
             cmux_ssh_auth_recovery_write_index=$((cmux_ssh_auth_recovery_write_index + 1))
             cmux_ssh_auth_recovery_write_segment="$cmux_ssh_auth_recovery_root/queue.$cmux_ssh_auth_recovery_write_index"
             if [ -L "$cmux_ssh_auth_recovery_write_segment" ]; then return 1; fi
@@ -1248,8 +1282,13 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             cmux_ssh_auth_create_lock_attempt=$((cmux_ssh_auth_create_lock_attempt + 1))
             if [ "$cmux_ssh_auth_create_lock_attempt" -ge 3 ]; then return 1; fi
           done
-          if ! cmux_ssh_auth_recovery_append_locked "$cmux_ssh_auth_create_dir" || \
-            ! (umask 077; /bin/mkdir "$cmux_ssh_auth_create_dir") 2>/dev/null; then
+          cmux_ssh_auth_recovery_append_locked "$cmux_ssh_auth_create_dir"
+          cmux_ssh_auth_create_append_status=$?
+          if [ "$cmux_ssh_auth_create_append_status" -ne 0 ]; then
+            cmux_ssh_auth_recovery_unlock
+            return "$cmux_ssh_auth_create_append_status"
+          fi
+          if ! (umask 077; /bin/mkdir "$cmux_ssh_auth_create_dir") 2>/dev/null; then
             cmux_ssh_auth_recovery_unlock
             return 1
           fi
