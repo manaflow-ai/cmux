@@ -6020,11 +6020,8 @@ fn journal_agent_generation_scopes_same_session_id_to_provider() {
     });
     let error = registry
         .commit_agent_projection(
-            &WorkspaceMutation::new(
-                "journal-agent-provider-generation-delayed-a",
-                "socket-test",
-            )
-            .unwrap(),
+            &WorkspaceMutation::new("journal-agent-provider-generation-delayed-a", "socket-test")
+                .unwrap(),
             &json!({"source_session":"shared-provider-session"}),
             Some(5),
             &terminal_id,
@@ -6099,10 +6096,7 @@ fn journal_agent_prejournal_migration_retires_older_hook_sessions() {
                 params![current, terminal_id.as_str()],
             )
             .unwrap();
-        registry
-            .connection
-            .execute("DELETE FROM resource_agent_session_generations", [])
-            .unwrap();
+        registry.connection.execute("DELETE FROM resource_agent_session_generations", []).unwrap();
         registry
             .connection
             .execute(
