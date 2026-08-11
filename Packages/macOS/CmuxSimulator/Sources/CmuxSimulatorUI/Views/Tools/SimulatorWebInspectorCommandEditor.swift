@@ -18,12 +18,12 @@ struct SimulatorWebInspectorCommandEditor: View {
             }
             .disabled(!isAttached)
             Spacer()
-            Button(simulatorStrings.sendInspectorCommand) { send(rawJSON) }
+            SimulatorLocalizedButton(simulatorStrings.sendInspectorCommand) { send(rawJSON) }
                 .disabled(!isAttached || rawJSON.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
         TextEditor(text: $rawJSON)
             .font(.caption.monospaced())
             .frame(minHeight: 88)
-            .accessibilityLabel(simulatorStrings.rawInspectorRequest)
+            .accessibilityLabel(Text(simulatorStrings.rawInspectorRequest))
     }
 }

@@ -12,12 +12,12 @@ struct SimulatorApplicationTools: View {
         let applicationRows = simulatorApplicationPickerRows(coordinator.installedApplications)
         SimulatorToolSection(simulatorStrings.applications) {
             HStack {
-                Button(simulatorStrings.installApplication) {
+                SimulatorLocalizedButton(simulatorStrings.installApplication) {
                     coordinator.scheduleControlAction("install-application") {
                         await $0.installApplication()
                     }
                 }
-                Button(simulatorStrings.refresh) {
+                SimulatorLocalizedButton(simulatorStrings.refresh) {
                     coordinator.scheduleControlAction("refresh-applications") {
                         await $0.refreshApplications()
                     }
@@ -33,7 +33,7 @@ struct SimulatorApplicationTools: View {
                 Toggle(simulatorStrings.terminateRunning, isOn: $terminateRunning)
                 Toggle(simulatorStrings.waitForDebugger, isOn: $waitForDebugger)
                 HStack {
-                    Button(simulatorStrings.launch) {
+                    SimulatorLocalizedButton(simulatorStrings.launch) {
                         coordinator.scheduleControlAction("launch-application") {
                             await $0.launchApplication(
                                 bundleIdentifier: selectedBundleIdentifier,
@@ -45,7 +45,7 @@ struct SimulatorApplicationTools: View {
                             )
                         }
                     }
-                    Button(simulatorStrings.terminate) {
+                    SimulatorLocalizedButton(simulatorStrings.terminate) {
                         coordinator.scheduleControlAction("terminate-application") {
                             await $0.terminateApplication(bundleIdentifier: selectedBundleIdentifier)
                         }

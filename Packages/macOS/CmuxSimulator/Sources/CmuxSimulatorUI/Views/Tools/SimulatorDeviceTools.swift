@@ -26,11 +26,11 @@ struct SimulatorDeviceTools: View {
                 VStack(alignment: .leading) { hardwareButtons }
             }
             HStack {
-                Button(simulatorStrings.swipeHome) { coordinator.press(.swipeHome) }
-                Button(simulatorStrings.siri) { coordinator.press(.siri) }
+                SimulatorLocalizedButton(simulatorStrings.swipeHome) { coordinator.press(.swipeHome) }
+                SimulatorLocalizedButton(simulatorStrings.siri) { coordinator.press(.siri) }
             }
             .disabled(!coordinator.supports(.hardwareButtons))
-            Button(simulatorStrings.memoryWarning) { coordinator.sendMemoryWarning() }
+            SimulatorLocalizedButton(simulatorStrings.memoryWarning) { coordinator.sendMemoryWarning() }
                 .disabled(!coordinator.supports(.memoryWarning))
 #if DEBUG
             SimulatorDebugTools(coordinator: coordinator)
@@ -55,7 +55,7 @@ struct SimulatorDeviceTools: View {
                 .onChange(of: slowAnimations) { _, enabled in
                     coordinator.setCoreAnimationDiagnostic(.slowAnimations, enabled: enabled)
                 }
-            Button(simulatorStrings.shutdown, role: .destructive) {
+            SimulatorLocalizedButton(simulatorStrings.shutdown, role: .destructive) {
                 coordinator.shutdownSelectedDevice()
             }
             .disabled(coordinator.selectedDevice == nil)
@@ -65,13 +65,13 @@ struct SimulatorDeviceTools: View {
     private var hardwareButtons: some View {
         Group {
             Button { coordinator.press(.sideButton) } label: {
-                Label(simulatorStrings.sideButton, systemImage: "button.programmable")
+                SimulatorLocalizedLabel(simulatorStrings.sideButton, systemImage: "button.programmable")
             }
             Button { coordinator.press(.volumeUp) } label: {
-                Label(simulatorStrings.volumeUp, systemImage: "speaker.plus")
+                SimulatorLocalizedLabel(simulatorStrings.volumeUp, systemImage: "speaker.plus")
             }
             Button { coordinator.press(.volumeDown) } label: {
-                Label(simulatorStrings.volumeDown, systemImage: "speaker.minus")
+                SimulatorLocalizedLabel(simulatorStrings.volumeDown, systemImage: "speaker.minus")
             }
         }
         .disabled(!coordinator.supports(.hardwareButtons))

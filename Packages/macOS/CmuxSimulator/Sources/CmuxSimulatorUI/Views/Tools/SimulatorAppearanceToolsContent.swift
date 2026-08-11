@@ -126,7 +126,7 @@ struct SimulatorAppearanceToolsContent: View {
                 Stepper(value: $battery, in: 0...100) { Text(verbatim: "\(battery)%") }
             }
             HStack {
-                Button(simulatorStrings.applyStatusBar) {
+                SimulatorLocalizedButton(simulatorStrings.applyStatusBar) {
                     coordinator.scheduleControlAction("status-bar") {
                         await $0.overrideStatusBar(SimulatorStatusBarOverride(
                             time: time,
@@ -141,7 +141,7 @@ struct SimulatorAppearanceToolsContent: View {
                         ))
                     }
                 }
-                Button(simulatorStrings.clearStatusBar) {
+                SimulatorLocalizedButton(simulatorStrings.clearStatusBar) {
                     coordinator.scheduleControlAction("status-bar") { await $0.clearStatusBar() }
                 }
             }

@@ -9,7 +9,7 @@ struct SimulatorNotificationPrivacyToolsContent: View {
     var body: some View {
         SimulatorToolSection(simulatorStrings.notificationsAndPrivacy) {
             TextField(String(localized: simulatorStrings.bundleIdentifier), text: $bundleIdentifier)
-            Button(simulatorStrings.sendPush) {
+            SimulatorLocalizedButton(simulatorStrings.sendPush) {
                 coordinator.scheduleControlAction("push-notification") {
                     await $0.pushNotification(bundleIdentifier: bundleIdentifier)
                 }
@@ -22,25 +22,25 @@ struct SimulatorNotificationPrivacyToolsContent: View {
                 }
             }
             HStack {
-                Button(simulatorStrings.grant) { apply(.grant) }
+                SimulatorLocalizedButton(simulatorStrings.grant) { apply(.grant) }
                     .disabled(!simulatorPrivacyActionIsEnabled(
                         .grant,
                         service: service,
                         bundleIdentifier: bundleIdentifier
                     ))
-                Button(simulatorStrings.revoke) { apply(.revoke) }
+                SimulatorLocalizedButton(simulatorStrings.revoke) { apply(.revoke) }
                     .disabled(!simulatorPrivacyActionIsEnabled(
                         .revoke,
                         service: service,
                         bundleIdentifier: bundleIdentifier
                     ))
-                Button(simulatorStrings.reset) { apply(.reset) }
+                SimulatorLocalizedButton(simulatorStrings.reset) { apply(.reset) }
                     .disabled(!simulatorPrivacyActionIsEnabled(
                         .reset,
                         service: service,
                         bundleIdentifier: bundleIdentifier
                     ))
-                Button(simulatorStrings.readPermissions) {
+                SimulatorLocalizedButton(simulatorStrings.readPermissions) {
                     coordinator.scheduleControlAction("read-privacy") {
                         await $0.readPrivacy(bundleIdentifier: bundleIdentifier)
                     }

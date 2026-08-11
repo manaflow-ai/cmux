@@ -7,7 +7,7 @@ struct SimulatorInspectionTools: View {
 
     var body: some View {
         SimulatorToolSection(simulatorStrings.inspect) {
-            Button(simulatorStrings.foregroundApp) {
+            SimulatorLocalizedButton(simulatorStrings.foregroundApp) {
                 coordinator.scheduleControlAction("refresh-foreground") {
                     await $0.refreshForegroundApplication()
                 }
@@ -42,7 +42,7 @@ struct SimulatorInspectionTools: View {
                             .font(.caption2.monospaced())
                             .textSelection(.enabled)
                     }
-                    Button(simulatorStrings.revealInFinder) {
+                    SimulatorLocalizedButton(simulatorStrings.revealInFinder) {
                         NSWorkspace.shared.activateFileViewerSelecting([
                             URL(fileURLWithPath: bundlePath, isDirectory: true),
                         ])
@@ -53,14 +53,14 @@ struct SimulatorInspectionTools: View {
                     value: String(localized: application.isReactNative ? simulatorStrings.yes : simulatorStrings.no)
                 )
                 if application.isReactNative {
-                    Button(simulatorStrings.reloadReactNative) {
+                    SimulatorLocalizedButton(simulatorStrings.reloadReactNative) {
                         coordinator.scheduleControlAction("reload-react-native") {
                             await $0.reloadReactNative()
                         }
                     }
                 }
             }
-            Button(simulatorStrings.accessibility) {
+            SimulatorLocalizedButton(simulatorStrings.accessibility) {
                 coordinator.scheduleControlAction("refresh-accessibility") {
                     await $0.refreshAccessibility()
                 }
@@ -92,7 +92,7 @@ struct SimulatorInspectionTools: View {
                     }
                 }
                 if coordinator.highlightedAccessibilityNodeID != nil {
-                    Button(simulatorStrings.clearHighlight) {
+                    SimulatorLocalizedButton(simulatorStrings.clearHighlight) {
                         coordinator.scheduleControlAction("accessibility-highlight") {
                             await $0.clearAccessibilityHighlight()
                         }

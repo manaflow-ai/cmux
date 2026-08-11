@@ -16,11 +16,11 @@ struct SimulatorDeviceStage: View {
             backgroundColor
             if coordinator.devices.isEmpty, coordinator.failure == nil {
                 ContentUnavailableView {
-                    Label(simulatorStrings.noDevices, systemImage: "iphone.slash")
+                    SimulatorLocalizedLabel(simulatorStrings.noDevices, systemImage: "iphone.slash")
                 } description: {
                     Text(simulatorStrings.noDevicesHelp)
                 } actions: {
-                    Button(simulatorStrings.refresh) {
+                    SimulatorLocalizedButton(simulatorStrings.refresh) {
                         coordinator.scheduleControlAction("reload-devices") { _ = await $0.reloadDevices() }
                     }
                 }
@@ -88,7 +88,7 @@ struct SimulatorDeviceStage: View {
         ))
         .shadow(color: .black.opacity(0.28), radius: 18, y: 8)
         .padding(simulatorDeviceStagePadding)
-        .accessibilityLabel(simulatorStrings.simulator)
+        .accessibilityLabel(Text(simulatorStrings.simulator))
     }
 
     private func maximumDeviceSize(
@@ -117,12 +117,12 @@ struct SimulatorDeviceStage: View {
     @ViewBuilder
     private func failureView(_ failure: SimulatorFailure) -> some View {
         ContentUnavailableView {
-            Label(simulatorStrings.failed, systemImage: "exclamationmark.triangle")
+            SimulatorLocalizedLabel(simulatorStrings.failed, systemImage: "exclamationmark.triangle")
         } description: {
             Text(simulatorStrings.failure(failure.code))
         } actions: {
             if failure.isRecoverable {
-                Button(simulatorStrings.reconnect) { coordinator.recover() }
+                SimulatorLocalizedButton(simulatorStrings.reconnect) { coordinator.recover() }
             }
         }
     }
@@ -137,9 +137,9 @@ struct SimulatorDeviceStage: View {
             }
         case .workerCrashed:
             ContentUnavailableView {
-                Label(simulatorStrings.workerStopped, systemImage: "bolt.slash")
+                SimulatorLocalizedLabel(simulatorStrings.workerStopped, systemImage: "bolt.slash")
             } actions: {
-                Button(simulatorStrings.reconnect) { coordinator.recover() }
+                SimulatorLocalizedButton(simulatorStrings.reconnect) { coordinator.recover() }
             }
         default:
             ContentUnavailableView(

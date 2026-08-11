@@ -71,21 +71,21 @@ struct SimulatorCameraToolsContent: View {
 
     private var cameraButtons: some View {
         Group {
-            Button(simulatorStrings.chooseCameraSource) {
+            SimulatorLocalizedButton(simulatorStrings.chooseCameraSource) {
                 coordinator.scheduleControlAction("camera-source") {
                     await $0.chooseCameraSource(
                         targetBundleIdentifier: targetBundleIdentifier
                     )
                 }
             }
-            Button(simulatorStrings.cameraPlaceholder) {
+            SimulatorLocalizedButton(simulatorStrings.cameraPlaceholder) {
                 coordinator.scheduleControlAction("camera-source") {
                     await $0.useCameraPlaceholder(
                         targetBundleIdentifier: targetBundleIdentifier
                     )
                 }
             }
-            Button(simulatorStrings.hostCamera) {
+            SimulatorLocalizedButton(simulatorStrings.hostCamera) {
                 coordinator.scheduleControlAction("camera-source") {
                     await $0.useHostCamera(
                         deviceID: hostCameraID.isEmpty ? nil : hostCameraID,
@@ -94,10 +94,10 @@ struct SimulatorCameraToolsContent: View {
                     await $0.setCameraMirror(mirrorMode)
                 }
             }
-            Button(simulatorStrings.disableCamera) {
+            SimulatorLocalizedButton(simulatorStrings.disableCamera) {
                 coordinator.scheduleControlAction("camera-source") { await $0.disableCamera() }
             }
-            Button(simulatorStrings.refresh) {
+            SimulatorLocalizedButton(simulatorStrings.refresh) {
                 coordinator.scheduleControlAction("refresh-camera") { await $0.refreshCameraStatus() }
             }
         }

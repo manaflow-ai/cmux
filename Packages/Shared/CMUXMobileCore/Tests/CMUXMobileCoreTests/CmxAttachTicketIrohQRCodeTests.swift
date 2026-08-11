@@ -105,16 +105,15 @@ private func compactIrohQRHostPortRoute() throws -> CmxAttachRoute {
         URLComponents(url: parsedURL, resolvingAgainstBaseURL: false)
     )
     let pairingDecoded = try CmxPairingQRCode().decode(components)
-    #expect(pairingDecoded.routes == [
-        try CmxAttachRoute(
-            id: "iroh",
-            kind: .iroh,
-            endpoint: .peer(
-                identity: CmxIrohPeerIdentity(endpointID: compactIrohQREndpointID),
-                pathHints: []
-            )
-        ),
-    ])
+    let expectedPairingRoute = try CmxAttachRoute(
+        id: "iroh",
+        kind: .iroh,
+        endpoint: .peer(
+            identity: CmxIrohPeerIdentity(endpointID: compactIrohQREndpointID),
+            pathHints: []
+        )
+    )
+    #expect(pairingDecoded.routes == [expectedPairingRoute])
     #expect(pairingDecoded.macDeviceID.isEmpty)
     #expect(pairingDecoded.macDisplayName == nil)
     #expect(pairingDecoded.macUserID == nil)

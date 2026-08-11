@@ -14,7 +14,7 @@ struct SimulatorCaptureTools: View {
                         Text(verbatim: format.rawValue.uppercased()).tag(format)
                     }
                 }
-                Button(simulatorStrings.screenshot) {
+                SimulatorLocalizedButton(simulatorStrings.screenshot) {
                     coordinator.scheduleControlAction("capture-screenshot") {
                         await $0.captureScreenshot(format: screenshotFormat)
                     }
@@ -26,7 +26,9 @@ struct SimulatorCaptureTools: View {
                         Text(verbatim: codec.rawValue.uppercased()).tag(codec)
                     }
                 }
-                Button(coordinator.isVideoRecording ? simulatorStrings.stopRecording : simulatorStrings.startRecording) {
+                SimulatorLocalizedButton(
+                    coordinator.isVideoRecording ? simulatorStrings.stopRecording : simulatorStrings.startRecording
+                ) {
                     coordinator.scheduleControlAction("toggle-video-recording") {
                         await $0.toggleVideoRecording(codec: videoCodec)
                     }
