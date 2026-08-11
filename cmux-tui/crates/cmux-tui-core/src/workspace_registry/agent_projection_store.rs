@@ -248,14 +248,13 @@ fn deferred_live_agent_session_is_superseded(
     if !superseded {
         return Ok(false);
     }
-    let journal_identity =
-        crate::agent_hooks::agent_session_subject(next.terminal_id.as_str(), provider, source_session)
-            .id;
-    Ok(!agent_session_identity_precedes_record(
-        transaction,
-        &journal_identity,
-        live_sequence,
-    )?)
+    let journal_identity = crate::agent_hooks::agent_session_subject(
+        next.terminal_id.as_str(),
+        provider,
+        source_session,
+    )
+    .id;
+    Ok(!agent_session_identity_precedes_record(transaction, &journal_identity, live_sequence)?)
 }
 
 /// Keep accepted structured sessions in the same transaction as their journal
@@ -413,8 +412,8 @@ fn active_agent_session_started_in_deferred_live_tail(
     let Some(live_sequence) = agent_projection_journal_live_sequence(transaction)? else {
         return Ok(false);
     };
-    let live_sequence =
-        i64::try_from(live_sequence).context("agent projection live sequence exceeds SQLite range")?;
+    let live_sequence = i64::try_from(live_sequence)
+        .context("agent projection live sequence exceeds SQLite range")?;
     transaction
         .query_row(
             "SELECT EXISTS(
