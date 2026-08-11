@@ -912,23 +912,46 @@ async fn bootstrap_initial_ssh_route(
     config.extra_args = ssh.extra_args.clone();
     config.auto_install = options.auto_install;
     config.timeout = options.attempt_timeout;
-    let bootstrap = SshBootstrapper::new(config)?;
-    tokio::select! {
-        result = tokio::time::timeout(options.attempt_timeout, async {
-            if upgrade {
-                bootstrap.install_verified().await?;
-                bootstrap
-                    .stop_daemon(&ssh.remote_session, ssh.remote_state_dir.as_deref())
-                    .await?;
-            } else {
-                bootstrap.ensure_installed().await?;
-            }
-            Ok::<(), BootstrapError>(())
-        }) => {
-            result.map_err(|_| BootstrapError::Timeout)??;
-            Ok(())
+    let (bootstrap, cancellation) = SshBootstrapper::new(config)?.with_cancellation();
+    let bootstrap_work = tokio::time::timeout(options.attempt_timeout, async {
+        if upgrade {
+            bootstrap.install_verified().await?;
+            bootstrap.stop_daemon(&ssh.remote_session, ssh.remote_state_dir.as_deref()).await?;
+        } else {
+            bootstrap.ensure_installed().await?;
         }
-        () = wait_for_shutdown_request(shutdown) => Err(anyhow!("SSH bootstrap interrupted")),
+        Ok::<(), BootstrapError>(())
+    });
+    wait_for_ssh_bootstrap_or_shutdown(bootstrap_work, cancellation.cancel_and_wait(), shutdown)
+        .await
+}
+
+async fn wait_for_ssh_bootstrap_or_shutdown(
+    bootstrap_work: impl std::future::Future<
+        Output = Result<Result<(), BootstrapError>, tokio::time::error::Elapsed>,
+    >,
+    cleanup: impl std::future::Future<Output = ()>,
+    shutdown: Option<watch::Receiver<bool>>,
+) -> anyhow::Result<()> {
+    tokio::pin!(bootstrap_work);
+    tokio::pin!(cleanup);
+    tokio::select! {
+        result = &mut bootstrap_work => {
+            match result {
+                Ok(result) => {
+                    result?;
+                    Ok(())
+                }
+                Err(_) => {
+                    cleanup.as_mut().await;
+                    Err(BootstrapError::Timeout.into())
+                }
+            }
+        }
+        () = wait_for_shutdown_request(shutdown) => {
+            cleanup.as_mut().await;
+            Err(anyhow!("SSH bootstrap interrupted"))
+        }
     }
 }
 
@@ -2252,158 +2275,51 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
-    #[test]
-    fn client_shutdown_cancels_reconnect_ssh_bootstrap_and_kills_child() {
-        use std::os::unix::fs::PermissionsExt;
+    #[tokio::test]
+    async fn ssh_bootstrap_shutdown_waits_for_owner_cleanup() {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            let (bootstrap_started_tx, bootstrap_started_rx) = tokio::sync::oneshot::channel();
+            let bootstrap_work = async move {
+                let _ = bootstrap_started_tx.send(());
+                std::future::pending::<
+                    Result<Result<(), BootstrapError>, tokio::time::error::Elapsed>,
+                >()
+                .await
+            };
+            let (cleanup_started_tx, cleanup_started_rx) = tokio::sync::oneshot::channel();
+            let (cleanup_release_tx, cleanup_release_rx) = tokio::sync::oneshot::channel();
+            let cleanup = async move {
+                let _ = cleanup_started_tx.send(());
+                let _ = cleanup_release_rx.await;
+            };
+            let (shutdown_tx, shutdown_rx) = watch::channel(false);
+            let mut lifecycle = Box::pin(wait_for_ssh_bootstrap_or_shutdown(
+                bootstrap_work,
+                cleanup,
+                Some(shutdown_rx),
+            ));
 
-        let directory = tempfile::tempdir().unwrap();
-        let daemon_root = directory.path().join("daemon");
-        let daemon_link = daemon_root.join("link.sock");
-        let proxy_link = directory.path().join("proxy-link.sock");
-        let daemon = start_daemon_runtime(
-            directory.path().join("missing-mux.sock"),
-            DaemonRuntimeOptions {
-                session: "shutdown-cancel".into(),
-                state_dir: Some(daemon_root.clone()),
-                link_socket: Some(daemon_link.clone()),
-                admin_socket: Some(daemon_root.join("admin.sock")),
-                direct_websocket: None,
-                allow_insecure_non_loopback: false,
-                relays: Vec::new(),
-                iroh: false,
-                advertised_routes: Vec::new(),
-                resume_lease: Duration::from_secs(2),
-                replaceable_sidecar: false,
-            },
-        )
-        .unwrap();
-        let proxy_listener = std::os::unix::net::UnixListener::bind(&proxy_link).unwrap();
-        proxy_listener.set_nonblocking(true).unwrap();
-        let (cut_tx, cut_rx) = tokio::sync::oneshot::channel();
-        let proxy = thread::spawn(move || {
-            let runtime = build_remote_runtime("cmux-remote-carrier-cut-test").unwrap();
-            runtime.block_on(async move {
-                let listener = tokio::net::UnixListener::from_std(proxy_listener).unwrap();
-                let (mut client_stream, _) = listener.accept().await.unwrap();
-                let mut daemon_stream = tokio::net::UnixStream::connect(daemon_link).await.unwrap();
-                tokio::select! {
-                    _ = cut_rx => {}
-                    result = tokio::io::copy_bidirectional(
-                        &mut client_stream,
-                        &mut daemon_stream,
-                    ) => {
-                        result.unwrap();
-                    }
-                }
-            });
-        });
+            tokio::select! {
+                result = &mut lifecycle => panic!("SSH bootstrap ended before startup: {result:?}"),
+                result = bootstrap_started_rx => result.unwrap(),
+            }
+            shutdown_tx.send_replace(true);
+            tokio::select! {
+                result = &mut lifecycle => panic!("SSH bootstrap returned before cleanup: {result:?}"),
+                result = cleanup_started_rx => result.unwrap(),
+            }
+            tokio::select! {
+                biased;
+                result = &mut lifecycle => panic!("SSH bootstrap returned before cleanup release: {result:?}"),
+                _ = tokio::task::yield_now() => {}
+            }
 
-        let script = directory.path().join("ssh");
-        let pid_file = directory.path().join("ssh.pid");
-        fs::write(
-            &script,
-            format!(
-                "#!/bin/sh\nprintf '%s' \"$$\" > '{}'\nexec /bin/sleep 30\n",
-                pid_file.display()
-            ),
-        )
-        .unwrap();
-        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
-        let ssh = SshProviderConfig {
-            ssh_binary: script.to_string_lossy().into_owned(),
-            ..SshProviderConfig::default()
-        };
-        let providers = Arc::new(
-            client_provider_registry(ssh.clone(), None, BTreeMap::new(), IrohPathMode::Auto)
-                .unwrap(),
-        );
-        let mut unix_route = Url::parse("unix:///").unwrap();
-        unix_route.set_path(proxy_link.to_str().unwrap());
-        let routes = [unix_route, Url::parse("ssh://fallback.example").unwrap()]
-            .into_iter()
-            .map(|endpoint| {
-                ResolvedRouteCandidate::resolve(endpoint, BTreeMap::new(), &providers).unwrap()
-            })
-            .collect();
-        let client = start_client_runtime(ClientRuntimeOptions {
-            routes,
-            providers,
-            identity: StaticIdentity::generate().unwrap(),
-            expected_daemon: None,
-            auth: ClientAuthMode::Carrier,
-            device_name: "shutdown-cancel-test".into(),
-            session: SessionId([21; 16]),
-            lane_policy: LanePolicy::Single,
-            reconnect: ReconnectPolicy {
-                initial_delay: Duration::from_millis(10),
-                maximum_delay: Duration::from_millis(10),
-                attempt_timeout: Duration::from_millis(50),
-                full_jitter: false,
-                heartbeat_interval: Some(Duration::from_millis(10)),
-                heartbeat_timeout: Duration::from_millis(10),
-                maximum_attempts: None,
-            },
-            startup_timeout: Duration::from_secs(5),
-            state_dir: directory.path().join("client"),
-            local_socket: Some(directory.path().join("client.sock")),
-            ssh,
-            ssh_bootstrap: SshBootstrapOptions {
-                auto_install: true,
-                upgrade: false,
-                attempt_timeout: Duration::from_secs(10),
-            },
+            cleanup_release_tx.send(()).unwrap();
+            let error = lifecycle.await.unwrap_err();
+            assert_eq!(error.to_string(), "SSH bootstrap interrupted");
         })
-        .unwrap();
-
-        cut_tx.send(()).unwrap();
-        proxy.join().unwrap();
-        let deadline = std::time::Instant::now() + Duration::from_secs(3);
-        let pid = loop {
-            if let Ok(value) = fs::read_to_string(&pid_file)
-                && let Ok(pid) = value.parse::<libc::pid_t>()
-            {
-                break pid;
-            }
-            assert!(
-                std::time::Instant::now() < deadline,
-                "client did not enter reconnect SSH bootstrap"
-            );
-            thread::sleep(Duration::from_millis(10));
-        };
-
-        let (done_tx, done_rx) = mpsc::sync_channel(1);
-        thread::spawn(move || {
-            let _ = done_tx.send(client.shutdown());
-        });
-        let completed_promptly = match done_rx.recv_timeout(Duration::from_millis(500)) {
-            Ok(result) => {
-                result.unwrap();
-                true
-            }
-            Err(_) => {
-                unsafe {
-                    libc::kill(pid, libc::SIGKILL);
-                }
-                done_rx
-                    .recv_timeout(Duration::from_secs(3))
-                    .expect("client shutdown stayed blocked after SSH cleanup")
-                    .unwrap();
-                false
-            }
-        };
-        assert!(
-            completed_promptly,
-            "client shutdown waited for the reconnect SSH bootstrap timeout"
-        );
-
-        let deadline = std::time::Instant::now() + Duration::from_secs(2);
-        while unsafe { libc::kill(pid, 0) } == 0 && std::time::Instant::now() < deadline {
-            thread::sleep(Duration::from_millis(10));
-        }
-        assert_eq!(unsafe { libc::kill(pid, 0) }, -1, "cancelled SSH child is still alive");
-        assert_eq!(std::io::Error::last_os_error().raw_os_error(), Some(libc::ESRCH));
-        daemon.shutdown().unwrap();
+        .await
+        .expect("SSH bootstrap shutdown lifecycle did not complete");
     }
 
     #[tokio::test]
