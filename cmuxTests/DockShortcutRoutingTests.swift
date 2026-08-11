@@ -133,6 +133,9 @@ struct DockShortcutRoutingTests {
                 let dockBrowser = try #require(
                     harness.dock.browserPanel(for: dockBrowserId)
                 )
+                let dockWebView = try #require(
+                    dockBrowser.webView as? CmuxWebView
+                )
 
                 dockBrowser.startFind()
 
@@ -142,18 +145,18 @@ struct DockShortcutRoutingTests {
                 )
                 #expect(
                     harness.appDelegate.browserPanel(
-                        owning: dockBrowser.webView
+                        owning: dockWebView
                     ) === dockBrowser
                 )
                 #expect(
                     harness.appDelegate.browserFindBarIsVisible(
-                        for: dockBrowser.webView
+                        for: dockWebView
                     )
                 )
                 dockBrowser.hideFind()
                 #expect(
                     !harness.appDelegate.browserFindBarIsVisible(
-                        for: dockBrowser.webView
+                        for: dockWebView
                     )
                 )
             }
