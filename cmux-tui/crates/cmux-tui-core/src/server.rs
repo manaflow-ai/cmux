@@ -20968,6 +20968,7 @@ mod tests {
         let first = mux.new_workspace(None, Some((80, 22))).unwrap();
         let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
         let right = mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
+        let right_terminal = right.terminal_public_id().cloned().unwrap();
         let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
         let writer = test_writer();
 
@@ -21002,7 +21003,8 @@ mod tests {
         .unwrap();
         assert_eq!(result["undone"].as_bool(), Some(true));
         assert!(!mux.with_state(|state| state.surfaces.contains_key(&right.id)));
-        assert!(mux.surface(right.id).is_some());
+        assert!(mux.surface(right.id).is_none());
+        assert!(mux.terminal_resource(&right_terminal).is_some());
     }
 
     #[test]
