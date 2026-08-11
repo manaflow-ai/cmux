@@ -849,8 +849,9 @@ fn ensure_mux_owner(
 ) -> anyhow::Result<()> {
     prepare_session_state(paths)?;
     let _start_lock = acquire_owner_start_lock(paths)?;
+    // Each accepted link is a protocol carrier. Do not create a disposable readiness
+    // connection here; `run_remote_link` performs the real carrier connection next.
     if identify_mux_owner(&paths.mux_socket, &options.session)?.is_some() {
-        ensure_owner_link_ready(paths)?;
         return Ok(());
     }
 
@@ -886,13 +887,9 @@ fn ensure_mux_owner(
                 identity.is_some(),
                 "Windows mux owner reported ready without a socket"
             );
-            ensure_owner_link_ready(paths)?;
             Ok(())
         }
-        _ if identify_mux_owner(&paths.mux_socket, &options.session)?.is_some() => {
-            ensure_owner_link_ready(paths)?;
-            Ok(())
-        }
+        _ if identify_mux_owner(&paths.mux_socket, &options.session)?.is_some() => Ok(()),
         Ok(Ok(line)) => {
             terminate_failed_owner(&mut child);
             Err(owner_start_error(
@@ -939,17 +936,6 @@ fn acquire_owner_start_lock(paths: &WindowsSessionPaths) -> anyhow::Result<std::
             Err(anyhow!("Windows owner startup lease timed out after 15s"))
         }
     }
-}
-
-fn ensure_owner_link_ready(paths: &WindowsSessionPaths) -> anyhow::Result<()> {
-    let socket = uds_windows::UnixStream::connect(&paths.link_socket).with_context(|| {
-        format!(
-            "Windows session owner is running but its remote listener is unavailable at {}",
-            paths.link_socket.display()
-        )
-    })?;
-    let _ = socket.shutdown(Shutdown::Both);
-    Ok(())
 }
 
 async fn wait_for_link_server_exit(
