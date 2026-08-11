@@ -1044,11 +1044,9 @@ mod tests {
     #[test]
     fn journal_agent_invalid_opaque_session_identifier_rejects_ingress() {
         let shared_prefix = "a".repeat(MAX_OPAQUE_IDENTIFIER_BYTES);
-        for identifier in [
-            format!("{shared_prefix}x"),
-            format!("{shared_prefix}y"),
-            "control\nsession".into(),
-        ] {
+        for identifier in
+            [format!("{shared_prefix}x"), format!("{shared_prefix}y"), "control\nsession".into()]
+        {
             let error = agent_hook_journal_ingress(
                 "pi",
                 "agent_start",
