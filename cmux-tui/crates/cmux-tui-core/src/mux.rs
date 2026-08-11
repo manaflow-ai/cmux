@@ -20789,30 +20789,29 @@ mod tests {
         assert_eq!(hook["result"]["value"]["source"], "hook");
         assert_eq!(hook["result"]["value"]["state"], "blocked");
 
-        let ignored = mux
+        let error = mux
             .report_agent(
                 surface,
                 AgentState::Done,
                 AgentSource::Socket,
                 Some("late-raw-session".into()),
             )
-            .unwrap();
-        assert_eq!(ignored.state, AgentState::Blocked);
-        assert_eq!(ignored.source, AgentSource::Hook);
-        assert_eq!(ignored.session.as_deref(), Some("hook-session"));
-        assert_eq!(mux.with_state(|state| state.resource_revision), created_revision + 3);
-        assert_eq!(mux.resource_event_epoch(), initial_epoch + 3);
+            .unwrap_err();
+        assert!(error.to_string().contains(
+            "agent socket report session Some(\"late-raw-session\") conflicts with active hook session Some(\"hook-session\")"
+        ));
+        assert_eq!(mux.with_state(|state| state.resource_revision), created_revision + 2);
+        assert_eq!(mux.resource_event_epoch(), initial_epoch + 2);
         assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
 
         let batches = mux.resource_events_after(created_revision).unwrap().batches;
         assert_eq!(
             batches.iter().map(|batch| batch.revision).collect::<Vec<_>>(),
-            vec![created_revision + 1, created_revision + 2, created_revision + 3]
+            vec![created_revision + 1, created_revision + 2]
         );
         assert_eq!(batches[0].changes[0]["value"]["source"], "socket");
         assert_eq!(batches[0].changes[0]["value"]["source_session"], "raw-session");
         assert_eq!(batches[1].changes[0]["value"], hook["result"]["value"]);
-        assert_eq!(batches[2].changes[0]["value"], hook["result"]["value"]);
         assert_eq!(
             crate::resource_api::public_session_snapshot(&mux).unwrap()["agents"],
             serde_json::json!([hook["result"]["value"].clone()])

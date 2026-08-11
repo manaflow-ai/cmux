@@ -5552,6 +5552,18 @@ fn journal_agent_legacy_upgrade_backfills_archived_agent_event_kinds() {
         .unwrap();
 
     let reopened = WorkspaceRegistry::open(&root, session).unwrap();
+    assert!(reopened.agent_projection_rebuild_pending().unwrap());
+    assert!(reopened.public_projections().unwrap().agents.is_empty());
+    let missing_kinds = reopened
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM journal_event_index WHERE kind IS NULL",
+            [],
+            |row| row.get::<_, u64>(0),
+        )
+        .unwrap();
+    assert!(missing_kinds > 0, "open must defer archived segment decoding");
+    assert!(reopened.continue_agent_projection_rebuild().unwrap());
     let agent = reopened.public_projections().unwrap().agents.remove(0);
     assert_eq!(agent.state, "working");
     assert_eq!(agent.source, "hook");
@@ -5889,36 +5901,46 @@ fn journal_agent_future_socket_from_different_hook_session_is_rejected() {
 }
 
 #[test]
-fn journal_agent_later_socket_session_replaces_active_socket_session() {
-    let mut registry =
-        WorkspaceRegistry::in_memory("journal-agent-new-active-socket-session").unwrap();
-    commit_terminal_topology(&mut registry, "journal-agent-new-active-socket-session-topology");
+fn journal_agent_socket_generation_rejects_late_superseded_session() {
+    let mut registry = WorkspaceRegistry::in_memory("journal-agent-socket-generation").unwrap();
+    commit_terminal_topology(&mut registry, "journal-agent-socket-generation-topology");
     let terminal_id = terminal_resource(TERMINAL_ONE);
-    for (revision, source_session) in [(1, "socket-session-a"), (2, "socket-session-b")] {
+    for (revision, state, source_session, rejected) in [
+        (1, "working", "socket-session-a", false),
+        (2, "done", "socket-session-a", false),
+        (3, "working", "socket-session-b", false),
+        (4, "working", "socket-session-a", true),
+    ] {
         let result = json!({
             "id":agent_resource(&terminal_id),
             "session_id":registry.session_id(),
             "terminal_id":terminal_id,
-            "state":"working",
+            "state":state,
             "source":"socket",
             "updated_at_ms":revision.to_string(),
             "source_session":source_session,
             "extra":{},
         });
-        registry
-            .commit_agent_projection(
-                &WorkspaceMutation::new(
-                    format!("journal-agent-new-active-socket-session-{revision}"),
-                    "socket-test",
-                )
-                .unwrap(),
-                &json!({"source_session":source_session}),
-                Some(revision),
-                &terminal_id,
-                &result,
-                &json!([]),
+        let commit = registry.commit_agent_projection(
+            &WorkspaceMutation::new(
+                format!("journal-agent-socket-generation-{revision}"),
+                "socket-test",
             )
-            .unwrap();
+            .unwrap(),
+            &json!({"source_session":source_session}),
+            Some(revision),
+            &terminal_id,
+            &result,
+            &json!([]),
+        );
+        if rejected {
+            let error = commit.unwrap_err();
+            assert!(error.to_string().contains(
+                "agent socket report session Some(\"socket-session-a\") conflicts with active socket session Some(\"socket-session-b\")"
+            ));
+        } else {
+            commit.unwrap();
+        }
     }
 
     let agent = registry.public_projections().unwrap().agents.remove(0);
