@@ -1601,6 +1601,7 @@ fn session_guard_coordinator_owner_publishes_lock_availability() {
 #[cfg(unix)]
 #[test]
 fn session_guard_waiter_stays_in_verified_directory_after_root_swap() {
+    use std::os::fd::AsRawFd;
     use std::os::unix::fs::symlink;
 
     let root = temp_root("session-guard-waiter-root-swap");
@@ -1610,17 +1611,34 @@ fn session_guard_waiter_stays_in_verified_directory_after_root_swap() {
     fs::create_dir_all(&outside).unwrap();
     let (_root_directory, lock_directory, lock_dir) =
         prepare_existing_session_guard_dir_at(&root).unwrap();
+    let coordinator_path = session_guard_coordinator_path(&lock_dir);
+    let coordinator_name = coordinator_path.file_name().unwrap();
+    let coordinator =
+        SessionLease::acquire_coordinator_at(&lock_directory, coordinator_name, &coordinator_path)
+            .unwrap();
     fs::rename(&root, &moved).unwrap();
     symlink(&outside, &root).unwrap();
     let waiter_path = session_guard_coordinator_waiter_dir(&lock_dir);
 
     let waiter_directory =
-        prepare_session_coordinator_waiter_dir_at(&lock_directory, &waiter_path).unwrap();
+        open_reset_child_dir(
+            lock_directory.as_raw_fd(),
+            std::ffi::OsStr::new(SESSION_GUARD_COORDINATOR_WAITER_DIR),
+            &waiter_path,
+        )
+        .unwrap();
     let waiter = SessionCoordinatorWaiter::register_at(&waiter_directory, &waiter_path).unwrap();
 
     let retained_waiters = moved.join(SESSION_GUARD_DIR).join(SESSION_GUARD_COORDINATOR_WAITER_DIR);
     assert!(fs::read_dir(&retained_waiters).unwrap().next().is_some());
     assert!(fs::read_dir(&outside).unwrap().next().is_none());
+    drop(coordinator);
+    assert!(
+        waiter
+            .wait_until(std::time::Instant::now() + std::time::Duration::from_secs(2))
+            .expect("wait for descriptor-relative coordinator publication"),
+        "coordinator owner did not publish through the verified directory"
+    );
     drop(waiter);
     assert!(fs::read_dir(&outside).unwrap().next().is_none());
 

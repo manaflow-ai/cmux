@@ -6939,6 +6939,8 @@ struct SessionLease {
     path: PathBuf,
     _directory: Option<File>,
     coordinator_waiter_dir: Option<PathBuf>,
+    #[cfg(unix)]
+    coordinator_waiter_directory: Option<File>,
 }
 
 impl SessionLease {
@@ -6970,7 +6972,14 @@ impl SessionLease {
         FileExt::try_lock(&file).with_context(|| {
             format!("workspace session is already owned by another daemon: {}", path.display())
         })?;
-        Ok(Self { file, path: path.to_path_buf(), _directory: None, coordinator_waiter_dir: None })
+        Ok(Self {
+            file,
+            path: path.to_path_buf(),
+            _directory: None,
+            coordinator_waiter_dir: None,
+            #[cfg(unix)]
+            coordinator_waiter_directory: None,
+        })
     }
 
     fn acquire_coordinator(path: &Path) -> anyhow::Result<Self> {
@@ -7055,6 +7064,8 @@ impl SessionLease {
             path: path.to_path_buf(),
             _directory: None,
             coordinator_waiter_dir: Some(session_guard_coordinator_waiter_dir(path)),
+            #[cfg(unix)]
+            coordinator_waiter_directory: None,
         }
     }
 }
@@ -7072,6 +7083,10 @@ struct SessionCoordinatorWaiter {
     #[cfg(not(unix))]
     socket: std::net::UdpSocket,
     registration_path: PathBuf,
+    #[cfg(unix)]
+    registration_directory: Option<File>,
+    #[cfg(unix)]
+    registration_name: Option<std::ffi::OsString>,
     #[cfg(not(unix))]
     token: String,
 }
@@ -7139,6 +7154,8 @@ impl SessionCoordinatorWaiter {
                     signal_reader,
                     _signal_anchor: signal_anchor,
                     registration_path,
+                    registration_directory: None,
+                    registration_name: None,
                 });
             }
         }
@@ -7183,6 +7200,108 @@ impl SessionCoordinatorWaiter {
                     return Err(error.into());
                 }
                 return Ok(Self { socket, registration_path, token });
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    fn register_at(directory: &File, waiter_dir: &Path) -> anyhow::Result<Self> {
+        use std::os::fd::AsRawFd;
+        use std::sync::atomic::Ordering;
+
+        loop {
+            let sequence = SESSION_GUARD_COORDINATOR_WAITER_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+            let token = format!("{:x}-{sequence:x}", std::process::id());
+            let registration_name = std::ffi::OsString::from(format!("{token}.waiter"));
+            let temporary_name = std::ffi::OsString::from(format!(".{token}.tmp"));
+            let registration_path = waiter_dir.join(&registration_name);
+            let temporary_path = waiter_dir.join(&temporary_name);
+            let fifo_name = reset_child_c_string(&temporary_name, &temporary_path)?;
+            // SAFETY: fifo_name is a valid child name relative to the verified waiter directory.
+            let created = unsafe { libc::mkfifoat(directory.as_raw_fd(), fifo_name.as_ptr(), 0o600) };
+            if created != 0 {
+                let error = std::io::Error::last_os_error();
+                if error.kind() == std::io::ErrorKind::AlreadyExists {
+                    continue;
+                }
+                return Err(error).with_context(|| {
+                    format!("create session coordinator waiter {}", temporary_path.display())
+                });
+            }
+
+            let signal_reader = match open_session_coordinator_waiter_at(
+                directory,
+                &temporary_name,
+                &temporary_path,
+                false,
+            ) {
+                Ok(reader) => reader,
+                Err(error) => {
+                    let _ = reset_unlink_child(
+                        directory.as_raw_fd(),
+                        &temporary_name,
+                        &temporary_path,
+                        0,
+                    );
+                    return Err(error);
+                }
+            };
+            let signal_anchor = match open_session_coordinator_waiter_at(
+                directory,
+                &temporary_name,
+                &temporary_path,
+                true,
+            ) {
+                Ok(anchor) => anchor,
+                Err(error) => {
+                    let _ = reset_unlink_child(
+                        directory.as_raw_fd(),
+                        &temporary_name,
+                        &temporary_path,
+                        0,
+                    );
+                    return Err(error);
+                }
+            };
+            let registration = reset_child_c_string(&registration_name, &registration_path)?;
+            loop {
+                // SAFETY: both names are valid children of the verified waiter directory.
+                let renamed = unsafe {
+                    libc::renameat(
+                        directory.as_raw_fd(),
+                        fifo_name.as_ptr(),
+                        directory.as_raw_fd(),
+                        registration.as_ptr(),
+                    )
+                };
+                if renamed == 0 {
+                    return Ok(Self {
+                        signal_reader,
+                        _signal_anchor: signal_anchor,
+                        registration_path,
+                        registration_directory: Some(directory.try_clone()?),
+                        registration_name: Some(registration_name),
+                    });
+                }
+                let error = std::io::Error::last_os_error();
+                if error.kind() == std::io::ErrorKind::Interrupted {
+                    continue;
+                }
+                let _ = reset_unlink_child(
+                    directory.as_raw_fd(),
+                    &temporary_name,
+                    &temporary_path,
+                    0,
+                );
+                if error.kind() == std::io::ErrorKind::NotFound {
+                    break;
+                }
+                return Err(error).with_context(|| {
+                    format!(
+                        "register session coordinator waiter {}",
+                        registration_path.display()
+                    )
+                });
             }
         }
     }
@@ -7265,8 +7384,50 @@ impl SessionCoordinatorWaiter {
     }
 }
 
+#[cfg(unix)]
+fn open_session_coordinator_waiter_at(
+    directory: &File,
+    name: &std::ffi::OsStr,
+    display_path: &Path,
+    write: bool,
+) -> anyhow::Result<File> {
+    use std::os::fd::{AsRawFd, FromRawFd};
+
+    let name = reset_child_c_string(name, display_path)?;
+    let access = if write { libc::O_WRONLY } else { libc::O_RDONLY };
+    let flags = access | libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK;
+    loop {
+        // SAFETY: openat reads a valid child name relative to the verified waiter directory.
+        let descriptor = unsafe { libc::openat(directory.as_raw_fd(), name.as_ptr(), flags) };
+        if descriptor >= 0 {
+            // SAFETY: openat returned a new descriptor that this File owns.
+            return Ok(unsafe { File::from_raw_fd(descriptor) });
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() == std::io::ErrorKind::Interrupted {
+            continue;
+        }
+        return Err(error)
+            .with_context(|| format!("open session coordinator waiter {}", display_path.display()));
+    }
+}
+
 impl Drop for SessionCoordinatorWaiter {
     fn drop(&mut self) {
+        #[cfg(unix)]
+        if let (Some(directory), Some(name)) =
+            (&self.registration_directory, &self.registration_name)
+        {
+            use std::os::fd::AsRawFd;
+
+            let _ = reset_unlink_child(
+                directory.as_raw_fd(),
+                name,
+                &self.registration_path,
+                0,
+            );
+            return;
+        }
         let _ = fs::remove_file(&self.registration_path);
     }
 }
@@ -7301,6 +7462,22 @@ fn prepare_session_coordinator_waiter_dir(waiter_dir: &Path) -> anyhow::Result<(
     }
     platform::restrict_directory(waiter_dir)?;
     Ok(())
+}
+
+#[cfg(unix)]
+fn prepare_session_coordinator_waiter_dir_at(
+    parent: &File,
+    waiter_dir: &Path,
+) -> anyhow::Result<File> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::PermissionsExt;
+
+    let name = std::ffi::OsStr::new(SESSION_GUARD_COORDINATOR_WAITER_DIR);
+    create_reset_child_directory_at(parent.as_raw_fd(), name, waiter_dir)?;
+    let directory = open_reset_child_dir(parent.as_raw_fd(), name, waiter_dir)?;
+    directory.set_permissions(fs::Permissions::from_mode(0o700))?;
+    validate_reset_child_directory_at(parent, name, waiter_dir, &directory)?;
+    Ok(directory)
 }
 
 fn publish_session_coordinator_available(waiter_dir: &Path) {
@@ -7387,6 +7564,78 @@ fn publish_session_coordinator_available(waiter_dir: &Path) {
     }
 }
 
+#[cfg(unix)]
+fn publish_session_coordinator_available_at(waiter_directory: &File, waiter_dir: &Path) {
+    use std::io::Write;
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::{FileTypeExt, MetadataExt};
+
+    let Ok(names) = reset_dir_child_names(
+        waiter_directory,
+        waiter_dir,
+        "session coordinator waiter directory",
+    ) else {
+        return;
+    };
+    for name in names.into_iter().take(SESSION_GUARD_COORDINATOR_PUBLICATION_SCAN_LIMIT) {
+        let path = waiter_dir.join(&name);
+        let extension = Path::new(&name).extension().and_then(|value| value.to_str());
+        let Ok(stat) = reset_child_stat(waiter_directory.as_raw_fd(), &name, &path) else {
+            continue;
+        };
+        if extension == Some("tmp") {
+            let is_temporary_waiter = matches!(reset_stat_kind(&stat), libc::S_IFREG | libc::S_IFIFO);
+            let modified = u64::try_from(reset_stat_mtime_seconds(&stat))
+                .ok()
+                .and_then(|seconds| {
+                    u32::try_from(reset_stat_mtime_nanoseconds(&stat))
+                        .ok()
+                        .and_then(|nanoseconds| {
+                            std::time::UNIX_EPOCH
+                                .checked_add(std::time::Duration::new(seconds, nanoseconds))
+                        })
+                });
+            let is_stale = is_temporary_waiter
+                && modified
+                    .and_then(|value| value.elapsed().ok())
+                    .is_some_and(|age| age >= SESSION_GUARD_COORDINATOR_TIMEOUT);
+            if is_stale {
+                let _ = reset_unlink_child(waiter_directory.as_raw_fd(), &name, &path, 0);
+            }
+            continue;
+        }
+        if extension != Some("waiter") {
+            continue;
+        }
+        if reset_stat_kind(&stat) != libc::S_IFIFO {
+            let _ = reset_unlink_child(waiter_directory.as_raw_fd(), &name, &path, 0);
+            continue;
+        }
+        let published = open_session_coordinator_waiter_at(
+            waiter_directory,
+            &name,
+            &path,
+            true,
+        )
+        .and_then(|mut signal| {
+            let metadata = signal.metadata()?;
+            if !metadata.file_type().is_fifo()
+                || metadata.dev() != reset_stat_device(&stat)
+                || metadata.ino() != reset_stat_inode(&stat)
+            {
+                anyhow::bail!("session coordinator waiter changed while opening: {}", path.display());
+            }
+            signal.write_all(&[1])?;
+            Ok(())
+        })
+        .is_ok();
+        let _ = reset_unlink_child(waiter_directory.as_raw_fd(), &name, &path, 0);
+        if published {
+            break;
+        }
+    }
+}
+
 impl SessionLease {
     #[cfg(unix)]
     fn acquire_at(directory: &File, name: &std::ffi::OsStr, path: &Path) -> anyhow::Result<Self> {
@@ -7403,6 +7652,7 @@ impl SessionLease {
             path: path.to_path_buf(),
             _directory: Some(directory.try_clone()?),
             coordinator_waiter_dir: None,
+            coordinator_waiter_directory: None,
         })
     }
 
@@ -7416,12 +7666,14 @@ impl SessionLease {
         validate_session_lock_file_at(directory, name, path, &file)?;
         restrict_session_lock_file(path, &file)?;
         validate_session_lock_file_at(directory, name, path, &file)?;
+        let waiter_dir = session_guard_coordinator_waiter_dir(path);
+        let waiter_directory = prepare_session_coordinator_waiter_dir_at(directory, &waiter_dir)?;
         let deadline = std::time::Instant::now() + SESSION_GUARD_COORDINATOR_TIMEOUT;
         loop {
             match FileExt::try_lock(&file) {
                 Ok(()) => {
                     validate_session_lock_file_at(directory, name, path, &file)?;
-                    return Self::coordinator_at(file, directory, path);
+                    return Self::coordinator_at(file, directory, &waiter_directory, path);
                 }
                 Err(fs4::TryLockError::WouldBlock) => {
                     if std::time::Instant::now() >= deadline {
@@ -7435,14 +7687,15 @@ impl SessionLease {
                 }
             }
 
-            let waiter = SessionCoordinatorWaiter::register(path).with_context(|| {
+            let waiter = SessionCoordinatorWaiter::register_at(&waiter_directory, &waiter_dir)
+                .with_context(|| {
                 format!("register workspace session coordinator waiter: {}", path.display())
             })?;
 
             match FileExt::try_lock(&file) {
                 Ok(()) => {
                     validate_session_lock_file_at(directory, name, path, &file)?;
-                    return Self::coordinator_at(file, directory, path);
+                    return Self::coordinator_at(file, directory, &waiter_directory, path);
                 }
                 Err(fs4::TryLockError::WouldBlock) => {}
                 Err(error) => {
@@ -7461,7 +7714,7 @@ impl SessionLease {
             match FileExt::try_lock(&file) {
                 Ok(()) => {
                     validate_session_lock_file_at(directory, name, path, &file)?;
-                    return Self::coordinator_at(file, directory, path);
+                    return Self::coordinator_at(file, directory, &waiter_directory, path);
                 }
                 Err(fs4::TryLockError::WouldBlock) => return session_coordinator_busy(path),
                 Err(error) => {
@@ -7474,12 +7727,18 @@ impl SessionLease {
     }
 
     #[cfg(unix)]
-    fn coordinator_at(file: File, directory: &File, path: &Path) -> anyhow::Result<Self> {
+    fn coordinator_at(
+        file: File,
+        directory: &File,
+        waiter_directory: &File,
+        path: &Path,
+    ) -> anyhow::Result<Self> {
         Ok(Self {
             file,
             path: path.to_path_buf(),
             _directory: Some(directory.try_clone()?),
-            coordinator_waiter_dir: Some(session_guard_coordinator_waiter_dir(path)),
+            coordinator_waiter_dir: None,
+            coordinator_waiter_directory: Some(waiter_directory.try_clone()?),
         })
     }
 }
@@ -7588,10 +7847,16 @@ fn restrict_session_lock_file(path: &Path, _file: &File) -> anyhow::Result<()> {
 
 impl Drop for SessionLease {
     fn drop(&mut self) {
-        if FileExt::unlock(&self.file).is_ok()
-            && let Some(waiter_dir) = &self.coordinator_waiter_dir
-        {
-            publish_session_coordinator_available(waiter_dir);
+        if FileExt::unlock(&self.file).is_ok() {
+            #[cfg(unix)]
+            if let Some(waiter_directory) = &self.coordinator_waiter_directory {
+                let waiter_dir = session_guard_coordinator_waiter_dir(&self.path);
+                publish_session_coordinator_available_at(waiter_directory, &waiter_dir);
+                return;
+            }
+            if let Some(waiter_dir) = &self.coordinator_waiter_dir {
+                publish_session_coordinator_available(waiter_dir);
+            }
         }
         let _ = &self.path;
     }
