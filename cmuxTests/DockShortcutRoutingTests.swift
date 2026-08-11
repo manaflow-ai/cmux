@@ -1556,6 +1556,60 @@ struct DockShortcutRoutingTests {
         }
     }
 
+    @Test("Dock panel unread toggle clears notification-derived unread")
+    @MainActor
+    func dockPanelUnreadToggleClearsNotificationDerivedUnread() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let browserId = try #require(
+                    harness.dock.newSurface(
+                        kind: .browser,
+                        inPane: harness.rootPane,
+                        focus: true
+                    )
+                )
+                let notificationStore = try #require(
+                    harness.dock.resolvedNotificationStore()
+                )
+                let previousNotifications = notificationStore.notifications
+                defer {
+                    notificationStore.replaceNotificationsForTesting(
+                        previousNotifications
+                    )
+                }
+
+                notificationStore.replaceNotificationsForTesting([
+                    TerminalNotification(
+                        id: UUID(),
+                        tabId: harness.dock.workspaceId,
+                        surfaceId: browserId,
+                        title: "Dock browser notification",
+                        subtitle: "",
+                        body: "Unread",
+                        createdAt: .now,
+                        isRead: false
+                    ),
+                ])
+
+                #expect(
+                    notificationStore.hasUnreadNotification(
+                        forTabId: harness.dock.workspaceId,
+                        surfaceId: browserId
+                    )
+                )
+                #expect(harness.dock.panelIsUnread(browserId))
+                #expect(harness.dock.togglePanelUnread(browserId))
+                #expect(
+                    !notificationStore.hasUnreadNotification(
+                        forTabId: harness.dock.workspaceId,
+                        surfaceId: browserId
+                    )
+                )
+                #expect(!harness.dock.panelIsUnread(browserId))
+            }
+        }
+    }
+
     @Test("Dock manual unread state survives snapshots and live transfer")
     @MainActor
     func dockManualUnreadSurvivesSnapshotsAndTransfer() async throws {
