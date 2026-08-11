@@ -235,7 +235,7 @@ pub struct RunResult {
     pub phases: RunPhases,
 }
 
-fn duration_ns(duration: std::time::Duration) -> Result<u64> {
+fn duration_ns(duration: Duration) -> Result<u64> {
     u64::try_from(duration.as_nanos()).map_err(Into::into)
 }
 

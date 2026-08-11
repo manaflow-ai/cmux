@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 description = "cmux-tui: tmux-like terminal multiplexer TUI backed by libghostty-vt"
+autoexamples = false
 
 [lints]
 workspace = true

@@ -74,7 +74,7 @@ fn run_profile(args: &Args, target: Target, scenario: Scenario) -> Result<()> {
     let initial_infrastructure = InfrastructureMetadata::collect(args)?;
     let mut lifecycle =
         LifecycleRecorder::new(args.fixture_parent.clone(), args.output_dir.clone())?;
-    let prepare_started = std::time::Instant::now();
+    let prepare_started = Instant::now();
     let deadline = SuiteDeadline::unbounded();
     let mut fixture =
         Fixture::new(target.clone(), scenario, true, lifecycle.fixture_parent(), deadline)
@@ -85,7 +85,7 @@ fn run_profile(args: &Args, target: Target, scenario: Scenario) -> Result<()> {
         .with_context(|| format!("run {} {scenario:?} profile", target.kind.as_str()))?;
     evidence.add(&result.evidence);
     evidence.samples_completed += 1;
-    let cleanup_started = std::time::Instant::now();
+    let cleanup_started = Instant::now();
     evidence.add(&fixture.cleanup()?);
     let fixture_cleanup = PhaseMetric::completed(cleanup_started.elapsed())?;
     let root_deferral = fixture.defer_root(&mut lifecycle)?;
@@ -277,7 +277,7 @@ impl ScenarioTarget {
         lifecycle: &mut LifecycleRecorder,
         deadline: SuiteDeadline,
     ) -> Result<Self> {
-        let prepare_started = std::time::Instant::now();
+        let prepare_started = Instant::now();
         let fixture =
             matches!(scenario, Scenario::Warm | Scenario::Restored | Scenario::Incompatible)
                 .then(|| {
@@ -316,7 +316,7 @@ impl ScenarioTarget {
             return Ok(result);
         }
 
-        let prepare_started = std::time::Instant::now();
+        let prepare_started = Instant::now();
         let mut fixture = Fixture::new(
             self.target.clone(),
             self.scenario,
@@ -327,7 +327,7 @@ impl ScenarioTarget {
         let prepare = PhaseMetric::completed(prepare_started.elapsed())?;
         self.evidence.add(&fixture.setup_evidence());
         let result = run_sample(&mut fixture, deadline);
-        let cleanup_started = std::time::Instant::now();
+        let cleanup_started = Instant::now();
         let cleanup = fixture.cleanup();
         let cleanup_duration = cleanup_started.elapsed();
         let root_deferral = if result.is_ok() && cleanup.is_ok() {
@@ -357,7 +357,7 @@ impl ScenarioTarget {
 
     fn finish(&mut self, recorder: &mut LifecycleRecorder) -> Result<()> {
         if let Some(fixture) = self.fixture.as_mut() {
-            let cleanup_started = std::time::Instant::now();
+            let cleanup_started = Instant::now();
             self.evidence.add(&fixture.cleanup()?);
             let fixture_cleanup = PhaseMetric::completed(cleanup_started.elapsed())?;
             let root_deferral = fixture.defer_root(recorder)?;

@@ -622,7 +622,7 @@ impl MacosExitWatch {
         // SAFETY: kqueue returns a new owned descriptor or -1.
         let raw = unsafe { libc::kqueue() };
         if raw == -1 {
-            return Err(std::io::Error::last_os_error()).context("create process-exit kqueue");
+            return Err(io::Error::last_os_error()).context("create process-exit kqueue");
         }
         // SAFETY: raw is a unique descriptor returned by kqueue above.
         let queue = unsafe { OwnedFd::from_raw_fd(raw) };
@@ -649,8 +649,8 @@ impl MacosExitWatch {
             };
             if result == 0 {
                 registrations += 1;
-            } else if std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH) {
-                return Err(std::io::Error::last_os_error())
+            } else if io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH) {
+                return Err(io::Error::last_os_error())
                     .context(format!("register exit event for PID {pid}"));
             }
         }
@@ -695,7 +695,7 @@ impl MacosExitWatch {
                 )
             };
             if count == -1 {
-                let error = std::io::Error::last_os_error();
+                let error = io::Error::last_os_error();
                 if error.kind() == io::ErrorKind::Interrupted {
                     continue;
                 }
@@ -729,7 +729,7 @@ struct Common {
 impl Common {
     fn new(
         target: Target,
-        scenario: Scenario,
+        _scenario: Scenario,
         wrap_measured_process: bool,
         fixture_parent: &Path,
     ) -> Result<Self> {
@@ -816,11 +816,8 @@ impl Common {
         };
         command.args(supervisor_args);
         self.apply_std_env(&mut command);
-        Ok(PreparedStdCommand {
-            command,
-            control,
-            cleanup: SupervisorCleanup::new(self.root.path(), &control.nonce)?,
-        })
+        let cleanup = SupervisorCleanup::new(self.root.path(), &control.nonce)?;
+        Ok(PreparedStdCommand { command, control, cleanup })
     }
 
     fn pty_command(&self, args: &[String], wrapped: bool) -> Result<PreparedPtyCommand> {
@@ -832,11 +829,8 @@ impl Common {
         let mut command = PtyCommand::new(program);
         command.args(prefix);
         self.apply_pty_env(&mut command);
-        Ok(PreparedPtyCommand {
-            command,
-            control,
-            cleanup: SupervisorCleanup::new(self.root.path(), &control.nonce)?,
-        })
+        let cleanup = SupervisorCleanup::new(self.root.path(), &control.nonce)?;
+        Ok(PreparedPtyCommand { command, control, cleanup })
     }
 
     fn supervisor_args(
@@ -1548,7 +1542,7 @@ fn read_until_event(
     needle: Vec<u8>,
     sender: mpsc::Sender<StreamEvent>,
     cancelled: Arc<AtomicBool>,
-) -> std::io::Result<Vec<u8>> {
+) -> io::Result<Vec<u8>> {
     let mut output = VecDeque::new();
     let mut pending = Vec::new();
     let mut found = false;
@@ -1932,7 +1926,7 @@ fn read_pty(
     probe_queries: Arc<AtomicUsize>,
     probe_responses: Arc<AtomicUsize>,
     reader_cancelled: Arc<AtomicBool>,
-) -> std::io::Result<PtyReadResult> {
+) -> io::Result<PtyReadResult> {
     let mut output = VecDeque::new();
     let mut probes = ProbeTracker::default();
     let mut frame_marker = FrameMarkerTracker::new(marker);
@@ -1962,9 +1956,9 @@ fn read_pty(
                 let responses = probes.observe(&buffer[..read]);
                 probe_queries.store(probes.responses, Ordering::Relaxed);
                 for response in responses {
-                    let mut writer = writer.lock().map_err(|_| {
-                        std::io::Error::other("terminal response writer lock poisoned")
-                    })?;
+                    let mut writer = writer
+                        .lock()
+                        .map_err(|_| io::Error::other("terminal response writer lock poisoned"))?;
                     writer.write_all(response)?;
                     writer.flush()?;
                     probe_responses.fetch_add(1, Ordering::Relaxed);
@@ -2186,8 +2180,8 @@ fn run_captured_inner(
     let result = run_captured_process(command, control, deadline);
     let cleanup = cleanup.as_mut().map(SupervisorCleanup::finish).transpose();
     match (result, cleanup) {
-        (Ok(value), Ok(())) => Ok(value),
-        (Err(error), Ok(())) => Err(error),
+        (Ok(value), Ok(_)) => Ok(value),
+        (Err(error), Ok(_)) => Err(error),
         (Ok(_), Err(cleanup)) => Err(cleanup),
         (Err(error), Err(cleanup)) => {
             Err(error.context(format!("supervisor cleanup also failed: {cleanup:#}")))

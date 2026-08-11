@@ -2,13 +2,13 @@ mod startup_benchmark_protocol;
 
 use std::env;
 use std::fs::{self, OpenOptions};
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use cmux_tui_core::platform::transport;
@@ -19,6 +19,8 @@ use startup_benchmark_protocol::{
     write_control_line,
 };
 use wait_timeout::ChildExt;
+
+const MAX_SUPERVISOR_STDERR_BYTES: usize = 64 * 1024;
 
 #[derive(Serialize)]
 struct PreflightEvidence {
@@ -72,6 +74,11 @@ struct InboundProbeEvidence {
     bound_address: Option<SocketAddr>,
 }
 
+enum SupervisorStartupEvent {
+    Connected(io::Result<Box<dyn transport::Stream>>),
+    StderrClosed(io::Result<Vec<u8>>),
+}
+
 fn main() {
     if let Err(error) = run() {
         eprintln!("cmux-tui startup sandbox preflight: {error:#}");
@@ -117,9 +124,10 @@ fn run_controller(values: &[String]) -> Result<()> {
     let control = transport::listen(&control_path)?;
     let child_listener = transport::listen(&child_path)?;
     let inbound_listener = transport::listen(&inbound_path)?;
-    let (control_sender, control_receiver) = mpsc::channel();
+    let (startup_sender, startup_receiver) = mpsc::channel();
+    let control_sender = startup_sender.clone();
     let control_thread = thread::spawn(move || {
-        let _ = control_sender.send(control.accept());
+        let _ = control_sender.send(SupervisorStartupEvent::Connected(control.accept()));
     });
     let (child_sender, child_receiver) = mpsc::channel();
     let child_thread = thread::spawn(move || {
@@ -183,9 +191,51 @@ fn run_controller(values: &[String]) -> Result<()> {
     }
     command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped());
     let mut child = command.spawn()?;
-    let mut supervisor_stream = control_receiver
-        .recv_timeout(CONTROL_TIMEOUT)
-        .context("preflight supervisor did not connect")??;
+    let supervisor_stderr = child.stderr.take().context("capture preflight supervisor stderr")?;
+    let stderr_thread = thread::spawn(move || {
+        let stderr = read_bounded_tail(supervisor_stderr, MAX_SUPERVISOR_STDERR_BYTES);
+        let _ = startup_sender.send(SupervisorStartupEvent::StderrClosed(stderr));
+    });
+    let startup_deadline = Instant::now()
+        .checked_add(CONTROL_TIMEOUT)
+        .context("preflight supervisor startup deadline overflow")?;
+    let mut supervisor_stream = loop {
+        let remaining = startup_deadline.saturating_duration_since(Instant::now());
+        match startup_receiver.recv_timeout(remaining) {
+            Ok(SupervisorStartupEvent::Connected(stream)) => break stream?,
+            Ok(SupervisorStartupEvent::StderrClosed(stderr)) => {
+                let stderr = stderr?;
+                let status = child
+                    .wait_timeout(CONTROL_TIMEOUT)?
+                    .context("failed preflight supervisor did not exit")?;
+                unblock_control_listener(&control_path);
+                control_thread
+                    .join()
+                    .map_err(|_| anyhow::anyhow!("control accept thread panicked"))?;
+                stderr_thread
+                    .join()
+                    .map_err(|_| anyhow::anyhow!("supervisor stderr thread panicked"))?;
+                bail!(
+                    "preflight supervisor exited before READY with {status}: {}",
+                    String::from_utf8_lossy(&stderr)
+                );
+            }
+            Err(error) => {
+                let _ = child.kill();
+                let status =
+                    child.wait().context("reap preflight supervisor after READY timeout")?;
+                unblock_control_listener(&control_path);
+                control_thread
+                    .join()
+                    .map_err(|_| anyhow::anyhow!("control accept thread panicked"))?;
+                let stderr = receive_supervisor_stderr(&startup_receiver, stderr_thread)?;
+                return Err(error).context(format!(
+                    "preflight supervisor did not connect; exit {status}; stderr: {}",
+                    String::from_utf8_lossy(&stderr)
+                ));
+            }
+        }
+    };
     control_thread.join().map_err(|_| anyhow::anyhow!("control accept thread panicked"))?;
     supervisor_stream.set_read_timeout(Some(CONTROL_TIMEOUT))?;
     supervisor_stream.set_write_timeout(Some(CONTROL_TIMEOUT))?;
@@ -224,6 +274,7 @@ fn run_controller(values: &[String]) -> Result<()> {
     let status = child
         .wait_timeout(CONTROL_TIMEOUT)?
         .context("preflight supervisor exceeded its deadline")?;
+    let supervisor_stderr = receive_supervisor_stderr(&startup_receiver, stderr_thread)?;
     let event_ns = monotonic_ns()?;
     let timing_result = timing.measured_duration_ns(event_ns);
     let mut tail = [0_u8; 1];
@@ -280,7 +331,11 @@ fn run_controller(values: &[String]) -> Result<()> {
         || !platform_proofs_pass(&evidence)
         || evidence.timing_records != 1
     {
-        bail!("sandbox preflight invariant failed; see {}", output.display());
+        bail!(
+            "sandbox preflight invariant failed; see {}; supervisor stderr: {}",
+            output.display(),
+            String::from_utf8_lossy(&supervisor_stderr)
+        );
     }
     drop(descendant);
     drop(timing);
@@ -311,7 +366,7 @@ fn run_probe(values: &[String]) -> Result<()> {
         Err(error)
             if matches!(
                 error.kind(),
-                std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::AddrNotAvailable
+                io::ErrorKind::PermissionDenied | io::ErrorKind::AddrNotAvailable
             ) =>
         {
             None
@@ -334,10 +389,38 @@ fn run_probe(values: &[String]) -> Result<()> {
         .arg(child_adjacent)
         .arg(child_socket)
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
+        .stdout(Stdio::piped())
         .stderr(Stdio::null());
     detach(&mut child);
-    child.spawn()?;
+    let mut child = child.spawn()?;
+    let mut child_stdout = child.stdout.take().context("capture descendant readiness")?;
+    let (ready_sender, ready_receiver) = mpsc::channel();
+    let ready_thread = thread::spawn(move || {
+        let mut ready = [0_u8; 1];
+        let result = child_stdout.read_exact(&mut ready).map(|()| ready);
+        let _ = ready_sender.send(result);
+    });
+    let ready = match ready_receiver.recv_timeout(CONTROL_TIMEOUT) {
+        Ok(Ok(ready)) => ready,
+        Ok(Err(error)) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = ready_thread.join();
+            return Err(error).context("read sandbox descendant readiness");
+        }
+        Err(error) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = ready_thread.join();
+            return Err(error).context("sandbox descendant readiness deadline expired");
+        }
+    };
+    ready_thread.join().map_err(|_| anyhow::anyhow!("descendant readiness thread panicked"))?;
+    if ready != [b'R'] {
+        let _ = child.kill();
+        let _ = child.wait();
+        bail!("sandbox descendant sent invalid readiness");
+    }
     let evidence = ProbeEvidence {
         network_denied,
         linux_no_new_privs: platform.linux_no_new_privs,
@@ -363,6 +446,8 @@ fn run_probe_child(values: &[String]) -> Result<()> {
     let evidence =
         ChildProbeEvidence { adjacent_write_denied: denied, windows_in_job: child_in_job()? };
     write_control_line(&mut stream, &format!("{}\n", serde_json::to_string(&evidence)?))?;
+    io::stdout().write_all(b"R")?;
+    io::stdout().flush()?;
     let mut release = [0_u8; 1];
     let _ = stream.read(&mut release);
     if !denied {
@@ -515,15 +600,16 @@ fn product_platform_proofs() -> Result<ProbeEvidence> {
 
     use windows_sys::Win32::Foundation::{CloseHandle, ERROR_ACCESS_DENIED, HANDLE};
     use windows_sys::Win32::Security::{
-        GetSidSubAuthority, GetSidSubAuthorityCount, GetTokenInformation, OpenProcessToken,
-        SE_PRIVILEGE_ENABLED, TOKEN_MANDATORY_LABEL, TOKEN_PRIVILEGES, TOKEN_QUERY,
-        TokenIntegrityLevel, TokenPrivileges,
+        GetSidSubAuthority, GetSidSubAuthorityCount, GetTokenInformation, SE_PRIVILEGE_ENABLED,
+        TOKEN_MANDATORY_LABEL, TOKEN_PRIVILEGES, TOKEN_QUERY, TokenIntegrityLevel, TokenPrivileges,
     };
     use windows_sys::Win32::System::Registry::{
         HKEY_CURRENT_USER, KEY_WRITE, RegCloseKey, RegOpenKeyExW,
     };
     use windows_sys::Win32::System::SystemServices::SECURITY_MANDATORY_LOW_RID;
-    use windows_sys::Win32::System::Threading::{CREATE_BREAKAWAY_FROM_JOB, GetCurrentProcess};
+    use windows_sys::Win32::System::Threading::{
+        CREATE_BREAKAWAY_FROM_JOB, GetCurrentProcess, OpenProcessToken,
+    };
 
     struct Handle(HANDLE);
     impl Drop for Handle {
@@ -540,7 +626,7 @@ fn product_platform_proofs() -> Result<ProbeEvidence> {
         // SAFETY: a null buffer with zero length requests the required byte count.
         let _ = unsafe { GetTokenInformation(token, class, null_mut(), 0, &mut byte_count) };
         if byte_count == 0 {
-            return Err(std::io::Error::last_os_error()).context("size token information");
+            return Err(io::Error::last_os_error()).context("size token information");
         }
         let words = usize::try_from(byte_count)?.div_ceil(size_of::<usize>());
         let mut storage = vec![0_usize; words];
@@ -555,7 +641,7 @@ fn product_platform_proofs() -> Result<ProbeEvidence> {
             )
         } == 0
         {
-            return Err(std::io::Error::last_os_error()).context("read token information");
+            return Err(io::Error::last_os_error()).context("read token information");
         }
         Ok(storage)
     }
@@ -563,7 +649,7 @@ fn product_platform_proofs() -> Result<ProbeEvidence> {
     let mut token = null_mut();
     // SAFETY: token points to writable handle storage.
     if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) } == 0 {
-        return Err(std::io::Error::last_os_error()).context("open preflight product token");
+        return Err(io::Error::last_os_error()).context("open preflight product token");
     }
     let token = Handle(token);
 
@@ -643,7 +729,7 @@ fn child_in_job() -> Result<Option<bool>> {
     let mut in_job = 0;
     // SAFETY: job is the inherited query-only handle for the supervisor's private Job Object.
     let result = unsafe { IsProcessInJob(GetCurrentProcess(), job, &mut in_job) };
-    let error = (result == 0).then(std::io::Error::last_os_error);
+    let error = (result == 0).then(io::Error::last_os_error);
     // SAFETY: this trusted child owns its inherited query-only duplicate and closes it once.
     unsafe { CloseHandle(job) };
     if let Some(error) = error {
@@ -660,7 +746,7 @@ fn detach(command: &mut Command) {
     unsafe {
         command.pre_exec(|| {
             if libc::setsid() == -1 {
-                return Err(std::io::Error::last_os_error());
+                return Err(io::Error::last_os_error());
             }
             Ok(())
         });
@@ -713,6 +799,47 @@ fn write_evidence(path: &Path, evidence: &PreflightEvidence) -> Result<()> {
     file.write_all(b"\n")?;
     file.sync_all()?;
     Ok(())
+}
+
+fn read_bounded_tail(mut reader: impl Read, limit: usize) -> io::Result<Vec<u8>> {
+    let mut tail = Vec::new();
+    let mut chunk = [0_u8; 8 * 1024];
+    loop {
+        let count = reader.read(&mut chunk)?;
+        if count == 0 {
+            return Ok(tail);
+        }
+        if count >= limit {
+            tail.clear();
+            tail.extend_from_slice(&chunk[count - limit..count]);
+            continue;
+        }
+        let excess = tail.len().saturating_add(count).saturating_sub(limit);
+        if excess > 0 {
+            tail.drain(..excess);
+        }
+        tail.extend_from_slice(&chunk[..count]);
+    }
+}
+
+fn unblock_control_listener(path: &Path) {
+    if let Ok(stream) = transport::connect(path) {
+        let _ = stream.shutdown(std::net::Shutdown::Both);
+    }
+}
+
+fn receive_supervisor_stderr(
+    receiver: &mpsc::Receiver<SupervisorStartupEvent>,
+    thread: thread::JoinHandle<()>,
+) -> Result<Vec<u8>> {
+    let event = receiver
+        .recv_timeout(CONTROL_TIMEOUT)
+        .context("preflight supervisor stderr deadline expired")?;
+    thread.join().map_err(|_| anyhow::anyhow!("supervisor stderr thread panicked"))?;
+    match event {
+        SupervisorStartupEvent::StderrClosed(stderr) => stderr.map_err(Into::into),
+        SupervisorStartupEvent::Connected(_) => bail!("preflight supervisor connected twice"),
+    }
 }
 
 #[cfg(unix)]
