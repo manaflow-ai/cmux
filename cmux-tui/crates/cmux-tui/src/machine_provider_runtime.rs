@@ -2746,7 +2746,14 @@ mod tests {
             runtime.workspace_snapshot.as_ref().map(|snapshot| &snapshot.machine_id),
             Some(&id("created-machine"))
         );
-        assert!(runtime.accepted_selection.is_none());
+        assert_eq!(
+            runtime
+                .accepted_selection
+                .as_ref()
+                .and_then(|selection| selection.machine_id.as_ref())
+                .map(protocol::OpaqueId::as_str),
+            Some("created-machine")
+        );
         drop(runtime);
         server.join().unwrap();
     }
@@ -2868,7 +2875,12 @@ mod tests {
             runtime.workspace_snapshot.as_ref().map(|snapshot| &snapshot.machine_id),
             Some(&id("team-selected"))
         );
-        assert!(runtime.accepted_selection.is_none());
+        let selection = runtime.accepted_selection.as_ref().unwrap();
+        assert_eq!(selection.scope_id.as_ref().map(protocol::OpaqueId::as_str), Some("team-1"));
+        assert_eq!(
+            selection.machine_id.as_ref().map(protocol::OpaqueId::as_str),
+            Some("team-selected")
+        );
         drop(runtime);
         server.join().unwrap();
     }
