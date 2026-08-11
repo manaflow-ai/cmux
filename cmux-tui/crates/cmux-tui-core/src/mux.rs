@@ -18719,6 +18719,55 @@ mod tests {
     }
 
     #[test]
+    fn terminal_exit_projection_omits_an_unrelated_active_workspace() {
+        let mux = test_mux();
+        let closing = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let terminal_id = closing.terminal_public_id().cloned().unwrap();
+        let host = mux.resource_terminal_host_identity(&closing).unwrap();
+        let closing_workspace = mux.with_state(|state| {
+            let pane = state.pane_of(closing.id).unwrap();
+            let (workspace, _) = state.screen_of(pane).unwrap();
+            state.workspaces[workspace].id
+        });
+        mux.new_screen(Some(closing_workspace), Some((80, 24))).unwrap();
+
+        let active = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let active_pane = mux.with_state(|state| state.pane_of(active.id).unwrap());
+        for _ in 0..64 {
+            mux.new_pane(active_pane, Some((80, 24))).unwrap();
+        }
+        mux.with_state(|state| {
+            assert_ne!(state.workspaces[state.active_workspace].id, closing_workspace);
+        });
+
+        let (topology_scope_sizes, topology_discovery_steps) = {
+            let registry = mux.workspace_registry.lock().unwrap();
+            let state = mux.state.lock().unwrap();
+            let projection = mux
+                .terminal_exit_detach_projection_locked(
+                    &registry,
+                    &state,
+                    &host.terminal_id,
+                    Some(&host.incarnation),
+                    &terminal_id,
+                )
+                .unwrap()
+                .unwrap();
+            (projection.topology_scope_sizes(), projection.topology_discovery_steps())
+        };
+        assert_eq!(
+            topology_scope_sizes,
+            [1, 1, 1, 1],
+            "terminal exit copied an unrelated active workspace"
+        );
+        assert_eq!(
+            topology_discovery_steps, 10,
+            "terminal exit inspected an unrelated active workspace"
+        );
+        mux.shutdown();
+    }
+
+    #[test]
     fn terminal_close_publishes_newly_focused_sibling_pane() {
         let mux = test_mux();
         let closing = mux.new_workspace(None, Some((80, 24))).unwrap();
