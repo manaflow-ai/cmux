@@ -4015,6 +4015,59 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(result.status == 0, "Shell failed: \(result.standardError)")
     }
 
+    @Test func recoverySweepRetainsExpiredDeadAnchorWithLiveOwnedProcess() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-expired-owned-\(UUID().uuidString)", isDirectory: true)
+        let groupDirectory = root.appendingPathComponent(
+            "cmux-ssh-auth-group.expired-owned",
+            isDirectory: true
+        )
+        let snapshotCalled = root.appendingPathComponent("snapshot-called")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        try "999999|888888|Thu_Jan_1_00:00:00_1970\n".write(
+            to: groupDirectory.appendingPathComponent("identity"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "1\n".write(
+            to: groupDirectory.appendingPathComponent("orphaned"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "101 1 777 Thu_Jan_1_00:00:00_1970 S\n".write(
+            to: groupDirectory.appendingPathComponent("owned"),
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_take_process_snapshot_until() {
+          : > "$CMUX_TEST_SNAPSHOT_CALLED"
+          printf '101 1 777 S Thu_Jan_1_00:00:00_1970\n' > "$1"
+        }
+        CMUX_SSH_AUTH_GROUP_DIR=
+        export CMUX_SSH_AUTH_GROUP_DIR
+        cmux_ssh_auth_recovery_enqueue "$CMUX_TEST_GROUP_DIR" || exit 99
+        cmux_ssh_resume_failed_auth_group_reapers || exit 98
+        test -e "$CMUX_TEST_SNAPSHOT_CALLED" || exit 97
+        test -d "$CMUX_TEST_GROUP_DIR" || exit 96
+        /usr/bin/grep -Fqx '101 1 777 Thu_Jan_1_00:00:00_1970 S' \
+          "$CMUX_TEST_GROUP_DIR/owned" || exit 95
+        """
+
+        let result = try runShellCommand(command, environment: [
+            "CMUX_TEST_GROUP_DIR": groupDirectory.path,
+            "CMUX_TEST_SNAPSHOT_CALLED": snapshotCalled.path,
+            "TMPDIR": root.path,
+        ])
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
     @Test func recoveryQueueProcessesOneBoundedSegmentPerSweep() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
