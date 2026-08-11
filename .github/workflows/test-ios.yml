@@ -518,6 +518,7 @@ jobs:
                 TRACE_PID=$!
               fi
               ATTEMPT_ARGS+=(
+                'OTHER_SWIFT_FLAGS=$(inherited) -Xfrontend -solver-expression-time-threshold=600000'
                 -resultBundlePath "$EVIDENCE_ATTEMPT/result.xcresult"
               )
             fi
