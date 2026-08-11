@@ -544,12 +544,8 @@ impl PersistentSessionStateResetter {
         };
         #[cfg(all(unix, test))]
         {
-            restore_reset_directory_after_lock(
-                &RESET_SWAP_RESTORE_SESSION_DIR_AFTER_WRITER_LOCK,
-            )?;
-            restore_reset_directory_after_lock(
-                &RESET_SWAP_RESTORE_TERMINAL_HOST_ROOT_AFTER_LOCK,
-            )?;
+            restore_reset_directory_after_lock(&RESET_SWAP_RESTORE_SESSION_DIR_AFTER_WRITER_LOCK)?;
+            restore_reset_directory_after_lock(&RESET_SWAP_RESTORE_TERMINAL_HOST_ROOT_AFTER_LOCK)?;
         }
         let pending_reset_dirs =
             pending_session_reset_dirs_for_guard(&session_guard, root, session_name)?;
@@ -6245,9 +6241,8 @@ fn inject_reset_directory_swap_before_lock(
     }
     fs::rename(&swap.target, &swap.original)
         .with_context(|| format!("move injected reset path {}", swap.target.display()))?;
-    fs::rename(&swap.replacement, &swap.target).with_context(|| {
-        format!("install injected reset replacement {}", swap.target.display())
-    })?;
+    fs::rename(&swap.replacement, &swap.target)
+        .with_context(|| format!("install injected reset replacement {}", swap.target.display()))?;
     Ok(())
 }
 
