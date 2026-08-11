@@ -1032,7 +1032,14 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           esac
           cmux_ssh_auth_create_dir="$cmux_ssh_auth_recovery_base/cmux-ssh-auth-group.$cmux_ssh_auth_create_uuid"
           cmux_ssh_auth_recovery_group_path_is_valid "$cmux_ssh_auth_create_dir" || return 1
-          cmux_ssh_auth_recovery_lock || return 1
+          # A recovery worker can hold the shared lock across its bounded queue
+          # transaction. Retry the event-driven one-second flock wait without a
+          # polling sleep so transient cleanup cannot abort authentication.
+          cmux_ssh_auth_create_lock_attempt=0
+          while ! cmux_ssh_auth_recovery_lock; do
+            cmux_ssh_auth_create_lock_attempt=$((cmux_ssh_auth_create_lock_attempt + 1))
+            if [ "$cmux_ssh_auth_create_lock_attempt" -ge 3 ]; then return 1; fi
+          done
           if ! cmux_ssh_auth_recovery_append_locked "$cmux_ssh_auth_create_dir" || \
             ! (umask 077; /bin/mkdir "$cmux_ssh_auth_create_dir") 2>/dev/null; then
             cmux_ssh_auth_recovery_unlock
