@@ -189,6 +189,16 @@ struct IrohSettingsModelTests {
         #expect(!model.showsSaveError)
     }
 
+    @Test func neverUseRelaysMutationForwardsThePathPreference() async {
+        let controller = IrohSettingsControllerDouble(snapshot: .unavailable)
+        let model = IrohSettingsModel(controller: controller)
+
+        model.setPathPreference(.neverUseRelays)
+        await waitUntil { controller.pathPreferenceMutations == [.neverUseRelays] }
+
+        #expect(!model.showsSaveError)
+    }
+
     @Test func relayOnlyRestartNeverGatesTheControls() async {
         let controller = IrohSettingsControllerDouble(snapshot: .unavailable)
         controller.holdsPathPreferenceMutations = true

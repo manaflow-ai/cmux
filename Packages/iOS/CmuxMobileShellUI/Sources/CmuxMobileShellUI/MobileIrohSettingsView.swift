@@ -62,10 +62,22 @@ struct MobileIrohSettingsView: View {
                 }
                 .disabled(model.isMutating)
                 .accessibilityIdentifier("MobileIrohRelayOnly")
+
+                Toggle(isOn: Binding(
+                    get: { model.snapshot.pathPreference == .neverUseRelays },
+                    set: { model.setPathPreference($0 ? .neverUseRelays : .automatic) }
+                )) {
+                    Text(L10n.string(
+                        "mobile.iroh.neverUseRelays",
+                        defaultValue: "Never Use Relays"
+                    ))
+                }
+                .disabled(model.isMutating)
+                .accessibilityIdentifier("MobileIrohNeverUseRelays")
             } footer: {
                 Text(L10n.string(
-                    "mobile.iroh.relayOnly.footer",
-                    defaultValue: "Keeps this device's Iroh connections on cmux relays instead of direct or local-network paths. Applies on the next reconnect."
+                    "mobile.iroh.pathPreference.footer",
+                    defaultValue: "Relay Only blocks direct paths. Never Use Relays requires a reachable direct, local-network, or private-network path. Applies on the next reconnect."
                 ))
             }
 

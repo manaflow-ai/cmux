@@ -17395,6 +17395,40 @@
         }
       }
     },
+    "mobile.iroh.neverUseRelays": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Never Use Relays"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リレーを使用しない"
+          }
+        }
+      }
+    },
+    "mobile.iroh.pathPreference.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relay Only blocks direct paths. Never Use Relays requires a reachable direct, local-network, or private-network path. Applies on the next reconnect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「リレーのみ」は直接経路を無効にします。「リレーを使用しない」には、到達可能な直接経路、ローカルネットワーク経路、またはプライベートネットワーク経路が必要です。次回の再接続時に適用されます。"
+          }
+        }
+      }
+    },
     "mobile.iroh.relayOnly": {
       "extractionState": "manual",
       "localizations": {

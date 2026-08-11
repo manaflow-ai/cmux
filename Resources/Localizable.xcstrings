@@ -178448,6 +178448,40 @@
         }
       }
     },
+    "settings.networking.neverUseRelays": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Never Use Relays"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リレーを使用しない"
+          }
+        }
+      }
+    },
+    "settings.networking.neverUseRelays.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requires a reachable direct, local-network, or private-network path. Applies on the next reconnect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "到達可能な直接経路、ローカルネットワーク経路、またはプライベートネットワーク経路が必要です。次回の再接続時に適用されます。"
+          }
+        }
+      }
+    },
     "settings.networking.refresh": {
       "extractionState": "manual",
       "localizations": {
