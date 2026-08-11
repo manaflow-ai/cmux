@@ -3357,7 +3357,6 @@ final class Workspace: Identifiable, ObservableObject {
                 portOrdinal: portOrdinal,
                 initialCommand: initialTerminalCommand,
                 initialInput: initialTerminalInput,
-                startupRestoreAgent: initialTerminalStartupRestoreAgent,
                 initialEnvironmentOverrides: Self.startupEnvironment(
                     workspaceEnvironment: sanitizedWorkspaceEnvironment,
                     overlaying: initialTerminalEnvironment
@@ -3381,6 +3380,14 @@ final class Workspace: Identifiable, ObservableObject {
                 bindSurface(tabId, toPanelId: terminalPanel.id)
                 initialTabId = tabId
                 rememberTerminalConfigInheritanceSource(terminalPanel)
+                if let initialTerminalStartupRestoreAgent {
+                    seedSessionRestoredAgentState(
+                        panelId: terminalPanel.id,
+                        restorableAgent: initialTerminalStartupRestoreAgent,
+                        willRunStartupCommand: false,
+                        willRunStartupInput: initialTerminalInput != nil
+                    )
+                }
             }
         }
 
@@ -8025,7 +8032,6 @@ final class Workspace: Identifiable, ObservableObject {
             initialCommand: startupCommand,
             tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
-            startupRestoreAgent: startupRestoreAgent,
             additionalEnvironment: effectiveStartupEnvironment,
             runtimeSpawnPolicy: runtimeSpawnPolicy
         )
@@ -8063,6 +8069,14 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         bindSurface(newTabId, toPanelId: newPanel.id)
+        if let startupRestoreAgent {
+            seedSessionRestoredAgentState(
+                panelId: newPanel.id,
+                restorableAgent: startupRestoreAgent,
+                willRunStartupCommand: false,
+                willRunStartupInput: initialInput != nil
+            )
+        }
         publishCmuxSurfaceCreated(newPanel.id, paneId: paneId, kind: "terminal", origin: "terminal_tab", focused: shouldFocusNewTab)
 
         // bonsplit's createTab may not reliably emit didSelectTab, and its internal selection
@@ -11539,7 +11553,6 @@ final class Workspace: Identifiable, ObservableObject {
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
             initialInput: initialInput,
-            startupRestoreAgent: startupRestoreAgent,
             additionalEnvironment: effectiveStartupEnvironment
         )
         configureNewTerminalPanel(newPanel)
@@ -11568,6 +11581,14 @@ final class Workspace: Identifiable, ObservableObject {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
             return nil
+        }
+        if let startupRestoreAgent {
+            seedSessionRestoredAgentState(
+                panelId: newPanel.id,
+                restorableAgent: startupRestoreAgent,
+                willRunStartupCommand: false,
+                willRunStartupInput: initialInput != nil
+            )
         }
         publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: newPanel.id, kind: "terminal", origin: "terminal_split", focused: true)
 

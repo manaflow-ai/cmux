@@ -213,4 +213,57 @@ struct SessionEntryResumeLaunchTests {
                 == sessionID
         )
     }
+
+    @Test("Vault tab and split placements seed persistent lifecycle state")
+    func vaultPlacementPathsSeedLifecycleState() throws {
+        let sessionID = "vault-placement-session"
+        let entry = SessionEntry(
+            id: "codex:\(sessionID)",
+            agent: .codex,
+            sessionId: sessionID,
+            title: "Placed Vault session",
+            cwd: "/tmp/vault-placement-project",
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: 1_800_000_004),
+            fileURL: nil,
+            specifics: .codex(
+                model: nil,
+                approvalPolicy: nil,
+                sandboxMode: nil,
+                effort: nil
+            )
+        )
+        let launch = try #require(entry.resumeLaunch)
+        let restorableAgent = try #require(launch.startupRestoreAgent)
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let initialPanelID = try #require(workspace.focusedPanelId)
+        let paneID = try #require(workspace.paneId(forPanelId: initialPanelID))
+
+        let tabPanel = try #require(workspace.newTerminalSurface(
+            inPane: paneID,
+            focus: true,
+            workingDirectory: launch.workingDirectory,
+            initialInput: launch.initialInput,
+            startupRestoreAgent: restorableAgent
+        ))
+        let splitPanel = try #require(workspace.splitPaneWithNewTerminal(
+            targetPane: paneID,
+            orientation: .horizontal,
+            insertFirst: false,
+            workingDirectory: launch.workingDirectory,
+            initialInput: launch.initialInput,
+            startupRestoreAgent: restorableAgent
+        ))
+        let persisted = workspace.sessionSnapshot(includeScrollback: false)
+
+        for panelID in [tabPanel.id, splitPanel.id] {
+            #expect(workspace.restoredAgentSnapshotsByPanelId[panelID]?.sessionId == sessionID)
+            #expect(
+                persisted.panels.first { $0.id == panelID }?.terminal?.agent?.sessionId
+                    == sessionID
+            )
+        }
+    }
 }

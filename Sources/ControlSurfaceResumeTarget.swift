@@ -54,15 +54,6 @@ enum ControlSurfaceResumeTarget {
         }
     }
 
-    var startupRestoreAgent: SessionRestorableAgentSnapshot? {
-        switch self {
-        case .workspace(_, let workspace, let surfaceID):
-            workspace.terminalPanel(for: surfaceID)?.startupRestoreAgent
-        case .dock(_, let dock, let surfaceID):
-            (dock.panels[surfaceID] as? TerminalPanel)?.startupRestoreAgent
-        }
-    }
-
     var restoredResumeWorkingDirectory: String? {
         switch self {
         case .workspace(_, let workspace, let surfaceID):
@@ -295,8 +286,6 @@ extension TerminalController {
             restoredWorkingDirectory: String?
         )?
         if binding == nil || binding?.isAgentHookBinding == true {
-            // A lifecycle snapshot supersedes startup provenance after
-            // the Vault-created surface has advanced into restore/hibernation state.
             if let restoredAgent = Workspace.restorableAgentForSessionRestore(
                 target.restorableAgent,
                 resumeBinding: binding
@@ -306,11 +295,6 @@ extension TerminalController {
                     "session-snapshot",
                     target.restoredResumeWorkingDirectory
                 )
-            } else if let startupAgent = Workspace.restorableAgentForSessionRestore(
-                target.startupRestoreAgent,
-                resumeBinding: binding
-            ) {
-                compatibleAgent = (startupAgent, "vault", nil)
             } else {
                 compatibleAgent = nil
             }

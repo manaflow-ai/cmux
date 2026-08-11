@@ -28,10 +28,6 @@ final class TerminalPanel: Panel, ObservableObject {
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
 
-    /// Surface-scoped structured state consumed by an initial `cmux restore` selector.
-    /// Vault-created panels keep this separate from persisted relaunch snapshots.
-    let startupRestoreAgent: SessionRestorableAgentSnapshot?
-
     var ownedSessionScrollbackReplayFileURL: URL? = nil
     /// The workspace-env key/value pairs this panel inherited from its workspace's
     /// `workspaceEnvironment` at creation. The same panel travels when a surface is
@@ -151,13 +147,11 @@ final class TerminalPanel: Panel, ObservableObject {
 
     init(
         workspaceId: UUID,
-        surface: TerminalSurface,
-        startupRestoreAgent: SessionRestorableAgentSnapshot? = nil
+        surface: TerminalSurface
     ) {
         self.id = surface.id
         self.workspaceId = workspaceId
         self.surface = surface
-        self.startupRestoreAgent = startupRestoreAgent
         // Subscribe to surface's search state changes
         surface.$searchState
             .sink { [weak self] state in
@@ -179,7 +173,6 @@ final class TerminalPanel: Panel, ObservableObject {
         initialCommand: String? = nil,
         tmuxStartCommand: String? = nil,
         initialInput: String? = nil,
-        startupRestoreAgent: SessionRestorableAgentSnapshot? = nil,
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
@@ -200,11 +193,7 @@ final class TerminalPanel: Panel, ObservableObject {
             focusPlacement: focusPlacement, runtimeSpawnPolicy: runtimeSpawnPolicy,
             preparePaneHost: { Self.prepareNotificationScrollReplay(for: $0, environment: additionalEnvironment) }
         )
-        self.init(
-            workspaceId: workspaceId,
-            surface: surface,
-            startupRestoreAgent: startupRestoreAgent
-        )
+        self.init(workspaceId: workspaceId, surface: surface)
         if Self.startsAtOwnedPrompt(
             configTemplate: configTemplate,
             initialCommand: initialCommand,
