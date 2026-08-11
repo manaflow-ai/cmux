@@ -80,6 +80,34 @@ struct CLIRemoteShellStartupPerformanceTests {
         #expect(result.status == 0)
     }
 
+    @Test
+    func emptyAuthenticationRecoveryQueueDoesNotCreateWorkerState() throws {
+        let cliPath = try bundledCLIPath()
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-empty-recovery-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["TMPDIR"] = temporaryRoot.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["__ssh-auth-recovery"],
+            environment: environment,
+            timeout: 5
+        )
+        let recoveryRoot = temporaryRoot
+            .appendingPathComponent("cmux-ssh-auth-recovery.\(getuid())", isDirectory: true)
+
+        #expect(!result.timedOut)
+        #expect(result.status == 0)
+        #expect(
+            !FileManager.default.fileExists(atPath: recoveryRoot.path),
+            "An empty recovery queue must not create worker state"
+        )
+    }
+
     private struct FakeRemoteShellRoot {
         let url: URL
         let home: URL
