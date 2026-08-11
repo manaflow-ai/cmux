@@ -37,6 +37,11 @@ on:
         required: false
         default: false
         type: boolean
+      capture_profile:
+        description: "Capture Animation Hitches concurrently with evidence"
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: read
@@ -395,6 +400,7 @@ jobs:
         env:
           TEST_FILTER: ${{ inputs.test_filter }}
           CAPTURE_EVIDENCE: ${{ inputs.capture_evidence }}
+          CAPTURE_PROFILE: ${{ inputs.capture_profile }}
           PRODUCT_SOURCE_SHA: ${{ inputs.ref || github.sha }}
         run: |
           set -euo pipefail
@@ -500,15 +506,17 @@ jobs:
                 kill -0 "$VIDEO_PID" >/dev/null 2>&1 || break
                 sleep 0.1
               done
-              xcrun xctrace record \
-                --template "Animation Hitches" \
-                --device "$SIMULATOR_ID" \
-                --all-processes \
-                --time-limit 20m \
-                --output "$EVIDENCE_ATTEMPT/animation-hitches.trace" \
-                --no-prompt \
-                > "$EVIDENCE_ATTEMPT/animation-hitches.log" 2>&1 &
-              TRACE_PID=$!
+              if [ "$CAPTURE_PROFILE" = "true" ]; then
+                xcrun xctrace record \
+                  --template "Animation Hitches" \
+                  --device "$SIMULATOR_ID" \
+                  --all-processes \
+                  --time-limit 20m \
+                  --output "$EVIDENCE_ATTEMPT/animation-hitches.trace" \
+                  --no-prompt \
+                  > "$EVIDENCE_ATTEMPT/animation-hitches.log" 2>&1 &
+                TRACE_PID=$!
+              fi
               ATTEMPT_ARGS+=(
                 -resultBundlePath "$EVIDENCE_ATTEMPT/result.xcresult"
               )
