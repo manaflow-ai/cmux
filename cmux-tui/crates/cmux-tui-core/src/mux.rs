@@ -5386,7 +5386,8 @@ impl Mux {
 
     #[cfg(test)]
     fn notify_agent_projection_rebuild_step_for_test(&self) {
-        let Some((entered, release)) = self.agent_projection_rebuild_after_step.lock().unwrap().take()
+        let Some((entered, release)) =
+            self.agent_projection_rebuild_after_step.lock().unwrap().take()
         else {
             return;
         };
@@ -20957,11 +20958,7 @@ mod tests {
     #[test]
     fn journal_agent_rebuild_publishes_each_fixed_checkpoint() {
         let mux = test_mux();
-        mux.workspace_registry
-            .lock()
-            .unwrap()
-            .seed_agent_projection_checkpoint_for_test()
-            .unwrap();
+        mux.workspace_registry.lock().unwrap().seed_agent_projection_checkpoint_for_test().unwrap();
         assert!(mux.agent_projection_rebuild_pending_for_test().unwrap());
         let resource_epoch = mux.resource_event_epoch();
         let (entered, entered_receiver) = std::sync::mpsc::sync_channel(1);
