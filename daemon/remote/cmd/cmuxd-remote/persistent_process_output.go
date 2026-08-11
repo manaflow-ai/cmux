@@ -58,16 +58,16 @@ func routePersistentDaemonProcessOutput(writer io.Writer) (*persistentDaemonProc
 		}
 	}()
 
-	if err := syscall.Dup2(int(pipeWriter.Fd()), int(os.Stdout.Fd())); err != nil {
+	if err := replacePersistentDaemonFD(int(pipeWriter.Fd()), int(os.Stdout.Fd())); err != nil {
 		return nil, err
 	}
-	if err := syscall.Dup2(int(pipeWriter.Fd()), int(os.Stderr.Fd())); err != nil {
-		_ = syscall.Dup2(savedStdoutFD, int(os.Stdout.Fd()))
+	if err := replacePersistentDaemonFD(int(pipeWriter.Fd()), int(os.Stderr.Fd())); err != nil {
+		_ = replacePersistentDaemonFD(savedStdoutFD, int(os.Stdout.Fd()))
 		return nil, err
 	}
 	if err := pipeWriter.Close(); err != nil {
-		_ = syscall.Dup2(savedStdoutFD, int(os.Stdout.Fd()))
-		_ = syscall.Dup2(savedStderrFD, int(os.Stderr.Fd()))
+		_ = replacePersistentDaemonFD(savedStdoutFD, int(os.Stdout.Fd()))
+		_ = replacePersistentDaemonFD(savedStderrFD, int(os.Stderr.Fd()))
 		return nil, err
 	}
 
@@ -97,8 +97,8 @@ func (r *persistentDaemonProcessOutputRoute) Close() error {
 		return nil
 	}
 	r.closeOnce.Do(func() {
-		stdoutErr := syscall.Dup2(r.savedStdoutFD, int(os.Stdout.Fd()))
-		stderrErr := syscall.Dup2(r.savedStderrFD, int(os.Stderr.Fd()))
+		stdoutErr := replacePersistentDaemonFD(r.savedStdoutFD, int(os.Stdout.Fd()))
+		stderrErr := replacePersistentDaemonFD(r.savedStderrFD, int(os.Stderr.Fd()))
 		_ = syscall.Close(r.savedStdoutFD)
 		_ = syscall.Close(r.savedStderrFD)
 		if stdoutErr != nil || stderrErr != nil {
