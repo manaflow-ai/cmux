@@ -546,12 +546,24 @@ jobs:
             Remove-Item Env:CMUX_EXPECTED_TEMP_ROOT
 
             Set-Location cmux-tui
-            # The published Rust SDK, sidebar wrapper, terminal-host client, and legacy TUI test
+            # The published Rust SDK, sidebar wrapper, terminal-host client, and legacy TUI/core
             # fixtures use Unix sockets or /bin/sh. Test every other workspace crate, then run
-            # the Windows-specific TUI unit and integration suites explicitly.
-            cargo test --workspace --exclude cmux-sdk --exclude cmux-sidebar --exclude cmux-terminal-client --exclude cmux-tui --locked --target x86_64-pc-windows-gnu
+            # the Windows-only core and TUI suites explicitly.
+            cargo test --workspace --exclude cmux-sdk --exclude cmux-sidebar --exclude cmux-terminal-client --exclude cmux-tui-core --exclude cmux-tui --locked --target x86_64-pc-windows-gnu
             if ($LASTEXITCODE -ne 0) {
               throw "Native Windows workspace tests failed with exit code $LASTEXITCODE"
+            }
+            cargo test -p cmux-tui-core --lib --locked --target x86_64-pc-windows-gnu platform::tests::terminal_pwd_rejects_unc_verbatim_and_device_paths -- --exact
+            if ($LASTEXITCODE -ne 0) {
+              throw "Native Windows core path test failed with exit code $LASTEXITCODE"
+            }
+            cargo test -p cmux-tui-core --lib --locked --target x86_64-pc-windows-gnu platform::tests::windows_sync_directory_accepts_existing_directory -- --exact
+            if ($LASTEXITCODE -ne 0) {
+              throw "Native Windows core directory test failed with exit code $LASTEXITCODE"
+            }
+            cargo test -p cmux-tui-core --lib --locked --target x86_64-pc-windows-gnu journal_hooks::tests::portable_hook_stdin_write_obeys_the_execution_timeout -- --exact
+            if ($LASTEXITCODE -ne 0) {
+              throw "Native Windows core hook test failed with exit code $LASTEXITCODE"
             }
             cargo test -p cmux-tui --bin cmux-tui --locked --target x86_64-pc-windows-gnu windows
             if ($LASTEXITCODE -ne 0) {
