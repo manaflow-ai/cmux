@@ -305,7 +305,6 @@ struct VaultRestoreRelaunchPersistenceTests {
             isPinned: false,
             isManuallyUnread: false,
             gitBranch: nil,
-            pullRequest: nil,
             listeningPorts: [],
             ttyName: nil,
             terminal: SessionTerminalPanelSnapshot(
