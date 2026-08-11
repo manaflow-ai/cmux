@@ -889,9 +889,7 @@ fn ensure_mux_owner(
             );
             Ok(())
         }
-        _ if identify_mux_owner(&paths.mux_socket, &options.session)?.is_some() => {
-            Ok(())
-        }
+        _ if identify_mux_owner(&paths.mux_socket, &options.session)?.is_some() => Ok(()),
         Ok(Ok(line)) => {
             terminate_failed_owner(&mut child);
             Err(owner_start_error(
