@@ -673,7 +673,7 @@ impl Mux {
             .flatten();
         if matches!(operation, ResourceOperation::PaneCreate | ResourceOperation::PaneSplit) {
             if let Some(surface) = created_terminal {
-                self.emit_terminal_view_title(surface);
+                self.emit_terminal_view_snapshot(surface);
             }
             return;
         }
@@ -702,7 +702,7 @@ impl Mux {
             self.emit(MuxEvent::LayoutChanged(screen));
         }
         if let Some(surface) = created_terminal {
-            self.emit_terminal_view_title(surface);
+            self.emit_terminal_view_snapshot(surface);
         }
     }
 

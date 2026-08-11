@@ -243,7 +243,7 @@ impl Mux {
                     self.with_state(|state| state.resource_indexes.tabs.get(&tab).copied())
                 })
         {
-            self.emit_terminal_view_title(surface);
+            self.emit_terminal_view_snapshot(surface);
         }
         Ok(commit)
     }

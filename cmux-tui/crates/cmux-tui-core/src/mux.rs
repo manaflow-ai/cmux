@@ -5428,12 +5428,13 @@ impl Mux {
         }
     }
 
-    /// Publish the retained resource title after a view becomes materialized.
-    /// The PTY can set its title while it has no views, so live fan-out alone
-    /// cannot initialize a view that appears later.
-    pub(crate) fn emit_terminal_view_title(&self, surface: SurfaceId) {
+    /// Publish retained terminal state after a view becomes materialized.
+    /// PTY output and title changes can arrive before the first view exists,
+    /// so live fan-out alone cannot initialize a view that appears later.
+    pub(crate) fn emit_terminal_view_snapshot(&self, surface: SurfaceId) {
         let Some(surface) = self.surface(surface) else { return };
         let Some(terminal) = surface.terminal_resource() else { return };
+        self.emit(MuxEvent::SurfaceOutput(surface.id));
         self.emit(MuxEvent::TitleChanged { surface: surface.id, title: terminal.title().into() });
     }
 
