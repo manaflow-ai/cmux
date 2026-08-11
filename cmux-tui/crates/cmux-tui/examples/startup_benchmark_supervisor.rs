@@ -2427,8 +2427,38 @@ mod platform {
                     }
                     BootstrapEvent::PipeEof => {
                         self.record_native_entry_checkpoint(trace)?;
-                        trace.observe(BootstrapObservedEvent::Eof);
-                        bail!("restricted bootstrap event pipe closed before READY")
+                        // The pipe reader and process-status thread race after an early loader
+                        // exit. Drain the already-owned process handle with the same absolute
+                        // READY deadline so the failure evidence keeps the exact exit code.
+                        match self.receive_until(
+                            deadline,
+                            "read restricted bootstrap exit after READY pipe EOF",
+                        ) {
+                            Ok(BootstrapEvent::ProcessExited(Ok(code))) => {
+                                trace.observe(BootstrapObservedEvent::Exit(code));
+                                bail!(
+                                    "restricted bootstrap event pipe closed before READY; process exited with code {code} ({code:#010x})"
+                                )
+                            }
+                            Ok(BootstrapEvent::ProcessExited(Err(error))) => {
+                                trace.observe(BootstrapObservedEvent::Error);
+                                bail!(
+                                    "restricted bootstrap event pipe closed before READY; read process exit state: {error}"
+                                )
+                            }
+                            Ok(_) => {
+                                trace.observe(BootstrapObservedEvent::Eof);
+                                bail!(
+                                    "restricted bootstrap event pipe closed before READY without process exit evidence"
+                                )
+                            }
+                            Err(error) => {
+                                trace.observe(BootstrapObservedEvent::Eof);
+                                return Err(error).context(
+                                    "restricted bootstrap event pipe closed before READY",
+                                );
+                            }
+                        }
                     }
                     BootstrapEvent::ProtocolError(error) => {
                         self.record_native_entry_checkpoint(trace)?;
