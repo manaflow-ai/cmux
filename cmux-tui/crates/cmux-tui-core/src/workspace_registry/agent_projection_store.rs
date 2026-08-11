@@ -278,9 +278,7 @@ fn clear_agent_projection_journal_rebuild_target(
     Ok(())
 }
 
-fn initialize_prejournal_projection_migration(
-    transaction: &Transaction<'_>,
-) -> anyhow::Result<()> {
+fn initialize_prejournal_projection_migration(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute(
         "INSERT INTO meta(key, value) VALUES(?1, '')
          ON CONFLICT(key) DO NOTHING",
@@ -310,9 +308,7 @@ fn prejournal_projection_migration_cursor(
         .transpose()
 }
 
-fn migrate_prejournal_projections_page(
-    transaction: &Transaction<'_>,
-) -> anyhow::Result<bool> {
+fn migrate_prejournal_projections_page(transaction: &Transaction<'_>) -> anyhow::Result<bool> {
     let Some(after_terminal_id) = prejournal_projection_migration_cursor(transaction)? else {
         return Ok(true);
     };
@@ -801,7 +797,8 @@ fn stored_live_projections_after(
             .query_map(
                 params![
                     after_terminal_id,
-                    i64::try_from(limit).context("agent projection migration limit exceeds SQLite")?,
+                    i64::try_from(limit)
+                        .context("agent projection migration limit exceeds SQLite")?,
                 ],
                 |row| row.get::<_, String>(0),
             )?

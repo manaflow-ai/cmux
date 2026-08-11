@@ -5036,12 +5036,8 @@ impl Mux {
             );
         }
         let mut registry = self.workspace_registry.lock().unwrap();
-        let commit = registry.append_journal_ingress(
-            ingress,
-            &validated,
-            origin,
-            idempotency_key,
-        )?;
+        let commit =
+            registry.append_journal_ingress(ingress, &validated, origin, idempotency_key)?;
         self.sync_agent_records_from_journal_ingress(&registry, ingress)?;
         drop(registry);
         if !commit.replayed {
