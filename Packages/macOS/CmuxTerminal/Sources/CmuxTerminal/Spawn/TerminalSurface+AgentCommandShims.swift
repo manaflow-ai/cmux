@@ -1,8 +1,16 @@
 public import Foundation
 public import CmuxTerminalCore
+internal import Darwin
 internal import os
 
 private let terminalSurfacePartialShimRemovalAttemptLimit = 3
+private let terminalSurfaceStaleShimMinimumAge: TimeInterval = 60
+
+private func terminalSurfaceProcessIsAlive(_ processID: pid_t) -> Bool {
+    guard processID > 0 else { return false }
+    if Darwin.kill(processID, 0) == 0 { return true }
+    return errno != ESRCH
+}
 
 extension TerminalSurface {
     /// Writes every available bundled agent wrapper shim into one per-install directory.
@@ -105,9 +113,10 @@ extension TerminalSurface {
         let shimParentDirectory = temporaryDirectory
             .appendingPathComponent("cmux-cli-shims", isDirectory: true)
             .standardizedFileURL
+        let ownerProcessID = ProcessInfo.processInfo.processIdentifier
         let shimDirectory = shimParentDirectory
             .appendingPathComponent(
-                "\(surfaceId.uuidString)-\(UUID().uuidString)",
+                "v1-p\(ownerProcessID)-\(surfaceId.uuidString)-\(UUID().uuidString)",
                 isDirectory: true
             )
             .standardizedFileURL
@@ -115,7 +124,7 @@ extension TerminalSurface {
         var removeShimDirectoryOnExit = false
         defer {
             if removeShimDirectoryOnExit {
-                removePartialAgentCommandShimDirectory(
+                removeAgentCommandShimDirectory(
                     shimDirectory,
                     fileManager: fileManager
                 )
@@ -129,6 +138,15 @@ extension TerminalSurface {
             try fileManager.setAttributes(
                 [.posixPermissions: 0o700],
                 ofItemAtPath: shimParentDirectory.path
+            )
+            removeStaleAgentCommandShimDirectories(
+                in: shimParentDirectory,
+                ownerProcessID: ownerProcessID,
+                ownerUserID: geteuid(),
+                now: .now,
+                minimumAge: terminalSurfaceStaleShimMinimumAge,
+                isProcessAlive: terminalSurfaceProcessIsAlive,
+                fileManager: fileManager
             )
             var isDirectory: ObjCBool = false
             if fileManager.fileExists(
@@ -190,7 +208,65 @@ extension TerminalSurface {
         return shimSet
     }
 
-    private static func removePartialAgentCommandShimDirectory(
+    static func removeStaleAgentCommandShimDirectories(
+        in shimParentDirectory: URL,
+        ownerProcessID: pid_t,
+        ownerUserID: uid_t,
+        now: Date,
+        minimumAge: TimeInterval,
+        isProcessAlive: (pid_t) -> Bool,
+        fileManager: FileManager
+    ) {
+        let parentDirectory = shimParentDirectory.standardizedFileURL
+        guard let entries = try? fileManager.contentsOfDirectory(
+            at: parentDirectory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else { return }
+
+        for entry in entries {
+            let candidate = entry.standardizedFileURL
+            guard candidate.deletingLastPathComponent() == parentDirectory,
+                  let processID = agentCommandShimOwnerProcessID(
+                      fromDirectoryName: candidate.lastPathComponent
+                  ),
+                  processID != ownerProcessID,
+                  !isProcessAlive(processID),
+                  let attributes = try? fileManager.attributesOfItem(atPath: candidate.path),
+                  attributes[.type] as? FileAttributeType == .typeDirectory,
+                  let accountID = attributes[.ownerAccountID] as? NSNumber,
+                  accountID.uint32Value == ownerUserID,
+                  let modificationDate = attributes[.modificationDate] as? Date,
+                  now.timeIntervalSince(modificationDate) >= minimumAge
+            else { continue }
+
+            removeAgentCommandShimDirectory(candidate, fileManager: fileManager)
+        }
+    }
+
+    private static func agentCommandShimOwnerProcessID(
+        fromDirectoryName directoryName: String
+    ) -> pid_t? {
+        let prefix = "v1-p"
+        guard directoryName.hasPrefix(prefix) else { return nil }
+        let suffix = directoryName.dropFirst(prefix.count)
+        guard let processSeparator = suffix.firstIndex(of: "-") else { return nil }
+        let processIDText = suffix[..<processSeparator]
+        guard let processID = pid_t(processIDText), processID > 0 else { return nil }
+
+        let identityStart = suffix.index(after: processSeparator)
+        let identity = suffix[identityStart...]
+        guard identity.count == 73 else { return nil }
+        let surfaceEnd = identity.index(identity.startIndex, offsetBy: 36)
+        guard identity[surfaceEnd] == "-" else { return nil }
+        let generationStart = identity.index(after: surfaceEnd)
+        guard UUID(uuidString: String(identity[..<surfaceEnd])) != nil,
+              UUID(uuidString: String(identity[generationStart...])) != nil
+        else { return nil }
+        return processID
+    }
+
+    private static func removeAgentCommandShimDirectory(
         _ shimDirectory: URL,
         fileManager: FileManager
     ) {
@@ -208,7 +284,7 @@ extension TerminalSurface {
             subsystem: "com.cmuxterm.app",
             category: "agent-command-shims"
         ).error(
-            "Failed to remove partial command shims at \(shimDirectory.path, privacy: .public): \(String(reflecting: lastError), privacy: .public)"
+            "Failed to remove command shims at \(shimDirectory.path, privacy: .public): \(String(reflecting: lastError), privacy: .public)"
         )
     }
 

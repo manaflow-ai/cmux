@@ -250,13 +250,87 @@ struct TerminalSurfaceCommandShimPermissionsTests {
             shimDirectory.deletingLastPathComponent().standardizedFileURL
                 == parentDirectory.standardizedFileURL
         )
-        #expect(shimDirectory.lastPathComponent.hasPrefix("\(surfaceId.uuidString)-"))
+        #expect(
+            shimDirectory.lastPathComponent.hasPrefix(
+                "v1-p\(ProcessInfo.processInfo.processIdentifier)-\(surfaceId.uuidString)-"
+            )
+        )
         #expect(replacement.directoryPath != shim.directoryPath)
         for directory in [parentDirectory, shimDirectory] {
             let attributes = try fileManager.attributesOfItem(atPath: directory.path)
             let permissions = try #require(attributes[.posixPermissions] as? NSNumber)
             #expect(permissions.uint16Value == 0o700)
         }
+    }
+
+    @Test("Install sweep removes only old owned directories from dead processes")
+    func installSweepRemovesOnlyOldOwnedDirectoriesFromDeadProcesses() throws {
+        let fileManager = FileManager.default
+        let root = URL.temporaryDirectory.appending(
+            path: "TerminalSurfaceCommandShimSweepTests-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        let parentDirectory = root.appending(
+            path: "cmux-cli-shims",
+            directoryHint: .isDirectory
+        )
+        defer { try? fileManager.removeItem(at: root) }
+        try fileManager.createDirectory(at: parentDirectory, withIntermediateDirectories: true)
+
+        let surfaceID = UUID()
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let currentProcessID: Int32 = 40_001
+        let deadProcessID: Int32 = 40_002
+        let liveProcessID: Int32 = 40_003
+        let recentDeadProcessID: Int32 = 40_004
+        func directory(processID: Int32) -> URL {
+            parentDirectory.appending(
+                path: "v1-p\(processID)-\(surfaceID.uuidString)-\(UUID().uuidString)",
+                directoryHint: .isDirectory
+            )
+        }
+        let staleDeadDirectory = directory(processID: deadProcessID)
+        let staleLiveDirectory = directory(processID: liveProcessID)
+        let recentDeadDirectory = directory(processID: recentDeadProcessID)
+        let malformedDirectory = parentDirectory.appending(
+            path: "v1-p\(deadProcessID)-not-a-managed-directory",
+            directoryHint: .isDirectory
+        )
+        for directory in [
+            staleDeadDirectory,
+            staleLiveDirectory,
+            recentDeadDirectory,
+            malformedDirectory,
+        ] {
+            try fileManager.createDirectory(at: directory, withIntermediateDirectories: false)
+        }
+        for directory in [staleDeadDirectory, staleLiveDirectory, malformedDirectory] {
+            try fileManager.setAttributes(
+                [.modificationDate: now.addingTimeInterval(-120)],
+                ofItemAtPath: directory.path
+            )
+        }
+        try fileManager.setAttributes(
+            [.modificationDate: now.addingTimeInterval(-30)],
+            ofItemAtPath: recentDeadDirectory.path
+        )
+        let parentAttributes = try fileManager.attributesOfItem(atPath: parentDirectory.path)
+        let ownerUserID = try #require(parentAttributes[.ownerAccountID] as? NSNumber)
+
+        TerminalSurface.removeStaleAgentCommandShimDirectories(
+            in: parentDirectory,
+            ownerProcessID: currentProcessID,
+            ownerUserID: ownerUserID.uint32Value,
+            now: now,
+            minimumAge: 60,
+            isProcessAlive: { $0 == liveProcessID },
+            fileManager: fileManager
+        )
+
+        #expect(!fileManager.fileExists(atPath: staleDeadDirectory.path))
+        #expect(fileManager.fileExists(atPath: staleLiveDirectory.path))
+        #expect(fileManager.fileExists(atPath: recentDeadDirectory.path))
+        #expect(fileManager.fileExists(atPath: malformedDirectory.path))
     }
 
     @Test("Fallback preserves literal glob characters in PATH entries")
