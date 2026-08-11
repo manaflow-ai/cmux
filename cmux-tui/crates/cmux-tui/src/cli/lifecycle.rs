@@ -370,7 +370,7 @@ fn wait_for_close(
                     .unexpected_after_stop
                     .to_string());
             }
-            Err(ExchangeError::Closed) => return Ok(()),
+            Err(ExchangeError::Closed | ExchangeError::Transport) => return Ok(()),
             Err(error) => {
                 let messages = &crate::localization::catalog().local_server;
                 return Err(if error == ExchangeError::Timeout {
