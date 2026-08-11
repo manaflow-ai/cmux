@@ -460,15 +460,7 @@ struct CMUXMobileRootView: View {
         } else if !isAuthenticated {
             SignInView()
         } else {
-            switch MobileRootAuthGate.shellSurface(
-                connectionState: store.connectionState,
-                showRestoringStoredMac: shouldShowRestoringStoredMac,
-                showDisconnectedNoPairedMacShell: MobileAuthenticatedShellPresentation.resolve(
-                    connectionState: store.connectionState,
-                    hasKnownPairedMac: store.hasKnownPairedMac,
-                    hasHiddenComputers: store.hasHiddenComputers
-                ) == .disconnected
-            ) {
+            switch authenticatedShellSurface {
             case .disconnectedNoKnownPairedMac:
                 // ONLY when there are no saved Macs at all: the add-device flow (it
                 // auto-presents the pairing sheet since there is nothing to list).
@@ -513,6 +505,30 @@ struct CMUXMobileRootView: View {
                 )
             }
         }
+    }
+
+    /// Retains the shell that owns an active child sheet until SwiftUI reports
+    /// its real dismissal. Store refreshes can otherwise swap shells while the
+    /// sheet is still onscreen, orphaning the modal slot and its interaction
+    /// presentation.
+    private var authenticatedShellSurface: MobileRootAuthGate.MobileRootShellSurface {
+        let baseSurface = MobileRootAuthGate.shellSurface(
+            connectionState: store.connectionState,
+            showRestoringStoredMac: shouldShowRestoringStoredMac,
+            showDisconnectedNoPairedMacShell: MobileAuthenticatedShellPresentation.resolve(
+                connectionState: store.connectionState,
+                hasKnownPairedMac: store.hasKnownPairedMac,
+                hasHiddenComputers: store.hasHiddenComputers
+            ) == .disconnected
+        )
+        #if os(iOS)
+        return MobileAuthenticatedShellPresentation.retainingChildHost(
+            rootPresentation.requiredChildHost,
+            over: baseSurface
+        )
+        #else
+        return baseSurface
+        #endif
     }
 
     #if os(macOS)

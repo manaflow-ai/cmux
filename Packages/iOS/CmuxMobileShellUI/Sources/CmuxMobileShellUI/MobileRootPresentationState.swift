@@ -5,6 +5,12 @@
 /// their content. A dismissing child keeps ownership until its `onDismiss`
 /// callback, preventing a root sheet from competing with UIKit's transition.
 struct MobileRootPresentationState: Equatable {
+    /// The authenticated shell that owns a child presentation's sheet host.
+    enum ChildHost: Equatable {
+        case disconnected
+        case workspace
+    }
+
     /// Presentations owned by the workspace list or one of its row actions.
     enum WorkspaceListPresentation: Equatable, CaseIterable {
         case terminalShortcutsSettings
@@ -90,6 +96,32 @@ struct MobileRootPresentationState: Equatable {
             true
         case .child, .dismissingChild, nil:
             false
+        }
+    }
+
+    /// The shell host that must stay mounted until the active child's real
+    /// `onDismiss` callback releases the shared modal slot.
+    var requiredChildHost: ChildHost? {
+        let child: ChildPresentation
+        switch presentation {
+        case let .child(activeChild), let .dismissingChild(activeChild, _):
+            child = activeChild
+        case .autoConnectMigrationIntroduction,
+             .settings,
+             .connectionSettings,
+             .pairing,
+             nil:
+            return nil
+        }
+
+        switch child {
+        case .disconnectedSetupHelp:
+            return .disconnected
+        case .workspaceDeviceTree,
+             .workspaceTaskComposer,
+             .workspaceList,
+             .workspaceDetail:
+            return .workspace
         }
     }
 
