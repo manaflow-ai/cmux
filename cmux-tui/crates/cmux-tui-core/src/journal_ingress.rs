@@ -1920,9 +1920,9 @@ mod tests {
             &root,
         )
         .unwrap();
-        let release_gate_path_c = std::ffi::CString::new(
-            std::os::unix::ffi::OsStrExt::as_bytes(release_gate_path.as_os_str()),
-        )
+        let release_gate_path_c = std::ffi::CString::new(std::os::unix::ffi::OsStrExt::as_bytes(
+            release_gate_path.as_os_str(),
+        ))
         .unwrap();
         assert_eq!(
             unsafe { libc::mkfifo(release_gate_path_c.as_ptr(), 0o600) },
@@ -1935,10 +1935,8 @@ mod tests {
             .custom_flags(libc::O_NONBLOCK)
             .open(&release_gate_path)
             .unwrap();
-        let mut release_gate = std::fs::OpenOptions::new()
-            .write(true)
-            .open(&release_gate_path)
-            .unwrap();
+        let mut release_gate =
+            std::fs::OpenOptions::new().write(true).open(&release_gate_path).unwrap();
         let surface = crate::Surface::spawn(
             1,
             crate::SurfaceOptions {
