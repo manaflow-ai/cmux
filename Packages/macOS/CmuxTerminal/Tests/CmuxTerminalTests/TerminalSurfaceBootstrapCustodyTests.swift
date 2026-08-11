@@ -101,7 +101,7 @@ import CmuxTerminalCore
     }
 
     @Test func hungAgentShimInstallDoesNotStarveRuntimeSpawn() async throws {
-        _ = try #require(Bundle.main.resourceURL)
+        let bundleResourceURL = try #require(Bundle.main.resourceURL)
         let nativeView = FakeTerminalSurfaceNativeView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         let paneHost = FakeTerminalSurfacePaneHost(
             surfaceView: nativeView,
@@ -139,7 +139,10 @@ import CmuxTerminalCore
         await waitForCreateAttemptCount(surface, 1)
         let deadlinePreparation = try #require(surface.agentCommandShimPreparation)
         #expect(deadlinePreparation.commandShims == nil)
-        #expect(deadlinePreparation.launchResourceSnapshot == .unavailable)
+        #expect(
+            deadlinePreparation.launchResourceSnapshot.wrapperDirectoryURL
+                == bundleResourceURL.appendingPathComponent("bin", isDirectory: true)
+        )
 
         let lateShims = TerminalSurfaceAgentCommandShimSet(
             directoryPath: "/tmp/late-surface-command-shims",

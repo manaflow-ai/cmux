@@ -261,6 +261,38 @@ import Testing
         #expect(requestPayload["method"] as? String == "debug.terminal_backend")
     }
 
+    @Test func testTerminalBackendDiagnosticsStopsOptionParsingAtSeparator() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-backend-diagnostics-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            response: try jsonResponse(result: ["metrics": [:]])
+        )
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["terminal-backend-diagnostics", "--", "--reset"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.diagnostics))
+        #expect(result.status != 0, Comment(rawValue: result.diagnostics))
+        #expect(
+            result.stderr.contains("unexpected argument '--reset'"),
+            Comment(rawValue: result.diagnostics)
+        )
+        #expect(responder.receivedRequests.isEmpty)
+    }
+
     @Test func testIOSContextFromTerminalFallsBackToWorkspaceSimulator() throws {
         let cliPath = try bundledCLIPath()
         let workspaceID = UUID().uuidString.lowercased()
