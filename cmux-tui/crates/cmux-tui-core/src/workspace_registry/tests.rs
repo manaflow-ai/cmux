@@ -6641,6 +6641,70 @@ fn journal_agent_active_socket_rejects_missing_session_identity() {
 }
 
 #[test]
+fn journal_agent_pending_rebuild_accepts_active_deferred_socket_session() {
+    let mut registry =
+        WorkspaceRegistry::in_memory("journal-agent-deferred-active-socket-session").unwrap();
+    commit_terminal_topology(&mut registry, "journal-agent-deferred-active-socket-topology");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let validated = crate::journal_kernel::ValidatedJournalIngress {
+        class: JournalClass::Observation,
+        replay: JournalReplayPolicy::Advisory,
+        sensitivity: JournalSensitivity::Sensitive,
+    };
+    for (index, source_session) in ["stored-hook-session", "deferred-hook-session"]
+        .into_iter()
+        .enumerate()
+    {
+        if index == 1 {
+            registry.hold_agent_projection_rebuild_for_test().unwrap();
+        }
+        let ingress = crate::agent_hook_journal_ingress(
+            "pi",
+            "SessionStart",
+            Some(terminal_id.as_str()),
+            json!({"session_id":source_session}),
+        )
+        .unwrap();
+        registry
+            .append_journal_ingress(
+                &ingress,
+                &validated,
+                "client_deferred_active_socket",
+                &format!("journal_agent_deferred_active_socket_{index}"),
+            )
+            .unwrap();
+    }
+    let stored = registry.public_projections().unwrap().agents.remove(0);
+    assert_eq!(stored.source_session.as_deref(), Some("stored-hook-session"));
+
+    let previous_revision = registry.resource_revision().unwrap();
+    let result = json!({
+        "id":agent_resource(&terminal_id),
+        "session_id":registry.session_id(),
+        "terminal_id":terminal_id,
+        "state":"working",
+        "source":"socket",
+        "updated_at_ms":"3",
+        "source_session":"deferred-hook-session",
+        "extra":{"provider":"pi"},
+    });
+    let commit = registry
+        .commit_agent_projection(
+            &WorkspaceMutation::new("journal-agent-deferred-active-socket", "socket-test")
+                .unwrap(),
+            &json!({"source_session":"deferred-hook-session"}),
+            Some(previous_revision),
+            &terminal_id,
+            &result,
+            &json!([]),
+        )
+        .unwrap();
+
+    assert_eq!(commit.revision, previous_revision + 1);
+    assert_eq!(registry.public_projections().unwrap().agents[0], stored);
+}
+
+#[test]
 fn journal_agent_socket_generation_rejects_late_superseded_session() {
     let root = temp_root("journal-agent-socket-generation");
     let session = "journal-agent-socket-generation";
@@ -7591,17 +7655,46 @@ fn journal_agent_projection_checkpoint_refresh_visits_terminal_once() {
         );
     }
 
-    let mut visited = Vec::new();
     registry
-        .visit_agent_projection_rebuild_range(
+        .connection
+        .execute_batch(
+            "CREATE TEMP TABLE resource_agent_projection_rebuild_changes (
+               terminal_id TEXT PRIMARY KEY NOT NULL
+             );",
+        )
+        .unwrap();
+    registry
+        .connection
+        .execute(
+            "INSERT INTO resource_agent_projection_rebuild_changes(terminal_id) VALUES(?1)",
+            [terminal_id.as_str()],
+        )
+        .unwrap();
+    registry
+        .connection
+        .authorizer(Some(|context| match context.action {
+            rusqlite::hooks::AuthAction::Read { table_name: "journal_event_index", .. } => {
+                rusqlite::hooks::Authorization::Deny
+            }
+            _ => rusqlite::hooks::Authorization::Allow,
+        }))
+        .unwrap();
+    let mut visited = Vec::new();
+    let refresh = registry.visit_agent_projection_rebuild_range(
             sequences[0].saturating_sub(1),
             *sequences.last().unwrap(),
             |projection| {
                 visited.push((projection.terminal_id, projection.state));
                 Ok(())
             },
-        )
+        );
+    registry
+        .connection
+        .authorizer(None::<
+            fn(rusqlite::hooks::AuthContext<'_>) -> rusqlite::hooks::Authorization,
+        >)
         .unwrap();
+    refresh.unwrap();
 
     assert_eq!(visited, vec![(terminal_id, "idle".to_string())]);
 }
