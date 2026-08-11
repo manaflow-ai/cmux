@@ -351,8 +351,20 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
 
         cmux_ssh_auth_recorded_process_is_live() {
           cmux_ssh_auth_parse_recorded_process "$1" || return 1
-          [ "$(cmux_ssh_auth_stable_identity "$CMUX_SSH_AUTH_RECORDED_PID")" = \
-            "$CMUX_SSH_AUTH_RECORDED_STABLE_IDENTITY" ]
+          if cmux_ssh_auth_observed_identity=$(cmux_ssh_auth_stable_identity \
+            "$CMUX_SSH_AUTH_RECORDED_PID"); then
+            [ "$cmux_ssh_auth_observed_identity" = \
+              "$CMUX_SSH_AUTH_RECORDED_STABLE_IDENTITY" ]
+            return
+          fi
+          # A failed identity read is not proof that the owner exited. Refuse
+          # reclamation while the PID remains live; a later pass can validate
+          # the stable identity or observe its exit without creating two owners.
+          cmux_ssh_auth_observed_state=$(/usr/bin/env LC_ALL=C LANG=C \
+            /bin/ps -o state= -p "$CMUX_SSH_AUTH_RECORDED_PID" 2>/dev/null | \
+            /usr/bin/tr -d '[:space:]')
+          case "$cmux_ssh_auth_observed_state" in Z*) return 1 ;; esac
+          /bin/kill -0 "$CMUX_SSH_AUTH_RECORDED_PID" 2>/dev/null
         }
 
         cmux_ssh_auth_publish_current_worker() {
@@ -2268,15 +2280,21 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           : > "$cmux_ssh_auth_frozen_processes" || exit 1
           : > "$cmux_ssh_auth_signaled_groups" || exit 1
           : > "$cmux_ssh_auth_signaled_processes" || exit 1
+          cmux_ssh_auth_tree_started_millis="$(cmux_ssh_auth_now_millis)" || exit 1
+          case "$cmux_ssh_auth_tree_started_millis" in ''|*[!0-9]*) exit 1 ;; esac
+          cmux_ssh_auth_deadline_millis=$((cmux_ssh_auth_tree_started_millis + 2000))
+          # Capture the validated wrapper and its descendants before publisher
+          # setup can complete concurrently with wrapper exit. Later snapshots
+          # retain each exact descendant as an independent ownership seed.
+          cmux_ssh_auth_take_process_snapshot \
+            "$cmux_ssh_auth_process_snapshot" || exit 1
+          cmux_ssh_auth_expand_owned_processes || exit 1
           cmux_ssh_auth_publish_current_worker \
             "$cmux_ssh_auth_tree_state/publisher" || exit 1
           # Publish the marker last so recovery never observes a partial
           # ownership record without a live initialization owner.
           : > "$cmux_ssh_auth_tree_state/rollback-only" || exit 1
           cmux_ssh_auth_tree_cleanup_requires_resume=1
-          cmux_ssh_auth_tree_started_millis="$(cmux_ssh_auth_now_millis)" || exit 1
-          case "$cmux_ssh_auth_tree_started_millis" in ''|*[!0-9]*) exit 1 ;; esac
-          cmux_ssh_auth_deadline_millis=$((cmux_ssh_auth_tree_started_millis + 2000))
           cmux_ssh_auth_run_cleanup_transactions || exit 1
           cmux_ssh_auth_tree_complete=1
         )
