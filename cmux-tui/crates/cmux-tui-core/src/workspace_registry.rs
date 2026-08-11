@@ -544,8 +544,14 @@ impl PersistentSessionStateResetter {
         };
         #[cfg(all(unix, test))]
         {
-            restore_reset_directory_after_lock(&RESET_SWAP_RESTORE_SESSION_DIR_AFTER_WRITER_LOCK)?;
-            restore_reset_directory_after_lock(&RESET_SWAP_RESTORE_TERMINAL_HOST_ROOT_AFTER_LOCK)?;
+            restore_reset_directory_after_lock(
+                &session_dir,
+                &RESET_SWAP_RESTORE_SESSION_DIR_AFTER_WRITER_LOCK,
+            )?;
+            restore_reset_directory_after_lock(
+                &terminal_host_root,
+                &RESET_SWAP_RESTORE_TERMINAL_HOST_ROOT_AFTER_LOCK,
+            )?;
         }
         #[cfg(unix)]
         {
@@ -6333,11 +6339,17 @@ fn inject_reset_directory_swap_before_lock(
 
 #[cfg(all(unix, test))]
 fn restore_reset_directory_after_lock(
+    path: &Path,
     hook: &std::sync::Mutex<Option<ResetDirectorySwapRestore>>,
 ) -> anyhow::Result<()> {
-    let Some(swap) = hook.lock().unwrap().take() else {
+    let mut pending_swap = hook.lock().unwrap();
+    let Some(swap) = pending_swap.as_ref() else {
         return Ok(());
     };
+    if swap.target != path {
+        return Ok(());
+    }
+    let swap = pending_swap.take().expect("checked injected reset swap");
     fs::rename(&swap.target, &swap.locked_replacement).with_context(|| {
         format!("move injected locked reset replacement {}", swap.target.display())
     })?;
