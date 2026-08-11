@@ -118,6 +118,53 @@ struct DockShortcutRoutingTests {
         }
     }
 
+    @Test("Non-Dock sidebar focus preserves the focused main browser")
+    @MainActor
+    func nonDockSidebarFocusPreservesFocusedMainBrowser() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let mainPane = try #require(
+                    harness.mainWorkspace.bonsplitController.focusedPaneId
+                )
+                let mainBrowser = try #require(
+                    harness.mainWorkspace.newBrowserSurface(
+                        inPane: mainPane,
+                        focus: true
+                    )
+                )
+                let sidebarResponder = NSTextField(frame: .zero)
+                let contentView = try #require(harness.window.contentView)
+                contentView.addSubview(sidebarResponder)
+                defer { sidebarResponder.removeFromSuperview() }
+                #expect(harness.window.makeFirstResponder(sidebarResponder))
+                harness.appDelegate.noteRightSidebarKeyboardFocusIntent(
+                    mode: .files,
+                    in: harness.window
+                )
+
+                let target = try #require(
+                    harness.appDelegate.focusedBrowserActionTarget(
+                        preferredWindow: harness.window
+                    )
+                )
+                #expect(
+                    target == BrowserActionTarget(
+                        host: .workspace(harness.mainWorkspace.id),
+                        panelId: mainBrowser.id
+                    )
+                )
+                let shortcut = KeyboardShortcutSettings.Action
+                    .browserReload.defaultShortcut
+                let event = try #require(Self.event(shortcut, in: harness))
+                #expect(
+                    harness.appDelegate.shortcutEventFocusedBrowserPanel(
+                        event
+                    ) === mainBrowser
+                )
+            }
+        }
+    }
+
     @Test("Dock browser responder callbacks resolve the Dock-owned model")
     @MainActor
     func dockBrowserResponderCallbacksResolveDockModel() async throws {
