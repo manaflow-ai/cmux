@@ -488,14 +488,18 @@ jobs:
                 xcodebuild -version
                 xcrun simctl list runtimes available
                 xcrun simctl list devices available
-                xcrun simctl spawn "$SIMULATOR_ID" uname -a
               } > "$EVIDENCE_ATTEMPT/identity.txt" 2>&1
               xcrun simctl io "$SIMULATOR_ID" screenshot "$EVIDENCE_ATTEMPT/before.png" >/dev/null
               xcrun simctl io "$SIMULATOR_ID" recordVideo \
-                --codec h264 \
+                --codec=h264 \
                 --force "$EVIDENCE_ATTEMPT/full-run.mov" \
                 > "$EVIDENCE_ATTEMPT/video.log" 2>&1 &
               VIDEO_PID=$!
+              for _ in {1..50}; do
+                grep -q "Recording started" "$EVIDENCE_ATTEMPT/video.log" 2>/dev/null && break
+                kill -0 "$VIDEO_PID" >/dev/null 2>&1 || break
+                sleep 0.1
+              done
               xcrun xctrace record \
                 --template "Animation Hitches" \
                 --device "$SIMULATOR_ID" \
