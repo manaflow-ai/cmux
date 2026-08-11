@@ -5234,6 +5234,35 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(functions.contains("kill -CONT"))
     }
 
+    @Test func unpublishedFallbackFreezesRootBeforeDescendantDiscovery() throws {
+        let functions = SSHForegroundAuthenticationRetryPolicy()
+            .processTreeTerminationShellFunction()
+        let fallbackStart = try #require(
+            functions.range(of: "cmux_ssh_auth_force_unpublished_process_tree() (")
+        )
+        let durableStart = try #require(
+            functions.range(
+                of: "cmux_ssh_terminate_unpublished_auth_process_tree() (",
+                range: fallbackStart.upperBound..<functions.endIndex
+            )
+        )
+        let fallback = functions[fallbackStart.lowerBound..<durableStart.lowerBound]
+        let writeAheadRecord = try #require(
+            fallback.range(of: "cmux_ssh_auth_direct_stopped_records=")
+        )
+        let rootStop = try #require(
+            fallback.range(of: "kill -STOP \"$cmux_ssh_auth_direct_freeze_pid\"")
+        )
+        let descendantDiscovery = try #require(
+            fallback.range(of: "/usr/bin/pgrep -P")
+        )
+
+        #expect(writeAheadRecord.lowerBound < rootStop.lowerBound)
+        #expect(rootStop.lowerBound < descendantDiscovery.lowerBound)
+        #expect(fallback.contains("cmux_ssh_auth_stopped_identity"))
+        #expect(fallback.contains("kill -CONT"))
+    }
+
     @Test func cleanupClaimsOwnershipBeforeCancellationAndFreezeTransaction() throws {
         let functions = SSHForegroundAuthenticationRetryPolicy()
             .processTreeTerminationShellFunction()
