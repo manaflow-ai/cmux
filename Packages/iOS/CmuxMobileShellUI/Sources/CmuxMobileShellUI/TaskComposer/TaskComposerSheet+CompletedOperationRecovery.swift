@@ -48,7 +48,10 @@ extension TaskComposerSheet {
                 correlationID: snapshot.operationID.uuidString
             )
             completeSubmission(snapshot)
-        case .failure(let failure @ .alreadyCompleted):
+        case .failure(.alreadyCompleted(let hostDisplayName)):
+            let failure = MobileWorkspaceMutationFailure.alreadyCompleted(
+                hostDisplayName: hostDisplayName
+            )
             store.recordAppEvent(
                 .taskComposerRecoveryFailed,
                 correlationID: snapshot.operationID.uuidString,
