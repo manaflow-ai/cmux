@@ -8916,21 +8916,16 @@ impl Mux {
         let runtime_id = surface.terminal_runtime_id().unwrap_or(surface.id);
         {
             let mut budget = self.kitty_image_budget.lock().unwrap();
-            let removed_current_surface =
-                budget.entries.get_mut(&runtime_id).is_some_and(|entry| {
-                    let is_current_surface = entry
-                        .surface
-                        .as_ref()
-                        .and_then(Weak::upgrade)
-                        .is_some_and(|registered| std::ptr::eq(registered.as_ref(), surface));
-                    if is_current_surface {
-                        entry.removing = true;
-                        entry.surface = None;
-                    }
-                    is_current_surface
-                });
+            let removed_current_surface = budget
+                .entries
+                .get(&runtime_id)
+                .and_then(|entry| entry.surface.as_ref())
+                .and_then(Weak::upgrade)
+                .is_some_and(|registered| std::ptr::eq(registered.as_ref(), surface));
             if removed_current_surface {
+                budget.entries.remove(&runtime_id);
                 budget.blocked_surfaces.remove(&runtime_id);
+                Self::rebalance_kitty_image_budget_owners(&mut budget);
             }
         }
         self.kitty_image_budget_changed.notify_all();
