@@ -735,8 +735,7 @@ fn normalized_provider_string(field: &str, value: &str) -> Option<String> {
 fn validate_agent_session_identifiers(native: &Value) -> anyhow::Result<()> {
     let mut session_identifier: Option<&str> = None;
     for path in AGENT_SESSION_ID_PATHS {
-        let Some(value) = agent_session_identifier_at_path(native, path)
-        else {
+        let Some(value) = agent_session_identifier_at_path(native, path) else {
             continue;
         };
         anyhow::ensure!(
@@ -765,19 +764,12 @@ fn agent_session_identifier_at_path<'a>(native: &'a Value, path: &[&str]) -> Opt
             .and_then(Value::as_str)
             .filter(|value| !value.trim().is_empty());
     };
-    if ["sessionID", "sessionId"]
-        .iter()
-        .any(|field| {
-            info.get(*field)
-                .and_then(Value::as_str)
-                .is_some_and(|value| !value.trim().is_empty())
-        })
-    {
+    if ["sessionID", "sessionId"].iter().any(|field| {
+        info.get(*field).and_then(Value::as_str).is_some_and(|value| !value.trim().is_empty())
+    }) {
         return None;
     }
-    info.get("id")
-        .and_then(Value::as_str)
-        .filter(|value| !value.trim().is_empty())
+    info.get("id").and_then(Value::as_str).filter(|value| !value.trim().is_empty())
 }
 
 fn safe_opaque_identifier(value: &str) -> bool {
