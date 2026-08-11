@@ -7,6 +7,8 @@ use std::process::{Command, ExitStatus};
 
 use anyhow::{Context, Result, bail};
 use cmux_tui_core::platform::transport;
+#[cfg(windows)]
+use serde::{Deserialize, Serialize};
 #[cfg(target_os = "linux")]
 use sha2::{Digest, Sha256};
 #[cfg(target_os = "macos")]
@@ -16,6 +18,8 @@ use startup_benchmark_protocol::{
 };
 
 #[derive(Debug, Clone)]
+#[cfg_attr(windows, derive(Deserialize, Serialize))]
+#[cfg_attr(windows, serde(deny_unknown_fields))]
 struct Launch {
     control: PathBuf,
     timing: PathBuf,
@@ -27,6 +31,8 @@ struct Launch {
     product_args: Vec<String>,
     inner: bool,
     prove_private_job: bool,
+    #[cfg_attr(windows, serde(skip))]
+    windows_bootstrap: Option<PathBuf>,
 }
 
 fn main() {
@@ -38,6 +44,12 @@ fn main() {
 
 fn run() -> Result<()> {
     let launch = parse_args(env::args().skip(1))?;
+    if let Some(config) = &launch.windows_bootstrap {
+        #[cfg(windows)]
+        return platform::run_bootstrap(config);
+        #[cfg(not(windows))]
+        bail!("Windows bootstrap mode is unavailable on this platform");
+    }
     validate_launch(&launch)?;
     if launch.inner {
         return run_inner(launch);
@@ -99,6 +111,7 @@ fn parse_args(values: impl Iterator<Item = String>) -> Result<Launch> {
         product_args: Vec::new(),
         inner: false,
         prove_private_job: false,
+        windows_bootstrap: None,
     };
     while let Some(argument) = values.next() {
         if argument == "--" {
@@ -108,6 +121,9 @@ fn parse_args(values: impl Iterator<Item = String>) -> Result<Launch> {
         match argument.as_str() {
             "--inner" => launch.inner = true,
             "--prove-private-job" => launch.prove_private_job = true,
+            "--windows-bootstrap" => {
+                launch.windows_bootstrap = Some(required_value(&mut values, &argument)?.into());
+            }
             "--control" => launch.control = required_value(&mut values, &argument)?.into(),
             "--timing" => launch.timing = required_value(&mut values, &argument)?.into(),
             "--nonce" => launch.nonce = required_value(&mut values, &argument)?,
@@ -218,17 +234,23 @@ mod platform {
         } else {
             Command::new(&bwrap)
         };
-        command.args([
-            "--unshare-all",
-            "--die-with-parent",
-            "--new-session",
-            "--clearenv",
-            "--dir",
-            "/cmux-bin",
-        ]);
-        if !use_sudo {
+        if use_sudo {
+            // Root constructs only the mount and explicit isolation namespaces. It must not enter
+            // a user namespace before it opens the fixture bind. The contained setpriv command
+            // below owns the one identity and capability transition.
+            command.args([
+                "--unshare-ipc",
+                "--unshare-pid",
+                "--unshare-net",
+                "--unshare-uts",
+                "--unshare-cgroup-try",
+                "--disable-userns",
+            ]);
+        } else {
+            command.arg("--unshare-all");
             command.args(["--cap-drop", "ALL"]);
         }
+        command.args(["--die-with-parent", "--new-session", "--clearenv", "--dir", "/cmux-bin"]);
         append_contained_environment(&mut command);
         append_binary_data_bind(&mut command, supervisor_fd, sandbox_supervisor);
         append_binary_data_bind(&mut command, product_fd, sandbox_target);
@@ -249,6 +271,9 @@ mod platform {
         command.args(["--dev", "/dev", "--proc", "/proc", "--bind"]);
         command.arg(&launch.fixture_root).arg(&launch.fixture_root);
         command.arg("--chdir").arg(&launch.fixture_root);
+        // Keep the explicit submounts above writable as configured, but make Bubblewrap's
+        // synthetic root and all adjacent scaffolding read-only.
+        command.args(["--remount-ro", "/"]);
         command.arg("--");
         if let Some((uid, gid)) = &identity {
             // Root owns only namespace construction. setpriv makes one contained transition to
@@ -784,15 +809,21 @@ mod platform {
 #[cfg(windows)]
 mod platform {
     use std::ffi::c_void;
-    use std::mem::{size_of, zeroed};
+    use std::fs::File;
+    use std::io::{BufRead, BufReader, Write};
+    use std::mem::{size_of, size_of_val, zeroed};
     use std::os::windows::ffi::OsStrExt;
+    use std::os::windows::io::{FromRawHandle, RawHandle};
     use std::os::windows::process::ExitStatusExt;
     use std::ptr::{null, null_mut};
-    use std::time::Instant;
+    use std::sync::mpsc;
+    use std::thread;
+    use std::time::{Duration, Instant};
 
     use windows_sys::Win32::Foundation::{
-        CloseHandle, DuplicateHandle, ERROR_NOT_ALL_ASSIGNED, ERROR_SUCCESS, GENERIC_ALL,
-        GetLastError, HANDLE, INVALID_HANDLE_VALUE, LocalFree, SetLastError, WAIT_OBJECT_0,
+        CloseHandle, DUPLICATE_SAME_ACCESS, DuplicateHandle, ERROR_NOT_ALL_ASSIGNED, ERROR_SUCCESS,
+        GENERIC_ALL, GetHandleInformation, GetLastError, HANDLE, HANDLE_FLAG_INHERIT,
+        INVALID_HANDLE_VALUE, LocalFree, SetLastError, WAIT_OBJECT_0, WAIT_TIMEOUT,
     };
     use windows_sys::Win32::Security::Authorization::{
         ConvertStringSidToSidW, EXPLICIT_ACCESS_W, GRANT_ACCESS, GetNamedSecurityInfoW,
@@ -808,6 +839,7 @@ mod platform {
         TOKEN_ADJUST_PRIVILEGES, TOKEN_MANDATORY_LABEL, TOKEN_PRIVILEGES, TOKEN_QUERY,
         TokenIntegrityLevel, WRITE_RESTRICTED,
     };
+    use windows_sys::Win32::Storage::FileSystem::{FILE_TYPE_UNKNOWN, GetFileType};
     use windows_sys::Win32::System::Console::{
         GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
     };
@@ -818,52 +850,137 @@ mod platform {
         JobObjectAssociateCompletionPortInformation, JobObjectExtendedLimitInformation,
         SetInformationJobObject, TerminateJobObject,
     };
+    use windows_sys::Win32::System::Pipes::CreatePipe;
     use windows_sys::Win32::System::SystemServices::{
         JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO, JOB_OBJECT_QUERY, PRIVILEGE_SET_ALL_NECESSARY,
         SE_GROUP_INTEGRITY,
     };
     use windows_sys::Win32::System::Threading::{
-        CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, CreateProcessWithTokenW, GetCurrentProcess,
-        GetExitCodeProcess, INFINITE, OpenProcessToken, PROCESS_INFORMATION, ResumeThread,
-        STARTF_USESTDHANDLES, STARTUPINFOW, TerminateProcess, WaitForSingleObject,
+        CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, CreateProcessW, CreateProcessWithTokenW,
+        DeleteProcThreadAttributeList, EXTENDED_STARTUPINFO_PRESENT, GetCurrentProcess,
+        GetExitCodeProcess, INFINITE, InitializeProcThreadAttributeList, OpenProcessToken,
+        PROC_THREAD_ATTRIBUTE_HANDLE_LIST, PROCESS_INFORMATION, ResumeThread, STARTF_USESTDHANDLES,
+        STARTUPINFOEXW, STARTUPINFOW, TerminateProcess, UpdateProcThreadAttribute,
+        WaitForSingleObject,
     };
     use windows_sys::Win32::UI::Shell::{LoadUserProfileW, PROFILEINFOW, UnloadUserProfile};
 
     use super::*;
 
+    const BOOTSTRAP_SCHEMA_VERSION: u32 = 1;
+    const MAX_BOOTSTRAP_MESSAGE_BYTES: usize = 64 * 1024;
+
+    #[derive(Deserialize, Serialize)]
+    #[serde(deny_unknown_fields)]
+    struct BootstrapConfig {
+        schema_version: u32,
+        nonce: String,
+        launch: Launch,
+        control_read: usize,
+        control_write: usize,
+        standard_handles: [usize; 3],
+        query_job: Option<usize>,
+    }
+
+    #[derive(Deserialize, Serialize)]
+    #[serde(tag = "type", rename_all = "kebab-case", deny_unknown_fields)]
+    enum BootstrapCommand {
+        Arm { nonce: String },
+    }
+
+    #[derive(Deserialize, Serialize)]
+    #[serde(tag = "type", rename_all = "kebab-case", deny_unknown_fields)]
+    enum BootstrapMessage {
+        Ready {
+            nonce: String,
+            standard_handles_valid: bool,
+            standard_handles_inheritable: bool,
+            private_job_member: bool,
+        },
+        Exit {
+            nonce: String,
+            code: u32,
+            private_job_descendant_contained: bool,
+        },
+        Error {
+            nonce: String,
+            error: String,
+        },
+    }
+
     pub fn run_outer(launch: &Launch) -> Result<ExitStatus> {
         let mut restricted = RestrictedToken::new(launch)?;
-        let timing = TimingSink::open(&launch.timing, &launch.nonce)?;
-        let mut control = transport::connect(&launch.control)
-            .with_context(|| format!("connect control socket {}", launch.control.display()))?;
-        control.set_read_timeout(Some(CONTROL_TIMEOUT))?;
-        control.set_write_timeout(Some(CONTROL_TIMEOUT))?;
-        fs::remove_file(&launch.timing).context("remove live Windows timing page")?;
-        match fs::remove_file(&launch.control) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                // Windows AF_UNIX names do not create filesystem entries.
+        let bootstrap = restricted.start_bootstrap(launch);
+        let mut bootstrap = match bootstrap {
+            Ok(bootstrap) => bootstrap,
+            Err(error) => {
+                let cleanup = restricted.cleanup();
+                return match cleanup {
+                    Ok(()) => Err(error),
+                    Err(cleanup) => Err(error
+                        .context(format!("Windows containment cleanup also failed: {cleanup:#}"))),
+                };
             }
-            Err(error) => return Err(error).context("remove live Windows control socket"),
-        }
-        write_control_line(&mut control, &ready_line(&launch.nonce))?;
-        let arm = read_control_line(&mut control)?;
-        if arm != arm_line(&launch.nonce).trim_end() {
-            bail!("control ARM identity mismatch");
-        }
-        control.shutdown(std::net::Shutdown::Both)?;
-        drop(control);
-
-        let result = restricted.create_product(launch, &timing);
+        };
+        let result = (|| {
+            bootstrap.wait_ready(&launch.nonce)?;
+            let mut control = transport::connect(&launch.control)
+                .with_context(|| format!("connect control socket {}", launch.control.display()))?;
+            control.set_read_timeout(Some(CONTROL_TIMEOUT))?;
+            control.set_write_timeout(Some(CONTROL_TIMEOUT))?;
+            match fs::remove_file(&launch.control) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    // Windows AF_UNIX names do not create filesystem entries.
+                }
+                Err(error) => return Err(error).context("remove live Windows control socket"),
+            }
+            write_control_line(&mut control, &ready_line(&launch.nonce))?;
+            let arm = read_control_line(&mut control)?;
+            if arm != arm_line(&launch.nonce).trim_end() {
+                bail!("control ARM identity mismatch");
+            }
+            control.shutdown(std::net::Shutdown::Both)?;
+            drop(control);
+            bootstrap.arm_and_wait(&launch.nonce, launch.prove_private_job)
+        })();
         let cleanup = restricted.cleanup();
-        match (result, cleanup) {
-            (Ok(status), Ok(())) => Ok(status),
-            (Err(error), Ok(())) => Err(error),
-            (Ok(_), Err(cleanup)) => Err(cleanup),
-            (Err(error), Err(cleanup)) => {
-                Err(error.context(format!("Windows containment cleanup also failed: {cleanup:#}")))
-            }
+        let bootstrap_cleanup = bootstrap.finish();
+        combine_windows_results(result, cleanup, bootstrap_cleanup)
+    }
+
+    pub fn run_bootstrap(config_path: &Path) -> Result<()> {
+        let bytes = fs::read(config_path)
+            .with_context(|| format!("read Windows bootstrap config {}", config_path.display()))?;
+        let config: BootstrapConfig =
+            serde_json::from_slice(&bytes).context("parse Windows bootstrap config")?;
+        fs::remove_file(config_path).context("consume Windows bootstrap config")?;
+        if config.schema_version != BOOTSTRAP_SCHEMA_VERSION || config.nonce != config.launch.nonce
+        {
+            bail!("Windows bootstrap config identity mismatch");
         }
+        let nonce = config.nonce.clone();
+        let mut input_handle =
+            OwnedHandle::from_transferred(config.control_read, "bootstrap command pipe")?;
+        let mut output_handle =
+            OwnedHandle::from_transferred(config.control_write, "bootstrap event pipe")?;
+        // SAFETY: the outer supervisor duplicated these exact pipe handles into this process and
+        // transferred their sole ownership in the nonce-bound config.
+        let input = unsafe { File::from_raw_handle(input_handle.take() as RawHandle) };
+        // SAFETY: same ownership transfer as the paired input handle above.
+        let mut output = unsafe { File::from_raw_handle(output_handle.take() as RawHandle) };
+        let result = (|| {
+            validate_launch(&config.launch)
+                .context("validate consumed Windows bootstrap launch")?;
+            run_bootstrap_inner(config, input, &mut output)
+        })();
+        if let Err(error) = &result {
+            let _ = write_bootstrap_message(
+                &mut output,
+                &BootstrapMessage::Error { nonce, error: format!("{error:#}") },
+            );
+        }
+        result.map(|_| ())
     }
 
     pub fn exec_product(_command: Command, _timing: TimingSink) -> Result<()> {
@@ -1025,26 +1142,23 @@ mod platform {
             })
         }
 
-        fn create_product(&mut self, launch: &Launch, timing: &TimingSink) -> Result<ExitStatus> {
-            let application = wide(launch.target.as_os_str());
+        fn start_bootstrap(&mut self, launch: &Launch) -> Result<BootstrapSession> {
+            let current = env::current_exe().context("resolve Windows bootstrap executable")?;
+            let application = wide(current.as_os_str());
             let current_directory = wide(launch.fixture_root.as_os_str());
             let mut command_line = wide(std::ffi::OsStr::new(&windows_command_line(
-                &launch.target,
-                &launch.product_args,
+                &current,
+                &[
+                    "--windows-bootstrap".into(),
+                    bootstrap_config_path(launch).to_string_lossy().into_owned(),
+                ],
             )));
             // SAFETY: zero is a valid initial state for these Win32 structs.
             let mut startup: STARTUPINFOW = unsafe { zeroed() };
             startup.cb = u32::try_from(size_of::<STARTUPINFOW>())?;
-            startup.dwFlags = STARTF_USESTDHANDLES;
-            // SAFETY: these calls return the supervisor's inherited PTY or capture handles.
-            startup.hStdInput = unsafe { GetStdHandle(STD_INPUT_HANDLE) };
-            startup.hStdOutput = unsafe { GetStdHandle(STD_OUTPUT_HANDLE) };
-            startup.hStdError = unsafe { GetStdHandle(STD_ERROR_HANDLE) };
             // SAFETY: zero is a valid initial state for PROCESS_INFORMATION.
             let mut process: PROCESS_INFORMATION = unsafe { zeroed() };
-            let mut environment =
-                product_environment_block(self.query_job.as_ref().map(|handle| handle.0 as usize));
-            timing.record_pre_exec()?;
+            let mut environment = product_environment_block();
             // SAFETY: all strings are NUL-terminated and output storage remains live.
             check(
                 unsafe {
@@ -1060,7 +1174,7 @@ mod platform {
                         &mut process,
                     )
                 },
-                "create suspended restricted product",
+                "create suspended restricted bootstrap",
             )?;
             let process_handle = OwnedHandle(process.hProcess);
             let thread_handle = OwnedHandle(process.hThread);
@@ -1071,25 +1185,55 @@ mod platform {
                 let _ = unsafe { TerminateProcess(process_handle.0, 125) };
                 // SAFETY: process_handle remains live until the end of this scope.
                 let _ = unsafe { WaitForSingleObject(process_handle.0, INFINITE) };
-                return Err(error).context("assign product to non-breakaway job");
+                return Err(error).context("assign bootstrap to non-breakaway job");
             }
             self.product_assigned = true;
+            let pipes = BootstrapPipes::create()?;
+            let control_read = duplicate_into_process(
+                pipes.bootstrap_read.0,
+                process_handle.0,
+                false,
+                "bootstrap control read",
+            )?;
+            let control_write = duplicate_into_process(
+                pipes.bootstrap_write.0,
+                process_handle.0,
+                false,
+                "bootstrap control write",
+            )?;
+            let standard_handles = [
+                duplicate_standard_handle(STD_INPUT_HANDLE, process_handle.0, "stdin")?,
+                duplicate_standard_handle(STD_OUTPUT_HANDLE, process_handle.0, "stdout")?,
+                duplicate_standard_handle(STD_ERROR_HANDLE, process_handle.0, "stderr")?,
+            ];
+            let query_job = self
+                .query_job
+                .as_ref()
+                .map(|handle| {
+                    duplicate_into_process(handle.0, process_handle.0, false, "private Job query")
+                })
+                .transpose()?;
+            let config_path = bootstrap_config_path(launch);
+            write_bootstrap_config(
+                &config_path,
+                &BootstrapConfig {
+                    schema_version: BOOTSTRAP_SCHEMA_VERSION,
+                    nonce: launch.nonce.clone(),
+                    launch: launch.clone(),
+                    control_read,
+                    control_write,
+                    standard_handles,
+                    query_job,
+                },
+            )?;
             // SAFETY: thread_handle is the suspended primary thread.
             if unsafe { ResumeThread(thread_handle.0) } == u32::MAX {
-                return Err(std::io::Error::last_os_error()).context("resume restricted product");
+                let _ = fs::remove_file(&config_path);
+                return Err(std::io::Error::last_os_error()).context("resume restricted bootstrap");
             }
-            // SAFETY: process_handle is a live process handle.
-            if unsafe { WaitForSingleObject(process_handle.0, INFINITE) } != WAIT_OBJECT_0 {
-                return Err(std::io::Error::last_os_error()).context("wait for restricted product");
-            }
-            let mut code = 0_u32;
-            // SAFETY: code points to writable storage and process_handle remains live.
-            check(
-                unsafe { GetExitCodeProcess(process_handle.0, &mut code) },
-                "read restricted product exit code",
-            )?;
+            let session = BootstrapSession::new(process_handle, pipes, config_path);
             let _ = &self.restricting_sid;
-            Ok(ExitStatus::from_raw(code))
+            Ok(session)
         }
 
         fn cleanup(&mut self) -> Result<()> {
@@ -1136,6 +1280,430 @@ mod platform {
                     return Ok(());
                 }
             }
+        }
+    }
+
+    struct BootstrapPipes {
+        controller_read: OwnedHandle,
+        controller_write: OwnedHandle,
+        bootstrap_read: OwnedHandle,
+        bootstrap_write: OwnedHandle,
+    }
+
+    impl BootstrapPipes {
+        fn create() -> Result<Self> {
+            let (bootstrap_read, controller_write) = create_pipe("bootstrap command")?;
+            let (controller_read, bootstrap_write) = create_pipe("bootstrap event")?;
+            Ok(Self { controller_read, controller_write, bootstrap_read, bootstrap_write })
+        }
+    }
+
+    struct BootstrapSession {
+        process: OwnedHandle,
+        writer: Option<File>,
+        receiver: mpsc::Receiver<std::result::Result<BootstrapMessage, String>>,
+        reader: Option<thread::JoinHandle<()>>,
+        config_path: PathBuf,
+    }
+
+    impl BootstrapSession {
+        fn new(process: OwnedHandle, mut pipes: BootstrapPipes, config_path: PathBuf) -> Self {
+            let controller_read = pipes.controller_read.take();
+            let controller_write = pipes.controller_write.take();
+            drop(pipes);
+            // SAFETY: ownership moved out of OwnedHandle and is transferred to File once.
+            let reader = unsafe { File::from_raw_handle(controller_read as RawHandle) };
+            // SAFETY: same one-owner transfer for the command pipe.
+            let writer = unsafe { File::from_raw_handle(controller_write as RawHandle) };
+            let (sender, receiver) = mpsc::channel();
+            let reader = thread::spawn(move || {
+                let mut reader = BufReader::new(reader);
+                loop {
+                    let mut line = Vec::new();
+                    let result =
+                        reader.read_until(b'\n', &mut line).map_err(|error| error.to_string());
+                    let result = result.and_then(|count| {
+                        if count == 0 {
+                            return Err("Windows bootstrap event pipe closed".into());
+                        }
+                        if line.len() > MAX_BOOTSTRAP_MESSAGE_BYTES {
+                            return Err("Windows bootstrap event exceeded its bound".into());
+                        }
+                        serde_json::from_slice(&line).map_err(|error| error.to_string())
+                    });
+                    let terminal = result.is_err();
+                    if sender.send(result).is_err() || terminal {
+                        break;
+                    }
+                }
+            });
+            Self { process, writer: Some(writer), receiver, reader: Some(reader), config_path }
+        }
+
+        fn wait_ready(&mut self, nonce: &str) -> Result<()> {
+            match self.receive("wait for restricted bootstrap READY")? {
+                BootstrapMessage::Ready {
+                    nonce: observed,
+                    standard_handles_valid,
+                    standard_handles_inheritable,
+                    private_job_member,
+                } if observed == nonce
+                    && standard_handles_valid
+                    && standard_handles_inheritable
+                    && private_job_member =>
+                {
+                    if self.config_path.exists() {
+                        bail!("restricted bootstrap did not consume its launch config");
+                    }
+                    Ok(())
+                }
+                BootstrapMessage::Error { nonce: observed, error } if observed == nonce => {
+                    bail!("restricted bootstrap failed before READY: {error}")
+                }
+                _ => bail!("restricted bootstrap READY evidence mismatch"),
+            }
+        }
+
+        fn arm_and_wait(&mut self, nonce: &str, require_descendant: bool) -> Result<ExitStatus> {
+            let writer =
+                self.writer.as_mut().context("Windows bootstrap command pipe is closed")?;
+            write_bootstrap_message(writer, &BootstrapCommand::Arm { nonce: nonce.into() })?;
+            let (code, contained) = match self.receive("wait for restricted product status")? {
+                BootstrapMessage::Exit {
+                    nonce: observed,
+                    code,
+                    private_job_descendant_contained,
+                } if observed == nonce => (code, private_job_descendant_contained),
+                BootstrapMessage::Error { nonce: observed, error } if observed == nonce => {
+                    bail!("restricted bootstrap product launch failed: {error}")
+                }
+                _ => bail!("restricted bootstrap exit evidence mismatch"),
+            };
+            if require_descendant && !contained {
+                bail!(
+                    "restricted bootstrap did not prove its surviving descendant in the private Job"
+                );
+            }
+            wait_process(&self.process, CONTROL_TIMEOUT, "restricted bootstrap exit")?;
+            Ok(ExitStatus::from_raw(code))
+        }
+
+        fn receive(&self, operation: &str) -> Result<BootstrapMessage> {
+            match self.receiver.recv_timeout(CONTROL_TIMEOUT) {
+                Ok(Ok(message)) => Ok(message),
+                Ok(Err(error)) => bail!("{operation}: {error}"),
+                Err(error) => Err(error).context(operation.to_string()),
+            }
+        }
+
+        fn finish(&mut self) -> Result<()> {
+            self.writer.take();
+            let _ = fs::remove_file(&self.config_path);
+            wait_process(&self.process, CONTROL_TIMEOUT, "restricted bootstrap cleanup")?;
+            if let Some(reader) = self.reader.take() {
+                reader.join().map_err(|_| anyhow::anyhow!("bootstrap reader thread panicked"))?;
+            }
+            Ok(())
+        }
+    }
+
+    fn run_bootstrap_inner(config: BootstrapConfig, input: File, output: &mut File) -> Result<()> {
+        let standard_handles: [OwnedHandle; 3] = config
+            .standard_handles
+            .map(|value| OwnedHandle::from_transferred(value, "standard handle"))
+            .into_iter()
+            .collect::<Result<Vec<_>>>()?
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("Windows bootstrap requires three standard handles"))?;
+        let (standard_handles_valid, standard_handles_inheritable) =
+            validate_standard_handles(&standard_handles)?;
+        let query_job = config
+            .query_job
+            .map(|value| OwnedHandle::from_transferred(value, "private Job query handle"))
+            .transpose()?;
+        let private_job_member =
+            query_job.as_ref().map(|job| process_in_job(job.0)).transpose()?.unwrap_or(true);
+        let timing = TimingSink::open(&config.launch.timing, &config.nonce)?;
+        fs::remove_file(&config.launch.timing).context("consume Windows bootstrap timing page")?;
+        write_bootstrap_message(
+            output,
+            &BootstrapMessage::Ready {
+                nonce: config.nonce.clone(),
+                standard_handles_valid,
+                standard_handles_inheritable,
+                private_job_member,
+            },
+        )?;
+        let mut input = BufReader::new(input);
+        let command: BootstrapCommand = read_bootstrap_message(&mut input)?;
+        match command {
+            BootstrapCommand::Arm { nonce } if nonce == config.nonce => {}
+            _ => bail!("Windows bootstrap ARM identity mismatch"),
+        }
+        let (code, private_job_descendant_contained) = create_product_from_bootstrap(
+            &config.launch,
+            standard_handles,
+            query_job.as_ref(),
+            timing,
+        )?;
+        write_bootstrap_message(
+            output,
+            &BootstrapMessage::Exit { nonce: config.nonce, code, private_job_descendant_contained },
+        )
+    }
+
+    fn create_product_from_bootstrap(
+        launch: &Launch,
+        standard_handles: [OwnedHandle; 3],
+        query_job: Option<&OwnedHandle>,
+        timing: TimingSink,
+    ) -> Result<(u32, bool)> {
+        let handles = standard_handles.each_ref().map(|handle| handle.0);
+        let attributes = ProcessAttributeList::for_handles(&handles)?;
+        let application = wide(launch.target.as_os_str());
+        let current_directory = wide(launch.fixture_root.as_os_str());
+        let mut command_line =
+            wide(std::ffi::OsStr::new(&windows_command_line(&launch.target, &launch.product_args)));
+        // SAFETY: zero is a valid initial state for this Win32 structure.
+        let mut startup: STARTUPINFOEXW = unsafe { zeroed() };
+        startup.StartupInfo.cb = u32::try_from(size_of::<STARTUPINFOEXW>())?;
+        startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+        startup.StartupInfo.hStdInput = handles[0];
+        startup.StartupInfo.hStdOutput = handles[1];
+        startup.StartupInfo.hStdError = handles[2];
+        startup.lpAttributeList = attributes.pointer;
+        // SAFETY: zero is a valid initial state for PROCESS_INFORMATION.
+        let mut process: PROCESS_INFORMATION = unsafe { zeroed() };
+        let mut environment = product_environment_block();
+        timing.record_pre_exec()?;
+        let created = unsafe {
+            CreateProcessW(
+                application.as_ptr(),
+                command_line.as_mut_ptr(),
+                null(),
+                null(),
+                1,
+                CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT | EXTENDED_STARTUPINFO_PRESENT,
+                environment.as_mut_ptr().cast::<c_void>(),
+                current_directory.as_ptr(),
+                (&startup as *const STARTUPINFOEXW).cast::<STARTUPINFOW>(),
+                &mut process,
+            )
+        };
+        // Close the bootstrap copies immediately after process creation succeeds or fails.
+        drop(standard_handles);
+        check(created, "create restricted product from bootstrap")?;
+        let process_handle = OwnedHandle(process.hProcess);
+        let thread_handle = OwnedHandle(process.hThread);
+        let private_job_member = query_job
+            .map(|job| process_in_specific_job(process_handle.0, job.0))
+            .transpose()?
+            .unwrap_or(true);
+        // SAFETY: the primary thread is still suspended from CreateProcessW.
+        if unsafe { ResumeThread(thread_handle.0) } == u32::MAX {
+            return Err(std::io::Error::last_os_error()).context("resume restricted product");
+        }
+        // SAFETY: process_handle is a live product process handle.
+        if unsafe { WaitForSingleObject(process_handle.0, INFINITE) } != WAIT_OBJECT_0 {
+            return Err(std::io::Error::last_os_error()).context("wait for restricted product");
+        }
+        let mut code = 0_u32;
+        check(
+            unsafe { GetExitCodeProcess(process_handle.0, &mut code) },
+            "read restricted product exit code",
+        )?;
+        Ok((code, private_job_member))
+    }
+
+    struct ProcessAttributeList {
+        _storage: Vec<usize>,
+        pointer: windows_sys::Win32::System::Threading::LPPROC_THREAD_ATTRIBUTE_LIST,
+    }
+
+    impl ProcessAttributeList {
+        fn for_handles(handles: &[HANDLE; 3]) -> Result<Self> {
+            let mut bytes = 0_usize;
+            let _ = unsafe { InitializeProcThreadAttributeList(null_mut(), 1, 0, &mut bytes) };
+            if bytes == 0 {
+                return Err(std::io::Error::last_os_error())
+                    .context("size product process attribute list");
+            }
+            let mut storage = vec![0_usize; bytes.div_ceil(size_of::<usize>())];
+            let pointer = storage.as_mut_ptr().cast();
+            check(
+                unsafe { InitializeProcThreadAttributeList(pointer, 1, 0, &mut bytes) },
+                "initialize product process attribute list",
+            )?;
+            let list = Self { _storage: storage, pointer };
+            check(
+                unsafe {
+                    UpdateProcThreadAttribute(
+                        list.pointer,
+                        0,
+                        PROC_THREAD_ATTRIBUTE_HANDLE_LIST as usize,
+                        handles.as_ptr().cast::<c_void>(),
+                        size_of_val(handles),
+                        null_mut(),
+                        null(),
+                    )
+                },
+                "set explicit product handle list",
+            )?;
+            Ok(list)
+        }
+    }
+
+    impl Drop for ProcessAttributeList {
+        fn drop(&mut self) {
+            unsafe { DeleteProcThreadAttributeList(self.pointer) };
+        }
+    }
+
+    fn create_pipe(name: &str) -> Result<(OwnedHandle, OwnedHandle)> {
+        let mut read = null_mut();
+        let mut write = null_mut();
+        check(
+            unsafe { CreatePipe(&mut read, &mut write, null(), 0) },
+            &format!("create Windows {name} pipe"),
+        )?;
+        Ok((OwnedHandle(read), OwnedHandle(write)))
+    }
+
+    fn duplicate_standard_handle(kind: u32, process: HANDLE, name: &str) -> Result<usize> {
+        let source = unsafe { GetStdHandle(kind) };
+        if source.is_null() || source == INVALID_HANDLE_VALUE {
+            bail!("Windows supervisor {name} handle is invalid");
+        }
+        if unsafe { GetFileType(source) } == FILE_TYPE_UNKNOWN {
+            bail!("Windows supervisor {name} handle has an unknown type");
+        }
+        duplicate_into_process(source, process, true, name)
+    }
+
+    fn duplicate_into_process(
+        source: HANDLE,
+        process: HANDLE,
+        inheritable: bool,
+        name: &str,
+    ) -> Result<usize> {
+        let mut target = null_mut();
+        check(
+            unsafe {
+                DuplicateHandle(
+                    GetCurrentProcess(),
+                    source,
+                    process,
+                    &mut target,
+                    0,
+                    i32::from(inheritable),
+                    DUPLICATE_SAME_ACCESS,
+                )
+            },
+            &format!("duplicate Windows {name} handle into bootstrap"),
+        )?;
+        Ok(target as usize)
+    }
+
+    fn validate_standard_handles(handles: &[OwnedHandle]) -> Result<(bool, bool)> {
+        let mut valid = true;
+        let mut inheritable = true;
+        for handle in handles {
+            let mut flags = 0_u32;
+            valid &= unsafe { GetFileType(handle.0) } != FILE_TYPE_UNKNOWN;
+            if unsafe { GetHandleInformation(handle.0, &mut flags) } == 0 {
+                return Err(std::io::Error::last_os_error())
+                    .context("read duplicated standard-handle flags");
+            }
+            inheritable &= flags & HANDLE_FLAG_INHERIT != 0;
+        }
+        if !valid || !inheritable {
+            bail!("Windows bootstrap standard-handle proof failed");
+        }
+        Ok((valid, inheritable))
+    }
+
+    fn process_in_job(job: HANDLE) -> Result<bool> {
+        use windows_sys::Win32::System::JobObjects::IsProcessInJob;
+
+        let mut contained = 0;
+        check(
+            unsafe { IsProcessInJob(GetCurrentProcess(), job, &mut contained) },
+            "verify restricted bootstrap private Job membership",
+        )?;
+        Ok(contained != 0)
+    }
+
+    fn process_in_specific_job(process: HANDLE, job: HANDLE) -> Result<bool> {
+        use windows_sys::Win32::System::JobObjects::IsProcessInJob;
+
+        let mut contained = 0;
+        check(
+            unsafe { IsProcessInJob(process, job, &mut contained) },
+            "verify suspended product private Job membership",
+        )?;
+        Ok(contained != 0)
+    }
+
+    fn bootstrap_config_path(launch: &Launch) -> PathBuf {
+        launch.fixture_root.join(format!("bootstrap-{}.json", &launch.nonce[..16]))
+    }
+
+    fn write_bootstrap_config(path: &Path, config: &BootstrapConfig) -> Result<()> {
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)
+            .with_context(|| format!("create Windows bootstrap config {}", path.display()))?;
+        serde_json::to_writer(&mut file, config)?;
+        file.write_all(b"\n")?;
+        file.sync_all()?;
+        Ok(())
+    }
+
+    fn write_bootstrap_message(writer: &mut File, message: &impl Serialize) -> Result<()> {
+        serde_json::to_writer(&mut *writer, message)?;
+        writer.write_all(b"\n")?;
+        writer.flush()?;
+        Ok(())
+    }
+
+    fn read_bootstrap_message<T: for<'de> Deserialize<'de>>(
+        reader: &mut impl BufRead,
+    ) -> Result<T> {
+        let mut line = Vec::new();
+        let count = reader.read_until(b'\n', &mut line)?;
+        if count == 0 || line.len() > MAX_BOOTSTRAP_MESSAGE_BYTES {
+            bail!("Windows bootstrap command was empty or exceeded its bound");
+        }
+        serde_json::from_slice(&line).context("parse Windows bootstrap command")
+    }
+
+    fn wait_process(process: &OwnedHandle, timeout: Duration, operation: &str) -> Result<()> {
+        let timeout_ms = u32::try_from(timeout.as_millis().min(u128::from(u32::MAX)))?;
+        match unsafe { WaitForSingleObject(process.0, timeout_ms) } {
+            WAIT_OBJECT_0 => Ok(()),
+            WAIT_TIMEOUT => bail!("{operation} exceeded its deadline"),
+            _ => Err(std::io::Error::last_os_error()).context(operation.to_string()),
+        }
+    }
+
+    fn combine_windows_results(
+        result: Result<ExitStatus>,
+        cleanup: Result<()>,
+        bootstrap_cleanup: Result<()>,
+    ) -> Result<ExitStatus> {
+        let mut cleanup_errors = Vec::new();
+        if let Err(error) = cleanup {
+            cleanup_errors.push(format!("containment cleanup failed: {error:#}"));
+        }
+        if let Err(error) = bootstrap_cleanup {
+            cleanup_errors.push(format!("bootstrap cleanup failed: {error:#}"));
+        }
+        match (result, cleanup_errors.is_empty()) {
+            (Ok(status), true) => Ok(status),
+            (Ok(_), false) => bail!("{}", cleanup_errors.join("; ")),
+            (Err(error), true) => Err(error),
+            (Err(error), false) => Err(error.context(cleanup_errors.join("; "))),
         }
     }
 
@@ -1205,7 +1773,7 @@ mod platform {
         let query_job = if prove_private_job {
             let mut query_job = null_mut();
             // SAFETY: the source and target process are current, the source job is live, and
-            // output is writable. The preflight-only duplicate is inheritable and query-only.
+            // output is writable. The preflight-only duplicate is non-inheritable and query-only.
             check(
                 unsafe {
                     DuplicateHandle(
@@ -1214,7 +1782,7 @@ mod platform {
                         GetCurrentProcess(),
                         &mut query_job,
                         JOB_OBJECT_QUERY,
-                        1,
+                        0,
                         0,
                     )
                 },
@@ -1386,7 +1954,7 @@ mod platform {
             .join(" ")
     }
 
-    fn product_environment_block(query_job: Option<usize>) -> Vec<u16> {
+    fn product_environment_block() -> Vec<u16> {
         let mut values = env::vars_os()
             .filter_map(|(key, value)| {
                 let key = key.to_string_lossy();
@@ -1399,9 +1967,6 @@ mod platform {
                 Some(format!("{key}={}", value.to_string_lossy()))
             })
             .collect::<Vec<_>>();
-        if let Some(query_job) = query_job {
-            values.push(format!("CMUX_BENCH_PRIVATE_JOB_HANDLE={query_job}"));
-        }
         values.sort_by_key(|value| value.to_ascii_uppercase());
         let mut block = Vec::new();
         for value in values {
@@ -1447,6 +2012,20 @@ mod platform {
     }
 
     struct OwnedHandle(HANDLE);
+
+    impl OwnedHandle {
+        fn from_transferred(value: usize, name: &str) -> Result<Self> {
+            let handle = value as HANDLE;
+            if handle.is_null() || handle == INVALID_HANDLE_VALUE {
+                bail!("transferred Windows {name} is invalid");
+            }
+            Ok(Self(handle))
+        }
+
+        fn take(&mut self) -> HANDLE {
+            std::mem::replace(&mut self.0, null_mut())
+        }
+    }
 
     impl Drop for OwnedHandle {
         fn drop(&mut self) {

@@ -296,6 +296,8 @@ struct SandboxPreflightEvidence {
     windows_breakaway_denied: Option<bool>,
     windows_active_process_zero: Option<bool>,
     windows_caller_se_impersonate_enabled: Option<bool>,
+    windows_standard_handles_valid: Option<bool>,
+    windows_explicit_handle_list: Option<bool>,
     supervisor_ready: bool,
     timing_records: u64,
     supervisor_sha256: String,
@@ -345,6 +347,8 @@ impl SandboxPreflightEvidence {
                     && self.windows_breakaway_denied == Some(true)
                     && self.windows_active_process_zero == Some(true)
                     && self.windows_caller_se_impersonate_enabled == Some(true)
+                    && self.windows_standard_handles_valid == Some(true)
+                    && self.windows_explicit_handle_list == Some(true)
             }
             _ => false,
         };
@@ -362,6 +366,8 @@ impl SandboxPreflightEvidence {
             && self.windows_breakaway_denied.is_none()
             && self.windows_active_process_zero.is_none()
             && self.windows_caller_se_impersonate_enabled.is_none()
+            && self.windows_standard_handles_valid.is_none()
+            && self.windows_explicit_handle_list.is_none()
     }
 
     fn linux_provenance_absent(&self) -> bool {

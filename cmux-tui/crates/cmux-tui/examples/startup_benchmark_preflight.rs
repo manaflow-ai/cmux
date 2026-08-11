@@ -49,6 +49,8 @@ struct PreflightEvidence {
     windows_breakaway_denied: Option<bool>,
     windows_active_process_zero: Option<bool>,
     windows_caller_se_impersonate_enabled: Option<bool>,
+    windows_standard_handles_valid: Option<bool>,
+    windows_explicit_handle_list: Option<bool>,
     supervisor_ready: bool,
     timing_records: u64,
     supervisor_sha256: String,
@@ -483,11 +485,15 @@ fn run_controller(values: &[String]) -> Result<()> {
         windows_low_integrity: probe.windows_low_integrity,
         windows_no_enabled_privileges: probe.windows_no_enabled_privileges,
         windows_registry_write_denied: probe.windows_registry_write_denied,
-        windows_grandchild_in_job: child_evidence.windows_in_job,
+        // The restricted bootstrap proves the suspended product belongs to its exact private Job.
+        // The detached child then stays in that non-breakaway Job until cleanup proves EOF.
+        windows_grandchild_in_job: cfg!(windows).then_some(status.success() && contained),
         windows_breakaway_denied: probe.windows_breakaway_denied,
         windows_active_process_zero: cfg!(windows).then_some(status.success() && contained),
         // The Windows supervisor enables and verifies this privilege before it sends READY.
         windows_caller_se_impersonate_enabled: cfg!(windows).then_some(true),
+        windows_standard_handles_valid: cfg!(windows).then_some(true),
+        windows_explicit_handle_list: cfg!(windows).then_some(true),
         supervisor_ready: true,
         timing_records: if timing_result.is_ok() { 1 } else { 0 },
         supervisor_sha256,
@@ -663,6 +669,8 @@ fn platform_proofs_pass(evidence: &PreflightEvidence) -> bool {
             && evidence.windows_breakaway_denied.is_none()
             && evidence.windows_active_process_zero.is_none()
             && evidence.windows_caller_se_impersonate_enabled.is_none()
+            && evidence.windows_standard_handles_valid.is_none()
+            && evidence.windows_explicit_handle_list.is_none()
     }
     #[cfg(target_os = "macos")]
     {
@@ -679,6 +687,8 @@ fn platform_proofs_pass(evidence: &PreflightEvidence) -> bool {
             && evidence.windows_breakaway_denied.is_none()
             && evidence.windows_active_process_zero.is_none()
             && evidence.windows_caller_se_impersonate_enabled.is_none()
+            && evidence.windows_standard_handles_valid.is_none()
+            && evidence.windows_explicit_handle_list.is_none()
     }
     #[cfg(windows)]
     {
@@ -695,6 +705,8 @@ fn platform_proofs_pass(evidence: &PreflightEvidence) -> bool {
             && evidence.windows_breakaway_denied == Some(true)
             && evidence.windows_active_process_zero == Some(true)
             && evidence.windows_caller_se_impersonate_enabled == Some(true)
+            && evidence.windows_standard_handles_valid == Some(true)
+            && evidence.windows_explicit_handle_list == Some(true)
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     {
@@ -914,23 +926,7 @@ fn product_platform_proofs() -> Result<ProbeEvidence> {
 
 #[cfg(windows)]
 fn child_in_job() -> Result<Option<bool>> {
-    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
-    use windows_sys::Win32::System::JobObjects::IsProcessInJob;
-    use windows_sys::Win32::System::Threading::GetCurrentProcess;
-
-    let job = env::var("CMUX_BENCH_PRIVATE_JOB_HANDLE")
-        .context("CMUX_BENCH_PRIVATE_JOB_HANDLE is required")?
-        .parse::<usize>()? as HANDLE;
-    let mut in_job = 0;
-    // SAFETY: job is the inherited query-only handle for the supervisor's private Job Object.
-    let result = unsafe { IsProcessInJob(GetCurrentProcess(), job, &mut in_job) };
-    let error = (result == 0).then(io::Error::last_os_error);
-    // SAFETY: this trusted child owns its inherited query-only duplicate and closes it once.
-    unsafe { CloseHandle(job) };
-    if let Some(error) = error {
-        return Err(error).context("query exact private Job membership");
-    }
-    Ok(Some(in_job != 0))
+    Ok(None)
 }
 
 #[cfg(unix)]

@@ -183,14 +183,14 @@ pub struct TargetInput {
     pub trusted_sha: String,
 }
 
-pub struct Fixture(Box<FixtureState>);
+pub struct Fixture(FixtureState);
 
 enum FixtureState {
-    Cold(Common),
-    Warm { common: Common, server: RunningHeadless },
-    Headless(Common),
-    Restored { common: Common, state: PathBuf, terminal_id: String },
-    Incompatible { common: Common, state: PathBuf, database: PathBuf, expected: String },
+    Cold(Box<Common>),
+    Warm { common: Box<Common>, server: RunningHeadless },
+    Headless(Box<Common>),
+    Restored { common: Box<Common>, state: PathBuf, terminal_id: String },
+    Incompatible { common: Box<Common>, state: PathBuf, database: PathBuf, expected: String },
 }
 
 impl Fixture {
@@ -204,8 +204,8 @@ impl Fixture {
         deadline.ensure("preparing a startup fixture")?;
         let mut common = Common::new(target, scenario, wrap_measured_process, fixture_parent)?;
         match scenario {
-            Scenario::Cold => Ok(Self(Box::new(FixtureState::Cold(common)))),
-            Scenario::Headless => Ok(Self(Box::new(FixtureState::Headless(common)))),
+            Scenario::Cold => Ok(Self(FixtureState::Cold(Box::new(common)))),
+            Scenario::Headless => Ok(Self(FixtureState::Headless(Box::new(common)))),
             Scenario::Warm => {
                 let socket = common.path("warm.sock");
                 let session = common.session_name("warm");
@@ -215,7 +215,7 @@ impl Fixture {
                 assert_ping(&common, &socket, deadline)?;
                 common.setup_evidence.readiness_lines += 1;
                 common.setup_evidence.socket_rpcs += 1;
-                Ok(Self(Box::new(FixtureState::Warm { common, server })))
+                Ok(Self(FixtureState::Warm { common: Box::new(common), server }))
             }
             Scenario::Restored => {
                 let state = common.path("restored-state");
@@ -242,7 +242,7 @@ impl Fixture {
                 common.setup_evidence.readiness_lines += 1;
                 common.setup_evidence.socket_rpcs += 4;
                 common.setup_evidence.process_exits += 1;
-                Ok(Self(Box::new(FixtureState::Restored { common, state, terminal_id })))
+                Ok(Self(FixtureState::Restored { common: Box::new(common), state, terminal_id }))
             }
             Scenario::Incompatible => {
                 let state = common.path("incompatible-state");
@@ -282,7 +282,12 @@ impl Fixture {
                 common.setup_evidence.readiness_lines += 1;
                 common.setup_evidence.socket_rpcs += 2;
                 common.setup_evidence.process_exits += 1;
-                Ok(Self(Box::new(FixtureState::Incompatible { common, state, database, expected })))
+                Ok(Self(FixtureState::Incompatible {
+                    common: Box::new(common),
+                    state,
+                    database,
+                    expected,
+                }))
             }
         }
     }
@@ -294,7 +299,7 @@ impl Fixture {
     pub fn cleanup(&mut self) -> Result<Evidence> {
         let deadline = SuiteDeadline::unbounded();
         let mut evidence = Evidence::default();
-        match self.0.as_mut() {
+        match &mut self.0 {
             FixtureState::Warm { common, server } => {
                 server.shutdown_and_wait(common, deadline)?;
                 evidence.socket_rpcs += 1;
@@ -327,7 +332,7 @@ impl Fixture {
     }
 
     fn common(&self) -> &Common {
-        match self.0.as_ref() {
+        match &self.0 {
             FixtureState::Cold(common) | FixtureState::Headless(common) => common,
             FixtureState::Warm { common, .. }
             | FixtureState::Restored { common, .. }
@@ -336,7 +341,7 @@ impl Fixture {
     }
 
     fn common_mut(&mut self) -> &mut Common {
-        match self.0.as_mut() {
+        match &mut self.0 {
             FixtureState::Cold(common) | FixtureState::Headless(common) => common,
             FixtureState::Warm { common, .. }
             | FixtureState::Restored { common, .. }
@@ -347,7 +352,7 @@ impl Fixture {
 
 pub fn run_sample(fixture: &mut Fixture, deadline: SuiteDeadline) -> Result<RunResult> {
     deadline.ensure("starting a startup sample")?;
-    match fixture.0.as_mut() {
+    match &mut fixture.0 {
         FixtureState::Cold(common) => run_cold(common, deadline),
         FixtureState::Warm { common, server } => run_warm(common, server, deadline),
         FixtureState::Headless(common) => run_headless(common, deadline),
