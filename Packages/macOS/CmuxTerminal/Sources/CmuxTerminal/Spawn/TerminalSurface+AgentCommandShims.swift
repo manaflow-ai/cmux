@@ -106,8 +106,15 @@ extension TerminalSurface {
             .appendingPathComponent(surfaceId.uuidString, isDirectory: true)
             .standardizedFileURL
         guard !isCancelled() else { return nil }
+        var removeShimDirectoryOnExit = false
+        defer {
+            if removeShimDirectoryOnExit {
+                try? fileManager.removeItem(at: shimDirectory)
+            }
+        }
         do {
             try fileManager.createDirectory(at: shimDirectory, withIntermediateDirectories: true)
+            removeShimDirectoryOnExit = true
             for directory in [shimParentDirectory, shimDirectory] {
                 try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
             }
@@ -145,11 +152,13 @@ extension TerminalSurface {
             ) else { continue }
             shims.append(shim)
         }
-        guard !shims.isEmpty else { return nil }
-        return TerminalSurfaceAgentCommandShimSet(
+        guard !isCancelled(), !shims.isEmpty else { return nil }
+        let shimSet = TerminalSurfaceAgentCommandShimSet(
             directoryPath: shimDirectory.path,
             shims: shims
         )
+        removeShimDirectoryOnExit = false
+        return shimSet
     }
 
     private static func installAgentCommandShim(

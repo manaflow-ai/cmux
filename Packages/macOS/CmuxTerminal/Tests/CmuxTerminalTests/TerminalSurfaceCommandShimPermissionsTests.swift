@@ -108,15 +108,18 @@ struct TerminalSurfaceCommandShimPermissionsTests {
             )
         }
 
-        let result = await TerminalSurface.installAgentCommandShimsIfPossible(
-            wrapperDirectoryURL: wrapperDirectory,
-            surfaceId: surfaceID,
-            temporaryDirectory: temporaryDirectory,
-            hermesProfileAliasCatalog: HermesProfileAliasCatalog(
-                wrapperDirectoryURL: aliasDirectory
-            ),
-            fileManager: CancelAfterFirstShimFileManager()
-        )
+        let installTask = Task {
+            await TerminalSurface.installAgentCommandShimsIfPossible(
+                wrapperDirectoryURL: wrapperDirectory,
+                surfaceId: surfaceID,
+                temporaryDirectory: temporaryDirectory,
+                hermesProfileAliasCatalog: HermesProfileAliasCatalog(
+                    wrapperDirectoryURL: aliasDirectory
+                ),
+                fileManager: CancelAfterFirstShimFileManager()
+            )
+        }
+        let result = await installTask.value
 
         #expect(result == nil)
         #expect(!setupFileManager.fileExists(atPath: shimDirectory.path))
