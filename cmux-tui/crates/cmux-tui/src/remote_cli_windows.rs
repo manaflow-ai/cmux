@@ -33,6 +33,7 @@ const OWNER_START_TIMEOUT: Duration = Duration::from_secs(10);
 const OWNER_START_LOCK_TIMEOUT: Duration = Duration::from_secs(15);
 const OWNER_LOG_TAIL_BYTES: u64 = 8 * 1024;
 const OWNER_READY: &str = "cmux-tui-windows-owner-ready-v1";
+const SHUTDOWN_REQUEST_MARKERS: [&[u8]; 2] = [b"shutdown-daemon", b"session.shutdown"];
 // WSAENETDOWN is how Windows reports connect() against an orphaned AF_UNIX path.
 const WINDOWS_STALE_AF_UNIX_SOCKET_ERROR: i32 = 10_050;
 const REMOTE_COMMANDS: &[&str] = &[
@@ -377,7 +378,10 @@ fn proxy_local_connection_over_ssh(
                     Err(_) => break,
                 };
                 tail.extend_from_slice(&buffer[..size]);
-                if tail.windows(b"shutdown-daemon".len()).any(|bytes| bytes == b"shutdown-daemon") {
+                if SHUTDOWN_REQUEST_MARKERS
+                    .iter()
+                    .any(|marker| tail.windows(marker.len()).any(|bytes| bytes == *marker))
+                {
                     upload_saw_shutdown.store(true, Ordering::Release);
                 }
                 if tail.len() > 64 {
