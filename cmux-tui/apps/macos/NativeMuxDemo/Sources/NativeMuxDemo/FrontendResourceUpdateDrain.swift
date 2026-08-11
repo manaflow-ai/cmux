@@ -33,7 +33,11 @@ func drainFrontendResourceUpdates(
       descriptor.payload_length > byteBudget - min(retainedBytes, byteBudget)
     {
       return FrontendResourceUpdateBatch(
-        envelopes: result, hasMore: true, overflowed: false, ended: false, endReason: .none
+        envelopes: result,
+        hasMore: true,
+        overflowed: false,
+        ended: false,
+        endReason: .none
       )
     }
     var payload = Data(count: descriptor.payload_length)
