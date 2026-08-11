@@ -67,17 +67,18 @@ struct FrontendResourceStream: Sendable, Equatable {
 }
 
 @MainActor
-@Observable
 final class TerminalTitleOwner {
     let terminalID: String
     private(set) var title: String
 
-    @ObservationIgnored private var pendingTitle: String?
-    @ObservationIgnored private var deliveryTask: Task<Void, Never>?
+    private let onTitleChange: (() -> Void)?
+    private var pendingTitle: String?
+    private var deliveryTask: Task<Void, Never>?
 
-    init(terminalID: String, title: String) {
+    init(terminalID: String, title: String, onTitleChange: (() -> Void)? = nil) {
         self.terminalID = terminalID
         self.title = title
+        self.onTitleChange = onTitleChange
     }
 
     func submit(_ nextTitle: String) {
@@ -89,7 +90,10 @@ final class TerminalTitleOwner {
             let latest = pendingTitle
             pendingTitle = nil
             deliveryTask = nil
-            if let latest, latest != title { title = latest }
+            if let latest, latest != title {
+                title = latest
+                onTitleChange?()
+            }
             if pendingTitle != nil { submit(pendingTitle ?? title) }
         }
     }
@@ -98,7 +102,10 @@ final class TerminalTitleOwner {
         deliveryTask?.cancel()
         deliveryTask = nil
         pendingTitle = nil
-        if title != nextTitle { title = nextTitle }
+        if title != nextTitle {
+            title = nextTitle
+            onTitleChange?()
+        }
     }
 
     func cancel() {
@@ -110,14 +117,14 @@ final class TerminalTitleOwner {
 
 @MainActor
 struct TerminalTitleFn {
-    private let owners: [String: TerminalTitleOwner]
+    private let titles: [String: String]
 
     init(owners: [String: TerminalTitleOwner]) {
-        self.owners = owners
+        titles = owners.mapValues(\.title)
     }
 
-    func callAsFunction(_ terminalID: String) -> TerminalTitleOwner? {
-        owners[terminalID]
+    func callAsFunction(_ terminalID: String) -> String? {
+        titles[terminalID]
     }
 }
 
@@ -133,6 +140,7 @@ final class FrontendModel {
     private(set) var transportDiagnostics = ""
     private(set) var selectedWorkspaceID: String?
     private(set) var selectedScreenID: String?
+    private(set) var terminalTitleRevision: UInt64 = 0
 
     @ObservationIgnored private var service: FrontendService?
     @ObservationIgnored private var updatesTask: Task<Void, Never>?
@@ -221,7 +229,7 @@ final class FrontendModel {
                     params: [:]
                 )
                 guard let machine = uniqueFrontendIdentity(machines) else {
-                    throw FrontendServiceError.message(
+                    throw FrontendServiceError.localized(
                         L10n.text(
                             "error.no_machine",
                             "The daemon did not identify exactly one machine."
@@ -233,7 +241,7 @@ final class FrontendModel {
                     params: ["machine": .string(machine.id)]
                 )
                 guard let session = uniqueFrontendIdentity(sessions) else {
-                    throw FrontendServiceError.message(
+                    throw FrontendServiceError.localized(
                         L10n.text(
                             "error.no_session",
                             "The daemon did not identify exactly one session."
@@ -305,6 +313,17 @@ final class FrontendModel {
             await owned.shutdown()
         }
         isConnecting = false
+        recordAndPresent(error)
+    }
+
+    private func recordAndPresent(_ error: any Error) {
+        if let diagnostic = (error as? FrontendServiceError)?.diagnosticDescription,
+           !diagnostic.isEmpty
+        {
+            transportDiagnostics = [transportDiagnostics, diagnostic]
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n")
+        }
         errorMessage = error.localizedDescription
     }
 
@@ -377,7 +396,7 @@ final class FrontendModel {
                 guard !Task.isCancelled, let self else { return }
                 guard recoveryNeeded || endReason == .gap else {
                     await self.disconnectAfterFailure(
-                        FrontendServiceError.message(L10n.text(
+                        FrontendServiceError.localized(L10n.text(
                             "error.session_event_stream_ended",
                             "The session event stream ended."
                         ))
@@ -448,7 +467,7 @@ final class FrontendModel {
                 )
             }
         }
-        throw lastError ?? FrontendServiceError.message(L10n.text(
+        throw lastError ?? FrontendServiceError.localized(L10n.text(
             "error.session_event_stream_ended",
             "The session event stream ended."
         ))
@@ -519,7 +538,7 @@ final class FrontendModel {
             do {
                 try await refreshNow()
             } catch {
-                errorMessage = error.localizedDescription
+                recordAndPresent(error)
             }
         }
     }
@@ -615,7 +634,10 @@ final class FrontendModel {
             } else {
                 terminalTitles[terminal.id] = TerminalTitleOwner(
                     terminalID: terminal.id,
-                    title: terminal.title
+                    title: terminal.title,
+                    onTitleChange: { [weak self] in
+                        if let self { terminalTitleRevision &+= 1 }
+                    }
                 )
             }
         }
@@ -634,7 +656,8 @@ final class FrontendModel {
     }
 
     func terminalTitleLookup() -> TerminalTitleFn {
-        TerminalTitleFn(owners: terminalTitles)
+        _ = terminalTitleRevision
+        return TerminalTitleFn(owners: terminalTitles)
     }
 
     func selectWorkspace(_ workspace: WorkspaceSnapshot) {
@@ -722,7 +745,7 @@ final class FrontendModel {
             applySnapshot(next)
         } catch {
             guard focusMutations.finish(requestID) else { return }
-            errorMessage = error.localizedDescription
+            recordAndPresent(error)
             scheduleRefresh()
         }
     }
@@ -972,11 +995,11 @@ final class FrontendModel {
                    serviceError.requiresAuthoritativeReconciliation {
                     onIndeterminate?()
                     scheduleRefresh()
-                    errorMessage = serviceError.localizedDescription
+                    recordAndPresent(serviceError)
                     return
                 }
                 if onFailure?() ?? true {
-                    errorMessage = error.localizedDescription
+                    recordAndPresent(error)
                 }
             }
         }

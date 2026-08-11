@@ -4,7 +4,11 @@ import Dispatch
 import Synchronization
 
 enum FrontendServiceError: LocalizedError {
-  case message(String)
+  case localized(String)
+  case connectionFailure(String)
+  case requestRejected(String)
+  case terminalAttachFailure(String)
+  case terminalAttachQueueFull
   case mutationIndeterminate(operation: String, idempotencyKey: String)
 
   static func requestFailure(_ message: String) -> FrontendServiceError {
@@ -15,7 +19,7 @@ enum FrontendServiceError: LocalizedError {
       let operation = details["operation"] as? String,
       let idempotencyKey = details["idempotency_key"] as? String
     else {
-      return .message(message)
+      return .requestRejected(message)
     }
     return .mutationIndeterminate(operation: operation, idempotencyKey: idempotencyKey)
   }
@@ -27,19 +31,37 @@ enum FrontendServiceError: LocalizedError {
 
   var errorDescription: String? {
     switch self {
-    case .message(let message):
-      if let data = message.data(using: .utf8),
-        let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-        let readable = object["message"] as? String
-      {
-        return readable
-      }
-      return message
+    case .localized(let message): return message
+    case .connectionFailure:
+      return L10n.text(
+        "error.connection_failure",
+        "The frontend could not connect. See diagnostics for details."
+      )
+    case .requestRejected:
+      return L10n.text(
+        "error.request_failure",
+        "The frontend request failed. See diagnostics for details."
+      )
+    case .terminalAttachFailure:
+      return L10n.text("error.terminal_attach", "The terminal could not be attached.")
+    case .terminalAttachQueueFull:
+      return L10n.text(
+        "error.terminal_attach_queue_full",
+        "Too many terminal attachments are waiting. Try again after they finish."
+      )
     case .mutationIndeterminate:
       return L10n.text(
         "error.mutation_indeterminate",
         "The operation result is not known. The view will refresh."
       )
+    }
+  }
+
+  var diagnosticDescription: String? {
+    switch self {
+    case .connectionFailure(let message), .requestRejected(let message),
+      .terminalAttachFailure(let message): return message
+    case .localized, .terminalAttachQueueFull, .mutationIndeterminate: return nil
     }
   }
 }
@@ -307,6 +329,16 @@ actor FrontendService {
     raw = OpaquePointer(bitPattern: rawAddress)
   }
 
+  static func transferAttachedTerminal(
+    _ address: UInt,
+    cancellationRequested: Bool,
+    disconnect: @escaping @Sendable (UInt) async -> Void
+  ) async throws -> UInt {
+    guard cancellationRequested else { return address }
+    await disconnect(address)
+    throw CancellationError()
+  }
+
   private func enqueue<T: Sendable>(_ operation: @escaping @Sendable () -> T) async -> T {
     await controlQueue.run(operation)
   }
@@ -335,7 +367,7 @@ actor FrontendService {
     }
     guard let rawAddress = result.rawAddress else {
       if Task.isCancelled { throw CancellationError() }
-      throw FrontendServiceError.message(result.error)
+      throw FrontendServiceError.connectionFailure(result.error)
     }
     let service = FrontendService(rawAddress: rawAddress)
     if Task.isCancelled {
@@ -354,7 +386,7 @@ actor FrontendService {
     guard !isShuttingDown,
       let rawAddress = raw.map({ UInt(bitPattern: $0) })
     else {
-      throw FrontendServiceError.message(
+      throw FrontendServiceError.localized(
         L10n.text("error.connection_closed", "The frontend connection is closed.")
       )
     }
@@ -415,14 +447,14 @@ actor FrontendService {
     guard !isShuttingDown,
       let rawAddress = raw.map({ UInt(bitPattern: $0) })
     else {
-      throw FrontendServiceError.message(
+      throw FrontendServiceError.localized(
         L10n.text("error.connection_closed", "The frontend connection is closed.")
       )
     }
     let attachCancellation = FrontendAttachCancellation()
     let queueCancellation = FFICancellation(onCancel: attachCancellation.cancel)
     guard attachCancellations.count < Self.maximumPendingAttaches else {
-      throw FrontendServiceError.message("terminal attach queue is full")
+      throw FrontendServiceError.terminalAttachQueueFull
     }
     let attachID = UUID()
     attachCancellations[attachID] = queueCancellation
@@ -446,13 +478,22 @@ actor FrontendService {
       return .success(UInt(bitPattern: terminal))
     }
     guard let result = queuedResult else { throw CancellationError() }
-    try Task.checkCancellation()
-    let address: UInt
     switch result {
-    case .success(let value): address = value
-    case .failure(let error): throw FrontendServiceError.message(error.message)
+    case .success(let value):
+      let queue = attachQueue
+      let address = try await Self.transferAttachedTerminal(
+        value,
+        cancellationRequested: Task.isCancelled
+      ) { address in
+        await queue.run {
+          cmux_frontend_terminal_disconnect(OpaquePointer(bitPattern: address)!)
+        }
+      }
+      return TerminalHandle(rawAddress: address)
+    case .failure(let error):
+      try Task.checkCancellation()
+      throw FrontendServiceError.terminalAttachFailure(error.message)
     }
-    return TerminalHandle(rawAddress: address)
   }
 
   func updates() async -> FrontendUpdateSubscription {

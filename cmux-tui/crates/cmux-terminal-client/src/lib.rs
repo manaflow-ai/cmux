@@ -19,7 +19,8 @@ use cmux_remote_protocol::{Lane, LanePolicy, Service, ServiceControl, SessionId}
 use cmux_terminal_host_protocol::{
     Frame, FrameDecoder, MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MAX_KITTY_IMAGE_BYTES,
     MAX_KITTY_IMAGES, MAX_KITTY_INFLIGHT_BYTES, MAX_KITTY_PLACEMENTS, MAX_TERMINAL_REPLAY_BYTES,
-    MessageKind, RESIZE_ACK_CANONICAL_CHANGED, encode_frame,
+    MessageKind, RESIZE_ACK_CANONICAL_CHANGED, TERMINAL_CELL_AREA_MAX, TERMINAL_DIMENSION_MAX,
+    encode_frame,
 };
 #[cfg(feature = "text-renderer")]
 use ghostty_vt::{
@@ -132,10 +133,12 @@ impl<'a> SnapshotDecoder<'a> {
 
 fn decode_host_snapshot_payload(payload: &[u8]) -> Result<RendererSnapshot, String> {
     let mut decoder = SnapshotDecoder::new(payload);
-    let cols = decoder.u16()?;
-    let rows = decoder.u16()?;
-    if cols == 0 || rows == 0 {
-        return Err("terminal snapshot dimensions must be nonzero".into());
+    let cols = decoder.u16()?.clamp(1, TERMINAL_DIMENSION_MAX);
+    let rows = decoder.u16()?.clamp(1, TERMINAL_DIMENSION_MAX);
+    if u64::from(cols) * u64::from(rows) > TERMINAL_CELL_AREA_MAX {
+        return Err(format!(
+            "terminal snapshot geometry {cols}x{rows} exceeds the {TERMINAL_CELL_AREA_MAX}-cell limit"
+        ));
     }
     let _pid = decoder.u32()?;
     let replay = decoder.bytes(MAX_TERMINAL_REPLAY_BYTES)?.to_vec();
@@ -2377,6 +2380,20 @@ mod tests {
         let snapshot = decode_host_snapshot_payload(&payload).unwrap();
 
         assert_eq!(snapshot.replay.len(), maximum_replay.len());
+    }
+
+    #[test]
+    fn snapshot_enforces_the_protocol_geometry_limits() {
+        let mut capped = test_snapshot_payload(b"");
+        capped[0..2].copy_from_slice(&u16::MAX.to_le_bytes());
+        capped[2..4].copy_from_slice(&1_u16.to_le_bytes());
+        let capped = decode_host_snapshot_payload(&capped).unwrap();
+        assert_eq!((capped.cols, capped.rows), (TERMINAL_DIMENSION_MAX, 1));
+
+        let mut oversized = test_snapshot_payload(b"");
+        oversized[0..2].copy_from_slice(&TERMINAL_DIMENSION_MAX.to_le_bytes());
+        oversized[2..4].copy_from_slice(&TERMINAL_DIMENSION_MAX.to_le_bytes());
+        assert!(decode_host_snapshot_payload(&oversized).is_err());
     }
 
     #[test]
