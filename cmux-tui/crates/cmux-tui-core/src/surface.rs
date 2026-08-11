@@ -8189,11 +8189,17 @@ mod tests {
 
     #[test]
     fn producer_without_render_taps_skips_frame_but_emits_output() {
-        let mux = Mux::new_for_test("producer-skip", SurfaceOptions::default());
+        let mux = Mux::new_for_test(
+            "producer-skip",
+            SurfaceOptions {
+                command: Some(vec!["/bin/cat".to_string()]),
+                ..SurfaceOptions::default()
+            },
+        );
         let events = mux.subscribe();
-        let surface =
-            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
         let pty = surface.as_pty().unwrap();
+        while events.try_recv().is_ok() {}
 
         let mut term = pty.term.lock().unwrap();
         assert!(!pty.build_frame_locked(&mut term, 2, true).unwrap());
@@ -8204,7 +8210,10 @@ mod tests {
         assert!(render.latest.is_none());
         drop(render);
         assert!(pty.dirty.load(Ordering::Acquire));
-        assert!(matches!(events.try_recv(), Ok(MuxEvent::SurfaceOutput(1))));
+        assert!(matches!(
+            events.try_recv(),
+            Ok(MuxEvent::SurfaceOutput(id)) if id == surface.id
+        ));
     }
 
     #[test]
