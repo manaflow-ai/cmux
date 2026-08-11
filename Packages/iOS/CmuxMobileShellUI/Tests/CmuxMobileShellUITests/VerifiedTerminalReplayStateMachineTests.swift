@@ -403,6 +403,29 @@ struct VerifiedTerminalReplayStateMachineTests {
             expectedSurfaceID: "surface-verified-replay"
         ) == .legacy)
 
+        let liveScreenDelta = try frame(
+            renderEpoch: "epoch",
+            renderRevision: 2,
+            stateSeq: 2,
+            columns: 80,
+            text: "live screen delta",
+            full: false,
+            anchor: .screen
+        )
+        let liveScreenDeltaChunk = MobileTerminalOutputChunk(
+            data: liveScreenDelta.vtPatchBytes(),
+            streamToken: token,
+            sourceRenderGridFrame: liveScreenDelta,
+            requiresVerifiedReplay: false
+        )
+        #expect(
+            terminalOutputApplicationPath(
+                for: liveScreenDeltaChunk,
+                expectedSurfaceID: "surface-verified-replay"
+            ) != .legacy,
+            "A live screen delta must not bypass local viewport preservation"
+        )
+
         let misroutedFrame = try frame(
             surfaceID: "another-surface",
             renderEpoch: "epoch",
@@ -449,7 +472,8 @@ struct VerifiedTerminalReplayStateMachineTests {
         columns: Int,
         text: String,
         styleID: Int = 1,
-        full: Bool = true
+        full: Bool = true,
+        anchor: MobileTerminalRenderGridFrame.Anchor = .viewport
     ) throws -> MobileTerminalRenderGridFrame {
         try MobileTerminalRenderGridFrame(
             surfaceID: surfaceID,
@@ -474,6 +498,7 @@ struct VerifiedTerminalReplayStateMachineTests {
                 .init(row: 0, column: 0, styleID: styleID, text: text)
             ],
             activeScreen: .primary,
+            anchor: anchor,
             modes: [
                 .init(code: 1, on: true),
                 .init(code: 7, on: true),
