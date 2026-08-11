@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -308,5 +309,49 @@ func TestPersistentDaemonProcessOutputUsesRotatingWriter(t *testing.T) {
 	}
 	if info.Mode().Perm() != 0o600 {
 		t.Fatalf("process-output log mode = %o, want 600", info.Mode().Perm())
+	}
+}
+
+func TestPersistentDaemonProcessOutputRejectsClosedTargetDescriptor(t *testing.T) {
+	const helperEnvironment = "CMUX_TEST_PERSISTENT_PROCESS_OUTPUT_CLOSED_FD"
+	const targetFD = 1
+
+	if os.Getenv(helperEnvironment) == "1" {
+		if err := syscall.Close(targetFD); err != nil {
+			t.Fatalf("close target descriptor: %v", err)
+		}
+		stream, err := routePersistentDaemonProcessOutputStream(
+			"stdout",
+			targetFD,
+			&bytes.Buffer{},
+		)
+		if stream != nil {
+			_ = stream.restoreAndDrain()
+			t.Fatal("routing a closed target descriptor unexpectedly succeeded")
+		}
+		if !errors.Is(err, syscall.EBADF) {
+			t.Fatalf("route closed target descriptor error = %v, want EBADF", err)
+		}
+		duplicate, duplicateErr := syscall.Dup(targetFD)
+		if duplicateErr == nil {
+			_ = syscall.Close(duplicate)
+			t.Fatal("routing failure reopened the closed target descriptor")
+		}
+		if !errors.Is(duplicateErr, syscall.EBADF) {
+			t.Fatalf("duplicate closed target descriptor error = %v, want EBADF", duplicateErr)
+		}
+		return
+	}
+
+	command := exec.Command(
+		os.Args[0],
+		"-test.run=^TestPersistentDaemonProcessOutputRejectsClosedTargetDescriptor$",
+	)
+	command.Env = append(os.Environ(), helperEnvironment+"=1")
+	var output bytes.Buffer
+	command.Stdout = &output
+	command.Stderr = &output
+	if err := command.Run(); err != nil {
+		t.Fatalf("closed-target helper failed: %v; output=%q", err, output.String())
 	}
 }
