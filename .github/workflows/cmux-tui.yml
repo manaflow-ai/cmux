@@ -814,7 +814,8 @@ jobs:
             "/Fo$object" "/Fe$bootstrap" `
             /link /ENTRY:bootstrap_entry /NODEFAULTLIB /INCREMENTAL:NO `
             /SUBSYSTEM:CONSOLE /DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA /GUARD:CF `
-            /OPT:REF /OPT:ICF kernel32.lib advapi32.lib bcrypt.lib libvcruntime.lib
+            /OPT:REF /OPT:ICF kernel32.lib advapi32.lib bcrypt.lib `
+            libcmt.lib libvcruntime.lib
           if ($LASTEXITCODE -ne 0) { throw "native MSVC startup bootstrap build failed" }
           if (-not (Test-Path -LiteralPath $bootstrap -PathType Leaf)) {
             throw "native MSVC startup bootstrap is missing"
