@@ -1,7 +1,6 @@
 import CCmuxTerminal
 import Foundation
 import Dispatch
-import Synchronization
 
 enum FrontendServiceError: LocalizedError {
   case localized(String)
@@ -217,61 +216,35 @@ private actor FFIResultWaiter<T: Sendable> {
   }
 }
 
-final class FFICancellation: Sendable {
-  private enum State: UInt8, Sendable {
-    case queued
-    case running
-    case cancelledBeforeExecution
-    case cancelledDuringExecution
-    case completed
-  }
-
-  private let state = Atomic<UInt8>(State.queued.rawValue)
+// Safe because raw points to a Rust-owned atomic state machine. The queue
+// block and cancellation handler retain this owner until their calls finish.
+final class FFICancellation: @unchecked Sendable {
+  private let raw: OpaquePointer
   private let onCancel: @Sendable () -> Void
 
   init(onCancel: @escaping @Sendable () -> Void) {
+    raw = cmux_frontend_queue_cancellation_new()!
     self.onCancel = onCancel
   }
 
+  deinit {
+    cmux_frontend_queue_cancellation_free(raw)
+  }
+
   func beginExecution() -> Bool {
-    state.compareExchange(
-      expected: State.queued.rawValue,
-      desired: State.running.rawValue,
-      ordering: .acquiringAndReleasing
-    ).exchanged
+    cmux_frontend_queue_cancellation_begin_execution(raw)
   }
 
   func finishExecution() {
-    state.store(State.completed.rawValue, ordering: .releasing)
+    cmux_frontend_queue_cancellation_finish_execution(raw)
   }
 
   @discardableResult
   func cancel() -> Bool {
-    while true {
-      let currentRaw = state.load(ordering: .acquiring)
-      guard let current = State(rawValue: currentRaw) else { return false }
-      let next: State
-      let completedBeforeExecution: Bool
-      switch current {
-      case .queued:
-        next = .cancelledBeforeExecution
-        completedBeforeExecution = true
-      case .running:
-        next = .cancelledDuringExecution
-        completedBeforeExecution = false
-      case .cancelledBeforeExecution, .cancelledDuringExecution, .completed:
-        return false
-      }
-      let transition = state.compareExchange(
-        expected: currentRaw,
-        desired: next.rawValue,
-        ordering: .acquiringAndReleasing
-      )
-      if transition.exchanged {
-        onCancel()
-        return completedBeforeExecution
-      }
-    }
+    let result = cmux_frontend_queue_cancellation_cancel(raw)
+    guard result != UInt8(CMUX_FRONTEND_QUEUE_CANCEL_NONE) else { return false }
+    onCancel()
+    return result == UInt8(CMUX_FRONTEND_QUEUE_CANCEL_BEFORE_EXECUTION)
   }
 }
 

@@ -50,6 +50,7 @@
 "error.no_session" = "The daemon did not identify exactly one session.";
 "error.too_many_changes" = "Too many changes are waiting. Try again after they finish.";
 "error.session_event_stream_ended" = "The session event stream ended.";
+"error.session_event_recovery_limit" = "The session update stream could not recover. Reconnect to try again.";
 "error.mutation_indeterminate" = "The operation result is not known. The view will refresh.";
 "error.terminal_input_rejected" = "Terminal input was rejected.";
 "error.terminal_input_overloaded" = "Terminal input is busy; try again.";

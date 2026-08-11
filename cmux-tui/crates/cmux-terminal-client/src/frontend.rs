@@ -33,6 +33,15 @@ const RESOURCE_STREAM_END_CANCELED: u8 = 2;
 const RESOURCE_STREAM_END_CLOSED: u8 = 3;
 const RESOURCE_STREAM_END_GAP: u8 = 4;
 const RESOURCE_STREAM_END_ERROR: u8 = 5;
+const QUEUE_CANCEL_NONE: u8 = 0;
+const QUEUE_CANCEL_BEFORE_EXECUTION: u8 = 1;
+const QUEUE_CANCEL_DURING_EXECUTION: u8 = 2;
+
+const QUEUE_STATE_QUEUED: u8 = 0;
+const QUEUE_STATE_RUNNING: u8 = 1;
+const QUEUE_STATE_CANCELLED_BEFORE_EXECUTION: u8 = 2;
+const QUEUE_STATE_CANCELLED_DURING_EXECUTION: u8 = 3;
+const QUEUE_STATE_COMPLETED: u8 = 4;
 
 #[repr(C)]
 pub struct CmuxFrontendAttachCancellation {
@@ -55,6 +64,59 @@ impl CmuxFrontendAttachCancellation {
     async fn cancelled(&self) {
         while !self.canceled.load(Ordering::Acquire) {
             self.notify.notified().await;
+        }
+    }
+}
+
+#[repr(C)]
+pub struct CmuxFrontendQueueCancellation {
+    state: AtomicU8,
+}
+
+impl CmuxFrontendQueueCancellation {
+    fn new() -> Self {
+        Self { state: AtomicU8::new(QUEUE_STATE_QUEUED) }
+    }
+
+    fn begin_execution(&self) -> bool {
+        self.state
+            .compare_exchange(
+                QUEUE_STATE_QUEUED,
+                QUEUE_STATE_RUNNING,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_ok()
+    }
+
+    fn finish_execution(&self) {
+        self.state.store(QUEUE_STATE_COMPLETED, Ordering::Release);
+    }
+
+    fn cancel(&self) -> u8 {
+        loop {
+            let current = self.state.load(Ordering::Acquire);
+            let (next, result) = match current {
+                QUEUE_STATE_QUEUED => (
+                    QUEUE_STATE_CANCELLED_BEFORE_EXECUTION,
+                    QUEUE_CANCEL_BEFORE_EXECUTION,
+                ),
+                QUEUE_STATE_RUNNING => (
+                    QUEUE_STATE_CANCELLED_DURING_EXECUTION,
+                    QUEUE_CANCEL_DURING_EXECUTION,
+                ),
+                QUEUE_STATE_CANCELLED_BEFORE_EXECUTION
+                | QUEUE_STATE_CANCELLED_DURING_EXECUTION
+                | QUEUE_STATE_COMPLETED => return QUEUE_CANCEL_NONE,
+                _ => return QUEUE_CANCEL_NONE,
+            };
+            if self
+                .state
+                .compare_exchange(current, next, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
+                return result;
+            }
         }
     }
 }
@@ -876,6 +938,65 @@ pub unsafe extern "C" fn cmux_frontend_attach_cancellation_free(
     }
 }
 
+/// Creates the atomic state machine for one queued Swift FFI operation.
+#[unsafe(no_mangle)]
+pub extern "C" fn cmux_frontend_queue_cancellation_new() -> *mut CmuxFrontendQueueCancellation {
+    Box::into_raw(Box::new(CmuxFrontendQueueCancellation::new()))
+}
+
+/// Claims a queued operation for execution.
+///
+/// # Safety
+///
+/// `cancellation` must point to a live queue cancellation state.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_frontend_queue_cancellation_begin_execution(
+    cancellation: *const CmuxFrontendQueueCancellation,
+) -> bool {
+    unsafe { cancellation.as_ref() }.is_some_and(CmuxFrontendQueueCancellation::begin_execution)
+}
+
+/// Marks an executing operation as complete.
+///
+/// # Safety
+///
+/// `cancellation` must point to a live queue cancellation state.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_frontend_queue_cancellation_finish_execution(
+    cancellation: *const CmuxFrontendQueueCancellation,
+) {
+    if let Some(cancellation) = unsafe { cancellation.as_ref() } {
+        cancellation.finish_execution();
+    }
+}
+
+/// Cancels a queued or executing operation and transfers callback ownership.
+///
+/// # Safety
+///
+/// `cancellation` must point to a live queue cancellation state.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_frontend_queue_cancellation_cancel(
+    cancellation: *const CmuxFrontendQueueCancellation,
+) -> u8 {
+    unsafe { cancellation.as_ref() }
+        .map_or(QUEUE_CANCEL_NONE, CmuxFrontendQueueCancellation::cancel)
+}
+
+/// Releases a queue cancellation state after its queue operation returns.
+///
+/// # Safety
+///
+/// `cancellation` must be null or an owned state returned by this library.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_frontend_queue_cancellation_free(
+    cancellation: *mut CmuxFrontendQueueCancellation,
+) {
+    if !cancellation.is_null() {
+        drop(unsafe { Box::from_raw(cancellation) });
+    }
+}
+
 /// Opens an independent terminal renderer stream on the existing transport.
 ///
 /// # Safety
@@ -1332,6 +1453,21 @@ mod tests {
             cancellation.cancel();
             assert_eq!(waiter.await.unwrap().unwrap_err(), FRONTEND_CONNECTION_CANCELLED_ERROR);
         });
+    }
+
+    #[test]
+    fn queue_cancellation_transfers_callback_ownership_once() {
+        let queued = CmuxFrontendQueueCancellation::new();
+        assert_eq!(queued.cancel(), QUEUE_CANCEL_BEFORE_EXECUTION);
+        assert!(!queued.begin_execution());
+        assert_eq!(queued.cancel(), QUEUE_CANCEL_NONE);
+
+        let running = CmuxFrontendQueueCancellation::new();
+        assert!(running.begin_execution());
+        assert_eq!(running.cancel(), QUEUE_CANCEL_DURING_EXECUTION);
+        assert_eq!(running.cancel(), QUEUE_CANCEL_NONE);
+        running.finish_execution();
+        assert_eq!(running.cancel(), QUEUE_CANCEL_NONE);
     }
 
     #[test]

@@ -50,6 +50,11 @@ struct FrontendRecoveryPolicy: Sendable {
         let shift = min(max(0, attempt), 2)
         return initialBackoffNanoseconds << shift
     }
+
+    func backoffNanoseconds(forConsecutiveRecovery recovery: Int) -> UInt64? {
+        guard recovery < max(1, maximumAttempts) else { return nil }
+        return backoffNanoseconds(afterFailedAttempt: recovery)
+    }
 }
 
 typealias FrontendRecoveryDelay = @Sendable (UInt64) async throws -> Void
@@ -388,9 +393,11 @@ final class FrontendModel {
         updatesTask = Task { [weak self] in
             var updates = initialUpdates
             var resourceStream = initialStream
+            var consecutiveRecoveries = 0
             while !Task.isCancelled {
                 var endReason = FrontendResourceStreamEndReason.none
                 var recoveryNeeded = false
+                var madeProgress = false
                 for await _ in updates.stream {
                     guard !Task.isCancelled else { break }
                     guard let self else { continue }
@@ -404,6 +411,7 @@ final class FrontendModel {
                             recoveryNeeded = true
                             break
                         }
+                        madeProgress = true
                     }
                     if batch.ended {
                         endReason = batch.endReason
@@ -422,6 +430,17 @@ final class FrontendModel {
                     return
                 }
                 do {
+                    if madeProgress { consecutiveRecoveries = 0 }
+                    guard let delay = recoveryPolicy.backoffNanoseconds(
+                        forConsecutiveRecovery: consecutiveRecoveries
+                    ) else {
+                        throw FrontendServiceError.localized(L10n.text(
+                            "error.session_event_recovery_limit",
+                            "The session update stream could not recover. Reconnect to try again."
+                        ))
+                    }
+                    consecutiveRecoveries += 1
+                    try await recoveryDelay(delay)
                     guard let machineID = self.machineID, let sessionID = self.sessionID else {
                         return
                     }

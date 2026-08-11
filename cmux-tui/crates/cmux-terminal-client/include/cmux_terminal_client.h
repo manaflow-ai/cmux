@@ -13,7 +13,12 @@ typedef struct CmuxTerminalClient CmuxTerminalClient;
 typedef struct CmuxFrontendClient CmuxFrontendClient;
 typedef struct CmuxFrontendTerminal CmuxFrontendTerminal;
 typedef struct CmuxFrontendAttachCancellation CmuxFrontendAttachCancellation;
+typedef struct CmuxFrontendQueueCancellation CmuxFrontendQueueCancellation;
 typedef void (*CmuxTerminalClientUpdateCallback)(void *context);
+
+#define CMUX_FRONTEND_QUEUE_CANCEL_NONE 0u
+#define CMUX_FRONTEND_QUEUE_CANCEL_BEFORE_EXECUTION 1u
+#define CMUX_FRONTEND_QUEUE_CANCEL_DURING_EXECUTION 2u
 
 typedef enum {
     CMUX_FRONTEND_RENDER_RESET = 1,
@@ -107,6 +112,17 @@ void cmux_frontend_attach_cancellation_cancel(
     const CmuxFrontendAttachCancellation *cancellation);
 void cmux_frontend_attach_cancellation_free(
     CmuxFrontendAttachCancellation *cancellation);
+CmuxFrontendQueueCancellation *cmux_frontend_queue_cancellation_new(void);
+bool cmux_frontend_queue_cancellation_begin_execution(
+    const CmuxFrontendQueueCancellation *cancellation);
+void cmux_frontend_queue_cancellation_finish_execution(
+    const CmuxFrontendQueueCancellation *cancellation);
+// Returns one CMUX_FRONTEND_QUEUE_CANCEL_* value. Only the caller that gets a
+// nonzero result owns the cancellation callback.
+uint8_t cmux_frontend_queue_cancellation_cancel(
+    const CmuxFrontendQueueCancellation *cancellation);
+void cmux_frontend_queue_cancellation_free(
+    CmuxFrontendQueueCancellation *cancellation);
 CmuxFrontendTerminal *cmux_frontend_client_attach_terminal(
     CmuxFrontendClient *client,
     const char *terminal_id,

@@ -249,6 +249,30 @@ func terminalGeometryIsBoundedAndNonzero() {
 }
 
 @Test
+func markedTextRangesUseOneUTF16CoordinateSpace() {
+    let unavailable = NSRange(location: NSNotFound, length: 0)
+    let initial = MarkedTextRanges.updated(
+        textLength: ("かな" as NSString).length,
+        selectedRange: NSRange(location: 1, length: 1),
+        replacementRange: unavailable,
+        currentMarkedRange: unavailable,
+        fallbackSelection: NSRange(location: 0, length: 0)
+    )
+    #expect(initial.marked == NSRange(location: 0, length: 2))
+    #expect(initial.selected == NSRange(location: 1, length: 1))
+
+    let replaced = MarkedTextRanges.updated(
+        textLength: ("日本語" as NSString).length,
+        selectedRange: NSRange(location: 2, length: 1),
+        replacementRange: NSRange(location: 20, length: 2),
+        currentMarkedRange: initial.marked,
+        fallbackSelection: unavailable
+    )
+    #expect(replaced.marked == NSRange(location: 20, length: 3))
+    #expect(replaced.selected == NSRange(location: 22, length: 1))
+}
+
+@Test
 func terminalHandleFFIQueuePreservesFIFOAndDisconnectDrain() async {
     let executor = SerialFFIExecutor(label: "test.native-terminal.fifo")
     let started = AsyncStream<Void>.makeStream()
@@ -480,6 +504,10 @@ func resourceRecoveryPolicyHasABoundedExponentialBackoff() {
     #expect(policy.backoffNanoseconds(afterFailedAttempt: 0) == 100)
     #expect(policy.backoffNanoseconds(afterFailedAttempt: 1) == 200)
     #expect(policy.backoffNanoseconds(afterFailedAttempt: 2) == 400)
+    #expect(policy.backoffNanoseconds(forConsecutiveRecovery: 0) == 100)
+    #expect(policy.backoffNanoseconds(forConsecutiveRecovery: 1) == 200)
+    #expect(policy.backoffNanoseconds(forConsecutiveRecovery: 2) == 400)
+    #expect(policy.backoffNanoseconds(forConsecutiveRecovery: 3) == nil)
 }
 
 @Test
