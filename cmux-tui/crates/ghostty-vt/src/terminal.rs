@@ -2,8 +2,8 @@ use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ffi::c_void;
 use std::ptr;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 use base64::Engine as _;
 use ghostty_vt_sys as sys;
@@ -3045,6 +3045,7 @@ impl Terminal {
         max_bytes: usize,
         include_palette: bool,
     ) -> Result<VtReplay> {
+        let cursor_plan = self.vt_replay_cursor_plan()?;
         let inflight = self.kitty_inflight.replay_prefix_checked(max_bytes)?;
         let remaining = max_bytes.checked_sub(inflight.len()).ok_or(Error::OutOfSpace)?;
         let mut pixel_cache = std::mem::take(&mut self.kitty_replay_pixel_cache.0);
@@ -3064,6 +3065,7 @@ impl Terminal {
             catalog.placement_rows(),
             active_start,
             include_palette,
+            &cursor_plan,
         )?;
         let visible_cost =
             active_text.range.map(|range| catalog.visible_cost(range, remaining)).unwrap_or(0);
@@ -3074,6 +3076,7 @@ impl Terminal {
             catalog.placement_rows(),
             active_start,
             include_palette,
+            &cursor_plan,
         )?;
         let graphics_budget = remaining.saturating_sub(text.bytes.len());
         let graphics = catalog.plan(text.range, graphics_budget, false);
@@ -3117,6 +3120,7 @@ impl Terminal {
         placement_rows: &KittyReplayRowIndex,
         minimum_start: Option<u64>,
         include_palette: bool,
+        cursor_plan: &ReplayCursorPlan,
     ) -> Result<ReplayText> {
         let Some(scrollbar) = self.scrollbar() else {
             return Ok(ReplayText::minimal(max_bytes));
@@ -3147,6 +3151,7 @@ impl Terminal {
                 placement_rows,
                 max_bytes,
                 include_palette,
+                cursor_plan,
             )? {
                 if tail_rows == scrollbar.total {
                     return Ok(replay);
@@ -3158,6 +3163,7 @@ impl Terminal {
                         placement_rows,
                         max_bytes,
                         include_palette,
+                        cursor_plan,
                     );
                 }
                 best = Some(replay);
@@ -3176,6 +3182,7 @@ impl Terminal {
                     placement_rows,
                     max_bytes,
                     include_palette,
+                    cursor_plan,
                 );
             }
             if tail_rows <= minimum_rows {
@@ -3198,6 +3205,7 @@ impl Terminal {
         placement_rows: &KittyReplayRowIndex,
         max_bytes: usize,
         include_palette: bool,
+        cursor_plan: &ReplayCursorPlan,
     ) -> Result<ReplayText> {
         let Some(best_range) = best.range else {
             return Ok(best);
@@ -3217,6 +3225,7 @@ impl Terminal {
                 placement_rows,
                 max_bytes,
                 include_palette,
+                cursor_plan,
             )? {
                 best = replay;
                 high = middle;
@@ -3233,14 +3242,13 @@ impl Terminal {
         placement_rows: &KittyReplayRowIndex,
         max_bytes: usize,
         include_palette: bool,
+        cursor_plan: &ReplayCursorPlan,
     ) -> Result<Option<ReplayText>> {
         let cols = self.cols();
         if cols == 0 || range.start > range.end {
             return Err(Error::InvalidValue);
         }
-        let suffix = self.cursor_position_escape()?;
-        let suffix_len = suffix.as_ref().map_or(0, Vec::len);
-        let Some(format_max_bytes) = max_bytes.checked_sub(suffix_len) else {
+        let Some(format_max_bytes) = max_bytes.checked_sub(cursor_plan.bytes.len()) else {
             return Ok(None);
         };
         let insert_at_start = placement_rows.overlaps(range.start);
@@ -3314,9 +3322,7 @@ impl Terminal {
                 bytes.extend_from_slice(b"\r\n");
             }
         }
-        if let Some(suffix) = suffix {
-            bytes.extend_from_slice(&suffix);
-        }
+        bytes.extend_from_slice(&cursor_plan.bytes);
         Ok(Some(ReplayText { bytes, range: Some(range), insertion_offsets }))
     }
 
@@ -3337,19 +3343,16 @@ impl Terminal {
         })
     }
 
-    fn cursor_position_escape(&mut self) -> Result<Option<Vec<u8>>> {
-        let Some((x, y)) = self.cursor_position() else { return Ok(None) };
+    fn vt_replay_cursor_plan(&mut self) -> Result<ReplayCursorPlan> {
+        let (x, y) = self.cursor_position().ok_or(Error::InvalidValue)?;
         let origin_mode = self.mode(6, false);
+        let (row, column) = if origin_mode {
+            self.cursor_position_report()?
+        } else {
+            (u32::from(y) + 1, u32::from(x) + 1)
+        };
         if !self.get::<bool>(sys::GHOSTTY_TERMINAL_DATA_CURSOR_PENDING_WRAP).unwrap_or(false) {
-            // The formatter already emits the cursor. An appended CUP would
-            // reinterpret active-area coordinates relative to the scrolling
-            // region while DECOM is enabled.
-            if origin_mode {
-                return Ok(None);
-            }
-            return Ok(Some(
-                format!("\x1b[{};{}H", u32::from(y) + 1, u32::from(x) + 1).into_bytes(),
-            ));
+            return Ok(ReplayCursorPlan { bytes: format!("\x1b[{row};{column}H").into_bytes() });
         }
 
         // No standard cursor-positioning sequence can restore pending wrap:
@@ -3400,21 +3403,42 @@ impl Terminal {
             },
             selection: &selection,
         };
-        let mut suffix = if origin_mode {
-            // The main formatter leaves the cursor at the authoritative cell.
-            // Move only to a wide glyph's lead cell, using a relative motion
-            // whose meaning is independent of the scrolling-region origin.
-            let columns_left = x.saturating_sub(start_x);
-            if columns_left == 0 {
-                Vec::new()
-            } else {
-                format!("\x1b[{}D", u32::from(columns_left)).into_bytes()
-            }
-        } else {
-            format!("\x1b[{};{}H", u32::from(y) + 1, u32::from(start_x) + 1).into_bytes()
-        };
+        let start_column =
+            column.checked_sub(u32::from(x.saturating_sub(start_x))).ok_or(Error::InvalidValue)?;
+        let mut suffix = format!("\x1b[{row};{start_column}H").into_bytes();
         suffix.extend_from_slice(&self.format(opts)?);
-        Ok(Some(suffix))
+        Ok(ReplayCursorPlan { bytes: suffix })
+    }
+
+    fn cursor_position_report(&mut self) -> Result<(u32, u32)> {
+        if !self.vt_stream_is_ground() {
+            return Err(Error::InvalidValue);
+        }
+
+        let report = Arc::new(Mutex::new(Vec::new()));
+        let captured = Arc::clone(&report);
+        let original_callback = self.callbacks.on_pty_write.replace(Box::new(move |bytes| {
+            captured.lock().unwrap().extend_from_slice(bytes);
+        }));
+        // This is an internal state query, not process output. Feed it only to
+        // Ghostty so replay tracking still describes the real PTY stream.
+        let query = b"\x1b[6n";
+        unsafe { sys::ghostty_terminal_vt_write(self.raw, query.as_ptr(), query.len()) };
+        self.callbacks.on_pty_write = original_callback;
+
+        let report = report.lock().map_err(|_| Error::InvalidValue)?;
+        let report = std::str::from_utf8(&report).map_err(|_| Error::InvalidValue)?;
+        let body = report
+            .strip_prefix("\x1b[")
+            .and_then(|value| value.strip_suffix('R'))
+            .ok_or(Error::InvalidValue)?;
+        let (row, column) = body.split_once(';').ok_or(Error::InvalidValue)?;
+        let row = row.parse::<u32>().map_err(|_| Error::InvalidValue)?;
+        let column = column.parse::<u32>().map_err(|_| Error::InvalidValue)?;
+        if row == 0 || column == 0 {
+            return Err(Error::InvalidValue);
+        }
+        Ok((row, column))
     }
 
     fn vt_replay_segment_options(
@@ -3430,7 +3454,7 @@ impl Terminal {
         options.extra.tabstops = last;
         options.extra.pwd = last;
         options.extra.keyboard = last;
-        options.extra.screen.cursor = last;
+        options.extra.screen.cursor = false;
         options.extra.screen.style = last;
         options.extra.screen.hyperlink = last;
         options.extra.screen.protection = last;
@@ -3591,6 +3615,10 @@ fn minimal_vt_replay(max_bytes: usize) -> Vec<u8> {
 struct ReplayRowRange {
     start: u64,
     end: u64,
+}
+
+struct ReplayCursorPlan {
+    bytes: Vec<u8>,
 }
 
 #[derive(Default)]
@@ -4836,12 +4864,14 @@ mod tests {
         let snapshot = source.kitty_graphics_snapshot().unwrap();
         let image = snapshot.images.first().unwrap();
         let max_bytes = kitty_replay_image_len(image).unwrap() + b"\x1bc".len();
+        let cursor_plan = source.vt_replay_cursor_plan().unwrap();
         let text = source
             .vt_replay_text_layout_bounded(
                 max_bytes,
                 &super::KittyReplayRowIndex::default(),
                 None,
                 false,
+                &cursor_plan,
             )
             .unwrap();
         assert_eq!(text.range, None, "fixture did not reach the minimal reset fallback");
@@ -4882,8 +4912,15 @@ mod tests {
         let anchor_row = scrollbar.total - 12;
         let placement_rows = [anchor_row].into_iter().collect();
         let anchor_range = super::ReplayRowRange { start: anchor_row, end: scrollbar.total - 1 };
+        let cursor_plan = source.vt_replay_cursor_plan().unwrap();
         let anchor_bytes = source
-            .vt_replay_text_range_bounded(anchor_range, &placement_rows, usize::MAX, true)
+            .vt_replay_text_range_bounded(
+                anchor_range,
+                &placement_rows,
+                usize::MAX,
+                true,
+                &cursor_plan,
+            )
             .unwrap()
             .unwrap()
             .bytes
@@ -4892,7 +4929,13 @@ mod tests {
             super::ReplayRowRange { start: scrollbar.total - 16, end: scrollbar.total - 1 };
         assert!(
             source
-                .vt_replay_text_range_bounded(older_range, &placement_rows, anchor_bytes, true)
+                .vt_replay_text_range_bounded(
+                    older_range,
+                    &placement_rows,
+                    anchor_bytes,
+                    true,
+                    &cursor_plan,
+                )
                 .unwrap()
                 .is_none(),
             "fixture must put the anchor between a fitting and oversized geometric window"
@@ -4904,6 +4947,7 @@ mod tests {
                 &placement_rows,
                 Some(scrollbar.total - scrollbar.len),
                 true,
+                &cursor_plan,
             )
             .unwrap();
 
@@ -5011,8 +5055,15 @@ mod tests {
             anchors: [(placement.key, anchor)].into_iter().collect(),
         };
         let catalog = KittyReplayCatalog::new(&snapshot, (10, 20), 4);
+        let cursor_plan = source.vt_replay_cursor_plan().unwrap();
         let text = source
-            .vt_replay_text_range_bounded(range, catalog.placement_rows(), usize::MAX, true)
+            .vt_replay_text_range_bounded(
+                range,
+                catalog.placement_rows(),
+                usize::MAX,
+                true,
+                &cursor_plan,
+            )
             .unwrap()
             .unwrap();
         let graphics = catalog.plan(Some(range), usize::MAX, false);
