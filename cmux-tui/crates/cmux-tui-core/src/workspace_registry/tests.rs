@@ -3094,14 +3094,33 @@ fn schema_eight_rejects_multiple_live_views_for_one_browser() {
              UPDATE meta SET value = '8' WHERE key = 'schema_version';",
         )
         .unwrap();
+    let duplicate_tab = tab_id(3);
     legacy
         .execute(
-            "UPDATE resource_tabs
-             SET content_kind = 'browser', content_id = ?1
-             WHERE public_id = ?2",
-            params![browser.as_str(), tab_id(1).as_str()],
+            "INSERT INTO resource_identities(
+               public_id, kind, created_revision, updated_revision, deleted_revision
+             ) VALUES(?1, 'tab', 2, 2, NULL)",
+            [duplicate_tab.as_str()],
         )
         .unwrap();
+    legacy
+        .execute(
+            "INSERT INTO resource_tabs(
+               public_id, pane_id, position, content_kind, content_id, name,
+               created_revision, updated_revision, deleted_revision
+             ) VALUES(?1, ?2, 1, 'browser', ?3, NULL, 2, 2, NULL)",
+            params![duplicate_tab.as_str(), pane_id(2).as_str(), browser.as_str()],
+        )
+        .unwrap();
+    let live_views = legacy
+        .query_row(
+            "SELECT COUNT(*) FROM resource_tabs
+             WHERE content_kind = 'browser' AND content_id = ?1 AND deleted_revision IS NULL",
+            [browser.as_str()],
+            |row| row.get::<_, u64>(0),
+        )
+        .unwrap();
+    assert_eq!(live_views, 2, "fixture must contain two live views of one valid browser");
     drop(legacy);
 
     let error = WorkspaceRegistry::open(&root, "session").unwrap_err();
