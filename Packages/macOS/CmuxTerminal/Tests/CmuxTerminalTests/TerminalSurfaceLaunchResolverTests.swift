@@ -226,6 +226,41 @@ struct TerminalSurfaceLaunchResolverTests {
         #expect(!recorder.resolvedOnMainThread)
     }
 
+    @Test func synchronousLaunchUsesOnlyItsFixedDefaultArguments() async {
+        let recorder = DefaultShellArgumentsRecorder()
+        let resolver = makeResolver(
+            defaultArguments: ["/bin/zsh", "-l"],
+            defaultArgumentsProvider: {
+                recorder.resolve()
+            }
+        )
+        let request = TerminalSurfaceLaunchRequest(
+            workspaceID: UUID(),
+            surfaceID: UUID(),
+            configTemplate: nil,
+            workingDirectory: nil,
+            portOrdinal: 0,
+            initialCommand: nil,
+            initialInput: nil,
+            initialEnvironmentOverrides: [:],
+            additionalEnvironment: [:]
+        )
+
+        let synchronous = resolver.resolve(
+            request,
+            commandShims: nil,
+            launchResourceSnapshot: .unavailable
+        )
+        let asynchronous = (
+            await resolver.resolveInstallingCommandShim(request)
+        ).resolvedLaunch
+
+        #expect(synchronous.arguments == ["/bin/zsh", "-l"])
+        #expect(asynchronous.arguments == ["/usr/bin/login", "-flp", "tester"])
+        #expect(recorder.invocationCount == 1)
+        #expect(!recorder.resolvedOnMainThread)
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func commandShimInstallUsesInjectedFiveSecondDeadline() async throws {
         let clock = LaunchResolverManualClock()
