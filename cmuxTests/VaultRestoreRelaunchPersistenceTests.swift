@@ -207,6 +207,49 @@ struct VaultRestoreRelaunchPersistenceTests {
         )
     }
 
+    @Test("Cancelling a Vault startup preserves a resume claim owned elsewhere")
+    func cancelledVaultStartupPreservesForeignClaim() throws {
+        let sessionID = "vault-foreign-claim-\(UUID().uuidString)"
+        let launch = try makeLaunch(sessionID: sessionID)
+        let snapshot = try #require(launch.startupRestoreAgent)
+        let resumeIntentRecorder = AgentChatResumeIntentRecorder { _ in }
+        #expect(
+            AgentResumeLaunchGuard.shared.claimResumeLaunch(
+                kind: snapshot.kind.rawValue,
+                sessionId: sessionID
+            )
+        )
+        defer {
+            AgentResumeLaunchGuard.shared.releaseResumeLaunch(
+                kind: snapshot.kind.rawValue,
+                sessionId: sessionID
+            )
+        }
+        let workspace = Workspace(
+            workingDirectory: launch.workingDirectory,
+            initialTerminalInput: launch.initialInput,
+            initialTerminalStartupRestoreAgent: snapshot,
+            initialTerminalStartupRestoreCommitOwner: .tabManagerTopology,
+            agentChatResumeIntentRecorder: resumeIntentRecorder
+        )
+        defer { workspace.teardownAllPanels() }
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.terminalPanel(for: panelID))
+
+        #expect(!panel.surface.canCreateRuntimeSurface)
+        workspace.terminalStartupRestoreCoordinator.discardPendingRestore(
+            panelID: panelID
+        )
+
+        #expect(panel.surface.debugTeardownRequest().requestedAt != nil)
+        #expect(
+            !AgentResumeLaunchGuard.shared.claimResumeLaunch(
+                kind: snapshot.kind.rawValue,
+                sessionId: sessionID
+            )
+        )
+    }
+
     @Test("Manual Vault continuation does not auto-resume after relaunch")
     func manualContinuationDoesNotAutoResume() throws {
         let launch = try makeLaunch(sessionID: "vault-manual-relaunch")
