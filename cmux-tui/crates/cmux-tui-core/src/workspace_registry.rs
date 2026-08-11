@@ -5494,6 +5494,9 @@ impl SessionCoordinatorWaiter {
             drop(registration);
             if let Err(error) = fs::rename(&temporary_path, &registration_path) {
                 let _ = fs::remove_file(&temporary_path);
+                if error.kind() == std::io::ErrorKind::NotFound {
+                    continue;
+                }
                 return Err(error.into());
             }
             return Ok(Self { socket, registration_path, token });
@@ -5578,14 +5581,26 @@ fn publish_session_coordinator_available(waiter_dir: &Path) {
     };
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.extension().and_then(|value| value.to_str()) != Some("waiter") {
+        let Ok(metadata) = fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if !metadata.file_type().is_file() {
             continue;
         }
-        let is_regular_file = fs::symlink_metadata(&path)
-            .map(|metadata| metadata.file_type().is_file())
-            .unwrap_or(false);
-        if !is_regular_file {
-            continue;
+        match path.extension().and_then(|value| value.to_str()) {
+            Some("tmp") => {
+                let is_stale = metadata
+                    .modified()
+                    .ok()
+                    .and_then(|modified| modified.elapsed().ok())
+                    .is_some_and(|age| age >= SESSION_GUARD_COORDINATOR_TIMEOUT);
+                if is_stale {
+                    let _ = fs::remove_file(path);
+                }
+                continue;
+            }
+            Some("waiter") => {}
+            _ => continue,
         }
         if let Ok(registration) = fs::read_to_string(&path) {
             let mut fields = registration.split_whitespace();
