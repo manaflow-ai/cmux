@@ -373,6 +373,20 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
 
         \#(recordedProcessLivenessShellFunctions())
 
+        cmux_ssh_auth_kill_worker_if_identity_matches() {
+          cmux_ssh_auth_worker_pid="$1"
+          cmux_ssh_auth_worker_expected_identity="$2"
+          case "$cmux_ssh_auth_worker_pid" in ''|0|*[!0-9]*) return 1 ;; esac
+          case "$cmux_ssh_auth_worker_expected_identity" in
+            ''|*[!A-Za-z0-9_:|]*) return 1 ;;
+          esac
+          cmux_ssh_auth_worker_current_identity=$(cmux_ssh_auth_stable_identity \
+            "$cmux_ssh_auth_worker_pid") || return 1
+          if [ "$cmux_ssh_auth_worker_current_identity" != \
+            "$cmux_ssh_auth_worker_expected_identity" ]; then return 1; fi
+          /bin/kill -KILL "$cmux_ssh_auth_worker_pid" >/dev/null 2>&1
+        }
+
         cmux_ssh_wait_for_auth_process_exit() {
           cmux_ssh_auth_wait_pid="$1"
           case "$cmux_ssh_auth_wait_pid" in ''|0|*[!0-9]*) return 1 ;; esac
@@ -905,7 +919,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               "$cmux_ssh_auth_reaper_lock" "$cmux_ssh_auth_reaper_generation" || ! \
             cmux_ssh_auth_reaper_owner_matches_generation \
               "$cmux_ssh_auth_reaper_slot" "$cmux_ssh_auth_reaper_generation"; then
-            /bin/kill -KILL "$cmux_ssh_auth_reaper_pid" >/dev/null 2>&1 || true
+            cmux_ssh_auth_kill_worker_if_identity_matches \
+              "$cmux_ssh_auth_reaper_pid" "$cmux_ssh_auth_reaper_identity" || true
             wait "$cmux_ssh_auth_reaper_pid" 2>/dev/null || true
             cmux_ssh_auth_release_reaper_lock_if_current \
               "$cmux_ssh_auth_reaper_lock" "$cmux_ssh_auth_reaper_generation" 0
@@ -1717,8 +1732,9 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             cmux_ssh_auth_reaper_owner_matches_generation \
               "$cmux_ssh_auth_recovery_sweep_lock" \
               "$cmux_ssh_auth_recovery_sweep_generation"; then
-            /bin/kill -KILL "$cmux_ssh_auth_recovery_sweep_pid" \
-              >/dev/null 2>&1 || true
+            cmux_ssh_auth_kill_worker_if_identity_matches \
+              "$cmux_ssh_auth_recovery_sweep_pid" \
+              "$cmux_ssh_auth_recovery_sweep_identity" || true
             wait "$cmux_ssh_auth_recovery_sweep_pid" 2>/dev/null || true
             /bin/rm -f -- "$cmux_ssh_auth_recovery_sweep_lock/owner" \
               "$cmux_ssh_auth_recovery_sweep_lock/owner.new" \
@@ -2751,6 +2767,9 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                         exit 1
                       ) </dev/null >/dev/null 2>&1 &
                       cmux_ssh_auth_background_owner_pid=$!
+                      cmux_ssh_auth_background_owner_identity=$(cmux_ssh_auth_stable_identity \
+                        "$cmux_ssh_auth_background_owner_pid") || \
+                        cmux_ssh_auth_background_owner_identity=
                       cmux_ssh_auth_background_ack_started=$(cmux_ssh_auth_now_millis) || \
                         cmux_ssh_auth_background_ack_started=0
                       case "$cmux_ssh_auth_background_ack_started" in
@@ -2779,8 +2798,9 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                         /bin/sleep 0.01
                       done
                       if [ "$cmux_ssh_auth_durable_cleanup_pending" != 1 ]; then
-                        /bin/kill -KILL "$cmux_ssh_auth_background_owner_pid" \
-                          >/dev/null 2>&1 || true
+                        cmux_ssh_auth_kill_worker_if_identity_matches \
+                          "$cmux_ssh_auth_background_owner_pid" \
+                          "$cmux_ssh_auth_background_owner_identity" || true
                         wait "$cmux_ssh_auth_background_owner_pid" 2>/dev/null || true
                         /bin/rm -f -- "$cmux_ssh_auth_handoff_owner" \
                           "$cmux_ssh_auth_handoff_owner.new" \
