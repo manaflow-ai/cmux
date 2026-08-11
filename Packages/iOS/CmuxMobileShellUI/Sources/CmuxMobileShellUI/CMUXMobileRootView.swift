@@ -975,15 +975,10 @@ struct CMUXMobileRootView: View {
         }
         didAuthenticateWithAttachTicket = true
         syncShellAuthentication(true)
-        startOpenURLConnection(rawURL) { result in
-            if result == .needsUserApproval {
-                showAddDevice()
-            }
-            clearAttachTicketAuthentication(after: result)
-            if result == .failed, store.connectionState != .connected {
-                reconnectStoredMacIfNeeded()
-            }
-        }
+        startOpenURLConnection(
+            rawURL,
+            followUp: .finishAttachTicketAuthentication
+        )
     }
 
     @discardableResult
@@ -997,11 +992,7 @@ struct CMUXMobileRootView: View {
         }
         guard isAuthenticated else { return false }
         pendingAttachURL = nil
-        startOpenURLConnection(rawURL) { _ in
-            if store.connectionState != .connected {
-                reconnectStoredMacIfNeeded()
-            }
-        }
+        startOpenURLConnection(rawURL, followUp: .reconnectIfDisconnected)
         return true
     }
 
@@ -1012,7 +1003,7 @@ struct CMUXMobileRootView: View {
 
     private func startOpenURLConnection(
         _ rawURL: String,
-        onResult: @escaping @MainActor (MobilePairingURLConnectionResult) -> Void = { _ in }
+        followUp: OpenURLConnectionFollowUp = .none
     ) {
         cancelOpenURLTask(failure: .superseded)
         let token = UUID()
@@ -1034,11 +1025,33 @@ struct CMUXMobileRootView: View {
                 result.didConnect ? .appOpenURLHandled : .appOpenURLRejected,
                 failure: failure
             )
-            onResult(result)
+            switch followUp {
+            case .none:
+                break
+            case .finishAttachTicketAuthentication:
+                if result == .needsUserApproval {
+                    showAddDevice()
+                }
+                clearAttachTicketAuthentication(after: result)
+                if result == .failed, store.connectionState != .connected {
+                    reconnectStoredMacIfNeeded()
+                }
+            case .reconnectIfDisconnected:
+                if store.connectionState != .connected {
+                    reconnectStoredMacIfNeeded()
+                }
+            }
             guard openURLTaskToken == token else { return }
             openURLTask = nil
             openURLTaskToken = nil
         }
+    }
+
+    /// Follow-up owned by the stored open-URL task after its connection result.
+    private enum OpenURLConnectionFollowUp {
+        case none
+        case finishAttachTicketAuthentication
+        case reconnectIfDisconnected
     }
 
     private func cancelOpenURLTask(failure: DiagnosticFailureKind) {

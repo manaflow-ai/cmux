@@ -4,7 +4,7 @@ import SwiftUI
 
 /// An image the user staged in the composer, ready to send: the encoded
 /// payload plus the thumbnail shown in the attachment strip.
-public struct ChatComposerAttachment: Identifiable {
+public struct ChatComposerAttachment: Identifiable, Sendable {
     /// Where the staged image entered the composer. Picker refreshes replace
     /// picker-backed images while preserving independently pasted images.
     public enum Source: Sendable {
