@@ -118,9 +118,21 @@ struct SSHStartupManualReconnectTests {
             try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         }
 
-        let startupCommand = try Self.generatedVMSSHInitialStartupCommand()
+        let generatedStartupCommand = try Self.generatedVMSSHInitialStartupCommand()
+        let generatedStartupURL = URL(
+            fileURLWithPath: generatedStartupCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        defer { try? fileManager.removeItem(at: generatedStartupURL) }
+        let generatedStartupScript = try String(contentsOf: generatedStartupURL, encoding: .utf8)
+        try #require(generatedStartupScript.contains("/usr/bin/ssh"))
+        let startupURL = root.appendingPathComponent("startup-with-fake-ssh.sh")
+        try generatedStartupScript
+            .replacingOccurrences(of: "/usr/bin/ssh", with: fakeSSH.path)
+            .write(to: startupURL, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: startupURL.path)
+        try fileManager.removeItem(at: generatedStartupURL)
+
         var environment = ProcessInfo.processInfo.environment
-        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
         environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
         environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
@@ -128,7 +140,7 @@ struct SSHStartupManualReconnectTests {
         environment["CMUX_SSH_RECONNECT_LIMIT"] = "0"
         let result = Self.runProcess(
             executablePath: "/usr/bin/script",
-            arguments: ["-q", "-F", "/dev/null", "/bin/sh", "-c", startupCommand],
+            arguments: ["-q", "-F", "/dev/null", "/bin/sh", startupURL.path],
             environment: environment,
             standardInput: "\n",
             timeout: 5
