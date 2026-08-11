@@ -159,8 +159,10 @@ impl FrontendControlState {
     }
 
     fn discard_resource_updates(&self) {
-        self.resource_updates.lock().unwrap().clear();
+        let mut queue = self.resource_updates.lock().unwrap();
+        queue.clear();
         self.resource_updates_overflowed.store(false, Ordering::Release);
+        drop(queue);
         self.updates.notify();
     }
 
@@ -409,6 +411,19 @@ fn classify_resource_request(operation: &str, mutation: bool) -> Lane {
     }
 }
 
+fn mutation_indeterminate_error(operation: &str, idempotency_key: &str, cause: &str) -> String {
+    serde_json::to_string(&json!({
+        "code":"mutation.indeterminate",
+        "message":"the mutation outcome is unknown",
+        "details":{
+            "operation":operation,
+            "idempotency_key":idempotency_key,
+            "cause":cause,
+        },
+    }))
+    .unwrap_or_else(|_| "mutation outcome is unknown".into())
+}
+
 impl CmuxFrontendClient {
     fn request(
         &self,
@@ -436,8 +451,9 @@ impl CmuxFrontendClient {
             "operation":operation,
             "params":params,
         });
-        if mutation {
-            envelope["idempotency_key"] = Value::String(format!("native-{}-{message}", self.nonce));
+        let idempotency_key = mutation.then(|| format!("native-{}-{message}", self.nonce));
+        if let Some(idempotency_key) = &idempotency_key {
+            envelope["idempotency_key"] = Value::String(idempotency_key.clone());
         }
         let mut line = serde_json::to_vec(&envelope).map_err(|error| error.to_string())?;
         line.push(b'\n');
@@ -474,10 +490,18 @@ impl CmuxFrontendClient {
                 None => bounded.await,
             }
         });
-        if response.is_err() {
-            self.control_state.pending.lock().unwrap().remove(&id);
-        }
-        let response = response?;
+        let response = match response {
+            Ok(response) => response,
+            Err(error) => {
+                self.control_state.pending.lock().unwrap().remove(&id);
+                return Err(match idempotency_key {
+                    Some(idempotency_key) => {
+                        mutation_indeterminate_error(operation, &idempotency_key, &error)
+                    }
+                    None => error,
+                });
+            }
+        };
         if response.get("ok").and_then(Value::as_bool) == Some(true) {
             Ok(response.get("result").cloned().unwrap_or(Value::Null))
         } else {
@@ -1430,6 +1454,21 @@ mod tests {
         assert_eq!(classify_resource_request("pane.split", true), Lane::Interactive);
         assert_eq!(classify_resource_request("session.snapshot", false), Lane::Bulk);
         assert_eq!(classify_resource_request("workspace.list", false), Lane::Control);
+    }
+
+    #[test]
+    fn ambiguous_mutation_failure_retains_its_idempotency_key() {
+        let encoded = mutation_indeterminate_error(
+            "workspace.create",
+            "native-test-42",
+            "resource request timed out",
+        );
+        let error: Value = serde_json::from_str(&encoded).unwrap();
+
+        assert_eq!(error["code"], "mutation.indeterminate");
+        assert_eq!(error["details"]["operation"], "workspace.create");
+        assert_eq!(error["details"]["idempotency_key"], "native-test-42");
+        assert_eq!(error["details"]["cause"], "resource request timed out");
     }
 
     #[test]

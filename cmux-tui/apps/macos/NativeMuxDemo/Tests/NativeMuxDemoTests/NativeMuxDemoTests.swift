@@ -334,6 +334,46 @@ func resourceRecoveryPolicyHasABoundedExponentialBackoff() {
 }
 
 @Test
+func resourceRecoveryCancelsTheExactActiveStream() throws {
+    let stream = FrontendResourceStream(id: "stream-active")
+    let encoded = try stream.cancellationParameters(
+        machineID: "machine-a",
+        sessionID: "session-a"
+    ).encodedJSON()
+    let parameters = try #require(
+        JSONSerialization.jsonObject(with: Data(encoded.utf8)) as? [String: String]
+    )
+
+    #expect(parameters == [
+        "machine": "machine-a",
+        "session": "session-a",
+        "stream": "stream-active",
+    ])
+}
+
+@Test
+func mutationIndeterminateErrorKeepsTheRetryIdentityForReconciliation() {
+    let error = FrontendServiceError.requestFailure(#"""
+    {
+      "code":"mutation.indeterminate",
+      "message":"the mutation outcome is unknown",
+      "details":{
+        "operation":"workspace.create",
+        "idempotency_key":"native-test-42"
+      }
+    }
+    """#)
+
+    guard case .mutationIndeterminate(let operation, let idempotencyKey) = error else {
+        Issue.record("The mutation failure was not classified as indeterminate.")
+        return
+    }
+    #expect(operation == "workspace.create")
+    #expect(idempotencyKey == "native-test-42")
+    #expect(error.requiresAuthoritativeReconciliation)
+}
+
+@Test
 func terminalInputRelayReportsBoundedBufferDrops() async {
     let input = AsyncStream<TerminalInput>.makeStream(bufferingPolicy: .bufferingOldest(1))
     let drops = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))

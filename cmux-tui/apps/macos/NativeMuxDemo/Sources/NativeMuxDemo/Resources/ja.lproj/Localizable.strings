@@ -47,6 +47,7 @@
 "error.no_machine" = "デーモンからマシンが返されませんでした。";
 "error.no_session" = "デーモンからセッションが返されませんでした。";
 "error.session_event_stream_ended" = "セッションイベントストリームが終了しました。";
+"error.mutation_indeterminate" = "操作の結果を確認できません。表示を更新します。";
 "error.terminal_input_rejected" = "ターミナル入力が拒否されました。";
 "error.terminal_input_overloaded" = "ターミナル入力が混雑しています。もう一度お試しください。";
 "error.terminal_attach" = "ターミナルに接続できませんでした。";

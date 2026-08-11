@@ -50,6 +50,18 @@ struct FrontendRecoveryPolicy: Sendable {
 
 typealias FrontendRecoveryDelay = @Sendable (UInt64) async throws -> Void
 
+struct FrontendResourceStream: Sendable, Equatable {
+    let id: String
+
+    func cancellationParameters(machineID: String, sessionID: String) -> [String: JSONValue] {
+        [
+            "machine": .string(machineID),
+            "session": .string(sessionID),
+            "stream": .string(id),
+        ]
+    }
+}
+
 @MainActor
 @Observable
 final class TerminalTitleOwner {
@@ -120,6 +132,7 @@ final class FrontendModel {
     @ObservationIgnored private var updatesTask: Task<Void, Never>?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var connectTask: Task<Void, Never>?
+    @ObservationIgnored private var refreshRequested = false
     @ObservationIgnored private var terminalControllers: [String: NativeTerminalModel] = [:]
     @ObservationIgnored private var terminalTitles: [String: TerminalTitleOwner] = [:]
     @ObservationIgnored private var terminalRetirementTasks: [UUID: Task<Void, Never>] = [:]
@@ -216,8 +229,9 @@ final class FrontendModel {
                 sessionID = session.id
                 try await refreshNow()
                 let updates = await service.updates()
+                let resourceStream: FrontendResourceStream
                 do {
-                    try await openResourceStream(
+                    resourceStream = try await openResourceStream(
                         service: service,
                         machineID: machine.id,
                         sessionID: session.id
@@ -226,7 +240,11 @@ final class FrontendModel {
                     await service.stopUpdates(generation: updates.generation)
                     throw error
                 }
-                beginResourceUpdates(service: service, initialUpdates: updates)
+                beginResourceUpdates(
+                    service: service,
+                    initialUpdates: updates,
+                    initialStream: resourceStream
+                )
                 transportDiagnostics = await service.diagnostics()
                 isConnecting = false
             } catch {
@@ -239,6 +257,7 @@ final class FrontendModel {
     private func disconnectAfterFailure(_ error: any Error) async {
         updatesTask?.cancel()
         refreshTask?.cancel()
+        refreshRequested = false
         let controllers = Array(terminalControllers.values)
         let titles = Array(terminalTitles.values)
         let retirements = Array(terminalRetirementTasks.values)
@@ -272,7 +291,7 @@ final class FrontendModel {
         service: FrontendService,
         machineID: String,
         sessionID: String
-    ) async throws {
+    ) async throws -> FrontendResourceStream {
         let streamID = "stream_" + UUID().uuidString
             .replacingOccurrences(of: "-", with: "")
             .lowercased()
@@ -284,15 +303,33 @@ final class FrontendModel {
                 "stream_id": .string(streamID),
             ]
         )
+        return FrontendResourceStream(id: streamID)
+    }
+
+    private func cancelResourceStream(
+        service: FrontendService,
+        machineID: String,
+        sessionID: String,
+        stream: FrontendResourceStream
+    ) async throws {
+        try await service.requestDiscardingResult(
+            "stream.cancel",
+            params: stream.cancellationParameters(
+                machineID: machineID,
+                sessionID: sessionID
+            )
+        )
     }
 
     private func beginResourceUpdates(
         service: FrontendService,
-        initialUpdates: FrontendUpdateSubscription
+        initialUpdates: FrontendUpdateSubscription,
+        initialStream: FrontendResourceStream
     ) {
         updatesTask?.cancel()
         updatesTask = Task { [weak self] in
             var updates = initialUpdates
+            var resourceStream = initialStream
             while !Task.isCancelled {
                 var endReason = FrontendResourceStreamEndReason.none
                 var recoveryNeeded = false
@@ -330,11 +367,14 @@ final class FrontendModel {
                     guard let machineID = self.machineID, let sessionID = self.sessionID else {
                         return
                     }
-                    updates = try await self.recoverResourceStream(
+                    let recovered = try await self.recoverResourceStream(
                         service: service,
                         machineID: machineID,
-                        sessionID: sessionID
+                        sessionID: sessionID,
+                        currentStream: resourceStream
                     )
+                    updates = recovered.updates
+                    resourceStream = recovered.stream
                 } catch {
                     await self.disconnectAfterFailure(error)
                     return
@@ -346,9 +386,17 @@ final class FrontendModel {
     private func recoverResourceStream(
         service: FrontendService,
         machineID: String,
-        sessionID: String
-    ) async throws -> FrontendUpdateSubscription {
+        sessionID: String,
+        currentStream: FrontendResourceStream
+    ) async throws -> (updates: FrontendUpdateSubscription, stream: FrontendResourceStream) {
+        try await cancelResourceStream(
+            service: service,
+            machineID: machineID,
+            sessionID: sessionID,
+            stream: currentStream
+        )
         let pendingRefresh = refreshTask
+        refreshRequested = false
         pendingRefresh?.cancel()
         await pendingRefresh?.value
         await service.discardResourceUpdates()
@@ -361,12 +409,12 @@ final class FrontendModel {
                 try await refreshNow()
                 let nextUpdates = await service.updates()
                 do {
-                    try await openResourceStream(
+                    let nextStream = try await openResourceStream(
                         service: service,
                         machineID: machineID,
                         sessionID: sessionID
                     )
-                    return nextUpdates
+                    return (nextUpdates, nextStream)
                 } catch {
                     await service.stopUpdates(generation: nextUpdates.generation)
                     throw error
@@ -444,14 +492,18 @@ final class FrontendModel {
     }
 
     private func scheduleRefresh() {
+        refreshRequested = true
         guard refreshTask == nil else { return }
         refreshTask = Task { [weak self] in
             defer { self?.refreshTask = nil }
             guard let self, !Task.isCancelled else { return }
-            do {
-                try await refreshNow()
-            } catch {
-                errorMessage = error.localizedDescription
+            while refreshRequested, !Task.isCancelled {
+                refreshRequested = false
+                do {
+                    try await refreshNow()
+                } catch {
+                    errorMessage = error.localizedDescription
+                }
             }
         }
     }
@@ -606,6 +658,7 @@ final class FrontendModel {
             operation,
             selectors: selectors,
             onSuccess: { await self.reconcileFocusMutation(requestID) },
+            onIndeterminate: { _ = self.focusMutations.finish(requestID) },
             onFailure: {
                 guard let rollback = self.focusMutations.rollback(requestID) else { return false }
                 self.selectedWorkspaceID = rollback.workspaceID
@@ -849,6 +902,7 @@ final class FrontendModel {
         selectors: [String: String],
         fields: [String: JSONValue] = [:],
         onSuccess: (() async -> Void)? = nil,
+        onIndeterminate: (() -> Void)? = nil,
         onFailure: (() -> Bool)? = nil
     ) {
         guard let service, let machineID, let sessionID else { return }
@@ -871,6 +925,13 @@ final class FrontendModel {
                     scheduleRefresh()
                 }
             } catch {
+                if let serviceError = error as? FrontendServiceError,
+                   serviceError.requiresAuthoritativeReconciliation {
+                    onIndeterminate?()
+                    scheduleRefresh()
+                    errorMessage = serviceError.localizedDescription
+                    return
+                }
                 if onFailure?() ?? true {
                     errorMessage = error.localizedDescription
                 }
@@ -894,6 +955,7 @@ final class FrontendModel {
         connectTask?.cancel()
         updatesTask?.cancel()
         refreshTask?.cancel()
+        refreshRequested = false
         focusMutations = FocusMutationTracker()
         let controllers = Array(terminalControllers.values)
         let titles = Array(terminalTitles.values)
