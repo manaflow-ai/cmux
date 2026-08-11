@@ -80,10 +80,27 @@ struct CLIRemoteShellStartupPerformanceTests {
         #expect(result.status == 0)
     }
 
+    @Test
+    func generatedSSHStartupUsesInstalledRecoveryHelper() throws {
+        let startupCommand = try generatedSSHStartupCommandForShellPerformance()
+        let script = try decodedReusableStartupScript(from: startupCommand)
+
+        #expect(script.contains("__ssh-auth-recovery"))
+        #expect(!script.contains("cmux_ssh_auth_kernel_process_identity()"))
+    }
+
     private struct FakeRemoteShellRoot {
         let url: URL
         let home: URL
         let bin: URL
+    }
+
+    private func decodedReusableStartupScript(from command: String) throws -> String {
+        let payloadPrefix = try #require(command.range(of: "cmux_payload="))
+        let payloadEnd = try #require(command[payloadPrefix.upperBound...].firstIndex(of: "\n"))
+        let encodedPayload = String(command[payloadPrefix.upperBound..<payloadEnd])
+        let payload = try #require(Data(base64Encoded: encodedPayload))
+        return try #require(String(data: payload, encoding: .utf8))
     }
 
     private func generatedSSHStartupCommandForShellPerformance() throws -> String {
