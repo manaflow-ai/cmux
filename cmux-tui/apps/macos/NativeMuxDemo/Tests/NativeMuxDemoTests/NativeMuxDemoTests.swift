@@ -312,18 +312,22 @@ func resetKeepsSurfaceCreationError() {
 }
 
 @Test
-func sideBySideLayoutLeavesVisibleSpaceForBothFrontends() {
-    let visibleFrame = CGRect(x: 0, y: 25, width: 1728, height: 971)
+func sideBySideLayoutUsesScreenRelativeGhosttyCoordinates() {
+    let visibleFrame = CGRect(x: 1440, y: 25, width: 1728, height: 971)
     let layout = SideBySideWindowLayout.fit(visibleFrame: visibleFrame)
+    let primaryScreenLayout = SideBySideWindowLayout.fit(
+        visibleFrame: CGRect(origin: CGPoint(x: 0, y: 25), size: visibleFrame.size)
+    )
 
     #expect(layout.nativeFrame.minX == visibleFrame.minX)
     #expect(layout.nativeFrame.minY == visibleFrame.minY)
     #expect(layout.nativeFrame.height == visibleFrame.height)
     #expect(layout.nativeFrame.width > 900)
-    #expect(layout.ghosttyPositionX > Int(layout.nativeFrame.maxX))
-    #expect(layout.ghosttyPositionY == 0)
-    #expect(layout.ghosttyColumns >= 80)
-    #expect(layout.ghosttyRows >= 40)
+    #expect(layout.ghosttyPlacement == primaryScreenLayout.ghosttyPlacement)
+    #expect(layout.ghosttyPlacement.x > Int(layout.nativeFrame.width))
+    #expect(layout.ghosttyPlacement.y == 0)
+    #expect(layout.ghosttyPlacement.columns >= 80)
+    #expect(layout.ghosttyPlacement.rows >= 40)
 }
 
 @Test
