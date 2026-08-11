@@ -591,14 +591,8 @@ public struct WorkspaceListLayoutPreviewView: View {
                                 fixtureWorkspaceDetail(for: workspaceID)
                                     .onAppear {
                                         guard restoreSearchOnPop else { return }
-                                        primarySearchCoordinator.deactivateCurrentSearch()
-                                    }
-                                    .onDisappear {
-                                        guard restoreSearchOnPop else { return }
                                         restoreSearchOnPop = false
-                                        guard selectedPrimaryTab == .search,
-                                              searchFixturePath.isEmpty else { return }
-                                        primarySearchCoordinator.requestFocusRestore(for: .workspaces)
+                                        primarySearchCoordinator.deactivateCurrentSearch()
                                     }
                             }
                         }

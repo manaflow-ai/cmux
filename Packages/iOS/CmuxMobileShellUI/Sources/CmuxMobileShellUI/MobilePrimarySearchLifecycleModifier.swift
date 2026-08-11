@@ -29,7 +29,6 @@ struct MobilePrimarySearchFieldModifier: ViewModifier {
     @Bindable var searchCoordinator: MobilePrimarySearchCoordinator
     let scope: MobilePrimarySearchScope
     let submit: () -> Void
-    @FocusState private var fieldIsFocused: Bool
 
     func body(content: Content) -> some View {
         content
@@ -38,16 +37,7 @@ struct MobilePrimarySearchFieldModifier: ViewModifier {
                 isPresented: presentation,
                 prompt: prompt
             )
-            .searchFocused($fieldIsFocused)
             .onSubmit(of: .search, submit)
-            // Focus-engine activation: restoring a session around a pushed
-            // detail re-presents through the FOCUS route rather than the
-            // isPresented binding, which the platform hosts in the top
-            // navigation drawer when driven programmatically.
-            .onChange(of: searchCoordinator.focusRestoreRequest(for: scope)) { _, request in
-                guard request > 0 else { return }
-                fieldIsFocused = true
-            }
     }
 
     private var searchText: Binding<String> {

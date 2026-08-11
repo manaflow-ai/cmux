@@ -1228,20 +1228,24 @@ final class cmuxUITests: XCTestCase {
         guard waitForVisibleElement(in: workspaceListTables, app: app, timeout: 3) != nil else {
             return XCTFail("Workspaces list did not return after popping the detail")
         }
-        // Popping the detail restores the search session exactly as left:
-        // the field presented with the query and the results still filtered.
-        guard searchField.waitForExistence(timeout: 3) else {
-            return XCTFail("Search field missing after popping back from the detail")
-        }
+        // Popping the detail lands on the still-filtered results with the
+        // query preserved in the bottom control; one tap re-expands it.
         guard waitForHittable(docsRow, timeout: 3) else {
             return XCTFail("Matching row missing from the restored search results")
         }
         guard waitForNotHittable(mainRow, timeout: 3) else {
             return XCTFail("Query filter lost on the restored search results (coordinator wiped)")
         }
+        guard minimizedSearch.waitForExistence(timeout: 3) else {
+            return XCTFail("Bottom search control missing after popping the detail")
+        }
+        tap(minimizedSearch, in: app)
+        guard searchField.waitForExistence(timeout: 3) else {
+            return XCTFail("Search field missing after re-expanding the restored control")
+        }
         guard waitForSearchFieldValue(searchField, "Docs", timeout: 3) else {
             return XCTFail(
-                "Rows stayed filtered but the field shows \(String(describing: searchField.value)) — display seeding gap"
+                "Re-expanded field must carry the preserved query, got \(String(describing: searchField.value))"
             )
         }
 
@@ -1786,14 +1790,10 @@ final class cmuxUITests: XCTestCase {
         }
         XCTAssertTrue(workspaceList.waitForExistence(timeout: 3))
 
-        // Popping back restores the exact search state from before the push:
-        // the field presented with the query, the results still filtered, and
-        // the field anchored at the bottom (the original regression re-hosted
-        // it in the top navigation bar).
-        XCTAssertTrue(
-            searchField.waitForExistence(timeout: 3),
-            "Search field missing after popping back to the search results"
-        )
+        // Popping back lands on the still-filtered results with the query
+        // preserved in the BOTTOM search control. Programmatic re-expansion
+        // measurably hosts the field in the top navigation drawer, so the
+        // field must NOT auto-present; re-expanding is the user's own tap.
         XCTAssertTrue(
             waitForHittable(docsRow, timeout: 3),
             "Matching row missing from the restored search results"
@@ -1802,17 +1802,46 @@ final class cmuxUITests: XCTestCase {
             waitForNotHittable(mainRow, timeout: 3),
             "Query filter lost on the restored search results (coordinator wiped)"
         )
+        if searchField.exists, let strayFrame = waitForUsableFrame(of: searchField, timeout: 1) {
+            XCTAssertGreaterThan(
+                strayFrame.midY,
+                app.frame.midY,
+                "Search field must not re-present at the top after popping, got \(strayFrame)"
+            )
+        }
+        let restoredControl = app.tabBars.buttons
+            .matching(NSPredicate(format: "label == %@", "Search"))
+            .firstMatch
+        XCTAssertTrue(
+            restoredControl.waitForExistence(timeout: 3),
+            "Bottom search control missing after popping the search detail"
+        )
+        guard let controlFrame = waitForUsableFrame(of: restoredControl, timeout: 3) else {
+            return XCTFail("Bottom search control had no usable frame after popping")
+        }
+        XCTAssertGreaterThan(
+            controlFrame.midY,
+            app.frame.midY,
+            "Search control must sit at the bottom after popping, got \(controlFrame)"
+        )
+
+        // One user tap re-expands the field at the bottom with the query.
+        tap(restoredControl, in: app)
+        XCTAssertTrue(
+            searchField.waitForExistence(timeout: 3),
+            "Search field missing after re-expanding the restored control"
+        )
         XCTAssertTrue(
             waitForSearchFieldValue(searchField, "Docs", timeout: 3),
-            "Rows filter state above; field shows \(String(describing: searchField.value)) — display seeding gap if rows passed"
+            "Re-expanded field must carry the preserved query, got \(String(describing: searchField.value))"
         )
         guard let fieldFrame = waitForUsableFrame(of: searchField, timeout: 3) else {
-            return XCTFail("Restored search field had no usable frame")
+            return XCTFail("Re-expanded search field had no usable frame")
         }
         XCTAssertGreaterThan(
             fieldFrame.midY,
             app.frame.midY,
-            "Search field must restore at the bottom after popping, got \(fieldFrame)"
+            "Re-expanded field must sit at the bottom, got \(fieldFrame)"
         )
 
         // The restored session is a normal editing session: typing narrows the
@@ -1932,36 +1961,53 @@ final class cmuxUITests: XCTestCase {
             "Tab bar must hide while the search-opened notification workspace is presented"
         )
 
-        // Popping back restores the notification search exactly as left: the
-        // field at the bottom with the query, results still filtered.
+        // Popping back lands on the still-filtered results with the query
+        // preserved in the bottom control; no field may sit at the top.
         let systemBack = app.navigationBars.buttons.element(boundBy: 0)
         XCTAssertTrue(waitForHittable(systemBack, timeout: 3))
         tap(systemBack, in: app)
-        XCTAssertTrue(
-            searchField.waitForExistence(timeout: 3),
-            "Notification search field missing after popping back"
-        )
-        XCTAssertTrue(
-            waitForSearchFieldValue(searchField, "Tests passed", timeout: 3),
-            "Restored notification search field must carry the query, got \(String(describing: searchField.value))"
-        )
-        guard let fieldFrame = waitForUsableFrame(of: searchField, timeout: 3) else {
-            return XCTFail("Restored notification search field had no usable frame")
+        if searchField.exists, let strayFrame = waitForUsableFrame(of: searchField, timeout: 1) {
+            XCTAssertGreaterThan(
+                strayFrame.midY,
+                app.frame.midY,
+                "Notification search field must not re-present at the top, got \(strayFrame)"
+            )
         }
-        XCTAssertGreaterThan(
-            fieldFrame.midY,
-            app.frame.midY,
-            "Notification search field must restore at the bottom, got \(fieldFrame)"
-        )
         // The opened notification is read now, so the still-active unread
         // filter correctly hides it; the non-matching rows stay hidden under
-        // the restored query.
+        // the preserved query.
         XCTAssertTrue(
             waitForNotHittable(matchingRow, timeout: 3),
             "The opened (now read) row must be hidden by the still-active unread filter"
         )
         XCTAssertTrue(waitForNotHittable(nonmatchingRow, timeout: 3))
         XCTAssertTrue(waitForNotHittable(readRow, timeout: 3))
+
+        // One user tap re-expands the field at the bottom with the query.
+        let restoredControl = app.tabBars.buttons
+            .matching(NSPredicate(format: "label == %@", "Search"))
+            .firstMatch
+        XCTAssertTrue(
+            restoredControl.waitForExistence(timeout: 3),
+            "Bottom search control missing after popping the notification detail"
+        )
+        tap(restoredControl, in: app)
+        XCTAssertTrue(
+            searchField.waitForExistence(timeout: 3),
+            "Notification search field missing after re-expanding"
+        )
+        XCTAssertTrue(
+            waitForSearchFieldValue(searchField, "Tests passed", timeout: 3),
+            "Re-expanded notification field must carry the query, got \(String(describing: searchField.value))"
+        )
+        guard let fieldFrame = waitForUsableFrame(of: searchField, timeout: 3) else {
+            return XCTFail("Re-expanded notification search field had no usable frame")
+        }
+        XCTAssertGreaterThan(
+            fieldFrame.midY,
+            app.frame.midY,
+            "Re-expanded notification field must sit at the bottom, got \(fieldFrame)"
+        )
     }
 
     @MainActor

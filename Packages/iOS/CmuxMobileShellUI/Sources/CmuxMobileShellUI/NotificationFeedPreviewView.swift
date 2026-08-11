@@ -83,14 +83,8 @@ public struct NotificationFeedPreviewView: View {
                         )
                         .onAppear {
                             guard restoreSearchOnPop else { return }
-                            primarySearchCoordinator.deactivateCurrentSearch()
-                        }
-                        .onDisappear {
-                            guard restoreSearchOnPop else { return }
                             restoreSearchOnPop = false
-                            guard selectedTab == .search,
-                                  searchNotificationPath.isEmpty else { return }
-                            primarySearchCoordinator.requestFocusRestore(for: .notifications)
+                            primarySearchCoordinator.deactivateCurrentSearch()
                         }
                     }
                     .toolbarVisibility(

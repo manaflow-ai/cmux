@@ -177,10 +177,13 @@ struct WorkspaceShellView: View {
     @State private var workspacesStackIsOnScreen = false
     @State private var notificationsStackIsOnScreen = false
     // Workspaces opened from search results push onto the search stacks; the
-    // search session ends across the push (committing the query) and is
-    // restored through the FOCUS engine once the pop completes — the only
-    // programmatic activation route the platform hosts at the search tab's
-    // bottom control (see workspaceSearchTabContent).
+    // search session ends from the pushed detail (committing the query), so
+    // popping lands on the still-filtered results with the query preserved in
+    // the bottom search control. Every programmatic re-presentation route
+    // (isPresented, searchFocused, UIKit bridging) measurably hosts the field
+    // in the top navigation drawer, so re-expanding is left to the user's own
+    // tap on the control — the only activation the platform hosts at the
+    // bottom.
     @State private var workspaceSearchNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var notificationSearchNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var restoreWorkspaceSearchOnPop = false
@@ -405,18 +408,12 @@ struct WorkspaceShellView: View {
                     // Ending the session at select-time swallows the push
                     // (the field dismissal consumes the navigation), so it
                     // ends here once the detail is up — the push minimized
-                    // the field already — leaving nothing for the platform
-                    // to mis-restore on pop.
+                    // the field already — committing the query into the
+                    // bottom control for the return.
                     .onAppear {
                         guard restoreWorkspaceSearchOnPop else { return }
-                        primarySearchCoordinator.deactivateCurrentSearch()
-                    }
-                    .onDisappear {
-                        guard restoreWorkspaceSearchOnPop else { return }
                         restoreWorkspaceSearchOnPop = false
-                        guard selectedPrimaryTab == .search,
-                              workspaceSearchNavigationPath.isEmpty else { return }
-                        primarySearchCoordinator.requestFocusRestore(for: .workspaces)
+                        primarySearchCoordinator.deactivateCurrentSearch()
                     }
                 }
             }
@@ -480,14 +477,8 @@ struct WorkspaceShellView: View {
                 )
                 .onAppear {
                     guard restoreNotificationSearchOnPop else { return }
-                    primarySearchCoordinator.deactivateCurrentSearch()
-                }
-                .onDisappear {
-                    guard restoreNotificationSearchOnPop else { return }
                     restoreNotificationSearchOnPop = false
-                    guard selectedPrimaryTab == .search,
-                          notificationSearchNavigationPath.isEmpty else { return }
-                    primarySearchCoordinator.requestFocusRestore(for: .notifications)
+                    primarySearchCoordinator.deactivateCurrentSearch()
                 }
             }
             .toolbarVisibility(
