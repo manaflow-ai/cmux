@@ -19,6 +19,10 @@ struct DemoLaunchConfiguration: Sendable {
     }
 }
 
+func uniqueFrontendIdentity(_ identities: [ResourceIdentity]) -> ResourceIdentity? {
+    identities.count == 1 ? identities[0] : nil
+}
+
 struct FrontendResourceGeneration: Sendable {
     private(set) var value: UInt64 = 0
 
@@ -106,20 +110,22 @@ final class TerminalTitleOwner {
 
 @MainActor
 struct TerminalTitleFn {
-    private let titles: [String: String]
+    private let owners: [String: TerminalTitleOwner]
 
     init(owners: [String: TerminalTitleOwner]) {
-        titles = owners.mapValues(\.title)
+        self.owners = owners
     }
 
-    func callAsFunction(_ terminalID: String) -> String? {
-        titles[terminalID]
+    func callAsFunction(_ terminalID: String) -> TerminalTitleOwner? {
+        owners[terminalID]
     }
 }
 
 @MainActor
 @Observable
 final class FrontendModel {
+    private static let maximumPendingMutations = 16
+
     var invitation: String
     private(set) var snapshot: ResourceSnapshot?
     private(set) var isConnecting = false
@@ -136,6 +142,8 @@ final class FrontendModel {
     @ObservationIgnored private var terminalControllers: [String: NativeTerminalModel] = [:]
     @ObservationIgnored private var terminalTitles: [String: TerminalTitleOwner] = [:]
     @ObservationIgnored private var terminalRetirementTasks: [UUID: Task<Void, Never>] = [:]
+    @ObservationIgnored private var mutationTasks: [UUID: Task<Void, Never>] = [:]
+    @ObservationIgnored private var replaceableMutationIDs: [String: UUID] = [:]
     @ObservationIgnored private lazy var ghosttyRuntime = NativeGhosttyRuntime()
     @ObservationIgnored private let shouldAutoConnect: Bool
     @ObservationIgnored private var didAutoConnect = false
@@ -211,18 +219,24 @@ final class FrontendModel {
                     "machine.list",
                     params: [:]
                 )
-                guard let machine = machines.first else {
+                guard let machine = uniqueFrontendIdentity(machines) else {
                     throw FrontendServiceError.message(
-                        L10n.text("error.no_machine", "The daemon reported no machine.")
+                        L10n.text(
+                            "error.no_machine",
+                            "The daemon did not identify exactly one machine."
+                        )
                     )
                 }
                 let sessions: [ResourceIdentity] = try await service.request(
                     "session.list",
                     params: ["machine": .string(machine.id)]
                 )
-                guard let session = sessions.first else {
+                guard let session = uniqueFrontendIdentity(sessions) else {
                     throw FrontendServiceError.message(
-                        L10n.text("error.no_session", "The daemon reported no session.")
+                        L10n.text(
+                            "error.no_session",
+                            "The daemon did not identify exactly one session."
+                        )
                     )
                 }
                 machineID = machine.id
@@ -261,9 +275,13 @@ final class FrontendModel {
         let controllers = Array(terminalControllers.values)
         let titles = Array(terminalTitles.values)
         let retirements = Array(terminalRetirementTasks.values)
+        let mutations = Array(mutationTasks.values)
+        for mutation in mutations { mutation.cancel() }
         terminalControllers.removeAll()
         terminalTitles.removeAll()
         terminalRetirementTasks.removeAll()
+        mutationTasks.removeAll()
+        replaceableMutationIDs.removeAll()
         snapshot = nil
         resourceRevision = nil
         resourceState = nil
@@ -279,6 +297,9 @@ final class FrontendModel {
         for title in titles { title.cancel() }
         for retirement in retirements {
             await retirement.value
+        }
+        for mutation in mutations {
+            await mutation.value
         }
         if let owned {
             await owned.shutdown()
@@ -654,7 +675,7 @@ final class FrontendModel {
         selectedWorkspaceID = workspaceID
         selectedScreenID = screenID
         if let snapshot { reconcileTerminalControllers(snapshot) }
-        mutate(
+        let enqueued = mutate(
             operation,
             selectors: selectors,
             onSuccess: { await self.reconcileFocusMutation(requestID) },
@@ -670,6 +691,11 @@ final class FrontendModel {
                 return true
             }
         )
+        if !enqueued, let rollback = focusMutations.rollback(requestID) {
+            selectedWorkspaceID = rollback.workspaceID
+            selectedScreenID = rollback.screenID
+            if let snapshot { reconcileTerminalControllers(snapshot) }
+        }
     }
 
     private func reconcileFocusMutation(_ requestID: UInt64) async {
@@ -897,6 +923,7 @@ final class FrontendModel {
         )
     }
 
+    @discardableResult
     private func mutate(
         _ operation: String,
         selectors: [String: String],
@@ -904,15 +931,34 @@ final class FrontendModel {
         onSuccess: (() async -> Void)? = nil,
         onIndeterminate: (() -> Void)? = nil,
         onFailure: (() -> Bool)? = nil
-    ) {
-        guard let service, let machineID, let sessionID else { return }
+    ) -> Bool {
+        guard let service, let machineID, let sessionID else { return false }
         var params: [String: JSONValue] = [
             "machine": .string(machineID),
             "session": .string(sessionID),
         ]
         for (key, value) in selectors { params[key] = .string(value) }
         for (key, value) in fields { params[key] = value }
-        Task {
+
+        let replacementKey = mutationReplacementKey(operation, selectors: selectors)
+        guard mutationTasks.count < Self.maximumPendingMutations else {
+            errorMessage = L10n.text(
+                "error.too_many_changes",
+                "Too many changes are waiting. Try again after they finish."
+            )
+            return false
+        }
+        if let replacementKey,
+           let replacedID = replaceableMutationIDs[replacementKey],
+           let replaced = mutationTasks[replacedID] {
+            replaceableMutationIDs[replacementKey] = nil
+            replaced.cancel()
+        }
+
+        let mutationID = UUID()
+        let task = Task { [weak self] in
+            guard let self else { return }
+            defer { finishMutation(mutationID, replacementKey: replacementKey) }
             do {
                 try await service.requestDiscardingResult(
                     operation,
@@ -924,6 +970,8 @@ final class FrontendModel {
                 } else {
                     scheduleRefresh()
                 }
+            } catch is CancellationError {
+                return
             } catch {
                 if let serviceError = error as? FrontendServiceError,
                    serviceError.requiresAuthoritativeReconciliation {
@@ -936,6 +984,30 @@ final class FrontendModel {
                     errorMessage = error.localizedDescription
                 }
             }
+        }
+        mutationTasks[mutationID] = task
+        if let replacementKey { replaceableMutationIDs[replacementKey] = mutationID }
+        return true
+    }
+
+    private func mutationReplacementKey(
+        _ operation: String,
+        selectors: [String: String]
+    ) -> String? {
+        switch operation {
+        case "workspace.focus", "screen.focus", "pane.focus", "tab.focus":
+            return "focus"
+        case "pane.split_ratio.set", "pane.viewport_width.set":
+            return selectors["pane"].map { "\(operation):\($0)" }
+        default:
+            return nil
+        }
+    }
+
+    private func finishMutation(_ id: UUID, replacementKey: String?) {
+        mutationTasks[id] = nil
+        if let replacementKey, replaceableMutationIDs[replacementKey] == id {
+            replaceableMutationIDs[replacementKey] = nil
         }
     }
 
@@ -960,9 +1032,13 @@ final class FrontendModel {
         let controllers = Array(terminalControllers.values)
         let titles = Array(terminalTitles.values)
         let retirements = Array(terminalRetirementTasks.values)
+        let mutations = Array(mutationTasks.values)
+        for mutation in mutations { mutation.cancel() }
         terminalControllers.removeAll()
         terminalTitles.removeAll()
         terminalRetirementTasks.removeAll()
+        mutationTasks.removeAll()
+        replaceableMutationIDs.removeAll()
         let ownedService = service
         service = nil
         snapshot = nil
@@ -975,6 +1051,9 @@ final class FrontendModel {
         for title in titles { title.cancel() }
         for retirement in retirements {
             await retirement.value
+        }
+        for mutation in mutations {
+            await mutation.value
         }
         await ownedService?.shutdown()
     }

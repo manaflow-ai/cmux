@@ -21,9 +21,16 @@ struct WorkspaceSnapshot: Decodable, Identifiable, Sendable {
         id = try container.decode(String.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)
         index = try container.decode(UInt32.self, forKey: .index)
+        guard index < UInt32(Int32.max) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .index,
+                in: container,
+                debugDescription: "Workspace index is outside the display range."
+            )
+        }
         focused = try container.decode(Bool.self, forKey: .focused)
         displayName = name.isEmpty
-            ? L10n.format("workspace.number", "workspace %d", index + 1)
+            ? L10n.format("workspace.number", "workspace %d", Int(index) + 1)
             : name
     }
 }
@@ -49,12 +56,19 @@ struct ScreenSnapshot: Decodable, Identifiable, Sendable {
         workspaceID = try container.decode(String.self, forKey: .workspaceID)
         name = try container.decodeIfPresent(String.self, forKey: .name)
         index = try container.decode(UInt32.self, forKey: .index)
+        guard index < UInt32(Int32.max) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .index,
+                in: container,
+                debugDescription: "Screen index is outside the display range."
+            )
+        }
         focused = try container.decode(Bool.self, forKey: .focused)
         layout = try container.decode(LayoutDocument.self, forKey: .layout)
         if let name, !name.isEmpty {
             displayName = name
         } else {
-            displayName = L10n.format("space.number", "%d", index + 1)
+            displayName = L10n.format("space.number", "%d", Int(index) + 1)
         }
         if case .viewport(_, _, let columns) = layout.root {
             let count = columns.count

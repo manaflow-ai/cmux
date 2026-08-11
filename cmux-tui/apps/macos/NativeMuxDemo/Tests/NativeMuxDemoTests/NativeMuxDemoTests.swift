@@ -144,6 +144,33 @@ func decodesEveryNativeLayoutShape() async throws {
 }
 
 @Test
+func remoteIdentitySelectionFailsClosedUnlessExactlyOneItemExists() {
+    let first = ResourceIdentity(id: "machine-a", name: "A")
+    let second = ResourceIdentity(id: "machine-b", name: "B")
+
+    #expect(uniqueFrontendIdentity([]) == nil)
+    #expect(uniqueFrontendIdentity([first])?.id == first.id)
+    #expect(uniqueFrontendIdentity([first, second]) == nil)
+}
+
+@Test
+func remoteLayoutNumbersRejectCrashableAndOutOfProtocolValues() {
+    let unsafeColumn = Data(
+        #"{"column_id":"column-a","width":1e308,"root":{"kind":"leaf","pane_id":"pane-a","tab_ids":[],"active_tab_id":null}}"#.utf8
+    )
+    let unsafeSplit = Data(
+        #"{"kind":"split","split_id":"split-a","direction":"horizontal","ratio":1e308,"first":{"kind":"leaf","pane_id":"pane-a","tab_ids":[],"active_tab_id":null},"second":{"kind":"leaf","pane_id":"pane-b","tab_ids":[],"active_tab_id":null}}"#.utf8
+    )
+    let unsafeWorkspaceIndex = Data(
+        #"{"id":"workspace-a","name":"","index":4294967295,"focused":true}"#.utf8
+    )
+
+    #expect((try? JSONDecoder().decode(ViewportColumn.self, from: unsafeColumn)) == nil)
+    #expect((try? JSONDecoder().decode(LayoutNode.self, from: unsafeSplit)) == nil)
+    #expect((try? JSONDecoder().decode(WorkspaceSnapshot.self, from: unsafeWorkspaceIndex)) == nil)
+}
+
+@Test
 func visibleLayoutPanesExcludeCollapsedStackMembersAndHonorZoom() {
     let stack = LayoutNode.stack(
         paneIDs: ["pane-a", "pane-b", "pane-c"],
@@ -299,14 +326,14 @@ func focusMutationTrackerRejectsStaleRollback() {
 }
 
 @Test @MainActor
-func terminalTitleLookupIsAnImmutableValueSnapshot() {
+func terminalTitleLookupKeepsObservationLocalToTheSelectedOwner() {
     let owner = TerminalTitleOwner(terminalID: "terminal-a", title: "before")
     let lookup = TerminalTitleFn(owners: [owner.terminalID: owner])
 
     owner.replace(with: "after")
 
-    #expect(lookup("terminal-a") == "before")
-    #expect(TerminalTitleFn(owners: [owner.terminalID: owner])("terminal-a") == "after")
+    #expect(lookup("terminal-a")?.title == "after")
+    #expect(lookup("terminal-missing") == nil)
 }
 
 @Test
