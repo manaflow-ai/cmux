@@ -2338,9 +2338,7 @@ mod tests {
         let (mux, surface, selectors) = terminal_fixture(None);
         let output = surface.subscribe_terminal_stream_change().unwrap();
         for index in 0..20 {
-            surface
-                .apply_stream_output_for_test(format!("line-{index}\r\n").as_bytes())
-                .unwrap();
+            surface.apply_stream_output_for_test(format!("line-{index}\r\n").as_bytes()).unwrap();
         }
         assert!(
             output.wait_until(Some(Instant::now() + Duration::from_secs(2))),
