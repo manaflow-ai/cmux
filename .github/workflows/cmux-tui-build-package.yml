@@ -486,20 +486,48 @@ jobs:
       - name: Prepare owned Windows native test temp root
         shell: pwsh
         run: |
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.Runtime.InteropServices;
+
+          public static class NativeDirectory {
+              [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+              [return: MarshalAs(UnmanagedType.Bool)]
+              public static extern bool CreateDirectoryW(string path, IntPtr securityAttributes);
+          }
+          '@
           $localAppData = [IO.Path]::GetFullPath($env:LOCALAPPDATA).TrimEnd([IO.Path]::DirectorySeparatorChar)
           $originalTemp = $env:TEMP
           $originalTmp = $env:TMP
           if ([string]::IsNullOrWhiteSpace($originalTemp) -or [string]::IsNullOrWhiteSpace($originalTmp)) {
             throw "The Windows runner must define TEMP and TMP"
           }
-          # Keep the owned root short enough for Windows AF_UNIX test sockets.
-          $testTempName = "c$([guid]::NewGuid().ToString('N').Substring(0, 7))"
-          $testTemp = [IO.Path]::GetFullPath((Join-Path $localAppData $testTempName))
-          if (-not $testTemp.StartsWith("$localAppData$([IO.Path]::DirectorySeparatorChar)", [StringComparison]::OrdinalIgnoreCase)) {
-            throw "Native Windows test temp root escaped LOCALAPPDATA: $testTemp"
-          }
-          New-Item -ItemType Directory -Path $testTemp | Out-Null
+          $createdTemp = $false
           try {
+            for ($attempt = 0; $attempt -lt 32; $attempt++) {
+              # Keep the owned root short enough for Windows AF_UNIX test sockets.
+              $testTempName = "c$([guid]::NewGuid().ToString('N').Substring(0, 7))"
+              $candidate = [IO.Path]::GetFullPath((Join-Path $localAppData $testTempName))
+              if (-not $candidate.StartsWith("$localAppData$([IO.Path]::DirectorySeparatorChar)", [StringComparison]::OrdinalIgnoreCase)) {
+                throw "Native Windows test temp root escaped LOCALAPPDATA: $candidate"
+              }
+              if ([NativeDirectory]::CreateDirectoryW($candidate, [IntPtr]::Zero)) {
+                $testTemp = $candidate
+                $createdTemp = $true
+                break
+              }
+              $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+              if ($errorCode -ne 183) {
+                throw "Could not create the Windows native test temp root (error $errorCode)"
+              }
+            }
+            if (-not $createdTemp) {
+              throw "Could not reserve a unique Windows native test temp root"
+            }
+
+            $ownerMarker = Join-Path $testTemp ".cmux-ci-owner-$([guid]::NewGuid().ToString('N'))"
+            $marker = [IO.File]::Open($ownerMarker, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+            $marker.Dispose()
             $env:TEMP = $testTemp
             $env:TMP = $testTemp
             $env:CMUX_EXPECTED_TEMP_ROOT = $testTemp
@@ -550,13 +578,16 @@ jobs:
             Remove-Item Env:CMUX_EXPECTED_TEMP_ROOT
             @(
               "CMUX_WINDOWS_NATIVE_TEST_TEMP=$testTemp"
+              "CMUX_WINDOWS_NATIVE_TEST_OWNER_MARKER=$ownerMarker"
               "CMUX_WINDOWS_NATIVE_TEST_ORIGINAL_TEMP=$originalTemp"
               "CMUX_WINDOWS_NATIVE_TEST_ORIGINAL_TMP=$originalTmp"
               "TEMP=$testTemp"
               "TMP=$testTemp"
             ) | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           } catch {
-            Remove-Item -LiteralPath $testTemp -Recurse -Force -ErrorAction Stop
+            if ($createdTemp -and (Test-Path -LiteralPath $testTemp)) {
+              Remove-Item -LiteralPath $testTemp -Recurse -Force -ErrorAction Stop
+            }
             throw
           }
 
@@ -684,6 +715,15 @@ jobs:
           if ($leaf -notmatch '^c[0-9a-f]{7}$') {
             throw "Refusing to clean an unowned Windows temp root: $testTemp"
           }
+          $ownerMarker = [IO.Path]::GetFullPath($env:CMUX_WINDOWS_NATIVE_TEST_OWNER_MARKER)
+          $markerParent = [IO.Path]::GetDirectoryName($ownerMarker)
+          $markerLeaf = [IO.Path]::GetFileName($ownerMarker)
+          if (-not $markerParent.Equals($testTemp, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Refusing to clean a Windows temp root without its exact ownership marker"
+          }
+          if ($markerLeaf -notmatch '^\.cmux-ci-owner-[0-9a-f]{32}$' -or -not (Test-Path -LiteralPath $ownerMarker -PathType Leaf)) {
+            throw "Refusing to clean a Windows temp root without its job ownership marker"
+          }
           $originalTemp = $env:CMUX_WINDOWS_NATIVE_TEST_ORIGINAL_TEMP
           $originalTmp = $env:CMUX_WINDOWS_NATIVE_TEST_ORIGINAL_TMP
           if ([string]::IsNullOrWhiteSpace($originalTemp) -or [string]::IsNullOrWhiteSpace($originalTmp)) {
@@ -693,6 +733,7 @@ jobs:
             "TEMP=$originalTemp"
             "TMP=$originalTmp"
             "CMUX_WINDOWS_NATIVE_TEST_TEMP="
+            "CMUX_WINDOWS_NATIVE_TEST_OWNER_MARKER="
             "CMUX_WINDOWS_NATIVE_TEST_ORIGINAL_TEMP="
             "CMUX_WINDOWS_NATIVE_TEST_ORIGINAL_TMP="
           ) | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
