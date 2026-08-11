@@ -1,5 +1,4 @@
 import Bonsplit
-import CmuxAgentChat
 import CmuxTerminal
 import CmuxTerminalCore
 import CmuxWorkspaces
@@ -78,7 +77,9 @@ extension DockSplitStore {
         }
         applyVisibilityToAllPanels()
         scheduleDockPortalReconcile(reason: "dock.sessionRestore")
-        admitSessionRestoredTerminalRuntimes(panelIds: Array(oldToNewPanelIds.values))
+        terminalStartupRestoreCoordinator.commitPendingRestores(
+            panelIDs: Array(oldToNewPanelIds.values)
+        )
         return oldToNewPanelIds
     }
 
@@ -102,7 +103,9 @@ extension DockSplitStore {
             sourceWorkspaceResolver: sourceWorkspaceResolver
         )
         if let restoredPanelId {
-            admitSessionRestoredTerminalRuntimes(panelIds: [restoredPanelId])
+            terminalStartupRestoreCoordinator.commitPendingRestores(
+                panelIDs: [restoredPanelId]
+            )
         }
         return restoredPanelId
     }
@@ -301,9 +304,10 @@ extension DockSplitStore {
             initialInput: initialInput,
             additionalEnvironment: replayEnvironment,
             focusPlacement: .rightSidebarDock,
-            runtimeSpawnPolicy: willRunAgentInput
-                ? .pacedSessionRestore.requiringStartupRestoreAdmission()
-                : .pacedSessionRestore
+            runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
+                requestedPolicy: .pacedSessionRestore,
+                requiresStartupRestoreCommit: willRunAgentInput
+            )
         )
         terminal.adoptOwnedSessionScrollbackReplayArtifact(replayFileURL)
         terminal.restoreSessionTextBoxDraft(terminalSnapshot.textBoxDraft)
@@ -335,15 +339,16 @@ extension DockSplitStore {
         if let restoredScrollback {
             restoredTerminalScrollbackByPanelId[terminal.id] = restoredScrollback
         }
-        let willRunAgentCommand = false
-        restoredAgentLifecycle.seedSessionRestore(
-            panelId: terminal.id,
+        terminalStartupRestoreCoordinator.stage(
+            panel: terminal,
             snapshot: restorableAgent,
+            resumeBinding: resumeBinding,
             manualResumeAvailable: restorableAgent != nil ||
                 (managedResumeBinding ?? resumeBinding)?.isAgentHookBinding == true,
-            willRunStartupCommand: willRunAgentCommand,
+            willRunStartupCommand: false,
             willRunStartupInput: willRunAgentInput,
-            resumeWorkingDirectory: resumeSessionWorkingDirectory
+            resumeWorkingDirectory: resumeSessionWorkingDirectory,
+            agentSessionAlreadyActive: agentSessionAlreadyActive
         )
         if let hibernation, let restorableAgent, restorableAgent.resumeCommand != nil {
             terminal.enterAgentHibernation(
@@ -352,21 +357,7 @@ extension DockSplitStore {
                 hibernatedAt: Date(timeIntervalSince1970: hibernation.hibernatedAt)
             )
         }
-        recordSessionResumeIntent(
-            panelId: terminal.id,
-            restorableAgent: restorableAgent,
-            resumeBinding: resumeBinding,
-            workingDirectory: resumeSessionWorkingDirectory,
-            agentSessionAlreadyActive: agentSessionAlreadyActive
-        )
         return terminal.id
-    }
-
-    /// Releases held terminal runtimes after their Dock topology is authoritative.
-    private func admitSessionRestoredTerminalRuntimes(panelIds: [UUID]) {
-        for panelId in panelIds {
-            (panels[panelId] as? TerminalPanel)?.surface.admitStartupRestoreRuntime()
-        }
     }
 
     private func restoreSessionBrowser(
@@ -461,35 +452,4 @@ extension DockSplitStore {
         )
     }
 
-    private func recordSessionResumeIntent(
-        panelId: UUID,
-        restorableAgent: SessionRestorableAgentSnapshot?,
-        resumeBinding: SurfaceResumeBindingSnapshot?,
-        workingDirectory: String?,
-        agentSessionAlreadyActive: Bool
-    ) {
-        guard !agentSessionAlreadyActive else { return }
-        let session: (id: String, source: String)? = if let restorableAgent {
-            (restorableAgent.sessionId, restorableAgent.kind.rawValue)
-        } else if resumeBinding?.isAgentHookBinding == true,
-                  let id = resumeBinding?.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !id.isEmpty,
-                  let source = resumeBinding?.kind?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !source.isEmpty {
-            (id, source)
-        } else {
-            nil
-        }
-        guard let session else { return }
-        agentChatResumeIntentRecorder.record(AgentChatResumeIntent(
-            sessionID: session.id,
-            source: session.source,
-            surfaceID: panelId.uuidString,
-            workspaceID: workspaceId.uuidString,
-            workingDirectory: workingDirectory
-        ))
-#if DEBUG
-        cmuxDebugLog("session.restore.dock.resumeBinding workspace=\(workspaceId.uuidString.prefix(8)) surface=\(panelId.uuidString.prefix(8)) source=\(session.source) session=\(session.id.prefix(8))")
-#endif
-    }
 }

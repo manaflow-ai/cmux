@@ -63,13 +63,16 @@ struct VaultRestoreRelaunchPersistenceTests {
         )
     }
 
-    @Test("Relaunch restore stays held until its tab topology owner admits it")
-    func relaunchRestoreWaitsForTabTopologyAdmission() throws {
+    @Test("Relaunch restore commits lifecycle and chat state at its tab topology boundary")
+    func relaunchRestoreWaitsForTabTopologyCommit() throws {
         let launch = try makeLaunch(sessionID: "vault-topology-admission")
         let snapshot = try #require(launch.startupRestoreAgent)
         let defaults = try makeAutoResumeDefaults()
         defer { defaults.store.removePersistentDomain(forName: defaults.name) }
-        let resumeIntentRecorder = AgentChatResumeIntentRecorder { _ in }
+        var resumeIntents: [AgentChatResumeIntent] = []
+        let resumeIntentRecorder = AgentChatResumeIntentRecorder {
+            resumeIntents.append($0)
+        }
         let source = Workspace(
             workingDirectory: launch.workingDirectory,
             initialTerminalInput: launch.initialInput,
@@ -80,6 +83,7 @@ struct VaultRestoreRelaunchPersistenceTests {
         defer { source.teardownAllPanels() }
         let persisted = source.sessionSnapshot(includeScrollback: false)
         let sourcePanelID = try #require(source.focusedPanelId)
+        let committedIntentCount = resumeIntents.count
 
         let restored = Workspace(
             agentSessionAutoResumeDefaults: defaults.store,
@@ -88,17 +92,25 @@ struct VaultRestoreRelaunchPersistenceTests {
         defer { restored.teardownAllPanels() }
         let restoredPanelIDs = restored.restoreSessionSnapshot(
             persisted,
-            startupRestoreAdmissionOwner: .tabManagerTopology
+            startupRestoreCommitOwner: .tabManagerTopology
         )
         let restoredPanelID = try #require(restoredPanelIDs[sourcePanelID])
         let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
 
         #expect(!restoredPanel.surface.canCreateRuntimeSurface)
         #expect(restoredPanel.surface.debugInitialInputForTesting() == launch.initialInput)
+        #expect(restored.restoredAgentSnapshotsByPanelId[restoredPanelID] == nil)
+        #expect(resumeIntents.count == committedIntentCount)
 
-        restored.admitSessionRestoredTerminalRuntimes()
+        restored.terminalStartupRestoreCoordinator.commitPendingRestores()
 
         #expect(restoredPanel.surface.canCreateRuntimeSurface)
+        #expect(
+            restored.restoredAgentSnapshotsByPanelId[restoredPanelID]?.sessionId
+                == snapshot.sessionId
+        )
+        #expect(resumeIntents.count == committedIntentCount + 1)
+        #expect(resumeIntents.last?.surfaceID == restoredPanelID.uuidString)
     }
 
     @Test("Tab manager publishes restored workspaces before releasing terminals")
@@ -151,13 +163,16 @@ struct VaultRestoreRelaunchPersistenceTests {
         )
         defer { source.teardownAllPanels() }
         let sourcePanelID = try #require(source.focusedPanelId)
-        source.seedSessionRestoredAgentState(
-            panelId: sourcePanelID,
-            restorableAgent: snapshot,
+        let sourcePanel = try #require(source.terminalPanel(for: sourcePanelID))
+        source.terminalStartupRestoreCoordinator.stage(
+            panel: sourcePanel,
+            snapshot: snapshot,
+            manualResumeAvailable: true,
             willRunStartupCommand: false,
             willRunStartupInput: false,
-            resumeSessionWorkingDirectory: launch.workingDirectory
+            resumeWorkingDirectory: launch.workingDirectory
         )
+        source.terminalStartupRestoreCoordinator.commitPendingRestores()
         source.panelShellActivityStates[sourcePanelID] = .promptIdle
 
         let persisted = source.sessionSnapshot(

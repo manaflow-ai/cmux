@@ -491,23 +491,6 @@ extension Workspace {
         )
     }
 
-    func seedSessionRestoredAgentState(
-        panelId: UUID,
-        restorableAgent: SessionRestorableAgentSnapshot?,
-        willRunStartupCommand: Bool,
-        willRunStartupInput: Bool,
-        resumeSessionWorkingDirectory: String?
-    ) {
-        restoredAgentLifecycle.seedSessionRestore(
-            panelId: panelId,
-            snapshot: restorableAgent,
-            manualResumeAvailable: restorableAgent != nil,
-            willRunStartupCommand: willRunStartupCommand,
-            willRunStartupInput: willRunStartupInput,
-            resumeWorkingDirectory: resumeSessionWorkingDirectory
-        )
-    }
-
     func seedDetachedRestoredAgentState(from detached: DetachedSurfaceTransfer) {
         if let shellActivityState = detached.shellActivityState {
             panelShellActivityStates[detached.panelId] = shellActivityState

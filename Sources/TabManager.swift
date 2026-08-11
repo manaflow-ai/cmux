@@ -1020,7 +1020,7 @@ class TabManager: ObservableObject {
             initialTerminalCommand: initialTerminalCommand,
             initialTerminalInput: initialTerminalInput,
             initialTerminalStartupRestoreAgent: initialTerminalStartupRestoreAgent,
-            initialTerminalStartupRestoreAdmissionOwner: .tabManagerTopology,
+            initialTerminalStartupRestoreCommitOwner: .tabManagerTopology,
             initialTerminalEnvironment: initialTerminalEnvironment,
             initialBrowserURL: initialBrowserURL,
             initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
@@ -1284,13 +1284,8 @@ class TabManager: ObservableObject {
                 updatedTabs.append(newWorkspace)
             }
             tabs = updatedTabs
-            if let initialTerminalStartupRestoreAgent,
-               let initialTerminalPanel = newWorkspace.focusedTerminalPanel {
-                newWorkspace.commitTerminalStartupRestore(
-                    panel: initialTerminalPanel,
-                    snapshot: initialTerminalStartupRestoreAgent,
-                    hasQueuedStartupInput: initialTerminalInput != nil
-                )
+            if initialTerminalStartupRestoreAgent != nil {
+                newWorkspace.terminalStartupRestoreCoordinator.commitPendingRestores()
             }
             // The global insertion-index rules don't know about group sections.
             // Re-run the group-aware normalize so a freshly-added workspace
@@ -6328,7 +6323,7 @@ extension TabManager {
             let restoredPanelIds = workspace.restoreSessionSnapshot(
                 workspaceSnapshot,
                 excludingStableIdentities: excludingStableIdentities,
-                startupRestoreAdmissionOwner: .tabManagerTopology
+                startupRestoreCommitOwner: .tabManagerTopology
             )
             reconcileWorkspaceCustomization(
                 afterRestoring: workspaceSnapshot,
@@ -6375,7 +6370,7 @@ extension TabManager {
         // never see an intermediate state with empty tabs or nil selection.
         tabs = newTabs
         for workspace in newTabs {
-            workspace.admitSessionRestoredTerminalRuntimes()
+            workspace.terminalStartupRestoreCoordinator.commitPendingRestores()
         }
         restoreWorkspaceDockSessionSnapshots(from: snapshot, excludingStableIdentities: excludingStableIdentities)
         let restoredGroups: [WorkspaceGroup] = {

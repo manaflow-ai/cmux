@@ -72,7 +72,10 @@ final class DockSplitStore: BonsplitDelegate {
     /// is kept in sync so the state survives Dock-to-workspace moves.
     @ObservationIgnored var agentRuntimeByPanelId: [UUID: Workspace.DetachedAgentRuntimeState] = [:]
     @ObservationIgnored var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
-    @ObservationIgnored let restoredAgentLifecycle = RestoredAgentLifecycleCoordinator()
+    @ObservationIgnored let terminalStartupRestoreCoordinator: TerminalStartupRestoreCoordinator
+    var restoredAgentLifecycle: RestoredAgentLifecycleCoordinator {
+        terminalStartupRestoreCoordinator.lifecycle
+    }
     @ObservationIgnored var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
     /// Authoritative agent-hook identity for a Dock panel. The effective
     /// surface binding may temporarily become a process-detected tmux binding,
@@ -121,7 +124,6 @@ final class DockSplitStore: BonsplitDelegate {
     private let settings: any SettingsReading
     private let settingsCatalog = SettingCatalog()
     let agentSessionAutoResumeDefaults: UserDefaults
-    let agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording
 
     /// Weak registry of every live Dock store. Lets control-surface routing
     /// resolve a Dock surface/pane by querying only the workspaces that actually
@@ -292,7 +294,11 @@ final class DockSplitStore: BonsplitDelegate {
             terminalTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.settings = settings
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
-        self.agentChatResumeIntentRecorder = agentChatResumeIntentRecorder
+        self.terminalStartupRestoreCoordinator = TerminalStartupRestoreCoordinator(
+            workspaceID: workspaceId,
+            lifecycle: RestoredAgentLifecycleCoordinator(),
+            resumeIntentRecorder: agentChatResumeIntentRecorder
+        )
         self.terminalWorkingDirectoryResolver = terminalWorkingDirectoryResolver
         self.closedItemHistoryStore =
             closedItemHistoryStore
