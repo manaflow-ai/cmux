@@ -1583,6 +1583,12 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                 \#(processGroupStateRemovalShellCommand())
                 /bin/rmdir "$CMUX_SSH_AUTH_GROUP_DIR" 2>/dev/null || true)
               continue
+            else
+              # A dead anchor cannot be cleaned by a reaper. Retain its state
+              # and let later low-cost sweeps enforce the orphan hold period.
+              printf '%s\n' "$cmux_ssh_auth_recovery_group_dir" \
+                >> "$CMUX_SSH_AUTH_RECOVERY_SEGMENT.retry"
+              continue
             fi
             if [ "$cmux_ssh_auth_recovery_count" -ge 8 ]; then
               printf '%s\n' "$cmux_ssh_auth_recovery_group_dir" \
