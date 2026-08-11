@@ -25,9 +25,15 @@
 #              enabled (see --ensure-mac).
 #   --ensure-mac  imply --attach and, before minting, enable the tagged Mac app's
 #              pairing host + launch it if its debug socket is down. Lets a device
-#              reload auto-pair with no separately-running Mac app.
+#              reload auto-pair with no separately-running Mac app. This is the
+#              DEFAULT for --device launches: a phone dogfood install must end
+#              signed in AND paired, and the post-launch readiness wait is the
+#              mechanical proof of both (the iPhone auth gate).
 #   --no-attach  launch signed in without pairing. Also cancels --ensure-mac.
-#              When attach flags are repeated, the last flag wins.
+#              When attach flags are repeated, the last flag wins. On --device
+#              this produces an UNVERIFIABLE install, so it is refused unless a
+#              human set CMUX_ALLOW_UNAUTHENTICATED_INSTALL=1 (agents never set
+#              it; same convention as CMUX_ALLOW_LOCAL_XCODEBUILD).
 #   --agent    sign in with the shared agent account instead of the dogfood one.
 #   --detach   simulator only: launch without attaching stdio, so the app keeps
 #              running after this script exits.
@@ -46,6 +52,7 @@ SIMULATOR_NAME="iPhone 17"
 SIMULATOR_ID=""             # exact booted sim UDID (wins over name when set)
 DEVICE_ID=""
 ATTACH=0
+ATTACH_EXPLICIT=0
 ENSURE_MAC=0
 AGENT=0
 DETACH=0
@@ -66,12 +73,12 @@ while [[ $# -gt 0 ]]; do
     --simulator-id) TARGET="simulator"; SIMULATOR_ID="${2:-}"; shift 2 ;;
     --device) TARGET="device"; shift ;;
     --device-id) DEVICE_ID="${2:-}"; shift 2 ;;
-    --attach) ATTACH=1; shift ;;
-    --no-attach) ATTACH=0; ENSURE_MAC=0; shift ;;
+    --attach) ATTACH=1; ATTACH_EXPLICIT=1; shift ;;
+    --no-attach) ATTACH=0; ENSURE_MAC=0; ATTACH_EXPLICIT=1; shift ;;
     # --ensure-mac: before minting, enable the tagged Mac app's pairing host and
     # launch it if its debug socket is down, so --attach can mint without a
     # separately-running Mac app. Implies --attach.
-    --ensure-mac) ENSURE_MAC=1; ATTACH=1; shift ;;
+    --ensure-mac) ENSURE_MAC=1; ATTACH=1; ATTACH_EXPLICIT=1; shift ;;
     --agent) AGENT=1; shift ;;
     --detach) DETACH=1; shift ;;
     --iroh-release-gate) IROH_RELEASE_GATE_MODE="${2:-}"; shift 2 ;;
@@ -82,6 +89,22 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -n "$TAG" ]] || { echo "error: --tag is required" >&2; usage >&2; exit 2; }
+# iPhone auth gate policy: installed-but-signed-out is a failed install. A
+# device launch therefore defaults to the full --ensure-mac flow, whose
+# post-launch readiness wait is the mechanical proof of signed-in + paired. An
+# explicitly unpaired device launch cannot be verified, so it hard-fails unless
+# a HUMAN set CMUX_ALLOW_UNAUTHENTICATED_INSTALL=1 (agents never set it).
+if [[ "$TARGET" == "device" ]]; then
+  if [[ "$ATTACH_EXPLICIT" -eq 0 ]]; then
+    ATTACH=1
+    ENSURE_MAC=1
+    echo "==> device launch defaults to --ensure-mac so the iPhone auth gate can verify signed-in + paired"
+  elif [[ "$ATTACH" -eq 0 && "${CMUX_ALLOW_UNAUTHENTICATED_INSTALL:-0}" != "1" ]]; then
+    echo "error: refusing an unverifiable iPhone launch: --no-attach skips the signed-in+paired auth gate" >&2
+    echo "error: retry: scripts/mobile-dev-launch.sh --tag $TAG --device${DEVICE_ID:+ --device-id $DEVICE_ID} --ensure-mac  (humans only: CMUX_ALLOW_UNAUTHENTICATED_INSTALL=1 to skip the gate)" >&2
+    exit 2
+  fi
+fi
 if [[ ! "$ATTACH_MINT_MAX_ATTEMPTS" =~ ^[1-9][0-9]*$ ]]; then
   echo "error: CMUX_ATTACH_MINT_MAX_ATTEMPTS must be a positive integer" >&2
   exit 2
@@ -277,6 +300,10 @@ if [[ -n "$READINESS_CURSOR" ]]; then
       "$READINESS_CURSOR" \
       "$ATTACH_READY_TIMEOUT_SECONDS" \
       "$DOGFOOD_CLIENT_ID")"; then
+    if [[ "$TARGET" == "device" ]]; then
+      echo "error: iPhone auth gate FAILED: $BUNDLE_ID launched but never reached a signed-in + paired session (bad credentials, sign-in stuck at login, or ticket redemption failed)" >&2
+      echo "error: retry: scripts/mobile-dev-launch.sh --tag $TAG --device --device-id $DEVICE_ID --ensure-mac" >&2
+    fi
     exit 1
   fi
   READINESS_FINISHED_MS="$(cmux_attach_monotonic_milliseconds)"
@@ -305,4 +332,12 @@ if [[ -n "$READINESS_CURSOR" ]]; then
     "$READY_EVENT"
   echo "==> usable RPC session established between $BUNDLE_ID and tagged Mac '$TAG'"
   echo "==> readiness receipt: $RECEIPT_PATH"
+  if [[ "$TARGET" == "device" ]]; then
+    echo "==> iPhone auth gate: PASS — $BUNDLE_ID on $DEVICE_ID verified signed in + paired"
+  fi
+elif [[ "$TARGET" == "device" ]]; then
+  # Only reachable with --no-attach + CMUX_ALLOW_UNAUTHENTICATED_INSTALL=1
+  # (any other unverified device path already exited above). Say so loudly so
+  # a handoff can never quote this run as an authenticated install.
+  echo "==> iPhone auth gate: SKIPPED (CMUX_ALLOW_UNAUTHENTICATED_INSTALL=1) — $BUNDLE_ID is NOT verified signed in; check later with scripts/verify-iphone-auth.sh --tag $TAG --device-id $DEVICE_ID"
 fi
