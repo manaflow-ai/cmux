@@ -6651,9 +6651,8 @@ fn journal_agent_pending_rebuild_accepts_active_deferred_socket_session() {
         replay: JournalReplayPolicy::Advisory,
         sensitivity: JournalSensitivity::Sensitive,
     };
-    for (index, source_session) in ["stored-hook-session", "deferred-hook-session"]
-        .into_iter()
-        .enumerate()
+    for (index, source_session) in
+        ["stored-hook-session", "deferred-hook-session"].into_iter().enumerate()
     {
         if index == 1 {
             registry.hold_agent_projection_rebuild_for_test().unwrap();
@@ -6690,8 +6689,7 @@ fn journal_agent_pending_rebuild_accepts_active_deferred_socket_session() {
     });
     let commit = registry
         .commit_agent_projection(
-            &WorkspaceMutation::new("journal-agent-deferred-active-socket", "socket-test")
-                .unwrap(),
+            &WorkspaceMutation::new("journal-agent-deferred-active-socket", "socket-test").unwrap(),
             &json!({"source_session":"deferred-hook-session"}),
             Some(previous_revision),
             &terminal_id,
@@ -7681,18 +7679,16 @@ fn journal_agent_projection_checkpoint_refresh_visits_terminal_once() {
         .unwrap();
     let mut visited = Vec::new();
     let refresh = registry.visit_agent_projection_rebuild_range(
-            sequences[0].saturating_sub(1),
-            *sequences.last().unwrap(),
-            |projection| {
-                visited.push((projection.terminal_id, projection.state));
-                Ok(())
-            },
-        );
+        sequences[0].saturating_sub(1),
+        *sequences.last().unwrap(),
+        |projection| {
+            visited.push((projection.terminal_id, projection.state));
+            Ok(())
+        },
+    );
     registry
         .connection
-        .authorizer(None::<
-            fn(rusqlite::hooks::AuthContext<'_>) -> rusqlite::hooks::Authorization,
-        >)
+        .authorizer(None::<fn(rusqlite::hooks::AuthContext<'_>) -> rusqlite::hooks::Authorization>)
         .unwrap();
     refresh.unwrap();
 
