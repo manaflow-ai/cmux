@@ -41,7 +41,8 @@ extension TerminalPasteboardService {
     /// Replaces one pasteboard and waits for publication or rejection.
     ///
     /// `expectedChangeCount` is evaluated when the mutation reaches the head
-    /// of the lane, not when it is enqueued.
+    /// of the lane, not when it is enqueued. Once the mutation is admitted, the
+    /// service reports its authoritative result even if the caller is cancelled.
     public func replaceContentsAndWait(
         of pasteboard: NSPasteboard,
         with items: [NSPasteboardItem],
@@ -66,7 +67,7 @@ extension TerminalPasteboardService {
             )
         }
         defer { lease.finish() }
-        return await lease.waitUntilApplied()
+        return await lease.waitForAuthoritativeResult()
             ?? TerminalPasteboardMutationResult(
                 status: .cancelled,
                 publishedContents: contents

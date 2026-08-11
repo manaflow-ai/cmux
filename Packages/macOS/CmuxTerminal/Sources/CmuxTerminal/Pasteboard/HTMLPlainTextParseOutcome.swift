@@ -8,6 +8,11 @@ enum HTMLPlainTextParseOutcome: Equatable, Sendable {
 
     var plainText: String? {
         guard case .visibleText(let text) = self else { return nil }
+        guard !text.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        ).isEmpty else {
+            return nil
+        }
         return text
     }
 

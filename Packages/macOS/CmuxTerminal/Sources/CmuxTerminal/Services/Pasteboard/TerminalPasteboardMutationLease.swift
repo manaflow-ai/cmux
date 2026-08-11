@@ -39,31 +39,42 @@ public final class TerminalPasteboardMutationLease: @unchecked Sendable {
             finish()
             return nil
         }
-        let result = await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
-                let immediateResult = state.withLock {
-                    state -> TerminalPasteboardMutationResult?? in
-                    switch state {
-                    case .waiting(nil):
-                        state = .waiting(continuation)
-                        return nil
-                    case .waiting:
-                        preconditionFailure("Pasteboard mutation lease awaited twice")
-                    case .applied(let result):
-                        return .some(result)
-                    case .finished:
-                        return .some(nil)
-                    }
-                }
-                if let immediateResult {
-                    continuation.resume(returning: immediateResult)
-                }
-            }
+        return await withTaskCancellationHandler {
+            await suspendUntilApplied()
         } onCancel: {
             finish()
         }
-        guard let result else { return nil }
-        return result
+    }
+
+    /// Waits for the authoritative result without releasing on cancellation.
+    ///
+    /// Non-rollback mutations cannot undo a write after admission, so their
+    /// caller must learn whether publication succeeded before reporting an
+    /// outcome or attempting a fallback write.
+    func waitForAuthoritativeResult() async -> TerminalPasteboardMutationResult? {
+        await suspendUntilApplied()
+    }
+
+    private func suspendUntilApplied() async -> TerminalPasteboardMutationResult? {
+        await withCheckedContinuation { continuation in
+            let immediateResult = state.withLock {
+                state -> TerminalPasteboardMutationResult?? in
+                switch state {
+                case .waiting(nil):
+                    state = .waiting(continuation)
+                    return nil
+                case .waiting:
+                    preconditionFailure("Pasteboard mutation lease awaited twice")
+                case .applied(let result):
+                    return .some(result)
+                case .finished:
+                    return .some(nil)
+                }
+            }
+            if let immediateResult {
+                continuation.resume(returning: immediateResult)
+            }
+        }
     }
 
     /// Releases the lane after the owner has registered any dependent read.
