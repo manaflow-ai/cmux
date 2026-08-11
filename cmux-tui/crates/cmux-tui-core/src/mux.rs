@@ -18349,6 +18349,60 @@ mod tests {
     }
 
     #[test]
+    fn terminal_close_replay_repairs_live_state_after_the_durable_commit() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let host = mux
+            .resource_terminal_host_identity(&surface)
+            .expect("test terminal has a host identity");
+        let public_id = surface.terminal_public_id().cloned().unwrap();
+        let mutation = WorkspaceMutation::new("terminal-close-crash-replay", "test").unwrap();
+        let live_resource_revision = mux.with_state(|state| state.resource_revision);
+
+        mux.set_resource_close_after_commit_hook_for_test(Some(Arc::new(|| {
+            panic!("simulated daemon crash after terminal close commit")
+        })));
+        let crashed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            mux.close_terminal_with_mutation(
+                &host.terminal_id,
+                Some(&host.incarnation),
+                None,
+                None,
+                &mutation,
+            )
+        }));
+        assert!(crashed.is_err());
+        mux.set_resource_close_after_commit_hook_for_test(None);
+
+        let registry = mux.workspace_registry.lock().unwrap();
+        let durable_resource_revision = registry.resource_revision().unwrap();
+        let durable_terminal_revision = registry.terminal_snapshot().unwrap().revision;
+        drop(registry);
+        assert_eq!(durable_resource_revision, live_resource_revision + 1);
+        assert_eq!(mux.with_state(|state| state.resource_revision), live_resource_revision);
+        assert!(mux.surface(surface.id).is_some());
+        assert!(mux.with_state(|state| state.terminal_catalog.contains_key(&public_id)));
+
+        let replay = mux
+            .close_terminal_with_mutation(
+                &host.terminal_id,
+                Some(&host.incarnation),
+                None,
+                None,
+                &mutation,
+            )
+            .unwrap();
+
+        assert_eq!(replay.terminal_revision, durable_terminal_revision);
+        assert_eq!(mux.with_state(|state| state.resource_revision), durable_resource_revision);
+        assert!(mux.surface(surface.id).is_none());
+        assert!(!mux.with_state(|state| state.terminal_catalog.contains_key(&public_id)));
+        assert!(!mux.with_state(|state| {
+            state.terminal_placements_by_host.contains_key(&host.terminal_id)
+        }));
+    }
+
+    #[test]
     fn persistent_mux_restart_restores_auxiliary_resources_and_exact_replay() {
         let root = std::env::temp_dir().join(format!(
             "cmux-resource-auxiliary-restart-{}",
