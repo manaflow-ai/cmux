@@ -8770,6 +8770,10 @@ impl Mux {
             }
         }
 
+        #[cfg(test)]
+        if let Some(hook) = self.browser_runtime_connect.lock().unwrap().clone() {
+            hook();
+        }
         let connected = BrowserRuntime::connect_provider(&lease.endpoint, &lease.authentication);
         let mut state = self.browser_runtime.state.lock().unwrap();
         match connected {
@@ -27807,13 +27811,7 @@ mod tests {
 
     #[test]
     fn browser_runtime_connection_does_not_hold_the_shared_slot() {
-        let mux = Mux::new_for_test(
-            "browser-runtime-slot",
-            SurfaceOptions {
-                cdp_url: Some("ws://127.0.0.1:9/devtools/browser/unreachable".into()),
-                ..SurfaceOptions::default()
-            },
-        );
+        let mux = Mux::new_for_test("browser-runtime-slot", SurfaceOptions::default());
         let (connect_started_tx, connect_started_rx) = std::sync::mpsc::sync_channel(1);
         let (release_connect_tx, release_connect_rx) = std::sync::mpsc::sync_channel(1);
         let release_connect_rx = Arc::new(Mutex::new(release_connect_rx));
@@ -27823,21 +27821,41 @@ mod tests {
                 release_connect_rx.lock().unwrap().recv().unwrap();
             }
         }));
-        mux.new_browser_tab("about:blank".into(), None, Some((80, 24))).unwrap();
-        connect_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let lease = BrowserProviderTargetLease {
+            provider_id: "browser-runtime-slot".into(),
+            endpoint: "ws://127.0.0.1:9/devtools/browser/unreachable".into(),
+            authentication: crate::browser_provider::BrowserProviderAuthentication::None,
+            tab_id: TabPublicId::parse("tab_00000000000000000000000000000001").unwrap(),
+            target_id: "target-1".into(),
+            revision: 1,
+        };
+        let (connect_done_tx, connect_done_rx) = std::sync::mpsc::sync_channel(1);
+        let connect = std::thread::spawn({
+            let mux = mux.clone();
+            move || {
+                connect_done_tx.send(mux.browser_runtime_for_provider(&lease).is_err()).unwrap();
+            }
+        });
+        let connect_started = connect_started_rx.recv_timeout(Duration::from_secs(1)).is_ok();
 
         let slot_available = mux.browser_runtime.lock_available_for_test();
-        release_connect_tx.send(()).unwrap();
-        assert!(
-            mux.async_surface_creations.wait_until_idle(Instant::now() + Duration::from_secs(1)),
-            "browser surface creation did not finish"
-        );
+        let _ = release_connect_tx.send(());
+        let connect_failed = connect_done_rx.recv_timeout(Duration::from_secs(1)).ok();
+        if connect_failed.is_some() {
+            connect.join().unwrap();
+        }
         mux.request_daemon_shutdown();
         mux.shutdown().unwrap();
 
+        assert!(connect_started, "provider connection did not reach the blocking test hook");
         assert!(
             slot_available,
             "browser connection setup held the shared runtime slot across blocking work"
+        );
+        assert_eq!(
+            connect_failed,
+            Some(true),
+            "provider connection did not fail within the final bound"
         );
     }
 
