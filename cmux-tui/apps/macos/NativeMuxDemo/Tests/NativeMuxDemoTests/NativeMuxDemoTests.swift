@@ -153,7 +153,8 @@ func decodesEveryNativeLayoutShape() async throws {
     var sawTitle = false
     var sawTopology = false
     for change in delta.changes {
-        switch try #require(snapshot.apply(change)) {
+        let appliedChange = snapshot.apply(change)
+        switch try #require(appliedChange) {
         case .terminalTitle(let id, let title):
             sawTitle = id == "term_88888888888888888888888888888888"
                 && title == "updated"
@@ -693,7 +694,7 @@ func terminalInputRelayReportsBoundedBufferDrops() async {
     }
     #expect(received == Data("first".utf8))
     var dropIterator = drops.stream.makeAsyncIterator()
-    let dropSignal = await dropIterator.next()
+    let dropSignal: Void? = await dropIterator.next()
     #expect(dropSignal != nil)
 
     input.continuation.finish()
