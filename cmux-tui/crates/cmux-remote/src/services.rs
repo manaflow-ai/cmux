@@ -2255,10 +2255,7 @@ mod tests {
             .unwrap();
 
         assert!(bulk_messages.receive().await.unwrap().unwrap().is_empty());
-        assert_eq!(
-            bulk_messages.buffered_state().await,
-            (5 * KIB - size_of::<u32>(), 1)
-        );
+        assert_eq!(bulk_messages.buffered_state().await, (5 * KIB - size_of::<u32>(), 1));
 
         daemon_endpoint
             .send_frame(
