@@ -101,6 +101,15 @@ def require_atomic_receipt_publication(
         )
 
 
+def require_receipt_before_lease_watcher(
+    source: str, context: str, watcher_call: str
+) -> None:
+    if source.index(watcher_call) < source.index("rename("):
+        raise SystemExit(
+            f"FAIL: {context} must publish the receipt before starting its lease watcher"
+        )
+
+
 def scheme_environment_override_keys(scheme: str) -> set[str]:
     try:
         root = ET.fromstring(scheme)
@@ -559,6 +568,11 @@ def main() -> int:
         "test-bundle process receipt",
         "CmuxAppHostReceiptFD = descriptor",
     )
+    require_receipt_before_lease_watcher(
+        APP_HOST_RECEIPT_CONSTRUCTOR,
+        "test-bundle process receipt",
+        "CmuxWatchAppHostAttemptLease(leaseDescriptor)",
+    )
 
     for context, needle in {
         "early receipt isolation marker": "CMUX_APP_HOST_ISOLATION_REQUIRED",
@@ -577,6 +591,11 @@ def main() -> int:
         APP_HOST_RECEIPT_WRITER,
         "early app process receipt",
         "return (descriptor, leaseDescriptor)",
+    )
+    require_receipt_before_lease_watcher(
+        APP_HOST_RECEIPT_WRITER,
+        "early app process receipt",
+        "watchAttemptLease(leaseDescriptor)",
     )
     require(
         APP_ENTRYPOINT,
