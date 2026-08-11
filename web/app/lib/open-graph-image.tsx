@@ -190,6 +190,9 @@ async function renderOpenGraphImage(locale: string) {
     {
       width: size.width * S,
       height: size.height * S,
+      headers: {
+        "Cache-Control": "public, max-age=0, s-maxage=31536000, immutable",
+      },
       ...(fonts.length > 0 ? { fonts } : {}),
     }
   );

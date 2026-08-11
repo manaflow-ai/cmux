@@ -37,6 +37,7 @@ extension CmxIrohHostRuntime {
         }
 
         localBinding = nil
+        lastRegistrationRefreshState = nil
         lifecyclePhase = .inactive
         currentSnapshot = CmxIrohHostRuntimeSnapshot(
             state: .inactive,
@@ -80,6 +81,7 @@ extension CmxIrohHostRuntime {
         registrationRenewalTask?.cancel()
         registrationRenewalTask = nil
         registrationRefreshPending = false
+        registrationRefreshPendingForcesPublication = false
         registrationRefreshEnabled = false
         registrationRefreshFailureCount = 0
         relayActivationTask?.cancel()
@@ -104,6 +106,7 @@ extension CmxIrohHostRuntime {
         let bindingID = localBinding?.bindingID
         if !preserveBinding {
             localBinding = nil
+            lastRegistrationRefreshState = nil
         }
         endpointAttestation = nil
         lanRendezvous = nil

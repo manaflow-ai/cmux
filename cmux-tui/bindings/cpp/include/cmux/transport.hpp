@@ -47,6 +47,10 @@ public:
     [[nodiscard]] Result<std::string> receive(Timeout timeout) override;
     void close() noexcept override;
 
+#if defined(CMUX_CPP_TESTING)
+    void set_before_receive_wait_for_testing(std::function<void()> hook);
+#endif
+
 private:
     struct Impl;
     explicit UnixTransport(std::unique_ptr<Impl> impl);

@@ -40,7 +40,17 @@ export default function middleware(request: NextRequest) {
   // OpenAI-compatible coderouter traffic is a machine endpoint, never a
   // localized page. Keep this explicit in addition to the matcher exclusion
   // so direct middleware tests and future matcher edits fail safely.
-  if (pathname === "/v1/responses") {
+  if (
+    pathname === "/v1/responses" ||
+    pathname === "/v1/codex/responses"
+  ) {
+    return NextResponse.next();
+  }
+
+  // coderouter has one hostname-independent landing page. In particular,
+  // cmux.com/coderouter must not be rewritten to /<locale>/coderouter, because
+  // the page deliberately lives outside the localized cmux site tree.
+  if (pathname === "/coderouter" || pathname === "/coderouter/") {
     return NextResponse.next();
   }
 

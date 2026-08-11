@@ -179,6 +179,9 @@ extension DockSplitStore {
     }
 
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
+        // Closing the final tab can auto-close its pane without a separate
+        // `didClosePane` callback.
+        synchronizeOwnedPaneIds(with: controller)
         forceCloseDockTabIds.remove(tabId)
         pendingCloseConfirmDockTabIds.remove(tabId)
         tabCloseButtonCloseDockTabIds.remove(tabId)
@@ -187,6 +190,7 @@ extension DockSplitStore {
     }
 
     func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {
+        synchronizeOwnedPaneIds(with: controller)
         commitDockClosedPaneHistory(paneId)
         reconcilePanels()
     }

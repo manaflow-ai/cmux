@@ -127,16 +127,16 @@ extension WorkspaceListView {
     }
 
     #if os(iOS)
-    var canRenderGroupsForSelection: Bool {
+    var canMutateForegroundGroupsForSelection: Bool {
         #if DEBUG
         // The store-free layout fixture has no foreground Mac, so the
-        // foreground-scope gate can never pass there; render its seeded groups
-        // so grouped rows and end-of-group slots are exercised in previews.
+        // foreground-mutation gate can never pass there. Allow its isolated
+        // reorder harness to exercise grouped rows and end-of-group slots.
         if store == nil, UITestConfig.workspaceListLayoutPreviewEnabled {
             return true
         }
         #endif
-        return macSelectionScope.canRenderGroupsForSelection
+        return macSelectionScope.canMutateForegroundGroupsForSelection
     }
 
     func macTitlePickerTitle(machineSnapshots: WorkspaceMachineSnapshots) -> String {
@@ -179,7 +179,7 @@ extension WorkspaceListView {
         #endif
     }
     #else
-    var canRenderGroupsForSelection: Bool {
+    var canMutateForegroundGroupsForSelection: Bool {
         true
     }
     #endif
@@ -209,6 +209,7 @@ struct WorkspaceMacTitlePicker: View, Equatable {
                 )
             }
             .accessibilityAddTraits(value.selection == .all ? .isSelected : [])
+            .accessibilityIdentifier("MobileWorkspaceMacPickerAll")
             ForEach(value.machines) { machine in
                 let selection = WorkspaceMacSelection.machine(machine.id)
                 Button {
@@ -221,6 +222,7 @@ struct WorkspaceMacTitlePicker: View, Equatable {
                     )
                 }
                 .accessibilityAddTraits(value.selection == selection ? .isSelected : [])
+                .accessibilityIdentifier(machineMenuAccessibilityIdentifier(machine.id))
             }
             if value.statusLine == .notConnected, let reconnect = actions.reconnect {
                 Divider()
@@ -249,6 +251,15 @@ struct WorkspaceMacTitlePicker: View, Equatable {
                 width: value.labelWidth,
                 statusLine: value.statusLine
             )
+            // Put the identity and status on the final combined label element.
+            // UIKit's toolbar bridge can otherwise omit the outer SwiftUI
+            // identifier from the native accessibility tree used by CUA.
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(value.title)
+            .accessibilityValue(
+                value.statusLine.map(WorkspaceConnectionStatusLineView.text) ?? ""
+            )
+            .accessibilityIdentifier("MobileWorkspaceMacPicker")
         }
         .buttonStyle(.plain)
         .tint(.primary)
@@ -267,6 +278,11 @@ struct WorkspaceMacTitlePicker: View, Equatable {
         if isSelected {
             Image(systemName: "checkmark")
         }
+    }
+
+    private func machineMenuAccessibilityIdentifier(_ id: String) -> String {
+        let stableID = id.replacingOccurrences(of: "\u{1F}", with: "-")
+        return "MobileWorkspaceMacPickerMachine-\(stableID)"
     }
 }
 
@@ -308,7 +324,6 @@ private struct WorkspaceMacTitlePickerLabel: View {
         .frame(width: width, alignment: .center)
         .clipped()
         .contentShape(Rectangle())
-        .accessibilityValue(statusLine.map(WorkspaceConnectionStatusLineView.text) ?? "")
     }
 }
 #endif

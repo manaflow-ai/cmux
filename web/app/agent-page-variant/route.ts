@@ -16,8 +16,6 @@ import {
   plainTextFromMarkdown,
 } from "../lib/agent-page-markdown";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const CANONICAL_FETCH_TIMEOUT_MS = 5_000;
 

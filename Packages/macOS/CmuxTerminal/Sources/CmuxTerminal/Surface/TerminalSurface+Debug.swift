@@ -227,7 +227,8 @@ extension TerminalSurface {
                 Unmanaged.passRetained(
                     GhosttySurfaceCallbackContext(
                         surfaceHost: surfaceView,
-                        surfaceController: self
+                        surfaceController: self,
+                        terminalLifecycleID: terminalLifecycleId
                     )
                 )
             surfaceCallbackContext = callbackContext
