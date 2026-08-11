@@ -21,7 +21,7 @@ run_validator() {
     CMUX_CI_APP_HOST_ISOLATION_REQUIRED=1 \
     RUNNER_OS=macOS \
     RUNNER_NAME=warp-6x-arm64-testfixture \
-    WARPBUILD_RUNNER_SET_ID=testfixture \
+    WARPBUILD_RUNNER_VERIFICATION_TOKEN=testfixture.token \
     "$@" \
     /bin/bash "$VALIDATOR"
 }
@@ -42,7 +42,7 @@ assert_rejected() {
 }
 
 assert_rejected persistent-runner RUNNER_NAME=aws-m4pro-1
-assert_rejected missing-provider-id WARPBUILD_RUNNER_SET_ID=
+assert_rejected missing-provider-token WARPBUILD_RUNNER_VERIFICATION_TOKEN=
 assert_rejected wrong-platform RUNNER_OS=Linux
 assert_rejected wrong-job GITHUB_JOB=tests
 assert_rejected missing-isolation CMUX_CI_APP_HOST_ISOLATION_REQUIRED=0
