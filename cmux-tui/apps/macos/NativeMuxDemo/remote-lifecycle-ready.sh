@@ -1,34 +1,49 @@
 #!/usr/bin/env bash
 
-# Wait for a remote demo launcher without charging binary transfer time to the
-# shorter daemon-startup budget.
+# Consume the lifecycle protocol that is owned by run-remote-demo.sh. Binary
+# transfer has its own budget; daemon startup begins at the first event.
 cmux_wait_for_remote_demo_ready() {
-  local launcher_log="$1"
+  local event_fd="$1"
   local launcher_pid="$2"
-  local transfer_attempts="$3"
-  local startup_attempts="$4"
-  local poll_seconds="$5"
-  local phase="transfer"
-  local remaining="$transfer_attempts"
+  local transfer_timeout="$3"
+  local startup_timeout="$4"
+  local app_pid
+  local event
+  local startup_deadline
+  local remaining
+  CMUX_REMOTE_DEMO_APP_PID=""
 
-  while (( remaining > 0 )); do
-    if grep -q '^Ready\.' "$launcher_log"; then
-      return 0
-    fi
-    if ! kill -0 "$launcher_pid" 2>/dev/null; then
-      return 10
-    fi
-    if [[ "$phase" == "transfer" ]] \
-      && grep -q '^Starting the PTY-owning Iroh daemon' "$launcher_log"; then
-      phase="startup"
-      remaining="$startup_attempts"
-    fi
-    remaining=$((remaining - 1))
-    sleep "$poll_seconds"
-  done
-
-  if [[ "$phase" == "transfer" ]]; then
+  if ! IFS= read -r -t "$transfer_timeout" -u "$event_fd" event; then
+    kill -0 "$launcher_pid" 2>/dev/null || return 10
     return 20
   fi
-  return 21
+  case "$event" in
+    daemon-starting) ;;
+    failed\ [0-9]*) return 10 ;;
+    *) return 22 ;;
+  esac
+
+  startup_deadline=$((SECONDS + startup_timeout))
+  while true; do
+    remaining=$((startup_deadline - SECONDS))
+    (( remaining > 0 )) || return 21
+    if ! IFS= read -r -t "$remaining" -u "$event_fd" event; then
+      kill -0 "$launcher_pid" 2>/dev/null || return 10
+      return 21
+    fi
+    case "$event" in
+      app-started\ *)
+        app_pid="${event#app-started }"
+        [[ -z "$CMUX_REMOTE_DEMO_APP_PID" ]] || return 22
+        [[ "$app_pid" =~ ^[1-9][0-9]*$ ]] || return 22
+        CMUX_REMOTE_DEMO_APP_PID="$app_pid"
+        ;;
+      ready)
+        [[ "$CMUX_REMOTE_DEMO_APP_PID" =~ ^[1-9][0-9]*$ ]] || return 22
+        return 0
+        ;;
+      failed\ [0-9]*) return 10 ;;
+      *) return 22 ;;
+    esac
+  done
 }
