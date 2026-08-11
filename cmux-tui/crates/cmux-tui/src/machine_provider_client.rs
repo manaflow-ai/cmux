@@ -2502,13 +2502,13 @@ mod tests {
             accept_hello(&mut stream, &mut reader, "provider-secret");
             let request: RequestEnvelope = read_test_frame(&mut reader);
             assert!(matches!(request.request, ProviderRequest::Snapshot(_)));
-            let write_result = (|| -> std::io::Result<()> {
+            let write_result = (|| -> io::Result<()> {
                 stream.write_all(&vec![b'x'; MAX_CONTROL_FRAME_BYTES + 1])?;
                 stream.write_all(b"\n")?;
                 stream.flush()
             })();
             if let Err(error) = write_result {
-                assert_eq!(error.kind(), std::io::ErrorKind::BrokenPipe, "publish oversized frame");
+                assert_eq!(error.kind(), io::ErrorKind::BrokenPipe, "publish oversized frame");
             }
         });
 
