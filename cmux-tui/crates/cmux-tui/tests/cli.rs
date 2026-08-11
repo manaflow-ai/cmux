@@ -208,8 +208,7 @@ struct FixtureProcessOwner {
     lease_path: PathBuf,
     abort_path: PathBuf,
     ready: bool,
-    durable_records:
-        Vec<(std::path::PathBuf, cmux_tui_core::terminal_host_runtime::TerminalHostRecord)>,
+    durable_records: Vec<(PathBuf, cmux_tui_core::terminal_host_runtime::TerminalHostRecord)>,
     state: FixtureProcessState,
 }
 
@@ -256,10 +255,7 @@ impl FixtureProcessOwner {
 
     fn capture(
         &mut self,
-        durable_records: Vec<(
-            std::path::PathBuf,
-            cmux_tui_core::terminal_host_runtime::TerminalHostRecord,
-        )>,
+        durable_records: Vec<(PathBuf, cmux_tui_core::terminal_host_runtime::TerminalHostRecord)>,
         deadline: Instant,
     ) -> anyhow::Result<()> {
         self.durable_records = durable_records;
@@ -669,7 +665,7 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
     }
 
     #[cfg(unix)]
-    fn accept_with_deadline(listener: &UnixListener) -> std::os::unix::net::UnixStream {
+    fn accept_with_deadline(listener: &UnixListener) -> UnixStream {
         listener.set_nonblocking(true).unwrap();
         let deadline = Instant::now() + Duration::from_secs(15);
         loop {
