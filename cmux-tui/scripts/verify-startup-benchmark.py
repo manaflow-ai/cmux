@@ -120,6 +120,56 @@ if get("infrastructure.preflight_sha256") != get(
     "infrastructure.expected_preflight_sha256"
 ):
     raise SystemExit("sandbox preflight evidence changed after attestation")
+windows_bootstrap_fields = (
+    "infrastructure.windows_bootstrap_binary",
+    "infrastructure.expected_windows_bootstrap_sha256",
+    "infrastructure.windows_bootstrap_sha256",
+    "infrastructure.windows_bootstrap_bytes",
+)
+if os.environ["RUNNER_OS"] == "Windows":
+    bootstrap_binary = get(windows_bootstrap_fields[0])
+    expected_bootstrap_sha256 = get(windows_bootstrap_fields[1])
+    bootstrap_sha256 = get(windows_bootstrap_fields[2])
+    bootstrap_bytes = get(windows_bootstrap_fields[3])
+    if not isinstance(bootstrap_binary, str) or not bootstrap_binary:
+        raise SystemExit("benchmark evidence has no trusted Windows bootstrap path")
+    if expected_bootstrap_sha256 != os.environ["WINDOWS_BOOTSTRAP_SHA256"]:
+        raise SystemExit("benchmark evidence has the wrong trusted Windows bootstrap SHA-256")
+    if bootstrap_sha256 != expected_bootstrap_sha256:
+        raise SystemExit("trusted Windows bootstrap changed after exact build attestation")
+    if (
+        not isinstance(bootstrap_bytes, int)
+        or isinstance(bootstrap_bytes, bool)
+        or bootstrap_bytes <= 0
+    ):
+        raise SystemExit("benchmark evidence has an invalid trusted Windows bootstrap size")
+    for dotted in windows_bootstrap_fields[1:3]:
+        value = get(dotted)
+        if len(value) != 64 or any(
+            character not in "0123456789abcdef" for character in value
+        ):
+            raise SystemExit(f"benchmark evidence has invalid {dotted}: {value!r}")
+    import_evidence = json.loads(
+        (path.parent / "windows-bootstrap-imports.json").read_text(encoding="utf-8-sig")
+    )
+    if set(import_evidence) != {"schema_version", "bootstrap_sha256", "dependencies"}:
+        raise SystemExit("trusted Windows bootstrap import evidence has unknown fields")
+    dependencies = import_evidence["dependencies"]
+    if (
+        import_evidence["schema_version"] != 1
+        or import_evidence["bootstrap_sha256"] != bootstrap_sha256
+        or not isinstance(dependencies, list)
+        or not dependencies
+        or len(dependencies) != len(set(dependencies))
+        or any(
+            not isinstance(dependency, str)
+            or re.fullmatch(r"[A-Za-z0-9._-]+\.dll", dependency) is None
+            for dependency in dependencies
+        )
+    ):
+        raise SystemExit("trusted Windows bootstrap import evidence is invalid")
+elif any(get(dotted) is not None for dotted in windows_bootstrap_fields):
+    raise SystemExit("non-Windows evidence contains Windows bootstrap identity")
 expected_sandbox_contract = {
     "infrastructure.sandbox_policy": "fixture-root-only-write",
     "infrastructure.sandbox_handshake": "nonce-bound-ready-arm-with-pre-exec-t0",

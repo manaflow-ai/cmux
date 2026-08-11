@@ -760,6 +760,7 @@ jobs:
           set -euo pipefail
           toolchain="$(cd cmux-tui && rustup show active-toolchain | awk '{print $1}')"
           rustup target add --toolchain "$toolchain" x86_64-pc-windows-gnu
+          rustup target add --toolchain "$toolchain" x86_64-pc-windows-msvc
           printf '%s\n' 'C:\msys64\mingw64\bin' >> "$GITHUB_PATH"
           printf 'CMUX_BENCH_TEST_TARGET=%s\n' "$RUNNER_TEMP/startup-containment" >> "$GITHUB_ENV"
           printf 'CMUX_BENCH_TEST_FIXTURE_PARENT=%s\n' "$RUNNER_TEMP/cbt" >> "$GITHUB_ENV"
@@ -788,6 +789,49 @@ jobs:
           "sid=$sid" | Add-Content -Encoding utf8 $env:GITHUB_OUTPUT
           "rule=$rule" | Add-Content -Encoding utf8 $env:GITHUB_OUTPUT
 
+      - name: Build minimal MSVC startup bootstrap
+        working-directory: cmux-tui
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) {
+            throw "vswhere.exe is unavailable"
+          }
+          $installation = (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath).Trim()
+          if (-not $installation) { throw "MSVC x64 build tools are unavailable" }
+          Import-Module (Join-Path $installation "Common7\Tools\Microsoft.VisualStudio.DevShell.dll")
+          Enter-VsDevShell -VsInstallPath $installation -SkipAutomaticLocation -DevCmdArguments "-arch=x64 -host_arch=x64"
+          $toolchain = ((& rustup show active-toolchain) -split "\s+")[0]
+          $targetRoot = Join-Path $env:CMUX_BENCH_TEST_TARGET "msvc"
+          & rustup run $toolchain cargo build --locked --release `
+            -p cmux-startup-bootstrap --bin cmux-startup-bootstrap `
+            --target x86_64-pc-windows-msvc --target-dir $targetRoot
+          if ($LASTEXITCODE -ne 0) { throw "minimal MSVC startup bootstrap build failed" }
+          $bootstrap = Join-Path $targetRoot "x86_64-pc-windows-msvc\release\cmux-startup-bootstrap.exe"
+          if (-not (Test-Path -LiteralPath $bootstrap -PathType Leaf)) {
+            throw "minimal MSVC startup bootstrap is missing"
+          }
+          $sha256 = (Get-FileHash -LiteralPath $bootstrap -Algorithm SHA256).Hash.ToLowerInvariant()
+          $dumpbin = Get-Command dumpbin.exe -ErrorAction Stop
+          $imports = @(& $dumpbin.Source /DEPENDENTS $bootstrap | ForEach-Object {
+            if ($_ -match '^\s+([A-Za-z0-9._-]+\.dll)\s*$') { $Matches[1] }
+          } | Sort-Object -Unique)
+          if ($LASTEXITCODE -ne 0 -or $imports.Count -eq 0) {
+            throw "minimal MSVC startup bootstrap import audit failed"
+          }
+          foreach ($dll in $imports) {
+            if (-not (Test-Path -LiteralPath (Join-Path $env:WINDIR "System32\$dll") -PathType Leaf)) {
+              throw "bootstrap dependency is not a System32 DLL: $dll"
+            }
+            if (Test-Path -LiteralPath (Join-Path (Split-Path $bootstrap) $dll)) {
+              throw "bootstrap has a local DLL dependency override: $dll"
+            }
+          }
+          $imports -join ',' | Write-Output
+          "CMUX_BENCH_TEST_WINDOWS_BOOTSTRAP=$bootstrap" | Add-Content -Encoding utf8 $env:GITHUB_ENV
+          "CMUX_BENCH_TEST_WINDOWS_BOOTSTRAP_SHA256=$sha256" | Add-Content -Encoding utf8 $env:GITHUB_ENV
+
       - name: Build and prove restricted-token startup supervisor
         id: windows-startup-containment-preflight
         working-directory: cmux-tui
@@ -806,8 +850,11 @@ jobs:
           supervisor="$release/startup_benchmark_supervisor.exe"
           preflight="$release/startup_benchmark_preflight.exe"
           evidence="$RUNNER_TEMP/startup-containment/preflight.json"
+          test -f "$CMUX_BENCH_TEST_WINDOWS_BOOTSTRAP"
           "$preflight" \
             --supervisor "$supervisor" \
+            --windows-bootstrap-binary "$CMUX_BENCH_TEST_WINDOWS_BOOTSTRAP" \
+            --windows-bootstrap-sha256 "$CMUX_BENCH_TEST_WINDOWS_BOOTSTRAP_SHA256" \
             --fixture-parent "$CMUX_BENCH_TEST_FIXTURE_PARENT" \
             --output "$evidence" \
             --backend windows-restricted-token-job

@@ -636,6 +636,7 @@ jobs:
             rustup target add --toolchain "$candidate_toolchain" "$RUST_TARGET"
           fi
           if [[ "$RUNNER_OS" == "Windows" ]]; then
+            rustup target add --toolchain "$trusted_toolchain" x86_64-pc-windows-msvc
             printf '%s\n' 'C:\msys64\mingw64\bin' >> "$GITHUB_PATH"
           fi
           rustc -vV
@@ -751,6 +752,59 @@ jobs:
           "password=$password" | Add-Content -Encoding utf8 $env:GITHUB_OUTPUT
           "sid=$sid" | Add-Content -Encoding utf8 $env:GITHUB_OUTPUT
           "rule=$rule" | Add-Content -Encoding utf8 $env:GITHUB_OUTPUT
+
+      - name: Build trusted minimal MSVC startup bootstrap
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) {
+            throw "vswhere.exe is unavailable"
+          }
+          $installation = (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath).Trim()
+          if (-not $installation) { throw "MSVC x64 build tools are unavailable" }
+          Import-Module (Join-Path $installation "Common7\Tools\Microsoft.VisualStudio.DevShell.dll")
+          Enter-VsDevShell -VsInstallPath $installation -SkipAutomaticLocation -DevCmdArguments "-arch=x64 -host_arch=x64"
+          $targetRoot = Join-Path $env:RUNNER_TEMP "cmux-startup-bootstrap-msvc"
+          Push-Location (Join-Path $env:TRUSTED_SOURCE "cmux-tui")
+          try {
+            & rustup run $env:TRUSTED_RUST_TOOLCHAIN cargo build --locked --release `
+              -p cmux-startup-bootstrap --bin cmux-startup-bootstrap `
+              --target x86_64-pc-windows-msvc --target-dir $targetRoot
+            if ($LASTEXITCODE -ne 0) { throw "trusted minimal MSVC startup bootstrap build failed" }
+          } finally {
+            Pop-Location
+          }
+          $bootstrap = Join-Path $targetRoot "x86_64-pc-windows-msvc\release\cmux-startup-bootstrap.exe"
+          if (-not (Test-Path -LiteralPath $bootstrap -PathType Leaf)) {
+            throw "trusted minimal MSVC startup bootstrap is missing"
+          }
+          $sha256 = (Get-FileHash -LiteralPath $bootstrap -Algorithm SHA256).Hash.ToLowerInvariant()
+          $dumpbin = Get-Command dumpbin.exe -ErrorAction Stop
+          $imports = @(& $dumpbin.Source /DEPENDENTS $bootstrap | ForEach-Object {
+            if ($_ -match '^\s+([A-Za-z0-9._-]+\.dll)\s*$') { $Matches[1] }
+          } | Sort-Object -Unique)
+          if ($LASTEXITCODE -ne 0 -or $imports.Count -eq 0) {
+            throw "trusted minimal MSVC startup bootstrap import audit failed"
+          }
+          foreach ($dll in $imports) {
+            if (-not (Test-Path -LiteralPath (Join-Path $env:WINDIR "System32\$dll") -PathType Leaf)) {
+              throw "bootstrap dependency is not a System32 DLL: $dll"
+            }
+            if (Test-Path -LiteralPath (Join-Path (Split-Path $bootstrap) $dll)) {
+              throw "bootstrap has a local DLL dependency override: $dll"
+            }
+          }
+          $importEvidence = [ordered]@{
+            schema_version = 1
+            bootstrap_sha256 = $sha256
+            dependencies = $imports
+          }
+          $importEvidence | ConvertTo-Json -Depth 3 |
+            Set-Content -Encoding utf8 (Join-Path $env:ARTIFACT_DIR "windows-bootstrap-imports.json")
+          "WINDOWS_BOOTSTRAP_BINARY=$bootstrap" | Add-Content -Encoding utf8 $env:GITHUB_ENV
+          "WINDOWS_BOOTSTRAP_SHA256=$sha256" | Add-Content -Encoding utf8 $env:GITHUB_ENV
 
       - name: Download isolated candidate product
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -1168,11 +1222,20 @@ jobs:
           run_preflight() {
             local output
             output="$1"
-            "$preflight" \
-              --supervisor "$supervisor" \
-              --fixture-parent "$PREFLIGHT_PARENT" \
-              --output "$output" \
+            args=(
+              --supervisor "$supervisor"
+              --fixture-parent "$PREFLIGHT_PARENT"
+              --output "$output"
               --backend "$SANDBOX_BACKEND"
+            )
+            if [[ "$RUNNER_OS" == "Windows" ]]; then
+              test -f "$WINDOWS_BOOTSTRAP_BINARY"
+              args+=(
+                --windows-bootstrap-binary "$WINDOWS_BOOTSTRAP_BINARY"
+                --windows-bootstrap-sha256 "$WINDOWS_BOOTSTRAP_SHA256"
+              )
+            fi
+            "$preflight" "${args[@]}"
           }
           if [[ "$RUNNER_OS" == "Linux" ]]; then
             unprivileged_evidence="$ARTIFACT_DIR/sandbox-preflight-unprivileged.json"
@@ -1212,6 +1275,10 @@ jobs:
           supervisor_sha256="$("$PYTHON_CMD" -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$supervisor")"
           preflight_sha256="$("$PYTHON_CMD" -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$evidence")"
           test "$supervisor_sha256" = "$EXPECTED_SUPERVISOR_SHA256"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            bootstrap_sha256="$("$PYTHON_CMD" -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$WINDOWS_BOOTSTRAP_BINARY")"
+            test "$bootstrap_sha256" = "$WINDOWS_BOOTSTRAP_SHA256"
+          fi
           printf 'evidence=%s\n' "$evidence" >> "$GITHUB_OUTPUT"
           printf 'evidence_sha256=%s\n' "$preflight_sha256" >> "$GITHUB_OUTPUT"
 
@@ -1335,6 +1402,14 @@ jobs:
               "sandbox_preflight_evidence": pathlib.Path(os.environ["ARTIFACT_DIR"]) / "sandbox-preflight.json",
               "profile_attribution": pathlib.Path(os.environ["ARTIFACT_DIR"]) / "profile-attribution.json",
           }
+          if os.environ["RUNNER_OS"] == "Windows":
+              paths["trusted_windows_bootstrap"] = pathlib.Path(
+                  os.environ["WINDOWS_BOOTSTRAP_BINARY"]
+              )
+              paths["trusted_windows_bootstrap_imports"] = (
+                  pathlib.Path(os.environ["ARTIFACT_DIR"])
+                  / "windows-bootstrap-imports.json"
+              )
 
           def digest(path):
               if path.is_symlink() or not path.is_file():
@@ -1384,6 +1459,9 @@ jobs:
             trusted_release="$TRUSTED_TARGET_ROOT/$RUST_TARGET/release/examples"
           fi
           export CMUX_BENCH_TEST_SUPERVISOR="$trusted_release/startup_benchmark_supervisor$BINARY_SUFFIX"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            export CMUX_BENCH_TEST_WINDOWS_BOOTSTRAP="$WINDOWS_BOOTSTRAP_BINARY"
+          fi
           args=(rustup run "$TRUSTED_RUST_TOOLCHAIN" cargo test -p cmux-tui --example startup_benchmark --release --locked)
           if [[ -n "$RUST_TARGET" ]]; then
             args+=(--target "$RUST_TARGET")
@@ -1428,6 +1506,14 @@ jobs:
           test -f "$candidate_binary"
           test -f "$harness"
           test -f "$supervisor"
+          bootstrap_args=()
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            test -f "$WINDOWS_BOOTSTRAP_BINARY"
+            bootstrap_args=(
+              --windows-bootstrap-binary "$WINDOWS_BOOTSTRAP_BINARY"
+              --windows-bootstrap-sha256 "$WINDOWS_BOOTSTRAP_SHA256"
+            )
+          fi
 
           export CMUX_BENCHMARK_RUN_ID="$GITHUB_RUN_ID"
           export CMUX_BENCHMARK_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT"
@@ -1443,6 +1529,7 @@ jobs:
             --trusted-source "$TRUSTED_SOURCE" \
             --supervisor-binary "$supervisor" \
             --supervisor-binary-sha256 "$SUPERVISOR_BINARY_SHA256" \
+            "${bootstrap_args[@]}" \
             --sandbox-backend "$SANDBOX_BACKEND" \
             --sandbox-preflight "$SANDBOX_PREFLIGHT" \
             --sandbox-preflight-sha256 "$SANDBOX_PREFLIGHT_SHA256" \
@@ -1767,6 +1854,8 @@ jobs:
             "--trusted-source", $env:TRUSTED_SOURCE,
             "--supervisor-binary", $supervisor,
             "--supervisor-binary-sha256", $env:SUPERVISOR_BINARY_SHA256,
+            "--windows-bootstrap-binary", $env:WINDOWS_BOOTSTRAP_BINARY,
+            "--windows-bootstrap-sha256", $env:WINDOWS_BOOTSTRAP_SHA256,
             "--sandbox-backend", $env:SANDBOX_BACKEND,
             "--sandbox-preflight", $env:SANDBOX_PREFLIGHT,
             "--sandbox-preflight-sha256", $env:SANDBOX_PREFLIGHT_SHA256,
