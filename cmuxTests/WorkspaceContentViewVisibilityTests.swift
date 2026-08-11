@@ -183,7 +183,7 @@ final class WorkspaceContentViewVisibilityTests {
         let dockTarget = CommandPaletteRestoreFocusTarget(
             host: .windowDock(UUID()),
             panelId: UUID(),
-            intent: .webView
+            intent: .browser(.webView)
         )
         coordinator.request(target: dockTarget)
         #expect(
