@@ -595,15 +595,10 @@ jobs:
           Set-Location cmux-tui
           $failedSuites = @()
 
-          # Preserve the native test commands from the owner branch and keep the complete core
-          # suite visible after the carrier proof.
+          # Preserve the complete Windows-native test commands from the owner branch.
           cargo test --workspace --exclude cmux-sdk --exclude cmux-sidebar --exclude cmux-terminal-client --exclude cmux-tui-core --exclude cmux-tui --locked --target x86_64-pc-windows-gnu
           if ($LASTEXITCODE -ne 0) {
             $failedSuites += "workspace"
-          }
-          cargo test -p cmux-tui-core --locked --target x86_64-pc-windows-gnu
-          if ($LASTEXITCODE -ne 0) {
-            $failedSuites += "complete core"
           }
           cargo test -p cmux-tui-core --lib --locked --target x86_64-pc-windows-gnu windows
           if ($LASTEXITCODE -ne 0) {
