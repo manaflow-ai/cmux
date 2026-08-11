@@ -7464,11 +7464,9 @@ fn journal_agent_late_completion_from_older_turn_keeps_new_active_turn() {
         replay: JournalReplayPolicy::Advisory,
         sensitivity: JournalSensitivity::Sensitive,
     };
-    for (index, event, turn_id) in [
-        (0, "SessionStart", "turn-one"),
-        (1, "TurnStart", "turn-two"),
-        (2, "TurnEnd", "turn-one"),
-    ] {
+    for (index, event, turn_id) in
+        [(0, "SessionStart", "turn-one"), (1, "TurnStart", "turn-two"), (2, "TurnEnd", "turn-one")]
+    {
         let ingress = crate::agent_hook_journal_ingress(
             "pi",
             event,
