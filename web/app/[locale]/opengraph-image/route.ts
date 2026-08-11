@@ -1,7 +1,5 @@
 import { openGraphImageResponse } from "@/app/lib/open-graph-image";
 
-export const runtime = "nodejs";
-export const dynamic = "force-static";
 
 export async function GET(
   _request: Request,

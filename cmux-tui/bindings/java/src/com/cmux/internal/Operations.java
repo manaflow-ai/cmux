@@ -10,6 +10,7 @@ public enum Operations {
     SESSION_SNAPSHOT("session.snapshot", Class.READ),
     SESSION_CREATION_RESOLVE("session.creation.resolve", Class.READ),
     SESSION_EVENTS("session.events", Class.STREAM_OPEN),
+    SESSION_JOURNAL_SUBSCRIBE("session.journal.subscribe", Class.STREAM_OPEN),
     SESSION_PING("session.ping", Class.READ),
     SESSION_SHUTDOWN("session.shutdown", Class.MUTATION),
     SESSION_RELOAD_CONFIG("session.reload_config", Class.MUTATION),

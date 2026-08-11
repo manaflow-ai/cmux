@@ -30,6 +30,8 @@ final class AppCompositionRoot {
     /// The user's Auto-Connect vs Tailscale connection-method choice, shared by
     /// the shell store (dial ordering) and the Settings/onboarding UI.
     let connectionMethodStore: MobileConnectionMethodStore
+    /// One-time BETA migration eligibility, snapshotted before launch writes.
+    let autoConnectMigrationStore: MobileAutoConnectMigrationStore
     /// First-run onboarding progress, persisted to `UserDefaults.standard`.
     /// Built with `forceComplete` set when a UI-test mock harness or a dogfood
     /// auto-pair attach URL is active, so neither path is wedged behind the
@@ -49,6 +51,12 @@ final class AppCompositionRoot {
     /// only fixed categories and integer magnitudes, never terminal contents,
     /// credentials, peer identities, addresses, or free-form errors.
     let diagnosticLog: DiagnosticLog
+
+    /// The consolidated on-disk log pair: `cmux-app.log` (app-wide, including
+    /// the mirrored string debug log) and `cmux-network.log` (network
+    /// diagnostics). Fed by the diagnostic ring's event tap; always on, since
+    /// structured events are privacy-safe by construction.
+    let appLog: AppLog
 
     /// Bridges the diagnostic event stream into Sentry (breadcrumbs, structured
     /// logs, and throttled failure events with the ring export attached). Held
@@ -89,8 +97,25 @@ final class AppCompositionRoot {
             exportRing: { [diagnosticLog] in await diagnosticLog.export() }
         )
         self.transportSentryReporter = transportSentryReporter
+        let appLog = AppLog(
+            appFileURL: AppLog.defaultAppLogFileURL,
+            networkFileURL: AppLog.defaultNetworkLogFileURL,
+            buildStamp: MobileDebugLog.buildStamp
+        )
+        self.appLog = appLog
         diagnosticLog.setEventTap { event in
+            appLog.ingest(event)
             transportSentryReporter.ingest(event)
+        }
+        // Mirror the string debug log into the app log file so one file holds
+        // the whole in-app story in wall-clock order. The string sink keeps
+        // its own privacy gating (DEBUG always, Release behind the verbose
+        // opt-in), so this mirror never widens what gets persisted.
+        Task {
+            let sink = MobileDebugLog.shared.sink
+            for await line in await sink.lines() {
+                appLog.mirrorAppLine(line)
+            }
         }
         self.analytics = MobileAnalyticsComposition(
             apiBaseURL: auth.config.apiBaseURL,
@@ -127,7 +152,47 @@ final class AppCompositionRoot {
             }
         }
         self.displaySettings = MobileDisplaySettings()
-        self.connectionMethodStore = MobileConnectionMethodStore(defaults: .standard)
+        // Snapshot raw upgrade eligibility before either current-launch store is
+        // constructed. The migration model persists pending/ineligible now and
+        // never recomputes after onboarding or Settings writes. UI fixtures use
+        // one isolated defaults suite for both pieces of durable state, so a
+        // relaunch proves the production persistence path without touching the
+        // simulator's normal connection preference.
+        let connectionPreferenceDefaults: UserDefaults
+        #if DEBUG
+        if let fixture = AutoConnectMigrationUITestConfiguration(
+            environment: ProcessInfo.processInfo.environment
+        ) {
+            guard let fixtureDefaults = UserDefaults(suiteName: fixture.defaultsSuiteName) else {
+                preconditionFailure("Unable to create Auto-Connect migration UI-test defaults")
+            }
+            if fixtureDefaults.object(
+                forKey: MobileAutoConnectMigrationStore.resolutionKey
+            ) == nil {
+                fixtureDefaults.removeObject(forKey: MobileConnectionMethodStore.methodKey)
+                switch fixture.eligibility {
+                case .eligible:
+                    fixtureDefaults.set(
+                        MobileOnboardingProgress.complete.rawValue,
+                        forKey: MobileOnboardingStore.progressKey
+                    )
+                case .ineligible:
+                    fixtureDefaults.removeObject(forKey: MobileOnboardingStore.progressKey)
+                }
+            }
+            connectionPreferenceDefaults = fixtureDefaults
+        } else {
+            connectionPreferenceDefaults = .standard
+        }
+        #else
+        connectionPreferenceDefaults = .standard
+        #endif
+        self.autoConnectMigrationStore = MobileAutoConnectMigrationStore(
+            defaults: connectionPreferenceDefaults
+        )
+        self.connectionMethodStore = MobileConnectionMethodStore(
+            defaults: connectionPreferenceDefaults
+        )
         // Skip first-run onboarding when a UI-test mock harness
         // (`CMUX_UITEST_MOCK_DATA`/XCUITest) or a dogfood auto-pair attach URL is
         // active: those launches expect to land on sign-in / add-device / a live

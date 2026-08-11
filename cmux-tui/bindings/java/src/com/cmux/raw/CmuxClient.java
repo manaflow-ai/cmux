@@ -156,7 +156,13 @@ public final class CmuxClient extends GeneratedCmuxClient implements AutoCloseab
      * returns the complete response envelope without decoding command data.
      */
     public Map<String, Object> rawRequest(Map<String, Object> request) throws CmuxException {
+        return rawRequest(request, () -> {});
+    }
+
+    Map<String, Object> rawRequest(Map<String, Object> request, Runnable beforeWait)
+        throws CmuxException {
         Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(beforeWait, "beforeWait");
         synchronized (commandLock) {
             ensureOpen();
             LinkedHashMap<String, Object> payload = new LinkedHashMap<>(request);
@@ -165,9 +171,10 @@ public final class CmuxClient extends GeneratedCmuxClient implements AutoCloseab
             }
             payload.putIfAbsent("id", nextRequestId());
             Object id = payload.get("id");
-            connection.send(payload);
+            JsonLineConnection.Deadline deadline = JsonLineConnection.deadline(timeout);
+            connection.send(payload, deadline);
             while (true) {
-                Map<String, Object> response = connection.receive(timeout);
+                Map<String, Object> response = connection.receive(deadline, beforeWait);
                 if (response.containsKey("event")) {
                     continue;
                 }

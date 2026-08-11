@@ -115,6 +115,8 @@ extension TerminalSurface {
     /// Live surfaces delegate to Ghostty's native font-size action. Suspended or
     /// deferred surfaces update their durable lineage directly so the change is
     /// applied when their runtime is created again.
+    /// Input attribution belongs to the initiating UI boundary because one
+    /// workspace action can invoke this mutation for many background surfaces.
     ///
     /// - Parameters:
     ///   - deltaRuntimePoints: Point-size change after global magnification.
@@ -212,7 +214,7 @@ extension TerminalSurface {
                 return .alreadySatisfied
             }
             if runtimeSurface != nil {
-                guard performExplicitInputBindingAction(
+                guard performInternalBindingAction(
                     ghosttySetFontSizeBindingAction(
                         adjustedRuntimePoints
                     )
@@ -238,7 +240,7 @@ extension TerminalSurface {
                 ? "increase_font_size"
                 : "decrease_font_size"
             let action = "\(verb):\(abs(netRuntimePointDelta))"
-            guard performExplicitInputBindingAction(action) else {
+            guard performInternalBindingAction(action) else {
                 return .failed
             }
             followsConfiguredFontSize = false
@@ -379,6 +381,7 @@ extension TerminalSurface {
     /// that action's baseline during normal config reloads, so reset does not
     /// need a full surface-config update. Suspended or deferred surfaces clear
     /// their durable override so future runtimes follow terminal configuration.
+    /// Input attribution remains the responsibility of the initiating UI.
     ///
     /// - Parameter configuredRuntimePoints: Current configured size after
     ///   global magnification.
@@ -444,7 +447,7 @@ extension TerminalSurface {
                     : .alreadySatisfied
             }
 
-            guard performExplicitInputBindingAction("reset_font_size") else {
+            guard performInternalBindingAction("reset_font_size") else {
                 return .failed
             }
             followsConfiguredFontSize = true
@@ -501,7 +504,6 @@ extension TerminalSurface {
             guard !previousLineage.isExplicitOverride else {
                 return .alreadySatisfied
             }
-            didReceiveExplicitInput()
             claimExplicitFontSizeOwnership(
                 atRuntimePoints: targetRuntimePoints,
                 previousLineage: previousLineage,
@@ -513,7 +515,6 @@ extension TerminalSurface {
         let previousFittedRuntimePoints =
             nextFitState.fittedRuntimePointSize
         nextFitState.updateDurableBase(to: targetRuntimePoints)
-        didReceiveExplicitInput()
         if nextFitState.fittedRuntimePointSize
                 != previousFittedRuntimePoints,
            !performMobileViewportFontPointSizeAction(
@@ -557,7 +558,6 @@ extension TerminalSurface {
             return .alreadySatisfied
         }
 
-        didReceiveExplicitInput()
         if nextFitState.fittedRuntimePointSize
                 != previousFitState.fittedRuntimePointSize,
            !performMobileViewportFontPointSizeAction(

@@ -812,6 +812,7 @@ impl Mux {
                                     browser.source = match source {
                                         BrowserSource::External => RegistryBrowserSource::External,
                                         BrowserSource::Launched => RegistryBrowserSource::Launched,
+                                        BrowserSource::Provider => RegistryBrowserSource::External,
                                     };
                                 }
                                 changes.push(ResourceChange::UpsertBrowser(browser));
@@ -884,7 +885,7 @@ impl Mux {
                                                 RegistryBrowserSource::Launched => "launched",
                                                 RegistryBrowserSource::Unknown => {
                                                     match browser.launch {
-                                                        RegistryBrowserLaunch::Create => "launched",
+                                                        RegistryBrowserLaunch::Create => "external",
                                                         RegistryBrowserLaunch::Adopted => {
                                                             "external"
                                                         }
@@ -893,7 +894,7 @@ impl Mux {
                                             }
                                         })
                                     })
-                                    .unwrap_or("launched");
+                                    .unwrap_or("external");
                                 public.push((
                                     "browser",
                                     id.to_string(),
@@ -970,7 +971,10 @@ impl Mux {
         let mut tombstoned_browsers = HashSet::new();
         for tab in &before.tabs {
             if !live_tabs.contains(&tab.public_id) {
-                changes.push(ResourceChange::TombstoneTab { tab_id: tab.public_id.clone() });
+                changes.push(ResourceChange::TombstoneTab {
+                    tab_id: tab.public_id.clone(),
+                    close_content: true,
+                });
             }
             match &tab.content_id {
                 ContentPublicId::Terminal(id)

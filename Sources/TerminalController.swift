@@ -23,6 +23,7 @@ import Bonsplit
 import WebKit
 import CmuxSidebar
 import CmuxWorkspaces
+import CmuxNotifications
 import CmuxSimulator
 
 extension Notification.Name {
@@ -117,6 +118,10 @@ nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) ->
 @MainActor
 class TerminalController {
     static let shared = TerminalController()
+#if DEBUG
+    nonisolated let windowScreenshotCaptureCoordinator =
+        WindowScreenshotCaptureCoordinator()
+#endif
     private nonisolated static let maximumConcurrentReloadConfigurationWaiters =
         4
     private nonisolated let remotePTYControllerAvailabilityCondition = NSCondition()
@@ -348,7 +353,9 @@ class TerminalController {
     private var browserDownloadObserver: NSObjectProtocol?
 
     func cleanupSurfaceState(surfaceIds: [UUID], paneIds: [UUID] = []) {
-        for surfaceId in Set(surfaceIds) {
+        let uniqueSurfaceIds = Set(surfaceIds)
+        socketFastPathState.removeShellActivity(panelIds: uniqueSurfaceIds)
+        for surfaceId in uniqueSurfaceIds {
             v2BrowserFrameSelectorBySurface.removeValue(forKey: surfaceId)
             v2BrowserDialogQueueBySurface.removeValue(forKey: surfaceId)
             v2BrowserDownloadEventsBySurface.removeValue(forKey: surfaceId)
@@ -1224,6 +1231,12 @@ class TerminalController {
                 // debug.sidebar.simulate_drag precedent).
                 return (true, "ERROR: Unknown command 'send_workspace'. Use 'help' for available commands.")
 #endif
+            case "screenshot":
+#if DEBUG
+                return (true, captureScreenshot(args))
+#else
+                return (true, "ERROR: Unknown command 'screenshot'. Use 'help' for available commands.")
+#endif
             case "reload_config":
                 return (true, reloadConfigurationAndWait(args))
             default:
@@ -1475,6 +1488,31 @@ class TerminalController {
 #if DEBUG
         case "debug.sidebar.simulate_drag":
             return v2Result(id: request.id, v2DebugSidebarSimulateDrag(params: request.params))
+        case "debug.window.screenshot":
+            let label = (request.params["label"] as? String) ?? ""
+            let response = captureScreenshot(label)
+            guard response.hasPrefix("OK ") else {
+                return v2Error(
+                    id: request.id,
+                    code: "internal_error",
+                    message: response
+                )
+            }
+            let payload = String(response.dropFirst(3))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let parts = payload.split(separator: " ", maxSplits: 1).map(String.init)
+            guard parts.count == 2 else {
+                return v2Error(
+                    id: request.id,
+                    code: "internal_error",
+                    message: "screenshot parse failed",
+                    data: ["payload": payload]
+                )
+            }
+            return v2Ok(id: request.id, result: [
+                "screenshot_id": parts[0],
+                "path": parts[1],
+            ])
         case "debug.mobile.transport.disconnect":
             let selectedConnectionID: UUID?
             if let rawConnectionID = request.params["connection_id"] {
@@ -1512,6 +1550,7 @@ class TerminalController {
             // answers method_not_found for debug verbs, so mirror that reply
             // instead of the internal-error backstop below.
             if request.method == "debug.sidebar.simulate_drag"
+                || request.method == "debug.window.screenshot"
                 || request.method == "debug.mobile.transport.disconnect" {
                 return v2Error(id: request.id, code: "method_not_found", message: "Unknown method")
             }
@@ -2286,8 +2325,24 @@ class TerminalController {
                 return v2Result(id: id, workspaceParamError)
             }
 
+            // `browser.open_split` remains one main-actor UI action, but custom
+            // diff-viewer registration performs its bounded manifest/file/lease
+            // work here on the socket worker before the single main hop.
+            let diffViewerRegistration: DiffViewerSessionPreparation
+            if method == "browser.open_split" {
+                diffViewerRegistration = v2PrepareDiffViewerRegistration(params: params)
+            } else {
+                diffViewerRegistration = .notNeeded
+            }
+
             let outcome = v2MainSync {
-                self.v2MainActorResponse(request: request, id: id, method: method, params: params)
+                self.v2MainActorResponse(
+                    request: request,
+                    id: id,
+                    method: method,
+                    params: params,
+                    diffViewerRegistration: diffViewerRegistration
+                )
             }
             switch outcome {
             case .callResult(let result):
@@ -2308,7 +2363,13 @@ class TerminalController {
     /// before `controlCommandCoordinator.handle` here must also be added
     /// there, or the tranche-D worker-lane verbs silently fork from the
     /// main lane.
-    private func v2MainActorResponse(request: ControlRequest, id: Any?, method: String, params: [String: Any]) -> V2MainHopOutcome {
+    private func v2MainActorResponse(
+        request: ControlRequest,
+        id: Any?,
+        method: String,
+        params: [String: Any],
+        diffViewerRegistration: DiffViewerSessionPreparation = .notNeeded
+    ) -> V2MainHopOutcome {
         v2RefreshKnownRefs()
 
         // Domains migrated into CmuxControlSocket's ControlCommandCoordinator
@@ -2318,7 +2379,12 @@ class TerminalController {
         if let coordinatorResult = controlCommandCoordinator.handle(request) {
             return .callResult(coordinatorResult)
         }
-        return .encoded(v2LegacyMainActorResponse(id: id, method: method, params: params))
+        return .encoded(v2LegacyMainActorResponse(
+            id: id,
+            method: method,
+            params: params,
+            diffViewerRegistration: diffViewerRegistration
+        ))
     }
 
     /// The not-yet-migrated v2 main-actor command bodies.
@@ -2329,7 +2395,12 @@ class TerminalController {
     /// returning `V2CallResult` for the dispatcher's off-main encode tail in
     /// `processParsedV2Command`, its serialization cost leaves the main
     /// thread.
-    private func v2LegacyMainActorResponse(id: Any?, method: String, params: [String: Any]) -> String {
+    private func v2LegacyMainActorResponse(
+        id: Any?,
+        method: String,
+        params: [String: Any],
+        diffViewerRegistration: DiffViewerSessionPreparation
+    ) -> String {
             switch method {
         case "system.ping":
             return v2Ok(id: id, result: ["pong": true])
@@ -2388,6 +2459,50 @@ class TerminalController {
         case "notification.create_for_caller":
             return v2Result(id: id, self.v2NotificationCreateForCaller(params: params))
         case "agent.resolve_delivery_target": return v2Result(id: id, self.v2AgentResolveDeliveryTarget(params: params))
+        #if DEBUG
+        case "debug.notification.status":
+            return v2Ok(id: id, result: notificationDebugStatus())
+        case "debug.notification.mode":
+            guard let enabled = notificationDebugBoolParam(params, "enabled") else {
+                return v2Error(
+                    id: id,
+                    code: "invalid_params",
+                    message: String(
+                        localized: "debug.notification.error.missingEnabled",
+                        defaultValue: "Pass enabled=true or enabled=false to turn notification debug mode on or off."
+                    )
+                )
+            }
+            NotificationDebugEmitter.shared.isModeEnabled = enabled
+            return v2Ok(id: id, result: ["enabled": enabled])
+        case "debug.notification.emit":
+            guard let kind = notificationDebugStringParam(params, "kind"), !kind.isEmpty else {
+                return v2Error(
+                    id: id,
+                    code: "invalid_params",
+                    message: String(
+                        localized: "debug.notification.error.missingKind",
+                        defaultValue: "Pass kind=<notification kind> to choose which debug notification to emit."
+                    )
+                )
+            }
+            let emitted = NotificationDebugEmitter.shared.emit(
+                kind: kind,
+                forceBanner: notificationDebugBoolParam(params, "force_banner") ?? false,
+                target: notificationDebugCallerTarget(params: params)
+            )
+            guard emitted else {
+                return v2Error(
+                    id: id,
+                    code: "invalid_params",
+                    message: String(
+                        localized: "debug.notification.error.invalidKindOrTarget",
+                        defaultValue: "Unknown kind or no notification target"
+                    )
+                )
+            }
+            return v2Ok(id: id, result: ["kind": kind])
+        #endif
 
         // Diff review comments
         case "comments.list": return v2Result(id: id, self.v2CommentsList(params: params))
@@ -2396,7 +2511,13 @@ class TerminalController {
 
         // Browser
         case "browser.open_split":
-            return v2Result(id: id, self.v2BrowserOpenSplit(params: params))
+            return v2Result(
+                id: id,
+                self.v2BrowserOpenSplit(
+                    params: params,
+                    diffViewerRegistration: diffViewerRegistration
+                )
+            )
         // Browser automation methods that can wait on page JavaScript, WebKit
         // cookies, or capture callbacks run on the socket worker (see
         // ControlCommandExecutionPolicy.socketWorkerMethods and
@@ -6728,7 +6849,10 @@ class TerminalController {
         return result
     }
 
-    private func v2BrowserOpenSplit(params: [String: Any]) -> V2CallResult {
+    private func v2BrowserOpenSplit(
+        params: [String: Any],
+        diffViewerRegistration: DiffViewerSessionPreparation
+    ) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
@@ -6824,7 +6948,11 @@ class TerminalController {
             }
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
         }
-        if let error = v2RegisterDiffViewerURLIfNeeded(params: params, url: url) {
+        if let error = v2RegisterDiffViewerURLIfNeeded(
+            params: params,
+            url: url,
+            preparation: diffViewerRegistration
+        ) {
             return error
         }
 
@@ -6977,6 +7105,7 @@ class TerminalController {
         guard let url = v2String(params, "url") else {
             return .err(code: "invalid_params", message: "Missing url", data: nil)
         }
+        let diffViewerNavigation = v2PrepareDiffViewerNavigation(params: params)
         var basePayload: [String: Any]?
         var resolutionError: V2CallResult?
         var navigationPanel: BrowserPanel?
@@ -6990,6 +7119,13 @@ class TerminalController {
             }
             guard let context = resolvedContext.context,
                   context.surfaceId == surfaceId else { return }
+            if let error = v2InstallDiffViewerNavigationPreparationIfNeeded(
+                rawURL: url,
+                preparation: diffViewerNavigation
+            ) {
+                resolutionError = error
+                return
+            }
             guard let navigation = context.browserPanel.beginAutomationNavigationFromCLI(
                 url,
                 expectedURL: v2String(params, "expected_url")
@@ -8623,11 +8759,19 @@ class TerminalController {
                 guard let context = dockResolution.context else { return }
                 let willActivate = enterAliases.contains(mode)
                     || (mode == "toggle" && !context.browserPanel.isBrowserFocusModeActive)
-                if willActivate,
-                   context.browserPanel.searchState == nil,
-                   let windowDock = windowDockContainingPanel(context.surfaceId),
-                   windowDock.focusedPanelId != context.surfaceId {
-                    windowDock.focusPanel(context.surfaceId)
+                if willActivate, context.browserPanel.searchState == nil {
+                    guard let windowDock = windowDockContainingPanel(context.surfaceId),
+                          focusAndRevealWindowDock(for: windowDock, fallback: tabManager) else {
+                        result = .err(
+                            code: "unavailable",
+                            message: dockUnavailableMessage(),
+                            data: nil
+                        )
+                        return
+                    }
+                    if windowDock.focusedPanelId != context.surfaceId {
+                        windowDock.focusPanel(context.surfaceId)
+                    }
                 }
                 let handled: Bool
                 if enterAliases.contains(mode) {
@@ -8782,7 +8926,14 @@ class TerminalController {
             let browserPanel = context.browserPanel
 
             if let windowDock = windowDockContainingPanel(surfaceId) {
-                _ = focusAndRevealWindowDock(for: windowDock, fallback: tabManager)
+                guard focusAndRevealWindowDock(for: windowDock, fallback: tabManager) else {
+                    result = .err(
+                        code: "unavailable",
+                        message: dockUnavailableMessage(),
+                        data: nil
+                    )
+                    return
+                }
                 windowDock.focusPanel(surfaceId)
             } else {
                 if let windowId = v2ResolveWindowId(tabManager: tabManager) {
@@ -12255,7 +12406,8 @@ class TerminalController {
                 surfaceId: surfaceId,
                 title: title,
                 subtitle: subtitle,
-                body: body
+                body: body,
+                replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue)
             )
             return "OK"
         }
@@ -12291,7 +12443,8 @@ class TerminalController {
                 surfaceId: surfaceId,
                 title: title,
                 subtitle: subtitle,
-                body: body
+                body: body,
+                replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue)
             )
             return "OK"
         }
@@ -12337,7 +12490,8 @@ class TerminalController {
                     surfaceId: fastPath.panelId,
                     title: title,
                     subtitle: subtitle,
-                    body: body
+                    body: body,
+                    replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue)
                 )
                 return "OK"
             }
@@ -12360,7 +12514,8 @@ class TerminalController {
                 surfaceId: panelId,
                 title: title,
                 subtitle: subtitle,
-                body: body
+                body: body,
+                replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue)
             )
             return "OK"
         }
@@ -13094,96 +13249,6 @@ class TerminalController {
         return "OK"
     }
 
-    func captureScreenshot(_ args: String) -> String {
-        // Parse optional label from args
-        let label = args.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // Generate unique ID for this screenshot
-        let timestamp = ISO8601DateFormatter().string(from: Date())
-            .replacingOccurrences(of: ":", with: "-")
-            .replacingOccurrences(of: "+", with: "_")
-        let shortId = UUID().uuidString.prefix(8)
-        let screenshotId = "\(timestamp)_\(shortId)"
-
-        // Determine output path
-        let outputDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-screenshots")
-        try? FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
-
-        let filename = label.isEmpty ? "\(screenshotId).png" : "\(label)_\(screenshotId).png"
-        let outputPath = outputDir.appendingPathComponent(filename)
-
-        // Capture the main window on main thread
-        var captureError: String?
-        v2MainSync {
-            let candidateWindows = NSApp.windows.filter { window in
-                window.isVisible &&
-                !window.isMiniaturized &&
-                window.contentView != nil &&
-                !window.frame.isEmpty
-            }
-            let preferredWindow = [NSApp.keyWindow, NSApp.mainWindow]
-                .compactMap { $0 }
-                .first { candidateWindows.contains($0) }
-            let window = preferredWindow ?? candidateWindows.max { lhs, rhs in
-                (lhs.frame.width * lhs.frame.height) < (rhs.frame.width * rhs.frame.height)
-            } ?? NSApp.mainWindow ?? NSApp.windows.first
-
-            guard let window else {
-                captureError = "No window available"
-                return
-            }
-
-            guard let pngData = self.captureCompositedWindowPNGData(window)
-                ?? self.captureAppKitWindowPNGData(window) else {
-                captureError = "Failed to create PNG data"
-                return
-            }
-
-            do {
-                try pngData.write(to: outputPath)
-            } catch {
-                captureError = "Failed to write file: \(error.localizedDescription)"
-            }
-        }
-
-        if let error = captureError {
-            return "ERROR: \(error)"
-        }
-
-        // Return OK with screenshot ID and path for easy reference
-        return "OK \(screenshotId) \(outputPath.path)"
-    }
-
-    private func captureCompositedWindowPNGData(_ window: NSWindow) -> Data? {
-        guard let cgImage = CGWindowListCreateImage(
-            .null,
-            .optionIncludingWindow,
-            CGWindowID(window.windowNumber),
-            [.boundsIgnoreFraming, .nominalResolution]
-        ) else {
-            return nil
-        }
-        return NSBitmapImageRep(cgImage: cgImage).representation(using: .png, properties: [:])
-    }
-
-    private func captureAppKitWindowPNGData(_ window: NSWindow) -> Data? {
-        guard let contentView = window.contentView else {
-            return nil
-        }
-
-        let bounds = contentView.bounds
-        guard !bounds.isEmpty,
-              let bitmap = contentView.bitmapImageRepForCachingDisplay(in: bounds) else {
-            return nil
-        }
-        bitmap.size = bounds.size
-
-        contentView.displayIfNeeded()
-        contentView.cacheDisplay(in: bounds, to: bitmap)
-
-        return bitmap.representation(using: .png, properties: [:])
-    }
 #endif
 
     func parseSplitDirection(_ value: String) -> SplitDirection? {
@@ -14160,6 +14225,12 @@ class TerminalController {
             )
         case let method where method.hasPrefix("mobile.browser."):
             result = await v2MobileBrowserDispatch(
+                method: method,
+                params: request.params,
+                connectionID: executionContext?.connectionID
+            )
+        case let method where method.hasPrefix("mobile.simulator."):
+            result = await v2MobileSimulatorDispatch(
                 method: method,
                 params: request.params,
                 connectionID: executionContext?.connectionID
