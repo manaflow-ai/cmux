@@ -345,6 +345,27 @@ extension DockSplitStore {
         )
     }
 
+    func panelIsUnread(_ panelId: UUID) -> Bool {
+        guard let tabId = surfaceId(forPanelId: panelId),
+              let tab = bonsplitController.tab(tabId) else {
+            return false
+        }
+        return tab.showsNotificationBadge ||
+            manualUnreadPanelIds.contains(panelId) ||
+            resolvedNotificationStore()?.hasUnreadNotification(
+                forTabId: workspaceId,
+                surfaceId: panelId
+            ) == true
+    }
+
+    @discardableResult
+    func togglePanelUnread(_ panelId: UUID) -> Bool {
+        setDockPanelUnread(
+            panelId: panelId,
+            unread: !panelIsUnread(panelId)
+        )
+    }
+
     private func setDockTabUnread(
         panelId: UUID,
         tabId: TabID,

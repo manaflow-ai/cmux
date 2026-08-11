@@ -6909,15 +6909,9 @@ struct ContentView: View {
                     CommandPaletteContextKeys.workspaceHasSplits,
                     dock.bonsplitController.allPaneIds.count > 1
                 )
-                let hasUnread = tab.showsNotificationBadge ||
-                    dock.manualUnreadPanelIds.contains(browserTarget.panelId) ||
-                    sidebarUnread.hasUnreadNotification(
-                        forWorkspaceId: dock.workspaceId,
-                        surfaceId: browserTarget.panelId
-                    )
                 snapshot.setBool(
                     CommandPaletteContextKeys.panelHasUnread,
-                    hasUnread
+                    dock.panelIsUnread(browserTarget.panelId)
                 )
         } else if let panelContext = focusedPanelContext {
             let workspace = panelContext.workspace
@@ -6978,10 +6972,10 @@ struct ContentView: View {
             snapshot.setBool(CommandPaletteContextKeys.panelHasCustomName, workspace.panelCustomTitles[panelId] != nil)
             snapshot.setBool(CommandPaletteContextKeys.panelShouldPin, !workspace.isPanelPinned(panelId))
             snapshot.setBool(CommandPaletteContextKeys.panelCanMoveToNewWorkspace, workspace.panels.count > 1)
-            let hasUnread = workspace.manualUnreadPanelIds.contains(panelId) ||
-                workspace.restoredUnreadPanelIds.contains(panelId) ||
-                sidebarUnread.hasUnreadNotification(forWorkspaceId: workspace.id, surfaceId: panelId)
-            snapshot.setBool(CommandPaletteContextKeys.panelHasUnread, hasUnread)
+            snapshot.setBool(
+                CommandPaletteContextKeys.panelHasUnread,
+                workspace.panelIsUnread(panelId)
+            )
 
             if panelIsTerminal {
                 let availableTargets = terminalOpenTargets ?? TerminalDirectoryOpenTarget.availableTargets()
@@ -8754,21 +8748,8 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.toggleTabUnread") {
             if let dockBrowserStore, let browserTarget {
-                guard let tabId = dockBrowserStore.surfaceId(
-                    forPanelId: browserTarget.panelId
-                ), let tab = dockBrowserStore.bonsplitController.tab(
-                    tabId
-                ) else {
-                    NSSound.beep()
-                    return
-                }
-                let hasUnread = tab.showsNotificationBadge ||
-                    dockBrowserStore.manualUnreadPanelIds.contains(
-                        browserTarget.panelId
-                    )
-                if !dockBrowserStore.setDockPanelUnread(
-                    panelId: browserTarget.panelId,
-                    unread: !hasUnread
+                if !dockBrowserStore.togglePanelUnread(
+                    browserTarget.panelId
                 ) {
                     NSSound.beep()
                 }
@@ -8778,13 +8759,10 @@ struct ContentView: View {
                 NSSound.beep()
                 return
             }
-            let hasUnread = panelContext.workspace.manualUnreadPanelIds.contains(panelContext.panelId) ||
-                panelContext.workspace.restoredUnreadPanelIds.contains(panelContext.panelId) ||
-                sidebarUnread.hasUnreadNotification(forWorkspaceId: panelContext.workspace.id, surfaceId: panelContext.panelId)
-            if hasUnread {
-                panelContext.workspace.markPanelRead(panelContext.panelId)
-            } else {
-                panelContext.workspace.markPanelUnread(panelContext.panelId)
+            if !panelContext.workspace.togglePanelUnread(
+                panelContext.panelId
+            ) {
+                NSSound.beep()
             }
         }
         registerSurfaceNavigationCommandHandlers(

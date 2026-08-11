@@ -4756,6 +4756,24 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    func panelIsUnread(_ panelId: UUID) -> Bool {
+        guard panels[panelId] != nil else { return false }
+        return manualUnreadPanelIds.contains(panelId) ||
+            restoredUnreadPanelIds.contains(panelId) ||
+            hasUnreadNotification(panelId: panelId)
+    }
+
+    @discardableResult
+    func togglePanelUnread(_ panelId: UUID) -> Bool {
+        guard panels[panelId] != nil else { return false }
+        if panelIsUnread(panelId) {
+            markPanelRead(panelId)
+        } else {
+            markPanelUnread(panelId)
+        }
+        return true
+    }
+
     func markPanelUnread(_ panelId: UUID) {
         guard panels[panelId] != nil else { return }
         let didClearRestored = clearRestoredUnreadIndicatorState(panelId: panelId)
