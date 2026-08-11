@@ -166,12 +166,13 @@ class StoredDispatchWorkItemScannerTests(unittest.TestCase):
             [("workByName", "<inferred:[DispatchWorkItem]>")],
         )
 
-    def test_audits_stored_task_handles_in_content_view(self) -> None:
+    def test_audits_stored_async_handles_in_content_view(self) -> None:
         declarations = LINT.scan_declarations(
             """
             struct ContentView: View {
                 @State private var fallbackTask: Task<Void, Never>?
                 @State private var tasksByPanel: [String: Task<Void, Never>] = [:]
+                @State private var expiryTimer: DispatchSourceTimer?
             }
             """,
             "Sources/ContentView.swift",
@@ -186,14 +187,20 @@ class StoredDispatchWorkItemScannerTests(unittest.TestCase):
                     "[String:Task<Void,Never>]",
                     "member:ContentView",
                 ),
+                (
+                    "expiryTimer",
+                    "DispatchSourceTimer?",
+                    "member:ContentView",
+                ),
             ],
         )
 
-    def test_does_not_audit_stored_task_handles_outside_content_view(self) -> None:
+    def test_does_not_audit_stored_async_handles_outside_content_view(self) -> None:
         declarations = self.scan(
             """
             struct FixtureView: View {
                 @State private var task: Task<Void, Never>?
+                @State private var timer: DispatchSourceTimer?
             }
             """
         )

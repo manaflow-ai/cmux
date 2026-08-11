@@ -2,10 +2,11 @@
 """Reject deferred-action handles that can build recursive release chains.
 
 The parent-repository gate covers DispatchWorkItem declarations in Sources,
-CLI, ios, and package Sources. It also audits stored Task handles in ContentView,
-whose unusually large Swift value snapshots make replacement chains especially
-dangerous. Gitlink dependencies such as Ghostty and Bonsplit remain
-dependency-owned and must be audited when their pinned revisions change.
+CLI, ios, package Sources, and the pinned Bonsplit sources. It also audits
+stored Task and DispatchSourceTimer handles in ContentView, whose unusually
+large Swift value snapshots make replacement chains especially dangerous.
+Other gitlink dependencies such as Ghostty remain dependency-owned and must be
+audited when their pinned revisions change.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ SOURCES_ROOT = REPO_ROOT / "Sources"
 CLI_ROOT = REPO_ROOT / "CLI"
 IOS_ROOT = REPO_ROOT / "ios"
 PACKAGES_ROOT = REPO_ROOT / "Packages"
+BONSPLIT_SOURCES_ROOT = REPO_ROOT / "vendor" / "bonsplit" / "Sources"
 TYPE_DECLARATIONS = {"actor", "class", "enum", "extension", "protocol", "struct"}
 CALLABLE_DECLARATIONS = {"deinit", "func", "init", "subscript"}
 STATEMENT_STARTERS = {
@@ -41,6 +43,7 @@ KEYWORDS = TYPE_DECLARATIONS | CALLABLE_DECLARATIONS | STATEMENT_STARTERS | {
     "willSet",
 }
 IDENTIFIER_KINDS = {"escaped_identifier", "identifier"}
+CONTENT_VIEW_AUDITED_HANDLE_TYPES = ("Task", "DispatchSourceTimer")
 
 
 @dataclass(frozen=True)
@@ -100,30 +103,6 @@ ALLOWANCES = (
         "local:AppDelegate.publishMultiWindowNotificationSocketStateIfNeeded",
         1,
         "function-local, single-shot UI-test deadline",
-    ),
-    Allowance(
-        "Sources/ContentView.swift",
-        "commandPaletteSearchIndexBuildTask",
-        "Task<Void,Never>?",
-        "member:ContentView",
-        1,
-        "cancellation helper clears the prior handle before detached index replacement",
-    ),
-    Allowance(
-        "Sources/ContentView.swift",
-        "commandPaletteSearchTask",
-        "Task<Void,Never>?",
-        "member:ContentView",
-        1,
-        "cancellation helper clears the prior handle before detached search replacement",
-    ),
-    Allowance(
-        "Sources/ContentView.swift",
-        "commandPaletteForkableAgentAvailabilityTasksByPanelKey",
-        "[String:Task<Void,Never>]",
-        "member:ContentView",
-        1,
-        "same-panel handle is removed before a replacement probe captures view state",
     ),
     Allowance(
         "Sources/Panels/MarkdownRemoteImageLoader.swift",
@@ -592,7 +571,10 @@ def scan_declarations(source: str, path: str) -> list[Declaration]:
             and path == "Sources/ContentView.swift"
             and context == "member:ContentView"
         ):
-            type_text = _annotated_type_text(declaration_tokens, "Task")
+            for audited_type in CONTENT_VIEW_AUDITED_HANDLE_TYPES:
+                type_text = _annotated_type_text(declaration_tokens, audited_type)
+                if type_text is not None:
+                    break
         if type_text is None:
             continue
         declarations.append(
@@ -609,9 +591,10 @@ def scan_declarations(source: str, path: str) -> list[Declaration]:
 
 def declarations() -> list[Declaration]:
     found: list[Declaration] = []
-    # Deliberately exclude gitlink dependencies: their source blobs are absent
-    # from the parent-only checkout used by this guard.
-    source_roots = [SOURCES_ROOT, CLI_ROOT, IOS_ROOT]
+    # CI initializes Bonsplit before this audit so a parent-repository change
+    # cannot silently reintroduce the SwiftUI State ownership pattern that
+    # produced the recursive release chain.
+    source_roots = [SOURCES_ROOT, CLI_ROOT, IOS_ROOT, BONSPLIT_SOURCES_ROOT]
     source_roots.extend(sorted(PACKAGES_ROOT.glob("*/*/Sources")))
     paths = {
         path
@@ -635,9 +618,10 @@ def main() -> int:
         return 0
 
     print(
-        "Stored DispatchWorkItem declarations, and Task handles in ContentView, can rebuild "
-        "recursive release chains. Use a scheduler that cannot retain prior queued work, or "
-        "prove that replacement drops the predecessor before capturing owner state.",
+        "Stored DispatchWorkItem declarations, and Task or DispatchSourceTimer handles in "
+        "ContentView, can rebuild recursive release chains. Use a scheduler that cannot "
+        "retain prior queued work, or prove that replacement drops the predecessor before "
+        "capturing owner state.",
         file=sys.stderr,
     )
     lines_by_key: dict[tuple[str, str, str, str], list[int]] = collections.defaultdict(list)
