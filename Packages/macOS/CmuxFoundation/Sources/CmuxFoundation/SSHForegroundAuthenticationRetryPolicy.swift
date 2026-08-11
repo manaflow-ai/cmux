@@ -1920,7 +1920,13 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           # A prior cleanup can die after STOP but before its EXIT trap resumes
           # the journal. Reconcile those exact identities before replacing it.
           cmux_ssh_auth_resume_signaled_processes || exit 0
-          : > "$cmux_ssh_auth_owned_processes" || exit 0
+          # Keep prior exact identities as expansion seeds. A child can leave
+          # the anchor group or become reparented between cleanup attempts.
+          # Expansion validates each saved PID, group, and start time against
+          # the new snapshot and removes stale identities.
+          if [ ! -e "$cmux_ssh_auth_owned_processes" ]; then
+            : > "$cmux_ssh_auth_owned_processes" || exit 0
+          fi
           : > "$cmux_ssh_auth_frozen_processes" || exit 0
           : > "$cmux_ssh_auth_signaled_groups" || exit 0
           : > "$cmux_ssh_auth_signaled_processes" || exit 0
@@ -2410,8 +2416,18 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                   # The bounded fallback resumed its partial STOP journal. Do
                   # not kill only the root and orphan the remaining closure.
                   # Publish the exact root as durable recovery ownership.
-                  cmux_ssh_auth_durable_cleanup_pending=1
-                  cmux_ssh_auth_preserve_unpublished_root || true
+                  if cmux_ssh_auth_preserve_unpublished_root; then
+                    cmux_ssh_auth_durable_cleanup_pending=1
+                  else
+                    # A failed write or queue insertion is not a durable
+                    # handoff. Retain this process as the cleanup owner and
+                    # retry the complete tree transaction before returning.
+                    cmux_ssh_auth_force_unpublished_process_tree \
+                      "$cmux_ssh_auth_root_pid" \
+                      "$cmux_ssh_auth_observed_parent" \
+                      "$cmux_ssh_auth_root_group" \
+                      "$cmux_ssh_auth_root_started" || true
+                  fi
                 fi
               fi
             fi
