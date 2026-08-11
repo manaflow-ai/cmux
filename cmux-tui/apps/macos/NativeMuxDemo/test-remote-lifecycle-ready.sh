@@ -55,6 +55,29 @@ EVENT_FD_OPEN=0
 wait "$CHILD_PID"
 CHILD_PID=""
 
+EVENT_PIPE="$TEST_ROOT/invalid-events"
+mkfifo "$EVENT_PIPE"
+(
+  printf 'daemon-starting\n' >"$EVENT_PIPE"
+  printf 'app-started 12345\n' >"$EVENT_PIPE"
+  printf 'app-started 54321\n' >"$EVENT_PIPE"
+) &
+CHILD_PID=$!
+exec 7<>"$EVENT_PIPE"
+EVENT_FD_OPEN=1
+set +e
+cmux_wait_for_remote_demo_ready 7 "$CHILD_PID" 2 2
+STATUS=$?
+set -e
+if [[ "$STATUS" != "22" ]]; then
+  echo "A duplicate app owner returned $STATUS instead of protocol status 22." >&2
+  exit 1
+fi
+exec 7<&-
+EVENT_FD_OPEN=0
+wait "$CHILD_PID"
+CHILD_PID=""
+
 EVENT_PIPE="$TEST_ROOT/transfer-events"
 mkfifo "$EVENT_PIPE"
 (
