@@ -16,6 +16,7 @@ LIFECYCLE_BOOTSTRAP_FD_OPEN=0
 LIFECYCLE_READ_FD_OPEN=0
 TRANSFER_READY_TIMEOUT=300
 DAEMON_READY_TIMEOUT=90
+LAUNCHER_EXIT_TIMEOUT=30
 
 if [[ $# -gt 2 || ! "$RUNS" =~ ^[1-9][0-9]*$ ]]; then
   echo "Usage: verify-remote-demo-lifecycle.sh [ssh-host] [runs]" >&2
@@ -97,53 +98,28 @@ for run in $(seq 1 "$TOTAL_RUNS"); do
   fi
   LAUNCH_LOG="$TEST_ROOT/launcher-$run.log"
   LIFECYCLE_PIPE="$TEST_ROOT/lifecycle-$run.pipe"
-  /usr/bin/mkfifo "$LIFECYCLE_PIPE"
+  LIFECYCLE_PROGRESS_PIPE="$TEST_ROOT/lifecycle-progress-$run.pipe"
+  /usr/bin/mkfifo "$LIFECYCLE_PIPE" "$LIFECYCLE_PROGRESS_PIPE"
   exec 7<>"$LIFECYCLE_PIPE"
   LIFECYCLE_BOOTSTRAP_FD_OPEN=1
   exec 5<"$LIFECYCLE_PIPE"
   LIFECYCLE_READ_FD_OPEN=1
   APP_PIDS_BEFORE="$(matching_app_pids)"
   (
-    set +e
-    lifecycle_child_pid=""
-    lifecycle_child_status=""
-    lifecycle_stop_child() {
-      local signal="$1"
-      if [[ -n "$lifecycle_child_pid" ]] \
-        && kill -0 "$lifecycle_child_pid" 2>/dev/null; then
-        kill -"$signal" "$lifecycle_child_pid" 2>/dev/null
-      fi
-      if [[ -n "$lifecycle_child_pid" ]]; then
-        wait "$lifecycle_child_pid" 2>/dev/null
-        lifecycle_child_status=$?
-      fi
-    }
-    trap 'lifecycle_stop_child KILL' USR1
-    trap 'lifecycle_stop_child TERM' INT TERM HUP
-    exec 5<&-
-    exec 7<&-
-    exec 6>"$LIFECYCLE_PIPE"
-    printf 'owner-started\n' >&6
-    CMUX_NATIVE_LIFECYCLE_PIPE="$LIFECYCLE_PIPE" \
-      "$RUN_REMOTE_DEMO" "$REMOTE_HOST" 5<&- 6>&- 7>&- \
-      >"$LAUNCH_LOG" 2>&1 &
-    lifecycle_child_pid=$!
-    wait "$lifecycle_child_pid"
-    lifecycle_wait_status=$?
-    if [[ -z "$lifecycle_child_status" ]]; then
-      lifecycle_child_status="$lifecycle_wait_status"
-    fi
-    trap - USR1 INT TERM HUP
-    printf 'launcher-exited %s\n' "$lifecycle_child_status" >&6
-    exit "$lifecycle_child_status"
-  ) &
+    cmux_supervise_remote_demo \
+      "$LIFECYCLE_PIPE" \
+      "$LIFECYCLE_PROGRESS_PIPE" \
+      "$TRANSFER_READY_TIMEOUT" \
+      "$DAEMON_READY_TIMEOUT" \
+      "$LAUNCHER_EXIT_TIMEOUT" \
+      -- \
+      env CMUX_NATIVE_LIFECYCLE_PIPE="$LIFECYCLE_PROGRESS_PIPE" \
+      "$RUN_REMOTE_DEMO" "$REMOTE_HOST"
+  ) >"$LAUNCH_LOG" 2>&1 &
   LIFECYCLE_SUPERVISOR_PID=$!
 
   set +e
-  cmux_wait_for_remote_demo_ready \
-    5 \
-    "$TRANSFER_READY_TIMEOUT" \
-    "$DAEMON_READY_TIMEOUT"
+  cmux_wait_for_remote_demo_ready 5
   READY_STATUS=$?
   set -e
   exec 7<&-
@@ -209,6 +185,7 @@ for run in $(seq 1 "$TOTAL_RUNS"); do
   fi
 
   LOCAL_RUN_ROOT="${APP_BUNDLE%/NativeMuxDemo.app}"
+  cmux_request_remote_demo_exit "$LIFECYCLE_SUPERVISOR_PID"
   if [[ "$OWNER_LOSS" == "1" ]]; then
     kill -USR1 "$LIFECYCLE_SUPERVISOR_PID"
   else
@@ -217,7 +194,7 @@ for run in $(seq 1 "$TOTAL_RUNS"); do
   fi
 
   set +e
-  cmux_wait_for_remote_demo_exit 5 30
+  cmux_wait_for_remote_demo_exit 5
   EXIT_EVENT_STATUS=$?
   set -e
   if [[ "$EXIT_EVENT_STATUS" != "0" ]]; then
@@ -253,7 +230,7 @@ for run in $(seq 1 "$TOTAL_RUNS"); do
   LIFECYCLE_SUPERVISOR_PID=""
   exec 5<&-
   LIFECYCLE_READ_FD_OPEN=0
-  rm -f -- "$LIFECYCLE_PIPE"
+  rm -f -- "$LIFECYCLE_PIPE" "$LIFECYCLE_PROGRESS_PIPE"
 
   if [[ "$ATTACH_FD_OPEN" == "1" ]]; then
     exec 8>&-
