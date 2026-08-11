@@ -78,29 +78,84 @@ final class SerialFFIExecutor: @unchecked Sendable {
 
   func runCancellable<T: Sendable>(
     cancellation: FFICancellation,
+    timeoutNanoseconds: UInt64? = nil,
     _ operation: @escaping @Sendable () -> T,
     onEnqueued: (@Sendable () -> Void)? = nil
   ) async -> T? {
-    await withTaskCancellationHandler {
+    let waiter = FFIResultWaiter<T>()
+    return await withTaskCancellationHandler {
       await withCheckedContinuation { continuation in
+        waiter.install(continuation)
         queue.async {
           guard cancellation.beginExecution() else {
-            continuation.resume(returning: nil)
+            waiter.complete(nil)
             return
           }
-          continuation.resume(returning: operation())
+          let result = operation()
+          waiter.complete(cancellation.finishExecution() ? result : nil)
+        }
+        if let timeoutNanoseconds {
+          Task.detached {
+            do {
+              try await Task.sleep(nanoseconds: timeoutNanoseconds)
+            } catch {
+              return
+            }
+            if cancellation.cancel() { waiter.complete(nil) }
+          }
         }
         onEnqueued?()
       }
     } onCancel: {
-      cancellation.cancel()
+      if cancellation.cancel() { waiter.complete(nil) }
     }
   }
 }
 
-final class FFICancellation: @unchecked Sendable {
+private final class FFIResultWaiter<T: Sendable>: @unchecked Sendable {
   private let lock = NSLock()
-  private var isCancelled = false
+  private var continuation: CheckedContinuation<T?, Never>?
+  private var completed = false
+  private var result: T?
+
+  func install(_ continuation: CheckedContinuation<T?, Never>) {
+    lock.lock()
+    if completed {
+      let completedResult = result
+      lock.unlock()
+      continuation.resume(returning: completedResult)
+    } else {
+      self.continuation = continuation
+      lock.unlock()
+    }
+  }
+
+  func complete(_ result: T?) {
+    lock.lock()
+    guard !completed else {
+      lock.unlock()
+      return
+    }
+    completed = true
+    self.result = result
+    let continuation = continuation
+    self.continuation = nil
+    lock.unlock()
+    continuation?.resume(returning: result)
+  }
+}
+
+final class FFICancellation: @unchecked Sendable {
+  private enum State: Equatable {
+    case queued
+    case running
+    case cancelledBeforeExecution
+    case cancelledDuringExecution
+    case completed
+  }
+
+  private let lock = NSLock()
+  private var state = State.queued
   private let onCancel: @Sendable () -> Void
 
   init(onCancel: @escaping @Sendable () -> Void) {
@@ -110,18 +165,37 @@ final class FFICancellation: @unchecked Sendable {
   func beginExecution() -> Bool {
     lock.lock()
     defer { lock.unlock() }
-    return !isCancelled
+    guard state == .queued else { return false }
+    state = .running
+    return true
   }
 
-  func cancel() {
+  func finishExecution() -> Bool {
     lock.lock()
-    guard !isCancelled else {
+    let completedNormally = state == .running
+    state = .completed
+    lock.unlock()
+    return completedNormally
+  }
+
+  @discardableResult
+  func cancel() -> Bool {
+    lock.lock()
+    let completedBeforeExecution: Bool
+    switch state {
+    case .queued:
+      state = .cancelledBeforeExecution
+      completedBeforeExecution = true
+    case .running:
+      state = .cancelledDuringExecution
+      completedBeforeExecution = false
+    case .cancelledBeforeExecution, .cancelledDuringExecution, .completed:
       lock.unlock()
-      return
+      return false
     }
-    isCancelled = true
     lock.unlock()
     onCancel()
+    return completedBeforeExecution
   }
 }
 
@@ -160,9 +234,16 @@ func copyFrontendCString(
 
 actor FrontendService {
   private static let requestTimeoutMilliseconds: UInt64 = 15_000
+  private static let requestTimeoutNanoseconds = requestTimeoutMilliseconds * 1_000_000
+  private static let maximumPendingAttaches = 8
 
   private var raw: OpaquePointer?
-  private let ffiQueue = SerialFFIExecutor(label: "cmux.native-frontend.ffi")
+  private let controlQueue = SerialFFIExecutor(label: "cmux.native-frontend.control")
+  // One attach lane limits blocking handshakes without delaying resource control.
+  private let attachQueue = SerialFFIExecutor(label: "cmux.native-frontend.attach")
+  private var requestCancellations: [UUID: FFICancellation] = [:]
+  private var attachCancellations: [UUID: FFICancellation] = [:]
+  private var isShuttingDown = false
   private var updateSink: FrontendUpdateSink?
   private var updateGeneration: UInt64 = 0
 
@@ -171,7 +252,7 @@ actor FrontendService {
   }
 
   private func enqueue<T: Sendable>(_ operation: @escaping @Sendable () -> T) async -> T {
-    await ffiQueue.run(operation)
+    await controlQueue.run(operation)
   }
 
   static func connect(invitation: String) async throws -> FrontendService {
@@ -197,7 +278,9 @@ actor FrontendService {
     mutation: Bool = false,
     as type: T.Type = T.self
   ) async throws -> T {
-    guard let rawAddress = raw.map({ UInt(bitPattern: $0) }) else {
+    guard !isShuttingDown,
+      let rawAddress = raw.map({ UInt(bitPattern: $0) })
+    else {
       throw FrontendServiceError.message(
         L10n.text("error.connection_closed", "The frontend connection is closed.")
       )
@@ -205,8 +288,12 @@ actor FrontendService {
     let paramsJSON = try params.encodedJSON()
     let requestCancellation = FrontendAttachCancellation()
     let queueCancellation = FFICancellation(onCancel: requestCancellation.cancel)
-    let queuedResponse: Result<String, DetachedRequestFailure>? = await ffiQueue.runCancellable(
-      cancellation: queueCancellation
+    let requestID = UUID()
+    requestCancellations[requestID] = queueCancellation
+    defer { requestCancellations[requestID] = nil }
+    let queuedResponse: Result<String, DetachedRequestFailure>? = await controlQueue.runCancellable(
+      cancellation: queueCancellation,
+      timeoutNanoseconds: Self.requestTimeoutNanoseconds
     ) {
       var error = [CChar](repeating: 0, count: 4_096)
       let result = operation.withCString { operationPointer in
@@ -218,7 +305,7 @@ actor FrontendService {
             mutation,
             &error,
             error.count,
-            requestTimeoutMilliseconds,
+            FrontendService.requestTimeoutMilliseconds,
             requestCancellation.raw
           )
         }
@@ -252,15 +339,24 @@ actor FrontendService {
   }
 
   func attachTerminal(id: String) async throws -> TerminalHandle {
-    guard let rawAddress = raw.map({ UInt(bitPattern: $0) }) else {
+    guard !isShuttingDown,
+      let rawAddress = raw.map({ UInt(bitPattern: $0) })
+    else {
       throw FrontendServiceError.message(
         L10n.text("error.connection_closed", "The frontend connection is closed.")
       )
     }
     let attachCancellation = FrontendAttachCancellation()
     let queueCancellation = FFICancellation(onCancel: attachCancellation.cancel)
-    let queuedResult: Result<UInt, DetachedRequestFailure>? = await ffiQueue.runCancellable(
-      cancellation: queueCancellation
+    guard attachCancellations.count < Self.maximumPendingAttaches else {
+      throw FrontendServiceError.message("terminal attach queue is full")
+    }
+    let attachID = UUID()
+    attachCancellations[attachID] = queueCancellation
+    defer { attachCancellations[attachID] = nil }
+    let queuedResult: Result<UInt, DetachedRequestFailure>? = await attachQueue.runCancellable(
+      cancellation: queueCancellation,
+      timeoutNanoseconds: Self.requestTimeoutNanoseconds
     ) {
       var error = [CChar](repeating: 0, count: 2_048)
       let terminal = id.withCString {
@@ -269,7 +365,7 @@ actor FrontendService {
           $0,
           &error,
           error.count,
-          15_000,
+          FrontendService.requestTimeoutMilliseconds,
           attachCancellation.raw
         )
       }
@@ -353,7 +449,12 @@ actor FrontendService {
   }
 
   func shutdown() async {
+    guard !isShuttingDown else { return }
+    isShuttingDown = true
+    for cancellation in requestCancellations.values { cancellation.cancel() }
+    for cancellation in attachCancellations.values { cancellation.cancel() }
     await stopUpdates()
+    await attachQueue.run {}
     guard let raw else { return }
     self.raw = nil
     let address = UInt(bitPattern: raw)

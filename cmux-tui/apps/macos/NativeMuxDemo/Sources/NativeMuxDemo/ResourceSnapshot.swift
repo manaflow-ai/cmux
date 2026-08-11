@@ -116,6 +116,7 @@ struct TabSnapshot: Decodable, Identifiable, Sendable {
     let paneID: String
     let name: String?
     let index: UInt32
+    let displayIndex: Int
     let focused: Bool
     let contentKind: String
     let contentID: String
@@ -125,6 +126,25 @@ struct TabSnapshot: Decodable, Identifiable, Sendable {
         case paneID = "pane_id"
         case contentKind = "content_kind"
         case contentID = "content_id"
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        paneID = try container.decode(String.self, forKey: .paneID)
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        index = try container.decode(UInt32.self, forKey: .index)
+        guard index < UInt32(Int32.max) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .index,
+                in: container,
+                debugDescription: "Tab index is outside the display range."
+            )
+        }
+        displayIndex = Int(index) + 1
+        focused = try container.decode(Bool.self, forKey: .focused)
+        contentKind = try container.decode(String.self, forKey: .contentKind)
+        contentID = try container.decode(String.self, forKey: .contentID)
     }
 }
 

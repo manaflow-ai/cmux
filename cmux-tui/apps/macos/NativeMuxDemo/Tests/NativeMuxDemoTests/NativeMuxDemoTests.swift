@@ -164,10 +164,14 @@ func remoteLayoutNumbersRejectCrashableAndOutOfProtocolValues() {
     let unsafeWorkspaceIndex = Data(
         #"{"id":"workspace-a","name":"","index":4294967295,"focused":true}"#.utf8
     )
+    let unsafeTabIndex = Data(
+        #"{"id":"tab-a","pane_id":"pane-a","name":null,"index":4294967295,"focused":true,"content_kind":"terminal","content_id":"terminal-a"}"#.utf8
+    )
 
     #expect((try? JSONDecoder().decode(ViewportColumn.self, from: unsafeColumn)) == nil)
     #expect((try? JSONDecoder().decode(LayoutNode.self, from: unsafeSplit)) == nil)
     #expect((try? JSONDecoder().decode(WorkspaceSnapshot.self, from: unsafeWorkspaceIndex)) == nil)
+    #expect((try? JSONDecoder().decode(TabSnapshot.self, from: unsafeTabIndex)) == nil)
 }
 
 @Test
@@ -293,6 +297,38 @@ func canceledQueuedFFIOperationDoesNotExecute() async {
     queued.continuation.finish()
     #expect(secondResult == nil)
     #expect(operations.snapshot.isEmpty)
+}
+
+@Test
+func queuedFFIOperationDeadlineIncludesTimeBeforeExecution() async {
+    let executor = SerialFFIExecutor(label: "test.native-terminal.queue-deadline")
+    let firstStarted = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    let releaseFirst = DispatchSemaphore(value: 0)
+    let first = Task {
+        await executor.run {
+            firstStarted.continuation.yield()
+            releaseFirst.wait()
+            return true
+        }
+    }
+    for await _ in firstStarted.stream { break }
+
+    let operations = EventLog()
+    let cancellation = FFICancellation { operations.append("cancel") }
+    let queuedResult = await executor.runCancellable(
+        cancellation: cancellation,
+        timeoutNanoseconds: 10_000_000
+    ) {
+        operations.append("execute")
+        return true
+    }
+
+    #expect(queuedResult == nil)
+    #expect(operations.snapshot == ["cancel"])
+    releaseFirst.signal()
+    _ = await first.value
+    firstStarted.continuation.finish()
+    #expect(operations.snapshot == ["cancel"])
 }
 
 @Test

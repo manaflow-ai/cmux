@@ -200,7 +200,7 @@ struct VerticalTabsView: View {
                         selected ? Color.accentColor.opacity(0.2) : Color.clear,
                         in: .rect(cornerRadius: 6)
                     )
-                Text("\(tab.index + 1)")
+                Text("\(tab.displayIndex)")
                     .font(.system(size: 7, weight: .bold))
                     .foregroundStyle(.secondary)
                     .padding(2)
