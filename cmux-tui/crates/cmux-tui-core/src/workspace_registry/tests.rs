@@ -5909,7 +5909,8 @@ fn journal_agent_socket_generation_rejects_late_superseded_session() {
         (1, "working", "socket-session-a", false),
         (2, "done", "socket-session-a", false),
         (3, "working", "socket-session-b", false),
-        (4, "working", "socket-session-a", true),
+        (4, "done", "socket-session-b", false),
+        (5, "working", "socket-session-a", true),
     ] {
         let result = json!({
             "id":agent_resource(&terminal_id),
@@ -5944,7 +5945,7 @@ fn journal_agent_socket_generation_rejects_late_superseded_session() {
     }
 
     let agent = registry.public_projections().unwrap().agents.remove(0);
-    assert_eq!(agent.state, "working");
+    assert_eq!(agent.state, "done");
     assert_eq!(agent.source, "socket");
     assert_eq!(agent.source_session.as_deref(), Some("socket-session-b"));
 }
