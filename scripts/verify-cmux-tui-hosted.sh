@@ -168,6 +168,9 @@ run_url="https://github.com/$REPO/actions/runs/$run_id"
 echo "Run: $run_url"
 echo "Waiting for hosted verification"
 
+final_check="$mode hosted verification"
+run_state_query='query($owner:String!,$name:String!,$oid:GitObjectID!){repository(owner:$owner,name:$name){object(oid:$oid){... on Commit{checkSuites(first:100){nodes{checkRuns(first:100){nodes{name status conclusion detailsUrl}}}}}}}}'
+
 temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/cmux-tui-hosted.XXXXXX")"
 watch_owner_pid=""
 cancel_owner_pid=""
@@ -220,11 +223,16 @@ exec 3<> "$watch_result_fifo"
     run_state_file="$temp_dir/run-state"
     : > "$run_state_file"
     set +e
-    gh run view \
-      --repo "$REPO" \
-      "$run_id" \
-      --json status,conclusion \
-      --jq '[.status, .conclusion] | @tsv' > "$run_state_file" &
+    gh api graphql \
+      -f "query=$run_state_query" \
+      -f "owner=${REPO%%/*}" \
+      -f "name=${REPO#*/}" \
+      -f "oid=$commit" \
+      --jq ".data.repository.object.checkSuites.nodes[].checkRuns.nodes[]
+        | select((.detailsUrl // \"\") | contains(\"/actions/runs/$run_id/\"))
+        | select(.name == \"$final_check\")
+        | [.status, .conclusion] | map((. // \"\") | ascii_downcase) | @tsv" \
+      > "$run_state_file" &
     gh_child_pid=$!
     wait "$gh_child_pid"
     view_status=$?
