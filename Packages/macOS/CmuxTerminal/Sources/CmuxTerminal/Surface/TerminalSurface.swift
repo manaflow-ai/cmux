@@ -822,11 +822,15 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     deinit {
-        agentCommandShimInstallResultGate?.expire()
-        agentCommandShimInstallLease?.invalidate()
+        let installResultGate = agentCommandShimInstallResultGate
+        let installLease = agentCommandShimInstallLease
         agentCommandShimInstallTask?.cancel()
         agentCommandShimCompletionTask?.cancel()
         agentCommandShimDeadlineTask?.cancel()
+        Task {
+            _ = await installResultGate?.expire()
+            await installLease?.invalidate()
+        }
         // Deallocation only removes this app presentation. The persistent
         // runtime keeps the PTY alive across app termination and restart.
         externalPresentationLease?.detach()
