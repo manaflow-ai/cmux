@@ -139,6 +139,7 @@ function DashboardOrganizationSwitcher() {
     null,
   );
   const queuedSwitchRef = useRef<SwitchRequest | null>(null);
+  const latestSwitchRef = useRef<SwitchRequest | null>(null);
   const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;
@@ -146,6 +147,7 @@ function DashboardOrganizationSwitcher() {
       mountedRef.current = false;
       activeSwitchRef.current = null;
       queuedSwitchRef.current = null;
+      latestSwitchRef.current = null;
       if (activeSwitchTimerRef.current) {
         clearTimeout(activeSwitchTimerRef.current);
         activeSwitchTimerRef.current = null;
@@ -215,6 +217,7 @@ function DashboardOrganizationSwitcher() {
       team,
       organizationId,
     };
+    latestSwitchRef.current = request;
     // The URL is the dashboard's authoritative organization scope, so reflect
     // the user's choice immediately. Stack selection is serialized below only
     // to persist the default for later visits without an explicit team.
@@ -250,13 +253,29 @@ function DashboardOrganizationSwitcher() {
     const timeout = setTimeout(() => {
       if (!mountedRef.current) return;
       if (activeSwitchRef.current !== operation) return;
+      activeSwitchRef.current = null;
+      activeSwitchTimerRef.current = null;
+      const queued = queuedSwitchRef.current;
+      queuedSwitchRef.current = null;
+      setSwitchPending(false);
       setSwitchError(true);
+      if (queued) runSwitch(queued);
     }, ORGANIZATION_SWITCH_TIMEOUT_MS);
     activeSwitchTimerRef.current = timeout;
 
     void operation.then(() => {
       if (!mountedRef.current) return;
-      if (activeSwitchRef.current !== operation) return;
+      if (activeSwitchRef.current !== operation) {
+        if (activeSwitchRef.current) return;
+        const latest = latestSwitchRef.current;
+        if (!latest || latest === request) {
+          recordSuccessfulSwitch(request);
+          setSwitchError(false);
+        } else {
+          runSwitch(latest);
+        }
+        return;
+      }
       clearTimeout(timeout);
       activeSwitchTimerRef.current = null;
       activeSwitchRef.current = null;
