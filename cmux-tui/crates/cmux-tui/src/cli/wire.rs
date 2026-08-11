@@ -1,4 +1,6 @@
 use std::io::{self, BufRead, BufReader, Read, Write};
+#[cfg(unix)]
+use std::net::Shutdown;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -9,10 +11,11 @@ use cmux_tui_core::resource::{
 };
 use serde_json::{Value, json};
 
-use super::command::{RequestPlan, random_prefixed};
+use super::command::{RequestPlan, WireOperation, random_prefixed};
 use super::{GlobalArgs, OutputMode, UsageError};
 
 const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
+const SERVER_PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     if plan.stream && global.output == OutputMode::Json {
@@ -62,25 +65,132 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
             return 3;
         }
     };
-    let _ = stream.set_read_timeout(response_read_timeout(&plan));
+    let _ = stream.set_read_timeout(Some(SERVER_PREFLIGHT_TIMEOUT));
     let mut reader = BufReader::new(stream);
+    if let Some(capability) = required_server_capability(&plan) {
+        match require_server_capability(&mut reader, &global, capability) {
+            Ok(()) => {}
+            Err(exit_code) => return exit_code,
+        }
+    }
+    #[cfg(unix)]
+    let signal_interrupt_armed = plan.stream && arm_signal_interrupt(reader.get_ref().as_ref());
+    #[cfg(not(unix))]
+    let signal_interrupt_armed = false;
+    let _ = reader.get_mut().set_read_timeout(response_read_timeout(&plan, signal_interrupt_armed));
     if let Err(error) = reader.get_mut().write_all(&encoded).and_then(|_| {
         reader.get_mut().write_all(b"\n")?;
         reader.get_mut().flush()
     }) {
+        if plan.stream && crate::shutdown_requested() {
+            return 0;
+        }
         eprintln!("transport error: {error}");
         return 3;
     }
     run_response(&mut reader, &global, &plan, &request_id)
 }
 
-fn response_read_timeout(plan: &RequestPlan) -> Option<Duration> {
+#[cfg(unix)]
+fn arm_signal_interrupt(stream: &dyn transport::Stream) -> bool {
+    let Ok(stream) = stream.try_clone_box() else { return false };
+    std::thread::Builder::new()
+        .name("cmux-cli-signal-interrupt".into())
+        .spawn(move || {
+            crate::wait_for_shutdown_signal();
+            let _ = stream.shutdown(Shutdown::Both);
+        })
+        .is_ok()
+}
+
+fn required_server_capability(plan: &RequestPlan) -> Option<&'static str> {
+    matches!(
+        &plan.operation,
+        WireOperation::Typed(
+            cmux_tui_core::resource::ResourceOperation::SessionJournalSubscribe
+                | cmux_tui_core::resource::ResourceOperation::SessionJournalProducerList
+                | cmux_tui_core::resource::ResourceOperation::SessionJournalProducerPut
+                | cmux_tui_core::resource::ResourceOperation::SessionJournalAppend
+                | cmux_tui_core::resource::ResourceOperation::SessionJournalHookList
+                | cmux_tui_core::resource::ResourceOperation::SessionJournalHookPut
+                | cmux_tui_core::resource::ResourceOperation::SessionJournalCheckpointCreate
+                | cmux_tui_core::resource::ResourceOperation::SessionJournalCheckpointList
+                | cmux_tui_core::resource::ResourceOperation::SessionJournalRestorePreview
+                | cmux_tui_core::resource::ResourceOperation::SessionJournalSegmentList
+                | cmux_tui_core::resource::ResourceOperation::SessionJournalSegmentSeal
+        )
+    )
+    .then_some(cmux_tui_core::server::SESSION_JOURNAL_CAPABILITY)
+}
+
+fn require_server_capability(
+    reader: &mut BufReader<Box<dyn transport::Stream>>,
+    global: &GlobalArgs,
+    capability: &'static str,
+) -> Result<(), i32> {
+    let request_id = random_request_id().map_err(|error| {
+        eprintln!("cmux: {error}");
+        2
+    })?;
+    let request = json!({"id":request_id,"cmd":"identify"});
+    let encoded = serde_json::to_vec(&request).map_err(|error| {
+        eprintln!("cmux: cannot encode capability request: {error}");
+        2
+    })?;
+    reader
+        .get_mut()
+        .write_all(&encoded)
+        .and_then(|_| reader.get_mut().write_all(b"\n"))
+        .and_then(|_| reader.get_mut().flush())
+        .map_err(|error| {
+            eprintln!("transport error while checking session capabilities: {error}");
+            3
+        })?;
+    let response = read_envelope(reader, false)
+        .map_err(|error| {
+            eprintln!("{error}");
+            3
+        })?
+        .ok_or_else(|| {
+            eprintln!("transport closed before capability response");
+            3
+        })?;
+    if response.get("id").and_then(Value::as_str) != Some(request_id.as_str())
+        || response.get("ok").and_then(Value::as_bool) != Some(true)
+    {
+        eprintln!("protocol error: invalid identify response during capability negotiation");
+        return Err(3);
+    }
+    let supported = response
+        .get("data")
+        .and_then(|data| data.get("capabilities"))
+        .and_then(Value::as_array)
+        .is_some_and(|capabilities| {
+            capabilities.iter().any(|value| value.as_str() == Some(capability))
+        });
+    if supported {
+        return Ok(());
+    }
+    let details = json!({
+        "capability":capability,
+        "action":"restart_session"
+    });
+    let error = json!({
+        "code":"operation.unsupported",
+        "message":"resident session does not support journal subscriptions; restart it with this cmux-tui binary",
+        "details":details,
+        "retryable":false
+    });
+    Err(print_local_error(&error, global.output, 1))
+}
+
+fn response_read_timeout(plan: &RequestPlan, signal_interrupt_armed: bool) -> Option<Duration> {
     if plan.stream {
-        return Some(Duration::from_millis(250));
+        return (!signal_interrupt_armed).then_some(Duration::from_millis(250));
     }
     if matches!(
         &plan.operation,
-        super::command::WireOperation::Typed(
+        WireOperation::Typed(
             cmux_tui_core::resource::ResourceOperation::TerminalWait
                 | cmux_tui_core::resource::ResourceOperation::TerminalWaitExit
         )
@@ -134,6 +244,10 @@ fn run_response(
     request_id: &str,
 ) -> i32 {
     let mut accepted_stream = false;
+    let expose_stream_lifecycle = matches!(
+        &plan.operation,
+        WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::SessionJournalSubscribe)
+    );
     let expected_stream_id = plan.params.get("stream_id").and_then(Value::as_str);
     loop {
         if plan.stream && crate::shutdown_requested() {
@@ -147,13 +261,16 @@ fn run_response(
                 return 3;
             }
             Err(error) => {
+                if plan.stream && crate::shutdown_requested() {
+                    return 0;
+                }
                 eprintln!("{error}");
                 return 3;
             }
         };
         match value.get("type").and_then(Value::as_str) {
             Some("response") => {
-                let response: ResponseEnvelope = match serde_json::from_value(value) {
+                let response: ResponseEnvelope = match serde_json::from_value(value.clone()) {
                     Ok(response) => response,
                     Err(error) => {
                         eprintln!("protocol error: invalid response envelope: {error}");
@@ -180,6 +297,13 @@ fn run_response(
                     eprintln!("protocol error: stream response did not confirm the requested ID");
                     return 3;
                 }
+                if expose_stream_lifecycle
+                    && global.output == OutputMode::JsonLines
+                    && let Err(error) = write_json_line(&value)
+                {
+                    eprintln!("stdout error: {error}");
+                    return 3;
+                }
                 accepted_stream = true;
             }
             Some("stream_item") if plan.stream && accepted_stream => {
@@ -203,7 +327,7 @@ fn run_response(
                 }
             }
             Some("stream_end") if plan.stream && accepted_stream => {
-                let end: StreamEndEnvelope = match serde_json::from_value(value) {
+                let end: StreamEndEnvelope = match serde_json::from_value(value.clone()) {
                     Ok(end) => end,
                     Err(error) => {
                         eprintln!("protocol error: invalid stream end: {error}");
@@ -215,6 +339,13 @@ fn run_response(
                     || Some(end.stream_id.as_str()) != expected_stream_id
                 {
                     eprintln!("protocol error: stream end does not match the opened stream");
+                    return 3;
+                }
+                if expose_stream_lifecycle
+                    && global.output == OutputMode::JsonLines
+                    && let Err(error) = write_json_line(&value)
+                {
+                    eprintln!("stdout error: {error}");
                     return 3;
                 }
                 if matches!(
@@ -549,9 +680,7 @@ mod tests {
     #[test]
     fn mutation_request_has_a_key_and_read_does_not() {
         let mutation = RequestPlan {
-            operation: super::super::command::WireOperation::Typed(
-                ResourceOperation::WorkspaceCreate,
-            ),
+            operation: WireOperation::Typed(ResourceOperation::WorkspaceCreate),
             params: json!({"initial_content":"empty"}),
             idempotency_key: None,
             stream: false,
@@ -559,9 +688,7 @@ mod tests {
         assert!(request_value(&mutation).unwrap().get("idempotency_key").is_some());
 
         let read = RequestPlan {
-            operation: super::super::command::WireOperation::Typed(
-                ResourceOperation::WorkspaceList,
-            ),
+            operation: WireOperation::Typed(ResourceOperation::WorkspaceList),
             params: json!({}),
             idempotency_key: None,
             stream: false,
@@ -619,15 +746,27 @@ mod tests {
     fn terminal_wait_transport_timeout_follows_the_operation_timeout() {
         for operation in [ResourceOperation::TerminalWait, ResourceOperation::TerminalWaitExit] {
             let bounded = RequestPlan {
-                operation: super::super::command::WireOperation::Typed(operation),
+                operation: WireOperation::Typed(operation),
                 params: json!({"timeout_ms":"5000"}),
                 idempotency_key: None,
                 stream: false,
             };
-            assert_eq!(response_read_timeout(&bounded), Some(Duration::from_secs(7)));
+            assert_eq!(response_read_timeout(&bounded, false), Some(Duration::from_secs(7)));
 
             let unbounded = RequestPlan { params: json!({}), ..bounded };
-            assert_eq!(response_read_timeout(&unbounded), None);
+            assert_eq!(response_read_timeout(&unbounded, false), None);
         }
+    }
+
+    #[test]
+    fn stream_timeout_polling_is_only_a_signal_watcher_fallback() {
+        let stream = RequestPlan {
+            operation: WireOperation::Typed(ResourceOperation::SessionJournalSubscribe),
+            params: json!({}),
+            idempotency_key: None,
+            stream: true,
+        };
+        assert_eq!(response_read_timeout(&stream, false), Some(Duration::from_millis(250)));
+        assert_eq!(response_read_timeout(&stream, true), None);
     }
 }

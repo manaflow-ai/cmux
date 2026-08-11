@@ -367,6 +367,8 @@ private extension MobileIrohSettingsView {
             L10n.string("mobile.iroh.diagnostics.failure.unsupportedRoute", defaultValue: "Unsupported Route")
         case .some(.noRoute):
             L10n.string("mobile.iroh.diagnostics.failure.noRoute", defaultValue: "No Route Available")
+        case .some(.routeGated):
+            L10n.string("mobile.iroh.diagnostics.failure.routeGated", defaultValue: "Route Gated")
         case .some(.credentialUnavailable):
             L10n.string(
                 "mobile.iroh.diagnostics.failure.credentialUnavailable",

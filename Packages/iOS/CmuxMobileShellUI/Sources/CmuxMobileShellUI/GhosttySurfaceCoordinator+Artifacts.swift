@@ -3,6 +3,7 @@ import CMUXMobileCore
 import CmuxAgentChat
 import CmuxMobileShell
 import CmuxMobileTerminal
+import CmuxMobileTerminalKit
 import SwiftUI
 import UIKit
 
@@ -372,18 +373,43 @@ extension GhosttySurfaceRepresentable.Coordinator {
 
         func ghosttySurfaceView(
             _ surfaceView: GhosttySurfaceView,
+            inputPolicyForTapAtCol col: Int,
+            row: Int
+        ) -> TerminalInputTapIntent {
+            guard self.surfaceView === surfaceView else {
+                return .deferForArtifactDecision
+            }
+            let snapshot = surfaceView.cachedVisibleTextForArtifactHitTesting()
+            let containsCandidate = snapshot.map {
+                TerminalArtifactTapHitTester().path(
+                    in: $0.text,
+                    col: col,
+                    row: row,
+                    columns: $0.columns
+                ) != nil
+            } ?? false
+            return TerminalInputTapIntent.artifactAware(
+                artifactDetectionEnabled: artifactFilesEnabled,
+                currentSnapshotGeneration: surfaceView.visibleArtifactCountGeneration,
+                cachedSnapshotGeneration: snapshot?.generation,
+                cachedSnapshotContainsCandidate: containsCandidate
+            )
+        }
+
+        func ghosttySurfaceView(
+            _ surfaceView: GhosttySurfaceView,
             didTapAtCol col: Int,
             row: Int
         ) async -> GhosttySurfaceTapDisposition {
             guard self.surfaceView === surfaceView else { return .ignored }
-            tapGeneration &+= 1
-            let generation = tapGeneration
+            clickGeneration &+= 1
+            let generation = clickGeneration
             // Forward to the Mac's real surface as a left click; libghostty
             // reports it to a TUI with mouse mode, or no-ops on a normal screen.
             if artifactFilesEnabled,
                let snapshot = await surfaceView.visibleTextForArtifactHitTesting() {
                 guard self.surfaceView === surfaceView,
-                      generation == tapGeneration else {
+                      generation == clickGeneration else {
                     return .ignored
                 }
                 if let path = TerminalArtifactTapHitTester().path(
@@ -409,7 +435,7 @@ extension GhosttySurfaceRepresentable.Coordinator {
                         ).kind
                     }
                     guard self.surfaceView === surfaceView,
-                          generation == tapGeneration else {
+                          generation == clickGeneration else {
                         return .ignored
                     }
                     guard decision == .openArtifact else {
@@ -418,14 +444,14 @@ extension GhosttySurfaceRepresentable.Coordinator {
                         guard self.surfaceView === surfaceView else { return .ignored }
                         let currentPath = await revalidatedTapPath(in: surfaceView, col: col, row: row)
                         guard self.surfaceView === surfaceView,
-                              generation == tapGeneration else {
+                              generation == clickGeneration else {
                             return .ignored
                         }
                         if currentPath == path {
                             Task { @MainActor [weak self, weak surfaceView, surfaceID = self.surfaceID, col, row, generation] in
                                 guard let self, let surfaceView,
                                       self.surfaceView === surfaceView,
-                                      generation == self.tapGeneration else { return }
+                                      generation == self.clickGeneration else { return }
                                 await self.store?.clickTerminal(surfaceID: surfaceID, col: col, row: row)
                             }
                         }
@@ -434,7 +460,7 @@ extension GhosttySurfaceRepresentable.Coordinator {
                     guard self.surfaceView === surfaceView else { return .ignored }
                     let currentPath = await revalidatedTapPath(in: surfaceView, col: col, row: row)
                     guard self.surfaceView === surfaceView,
-                          generation == tapGeneration,
+                          generation == clickGeneration,
                           currentPath == path else {
                         return .ignored
                     }
@@ -443,11 +469,11 @@ extension GhosttySurfaceRepresentable.Coordinator {
                 }
             }
             guard self.surfaceView === surfaceView,
-                  generation == tapGeneration else {
+                  generation == clickGeneration else {
                 return .ignored
             }
             await store?.clickTerminal(surfaceID: surfaceID, col: col, row: row)
-            return self.surfaceView === surfaceView && generation == tapGeneration
+            return self.surfaceView === surfaceView && generation == clickGeneration
                 ? .focusTerminal
                 : .ignored
         }

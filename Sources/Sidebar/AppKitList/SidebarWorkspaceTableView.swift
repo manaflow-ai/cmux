@@ -10,6 +10,9 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
     let selectedScrollTargetWorkspaceId: UUID?
     let isPresented: Bool
     let unreadSource: SidebarUnreadModel
+    /// Invoked when a completed row click parks awaiting live actions; the
+    /// owner must invalidate itself so this view re-applies (issue #9690).
+    let onDeferredClickAwaitingApply: () -> Void
 
 #if DEBUG
     @Environment(\.sidebarLazyContractProbe) private var sidebarLazyContractProbe
@@ -28,6 +31,7 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
         context.coordinator.reconfigurationProbe = sidebarLazyContractProbe.tableRootViewReconfigure
 #endif
         context.coordinator.setUnreadSource(unreadSource)
+        context.coordinator.onDeferredRowClickAwaitingApply = onDeferredClickAwaitingApply
         context.coordinator.setPresentationActive(isPresented, workspaceIds: workspaceIds)
         guard isPresented else { return }
         context.coordinator.apply(

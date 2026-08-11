@@ -275,6 +275,148 @@ while (performance.now() < deadline) {
     return 0
 
 
+def check_hot_path_defers_projection_and_reuses_launch_probes(
+    bun: str,
+    root: Path,
+    extension_path: Path,
+) -> int:
+    fake_cmux = root / "hot-path-cmux"
+    make_executable(
+        fake_cmux,
+        """#!/usr/bin/env bash
+set -euo pipefail
+cat >/dev/null
+printf '{}\n'
+""",
+    )
+
+    projection_source = """
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+const ctx = {
+  cwd: "/tmp/pi-hot-path-project",
+  sessionManager: { getSessionId() { return "pi-hot-path-session"; } }
+};
+let handlerReturned = false;
+let projectedSynchronously = false;
+let projectionCount = 0;
+const guardedToolInput = new Proxy(
+  { command: "printf hot-path" },
+  {
+    ownKeys(target) {
+      projectionCount += 1;
+      if (!handlerReturned) projectedSynchronously = true;
+      return Reflect.ownKeys(target);
+    },
+    getOwnPropertyDescriptor(target, property) {
+      return Reflect.getOwnPropertyDescriptor(target, property);
+    },
+    get(target, property, receiver) {
+      return Reflect.get(target, property, receiver);
+    }
+  }
+);
+handlers.get("tool_execution_start")({
+  toolCallId: "hot-path-tool",
+  toolName: "bash",
+  args: guardedToolInput
+}, ctx);
+handlerReturned = true;
+await handlers.get("session_shutdown")({ reason: "hot path test complete" }, ctx);
+if (projectedSynchronously) {
+  throw new Error("tool payload was traversed before the Pi event handler returned");
+}
+if (projectionCount !== 1) {
+  throw new Error(`expected one deferred payload projection, got ${projectionCount}`);
+}
+"""
+    projection = run_extension(
+        bun=bun,
+        root=root,
+        extension_path=extension_path,
+        fake_cmux=fake_cmux,
+        source=projection_source,
+        extra_env={},
+    )
+    if projection.returncode != 0:
+        print("FAIL: Pi tool-event hot path performed synchronous payload work")
+        print(f"exit={projection.returncode}")
+        print(f"stdout={projection.stdout.strip()}")
+        print(f"stderr={projection.stderr.strip()}")
+        return 1
+
+    package_root = (
+        root
+        / "hot-path-node-modules"
+        / "@earendil-works"
+        / "pi-coding-agent"
+    )
+    package_cli = package_root / "dist" / "cli.js"
+    package_cli.parent.mkdir(parents=True)
+    make_executable(package_cli, "#!/usr/bin/env node\n")
+    package_json = package_root / "package.json"
+    package_json.write_text(
+        json.dumps({"name": "@earendil-works/pi-coding-agent", "version": "0.83.0"}),
+        encoding="utf-8",
+    )
+    probe_bin = root / "hot-path-bin"
+    probe_bin.mkdir()
+    probe_pi = probe_bin / "pi"
+    probe_pi.symlink_to(package_cli)
+    inspectable_extension = root / "hot-path-cmux-session.ts"
+    inspectable_extension.write_text(
+        extension_path.read_text(encoding="utf-8")
+        + "\nexport { normalizedLaunchArgv, supportsAgentSettled };\n",
+        encoding="utf-8",
+    )
+    launch_probe_source = """
+import { unlinkSync } from "node:fs";
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+process.argv.splice(
+  0,
+  process.argv.length,
+  "/usr/bin/node",
+  process.env.CMUX_TEST_PI_PACKAGE_CLI
+);
+const firstArgv = mod.normalizedLaunchArgv();
+const firstSettled = mod.supportsAgentSettled();
+unlinkSync(process.env.CMUX_TEST_PI_BIN);
+unlinkSync(process.env.CMUX_TEST_PI_PACKAGE_JSON);
+const secondArgv = mod.normalizedLaunchArgv();
+const secondSettled = mod.supportsAgentSettled();
+if (
+  JSON.stringify(firstArgv) !== JSON.stringify(secondArgv)
+  || firstSettled !== true
+  || secondSettled !== true
+) {
+  throw new Error(JSON.stringify({ firstArgv, secondArgv, firstSettled, secondSettled }));
+}
+"""
+    launch_probe = run_extension(
+        bun=bun,
+        root=root,
+        extension_path=inspectable_extension,
+        fake_cmux=fake_cmux,
+        source=launch_probe_source,
+        extra_env={
+            "PATH": str(probe_bin),
+            "CMUX_TEST_PI_BIN": str(probe_pi),
+            "CMUX_TEST_PI_PACKAGE_CLI": str(package_cli),
+            "CMUX_TEST_PI_PACKAGE_JSON": str(package_json),
+        },
+    )
+    if launch_probe.returncode != 0:
+        print("FAIL: Pi extension repeated synchronous launch filesystem probes")
+        print(f"exit={launch_probe.returncode}")
+        print(f"stdout={launch_probe.stdout.strip()}")
+        print(f"stderr={launch_probe.stderr.strip()}")
+        return 1
+    return 0
+
+
 def check_completion_precedes_next_prompt(bun: str, root: Path, extension_path: Path) -> int:
     transition_log = root / "turn-transition.log"
     transition_cmux = root / "turn-transition-cmux"
@@ -2446,6 +2588,7 @@ def run_checks(bun: str, root: Path, extension_path: Path) -> int:
     checks = (
         check_responsiveness,
         check_ui_lifecycle_handlers_return_immediately,
+        check_hot_path_defers_projection_and_reuses_launch_probes,
         check_completion_precedes_next_prompt,
         check_cross_session_lifecycle_isolation,
         check_panel_only_target_fails_closed,

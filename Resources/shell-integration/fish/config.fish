@@ -289,6 +289,9 @@ if test "$_cmux_integration_enabled" != 0
         if test -n "$CMUX_PANEL_ID"
             set params "$params,\"surface_id\":\"$CMUX_PANEL_ID\""
         end
+        if test -n "$CMUX_TERMINAL_LIFECYCLE_ID"
+            set params "$params,\"terminal_lifecycle_id\":\"$CMUX_TERMINAL_LIFECYCLE_ID\""
+        end
         set params "$params}"
         _cmux_relay_rpc_bg surface.report_shell_state "$params"
     end
@@ -305,14 +308,26 @@ if test "$_cmux_integration_enabled" != 0
         _cmux_relay_rpc_bg surface.ports_kick "$params"
     end
 
-    function _cmux_path_prepend_unique_directory --argument-names directory
+    function _cmux_path_prepend_unique_directory --argument-names directory skipped_directory
         test -n "$directory"; or return 0
         set -l next_path "$directory"
         for entry in $PATH
             test "$entry" = "$directory"; and continue
+            test -n "$skipped_directory"; and test "$entry" = "$skipped_directory"; and continue
             set -a next_path "$entry"
         end
         set -gx PATH $next_path
+    end
+
+    function _cmux_fix_path
+        set -q CMUX_SHELL_INTEGRATION_DIR; and test -n "$CMUX_SHELL_INTEGRATION_DIR"; or return 0
+        set -l integration_dir (string trim -r -c / -- "$CMUX_SHELL_INTEGRATION_DIR")
+        string match -q '*/Resources/shell-integration' -- "$integration_dir"; or return 0
+        set -l resources_dir (string replace -r '/shell-integration$' '' -- "$integration_dir")
+        set -l gui_dir (string replace -r '/Resources$' '/MacOS' -- "$resources_dir")
+        set -l bin_dir "$resources_dir/bin"
+        test -d "$bin_dir"; or return 0
+        _cmux_path_prepend_unique_directory "$bin_dir" "$gui_dir"
     end
 
     function _cmux_install_cli_command_shim --argument-names command_name wrapper_path
@@ -447,7 +462,11 @@ if test "$_cmux_integration_enabled" != 0
         test "$_CMUX_SHELL_ACTIVITY_LAST" = "$state"; and return 0
         set -g _CMUX_SHELL_ACTIVITY_LAST "$state"
         if _cmux_socket_is_unix
-            _cmux_send_bg "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+            set -l payload "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+            if test -n "$CMUX_TERMINAL_LIFECYCLE_ID"
+                set payload "$payload --terminal-lifecycle-id=$CMUX_TERMINAL_LIFECYCLE_ID"
+            end
+            _cmux_send_bg "$payload"
         else
             _cmux_report_shell_activity_state_via_relay "$state"; or set -g _CMUX_SHELL_ACTIVITY_LAST ""
         end
@@ -533,3 +552,9 @@ if not set -q CMUX_FISH_USER_CONFIG_ALREADY_LOADED; and test -n "$_cmux_user_con
         source "$_cmux_user_config"
     end
 end
+
+# Run after the user's config so cmux's bundled commands keep precedence even
+# when shell startup replaced PATH. Remote integrations do not use the bundled
+# `shell-integration` layout, so the helper leaves their PATH unchanged.
+functions -q _cmux_fix_path; and _cmux_fix_path
+functions -e _cmux_fix_path

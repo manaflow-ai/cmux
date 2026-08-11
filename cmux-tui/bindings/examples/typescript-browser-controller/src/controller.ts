@@ -23,7 +23,7 @@ import {
   type SelectorInput,
   type SessionId,
   type WorkspaceId,
-} from "cmux/browser";
+} from "cmux-sdk/browser";
 
 export type BrowserTab = BrowserSnapshot;
 

@@ -12,8 +12,11 @@ import {
 } from "../iroh/trustBroker";
 import {
   CONNECTIVITY_PROTOCOL_VERSION,
+  SCOPED_CONNECTIVITY_PROTOCOL_VERSION,
   parseConnectivitySyncRequest,
+  parseScopedConnectivitySyncRequest,
 } from "./model";
+import { irohDiscoveryScopeJSON } from "../iroh/discoveryScope";
 
 export type ConnectivityDiscoverySnapshot = Readonly<Record<string, unknown>> & {
   readonly route_contract_version: 1;
@@ -26,6 +29,17 @@ export type ConnectivitySyncResponse = {
   readonly changed: boolean;
   readonly reset: boolean;
   readonly snapshot?: ConnectivityDiscoverySnapshot;
+  readonly snapshot_complete?: true;
+};
+
+export type ScopedConnectivitySyncResponse = {
+  readonly protocol_version: typeof SCOPED_CONNECTIVITY_PROTOCOL_VERSION;
+  readonly revision: number;
+  readonly changed: boolean;
+  readonly reset: boolean;
+  readonly discovery_scope: Readonly<Record<string, unknown>>;
+  readonly snapshot?: ConnectivityDiscoverySnapshot;
+  readonly snapshot_scope_complete?: true;
 };
 
 export type ConnectivityAuthorityShape = {
@@ -34,6 +48,11 @@ export type ConnectivityAuthorityShape = {
     raw: unknown,
     now?: Date,
   ) => Effect.Effect<ConnectivitySyncResponse, IrohExpectedError>;
+  readonly syncScoped: (
+    userId: string,
+    raw: unknown,
+    now?: Date,
+  ) => Effect.Effect<ScopedConnectivitySyncResponse, IrohExpectedError>;
 };
 
 export class ConnectivityAuthority extends Context.Tag("cmux/ConnectivityAuthority")<
@@ -42,7 +61,7 @@ export class ConnectivityAuthority extends Context.Tag("cmux/ConnectivityAuthori
 >() {}
 
 export function makeConnectivityAuthority(
-  broker: Pick<IrohTrustBrokerShape, "discover">,
+  broker: Pick<IrohTrustBrokerShape, "discoverComplete" | "discoverScoped">,
 ): ConnectivityAuthorityShape {
   return {
     sync: (userId, raw, now = new Date()) => Effect.gen(function* () {
@@ -50,14 +69,9 @@ export function makeConnectivityAuthority(
         try: () => parseConnectivitySyncRequest(raw),
         catch: (error) => error as IrohExpectedError,
       });
-      const rawSnapshot = yield* broker.discover(userId, now);
-      const snapshot = yield* Effect.try({
-        try: () => discoverySnapshot(rawSnapshot),
-        catch: (cause) => new IrohDatabaseError({
-          operation: "connectivity.sync.discovery",
-          cause,
-        }),
-      });
+      const snapshot = yield* parseDiscoverySnapshot(
+        yield* broker.discoverComplete(userId, now),
+      );
       const changed = request.known_revision !== snapshot.revision;
       return {
         protocol_version: CONNECTIVITY_PROTOCOL_VERSION,
@@ -65,10 +79,49 @@ export function makeConnectivityAuthority(
         changed,
         reset: request.known_revision !== null
           && request.known_revision > snapshot.revision,
-        ...(changed ? { snapshot } : {}),
+        ...(changed ? { snapshot, snapshot_complete: true as const } : {}),
+      };
+    }),
+    syncScoped: (userId, raw, now = new Date()) => Effect.gen(function* () {
+      const request = yield* Effect.try({
+        try: () => parseScopedConnectivitySyncRequest(raw),
+        catch: (error) => error as IrohExpectedError,
+      });
+      const snapshot = yield* parseDiscoverySnapshot(
+        yield* broker.discoverScoped(userId, request.discovery_scope, now),
+      );
+      const changed = request.known_revision !== snapshot.revision;
+      return {
+        protocol_version: SCOPED_CONNECTIVITY_PROTOCOL_VERSION,
+        revision: snapshot.revision,
+        changed,
+        reset: request.known_revision !== null
+          && request.known_revision > snapshot.revision,
+        discovery_scope: irohDiscoveryScopeJSON(request.discovery_scope),
+        ...(changed
+          ? { snapshot, snapshot_scope_complete: true as const }
+          : {}),
       };
     }),
   };
+}
+
+function parseDiscoverySnapshot(
+  value: unknown,
+): Effect.Effect<ConnectivityDiscoverySnapshot, IrohDatabaseError> {
+  return Effect.try({
+    try: () => {
+      const snapshot = discoverySnapshot(value);
+      if (!Array.isArray(snapshot.bindings)) {
+        throw new Error("invalid internal discovery snapshot");
+      }
+      return snapshot;
+    },
+    catch: (cause) => new IrohDatabaseError({
+      operation: "connectivity.sync.discovery",
+      cause,
+    }),
+  });
 }
 
 function discoverySnapshot(value: unknown): ConnectivityDiscoverySnapshot {

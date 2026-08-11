@@ -381,6 +381,8 @@ function broker(overrides: Partial<IrohTrustBrokerShape> = {}): IrohTrustBrokerS
     issueChallenge: unavailable,
     register: unavailable,
     discover: unavailable,
+    discoverComplete: unavailable,
+    discoverScoped: unavailable,
     issueEndpointAttestation: unavailable,
     revoke: unavailable,
     issuePairGrant: unavailable,

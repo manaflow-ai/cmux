@@ -12,21 +12,20 @@ extension SessionRestorableAgentSnapshot {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: SnapshotCodingKeys.self)
-        var kind = try container.decode(RestorableAgentKind.self, forKey: .kind)
+        let persistedKind = try container.decode(String.self, forKey: .kind)
         let registration = try container.decodeIfPresent(
-            CmuxVaultAgentRegistration.self,
+            SessionPersistedVaultAgentRegistration.self,
             forKey: .registration
-        )?.migratedPersistedBuiltInRegistration
-        // Registry-detected snapshots persist `.custom(id)`, whose raw string
-        // collapses to the native case on decode when the id matches a
-        // built-in raw value. Restore the write-side identity whenever that
-        // collapse would change command semantics (registry-owned Pi/Kimi or
-        // relaunch-only natives such as Ollama), so the stored registration
-        // keeps owning resume and fork behavior.
-        if (kind.restoreMode == .relaunchCommand || kind == .pi || kind == .kimi),
-           let registration,
-           registration.id == kind.rawValue {
-            kind = .custom(registration.id)
+        )?.registration
+        guard let kind = RestorableAgentKind(
+            persistedRawValue: persistedKind,
+            registration: registration
+        ) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .kind,
+                in: container,
+                debugDescription: "Invalid restorable agent kind '\(persistedKind)'"
+            )
         }
         self.init(
             kind: kind,

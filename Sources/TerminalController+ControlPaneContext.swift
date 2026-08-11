@@ -15,6 +15,10 @@ extension TerminalController: ControlPaneContext {
         String(localized: "socket.pane.resize.invalidParameters", defaultValue: "Invalid pane resize parameters")
     }
 
+    func controlPaneSurfaceNotFoundMessage() -> String {
+        String(localized: "socket.pane.error.surfaceNotFound", defaultValue: "Surface not found")
+    }
+
     // MARK: - Routing helpers
 
     /// The routing twin of the legacy `v2ResolveWorkspace(params:tabManager:)`,
@@ -94,7 +98,9 @@ extension TerminalController: ControlPaneContext {
             guard let paneId = dock.bonsplitController.allPaneIds.first(where: { $0.id == paneID }) else {
                 return .paneNotFound(paneID)
             }
-            focusAndRevealWindowDock(for: dock, fallback: tabManager)
+            guard focusAndRevealWindowDock(for: dock, fallback: tabManager) else {
+                return .dockUnavailable(message: dockFocusUnavailableMessage())
+            }
             dock.bonsplitController.focusPane(paneId)
             return .focused(windowID: dockResultWindowId(for: dock, tabManager: tabManager), workspaceID: dock.workspaceId, paneID: paneId.id)
         }
