@@ -487,6 +487,42 @@ mod tests {
         }
     }
 
+    struct TransportCloseStream;
+
+    impl Read for TransportCloseStream {
+        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+            Err(io::Error::other("transport closed after shutdown acknowledgement"))
+        }
+    }
+
+    impl Write for TransportCloseStream {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl transport::Stream for TransportCloseStream {
+        fn try_clone_box(&self) -> io::Result<Box<dyn transport::Stream>> {
+            Ok(Box::new(Self))
+        }
+
+        fn set_read_timeout(&self, _: Option<Duration>) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn set_write_timeout(&self, _: Option<Duration>) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn shutdown(&self, _: Shutdown) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
     #[test]
     fn expired_deadline_fails_before_reading_another_frame() {
         let stream: Box<dyn transport::Stream> = Box::new(UnreadableStream);
@@ -515,6 +551,14 @@ mod tests {
         assert!(read_timeout <= requested);
         assert!(!write_timeout.is_zero());
         assert!(write_timeout <= requested);
+    }
+
+    #[test]
+    fn stop_accepts_transport_close_after_shutdown_acknowledgement() {
+        let stream: Box<dyn transport::Stream> = Box::new(TransportCloseStream);
+        let mut connection = BufReader::new(stream);
+
+        assert!(wait_for_close(&mut connection, Instant::now() + Duration::from_secs(1)).is_ok());
     }
 
     #[test]
