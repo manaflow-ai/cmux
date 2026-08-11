@@ -1,16 +1,12 @@
 use std::fs;
-#[cfg(any(target_os = "linux", target_vendor = "apple"))]
-use std::fs::{File, OpenOptions};
 #[cfg(unix)]
 use std::io::{BufRead, BufReader, Read, Write};
 #[cfg(any(target_os = "linux", target_vendor = "apple"))]
 use std::os::fd::AsRawFd;
-#[cfg(any(target_os = "linux", target_vendor = "apple"))]
-use std::os::unix::ffi::OsStrExt;
 #[cfg(unix)]
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::PermissionsExt;
 #[cfg(unix)]
-use std::os::unix::net::UnixListener;
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::mpsc;
@@ -33,6 +29,19 @@ impl HeadlessServer {
     }
 
     fn start_with_config(name: &str, config_contents: Option<&str>) -> Self {
+        Self::start_with_config_and_env(name, config_contents, std::iter::empty::<(&str, &str)>())
+    }
+
+    fn start_with_config_and_env<I, K, V>(
+        name: &str,
+        config_contents: Option<&str>,
+        extra_env: I,
+    ) -> Self
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: AsRef<std::ffi::OsStr>,
+        V: AsRef<std::ffi::OsStr>,
+    {
         let dir = unique_temp_dir(name);
         fs::create_dir_all(&dir).unwrap();
         let socket = dir.join("mux.sock");
@@ -44,16 +53,17 @@ impl HeadlessServer {
         if let Some(contents) = config_contents {
             fs::write(&config, contents).unwrap();
         }
-        let child = Command::new(bin())
+        let mut command = Command::new(bin());
+        command
             .args(["--headless", "--socket"])
             .arg(&socket)
             .arg("--state")
             .arg(&state)
             .env("CMUX_TUI_CONFIG", &config)
+            .envs(extra_env)
             .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
+            .stderr(Stdio::piped());
+        let child = command.spawn().unwrap();
         let server = Self { child, socket, state, dir };
         server.wait_for_socket();
         server
@@ -177,18 +187,26 @@ fn wait_for_child_exit(child: &mut Child, timeout: Duration) -> bool {
 }
 
 #[cfg(any(target_os = "linux", target_vendor = "apple"))]
+const FIXTURE_FAILURE_CLEANUP: Duration = Duration::from_secs(2);
+
+#[cfg(any(target_os = "linux", target_vendor = "apple"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum FixtureProcessState {
     Captured,
     GracefulExit,
+    AbortRequested,
     ExitPublished,
 }
 
 #[cfg(any(target_os = "linux", target_vendor = "apple"))]
 struct FixtureProcessOwner {
-    lease_reader: File,
-    lease_guard: Option<File>,
+    lease_listener: Option<UnixListener>,
+    abort_listener: Option<UnixListener>,
+    lease: Option<UnixStream>,
+    abort: Option<UnixStream>,
     lease_dir: PathBuf,
+    lease_path: PathBuf,
+    abort_path: PathBuf,
     ready: bool,
     durable_records:
         Vec<(std::path::PathBuf, cmux_tui_core::terminal_host_runtime::TerminalHostRecord)>,
@@ -200,46 +218,39 @@ impl FixtureProcessOwner {
     fn prepare(name: &str) -> std::io::Result<Self> {
         let lease_dir = unique_temp_dir(name);
         fs::create_dir_all(&lease_dir)?;
-        let lease_path = lease_dir.join("process-group.lease");
-        let lease_path_bytes = std::ffi::CString::new(lease_path.as_os_str().as_bytes())
-            .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
-        // SAFETY: lease_path_bytes is a valid NUL-terminated path, and this
-        // fixture owns the new private directory that contains it.
-        if unsafe { libc::mkfifo(lease_path_bytes.as_ptr(), 0o600) } != 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        let lease_reader =
-            OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK).open(&lease_path)?;
-        // Keep one test-owned writer open until the real process group writes
-        // its ready byte. This prevents a premature FIFO EOF before exec.
-        let lease_guard = OpenOptions::new().write(true).open(&lease_path)?;
+        let lease_path = lease_dir.join("group-lease.sock");
+        let abort_path = lease_dir.join("abort.sock");
+        let lease_listener = UnixListener::bind(&lease_path)?;
+        let abort_listener = UnixListener::bind(&abort_path)?;
 
         Ok(Self {
-            lease_reader,
-            lease_guard: Some(lease_guard),
+            lease_listener: Some(lease_listener),
+            abort_listener: Some(abort_listener),
+            lease: None,
+            abort: None,
             lease_dir,
+            lease_path,
+            abort_path,
             ready: false,
             durable_records: Vec::new(),
             state: FixtureProcessState::Captured,
         })
     }
 
-    fn lease_path(&self) -> PathBuf {
-        self.lease_dir.join("process-group.lease")
+    fn fixture_command(&self) -> std::io::Result<Vec<String>> {
+        Ok(vec![
+            std::env::current_exe()?.to_string_lossy().into_owned(),
+            "--ignored".to_string(),
+            "--exact".to_string(),
+            "sidebar_fixture_process_supervisor".to_string(),
+            "--nocapture".to_string(),
+        ])
     }
 
-    fn fixture_command(&self) -> Vec<String> {
-        vec![
-            "/bin/sh".to_string(),
-            "-c".to_string(),
-            concat!(
-                "exec 9>\"$1\" || exit 125; ",
-                "printf 'ready\\n' >&9 || exit 125; ",
-                "/bin/cat & child=$!; wait \"$child\""
-            )
-            .to_string(),
-            "cmux-sidebar-fixture".to_string(),
-            self.lease_path().to_string_lossy().into_owned(),
+    fn fixture_environment(&self) -> [(&'static str, &std::ffi::OsStr); 2] {
+        [
+            ("CMUX_TUI_TEST_GROUP_LEASE", self.lease_path.as_os_str()),
+            ("CMUX_TUI_TEST_GROUP_ABORT", self.abort_path.as_os_str()),
         ]
     }
 
@@ -252,11 +263,21 @@ impl FixtureProcessOwner {
         deadline: Instant,
     ) -> anyhow::Result<()> {
         self.durable_records = durable_records;
+        let lease_listener = self
+            .lease_listener
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("fixture lease listener was already consumed"))?;
+        let abort_listener = self
+            .abort_listener
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("fixture abort listener was already consumed"))?;
+        self.lease = Some(Self::accept_until(&lease_listener, deadline)?);
+        self.abort = Some(Self::accept_until(&abort_listener, deadline)?);
+        self.lease.as_ref().unwrap().set_nonblocking(true)?;
         anyhow::ensure!(
             self.wait_for_ready(deadline)?,
-            "fixture process group did not publish its lease"
+            "fixture supervisor did not publish its process-group lease"
         );
-        self.lease_guard.take();
         Ok(())
     }
 
@@ -291,10 +312,27 @@ impl FixtureProcessOwner {
 
     fn wait_for_ready(&mut self, deadline: Instant) -> std::io::Result<bool> {
         let mut bytes = Vec::new();
-        while self.wait_for_lease_event(deadline)? {
+        while Self::wait_for_fd(
+            self.lease
+                .as_ref()
+                .ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::NotConnected,
+                        "fixture lease is not connected",
+                    )
+                })?
+                .as_raw_fd(),
+            libc::POLLIN | libc::POLLHUP,
+            deadline,
+        )? {
             let mut buffer = [0_u8; 32];
-            match self.lease_reader.read(&mut buffer) {
-                Ok(0) => continue,
+            match self.lease.as_mut().unwrap().read(&mut buffer) {
+                Ok(0) => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::UnexpectedEof,
+                        "fixture supervisor exited before lease publication",
+                    ));
+                }
                 Ok(count) => {
                     bytes.extend_from_slice(&buffer[..count]);
                     if bytes.windows(b"ready\n".len()).any(|window| window == b"ready\n") {
@@ -316,9 +354,16 @@ impl FixtureProcessOwner {
                 "fixture process-group lease was not armed",
             ));
         }
-        while self.wait_for_lease_event(deadline)? {
+        self.wait_for_lease_eof(deadline)
+    }
+
+    fn wait_for_lease_eof(&mut self, deadline: Instant) -> std::io::Result<bool> {
+        let Some(descriptor) = self.lease.as_ref().map(|lease| lease.as_raw_fd()) else {
+            return Ok(true);
+        };
+        while Self::wait_for_fd(descriptor, libc::POLLIN | libc::POLLHUP, deadline)? {
             let mut buffer = [0_u8; 32];
-            match self.lease_reader.read(&mut buffer) {
+            match self.lease.as_mut().unwrap().read(&mut buffer) {
                 Ok(0) => return Ok(true),
                 Ok(_) => {}
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
@@ -328,24 +373,67 @@ impl FixtureProcessOwner {
         Ok(false)
     }
 
-    fn wait_for_lease_event(&self, deadline: Instant) -> std::io::Result<bool> {
-        let mut descriptor = libc::pollfd {
-            fd: self.lease_reader.as_raw_fd(),
-            events: libc::POLLIN | libc::POLLHUP,
-            revents: 0,
-        };
+    fn request_abort_and_wait(&mut self, deadline: Instant) -> std::io::Result<bool> {
+        if self.state == FixtureProcessState::ExitPublished {
+            return Ok(true);
+        }
+        self.state = FixtureProcessState::AbortRequested;
+        if let Some(mut abort) = self.abort.take() {
+            let _ = abort.write_all(b"abort\n");
+            let _ = abort.shutdown(std::net::Shutdown::Write);
+        }
+        if self.wait_for_lease_eof(deadline)? {
+            self.state = FixtureProcessState::ExitPublished;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    fn accept_until(listener: &UnixListener, deadline: Instant) -> std::io::Result<UnixStream> {
+        listener.set_nonblocking(true)?;
+        loop {
+            if !Self::wait_for_fd(listener.as_raw_fd(), libc::POLLIN, deadline)? {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "fixture supervisor did not connect before deadline",
+                ));
+            }
+            match listener.accept() {
+                Ok((stream, _)) => return Ok(stream),
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::Interrupted | std::io::ErrorKind::WouldBlock
+                    ) => {}
+                Err(error) => return Err(error),
+            }
+        }
+    }
+
+    fn wait_for_fd(
+        descriptor: std::os::fd::RawFd,
+        events: libc::c_short,
+        deadline: Instant,
+    ) -> std::io::Result<bool> {
+        let mut descriptor = libc::pollfd { fd: descriptor, events, revents: 0 };
         loop {
             let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Ok(false);
+            }
             let timeout_ms = remaining.as_millis().min(libc::c_int::MAX as u128) as libc::c_int;
             let ready = unsafe { libc::poll(&raw mut descriptor, 1, timeout_ms) };
             if ready > 0 {
-                if descriptor.revents & libc::POLLNVAL != 0 {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::InvalidInput,
-                        "fixture process-group lease became invalid",
-                    ));
+                if descriptor.revents & events != 0 {
+                    return Ok(true);
                 }
-                return Ok(true);
+                if descriptor.revents & (libc::POLLERR | libc::POLLNVAL) != 0 {
+                    return Err(std::io::Error::other(format!(
+                        "fixture supervisor descriptor failed with events {:#x}",
+                        descriptor.revents
+                    )));
+                }
+                continue;
             }
             if ready == 0 {
                 return Ok(false);
@@ -361,7 +449,18 @@ impl FixtureProcessOwner {
 #[cfg(any(target_os = "linux", target_vendor = "apple"))]
 impl Drop for FixtureProcessOwner {
     fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.lease_dir);
+        let cleanup_complete = self.state == FixtureProcessState::ExitPublished
+            || self
+                .request_abort_and_wait(Instant::now() + FIXTURE_FAILURE_CLEANUP)
+                .unwrap_or(false);
+        if cleanup_complete {
+            let _ = fs::remove_dir_all(&self.lease_dir);
+        } else {
+            eprintln!(
+                "fixture supervisor did not publish process-group EOF; retained {}",
+                self.lease_dir.display()
+            );
+        }
     }
 }
 
@@ -1228,6 +1327,54 @@ fn explicit_attach_registers_a_full_session_tui_client() {
 }
 
 #[cfg(any(target_os = "linux", target_vendor = "apple"))]
+fn clear_close_on_exec(descriptor: std::os::fd::RawFd) -> std::io::Result<()> {
+    // SAFETY: descriptor is the live lease socket owned by this supervisor.
+    let flags = unsafe { libc::fcntl(descriptor, libc::F_GETFD) };
+    if flags < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: F_SETFD changes only the close-on-exec flag on the same live
+    // lease descriptor so each exact child inherits the kernel-owned proof.
+    if unsafe { libc::fcntl(descriptor, libc::F_SETFD, flags & !libc::FD_CLOEXEC) } < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+#[cfg(any(target_os = "linux", target_vendor = "apple"))]
+#[test]
+#[ignore = "launched as the server-owned sidebar fixture supervisor"]
+fn sidebar_fixture_process_supervisor() {
+    let Some(lease_path) = std::env::var_os("CMUX_TUI_TEST_GROUP_LEASE") else {
+        return;
+    };
+    let Some(abort_path) = std::env::var_os("CMUX_TUI_TEST_GROUP_ABORT") else {
+        return;
+    };
+
+    let mut lease = UnixStream::connect(lease_path).expect("connect fixture group lease");
+    let mut abort = UnixStream::connect(abort_path).expect("connect fixture abort channel");
+    clear_close_on_exec(lease.as_raw_fd()).expect("make fixture group lease inheritable");
+
+    // The supervisor is the single test-only owner for every fixture member.
+    // All members inherit the same lease, and only this owner can end and reap
+    // them after an abort request.
+    let mut members = vec![Command::new("/bin/cat").spawn().expect("start fixture member")];
+    lease.write_all(b"ready\n").expect("publish fixture group lease");
+
+    let mut request = [0_u8; 1];
+    let _ = abort.read(&mut request);
+    for member in &mut members {
+        // The exact Child handle retains ownership even when exit races this
+        // abort request. wait below is the single authoritative reap.
+        let _ = member.kill();
+    }
+    for mut member in members {
+        member.wait().expect("reap fixture member after abort");
+    }
+}
+
+#[cfg(any(target_os = "linux", target_vendor = "apple"))]
 #[test]
 fn graceful_shutdown_stops_server_owned_sidebar_process() {
     let mut process_owner =
@@ -1235,12 +1382,16 @@ fn graceful_shutdown_stops_server_owned_sidebar_process() {
     let config = serde_json::json!({
         "sidebar": {
             "plugin": {
-                "command": process_owner.fixture_command(),
+                "command": process_owner.fixture_command().expect("locate fixture supervisor"),
             }
         }
     })
     .to_string();
-    let mut server = HeadlessServer::start_with_config("sidebar-host-shutdown", Some(&config));
+    let mut server = HeadlessServer::start_with_config_and_env(
+        "sidebar-host-shutdown",
+        Some(&config),
+        process_owner.fixture_environment(),
+    );
     let sidebar = try_json_socket_request(
         &server.socket,
         serde_json::json!({
