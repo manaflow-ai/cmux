@@ -1296,6 +1296,7 @@ struct DockRuntimeParityTests {
             #expect(appDelegate.tabManager === primaryManager)
             #expect(appDelegate.dockReferenceTabManager(for: dock) === secondaryManager)
 
+            await waitForLiveSurface(terminal.surface)
             let event = try #require(NSEvent.keyEvent(
                 with: .keyDown,
                 location: .zero,
@@ -1303,10 +1304,10 @@ struct DockRuntimeParityTests {
                 timestamp: ProcessInfo.processInfo.systemUptime,
                 windowNumber: 0,
                 context: nil,
-                characters: "",
-                charactersIgnoringModifiers: "",
+                characters: "a",
+                charactersIgnoringModifiers: "a",
                 isARepeat: false,
-                keyCode: 122
+                keyCode: 0
             ))
             terminal.hostedView.surfaceView.keyDown(with: event)
 
