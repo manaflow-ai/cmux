@@ -20894,11 +20894,27 @@ mod tests {
     #[test]
     fn closing_a_view_preserves_terminal_side_tables_until_explicit_close() {
         let mux = test_mux();
-        let first = mux.new_workspace(None, None).unwrap();
+        let created = public_request(
+            &mux,
+            "create-detached-terminal",
+            "workspace.create",
+            serde_json::json!({
+                "machine":"current",
+                "session":"current",
+                "initial_content":"terminal",
+            }),
+            Some("create-detached-terminal"),
+        );
+        let terminal_id = TerminalPublicId::parse(
+            created["result"]["value"]["terminal_id"].as_str().unwrap(),
+        )
+        .unwrap();
+        let first = mux
+            .surface(mux.resource_surface_for_terminal(&terminal_id).unwrap())
+            .unwrap();
         let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
         // A second tab keeps the pane live after the terminal view detaches.
         let second = mux.new_tab(Some(pane), None, None).unwrap();
-        let terminal_id = first.terminal_public_id().cloned().unwrap();
 
         mux.report_agent(
             first.id,
