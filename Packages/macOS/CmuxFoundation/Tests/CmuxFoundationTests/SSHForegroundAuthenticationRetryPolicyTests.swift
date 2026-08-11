@@ -2351,6 +2351,77 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func unpublishedCleanupFreezesRootBeforePublisherSetup(
+        shellPath: String
+    ) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-ssh-auth-unpublished-prefreeze-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let groupDirectory = root.appendingPathComponent(
+            "cmux-ssh-auth-group.preallocated",
+            isDirectory: true
+        )
+        let leafPIDFile = root.appendingPathComponent("leaf-pid")
+        let releaseFile = root.appendingPathComponent("release")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        (
+          trap '' HUP INT TERM
+          ( trap '' HUP INT TERM; while :; do /bin/sleep 30; done ) &
+          printf '%s\n' "$!" > "$CMUX_TEST_LEAF_PID"
+          while [ ! -e "$CMUX_TEST_RELEASE" ]; do /bin/sleep 0.01; done
+        ) &
+        cmux_test_root_pid=$!
+        trap '/bin/kill -KILL "$cmux_test_root_pid" >/dev/null 2>&1 || true; if [ -s "$CMUX_TEST_LEAF_PID" ]; then /bin/kill -KILL "$(/bin/cat "$CMUX_TEST_LEAF_PID")" >/dev/null 2>&1 || true; fi' EXIT
+        cmux_test_ready_attempt=0
+        while [ ! -s "$CMUX_TEST_LEAF_PID" ] && [ "$cmux_test_ready_attempt" -lt 300 ]; do
+          /bin/sleep 0.01
+          cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
+        done
+        test -s "$CMUX_TEST_LEAF_PID" || exit 99
+        cmux_test_root_identity=$(cmux_ssh_auth_identity "$cmux_test_root_pid") || exit 98
+        cmux_test_root_parent=${cmux_test_root_identity%%|*}
+        cmux_test_root_remainder=${cmux_test_root_identity#*|}
+        cmux_test_root_group=${cmux_test_root_remainder%%|*}
+        cmux_test_root_started=${cmux_test_root_remainder#*|}
+        cmux_ssh_auth_publish_current_worker() {
+          : > "$CMUX_TEST_RELEASE"
+          return 0
+        }
+        CMUX_SSH_AUTH_GROUP_DIR="$CMUX_TEST_GROUP_DIR"
+        export CMUX_SSH_AUTH_GROUP_DIR
+        cmux_ssh_terminate_unpublished_auth_process_tree \
+          "$cmux_test_root_pid" "$cmux_test_root_parent" \
+          "$cmux_test_root_group" "$cmux_test_root_started" || exit 97
+        wait "$cmux_test_root_pid" 2>/dev/null || true
+        cmux_test_leaf_state=$(/usr/bin/env LC_ALL=C LANG=C /bin/ps -o state= \
+          -p "$(/bin/cat "$CMUX_TEST_LEAF_PID")" 2>/dev/null | \
+          /usr/bin/tr -d '[:space:]')
+        case "$cmux_test_leaf_state" in ''|Z*) ;; *) exit 96 ;; esac
+        trap - EXIT
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_TEST_GROUP_DIR": groupDirectory.path,
+                "CMUX_TEST_LEAF_PID": leafPIDFile.path,
+                "CMUX_TEST_RELEASE": releaseFile.path,
+                "TMPDIR": root.path,
+            ],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
     func unpublishedCleanupUsesPreallocatedDurableGroupWhenAllocationFails(
         shellPath: String
     ) throws {
@@ -4698,6 +4769,45 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         """
 
         let result = try runShellCommand(command, environment: ["TMPDIR": root.path])
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func liveReaperLockOwnerSurvivesTransientIdentityReadFailure(
+        shellPath: String
+    ) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-ssh-auth-live-unreadable-lock-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        let lockDirectory = root.appendingPathComponent("reaper.lock", isDirectory: true)
+        try fileManager.createDirectory(at: lockDirectory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        ( trap '' HUP INT TERM; while :; do /bin/sleep 30; done ) &
+        cmux_test_owner_pid=$!
+        trap '/bin/kill -KILL "$cmux_test_owner_pid" >/dev/null 2>&1 || true' EXIT
+        printf '%s|1|K_unreadable\n' "$cmux_test_owner_pid" \
+          > "$CMUX_TEST_LOCK/owner" || exit 99
+        cmux_ssh_auth_stable_identity() { return 1; }
+        if cmux_ssh_auth_reclaim_stale_reaper_lock "$CMUX_TEST_LOCK"; then exit 98; fi
+        test -d "$CMUX_TEST_LOCK" || exit 97
+        test -s "$CMUX_TEST_LOCK/owner" || exit 96
+        /bin/kill -KILL "$cmux_test_owner_pid" >/dev/null 2>&1 || exit 95
+        wait "$cmux_test_owner_pid" 2>/dev/null || true
+        trap - EXIT
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: ["CMUX_TEST_LOCK": lockDirectory.path],
+            shellPath: shellPath
+        )
 
         #expect(result.status == 0, "Shell failed: \(result.standardError)")
     }
