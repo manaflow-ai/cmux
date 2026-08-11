@@ -2094,7 +2094,7 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
 /// Workspace represents a sidebar tab.
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
 @MainActor
-final class Workspace: Identifiable, ObservableObject {
+final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHost {
     enum BrowserPanelCreationPolicy {
         case userInitiated
         case automationPreload
@@ -4280,41 +4280,24 @@ final class Workspace: Identifiable, ObservableObject {
         panelSubscriptions[markdownPanel.id] = subscription
     }
 
-    private func installFilePreviewPanelSubscription(_ filePreviewPanel: FilePreviewPanel) {
-        let titleAndDirty = Publishers.CombineLatest(
-            filePreviewPanel.$displayTitle.removeDuplicates(),
-            filePreviewPanel.$isDirty.removeDuplicates()
-        )
-        let subscription = Publishers.CombineLatest(
-            titleAndDirty,
-            filePreviewPanel.$displayIcon.removeDuplicates()
-        )
-        .receive(on: DispatchQueue.main)
-        .sink { [weak self, weak filePreviewPanel] titleAndDirty, displayIcon in
-            guard let self,
-                  let filePreviewPanel,
-                  let tabId = self.surfaceIdFromPanelId(filePreviewPanel.id) else { return }
-            let (newTitle, isDirty) = titleAndDirty
-            guard let existing = self.bonsplitController.tab(tabId) else { return }
+    /// Resolves the workspace tab currently owned by a file-preview panel.
+    func filePreviewTabId(forPanelId panelId: UUID) -> TabID? {
+        surfaceIdFromPanelId(panelId)
+    }
 
-            if self.panelTitles[filePreviewPanel.id] != newTitle {
-                self.panelTitles[filePreviewPanel.id] = newTitle
-            }
-            let resolvedTitle = self.resolvedPanelTitle(panelId: filePreviewPanel.id, fallback: newTitle)
-            let resolvedIcon = RenderableSystemSymbol.resolvedSurfaceTabIcon(displayIcon)
-            let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
-            let iconUpdate: String?? = existing.icon == resolvedIcon ? nil : .some(resolvedIcon)
-            let dirtyUpdate: Bool? = existing.isDirty == isDirty ? nil : isDirty
-            guard titleUpdate != nil || iconUpdate != nil || dirtyUpdate != nil else { return }
-            self.bonsplitController.updateTab(
-                tabId,
-                title: titleUpdate,
-                icon: iconUpdate,
-                hasCustomTitle: self.panelCustomTitles[filePreviewPanel.id] != nil,
-                isDirty: dirtyUpdate
-            )
+    /// Preserves workspace custom-title policy while refreshing panel metadata.
+    func filePreviewTabTitlePresentation(
+        for metadata: FilePreviewTabMetadata,
+        panelId: UUID,
+        existingTab _: Bonsplit.Tab
+    ) -> (title: String?, hasCustomTitle: Bool?) {
+        if panelTitles[panelId] != metadata.title {
+            panelTitles[panelId] = metadata.title
         }
-        panelSubscriptions[filePreviewPanel.id] = subscription
+        return (
+            resolvedPanelTitle(panelId: panelId, fallback: metadata.title),
+            panelCustomTitles[panelId] != nil
+        )
     }
 
     private func installAgentSessionPanelSubscription(_ agentPanel: AgentSessionPanel) {
@@ -9139,7 +9122,7 @@ final class Workspace: Identifiable, ObservableObject {
             )
         }
 
-        installFilePreviewPanelSubscription(filePreviewPanel)
+        filePreviewPanel.bindTabMetadata(to: self)
         return filePreviewPanel
     }
 
@@ -9323,7 +9306,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         bonsplitController.selectTab(newTab.id)
         filePreviewPanel.focus()
-        installFilePreviewPanelSubscription(filePreviewPanel)
+        filePreviewPanel.bindTabMetadata(to: self)
         return filePreviewPanel
     }
 
@@ -9864,6 +9847,8 @@ final class Workspace: Identifiable, ObservableObject {
             )
             configureBrowserPanel(browserPanel)
             installBrowserPanelSubscription(browserPanel)
+        } else if let filePreviewPanel = detached.panel as? FilePreviewPanel {
+            filePreviewPanel.updateWorkspaceId(id)
         } else if let rightSidebarToolPanel = detached.panel as? RightSidebarToolPanel {
             rightSidebarToolPanel.reattach(to: self)
         } else if let customSidebarPanel = detached.panel as? CustomSidebarPanel {
@@ -9897,9 +9882,8 @@ final class Workspace: Identifiable, ObservableObject {
            panelSubscriptions[markdownPanel.id] == nil {
             installMarkdownPanelSubscription(markdownPanel)
         }
-        if let filePreviewPanel = detached.panel as? FilePreviewPanel,
-           panelSubscriptions[filePreviewPanel.id] == nil {
-            installFilePreviewPanelSubscription(filePreviewPanel)
+        if let filePreviewPanel = detached.panel as? FilePreviewPanel {
+            filePreviewPanel.bindTabMetadata(to: self)
         }
         if let agentPanel = detached.panel as? AgentSessionPanel {
             agentPanel.updateWorkspaceId(id)
