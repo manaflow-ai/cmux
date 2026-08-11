@@ -19,41 +19,6 @@ private struct MobileTaskModelRequestContext {
 }
 
 extension MobileShellComposite {
-    #if DEBUG
-    public func taskModelConnectionDebugDescription(
-        macDeviceID: String,
-        instanceTag: String?
-    ) -> String {
-        let context = captureTaskModelRequestContext(
-            macDeviceID: macDeviceID,
-            instanceTag: instanceTag
-        )
-        let owner: String
-        switch context?.owner {
-        case .foreground(let generation):
-            owner = "foreground:\(generation.uuidString.prefix(8))"
-        case .focused(let ownerKey, let generation):
-            owner = "focused:\(ownerKey.pairingID):\(generation.uuidString.prefix(8))"
-        case .control(let ownerKey, _):
-            owner = "control:\(ownerKey.pairingID)"
-        case nil:
-            owner = "none"
-        }
-        return [
-            "requested=\(macDeviceID)#\(instanceTag ?? "-")",
-            "foreground=\(foregroundMacDeviceID ?? "-")#\(activeMacInstanceTag ?? "-")",
-            "connected=\(connectedMacDeviceID ?? "-")#\(connectedMacInstanceTag ?? "-")",
-            "state=\(String(describing: connectionState))",
-            "remote=\(remoteClient != nil)",
-            "matches=\(matchesForegroundPairing(macDeviceID: macDeviceID, instanceTag: instanceTag))",
-            "focused=\(focusedConnectionMatching(macDeviceID: macDeviceID, instanceTag: instanceTag) != nil)",
-            "control=\(controlSubscriptionMatching(macDeviceID: macDeviceID, instanceTag: instanceTag) != nil)",
-            "owner=\(owner)",
-            "identity=\(context?.client.instanceID ?? "-")",
-        ].joined(separator: ";")
-    }
-    #endif
-
     /// Identity of the live read connection currently serving one paired Mac.
     ///
     /// The identity stays stable when the same client moves between focused

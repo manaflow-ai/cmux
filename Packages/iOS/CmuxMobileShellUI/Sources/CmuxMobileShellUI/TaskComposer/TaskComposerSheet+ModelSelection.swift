@@ -32,7 +32,7 @@ extension TaskComposerSheet {
 
     var selectedModel: MobileTaskAgentModel? {
         guard let selectedModelID else { return nil }
-        return availableModels.first { $0.id == selectedModelID }
+        return modelAvailability.selectedModel(id: selectedModelID)
     }
 
     func validatedModelID(

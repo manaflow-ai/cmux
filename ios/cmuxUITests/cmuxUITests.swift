@@ -3056,7 +3056,6 @@ final class cmuxUITests: XCTestCase {
         // Enable New Task explicitly because this focused test owns that entrypoint.
         let hostApp = try launchConnectedApp(
             port: port,
-            environment: ["CMUX_UITEST_TASK_MODEL_DIAGNOSTICS": "1"],
             launchArguments: ["-cmux.mobile.taskComposerEnabled", "YES"]
         )
         let backButton = hostApp.buttons["MobileWorkspaceBackButton"]
@@ -3080,18 +3079,10 @@ final class cmuxUITests: XCTestCase {
             timeout: 5
         ) else {
             let requests = await server.requestDescription()
-            let diagnostics = hostApp.staticTexts[
-                "MobileTaskComposerModelDiagnostics"
-            ]
-            let diagnosticDescription = diagnostics.exists
-                ? diagnostics.label
-                : "missing"
             XCTFail(
                 "Opening the production composer must request the selected "
                     + "provider from the connected host. Requests: "
                     + requests
-                    + ". Diagnostics: "
-                    + diagnosticDescription
             )
             hostApp.terminate()
             server.stop()
@@ -6346,15 +6337,14 @@ final class cmuxUITests: XCTestCase {
     private func launchConnectedApp(
         port: UInt16,
         assertStatusRows: Bool = true,
-        environment: [String: String] = [:],
         launchArguments: [String] = []
     ) throws -> XCUIApplication {
         let attachURL = try attachURL(port: port)
-        var launchEnvironment = environment
-        launchEnvironment["CMUX_UITEST_ATTACH_URL"] = attachURL.absoluteString
         let app = launchApp(
             mockData: true,
-            environment: launchEnvironment,
+            environment: [
+                "CMUX_UITEST_ATTACH_URL": attachURL.absoluteString,
+            ],
             launchArguments: launchArguments
         )
         waitForWorkspaceShell(in: app)
