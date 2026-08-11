@@ -18451,6 +18451,19 @@ mod tests {
     }
 
     #[test]
+    fn lifecycle_readiness_bumps_public_protocol() {
+        assert_eq!(PROTOCOL_VERSION, TERMINAL_LIFECYCLE_PROTOCOL_VERSION + 1);
+
+        let schema: Value =
+            serde_json::from_str(include_str!("../../../spec/sdk-schema.json")).unwrap();
+        assert_eq!(schema["protocol"]["version"], 12);
+        assert_eq!(
+            schema["types"]["IdentifyResult"]["fields"]["lifecycle_ready"]["since"],
+            12
+        );
+    }
+
+    #[test]
     fn raw_report_agent_command_commits_public_revision_projection_and_event() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
