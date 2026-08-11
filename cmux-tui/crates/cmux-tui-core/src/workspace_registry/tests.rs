@@ -1191,7 +1191,11 @@ fn reset_session_dir_symlink_swap_does_not_write_outside_state() {
     let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
     *RESET_REPLACE_SESSION_DIR_BEFORE_WRITER_LOCK.lock().unwrap() = None;
 
-    assert!(format!("{error:#}").contains("workspace session state path"), "{error:#}");
+    assert_eq!(
+        error.downcast_ref::<std::io::Error>().and_then(std::io::Error::raw_os_error),
+        Some(libc::ELOOP),
+        "{error:#}"
+    );
     assert_eq!(fs::read(outside.join("sentinel")).unwrap(), b"outside");
     assert_eq!(fs::metadata(&outside).unwrap().mode() & 0o777, 0o755);
     assert!(!outside.join(SESSION_WRITER_LOCK_FILE).exists());
@@ -1228,8 +1232,9 @@ fn reset_terminal_host_root_symlink_swap_does_not_write_outside_state() {
     let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
     *RESET_REPLACE_TERMINAL_HOST_ROOT_BEFORE_LOCK.lock().unwrap() = None;
 
-    assert!(
-        format!("{error:#}").contains("terminal host state path changed while opening"),
+    assert_eq!(
+        error.downcast_ref::<std::io::Error>().and_then(std::io::Error::raw_os_error),
+        Some(libc::ELOOP),
         "{error:#}"
     );
     assert_eq!(fs::read(outside.join("sentinel")).unwrap(), b"outside");
