@@ -540,7 +540,7 @@ extension TerminalArtifactFilesSheet {
             error: failure.error,
             scope: scope == .session ? .chat : .terminal
         )
-        ContentUnavailableView {
+        return ContentUnavailableView {
             Label(
                 presentation.title,
                 systemImage: presentation.systemImage
