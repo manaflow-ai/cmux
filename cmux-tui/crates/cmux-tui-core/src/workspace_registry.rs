@@ -2569,13 +2569,13 @@ impl WorkspaceRegistry {
             initialize_resource_mutation_retention(&tx)?;
             tx.commit()?;
         }
-        rebuild_agent_projections_from_journal(&connection, false)?;
         let stored_name = required_meta(&connection, "session_name")?;
         if stored_name != session_name {
             anyhow::bail!(
                 "workspace registry belongs to session {stored_name:?}, not {session_name:?}"
             );
         }
+        rebuild_agent_projections_from_journal(&connection, false)?;
         let registry_id = required_meta(&connection, "registry_id")?;
         validate_identifier("registry id", &registry_id)?;
         let session_id = SessionPublicId::parse(required_meta(&connection, "session_public_id")?)?;

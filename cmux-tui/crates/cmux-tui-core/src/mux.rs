@@ -5043,7 +5043,9 @@ impl Mux {
                     mux.publish_journal_event();
                 }
                 #[cfg(test)]
-                mux.notify_agent_projection_rebuild_step_for_test();
+                if checkpoint_ready {
+                    mux.notify_agent_projection_rebuild_step_for_test();
+                }
                 if !pending {
                     // Release ownership before the final pending check. An
                     // ingress in either side of this handshake then starts a
