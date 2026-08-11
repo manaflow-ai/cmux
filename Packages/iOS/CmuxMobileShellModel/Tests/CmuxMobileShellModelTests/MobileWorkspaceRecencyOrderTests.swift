@@ -66,4 +66,51 @@ import Testing
         ])
         #expect(ordered.map(\.id.rawValue) == ["pinned-new", "pinned-old"])
     }
+
+    @Test func thousandWorkspaceGroupedProjectionStaysWithinInteractionBudget() {
+        let groupCount = 200
+        let membersPerGroup = 4
+        var workspaces: [MobileWorkspacePreview] = []
+        var groups: [MobileWorkspaceGroupPreview] = []
+        workspaces.reserveCapacity(groupCount * (membersPerGroup + 1))
+        groups.reserveCapacity(groupCount)
+
+        for groupIndex in 0..<groupCount {
+            let groupID = MobileWorkspaceGroupPreview.ID(rawValue: "group-\(groupIndex)")
+            let anchorID = MobileWorkspacePreview.ID(rawValue: "group-\(groupIndex)-member-0")
+            groups.append(MobileWorkspaceGroupPreview(
+                id: groupID,
+                name: "Group \(groupIndex)",
+                anchorWorkspaceID: anchorID
+            ))
+            for memberIndex in 0..<membersPerGroup {
+                var workspace = ws(
+                    "group-\(groupIndex)-member-\(memberIndex)",
+                    activityAt: at(Double(groupIndex * membersPerGroup + memberIndex))
+                )
+                workspace.groupID = groupID
+                workspaces.append(workspace)
+            }
+            workspaces.append(ws(
+                "root-\(groupIndex)",
+                activityAt: at(Double(groupIndex))
+            ))
+        }
+
+        var items: [MobileWorkspaceListItem] = []
+        let duration = ContinuousClock().measure {
+            items = MobileWorkspaceRecencyOrder().groupedDisplayItems(
+                workspaces,
+                groups: groups
+            )
+        }
+
+        #expect(workspaces.count == 1_000)
+        #expect(items.count == 1_200)
+        #expect(Set(items.map(\.id)).count == items.count)
+        #expect(
+            duration < .milliseconds(100),
+            "A 1,000-workspace projection took \(duration)."
+        )
+    }
 }

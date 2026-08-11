@@ -11,7 +11,9 @@ extension WorkspaceListView {
             && !workspaces.isEmpty
     }
 
-    var workspaceTableItems: [WorkspaceListTableItem] {
+    func workspaceTableItems(
+        groupedItems: [MobileWorkspaceListItem]
+    ) -> [WorkspaceListTableItem] {
         var items: [WorkspaceListTableItem] = []
         switch connectionChrome {
         case .recoveryBanner:
@@ -25,7 +27,7 @@ extension WorkspaceListView {
         }
 
         if rendersGroupedSections {
-            items.append(contentsOf: displayedGroupedListItems.map { item in
+            items.append(contentsOf: groupedItems.map { item in
                 switch item {
                 case .groupHeader(let group, _):
                     .groupHeader(group.id)
@@ -45,9 +47,11 @@ extension WorkspaceListView {
         return items
     }
 
-    var workspaceTableGroupHasUnreadByID: [MobileWorkspaceGroupPreview.ID: Bool] {
+    func workspaceTableGroupHasUnreadByID(
+        groupedItems: [MobileWorkspaceListItem]
+    ) -> [MobileWorkspaceGroupPreview.ID: Bool] {
         var result: [MobileWorkspaceGroupPreview.ID: Bool] = [:]
-        for item in displayedGroupedListItems {
+        for item in groupedItems {
             if case .groupHeader(let group, let hasUnread) = item {
                 result[group.id] = hasUnread
             }
@@ -55,7 +59,9 @@ extension WorkspaceListView {
         return result
     }
 
-    var workspaceTable: WorkspaceListTable {
+    func workspaceTable(
+        groupedItems: [MobileWorkspaceListItem]
+    ) -> WorkspaceListTable {
         let grouped = rendersGroupedSections
         let enablesReorder = enablesWorkspaceReorder
         // Bound outside the member-wise init: the ternary between `nil` and a
@@ -68,13 +74,15 @@ extension WorkspaceListView {
                     openWorkspaceChanges(workspace)
                 }
         return WorkspaceListTable(
-            items: workspaceTableItems,
+            items: workspaceTableItems(groupedItems: groupedItems),
             workspacesByID: Dictionary(
                 workspaces.map { ($0.id, $0) },
                 uniquingKeysWith: { first, _ in first }
             ),
             groupsByID: groupsByID,
-            groupHasUnreadByID: workspaceTableGroupHasUnreadByID,
+            groupHasUnreadByID: workspaceTableGroupHasUnreadByID(
+                groupedItems: groupedItems
+            ),
             filter: activeFilter,
             selectedWorkspaceID: selectedWorkspaceID,
             navigationStyle: navigationStyle,

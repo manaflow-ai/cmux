@@ -452,8 +452,20 @@ struct WorkspaceListView: View {
             machineSnapshots: displayedMachineSnapshots,
             visibleSelection: currentVisibleMacSelection
         )
+        // Recent Activity grouping performs one O(n log n) block projection
+        // per body evaluation. Reuse this immutable snapshot for table rows,
+        // unread headers, and the optimistic-order observation key.
+        let currentDisplayedGroupedListItems = rendersGroupedSections
+            ? displayedGroupedListItems
+            : []
+        let currentFilteredWorkspaceOrderKey = rendersGroupedSections
+            ? []
+            : filteredWorkspaceOrderKey
+        let currentGroupedWorkspaceOrderKey = currentDisplayedGroupedListItems.map {
+            WorkspaceListStableOrderKey(item: $0)
+        }
         #if os(iOS)
-        let baseList = workspaceTable
+        let baseList = workspaceTable(groupedItems: currentDisplayedGroupedListItems)
             .modifier(WorkspaceListBarUnderlap())
         #else
         let baseList = List {
@@ -506,7 +518,7 @@ struct WorkspaceListView: View {
             }
             Section {
                 if rendersGroupedSections {
-                    groupedRows
+                    groupedRows(items: currentDisplayedGroupedListItems)
                 } else if activeFilter.isActive && trimmedQuery.isEmpty && filteredWorkspaces.isEmpty && !workspaces.isEmpty {
                     // The filter alone (not the Mac, and not a search query)
                     // emptied the list; offer the way back. While searching, the
@@ -554,10 +566,10 @@ struct WorkspaceListView: View {
             updateMachineSnapshots(currentMachineSnapshots)
             filter.pruneMachinesForFilterMenu(visibleMacSelection: currentVisibleMacSelection)
         }
-        .onChange(of: filteredWorkspaceOrderKey) { _, _ in
+        .onChange(of: currentFilteredWorkspaceOrderKey) { _, _ in
             syncOptimisticWorkspaceOrder()
         }
-        .onChange(of: groupedWorkspaceOrderKey) { _, _ in
+        .onChange(of: currentGroupedWorkspaceOrderKey) { _, _ in
             syncOptimisticWorkspaceOrder()
         }
         .onChange(of: rendersGroupedSections) { _, _ in
@@ -882,10 +894,12 @@ struct WorkspaceListView: View {
 
     /// Grouped presentation: collapsible Mac-ordered group headers and nested members.
     @ViewBuilder
-    private var groupedRows: some View {
+    private func groupedRows(
+        items: [MobileWorkspaceListItem]
+    ) -> some View {
         let enablesReorder = enablesWorkspaceReorder
         let groupLookup = groupsByID
-        ForEach(displayedGroupedListItems, id: \.id) { item in
+        ForEach(items, id: \.id) { item in
             switch item {
             case .groupHeader(let group, let hasUnread):
                 let anchorCapabilities = workspaces.first(where: { $0.id == group.anchorWorkspaceID })?.actionCapabilities ?? .none
