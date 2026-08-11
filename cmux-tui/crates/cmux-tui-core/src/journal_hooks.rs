@@ -1361,6 +1361,43 @@ mod tests {
         assert_eq!(delivery_worker_count(usize::MAX), 32);
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn journal_hook_launch_waits_for_process_creation_barrier() {
+        let barrier = cmux_tui_process::ProcessCreationGuard::acquire();
+        let delivery = JournalHookDelivery {
+            manifest: manifest(),
+            event: document("plugin.test.process_barrier", json!({})).record,
+            attempt: 0,
+        };
+        let attempt = JournalHookAttempt { attempt: 1, causation_id: "barrier_test".into() };
+        let (started_sender, started_receiver) = mpsc::sync_channel(1);
+        let (completed_sender, completed_receiver) = mpsc::sync_channel(1);
+        let worker = std::thread::spawn(move || {
+            started_sender.send(()).unwrap();
+            completed_sender.send(execute_delivery(&delivery, &attempt)).unwrap();
+        });
+        started_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("journal hook launch worker did not start");
+
+        assert!(
+            matches!(
+                completed_receiver.recv_timeout(Duration::from_millis(250)),
+                Err(mpsc::RecvTimeoutError::Timeout)
+            ),
+            "journal hook launch bypassed the process creation barrier"
+        );
+        drop(barrier);
+
+        let (status, error) = completed_receiver
+            .recv_timeout(Duration::from_secs(5))
+            .expect("journal hook did not resume after the process creation barrier opened");
+        assert_eq!(status, Some(0));
+        assert_eq!(error, None);
+        worker.join().unwrap();
+    }
+
     #[cfg(target_os = "linux")]
     #[test]
     fn unix_hook_tree_kills_a_descendant_that_created_a_new_session() {

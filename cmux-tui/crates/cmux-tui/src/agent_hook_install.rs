@@ -1420,6 +1420,43 @@ mod tests {
         assert!(started.elapsed() < Duration::from_secs(2));
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn hermes_launch_waits_for_process_creation_barrier() {
+        let barrier = cmux_tui_process::ProcessCreationGuard::acquire();
+        let (started_sender, started_receiver) = std::sync::mpsc::sync_channel(1);
+        let (completed_sender, completed_receiver) = std::sync::mpsc::sync_channel(1);
+        let worker = std::thread::spawn(move || {
+            started_sender.send(()).unwrap();
+            completed_sender
+                .send(run_hermes_command_with_timeout(
+                    Path::new("/usr/bin/true"),
+                    &[],
+                    Duration::from_secs(5),
+                ))
+                .unwrap();
+        });
+        started_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("Hermes launch worker did not start");
+
+        assert!(
+            matches!(
+                completed_receiver.recv_timeout(Duration::from_millis(250)),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+            ),
+            "Hermes launch bypassed the process creation barrier"
+        );
+        drop(barrier);
+
+        let output = completed_receiver
+            .recv_timeout(Duration::from_secs(5))
+            .expect("Hermes launch did not resume after the process creation barrier opened")
+            .unwrap();
+        assert!(output.status.success());
+        worker.join().unwrap();
+    }
+
     #[cfg(not(unix))]
     #[test]
     fn public_hook_operations_are_rejected_on_unsupported_platforms() {
