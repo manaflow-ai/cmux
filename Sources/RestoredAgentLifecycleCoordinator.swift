@@ -161,9 +161,23 @@ final class RestoredAgentLifecycleCoordinator {
         }
     }
 
-    /// The restore selector is queued but no shell callback has started it yet.
-    func hasQueuedRestoreIntent(panelId: UUID) -> Bool {
-        resumeStatesByPanelId[panelId] == .awaitingAutoResumeCommand
+    /// The restore selector for the matching structured session is queued but
+    /// no shell callback has started it yet.
+    func hasQueuedRestoreIntent(
+        panelId: UUID,
+        matching snapshot: SessionRestorableAgentSnapshot?
+    ) -> Bool {
+        guard resumeStatesByPanelId[panelId] == .awaitingAutoResumeCommand,
+              let queuedSnapshot = snapshotsByPanelId[panelId],
+              let snapshot,
+              queuedSnapshot.kind.rawValue == snapshot.kind.rawValue else {
+            return false
+        }
+        return ManagedAgentSessionIdentity.sessionIDsMatch(
+            kind: snapshot.kind.rawValue,
+            lhs: queuedSnapshot.sessionId,
+            rhs: snapshot.sessionId
+        )
     }
 
     /// The restored launch still owns its binding while startup input is

@@ -14,6 +14,10 @@ final class TerminalStartupRestoreCoordinator {
         let willRunStartupInput: Bool
         let resumeWorkingDirectory: String?
         let resumeIntent: AgentChatResumeIntent?
+
+        var willRunStartupWork: Bool {
+            willRunStartupCommand || willRunStartupInput
+        }
     }
 
     let lifecycle: RestoredAgentLifecycleCoordinator
@@ -42,13 +46,15 @@ final class TerminalStartupRestoreCoordinator {
     ///
     /// - Parameters:
     ///   - requestedPolicy: Timing policy selected by the terminal creation path.
-    ///   - requiresStartupRestoreCommit: Whether startup must wait for a restore commit.
+    ///   - willRunStartupCommand: Whether a restored agent command will run.
+    ///   - willRunStartupInput: Whether a restored agent selector will be queued.
     /// - Returns: The requested policy with a restore gate when one is required.
     nonisolated func runtimeSpawnPolicy(
         requestedPolicy: TerminalSurfaceRuntimeSpawnPolicy,
-        requiresStartupRestoreCommit: Bool
+        willRunStartupCommand: Bool,
+        willRunStartupInput: Bool
     ) -> TerminalSurfaceRuntimeSpawnPolicy {
-        requiresStartupRestoreCommit
+        willRunStartupCommand || willRunStartupInput
             ? requestedPolicy.requiringStartupRestoreAdmission()
             : requestedPolicy
     }
@@ -124,7 +130,9 @@ final class TerminalStartupRestoreCoordinator {
                 )
 #endif
             }
-            pending.panel.surface.admitStartupRestoreRuntime()
+            if pending.willRunStartupWork {
+                pending.panel.surface.admitStartupRestoreRuntime()
+            }
         }
     }
 

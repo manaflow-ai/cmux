@@ -194,6 +194,7 @@ struct VaultRestoreRelaunchPersistenceTests {
         let restoredPanelID = try #require(restoredPanelIDs[sourcePanelID])
         let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
         #expect(restoredPanel.surface.debugInitialInputForTesting() == nil)
+        #expect(restoredPanel.surface.canCreateRuntimeSurface)
         #expect(restoredPanel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 0)
         #expect(!restoredPanel.surface.hasLiveSurface)
     }

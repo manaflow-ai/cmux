@@ -312,7 +312,8 @@ extension DockSplitStore {
             focusPlacement: .rightSidebarDock,
             runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
                 requestedPolicy: .pacedSessionRestore,
-                requiresStartupRestoreCommit: willRunAgentInput
+                willRunStartupCommand: false,
+                willRunStartupInput: willRunAgentInput
             )
         )
         terminal.adoptOwnedSessionScrollbackReplayArtifact(replayFileURL)

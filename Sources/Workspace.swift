@@ -484,7 +484,10 @@ extension Workspace {
                 // A queued cmux-authored selector is durable intent before any
                 // process can exist. Once shell activity starts, the ordinary
                 // binding and process evidence below becomes authoritative.
-                if restoredAgentLifecycle.hasQueuedRestoreIntent(panelId: panelId) {
+                if restoredAgentLifecycle.hasQueuedRestoreIntent(
+                    panelId: panelId,
+                    matching: effectiveRestorableAgent
+                ) {
                     return true
                 }
                 if let resumeBinding, resumeBinding.isAgentHookBinding {
@@ -1609,8 +1612,8 @@ extension Workspace {
                 startupEnvironment: replayEnvironment,
                 runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
                     requestedPolicy: .pacedSessionRestore,
-                    requiresStartupRestoreCommit:
-                        restorableAgent != nil || restoredAgentWillRunStartupInput
+                    willRunStartupCommand: restoredAgentWillRunStartupCommand,
+                    willRunStartupInput: restoredAgentWillRunStartupInput
                 ),
                 remotePTYSessionID: restoredRemotePTYSessionID,
                 suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
@@ -3331,8 +3334,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 ),
                 runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
                     requestedPolicy: .immediate,
-                    requiresStartupRestoreCommit:
-                        initialTerminalStartupRestoreAgent != nil
+                    willRunStartupCommand: false,
+                    willRunStartupInput:
+                        initialTerminalStartupRestoreAgent != nil && initialTerminalInput != nil
                 )
             )
             configureNewTerminalPanel(
@@ -8005,7 +8009,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             additionalEnvironment: effectiveStartupEnvironment,
             runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
                 requestedPolicy: runtimeSpawnPolicy,
-                requiresStartupRestoreCommit: startupRestoreAgent != nil
+                willRunStartupCommand: false,
+                willRunStartupInput: startupRestoreAgent != nil && initialInput != nil
             )
         )
         configureNewTerminalPanel(
@@ -11528,7 +11533,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             additionalEnvironment: effectiveStartupEnvironment,
             runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
                 requestedPolicy: .immediate,
-                requiresStartupRestoreCommit: startupRestoreAgent != nil
+                willRunStartupCommand: false,
+                willRunStartupInput: startupRestoreAgent != nil && initialInput != nil
             )
         )
         configureNewTerminalPanel(newPanel)
