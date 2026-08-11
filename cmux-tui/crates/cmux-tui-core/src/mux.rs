@@ -5177,7 +5177,8 @@ impl Mux {
     ) -> anyhow::Result<()> {
         let mut records = Vec::with_capacity(terminal_ids.len());
         for terminal_id in terminal_ids {
-            let Some(projection) = registry.agent_projection_for_cache_refresh(&terminal_id)? else {
+            let Some(projection) = registry.agent_projection_for_cache_refresh(&terminal_id)?
+            else {
                 continue;
             };
             records.push((

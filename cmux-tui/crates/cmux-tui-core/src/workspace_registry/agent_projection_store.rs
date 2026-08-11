@@ -934,13 +934,11 @@ fn agent_projection_rebuild_active(connection: &Connection) -> anyhow::Result<bo
 }
 
 fn agent_projection_rebuild_changes_pending(connection: &Connection) -> anyhow::Result<bool> {
-    let pending = connection
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM resource_agent_projection_rebuild_changes LIMIT 1)",
-            [],
-            |row| row.get::<_, bool>(0),
-        )
-        ?;
+    let pending = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM resource_agent_projection_rebuild_changes LIMIT 1)",
+        [],
+        |row| row.get::<_, bool>(0),
+    )?;
     Ok(pending)
 }
 
