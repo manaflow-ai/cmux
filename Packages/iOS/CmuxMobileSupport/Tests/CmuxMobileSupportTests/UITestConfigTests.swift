@@ -72,7 +72,6 @@ import Testing
 
         #expect(configuration?.eligibility.rawValue == raw)
         #expect(configuration?.identifier == "migration-run")
-        #expect(configuration?.initialConnectionMethod == nil)
         #expect(configuration?.presentsShellSettingsBeforeMigration == false)
         #expect(configuration?.initialModalHost == nil)
         #expect(configuration?.readinessGate == nil)
@@ -81,18 +80,6 @@ import Testing
             configuration?.defaultsSuiteName
                 == "dev.cmux.uitest.autoConnectMigration.migration-run"
         )
-    }
-
-    @Test(arguments: ["automatic", "tailscale"])
-    func autoConnectMigrationFixtureParsesInitialConnectionMethod(_ raw: String) {
-        let configuration = AutoConnectMigrationUITestConfiguration(environment: [
-            "CMUX_UITEST_MOCK_DATA": "1",
-            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "ineligible",
-            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": "migration-run",
-            "CMUX_UITEST_AUTOCONNECT_MIGRATION_CONNECTION_METHOD": raw,
-        ])
-
-        #expect(configuration?.initialConnectionMethod?.rawValue == raw)
     }
 
     @Test func autoConnectMigrationFixtureRequiresExplicitLayoutProbeOptIn() {

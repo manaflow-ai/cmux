@@ -409,7 +409,6 @@ final class cmuxUITests: XCTestCase {
         let automaticEnvironment = [
             "CMUX_UITEST_AUTOCONNECT_MIGRATION": "ineligible",
             "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": UUID().uuidString,
-            "CMUX_UITEST_AUTOCONNECT_MIGRATION_CONNECTION_METHOD": "automatic",
         ]
         let app = launchApp(
             mockData: true,
@@ -445,36 +444,6 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(
             app.descendants(matching: .any)["MobileSettingsView"]
                 .waitForNonExistence(timeout: 4)
-        )
-    }
-
-    /// A root scene constructed with Tailscale selected keeps both ordinary
-    /// Add Computer entrypoints and opens the manual pairing form.
-    @MainActor
-    func testTailscaleConnectionMethodShowsAddComputer() throws {
-        let app = launchApp(
-            mockData: true,
-            environment: [
-                "CMUX_UITEST_AUTOCONNECT_MIGRATION": "ineligible",
-                "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": UUID().uuidString,
-                "CMUX_UITEST_AUTOCONNECT_MIGRATION_CONNECTION_METHOD": "tailscale",
-            ]
-        )
-        defer { app.terminate() }
-
-        XCTAssertTrue(
-            app.descendants(matching: .any)["MobileDisconnectedWorkspaceShell"]
-                .waitForExistence(timeout: 12)
-        )
-        XCTAssertTrue(
-            app.buttons["MobileShowAddDeviceButton"].waitForExistence(timeout: 4)
-        )
-        XCTAssertTrue(app.buttons["MobileShowAddDeviceToolbarButton"].exists)
-
-        tap(app.buttons["MobileShowAddDeviceButton"], in: app)
-        XCTAssertTrue(
-            app.descendants(matching: .any)["MobileAddDeviceForm"]
-                .waitForExistence(timeout: 4)
         )
     }
 

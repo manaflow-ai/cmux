@@ -160,8 +160,6 @@ final class AppCompositionRoot {
         // simulator's normal connection preference.
         let connectionPreferenceDefaults: UserDefaults
         #if DEBUG
-        var initialFixtureConnectionMethod:
-            AutoConnectMigrationUITestConfiguration.InitialConnectionMethod?
         if let fixture = AutoConnectMigrationUITestConfiguration(
             environment: ProcessInfo.processInfo.environment
         ) {
@@ -171,7 +169,6 @@ final class AppCompositionRoot {
             if fixtureDefaults.object(
                 forKey: MobileAutoConnectMigrationStore.resolutionKey
             ) == nil {
-                initialFixtureConnectionMethod = fixture.initialConnectionMethod
                 fixtureDefaults.removeObject(forKey: MobileConnectionMethodStore.methodKey)
                 switch fixture.eligibility {
                 case .eligible:
@@ -182,12 +179,9 @@ final class AppCompositionRoot {
                 case .ineligible:
                     fixtureDefaults.removeObject(forKey: MobileOnboardingStore.progressKey)
                 }
-            } else {
-                initialFixtureConnectionMethod = nil
             }
             connectionPreferenceDefaults = fixtureDefaults
         } else {
-            initialFixtureConnectionMethod = nil
             connectionPreferenceDefaults = .standard
         }
         #else
@@ -196,14 +190,6 @@ final class AppCompositionRoot {
         self.autoConnectMigrationStore = MobileAutoConnectMigrationStore(
             defaults: connectionPreferenceDefaults
         )
-        #if DEBUG
-        if let initialFixtureConnectionMethod {
-            connectionPreferenceDefaults.set(
-                initialFixtureConnectionMethod.rawValue,
-                forKey: MobileConnectionMethodStore.methodKey
-            )
-        }
-        #endif
         self.connectionMethodStore = MobileConnectionMethodStore(
             defaults: connectionPreferenceDefaults
         )
