@@ -897,6 +897,7 @@ fn managed_ssh_options(
         "BatchMode=yes".into(),
         "-o".into(),
         "StrictHostKeyChecking=yes".into(),
+        "-o".into(),
         "ForwardAgent=no".into(),
         "-o".into(),
         "ForwardX11=no".into(),
