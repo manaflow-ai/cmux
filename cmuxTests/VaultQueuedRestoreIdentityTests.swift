@@ -38,6 +38,10 @@ struct VaultQueuedRestoreIdentityTests {
         // the queued selector starts. That observation must not become the
         // identity authorized by the existing queued lifecycle phase.
         workspace.restoredAgentSnapshotsByPanelId[panelID] = replacementAgent
+        #expect(
+            workspace.restoredAgentSnapshotsByPanelId[panelID]?.sessionId
+                == queuedAgent.sessionId
+        )
         workspace.panelShellActivityStates[panelID] = .promptIdle
 
         let persisted = workspace.sessionSnapshot(

@@ -465,7 +465,7 @@ extension DockSplitStore {
             }
             return candidate
         }()
-        let compatible = [
+        let compatibleCandidate = [
             terminal.agentHibernationState?.agent,
             observed,
             coordinated,
@@ -480,6 +480,10 @@ extension DockSplitStore {
                 resumeBinding: agentCompatibilityBinding
             )
         }.first
+        let compatible = restoredAgentLifecycle.reconcileSnapshotWithQueuedRestoreIntent(
+            panelId: panelId,
+            proposedSnapshot: compatibleCandidate
+        )
         if let compatible {
             restoredAgentLifecycle.snapshotsByPanelId[panelId] = compatible
         }

@@ -15,11 +15,26 @@ final class RestoredAgentLifecycleCoordinator {
 
     var snapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:] {
         didSet {
+            // Assigning directly inside this observer avoids recursively re-entering it.
+            for (panelId, state) in resumeStatesByPanelId where state == .awaitingAutoResumeCommand {
+                if queuedRestoreSnapshotsByPanelId[panelId] == nil {
+                    queuedRestoreSnapshotsByPanelId[panelId] = snapshotsByPanelId[panelId]
+                }
+                guard let queuedSnapshot = queuedRestoreSnapshotsByPanelId[panelId] else {
+                    continue
+                }
+                guard let proposedSnapshot = snapshotsByPanelId[panelId],
+                      Self.hasSameSessionIdentity(proposedSnapshot, queuedSnapshot) else {
+                    snapshotsByPanelId[panelId] = queuedSnapshot
+                    continue
+                }
+            }
             completedGenerationsByPanelId = completedGenerationsByPanelId.filter { panelId, _ in
                 snapshotsByPanelId[panelId] != nil
             }
         }
     }
+    private var queuedRestoreSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:]
     var resumeStatesByPanelId: [UUID: Workspace.RestoredAgentResumeState] = [:] {
         didSet {
             completedGenerationsByPanelId = completedGenerationsByPanelId.filter { panelId, _ in
@@ -34,6 +49,13 @@ final class RestoredAgentLifecycleCoordinator {
                     completedAt: dateProvider(),
                     processIdentities: []
                 )
+            }
+            queuedRestoreSnapshotsByPanelId = queuedRestoreSnapshotsByPanelId.filter { panelId, _ in
+                resumeStatesByPanelId[panelId] == .awaitingAutoResumeCommand
+            }
+            for (panelId, state) in resumeStatesByPanelId
+                where state == .awaitingAutoResumeCommand && queuedRestoreSnapshotsByPanelId[panelId] == nil {
+                queuedRestoreSnapshotsByPanelId[panelId] = snapshotsByPanelId[panelId]
             }
         }
     }
@@ -122,6 +144,10 @@ final class RestoredAgentLifecycleCoordinator {
         } else {
             resumeState = nil
         }
+        replaceQueuedRestoreSnapshot(
+            resumeState == .awaitingAutoResumeCommand ? snapshot : nil,
+            panelId: panelId
+        )
         snapshotsByPanelId[panelId] = snapshot
         resumeStatesByPanelId[panelId] = resumeState
 
@@ -136,15 +162,17 @@ final class RestoredAgentLifecycleCoordinator {
 
     /// Removes continuation metadata without discarding an invalidation fingerprint.
     func clearSessionRestore(panelId: UUID) {
-        snapshotsByPanelId.removeValue(forKey: panelId)
+        queuedRestoreSnapshotsByPanelId.removeValue(forKey: panelId)
         resumeStatesByPanelId.removeValue(forKey: panelId)
+        snapshotsByPanelId.removeValue(forKey: panelId)
         resumeWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
     }
 
     /// Resets every restored-session lifecycle collection.
     func removeAllSessionRestores() {
-        snapshotsByPanelId.removeAll(keepingCapacity: false)
+        queuedRestoreSnapshotsByPanelId.removeAll(keepingCapacity: false)
         resumeStatesByPanelId.removeAll(keepingCapacity: false)
+        snapshotsByPanelId.removeAll(keepingCapacity: false)
         invalidatedFingerprintsByPanelId.removeAll(keepingCapacity: false)
         resumeWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
         completedGenerationsByPanelId.removeAll(keepingCapacity: false)
@@ -161,6 +189,27 @@ final class RestoredAgentLifecycleCoordinator {
         }
     }
 
+    /// Keeps mutable observations from replacing the session targeted by queued startup input.
+    @discardableResult
+    func reconcileSnapshotWithQueuedRestoreIntent(
+        panelId: UUID,
+        proposedSnapshot: SessionRestorableAgentSnapshot?
+    ) -> SessionRestorableAgentSnapshot? {
+        guard resumeStatesByPanelId[panelId] == .awaitingAutoResumeCommand,
+              let queuedSnapshot = queuedRestoreSnapshotsByPanelId[panelId] else {
+            return proposedSnapshot
+        }
+        let resolvedSnapshot: SessionRestorableAgentSnapshot
+        if let proposedSnapshot,
+           Self.hasSameSessionIdentity(proposedSnapshot, queuedSnapshot) {
+            resolvedSnapshot = proposedSnapshot
+        } else {
+            resolvedSnapshot = queuedSnapshot
+        }
+        snapshotsByPanelId[panelId] = resolvedSnapshot
+        return resolvedSnapshot
+    }
+
     /// The restore selector for the matching structured session is queued but
     /// no shell callback has started it yet.
     func hasQueuedRestoreIntent(
@@ -168,16 +217,11 @@ final class RestoredAgentLifecycleCoordinator {
         matching snapshot: SessionRestorableAgentSnapshot?
     ) -> Bool {
         guard resumeStatesByPanelId[panelId] == .awaitingAutoResumeCommand,
-              let queuedSnapshot = snapshotsByPanelId[panelId],
-              let snapshot,
-              queuedSnapshot.kind.rawValue == snapshot.kind.rawValue else {
+              let queuedSnapshot = queuedRestoreSnapshotsByPanelId[panelId],
+              let snapshot else {
             return false
         }
-        return ManagedAgentSessionIdentity.sessionIDsMatch(
-            kind: snapshot.kind.rawValue,
-            lhs: queuedSnapshot.sessionId,
-            rhs: snapshot.sessionId
-        )
+        return Self.hasSameSessionIdentity(queuedSnapshot, snapshot)
     }
 
     /// The restored launch still owns its binding while startup input is
@@ -198,6 +242,10 @@ final class RestoredAgentLifecycleCoordinator {
         completedGeneration: RestoredAgentCompletedGeneration?,
         resumeWorkingDirectory: String?
     ) {
+        replaceQueuedRestoreSnapshot(
+            resumeState == .awaitingAutoResumeCommand ? snapshot : nil,
+            panelId: panelId
+        )
         if let snapshot {
             snapshotsByPanelId[panelId] = snapshot
         } else {
@@ -216,6 +264,29 @@ final class RestoredAgentLifecycleCoordinator {
             resumeStatesByPanelId.removeValue(forKey: panelId)
         }
         replaceResumeWorkingDirectory(resumeWorkingDirectory, panelId: panelId)
+    }
+
+    private func replaceQueuedRestoreSnapshot(
+        _ snapshot: SessionRestorableAgentSnapshot?,
+        panelId: UUID
+    ) {
+        if let snapshot {
+            queuedRestoreSnapshotsByPanelId[panelId] = snapshot
+        } else {
+            queuedRestoreSnapshotsByPanelId.removeValue(forKey: panelId)
+        }
+    }
+
+    private static func hasSameSessionIdentity(
+        _ lhs: SessionRestorableAgentSnapshot,
+        _ rhs: SessionRestorableAgentSnapshot
+    ) -> Bool {
+        lhs.kind.rawValue == rhs.kind.rawValue &&
+            ManagedAgentSessionIdentity.sessionIDsMatch(
+                kind: lhs.kind.rawValue,
+                lhs: lhs.sessionId,
+                rhs: rhs.sessionId
+            )
     }
 
     private func replaceResumeWorkingDirectory(_ directory: String?, panelId: UUID) {
