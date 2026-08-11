@@ -7559,7 +7559,7 @@ fn journal_agent_late_or_unidentified_event_keeps_active_session_identity() {
 }
 
 #[test]
-fn journal_agent_unidentified_completion_cannot_finish_active_run() {
+fn journal_agent_unidentified_completion_finishes_unidentified_run() {
     let mut registry =
         WorkspaceRegistry::in_memory("journal-agent-unidentified-completion").unwrap();
     commit_terminal_topology(&mut registry, "journal-agent-unidentified-completion-topology");
@@ -7588,7 +7588,7 @@ fn journal_agent_unidentified_completion_cannot_finish_active_run() {
     }
 
     let agent = registry.public_projections().unwrap().agents.remove(0);
-    assert_eq!(agent.state, "working");
+    assert_eq!(agent.state, "done");
     assert_eq!(agent.source, "hook");
     assert!(agent.source_session.is_none());
 }
