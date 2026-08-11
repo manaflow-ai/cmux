@@ -245,7 +245,7 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
         lanes: LanePolicy::Auto,
         ssh_session: "main".into(),
         ssh_binary: "ssh".into(),
-        remote_binary: "~/.local/bin/cmux-tui".into(),
+        remote_binary: crate::machine_runtime::default_ssh_remote_binary().into(),
         auto_install: true,
         forward_scheme: "http".into(),
         ..ConnectFlags::default()

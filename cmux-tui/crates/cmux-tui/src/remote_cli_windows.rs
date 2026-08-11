@@ -298,7 +298,7 @@ fn parse_windows_ssh_flags(args: &[String]) -> anyhow::Result<WindowsSshFlags> {
         .cloned()
         .context("SSH destination is required")?;
     let mut session = "main".to_owned();
-    let mut remote_binary = "~/.local/bin/cmux-tui".to_owned();
+    let mut remote_binary = crate::machine_runtime::default_ssh_remote_binary().to_owned();
     let mut remote_state_dir = None;
     let mut ssh_args = Vec::new();
     let mut connect_timeout = Duration::from_secs(30);

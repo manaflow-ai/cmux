@@ -25,6 +25,17 @@ const MACHINE_CONNECTION_TIMEOUT: Duration =
 /// collide without changing the provider protocol.
 pub(crate) const CLIENT_MACHINE_KEY_START: u64 = 1 << 63;
 
+pub(crate) fn default_ssh_remote_binary() -> &'static str {
+    #[cfg(windows)]
+    {
+        cmux_remote::ssh_bootstrap::WINDOWS_REMOTE_BINARY
+    }
+    #[cfg(not(windows))]
+    {
+        "~/.local/bin/cmux-tui"
+    }
+}
+
 #[derive(Debug, Clone)]
 struct Entry {
     descriptor: MachineDescriptor,
@@ -259,7 +270,7 @@ impl MachineRuntime {
                 port: None,
                 identity_file: None,
                 session: "main".to_string(),
-                binary: "~/.local/bin/cmux-tui".to_string(),
+                binary: default_ssh_remote_binary().to_string(),
             },
         }))
     }
