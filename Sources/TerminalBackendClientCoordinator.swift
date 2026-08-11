@@ -393,6 +393,14 @@ actor TerminalBackendClientCoordinator:
     private var rendererPresentationOperationWaiters: [
         UUID: [CheckedContinuation<Void, Never>]
     ] = [:]
+    private var rendererPresentationOperationCountWaiters: [
+        UUID: [
+            UUID: (
+                expectedCount: Int,
+                continuation: CheckedContinuation<Void, any Error>
+            )
+        ]
+    ] = [:]
     private var rendererEventListeners: [UUID: RendererEventListener] = [:]
     private var rendererContinuations: [
         UUID: AsyncStream<TerminalBackendRendererEvent>.Continuation
@@ -416,6 +424,9 @@ actor TerminalBackendClientCoordinator:
     private var frontendRecoveryStartCount = 0
     private let rendererWorkerExitMonitor: any TerminalBackendRendererWorkerExitMonitoring
     private var rendererWorkerExitLedger = TerminalBackendRendererWorkerExitLedger()
+    private var rendererWorkerExitCountWaiters: [
+        UUID: (expectedCount: Int, continuation: CheckedContinuation<Void, any Error>)
+    ] = [:]
     private let monotonicNowNanoseconds: @Sendable () -> UInt64
 
     private static let terminalInputOwnerTTLMilliseconds: UInt64 = 30_000
@@ -2416,6 +2427,7 @@ actor TerminalBackendClientCoordinator:
         await withCheckedContinuation { continuation in
             rendererPresentationOperationWaiters[presentationID, default: []]
                 .append(continuation)
+            resolveRendererPresentationOperationCountWaiters(presentationID)
         }
     }
 
@@ -2428,6 +2440,7 @@ actor TerminalBackendClientCoordinator:
             } else {
                 rendererPresentationOperationWaiters[presentationID] = waiters
             }
+            resolveRendererPresentationOperationCountWaiters(presentationID)
             next.resume()
             return
         }
@@ -2480,6 +2493,7 @@ actor TerminalBackendClientCoordinator:
                 return nil
             case .unverifiable:
                 rendererWorkerExitLedger.remove(identity)
+                resolveRendererWorkerExitCountWaiters()
                 throw BackendProtocolError.peerIdentityMismatch
             }
         case .existing:
@@ -2487,6 +2501,7 @@ actor TerminalBackendClientCoordinator:
         case .conflict:
             throw BackendProtocolError.peerIdentityMismatch
         }
+        resolveRendererWorkerExitCountWaiters()
         return rendererWorkerIsLive(identity) ? identity : nil
     }
 
@@ -2568,7 +2583,9 @@ actor TerminalBackendClientCoordinator:
     private func rendererWorkerDidExit(
         _ identity: TerminalBackendRendererWorkerProcessIdentity
     ) {
-        _ = rendererWorkerExitLedger.markExited(identity)
+        if rendererWorkerExitLedger.markExited(identity) {
+            resolveRendererWorkerExitCountWaiters()
+        }
     }
 
     private func rendererWorkerIsLive(
@@ -2591,10 +2608,107 @@ actor TerminalBackendClientCoordinator:
         rendererWorkerExitLedger.activeFenceCount
     }
 
+    func debugWaitForRendererWorkerExitWaiterCount(_ expectedCount: Int) async throws {
+        guard rendererWorkerExitLedger.activeFenceCount != expectedCount else { return }
+        let identifier = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                if Task.isCancelled {
+                    continuation.resume(throwing: CancellationError())
+                } else if rendererWorkerExitLedger.activeFenceCount == expectedCount {
+                    continuation.resume()
+                } else {
+                    rendererWorkerExitCountWaiters[identifier] = (expectedCount, continuation)
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelRendererWorkerExitCountWaiter(identifier) }
+        }
+    }
+
     func debugRendererPresentationOperationWaiterCount(
         _ presentationID: UUID
     ) -> Int {
         rendererPresentationOperationWaiters[presentationID]?.count ?? 0
+    }
+
+    func debugWaitForRendererPresentationOperationWaiterCount(
+        _ expectedCount: Int,
+        presentationID: UUID
+    ) async throws {
+        guard rendererPresentationOperationWaiters[presentationID]?.count ?? 0
+            != expectedCount else { return }
+        let identifier = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let currentCount = rendererPresentationOperationWaiters[presentationID]?.count ?? 0
+                if Task.isCancelled {
+                    continuation.resume(throwing: CancellationError())
+                } else if currentCount == expectedCount {
+                    continuation.resume()
+                } else {
+                    rendererPresentationOperationCountWaiters[presentationID, default: [:]][
+                        identifier
+                    ] = (expectedCount, continuation)
+                }
+            }
+        } onCancel: {
+            Task {
+                await self.cancelRendererPresentationOperationCountWaiter(
+                    identifier,
+                    presentationID: presentationID
+                )
+            }
+        }
+    }
+
+    private func resolveRendererPresentationOperationCountWaiters(
+        _ presentationID: UUID
+    ) {
+        let currentCount = rendererPresentationOperationWaiters[presentationID]?.count ?? 0
+        guard let waiters = rendererPresentationOperationCountWaiters[presentationID] else {
+            return
+        }
+        let satisfied = waiters.compactMap { identifier, waiter in
+            waiter.expectedCount == currentCount ? identifier : nil
+        }
+        for identifier in satisfied {
+            rendererPresentationOperationCountWaiters[presentationID]?
+                .removeValue(forKey: identifier)?.continuation.resume()
+        }
+        if rendererPresentationOperationCountWaiters[presentationID]?.isEmpty == true {
+            rendererPresentationOperationCountWaiters.removeValue(forKey: presentationID)
+        }
+    }
+
+    private func resolveRendererWorkerExitCountWaiters() {
+        let currentCount = rendererWorkerExitLedger.activeFenceCount
+        let satisfied = rendererWorkerExitCountWaiters.filter {
+            $0.value.expectedCount == currentCount
+        }
+        for identifier in satisfied.keys {
+            rendererWorkerExitCountWaiters.removeValue(forKey: identifier)?
+                .continuation.resume()
+        }
+    }
+
+    private func cancelRendererPresentationOperationCountWaiter(
+        _ identifier: UUID,
+        presentationID: UUID
+    ) {
+        rendererPresentationOperationCountWaiters[presentationID]?
+            .removeValue(forKey: identifier)?.continuation.resume(
+                throwing: CancellationError()
+            )
+        if rendererPresentationOperationCountWaiters[presentationID]?.isEmpty == true {
+            rendererPresentationOperationCountWaiters.removeValue(forKey: presentationID)
+        }
+    }
+
+    private func cancelRendererWorkerExitCountWaiter(_ identifier: UUID) {
+        rendererWorkerExitCountWaiters.removeValue(forKey: identifier)?.continuation.resume(
+            throwing: CancellationError()
+        )
     }
 
     func debugRegisterRendererWorker(

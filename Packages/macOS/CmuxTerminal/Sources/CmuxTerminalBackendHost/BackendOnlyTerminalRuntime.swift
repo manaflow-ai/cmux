@@ -88,6 +88,10 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
     private var rendererOperationLocked = false
     private var rendererOperationWaiters: [RendererOperationWaiter] = []
 
+    /// Creates one presentation runtime with a bounded frame-release deadline.
+    ///
+    /// The injected clock keeps deadline behavior deterministic in tests. The
+    /// production default preserves the proven two-second release bound.
     public init(
         session: BackendCanonicalSession,
         selection: BackendOnlyTerminalSelection,

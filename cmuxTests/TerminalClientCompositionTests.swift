@@ -2549,10 +2549,7 @@ struct TerminalClientCompositionTests {
             resolvedConfig: Data("font-family = Menlo\n".utf8)
         )
         let rendererEvents = await coordinator.rendererEvents()
-        let rendererEvent = Task {
-            var iterator = rendererEvents.makeAsyncIterator()
-            return await iterator.next()
-        }
+        var rendererEventIterator = rendererEvents.makeAsyncIterator()
 
         let configuration = Task {
             try await coordinator.apply(
@@ -2584,14 +2581,10 @@ struct TerminalClientCompositionTests {
             )
         )
         await renderer.emitRendererEvent(.workerChanged(changed))
-        try await withReconnectTestTimeout(.seconds(5)) {
-            while await coordinator.debugRendererPresentationOperationWaiterCount(
-                appPresentationID
-            ) < 1 {
-                try Task.checkCancellation()
-                await Task.yield()
-            }
-        }
+        try await coordinator.debugWaitForRendererPresentationOperationWaiterCount(
+            1,
+            presentationID: appPresentationID
+        )
         let detach = Task {
             try await coordinator.detachPresentation(
                 presentationID: appPresentationID,
@@ -2604,9 +2597,7 @@ struct TerminalClientCompositionTests {
         await renderer.resumeConfiguration()
         _ = try await configuration.value
         guard case .workerChanged(let eventPresentationID, let receivedChange)? =
-            try await withReconnectTestTimeout(.seconds(5), operation: {
-                await rendererEvent.value
-            })
+            await rendererEventIterator.next()
         else {
             Issue.record("expected exact renderer worker delivery")
             return
@@ -2819,23 +2810,13 @@ struct TerminalClientCompositionTests {
                 from: binding
             )
         }
-        try await withReconnectTestTimeout(.seconds(5)) {
-            while await coordinator.debugRendererWorkerExitWaiterCount < 1 {
-                try Task.checkCancellation()
-                await Task.yield()
-            }
-        }
+        try await coordinator.debugWaitForRendererWorkerExitWaiterCount(1)
         #expect(rendererProcess.isRunning)
         #expect(await coordinator.debugRendererWorkerExitWaiterCount == 1)
 
         #expect(Darwin.kill(rendererPID, SIGCONT) == 0)
         #expect(Darwin.kill(rendererPID, SIGTERM) == 0)
-        try await withReconnectTestTimeout(.seconds(5)) {
-            while await coordinator.debugRendererWorkerExitWaiterCount != 0 {
-                try Task.checkCancellation()
-                await Task.yield()
-            }
-        }
+        try await coordinator.debugWaitForRendererWorkerExitWaiterCount(0)
         try await releaseTask.value
         try await detachTask.value
         rendererProcess.waitUntilExit()
@@ -2939,21 +2920,13 @@ struct TerminalClientCompositionTests {
             throw ReconnectSupervisorTestError.streamEnded
         }
         defer { recoveredRevisionTask.cancel() }
-        try await withReconnectTestTimeout(.seconds(5)) {
-            try await recoveryClock.waitUntilSleepers()
-        }
+        try await recoveryClock.waitUntilSleepers()
         recoveryClock.advance(by: .seconds(1))
-        try await withReconnectTestTimeout(.seconds(5)) {
-            try await recoveryClock.waitUntilSleepers()
-        }
+        try await recoveryClock.waitUntilSleepers()
         recoveryClock.advance(by: .seconds(2))
-        try await withReconnectTestTimeout(.seconds(5)) {
-            try await recoveryClock.waitUntilSleepers()
-        }
+        try await recoveryClock.waitUntilSleepers()
         recoveryClock.advance(by: .seconds(3))
-        let recoveredRevision = try await withReconnectTestTimeout(.seconds(5)) {
-            try await recoveredRevisionTask.value
-        }
+        let recoveredRevision = try await recoveredRevisionTask.value
 
         #expect(recoveredRevision == latestSnapshot.revision)
         #expect(await readiness.requestCount() >= 5)
@@ -3118,18 +3091,14 @@ struct TerminalClientCompositionTests {
         _ count: Int,
         reports: BackendCompatibilityReporterRecorder
     ) async throws {
-        try await withReconnectTestTimeout(.seconds(5)) {
-            try await reports.waitForCount(count)
-        }
+        try await reports.waitForCount(count)
     }
 
     private func waitForEventSubscriptionCount(
         _ count: Int,
         session: OverflowingBackendSession
     ) async throws {
-        try await withReconnectTestTimeout(.seconds(5)) {
-            try await session.waitForEventSubscriptionCount(count)
-        }
+        try await session.waitForEventSubscriptionCount(count)
     }
 
     @MainActor
@@ -4323,27 +4292,7 @@ private final class TerminalBackendManualClock: Clock, @unchecked Sendable {
 }
 
 private enum ReconnectSupervisorTestError: Error {
-    case timedOut
     case streamEnded
-}
-
-private func withReconnectTestTimeout<Value: Sendable>(
-    _ duration: Duration,
-    clock: ContinuousClock = ContinuousClock(),
-    operation: @escaping @Sendable () async throws -> Value
-) async throws -> Value {
-    try await withThrowingTaskGroup(of: Value.self) { group in
-        group.addTask(operation: operation)
-        group.addTask {
-            try await clock.sleep(for: duration)
-            throw ReconnectSupervisorTestError.timedOut
-        }
-        defer { group.cancelAll() }
-        guard let value = try await group.next() else {
-            throw ReconnectSupervisorTestError.streamEnded
-        }
-        return value
-    }
 }
 
 private actor ScriptedBackendReadiness {
