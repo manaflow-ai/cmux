@@ -180,7 +180,11 @@ fn run_ssh(args: &[String]) -> anyhow::Result<()> {
         }
         io::stdout().flush()?;
         cancellation.wait_until_cancelled();
+        let diagnostic = lease.diagnostic.lock().map(|value| value.clone()).unwrap_or_default();
         drop(lease);
+        if !diagnostic.is_empty() {
+            return Err(anyhow!("Windows SSH transport failed: {diagnostic}"));
+        }
         return Ok(());
     }
 
@@ -312,9 +316,13 @@ fn start_managed_ssh_bridge(
                         Arc::clone(&cancellation),
                         &processes,
                         &diagnostic,
-                    ) && let Ok(mut value) = diagnostic.lock()
-                    {
-                        *value = error.to_string();
+                    ) {
+                        let message = error.to_string();
+                        if let Ok(mut value) = diagnostic.lock() {
+                            *value = message.clone();
+                        }
+                        eprintln!("cmux-tui: {message}");
+                        cancellation.cancel();
                     }
                 },
             );
@@ -407,22 +415,33 @@ fn proxy_local_connection_over_ssh(
     let _ = local.shutdown(Shutdown::Both);
     let _ = upload_thread.join();
     let _ = stderr_thread.join();
-    if let Ok(mut child) = child.lock() {
-        let _ = child.wait();
-    }
+    let exit_status = child
+        .lock()
+        .map_err(|_| anyhow!("Windows SSH process state is unavailable"))?
+        .wait()
+        .context("could not wait for Windows OpenSSH client")?;
     if let Ok(mut active) = processes.lock() {
         active.retain(|candidate| !Arc::ptr_eq(candidate, &child));
     }
-    if let Ok(bytes) = connection_diagnostic.lock() {
-        let text = sanitize_diagnostic(&bytes);
-        if !text.is_empty()
-            && let Ok(mut value) = diagnostic.lock()
-        {
-            *value = text;
-        }
+    let connection_diagnostic = connection_diagnostic
+        .lock()
+        .map(|bytes| sanitize_diagnostic(&bytes))
+        .unwrap_or_default();
+    if !connection_diagnostic.is_empty()
+        && let Ok(mut value) = diagnostic.lock()
+    {
+        *value = connection_diagnostic.clone();
     }
     if saw_shutdown.load(Ordering::Acquire) {
         cancellation.cancel();
+    }
+    if !exit_status.success() {
+        if connection_diagnostic.is_empty() {
+            return Err(anyhow!("Windows OpenSSH client exited with {exit_status}"));
+        }
+        return Err(anyhow!(
+            "Windows OpenSSH client exited with {exit_status}: {connection_diagnostic}"
+        ));
     }
     copy_result.context("Windows SSH relay stopped")?;
     Ok(())
