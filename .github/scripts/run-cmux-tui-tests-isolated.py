@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run each cmux-tui workspace Rust test in a fresh process."""
+"""Run each cmux-tui workspace Rust test in a fresh POSIX process group."""
 
 from __future__ import annotations
 
@@ -189,6 +189,11 @@ def run_test(binary: TestBinary, test_name: str) -> None:
 
 
 def main() -> int:
+    if os.name != "posix":
+        raise SystemExit(
+            "isolated cmux-tui tests require POSIX process groups; "
+            "use the native Windows build-package verification job on Windows"
+        )
     args = parse_args()
     workspace_root = args.workspace_root.resolve()
     binaries = test_binaries(args.cargo_messages, workspace_root)
