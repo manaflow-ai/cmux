@@ -1842,6 +1842,74 @@ mod tests {
     }
 
     #[test]
+    fn closing_one_terminal_view_preserves_explicit_terminal_close() {
+        let (mux, original, selectors) = terminal_fixture(None);
+        let terminal_id = TerminalPublicId::parse(selectors.terminal.as_deref().unwrap()).unwrap();
+        let session = public_session_snapshot(&mux).unwrap();
+        let workspace_id = session["workspaces"][0]["id"].as_str().unwrap();
+        let screen_id = session["screens"][0]["id"].as_str().unwrap();
+        let pane_id = session["panes"][0]["id"].as_str().unwrap();
+        let projected = dispatch(
+            &mux,
+            parsed_request(
+                "terminal.project",
+                &selectors,
+                json!({
+                    "destination_workspace":workspace_id,
+                    "destination_screen":screen_id,
+                    "destination_pane":pane_id,
+                    "index":1,
+                }),
+                Some("terminal-close-after-view-project"),
+            ),
+        )
+        .unwrap();
+        let projected_tab = projected["value"]["id"].as_str().unwrap();
+
+        super::super::topology::dispatch(
+            &mux,
+            parsed_request(
+                "tab.close",
+                &ResourceSelectors {
+                    machine: Some("current".into()),
+                    session: Some("current".into()),
+                    tab: Some(projected_tab.into()),
+                    ..ResourceSelectors::default()
+                },
+                json!({}),
+                Some("terminal-close-after-view-detach"),
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            mux.with_state(|state| state
+                .placements_of_content(&ContentPublicId::Terminal(terminal_id.clone()))
+                .len()),
+            1
+        );
+        assert!(mux.surface(original.id).is_some());
+
+        dispatch(
+            &mux,
+            parsed_request(
+                "terminal.close",
+                &selectors,
+                json!({}),
+                Some("terminal-close-after-view-close"),
+            ),
+        )
+        .unwrap();
+        assert!(
+            public_session_snapshot(&mux).unwrap()["terminals"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|terminal| terminal["id"] != terminal_id.as_str())
+        );
+        assert!(mux.surface(original.id).is_none());
+    }
+
+    #[test]
     fn terminal_wait_coalesces_more_than_attach_capacity_without_losing_a_later_match() {
         let (mux, surface, selectors) = terminal_fixture(Some(vec!["fake-shell".into()]));
         let request = parsed_request(
