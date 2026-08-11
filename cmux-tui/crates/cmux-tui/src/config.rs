@@ -5821,6 +5821,10 @@ mod tests {
         if let Some(child_exit) = child_exit {
             child_exit.wait(Duration::from_secs(2));
             assert!(!unix_process_is_live(child_pid), "helper child {child_pid} was not killed");
+        } else {
+            eprintln!(
+                "skipped helper child {child_pid} exit postcondition: pidfd_open is unsupported"
+            );
         }
 
         assert!(!unix_process_exists(parent_pid), "helper parent {parent_pid} was not reaped");
@@ -5864,6 +5868,11 @@ mod tests {
             assert!(
                 !unix_process_is_live(child_pid),
                 "descendant process-group child {child_pid} was not killed"
+            );
+        } else {
+            eprintln!(
+                "skipped descendant process-group child {child_pid} exit postcondition: \
+                 pidfd_open is unsupported"
             );
         }
 
