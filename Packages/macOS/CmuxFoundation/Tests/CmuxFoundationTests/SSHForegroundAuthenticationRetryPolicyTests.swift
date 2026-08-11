@@ -1739,6 +1739,73 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func rollbackRevalidatesStoppedIdentityImmediatelyBeforeResume(
+        shellPath: String
+    ) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-ssh-auth-resume-revalidation-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_now_millis() { printf '1000\n'; }
+        cmux_ssh_auth_take_process_snapshot_until() {
+          /bin/cp "$CMUX_TEST_CURRENT" "$1"
+        }
+        cmux_ssh_auth_stopped_identity() {
+          printf '%s\n' "$1" >> "$CMUX_TEST_IDENTITY_CALLS"
+          case "$1" in
+            101) printf '1|11|Thu_Jan_1_00:00:00_1970\n' ;;
+            102) printf '1|12|Fri_Jan_2_00:00:00_1970\n' ;;
+            *) return 1 ;;
+          esac
+        }
+        kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
+        printf '101 1 11 T Thu Jan 1 00:00:00 1970\n102 1 12 T Thu Jan 1 00:00:00 1970\n' \
+          > "$CMUX_TEST_CURRENT"
+        printf '101 1 11 Thu_Jan_1_00:00:00_1970 T\n102 1 12 Thu_Jan_1_00:00:00_1970 T\n' \
+          > "$CMUX_TEST_SIGNALED_PIDS"
+        : > "$CMUX_TEST_SIGNALED_GROUPS"
+        : > "$CMUX_TEST_FROZEN"
+        : > "$CMUX_TEST_IDENTITY_CALLS"
+        : > "$CMUX_TEST_SIGNALS"
+        cmux_ssh_auth_process_snapshot="$CMUX_TEST_SNAPSHOT"
+        cmux_ssh_auth_resume_groups="$CMUX_TEST_RESUME_GROUPS"
+        cmux_ssh_auth_individual_processes="$CMUX_TEST_INDIVIDUALS"
+        cmux_ssh_auth_signaled_groups="$CMUX_TEST_SIGNALED_GROUPS"
+        cmux_ssh_auth_signaled_processes="$CMUX_TEST_SIGNALED_PIDS"
+        cmux_ssh_auth_frozen_processes="$CMUX_TEST_FROZEN"
+        cmux_ssh_auth_resume_signaled_processes || exit 99
+        test "$(/usr/bin/wc -l < "$CMUX_TEST_IDENTITY_CALLS")" -eq 2 || exit 98
+        test "$(/usr/bin/wc -l < "$CMUX_TEST_SIGNALS")" -eq 1 || exit 97
+        /usr/bin/grep -Fqx -- '-CONT 101' "$CMUX_TEST_SIGNALS" || exit 96
+        ! /usr/bin/grep -Fqx -- '-CONT 102' "$CMUX_TEST_SIGNALS" || exit 95
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_TEST_CURRENT": root.appendingPathComponent("current").path,
+                "CMUX_TEST_FROZEN": root.appendingPathComponent("frozen").path,
+                "CMUX_TEST_IDENTITY_CALLS": root.appendingPathComponent("identity-calls").path,
+                "CMUX_TEST_INDIVIDUALS": root.appendingPathComponent("individuals").path,
+                "CMUX_TEST_RESUME_GROUPS": root.appendingPathComponent("groups.resume").path,
+                "CMUX_TEST_SIGNALED_GROUPS": root.appendingPathComponent("signaled.groups").path,
+                "CMUX_TEST_SIGNALED_PIDS": root.appendingPathComponent("signaled.pids").path,
+                "CMUX_TEST_SIGNALS": root.appendingPathComponent("signals").path,
+                "CMUX_TEST_SNAPSHOT": root.appendingPathComponent("snapshot").path,
+            ],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
     func resumeSignaledGroupsRequiresDurableMemberIdentity(shellPath: String) throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
@@ -1948,7 +2015,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           printf x >> "$CMUX_TEST_SNAPSHOT_CALLS"
           /bin/cp "$CMUX_TEST_CURRENT" "$1"
         }
-        cmux_ssh_auth_identity() {
+        cmux_ssh_auth_stopped_identity() {
           printf x >> "$CMUX_TEST_IDENTITY_CALLS"
           printf '1|11|Thu_Jan_1_00:00:00_1970\n'
         }
@@ -1965,7 +2032,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_resume_signaled_processes || exit 99
         test "$(/usr/bin/wc -c < "$CMUX_TEST_SNAPSHOT_CALLS" | \\
           /usr/bin/tr -d '[:space:]')" -eq 1 || exit 98
-        test ! -s "$CMUX_TEST_IDENTITY_CALLS" || exit 97
+        test "$(/usr/bin/wc -c < "$CMUX_TEST_IDENTITY_CALLS")" -eq 1024 || exit 97
         test "$(/usr/bin/wc -l < "$CMUX_TEST_SIGNALS" | \\
           /usr/bin/tr -d '[:space:]')" -eq 1024 || exit 96
         /usr/bin/grep -Fqx -- '-CONT 101' "$CMUX_TEST_SIGNALS" || exit 95
