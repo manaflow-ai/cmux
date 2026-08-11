@@ -1062,16 +1062,22 @@ mod tests {
             private_desktop_closed_after_job_empty: false,
         };
         let line = product_started_line(&nonce, &evidence).unwrap();
+        let canonical = line.strip_suffix('\n').unwrap();
         assert_eq!(
-            parse_product_started_line(&line, &nonce, Some(&bootstrap_sha256)).unwrap(),
+            parse_product_started_line(canonical, &nonce, Some(&bootstrap_sha256)).unwrap(),
             evidence
         );
         assert!(
-            parse_product_started_line(&line, &"ef".repeat(NONCE_BYTES), Some(&bootstrap_sha256))
-                .is_err()
+            parse_product_started_line(
+                canonical,
+                &"ef".repeat(NONCE_BYTES),
+                Some(&bootstrap_sha256)
+            )
+            .is_err()
         );
         assert!(
-            parse_product_started_line(&(line + " "), &nonce, Some(&bootstrap_sha256)).is_err()
+            parse_product_started_line(&format!("{canonical} "), &nonce, Some(&bootstrap_sha256))
+                .is_err()
         );
     }
 

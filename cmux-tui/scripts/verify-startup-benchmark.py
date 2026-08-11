@@ -46,7 +46,7 @@ def validate_appcontainer_feasibility(path):
     )
     nonce = evidence["nonce"]
     if (
-        evidence["schema_version"] != 1
+        evidence["schema_version"] != 2
         or evidence["backend"] != "windows-appcontainer-feasibility"
         or not isinstance(nonce, str)
         or re.fullmatch(r"[0-9a-f]{64}", nonce) is None
@@ -87,6 +87,8 @@ def validate_appcontainer_feasibility(path):
             "schema_version",
             "nonce",
             "appcontainer_sid",
+            "pre_launch_token",
+            "suspended_product_token",
             "product",
             "create_process_as_user_succeeded",
             "explicit_three_handle_list",
@@ -101,7 +103,7 @@ def validate_appcontainer_feasibility(path):
         "AppContainer broker evidence",
     )
     if (
-        broker["schema_version"] != 1
+        broker["schema_version"] != 2
         or broker["nonce"] != nonce
         or broker["appcontainer_sid"] != appcontainer_sid
         or broker["product_resume_previous_count"] != 1
@@ -124,6 +126,58 @@ def validate_appcontainer_feasibility(path):
             "active_process_zero",
         },
         "AppContainer broker containment",
+    )
+
+    pre_launch_token = broker["pre_launch_token"]
+    require_exact_object(
+        pre_launch_token,
+        {
+            "non_appcontainer",
+            "restricting_sid_count_zero",
+            "low_integrity",
+            "no_enabled_privileges",
+            "account_authentication_match",
+        },
+        "AppContainer pre-launch token evidence",
+    )
+    require_true_fields(
+        pre_launch_token,
+        {
+            "non_appcontainer",
+            "restricting_sid_count_zero",
+            "low_integrity",
+            "no_enabled_privileges",
+            "account_authentication_match",
+        },
+        "AppContainer pre-launch token isolation",
+    )
+
+    suspended_product_token = broker["suspended_product_token"]
+    require_exact_object(
+        suspended_product_token,
+        {
+            "token_is_appcontainer",
+            "appcontainer_sid_match",
+            "restricting_sid_count_zero",
+            "capability_count_zero",
+            "low_integrity",
+            "no_enabled_privileges",
+            "account_authentication_match",
+        },
+        "AppContainer suspended-product token evidence",
+    )
+    require_true_fields(
+        suspended_product_token,
+        {
+            "token_is_appcontainer",
+            "appcontainer_sid_match",
+            "restricting_sid_count_zero",
+            "capability_count_zero",
+            "low_integrity",
+            "no_enabled_privileges",
+            "account_authentication_match",
+        },
+        "AppContainer suspended-product token isolation",
     )
 
     product = broker["product"]
@@ -151,7 +205,7 @@ def validate_appcontainer_feasibility(path):
         },
         "AppContainer product evidence",
     )
-    if product["schema_version"] != 1 or product["nonce"] != nonce:
+    if product["schema_version"] != 2 or product["nonce"] != nonce:
         raise SystemExit("AppContainer product identity is invalid")
     require_true_fields(
         product,

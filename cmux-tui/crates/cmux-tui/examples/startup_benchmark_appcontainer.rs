@@ -80,7 +80,7 @@ use windows_sys::Win32::System::Threading::{
 };
 use windows_sys::Win32::UI::Shell::{LoadUserProfileW, PROFILEINFOW, UnloadUserProfile};
 
-const EVIDENCE_SCHEMA_VERSION: u32 = 1;
+const EVIDENCE_SCHEMA_VERSION: u32 = 2;
 const MAX_RECORD_BYTES: usize = 64 * 1024;
 const BROKER_TIMEOUT: Duration = Duration::from_secs(50);
 const PRODUCT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -138,10 +138,92 @@ struct ProductEvidence {
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+struct PreLaunchTokenEvidence {
+    non_appcontainer: bool,
+    restricting_sid_count_zero: bool,
+    low_integrity: bool,
+    no_enabled_privileges: bool,
+    account_authentication_match: bool,
+}
+
+impl PreLaunchTokenEvidence {
+    fn validate(&self) -> Result<()> {
+        if !self.non_appcontainer
+            || !self.restricting_sid_count_zero
+            || !self.low_integrity
+            || !self.no_enabled_privileges
+            || !self.account_authentication_match
+        {
+            bail!(
+                "pre-launch AppContainer token proof failed: non_appcontainer={}; restricting_sid_count_zero={}; low_integrity={}; no_enabled_privileges={}; account_authentication_match={}",
+                self.non_appcontainer,
+                self.restricting_sid_count_zero,
+                self.low_integrity,
+                self.no_enabled_privileges,
+                self.account_authentication_match,
+            );
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct SuspendedProductTokenEvidence {
+    token_is_appcontainer: bool,
+    appcontainer_sid_match: bool,
+    restricting_sid_count_zero: bool,
+    capability_count_zero: bool,
+    low_integrity: bool,
+    no_enabled_privileges: bool,
+    account_authentication_match: bool,
+}
+
+impl SuspendedProductTokenEvidence {
+    fn from_proof(proof: &TokenProof, expected_authentication_id: &str) -> Self {
+        Self {
+            token_is_appcontainer: proof.is_appcontainer,
+            appcontainer_sid_match: proof.appcontainer_sid_match,
+            restricting_sid_count_zero: proof.restricting_sid_count_zero,
+            capability_count_zero: proof.capability_count_zero,
+            low_integrity: proof.low_integrity,
+            no_enabled_privileges: proof.no_enabled_privileges,
+            account_authentication_match: proof.authentication_id == expected_authentication_id,
+        }
+    }
+
+    fn validate(&self) -> Result<()> {
+        if !self.token_is_appcontainer
+            || !self.appcontainer_sid_match
+            || !self.restricting_sid_count_zero
+            || !self.capability_count_zero
+            || !self.low_integrity
+            || !self.no_enabled_privileges
+            || !self.account_authentication_match
+        {
+            bail!(
+                "suspended AppContainer token proof failed: token_is_appcontainer={}; appcontainer_sid_match={}; restricting_sid_count_zero={}; capability_count_zero={}; low_integrity={}; no_enabled_privileges={}; account_authentication_match={}",
+                self.token_is_appcontainer,
+                self.appcontainer_sid_match,
+                self.restricting_sid_count_zero,
+                self.capability_count_zero,
+                self.low_integrity,
+                self.no_enabled_privileges,
+                self.account_authentication_match,
+            );
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct BrokerEvidence {
     schema_version: u32,
     nonce: String,
     appcontainer_sid: String,
+    pre_launch_token: PreLaunchTokenEvidence,
+    suspended_product_token: SuspendedProductTokenEvidence,
     product: ProductEvidence,
     create_process_as_user_succeeded: bool,
     explicit_three_handle_list: bool,
@@ -193,6 +275,18 @@ impl FeasibilityEvidence {
             || self.backend != "windows-appcontainer-feasibility"
             || self.nonce != self.broker.nonce
             || self.appcontainer_sid != self.broker.appcontainer_sid
+            || !self.broker.pre_launch_token.non_appcontainer
+            || !self.broker.pre_launch_token.restricting_sid_count_zero
+            || !self.broker.pre_launch_token.low_integrity
+            || !self.broker.pre_launch_token.no_enabled_privileges
+            || !self.broker.pre_launch_token.account_authentication_match
+            || !self.broker.suspended_product_token.token_is_appcontainer
+            || !self.broker.suspended_product_token.appcontainer_sid_match
+            || !self.broker.suspended_product_token.restricting_sid_count_zero
+            || !self.broker.suspended_product_token.capability_count_zero
+            || !self.broker.suspended_product_token.low_integrity
+            || !self.broker.suspended_product_token.no_enabled_privileges
+            || !self.broker.suspended_product_token.account_authentication_match
             || !self.profile_user_sid_matches_account
             || !self.no_capabilities
             || product.schema_version != EVIDENCE_SCHEMA_VERSION
@@ -424,7 +518,7 @@ pub(super) fn run_probe(values: &[String]) -> Result<()> {
     let inbound_listener = TcpListener::bind(format!("{inbound_ip}:0")).ok();
     let inbound_bound_address =
         inbound_listener.as_ref().and_then(|listener| listener.local_addr().ok());
-    let proof = current_token_proof(&appcontainer_sid, &account_authentication_id)?;
+    let proof = current_token_proof(&appcontainer_sid)?;
 
     let mut child = Command::new(std::env::current_exe()?)
         .arg("--appcontainer-probe-child")
@@ -873,6 +967,7 @@ impl AclLease {
         if self.restored {
             bail!("ACL lease was restored twice");
         }
+        let identity = format!("path={}; grant={}", self.path.display(), self.grant);
         let path = wide(self.path.as_os_str());
         // SAFETY: original is an aligned, live, self-relative security descriptor returned by
         // GetFileSecurityW, and path is NUL-terminated.
@@ -885,12 +980,14 @@ impl AclLease {
                 )
             },
             "restore exact preflight file security descriptor",
-        )?;
-        let restored = file_security(&self.path, self.security_information)?;
+        )
+        .with_context(|| identity.clone())?;
+        let restored = file_security(&self.path, self.security_information)
+            .with_context(|| format!("read restored AppContainer ACL; {identity}"))?;
         let restored_sha256 = hash_words(&restored);
         let exact_restore = self.original == restored;
         if !exact_restore {
-            bail!("ACL restore did not reproduce the exact pre-launch descriptor");
+            bail!("ACL restore did not reproduce the exact pre-launch descriptor; {identity}");
         }
         self.restored = true;
         Ok(AclRestorationEvidence {
@@ -1020,15 +1117,10 @@ fn launch_appcontainer_product(config: &BrokerConfig) -> Result<BrokerEvidence> 
     )?;
     let restricted = OwnedHandle(restricted);
     set_low_integrity(restricted.0)?;
-    let before =
-        token_proof(restricted.0, &config.appcontainer_sid, &config.account_authentication_id)?;
-    if before.is_appcontainer
-        || !before.restricting_sid_count_zero
-        || !before.low_integrity
-        || !before.no_enabled_privileges
-    {
-        bail!("pre-launch AppContainer target token proof failed");
-    }
+    disable_all_privileges(restricted.0)?;
+    let pre_launch_token =
+        pre_launch_token_evidence(restricted.0, &config.account_authentication_id)?;
+    pre_launch_token.validate()?;
 
     let (job, completion) = create_job()?;
     let inheritable = SECURITY_ATTRIBUTES {
@@ -1157,20 +1249,10 @@ fn launch_appcontainer_product(config: &BrokerConfig) -> Result<BrokerEvidence> 
     if in_job == 0 {
         bail!("AppContainer product was not in its exact private Job before resume");
     }
-    let after = token_proof_from_process(
-        product_owner.process.0,
-        &config.appcontainer_sid,
-        &config.account_authentication_id,
-    )?;
-    if !after.is_appcontainer
-        || !after.appcontainer_sid_match
-        || !after.restricting_sid_count_zero
-        || !after.capability_count_zero
-        || !after.low_integrity
-        || !after.no_enabled_privileges
-    {
-        bail!("suspended AppContainer target token proof failed");
-    }
+    let after = token_proof_from_process(product_owner.process.0, &config.appcontainer_sid)?;
+    let suspended_product_token =
+        SuspendedProductTokenEvidence::from_proof(&after, &config.account_authentication_id);
+    suspended_product_token.validate()?;
     // SAFETY: thread_handle is the suspended primary thread.
     let resume_previous_count = unsafe { ResumeThread(product_owner.thread.0) };
     if resume_previous_count != 1 {
@@ -1261,6 +1343,8 @@ fn launch_appcontainer_product(config: &BrokerConfig) -> Result<BrokerEvidence> 
         schema_version: EVIDENCE_SCHEMA_VERSION,
         nonce: config.nonce.clone(),
         appcontainer_sid: config.appcontainer_sid.clone(),
+        pre_launch_token,
+        suspended_product_token,
         product,
         create_process_as_user_succeeded: true,
         explicit_three_handle_list: true,
@@ -1285,7 +1369,21 @@ struct TokenProof {
     authentication_id: String,
 }
 
-fn current_token_proof(expected_sid: &str, expected_authentication_id: &str) -> Result<TokenProof> {
+fn pre_launch_token_evidence(
+    token: HANDLE,
+    expected_authentication_id: &str,
+) -> Result<PreLaunchTokenEvidence> {
+    let authentication_id = token_authentication_id(token)?;
+    Ok(PreLaunchTokenEvidence {
+        non_appcontainer: token_u32(token, TokenIsAppContainer)? == 0,
+        restricting_sid_count_zero: token_restricting_sid_count_zero(token)?,
+        low_integrity: token_is_low_integrity(token)?,
+        no_enabled_privileges: token_has_no_enabled_privileges(token)?,
+        account_authentication_match: authentication_id == expected_authentication_id,
+    })
+}
+
+fn current_token_proof(expected_sid: &str) -> Result<TokenProof> {
     let mut token = null_mut();
     // SAFETY: token points to writable handle storage.
     check(
@@ -1293,15 +1391,11 @@ fn current_token_proof(expected_sid: &str, expected_authentication_id: &str) -> 
         "open AppContainer product token",
     )?;
     let token = OwnedHandle(token);
-    let proof = token_proof(token.0, expected_sid, expected_authentication_id)?;
+    let proof = token_proof(token.0, expected_sid)?;
     Ok(proof)
 }
 
-fn token_proof_from_process(
-    process: HANDLE,
-    expected_sid: &str,
-    expected_authentication_id: &str,
-) -> Result<TokenProof> {
+fn token_proof_from_process(process: HANDLE, expected_sid: &str) -> Result<TokenProof> {
     let mut token = null_mut();
     // SAFETY: process is live and token points to writable storage.
     check(
@@ -1309,14 +1403,10 @@ fn token_proof_from_process(
         "open suspended AppContainer product token",
     )?;
     let token = OwnedHandle(token);
-    token_proof(token.0, expected_sid, expected_authentication_id)
+    token_proof(token.0, expected_sid)
 }
 
-fn token_proof(
-    token: HANDLE,
-    expected_sid: &str,
-    expected_authentication_id: &str,
-) -> Result<TokenProof> {
+fn token_proof(token: HANDLE, expected_sid: &str) -> Result<TokenProof> {
     let is_appcontainer = token_u32(token, TokenIsAppContainer)? != 0;
     let appcontainer = token_information(token, TokenAppContainerSid)?;
     // SAFETY: GetTokenInformation filled this aligned structure in appcontainer.
@@ -1328,40 +1418,46 @@ fn token_proof(
     let capabilities = token_information(token, TokenCapabilities)?;
     // SAFETY: GetTokenInformation filled this aligned TOKEN_GROUPS header.
     let capabilities = unsafe { &*(capabilities.as_ptr().cast::<TOKEN_GROUPS>()) };
+    let authentication_id = token_authentication_id(token)?;
+    Ok(TokenProof {
+        is_appcontainer,
+        appcontainer_sid_match,
+        restricting_sid_count_zero: token_restricting_sid_count_zero(token)?,
+        capability_count_zero: capabilities.GroupCount == 0,
+        low_integrity: token_is_low_integrity(token)?,
+        no_enabled_privileges: token_has_no_enabled_privileges(token)?,
+        authentication_id,
+    })
+}
+
+fn token_restricting_sid_count_zero(token: HANDLE) -> Result<bool> {
     let restricting_sids =
         token_information(token, windows_sys::Win32::Security::TokenRestrictedSids)?;
+    // SAFETY: GetTokenInformation filled this aligned TOKEN_GROUPS header.
     let restricting_sids = unsafe { &*(restricting_sids.as_ptr().cast::<TOKEN_GROUPS>()) };
+    Ok(restricting_sids.GroupCount == 0)
+}
+
+fn token_is_low_integrity(token: HANDLE) -> Result<bool> {
     let integrity = token_information(token, TokenIntegrityLevel)?;
     // SAFETY: GetTokenInformation filled this aligned mandatory-label structure.
     let integrity = unsafe { &*(integrity.as_ptr().cast::<TOKEN_MANDATORY_LABEL>()) };
     let count = unsafe { GetSidSubAuthorityCount(integrity.Label.Sid) };
-    let low_integrity = if count.is_null() || unsafe { *count } == 0 {
-        false
-    } else {
-        let rid =
-            unsafe { GetSidSubAuthority(integrity.Label.Sid, u32::from(unsafe { *count }) - 1) };
-        !rid.is_null() && unsafe { *rid } == SECURITY_MANDATORY_LOW_RID as u32
-    };
+    if count.is_null() || unsafe { *count } == 0 {
+        return Ok(false);
+    }
+    let rid = unsafe { GetSidSubAuthority(integrity.Label.Sid, u32::from(unsafe { *count }) - 1) };
+    Ok(!rid.is_null() && unsafe { *rid } == SECURITY_MANDATORY_LOW_RID as u32)
+}
+
+fn token_has_no_enabled_privileges(token: HANDLE) -> Result<bool> {
     let privileges = token_information(token, TokenPrivileges)?;
     // SAFETY: GetTokenInformation filled this aligned TOKEN_PRIVILEGES header and array.
     let privileges = unsafe { &*(privileges.as_ptr().cast::<TOKEN_PRIVILEGES>()) };
     let first = privileges.Privileges.as_ptr();
-    let no_enabled_privileges = (0..privileges.PrivilegeCount).all(|index| unsafe {
+    Ok((0..privileges.PrivilegeCount).all(|index| unsafe {
         (*first.add(index as usize)).Attributes & SE_PRIVILEGE_ENABLED == 0
-    });
-    let authentication_id = token_authentication_id(token)?;
-    if authentication_id != expected_authentication_id {
-        bail!("AppContainer token authentication ID changed accounts");
-    }
-    Ok(TokenProof {
-        is_appcontainer,
-        appcontainer_sid_match,
-        restricting_sid_count_zero: restricting_sids.GroupCount == 0,
-        capability_count_zero: capabilities.GroupCount == 0,
-        low_integrity,
-        no_enabled_privileges,
-        authentication_id,
-    })
+    }))
 }
 
 fn token_information(token: HANDLE, class: i32) -> Result<Vec<usize>> {
@@ -1427,6 +1523,23 @@ fn set_low_integrity(token: HANDLE) -> Result<()> {
         },
         "set AppContainer product token low integrity",
     )
+}
+
+fn disable_all_privileges(token: HANDLE) -> Result<()> {
+    // SAFETY: setting the calling thread's last-error value has no pointer or lifetime contract.
+    unsafe { windows_sys::Win32::Foundation::SetLastError(ERROR_SUCCESS) };
+    // SAFETY: token is live. When DisableAllPrivileges is true, Windows ignores NewState.
+    check(
+        unsafe { AdjustTokenPrivileges(token, 1, null(), 0, null_mut(), null_mut()) },
+        "disable every AppContainer target-token privilege",
+    )?;
+    // SAFETY: this reads the calling thread's last-error value after AdjustTokenPrivileges.
+    let windows_error = unsafe { windows_sys::Win32::Foundation::GetLastError() };
+    if windows_error != ERROR_SUCCESS {
+        return Err(io::Error::from_raw_os_error(i32::try_from(windows_error)?))
+            .context("disable every AppContainer target-token privilege");
+    }
+    Ok(())
 }
 
 fn enable_privilege(token: HANDLE, name: &str) -> Result<()> {
@@ -1726,7 +1839,12 @@ fn restore_acl_leases(leases: &mut Vec<AclLease>) -> Result<Vec<AclRestorationEv
     let mut evidence = Vec::with_capacity(leases.len());
     let mut first_error = None;
     for lease in leases.iter_mut().rev() {
-        match lease.restore() {
+        let path = lease.path.display().to_string();
+        let grant = lease.grant.clone();
+        match lease
+            .restore()
+            .with_context(|| format!("restore AppContainer ACL path={path}; grant={grant}"))
+        {
             Ok(record) => evidence.push(record),
             Err(error) if first_error.is_none() => first_error = Some(error),
             Err(_) => {}
@@ -1787,6 +1905,8 @@ fn validate_product(product: &ProductEvidence, config: &BrokerConfig) -> Result<
 
 fn validate_broker(broker: &BrokerEvidence, config: &BrokerConfig) -> Result<()> {
     validate_product(&broker.product, config)?;
+    broker.pre_launch_token.validate()?;
+    broker.suspended_product_token.validate()?;
     if broker.schema_version != EVIDENCE_SCHEMA_VERSION
         || broker.nonce != config.nonce
         || broker.appcontainer_sid != config.appcontainer_sid
@@ -2095,8 +2215,11 @@ fn check_windows_error(value: u32, operation: &str) -> Result<()> {
     Ok(())
 }
 
-fn result_label<T>(result: &Result<T>) -> &'static str {
-    if result.is_ok() { "ok" } else { "failed" }
+fn result_label<T>(result: &Result<T>) -> String {
+    match result {
+        Ok(_) => "ok".into(),
+        Err(error) => format!("failed: {}", bounded_error(error)),
+    }
 }
 
 #[cfg(test)]
@@ -2130,5 +2253,41 @@ mod tests {
         };
         assert!(!entry.exact_restore);
         assert_ne!(entry.before_sha256, entry.restored_sha256);
+    }
+
+    #[test]
+    fn pre_launch_token_failure_names_every_proof_field() {
+        let evidence = PreLaunchTokenEvidence {
+            non_appcontainer: false,
+            restricting_sid_count_zero: false,
+            low_integrity: false,
+            no_enabled_privileges: false,
+            account_authentication_match: false,
+        };
+
+        let error = format!("{:#}", evidence.validate().unwrap_err());
+        for field in [
+            "non_appcontainer=false",
+            "restricting_sid_count_zero=false",
+            "low_integrity=false",
+            "no_enabled_privileges=false",
+            "account_authentication_match=false",
+        ] {
+            assert!(error.contains(field), "missing field detail: {field}");
+        }
+    }
+
+    #[test]
+    fn broker_failure_record_uses_appcontainer_schema_two() {
+        let evidence = BrokerFailureEvidence {
+            schema_version: EVIDENCE_SCHEMA_VERSION,
+            nonce: "12".repeat(32),
+            stage: "account-broker-product-launch".into(),
+            error: "denied".into(),
+        };
+
+        let encoded = serde_json::to_value(evidence).unwrap();
+        assert_eq!(encoded["schema_version"], 2);
+        assert_eq!(encoded["stage"], "account-broker-product-launch");
     }
 }
