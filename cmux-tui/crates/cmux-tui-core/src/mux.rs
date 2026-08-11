@@ -21379,8 +21379,8 @@ mod tests {
 
         assert!(mux.close_surface(surface.id).unwrap());
         let current_revision = mux.with_state(|state| state.resource_revision);
-        let mutation = WorkspaceMutation::new("remove-resource-before-incarnation-race", "test")
-            .unwrap();
+        let mutation =
+            WorkspaceMutation::new("remove-resource-before-incarnation-race", "test").unwrap();
         let commit = mux
             .workspace_registry
             .lock()
