@@ -6678,7 +6678,7 @@ mod tests {
 
         reap_holds[0].wait_until_waiting();
         let core = shutdown_completed
-            .recv_timeout(Duration::from_secs(2))
+            .recv_timeout(Duration::from_millis(400))
             .expect("96 held processes must share one shutdown deadline");
         let shutdown_result = shutdown.join();
         let statuses_empty = core.statuses().is_empty();
