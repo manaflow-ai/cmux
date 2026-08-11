@@ -7,7 +7,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 TUI_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd -P)"
 REMOTE_HOST="${1:-cmux-lawrence}"
 LIFECYCLE_PIPE="${CMUX_NATIVE_LIFECYCLE_PIPE:-}"
-LIFECYCLE_FD_OPEN=0
 
 if [[ -n "$LIFECYCLE_PIPE" ]]; then
   if [[ ! -p "$LIFECYCLE_PIPE" ]]; then
@@ -17,15 +16,13 @@ if [[ -n "$LIFECYCLE_PIPE" ]]; then
 fi
 
 lifecycle_event() {
-  [[ "$LIFECYCLE_FD_OPEN" == "1" ]] || return 0
-  printf '%s\n' "$1" >&6
+  [[ -n "$LIFECYCLE_PIPE" ]] || return 0
+  /usr/bin/perl -MFcntl=O_WRONLY,O_NONBLOCK -e '
+    my ($path, $event) = @ARGV;
+    sysopen(my $channel, $path, O_WRONLY | O_NONBLOCK) or exit 1;
+    print {$channel} "$event\n" or exit 1;
+  ' "$LIFECYCLE_PIPE" "$1"
 }
-
-if [[ -n "$LIFECYCLE_PIPE" ]]; then
-  exec 6>"$LIFECYCLE_PIPE"
-  LIFECYCLE_FD_OPEN=1
-  lifecycle_event "launcher-started"
-fi
 
 if [[ $# -gt 1 || "$REMOTE_HOST" == -* \
   || ! "$REMOTE_HOST" =~ ^[A-Za-z0-9._@-]+$ ]]; then
@@ -33,7 +30,7 @@ if [[ $# -gt 1 || "$REMOTE_HOST" == -* \
   exit 2
 fi
 
-for command in codesign jq mkfifo open openssl pgrep scp shasum ssh; do
+for command in codesign jq mkfifo open openssl perl pgrep scp shasum ssh; do
   if ! command -v "$command" >/dev/null 2>&1; then
     echo "Remote NativeMuxDemo needs $command on PATH." >&2
     exit 1

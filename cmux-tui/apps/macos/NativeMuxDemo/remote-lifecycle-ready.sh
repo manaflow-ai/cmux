@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 
 # Consume the lifecycle protocol that is owned by run-remote-demo.sh. FD7 is
-# the caller's bootstrap writer and event_fd is read-only. The launcher owns
-# the only writer after launcher-started, so EOF is its process-death signal.
+# the caller's bootstrap writer and event_fd is read-only. The lifecycle
+# supervisor owns the only writer after owner-started, so EOF or its explicit
+# launcher-exited event is the process-death signal.
 cmux_wait_for_remote_demo_ready() {
   local event_fd="$1"
   local launcher_pid="$2"
@@ -28,7 +29,11 @@ cmux_wait_for_remote_demo_ready() {
     return 10
   fi
   case "$event" in
-    launcher-started) ;;
+    owner-started) ;;
+    launcher-exited\ [0-9]*)
+      exec 7>&-
+      return 10
+      ;;
     failed\ [0-9]*)
       exec 7>&-
       return 10
@@ -55,6 +60,7 @@ cmux_wait_for_remote_demo_ready() {
     fi
     case "$event" in
       daemon-starting) break ;;
+      launcher-exited\ [0-9]*) return 10 ;;
       failed\ [0-9]*) return 10 ;;
       *) return 22 ;;
     esac
@@ -85,6 +91,7 @@ cmux_wait_for_remote_demo_ready() {
         [[ "$CMUX_REMOTE_DEMO_APP_PID" =~ ^[1-9][0-9]*$ ]] || return 22
         return 0
         ;;
+      launcher-exited\ [0-9]*) return 10 ;;
       failed\ [0-9]*) return 10 ;;
       *) return 22 ;;
     esac

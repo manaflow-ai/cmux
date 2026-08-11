@@ -40,7 +40,7 @@ EVENT_PIPE="$TEST_ROOT/success-events"
 mkfifo "$EVENT_PIPE"
 (
   exec 6>"$EVENT_PIPE"
-  printf 'launcher-started\n' >&6
+  printf 'owner-started\n' >&6
   printf 'daemon-starting\n' >&6
   printf 'app-started 12345\n' >&6
   printf 'ready\n' >&6
@@ -69,7 +69,7 @@ EVENT_PIPE="$TEST_ROOT/invalid-events"
 mkfifo "$EVENT_PIPE"
 (
   exec 6>"$EVENT_PIPE"
-  printf 'launcher-started\n' >&6
+  printf 'owner-started\n' >&6
   printf 'daemon-starting\n' >&6
   printf 'app-started 12345\n' >&6
   printf 'app-started 54321\n' >&6
@@ -98,7 +98,7 @@ EVENT_PIPE="$TEST_ROOT/transfer-events"
 mkfifo "$EVENT_PIPE"
 (
   exec 6>"$EVENT_PIPE"
-  printf 'launcher-started\n' >&6
+  printf 'owner-started\n' >&6
   IFS= read -r _ <"$STALLED_TRANSFER"
 ) &
 CHILD_PID=$!
@@ -126,7 +126,7 @@ EVENT_PIPE="$TEST_ROOT/startup-events"
 mkfifo "$EVENT_PIPE"
 (
   exec 6>"$EVENT_PIPE"
-  printf 'launcher-started\n' >&6
+  printf 'owner-started\n' >&6
   printf 'daemon-starting\n' >&6
   IFS= read -r _ <"$STALLED_TRANSFER"
 ) &
@@ -155,7 +155,7 @@ EVENT_PIPE="$TEST_ROOT/exit-events"
 mkfifo "$EVENT_PIPE"
 (
   exec 6>"$EVENT_PIPE"
-  printf 'launcher-started\n' >&6
+  printf 'owner-started\n' >&6
   printf 'failed 1\n' >&6
 ) &
 CHILD_PID=$!
@@ -182,7 +182,7 @@ EVENT_PIPE="$TEST_ROOT/silent-exit-events"
 mkfifo "$EVENT_PIPE"
 (
   exec 6>"$EVENT_PIPE"
-  printf 'launcher-started\n' >&6
+  printf 'owner-started\n' >&6
 ) &
 CHILD_PID=$!
 exec 7<>"$EVENT_PIPE"
