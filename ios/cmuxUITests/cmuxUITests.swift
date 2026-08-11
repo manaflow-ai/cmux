@@ -2520,6 +2520,116 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Studio Mac"].exists)
     }
 
+    /// Regression: forgetting the final saved computer while the Computers
+    /// sheet is onscreen changes the root from the workspace shell to the
+    /// disconnected shell. The workspace shell must retain ownership until the
+    /// child sheet's real dismissal, or the shared modal slot stays stranded and
+    /// both Add Computer and Settings stop responding.
+    @MainActor
+    func testForgettingFinalComputerKeepsAddComputerAndSettingsResponsive() async throws {
+        let server = try MobileSyncMockHostServer(supportsManualAttachTicket: true)
+        let port = try await server.start()
+        var serverIsRunning = true
+        defer {
+            if serverIsRunning { server.stop() }
+        }
+
+        let app = try launchConnectedAppViaManualPairing(
+            port: port,
+            environment: ["CMUX_UITEST_SUCCESSFUL_COMPUTER_FORGET": "1"]
+        )
+        defer { app.terminate() }
+
+        server.stop()
+        serverIsRunning = false
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileTerminalMacConnectionStatus"]
+                .waitForExistence(timeout: 12),
+            "The mock Mac must disconnect before deletion so removing its final saved row changes root shells."
+        )
+
+        let backButton = app.buttons["MobileWorkspaceBackButton"]
+        XCTAssertTrue(backButton.waitForExistence(timeout: 4))
+        tap(backButton, in: app)
+
+        let computersButton = app.buttons["MobileWorkspaceDevicesButton"]
+        XCTAssertTrue(computersButton.waitForExistence(timeout: 4))
+        tap(computersButton, in: app)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileDeviceTree"]
+                .waitForExistence(timeout: 4)
+        )
+
+        let toggle = app.switches.matching(
+            NSPredicate(
+                format: "identifier BEGINSWITH %@",
+                "MobileComputerVisibilityToggle-ui-test-mac"
+            )
+        ).firstMatch
+        XCTAssertTrue(toggle.waitForExistence(timeout: 4))
+        tap(toggle, in: app)
+        let hidden = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", "0"),
+            object: toggle
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [hidden], timeout: 4), .completed)
+
+        let computerRow = app.staticTexts["UI Test Mac"]
+        XCTAssertTrue(computerRow.waitForExistence(timeout: 4))
+        computerRow.swipeLeft()
+        let forgetSwipe = app.buttons.matching(
+            NSPredicate(
+                format: "identifier BEGINSWITH %@",
+                "MobileComputerForgetSwipeButton-ui-test-mac"
+            )
+        ).firstMatch
+        XCTAssertTrue(forgetSwipe.waitForExistence(timeout: 4))
+        forgetSwipe.tap()
+
+        let confirmForget = app.buttons.matching(
+            NSPredicate(
+                format: "identifier BEGINSWITH %@",
+                "MobileComputerForgetConfirmButton-ui-test-mac"
+            )
+        ).firstMatch
+        XCTAssertTrue(confirmForget.waitForExistence(timeout: 4))
+        confirmForget.tap()
+        XCTAssertTrue(
+            computerRow.waitForNonExistence(timeout: 8),
+            "The final computer must leave the production list after Forget succeeds."
+        )
+
+        let addComputer = app.buttons["MobileComputersAddButton"]
+        XCTAssertTrue(addComputer.waitForExistence(timeout: 4))
+        XCTAssertTrue(addComputer.isHittable)
+        tap(addComputer, in: app)
+
+        let pairingForm = app.otherElements["MobileAddDeviceForm"]
+        XCTAssertTrue(
+            pairingForm.waitForExistence(timeout: 8),
+            "Add Computer must present after deleting the final computer."
+        )
+        let cancelPairing = app.buttons["MobilePairingCancelButton"]
+        XCTAssertTrue(cancelPairing.waitForExistence(timeout: 4))
+        tap(cancelPairing, in: app)
+        XCTAssertTrue(pairingForm.waitForNonExistence(timeout: 4))
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileDisconnectedWorkspaceShell"]
+                .waitForExistence(timeout: 8)
+        )
+        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 4))
+        XCTAssertTrue(settings.isHittable)
+        tap(settings, in: app)
+
+        let settingsView = app.descendants(matching: .any)["MobileSettingsView"]
+        XCTAssertTrue(
+            settingsView.waitForExistence(timeout: 8),
+            "Settings must present after deleting the final computer."
+        )
+    }
+
     @MainActor
     func testWorkspaceListRapidDirectionChangesAndBoundariesRemainResponsive() throws {
         let app = launchApp(mockData: false, environment: [
@@ -6658,14 +6768,17 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchConnectedAppViaManualPairing(port: UInt16) throws -> XCUIApplication {
+    private func launchConnectedAppViaManualPairing(
+        port: UInt16,
+        environment: [String: String] = [:]
+    ) throws -> XCUIApplication {
         let portText = String(port)
         guard let finalPortDigit = portText.last else {
             throw URLError(.badURL)
         }
-        let app = launchApp(mockData: true, environment: [
-            "CMUX_UITEST_ADD_DEVICE_PORT": String(portText.dropLast()),
-        ], launchArguments: [
+        var launchEnvironment = environment
+        launchEnvironment["CMUX_UITEST_ADD_DEVICE_PORT"] = String(portText.dropLast())
+        let app = launchApp(mockData: true, environment: launchEnvironment, launchArguments: [
             "-dev.cmux.mobile.connectionMethod.v1", "tailscale",
             "-cmux.mobile.taskComposerEnabled", "YES",
         ])

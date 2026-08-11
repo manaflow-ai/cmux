@@ -20,6 +20,20 @@ import CmuxMobileTerminal
 
 private let mobileRootSceneLog = Logger(subsystem: "dev.cmux.ios", category: "mobile-root-scene")
 
+#if DEBUG
+/// Test-only substitute for the external account revoke. It lets XCUITest drive
+/// the production local deletion and root-presentation lifecycle without
+/// mutating an account-owned computer binding.
+@MainActor
+private struct SuccessfulComputerForgetUITestStub: MobileIrohMacForgetting {
+    func forgetComputer(
+        macDeviceID _: String,
+        instanceTag _: String?,
+        expectedAccountID _: String
+    ) async throws {}
+}
+#endif
+
 /// Top-level mobile scene root.
 ///
 /// Renders the live cmux mobile UI: a ``CMUXMobileAppView`` backed by a fresh
@@ -423,6 +437,16 @@ public struct CMUXMobileRootScene: View {
         let feedbackStampProvider: @MainActor () -> MobileFeedbackStamp = {
             MobileFeedbackStamp.current()
         }
+        let resolvedPersonalIrohForget: (any MobileIrohMacForgetting)?
+        #if DEBUG
+        if UITestConfig.successfulComputerForgetEnabled {
+            resolvedPersonalIrohForget = SuccessfulComputerForgetUITestStub()
+        } else {
+            resolvedPersonalIrohForget = personalIrohForget
+        }
+        #else
+        resolvedPersonalIrohForget = personalIrohForget
+        #endif
         return CMUXMobileShellStore(
             runtime: runtime,
             pairedMacStore: backedUpPairedMacStore,
@@ -431,7 +455,7 @@ public struct CMUXMobileRootScene: View {
             pairedMacRestoreBoundary: restoreBoundary,
             deviceRegistry: deviceRegistry,
             personalIrohDiscovery: personalIrohDiscovery,
-            personalIrohForget: personalIrohForget,
+            personalIrohForget: resolvedPersonalIrohForget,
             presence: makePresenceClient(),
             identityProvider: identityProvider,
             teamIDProvider: { await coordinator.resolvedTeamID },
