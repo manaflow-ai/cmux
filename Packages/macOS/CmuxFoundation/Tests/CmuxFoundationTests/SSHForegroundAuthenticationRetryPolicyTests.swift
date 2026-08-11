@@ -2396,6 +2396,92 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func recoveryReaperUsesLiveWorkerAfterParentShellExits(shellPath: String) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-recovery-worker-\(UUID().uuidString)", isDirectory: true)
+        let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
+        let readyFile = root.appendingPathComponent("ready")
+        let releaseFile = root.appendingPathComponent("release")
+        let resultFile = root.appendingPathComponent("result")
+        let workerPIDFile = root.appendingPathComponent("worker.pid")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        try "anchor|group|started\n".write(
+            to: groupDirectory.appendingPathComponent("identity"),
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_terminate_owned_auth_group() {
+          /bin/rm -f -- "$CMUX_SSH_AUTH_GROUP_DIR/identity"
+        }
+        cmux_test_delayed_recovery() (
+          trap '' HUP INT TERM
+          /bin/sh -c 'printf "%s\\n" "$PPID" > "$1"' \
+            cmux-worker "$CMUX_TEST_WORKER_PID" || exit 99
+          : > "$CMUX_TEST_READY" || exit 98
+          cmux_test_release_attempt=0
+          while [ ! -e "$CMUX_TEST_RELEASE" ] && \
+            [ "$cmux_test_release_attempt" -lt 500 ]; do
+            /bin/sleep 0.01
+            cmux_test_release_attempt=$((cmux_test_release_attempt + 1))
+          done
+          test -e "$CMUX_TEST_RELEASE" || exit 97
+          cmux_ssh_launch_owned_auth_group_reaper "$CMUX_SSH_AUTH_GROUP_DIR"
+          printf '%s\n' "${CMUX_SSH_AUTH_REAPER_LAUNCHED:-0}" > "$CMUX_TEST_RESULT"
+          if [ "${CMUX_SSH_AUTH_REAPER_LAUNCHED:-0}" = 1 ]; then
+            wait "$cmux_ssh_auth_reaper_pid"
+          fi
+        )
+        cmux_test_delayed_recovery </dev/null >/dev/null 2>&1 &
+        while :; do /bin/sleep 1; done
+        """
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: shellPath)
+        process.arguments = ["-c", command]
+        process.environment = ProcessInfo.processInfo.environment.merging([
+            "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
+            "CMUX_TEST_READY": readyFile.path,
+            "CMUX_TEST_RELEASE": releaseFile.path,
+            "CMUX_TEST_RESULT": resultFile.path,
+            "CMUX_TEST_WORKER_PID": workerPIDFile.path,
+            "TMPDIR": root.path,
+        ]) { _, override in override }
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+
+        try process.run()
+        let readyDeadline = Date.now.addingTimeInterval(5)
+        while !fileManager.fileExists(atPath: readyFile.path), Date.now < readyDeadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        #expect(fileManager.fileExists(atPath: readyFile.path))
+        let workerPID = try #require(Int32(
+            String(contentsOf: workerPIDFile, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        ))
+        defer { Darwin.kill(workerPID, SIGKILL) }
+
+        Darwin.kill(process.processIdentifier, SIGKILL)
+        process.waitUntilExit()
+        try Data().write(to: releaseFile)
+
+        let resultDeadline = Date.now.addingTimeInterval(5)
+        while !fileManager.fileExists(atPath: resultFile.path), Date.now < resultDeadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        let launched = try String(contentsOf: resultFile, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(launched == "1")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
     func activeReaperLimitIsSharedAcrossSSHStartups(shellPath: String) throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -2805,6 +2891,31 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         """
 
         let result = try runShellCommand(command, shellPath: shellPath)
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func configuredTmpRecoveryRootIsScopedToCurrentUser(shellPath: String) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-shared-tmp-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_recovery_configure_paths || exit 99
+        cmux_test_user_id=$(/usr/bin/id -u) || exit 98
+        test "$cmux_ssh_auth_recovery_root" = \
+          "$TMPDIR/cmux-ssh-auth-recovery.$cmux_test_user_id" || exit 97
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: ["TMPDIR": root.path],
+            shellPath: shellPath
+        )
 
         #expect(result.status == 0, "Shell failed: \(result.standardError)")
     }
