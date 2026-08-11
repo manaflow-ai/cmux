@@ -1696,25 +1696,30 @@ fn dispatch(allocator: Allocator, request: Value) !Value {
     return error.UnknownOperation;
 }
 
-fn writeResponse(allocator: Allocator, response: Value) !void {
+fn writeResponse(allocator: Allocator, io: std.Io, response: Value) !void {
     const encoded = try std.json.Stringify.valueAlloc(
         allocator,
         response,
         .{},
     );
     defer allocator.free(encoded);
-    try std.fs.File.stdout().writeAll(encoded);
-    try std.fs.File.stdout().writeAll("\n");
+    var stdout_buffer: [4096]u8 = undefined;
+    var stdout = std.Io.File.stdout().writerStreaming(io, &stdout_buffer);
+    try stdout.interface.writeAll(encoded);
+    try stdout.interface.writeAll("\n");
+    try stdout.end();
 }
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
     defer _ = debug_allocator.deinit();
     const allocator = debug_allocator.allocator();
 
-    const input = try std.fs.File.stdin().readToEndAlloc(
+    var stdin_buffer: [4096]u8 = undefined;
+    var stdin = std.Io.File.stdin().readerStreaming(init.io, &stdin_buffer);
+    const input = try stdin.interface.allocRemaining(
         allocator,
-        1024 * 1024,
+        .limited(1024 * 1024),
     );
     defer allocator.free(input);
     var parsed = try std.json.parseFromSlice(
@@ -1753,10 +1758,10 @@ pub fn main() !void {
             @errorName(failure),
         );
         try response.put("error", .{ .object = encoded_error });
-        try writeResponse(allocator, .{ .object = response });
+        try writeResponse(allocator, init.io, .{ .object = response });
         return;
     };
     try response.put("ok", .{ .bool = true });
     try response.put("value", value);
-    try writeResponse(allocator, .{ .object = response });
+    try writeResponse(allocator, init.io, .{ .object = response });
 }
