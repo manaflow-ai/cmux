@@ -3074,6 +3074,20 @@ final class cmuxUITests: XCTestCase {
             hostModel.waitForExistence(timeout: 8),
             "The production composer must expose its model picker"
         )
+        guard await server.waitForRequest(
+            method: "mobile.task.models.list",
+            timeout: 5
+        ) else {
+            let requests = await server.requestDescription()
+            XCTFail(
+                "Opening the production composer must request the selected "
+                    + "provider from the connected host. Requests: "
+                    + requests
+            )
+            hostApp.terminate()
+            server.stop()
+            return
+        }
         tap(hostModel, in: hostApp)
         let discoveredModelItem = hostApp.buttons[discoveredModelName]
         XCTAssertTrue(
@@ -9098,6 +9112,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private var selectedWorkspaceID = "workspace-main"
     private var selectedTerminalID = "terminal-build"
     private var workspaceCreateRequests: [WorkspaceCreateRequest] = []
+    private var requestCountsByMethod: [String: Int] = [:]
     private var replayCounts: [String: Int] = [:]
     private var terminalScrollRequestsReceived = 0
     private var streamOffset: UInt64 = 1
@@ -9262,6 +9277,43 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             try? await Task.sleep(nanoseconds: 50_000_000)
         }
         return await latestWorkspaceCreateRequest()
+    }
+
+    func waitForRequest(
+        method: String,
+        minimumCount: Int = 1,
+        timeout: TimeInterval = 8
+    ) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if await requestCount(for: method) >= minimumCount {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        return await requestCount(for: method) >= minimumCount
+    }
+
+    func requestDescription() async -> String {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                let description = self.requestCountsByMethod
+                    .sorted { $0.key < $1.key }
+                    .map { "\($0.key):\($0.value)" }
+                    .joined(separator: ", ")
+                continuation.resume(returning: description.isEmpty ? "none" : description)
+            }
+        }
+    }
+
+    private func requestCount(for method: String) async -> Int {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                continuation.resume(
+                    returning: self.requestCountsByMethod[method, default: 0]
+                )
+            }
+        }
     }
 
     private func latestWorkspaceCreateRequest() async -> WorkspaceCreateRequest? {
@@ -9495,6 +9547,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
 
         let id = request["id"] as? String ?? ""
         let params = request["params"] as? [String: Any] ?? [:]
+        requestCountsByMethod[method, default: 0] += 1
         if method == "mobile.attach_ticket.create", !supportsManualAttachTicket {
             let envelope: [String: Any] = [
                 "id": id,
