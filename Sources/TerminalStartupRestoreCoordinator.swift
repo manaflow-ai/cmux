@@ -24,6 +24,8 @@ final class TerminalStartupRestoreCoordinator {
 
     private struct PendingRestore {
         let panel: TerminalPanel
+        /// Owner at staging time, before a cross-topology adoption can retarget the panel.
+        let stagedWorkspaceID: UUID
         let snapshot: SessionRestorableAgentSnapshot?
         let manualResumeAvailable: Bool
         let willRunStartupCommand: Bool
@@ -107,6 +109,7 @@ final class TerminalStartupRestoreCoordinator {
     ) {
         pendingRestoresByPanelID[panel.id] = PendingRestore(
             panel: panel,
+            stagedWorkspaceID: panel.workspaceId,
             snapshot: snapshot,
             manualResumeAvailable: manualResumeAvailable,
             willRunStartupCommand: willRunStartupCommand,
@@ -148,8 +151,9 @@ final class TerminalStartupRestoreCoordinator {
 
     /// Cancels one staged transaction whose terminal cannot join its destination topology.
     ///
-    /// Cancellation releases only the resume-launch claim owned by this transaction and
-    /// tears down the held terminal so it cannot remain permanently admission-gated.
+    /// Cancellation releases only the resume-launch claim owned by this transaction,
+    /// clears tracking for every owner the panel crossed, and tears down the held terminal
+    /// so it cannot remain permanently admission-gated.
     ///
     /// - Parameter panelID: Panel whose staged restore can no longer commit.
     /// - Returns: Whether a staged transaction was cancelled.
@@ -162,6 +166,12 @@ final class TerminalStartupRestoreCoordinator {
             AgentResumeLaunchGuard.shared.releaseResumeLaunch(
                 kind: claim.kind.rawValue,
                 sessionId: claim.sessionId
+            )
+        }
+        if pending.stagedWorkspaceID != pending.panel.workspaceId {
+            AgentHibernationController.shared.discardTrackingStateForClosedPanel(
+                workspaceId: pending.stagedWorkspaceID,
+                panelId: pending.panel.id
             )
         }
         pending.panel.close()
