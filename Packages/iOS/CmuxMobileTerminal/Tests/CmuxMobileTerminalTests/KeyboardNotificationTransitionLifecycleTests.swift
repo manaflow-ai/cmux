@@ -1,0 +1,106 @@
+#if canImport(UIKit) && DEBUG
+import CMUXMobileCore
+import Foundation
+import Testing
+import UIKit
+
+@testable import CmuxMobileTerminal
+
+@MainActor
+@Suite("Keyboard notification transition lifecycle", .serialized)
+struct KeyboardNotificationTransitionLifecycleTests {
+    private final class Delegate: NSObject, GhosttySurfaceViewDelegate {
+        func ghosttySurfaceView(
+            _ surfaceView: GhosttySurfaceView,
+            didProduceInput data: Data
+        ) {}
+
+        func ghosttySurfaceView(
+            _ surfaceView: GhosttySurfaceView,
+            didResize size: TerminalGridSize,
+            reportID: UInt64
+        ) {}
+    }
+
+    @Test("stale hide completion cannot override a newer keyboard rise")
+    func staleHideCompletionDoesNotReplaceNewerShowTarget() throws {
+        let forceWorkaroundKey = "CMUX_UITEST_FORCE_IOS27_KEYBOARD_DOCK"
+        let priorValue = ProcessInfo.processInfo.environment[forceWorkaroundKey]
+        setenv(forceWorkaroundKey, "1", 1)
+        defer {
+            if let priorValue {
+                setenv(forceWorkaroundKey, priorValue, 1)
+            } else {
+                unsetenv(forceWorkaroundKey)
+            }
+        }
+
+        let runtime = try GhosttyRuntime.shared()
+        let delegate = Delegate()
+        let view = GhosttySurfaceView(runtime: runtime, delegate: delegate)
+        view.autoFocusOnWindowAttach = false
+        view.isRenderDispatchSuppressed = true
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        view.frame = window.bounds
+        window.addSubview(view)
+        window.isHidden = false
+        view.layoutIfNeeded()
+        defer {
+            view.prepareForDismantle()
+            view.removeFromSuperview()
+            window.isHidden = true
+        }
+
+        let shownFrame = CGRect(x: 0, y: 574, width: 402, height: 300)
+        let hiddenFrame = CGRect(x: 0, y: 874, width: 402, height: 300)
+        let interruptedFrame = CGRect(x: 0, y: 720, width: 402, height: 300)
+
+        postKeyboardFrameChange(
+            .keyboardWillChangeFrameNotification,
+            beginFrame: shownFrame,
+            endFrame: hiddenFrame
+        )
+        postKeyboardFrameChange(
+            .keyboardWillChangeFrameNotification,
+            beginFrame: interruptedFrame,
+            endFrame: shownFrame
+        )
+        postKeyboardFrameChange(
+            .keyboardDidChangeFrameNotification,
+            beginFrame: shownFrame,
+            endFrame: hiddenFrame
+        )
+
+        let probe = probeValues(view.composerDockProbeValue)
+        #expect(probe["keyboardDockSource"] == "notification")
+        #expect(probe["keyboardTransitionTarget"] == "300.000")
+        #expect(probe["keyboardUp"] == "1")
+    }
+
+    private func postKeyboardFrameChange(
+        _ name: Notification.Name,
+        beginFrame: CGRect,
+        endFrame: CGRect
+    ) {
+        NotificationCenter.default.post(
+            name: name,
+            object: nil,
+            userInfo: [
+                UIResponder.keyboardFrameBeginUserInfoKey: beginFrame,
+                UIResponder.keyboardFrameEndUserInfoKey: endFrame,
+                UIResponder.keyboardAnimationDurationUserInfoKey: 0.35,
+                UIResponder.keyboardAnimationCurveUserInfoKey:
+                    UIView.AnimationCurve.easeInOut.rawValue,
+            ]
+        )
+    }
+
+    private func probeValues(_ value: String) -> [String: String] {
+        Dictionary(uniqueKeysWithValues: value.split(separator: ";").compactMap { field in
+            let parts = field.split(separator: "=", maxSplits: 1).map(String.init)
+            guard parts.count == 2 else { return nil }
+            return (parts[0], parts[1])
+        })
+    }
+}
+#endif
