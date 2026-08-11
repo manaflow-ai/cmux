@@ -227,12 +227,6 @@ public struct IrohNetworkingSection: View {
                     .foregroundStyle(model.snapshot.policySource == .unavailable ? .orange : .secondary)
             }
             SettingsCardDivider()
-            IrohRelayOnlyRow(
-                isEnabled: model.snapshot.pathPreference == .relayOnly,
-                isMutating: model.isMutating,
-                setEnabled: { model.setPathPreference($0 ? .relayOnly : .automatic) }
-            )
-            SettingsCardDivider()
             IrohNeverUseRelaysRow(
                 isEnabled: model.snapshot.pathPreference == .neverUseRelays,
                 isMutating: model.isMutating,
@@ -642,39 +636,6 @@ private struct IrohDiagnosticsReportRows: View {
         }
     }
 }
-
-private struct IrohRelayOnlyRow: View {
-    let isEnabled: Bool
-    let isMutating: Bool
-    let setEnabled: @MainActor @Sendable (Bool) -> Void
-
-    var body: some View {
-        SettingsCardRow(
-            configurationReview: .settingsOnly,
-            searchAnchorID: "setting:networking:relayOnly",
-            String(
-                localized: "settings.networking.relayOnly",
-                defaultValue: "Relay Only"
-            ),
-            subtitle: String(
-                localized: "settings.networking.relayOnly.subtitle",
-                defaultValue: "Keeps Iroh connections to this Mac on cmux relays instead of direct or local-network paths. Applies on the next reconnect."
-            )
-        ) {
-            Toggle(
-                "",
-                isOn: Binding(
-                    get: { isEnabled },
-                    set: { newValue in setEnabled(newValue) }
-                )
-            )
-            .labelsHidden()
-            .disabled(isMutating)
-            .accessibilityIdentifier("SettingsIrohRelayOnly")
-        }
-    }
-}
-
 private struct IrohNeverUseRelaysRow: View {
     let isEnabled: Bool
     let isMutating: Bool
