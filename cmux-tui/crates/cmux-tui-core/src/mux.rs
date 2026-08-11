@@ -3192,6 +3192,12 @@ impl Mux {
                         );
                         break;
                     }
+                    #[cfg(debug_assertions)]
+                    if let Some(signal) =
+                        std::env::var_os("CMUX_TUI_TEST_TERMINAL_ADOPTION_RETRY_SIGNAL")
+                    {
+                        let _ = std::fs::write(signal, b"1");
+                    }
                     delay = (delay * 2).min(Duration::from_secs(5));
                 }
                 mux.terminal_adoptions.lock().unwrap().remove(&terminal_id);

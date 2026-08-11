@@ -1,7 +1,7 @@
 #![cfg(unix)]
 
-use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::fs::{self, File};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
@@ -29,6 +29,31 @@ use cmux_tui_core::terminal_host_runtime::{
 use ghostty_vt::{Rgb, TerminalColorOverrides};
 
 const KITTY_REPLAY_STATE_ENCODED_LEN: usize = 52;
+
+struct TestFifoSignal(File);
+
+impl TestFifoSignal {
+    fn create(path: &Path) -> Self {
+        let path_name = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()).unwrap();
+        // SAFETY: path_name is a valid, NUL-terminated path in the test directory.
+        assert_eq!(unsafe { libc::mkfifo(path_name.as_ptr(), 0o600) }, 0);
+        Self(fs::OpenOptions::new().read(true).write(true).open(path).unwrap())
+    }
+
+    fn receive(&mut self, timeout: Duration) {
+        let timeout = timeout.as_millis().clamp(1, i32::MAX as u128) as i32;
+        let mut descriptor = libc::pollfd {
+            fd: self.0.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        // SAFETY: descriptor points to one initialized pollfd for this call.
+        assert_eq!(unsafe { libc::poll(&raw mut descriptor, 1, timeout) }, 1);
+        assert_ne!(descriptor.revents & libc::POLLIN, 0);
+        let mut byte = [0_u8; 1];
+        self.0.read_exact(&mut byte).unwrap();
+    }
+}
 
 fn test_timeout(timeout: Duration) -> Duration {
     let scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
@@ -133,6 +158,33 @@ impl RecoveryHarness {
         wait_for_socket(&self.socket);
     }
 
+    fn restart_with_adoption_signal(&mut self, signal: &Path) {
+        assert!(self.child.is_none());
+        let mut command = self.daemon_command();
+        command.env("CMUX_TUI_TEST_TERMINAL_ADOPTED_SIGNAL", signal);
+        self.child = Some(command.spawn().unwrap());
+        wait_for_socket(&self.socket);
+    }
+
+    fn restart_with_adoption_retry_signals(&mut self, retry: &Path, adopted: &Path) {
+        assert!(self.child.is_none());
+        let mut command = self.daemon_command();
+        command
+            .env("CMUX_TUI_TEST_TERMINAL_ADOPTION_RETRY_SIGNAL", retry)
+            .env("CMUX_TUI_TEST_TERMINAL_ADOPTED_SIGNAL", adopted);
+        self.child = Some(command.spawn().unwrap());
+        wait_for_socket(&self.socket);
+    }
+
+    fn restart_with_adoption_retry_signals(&mut self, retry: &Path, adopted: &Path) {
+        assert!(self.child.is_none());
+        let mut command = self.daemon_command();
+        command
+            .env("CMUX_TUI_TEST_TERMINAL_ADOPTION_RETRY_SIGNAL", retry)
+            .env("CMUX_TUI_TEST_TERMINAL_ADOPTED_SIGNAL", adopted);
+        self.child = Some(command.spawn().unwrap());
+        wait_for_socket(&self.socket);
+    }
     fn daemon_command(&self) -> Command {
         let mut command = Command::new(bin());
         command
@@ -2718,7 +2770,7 @@ fn daemon_crash_after_record_before_ready_adopts_same_live_host() {
 }
 
 #[test]
-fn interrupted_creation_waits_for_transient_host_adoption_before_serving() {
+fn interrupted_creation_retries_transient_host_adoption_before_running() {
     let mut harness = RecoveryHarness::start_with_host_ready_delay("pre-ready-retry", 2_000);
     let stream = transport::connect(&harness.socket).unwrap();
     let mut writer = stream.try_clone_box().unwrap();
@@ -2741,17 +2793,14 @@ fn interrupted_creation_waits_for_transient_host_adoption_before_serving() {
     drop(writer);
     drop(stream);
     fs::rename(&endpoint, &held_endpoint).unwrap();
-    let restore_endpoint = std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(500));
-        fs::rename(held_endpoint, endpoint).unwrap();
-    });
-    let started = Instant::now();
-    harness.restart();
-    restore_endpoint.join().unwrap();
-    assert!(
-        started.elapsed() >= Duration::from_millis(400),
-        "daemon served before interrupted host adoption settled"
-    );
+    let retry_signal_path = harness.dir.join("terminal-adoption-retry");
+    let adopted_signal_path = harness.dir.join("terminal-adopted-after-retry");
+    let mut retry_signal = TestFifoSignal::create(&retry_signal_path);
+    let mut adopted_signal = TestFifoSignal::create(&adopted_signal_path);
+    harness.restart_with_adoption_retry_signals(&retry_signal_path, &adopted_signal_path);
+    retry_signal.receive(Duration::from_secs(15));
+    fs::rename(held_endpoint, endpoint).unwrap();
+    adopted_signal.receive(Duration::from_secs(15));
 
     let resolved = request(
         &harness.socket,
