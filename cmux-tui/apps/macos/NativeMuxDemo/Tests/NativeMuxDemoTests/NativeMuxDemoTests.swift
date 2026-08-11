@@ -311,6 +311,36 @@ func resourceDrainStopsAtTheEnvelopeBudget() {
 }
 
 @Test
+func resourceDrainDefersStreamEndUntilQueuedEnvelopesAreDrained() {
+    var pending = [Data("one".utf8), Data("two".utf8), Data("three".utf8)]
+    let copy: (inout CmuxFrontendResourceUpdate, UnsafeMutablePointer<UInt8>?, Int) -> Bool = {
+        descriptor, buffer, capacity in
+        descriptor = CmuxFrontendResourceUpdate()
+        descriptor.ended = true
+        descriptor.end_reason = FrontendResourceStreamEndReason.gap.rawValue
+        guard let payload = pending.first else { return true }
+        descriptor.payload_length = payload.count
+        guard let buffer, capacity >= payload.count else { return true }
+        payload.copyBytes(to: buffer, count: payload.count)
+        pending.removeFirst()
+        return true
+    }
+
+    let first = drainFrontendResourceUpdates(maximumEnvelopes: 2, copy: copy)
+    #expect(first.envelopes == [Data("one".utf8), Data("two".utf8)])
+    #expect(first.hasMore)
+    #expect(!first.ended)
+    #expect(first.endReason == .none)
+
+    let second = drainFrontendResourceUpdates(maximumEnvelopes: 2, copy: copy)
+    #expect(second.envelopes == [Data("three".utf8)])
+    #expect(!second.hasMore)
+    #expect(second.ended)
+    #expect(second.endReason == .gap)
+    #expect(pending.isEmpty)
+}
+
+@Test
 func resourceDrainLeavesTheNextEnvelopeAtTheByteBudget() {
     var pending = [Data("four".utf8), Data("five".utf8)]
     let copy: (inout CmuxFrontendResourceUpdate, UnsafeMutablePointer<UInt8>?, Int) -> Bool = {
