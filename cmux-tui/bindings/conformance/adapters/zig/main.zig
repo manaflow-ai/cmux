@@ -35,8 +35,8 @@ fn integerField(value: Value, name: []const u8) !i64 {
 
 test "integer fields accept numbers preserved by the lossless parser" {
     var object = try Object.init(std.testing.allocator, &.{}, &.{});
-    defer object.deinit();
-    try object.put("value", .{ .number_string = "17" });
+    defer object.deinit(std.testing.allocator);
+    try object.put(std.testing.allocator, "value", .{ .number_string = "17" });
 
     try std.testing.expectEqual(
         @as(i64, 17),
@@ -74,7 +74,7 @@ fn putString(
     name: []const u8,
     value: []const u8,
 ) !void {
-    try object.put(name, .{ .string = try allocator.dupe(u8, value) });
+    try object.put(allocator, name, .{ .string = try allocator.dupe(u8, value) });
 }
 
 fn decimal(allocator: Allocator, value: u64) !Value {
@@ -105,6 +105,7 @@ fn cloneValue(allocator: Allocator, value: Value) !Value {
             var iterator = source.iterator();
             while (iterator.next()) |entry| {
                 try result.put(
+                    allocator,
                     try allocator.dupe(u8, entry.key_ptr.*),
                     try cloneValue(allocator, entry.value_ptr.*),
                 );
@@ -164,8 +165,9 @@ fn ping(
     var result = try scoped_session.ping();
     defer result.deinit();
     var output = try Object.init(allocator, &.{}, &.{});
-    try output.put("alive", .{ .bool = result.value.alive });
+    try output.put(allocator, "alive", .{ .bool = result.value.alive });
     try output.put(
+        allocator,
         "cursor",
         try cursorValue(allocator, result.value.cursor),
     );
@@ -195,8 +197,8 @@ fn mutationValue(
         "generation",
         result.generation,
     );
-    try output.put("revision", try decimal(allocator, result.revision));
-    try output.put("replayed", .{ .bool = result.replayed });
+    try output.put(allocator, "revision", try decimal(allocator, result.revision));
+    try output.put(allocator, "replayed", .{ .bool = result.replayed });
     return .{ .object = output };
 }
 
@@ -228,10 +230,12 @@ fn resourceErrorDetailsValue(
         },
         .revision_conflict => |value| {
             try output.put(
+                allocator,
                 "expected",
                 try decimal(allocator, value.expected),
             );
             try output.put(
+                allocator,
                 "actual",
                 try decimal(allocator, value.actual),
             );
@@ -294,7 +298,7 @@ fn resourceErrorDetailsValue(
                     ),
                 });
             }
-            try output.put("candidates", .{ .array = candidates });
+            try output.put(allocator, "candidates", .{ .array = candidates });
         },
         .unknown => |value| return cloneValue(allocator, value.raw),
         .malformed => |value| return cloneValue(allocator, value.raw),
@@ -316,8 +320,8 @@ fn mutationReplay(
     var second = try scoped_workspace.rename(name, options);
     defer second.deinit();
     var output = try Object.init(allocator, &.{}, &.{});
-    try output.put("first", try mutationValue(allocator, &first));
-    try output.put("second", try mutationValue(allocator, &second));
+    try output.put(allocator, "first", try mutationValue(allocator, &first));
+    try output.put(allocator, "second", try mutationValue(allocator, &second));
     return .{ .object = output };
 }
 
@@ -339,10 +343,11 @@ fn mutationError(
         try putString(&output, allocator, "code", remote.code);
         try putString(&output, allocator, "message", remote.message);
         try output.put(
+            allocator,
             "details",
             try resourceErrorDetailsValue(allocator, remote.details),
         );
-        try output.put("retryable", .{ .bool = remote.retryable });
+        try output.put(allocator, "retryable", .{ .bool = remote.retryable });
         return .{ .object = output };
     };
     unexpected.deinit();
@@ -357,10 +362,11 @@ fn resourceErrorValue(
     try putString(&output, allocator, "code", remote.code);
     try putString(&output, allocator, "message", remote.message);
     try output.put(
+        allocator,
         "details",
         try resourceErrorDetailsValue(allocator, remote.details),
     );
-    try output.put("retryable", .{ .bool = remote.retryable });
+    try output.put(allocator, "retryable", .{ .bool = remote.retryable });
     return .{ .object = output };
 }
 
@@ -371,7 +377,7 @@ fn cursorValue(
     const value = cursor orelse return .null;
     var output = try Object.init(allocator, &.{}, &.{});
     try putString(&output, allocator, "generation", value.generation);
-    try output.put("revision", try decimal(allocator, value.revision));
+    try output.put(allocator, "revision", try decimal(allocator, value.revision));
     return .{ .object = output };
 }
 
@@ -514,6 +520,7 @@ fn creationResolutionValue(
     }
     if (resolution.created_path) |path| {
         try output.put(
+            allocator,
             "created_path",
             try createdPathValue(allocator, path),
         );
@@ -522,7 +529,7 @@ fn creationResolutionValue(
         try putString(&output, allocator, "generation", generation);
     }
     if (resolution.revision) |revision| {
-        try output.put("revision", try decimal(allocator, revision));
+        try output.put(allocator, "revision", try decimal(allocator, revision));
     }
     return .{ .object = output };
 }
@@ -535,15 +542,17 @@ fn exitOutcomeValue(
     switch (outcome) {
         .exit => |code| {
             try putString(&output, allocator, "kind", "exit");
-            try output.put("code", .{ .integer = code });
+            try output.put(allocator, "code", .{ .integer = code });
         },
         .signal => |value| {
             try putString(&output, allocator, "kind", "signal");
             try output.put(
+                allocator,
                 "signal",
                 .{ .integer = value.signal },
             );
             try output.put(
+                allocator,
                 "core_dumped",
                 .{ .bool = value.core_dumped },
             );
@@ -577,6 +586,7 @@ fn terminalWaitExitValue(
                 value.lifecycle.wireName(),
             );
             try output.put(
+                allocator,
                 "revision",
                 try decimal(allocator, value.revision),
             );
@@ -591,14 +601,17 @@ fn terminalWaitExitValue(
             );
             try putString(&output, allocator, "lifecycle", "exited");
             try output.put(
+                allocator,
                 "outcome",
                 try exitOutcomeValue(allocator, value.outcome),
             );
             try output.put(
+                allocator,
                 "exited_at",
                 try decimal(allocator, value.exited_at),
             );
             try output.put(
+                allocator,
                 "revision",
                 try decimal(allocator, value.revision),
             );
@@ -689,8 +702,8 @@ fn streamUnknown(
     if ((try stream.next()) != null) return error.UnexpectedSecondItem;
     const terminal = stream.end() orelse return error.MissingStreamEnd;
     var output = try Object.init(allocator, &.{}, &.{});
-    try output.put("sequence", try decimal(allocator, item.sequence));
-    try output.put("cursor", try cursorValue(allocator, item.cursor));
+    try output.put(allocator, "sequence", try decimal(allocator, item.sequence));
+    try output.put(allocator, "cursor", try cursorValue(allocator, item.cursor));
     try putString(
         &output,
         allocator,
@@ -698,6 +711,7 @@ fn streamUnknown(
         unknown.discriminator,
     );
     try output.put(
+        allocator,
         "raw",
         try cloneValue(allocator, unknown.raw_object),
     );
@@ -733,10 +747,11 @@ fn streamCancel(
         endName(terminal.reason),
     );
     try output.put(
+        allocator,
         "items_after_cancel",
         .{ .integer = items_after_cancel },
     );
-    try output.put("cancel_calls", .{ .integer = 2 });
+    try output.put(allocator, "cancel_calls", .{ .integer = 2 });
     return .{ .object = output };
 }
 
@@ -774,6 +789,7 @@ fn streamOverflow(
     try putString(&output, allocator, "first_end", first_end);
     try putString(&output, allocator, "second_kind", second_kind);
     try output.put(
+        allocator,
         "control_alive",
         try cloneValue(
             allocator,
@@ -809,14 +825,14 @@ fn redaction(allocator: Allocator) !Value {
         .{grant},
     );
     var output = try Object.init(allocator, &.{}, &.{});
-    try output.put("specifier_redacted", .{
+    try output.put(allocator, "specifier_redacted", .{
         .bool = std.mem.indexOf(
             u8,
             specifier_rendered,
             specifier_text,
         ) == null,
     });
-    try output.put("renderer_token_redacted", .{
+    try output.put(allocator, "renderer_token_redacted", .{
         .bool = std.mem.indexOf(
             u8,
             grant_rendered,
@@ -1038,12 +1054,12 @@ fn liveFlow(
     );
 
     var output = try Object.init(allocator, &.{}, &.{});
-    try output.put("pinged", .{ .bool = pinged });
-    try output.put("created", .{ .bool = true });
-    try output.put("renamed", .{ .bool = renamed_ok });
-    try output.put("listed", .{ .bool = listed });
-    try output.put("closed", .{ .bool = true });
-    try output.put("disappeared", .{ .bool = disappeared });
+    try output.put(allocator, "pinged", .{ .bool = pinged });
+    try output.put(allocator, "created", .{ .bool = true });
+    try output.put(allocator, "renamed", .{ .bool = renamed_ok });
+    try output.put(allocator, "listed", .{ .bool = listed });
+    try output.put(allocator, "closed", .{ .bool = true });
+    try output.put(allocator, "disappeared", .{ .bool = disappeared });
     return .{ .object = output };
 }
 
@@ -1169,6 +1185,7 @@ fn liveCreationExit(
         correlation_key,
     );
     try output.put(
+        allocator,
         "created_path",
         try createdTerminalPathValue(allocator, created_path),
     );
@@ -1204,6 +1221,7 @@ fn liveCreationExit(
         creation_generation,
     );
     try output.put(
+        allocator,
         "creation_revision",
         try decimal(allocator, creation_revision),
     );
@@ -1216,12 +1234,14 @@ fn liveCreationExit(
     );
     try putString(&output, allocator, "exit_lifecycle", "exited");
     try putString(&output, allocator, "exit_kind", "exit");
-    try output.put("exit_code", .{ .integer = exit_code });
+    try output.put(allocator, "exit_code", .{ .integer = exit_code });
     try output.put(
+        allocator,
         "exited_at",
         try decimal(allocator, exited.exited_at),
     );
     try output.put(
+        allocator,
         "exit_revision",
         try decimal(allocator, exited.revision),
     );
@@ -1309,6 +1329,7 @@ fn liveExitRestart(
         resolution.value.correlation_key,
     );
     try output.put(
+        allocator,
         "created_path",
         try createdTerminalPathValue(allocator, resolved_path),
     );
@@ -1331,6 +1352,7 @@ fn liveExitRestart(
         generation,
     );
     try output.put(
+        allocator,
         "creation_revision",
         try decimal(allocator, revision),
     );
@@ -1343,12 +1365,14 @@ fn liveExitRestart(
     );
     try putString(&output, allocator, "exit_lifecycle", "exited");
     try putString(&output, allocator, "exit_kind", "exit");
-    try output.put("exit_code", .{ .integer = exit_code });
+    try output.put(allocator, "exit_code", .{ .integer = exit_code });
     try output.put(
+        allocator,
         "exited_at",
         try decimal(allocator, exited.exited_at),
     );
     try output.put(
+        allocator,
         "exit_revision",
         try decimal(allocator, exited.revision),
     );
@@ -1473,7 +1497,7 @@ fn liveSetup(
             );
 
         var output = try Object.init(allocator, &.{}, &.{});
-        try output.put("pinged", .{ .bool = pinged });
+        try output.put(allocator, "pinged", .{ .bool = pinged });
         try putString(
             &output,
             allocator,
@@ -1481,10 +1505,12 @@ fn liveSetup(
             stable_id.slice(),
         );
         try output.put(
+            allocator,
             "stable_renamed",
             .{ .bool = stable_renamed },
         );
         try output.put(
+            allocator,
             "duplicate_ids",
             try workspaceIdArray(
                 allocator,
@@ -1499,10 +1525,12 @@ fn liveSetup(
             ambiguity_code,
         );
         try output.put(
+            allocator,
             "ambiguity_preserved_all_candidates",
             .{ .bool = preserved_candidates },
         );
         try output.put(
+            allocator,
             "no_mutation",
             .{ .bool = no_mutation },
         );
@@ -1608,17 +1636,19 @@ fn liveRestart(
         !containsWorkspace(remaining.items, duplicate_ids[1]);
 
     var output = try Object.init(allocator, &.{}, &.{});
-    try output.put("same_ids", .{ .bool = same_ids });
+    try output.put(allocator, "same_ids", .{ .bool = same_ids });
     try output.put(
+        allocator,
         "stable_name_preserved",
         .{ .bool = stable_name_preserved },
     );
     try output.put(
+        allocator,
         "duplicates_preserved",
         .{ .bool = duplicates_preserved },
     );
-    try output.put("closed", .{ .bool = true });
-    try output.put("disappeared", .{ .bool = disappeared });
+    try output.put(allocator, "closed", .{ .bool = true });
+    try output.put(allocator, "disappeared", .{ .bool = disappeared });
     return .{ .object = output };
 }
 
@@ -1738,9 +1768,10 @@ pub fn main(init: std.process.Init) !void {
     defer output_arena.deinit();
     const output = output_arena.allocator();
     var response = try Object.init(output, &.{}, &.{});
-    try response.put("contract_version", .{ .integer = 2 });
+    try response.put(output, "contract_version", .{ .integer = 2 });
     const request_object = try asObject(parsed.value);
     try response.put(
+        output,
         "id",
         if (request_object.get("id")) |id|
             try cloneValue(output, id)
@@ -1748,7 +1779,7 @@ pub fn main(init: std.process.Init) !void {
             .null,
     );
     const value = dispatch(output, parsed.value) catch |failure| {
-        try response.put("ok", .{ .bool = false });
+        try response.put(output, "ok", .{ .bool = false });
         var encoded_error = try Object.init(output, &.{}, &.{});
         try putString(&encoded_error, output, "kind", "adapter");
         try putString(
@@ -1757,11 +1788,11 @@ pub fn main(init: std.process.Init) !void {
             "message",
             @errorName(failure),
         );
-        try response.put("error", .{ .object = encoded_error });
+        try response.put(output, "error", .{ .object = encoded_error });
         try writeResponse(allocator, init.io, .{ .object = response });
         return;
     };
-    try response.put("ok", .{ .bool = true });
-    try response.put("value", value);
+    try response.put(output, "ok", .{ .bool = true });
+    try response.put(output, "value", value);
     try writeResponse(allocator, init.io, .{ .object = response });
 }
