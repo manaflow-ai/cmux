@@ -24820,7 +24820,7 @@ mod tests {
             LayoutUndoResult::Undone { .. }
         ));
 
-        assert!(mux.surface(added.id).is_none());
+        assert_terminal_view_detached(&mux, added.id);
         assert!(
             mux.shutdown_owners.is_empty(),
             "layout undo retained the removed surface owner after confirmed shutdown"
