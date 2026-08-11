@@ -526,10 +526,8 @@ fn reset_exclusive_rename_probe_rejects_swapped_entries() {
     let root = temp_root("reset-capability-swapped-entries");
     fs::create_dir_all(&root).unwrap();
     let directory = File::open(&root).unwrap();
-    let mut cleanup = ResetExclusiveRenameProbeCleanup {
-        parent_fd: directory.as_raw_fd(),
-        entries: Vec::new(),
-    };
+    let mut cleanup =
+        ResetExclusiveRenameProbeCleanup { parent_fd: directory.as_raw_fd(), entries: Vec::new() };
     for suffix in ["source", "target"] {
         let name = OsString::from(format!("probe-{suffix}"));
         cleanup.entries.push(
