@@ -24927,7 +24927,7 @@ mod tests {
                 .lifecycle,
             TerminalLifecycle::Running
         );
-        mux.shutdown().unwrap();
+        mux.shutdown();
     }
 
     #[test]
