@@ -8988,9 +8988,10 @@ impl Mux {
 
     fn prune_dead_kitty_image_surfaces(budget: &mut KittyImageBudgetState) {
         budget.entries.retain(|_, entry| {
-            entry.surface.as_ref().is_none_or(|surface| {
-                surface.upgrade().is_some_and(|surface| !surface.is_dead())
-            })
+            entry
+                .surface
+                .as_ref()
+                .is_none_or(|surface| surface.upgrade().is_some_and(|surface| !surface.is_dead()))
         });
         let live_ids = budget.entries.keys().copied().collect::<HashSet<_>>();
         budget.blocked_surfaces.retain(|id| live_ids.contains(id));
