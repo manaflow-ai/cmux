@@ -87,11 +87,15 @@ public struct NotificationFeedPreviewView: View {
                             primarySearchCoordinator.deactivateCurrentSearch()
                         }
                     }
-                    .toolbarVisibility(
-                        searchNotificationPath.isEmpty ? .automatic : .hidden,
-                        for: .tabBar
-                    )
                 }
+                // On the NavigationStack, not the stack's root content: a
+                // tab-bar visibility preference on the searchable's own node
+                // detaches the field from the tab-bar anchor and hosts it
+                // inline at the top after a pop (measured at y=169).
+                .toolbarVisibility(
+                    searchNotificationPath.isEmpty ? .automatic : .hidden,
+                    for: .tabBar
+                )
             }
             .background {
                 NotificationFeedSearchProjectionSync(
