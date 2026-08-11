@@ -1476,6 +1476,10 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             # description. Close it before waiting for the owner publication.
             exec 9>&-
             trap - EXIT HUP INT TERM
+            # The worker must inspect every queued group. Durable publisher and
+            # cleanup-owner records protect the active group; the scheduling
+            # shell's current-group path must not hide it from later passes.
+            unset CMUX_SSH_AUTH_GROUP_DIR
             cmux_ssh_auth_recovery_sweep_ready=0
             if cmux_ssh_auth_recovery_lock; then
               if cmux_ssh_auth_reaper_generation_is_current \
