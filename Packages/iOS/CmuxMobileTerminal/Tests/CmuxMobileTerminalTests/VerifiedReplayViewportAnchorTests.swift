@@ -4,6 +4,47 @@ import Testing
 
 @Suite("Verified replay viewport anchor")
 struct VerifiedReplayViewportAnchorTests {
+    @Test("live output hides provisional scrollbar callbacks until its final viewport commits")
+    func liveOutputScrollbarTransaction() {
+        var gate = ScrollBoundaryCallbackGate()
+        let historical = TerminalScrollBoundary(
+            totalRows: 400,
+            viewportOffsetRows: 120,
+            visibleRows: 40
+        )
+        let provisionalBottom = TerminalScrollBoundary(
+            totalRows: 401,
+            viewportOffsetRows: 361,
+            visibleRows: 40
+        )
+        let restored = TerminalScrollBoundary(
+            totalRows: 401,
+            viewportOffsetRows: 120,
+            visibleRows: 40
+        )
+
+        #expect(gate.observe(historical) == historical)
+        gate.begin(transactionID: 7)
+        #expect(gate.observe(provisionalBottom) == nil)
+        #expect(gate.commit(transactionID: 7, boundary: restored) == restored)
+        #expect(gate.observe(restored) == restored)
+    }
+
+    @Test("a stale completion cannot release a newer scrollbar transaction")
+    func staleLiveOutputScrollbarCompletion() {
+        var gate = ScrollBoundaryCallbackGate()
+        let boundary = TerminalScrollBoundary(
+            totalRows: 400,
+            viewportOffsetRows: 120,
+            visibleRows: 40
+        )
+
+        gate.begin(transactionID: 8)
+        #expect(gate.commit(transactionID: 7, boundary: boundary) == nil)
+        #expect(gate.observe(boundary) == nil)
+        #expect(gate.commit(transactionID: 8, boundary: boundary) == boundary)
+    }
+
     @Test("visible-row flicker does not accumulate across replay cycles")
     func lenFlickerDoesNotAccumulateAcrossReplayCycles() throws {
         let totalRows: UInt64 = 4_053
