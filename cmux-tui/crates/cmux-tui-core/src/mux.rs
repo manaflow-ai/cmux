@@ -26011,7 +26011,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn pending_topology_accepts_current_host_reconnect_without_advancing_lifecycle() {
+    fn pending_topology_retries_current_host_reconnect_without_advancing_lifecycle() {
         const TERMINAL: &str = "00000000000040008000000000000012";
         const INCARNATION: &str = "10000000000040008000000000000012";
         const PENDING_SURFACE: SurfaceId = 4242;
@@ -26040,7 +26040,7 @@ mod tests {
         }
 
         assert!(mux.terminal_host_connection_lost(PENDING_SURFACE, &identity));
-        assert!(mux.terminal_host_reconnected(
+        assert!(!mux.terminal_host_reconnected(
             PENDING_SURFACE,
             &identity,
             KittyGraphicsLimits::disabled(),
@@ -26066,7 +26066,7 @@ mod tests {
         )
         .unwrap();
         assert!(mux.terminal_host_connection_lost(PENDING_SURFACE, &identity));
-        assert!(mux.terminal_host_reconnected(
+        assert!(!mux.terminal_host_reconnected(
             PENDING_SURFACE,
             &identity,
             KittyGraphicsLimits::disabled(),
