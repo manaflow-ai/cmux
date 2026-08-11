@@ -222,13 +222,14 @@ pub(super) fn terminate_process_tree_until(
     process: ProcessIdentity,
     deadline: Instant,
 ) -> io::Result<()> {
-    terminate_process_tree_until_with(process, deadline, |_| {
-        let tree = FrozenProcessTree::freeze(process, deadline)?;
-        tree.terminate_until(deadline)
+    terminate_process_tree_until_with(process, deadline, |attempt_deadline| {
+        let tree = FrozenProcessTree::freeze(process, attempt_deadline)?;
+        tree.terminate_until(attempt_deadline)
     })
 }
 
 #[cfg(test)]
+// This injected-attempt helper and all of its callers are test-only.
 fn terminate_process_tree_until_with(
     process: ProcessIdentity,
     deadline: Instant,
