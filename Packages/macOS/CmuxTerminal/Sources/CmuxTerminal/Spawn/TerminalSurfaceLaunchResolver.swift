@@ -19,6 +19,8 @@ public final class TerminalSurfaceLaunchResolver {
     private let defaultShellArgumentsProvider: TerminalSurfaceDefaultShellArgumentsProvider
     private let resolvedUserShell: @MainActor () -> String?
     private let userGhosttyCommand: @MainActor () -> GhosttyConfiguredCommand?
+    private let launchResourceSnapshotDeadline: Duration
+    private let launchResourceSnapshotDeadlineClock: any Clock<Duration>
     private let agentCommandShimInstallDeadline: Duration
     private let agentCommandShimInstallDeadlineClock: any Clock<Duration>
 
@@ -62,6 +64,8 @@ public final class TerminalSurfaceLaunchResolver {
         ambientEnvironment: [String: String],
         defaultShellArguments: [String],
         asynchronousDefaultShellArguments: DefaultShellArguments? = nil,
+        launchResourceSnapshotDeadline: Duration = .seconds(5),
+        launchResourceSnapshotDeadlineClock: any Clock<Duration> = ContinuousClock(),
         agentCommandShimInstallDeadline: Duration = .seconds(5),
         agentCommandShimInstallDeadlineClock: any Clock<Duration> = ContinuousClock()
     ) {
@@ -84,6 +88,8 @@ public final class TerminalSurfaceLaunchResolver {
         self.defaultShellArgumentsProvider = TerminalSurfaceDefaultShellArgumentsProvider(
             resolve: asynchronousDefaultShellArguments ?? { defaultShellArguments }
         )
+        self.launchResourceSnapshotDeadline = launchResourceSnapshotDeadline
+        self.launchResourceSnapshotDeadlineClock = launchResourceSnapshotDeadlineClock
         self.agentCommandShimInstallDeadline = agentCommandShimInstallDeadline
         self.agentCommandShimInstallDeadlineClock = agentCommandShimInstallDeadlineClock
     }
@@ -96,7 +102,10 @@ public final class TerminalSurfaceLaunchResolver {
         _ request: TerminalSurfaceLaunchRequest,
         reusing commandShimLease: TerminalSurfaceAgentCommandShimLease? = nil
     ) async -> TerminalSurfaceOwnedLaunch {
-        let launchResourceSnapshot = await launchResourceProvider.snapshot()
+        let launchResourceSnapshot = await launchResourceProvider.snapshot(
+            deadline: launchResourceSnapshotDeadline,
+            clock: launchResourceSnapshotDeadlineClock
+        )
         let shims: TerminalSurfaceAgentCommandShimSet?
         if let commandShimLease {
             shims = commandShimLease.shims

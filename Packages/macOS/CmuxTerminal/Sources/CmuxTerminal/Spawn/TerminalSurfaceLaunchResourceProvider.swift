@@ -25,9 +25,35 @@ public final class TerminalSurfaceLaunchResourceProvider: Sendable {
         }
     }
 
-    /// Waits for and returns the shared resource snapshot.
+    deinit {
+        task.cancel()
+    }
+
+    /// Waits for the shared resource snapshot until cancellation.
     public func snapshot() async -> TerminalSurfaceLaunchResourceSnapshot {
-        await task.value
+        let identifier = UUID()
+        return await withTaskCancellationHandler {
+            await state.value(identifier: identifier)
+        } onCancel: {
+            state.cancelWaiter(identifier)
+        }
+    }
+
+    /// Waits for the shared resource snapshot until the injected deadline.
+    public func snapshot(
+        deadline: Duration,
+        clock: any Clock<Duration>
+    ) async -> TerminalSurfaceLaunchResourceSnapshot {
+        let identifier = UUID()
+        return await withTaskCancellationHandler {
+            await state.value(
+                identifier: identifier,
+                deadline: deadline,
+                clock: clock
+            )
+        } onCancel: {
+            state.cancelWaiter(identifier)
+        }
     }
 
     /// Returns the snapshot only when the inspection has completed.
