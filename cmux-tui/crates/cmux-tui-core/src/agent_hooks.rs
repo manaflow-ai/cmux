@@ -66,7 +66,7 @@ pub fn agent_hook_journal_ingress(
     validate_native_event(native_event)?;
     let terminal_id = terminal_id.map(TerminalPublicId::parse).transpose()?;
     let native = redact_agent_native(native_event, native);
-    validate_agent_session_identifier(&native)?;
+    validate_agent_session_identifiers(&native)?;
     let mut normalized = normalized_fields(&native);
     add_agent_topology(source, native_event, terminal_id.as_ref(), &mut normalized);
     let kind = semantic_kind(source, native_event, &normalized);
@@ -724,12 +724,27 @@ fn normalized_provider_string(field: &str, value: &str) -> Option<String> {
     }
 }
 
-fn validate_agent_session_identifier(native: &Value) -> anyhow::Result<()> {
-    if let Some(value) = first_raw_string_at(native, AGENT_SESSION_ID_PATHS) {
+fn validate_agent_session_identifiers(native: &Value) -> anyhow::Result<()> {
+    let mut session_identifier: Option<&str> = None;
+    for path in AGENT_SESSION_ID_PATHS {
+        let Some(value) = path
+            .iter()
+            .try_fold(native, |value, component| value.get(*component))
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+        else {
+            continue;
+        };
         anyhow::ensure!(
             safe_opaque_identifier(value),
             "agent session identifier must contain 1 to {MAX_OPAQUE_IDENTIFIER_BYTES} bytes and no control characters"
         );
+        let value = value.trim();
+        if let Some(expected) = session_identifier {
+            anyhow::ensure!(value == expected, "conflicting agent session identifiers");
+        } else {
+            session_identifier = Some(value);
+        }
     }
     Ok(())
 }

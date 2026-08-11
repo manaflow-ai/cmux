@@ -1207,11 +1207,11 @@ fn merge_projection(
     if current_is_active && current.source != "hook" && next.source == "hook" {
         return next;
     }
-    let same_session_identity = current.source_session.is_some()
-        && current.source_session == next.source_session
-        && current.provider == next.provider;
+    let same_session_identity =
+        current.source_session == next.source_session && current.provider == next.provider;
     if same_session_identity {
-        let begins_new_structured_turn = next.begins_turn
+        let begins_new_structured_turn = current.source_session.is_some()
+            && next.begins_turn
             && current.turn_id.is_some()
             && next.turn_id.is_some()
             && current.turn_id != next.turn_id;
