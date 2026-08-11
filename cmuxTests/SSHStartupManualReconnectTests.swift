@@ -459,18 +459,23 @@ struct SSHStartupManualReconnectTests {
     }
 
     @Test func terminalExitPromptDoesNotDismissOnClosedInput() throws {
-        let fixture = try Self.makeTerminalExitPromptFixture()
-        defer { try? FileManager.default.removeItem(at: fixture.temporaryDirectory) }
+        let prompt = try Self.makeTerminalExitPromptProcess()
+        defer { Self.stopAndCleanUp(prompt) }
 
-        let result = Self.runProcess(
-            executablePath: "/bin/sh",
-            arguments: ["-c", fixture.startupCommand],
-            environment: fixture.environment,
-            standardInput: "",
-            timeout: 0.5
+        #expect(
+            Self.waitForFile(
+                at: prompt.transcriptURL,
+                containing: "press Enter to close this pane",
+                timeout: 3
+            ),
+            "terminal exit prompt was not emitted"
         )
+        try prompt.standardInput.fileHandleForWriting.close()
 
-        #expect(result.timedOut, "closed stdin must leave the prompt waiting for a real Enter keypress")
+        #expect(
+            !Self.waitForExit(prompt.process, timeout: 0.5),
+            "closed stdin must leave the prompt waiting for a real Enter keypress"
+        )
     }
 
     @Test func persistentStartupIgnoresInheritedInternalPendingSignalState() throws {
