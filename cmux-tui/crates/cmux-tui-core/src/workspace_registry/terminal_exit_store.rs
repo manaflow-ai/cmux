@@ -144,14 +144,6 @@ impl WorkspaceRegistry {
         });
         let result_json = canonical_json(&result)?;
 
-        if let Some((patch, _)) = topology {
-            apply_resource_patch(&tx, patch, sqlite_resource_revision)?;
-        }
-
-        if let Some((patch, _)) = topology {
-            apply_resource_patch(&tx, patch, sqlite_resource_revision)?;
-        }
-
         tx.execute(
             "UPDATE terminal_hosts
              SET incarnation = ?1, lifecycle = 'exited', exit_json = ?2,
@@ -164,6 +156,9 @@ impl WorkspaceRegistry {
                 terminal_id
             ],
         )?;
+        if let Some((patch, _)) = topology {
+            apply_resource_patch(&tx, patch, sqlite_resource_revision)?;
+        }
         tx.execute(
             "UPDATE resource_terminals SET updated_revision = ?1
              WHERE public_id = ?2 AND deleted_revision IS NULL",
