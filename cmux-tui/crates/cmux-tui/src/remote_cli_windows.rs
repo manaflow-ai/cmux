@@ -1003,8 +1003,7 @@ fn proxy_raw_mux_stdio(socket_path: &Path) -> anyhow::Result<()> {
 
     let mut download_socket = socket;
     let mut stdout = io::stdout().lock();
-    let result = io::copy(&mut download_socket, &mut stdout)
-        .and_then(|_| stdout.flush())
+    let result = copy_windows_carrier_download(&mut download_socket, &mut stdout)
         .context("Windows SSH remote relay stopped")
         .map(|_| ());
     let _ = download_socket.shutdown(Shutdown::Both);
