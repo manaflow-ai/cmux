@@ -16,9 +16,8 @@ public struct NotificationFeedPreviewView: View {
     @State private var items: [MobileNotificationFeedItem]
     @State private var projection = NotificationFeedProjection()
     @State private var notificationRoute: NotificationWorkspaceRoute?
-    // Mirrors the shell: search results present full screen OVER the live
-    // search session (the Photos search pattern).
-    @State private var searchPresentedRoute: NotificationWorkspaceRoute?
+    // Mirrors the shell: search results push over the live search session.
+    @State private var searchNotificationPath: [MobileWorkspacePreview.ID] = []
     @State private var pendingSearchNotificationNavigationID: MobileWorkspacePreview.ID?
     @State private var macSelection: WorkspaceMacSelection = .all
 
@@ -62,7 +61,7 @@ public struct NotificationFeedPreviewView: View {
             } workspaceSearch: {
                 NotificationFeedPreviewWorkspacesView()
             } notificationSearch: {
-                NavigationStack {
+                NavigationStack(path: $searchNotificationPath) {
                     NotificationFeedView(
                         status: .ready,
                         projection: projection,
@@ -76,21 +75,13 @@ public struct NotificationFeedPreviewView: View {
                         scope: .notifications,
                         submit: { selectedTab = primarySearchCoordinator.commitSubmit() }
                     ))
-                }
-                // Mirrors the shell: full screen over the live search.
-                .fullScreenCover(item: $searchPresentedRoute) { route in
-                    NavigationStack {
+                    // Mirrors the shell: push over the live search with the
+                    // UIKit flag riding the transitions.
+                    .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                         NotificationFeedPreviewWorkspaceDestination(
-                            workspaceName: workspaceName(for: route.id)
+                            workspaceName: workspaceName(for: workspaceID)
                         )
-                        .navigationBarBackButtonHidden(true)
-                        .toolbar {
-                            ToolbarItem(placement: .topBarLeading) {
-                                WorkspaceBackButton(unreadCount: 0) {
-                                    searchPresentedRoute = nil
-                                }
-                            }
-                        }
+                        .background(HidesBottomBarWhenPushed())
                     }
                 }
             }
@@ -154,7 +145,9 @@ public struct NotificationFeedPreviewView: View {
             open: { item in
                 let workspaceID = MobileWorkspacePreview.ID(rawValue: item.remoteWorkspaceID)
                 if selectedTab == .search {
-                    searchPresentedRoute = NotificationWorkspaceRoute(id: workspaceID)
+                    if searchNotificationPath.last != workspaceID {
+                        searchNotificationPath = [workspaceID]
+                    }
                 } else if primarySearchCoordinator.isPresented {
                     pendingSearchNotificationNavigationID = workspaceID
                     transitionPrimaryTab(to: .notifications)
