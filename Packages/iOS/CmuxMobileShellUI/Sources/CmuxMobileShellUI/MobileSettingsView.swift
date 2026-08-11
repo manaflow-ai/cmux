@@ -48,7 +48,6 @@ struct MobileSettingsView: View {
     @State private var notificationsEnabled = false
 #if DEBUG
     @State private var debugReplyScheduled: Bool?
-    @State private var showingTerminalDemo = false
     @State private var showingToastGallery = false
     /// Seconds between tapping "Run Toast Demo" and the first toast, so you
     /// can navigate to any screen and watch it play there.
@@ -268,15 +267,6 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsTranscriptDemo")
-                    Button {
-                        showingTerminalDemo = true
-                    } label: {
-                        Label(
-                            L10n.string("mobile.settings.terminalLogDemo", defaultValue: "Terminal Log Demo"),
-                            systemImage: "terminal"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsTerminalLogDemo")
                     Button {
                         showingToastGallery = true
                     } label: {
@@ -537,9 +527,6 @@ struct MobileSettingsView: View {
                 TerminalShortcutsSettingsView()
             }
             #if DEBUG
-            .fullScreenCover(isPresented: $showingTerminalDemo) {
-                TerminalLogDemoScreen()
-            }
             .sheet(isPresented: $showingToastGallery) {
                 ToastGalleryView()
             }
