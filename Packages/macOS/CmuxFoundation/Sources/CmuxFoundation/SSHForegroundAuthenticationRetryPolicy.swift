@@ -1752,6 +1752,25 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             \#(processGroupStateRemovalShellCommand())
             /bin/rmdir "$CMUX_SSH_AUTH_GROUP_DIR" 2>/dev/null || true
           }
+          cmux_ssh_auth_tree_remove_rollback_state() {
+            # Transfer ownership to any concurrently published identity before
+            # deleting the completed rollback journals. If publication did not
+            # finish, the validated root tree is already gone.
+            /bin/rm -f -- "$cmux_ssh_auth_tree_state/rollback-only" 2>/dev/null || true
+            /bin/rm -f -- "$cmux_ssh_auth_tree_state/unpublished.root" \
+              "$cmux_ssh_auth_tree_state/processes" \
+              "$cmux_ssh_auth_tree_state/processes.stopped" \
+              "$cmux_ssh_auth_tree_state/owned" \
+              "$cmux_ssh_auth_tree_state/owned.next" \
+              "$cmux_ssh_auth_tree_state/groups" \
+              "$cmux_ssh_auth_tree_state/groups.next" \
+              "$cmux_ssh_auth_tree_state/groups.resume" \
+              "$cmux_ssh_auth_tree_state/frozen" \
+              "$cmux_ssh_auth_tree_state/individuals" \
+              "$cmux_ssh_auth_tree_state/ordered" \
+              "$cmux_ssh_auth_tree_state/signaled.groups" \
+              "$cmux_ssh_auth_tree_state/signaled.pids" 2>/dev/null || true
+          }
           cmux_ssh_auth_tree_cleanup() {
             if [ "$cmux_ssh_auth_tree_complete" != 1 ] && \
               [ "$cmux_ssh_auth_tree_cleanup_requires_resume" = 1 ]; then
@@ -1764,7 +1783,10 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               cmux_ssh_schedule_failed_auth_group_recovery
               return
             fi
-            if [ "$cmux_ssh_auth_tree_complete" = 1 ] || \
+            if [ "$cmux_ssh_auth_tree_complete" = 1 ] && \
+              [ "$cmux_ssh_auth_tree_created_state" != 1 ]; then
+              cmux_ssh_auth_tree_remove_rollback_state
+            elif [ "$cmux_ssh_auth_tree_complete" = 1 ] || \
               [ "$cmux_ssh_auth_tree_created_state" = 1 ]; then
               cmux_ssh_auth_tree_remove_state
             fi
