@@ -138,6 +138,31 @@ Required GitHub secrets:
 - `IOS_DISTRIBUTION_CERTIFICATE_PASSWORD`
 - `IOS_BETA_PROVISIONING_PROFILE_BASE64` (base64-encoded App Store profile for `dev.cmux.app.beta`, with `aps-environment=production`)
 
+## Unmerged PR demos on cmux DEV
+
+Maintainers can manually publish an open same-repository PR to the separate
+`cmux DEV` TestFlight app. Dispatch the request workflow from `main`:
+
+```bash
+gh workflow run ios-pr-demo-build.yml --repo manaflow-ai/cmux --ref main \
+  -f pr_number=123 \
+  -f demo_notes='Open Settings, then verify the new account picker.'
+```
+
+The build workflow resolves the PR to its immutable head commit and produces an
+unsigned archive without secrets. A separate `workflow_run` publisher checks out
+trusted `main` automation, revalidates that the PR is still open and unchanged,
+validates the archive as untrusted data, then signs and uploads it with the
+`dev.cmux.app.dev` identity. TestFlight's What to Test field contains the PR
+number, title, author, commit, URL, and demo notes.
+
+Only open PRs from `manaflow-ai/cmux` targeting `main` are accepted. The actor
+and triggering actor must have write, maintain, or admin permission. Fork PRs,
+closed or merged PRs, and PRs whose head changed while queued fail before
+signing. The publisher uses the `ios-pr-demo` GitHub environment and its
+App Store Connect credentials to fetch the `cmux DEV Distribution`
+provisioning profile by name before signing.
+
 ## App Store production lane
 
 The production App Store lane is separate from the TestFlight beta lane. It uses

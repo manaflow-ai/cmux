@@ -1,0 +1,249 @@
+name: iOS PR Demo Build
+
+run-name: cmux DEV PR ${{ inputs.pr_number }} by @${{ github.actor }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Open same-repository PR number to build
+        required: true
+        type: string
+      demo_notes:
+        description: Short TestFlight demo instructions
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ios-pr-demo-build-pr-${{ inputs.pr_number }}
+  cancel-in-progress: true
+
+jobs:
+  resolve:
+    name: Authorize and resolve PR
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      head_sha: ${{ steps.resolve.outputs.head_sha }}
+      marketing_version: ${{ steps.resolve.outputs.marketing_version }}
+      pr_number: ${{ steps.resolve.outputs.pr_number }}
+    steps:
+      - name: Resolve immutable PR request
+        id: resolve
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PR_NUMBER: ${{ inputs.pr_number }}
+          DEMO_NOTES: ${{ inputs.demo_notes }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          MANIFEST_PATH: ${{ runner.temp }}/request.json
+        with:
+          script: |
+            const fs = require('fs');
+            const prText = process.env.PR_NUMBER.trim();
+            if (!/^[1-9][0-9]*$/.test(prText)) {
+              core.setFailed('pr_number must be a positive integer');
+              return;
+            }
+            const demoNotes = process.env.DEMO_NOTES || '';
+            if (Buffer.byteLength(demoNotes, 'utf8') > 2000) {
+              core.setFailed('demo_notes must be at most 2000 UTF-8 bytes');
+              return;
+            }
+
+            const allowedPermissions = new Set(['write', 'maintain', 'admin']);
+            async function requirePublisherPermission(login, label) {
+              if (!login) {
+                throw new Error(`${label} is missing`);
+              }
+              const response = await github.rest.repos.getCollaboratorPermissionLevel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                username: login,
+              });
+              const permission = response.data.user?.permission || response.data.permission || '';
+              if (!allowedPermissions.has(permission)) {
+                throw new Error(`${label} @${login} has ${permission || 'no'} repository permission`);
+              }
+            }
+
+            await requirePublisherPermission(context.actor, 'actor');
+            await requirePublisherPermission(process.env.TRIGGERING_ACTOR, 'triggering actor');
+
+            const prNumber = Number(prText);
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+            });
+            const repository = `${context.repo.owner}/${context.repo.repo}`;
+            if (pr.state !== 'open' || pr.merged) {
+              throw new Error(`PR ${prNumber} must be open and unmerged`);
+            }
+            if (pr.base.ref !== 'main') {
+              throw new Error(`PR ${prNumber} must target main`);
+            }
+            if (pr.head.repo?.full_name !== repository) {
+              throw new Error(`PR ${prNumber} must come from ${repository}, not a fork`);
+            }
+            if (!/^[0-9a-f]{40}$/.test(pr.head.sha)) {
+              throw new Error('GitHub returned an invalid PR head SHA');
+            }
+
+            const source = await github.rest.repos.getContent({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              path: 'ios/Config/Shared.xcconfig',
+              ref: context.sha,
+            });
+            if (Array.isArray(source.data) || source.data.type !== 'file' || !source.data.content) {
+              throw new Error('could not read trusted iOS version configuration');
+            }
+            const config = Buffer.from(source.data.content, source.data.encoding || 'base64').toString('utf8');
+            const versionMatch = config.match(/^CMUX_IOS_BETA_MARKETING_VERSION\s*=\s*([0-9]+(?:\.[0-9]+){1,2})\s*$/m);
+            if (!versionMatch) {
+              throw new Error('trusted iOS beta marketing version is missing or invalid');
+            }
+
+            const manifest = {
+              schema: 1,
+              repository,
+              workflow_run_id: Number(context.runId),
+              workflow_sha: context.sha,
+              pr_number: prNumber,
+              pr_url: pr.html_url,
+              title: pr.title,
+              author: pr.user?.login || '',
+              head_sha: pr.head.sha,
+              head_repo: pr.head.repo.full_name,
+              base_ref: pr.base.ref,
+              actor: context.actor,
+              triggering_actor: process.env.TRIGGERING_ACTOR,
+              demo_notes: demoNotes,
+              marketing_version: versionMatch[1],
+            };
+            fs.writeFileSync(process.env.MANIFEST_PATH, `${JSON.stringify(manifest, null, 2)}\n`, {
+              encoding: 'utf8',
+              mode: 0o600,
+              flag: 'wx',
+            });
+            core.setOutput('head_sha', pr.head.sha);
+            core.setOutput('marketing_version', versionMatch[1]);
+            core.setOutput('pr_number', String(prNumber));
+            await core.summary
+              .addHeading('Authorized cmux DEV request')
+              .addTable([
+                [{ data: 'PR', header: true }, String(prNumber)],
+                [{ data: 'head SHA', header: true }, pr.head.sha],
+                [{ data: 'actor', header: true }, `@${context.actor}`],
+                [{ data: 'marketing version', header: true }, versionMatch[1]],
+              ])
+              .write();
+
+      - name: Upload trusted request manifest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-pr-demo-request-${{ github.run_id }}
+          path: ${{ runner.temp }}/request.json
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+
+  build:
+    name: Build unsigned PR archive
+    needs: resolve
+    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 60
+    env:
+      EXPECTED_SHA: ${{ needs.resolve.outputs.head_sha }}
+      MARKETING_VERSION: ${{ needs.resolve.outputs.marketing_version }}
+    steps:
+      - name: Checkout immutable PR head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.resolve.outputs.head_sha }}
+          persist-credentials: false
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Verify checkout
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          if [[ "$actual_sha" != "$EXPECTED_SHA" ]]; then
+            echo "Checked out $actual_sha, expected $EXPECTED_SHA" >&2
+            exit 1
+          fi
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          if [[ -d "/Applications/Xcode.app/Contents/Developer" ]]; then
+            xcode_dir="/Applications/Xcode.app/Contents/Developer"
+          else
+            xcode_app="$(find /Applications -maxdepth 1 -type d -name 'Xcode*.app' -print 2>/dev/null | sort | tail -n 1 || true)"
+            if [[ -z "$xcode_app" ]]; then
+              echo "No Xcode.app found under /Applications" >&2
+              exit 1
+            fi
+            xcode_dir="$xcode_app/Contents/Developer"
+          fi
+          echo "DEVELOPER_DIR=$xcode_dir" >> "$GITHUB_ENV"
+          DEVELOPER_DIR="$xcode_dir" xcodebuild -version
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Provision GhosttyKit
+        run: ./scripts/ensure-ghosttykit.sh
+
+      - name: Archive unsigned cmux DEV build
+        env:
+          ARCHIVE_PATH: ${{ runner.temp }}/archive-payload/cmux-pr-demo.xcarchive
+          DERIVED_DATA: ${{ runner.temp }}/DerivedData
+        run: |
+          set -euo pipefail
+          mkdir -p "$(dirname "$ARCHIVE_PATH")"
+          xcodebuild archive \
+            -workspace ios/cmux.xcworkspace \
+            -scheme cmux-ios \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$ARCHIVE_PATH" \
+            -derivedDataPath "$DERIVED_DATA" \
+            DEVELOPMENT_TEAM=7WLXT3NR37 \
+            PRODUCT_NAME=cmux \
+            PRODUCT_BUNDLE_IDENTIFIER=dev.cmux.app.dev \
+            'PRODUCT_DISPLAY_NAME=cmux DEV' \
+            CURRENT_PROJECT_VERSION="$GITHUB_RUN_ID" \
+            MARKETING_VERSION="$MARKETING_VERSION" \
+            CMUX_GIT_SHA="$EXPECTED_SHA" \
+            CMUX_DEV_TAG= \
+            CMUX_CRASH_REPORTING_ENABLED=YES \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY= \
+            | tee "$RUNNER_TEMP/archive.log"
+          test -d "$ARCHIVE_PATH"
+
+      - name: Package archive with executable permissions intact
+        env:
+          ARCHIVE_PATH: ${{ runner.temp }}/archive-payload/cmux-pr-demo.xcarchive
+          ARCHIVE_TAR: ${{ runner.temp }}/cmux-pr-demo.xcarchive.tar
+        run: |
+          set -euo pipefail
+          tar -C "$(dirname "$ARCHIVE_PATH")" -cf "$ARCHIVE_TAR" "$(basename "$ARCHIVE_PATH")"
+          test -s "$ARCHIVE_TAR"
+
+      - name: Upload unsigned archive
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-pr-demo-archive-${{ github.run_id }}
+          path: ${{ runner.temp }}/cmux-pr-demo.xcarchive.tar
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
