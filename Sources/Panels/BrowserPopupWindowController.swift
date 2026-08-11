@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxBrowser
 import CmuxFoundation
 import ObjectiveC
 import WebKit
@@ -36,6 +37,12 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     private let webAuthnCoordinator: BrowserWebAuthnCoordinator
     private var sslTrustBypassMessageHandler: BrowserSSLTrustBypassMessageHandler?
     private var globalFontObserver: GlobalFontMagnificationChangeObserver?
+    private let fileOnlyNavigationResolutionKey = UUID()
+    private var pendingFileOnlyNavigation: (id: UUID, request: URLRequest)?
+
+    fileprivate var usesFileOnlyReadAccess: Bool {
+        browserContext.localFileReadAccessPolicy == .fileOnly
+    }
 
     private static var associatedObjectKey: UInt8 = 0
 
@@ -273,6 +280,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         #endif
 
         WebViewInspectorTeardown.closeInspector(for: webView)
+        cancelPendingFileOnlyNavigation()
         closeAllChildPopups()
         popupNavigationDelegate.cancelPendingAuthenticationPrompts()
 
@@ -346,12 +354,108 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         if browserShouldBlockInsecureHTTPURL(url) {
             presentInsecureHTTPAlert(for: url, in: webView) { [weak webView] policy in
                 guard policy == .allow, let webView else { return }
-                browserLoadRequest(request, in: webView)
+                self.loadRequest(request, in: webView)
             }
             return
         }
 
-        browserLoadRequest(request, in: webView)
+        loadRequest(request, in: webView)
+    }
+
+    fileprivate func loadRequest(_ request: URLRequest, in webView: WKWebView) {
+        guard webView === self.webView else { return }
+        if browserContext.localFileReadAccessPolicy == .fileOnly,
+           let originalURL = request.url,
+           originalURL.isFileURL {
+            cancelPendingFileOnlyNavigation()
+            guard originalURL.browserIsLocalFileURL else {
+                popupNavigationDelegate.showFileOnlyNavigationResolutionFailure(request, in: webView)
+                return
+            }
+            let id = UUID()
+            pendingFileOnlyNavigation = (id, request)
+            browserContext.filesystemResolutionCoordinator.submitCoalesced(
+                id: id,
+                coalescingKey: fileOnlyNavigationResolutionKey,
+                work: {
+                    let result = await WordPathFilesystemProbe()
+                        .firstExistingPath(in: [originalURL.path])
+                    let navigationURL = result.flatMap { result -> URL? in
+                        guard result.isReadableRegularFile else { return nil }
+                        return BrowserLocalFileReadAccessPolicy.fileOnly.navigationURL(
+                            for: originalURL,
+                            resolvedFileURL: URL(fileURLWithPath: result.resolvedPath)
+                        )
+                    }
+                    return { @MainActor [weak self] in
+                        self?.finishFileOnlyNavigation(id: id, navigationURL: navigationURL)
+                    }
+                },
+                discarded: { [weak self] in
+                    self?.discardFileOnlyNavigation(id: id)
+                },
+                rejected: { [weak self] in
+                    self?.finishFileOnlyNavigation(id: id, navigationURL: nil)
+                }
+            )
+            return
+        }
+        cancelPendingFileOnlyNavigation()
+        browserLoadRequest(
+            request,
+            in: webView,
+            localFileReadAccessPolicy: browserContext.localFileReadAccessPolicy
+        )
+    }
+
+    private func finishFileOnlyNavigation(id: UUID, navigationURL: URL?) {
+        guard let pendingFileOnlyNavigation,
+              pendingFileOnlyNavigation.id == id else {
+            return
+        }
+        self.pendingFileOnlyNavigation = nil
+        guard let navigationURL else {
+            popupNavigationDelegate.showFileOnlyNavigationResolutionFailure(
+                pendingFileOnlyNavigation.request,
+                in: webView
+            )
+            return
+        }
+        var resolvedRequest = pendingFileOnlyNavigation.request
+        resolvedRequest.url = navigationURL
+        guard popupNavigationDelegate.authorizeValidatedFileOnlyNavigation(navigationURL) else {
+            popupNavigationDelegate.showFileOnlyNavigationResolutionFailure(
+                pendingFileOnlyNavigation.request,
+                in: webView
+            )
+            return
+        }
+        let navigation = browserLoadRequest(
+            resolvedRequest,
+            in: webView,
+            localFileReadAccessPolicy: .fileOnly,
+            validatedReadableFileURL: navigationURL
+        )
+        if navigation == nil {
+            popupNavigationDelegate.cancelValidatedFileOnlyNavigationAllowance()
+            popupNavigationDelegate.showFileOnlyNavigationResolutionFailure(
+                pendingFileOnlyNavigation.request,
+                in: webView
+            )
+        }
+    }
+
+    private func discardFileOnlyNavigation(id: UUID) {
+        guard pendingFileOnlyNavigation?.id == id else { return }
+        pendingFileOnlyNavigation = nil
+    }
+
+    private func cancelPendingFileOnlyNavigation() {
+        guard let pendingFileOnlyNavigation else { return }
+        self.pendingFileOnlyNavigation = nil
+        browserContext.filesystemResolutionCoordinator.cancelPending(
+            id: pendingFileOnlyNavigation.id
+        )
     }
 
     // MARK: - Insecure HTTP prompt (parity with main browser)
@@ -597,10 +701,19 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
     private var activeSSLTrustBypassReplayRequest: URLRequest?
     private(set) var activeErrorPageDisplayURL: URL?
     private var activeSSLTrustBypassErrorPageRetryRequest: URLRequest?
+    private var validatedFileOnlyNavigationAllowance = BrowserValidatedFileNavigationAllowance()
 
     func cancelPendingAuthenticationPrompts() {
         basicAuthPromptCoordinator.cancelAll()
         clientCertificateAuthenticationController.cancelAll()
+    }
+
+    func authorizeValidatedFileOnlyNavigation(_ url: URL) -> Bool {
+        validatedFileOnlyNavigationAllowance.authorize(url)
+    }
+
+    func cancelValidatedFileOnlyNavigationAllowance() {
+        validatedFileOnlyNavigationAllowance.clear()
     }
 
     private func recordAttemptedRequest(_ request: URLRequest) {
@@ -620,6 +733,28 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         }
     }
 
+    func showFileOnlyNavigationResolutionFailure(
+        _ request: URLRequest,
+        in webView: WKWebView
+    ) {
+        guard let failedURL = request.url else { return }
+        recordAttemptedRequest(request)
+        activeErrorPageDisplayURL = failedURL
+        let canBypass = BrowserErrorPage(
+            failedURL: failedURL.absoluteString,
+            retry: .request(request),
+            error: NSError(
+                domain: NSCocoaErrorDomain,
+                code: NSFileReadNoSuchFileError
+            ),
+            sslBypassState: sslBypassState
+        ).load(in: webView)
+        acceptsSSLTrustBypassMessages = canBypass
+        activeSSLTrustBypassErrorPageFailedURL = canBypass
+            ? failedURL.absoluteString
+            : nil
+    }
+
     private func clearAttemptedRequest(discardPendingBypasses: Bool = false) {
         if discardPendingBypasses {
             sslBypassState.clearPendingBypasses()
@@ -632,6 +767,7 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         lastAttemptedRequest = nil
         lastAttemptedRequestWasDiscardedForReplay = false
         lastAttemptedURL = nil
+        validatedFileOnlyNavigationAllowance.clear()
     }
 
     private func retryForFailedNavigation(failedURL: String) -> BrowserErrorPageRetry {
@@ -658,6 +794,13 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
            url.host == "bypass-ssl" {
             decisionHandler(.cancel)
             handleSSLTrustBypassAction(url, in: webView)
+            return
+        }
+
+        if let url = navigationAction.request.url,
+           BrowserErrorPage.isLocalFileRetryAction(url) {
+            decisionHandler(.cancel)
+            retryLocalFileNavigation(in: webView)
             return
         }
 
@@ -717,6 +860,34 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         }
         let hasUserActivation = browserNavigationHasSimpleUserActivation()
         subframeDownloadIntents.updateIfNeeded(navigationAction, hasUserActivation: hasUserActivation)
+
+        if url.isFileURL,
+           controller?.usesFileOnlyReadAccess == true {
+            let hasValidatedAllowance = validatedFileOnlyNavigationAllowance.consumeIfMatches(
+                url,
+                targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame
+            )
+            let targetsSameDocument = navigationAction.targetFrame?.isMainFrame == true
+                && webView.url.map {
+                    validatedFileOnlyNavigationAllowance.targetsSameDocument(
+                        url,
+                        as: $0
+                    )
+                } == true
+            guard hasValidatedAllowance || targetsSameDocument else {
+                clearAttemptedRequest(discardPendingBypasses: true)
+#if DEBUG
+                cmuxDebugLog(
+                    "popup.nav kind=cancelFileOnly " +
+                        "reason=missingValidatedAppNavigation url=\(browserNavigationDebugURL(url))"
+                )
+#endif
+                decisionHandler(.cancel)
+                return
+            }
+        } else if navigationAction.targetFrame?.isMainFrame != false {
+            validatedFileOnlyNavigationAllowance.clear()
+        }
 
         // Only guard main-frame navigations
         guard navigationAction.targetFrame?.isMainFrame != false else {
@@ -798,6 +969,7 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        validatedFileOnlyNavigationAllowance.clear()
         lastAttemptedURL = lastAttemptedURL ?? webView.url ?? lastAttemptedRequest?.url
     }
 
@@ -900,7 +1072,7 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         acceptsSSLTrustBypassMessages = false
         activeSSLTrustBypassErrorPageFailedURL = nil
         recordSSLTrustBypassReplayRequest(request)
-        browserLoadRequest(request, in: webView)
+        controller?.loadRequest(request, in: webView)
     }
 
     func handleSSLTrustBypassAction(_ actionURL: URL, in webView: WKWebView) {
@@ -911,7 +1083,19 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         acceptsSSLTrustBypassMessages = false
         activeSSLTrustBypassErrorPageFailedURL = nil
         recordSSLTrustBypassReplayRequest(request)
-        browserLoadRequest(request, in: webView)
+        controller?.loadRequest(request, in: webView)
+    }
+
+    private func retryLocalFileNavigation(in webView: WKWebView) {
+        guard let failedURL = activeErrorPageDisplayURL,
+              failedURL.isFileURL,
+              let request = lastAttemptedRequest,
+              request.url?.isFileURL == true,
+              request.browserMatchesFailedNavigationURLString(failedURL.absoluteString) else {
+            return
+        }
+        clearAttemptedRequest(discardPendingBypasses: true)
+        controller?.loadRequest(request, in: webView)
     }
 
     private func recordSSLTrustBypassReplayRequest(_ request: URLRequest) {

@@ -8,12 +8,14 @@ import Foundation
 @MainActor
 struct TerminalLinkOpenCoordinator {
     private let defaults: UserDefaults
+    private let filesystemResolutionCoordinator: WordPathFilesystemResolutionCoordinator
     private let containerResolver: @MainActor (UUID?, UUID?) -> (any TerminalLinkOpenContainer)?
     private let externalOpen: @MainActor @Sendable (URL) -> Bool
     private let deferOperation: @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void
 
     init(
         defaults: UserDefaults = .standard,
+        filesystemResolutionCoordinator: WordPathFilesystemResolutionCoordinator? = nil,
         containerResolver: @escaping @MainActor (UUID?, UUID?) -> (any TerminalLinkOpenContainer)? = Self.resolveContainer,
         externalOpen: @escaping @MainActor @Sendable (URL) -> Bool = { NSWorkspace.shared.open($0) },
         deferOperation: @escaping @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void = { operation in
@@ -21,6 +23,8 @@ struct TerminalLinkOpenCoordinator {
         }
     ) {
         self.defaults = defaults
+        self.filesystemResolutionCoordinator = filesystemResolutionCoordinator
+            ?? WordPathFilesystemResolutionCoordinator()
         self.containerResolver = containerResolver
         self.externalOpen = externalOpen
         self.deferOperation = deferOperation
@@ -103,52 +107,91 @@ struct TerminalLinkOpenCoordinator {
         }
     }
 
+    /// Routes a local file whose existence was already validated off the main actor.
+    ///
+    /// Command-click uses this entrypoint to avoid repeating the filesystem
+    /// probe while preserving the same container lookup and deferred-open path
+    /// as structured terminal links. An accepted route invokes `completion`
+    /// only after its deferred panel open or external fallback has settled.
+    @discardableResult
+    func openResolvedLocalFile(
+        _ fileURL: URL,
+        resolvedFileURL: URL,
+        request: TerminalLinkOpenRequest,
+        completion: (@MainActor @Sendable () -> Void)? = nil
+    ) -> Bool {
+        guard fileURL.isFileURL, resolvedFileURL.isFileURL else { return false }
+        let container = containerResolver(request.sourceWorkspaceId, request.sourcePanelId)
+        return routeLocalFile(
+            fileURL,
+            request: request,
+            container: container,
+            unavailableReason: "resolved file container unavailable",
+            resolvedFileURL: resolvedFileURL,
+            completion: completion
+        )
+    }
+
     private func routeLocalFile(
         _ fileURL: URL,
         request: TerminalLinkOpenRequest,
         container: (any TerminalLinkOpenContainer)?,
-        unavailableReason: String
+        unavailableReason: String,
+        resolvedFileURL: URL? = nil,
+        completion: (@MainActor @Sendable () -> Void)? = nil
     ) -> Bool {
         guard let sourcePanelId = request.sourcePanelId,
               let container,
               !container.terminalLinkIsRemoteTerminal(sourcePanelId) else {
-            return openExternally(fileURL, reason: unavailableReason)
+            let opened = openExternally(fileURL, reason: unavailableReason)
+            if opened {
+                completion?()
+            }
+            return opened
         }
 
-        if let browserURL = TerminalHTMLFileBrowserAction(defaults: defaults)
-            .browserURL(for: fileURL) {
+        let browserAction = TerminalHTMLFileBrowserAction(defaults: defaults)
+        if browserAction.canOpenInBrowser(fileURL) {
             return deferHTMLFileOpen(
                 fileURL,
-                browserURL: browserURL,
+                resolvedFileURL: resolvedFileURL,
                 request: request,
                 sourcePanelId: sourcePanelId,
-                container: container
+                container: container,
+                completion: completion
             )
         }
 
         guard container.deferTerminalFileLinkOpen(
             sourcePanelId: sourcePanelId,
             filePath: fileURL.path,
-            fallback: { [externalOpen] in _ = externalOpen(fileURL) }
+            resolvedFileURL: resolvedFileURL,
+            fallback: { [externalOpen] in _ = externalOpen(fileURL) },
+            completion: { completion?() }
         ) else {
-            return openExternally(fileURL, reason: unavailableReason)
+            let opened = openExternally(fileURL, reason: unavailableReason)
+            if opened {
+                completion?()
+            }
+            return opened
         }
         return true
     }
 
     private func deferHTMLFileOpen(
         _ fileURL: URL,
-        browserURL: URL,
+        resolvedFileURL: URL?,
         request: TerminalLinkOpenRequest,
         sourcePanelId: UUID,
-        container: any TerminalLinkOpenContainer
+        container: any TerminalLinkOpenContainer,
+        completion: (@MainActor @Sendable () -> Void)?
     ) -> Bool {
         log(
-            "link.openURL target=localHTML url=\(browserURL) " +
+            "link.openURL target=localHTML url=\(fileURL) " +
             "container=\(container.terminalLinkContainerDebugName) surfaceId=\(sourcePanelId)"
         )
 
-        deferOperation { [self] in
+        let finishResolution: @MainActor @Sendable (URL?) -> Void = { [self] currentResolvedFileURL in
             let currentContainer = self.containerResolver(
                 request.sourceWorkspaceId,
                 sourcePanelId
@@ -159,21 +202,29 @@ struct TerminalLinkOpenCoordinator {
                 }
             }
 
-            guard let currentContainer,
+            guard let currentResolvedFileURL,
+                  let currentContainer,
                   !currentContainer.terminalLinkIsRemoteTerminal(sourcePanelId),
-                  CommandClickFileOpenRouter.shouldRouteInCmux(
+                  CommandClickFileOpenRouter.shouldRouteResolvedFileInCmux(
                       path: fileURL.path,
                       defaults: self.defaults
+                  ),
+                  let browserURL = TerminalHTMLFileBrowserAction(
+                      defaults: self.defaults
+                  ).browserURL(
+                      for: fileURL,
+                      resolvedFileURL: currentResolvedFileURL
                   ) else {
                 externalFallback()
+                completion?()
                 return
             }
 
-            if TerminalHTMLFileBrowserAction(defaults: self.defaults).open(
-                fileURL: fileURL,
-                sourcePanelId: sourcePanelId,
-                container: currentContainer
+            if currentContainer.openOrFocusTerminalBrowserFileLink(
+                resolvedURL: browserURL,
+                sourcePanelId: sourcePanelId
             ) {
+                completion?()
                 return
             }
 
@@ -184,11 +235,40 @@ struct TerminalLinkOpenCoordinator {
             if currentContainer.deferTerminalFileLinkOpen(
                 sourcePanelId: sourcePanelId,
                 filePath: fileURL.path,
-                fallback: externalFallback
+                resolvedFileURL: currentResolvedFileURL,
+                fallback: externalFallback,
+                completion: { completion?() }
             ) {
                 return
             }
             externalFallback()
+            completion?()
+        }
+
+        deferOperation {
+            if let resolvedFileURL {
+                finishResolution(resolvedFileURL)
+                return
+            }
+            filesystemResolutionCoordinator.submit(
+                id: UUID(),
+                isUserInitiated: true,
+                work: {
+                    let result = await WordPathFilesystemProbe()
+                        .firstExistingPath(in: [fileURL.path])
+                    let currentResolvedFileURL = result.flatMap {
+                        $0.isReadableRegularFile
+                            ? URL(fileURLWithPath: $0.resolvedPath)
+                            : nil
+                    }
+                    return { @MainActor in
+                        finishResolution(currentResolvedFileURL)
+                    }
+                },
+                discarded: {
+                    finishResolution(nil)
+                }
+            )
         }
         return true
     }
@@ -259,7 +339,7 @@ struct TerminalLinkOpenCoordinator {
         return externalOpen(url)
     }
 
-    private static func resolveContainer(
+    static func resolveContainer(
         sourceWorkspaceId: UUID?,
         sourcePanelId: UUID?
     ) -> (any TerminalLinkOpenContainer)? {

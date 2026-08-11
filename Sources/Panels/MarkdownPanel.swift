@@ -21,6 +21,10 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// Absolute path to the markdown file being displayed.
     let filePath: String
 
+    /// Canonical path captured by a filesystem resolution performed before
+    /// this panel was created. `nil` means the caller supplied no such proof.
+    let resolvedFilePath: String?
+
     /// The workspace this panel belongs to.
     private(set) var workspaceId: UUID
 
@@ -99,13 +103,19 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// - Parameter fontSize: Initial body font size in points. When `nil`, the
     ///   panel uses the persistent `markdown.fontSize` default. The value is
     ///   clamped to the supported range.
-    init(workspaceId: UUID, filePath: String, fontSize: Double? = nil) {
+    init(
+        workspaceId: UUID,
+        filePath: String,
+        fontSize: Double? = nil,
+        resolvedFileURL: URL? = nil
+    ) {
         let defaultSize = MarkdownFontSizeSettings.resolvedDefault()
         let defaultFamily = MarkdownFontFamily.resolvedDefault()
         let defaultMaxWidth = MarkdownMaxWidthSettings.resolvedDefault()
         self.id = UUID()
         self.workspaceId = workspaceId
         self.filePath = filePath
+        self.resolvedFilePath = resolvedFileURL?.standardizedFileURL.path
         self.fontSize = MarkdownFontSizeSettings.clamp(fontSize ?? defaultSize)
         self.fontFamily = defaultFamily
         self.maxContentWidth = defaultMaxWidth

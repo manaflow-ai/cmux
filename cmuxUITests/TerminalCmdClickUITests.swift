@@ -105,6 +105,38 @@ final class TerminalCmdClickUITests: XCTestCase {
         )
     }
 
+    func testColdCmdHoverPublishesAsynchronousFilesystemResolution() throws {
+        let fileName = "Cold Hover Fixture.html"
+        let app = launchApp(
+            displayMode: .raw,
+            fileName: fileName,
+            captureOpenPaths: false,
+            captureHoverDiagnostics: false
+        )
+        defer { app.terminate() }
+
+        let setup = try waitForReadySetup()
+        let expectedResolvedPath = expectedPath(for: fileName)
+        XCTAssertEqual(setup.expectedPath, expectedResolvedPath)
+
+        let result = try runCommand(action: "hover_token")
+        XCTAssertEqual(
+            result["lastCommandSucceeded"] as? String,
+            "1",
+            "Expected a cold cmd-hover to publish its asynchronous filesystem resolution. result=\(result)"
+        )
+        XCTAssertEqual(
+            result["lastCommandHoverActive"] as? String,
+            "1",
+            "Expected a cold cmd-hover to activate after asynchronous resolution. result=\(result)"
+        )
+        XCTAssertEqual(
+            result["lastCommandResolvedPath"] as? String,
+            expectedResolvedPath,
+            "Expected the completed hover resolution to preserve the full path. result=\(result)"
+        )
+    }
+
     func testCmdClickEscapedPathWithSpacesOpensResolvedFile() throws {
         let app = launchApp(
             displayMode: .escaped,

@@ -124,15 +124,19 @@ extension Workspace {
                 focus: nil
             )
         case .browser:
+            let browser = browserPanel(for: panelId)
             definition = CmuxSurfaceDefinition(
                 type: .browser,
                 name: savedLayoutPanelName(panelId),
                 command: nil,
                 cwd: nil,
                 env: nil,
-                url: browserPanel(for: panelId)?.currentURL?.absoluteString,
+                url: browser?.currentURL?.absoluteString,
                 focus: nil
             )
+            if browser?.localFileReadAccessPolicy == .fileOnly {
+                definition.localFileReadAccessPolicy = .fileOnly
+            }
         case .project:
             // Apply-side rebuilds project panes from `url ?? cwd`; a project
             // surface without a path cannot be restored, so emit a counted

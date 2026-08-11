@@ -39,9 +39,19 @@ public struct TerminalPathResolver: Sendable {
     ///   - cwd: The surface's working directory used for relative candidates.
     /// - Returns: The first existing standardized path, or `nil`.
     public func resolveQuicklookPath(_ rawText: String, cwd: String?) -> String? {
-        let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
+        quicklookPathCandidates(rawText, cwd: cwd).first(where: fileExists)
+    }
 
+    /// Returns the standardized paths that ``resolveQuicklookPath(_:cwd:)``
+    /// would probe, in resolution order, without touching the file system.
+    ///
+    /// Callers that need deadline-bounded or batched I/O can probe this list
+    /// outside the synchronous resolver while preserving its token heuristics.
+    public func quicklookPathCandidates(_ rawText: String, cwd: String?) -> [String] {
+        let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+
+        var paths: [String] = []
         var seenPaths: Set<String> = []
         for token in trimmed.pathResolutionCandidates() {
             let normalizedToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -58,12 +68,10 @@ public struct TerminalPathResolver: Sendable {
 
             let standardizedPath = (candidatePath as NSString).standardizingPath
             guard seenPaths.insert(standardizedPath).inserted else { continue }
-            if fileExists(standardizedPath) {
-                return standardizedPath
-            }
+            paths.append(standardizedPath)
         }
 
-        return nil
+        return paths
     }
 
     /// Resolves the path token under a column of a visible terminal line.
@@ -82,12 +90,27 @@ public struct TerminalPathResolver: Sendable {
         column: Int,
         cwd: String
     ) -> (rawToken: String, path: String)? {
+        visibleLinePathCandidates(line, column: column, cwd: cwd)
+            .first { fileExists($0.path) }
+    }
+
+    /// Returns the token/path pairs that
+    /// ``resolveVisibleLinePath(_:column:cwd:)`` would probe, in resolution
+    /// order, without touching the file system.
+    public func visibleLinePathCandidates(
+        _ line: String,
+        column: Int,
+        cwd: String
+    ) -> [(rawToken: String, path: String)] {
+        var candidates: [(rawToken: String, path: String)] = []
+        var seenPaths: Set<String> = []
         for rawToken in line.pathTokenCandidates(containingColumn: column) {
-            if let resolvedPath = resolveQuicklookPath(rawToken, cwd: cwd) {
-                return (rawToken, resolvedPath)
+            for path in quicklookPathCandidates(rawToken, cwd: cwd) {
+                guard seenPaths.insert(path).inserted else { continue }
+                candidates.append((rawToken, path))
             }
         }
-        return nil
+        return candidates
     }
 
     /// Resolves an open-URL request payload to an existing file path.

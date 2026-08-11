@@ -50,8 +50,10 @@ import WebKit
     private var activeSSLTrustBypassReplayRequest: URLRequest?
     private var activeSSLTrustBypassErrorPageRetryRequest: URLRequest?
     private var pendingMainFrameDownloadRestoreAttemptID: UUID?
+    private var validatedFileOnlyNavigationAllowance = BrowserValidatedFileNavigationAllowance()
     // WKNavigation is WebKit's only public identity linking a load to its lifecycle callbacks.
     private var activeMainFrameNavigation: WKNavigation?
+    private var suppressedMainFrameNavigationIDs = Set<ObjectIdentifier>()
 
     func cancelPendingAuthenticationPrompts(allowFuturePrompts: Bool = false) {
         basicAuthPromptCoordinator.cancelAll(allowFuturePrompts: allowFuturePrompts)
@@ -87,6 +89,7 @@ import WebKit
         lastAttemptedRequest = nil
         lastAttemptedRequestWasDiscardedForReplay = false
         lastAttemptedURL = nil
+        validatedFileOnlyNavigationAllowance.clear()
     }
 
     func clearSSLTrustState() {
@@ -99,9 +102,31 @@ import WebKit
         lastAttemptedRequest = nil
         lastAttemptedRequestWasDiscardedForReplay = false
         lastAttemptedURL = nil
+        validatedFileOnlyNavigationAllowance.clear()
+        suppressedMainFrameNavigationIDs.removeAll()
+    }
+
+    func authorizeValidatedFileOnlyNavigation(_ url: URL) -> Bool {
+        validatedFileOnlyNavigationAllowance.authorize(url)
+    }
+
+    func cancelValidatedFileOnlyNavigationAllowance() {
+        validatedFileOnlyNavigationAllowance.clear()
+    }
+
+    func stopAndSuppressActiveMainFrameNavigation(in webView: WKWebView) {
+        if let activeMainFrameNavigation {
+            suppressedMainFrameNavigationIDs.insert(
+                ObjectIdentifier(activeMainFrameNavigation)
+            )
+            self.activeMainFrameNavigation = nil
+            didCancelProvisionalNavigation?(webView, activeMainFrameNavigation)
+        }
+        webView.stopLoading()
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        validatedFileOnlyNavigationAllowance.clear()
         activeMainFrameNavigation = navigation
         lastAttemptedURL = lastAttemptedURL ?? webView.url ?? lastAttemptedRequest?.url
         shouldPrintAfterCurrentNavigationFinishes = false
@@ -110,6 +135,7 @@ import WebKit
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        guard !isSuppressedMainFrameNavigation(navigation) else { return }
         if activeSSLTrustBypassReplayRequest != nil || activeSSLTrustBypassErrorPageRetryRequest != nil {
             clearAttemptedRequest(discardPendingBypasses: true)
         }
@@ -118,6 +144,7 @@ import WebKit
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        guard !consumeSuppressedMainFrameNavigation(navigation) else { return }
         didFinish?(webView)
         clearActiveMainFrameNavigation(ifMatching: navigation)
         if shouldPrintAfterCurrentNavigationFinishes {
@@ -127,6 +154,7 @@ import WebKit
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        guard !consumeSuppressedMainFrameNavigation(navigation) else { return }
         NSLog("BrowserPanel navigation failed: %@", error.localizedDescription)
         // Treat committed-navigation failures the same as provisional ones so
         // stale favicon/title state from the prior page gets cleared.
@@ -136,6 +164,7 @@ import WebKit
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        guard !consumeSuppressedMainFrameNavigation(navigation) else { return }
         let nsError = error as NSError
         NSLog("BrowserPanel provisional navigation failed: %@", error.localizedDescription)
 
@@ -279,6 +308,13 @@ import WebKit
         }
 
         if let url = navigationAction.request.url,
+           BrowserErrorPage.isLocalFileRetryAction(url) {
+            decisionHandler(.cancel)
+            retryLocalFileNavigation()
+            return
+        }
+
+        if let url = navigationAction.request.url,
            BrowserFileDropNavigationGuard.isDropFallbackNavigation(
                url: url,
                isMainFrame: navigationAction.targetFrame?.isMainFrame == true,
@@ -319,17 +355,77 @@ import WebKit
         let currentEventButton = NSApp.currentEvent.map { String($0.buttonNumber) } ?? "nil"
         let navType = String(describing: navigationAction.navigationType)
         let requestMethod = navigationAction.request.httpMethod ?? "nil"
-        let requestURL = browserNavigationDebugURL(navigationAction.request.url)
+        let debugRequestURL = browserNavigationDebugURL(navigationAction.request.url)
         let targetMainFrame = navigationAction.targetFrame.map { $0.isMainFrame ? "1" : "0" } ?? "nil"
         cmuxDebugLog(
             "browser.nav.decidePolicy navType=\(navType) button=\(navigationAction.buttonNumber) " +
             "mods=\(navigationAction.modifierFlags.rawValue) targetNil=\(navigationAction.targetFrame == nil ? 1 : 0) " +
-            "targetMain=\(targetMainFrame) method=\(requestMethod) url=\(requestURL) " +
+            "targetMain=\(targetMainFrame) method=\(requestMethod) url=\(debugRequestURL) " +
             "eventType=\(currentEventType) eventButton=\(currentEventButton) " +
             "recentMiddleIntent=\(hasRecentMiddleClickIntent ? 1 : 0) " +
             "openInNewTab=\(shouldOpenInNewTab ? 1 : 0)"
         )
 #endif
+
+        let requestURL = navigationAction.request.url
+        if validatedFileOnlyNavigationAllowance.routeRestrictedFileNewTabIntent(
+            isFileOnly: owner?.localFileReadAccessPolicy == .fileOnly,
+            isFileURL: requestURL?.isFileURL == true,
+            hasExplicitNewTabIntent: shouldOpenInNewTab,
+            hasNilTargetNewTabIntent: navigationAction.targetFrame == nil
+                && browserNavigationShouldFallbackNilTargetToNewTab(
+                    navigationType: navigationAction.navigationType
+                ),
+            hasUserActivation: hasUserActivation,
+            route: {
+                guard let requestURL else { return }
+#if DEBUG
+                cmuxDebugLog(
+                    "browser.nav.decidePolicy.action kind=openRestrictedFileInNewTab " +
+                        "url=\(browserNavigationDebugURL(requestURL))"
+                )
+#endif
+                clearAttemptedRequest(discardPendingBypasses: true)
+                let reportTerminalCancellation = terminalPolicyCancellationReporter?(
+                    navigationAction,
+                    webView
+                ) ?? {}
+                openRequestInNewTab(navigationAction.request)
+                reportTerminalCancellation()
+            }
+        ) {
+            decisionHandler(.cancel)
+            return
+        }
+
+        if let requestURL,
+           owner?.localFileReadAccessPolicy == .fileOnly,
+           requestURL.isFileURL {
+            let hasValidatedAllowance = validatedFileOnlyNavigationAllowance.consumeIfMatches(
+                requestURL,
+                targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame
+            )
+            let targetsSameDocument = navigationAction.targetFrame?.isMainFrame == true
+                && webView.url.map {
+                    validatedFileOnlyNavigationAllowance.targetsSameDocument(
+                        requestURL,
+                        as: $0
+                    )
+                } == true
+            guard hasValidatedAllowance || targetsSameDocument else {
+                clearAttemptedRequest(discardPendingBypasses: true)
+#if DEBUG
+                cmuxDebugLog(
+                    "browser.nav.decidePolicy.action kind=cancelFileOnly " +
+                        "reason=missingValidatedAppNavigation url=\(browserNavigationDebugURL(requestURL))"
+                )
+#endif
+                decisionHandler(.cancel)
+                return
+            }
+        } else if navigationAction.targetFrame?.isMainFrame != false {
+            validatedFileOnlyNavigationAllowance.clear()
+        }
 
         if navigationAction.navigationType == .linkActivated,
            navigationAction.targetFrame?.isMainFrame != false,
@@ -630,6 +726,18 @@ import WebKit
         browserLoadRequest(request, in: webView)
     }
 
+    private func retryLocalFileNavigation() {
+        guard let failedURL = activeErrorPageDisplayURL,
+              failedURL.isFileURL,
+              let request = lastAttemptedRequest,
+              request.url?.isFileURL == true,
+              request.browserMatchesFailedNavigationURLString(failedURL.absoluteString) else {
+            return
+        }
+        clearAttemptedRequest(discardPendingBypasses: true)
+        requestNavigation?(request, .currentTab, nil)
+    }
+
     private func recordSSLTrustBypassReplayRequest(_ request: URLRequest) {
         sslBypassState.clearPendingBypasses()
         activeSSLTrustBypassReplayRequest = request
@@ -783,6 +891,18 @@ import WebKit
     private func clearActiveMainFrameNavigation(ifMatching navigation: WKNavigation?) {
         guard activeMainFrameNavigation === navigation else { return }
         activeMainFrameNavigation = nil
+    }
+
+    private func isSuppressedMainFrameNavigation(_ navigation: WKNavigation?) -> Bool {
+        guard let navigation else { return false }
+        return suppressedMainFrameNavigationIDs.contains(ObjectIdentifier(navigation))
+    }
+
+    private func consumeSuppressedMainFrameNavigation(_ navigation: WKNavigation?) -> Bool {
+        guard let navigation else { return false }
+        return suppressedMainFrameNavigationIDs.remove(
+            ObjectIdentifier(navigation)
+        ) != nil
     }
 
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {

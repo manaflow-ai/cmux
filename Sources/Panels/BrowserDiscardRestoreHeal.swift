@@ -120,7 +120,7 @@ extension BrowserPanel {
             isMainFrameProvisionalNavigationActive: isMainFrameProvisionalNavigationActive,
             hasCommittedDocument: hasCommittedDocumentSinceWebViewReplacement,
             isNavigationBlockedPendingConsent: isNavigationBlockedPendingConsent,
-            hasRecoverableWebContentTermination: hasRecoverableWebContentTermination,
+            hasRecoverableNavigationFailure: hasRecoverableNavigationFailure,
             userStoppedLoad: userStoppedLoadSinceWebViewReplacement,
             isShowingErrorPage: navigationDelegate?.activeErrorPageDisplayURL != nil,
             intentURL: intentURL
@@ -186,7 +186,7 @@ extension BrowserPanel {
         isMainFrameProvisionalNavigationActive: Bool,
         hasCommittedDocument: Bool,
         isNavigationBlockedPendingConsent: Bool,
-        hasRecoverableWebContentTermination: Bool,
+        hasRecoverableNavigationFailure: Bool,
         userStoppedLoad: Bool,
         isShowingErrorPage: Bool,
         intentURL: URL?
@@ -198,9 +198,9 @@ extension BrowserPanel {
         guard !isMainFrameProvisionalNavigationActive else { return false }
         guard !hasCommittedDocument else { return false }
         guard !isNavigationBlockedPendingConsent else { return false }
-        // A crashed WebContent process waits for the user's explicit Reload;
-        // auto-healing here would bypass that gate and can re-enter the crash.
-        guard !hasRecoverableWebContentTermination else { return false }
+        // A recoverable navigation failure waits for the user's explicit
+        // Reload; auto-healing here would bypass that gate.
+        guard !hasRecoverableNavigationFailure else { return false }
         // A load the user explicitly stopped before first commit must stay
         // stopped; healing on reveal would silently undo the Stop.
         guard !userStoppedLoad else { return false }

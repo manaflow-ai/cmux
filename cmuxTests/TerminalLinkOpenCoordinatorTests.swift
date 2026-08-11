@@ -11,6 +11,54 @@ import struct CmuxSettings.AppCatalogSection
 
 @Suite("Terminal link open coordinator", .serialized)
 struct TerminalLinkOpenCoordinatorTests {
+    @MainActor
+    private final class MutableTerminalLinkContainer: TerminalLinkOpenContainer {
+        var isRemote = false
+        var browserURLs: [URL] = []
+        var acceptsDeferredFileOpen = false
+        var deferredFileOpenCompletion: (@MainActor @Sendable () -> Void)?
+
+        var terminalLinkContainerDebugName: String { "test" }
+
+        func terminalLinkContainsPanel(_ sourcePanelId: UUID) -> Bool {
+            true
+        }
+
+        func terminalLinkWorkingDirectory(for sourcePanelId: UUID) -> String? {
+            nil
+        }
+
+        func terminalLinkIsRemoteTerminal(_ sourcePanelId: UUID) -> Bool {
+            isRemote
+        }
+
+        func terminalLinkSnapshotTerminalPanel(for sourcePanelId: UUID) -> TerminalPanel? {
+            nil
+        }
+
+        func deferTerminalFileLinkOpen(
+            sourcePanelId: UUID,
+            filePath: String,
+            resolvedFileURL: URL?,
+            fallback: @escaping @MainActor @Sendable () -> Void,
+            completion: @escaping @MainActor @Sendable () -> Void
+        ) -> Bool {
+            guard acceptsDeferredFileOpen else { return false }
+            deferredFileOpenCompletion = completion
+            return true
+        }
+
+        func openTerminalBrowserLink(url: URL, sourcePanelId: UUID) -> Bool {
+            browserURLs.append(url)
+            return true
+        }
+
+        func openOrFocusTerminalBrowserFileLink(resolvedURL: URL, sourcePanelId: UUID) -> Bool {
+            browserURLs.append(resolvedURL)
+            return true
+        }
+    }
+
     private func makeDefaults() -> UserDefaults {
         let suiteName = "terminal-link-open-coordinator-tests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -129,6 +177,7 @@ struct TerminalLinkOpenCoordinatorTests {
             workspace: workspace,
             sourcePanelId: sourcePanelId,
             filePath: htmlURL.path,
+            resolvedFileURL: htmlURL.standardizedFileURL.resolvingSymlinksInPath(),
             defaults: defaults
         ))
 
@@ -139,16 +188,24 @@ struct TerminalLinkOpenCoordinatorTests {
         #expect(!workspace.panels.values.contains { $0 is FilePreviewPanel })
     }
 
-    @Test("Dock HTML paths open in Browser instead of externally")
+    @Test("Dock terminal HTML links open in the cmux Browser")
     @MainActor
-    func dockHTMLPathOpensInBrowser() throws {
+    func dockHTMLLinkOpensInBrowser() async throws {
         let defaults = makeDefaults()
-        let htmlURL = try makeHTMLFixture(pathExtension: "html")
-        defer { try? FileManager.default.removeItem(at: htmlURL.deletingLastPathComponent()) }
 
+        let remoteWebsiteDataStoreIdentifier = UUID()
         let store = DockSplitStore(
             workspaceId: UUID(),
             baseDirectoryProvider: { FileManager.default.temporaryDirectory.path },
+            remoteBrowserSettingsProvider: {
+                DockRemoteBrowserSettings(
+                    proxyEndpoint: nil,
+                    bypassRemoteProxy: false,
+                    isRemoteWorkspace: true,
+                    remoteWebsiteDataStoreIdentifier: remoteWebsiteDataStoreIdentifier,
+                    remoteStatus: nil
+                )
+            },
             browserAvailabilityProvider: { true }
         )
         defer { store.closeAllPanels() }
@@ -157,6 +214,9 @@ struct TerminalLinkOpenCoordinatorTests {
         let terminalPanelId = try #require(
             store.newSurface(kind: .terminal, inPane: rootPane, focus: true)
         )
+        let htmlURL = try makeHTMLFixture(pathExtension: "html")
+        defer { try? FileManager.default.removeItem(at: htmlURL.deletingLastPathComponent()) }
+
         var externallyOpened: [URL] = []
         let coordinator = TerminalLinkOpenCoordinator(
             defaults: defaults,
@@ -176,13 +236,302 @@ struct TerminalLinkOpenCoordinatorTests {
             sourcePanelId: terminalPanelId,
             workingDirectory: nil
         )))
+        #expect(await waitUntil {
+            store.bonsplitController.allTabIds.contains {
+                store.panel(for: $0) is BrowserPanel
+            }
+        })
 
         let browserPanels = store.bonsplitController.allTabIds.compactMap {
             store.panel(for: $0) as? BrowserPanel
         }
         #expect(browserPanels.count == 1)
         #expect(browserPanels.first?.currentURL?.standardizedFileURL == htmlURL.standardizedFileURL)
+        #expect(browserPanels.first?.bypassesRemoteWorkspaceProxyForTabDuplication == true)
+        if let browser = browserPanels.first {
+            #expect(
+                browser.webView.configuration.websiteDataStore ===
+                    BrowserProfileStore.shared.websiteDataStore(for: browser.profileID)
+            )
+        }
         #expect(externallyOpened.isEmpty)
+    }
+
+    @Test("Dock terminal word fallback snapshots its Dock panel")
+    @MainActor
+    func dockWordFallbackUsesDockTerminalSnapshot() throws {
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { FileManager.default.temporaryDirectory.path },
+            browserAvailabilityProvider: { true }
+        )
+        defer { store.closeAllPanels() }
+
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let terminalPanelId = try #require(
+            store.newSurface(kind: .terminal, inPane: rootPane, focus: true)
+        )
+        let terminal = try #require(store.panels[terminalPanelId] as? TerminalPanel)
+
+        let surfaceView = terminal.hostedView.surfaceView
+        let terminalSurface = try #require(surfaceView.terminalSurface)
+        let container = try #require(
+            surfaceView.terminalLinkOpenContainer(for: terminalSurface)
+        )
+        #expect(
+            surfaceView.wordPathSnapshotTerminalPanel(
+                container: container,
+                sourcePanelId: terminalSurface.id
+            )?.id == terminalPanelId
+        )
+    }
+
+    @Test("Dock link-open CWD refreshes from the foreground process")
+    @MainActor
+    func dockLinkOpenCWDRefreshesFromForegroundProcess() throws {
+        var liveDirectoryQueries = 0
+        let liveDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { FileManager.default.temporaryDirectory.path },
+            browserAvailabilityProvider: { true },
+            terminalWorkingDirectoryResolver: TerminalWorkingDirectoryResolver(
+                liveDirectoryProvider: { _ in
+                    liveDirectoryQueries += 1
+                    return liveDirectory.path
+                }
+            )
+        )
+        defer { store.closeAllPanels() }
+
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let terminalPanelId = try #require(
+            store.newSurface(kind: .terminal, inPane: rootPane, focus: true)
+        )
+        let terminal = try #require(store.panels[terminalPanelId] as? TerminalPanel)
+        terminal.surface.recordReportedWorkingDirectory(
+            FileManager.default.temporaryDirectory.path
+        )
+
+        _ = store.terminalLinkHoverWorkingDirectory(for: terminalPanelId)
+        #expect(liveDirectoryQueries == 0)
+        #expect(store.terminalLinkWorkingDirectory(for: terminalPanelId) == liveDirectory.path)
+        #expect(liveDirectoryQueries == 1)
+    }
+
+    @Test("Dock link-open CWD falls back when foreground inspection fails")
+    @MainActor
+    func dockLinkOpenCWDFallsBackWithoutForegroundDirectory() throws {
+        var liveDirectoryQueries = 0
+        let reportedDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { FileManager.default.temporaryDirectory.path },
+            browserAvailabilityProvider: { true },
+            terminalWorkingDirectoryResolver: TerminalWorkingDirectoryResolver(
+                liveDirectoryProvider: { _ in
+                    liveDirectoryQueries += 1
+                    return nil
+                }
+            )
+        )
+        defer { store.closeAllPanels() }
+
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let terminalPanelId = try #require(
+            store.newSurface(kind: .terminal, inPane: rootPane, focus: true)
+        )
+        let terminal = try #require(store.panels[terminalPanelId] as? TerminalPanel)
+        terminal.surface.recordReportedWorkingDirectory(
+            reportedDirectory.path
+        )
+
+        #expect(store.terminalLinkWorkingDirectory(for: terminalPanelId) == reportedDirectory.path)
+        #expect(liveDirectoryQueries == 1)
+    }
+
+    @Test("Dock link-open CWD rejects stale cached directories")
+    @MainActor
+    func dockLinkOpenCWDFailsClosedWithoutLiveOrReportedDirectory() throws {
+        let staleDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { staleDirectory.path },
+            browserAvailabilityProvider: { true },
+            terminalWorkingDirectoryResolver: TerminalWorkingDirectoryResolver(
+                liveDirectoryProvider: { _ in nil }
+            )
+        )
+        defer { store.closeAllPanels() }
+
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let terminalPanelId = try #require(
+            store.newSurface(kind: .terminal, inPane: rootPane, focus: true)
+        )
+
+        #expect(store.terminalLinkHoverWorkingDirectory(for: terminalPanelId) == staleDirectory.path)
+        #expect(store.terminalLinkWorkingDirectory(for: terminalPanelId) == nil)
+    }
+
+    @Test("Deferred HTML routing revalidates remote state")
+    @MainActor
+    func deferredHTMLRouteRejectsRemoteTerminal() async throws {
+        let defaults = makeDefaults()
+        let htmlURL = try makeHTMLFixture(pathExtension: "html")
+        defer { try? FileManager.default.removeItem(at: htmlURL.deletingLastPathComponent()) }
+
+        let sourcePanelId = UUID()
+        let container = MutableTerminalLinkContainer()
+        var externallyOpened: [URL] = []
+        var deferredOperation: (@MainActor @Sendable () -> Void)?
+        let coordinator = TerminalLinkOpenCoordinator(
+            defaults: defaults,
+            containerResolver: { _, panelId in
+                panelId == sourcePanelId ? container : nil
+            },
+            externalOpen: { url in
+                externallyOpened.append(url)
+                return true
+            },
+            deferOperation: { operation in deferredOperation = operation }
+        )
+
+        #expect(coordinator.open(TerminalLinkOpenRequest(
+            rawValue: htmlURL.path,
+            sourceWorkspaceId: nil,
+            sourcePanelId: sourcePanelId,
+            workingDirectory: nil
+        )))
+        container.isRemote = true
+        #expect(await waitUntil { deferredOperation != nil })
+        let operation = try #require(deferredOperation)
+        operation()
+        #expect(await waitUntil { externallyOpened == [htmlURL] })
+
+        #expect(container.browserURLs.isEmpty)
+        #expect(externallyOpened == [htmlURL])
+    }
+
+    @Test("Deferred HTML routing revalidates file eligibility")
+    @MainActor
+    func deferredHTMLRouteRejectsDeletedFile() async throws {
+        let defaults = makeDefaults()
+        let htmlURL = try makeHTMLFixture(pathExtension: "html")
+        defer { try? FileManager.default.removeItem(at: htmlURL.deletingLastPathComponent()) }
+
+        let sourcePanelId = UUID()
+        let container = MutableTerminalLinkContainer()
+        var externallyOpened: [URL] = []
+        var deferredOperation: (@MainActor @Sendable () -> Void)?
+        let coordinator = TerminalLinkOpenCoordinator(
+            defaults: defaults,
+            containerResolver: { _, panelId in
+                panelId == sourcePanelId ? container : nil
+            },
+            externalOpen: { url in
+                externallyOpened.append(url)
+                return true
+            },
+            deferOperation: { operation in deferredOperation = operation }
+        )
+
+        #expect(coordinator.open(TerminalLinkOpenRequest(
+            rawValue: htmlURL.path,
+            sourceWorkspaceId: nil,
+            sourcePanelId: sourcePanelId,
+            workingDirectory: nil
+        )))
+        try FileManager.default.removeItem(at: htmlURL)
+        #expect(await waitUntil { deferredOperation != nil })
+        let operation = try #require(deferredOperation)
+        operation()
+        #expect(await waitUntil { externallyOpened == [htmlURL] })
+
+        #expect(container.browserURLs.isEmpty)
+        #expect(externallyOpened == [htmlURL])
+    }
+
+    @Test("Command-click completion waits for the deferred HTML open")
+    @MainActor
+    func resolvedHTMLCompletionWaitsForDeferredOpen() throws {
+        let defaults = makeDefaults()
+        let htmlURL = try makeHTMLFixture(pathExtension: "html")
+        defer { try? FileManager.default.removeItem(at: htmlURL.deletingLastPathComponent()) }
+
+        let sourcePanelId = UUID()
+        let container = MutableTerminalLinkContainer()
+        var deferredOperation: (@MainActor @Sendable () -> Void)?
+        var didComplete = false
+        let coordinator = TerminalLinkOpenCoordinator(
+            defaults: defaults,
+            containerResolver: { _, panelId in
+                panelId == sourcePanelId ? container : nil
+            },
+            externalOpen: { _ in false },
+            deferOperation: { operation in deferredOperation = operation }
+        )
+
+        #expect(coordinator.openResolvedLocalFile(
+            htmlURL,
+            resolvedFileURL: htmlURL.standardizedFileURL.resolvingSymlinksInPath(),
+            request: TerminalLinkOpenRequest(
+                rawValue: htmlURL.path,
+                sourceWorkspaceId: nil,
+                sourcePanelId: sourcePanelId,
+                workingDirectory: nil
+            ),
+            completion: { didComplete = true }
+        ))
+        #expect(!didComplete)
+        #expect(container.browserURLs.isEmpty)
+
+        let operation = try #require(deferredOperation)
+        operation()
+
+        #expect(didComplete)
+        #expect(container.browserURLs.count == 1)
+    }
+
+    @Test("Command-click completion waits for the deferred preview open")
+    @MainActor
+    func resolvedPreviewCompletionWaitsForDeferredOpen() throws {
+        let defaults = makeDefaults()
+        let fileURL = try makeHTMLFixture(pathExtension: "txt")
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+
+        let sourcePanelId = UUID()
+        let container = MutableTerminalLinkContainer()
+        container.acceptsDeferredFileOpen = true
+        var didComplete = false
+        let coordinator = TerminalLinkOpenCoordinator(
+            defaults: defaults,
+            containerResolver: { _, panelId in
+                panelId == sourcePanelId ? container : nil
+            },
+            externalOpen: { _ in false },
+            deferOperation: { operation in operation() }
+        )
+
+        #expect(coordinator.openResolvedLocalFile(
+            fileURL,
+            resolvedFileURL: fileURL.standardizedFileURL,
+            request: TerminalLinkOpenRequest(
+                rawValue: fileURL.path,
+                sourceWorkspaceId: nil,
+                sourcePanelId: sourcePanelId,
+                workingDirectory: nil
+            ),
+            completion: { didComplete = true }
+        ))
+        #expect(!didComplete)
+
+        let completion = try #require(container.deferredFileOpenCompletion)
+        completion()
+
+        #expect(didComplete)
     }
 
     private func makeHTMLFixture(pathExtension: String) throws -> URL {
@@ -196,5 +545,14 @@ struct TerminalLinkOpenCoordinatorTests {
             encoding: .utf8
         )
         return fileURL
+    }
+
+    @MainActor
+    private func waitUntil(_ condition: @MainActor () -> Bool) async -> Bool {
+        for _ in 0..<100 {
+            if condition() { return true }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return false
     }
 }
