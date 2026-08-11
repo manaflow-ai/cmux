@@ -19441,9 +19441,18 @@ mod tests {
         let gate = Arc::new((Mutex::new(false), Condvar::new()));
         let (started_sender, started_receiver) = std::sync::mpsc::sync_channel(1);
         let (finished_sender, finished_receiver) = std::sync::mpsc::sync_channel(1);
+        let blocked_id = second.id;
         *mux.kitty_image_budget_operation.lock().unwrap() = Some(Arc::new({
             let gate = gate.clone();
-            move |_surface, _limits, _deadline| {
+            move |surface, limits, _deadline| {
+                if surface.id != blocked_id {
+                    return surface.set_kitty_graphics_limits(
+                        limits.image_bytes,
+                        limits.inflight_bytes,
+                        limits.images,
+                        limits.placements,
+                    );
+                }
                 let _ = started_sender.try_send(());
                 let (released, changed) = &*gate;
                 let mut released = released.lock().unwrap();
