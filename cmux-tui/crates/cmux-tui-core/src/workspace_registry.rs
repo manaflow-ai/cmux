@@ -2948,9 +2948,8 @@ pub fn checked_reset_deletion_supported(root: &Path) -> bool {
     use std::ffi::OsStr;
     use std::os::fd::AsRawFd;
 
-    open_verified_reset_directory(root, "workspace state root").is_ok_and(|parent| {
-        open_reset_child_dir(parent.as_raw_fd(), OsStr::new("."), root).is_ok()
-    })
+    open_verified_reset_directory(root, "workspace state root")
+        .is_ok_and(|parent| open_reset_child_dir(parent.as_raw_fd(), OsStr::new("."), root).is_ok())
 }
 
 /// Return whether this process can enforce descriptor-relative reset deletion boundaries.
@@ -6971,12 +6970,7 @@ impl SessionLease {
         FileExt::try_lock(&file).with_context(|| {
             format!("workspace session is already owned by another daemon: {}", path.display())
         })?;
-        Ok(Self {
-            file,
-            path: path.to_path_buf(),
-            _directory: None,
-            coordinator_waiter_dir: None,
-        })
+        Ok(Self { file, path: path.to_path_buf(), _directory: None, coordinator_waiter_dir: None })
     }
 
     fn acquire_coordinator(path: &Path) -> anyhow::Result<Self> {
@@ -7394,7 +7388,6 @@ fn publish_session_coordinator_available(waiter_dir: &Path) {
 }
 
 impl SessionLease {
-
     #[cfg(unix)]
     fn acquire_at(directory: &File, name: &std::ffi::OsStr, path: &Path) -> anyhow::Result<Self> {
         let file = open_session_lock_file_at(directory, name, path, true)?;
