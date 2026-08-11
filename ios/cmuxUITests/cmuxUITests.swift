@@ -2158,9 +2158,9 @@ final class cmuxUITests: XCTestCase {
             dragFeed(up: true)
             planFeedback = hittableFeedElement("MobileNotificationFeedExitPlanFeedback")
         }
-        let planFeedback = try XCTUnwrap(planFeedback)
-        planFeedback.tap()
-        planFeedback.typeText("Keep the inline controls concise")
+        let planFeedbackField = try XCTUnwrap(planFeedback)
+        planFeedbackField.tap()
+        planFeedbackField.typeText("Keep the inline controls concise")
         let planSubmit = app.buttons["MobileNotificationFeedExitPlanSubmit"]
         XCTAssertTrue(planSubmit.isEnabled)
         planSubmit.tap()
@@ -2175,9 +2175,9 @@ final class cmuxUITests: XCTestCase {
             dragFeed(up: true)
             notes = hittableFeedElement("MobileNotificationFeedQuestionCustom-1")
         }
-        let notes = try XCTUnwrap(notes)
-        notes.tap()
-        notes.typeText("Show every pending question")
+        let notesField = try XCTUnwrap(notes)
+        notesField.tap()
+        notesField.typeText("Show every pending question")
         let questionSubmit = app.buttons["MobileNotificationFeedQuestionSubmit"]
         XCTAssertTrue(questionSubmit.waitForExistence(timeout: 3))
         XCTAssertFalse(questionSubmit.isEnabled)
