@@ -1,13 +1,14 @@
-//! Hand-designed noun-first command line for `cmux.protocol/1`.
+//! Hand-designed noun-first command line for `cmux.protocol/2`.
 //!
 //! The public grammar lives here and in `cli/command.rs`. The wire transport
 //! is deliberately isolated in `cli/wire.rs`, so public commands cannot
-//! accidentally fall back to the pre-v1 command protocol.
+//! accidentally fall back to the private command protocol.
 
 mod command;
 mod raw;
 mod wire;
 
+use std::borrow::Cow;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
@@ -94,7 +95,9 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             0
         }
         Ok(ParsedCommand::Command { global, plan }) => match plan {
+            CommandPlan::AgentHooks(plan) => command::run_agent_hooks(global, plan),
             CommandPlan::Protocol(request) => wire::run(global, request),
+            CommandPlan::SessionResetState(plan) => command::run_session_reset_state(global, plan),
             CommandPlan::Plugin(plugin) => command::run_plugin(global, plugin),
             CommandPlan::ProviderAuthority(authority) => {
                 command::run_provider_authority(global, authority)
@@ -205,31 +208,31 @@ fn set_output_mode(
 }
 
 fn print_scope_help(scope: Option<&str>) {
-    let text = scope.map_or(ROOT_HELP, scope_help);
+    let text = scope.map(scope_help).unwrap_or(Cow::Borrowed(ROOT_HELP));
     let mut stdout = io::stdout().lock();
     let _ = stdout.write_all(text.as_bytes());
     let _ = stdout.flush();
 }
 
-fn scope_help(scope: &str) -> &'static str {
+fn scope_help(scope: &str) -> Cow<'static, str> {
     match scope {
-        "machine" => MACHINE_HELP,
-        "session" => SESSION_HELP,
-        "client" => CLIENT_HELP,
-        "workspace" => WORKSPACE_HELP,
-        "screen" => SCREEN_HELP,
-        "pane" => PANE_HELP,
-        "tab" => TAB_HELP,
-        "terminal" => TERMINAL_HELP,
-        "browser" => BROWSER_HELP,
-        "notification" => NOTIFICATION_HELP,
-        "agent" => AGENT_HELP,
-        "sidebar" => SIDEBAR_HELP,
-        "pairing" => PAIRING_HELP,
-        "projection" => PROJECTION_HELP,
-        "provider" => PROVIDER_HELP,
-        "raw" => RAW_HELP,
-        _ => ROOT_HELP,
+        "machine" => Cow::Borrowed(MACHINE_HELP),
+        "session" => Cow::Owned(session_help(&crate::localization::catalog().session_reset)),
+        "client" => Cow::Borrowed(CLIENT_HELP),
+        "workspace" => Cow::Borrowed(WORKSPACE_HELP),
+        "screen" => Cow::Borrowed(SCREEN_HELP),
+        "pane" => Cow::Borrowed(PANE_HELP),
+        "tab" => Cow::Borrowed(TAB_HELP),
+        "terminal" => Cow::Borrowed(TERMINAL_HELP),
+        "browser" => Cow::Borrowed(BROWSER_HELP),
+        "notification" => Cow::Borrowed(NOTIFICATION_HELP),
+        "agent" => Cow::Borrowed(AGENT_HELP),
+        "sidebar" => Cow::Borrowed(SIDEBAR_HELP),
+        "pairing" => Cow::Borrowed(PAIRING_HELP),
+        "projection" => Cow::Borrowed(PROJECTION_HELP),
+        "provider" => Cow::Borrowed(PROVIDER_HELP),
+        "raw" => Cow::Borrowed(RAW_HELP),
+        _ => Cow::Borrowed(ROOT_HELP),
     }
 }
 
@@ -287,17 +290,40 @@ USAGE
   cmux machine <selector> session <selector> open
 ";
 
-const SESSION_HELP: &str = "\
+const SESSION_HELP_PREFIX: &str = "\
 USAGE
   cmux session list
   cmux session <selector> open|show|snapshot|ping|shutdown
+";
+
+const SESSION_HELP_SUFFIX: &str = "\
   cmux session <selector> creation <correlation-key> resolve
   cmux session <selector> events [--generation <value> --revision <decimal>]
+  cmux session <selector> journal subscribe [--from tail|beginning] [FILTERS]
+    [--cursor-session <session-id> --sequence <decimal>]
+    [--kinds <kind[,kind...]>] [--classes <class[,class...]>]
+    [--subjects <kind:id[,kind:id...]>] [--max-sensitivity public|metadata|sensitive]
+    [--regex <pattern>] [--regex-field kind|subjects|payload|record|terminal_output] [--ignore-case]
+  cmux session <selector> journal read [--from beginning] [FILTERS]
+  cmux session <selector> journal producer list
+  cmux session <selector> journal producer put --manifest-json <json> --idempotency-key <key>
+  cmux session <selector> journal append --event-json <json> --idempotency-key <key>
+  cmux session <selector> journal hook list
+  cmux session <selector> journal hook put --manifest-json <json> --idempotency-key <key>
+  cmux session <selector> journal checkpoint create --idempotency-key <key>
+  cmux session <selector> journal checkpoint list
+  cmux session <selector> journal restore preview [--checkpoint latest|<checkpoint-id>]
+  cmux session <selector> journal segment list
+  cmux session <selector> journal segment seal --through <sequence> --idempotency-key <key>
   cmux session <selector> config reload
   cmux session <selector> window title set --title <value>
   cmux session <selector> window title clear
   cmux session <selector> terminal defaults set [OPTIONS]
 ";
+
+fn session_help(messages: &crate::localization::SessionResetMessages) -> String {
+    format!("{SESSION_HELP_PREFIX}{}\n{SESSION_HELP_SUFFIX}", messages.help)
+}
 
 const CLIENT_HELP: &str = "\
 USAGE
@@ -312,7 +338,7 @@ USAGE
 const WORKSPACE_HELP: &str = "\
 USAGE
   cmux workspace list
-  cmux workspace create [--name <value>] [--empty] [--correlation-key <value>]
+  cmux workspace create [--name <value>] [--empty] [--correlation-key <value>] [--expected-revision <revision>]
   cmux workspace <selector> show|rename|move|focus|close
   cmux workspace <selector> run [--correlation-key <value>] -- <argv...>
   cmux workspace <selector> run [--correlation-key <value>] shell <script>
@@ -337,7 +363,8 @@ USAGE
   cmux pane list
   cmux pane create [--correlation-key <value>]
   cmux pane <selector> show|rename|focus|close
-  cmux pane <selector> split [--right|--down] [--correlation-key <value>]
+  cmux pane <selector> split [--right|--down] [--ratio <value>]
+    [--viewport-width <fraction>] [--correlation-key <value>]
   cmux pane <selector> focus direction <left|right|up|down>
   cmux pane <selector> neighbor <left|right|up|down>
   cmux pane <selector> swap --other-workspace <selector>
@@ -373,7 +400,7 @@ USAGE
   cmux terminal <selector> copy|process show [OPTIONS]
   cmux terminal <selector> process wait [--timeout-ms <n>]
   cmux terminal <selector> viewport scroll --delta-rows <n>
-  cmux terminal <selector> move|attach|close [OPTIONS]
+  cmux terminal <selector> move|project|attach|close [OPTIONS]
 ";
 
 const BROWSER_HELP: &str = "\
@@ -395,6 +422,8 @@ const AGENT_HELP: &str = "\
 USAGE
   cmux agent list [OPTIONS]
   cmux agent report --terminal <selector> --state <value> --source <value>
+  cmux agent hook install|uninstall|status [provider...]
+  cmux agent hook emit --source <agent> --event <native-event> [--terminal <id>]
 ";
 
 const SIDEBAR_HELP: &str = "\
@@ -432,7 +461,7 @@ USAGE
     [--mutation --idempotency-key <value>] [--stream]
   cmux raw command --request-json <full-object>
 
-`raw operation` uses cmux.protocol/1. `raw command` is an unsafe internal
+`raw operation` uses cmux.protocol/2. `raw command` is an unsafe internal
 escape for the legacy control protocol and provides no compatibility promise.
 ";
 
@@ -478,9 +507,17 @@ mod tests {
             assert!(help.contains("USAGE"));
             assert!(help.contains(scope));
         }
-        assert!(SESSION_HELP.contains("creation <correlation-key> resolve"));
+        let english =
+            session_help(&crate::localization::catalog_for_locale("en_US.UTF-8").session_reset);
+        let japanese =
+            session_help(&crate::localization::catalog_for_locale("ja_JP.UTF-8").session_reset);
+        assert!(english.contains("creation <correlation-key> resolve"));
+        assert!(english.contains("session <name> reset-state"));
+        assert!(japanese.contains("session <name> reset-state"));
+        assert!(japanese.contains("保存状態のリセット"));
         assert!(TERMINAL_HELP.contains("screen wait --pattern <regex>"));
         assert!(TERMINAL_HELP.contains("process wait [--timeout-ms <n>]"));
+        assert!(TERMINAL_HELP.contains("move|project|attach|close"));
     }
 
     #[test]

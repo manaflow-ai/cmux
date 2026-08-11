@@ -238,7 +238,7 @@ jobs:
             CMUX_TUI_NPM_BOOTSTRAP_VERSION="$CMUX_TUI_DISTRIBUTION_VERSION"
             export CMUX_TUI_NPM_BOOTSTRAP_VERSION
           fi
-          cargo build -p cmux-tui --bin cmux-tui --release --locked --target ${{ matrix.build_target }}
+          cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target ${{ matrix.build_target }}
           cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
 
       - name: Build cmux-tui (Linux cross)
@@ -259,7 +259,7 @@ jobs:
             CMUX_TUI_NPM_BOOTSTRAP_VERSION="$CMUX_TUI_DISTRIBUTION_VERSION"
             export CMUX_TUI_NPM_BOOTSTRAP_VERSION
           fi
-          cargo zigbuild -p cmux-tui --bin cmux-tui --release --locked --target ${{ matrix.build_target }}
+          cargo zigbuild -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target ${{ matrix.build_target }}
           cargo zigbuild -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
 
       - name: Build cmux-tui (macOS cross)
@@ -280,7 +280,7 @@ jobs:
             CMUX_TUI_NPM_BOOTSTRAP_VERSION="$CMUX_TUI_DISTRIBUTION_VERSION"
             export CMUX_TUI_NPM_BOOTSTRAP_VERSION
           fi
-          cargo build -p cmux-tui --bin cmux-tui --release --locked --target ${{ matrix.build_target }}
+          cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target ${{ matrix.build_target }}
           cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
 
       - name: Stage binary
@@ -288,11 +288,14 @@ jobs:
         run: |
           mkdir -p dist
           binary="dist/cmux-tui-${{ matrix.target }}${{ matrix.ext }}"
+          hook_binary="dist/cmux-tui-hook-${{ matrix.target }}${{ matrix.ext }}"
           relay_binary="dist/cmux-relay-${{ matrix.target }}${{ matrix.ext }}"
           cp "cmux-tui/target/${{ matrix.target }}/release/cmux-tui${{ matrix.ext }}" "$binary"
+          cp "cmux-tui/target/${{ matrix.target }}/release/cmux-tui-hook${{ matrix.ext }}" "$hook_binary"
           cp "cmux-tui/target/${{ matrix.target }}/release/cmux-relay${{ matrix.ext }}" "$relay_binary"
           if [[ -n "${{ matrix.compatibility_target }}" ]]; then
             cp "$binary" "dist/cmux-tui-${{ matrix.compatibility_target }}${{ matrix.ext }}"
+            cp "$hook_binary" "dist/cmux-tui-hook-${{ matrix.compatibility_target }}${{ matrix.ext }}"
             cp "$relay_binary" "dist/cmux-relay-${{ matrix.compatibility_target }}${{ matrix.ext }}"
           fi
           ls -la dist
@@ -410,6 +413,8 @@ jobs:
     if: inputs.include_windows
     runs-on: ${{ inputs.windows_runner != '' && inputs.windows_runner || vars.WINDOWS_RUNNER || 'windows-latest' }}
     timeout-minutes: 60
+    env:
+      CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS: -C link-arg=-fuse-ld=lld
     permissions:
       contents: read
     steps:
@@ -450,6 +455,10 @@ jobs:
           rustup target add x86_64-pc-windows-gnu
           printf '%s\n' 'C:\msys64\mingw64\bin' >> "$GITHUB_PATH"
 
+      - name: Verify LLVM GNU linker
+        shell: bash
+        run: ld.lld --version
+
       - name: Build libghostty-vt + cmux-tui (Windows GNU)
         env:
           CMUX_TUI_DISTRIBUTION_VERSION: ${{ inputs.version }}
@@ -469,36 +478,88 @@ jobs:
           cd ghostty
           zig build -Demit-lib-vt=true -Demit-xcframework=false -Doptimize=ReleaseFast -Dtarget=x86_64-windows-gnu --prefix "$RUNNER_TEMP/ghostty-vt-win-gnu"
           cd ../cmux-tui
-          cargo build -p cmux-tui --bin cmux-tui --release --locked --target x86_64-pc-windows-gnu
+          cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target x86_64-pc-windows-gnu
 
-      - name: Verify remote commands fail clearly on Windows
+      - name: Verify long Windows state path
+        shell: bash
+        run: |
+          python cmux-tui/scripts/smoke-windows-long-state-path.py \
+            --binary cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe
+
+      - name: Verify Windows terminal process exit
+        shell: bash
+        run: |
+          python cmux-tui/scripts/smoke-windows-process-wait.py \
+            --binary cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe
+
+      - name: Set up Python for ConPTY verification
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.12.10"
+
+      - name: Verify Windows ConPTY resize
+        shell: bash
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes \
+            -r cmux-tui/scripts/requirements-windows-conpty.txt
+          python cmux-tui/scripts/smoke-windows-conpty-resize.py \
+            --binary cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe
+
+      - name: Verify native Windows remote probe
+        shell: bash
+        run: |
+          output="$(cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe remote-probe --json)"
+          printf '%s\n' "$output"
+          python -c 'import json,sys; probe=json.load(sys.stdin); assert probe["app"] == "cmux-tui"; assert probe["os"] == "windows"' <<<"$output"
+
+      - name: Verify native Windows remote startup is bounded
         shell: bash
         run: |
           set +e
-          output="$(cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe remote-probe --json 2>&1)"
+          output="$(timeout 15s cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe remote-link --stdio --session ci-smoke </dev/null 2>&1)"
           status=$?
           set -e
           printf '%s\n' "$output"
-          test "$status" -eq 1
-          grep -F "remote daemon commands require Unix sockets" <<<"$output"
+          test "$status" -ne 124
+          if [[ "$status" -ne 0 ]]; then
+            # Hosted Windows jobs forbid process breakaway. Production must
+            # fail instead of starting an owner that dies with its carrier.
+            grep -F "could not start Windows mux owner: Access is denied" <<<"$output"
+          fi
+          cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe remote-stop --session ci-smoke
+
+      - name: Verify native Windows SSH through hosted OpenSSH
+        shell: pwsh
+        run: |
+          cmux-tui/scripts/smoke-windows-native-ssh.ps1 `
+            -Binary cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe
+
+      - name: Verify native Windows ConPTY terminal
+        shell: bash
+        run: cmux-tui/scripts/smoke-windows-native.sh cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe
 
       - name: Stage binary
         shell: bash
         run: |
           mkdir -p dist
           cp "cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe" "dist/cmux-tui-x86_64-pc-windows-gnu.exe"
+          cp "cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui-hook.exe" "dist/cmux-tui-hook-x86_64-pc-windows-gnu.exe"
           ls -la dist
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: cmux-tui-x86_64-pc-windows-gnu
-          path: dist/cmux-tui-x86_64-pc-windows-gnu.exe
+          path: |
+            dist/cmux-tui-x86_64-pc-windows-gnu.exe
+            dist/cmux-tui-hook-x86_64-pc-windows-gnu.exe
           if-no-files-found: error
 
   package:
     name: package distributions
-    needs: build
+    needs:
+      - build
+      - build-windows
     if: inputs.package_npm || inputs.package_pypi
     runs-on: ${{ inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
@@ -545,6 +606,12 @@ jobs:
           name: cmux-tui-aarch64-unknown-linux-musl
           path: dist/binaries
 
+      - name: Download Windows companion binary
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-tui-x86_64-pc-windows-gnu
+          path: dist/binaries
+
       - name: Build npm package directories
         if: inputs.package_npm
         run: |
@@ -585,6 +652,9 @@ jobs:
           if deps != {name: version for name in platforms}:
               print(f"optionalDependencies mismatch: {deps}", file=sys.stderr)
               raise SystemExit(1)
+          companion = root / "cmux" / "bin" / "cmux-tui-x86_64-pc-windows-gnu.exe"
+          if not companion.is_file():
+              raise SystemExit(f"missing Windows companion: {companion}")
           for name, (os_name, cpu) in platforms.items():
               package_json = json.loads((root / name / "package.json").read_text())
               if package_json["version"] != version:
@@ -594,6 +664,9 @@ jobs:
               binary = root / name / "bin" / "cmux-tui"
               if not binary.stat().st_mode & stat.S_IXUSR:
                   raise SystemExit(f"{binary} is not executable")
+              hook = root / name / "bin" / "cmux-tui-hook"
+              if not hook.stat().st_mode & stat.S_IXUSR:
+                  raise SystemExit(f"{hook} is not executable")
           PY
           chmod +x dist/binaries/cmux-tui-x86_64-unknown-linux-musl
           dist/binaries/cmux-tui-x86_64-unknown-linux-musl --version >/tmp/cmux-tui-version.txt 2>&1 || \
@@ -636,7 +709,21 @@ jobs:
           set -euo pipefail
           for wheel in dist/pypi-wheels/*.whl; do
             python3 -m zipfile -l "$wheel" >"/tmp/$(basename "$wheel").list"
+            grep -F "cmux_tui/bin/cmux-tui-x86_64-pc-windows-gnu.exe" \
+              "/tmp/$(basename "$wheel").list"
           done
+          python3 - <<'PY'
+          import glob
+          import stat
+          import zipfile
+
+          for path in glob.glob("dist/pypi-wheels/*.whl"):
+              with zipfile.ZipFile(path) as wheel:
+                  info = wheel.getinfo("cmux_tui/bin/cmux-tui-hook")
+                  mode = info.external_attr >> 16
+                  if not mode & stat.S_IXUSR:
+                      raise SystemExit(f"{path}: bundled cmux-tui-hook is not executable")
+          PY
           chmod +x dist/binaries/cmux-tui-x86_64-unknown-linux-musl
           dist/binaries/cmux-tui-x86_64-unknown-linux-musl --version >/tmp/cmux-tui-version.txt 2>&1 || \
             dist/binaries/cmux-tui-x86_64-unknown-linux-musl --help >/tmp/cmux-tui-version.txt 2>&1

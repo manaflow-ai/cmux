@@ -563,7 +563,21 @@ struct ConnectedRuntime {
     route: String,
 }
 
-fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> {
+fn start_connected(flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> {
+    start_connected_inner(flags, None)
+}
+
+fn start_connected_cancelable(
+    flags: ConnectFlags,
+    cancellation: Arc<crate::machine_runtime::MachineConnectCancellation>,
+) -> anyhow::Result<ConnectedRuntime> {
+    start_connected_inner(flags, Some(cancellation))
+}
+
+fn start_connected_inner(
+    mut flags: ConnectFlags,
+    cancellation: Option<Arc<crate::machine_runtime::MachineConnectCancellation>>,
+) -> anyhow::Result<ConnectedRuntime> {
     let startup_started = Instant::now();
     let invitation = flags
         .invitation
@@ -701,7 +715,7 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
     let session = SessionId(*uuid::Uuid::new_v4().as_bytes());
     let startup_timeout = remaining_startup_timeout(startup_started, total_startup_timeout)?;
     let ssh_bootstrap = initial_ssh_bootstrap_options(&flags, startup_timeout);
-    let runtime = start_client_runtime(ClientRuntimeOptions {
+    let runtime_options = ClientRuntimeOptions {
         routes,
         providers,
         identity: store.identity(),
@@ -716,7 +730,13 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
         local_socket: flags.local_socket,
         ssh,
         ssh_bootstrap,
-    })?;
+    };
+    let runtime = match cancellation {
+        Some(cancellation) => {
+            crate::remote_runtime::start_client_runtime_cancelable(runtime_options, cancellation)?
+        }
+        None => start_client_runtime(runtime_options)?,
+    };
 
     if let Some(invitation) = &invitation {
         async_runtime.block_on(store.pin_daemon(
@@ -1123,7 +1143,9 @@ pub(crate) struct ManagedSshOptions {
     pub destination: String,
     pub session: String,
     pub remote_binary: String,
+    pub remote_state_dir: Option<String>,
     pub ssh_args: Vec<String>,
+    pub connect_timeout: Duration,
 }
 
 pub(crate) struct ManagedSshConnection {
@@ -1154,6 +1176,7 @@ pub(crate) fn validate_managed_ssh_options(options: &ManagedSshOptions) -> anyho
 
 pub(crate) fn connect_managed_ssh(
     options: ManagedSshOptions,
+    cancellation: Arc<crate::machine_runtime::MachineConnectCancellation>,
 ) -> anyhow::Result<ManagedSshConnection> {
     let mut arguments = vec![
         options.destination,
@@ -1161,13 +1184,19 @@ pub(crate) fn connect_managed_ssh(
         options.session,
         "--remote-binary".into(),
         options.remote_binary,
+        "--connect-timeout-seconds".into(),
+        options.connect_timeout.as_secs().to_string(),
     ];
+    if let Some(state_dir) = options.remote_state_dir {
+        arguments.push("--remote-state-dir".into());
+        arguments.push(state_dir);
+    }
     for argument in options.ssh_args {
         arguments.push("--ssh-arg".into());
         arguments.push(argument);
     }
 
-    let connected = start_connected(direct_ssh_flags(&arguments)?)?;
+    let connected = start_connected_cancelable(direct_ssh_flags(&arguments)?, cancellation)?;
     let local_socket = connected.runtime.info().local_socket.clone();
     match RemoteSession::connect(&local_socket) {
         Ok(remote) => Ok(ManagedSshConnection {

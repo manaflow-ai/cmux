@@ -52,7 +52,7 @@ def parse_args() -> argparse.Namespace:
         "--binaries-dir",
         required=True,
         type=Path,
-        help="Directory containing cmux-tui-<rust-target> binaries.",
+        help="Directory containing cmux-tui- and cmux-tui-hook-<rust-target> binaries.",
     )
     parser.add_argument(
         "--version",
@@ -90,12 +90,16 @@ def recreate_dir(path: Path) -> None:
 def package_platforms(binaries_dir: Path, version: str, out_dir: Path) -> None:
     for target in TARGETS:
         src = binaries_dir / f"cmux-tui-{target['rust_target']}"
+        hook_src = binaries_dir / f"cmux-tui-hook-{target['rust_target']}"
         if not src.is_file():
             raise SystemExit(f"missing binary: {src}")
+        if not hook_src.is_file():
+            raise SystemExit(f"missing hook binary: {hook_src}")
 
         package_dir = out_dir / target["package"]
         recreate_dir(package_dir)
         copy_executable(src, package_dir / "bin" / "cmux-tui")
+        copy_executable(hook_src, package_dir / "bin" / "cmux-tui-hook")
 
         write_json(
             package_dir / "package.json",
@@ -114,7 +118,7 @@ def package_platforms(binaries_dir: Path, version: str, out_dir: Path) -> None:
                 "license": "MIT",
                 "os": [target["os"]],
                 "cpu": [target["cpu"]],
-                "files": ["bin/cmux-tui"],
+                "files": ["bin/cmux-tui", "bin/cmux-tui-hook"],
             },
         )
 

@@ -14,6 +14,10 @@ workspace = true
 name = "cmux-tui"
 path = "src/main.rs"
 
+[[bin]]
+name = "cmux-tui-hook"
+path = "src/bin/cmux-tui-hook.rs"
+
 [dependencies]
 ghostty-vt.workspace = true
 cmux-tui-core.workspace = true
@@ -37,13 +41,14 @@ terminput.workspace = true
 terminput-crossterm.workspace = true
 parking_lot.workspace = true
 sha2.workspace = true
+uuid.workspace = true
+wait-timeout.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 cmux-remote.workspace = true
 cmux-remote-protocol.workspace = true
 tokio.workspace = true
 url.workspace = true
-uuid.workspace = true
 async-trait.workspace = true
 
 [target.'cfg(windows)'.dependencies]
@@ -52,9 +57,10 @@ cmux-remote-protocol.workspace = true
 tokio = { workspace = true, features = ["io-std"] }
 fs4.workspace = true
 uds_windows.workspace = true
-windows-sys = { version = "0.61", features = ["Win32_System_Threading"] }
+windows-sys.workspace = true
 
 [dev-dependencies]
 async-trait.workspace = true
+cmux-pty.workspace = true
 tempfile = "3"
 rusqlite.workspace = true

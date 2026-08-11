@@ -386,6 +386,7 @@ private func rendererReleaseWasOccluded() -> Bool
         let callbackContext = Unmanaged.passRetained(GhosttySurfaceCallbackContext(
             surfaceHost: surface.surfaceView,
             surfaceController: surface,
+            terminalLifecycleID: surface.terminalLifecycleId,
             rendererMailboxDidDrain: { surfaceID in
                 MainActor.assumeIsolated {
                     scheduler.scheduleRendererPresentationRepair(surfaceID: surfaceID)
@@ -422,11 +423,11 @@ private func rendererReleaseWasOccluded() -> Bool
                 runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator(),
                 restoreSpawnScheduler: TerminalSurfaceRestoreSpawnScheduler(interSpawnDelay: .zero),
                 runtimeFilesystem: TerminalSurfaceRuntimeFilesystem(
-                    claudeCommandShimTemporaryDirectory: URL(
+                    agentCommandShimTemporaryDirectory: URL(
                         fileURLWithPath: "/tmp/cmux-terminal-tests",
                         isDirectory: true
                     ),
-                    installClaudeCommandShim: { _, _, _ in nil },
+                    installAgentCommandShims: { _, _, _ in nil },
                     isExecutableFile: { _ in false }
                 ),
                 sessionPortBase: 40_000,

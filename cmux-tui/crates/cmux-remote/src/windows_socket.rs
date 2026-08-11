@@ -24,6 +24,10 @@ const BRIDGE_CHUNK_BYTES: usize = 64 * 1024;
 const BRIDGE_QUEUE_CHUNKS: usize = 4;
 const BRIDGE_BUFFER_BYTES: usize = BRIDGE_CHUNK_BYTES * BRIDGE_QUEUE_CHUNKS;
 const BRIDGE_IO_TIMEOUT: Duration = Duration::from_millis(250);
+#[cfg(test)]
+static WRITE_TIMEOUT_SIGNAL: std::sync::OnceLock<
+    std::sync::Mutex<Option<std::sync::mpsc::SyncSender<()>>>,
+> = std::sync::OnceLock::new();
 
 pub(crate) struct WindowsSocketBridge {
     inner: DuplexStream,
@@ -184,6 +188,8 @@ fn write_socket(
                 }
                 Ok(size) => offset += size,
                 Err(error) if socket_timeout(&error) => {
+                    #[cfg(test)]
+                    report_test_write_timeout();
                     if closing.load(Ordering::Acquire) {
                         let _ = shutdown.shutdown(Shutdown::Both);
                         return;
@@ -219,10 +225,27 @@ fn report_failure(direction: &str, error: &io::Error) {
 }
 
 #[cfg(test)]
+fn report_test_write_timeout() {
+    if let Ok(signal) = WRITE_TIMEOUT_SIGNAL
+        .get_or_init(|| std::sync::Mutex::new(None))
+        .lock()
+        && let Some(signal) = signal.as_ref()
+    {
+        let _ = signal.try_send(());
+    }
+}
+
+#[cfg(test)]
+fn install_test_write_timeout_signal(signal: std::sync::mpsc::SyncSender<()>) {
+    *WRITE_TIMEOUT_SIGNAL
+        .get_or_init(|| std::sync::Mutex::new(None))
+        .lock()
+        .unwrap() = Some(signal);
+}
+
+#[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     use tokio::io::AsyncWriteExt as _;
 
@@ -230,6 +253,8 @@ mod tests {
 
     #[test]
     fn windows_dropping_a_saturated_bridge_releases_its_blocking_workers() {
+        use wait_timeout::ChildExt as _;
+
         let mut child = std::process::Command::new(std::env::current_exe().unwrap())
             .args([
                 "--exact",
@@ -239,16 +264,7 @@ mod tests {
             .env("CMUX_TEST_WINDOWS_SATURATED_BRIDGE", "1")
             .spawn()
             .unwrap();
-        let deadline = Instant::now() + Duration::from_secs(10);
-        let status = loop {
-            if let Some(status) = child.try_wait().unwrap() {
-                break Some(status);
-            }
-            if Instant::now() >= deadline {
-                break None;
-            }
-            std::thread::sleep(Duration::from_millis(20));
-        };
+        let status = child.wait_timeout(Duration::from_secs(10)).unwrap();
         let Some(status) = status else {
             let _ = child.kill();
             let _ = child.wait();
@@ -270,27 +286,19 @@ mod tests {
         let client = uds_windows::UnixStream::connect(&socket_path).unwrap();
         let server = accept.join().unwrap();
         let mut bridge = bridge(client).unwrap();
-        let completed_writes = Arc::new(AtomicUsize::new(0));
-        let writer_progress = completed_writes.clone();
+        let (backpressure_tx, backpressure_rx) = std::sync::mpsc::sync_channel(1);
+        install_test_write_timeout_signal(backpressure_tx);
         let writer = tokio::spawn(async move {
             let chunk = vec![0_u8; BRIDGE_CHUNK_BYTES];
             loop {
                 bridge.write_all(&chunk).await.unwrap();
-                writer_progress.fetch_add(1, Ordering::Release);
             }
         });
 
-        let deadline = Instant::now() + Duration::from_secs(3);
-        let mut previous = 0;
-        let mut unchanged_samples = 0;
-        while unchanged_samples < 4 {
-            tokio::time::sleep(Duration::from_millis(50)).await;
-            let current = completed_writes.load(Ordering::Acquire);
-            unchanged_samples =
-                if current > 0 && current == previous { unchanged_samples + 1 } else { 0 };
-            previous = current;
-            assert!(Instant::now() < deadline, "Windows socket writer never reached backpressure");
-        }
+        tokio::task::spawn_blocking(move || backpressure_rx.recv_timeout(Duration::from_secs(3)))
+            .await
+            .unwrap()
+            .expect("Windows socket writer never reached backpressure");
 
         writer.abort();
         let _ = writer.await;

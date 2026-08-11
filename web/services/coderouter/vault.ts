@@ -38,6 +38,16 @@ export async function writeTeamVault(
   });
 }
 
+export async function clearTeamVault(teamId: string): Promise<void> {
+  const team = await getStackServerApp().getTeam(teamId);
+  if (!team) throw new CodeRouterVaultUnavailable("coderouter team not found");
+  const metadata = isRecord(team.serverMetadata)
+    ? { ...team.serverMetadata }
+    : {};
+  delete metadata[METADATA_KEY];
+  await team.update({ serverMetadata: metadata });
+}
+
 export async function putVaultCredential(
   teamId: string,
   accountId: string,
