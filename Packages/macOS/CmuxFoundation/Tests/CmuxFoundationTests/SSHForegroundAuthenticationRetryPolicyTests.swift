@@ -1998,6 +1998,58 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func unpublishedCleanupUsesPreallocatedDurableGroupWhenAllocationFails(
+        shellPath: String
+    ) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-ssh-auth-preallocated-rollback-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let groupDirectory = root.appendingPathComponent(
+            "cmux-ssh-auth-group.preallocated",
+            isDirectory: true
+        )
+        let enqueuedGroup = root.appendingPathComponent("enqueued-group")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_create_group_dir() { return 1; }
+        cmux_ssh_auth_run_cleanup_transactions() { return 1; }
+        cmux_ssh_auth_resume_signaled_processes() { return 0; }
+        cmux_ssh_auth_recovery_enqueue() {
+          printf '%s\n' "$1" > "$CMUX_TEST_ENQUEUED_GROUP"
+        }
+        CMUX_SSH_AUTH_GROUP_DIR="$CMUX_TEST_GROUP_DIR"
+        export CMUX_SSH_AUTH_GROUP_DIR
+        if cmux_ssh_terminate_unpublished_auth_process_tree \
+          101 1 777 Thu_Jan_1_00:00:00_1970; then exit 99; fi
+        test -f "$CMUX_SSH_AUTH_GROUP_DIR/rollback-only" || exit 98
+        /usr/bin/grep -Fqx '101 1 777 Thu_Jan_1_00:00:00_1970' \
+          "$CMUX_SSH_AUTH_GROUP_DIR/unpublished.root" || exit 97
+        /usr/bin/grep -Fqx '101 1 777 Thu_Jan_1_00:00:00_1970 R' \
+          "$CMUX_SSH_AUTH_GROUP_DIR/owned" || exit 96
+        /usr/bin/grep -Fqx "$CMUX_SSH_AUTH_GROUP_DIR" \
+          "$CMUX_TEST_ENQUEUED_GROUP" || exit 95
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_TEST_ENQUEUED_GROUP": enqueuedGroup.path,
+                "CMUX_TEST_GROUP_DIR": groupDirectory.path,
+                "TMPDIR": root.path,
+            ],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
     func recoverySweepCompletesPreservedUnpublishedOwnership(shellPath: String) throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
