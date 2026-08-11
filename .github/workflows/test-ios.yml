@@ -376,6 +376,7 @@ jobs:
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         env:
           DEVICE_FAMILY: ${{ matrix.family }}
+          CAPTURE_EVIDENCE: ${{ inputs.capture_evidence }}
         run: |
           set -euo pipefail
           IOS_DERIVED_DATA="${RUNNER_TEMP:-$PWD/.tmp}/cmux-ios-${DEVICE_FAMILY}"
@@ -385,12 +386,29 @@ jobs:
           IOS_EVIDENCE="$IOS_DERIVED_DATA/evidence"
           mkdir -p "$IOS_EVIDENCE"
           echo "IOS_EVIDENCE=$IOS_EVIDENCE" >> "$GITHUB_ENV"
+          echo "CMUX_IOS_TEST_SCHEME=cmux-ios" >> "$GITHUB_ENV"
+
+      - name: Prepare UI-only evidence scheme
+        if: ${{ inputs.capture_evidence && !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        run: |
+          set -euo pipefail
+          SOURCE_SCHEME="ios/cmux-ios.xcodeproj/xcshareddata/xcschemes/cmux-ios.xcscheme"
+          EVIDENCE_SCHEME="ios/cmux-ios.xcodeproj/xcshareddata/xcschemes/cmux-ios-evidence.xcscheme"
+          cp "$SOURCE_SCHEME" "$EVIDENCE_SCHEME"
+          perl -0pi -e 's#\s*<TestPlans>.*?</TestPlans>##s' "$EVIDENCE_SCHEME"
+          grep -q '<Testables>' "$EVIDENCE_SCHEME"
+          if grep -q '<TestPlans>' "$EVIDENCE_SCHEME"; then
+            echo "::error::Failed to remove the package-heavy test plan from evidence scheme"
+            exit 1
+          fi
+          git diff --quiet
+          echo "CMUX_IOS_TEST_SCHEME=cmux-ios-evidence" >> "$GITHUB_ENV"
 
       - name: Resolve packages
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         run: |
           xcodebuild -workspace ios/cmux.xcworkspace \
-            -scheme cmux-ios \
+            -scheme "$CMUX_IOS_TEST_SCHEME" \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -derivedDataPath "$IOS_DERIVED_DATA" \
             -resolvePackageDependencies
@@ -406,7 +424,7 @@ jobs:
           set -euo pipefail
           XCODEBUILD_ARGS=(
             -workspace ios/cmux.xcworkspace
-            -scheme cmux-ios
+            -scheme "$CMUX_IOS_TEST_SCHEME"
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID"
             -derivedDataPath "$IOS_DERIVED_DATA"
           )
@@ -490,7 +508,10 @@ jobs:
                 echo "simulator_runtime_identifier=${SIMULATOR_RUNTIME_IDENTIFIER:-}"
                 echo "simulator_runtime_version=${SIMULATOR_RUNTIME_VERSION:-}"
                 echo "test_filter=${TEST_FILTER:-}"
+                echo "test_scheme=$CMUX_IOS_TEST_SCHEME"
                 echo "xcode_developer_dir=$(xcode-select -p)"
+                git diff --quiet && echo "tracked_product_diff=clean"
+                shasum -a 256 "ios/cmux-ios.xcodeproj/xcshareddata/xcschemes/cmux-ios-evidence.xcscheme"
                 xcodebuild -version
                 xcrun simctl list runtimes available
                 xcrun simctl list devices available
@@ -518,7 +539,6 @@ jobs:
                 TRACE_PID=$!
               fi
               ATTEMPT_ARGS+=(
-                'OTHER_SWIFT_FLAGS=$(inherited) -Xfrontend -solver-expression-time-threshold=600000'
                 -resultBundlePath "$EVIDENCE_ATTEMPT/result.xcresult"
               )
             fi
