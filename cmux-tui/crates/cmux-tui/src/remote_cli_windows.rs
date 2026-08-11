@@ -510,8 +510,7 @@ fn proxy_local_connection_over_ssh(
             }
         })?;
 
-    let copy_result = io::copy(&mut ssh_stdout, &mut local);
-    let _ = local.flush();
+    let copy_result = copy_windows_carrier_download(&mut ssh_stdout, &mut local);
     let _ = local.shutdown(Shutdown::Both);
     let _ = upload_thread.join();
     let _ = stderr_thread.join();
