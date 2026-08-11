@@ -727,9 +727,19 @@ jobs:
         shell: bash
         run: git submodule update --init --depth 1 ghostty
 
-      - name: Install zig
+      - name: Resolve exact Zig version
+        id: windows-zig-version
         shell: bash
-        run: ./scripts/install-zig-ci.sh
+        run: |
+          set -euo pipefail
+          version="$(./scripts/ghostty-zig-version.sh .)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install exact Zig
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.windows-zig-version.outputs.version }}
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
