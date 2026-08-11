@@ -468,14 +468,6 @@ impl Mux {
             .flat_map(|screen| screen.root.pane_ids_vec())
             .filter_map(|pane| live.panes.get(&pane).map(|pane| pane.public_id.clone()))
             .collect::<HashSet<_>>();
-        let before_tabs = before_workspaces
-            .iter()
-            .flat_map(|workspace| &workspace.screens)
-            .flat_map(|screen| screen.root.pane_ids_vec())
-            .filter_map(|pane| live.panes.get(&pane))
-            .flat_map(|pane| pane.tabs.iter())
-            .filter_map(|surface| live.resource_indexes.tab_ids.get(surface).cloned())
-            .collect::<HashSet<_>>();
         let target_tabs = target_surfaces
             .iter()
             .filter_map(|surface| live.resource_indexes.tab_ids.get(surface).cloned())
