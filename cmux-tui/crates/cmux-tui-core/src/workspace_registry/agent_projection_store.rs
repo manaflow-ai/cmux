@@ -156,13 +156,7 @@ fn record_agent_session_generation(
              FROM resource_agent_session_generations
              WHERE terminal_id = ?1 AND superseded = 0",
             [next.terminal_id.as_str()],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, i64>(2)?,
-                ))
-            },
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?)),
         )
         .optional()?;
     if let Some((generation, superseded)) = existing {
@@ -187,11 +181,7 @@ fn record_agent_session_generation(
             );
         }
         anyhow::ensure!(
-            active.as_ref().is_some_and(|(
-                active_provider,
-                session,
-                active_generation,
-            )| {
+            active.as_ref().is_some_and(|(active_provider, session, active_generation)| {
                 active_provider.as_str() == provider
                     && session == source_session
                     && *active_generation == generation
@@ -209,10 +199,7 @@ fn record_agent_session_generation(
         anyhow::bail!("agent session generation history rebuild is pending");
     }
     if let Some((active_provider, active_session, active_generation)) = active {
-        anyhow::ensure!(
-            active_generation > 0,
-            "active agent session generation is not positive"
-        );
+        anyhow::ensure!(active_generation > 0, "active agent session generation is not positive");
         transaction.execute(
             "UPDATE resource_agent_session_generations
                  SET superseded = 1
