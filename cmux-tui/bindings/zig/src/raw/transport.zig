@@ -91,22 +91,25 @@ pub const Connection = struct {
 };
 
 const Deadline = struct {
-    timer: ?std.time.Timer = null,
-    timeout_ns: u64 = 0,
+    io: std.Io,
+    deadline: ?std.Io.Clock.Timestamp = null,
 
-    fn start(timeout_ms: ?u32) !Deadline {
-        const milliseconds = timeout_ms orelse return .{};
+    fn start(io: std.Io, timeout_ms: ?u32) !Deadline {
+        const milliseconds = timeout_ms orelse return .{ .io = io };
+        const duration: std.Io.Clock.Duration = .{
+            .raw = .fromMilliseconds(milliseconds),
+            .clock = .awake,
+        };
         return .{
-            .timer = try std.time.Timer.start(),
-            .timeout_ns = @as(u64, milliseconds) * std.time.ns_per_ms,
+            .io = io,
+            .deadline = .fromNow(io, duration),
         };
     }
 
     fn remainingMs(self: *Deadline) !?u32 {
-        const timer = if (self.timer) |*value| value else return null;
-        const elapsed_ns = timer.read();
-        if (elapsed_ns >= self.timeout_ns) return error.Timeout;
-        const remaining_ns = self.timeout_ns - elapsed_ns;
+        const deadline = self.deadline orelse return null;
+        const remaining_ns = std.Io.Clock.awake.now(self.io).durationTo(deadline).raw.toNanoseconds();
+        if (remaining_ns <= 0) return error.Timeout;
         return @intCast(
             (remaining_ns - 1) / std.time.ns_per_ms + 1,
         );
@@ -134,21 +137,22 @@ fn pollOnce(fds: []std.posix.pollfd, timeout: i32) PollOnceError!usize {
 }
 
 const UnixWaitTestHook = struct {
-    entered_poll: std.Thread.ResetEvent = .{},
-    returned_from_poll: std.Thread.ResetEvent = .{},
-    continue_wait: std.Thread.ResetEvent = .{},
+    entered_poll: std.Io.Event = .unset,
+    returned_from_poll: std.Io.Event = .unset,
+    continue_wait: std.Io.Event = .unset,
 };
 
 const UnixCloseTestHook = struct {
-    shutdown_complete: std.Thread.ResetEvent = .{},
-    continue_close: std.Thread.ResetEvent = .{},
+    shutdown_complete: std.Io.Event = .unset,
+    continue_close: std.Io.Event = .unset,
 };
 
 const UnixConnection = struct {
     allocator: std.mem.Allocator,
+    io: std.Io,
     stream: std.net.Stream,
-    mutex: std.Thread.Mutex = .{},
-    condition: std.Thread.Condition = .{},
+    mutex: std.Io.Mutex = .init,
+    condition: std.Io.Condition = .init,
     active_calls: usize = 0,
     closed: bool = false,
     fd_released: bool = false,
@@ -158,20 +162,20 @@ const UnixConnection = struct {
         if (builtin.is_test) null else {},
 
     fn beginIo(self: *UnixConnection) !void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(self.io);
+        defer self.mutex.unlock(self.io);
         if (self.closed) return error.ConnectionClosed;
         self.active_calls += 1;
     }
 
     fn endIo(self: *UnixConnection) void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(self.io);
+        defer self.mutex.unlock(self.io);
         std.debug.assert(self.active_calls > 0);
         self.active_calls -= 1;
         if (self.active_calls == 0) {
             self.releaseFdLocked();
-            self.condition.broadcast();
+            self.condition.broadcast(self.io);
         }
     }
 
@@ -182,8 +186,8 @@ const UnixConnection = struct {
     }
 
     fn isClosed(self: *UnixConnection) bool {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(self.io);
+        defer self.mutex.unlock(self.io);
         return self.closed;
     }
 
@@ -199,13 +203,13 @@ const UnixConnection = struct {
         else
             -1;
         if (builtin.is_test) {
-            if (self.test_wait_hook) |hook| hook.entered_poll.set();
+            if (self.test_wait_hook) |hook| hook.entered_poll.set(self.io);
         }
         const ready = try pollOnce(&poll_fds, timeout);
         if (builtin.is_test) {
             if (self.test_wait_hook) |hook| {
-                hook.returned_from_poll.set();
-                hook.continue_wait.wait();
+                hook.returned_from_poll.set(self.io);
+                hook.continue_wait.waitUncancelable(self.io);
             }
         }
         if (self.isClosed()) return error.ConnectionClosed;
@@ -222,7 +226,7 @@ const UnixConnection = struct {
     ) !usize {
         try self.beginIo();
         defer self.endIo();
-        const count = readWithTimeout(self, buffer, timeout_ms) catch |failure| {
+        const count = readWithTimeout(self.io, self, buffer, timeout_ms) catch |failure| {
             if (self.isClosed()) return error.ConnectionClosed;
             return failure;
         };
@@ -264,7 +268,7 @@ const UnixConnection = struct {
     ) !void {
         try self.beginIo();
         defer self.endIo();
-        writeAllWithTimeout(self, bytes, timeout_ms) catch |failure| {
+        writeAllWithTimeout(self.io, self, bytes, timeout_ms) catch |failure| {
             if (self.isClosed()) return error.ConnectionClosed;
             return failure;
         };
@@ -272,8 +276,8 @@ const UnixConnection = struct {
     }
 
     fn close(self: *UnixConnection) void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(self.io);
+        defer self.mutex.unlock(self.io);
         if (self.closed) return;
         self.closed = true;
         // Wake active I/O, then release immediately if no lease can still
@@ -281,8 +285,8 @@ const UnixConnection = struct {
         std.posix.shutdown(self.stream.handle, .both) catch {};
         if (builtin.is_test) {
             if (self.test_close_hook) |hook| {
-                hook.shutdown_complete.set();
-                hook.continue_close.wait();
+                hook.shutdown_complete.set(self.io);
+                hook.continue_close.waitUncancelable(self.io);
             }
         }
         self.releaseFdLocked();
@@ -291,21 +295,22 @@ const UnixConnection = struct {
     fn deinit(self: *UnixConnection) void {
         const allocator = self.allocator;
         self.close();
-        self.mutex.lock();
-        while (self.active_calls != 0) self.condition.wait(&self.mutex);
+        self.mutex.lockUncancelable(self.io);
+        while (self.active_calls != 0) self.condition.waitUncancelable(self.io, &self.mutex);
         self.releaseFdLocked();
         std.debug.assert(self.fd_released);
-        self.mutex.unlock();
+        self.mutex.unlock(self.io);
         allocator.destroy(self);
     }
 };
 
 fn readWithTimeout(
+    io: std.Io,
     state: anytype,
     buffer: []u8,
     timeout_ms: ?u32,
 ) !usize {
-    var deadline = try Deadline.start(timeout_ms);
+    var deadline = try Deadline.start(io, timeout_ms);
     while (true) {
         state.waitReadable(try deadline.remainingMs()) catch |failure| {
             if (failure == error.SignalInterrupt) continue;
@@ -319,11 +324,12 @@ fn readWithTimeout(
 }
 
 fn writeAllWithTimeout(
+    io: std.Io,
     state: anytype,
     bytes: []const u8,
     timeout_ms: ?u32,
 ) !void {
-    var deadline = try Deadline.start(timeout_ms);
+    var deadline = try Deadline.start(io, timeout_ms);
     var remaining = bytes;
     while (remaining.len > 0) {
         state.waitWritable(try deadline.remainingMs()) catch |failure| {
@@ -342,13 +348,15 @@ fn writeAllWithTimeout(
 
 pub fn connectUnix(
     allocator: std.mem.Allocator,
+    io: std.Io,
     path: []const u8,
 ) !Connection {
-    return connectUnixWithTimeout(allocator, path, null);
+    return connectUnixWithTimeout(allocator, io, path, null);
 }
 
 pub fn connectUnixWithTimeout(
     allocator: std.mem.Allocator,
+    io: std.Io,
     path: []const u8,
     timeout_ms: ?u32,
 ) !Connection {
@@ -356,16 +364,18 @@ pub fn connectUnixWithTimeout(
     errdefer allocator.destroy(state);
     state.* = .{
         .allocator = allocator,
-        .stream = try connectUnixStream(path, timeout_ms),
+        .io = io,
+        .stream = try connectUnixStream(io, path, timeout_ms),
     };
     return Connection.from(state);
 }
 
 fn connectUnixStream(
+    io: std.Io,
     path: []const u8,
     timeout_ms: ?u32,
 ) !std.net.Stream {
-    var deadline = try Deadline.start(timeout_ms);
+    var deadline = try Deadline.start(io, timeout_ms);
     const socket = try std.posix.socket(
         std.posix.AF.UNIX,
         std.posix.SOCK.STREAM |
@@ -406,7 +416,7 @@ fn connectUnixStream(
             -1;
         if (builtin.is_test) {
             if (transport_hook_test.connect_hook) |hook| {
-                hook.entered_poll.set();
+                hook.entered_poll.set(io);
             }
         }
         const ready = pollOnce(&poll_fds, poll_timeout) catch |failure| {
@@ -415,8 +425,8 @@ fn connectUnixStream(
         };
         if (builtin.is_test) {
             if (transport_hook_test.connect_hook) |hook| {
-                hook.returned_from_poll.set();
-                hook.continue_wait.wait();
+                hook.returned_from_poll.set(io);
+                hook.continue_wait.waitUncancelable(io);
                 if (hook.fail_ready_poll and ready != 0) {
                     return error.TestPollReleased;
                 }
@@ -493,6 +503,33 @@ pub fn resolveSocketPath(
     );
 }
 
+fn testDuration(nanoseconds: u64) std.Io.Clock.Duration {
+    return .{
+        .raw = .fromNanoseconds(@intCast(nanoseconds)),
+        .clock = .awake,
+    };
+}
+
+fn testTimeout(nanoseconds: u64) std.Io.Timeout {
+    return .{ .duration = testDuration(nanoseconds) };
+}
+
+fn testSleep(nanoseconds: u64) void {
+    testDuration(nanoseconds).sleep(std.testing.io) catch unreachable;
+}
+
+fn testNow() std.Io.Clock.Timestamp {
+    return .now(std.testing.io, .awake);
+}
+
+fn testElapsed(start: std.Io.Clock.Timestamp) u64 {
+    return @intCast(start.durationTo(testNow()).raw.toNanoseconds());
+}
+
+fn testWait(event: *std.Io.Event, nanoseconds: u64) !void {
+    return event.waitTimeout(std.testing.io, testTimeout(nanoseconds));
+}
+
 test "session validation rejects path traversal" {
     try std.testing.expectError(error.InvalidSession, validateSession("../bad"));
     try std.testing.expectError(error.InvalidSession, validateSession(""));
@@ -518,13 +555,11 @@ test "partial Unix writes share one absolute timeout" {
             const delay_ms: u32 = 8;
             if (timeout_ms) |remaining_ms| {
                 if (remaining_ms <= delay_ms) {
-                    std.Thread.sleep(
-                        @as(u64, remaining_ms) * std.time.ns_per_ms,
-                    );
+                    testSleep(@as(u64, remaining_ms) * std.time.ns_per_ms);
                     return error.Timeout;
                 }
             }
-            std.Thread.sleep(delay_ms * std.time.ns_per_ms);
+            testSleep(delay_ms * std.time.ns_per_ms);
         }
 
         fn writeSome(_: *@This(), bytes: []const u8) !usize {
@@ -535,7 +570,7 @@ test "partial Unix writes share one absolute timeout" {
 
     try std.testing.expectError(
         error.Timeout,
-        writeAllWithTimeout(&writer, "four", 20),
+        writeAllWithTimeout(std.testing.io, &writer, "four", 20),
     );
     try std.testing.expect(writer.wait_calls >= 2);
 }
@@ -562,7 +597,7 @@ test "read retries readiness races instead of surfacing WouldBlock" {
 
     try std.testing.expectEqual(
         @as(usize, 1),
-        try readWithTimeout(&reader, &buffer, 20),
+        try readWithTimeout(std.testing.io, &reader, &buffer, 20),
     );
     try std.testing.expectEqual(@as(usize, 2), reader.wait_calls);
     try std.testing.expectEqual(@as(usize, 2), reader.read_calls);
@@ -597,7 +632,7 @@ fn interruptTestThread(thread_id: std.Thread.Id) !bool {
 fn interruptTestThreadUntilExit(thread_id: std.Thread.Id) !usize {
     var delivered: usize = 0;
     for (0..20) |_| {
-        std.Thread.sleep(5 * std.time.ns_per_ms);
+        testSleep(5 * std.time.ns_per_ms);
         if (!try interruptTestThread(thread_id)) break;
         delivered += 1;
     }
@@ -639,6 +674,7 @@ test "Unix read deadline survives repeated signal interruptions" {
     defer server.deinit();
     var connection = try connectUnixWithTimeout(
         std.testing.allocator,
+        std.testing.io,
         path,
         1_000,
     );
@@ -648,37 +684,34 @@ test "Unix read deadline survives repeated signal interruptions" {
 
     const state: *UnixConnection = @ptrCast(@alignCast(connection.context));
     var hook = UnixWaitTestHook{};
-    hook.continue_wait.set();
+    hook.continue_wait.set(std.testing.io);
     state.test_wait_hook = &hook;
     const PendingRead = struct {
         connection: *Connection,
         thread_id: std.Thread.Id = 0,
-        id_ready: std.Thread.ResetEvent = .{},
+        id_ready: std.Io.Event = .unset,
         failure: ?anyerror = null,
         elapsed_ns: u64 = 0,
 
         fn run(self: *@This()) void {
             self.thread_id = std.Thread.getCurrentId();
-            self.id_ready.set();
-            var timer = std.time.Timer.start() catch |failure| {
-                self.failure = failure;
-                return;
-            };
+            self.id_ready.set(std.testing.io);
+            const start = testNow();
             var bytes: [1]u8 = undefined;
             _ = self.connection.read(&bytes, 20) catch |failure| {
                 self.failure = failure;
-                self.elapsed_ns = timer.read();
+                self.elapsed_ns = testElapsed(start);
                 return;
             };
-            self.elapsed_ns = timer.read();
+            self.elapsed_ns = testElapsed(start);
         }
     };
     var pending = PendingRead{ .connection = &connection };
     const thread = try std.Thread.spawn(.{}, PendingRead.run, .{&pending});
     var joined = false;
     defer if (!joined) thread.join();
-    try pending.id_ready.timedWait(std.time.ns_per_s);
-    try hook.entered_poll.timedWait(std.time.ns_per_s);
+    try testWait(&pending.id_ready, std.time.ns_per_s);
+    try testWait(&hook.entered_poll, std.time.ns_per_s);
     const delivered = try interruptTestThreadUntilExit(pending.thread_id);
     thread.join();
     joined = true;
@@ -712,6 +745,7 @@ test "Unix write deadline survives repeated signal interruptions" {
     defer server.deinit();
     var connection = try connectUnixWithTimeout(
         std.testing.allocator,
+        std.testing.io,
         path,
         1_000,
     );
@@ -743,36 +777,33 @@ test "Unix write deadline survives repeated signal interruptions" {
     }
 
     var hook = UnixWaitTestHook{};
-    hook.continue_wait.set();
+    hook.continue_wait.set(std.testing.io);
     state.test_wait_hook = &hook;
     const PendingWrite = struct {
         connection: *Connection,
         thread_id: std.Thread.Id = 0,
-        id_ready: std.Thread.ResetEvent = .{},
+        id_ready: std.Io.Event = .unset,
         failure: ?anyerror = null,
         elapsed_ns: u64 = 0,
 
         fn run(self: *@This()) void {
             self.thread_id = std.Thread.getCurrentId();
-            self.id_ready.set();
-            var timer = std.time.Timer.start() catch |failure| {
-                self.failure = failure;
-                return;
-            };
+            self.id_ready.set(std.testing.io);
+            const start = testNow();
             self.connection.writeAll("x", 20) catch |failure| {
                 self.failure = failure;
-                self.elapsed_ns = timer.read();
+                self.elapsed_ns = testElapsed(start);
                 return;
             };
-            self.elapsed_ns = timer.read();
+            self.elapsed_ns = testElapsed(start);
         }
     };
     var pending = PendingWrite{ .connection = &connection };
     const thread = try std.Thread.spawn(.{}, PendingWrite.run, .{&pending});
     var joined = false;
     defer if (!joined) thread.join();
-    try pending.id_ready.timedWait(std.time.ns_per_s);
-    try hook.entered_poll.timedWait(std.time.ns_per_s);
+    try testWait(&pending.id_ready, std.time.ns_per_s);
+    try testWait(&hook.entered_poll, std.time.ns_per_s);
     const delivered = try interruptTestThreadUntilExit(pending.thread_id);
     thread.join();
     joined = true;
@@ -804,7 +835,7 @@ test "connect deadline survives repeated signal interruptions" {
     const address = try std.net.Address.initUnix(path);
     var server = try address.listen(.{ .kernel_backlog = 0 });
     defer server.deinit();
-    const blocker = try connectUnixStream(path, 1_000);
+    const blocker = try connectUnixStream(std.testing.io, path, 1_000);
     defer blocker.close();
 
     const pipe_fds = try std.posix.pipe2(.{
@@ -825,38 +856,35 @@ test "connect deadline survives repeated signal interruptions" {
     var hook = transport_hook_test.ConnectHook{
         .poll_fd_override = pipe_fds[1],
     };
-    hook.continue_wait.set();
+    hook.continue_wait.set(std.testing.io);
     transport_hook_test.connect_hook = &hook;
     defer transport_hook_test.connect_hook = null;
     const PendingConnect = struct {
         path: []const u8,
         thread_id: std.Thread.Id = 0,
-        id_ready: std.Thread.ResetEvent = .{},
+        id_ready: std.Io.Event = .unset,
         stream: ?std.net.Stream = null,
         failure: ?anyerror = null,
         elapsed_ns: u64 = 0,
 
         fn run(self: *@This()) void {
             self.thread_id = std.Thread.getCurrentId();
-            self.id_ready.set();
-            var timer = std.time.Timer.start() catch |failure| {
+            self.id_ready.set(std.testing.io);
+            const start = testNow();
+            self.stream = connectUnixStream(std.testing.io, self.path, 20) catch |failure| {
                 self.failure = failure;
+                self.elapsed_ns = testElapsed(start);
                 return;
             };
-            self.stream = connectUnixStream(self.path, 20) catch |failure| {
-                self.failure = failure;
-                self.elapsed_ns = timer.read();
-                return;
-            };
-            self.elapsed_ns = timer.read();
+            self.elapsed_ns = testElapsed(start);
         }
     };
     var pending = PendingConnect{ .path = path };
     const thread = try std.Thread.spawn(.{}, PendingConnect.run, .{&pending});
     var joined = false;
     defer if (!joined) thread.join();
-    try pending.id_ready.timedWait(std.time.ns_per_s);
-    try hook.entered_poll.timedWait(std.time.ns_per_s);
+    try testWait(&pending.id_ready, std.time.ns_per_s);
+    try testWait(&hook.entered_poll, std.time.ns_per_s);
     const delivered = try interruptTestThreadUntilExit(pending.thread_id);
     thread.join();
     joined = true;
@@ -883,6 +911,7 @@ test "large Unix write to a nonreading peer honors its deadline" {
     defer server.deinit();
     var connection = try connectUnixWithTimeout(
         std.testing.allocator,
+        std.testing.io,
         path,
         1_000,
     );
@@ -943,7 +972,7 @@ test "large Unix write to a nonreading peer honors its deadline" {
         read_bytes: usize = 0,
 
         fn run(self: *@This()) void {
-            std.Thread.sleep(5 * std.time.ns_per_ms);
+            testSleep(5 * std.time.ns_per_ms);
             var bytes: [64 * 1024]u8 = undefined;
             self.read_bytes = self.stream.read(&bytes) catch |failure| {
                 self.failure = failure;
@@ -957,13 +986,13 @@ test "large Unix write to a nonreading peer honors its deadline" {
         PeerDrain.run,
         .{&peer_drain},
     );
-    var write_done = std.Thread.ResetEvent{};
+    var write_done = std.Io.Event.unset;
     const Watchdog = struct {
         connection: *UnixConnection,
-        done: *std.Thread.ResetEvent,
+        done: *std.Io.Event,
 
         fn run(self: @This()) void {
-            self.done.timedWait(250 * std.time.ns_per_ms) catch {
+            testWait(self.done, 250 * std.time.ns_per_ms) catch {
                 self.connection.close();
             };
         }
@@ -976,15 +1005,15 @@ test "large Unix write to a nonreading peer honors its deadline" {
     const payload = try std.testing.allocator.alloc(u8, 8 * 1024 * 1024);
     defer std.testing.allocator.free(payload);
     @memset(payload, 0x78);
-    var timer = try std.time.Timer.start();
+    const start = testNow();
     const write_failure: ?anyerror = blk: {
         connection.writeAll(payload, 20) catch |failure| {
             break :blk failure;
         };
         break :blk null;
     };
-    const elapsed_ns = timer.read();
-    write_done.set();
+    const elapsed_ns = testElapsed(start);
+    write_done.set(std.testing.io);
     peer_thread.join();
     watchdog.join();
 
@@ -1011,6 +1040,7 @@ test "idle Unix close releases its descriptor before deinit" {
     defer server.deinit();
     var connection = try connectUnixWithTimeout(
         std.testing.allocator,
+        std.testing.io,
         path,
         1_000,
     );
@@ -1054,6 +1084,7 @@ test "closed Unix reconnect cycles reuse descriptors without double close" {
     for (0..cycle_count) |_| {
         var connection = try connectUnixWithTimeout(
             std.testing.allocator,
+            std.testing.io,
             path,
             1_000,
         );
@@ -1078,6 +1109,7 @@ test "closed Unix reconnect cycles reuse descriptors without double close" {
 
     var live = try connectUnixWithTimeout(
         std.testing.allocator,
+        std.testing.io,
         path,
         1_000,
     );
@@ -1116,6 +1148,7 @@ test "closing a pending Unix read cannot consume a reused descriptor" {
     defer server.deinit();
     var connection = try connectUnixWithTimeout(
         std.testing.allocator,
+        std.testing.io,
         path,
         1_000,
     );
@@ -1148,11 +1181,11 @@ test "closing a pending Unix read cannot consume a reused descriptor" {
     const read_thread = try std.Thread.spawn(.{}, PendingRead.run, .{&pending});
     var read_joined = false;
     defer if (!read_joined) {
-        hook.continue_wait.set();
+        hook.continue_wait.set(std.testing.io);
         read_thread.join();
     };
 
-    try hook.entered_poll.timedWait(std.time.ns_per_s);
+    try testWait(&hook.entered_poll, std.time.ns_per_s);
     const Closer = struct {
         connection: *Connection,
 
@@ -1167,12 +1200,12 @@ test "closing a pending Unix read cannot consume a reused descriptor" {
     );
     var close_joined = false;
     defer if (!close_joined) {
-        close_hook.continue_close.set();
+        close_hook.continue_close.set(std.testing.io);
         close_thread.join();
     };
-    try close_hook.shutdown_complete.timedWait(std.time.ns_per_s);
-    try hook.returned_from_poll.timedWait(std.time.ns_per_s);
-    close_hook.continue_close.set();
+    try testWait(&close_hook.shutdown_complete, std.time.ns_per_s);
+    try testWait(&hook.returned_from_poll, std.time.ns_per_s);
+    close_hook.continue_close.set(std.testing.io);
     close_thread.join();
     close_joined = true;
     connection.close();
@@ -1205,7 +1238,7 @@ test "closing a pending Unix read cannot consume a reused descriptor" {
         try std.testing.expectEqual(marker.len, try std.posix.write(fd, marker));
     }
 
-    hook.continue_wait.set();
+    hook.continue_wait.set(std.testing.io);
     read_thread.join();
     read_joined = true;
 

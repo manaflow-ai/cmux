@@ -2,6 +2,7 @@ const std = @import("std");
 const cmux = @import("cmux_tui");
 
 pub const ConnectOptions = struct {
+    io: std.Io,
     socket_path: []const u8,
     machine_name: []const u8,
     session_name: []const u8,
@@ -87,6 +88,7 @@ pub const SessionSupervisor = struct {
         options: ConnectOptions,
     ) !SessionSupervisor {
         var client = try cmux.Client.connect(allocator, .{
+            .io = options.io,
             .socket_path = options.socket_path,
             .timeout_ms = options.timeout_ms,
         });

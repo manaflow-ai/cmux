@@ -1,6 +1,6 @@
 # cmux resource SDK for Zig
 
-The SDK targets Zig 0.15.2 and uses only the standard library. The default API
+The SDK targets Zig 0.16.0 and uses only the standard library. The default API
 uses typed opaque resource IDs, explicit handles, caller allocators, explicit
 `deinit`, cryptographically random mutation keys, and typed streams.
 
@@ -8,9 +8,10 @@ uses typed opaque resource IDs, explicit handles, caller allocators, explicit
 const std = @import("std");
 const cmux = @import("cmux_tui");
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
     const allocator = std.heap.page_allocator;
     var client = try cmux.Client.connect(allocator, .{
+        .io = init.io,
         .session = "main",
         .timeout_ms = 10_000,
     });
@@ -32,6 +33,13 @@ pub fn main() !void {
     defer started.deinit();
 }
 ```
+
+Client construction requires the caller's `std.Io`. The client retains that
+value for clocks, transport work, mutexes, conditions, and cancelable request
+admission. A canceled or timed-out request waiter leaves the admission queue
+without blocking the next request. Custom stream factories receive the same
+I/O value. Provider clients require nested client options that carry it. Tests
+use `std.testing.io`.
 
 `RunCommand.argv` preserves each argument. `RunCommand.shell` sends a script
 for the server platform default shell. `shellWithExecutable` encodes exact
@@ -222,8 +230,9 @@ const protocol = cmux.raw.protocol;
 const RawClient = cmux.raw.Client;
 ```
 
-`raw.Options.timeout_ms` bounds Unix-socket establishment and each later raw
-transport read or write. `null` disables transport deadlines.
+`raw.Options.io` is required. `raw.Options.timeout_ms` bounds Unix-socket
+establishment and each later raw transport read or write. `null` disables
+transport deadlines.
 
 Every returned owned snapshot, list, result, mutation result, stream item,
 stream, and renderer grant documents ownership through a `deinit` method.

@@ -90,7 +90,7 @@ cursor.
 | Go | generic typed selectors, `context.Context`, typed stream receivers | client, context, and stream cancellation | Go 1.22 | standard library |
 | Java | immutable values, builders, `BigInteger`, synchronous streams | `AutoCloseable` client and streams | Java 17 | standard library |
 | C++ | value types, `result<T>`, `std::variant`, move-only RAII streams | RAII client and streams | C++20, CMake 3.20 | standard library |
-| Zig | typed IDs, error unions, explicit allocator-owned values | explicit `deinit` | Zig 0.15.2 | standard library |
+| Zig | typed IDs, error unions, explicit allocator-owned values | explicit `deinit` | Zig 0.16.0 | standard library |
 
 ### Rust
 

@@ -134,7 +134,7 @@ test "stream helper keeps the command client usable" {
 
     var command_client = try client_module.Client.connect(
         std.testing.allocator,
-        .{ .socket_path = path },
+        .{ .io = std.testing.io, .socket_path = path },
     );
     defer command_client.deinit();
     var stream_client = try command_client.openStreamClient();

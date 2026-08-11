@@ -11,7 +11,7 @@ pub const default_origin = "cmux-zig-provider-client";
 
 pub const Options = struct {
     authority: []const u8,
-    client: client_module.Options = .{},
+    client: client_module.Options,
 };
 
 pub const Workspace = struct {

@@ -103,7 +103,7 @@ class CheckVersionsTests(unittest.TestCase):
                 ".{\n"
                 "    .name = .cmux_tui,\n"
                 f'    .version = "{zig_manifest_version}",\n'
-                '    .minimum_zig_version = "0.15.2",\n'
+                '    .minimum_zig_version = "0.16.0",\n'
                 "}\n"
             ),
             "zig/build.zig": zig_build_source

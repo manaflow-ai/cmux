@@ -26,7 +26,7 @@ creation path and exit record, verifies stable workspace IDs and names, then
 closes every fixture. TypeScript runs the same lifecycle over Unix and
 authenticated WebSocket transports.
 
-The Zig adapter targets Zig 0.15.2. Set `CMUX_ZIG` when that compiler is not
+The Zig adapter targets Zig 0.16.0. Set `CMUX_ZIG` when that compiler is not
 the `zig` on `PATH`.
 
 Generated protocol-10 compatibility tests are intentionally separate:

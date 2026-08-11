@@ -255,6 +255,7 @@ pub fn encodeTagged(
         else => return error.ExpectedObject,
     };
     try object.put(
+        allocator,
         try allocator.dupe(u8, tag),
         .{ .string = try allocator.dupe(u8, tag_value) },
     );
@@ -315,24 +316,30 @@ pub fn encodeValue(
         },
         .@"struct" => blk: {
             if (comptime isMap(T)) {
-                var object = Object.init(allocator);
+                var object = try Object.init(allocator, &.{}, &.{});
                 for (value.entries) |entry| {
                     try object.put(
+                        allocator,
                         try allocator.dupe(u8, entry.key),
                         try encodeValue(allocator, entry.value),
                     );
                 }
                 break :blk .{ .object = object };
             }
-            var object = Object.init(allocator);
+            var object = try Object.init(allocator, &.{}, &.{});
             inline for (@typeInfo(T).@"struct".fields) |field| {
                 const field_value = @field(value, field.name);
                 const FieldType = field.type;
                 if (comptime isField(FieldType)) {
                     switch (field_value) {
                         .absent => {},
-                        .null_value => try object.put(field.name, .null),
+                        .null_value => try object.put(
+                            allocator,
+                            field.name,
+                            .null,
+                        ),
                         .value => |inner| try object.put(
+                            allocator,
                             field.name,
                             try encodeValue(allocator, inner),
                         ),
@@ -341,6 +348,7 @@ pub fn encodeValue(
                     // Optional null means the wire property is absent.
                 } else {
                     try object.put(
+                        allocator,
                         field.name,
                         try encodeValue(allocator, field_value),
                     );
@@ -564,10 +572,11 @@ pub fn cloneValue(allocator: std.mem.Allocator, value: Value) !Value {
             break :blk .{ .array = result };
         },
         .object => |raw| blk: {
-            var result = Object.init(allocator);
+            var result = try Object.init(allocator, &.{}, &.{});
             var iterator = raw.iterator();
             while (iterator.next()) |entry| {
                 try result.put(
+                    allocator,
                     try allocator.dupe(u8, entry.key_ptr.*),
                     try cloneValue(allocator, entry.value_ptr.*),
                 );

@@ -1015,13 +1015,11 @@ pub(crate) async fn search(
                     continue;
                 }
                 PreparedUnixSearchEntry::File { target, file, length } => {
-                    if length > MAX_SEARCH_FILE_BYTES
-                        || !matches_globs(&entry.protocol_path, globs)
+                    if length > MAX_SEARCH_FILE_BYTES || !matches_globs(&entry.protocol_path, globs)
                     {
                         continue;
                     }
-                    if continuation.total_bytes.saturating_add(length) > MAX_SEARCH_TOTAL_BYTES
-                    {
+                    if continuation.total_bytes.saturating_add(length) > MAX_SEARCH_TOTAL_BYTES {
                         continuation.discovery_truncated = true;
                         continuation.clear_queue();
                         break;
@@ -1782,11 +1780,7 @@ fn prepare_unix_search_entry(
                 "file changed while it was being opened for search",
             ));
         }
-        return Ok(PreparedUnixSearchEntry::File {
-            target,
-            file,
-            length: metadata.len(),
-        });
+        return Ok(PreparedUnixSearchEntry::File { target, file, length: metadata.len() });
     }
     Ok(PreparedUnixSearchEntry::Other)
 }

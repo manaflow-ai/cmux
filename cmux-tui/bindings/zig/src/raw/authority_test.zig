@@ -58,7 +58,9 @@ test "default client denies every generated provider entrypoint before write" {
     var client = client_module.Client.init(
         std.testing.allocator,
         client_module.Connection.from(state),
-        .{},
+        .{
+            .io = std.testing.io,
+        },
     );
     defer client.deinit();
 
@@ -95,7 +97,9 @@ test "local policy covers every generated provider authority descriptor" {
     var client = client_module.Client.init(
         std.testing.allocator,
         client_module.Connection.from(state),
-        .{},
+        .{
+            .io = std.testing.io,
+        },
     );
     defer client.deinit();
 
@@ -129,7 +133,9 @@ test "default local policy permits a generated local-admin command" {
     var client = client_module.Client.init(
         std.testing.allocator,
         client_module.Connection.from(state),
-        .{},
+        .{
+            .io = std.testing.io,
+        },
     );
     defer client.deinit();
 
@@ -156,7 +162,7 @@ test "explicit provider authority policy permits provider write" {
     var client = client_module.Client.init(
         std.testing.allocator,
         client_module.Connection.from(state),
-        .{ .authority_policy = .provider_authority },
+        .{ .io = std.testing.io, .authority_policy = .provider_authority },
     );
     defer client.deinit();
 
@@ -181,7 +187,9 @@ test "old protocol rejects a generated command before its write" {
     var client = client_module.Client.init(
         std.testing.allocator,
         client_module.Connection.from(state),
-        .{},
+        .{
+            .io = std.testing.io,
+        },
     );
     defer client.deinit();
 
@@ -213,7 +221,9 @@ test "missing capability rejects a generated command before its write" {
     var client = client_module.Client.init(
         std.testing.allocator,
         client_module.Connection.from(state),
-        .{},
+        .{
+            .io = std.testing.io,
+        },
     );
     defer client.deinit();
 
@@ -237,7 +247,9 @@ test "field protocol requirement applies only when the field is present" {
     var client = client_module.Client.init(
         std.testing.allocator,
         client_module.Connection.from(state),
-        .{},
+        .{
+            .io = std.testing.io,
+        },
     );
     defer client.deinit();
 
@@ -271,7 +283,9 @@ test "missing field capability rejects a stream before its write" {
     var client = client_module.Client.init(
         std.testing.allocator,
         client_module.Connection.from(state),
-        .{},
+        .{
+            .io = std.testing.io,
+        },
     );
     defer client.deinit();
 

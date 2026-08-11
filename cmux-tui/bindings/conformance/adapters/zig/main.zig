@@ -151,8 +151,9 @@ fn mutationOptions(request: Value) !cmux.MutationOptions {
     )).expecting(revision);
 }
 
-fn clientOptions(request: Value) cmux.Options {
+fn clientOptions(io: std.Io, request: Value) cmux.Options {
     return .{
+        .io = io,
         .socket_path = optionalStringField(request, "socket_path"),
         .timeout_ms = 15_000,
     };
@@ -1652,7 +1653,7 @@ fn liveRestart(
     return .{ .object = output };
 }
 
-fn dispatch(allocator: Allocator, request: Value) !Value {
+fn dispatch(allocator: Allocator, io: std.Io, request: Value) !Value {
     const operation = try stringField(request, "op");
     if (std.mem.eql(u8, operation, "redaction")) {
         return redaction(allocator);
@@ -1660,7 +1661,7 @@ fn dispatch(allocator: Allocator, request: Value) !Value {
 
     var client = try cmux.Client.connect(
         allocator,
-        clientOptions(request),
+        clientOptions(io, request),
     );
     defer client.deinit();
     if (std.mem.eql(u8, operation, "live-setup")) {
@@ -1778,7 +1779,7 @@ pub fn main(init: std.process.Init) !void {
         else
             .null,
     );
-    const value = dispatch(output, parsed.value) catch |failure| {
+    const value = dispatch(output, init.io, parsed.value) catch |failure| {
         try response.put(output, "ok", .{ .bool = false });
         var encoded_error = try Object.init(output, &.{}, &.{});
         try putString(&encoded_error, output, "kind", "adapter");
