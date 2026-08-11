@@ -10,6 +10,7 @@ private enum TerminalSurfaceShimRemovalOutcome: Sendable {
 
 private struct TerminalSurfaceShimRemovalError: Error, CustomStringConvertible {
     let description: String
+    let isTimeout: Bool
 }
 
 private actor TerminalSurfaceShimRemovalRace {
@@ -32,6 +33,7 @@ private actor TerminalSurfaceShimRemovalRace {
 actor TerminalSurfaceAgentCommandShimLeaseState {
     private var shims: TerminalSurfaceAgentCommandShimSet?
     private var removalAttempt: (id: UUID, task: Task<Void, any Error>)?
+    private var removalTimedOut = false
     private let removalAttemptLimit: Int
     private let removalAttemptTimeout: Duration
     private let remove: @Sendable (TerminalSurfaceAgentCommandShimSet) async throws -> Void
@@ -59,6 +61,7 @@ actor TerminalSurfaceAgentCommandShimLeaseState {
 
     func release(removalClock: any Clock<Duration> = ContinuousClock()) async -> Bool {
         guard let shims else { return true }
+        guard !removalTimedOut else { return false }
         let attempt: (id: UUID, task: Task<Void, any Error>)
         if let removalAttempt {
             attempt = removalAttempt
@@ -78,6 +81,10 @@ actor TerminalSurfaceAgentCommandShimLeaseState {
                             operation: remove
                         )
                         return
+                    } catch let error as TerminalSurfaceShimRemovalError
+                        where error.isTimeout
+                    {
+                        throw error
                     } catch {
                         lastError = error
                     }
@@ -97,6 +104,11 @@ actor TerminalSurfaceAgentCommandShimLeaseState {
         } catch {
             guard removalAttempt?.id == attempt.id else { return self.shims == nil }
             removalAttempt = nil
+            if let removalError = error as? TerminalSurfaceShimRemovalError,
+               removalError.isTimeout
+            {
+                removalTimedOut = true
+            }
             reportRemovalFailure(shims, String(reflecting: error))
             return false
         }
@@ -138,10 +150,11 @@ actor TerminalSurfaceAgentCommandShimLeaseState {
         case .success:
             return
         case let .failure(description):
-            throw TerminalSurfaceShimRemovalError(description: description)
+            throw TerminalSurfaceShimRemovalError(description: description, isTimeout: false)
         case .timedOut:
             throw TerminalSurfaceShimRemovalError(
-                description: "command shim removal exceeded \(deadline)"
+                description: "command shim removal exceeded \(deadline)",
+                isTimeout: true
             )
         case .cancelled:
             throw CancellationError()

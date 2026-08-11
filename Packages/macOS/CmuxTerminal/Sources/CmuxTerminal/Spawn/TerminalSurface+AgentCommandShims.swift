@@ -6,11 +6,12 @@ internal import os
 private let terminalSurfacePartialShimRemovalAttemptLimit = 3
 private let terminalSurfaceStaleShimMinimumAge: TimeInterval = 60
 private let terminalSurfaceStaleShimMaximumEntryCount = 64
+private let terminalSurfaceStaleShimRescanInterval: TimeInterval = 60
 
 final class TerminalSurfaceAgentCommandShimStaleCleanupOwner: @unchecked Sendable {
     private struct State {
         var enumerators: [String: FileManager.DirectoryEnumerator] = [:]
-        var completedPaths: Set<String> = []
+        var nextScanDates: [String: Date] = [:]
     }
 
     private let state = OSAllocatedUnfairLock(initialState: State())
@@ -18,13 +19,18 @@ final class TerminalSurfaceAgentCommandShimStaleCleanupOwner: @unchecked Sendabl
     func nextBatch(
         in parentDirectory: URL,
         maximumEntryCount: Int,
+        now: Date,
+        rescanInterval: TimeInterval,
         isCancelled: () -> Bool,
         fileManager: FileManager
     ) -> [URL] {
         guard maximumEntryCount > 0, !isCancelled() else { return [] }
         let path = parentDirectory.standardizedFileURL.path
         return state.withLock { state in
-            guard !state.completedPaths.contains(path) else { return [] }
+            if let nextScanDate = state.nextScanDates[path], nextScanDate > now {
+                return []
+            }
+            state.nextScanDates[path] = nil
             let enumerator: FileManager.DirectoryEnumerator
             if let active = state.enumerators[path] {
                 enumerator = active
@@ -37,7 +43,7 @@ final class TerminalSurfaceAgentCommandShimStaleCleanupOwner: @unchecked Sendabl
                 enumerator = created
                 state.enumerators[path] = created
             } else {
-                state.completedPaths.insert(path)
+                state.nextScanDates[path] = now.addingTimeInterval(rescanInterval)
                 return []
             }
 
@@ -46,7 +52,7 @@ final class TerminalSurfaceAgentCommandShimStaleCleanupOwner: @unchecked Sendabl
             while inspectedEntryCount < maximumEntryCount, !isCancelled() {
                 guard let entry = enumerator.nextObject() else {
                     state.enumerators[path] = nil
-                    state.completedPaths.insert(path)
+                    state.nextScanDates[path] = now.addingTimeInterval(rescanInterval)
                     break
                 }
                 inspectedEntryCount += 1
@@ -200,6 +206,7 @@ extension TerminalSurface {
                 now: .now,
                 minimumAge: terminalSurfaceStaleShimMinimumAge,
                 maximumEntryCount: terminalSurfaceStaleShimMaximumEntryCount,
+                rescanInterval: terminalSurfaceStaleShimRescanInterval,
                 isCancelled: isCancelled,
                 isProcessAlive: terminalSurfaceProcessIsAlive,
                 cleanupOwner: terminalSurfaceAgentCommandShimStaleCleanupOwner,
@@ -272,6 +279,7 @@ extension TerminalSurface {
         now: Date,
         minimumAge: TimeInterval,
         maximumEntryCount: Int,
+        rescanInterval: TimeInterval,
         isCancelled: () -> Bool,
         isProcessAlive: (pid_t) -> Bool,
         cleanupOwner: TerminalSurfaceAgentCommandShimStaleCleanupOwner,
@@ -281,6 +289,8 @@ extension TerminalSurface {
         let entries = cleanupOwner.nextBatch(
             in: parentDirectory,
             maximumEntryCount: maximumEntryCount,
+            now: now,
+            rescanInterval: rescanInterval,
             isCancelled: isCancelled,
             fileManager: fileManager
         )
