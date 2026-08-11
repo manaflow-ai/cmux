@@ -12,6 +12,9 @@ public struct GhosttyConfiguredCommand: Equatable, Sendable {
 
     /// Parses one effective Ghostty `command` value.
     public init?(rawValue: String) {
+        // Match Ghostty Command.parseCLI exactly: it trims the full input and
+        // the prefixed payload before direct mode splits on literal spaces.
+        // Edge spaces are not arguments; repeated interior spaces are.
         let command = rawValue.trimmingCharacters(in: .whitespaces)
         guard !command.isEmpty else { return nil }
         guard let separator = command.firstIndex(of: ":") else {
