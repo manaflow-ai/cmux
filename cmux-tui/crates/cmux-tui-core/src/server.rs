@@ -15629,7 +15629,10 @@ mod tests {
                 "stream_id":stream_id,
                 "start":"beginning",
                 "follow":false,
-                "filter":{"kinds":["workspace.*"]},
+                "filter":{
+                    "kinds":["workspace.*"],
+                    "max_sensitivity":"sensitive",
+                },
             }),
             None,
         );
