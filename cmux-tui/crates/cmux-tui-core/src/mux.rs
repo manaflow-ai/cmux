@@ -21031,7 +21031,6 @@ mod tests {
         assert_eq!(mux.list_agents(Some(surface_id), None)[0].state, AgentState::Working);
 
         mux.workspace_registry.lock().unwrap().seed_agent_projection_checkpoint_for_test().unwrap();
-        mux.corrupt_agent_projection_for_test(&terminal_id);
         assert!(mux.agent_projection_rebuild_pending_for_test().unwrap());
         let (entered, entered_receiver) = std::sync::mpsc::sync_channel(1);
         let (release, release_receiver) = std::sync::mpsc::sync_channel(1);
@@ -21039,12 +21038,21 @@ mod tests {
 
         mux.start_agent_projection_rebuild_worker().unwrap();
         entered_receiver.recv_timeout(Duration::from_secs(5)).unwrap();
+        mux.corrupt_agent_projection_for_test(&terminal_id);
+        release.send(()).unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut epoch = mux.journal_event_epoch();
+        while mux.agent_projection_rebuild_pending_for_test().unwrap() {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            assert!(!remaining.is_zero(), "scoped agent projection rebuild did not complete");
+            epoch = mux.wait_for_journal_event(epoch, remaining);
+        }
         assert!(
             !mux.daemon_shutdown_requested(),
             "an unchanged malformed projection must not enter the scoped checkpoint refresh"
         );
         assert_eq!(mux.list_agents(Some(surface_id), None)[0].state, AgentState::Working);
-        release.send(()).unwrap();
         mux.shutdown();
     }
 
