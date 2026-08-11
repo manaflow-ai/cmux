@@ -3307,7 +3307,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         presenceMap.apply(update)
         recordAppEvent(
             .presenceStreamUpdated,
-            count: presenceMap.allInstancesForReconnectEvidence().count
+            count: presenceMap.instanceCount
         )
         let pushedRouteSyncTask: Task<Void, Never>?
         switch update {
