@@ -60,6 +60,7 @@ jobs:
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
               | sh -s -- -y --default-toolchain stable
             echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.cargo/bin:$PATH"
           fi
           rustc --version
           cargo --version
@@ -71,10 +72,19 @@ jobs:
       - name: renderer signal behavior
         working-directory: cmux-tui
         run: |
-          cargo test --workspace --locked \
+          tests=(
             explicit_reap_release_quiesces_owned_renderer_without_sleep
-          cargo test --workspace --locked \
             many_worker_shutdown_returns_at_one_deadline_before_process_release
+          )
+          for test_name in "${tests[@]}"; do
+            cargo test --workspace --locked "$test_name" -- --list \
+              | tee "$RUNNER_TEMP/$test_name.list"
+            if ! grep -Eq "(^|::)$test_name: test$" "$RUNNER_TEMP/$test_name.list"; then
+              echo "::error::required renderer test '$test_name' does not exist" >&2
+              exit 1
+            fi
+            cargo test --workspace --locked "$test_name"
+          done
 
   artifact:
     name: renderer signal macOS artifact
@@ -104,6 +114,7 @@ jobs:
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
               | sh -s -- -y --default-toolchain stable
             echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.cargo/bin:$PATH"
           fi
           rustc --version
           cargo --version
