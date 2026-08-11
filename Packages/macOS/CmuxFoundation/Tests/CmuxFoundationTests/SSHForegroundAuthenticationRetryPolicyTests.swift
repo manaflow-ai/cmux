@@ -1188,6 +1188,144 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func rollbackResumesMemberJournaledFromPostStopSnapshot(shellPath: String) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-poststop-journal-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_deadline_allows_work() { return 0; }
+        cmux_ssh_auth_deadline_allows_signal() { return 0; }
+        cmux_ssh_auth_now_millis() { printf '1000\n'; }
+        cmux_ssh_auth_select_exclusive_groups() {
+          printf '777\n' > "$cmux_ssh_auth_owned_groups"
+        }
+        cmux_ssh_auth_filter_current_processes() { /bin/cp "$2" "$3"; }
+        cmux_ssh_auth_order_children_first() { /usr/bin/awk '{ print 0, $0 }' "$1" > "$2"; }
+        cmux_ssh_auth_take_process_snapshot() {
+          printf '101 1 777 T Thu Jan 1 00:00:00 1970\n102 1 777 T Thu Jan 1 00:00:00 1970\n103 101 777 T Thu Jan 1 00:00:00 1970\n' \
+            > "$1"
+        }
+        cmux_ssh_auth_expand_owned_processes() { return 1; }
+        cmux_ssh_auth_stable_identity() {
+          printf '777|Thu_Jan_1_00:00:00_1970\n'
+        }
+        kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
+        printf '101 1 777 Thu_Jan_1_00:00:00_1970 S\n102 1 777 Thu_Jan_1_00:00:00_1970 S\n' \
+          > "$CMUX_TEST_OWNED"
+        cmux_ssh_auth_owned_group=777
+        cmux_ssh_auth_group_anchor=101
+        : > "$CMUX_TEST_GROUPS"
+        : > "$CMUX_TEST_FROZEN"
+        : > "$CMUX_TEST_SIGNALED_GROUPS"
+        : > "$CMUX_TEST_SIGNALED_PIDS"
+        : > "$CMUX_TEST_SIGNALS"
+        cmux_ssh_auth_process_snapshot="$CMUX_TEST_PROCESS_SNAPSHOT"
+        cmux_ssh_auth_poststop_snapshot="$CMUX_TEST_POSTSTOP_SNAPSHOT"
+        cmux_ssh_auth_owned_processes="$CMUX_TEST_OWNED"
+        cmux_ssh_auth_next_owned_processes="$CMUX_TEST_OWNED_NEXT"
+        cmux_ssh_auth_owned_groups="$CMUX_TEST_GROUPS"
+        cmux_ssh_auth_next_owned_groups="$CMUX_TEST_GROUPS.next"
+        cmux_ssh_auth_individual_processes="$CMUX_TEST_INDIVIDUALS"
+        cmux_ssh_auth_ordered_processes="$CMUX_TEST_ORDERED"
+        cmux_ssh_auth_frozen_processes="$CMUX_TEST_FROZEN"
+        cmux_ssh_auth_signaled_groups="$CMUX_TEST_SIGNALED_GROUPS"
+        cmux_ssh_auth_signaled_processes="$CMUX_TEST_SIGNALED_PIDS"
+        cmux_ssh_auth_resume_groups="$CMUX_TEST_RESUME_GROUPS"
+        if cmux_ssh_auth_freeze_owned_processes; then exit 99; fi
+        /usr/bin/grep -Fqx \
+          '777 103 101 Thu_Jan_1_00:00:00_1970 S' \
+          "$CMUX_TEST_SIGNALED_GROUPS" || exit 98
+        cmux_ssh_auth_take_process_snapshot_until() {
+          printf '103 1 777 T Thu Jan 1 00:00:00 1970\n' > "$1"
+        }
+        cmux_ssh_auth_resume_signaled_processes || exit 97
+        /usr/bin/grep -Fqx -- '-CONT 103' "$CMUX_TEST_SIGNALS" || exit 96
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: freezeIdentityTestEnvironment(root: root).merging([
+                "CMUX_TEST_RESUME_GROUPS": root.appendingPathComponent("groups.resume").path,
+            ]) { _, new in new },
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func rollbackFindsStoppedDescendantWhenPostStopSnapshotFails(shellPath: String) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-poststop-failure-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_deadline_allows_work() { return 0; }
+        cmux_ssh_auth_deadline_allows_signal() { return 0; }
+        cmux_ssh_auth_now_millis() { printf '1000\n'; }
+        cmux_ssh_auth_select_exclusive_groups() {
+          printf '777\n' > "$cmux_ssh_auth_owned_groups"
+        }
+        cmux_ssh_auth_take_process_snapshot() { return 1; }
+        cmux_ssh_auth_stable_identity() {
+          printf '777|Thu_Jan_1_00:00:00_1970\n'
+        }
+        cmux_ssh_auth_take_process_snapshot_until() {
+          printf '101 1 777 T Thu Jan 1 00:00:00 1970\n102 1 777 T Thu Jan 1 00:00:00 1970\n103 101 777 T Thu Jan 1 00:00:00 1970\n999 7 777 T Fri Jan 2 00:00:00 1970\n' \
+            > "$1"
+        }
+        kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
+        printf '101 1 777 Thu_Jan_1_00:00:00_1970 S\n102 1 777 Thu_Jan_1_00:00:00_1970 S\n' \
+          > "$CMUX_TEST_OWNED"
+        cmux_ssh_auth_owned_group=777
+        cmux_ssh_auth_group_anchor=101
+        : > "$CMUX_TEST_GROUPS"
+        : > "$CMUX_TEST_FROZEN"
+        : > "$CMUX_TEST_SIGNALED_GROUPS"
+        : > "$CMUX_TEST_SIGNALED_PIDS"
+        : > "$CMUX_TEST_SIGNALS"
+        cmux_ssh_auth_process_snapshot="$CMUX_TEST_PROCESS_SNAPSHOT"
+        cmux_ssh_auth_poststop_snapshot="$CMUX_TEST_POSTSTOP_SNAPSHOT"
+        cmux_ssh_auth_owned_processes="$CMUX_TEST_OWNED"
+        cmux_ssh_auth_next_owned_processes="$CMUX_TEST_OWNED_NEXT"
+        cmux_ssh_auth_owned_groups="$CMUX_TEST_GROUPS"
+        cmux_ssh_auth_next_owned_groups="$CMUX_TEST_GROUPS.next"
+        cmux_ssh_auth_individual_processes="$CMUX_TEST_INDIVIDUALS"
+        cmux_ssh_auth_ordered_processes="$CMUX_TEST_ORDERED"
+        cmux_ssh_auth_frozen_processes="$CMUX_TEST_FROZEN"
+        cmux_ssh_auth_signaled_groups="$CMUX_TEST_SIGNALED_GROUPS"
+        cmux_ssh_auth_signaled_processes="$CMUX_TEST_SIGNALED_PIDS"
+        cmux_ssh_auth_resume_groups="$CMUX_TEST_RESUME_GROUPS"
+        if cmux_ssh_auth_freeze_owned_processes; then exit 99; fi
+        cmux_ssh_auth_resume_signaled_processes || exit 98
+        test "$(/usr/bin/wc -l < "$CMUX_TEST_SIGNALS" | /usr/bin/tr -d '[:space:]')" \
+          -eq 4 || exit 97
+        /usr/bin/grep -Fqx -- '-STOP -- -777' "$CMUX_TEST_SIGNALS" || exit 96
+        /usr/bin/grep -Fqx -- '-CONT 101' "$CMUX_TEST_SIGNALS" || exit 95
+        /usr/bin/grep -Fqx -- '-CONT 102' "$CMUX_TEST_SIGNALS" || exit 94
+        /usr/bin/grep -Fqx -- '-CONT 103' "$CMUX_TEST_SIGNALS" || exit 93
+        ! /usr/bin/grep -Fqx -- '-CONT 999' "$CMUX_TEST_SIGNALS" || exit 92
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: freezeIdentityTestEnvironment(root: root).merging([
+                "CMUX_TEST_RESUME_GROUPS": root.appendingPathComponent("groups.resume").path,
+            ]) { _, new in new },
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
     func rollbackResumesExclusiveGroupAfterAnchorExit(shellPath: String) throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
