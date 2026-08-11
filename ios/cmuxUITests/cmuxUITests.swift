@@ -291,21 +291,26 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(tailscaleMethod.label.contains("Tailscale Only"))
         tap(tailscaleMethod, in: app)
         XCTAssertTrue(app.staticTexts["Connect over Tailscale"].waitForExistence(timeout: 4))
-        XCTAssertTrue(app.staticTexts[
-            "Connect only over Tailscale. Install it on both devices, join the same network, then scan the pairing code shown by cmux on your Mac."
-        ].waitForExistence(timeout: 4))
+        let tailscaleDescription = app.staticTexts.matching(
+            NSPredicate(
+                format: "label == %@",
+                "Connect only over Tailscale. Install it on both devices, join the same network, then scan the pairing code shown by cmux on your Mac."
+            )
+        ).firstMatch
+        XCTAssertTrue(tailscaleDescription.waitForExistence(timeout: 4))
         // The choice is exclusive: selecting one method must deselect the other.
         XCTAssertTrue(tailscaleMethod.isSelected)
         XCTAssertFalse(automaticMethod.isSelected)
+        let tailscaleRetry = app.buttons["MobileOnboardingSecondaryButton"]
+        XCTAssertTrue(tailscaleRetry.waitForExistence(timeout: 4))
+        XCTAssertTrue(tailscaleRetry.label.contains("Check Again"))
         tap(automaticMethod, in: app)
         XCTAssertTrue(app.staticTexts["Your Mac connects automatically"].waitForExistence(timeout: 4))
         XCTAssertTrue(automaticMethod.isSelected)
         XCTAssertFalse(tailscaleMethod.isSelected)
         XCTAssertFalse(app.buttons["MobileOnboardingSecondaryButton"].exists)
         tap(tailscaleMethod, in: app)
-        XCTAssertTrue(
-            app.buttons["MobileOnboardingSecondaryButton"].waitForNonExistence(timeout: 2)
-        )
+        XCTAssertTrue(tailscaleRetry.waitForExistence(timeout: 4))
 
         let scanPairingCodeButton = app.buttons["MobileOnboardingPrimaryButton"]
         XCTAssertTrue(scanPairingCodeButton.waitForExistence(timeout: 4))
@@ -318,9 +323,7 @@ final class cmuxUITests: XCTestCase {
             title: app.staticTexts["Connect over Tailscale"],
             visual: element("MobileOnboardingConnectionPreview"),
             additionalContent: [
-                app.staticTexts[
-                    "Connect only over Tailscale. Install it on both devices, join the same network, then scan the pairing code shown by cmux on your Mac."
-                ],
+                tailscaleDescription,
                 element("MobileOnboardingConnectionMethodPicker"),
             ],
             includeFooter: true
