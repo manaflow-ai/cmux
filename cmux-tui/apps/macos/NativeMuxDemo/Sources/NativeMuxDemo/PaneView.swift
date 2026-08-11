@@ -143,8 +143,8 @@ struct PaneView: View {
             return pane?.displayName ?? String(paneID.suffix(5))
         }
         if let name = activeTab.name, !name.isEmpty { return name }
-        if let owner = terminalTitle(activeTab.contentID), !owner.title.isEmpty {
-            return owner.title
+        if let title = terminalTitle(activeTab.contentID), !title.isEmpty {
+            return title
         }
         if let browser = snapshot.browser(for: activeTab), !browser.title.isEmpty {
             return browser.title
