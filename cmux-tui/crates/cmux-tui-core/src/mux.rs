@@ -360,10 +360,10 @@ impl Drop for PendingTerminalHostBinding {
 }
 
 #[cfg(unix)]
-struct PendingTerminalHostRelease<'a>(&'a Surface);
+struct PendingTerminalHostRelease(Arc<Surface>);
 
 #[cfg(unix)]
-impl Drop for PendingTerminalHostRelease<'_> {
+impl Drop for PendingTerminalHostRelease {
     fn drop(&mut self) {
         self.0.release_pending_terminal_host_binding();
     }
@@ -2881,7 +2881,7 @@ impl Mux {
         incarnation: &str,
         surface: Arc<Surface>,
     ) -> anyhow::Result<()> {
-        let _pending_host_release = PendingTerminalHostRelease(surface.as_ref());
+        let _pending_host_release = PendingTerminalHostRelease(surface.clone());
         if surface.is_dead() {
             self.persist_terminal_exit(
                 terminal_id,
@@ -6152,7 +6152,7 @@ impl Mux {
                     return Err(error);
                 }
             };
-            let _pending_host_release = PendingTerminalHostRelease(surface.as_ref());
+            let _pending_host_release = PendingTerminalHostRelease(surface.clone());
             let identity = surface
                 .terminal_host_identity()
                 .ok_or_else(|| anyhow::anyhow!("reserved terminal did not return host identity"))?;
