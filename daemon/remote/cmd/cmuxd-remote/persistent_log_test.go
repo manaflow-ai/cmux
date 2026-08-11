@@ -251,8 +251,8 @@ func TestPersistentDaemonFaultLogsExcludeRawRequestDetails(t *testing.T) {
 func TestPersistentDaemonProcessOutputUsesRotatingWriter(t *testing.T) {
 	const helperEnvironment = "CMUX_TEST_PERSISTENT_PROCESS_OUTPUT"
 	const pathEnvironment = "CMUX_TEST_PERSISTENT_PROCESS_LOG_PATH"
-	const stdoutMarker = "process-stdout-marker"
-	const stderrMarker = "process-stderr-marker"
+	const stdoutSecret = "process-stdout-secret-must-not-be-logged"
+	const stderrSecret = "process-stderr-secret-must-not-be-logged"
 
 	if os.Getenv(helperEnvironment) == "1" {
 		logOutput, err := openPersistentDaemonLogWithLimit(os.Getenv(pathEnvironment), 512, 2)
@@ -263,8 +263,8 @@ func TestPersistentDaemonProcessOutputUsesRotatingWriter(t *testing.T) {
 		if err != nil {
 			t.Fatalf("route helper process output: %v", err)
 		}
-		_, _ = fmt.Fprintln(os.Stdout, stdoutMarker)
-		_, _ = fmt.Fprintln(os.Stderr, stderrMarker)
+		_, _ = fmt.Fprintln(os.Stdout, stdoutSecret)
+		_, _ = fmt.Fprintln(os.Stderr, stderrSecret)
 		if err := route.Close(); err != nil {
 			t.Fatalf("close helper process output route: %v", err)
 		}
@@ -291,9 +291,16 @@ func TestPersistentDaemonProcessOutputUsesRotatingWriter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read process-output log: %v", err)
 	}
-	if !strings.Contains(string(logged), stdoutMarker) ||
-		!strings.Contains(string(logged), stderrMarker) {
-		t.Fatalf("process output did not reach rotating log: %q", string(logged))
+	for _, secret := range []string{stdoutSecret, stderrSecret} {
+		if strings.Contains(string(logged), secret) {
+			t.Fatalf("process output exposed sensitive content %q: %q", secret, string(logged))
+		}
+	}
+	for _, stream := range []string{`stream="stdout"`, `stream="stderr"`} {
+		if !strings.Contains(string(logged), "event=process_output") ||
+			!strings.Contains(string(logged), stream) {
+			t.Fatalf("process output metadata missing %s: %q", stream, string(logged))
+		}
 	}
 	info, err := os.Stat(logPath)
 	if err != nil {
