@@ -67,17 +67,18 @@ struct FrontendResourceStream: Sendable, Equatable {
 }
 
 @MainActor
-@Observable
 final class TerminalTitleOwner {
     let terminalID: String
     private(set) var title: String
 
-    @ObservationIgnored private var pendingTitle: String?
-    @ObservationIgnored private var deliveryTask: Task<Void, Never>?
+    private let onTitleChange: (() -> Void)?
+    private var pendingTitle: String?
+    private var deliveryTask: Task<Void, Never>?
 
-    init(terminalID: String, title: String) {
+    init(terminalID: String, title: String, onTitleChange: (() -> Void)? = nil) {
         self.terminalID = terminalID
         self.title = title
+        self.onTitleChange = onTitleChange
     }
 
     func submit(_ nextTitle: String) {
@@ -89,7 +90,10 @@ final class TerminalTitleOwner {
             let latest = pendingTitle
             pendingTitle = nil
             deliveryTask = nil
-            if let latest, latest != title { title = latest }
+            if let latest, latest != title {
+                title = latest
+                onTitleChange?()
+            }
             if pendingTitle != nil { submit(pendingTitle ?? title) }
         }
     }
@@ -98,7 +102,10 @@ final class TerminalTitleOwner {
         deliveryTask?.cancel()
         deliveryTask = nil
         pendingTitle = nil
-        if title != nextTitle { title = nextTitle }
+        if title != nextTitle {
+            title = nextTitle
+            onTitleChange?()
+        }
     }
 
     func cancel() {
@@ -110,14 +117,14 @@ final class TerminalTitleOwner {
 
 @MainActor
 struct TerminalTitleFn {
-    private let owners: [String: TerminalTitleOwner]
+    private let titles: [String: String]
 
     init(owners: [String: TerminalTitleOwner]) {
-        self.owners = owners
+        titles = owners.mapValues(\.title)
     }
 
-    func callAsFunction(_ terminalID: String) -> TerminalTitleOwner? {
-        owners[terminalID]
+    func callAsFunction(_ terminalID: String) -> String? {
+        titles[terminalID]
     }
 }
 
@@ -133,6 +140,7 @@ final class FrontendModel {
     private(set) var transportDiagnostics = ""
     private(set) var selectedWorkspaceID: String?
     private(set) var selectedScreenID: String?
+    private(set) var terminalTitleRevision: UInt64 = 0
 
     @ObservationIgnored private var service: FrontendService?
     @ObservationIgnored private var updatesTask: Task<Void, Never>?
@@ -613,7 +621,10 @@ final class FrontendModel {
             } else {
                 terminalTitles[terminal.id] = TerminalTitleOwner(
                     terminalID: terminal.id,
-                    title: terminal.title
+                    title: terminal.title,
+                    onTitleChange: { [weak self] in
+                        if let self { terminalTitleRevision &+= 1 }
+                    }
                 )
             }
         }
@@ -632,7 +643,8 @@ final class FrontendModel {
     }
 
     func terminalTitleLookup() -> TerminalTitleFn {
-        TerminalTitleFn(owners: terminalTitles)
+        _ = terminalTitleRevision
+        return TerminalTitleFn(owners: terminalTitles)
     }
 
     func selectWorkspace(_ workspace: WorkspaceSnapshot) {
