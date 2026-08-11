@@ -4101,6 +4101,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
         cmux_ssh_auth_now_millis() { printf '1000\n'; }
         cmux_ssh_auth_take_process_snapshot_until() {
+          test "$cmux_ssh_auth_caller_group" = 0 || return 1
           if [ -e "$CMUX_TEST_KILLED" ]; then
             : > "$1"
           else
