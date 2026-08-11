@@ -359,9 +359,11 @@ pub struct TerminalRegistryCommit {
     pub replayed: bool,
 }
 
-/// A replay cannot acquire close effects that were not part of its original
-/// transaction. Resource replays still carry their committed revision so the
-/// in-memory projection can catch up without terminating a live runtime.
+/// A replay cannot acquire a cross-domain side effect that was not part of
+/// its original transaction. Keep the receipt source explicit so the mux can
+/// reconcile only the revision owned by that receipt. Resource replays still
+/// carry their committed revision so the in-memory projection can catch up
+/// without terminating a live runtime.
 pub(crate) enum TerminalResourceCloseCommit {
     TerminalReplay(TerminalRegistryCommit),
     ResourceReplay { terminal: TerminalRegistryCommit, resource: ResourcePatchCommit },
@@ -1312,7 +1314,7 @@ fn remove_reset_dir_children_from_handle(
             &child_display,
             &child_stat,
         )?;
-        ensure_reset_manifest_entry(
+        if let Err(error) = ensure_reset_manifest_entry(
             directory.as_raw_fd(),
             &staged_child.name,
             &child_relative,
@@ -1320,7 +1322,16 @@ fn remove_reset_dir_children_from_handle(
             staged_child.stat(),
             expected_entries,
             ignored_root_child,
-        )?;
+        ) {
+            return Err(restore_changed_reset_child(
+                directory.as_raw_fd(),
+                &staged_child.name,
+                &child_name,
+                &staged_child.display_path,
+                &child_display,
+                error,
+            ));
+        }
         if reset_stat_is_dir(staged_child.stat()) {
             let child_directory = open_reset_child_dir(
                 directory.as_raw_fd(),
@@ -1492,7 +1503,17 @@ fn stage_reset_child_for_deletion(
                     || reset_stat_inode(staged_child.stat()) != reset_stat_inode(expected)
                     || reset_stat_kind(staged_child.stat()) != reset_stat_kind(expected)
                 {
-                    anyhow::bail!("reset path changed during reset: {}", display_path.display());
+                    return Err(restore_changed_reset_child(
+                        parent_fd,
+                        &staged_child.name,
+                        name,
+                        &staged_child.display_path,
+                        display_path,
+                        anyhow::anyhow!(
+                            "reset path changed during reset: {}",
+                            display_path.display()
+                        ),
+                    ));
                 }
                 return Ok(staged_child);
             }
@@ -1507,6 +1528,30 @@ fn stage_reset_child_for_deletion(
         }
     }
     anyhow::bail!("could not allocate private reset path for {}", display_path.display())
+}
+
+#[cfg(unix)]
+fn restore_changed_reset_child(
+    parent_fd: std::os::fd::RawFd,
+    private_name: &std::ffi::OsStr,
+    original_name: &std::ffi::OsStr,
+    private_display: &Path,
+    original_display: &Path,
+    verification_error: anyhow::Error,
+) -> anyhow::Error {
+    match reset_rename_child_exclusive(
+        parent_fd,
+        private_name,
+        original_name,
+        private_display,
+        original_display,
+    ) {
+        Ok(()) => verification_error,
+        Err(restore_error) => anyhow::anyhow!(
+            "{verification_error:#}; failed to restore changed reset path {}: {restore_error:#}",
+            original_display.display()
+        ),
+    }
 }
 
 #[cfg(unix)]

@@ -7,8 +7,8 @@ from dataclasses import dataclass, field
 from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
-MUX_PROTOCOL = 11
-IR_SHA256 = 'bc6dbbcf168cc26f84d9347e54487fbae61a38e82f5d5600025f4ba054dd066a'
+MUX_PROTOCOL = 12
+IR_SHA256 = '4fb03300ecced6bd23420c62e25fed1b3741af8f2772baf4caf2eb2ff3a91740'
 
 
 @dataclass(frozen=True)

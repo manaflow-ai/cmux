@@ -15,6 +15,7 @@ public final class IdentifyResult implements WireValue {
     private final Field<List<String>> capabilities;
     private final String generation;
     private final Field<String> ghosttyCommit;
+    private final Field<Boolean> lifecycleReady;
     private final long pid;
     private final long protocol;
     private final String registryId;
@@ -30,6 +31,7 @@ public final class IdentifyResult implements WireValue {
         if (!builder.generationSet) throw new IllegalArgumentException("generation is required");
         this.generation = Wire.nonNull(builder.generation, "generation");
         this.ghosttyCommit = builder.ghosttyCommit;
+        this.lifecycleReady = builder.lifecycleReady;
         if (!builder.pidSet) throw new IllegalArgumentException("pid is required");
         this.pid = builder.pid;
         if (!builder.protocolSet) throw new IllegalArgumentException("protocol is required");
@@ -55,6 +57,7 @@ public final class IdentifyResult implements WireValue {
     public Long daemonHandoff() { return 1L; }
     public String generation() { return generation; }
     public Field<String> ghosttyCommit() { return ghosttyCommit; }
+    public Field<Boolean> lifecycleReady() { return lifecycleReady; }
     public long pid() { return pid; }
     public long protocol() { return protocol; }
     public String registryId() { return registryId; }
@@ -84,6 +87,10 @@ public final class IdentifyResult implements WireValue {
         Object rawGhosttyCommit = Wire.optional(object, "ghostty_commit");
         if (!Wire.isMissing(rawGhosttyCommit)) {
             builder.ghosttyCommit(rawGhosttyCommit == null ? null : Wire.string(rawGhosttyCommit, "IdentifyResult.ghostty_commit"));
+        }
+        Object rawLifecycleReady = Wire.optional(object, "lifecycle_ready");
+        if (!Wire.isMissing(rawLifecycleReady)) {
+            builder.lifecycleReady(Wire.bool(rawLifecycleReady, "IdentifyResult.lifecycle_ready"));
         }
         Object rawPid = Wire.required(object, "pid");
         builder.pid(Wire.uint32(rawPid, "IdentifyResult.pid"));
@@ -115,6 +122,7 @@ public final class IdentifyResult implements WireValue {
         Wire.put(object, "daemon_handoff", 1L);
         Wire.put(object, "generation", generation);
         Wire.put(object, "ghostty_commit", ghosttyCommit);
+        Wire.put(object, "lifecycle_ready", lifecycleReady);
         Wire.put(object, "pid", pid);
         Wire.put(object, "protocol", protocol);
         Wire.put(object, "registry_id", registryId);
@@ -129,11 +137,11 @@ public final class IdentifyResult implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof IdentifyResult that)) return false;
-        return Objects.equals(buildCommit, that.buildCommit) && Objects.equals(capabilities, that.capabilities) && Objects.equals(generation, that.generation) && Objects.equals(ghosttyCommit, that.ghosttyCommit) && Objects.equals(pid, that.pid) && Objects.equals(protocol, that.protocol) && Objects.equals(registryId, that.registryId) && Objects.equals(session, that.session) && Objects.equals(shutdownCleanup, that.shutdownCleanup) && Objects.equals(terminalRevision, that.terminalRevision) && Objects.equals(version, that.version) && Objects.equals(workspaceRevision, that.workspaceRevision);
+        return Objects.equals(buildCommit, that.buildCommit) && Objects.equals(capabilities, that.capabilities) && Objects.equals(generation, that.generation) && Objects.equals(ghosttyCommit, that.ghosttyCommit) && Objects.equals(lifecycleReady, that.lifecycleReady) && Objects.equals(pid, that.pid) && Objects.equals(protocol, that.protocol) && Objects.equals(registryId, that.registryId) && Objects.equals(session, that.session) && Objects.equals(shutdownCleanup, that.shutdownCleanup) && Objects.equals(terminalRevision, that.terminalRevision) && Objects.equals(version, that.version) && Objects.equals(workspaceRevision, that.workspaceRevision);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(buildCommit, capabilities, generation, ghosttyCommit, pid, protocol, registryId, session, shutdownCleanup, terminalRevision, version, workspaceRevision); }
+    public int hashCode() { return Objects.hash(buildCommit, capabilities, generation, ghosttyCommit, lifecycleReady, pid, protocol, registryId, session, shutdownCleanup, terminalRevision, version, workspaceRevision); }
 
     @Override
     public String toString() { return "IdentifyResult" + toWire(); }
@@ -144,6 +152,7 @@ public final class IdentifyResult implements WireValue {
         private String generation;
         private boolean generationSet;
         private Field<String> ghosttyCommit = Field.omitted();
+        private Field<Boolean> lifecycleReady = Field.omitted();
         private Long pid;
         private boolean pidSet;
         private Long protocol;
@@ -175,6 +184,10 @@ public final class IdentifyResult implements WireValue {
         }
         public Builder ghosttyCommit(String value) {
             this.ghosttyCommit = Field.ofNullable(value);
+            return this;
+        }
+        public Builder lifecycleReady(Boolean value) {
+            this.lifecycleReady = Field.of(value);
             return this;
         }
         public Builder pid(long value) {

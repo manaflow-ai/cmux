@@ -13,8 +13,8 @@
 
 namespace cmux::raw {
 
-inline constexpr std::uint32_t kMuxProtocolVersion = 11U;
-inline constexpr std::string_view kProtocolIrSha256 = "bc6dbbcf168cc26f84d9347e54487fbae61a38e82f5d5600025f4ba054dd066a";
+inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
+inline constexpr std::string_view kProtocolIrSha256 = "4fb03300ecced6bd23420c62e25fed1b3741af8f2772baf4caf2eb2ff3a91740";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -1255,6 +1255,7 @@ struct IdentifyResult {
     std::optional<std::vector<std::string>> capabilities{};
     std::string generation{};
     Field<std::string> ghostty_commit{};
+    std::optional<bool> lifecycle_ready{};
     std::uint32_t pid{};
     std::uint32_t protocol{};
     std::string registry_id{};

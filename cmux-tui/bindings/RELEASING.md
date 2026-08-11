@@ -41,7 +41,7 @@ Do not publish SDK contents through `tui-publish-npm.yml` or
 | C++ | C++20 and CMake 3.20 | standard library and platform socket APIs | installable CMake package |
 | Zig | Zig 0.15.2 | standard library only | source package |
 
-All packages target mux protocol 11 and expose the same generated command and
+All packages target mux protocol 12 and expose the same generated command and
 event catalogs. The release preflight rejects runtime inventory drift and stale
 generated layers for all four publish targets before it runs their shared
 wire-behavior conformance suite.

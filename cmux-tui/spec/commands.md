@@ -1,10 +1,10 @@
 # Command Contract
 
-This file specifies private protocol-v11 commands for cmux frontends and raw
+This file specifies private protocol-v12 commands for cmux frontends and raw
 SDK adapters. Application code should use
 [`cmux.protocol/2`](resource-api-v2.md).
 
-Implemented commands match protocol v11 in `cmux-tui/crates/cmux-tui-core/src/server.rs`.
+Implemented commands match protocol v12 in `cmux-tui/crates/cmux-tui-core/src/server.rs`.
 
 ## Notation
 
@@ -234,10 +234,10 @@ Example:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":11,"capabilities":["attach-initial-size","surface-subscribe-filter","workspace-registry-v1","daemon-handoff-force-v1","browser-provider-v1","browser-pointer-frame-guard-v1","viewport-splits-v1","viewport-column-resize-v1","layout-undo-v1","clear-history-v1","clear-history-key-v1","view-attachment-lease-v1","view-attachment-detach-v1","creation-receipts-v1","creation-attempt-keys-v1","creation-selector-fallbacks-v1","provider-managed-workspace-authority-v2","server-shutdown-v1"],"session":"main","pid":12345,"registry_id":"registry-123","generation":"generation-456","workspace_revision":12,"terminal_revision":34,"daemon_handoff":1,"shutdown_cleanup":{"pending":0,"retrying":false,"degraded":false}}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":12,"capabilities":["attach-initial-size","surface-subscribe-filter","workspace-registry-v1","daemon-handoff-force-v1","browser-provider-v1","browser-pointer-frame-guard-v1","viewport-splits-v1","viewport-column-resize-v1","layout-undo-v1","clear-history-v1","clear-history-key-v1","view-attachment-lease-v1","view-attachment-detach-v1","creation-receipts-v1","creation-attempt-keys-v1","creation-selector-fallbacks-v1","provider-managed-workspace-authority-v2","server-shutdown-v1"],"session":"main","pid":12345,"registry_id":"registry-123","generation":"generation-456","workspace_revision":12,"terminal_revision":34,"daemon_handoff":1,"lifecycle_ready":true,"shutdown_cleanup":{"pending":0,"retrying":false,"degraded":false}}}
 ```
 
-The current server reports protocol `11` in this field and in `ping`. Clients must negotiate protocol 8 before requiring stable split ids or sending `set-split-ratio`, protocol 9 before decoding stack layouts or sending `new-pane`, protocol 10 before using per-surface client sizing, and protocol 11 before decoding terminal lifecycle creation results or minting terminal renderer credentials.
+The current server reports protocol `12` in this field and in `ping`. Clients must negotiate protocol 8 before requiring stable split ids or sending `set-split-ratio`, protocol 9 before decoding stack layouts or sending `new-pane`, protocol 10 before using per-surface client sizing, protocol 11 before decoding terminal lifecycle creation results or minting terminal renderer credentials, and protocol 12 before decoding lifecycle readiness from `identify`.
 
 ### shutdown-daemon
 
@@ -299,7 +299,7 @@ Example:
 
 ```json
 {"id":2,"cmd":"ping"}
-{"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":11}}
+{"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":12}}
 ```
 
 ### shutdown

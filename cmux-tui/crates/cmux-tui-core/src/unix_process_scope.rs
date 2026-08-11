@@ -1447,8 +1447,7 @@ fn mac_process_snapshot(pid: u32) -> Option<ProcessSnapshot> {
     let info = mac_process_info_with_unique_id(pid)?;
     // Keep chronological start time in the high bits for scan filtering and
     // the exec-stable process unique ID in the low bits for exact ownership.
-    let started = (u128::from(info.bsd.pbi_start_tvsec) << 64)
-        | u128::from(info.unique.unique_id);
+    let started = (u128::from(info.bsd.pbi_start_tvsec) << 64) | u128::from(info.unique.unique_id);
     Some(ProcessSnapshot { identity: ProcessIdentity { pid, started }, parent: info.bsd.pbi_ppid })
 }
 
@@ -1493,13 +1492,7 @@ fn mac_process_unique_info(pid: u32) -> Option<MacProcessUniqueInfo> {
     let mut info = std::mem::MaybeUninit::<MacProcessUniqueInfo>::zeroed();
     let size = libc::c_int::try_from(size_of::<MacProcessUniqueInfo>()).ok()?;
     let written = unsafe {
-        libc::proc_pidinfo(
-            pid_int,
-            PROC_PIDUNIQIDENTIFIERINFO,
-            0,
-            info.as_mut_ptr().cast(),
-            size,
-        )
+        libc::proc_pidinfo(pid_int, PROC_PIDUNIQIDENTIFIERINFO, 0, info.as_mut_ptr().cast(), size)
     };
     if written != size {
         return None;
@@ -1549,7 +1542,7 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn linux_process_identity_uses_start_time_after_a_parenthesized_name() {
-        let stat = "12 (name with ) marker) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 4242";
+        let stat = "12 (name with ) marker) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 4242";
         assert_eq!(
             linux_process_identity_from_stat(12, stat),
             Some(ProcessIdentity { pid: 12, started: 4242 })
