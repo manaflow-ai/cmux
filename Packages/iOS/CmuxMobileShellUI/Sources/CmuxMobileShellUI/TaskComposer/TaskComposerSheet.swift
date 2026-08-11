@@ -34,7 +34,7 @@ struct TaskComposerSheet: View {
     @State private var activeSubmissionSnapshot: MobileTaskSubmissionSnapshot?
     @State var completedOperationRecovery: TaskComposerCompletedOperationRecovery?
     @State var isStartAgainConfirmationPresented = false
-    @State var attachments: [TaskComposerAttachment] = []
+    @State var attachments: [TaskComposerAttachment]
     @State var isAttachmentPhotoPickerPresented = false
     @State var attachmentPhotoSelection: [PhotosPickerItem] = []
     @State var isAttachmentFileImporterPresented = false
@@ -66,6 +66,7 @@ struct TaskComposerSheet: View {
         store: CMUXMobileShellStore,
         availableMachines: [MobilePairedMac]? = nil,
         taskAttachmentsCapabilityOverride: Bool? = nil,
+        initialAttachments: [TaskComposerAttachment] = [],
         submitTaskComposer: (@MainActor (
             _ macDeviceID: String,
             _ instanceTag: String?,
@@ -225,6 +226,7 @@ struct TaskComposerSheet: View {
         _selectedMacDeviceID = State(initialValue: selectedMacID)
         _selectedMacInstanceTag = State(initialValue: selectedMac?.instanceTag)
         _displayedModels = State(initialValue: initialDiscoveredModels ?? [])
+        _attachments = State(initialValue: initialAttachments)
         _directory = State(initialValue: initialDirectory)
         _didEditDirectory = State(initialValue: canRestoreDraftDirectory && draft?.didEditDirectory == true)
         _submissionIdentity = State(initialValue: MobileTaskSubmissionIdentity(

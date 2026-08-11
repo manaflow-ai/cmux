@@ -3679,6 +3679,63 @@ final class cmuxUITests: XCTestCase {
         )
     }
 
+    /// Staged image and file chips must retain their app-owned bytes as native
+    /// Quick Look previews while the composer draft remains editable.
+    @MainActor
+    func testTaskComposerStagedImageAndFileRemainPreviewable() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_COMPOSER_STAGED_ATTACHMENTS": "1",
+        ])
+        defer { app.terminate() }
+
+        let prompt = taskComposerPrompt(in: app)
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+
+        let imageChip = app.buttons[
+            "MobileTaskComposerAttachmentPreview-11111111-1111-1111-1111-111111111111"
+        ]
+        let fileChip = app.buttons[
+            "MobileTaskComposerAttachmentPreview-22222222-2222-2222-2222-222222222222"
+        ]
+        XCTAssertTrue(imageChip.waitForExistence(timeout: 4))
+        XCTAssertTrue(fileChip.waitForExistence(timeout: 4))
+        XCTAssertEqual(imageChip.label, "preview-photo.png")
+        XCTAssertEqual(fileChip.label, "preview-notes.txt")
+
+        tap(imageChip, in: app)
+        XCTAssertTrue(
+            app.navigationBars["preview-photo.png"].waitForExistence(timeout: 5)
+        )
+        XCTAssertTrue(
+            app.otherElements["MobileTaskComposerAttachmentQuickLook"]
+                .waitForExistence(timeout: 5)
+        )
+        tap(app.buttons["Done"], in: app)
+        XCTAssertTrue(imageChip.waitForExistence(timeout: 4))
+
+        tap(fileChip, in: app)
+        XCTAssertTrue(
+            app.navigationBars["preview-notes.txt"].waitForExistence(timeout: 5)
+        )
+        XCTAssertTrue(
+            app.otherElements["MobileTaskComposerAttachmentQuickLook"]
+                .waitForExistence(timeout: 5)
+        )
+        tap(app.buttons["Done"], in: app)
+
+        XCTAssertTrue(prompt.waitForExistence(timeout: 4))
+        XCTAssertTrue(imageChip.exists)
+        XCTAssertTrue(fileChip.exists)
+        XCTAssertEqual(
+            app.buttons.matching(
+                NSPredicate(format: "label == %@", "Remove Attachment")
+            ).count,
+            2,
+            "Previewing must not merge or remove the independent delete actions"
+        )
+    }
+
     /// Agent templates need an instruction before launch, while the plain
     /// shell remains a useful zero-prompt workspace shortcut.
     @MainActor
