@@ -2485,6 +2485,23 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testTaskComposerLandscapeStagedImageCardUsesReferenceGeometry() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_COMPOSER_ORIENTED_ATTACHMENT": "1",
+        ])
+        defer { app.terminate() }
+
+        let card = app.buttons["MobileAttachmentCard.0"]
+        XCTAssertTrue(card.waitForExistence(timeout: 8))
+        XCTAssertEqual(
+            card.frame.size,
+            CGSize(width: 120, height: 120),
+            "A landscape staged thumbnail must not widen its attachment card accessibility frame"
+        )
+    }
+
+    @MainActor
     func testTaskComposerFullImagePreviewAppliesOrientationAndBoundsDecode() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",

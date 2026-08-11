@@ -95,7 +95,7 @@ struct MobileAttachmentAccessibilityFixtures {
             fileName: "oriented-large.jpg",
             storedName: "oriented-large.jpg",
             data: data,
-            thumbnailData: distinctiveImageData()
+            thumbnailData: landscapeThumbnailData()
         )
     }
 
@@ -142,6 +142,20 @@ struct MobileAttachmentAccessibilityFixtures {
             ).cgColor)
             context.fill(CGRect(x: 0, y: 0, width: 48, height: 48))
             context.fill(CGRect(x: 48, y: 48, width: 48, height: 48))
+        }
+    }
+
+    private func landscapeThumbnailData() -> Data {
+        let size = CGSize(width: 480, height: 320)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: size, format: format).pngData { renderer in
+            let context = renderer.cgContext
+            context.setFillColor(UIColor.systemOrange.cgColor)
+            context.fill(CGRect(origin: .zero, size: size))
+            context.setFillColor(UIColor.systemIndigo.cgColor)
+            context.fill(CGRect(x: 0, y: 0, width: 160, height: size.height))
         }
     }
 
