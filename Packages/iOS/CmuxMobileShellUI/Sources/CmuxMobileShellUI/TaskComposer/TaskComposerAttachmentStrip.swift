@@ -59,6 +59,7 @@ private struct TaskComposerAttachmentChip: View {
                 "mobile.taskComposer.attachments.remove",
                 defaultValue: "Remove Attachment"
             )) {
+                guard !isRemoveDisabled else { return }
                 remove()
             }
 

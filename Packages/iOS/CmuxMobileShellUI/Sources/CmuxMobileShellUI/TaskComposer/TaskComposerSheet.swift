@@ -107,6 +107,7 @@ struct TaskComposerSheet: View {
         let templates = loadedTemplates
         let draft = store.taskTemplateStore?.composerDraft()
         let foregroundMacID = store.connectedMacDeviceID
+        let foregroundMacInstanceTag = store.connectedMacInstanceTag
         // Restore persisted Mac IDs only while they remain paired.
         let availablePairedMacs = availableMachines ?? store.displayPairedMacs
         let pairedMacIDs = availablePairedMacs.map(\.macDeviceID)
@@ -121,13 +122,21 @@ struct TaskComposerSheet: View {
             ?? foregroundMacID
             ?? ""
         // A draft that named a specific paired build restores that exact
-        // pairing; otherwise prefer the active pairing for the device.
+        // pairing. Otherwise the authenticated foreground tag is authoritative;
+        // a persisted `isActive` flag can lag a reconnect or app rebuild.
         let draftInstanceTag = draftMacID != nil ? draft?.macInstanceTag : nil
-        let selectedMac = draftInstanceTag.flatMap { tag in
+        let draftMac = draftInstanceTag.flatMap { tag in
             availablePairedMacs.first {
                 $0.macDeviceID == selectedMacID && $0.instanceTag == tag
             }
-        } ?? availablePairedMacs.first {
+        }
+        let foregroundMac = (draftInstanceTag == nil && selectedMacID == foregroundMacID)
+            ? availablePairedMacs.first {
+                $0.macDeviceID == selectedMacID
+                    && $0.instanceTag == foregroundMacInstanceTag
+            }
+            : nil
+        let selectedMac = draftMac ?? foregroundMac ?? availablePairedMacs.first {
             $0.macDeviceID == selectedMacID && $0.isActive
         } ?? availablePairedMacs.first {
             $0.macDeviceID == selectedMacID
@@ -447,23 +456,17 @@ struct TaskComposerSheet: View {
                 MobileTaskAgentProvider(command: $0.command)
             },
             macPairingID: selectedMacPairingID,
-            supportsHostDiscovery: store.supportsTaskModels(
-                macDeviceID: selectedMacDeviceID,
-                instanceTag: selectedMacInstanceTag
-            )
+            connectedMacPairingID: store.connectedMacDeviceID.map {
+                MobilePairedMac.pairingID(
+                    macDeviceID: $0,
+                    instanceTag: store.connectedMacInstanceTag
+                )
+            }
         )
     }
 
     private func restartModelRefresh() {
         modelRefreshTask?.cancel()
-#if DEBUG
-        print(
-            "CMUX_TASK_MODEL refresh.restart provider=\(modelRefreshID.provider?.rawValue ?? "nil") "
-                + "selected=\(selectedMacDeviceID)#\(selectedMacInstanceTag ?? "nil") "
-                + "connected=\(store.connectedMacDeviceID ?? "nil")#\(store.connectedMacInstanceTag ?? "nil") "
-                + "capable=\(modelRefreshID.supportsHostDiscovery)"
-        )
-#endif
         guard let provider = modelRefreshID.provider,
               !selectedMacDeviceID.isEmpty else {
             displayedModels = []
@@ -478,23 +481,18 @@ struct TaskComposerSheet: View {
             macDeviceID: macDeviceID,
             instanceTag: instanceTag
         ) ?? []
-        let cachedSource = store.taskModelListSource(
-            provider: provider,
-            macDeviceID: macDeviceID,
-            instanceTag: instanceTag
-        )
-        // Once a capable host is known, do not leave a backend-only snapshot
-        // selectable while its authoritative agent response is in flight.
-        displayedModels = refreshID.supportsHostDiscovery
-            && cachedSource != .discovered
-            ? []
-            : cachedModels
+        // Keep a usable cached catalog visible while the host and backend are
+        // refreshed. An authoritative host result replaces it in place.
+        displayedModels = cachedModels
         modelRefreshTask = Task {
             await store.refreshTaskModels(
                 provider: provider,
                 macDeviceID: macDeviceID,
                 instanceTag: instanceTag
-            )
+            ) { result in
+                guard !Task.isCancelled, modelRefreshID == refreshID else { return }
+                displayedModels = result.models
+            }
             guard !Task.isCancelled, modelRefreshID == refreshID else { return }
             if let refreshedModels = store.discoveredTaskModels(
                 provider: provider,

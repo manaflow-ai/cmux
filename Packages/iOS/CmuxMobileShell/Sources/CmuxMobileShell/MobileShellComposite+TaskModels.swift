@@ -2,6 +2,11 @@ internal import CmuxMobileRPC
 public import CmuxMobileShellModel
 import Foundation
 
+private enum MobileTaskModelRefreshEvent: Sendable {
+    case host(MobileTaskModelListResult?)
+    case backend([MobileTaskAgentModel]?)
+}
+
 extension MobileShellComposite {
     /// Resolves a secondary control subscription for a physical Mac: the
     /// exact pairing when a tag is given, otherwise any same-device pairing.
@@ -87,41 +92,18 @@ extension MobileShellComposite {
         macDeviceID: String,
         instanceTag: String?
     ) async throws -> MobileTaskModelListResult {
-#if DEBUG
-        print(
-            "CMUX_TASK_MODEL fetch.begin provider=\(provider.rawValue) requested=\(macDeviceID)#\(instanceTag ?? "nil") "
-                + "foreground=\(foregroundMacDeviceID ?? "nil")#\(activeMacInstanceTag ?? "nil") "
-                + "state=\(String(describing: connectionState)) client=\(remoteClient != nil) "
-                + "matches=\(matchesForegroundPairing(macDeviceID: macDeviceID, instanceTag: instanceTag))"
-        )
-#endif
         if !matchesForegroundPairing(
             macDeviceID: macDeviceID,
             instanceTag: instanceTag
         ) || remoteClient == nil {
-            let switched = await switchToMac(
+            guard await switchToMac(
                 macDeviceID: macDeviceID,
                 instanceTag: instanceTag
-            )
-#if DEBUG
-            print(
-                "CMUX_TASK_MODEL fetch.switch result=\(switched) requested=\(macDeviceID)#\(instanceTag ?? "nil") "
-                    + "foreground=\(foregroundMacDeviceID ?? "nil")#\(activeMacInstanceTag ?? "nil") "
-                    + "state=\(String(describing: connectionState)) client=\(remoteClient != nil)"
-            )
-#endif
-            guard switched else {
+            ) else {
                 throw MobileShellConnectionError.connectionClosed
             }
         }
         let context = captureWorkspaceCreateContext()
-#if DEBUG
-        print(
-            "CMUX_TASK_MODEL fetch.context cancelled=\(Task.isCancelled) "
-                + "context=\(context?.macDeviceID ?? "nil")#\(context?.instanceTag ?? "nil") "
-                + "requested=\(macDeviceID)#\(instanceTag ?? "nil")"
-        )
-#endif
         guard !Task.isCancelled,
               let context,
               context.macDeviceID == macDeviceID,
@@ -130,15 +112,15 @@ extension MobileShellComposite {
         }
 
         do {
-#if DEBUG
-            print("CMUX_TASK_MODEL fetch.send provider=\(provider.rawValue)")
-#endif
             let response = try await context.client.sendRequest(
                 MobileCoreRPCClient.requestData(
                     method: "mobile.task.models.list",
                     params: ["provider": provider.rawValue]
                 ),
-                timeoutNanoseconds: 4_000_000_000
+                // Claude's installed-agent control request is intentionally
+                // bounded at 30 seconds on the Mac. Leave transport headroom;
+                // the concurrent backend catalog keeps the picker responsive.
+                timeoutNanoseconds: 35_000_000_000
             )
             guard context.isCurrent(
                 macDeviceID: foregroundMacDeviceID,
@@ -209,8 +191,10 @@ extension MobileShellComposite {
         ]?.result.models
     }
 
-    /// Refreshes one provider from the selected Mac, then the over-the-air
-    /// catalog when host discovery is unavailable or produces no models.
+    /// Refreshes one provider from the selected Mac and the over-the-air
+    /// catalog concurrently. A backend result can populate a cold picker while
+    /// slower installed-agent discovery continues; a nonempty discovered host
+    /// result always replaces it.
     ///
     /// Failed refreshes leave an earlier valid cache entry intact.
     ///
@@ -218,21 +202,78 @@ extension MobileShellComposite {
     ///   - provider: Coding-agent provider to query.
     ///   - macDeviceID: Physical Mac selected in the task composer.
     ///   - instanceTag: Exact paired app instance, when known.
+    ///   - didUpdate: Main-actor delivery for each result that becomes visible.
     public func refreshTaskModels(
         provider: MobileTaskAgentProvider,
         macDeviceID: String,
-        instanceTag: String?
+        instanceTag: String?,
+        didUpdate: (@MainActor (MobileTaskModelListResult) -> Void)? = nil
     ) async {
-        let hostResult = try? await fetchTaskModels(
-            provider: provider,
-            macDeviceID: macDeviceID,
-            instanceTag: instanceTag
-        )
         await refreshTaskModels(
             provider: provider,
             macDeviceID: macDeviceID,
-            hostResult: hostResult
+            hostResultLoader: { [weak self] in
+                guard let self else { return nil }
+                return try? await self.fetchTaskModels(
+                    provider: provider,
+                    macDeviceID: macDeviceID,
+                    instanceTag: instanceTag
+                )
+            },
+            didUpdate: didUpdate
         )
+    }
+
+    private func refreshTaskModels(
+        provider: MobileTaskAgentProvider,
+        macDeviceID: String,
+        hostResultLoader: @escaping @Sendable () async -> MobileTaskModelListResult?,
+        didUpdate: (@MainActor (MobileTaskModelListResult) -> Void)? = nil
+    ) async {
+        let key = MobileTaskModelCacheKey(
+            macDeviceID: macDeviceID,
+            provider: provider
+        )
+        let catalogClient = taskModelCatalogClient
+        await withTaskGroup(of: MobileTaskModelRefreshEvent.self) { group in
+            group.addTask {
+                .host(await hostResultLoader())
+            }
+            group.addTask {
+                .backend(try? await catalogClient.models(for: provider))
+            }
+
+            for await event in group {
+                guard !Task.isCancelled else {
+                    group.cancelAll()
+                    return
+                }
+                switch event {
+                case .host(let result):
+                    guard let result,
+                          result.source == .discovered,
+                          !result.models.isEmpty else {
+                        continue
+                    }
+                    cacheTaskModels(result, for: key)
+                    didUpdate?(result)
+                    group.cancelAll()
+                    return
+                case .backend(let models):
+                    guard let models,
+                          !models.isEmpty,
+                          taskModelCache[key]?.result.source != .discovered else {
+                        continue
+                    }
+                    let result = MobileTaskModelListResult(
+                        models: models,
+                        source: .backend
+                    )
+                    cacheTaskModels(result, for: key)
+                    didUpdate?(result)
+                }
+            }
+        }
     }
 
     /// Applies the source-priority policy through an injectable host result.
@@ -251,10 +292,7 @@ extension MobileShellComposite {
            hostResult.source == .discovered,
            !hostResult.models.isEmpty {
             guard !Task.isCancelled else { return }
-            taskModelCache[key] = MobileTaskModelCacheEntry(
-                result: hostResult,
-                fetchedAt: runtime?.now() ?? Date()
-            )
+            cacheTaskModels(hostResult, for: key)
             return
         }
 
@@ -264,11 +302,18 @@ extension MobileShellComposite {
               !Task.isCancelled else {
             return
         }
+        cacheTaskModels(
+            MobileTaskModelListResult(models: models, source: .backend),
+            for: key
+        )
+    }
+
+    private func cacheTaskModels(
+        _ result: MobileTaskModelListResult,
+        for key: MobileTaskModelCacheKey
+    ) {
         taskModelCache[key] = MobileTaskModelCacheEntry(
-            result: MobileTaskModelListResult(
-                models: models,
-                source: .backend
-            ),
+            result: result,
             fetchedAt: runtime?.now() ?? Date()
         )
     }
