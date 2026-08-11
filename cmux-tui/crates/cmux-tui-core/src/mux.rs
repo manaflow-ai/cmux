@@ -5018,15 +5018,21 @@ impl Mux {
             if !step.checkpoint_ready {
                 return Ok((false, step.pending));
             }
-            if let Some((after_sequence, through_sequence)) = step.refresh_range {
-                // Refresh one fixed prefix through a single streamed query.
-                // The records lock keeps list-agents from observing a partial
-                // checkpoint while the registry lock excludes a newer write.
-                mux.refresh_agent_records_for_journal_range(
-                    &registry,
-                    after_sequence,
-                    through_sequence,
-                )?;
+            if step.refresh_required {
+                // Replay records changed terminals in bounded SQLite pages.
+                // Read their final projections before the cache lock, then
+                // publish the fixed checkpoint atomically while the registry
+                // lock excludes a newer write.
+                let mut projections = Vec::new();
+                registry.visit_agent_projection_rebuild_changes(|projection| {
+                    projections.push(projection);
+                    Ok(())
+                })?;
+                mux.refresh_agent_records_for_projections(projections)?;
+                // Clear only after the cache publication succeeds. A refresh
+                // failure must keep the durable terminal set available for a
+                // later retry or restart.
+                registry.clear_agent_projection_rebuild_changes()?;
             }
             Ok((true, step.pending))
         })();
@@ -5157,31 +5163,31 @@ impl Mux {
         Ok(())
     }
 
-    fn refresh_agent_records_for_journal_range(
+    fn refresh_agent_records_for_projections(
         &self,
-        registry: &WorkspaceRegistry,
-        after_sequence: u64,
-        through_sequence: u64,
+        projections: Vec<crate::workspace_registry::RegistryAgentProjection>,
     ) -> anyhow::Result<()> {
         #[cfg(test)]
         if self.agent_projection_refresh_failure.swap(false, Ordering::AcqRel) {
             anyhow::bail!("forced agent projection refresh failure");
         }
-        let mut records = self.agent_records.lock().unwrap();
-        registry.visit_agent_projection_rebuild_range(
-            after_sequence,
-            through_sequence,
-            |projection| {
-                let record = public_projections::terminal_agent_record(
-                    &projection.state,
-                    &projection.source,
-                    projection.source_session,
-                    projection.updated_at_ms,
-                )?;
-                records.insert(projection.terminal_id, record);
-                Ok(())
-            },
-        )
+        let records = projections
+            .into_iter()
+            .map(|projection| {
+                Ok((
+                    projection.terminal_id,
+                    public_projections::terminal_agent_record(
+                        &projection.state,
+                        &projection.source,
+                        projection.source_session,
+                        projection.updated_at_ms,
+                    )?,
+                ))
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        let mut agent_records = self.agent_records.lock().unwrap();
+        agent_records.extend(records);
+        Ok(())
     }
 
     pub(crate) fn journal_hook_states(

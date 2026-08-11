@@ -7631,7 +7631,6 @@ fn journal_agent_projection_checkpoint_refresh_visits_terminal_once() {
         replay: JournalReplayPolicy::Advisory,
         sensitivity: JournalSensitivity::Sensitive,
     };
-    let mut sequences = Vec::new();
     for (index, event) in ["SessionStart", "TurnStart", "TurnEnd"].into_iter().enumerate() {
         let ingress = crate::agent_hook_journal_ingress(
             "pi",
@@ -7640,17 +7639,14 @@ fn journal_agent_projection_checkpoint_refresh_visits_terminal_once() {
             json!({"session_id":"refresh-session","turn_id":"refresh-turn"}),
         )
         .unwrap();
-        sequences.push(
-            registry
-                .append_journal_ingress(
-                    &ingress,
-                    &validated,
-                    "client_checkpoint_refresh_range",
-                    &format!("journal_agent_checkpoint_refresh_range_{index}"),
-                )
-                .unwrap()
-                .sequence,
-        );
+        registry
+            .append_journal_ingress(
+                &ingress,
+                &validated,
+                "client_checkpoint_refresh_range",
+                &format!("journal_agent_checkpoint_refresh_range_{index}"),
+            )
+            .unwrap();
     }
 
     registry
@@ -7678,14 +7674,10 @@ fn journal_agent_projection_checkpoint_refresh_visits_terminal_once() {
         }))
         .unwrap();
     let mut visited = Vec::new();
-    let refresh = registry.visit_agent_projection_rebuild_range(
-        sequences[0].saturating_sub(1),
-        *sequences.last().unwrap(),
-        |projection| {
-            visited.push((projection.terminal_id, projection.state));
-            Ok(())
-        },
-    );
+    let refresh = registry.visit_agent_projection_rebuild_changes(|projection| {
+        visited.push((projection.terminal_id, projection.state));
+        Ok(())
+    });
     registry
         .connection
         .authorizer(None::<fn(rusqlite::hooks::AuthContext<'_>) -> rusqlite::hooks::Authorization>)

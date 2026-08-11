@@ -160,6 +160,10 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
              )
            )
          );
+         CREATE TABLE IF NOT EXISTS resource_agent_projection_rebuild_changes (
+           terminal_id TEXT PRIMARY KEY NOT NULL
+             REFERENCES resource_terminals(public_id) ON DELETE CASCADE
+         );
          CREATE TABLE IF NOT EXISTS resource_agent_session_generations (
            terminal_id TEXT NOT NULL
              REFERENCES resource_terminals(public_id) ON DELETE CASCADE,
