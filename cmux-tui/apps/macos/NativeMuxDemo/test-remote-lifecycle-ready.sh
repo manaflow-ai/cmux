@@ -81,6 +81,15 @@ case "$mode" in
     publish "app-started 12345"
     publish ready
     ;;
+  default-signals)
+    if [[ -n "$(trap -p PIPE)" ]]; then
+      publish "failed 1"
+      exit 1
+    fi
+    publish daemon-starting
+    publish "app-started 12345"
+    publish ready
+    ;;
   duplicate-owner)
     publish daemon-starting
     publish "app-started 12345"
@@ -175,6 +184,18 @@ if ! cmux_wait_for_remote_demo_exit 8; then
 fi
 if [[ "$CMUX_REMOTE_DEMO_LAUNCHER_STATUS" != "0" ]]; then
   echo "The lifecycle waiter lost the launcher exit status." >&2
+  exit 1
+fi
+finish_supervisor 0
+close_event_channel
+
+start_fixture signals default-signals 2 2 2
+if ! cmux_wait_for_remote_demo_ready 8; then
+  echo "The launcher inherited the supervisor SIGPIPE mask." >&2
+  exit 1
+fi
+if ! cmux_wait_for_remote_demo_exit 8; then
+  echo "The launcher signal-state fixture did not exit." >&2
   exit 1
 fi
 finish_supervisor 0

@@ -64,6 +64,7 @@ if ($child_pid == 0) {
     close($signals);
     close($signal_writer);
     close($group_ready);
+    $SIG{PIPE} = "DEFAULT";
     setsid() >= 0 or exit 126;
     syswrite($group_ready_writer, "R") == 1 or exit 126;
     close($group_ready_writer);
