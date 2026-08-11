@@ -1,12 +1,12 @@
-public import Foundation
-public import GhosttyKit
-public import CmuxTerminalCore
+internal import Foundation
+internal import GhosttyKit
+internal import CmuxTerminalCore
 
-/// A one-shot native-surface free queued on the teardown coordinator.
+/// A one-shot native-surface teardown queued on the teardown coordinator.
 ///
 /// The native pointer has been removed from all main-thread owner state
 /// before this request is created; this wrapper only transports the one-shot
-/// free. It is `@unchecked Sendable` for exactly that reason: the surface
+/// teardown. It is `@unchecked Sendable` for exactly that reason: the surface
 /// pointer, the `Unmanaged` callback contexts, and the byte-tee lease are
 /// exclusively owned by the request from creation until the coordinator
 /// consumes them.
@@ -21,10 +21,11 @@ struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
     let workspaceId: UUID
     let reason: String
     let surface: ghostty_surface_t
+    let nativeAccessGate: TerminalSurfaceRuntimeNativeAccessGate
     let callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     let manualIOContext: Unmanaged<TerminalManualIOWriteBox>?
     let byteTeeLease: (any TerminalByteTeeLease)?
-    let freeSurface: @Sendable (ghostty_surface_t) -> Void
+    let nativeTeardown: TerminalSurfaceRuntimeNativeTeardown
     let completion: TerminalSurfaceRuntimeTeardownCompletion
 #if DEBUG
     let surfaceToken: String
@@ -36,20 +37,22 @@ struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
         workspaceId: UUID,
         reason: String,
         surface: ghostty_surface_t,
+        nativeAccessGate: TerminalSurfaceRuntimeNativeAccessGate,
         callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?,
         manualIOContext: Unmanaged<TerminalManualIOWriteBox>?,
         byteTeeLease: (any TerminalByteTeeLease)?,
-        freeSurface: @escaping @Sendable (ghostty_surface_t) -> Void,
+        nativeTeardown: TerminalSurfaceRuntimeNativeTeardown,
         completion: TerminalSurfaceRuntimeTeardownCompletion
     ) {
         self.id = id
         self.workspaceId = workspaceId
         self.reason = reason
         self.surface = surface
+        self.nativeAccessGate = nativeAccessGate
         self.callbackContext = callbackContext
         self.manualIOContext = manualIOContext
         self.byteTeeLease = byteTeeLease
-        self.freeSurface = freeSurface
+        self.nativeTeardown = nativeTeardown
         self.completion = completion
 #if DEBUG
         self.surfaceToken = String(id.uuidString.prefix(5))

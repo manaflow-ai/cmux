@@ -17,12 +17,12 @@ extension TerminalSurface {
               let surface = liveSurfaceForGhosttyAccess(reason: "boundedScreenTailVT") else {
             return nil
         }
-        return await runtimeTeardown.readScreenTailVT(
-            TerminalSurfaceRuntimeScreenTailRequest(
-                surface: surface,
-                maxRows: maxRows,
-                maxBytes: maxBytes
-            )
+        let request = TerminalSurfaceRuntimeScreenTailRequest(
+            surface: surface,
+            maxRows: maxRows,
+            maxBytes: maxBytes,
+            nativeAccessGate: runtimeNativeAccessGate
         )
+        return await runtimeTeardown.readScreenTailVT(request)
     }
 }

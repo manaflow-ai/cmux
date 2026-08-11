@@ -1,16 +1,18 @@
 internal import Foundation
 internal import GhosttyKit
 
-/// A bounded native screen-tail read serialized with native surface teardown.
+/// A bounded native screen-tail read ordered before later teardown requests.
 ///
-/// The raw surface pointer remains owned by its ``TerminalSurface``. The runtime
-/// coordinator executes this request without suspension, so an enqueued native
-/// free cannot interleave after the read begins. `@unchecked Sendable` is
-/// limited to transporting that borrowed pointer onto the coordinator actor.
+/// The raw surface pointer remains owned by its ``TerminalSurface``. The request
+/// carries the matching runtime-generation gate while it waits for global read
+/// admission. The reader must acquire that gate before dereferencing the pointer;
+/// a teardown that wins first permanently rejects the read. `@unchecked Sendable`
+/// is limited to transporting that guarded pointer to the reader actor.
 struct TerminalSurfaceRuntimeScreenTailRequest: @unchecked Sendable {
     let surface: ghostty_surface_t
     let maxRows: Int
     let maxBytes: Int
+    let nativeAccessGate: TerminalSurfaceRuntimeNativeAccessGate
 
     func read() -> String? {
         var text = ghostty_text_s()

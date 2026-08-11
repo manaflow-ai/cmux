@@ -16,8 +16,9 @@ The submodule pinned by this branch is `f76c132e5`, the fork-main merge of
 https://github.com/manaflow-ai/ghostty/pull/191. Its `533c27ae1` fix preserves
 saved cursors while formatter replay restores the active cursor after margins,
 origin mode, and tabstop state. The pin includes the prior fork changes below,
-including VT stream-boundary visibility at `9513174f2` and Hangul canonical
-font resolution at `3fbdd078d`.
+including bounded embedded-surface process teardown through `90ba327fc`, Hangul
+canonical font resolution at `3fbdd078d`, and VT stream-boundary visibility at
+`9513174f2`.
 
 ### VT formatter cursor restoration after margins
 
@@ -36,6 +37,75 @@ font resolution at `3fbdd078d`.
   - The hosted build published the 129,284,050-byte archive and verified SHA-256
     `af9f8f12e6f41ffe00b5b65f150bb887b19dc752e47d20d3c351696c803509af`,
     which is pinned in `scripts/ghosttykit-checksums.txt`.
+
+### Bounded embedded-surface process teardown
+
+- Pull requests:
+  - https://github.com/manaflow-ai/ghostty/pull/184
+  - https://github.com/manaflow-ai/ghostty/pull/187
+  - https://github.com/manaflow-ai/ghostty/pull/188
+  - https://github.com/manaflow-ai/ghostty/pull/192
+  - https://github.com/manaflow-ai/ghostty/pull/193
+- Commits:
+  - `9be0c8b93` (test: cover subprocesses that ignore SIGHUP)
+  - `5b20c6229` (fix: bound embedded surface process teardown)
+  - `26d320bfe` (test: cover descendants surviving direct child exit)
+  - `88c3325dc` (fix: reap surviving process-group descendants)
+  - `b8a643561` (test: cover process-group grace and leader exit)
+  - `81b4de4f5` (fix: preserve graceful process-group teardown)
+  - `babe4266c` (test: cover distinct foreground process-group teardown)
+  - `47e9bd4c9` (fix: reap foreground job-control process groups)
+  - `f66cfbd6f` (merge: integrate descendant reaping into Ghostty `main`)
+  - `53239618f` (test: reject stale process-group teardown)
+  - `bc7e9f746` (fix: avoid signalling recycled process groups)
+  - `90ba327fc` (merge: integrate process-group reuse safety into Ghostty `main`)
+- Files:
+  - `include/ghostty.h`
+  - `src/Surface.zig`
+  - `src/apprt/embedded.zig`
+  - `src/termio/Exec.zig`
+- Summary:
+  - Exposes `ghostty_surface_request_process_termination`, a non-blocking,
+    idempotent pre-free request that retires an embedded surface from Ghostty
+    app routing and wakes its IO owner without joining or freeing the surface.
+  - Captures the PTY foreground process-group id before teardown, deduplicates it
+    against the stored session-leader group, and sends both one SIGHUP before
+    polling liveness with signal `0` for 12 seconds. This preserves cmux's
+    10-second Claude `SessionEnd` hook budget even when interactive job control
+    puts Claude in a group separate from its shell.
+  - Retains the process-group id while the direct child's `Command` remains
+    waitable, so descendants remain addressable without allowing that pid to be
+    recycled underneath teardown.
+  - After the process watcher has reaped the direct child, refuses to signal its
+    cached numeric group id. Only a foreground group freshly observed through
+    the retained PTY remains attributable to that runtime generation, preventing
+    delayed teardown from signalling an unrelated process group after id reuse.
+  - Applies one shared graceful/escalation deadline to both groups, sends one
+    SIGKILL to each surviving group, and bounds the final reap wait to three
+    seconds, so a pathological foreground job cannot hold a native teardown
+    worker or escape when the PTY closes.
+  - Stops targeting a captured foreground group after it disappears, preventing
+    a recycled process-group id from being signalled later in the grace window.
+  - Handles the pre-`exec` race by terminating the still-waitable direct child
+    if its intended process group has not been created yet.
+  - Keeps `ghostty_surface_free` as the final synchronization and ownership
+    boundary for renderer, IO, callback userdata, and native allocation release.
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-90ba327fc6e0ea614e59a25f3ee5133b91d459da-crashsubdir-cmux-crash-sentry-off-v1
+  - SHA-256 `98e0db46112be10781a593d8eb052a4e395bf78823e29e4bb22e2619c49a7060`
+    is pinned in `scripts/ghosttykit-checksums.txt`; the downloaded archive
+    passed `scripts/validate-xcframework-archive.py`.
+- Conflict note:
+  - Preserve the two-phase contract during future embedded-surface or termio
+    merges: the pre-free request must prevent new app-action retains, remain
+    idempotent, and start IO-owned process teardown without freeing native state.
+    Final free must still wait for existing action leases and release the surface
+    exactly once. POSIX process teardown may retain the stable session-leader
+    group id only while the direct child remains waitable; after the watcher
+    reaps it, only a foreground group freshly observed through the PTY may be
+    targeted. Preserve separate direct-child and per-group liveness state, stop
+    targeting a foreground group after it disappears, and preserve the shared
+    SIGHUP, signal-`0` polling, SIGKILL, and bounded final-reap deadlines.
 
 ### Hangul NFC/NFD canonical font resolution
 
@@ -81,8 +151,9 @@ font resolution at `3fbdd078d`.
 
 ### VT stream-boundary visibility
 
-- Commit: `11aa609d7` (Expose safe VT stream snapshot boundary), reapplied
-  on fork main as `9513174f2`
+- Commits:
+  - Original pin: `11aa609d7` (Expose safe VT stream snapshot boundary)
+  - Reapplied on current fork main: `9513174f2`
 - Files: `include/ghostty/vt/terminal.h`, `src/terminal/c/terminal.zig`,
   `src/lib_vt.zig`
 - Summary:

@@ -614,11 +614,25 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         f"SubagentStop hook should not call the visible stop hook, got {subagent_stop_hooks}",
         failures,
     )
-    # SessionEnd should have a short timeout (session is exiting)
-    session_end_hooks = hooks.get("SessionEnd", [{}])[0].get("hooks", [{}])
+    # Claude's SessionEnd lifecycle is part of orderly PTY teardown, so it
+    # needs the same bounded callback budget as the other lifecycle hooks.
+    session_end_hooks = [
+        hook
+        for group in hooks.get("SessionEnd", [])
+        for hook in group.get("hooks", [])
+    ]
+    session_end_hook = next(
+        (
+            hook
+            for hook in session_end_hooks
+            if hook.get("command")
+            == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude session-end'
+        ),
+        None,
+    )
     expect(
-        any(h.get("timeout", 999) <= 2 for h in session_end_hooks),
-        f"SessionEnd hook should have short timeout, got {session_end_hooks}",
+        session_end_hook is not None and session_end_hook.get("timeout") == 10,
+        f"SessionEnd hook should have a 10-second timeout, got {session_end_hooks}",
         failures,
     )
 

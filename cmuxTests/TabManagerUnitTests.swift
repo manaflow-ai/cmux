@@ -10,7 +10,7 @@ import UserNotifications
 import CmuxGit
 import CmuxSidebarGit
 import CmuxSidebar
-import CmuxTerminal
+@testable import CmuxTerminal
 import CmuxSettings
 
 #if canImport(cmux_DEV)
@@ -1566,14 +1566,24 @@ final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
             return
         }
 
-        let fakeSurface: ghostty_surface_t = UnsafeMutableRawPointer(bitPattern: 0x5282)!
-        terminalPanel.surface.installRuntimeSurfaceForTesting(fakeSurface)
+        let runtimeReady = expectation(
+            forNotification: .terminalSurfaceDidBecomeReady,
+            object: terminalPanel.surface
+        )
+        terminalPanel.surface.createSurface(for: terminalPanel.surface.surfaceView)
+        wait(for: [runtimeReady], timeout: 5.0)
+        guard terminalPanel.surface.surface != nil else {
+            XCTFail("Expected a live terminal runtime surface")
+            return
+        }
         terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
 
         let nativeFreeStarted = expectation(description: "native free started")
-        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { runtimeSurface in
             XCTAssertFalse(Thread.isMainThread, "Native surface free must not run on the main thread")
             nativeFreeStarted.fulfill()
+            ghostty_surface_request_process_termination(runtimeSurface)
+            ghostty_surface_free(runtimeSurface)
         }
         defer {
             TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil

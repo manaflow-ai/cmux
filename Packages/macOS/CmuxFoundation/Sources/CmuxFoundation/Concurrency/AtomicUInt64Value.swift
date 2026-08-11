@@ -28,12 +28,29 @@ public final class AtomicUInt64Value: @unchecked Sendable {
         CmuxAtomicUInt64LoadRelaxed(storage)
     }
 
+    /// Returns the current value with acquire memory ordering.
+    @inline(__always)
+    public func loadAcquire() -> UInt64 {
+        CmuxAtomicUInt64LoadAcquire(storage)
+    }
+
     /// Replaces the current value with relaxed memory ordering.
     ///
     /// - Parameter value: The value subsequent loads should observe.
     @inline(__always)
     public func storeRelaxed(_ value: UInt64) {
         CmuxAtomicUInt64StoreRelaxed(storage, value)
+    }
+
+    /// Atomically replaces `expected` with `desired` using acquire-release ordering.
+    ///
+    /// - Parameters:
+    ///   - expected: The value that must still be stored for the replacement to occur.
+    ///   - desired: The replacement value.
+    /// - Returns: `true` when the replacement occurred, otherwise `false`.
+    @inline(__always)
+    public func compareExchange(expected: UInt64, desired: UInt64) -> Bool {
+        CmuxAtomicUInt64CompareExchange(storage, expected, desired)
     }
 
     /// Atomically increments the value with wrapping UInt64 arithmetic.

@@ -37,8 +37,25 @@ uint64_t CmuxAtomicUInt64LoadRelaxed(const CmuxAtomicUInt64Storage *storage) {
     return atomic_load_explicit(&storage->value, memory_order_relaxed);
 }
 
+uint64_t CmuxAtomicUInt64LoadAcquire(const CmuxAtomicUInt64Storage *storage) {
+    return atomic_load_explicit(&storage->value, memory_order_acquire);
+}
+
 void CmuxAtomicUInt64StoreRelaxed(CmuxAtomicUInt64Storage *storage, uint64_t value) {
     atomic_store_explicit(&storage->value, value, memory_order_relaxed);
+}
+
+bool CmuxAtomicUInt64CompareExchange(
+    CmuxAtomicUInt64Storage *storage,
+    uint64_t expected,
+    uint64_t desired
+) {
+    return atomic_compare_exchange_strong_explicit(
+        &storage->value,
+        &expected,
+        desired,
+        memory_order_acq_rel,
+        memory_order_acquire);
 }
 
 uint64_t CmuxAtomicUInt64IncrementRelaxed(CmuxAtomicUInt64Storage *storage) {
@@ -92,4 +109,31 @@ bool CmuxAtomicUInt64DecrementIfPositive(CmuxAtomicUInt64Storage *storage) {
         }
     }
     return false;
+}
+
+void CmuxAtomicRawPointerInitialize(
+    CmuxAtomicRawPointerStorage *storage,
+    const void *initialValue
+) {
+    atomic_init(&storage->value, (uintptr_t)initialValue);
+}
+
+const void *CmuxAtomicRawPointerLoadAcquire(
+    const CmuxAtomicRawPointerStorage *storage
+) {
+    return (const void *)atomic_load_explicit(&storage->value, memory_order_acquire);
+}
+
+bool CmuxAtomicRawPointerCompareExchange(
+    CmuxAtomicRawPointerStorage *storage,
+    const void *expected,
+    const void *desired
+) {
+    uintptr_t expectedBits = (uintptr_t)expected;
+    return atomic_compare_exchange_strong_explicit(
+        &storage->value,
+        &expectedBits,
+        (uintptr_t)desired,
+        memory_order_acq_rel,
+        memory_order_acquire);
 }
