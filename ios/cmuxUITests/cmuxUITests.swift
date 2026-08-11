@@ -2259,19 +2259,16 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(hostPrompt.waitForExistence(timeout: 8))
         let hostModel = hostApp.buttons["MobileTaskComposerModelPill"]
         XCTAssertTrue(
-            hostModel.waitForExistence(timeout: 20),
-            "The production composer must expose the model returned by the selected host"
-        )
-        let requestedHostModels = await server.waitForTaskModelListRequest(
-            provider: "claude",
-            timeout: 2
-        )
-        XCTAssertTrue(
-            requestedHostModels,
-            "The visible host model must originate from the production model-list RPC"
+            hostModel.waitForExistence(timeout: 8),
+            "The production composer must expose its model picker"
         )
         tap(hostModel, in: hostApp)
-        tapMenuItem(hostApp.buttons[discoveredModelName], in: hostApp)
+        let discoveredModelItem = hostApp.buttons[discoveredModelName]
+        XCTAssertTrue(
+            discoveredModelItem.waitForExistence(timeout: 20),
+            "The production picker must expose the model returned by the selected host"
+        )
+        tapMenuItem(discoveredModelItem, in: hostApp)
         XCTAssertEqual(hostModel.value as? String, discoveredModelName)
 
         let hostPromptText = "Use an installed-agent model"
@@ -8198,7 +8195,6 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private var terminalScrollRequestsReceived = 0
     private var streamOffset: UInt64 = 1
     private var terminalPasteRequestReached = false
-    private var taskModelListRequests: [String] = []
     private var terminalPasteRequestReachedWaiters: [CheckedContinuation<Void, Never>] = []
     private var heldTerminalPasteResponse: (() -> Void)?
     private var workspaces: [Workspace] = [
@@ -8359,28 +8355,6 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             try? await Task.sleep(nanoseconds: 50_000_000)
         }
         return await latestWorkspaceCreateRequest()
-    }
-
-    func waitForTaskModelListRequest(
-        provider: String,
-        timeout: TimeInterval = 8
-    ) async -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if await requestedTaskModelProviders().contains(provider) {
-                return true
-            }
-            try? await Task.sleep(nanoseconds: 50_000_000)
-        }
-        return await requestedTaskModelProviders().contains(provider)
-    }
-
-    private func requestedTaskModelProviders() async -> [String] {
-        await withCheckedContinuation { continuation in
-            queue.async {
-                continuation.resume(returning: self.taskModelListRequests)
-            }
-        }
     }
 
     private func latestWorkspaceCreateRequest() async -> WorkspaceCreateRequest? {
@@ -8655,7 +8629,6 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             result = mobileHostStatusResult()
         case "mobile.task.models.list":
             let provider = params["provider"] as? String ?? ""
-            taskModelListRequests.append(provider)
             let models = taskModelsByProvider[provider, default: []].map { model in
                 ["id": model.id, "display_name": model.displayName]
             }
