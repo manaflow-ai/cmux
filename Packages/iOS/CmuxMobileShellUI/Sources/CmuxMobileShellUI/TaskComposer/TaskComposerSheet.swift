@@ -345,6 +345,7 @@ struct TaskComposerSheet: View {
         TaskComposerLayout(
             prompt: promptBinding,
             genericPromptPlaceholder: promptPlaceholder,
+            workspaceName: workspaceName,
             directory: directory,
             isDisabled: submissionPhase.disablesRequestEditing,
             locksDismissal: submissionPhase.locksDismissal,

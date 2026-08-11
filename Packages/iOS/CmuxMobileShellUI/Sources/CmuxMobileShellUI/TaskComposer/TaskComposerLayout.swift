@@ -8,6 +8,7 @@ import UIKit
 struct TaskComposerLayout: View {
     @Binding var prompt: String
     let genericPromptPlaceholder: String
+    let workspaceName: String
     let directory: String
     let isDisabled: Bool
     let locksDismissal: Bool
@@ -346,6 +347,12 @@ struct TaskComposerLayout: View {
     }
 
     private var navigationTitle: String {
+        let trimmedWorkspaceName = workspaceName.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        if !trimmedWorkspaceName.isEmpty {
+            return trimmedWorkspaceName
+        }
         guard !directory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return L10n.string("mobile.taskComposer.title", defaultValue: "New Task")
         }

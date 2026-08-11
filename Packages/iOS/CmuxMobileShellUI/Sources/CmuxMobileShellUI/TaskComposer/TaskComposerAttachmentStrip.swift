@@ -110,14 +110,16 @@ private struct TaskComposerAttachmentChipContent: View {
                let image = UIImage(data: thumbnailData) {
                 Image(uiImage: image)
                     .resizable()
-                    .scaledToFill()
+                    .interpolation(.high)
+                    .antialiased(true)
+                    .scaledToFit()
             } else {
                 Image(systemName: "photo")
                     .font(.title2)
                     .foregroundStyle(.secondary)
             }
         }
-        .frame(width: 56, height: 56)
+        .frame(width: 96, height: 72)
         .background(Color.primary.opacity(0.07))
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
@@ -131,7 +133,7 @@ private struct TaskComposerAttachmentChipContent: View {
                 .lineLimit(1)
         }
         .padding(.horizontal, 10)
-        .frame(height: 56)
+        .frame(height: 72)
         .frame(maxWidth: 190)
         .background(
             Color.primary.opacity(0.07),
