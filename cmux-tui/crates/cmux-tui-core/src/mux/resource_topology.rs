@@ -402,6 +402,11 @@ impl TerminalExitDetachProjection {
     }
 
     #[cfg(test)]
+    pub(super) fn topology_screen_of(&self, pane: PaneId) -> Option<(usize, usize)> {
+        self.state.screen_of(pane)
+    }
+
+    #[cfg(test)]
     pub(super) fn terminal_index_scope_sizes(&self) -> [usize; 4] {
         [
             self.terminal_indexes.catalog_by_runtime.len(),

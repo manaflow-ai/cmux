@@ -18620,12 +18620,16 @@ mod tests {
             let (workspace, _) = state.screen_of(pane).unwrap();
             (state.workspaces[workspace].id, pane)
         });
+        let mut surviving_pane = None;
         for _ in 0..6 {
-            mux.new_screen(Some(workspace), Some((80, 24))).unwrap();
+            let unrelated = mux.new_screen(Some(workspace), Some((80, 24))).unwrap();
+            surviving_pane.get_or_insert_with(|| {
+                mux.with_state(|state| state.pane_of(unrelated.id).unwrap())
+            });
         }
         assert!(mux.focus_pane(closing_pane));
 
-        let (topology_scope_sizes, topology_discovery_steps) = {
+        let (topology_scope_sizes, topology_discovery_steps, surviving_position) = {
             let registry = mux.workspace_registry.lock().unwrap();
             let state = mux.state.lock().unwrap();
             let projection = mux
@@ -18638,7 +18642,11 @@ mod tests {
                 )
                 .unwrap()
                 .unwrap();
-            (projection.topology_scope_sizes(), projection.topology_discovery_steps())
+            (
+                projection.topology_scope_sizes(),
+                projection.topology_discovery_steps(),
+                projection.topology_screen_of(surviving_pane.unwrap()),
+            )
         };
         assert_eq!(
             topology_scope_sizes,
@@ -18648,6 +18656,11 @@ mod tests {
         assert_eq!(
             topology_discovery_steps, 10,
             "terminal exit inspected unrelated topology owners"
+        );
+        assert_eq!(
+            surviving_position,
+            Some((0, 0)),
+            "terminal exit retained a stale shifted screen position"
         );
         mux.shutdown();
     }
