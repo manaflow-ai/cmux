@@ -18552,9 +18552,7 @@ mod tests {
             ("tab", unrelated_ids.2.as_str()),
         ] {
             assert!(
-                changes
-                    .iter()
-                    .all(|change| change["resource"] != resource || change["id"] != id),
+                changes.iter().all(|change| change["resource"] != resource || change["id"] != id),
                 "terminal close included unrelated {resource} {id}"
             );
         }

@@ -503,9 +503,8 @@ impl Mux {
             .filter(|screen| !projected.resource_indexes.screen_ids.contains_key(screen))
             .filter_map(|screen| live.resource_indexes.screen_workspace.get(screen).copied())
             .collect::<Vec<_>>();
-        workspace_updates.sort_by_key(|workspace| {
-            live.workspace_index(*workspace).unwrap_or(usize::MAX)
-        });
+        workspace_updates
+            .sort_by_key(|workspace| live.workspace_index(*workspace).unwrap_or(usize::MAX));
         workspace_updates.dedup();
         for workspace_id in workspace_updates {
             let workspace = projected
@@ -551,11 +550,8 @@ impl Mux {
 
         let mut screen_context = HashMap::new();
         for screen_slot in &affected_screens {
-            let Some(workspace_id) = projected
-                .resource_indexes
-                .screen_workspace
-                .get(screen_slot)
-                .copied()
+            let Some(workspace_id) =
+                projected.resource_indexes.screen_workspace.get(screen_slot).copied()
             else {
                 continue;
             };
@@ -572,7 +568,8 @@ impl Mux {
 
         let mut live_screens = HashSet::new();
         for screen_slot in &changed_screens {
-            let Some((workspace_id, screen_index)) = screen_context.get(screen_slot).copied() else {
+            let Some((workspace_id, screen_index)) = screen_context.get(screen_slot).copied()
+            else {
                 continue;
             };
             let workspace = projected
@@ -657,7 +654,9 @@ impl Mux {
                             projected.resource_indexes.content_ids.get(surface_slot)?.clone(),
                         ))
                     })
-                    .with_context(|| format!("terminal scope tab {surface_slot} has no identity"))?;
+                    .with_context(|| {
+                        format!("terminal scope tab {surface_slot} has no identity")
+                    })?;
                 tab_order.push(identity.tab_id.clone());
                 let content_kind = match &identity.content_id {
                     ContentPublicId::Terminal(_) => "terminal",
