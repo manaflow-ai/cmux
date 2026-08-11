@@ -265,6 +265,9 @@ public final class TerminalSurfaceLaunchResolver {
             )
         }
 
+        let surfaceConfiguredCommand = baseConfig.command.flatMap(
+            GhosttyConfiguredCommand.init(rawValue:)
+        )
         var managedShellCommand: String?
         if spawnPolicy.shellIntegrationEnabled,
            let integrationDir = launchResourceSnapshot.shellIntegrationDirectoryPath {
@@ -283,7 +286,7 @@ public final class TerminalSurfaceLaunchResolver {
                 userGhosttyShellIntegrationMode: userGhosttyShellIntegrationMode(),
                 to: &environment,
                 protectedKeys: &protectedKeys
-            ), baseConfig.command?.isEmpty != false {
+            ), surfaceConfiguredCommand == nil {
                 managedShellCommand = command
             }
         }
@@ -301,7 +304,7 @@ public final class TerminalSurfaceLaunchResolver {
             ?? baseConfig.workingDirectory?.nilIfEmpty
         let configuredLaunchForm = TerminalLaunchCommandPolicy().resolve(
             initialCommand: request.initialCommand?.nilIfEmpty,
-            surfaceCommand: baseConfig.command?.nilIfEmpty,
+            surfaceCommand: surfaceConfiguredCommand,
             userGhosttyCommand: userGhosttyCommand(),
             managedShellCommand: managedShellCommand,
             resolvedShell: resolvedShell

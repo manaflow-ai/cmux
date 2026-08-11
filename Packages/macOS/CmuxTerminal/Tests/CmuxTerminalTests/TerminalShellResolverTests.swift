@@ -110,7 +110,9 @@ struct TerminalShellResolverTests {
     func inheritedSurfaceDirectCommandKeepsItsArgumentLaunchForm() {
         let launchForm = TerminalLaunchCommandPolicy().resolve(
             initialCommand: nil,
-            surfaceCommand: "direct:/usr/local/bin/nu --login",
+            surfaceCommand: GhosttyConfiguredCommand(
+                rawValue: "direct:/usr/local/bin/nu --login"
+            ),
             userGhosttyCommand: nil,
             managedShellCommand: nil,
             resolvedShell: "/bin/zsh"
@@ -124,7 +126,7 @@ struct TerminalShellResolverTests {
     func invalidSurfaceDirectCommandFallsThroughToManagedShell() {
         let launchForm = TerminalLaunchCommandPolicy().resolve(
             initialCommand: nil,
-            surfaceCommand: "direct:",
+            surfaceCommand: GhosttyConfiguredCommand(rawValue: "direct:"),
             userGhosttyCommand: nil,
             managedShellCommand: "/bin/zsh -l",
             resolvedShell: "/bin/zsh"

@@ -56,23 +56,24 @@ public struct TerminalLaunchCommandPolicy: Sendable {
     ///
     /// - Parameters:
     ///   - initialCommand: The command requested for this surface.
-    ///   - surfaceCommand: A command inherited from cmux surface state.
+    ///   - surfaceCommand: A parsed command inherited from cmux surface state.
     ///   - userGhosttyCommand: Ghostty's configured default command, if present.
     ///   - managedShellCommand: cmux's shell-integration launch command.
     ///   - resolvedShell: The executable user-shell fallback.
     /// - Returns: The exact shell-command or direct-argument launch form.
     public func resolve(
         initialCommand: String?,
-        surfaceCommand: String?,
+        surfaceCommand: GhosttyConfiguredCommand?,
         userGhosttyCommand: GhosttyConfiguredCommand?,
         managedShellCommand: String?,
         resolvedShell: String?
     ) -> TerminalSurfaceLaunchForm? {
-        for candidate in [initialCommand, surfaceCommand] {
-            if let candidate,
-               let configuredCommand = GhosttyConfiguredCommand(rawValue: candidate) {
-                return configuredCommand.launchForm
-            }
+        if let initialCommand,
+           let configuredCommand = GhosttyConfiguredCommand(rawValue: initialCommand) {
+            return configuredCommand.launchForm
+        }
+        if let surfaceCommand {
+            return surfaceCommand.launchForm
         }
         if let userGhosttyCommand {
             return userGhosttyCommand.launchForm
