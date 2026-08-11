@@ -9333,12 +9333,9 @@ impl Mux {
             if remaining.is_zero() {
                 return false;
             }
-            let (next, timed_out) =
+            let (next, _) =
                 self.kitty_image_budget_changed.wait_timeout(budget, remaining).unwrap();
             budget = next;
-            if timed_out.timed_out() && Instant::now() >= deadline {
-                return false;
-            }
         }
         true
     }
