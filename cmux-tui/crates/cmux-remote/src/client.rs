@@ -8,8 +8,8 @@ use cmux_remote_protocol::{
 };
 use tokio::sync::{Mutex, oneshot, watch};
 
-use crate::service::{ServiceMultiplexer, ServiceStream};
 use crate::message::MessageStream;
+use crate::service::{ServiceMultiplexer, ServiceStream};
 
 type PendingResponse = Result<RpcResponse, String>;
 type PendingRequests = Arc<Mutex<HashMap<RequestId, oneshot::Sender<PendingResponse>>>>;
