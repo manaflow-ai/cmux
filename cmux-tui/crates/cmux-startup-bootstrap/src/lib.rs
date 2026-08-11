@@ -1104,17 +1104,27 @@ mod tests {
 
     use super::*;
 
+    #[cfg(windows)]
+    fn test_path(path: &str) -> PathBuf {
+        PathBuf::from(format!(r"C:\{path}"))
+    }
+
+    #[cfg(not(windows))]
+    fn test_path(path: &str) -> PathBuf {
+        PathBuf::from(format!("/{path}"))
+    }
+
     fn config() -> BootstrapConfig {
         BootstrapConfig {
             schema_version: BOOTSTRAP_SCHEMA_VERSION,
             nonce: "ab".repeat(32),
             launch: BootstrapProductLaunch {
-                timing: PathBuf::from("/fixture/timing.page"),
-                fixture_root: PathBuf::from("/fixture"),
-                target: PathBuf::from("/trusted/cmux-tui.exe"),
+                timing: test_path("fixture/timing.page"),
+                fixture_root: test_path("fixture"),
+                target: test_path("trusted/cmux-tui.exe"),
                 target_sha256: "cd".repeat(32),
                 product_args: vec!["--version".into()],
-                trusted_path_probe: PathBuf::from("/trusted/probe"),
+                trusted_path_probe: test_path("trusted/probe"),
                 expected_bootstrap_sha256: "ef".repeat(32),
                 restricting_sid: "S-1-5-21-1-2-3-4".into(),
                 logon_sid: "S-1-5-5-123-456".into(),
