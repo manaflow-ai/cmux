@@ -5122,8 +5122,7 @@ fn journal_agent_generation_backfill_runs_once() {
         });
         registry
             .commit_agent_projection(
-                &WorkspaceMutation::new("journal-agent-current-generation", "socket-test")
-                    .unwrap(),
+                &WorkspaceMutation::new("journal-agent-current-generation", "socket-test").unwrap(),
                 &json!({"source_session":"current-generation-session"}),
                 Some(1),
                 &terminal_id,

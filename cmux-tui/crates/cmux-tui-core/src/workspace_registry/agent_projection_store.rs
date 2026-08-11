@@ -339,12 +339,7 @@ pub(super) fn rebuild_agent_projections_from_journal(
             sequence < target && target <= head_sequence,
             "agent projection journal rebuild range {sequence}..={target} is invalid for head {head_sequence}"
         );
-        replay_agent_projection_journal_page(
-            &tx,
-            sequence,
-            target,
-            allow_archived_kind_backfill,
-        )?;
+        replay_agent_projection_journal_page(&tx, sequence, target, allow_archived_kind_backfill)?;
     }
     tx.commit()?;
     Ok(())
