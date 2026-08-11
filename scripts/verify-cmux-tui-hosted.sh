@@ -127,6 +127,7 @@ gh workflow run "$WORKFLOW" \
   -f "commit=$commit" \
   -f "mode=$mode" \
   -f "test_filter=$test_filter" \
+  -f "use_blacksmith_macos=true" \
   -f "request_id=$request_id"
 
 run_id=""
