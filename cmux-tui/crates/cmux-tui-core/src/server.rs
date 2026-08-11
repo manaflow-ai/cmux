@@ -19443,7 +19443,10 @@ mod tests {
             .recv_timeout(Duration::from_secs(2))
             .expect("shutdown did not wait for the response flush");
         assert!(!mux.daemon_shutdown_requested());
-        assert!(mux.control_clients.contains(interactive));
+        assert!(matches!(
+            mux.control_clients.state.try_lock(),
+            Err(std::sync::TryLockError::WouldBlock)
+        ));
 
         release_flush.send(()).unwrap();
         assert!(worker.join().unwrap());
