@@ -478,9 +478,7 @@ impl WorkspaceRegistry {
         Ok(!pending)
     }
 
-    pub(crate) fn continue_agent_projection_rebuild_page(
-        &self,
-    ) -> anyhow::Result<(bool, bool)> {
+    pub(crate) fn continue_agent_projection_rebuild_page(&self) -> anyhow::Result<(bool, bool)> {
         let checkpoint_ready = rebuild_agent_projections_from_journal(&self.connection, true)?;
         Ok((checkpoint_ready, self.agent_projection_rebuild_pending()?))
     }

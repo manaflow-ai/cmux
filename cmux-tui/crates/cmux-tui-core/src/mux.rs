@@ -5014,8 +5014,7 @@ impl Mux {
         }
         let result = (|| -> anyhow::Result<(bool, bool)> {
             let registry = mux.workspace_registry.lock().unwrap();
-            let (checkpoint_ready, pending) =
-                registry.continue_agent_projection_rebuild_page()?;
+            let (checkpoint_ready, pending) = registry.continue_agent_projection_rebuild_page()?;
             if !checkpoint_ready {
                 return Ok((false, pending));
             }
