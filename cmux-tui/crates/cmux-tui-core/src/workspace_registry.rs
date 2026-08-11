@@ -5364,14 +5364,12 @@ impl SessionLease {
         Self::acquire_coordinator_until(
             path,
             std::time::Instant::now() + SESSION_GUARD_COORDINATOR_TIMEOUT,
-            || {},
         )
     }
 
     fn acquire_coordinator_until(
         path: &Path,
         deadline: std::time::Instant,
-        mut on_waiter_armed: impl FnMut(),
     ) -> anyhow::Result<Self> {
         let file = open_session_lock_file(path)?;
         restrict_session_lock_file(path, &file)?;
@@ -5408,7 +5406,6 @@ impl SessionLease {
                 }
             }
 
-            on_waiter_armed();
             if !waiter.wait_until(deadline).with_context(|| {
                 format!("wait for workspace session coordinator: {}", path.display())
             })? {
