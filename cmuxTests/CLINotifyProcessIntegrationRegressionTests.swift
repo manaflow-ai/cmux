@@ -3687,7 +3687,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             line: line
         )
         XCTAssertTrue(
-            script.contains("case \"$cmux_ssh_status\" in 254|255"),
+            script.contains("case \"$cmux_ssh_status\" in 254)")
+                && script.contains(
+                    "252) cmux_ssh_status=255; if [ \"$cmux_ssh_auth_succeeded\" -eq 0 ]; then break; fi"
+                )
+                && script.contains("*) break ;; esac; fi"),
             script,
             file: file,
             line: line
