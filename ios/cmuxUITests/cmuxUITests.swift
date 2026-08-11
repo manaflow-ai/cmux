@@ -3117,7 +3117,12 @@ final class cmuxUITests: XCTestCase {
         // SwiftUI defers repainting the covered pill until UIKit dismisses its
         // menu. The post-dismiss value proves the host replacement was applied
         // and this visible snapshot selection remained authoritative.
-        XCTAssertEqual(modelPill.value as? String, snapshotBID)
+        let selectedSnapshotRepainted = NSPredicate(
+            format: "value == %@",
+            snapshotBID
+        )
+        expectation(for: selectedSnapshotRepainted, evaluatedWith: modelPill)
+        waitForExpectations(timeout: 4)
 
         let prompt = taskComposerPrompt(in: app)
         let promptText = "Use the visible snapshot selection"
