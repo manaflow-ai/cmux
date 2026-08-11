@@ -1140,6 +1140,66 @@ private func requireTeardownTicket(
         admission.release(secondOwner)
     }
 
+    @MainActor
+    @Test func updatedRecoveryWaitsForItsPendingFailureDelivery() throws {
+        let admission = TerminalSurfaceRuntimeOwnershipAdmission(
+            maximumOwnerCount: 2
+        )
+        let owners = try (0..<2).map { _ in
+            try #require(admission.reserve())
+        }
+        defer {
+            admission.cancelRecovery(recoveryID)
+            for owner in owners {
+                admission.release(owner)
+            }
+        }
+        let recoveryID = UUID()
+        var firstFailureCount = 0
+        var updatedFailureCount = 0
+
+        #expect(
+            admission.reserve(
+                recoveryID: recoveryID,
+                onRecovery: { _ in },
+                onFailure: { firstFailureCount += 1 }
+            ) == .deferred
+        )
+        let firstFailures =
+            admission.failRecoveriesForAllStalledCloseTeardowns()
+        #expect(firstFailures.count == 1)
+        admission.clearAllStalledCloseTeardowns()
+
+        #expect(
+            admission.reserve(
+                recoveryID: recoveryID,
+                onRecovery: { _ in },
+                onFailure: { updatedFailureCount += 1 }
+            ) == .deferred
+        )
+        let duplicateFailures =
+            admission.failRecoveriesForAllStalledCloseTeardowns()
+        #expect(
+            duplicateFailures.isEmpty,
+            "an updated recovery published twice before its first failure delivery completed"
+        )
+
+        for failure in firstFailures {
+            failure()
+        }
+        admission.completeStalledCloseRecoveryFailures(firstFailures.count)
+        for failure in duplicateFailures {
+            failure()
+        }
+        if !duplicateFailures.isEmpty {
+            admission.completeStalledCloseRecoveryFailures(
+                duplicateFailures.count
+            )
+        }
+        #expect(firstFailureCount == 1)
+        #expect(updatedFailureCount == duplicateFailures.count)
+    }
+
     @Test func stuckHibernationFreeDoesNotStrandAnotherAdmissionOrClose() async throws {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
         let isolatedSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
