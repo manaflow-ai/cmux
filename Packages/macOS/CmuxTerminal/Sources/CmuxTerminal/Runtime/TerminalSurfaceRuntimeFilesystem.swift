@@ -81,10 +81,10 @@ public final class TerminalSurfaceCommandShimInstallGate: @unchecked Sendable {
     /// Creates an idle install gate with a fixed pending-work limit.
     ///
     /// - Parameter maximumWaiterCount: The maximum number of installs that can
-    ///   wait behind the active installer. Additional work is rejected.
+    ///   wait behind the active installer. A nonpositive value disables
+    ///   waiting, and additional work is rejected.
     public init(maximumWaiterCount: Int = 64) {
-        precondition(maximumWaiterCount > 0)
-        self.maximumWaiterCount = maximumWaiterCount
+        self.maximumWaiterCount = max(0, maximumWaiterCount)
     }
 
     func acquire() async -> UUID? {
