@@ -885,6 +885,14 @@ extension SSHForegroundAuthenticationRetryPolicy {
         }
 
         cmux_ssh_auth_run_cleanup_transactions() {
+          # A prior bounded rollback can leave its write-ahead STOP journals for
+          # the EXIT or recovery retry. Resume those exact identities before a
+          # new transaction clears and replaces the journals.
+          if [ -s "$cmux_ssh_auth_frozen_processes" ] || \
+            [ -s "$cmux_ssh_auth_signaled_groups" ] || \
+            [ -s "$cmux_ssh_auth_signaled_processes" ]; then
+            cmux_ssh_auth_resume_signaled_processes || return 1
+          fi
           cmux_ssh_auth_transaction_attempt=0
           while [ "$cmux_ssh_auth_transaction_attempt" -lt 4 ]; do
             cmux_ssh_auth_deadline_allows_work || return 1
