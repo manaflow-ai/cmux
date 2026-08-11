@@ -216,6 +216,24 @@ describe("CodeRouter team metrics", () => {
     expect(failures).toEqual(["malformed_response"]);
   });
 
+  test("classifies endpoint body stream failures as request failures", async () => {
+    const failures: string[] = [];
+    const result = await metricsTest.queryCoderouterTeamMetrics("team-private", {
+      config: () => config,
+      fetch: mock(async () =>
+        new Response(new ReadableStream({
+          start(controller) {
+            controller.error(new Error("stream failed"));
+          },
+        }), { status: 200 })) as typeof fetch,
+      now: () => new Date("2026-08-08T12:00:00.000Z"),
+      reportFailure: (reason) => failures.push(reason),
+    });
+
+    expect(result).toEqual({ kind: "unavailable" });
+    expect(failures).toEqual(["request_failed"]);
+  });
+
   test("classifies a null endpoint JSON root as a malformed response", async () => {
     const failures: string[] = [];
     const result = await metricsTest.queryCoderouterTeamMetrics("team-private", {
