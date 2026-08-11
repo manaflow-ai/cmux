@@ -296,24 +296,21 @@ struct NotificationRowSnapshotBoundaryTests {
         )
         let baseDependencies = GhosttyApp.terminalSurfaceRuntimeDependencies
         let dependencies = TerminalSurfaceRuntimeDependencies(
-            registry: baseDependencies.registry,
-            engine: baseDependencies.engine,
-            viewProvider: NotificationScrollSurfaceViewProvider(
-                surfaceView: surfaceView
+            presentation: TerminalSurfacePresentationDependencies(
+                registry: baseDependencies.presentation.registry,
+                viewProvider: NotificationScrollSurfaceViewProvider(
+                    surfaceView: surfaceView
+                ),
+                spawnPolicy: baseDependencies.presentation.spawnPolicy,
+                hibernationRecorder: baseDependencies.presentation.hibernationRecorder,
+                scrollbackReplayEnvironmentKey:
+                    baseDependencies.presentation.scrollbackReplayEnvironmentKey,
+                globalFontMagnificationPercent:
+                    baseDependencies.presentation.globalFontMagnificationPercent,
+                fontConfigurationSnapshot:
+                    baseDependencies.presentation.fontConfigurationSnapshot
             ),
-            spawnPolicy: baseDependencies.spawnPolicy,
-            byteTee: baseDependencies.byteTee,
-            rendererRealization: baseDependencies.rendererRealization,
-            hibernationRecorder: baseDependencies.hibernationRecorder,
-            runtimeTeardown: baseDependencies.runtimeTeardown,
-            restoreSpawnScheduler: baseDependencies.restoreSpawnScheduler,
-            runtimeFilesystem: baseDependencies.runtimeFilesystem,
-            sessionPortBase: baseDependencies.sessionPortBase,
-            sessionPortRangeSize: baseDependencies.sessionPortRangeSize,
-            scrollbackReplayEnvironmentKey:
-                baseDependencies.scrollbackReplayEnvironmentKey,
-            globalFontMagnificationPercent:
-                baseDependencies.globalFontMagnificationPercent
+            embeddedRuntime: baseDependencies.embeddedRuntime
         )
         let surface = TerminalSurface(
             tabId: windowId,
@@ -544,12 +541,14 @@ private struct NotificationScrollSurfaceViewProvider: TerminalSurfaceViewProvidi
     let surfaceView: NotificationScrollRecordingSurfaceView
 
     func makeSurfaceViews(
-        initialFrame: NSRect
+        initialFrame: NSRect,
+        renderOwnership: TerminalSurfaceRenderOwnership
     ) -> (
         surfaceView: any TerminalSurfaceNativeViewing,
         paneHost: any TerminalSurfacePaneHosting
     ) {
         _ = initialFrame
+        _ = renderOwnership
         return (
             surfaceView,
             GhosttySurfaceScrollView(surfaceView: surfaceView)
