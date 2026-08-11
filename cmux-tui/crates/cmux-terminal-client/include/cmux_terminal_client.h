@@ -180,6 +180,7 @@ size_t cmux_frontend_terminal_copy_diagnostics(
     char *buffer,
     size_t capacity);
 bool cmux_frontend_terminal_has_exited(const CmuxFrontendTerminal *terminal);
+bool cmux_frontend_terminal_is_closed(const CmuxFrontendTerminal *terminal);
 void cmux_frontend_terminal_disconnect(CmuxFrontendTerminal *terminal);
 
 // Both connect functions return an owned client, or NULL on failure. The caller

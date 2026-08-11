@@ -1355,8 +1355,8 @@ async fn supervise_terminal_stream(
                 Err(error) => {
                     attempt = attempt.saturating_add(1);
                     if attempt >= TERMINAL_RECONNECT_MAX_ATTEMPTS {
-                        set_client_status(&state, &updates, format!("reconnect-failed: {error}"));
                         closed.store(true, Ordering::Release);
+                        set_client_status(&state, &updates, format!("reconnect-failed: {error}"));
                         return;
                     }
                     set_client_status(

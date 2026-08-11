@@ -58,6 +58,7 @@
 "error.terminal_attach_queue_full" = "Too many terminal attachments are waiting. Try again after they finish.";
 "error.terminal_resize_rejected" = "Terminal resize was rejected.";
 "error.terminal_render_limit" = "Terminal output exceeded the safe display limit. Select Retry.";
+"error.terminal_connection_stopped" = "The terminal connection stopped. Select Retry.";
 "error.terminal_snapshot" = "The terminal snapshot was invalid.";
 "error.ghostty_runtime" = "The embedded Ghostty renderer could not start.";
 "error.ghostty_surface" = "The embedded Ghostty terminal surface could not start.";

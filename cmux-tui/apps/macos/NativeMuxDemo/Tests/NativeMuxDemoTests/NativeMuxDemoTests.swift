@@ -446,6 +446,16 @@ func resizeQueueKeepsOnlyNewestPendingGeometry() {
 }
 
 @Test
+func closedTerminalConnectionRequiresExplicitReattach() {
+    #expect(terminalAttachmentDisposition(didExit: false, connectionClosed: false) == .active)
+    #expect(terminalAttachmentDisposition(didExit: true, connectionClosed: true) == .exited)
+    #expect(
+        terminalAttachmentDisposition(didExit: false, connectionClosed: true)
+            == .reconnectRequired
+    )
+}
+
+@Test
 func focusMutationTrackerRejectsStaleRollback() {
     var tracker = FocusMutationTracker()
     let first = tracker.begin(workspaceID: nil, screenID: nil)

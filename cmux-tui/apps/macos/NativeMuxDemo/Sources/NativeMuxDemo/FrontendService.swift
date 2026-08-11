@@ -620,6 +620,13 @@ actor TerminalHandle {
     }
   }
 
+  func isClosed() async -> Bool {
+    guard let rawAddress = raw.map({ UInt(bitPattern: $0) }) else { return true }
+    return await enqueue {
+      cmux_frontend_terminal_is_closed(OpaquePointer(bitPattern: rawAddress))
+    }
+  }
+
   func drainRenderEvents() async -> TerminalRenderEventBatch {
     guard let rawAddress = raw.map({ UInt(bitPattern: $0) }) else {
       return TerminalRenderEventBatch(events: [], hasMore: false, overflowed: false)
