@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxAgentChat
 import CmuxTerminal
 import CmuxTerminalCore
 import CmuxWorkspaces
@@ -77,6 +78,7 @@ extension DockSplitStore {
         }
         applyVisibilityToAllPanels()
         scheduleDockPortalReconcile(reason: "dock.sessionRestore")
+        admitSessionRestoredTerminalRuntimes(panelIds: Array(oldToNewPanelIds.values))
         return oldToNewPanelIds
     }
 
@@ -91,7 +93,7 @@ extension DockSplitStore {
         sourceSnapshotWorkspaceId: UUID?,
         sourceWorkspaceResolver: (UUID) -> Workspace?
     ) -> UUID? {
-        createSessionRestoredPanel(
+        let restoredPanelId = createSessionRestoredPanel(
             from: snapshot,
             inPane: paneId,
             excludingStableIdentities: [],
@@ -99,6 +101,10 @@ extension DockSplitStore {
             sourceSnapshotWorkspaceId: sourceSnapshotWorkspaceId,
             sourceWorkspaceResolver: sourceWorkspaceResolver
         )
+        if let restoredPanelId {
+            admitSessionRestoredTerminalRuntimes(panelIds: [restoredPanelId])
+        }
+        return restoredPanelId
     }
 
     private func createSessionRestoredPanel(
@@ -353,8 +359,14 @@ extension DockSplitStore {
             workingDirectory: resumeSessionWorkingDirectory,
             agentSessionAlreadyActive: agentSessionAlreadyActive
         )
-        terminal.surface.admitStartupRestoreRuntime()
         return terminal.id
+    }
+
+    /// Releases held terminal runtimes after their Dock topology is authoritative.
+    private func admitSessionRestoredTerminalRuntimes(panelIds: [UUID]) {
+        for panelId in panelIds {
+            (panels[panelId] as? TerminalPanel)?.surface.admitStartupRestoreRuntime()
+        }
     }
 
     private func restoreSessionBrowser(
@@ -469,13 +481,13 @@ extension DockSplitStore {
             nil
         }
         guard let session else { return }
-        agentChatResumeIntentRecorder.record(
+        agentChatResumeIntentRecorder.record(AgentChatResumeIntent(
             sessionID: session.id,
             source: session.source,
             surfaceID: panelId.uuidString,
             workspaceID: workspaceId.uuidString,
             workingDirectory: workingDirectory
-        )
+        ))
 #if DEBUG
         cmuxDebugLog("session.restore.dock.resumeBinding workspace=\(workspaceId.uuidString.prefix(8)) surface=\(panelId.uuidString.prefix(8)) source=\(session.source) session=\(session.id.prefix(8))")
 #endif

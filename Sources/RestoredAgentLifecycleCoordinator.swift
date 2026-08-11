@@ -161,6 +161,11 @@ final class RestoredAgentLifecycleCoordinator {
         }
     }
 
+    /// The restore selector is queued but no shell callback has started it yet.
+    func hasQueuedRestoreIntent(panelId: UUID) -> Bool {
+        resumeStatesByPanelId[panelId] == .awaitingAutoResumeCommand
+    }
+
     /// The restored launch still owns its binding while startup input is
     /// queued, even though only a later shell callback can prove it is running.
     func ownsInFlightRestoredCommand(panelId: UUID) -> Bool {

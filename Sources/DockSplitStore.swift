@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import Combine
+import CmuxAgentChat
 import CmuxAppKitSupportUI
 import CmuxCore
 import CmuxFoundation
@@ -120,7 +121,7 @@ final class DockSplitStore: BonsplitDelegate {
     private let settings: any SettingsReading
     private let settingsCatalog = SettingCatalog()
     let agentSessionAutoResumeDefaults: UserDefaults
-    let agentChatResumeIntentRecorder: AgentChatResumeIntentRecorder
+    let agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording
 
     /// Weak registry of every live Dock store. Lets control-surface routing
     /// resolve a Dock surface/pane by querying only the workspaces that actually
@@ -278,7 +279,7 @@ final class DockSplitStore: BonsplitDelegate {
         terminalTitleUpdateCoalescer: NotificationBurstCoalescer? = nil,
         settings: any SettingsReading = UserDefaultsSettingsClient(defaults: .standard),
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
-        agentChatResumeIntentRecorder: AgentChatResumeIntentRecorder = AgentChatResumeIntentRecorder(),
+        agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
         terminalWorkingDirectoryResolver: TerminalWorkingDirectoryResolver = TerminalWorkingDirectoryResolver(),
         closedItemHistoryStore: ClosedItemHistoryStore? = nil
     ) {

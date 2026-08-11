@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import CmuxAgentChat
 import Foundation
 import Testing
 
@@ -214,7 +215,7 @@ struct SessionEntryResumeLaunchTests {
         )
         let launch = try #require(entry.resumeLaunch)
         let restorableAgent = try #require(launch.startupRestoreAgent)
-        var resumeIntents: [AgentChatResumeIntentRecorder.Intent] = []
+        var resumeIntents: [AgentChatResumeIntent] = []
         let resumeIntentRecorder = AgentChatResumeIntentRecorder {
             resumeIntents.append($0)
         }
@@ -294,7 +295,7 @@ struct SessionEntryResumeLaunchTests {
         )
         let launch = try #require(entry.resumeLaunch)
         let restorableAgent = try #require(launch.startupRestoreAgent)
-        var resumeIntents: [AgentChatResumeIntentRecorder.Intent] = []
+        var resumeIntents: [AgentChatResumeIntent] = []
         let resumeIntentRecorder = AgentChatResumeIntentRecorder {
             resumeIntents.append($0)
         }

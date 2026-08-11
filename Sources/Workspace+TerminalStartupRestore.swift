@@ -1,3 +1,4 @@
+import CmuxAgentChat
 import CmuxTerminal
 import Foundation
 
@@ -31,13 +32,13 @@ extension Workspace {
             willRunStartupInput: hasQueuedStartupInput,
             resumeSessionWorkingDirectory: snapshot.workingDirectory
         )
-        agentChatResumeIntentRecorder.record(
+        agentChatResumeIntentRecorder.record(AgentChatResumeIntent(
             sessionID: snapshot.sessionId,
             source: snapshot.kind.rawValue,
             surfaceID: panel.id.uuidString,
             workspaceID: id.uuidString,
             workingDirectory: snapshot.workingDirectory
-        )
+        ))
         panel.surface.admitStartupRestoreRuntime()
     }
 

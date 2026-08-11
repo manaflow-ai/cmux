@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAgentChat
 import CmuxFoundation
 import CmuxTerminalCore
 import SwiftUI
@@ -404,7 +405,7 @@ class TabManager: ObservableObject {
     let workspaceCustomizationStore: WorkspaceCustomizationStore
     private var lastFocusHistoryIncludesPanesAndTabs: Bool
     let nativeSSHConnectionBroker: NativeSSHConnectionBroker
-    let agentChatResumeIntentRecorder: AgentChatResumeIntentRecorder
+    let agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording
 
     @Published private(set) var focusHistoryRevision: UInt64 = 0 {
         didSet {
@@ -498,7 +499,7 @@ class TabManager: ObservableObject {
         },
         workspaceCustomizationStore: WorkspaceCustomizationStore? = nil,
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
-        agentChatResumeIntentRecorder: AgentChatResumeIntentRecorder = AgentChatResumeIntentRecorder(),
+        agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
         closeTabWarningDefaults: UserDefaults = .standard
     ) {
         self.settings = settings

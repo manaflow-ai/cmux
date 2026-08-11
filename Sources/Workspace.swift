@@ -14,6 +14,7 @@ import WebKit
 import CmuxFoundation
 import Bonsplit
 import CMUXAgentLaunch
+import CmuxAgentChat
 import CmuxSettings
 import CmuxBrowser
 import CmuxCanvasUI
@@ -480,12 +481,10 @@ extension Workspace {
                 ? sessionRestorePolicy.restorableTmuxStartCommand(terminalPanel.surface.debugTmuxStartCommand())
                 : nil
             let agentWasRunning: Bool? = {
-                // A queued or running cmux-authored restore still owns this
-                // terminal even before process discovery catches up. Persist
-                // that durable lifecycle intent ahead of transient shell or
-                // process evidence so an early prompt-idle report cannot drop
-                // the restore on relaunch.
-                if restoredAgentLifecycle.ownsInFlightRestoredCommand(panelId: panelId) {
+                // A queued cmux-authored selector is durable intent before any
+                // process can exist. Once shell activity starts, the ordinary
+                // binding and process evidence below becomes authoritative.
+                if restoredAgentLifecycle.hasQueuedRestoreIntent(panelId: panelId) {
                     return true
                 }
                 if let resumeBinding, resumeBinding.isAgentHookBinding {
@@ -1685,13 +1684,13 @@ extension Workspace {
                 // in), so it must be the resume launcher's real target, not
                 // the persisted terminal cwd a stray report may have parked
                 // on home (#7155).
-                agentChatResumeIntentRecorder.record(
+                agentChatResumeIntentRecorder.record(AgentChatResumeIntent(
                     sessionID: resumeReboundSession.sessionID,
                     source: resumeReboundSession.source,
                     surfaceID: terminalPanel.id.uuidString,
                     workspaceID: id.uuidString,
                     workingDirectory: resumeSessionWorkingDirectory
-                )
+                ))
             }
             if let restoredRemotePTYSessionID {
                 registerRemoteRelayIDAliases(
@@ -2217,7 +2216,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published private(set) var surfaceTabBarDirectory: String?
     private(set) var preferredBrowserProfileID: UUID?
     let closeTabWarningDefaults, agentSessionAutoResumeDefaults: UserDefaults
-    let agentChatResumeIntentRecorder: AgentChatResumeIntentRecorder
+    let agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording
     private let settings: any SettingsReading
 
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
@@ -3245,7 +3244,7 @@ final class Workspace: Identifiable, ObservableObject {
         initialDetachedSurface: DetachedSurfaceTransfer? = nil,
         sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>? = nil,
         sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel? = nil,
-        agentChatResumeIntentRecorder: AgentChatResumeIntentRecorder = AgentChatResumeIntentRecorder(),
+        agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker()
     ) {
         self.id = id ?? UUID()
