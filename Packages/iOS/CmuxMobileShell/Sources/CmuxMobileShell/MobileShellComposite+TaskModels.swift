@@ -71,6 +71,11 @@ extension MobileShellComposite {
 
     /// Fetches one provider's models from the selected Mac.
     ///
+    /// This deliberately probes the read-only RPC even when the cached
+    /// capability announcement is stale. Older hosts reject the unknown method,
+    /// which lets the caller fall back to the backend catalog without hiding
+    /// models that a newer installed agent can discover authoritatively.
+    ///
     /// - Parameters:
     ///   - provider: Coding-agent provider to query.
     ///   - macDeviceID: Physical Mac selected in the task composer.
@@ -96,10 +101,7 @@ extension MobileShellComposite {
         guard !Task.isCancelled,
               let context = captureWorkspaceCreateContext(),
               context.macDeviceID == macDeviceID,
-              instanceTag == nil || context.instanceTag == instanceTag,
-              context.supportedHostCapabilities.contains(
-                Self.taskModelsCapability
-              ) else {
+              instanceTag == nil || context.instanceTag == instanceTag else {
             throw MobileShellConnectionError.invalidResponse
         }
 
@@ -108,7 +110,8 @@ extension MobileShellComposite {
                 MobileCoreRPCClient.requestData(
                     method: "mobile.task.models.list",
                     params: ["provider": provider.rawValue]
-                )
+                ),
+                timeoutNanoseconds: 4_000_000_000
             )
             guard context.isCurrent(
                 macDeviceID: foregroundMacDeviceID,
@@ -193,19 +196,11 @@ extension MobileShellComposite {
         macDeviceID: String,
         instanceTag: String?
     ) async {
-        let hostResult: MobileTaskModelListResult?
-        if supportsTaskModels(
+        let hostResult = try? await fetchTaskModels(
+            provider: provider,
             macDeviceID: macDeviceID,
             instanceTag: instanceTag
-        ) {
-            hostResult = try? await fetchTaskModels(
-                provider: provider,
-                macDeviceID: macDeviceID,
-                instanceTag: instanceTag
-            )
-        } else {
-            hostResult = nil
-        }
+        )
         await refreshTaskModels(
             provider: provider,
             macDeviceID: macDeviceID,
