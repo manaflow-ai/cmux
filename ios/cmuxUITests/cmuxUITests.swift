@@ -775,6 +775,65 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.buttons["MobileWorkspaceSettingsMenu"].waitForExistence(timeout: 8))
     }
 
+    /// Japanese standard text must expose the complete Settings action in its
+    /// declared bottom-padded slot on first render, without requiring a swipe.
+    @MainActor
+    func testAutoConnectMigrationJapaneseLandscapeOpensSettingsWithoutScrolling() throws {
+        defer { XCUIDevice.shared.orientation = .portrait }
+        XCUIDevice.shared.orientation = .landscapeLeft
+
+        let app = launchApp(
+            mockData: true,
+            environment: [
+                "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+                "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": UUID().uuidString,
+            ],
+            launchArguments: [
+                "-UIPreferredContentSizeCategoryName",
+                "UICTContentSizeCategoryL",
+            ],
+            languageCode: "ja",
+            localeIdentifier: "ja_JP"
+        )
+        defer { app.terminate() }
+
+        let title = app.staticTexts["MobileAutoConnectMigrationTitle"]
+        XCTAssertTrue(title.waitForExistence(timeout: 8))
+        XCTAssertEqual(title.label, "cmuxはAuto-Connectを使用するようになりました")
+
+        let settingsButton = app.buttons["MobileAutoConnectMigrationOpenSettings"]
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 4))
+        let settingsFrame = try XCTUnwrap(
+            waitForUsableFrame(of: settingsButton, timeout: 4)
+        )
+        let window = app.windows.firstMatch
+        let windowFrame = try XCTUnwrap(waitForFrame(of: window, timeout: 4) { frame in
+            frame.width > frame.height
+        })
+
+        let declaredBottomPadding: CGFloat = 24
+        let expectedSettingsCenterY = windowFrame.maxY
+            - declaredBottomPadding
+            - (settingsFrame.height / 2)
+        window.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(
+                dx: settingsFrame.midX - windowFrame.minX,
+                dy: expectedSettingsCenterY - windowFrame.minY
+            ))
+            .tap()
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileSettingsView"]
+                .waitForExistence(timeout: 4),
+            "The complete Settings action must occupy its initial 24-point bottom-padded slot."
+        )
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileSettingsConnectionMethod"]
+                .waitForExistence(timeout: 4),
+            "The initial Japanese landscape layout must open Connection Method without scrolling."
+        )
+    }
+
     /// Standard Dynamic Type should fit the migration notice to its content on
     /// both iPhone and iPad, without leaving the final action stranded above a
     /// large empty region.
