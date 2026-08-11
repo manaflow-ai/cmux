@@ -19065,6 +19065,7 @@ mod tests {
                 .unwrap();
             let surface =
                 mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
+            let terminal = mux.terminal_id_for_viewer(surface).unwrap();
             let (pane, screen) = mux.with_state(|state| {
                 let pane = state.pane_of(surface).unwrap();
                 let (workspace, screen) = state.screen_of(pane).unwrap();
@@ -19080,7 +19081,8 @@ mod tests {
             handle_command(&mux, 0, command, &test_writer()).unwrap();
 
             assert!(!mux.with_state(|state| state.surfaces.contains_key(&surface)));
-            assert!(mux.surface(surface).is_some());
+            assert!(mux.surface(surface).is_none());
+            assert!(mux.terminal_resource(&terminal).is_some());
             assert_eq!(
                 mux.resolve_terminal(TERMINAL).unwrap().unwrap().terminal.lifecycle,
                 TerminalLifecycle::Running
@@ -19090,6 +19092,7 @@ mod tests {
             mux.set_terminal_close_failure_for_test(false).unwrap();
             mux.close_terminal(TERMINAL, INCARNATION).unwrap();
             assert!(mux.surface(surface).is_none());
+            assert!(mux.terminal_resource(&terminal).is_none());
         }
     }
 
