@@ -164,8 +164,6 @@ echo "Run: $run_url"
 echo "Waiting for hosted verification"
 
 temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/cmux-tui-hosted.XXXXXX")"
-watch_result_fifo="$temp_dir/run-watch-result"
-mkfifo "$watch_result_fifo"
 watch_owner_pid=""
 cancel_owner_pid=""
 stop_owned_process() {
@@ -190,6 +188,9 @@ trap cleanup EXIT
 trap 'exit_on_signal 129' HUP
 trap 'exit_on_signal 130' INT
 trap 'exit_on_signal 143' TERM
+
+watch_result_fifo="$temp_dir/run-watch-result"
+mkfifo "$watch_result_fifo"
 
 # Keep both ends open so the timed read starts before the watcher publishes its
 # result. The watcher owns the GitHub CLI child and reaps it on every exit path.
