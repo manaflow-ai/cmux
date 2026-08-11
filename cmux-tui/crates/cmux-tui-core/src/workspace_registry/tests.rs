@@ -1598,6 +1598,37 @@ fn session_guard_coordinator_owner_publishes_lock_availability() {
     fs::remove_dir_all(root).unwrap();
 }
 
+#[cfg(unix)]
+#[test]
+fn session_guard_waiter_stays_in_verified_directory_after_root_swap() {
+    use std::os::unix::fs::symlink;
+
+    let root = temp_root("session-guard-waiter-root-swap");
+    let moved = temp_root("session-guard-waiter-root-swap-moved");
+    let outside = temp_root("session-guard-waiter-root-swap-outside");
+    fs::create_dir_all(&root).unwrap();
+    fs::create_dir_all(&outside).unwrap();
+    let (_root_directory, lock_directory, lock_dir) =
+        prepare_existing_session_guard_dir_at(&root).unwrap();
+    fs::rename(&root, &moved).unwrap();
+    symlink(&outside, &root).unwrap();
+    let waiter_path = session_guard_coordinator_waiter_dir(&lock_dir);
+
+    let waiter_directory =
+        prepare_session_coordinator_waiter_dir_at(&lock_directory, &waiter_path).unwrap();
+    let waiter = SessionCoordinatorWaiter::register_at(&waiter_directory, &waiter_path).unwrap();
+
+    let retained_waiters = moved.join(SESSION_GUARD_DIR).join(SESSION_GUARD_COORDINATOR_WAITER_DIR);
+    assert!(fs::read_dir(&retained_waiters).unwrap().next().is_some());
+    assert!(fs::read_dir(&outside).unwrap().next().is_none());
+    drop(waiter);
+    assert!(fs::read_dir(&outside).unwrap().next().is_none());
+
+    fs::remove_file(root).unwrap();
+    fs::remove_dir_all(moved).unwrap();
+    fs::remove_dir_all(outside).unwrap();
+}
+
 #[test]
 fn workspace_commit_publishes_one_normalized_resource_event() {
     let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
