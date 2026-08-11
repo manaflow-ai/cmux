@@ -19753,7 +19753,6 @@ mod tests {
         let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
         let release = Arc::new((Mutex::new(false), Condvar::new()));
         *mux.kitty_image_budget_operation.lock().unwrap() = Some(Arc::new({
-            let first_removal_attempt = first_removal_attempt.clone();
             let release = release.clone();
             move |surface, _limits, _deadline| {
                 if surface.id == retiring_id && first_removal_attempt.swap(false, Ordering::AcqRel)
@@ -20868,7 +20867,7 @@ mod tests {
                 .resource_indexes
                 .content_placements
                 .insert(secondary_content, vec![index_only.id]);
-            state.terminal_catalog.insert(secondary_id.clone(), source.clone());
+            state.terminal_catalog.insert(secondary_id.clone(), source);
             state
                 .terminal_catalog_by_host
                 .entry(host.terminal_id.clone())
