@@ -336,6 +336,7 @@ fn runtime_remains_attached_across_idle_request_timeout_and_accepts_late_snapsho
 fn bounded_queue_overflow_cancels_and_reports_recovery() {
     let path = socket_path();
     let listener = UnixListener::bind(&path).unwrap();
+    let (overflow_observed_tx, overflow_observed_rx) = std::sync::mpsc::channel();
     let server = thread::spawn(move || {
         let (control, _) = listener.accept().unwrap();
         let (mut stream, _) = listener.accept().unwrap();
@@ -350,6 +351,7 @@ fn bounded_queue_overflow_cancels_and_reports_recovery() {
         assert_eq!(cancel["operation"], "stream.cancel");
         success(&mut stream, &cancel, json!({}));
         end_canceled(&mut stream, &stream_id);
+        overflow_observed_tx.send(()).unwrap();
         drop(control);
     });
 
@@ -364,7 +366,9 @@ fn bounded_queue_overflow_cancels_and_reports_recovery() {
         SidebarConfig { queue_capacity: 1, ..SidebarConfig::default() },
     )
     .unwrap();
-    thread::sleep(Duration::from_millis(50));
+    overflow_observed_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("sidebar worker did not cancel the overflowing stream");
     let deadline = Instant::now() + Duration::from_secs(2);
     loop {
         runtime.poll_updates();
