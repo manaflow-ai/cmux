@@ -1204,9 +1204,10 @@ fn graceful_shutdown_stops_server_owned_sidebar_process() {
         process_exit.wait_until(shutdown_deadline).expect("wait for server-owned process exit")
     });
     // The successful fixture has no durable host and one direct /bin/cat
-    // process. Unexpected durable hosts stay in this result and fail below.
-    let owned_processes_stopped = process_exits_published
-        && owned_pids.iter().copied().all(|pid| !process_exists(pid) && !process_group_exists(pid));
+    // process. The pre-captured pidfd/kqueue event is bound to that exact
+    // process and proves exit without racing zombie reaping or PID reuse.
+    // Unexpected durable hosts stay in this result and fail below.
+    let owned_processes_stopped = process_exits_published;
 
     // Keep lifecycle regressions leak-free. Every captured process group and
     // record belongs to this fixture's private state root.
