@@ -466,7 +466,11 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         \(policy.processTreeTerminationShellFunction())
         cmux_ssh_auth_now_millis() {
           cmux_test_now=$(/bin/cat "$CMUX_TEST_CLOCK_FILE") || return 1
-          cmux_test_now=$((cmux_test_now + 150))
+          if [ -e "$CMUX_TEST_DEADLINE_EXPIRED_MARKER" ]; then
+            cmux_test_now=$((cmux_test_now + 10))
+          else
+            cmux_test_now=$((cmux_test_now + 150))
+          fi
           printf '%s\\n' "$cmux_test_now" > "$CMUX_TEST_CLOCK_FILE" || return 1
           case "${cmux_ssh_auth_deadline_millis:-}" in
             ''|*[!0-9]*) ;;
@@ -2570,7 +2574,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
-    func concurrentReaperLaunchKeepsFreshUnpublishedLockOwnedByCreator(
+    func concurrentReaperLaunchKeepsLiveLockOwnedByCreator(
         shellPath: String
     ) throws {
         let fileManager = FileManager.default
@@ -2588,9 +2592,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
 
         let command = """
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
-        cmux_ssh_auth_identity() {
-          if [ "$1" = "$$" ] && \
-            /bin/mkdir "$CMUX_TEST_FIRST_IDENTITY_GATE" 2>/dev/null; then
+        cmux_ssh_terminate_owned_auth_group() {
+          if /bin/mkdir "$CMUX_TEST_FIRST_REAPER_GATE" 2>/dev/null; then
             : > "$CMUX_TEST_FIRST_READY"
             cmux_test_release_attempt=0
             while [ ! -e "$CMUX_TEST_RELEASE_FIRST" ] && \
@@ -2600,9 +2603,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             done
             test -e "$CMUX_TEST_RELEASE_FIRST" || return 1
           fi
-          printf '1|1|Thu_Jan_1_00:00:00_1970\n'
+          return 1
         }
-        cmux_ssh_terminate_owned_auth_group() { return 1; }
         cmux_test_launch() {
           cmux_test_result_file="$1"
           cmux_ssh_launch_owned_auth_group_reaper "$CMUX_SSH_AUTH_GROUP_DIR"
@@ -2644,7 +2646,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let result = try runShellCommand(
             command,
             environment: [
-                "CMUX_TEST_FIRST_IDENTITY_GATE": root.appendingPathComponent("first-gate").path,
+                "CMUX_TEST_FIRST_REAPER_GATE": root.appendingPathComponent("first-gate").path,
                 "CMUX_TEST_FIRST_READY": root.appendingPathComponent("first-ready").path,
                 "CMUX_TEST_FIRST_RESULT": root.appendingPathComponent("first-result").path,
                 "CMUX_TEST_RELEASE_FIRST": root.appendingPathComponent("release-first").path,
@@ -4620,13 +4622,22 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         trap '/bin/kill -KILL "$cmux_test_victim_pid" >/dev/null 2>&1 || true; wait "$cmux_test_victim_pid" 2>/dev/null || true' EXIT
         /bin/kill -STOP "$cmux_test_victim_pid" || exit 97
         /bin/sleep 0.01
-        /usr/bin/env LC_ALL=C LANG=C /bin/ps \
-          -o pid=,ppid=,pgid=,state=,lstart= -p "$cmux_test_victim_pid" \
-          > "$CMUX_TEST_SNAPSHOT" || exit 96
-        /usr/bin/awk 'NF >= 9 && $4 ~ /T/ { print $1, $2, $3, $5 "_" $6 "_" $7 "_" $8 "_" $9, $4 }' \
-          "$CMUX_TEST_SNAPSHOT" > "$CMUX_TEST_FROZEN" || exit 95
-        test -s "$CMUX_TEST_FROZEN" || exit 94
-        /bin/cp "$CMUX_TEST_FROZEN" "$CMUX_TEST_OWNED" || exit 93
+        cmux_test_victim_identity=$(cmux_ssh_auth_stopped_identity \
+          "$cmux_test_victim_pid") || exit 96
+        cmux_test_victim_parent=${cmux_test_victim_identity%%|*}
+        cmux_test_victim_remainder=${cmux_test_victim_identity#*|}
+        cmux_test_victim_group=${cmux_test_victim_remainder%%|*}
+        cmux_test_victim_started=${cmux_test_victim_remainder#*|}
+        case "$cmux_test_victim_pid:$cmux_test_victim_parent:$cmux_test_victim_group:$cmux_test_victim_started" in
+          *[!A-Za-z0-9_:]*|:*|*:) exit 95 ;;
+        esac
+        printf '%s %s %s T %s\n' "$cmux_test_victim_pid" \
+          "$cmux_test_victim_parent" "$cmux_test_victim_group" \
+          "$cmux_test_victim_started" > "$CMUX_TEST_SNAPSHOT" || exit 94
+        printf '%s %s %s %s T\n' "$cmux_test_victim_pid" \
+          "$cmux_test_victim_parent" "$cmux_test_victim_group" \
+          "$cmux_test_victim_started" > "$CMUX_TEST_FROZEN" || exit 93
+        /bin/cp "$CMUX_TEST_FROZEN" "$CMUX_TEST_OWNED" || exit 92
         : > "$CMUX_TEST_GROUPS"
         cmux_ssh_auth_deadline_allows_work() { return 0; }
         cmux_ssh_auth_deadline_allows_signal() { return 0; }
@@ -4637,7 +4648,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_individual_processes="$CMUX_TEST_INDIVIDUALS"
         cmux_ssh_auth_ordered_processes="$CMUX_TEST_ORDERED"
         cmux_ssh_auth_process_snapshot="$CMUX_TEST_FALLBACK_SNAPSHOT"
-        cmux_ssh_auth_force_frozen_processes "$CMUX_TEST_SNAPSHOT" || exit 92
+        cmux_ssh_auth_force_frozen_processes "$CMUX_TEST_SNAPSHOT" || exit 90
         wait "$cmux_test_victim_pid" 2>/dev/null || true
         /bin/kill -0 "$cmux_test_victim_pid" >/dev/null 2>&1 && exit 91
         trap - EXIT
