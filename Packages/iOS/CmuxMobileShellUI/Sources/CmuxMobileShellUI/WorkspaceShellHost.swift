@@ -18,8 +18,11 @@ struct WorkspaceShellHost: View {
     /// shell's initial-loading and timed-out inputs; never this host's identity.
     let isRestoringStoredMac: Bool
     let signOut: @MainActor @Sendable () -> Void
-    let showAddDevice: (() -> Void)?
-    let showPairingScanner: (() -> Void)?
+    /// Explicit data makes a Settings method change invalidate this host even
+    /// though SwiftUI treats action closures as opaque values.
+    let allowsManualPairing: Bool
+    let showAddDevice: () -> Void
+    let showPairingScanner: () -> Void
     var showSettings: () -> Void = {}
     var deviceTreePresentation = MobileChildSheetPresentation()
     var taskComposerPresentation = MobileChildSheetPresentation()
@@ -37,8 +40,8 @@ struct WorkspaceShellHost: View {
             isInitialConnectionLoading: isRestoringStoredMac && !loadingTimedOut,
             initialConnectionTimedOut: isRestoringStoredMac && loadingTimedOut,
             retryInitialConnection: retry,
-            showAddDevice: showAddDevice,
-            showPairingScanner: showPairingScanner,
+            showAddDevice: allowsManualPairing ? showAddDevice : nil,
+            showPairingScanner: allowsManualPairing ? showPairingScanner : nil,
             showSettings: showSettings,
             deviceTreePresentation: deviceTreePresentation,
             taskComposerPresentation: taskComposerPresentation

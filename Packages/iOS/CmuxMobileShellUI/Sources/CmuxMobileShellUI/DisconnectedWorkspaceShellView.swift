@@ -13,10 +13,11 @@ struct DisconnectedWorkspaceShellView: View {
     /// Whether this install has ever paired a Mac. Used to distinguish first
     /// setup from reconnect guidance.
     let hasKnownPairedMac: Bool
-    /// Present manual pairing. `nil` when the selected connection method cannot
-    /// use the Tailscale route that pairing authorizes.
-    let showAddDevice: (() -> Void)?
-    let showPairingScanner: (() -> Void)?
+    /// Availability is explicit data so SwiftUI refreshes this shell when the
+    /// selected method changes behind Settings.
+    let allowsManualPairing: Bool
+    /// Present manual pairing. The root re-checks authorization when invoked.
+    let showAddDevice: () -> Void
     let signOut: () -> Void
     /// The setup gate to highlight in the "Trouble connecting?" help (iOS only).
     /// The root passes `.macUnreachable` for a returning device whose stored Mac
@@ -156,7 +157,7 @@ struct DisconnectedWorkspaceShellView: View {
                 ))
             }
             Section {
-                if let showAddDevice {
+                if allowsManualPairing {
                     Button(action: showAddDevice) {
                         Label(
                             L10n.string("mobile.computers.add", defaultValue: "Add Computer"),
@@ -200,7 +201,7 @@ struct DisconnectedWorkspaceShellView: View {
                 defaultValue: "Sign in to cmux on your computer with this account and it appears here automatically."
             ))
         } actions: {
-            if let showAddDevice {
+            if allowsManualPairing {
                 Button(action: showAddDevice) {
                     Text(L10n.string("mobile.addDevice.title", defaultValue: "Add Computer"))
                 }
@@ -285,7 +286,7 @@ struct DisconnectedWorkspaceShellView: View {
     private var savedMacs: [MobilePairedMac] { store?.pairedMacs ?? [] }
 
     private var savedMacDescription: String {
-        guard showAddDevice != nil else {
+        guard allowsManualPairing else {
             return L10n.string(
                 "mobile.devices.savedDescription.reconnectOnly",
                 defaultValue: "Tap a saved computer to reconnect."
@@ -336,7 +337,7 @@ struct DisconnectedWorkspaceShellView: View {
                 .frame(maxWidth: 320)
                 .padding(.bottom, 4)
             }
-            if let showAddDevice {
+            if allowsManualPairing {
                 Button(action: showAddDevice) {
                     Text(
                         savedMacs.isEmpty
@@ -387,7 +388,7 @@ struct DisconnectedWorkspaceShellView: View {
 
     @ViewBuilder
     private var addDeviceToolbarButton: some View {
-        if let showAddDevice {
+        if allowsManualPairing {
             Button(action: showAddDevice) {
                 Image(systemName: "plus")
             }
