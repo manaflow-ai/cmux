@@ -1362,3 +1362,53 @@ fn public_tab_value(tab: &RegistryTab, focused: bool) -> Value {
         "content_id": tab.content_id.as_str(),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::Pane;
+    use crate::resource::{PublicSlotIndexes, TerminalPublicId};
+
+    #[test]
+    fn restored_terminal_tab_order_uses_durable_identity_before_adoption() {
+        let pane_slot = 7;
+        let surface_slot = 16;
+        let pane_id = PanePublicId::parse("pane_00000000000000000000000000000007").unwrap();
+        let tab_id = TabPublicId::parse("tab_00000000000000000000000000000016").unwrap();
+        let terminal_id = TerminalPublicId::parse("term_00000000000000000000000000000016").unwrap();
+        let mut indexes = PublicSlotIndexes::default();
+        indexes.tab_ids.insert(surface_slot, tab_id.clone());
+        indexes.content_ids.insert(surface_slot, ContentPublicId::Terminal(terminal_id.clone()));
+        let state = State {
+            workspaces: Vec::new(),
+            workspace_index_by_id: HashMap::new(),
+            workspace_id_by_key: HashMap::new(),
+            workspace_revision: 0,
+            pane_revision: 0,
+            resource_revision: 0,
+            focus_sequence: 0,
+            active_workspace: 0,
+            panes: HashMap::from([(
+                pane_slot,
+                Pane {
+                    id: pane_slot,
+                    public_id: pane_id,
+                    name: None,
+                    tabs: vec![surface_slot],
+                    active_tab: 0,
+                    active_at: 0,
+                    focused_at: 0,
+                },
+            )]),
+            surfaces: HashMap::new(),
+            terminal_catalog: HashMap::new(),
+            terminal_catalog_by_runtime: HashMap::new(),
+            split_screens: HashMap::new(),
+            resource_indexes: indexes,
+        };
+
+        let ordered = ordered_terminal_tab_ids(&state).unwrap();
+
+        assert_eq!(ordered.get(&terminal_id), Some(&vec![tab_id]));
+    }
+}
