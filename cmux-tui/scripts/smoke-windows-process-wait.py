@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import base64
 import json
 import os
 from pathlib import Path
@@ -104,16 +103,39 @@ def main() -> None:
         )
         try:
             wait_for_socket(server, socket_path)
+            workspace = result_value(
+                run_cli(
+                    binary,
+                    socket_path,
+                    env,
+                    "workspace",
+                    "create",
+                    "--name",
+                    "wait-check",
+                    "--empty",
+                )
+            )
+            workspace_id = workspace.get("workspace_id")
+            if not isinstance(workspace_id, str):
+                raise RuntimeError(f"workspace creation had no workspace id: {workspace!r}")
             created = result_value(
-                run_cli(binary, socket_path, env, "workspace", "create", "--name", "wait-check")
+                run_cli(
+                    binary,
+                    socket_path,
+                    env,
+                    "workspace",
+                    workspace_id,
+                    "run",
+                    "--",
+                    "cmd.exe",
+                    "/d",
+                    "/c",
+                    "echo PROCESS_EXIT_READY & exit /b 7",
+                )
             )
             terminal = created.get("terminal_id")
             if not isinstance(terminal, str):
-                raise RuntimeError(f"workspace creation had no terminal id: {created!r}")
-
-            command = "Write-Output PROCESS_EXIT_READY; exit 7\r"
-            encoded = base64.b64encode(command.encode("utf-8")).decode("ascii")
-            run_cli(binary, socket_path, env, "terminal", terminal, "write", "--bytes-base64", encoded)
+                raise RuntimeError(f"workspace run had no terminal id: {created!r}")
             run_cli(
                 binary,
                 socket_path,

@@ -261,12 +261,13 @@ impl ResourceCloseState {
     ) -> anyhow::Result<ResourceEffectProjection> {
         match self {
             Self::Full(state) => mux.resource_effect_projection_locked(registry, state, result),
-            Self::Terminal { state, workspace_ids, .. } => mux
+            Self::Terminal { state, workspace_ids, target_surfaces, .. } => mux
                 .terminal_resource_effect_projection_locked(
                     registry,
                     live,
                     state,
                     workspace_ids,
+                    target_surfaces,
                     result,
                 ),
         }
@@ -446,6 +447,7 @@ impl Mux {
         live: &State,
         projected: &mut State,
         workspace_ids: &HashSet<WorkspaceId>,
+        target_surfaces: &HashSet<SurfaceId>,
         result: Value,
     ) -> anyhow::Result<ResourceEffectProjection> {
         let active_workspace =
@@ -472,6 +474,10 @@ impl Mux {
             .flat_map(|screen| screen.root.pane_ids_vec())
             .filter_map(|pane| live.panes.get(&pane))
             .flat_map(|pane| pane.tabs.iter())
+            .filter_map(|surface| live.resource_indexes.tab_ids.get(surface).cloned())
+            .collect::<HashSet<_>>();
+        let target_tabs = target_surfaces
+            .iter()
             .filter_map(|surface| live.resource_indexes.tab_ids.get(surface).cloned())
             .collect::<HashSet<_>>();
 
@@ -625,7 +631,7 @@ impl Mux {
                 }
             }
         }
-        for tab_id in before_tabs.difference(&live_tabs) {
+        for tab_id in target_tabs.difference(&live_tabs) {
             patch.push(ResourceChange::TombstoneTab {
                 tab_id: tab_id.clone(),
                 close_content: false,
@@ -654,7 +660,7 @@ impl Mux {
         for (resource, ids) in [
             (
                 "tab",
-                before_tabs.difference(&live_tabs).map(ToString::to_string).collect::<Vec<_>>(),
+                target_tabs.difference(&live_tabs).map(ToString::to_string).collect::<Vec<_>>(),
             ),
             ("pane", before_panes.difference(&live_panes).map(ToString::to_string).collect()),
             ("screen", before_screens.difference(&live_screens).map(ToString::to_string).collect()),
@@ -3122,6 +3128,7 @@ impl Mux {
             state,
             &mut projected,
             &workspace_ids,
+            &target_surfaces,
             json!({}),
         )?;
         let detached_tabs = projection
