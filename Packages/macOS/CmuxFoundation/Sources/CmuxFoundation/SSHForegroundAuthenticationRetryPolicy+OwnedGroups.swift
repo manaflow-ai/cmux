@@ -174,10 +174,6 @@ extension SSHForegroundAuthenticationRetryPolicy {
                 $add_owned->($info);
               }
             }
-            if ($owned_group == 0 && keys(%prior) > 0 && keys(%owned) == 0) {
-              die "unpublished ownership seed disappeared";
-            }
-
             for (my $index = 0; $index < @queue; $index++) {
               my $parent = $queue[$index];
               for my $pid ($list_pids->($PROC_PPID_ONLY, $parent)) {

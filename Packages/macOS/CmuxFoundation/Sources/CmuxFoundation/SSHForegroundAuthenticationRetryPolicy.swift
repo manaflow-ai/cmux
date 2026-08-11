@@ -2288,6 +2288,16 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           # retain each exact descendant as an independent ownership seed.
           cmux_ssh_auth_take_process_snapshot \
             "$cmux_ssh_auth_process_snapshot" || exit 1
+          /usr/bin/awk -v cmux_pid="$cmux_ssh_auth_tree_root_pid" \
+            -v cmux_group="$cmux_ssh_auth_tree_root_group" \
+            -v cmux_started="$cmux_ssh_auth_tree_root_started" '
+              NF >= 5 && $1 == cmux_pid && $3 == cmux_group && $4 !~ /Z/ {
+                observed_started = $5
+                if (NF >= 9) observed_started = $5 "_" $6 "_" $7 "_" $8 "_" $9
+                if (observed_started == cmux_started) found = 1
+              }
+              END { exit(found ? 0 : 1) }
+            ' "$cmux_ssh_auth_process_snapshot" || exit 1
           cmux_ssh_auth_expand_owned_processes || exit 1
           cmux_ssh_auth_publish_current_worker \
             "$cmux_ssh_auth_tree_state/publisher" || exit 1
