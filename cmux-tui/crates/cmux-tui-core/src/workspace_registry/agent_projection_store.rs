@@ -413,6 +413,10 @@ pub(super) fn rebuild_agent_projections_from_journal(
     allow_archived_kind_backfill: bool,
 ) -> anyhow::Result<bool> {
     let tx = connection.unchecked_transaction()?;
+    if !super::resource_store::backfill_resource_agent_session_generations_page(&tx)? {
+        tx.commit()?;
+        return Ok(false);
+    }
     let mut sequence = agent_projection_journal_cursor(&tx)?;
     if sequence.is_none() && prejournal_projection_migration_cursor(&tx)?.is_none() {
         initialize_prejournal_projection_migration(&tx)?;
@@ -575,7 +579,8 @@ impl WorkspaceRegistry {
 }
 
 fn agent_projection_rebuild_active(connection: &Connection) -> anyhow::Result<bool> {
-    Ok(prejournal_projection_migration_cursor(connection)?.is_some()
+    Ok(super::resource_store::resource_agent_generation_backfill_pending(connection)?
+        || prejournal_projection_migration_cursor(connection)?.is_some()
         || agent_projection_journal_rebuild_target(connection)?.is_some())
 }
 
@@ -1227,7 +1232,7 @@ fn merge_projection(
     let current_is_final = matches!(current.state.as_str(), "done" | "interrupted");
     let next_is_active = matches!(next.state.as_str(), "working" | "blocked" | "idle");
     if current_is_final && next_is_active {
-        return next;
+        return if next.source_session.is_some() { next } else { current };
     }
     current
 }
