@@ -500,6 +500,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             String(contentsOf: leafPIDFile, encoding: .utf8)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         ))
+        let leafExited = waitForPIDExit(leafPID, timeout: 1)
         let leafGroup = Darwin.getpgid(leafPID)
         defer {
             if leafGroup > 0 {
@@ -2484,15 +2485,17 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_test_replacement_reaper=$!
         cmux_test_wait_path exists "$CMUX_TEST_REPLACEMENT_READY" 5000 || exit 95
         test -e "$CMUX_TEST_REPLACEMENT_READY" || exit 95
+        : > "$CMUX_TEST_REPLACEMENT_RELEASE"
+        wait "$cmux_test_replacement_reaper" || exit 94
         cmux_test_first_reaper=$(/bin/cat "$CMUX_TEST_FIRST_REAPER_PID") || exit 93
         cmux_test_first_identity_caller=$(/bin/cat "$CMUX_TEST_FIRST_IDENTITY_CALLER_PID") || exit 93
+        /bin/kill -0 "$cmux_test_first_reaper" 2>/dev/null || exit 93
+        /bin/kill -0 "$cmux_test_first_identity_caller" 2>/dev/null || exit 93
+        test ! -e "$CMUX_TEST_FIRST_REAPER_RAN" || exit 93
         /bin/kill -KILL "$cmux_test_first_reaper" "$cmux_test_first_identity_caller" \
           2>/dev/null || true
         cmux_test_wait_pid_exit "$cmux_test_first_reaper" 5000 || exit 93
         cmux_test_wait_pid_exit "$cmux_test_first_identity_caller" 5000 || exit 93
-        test ! -e "$CMUX_TEST_FIRST_REAPER_RAN" || exit 93
-        : > "$CMUX_TEST_REPLACEMENT_RELEASE"
-        wait "$cmux_test_replacement_reaper" || exit 94
         test ! -e "$CMUX_TEST_FIRST_REAPER_RAN" || exit 93
         """
 
@@ -4295,6 +4298,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-auth-replacement-\(UUID().uuidString)", isDirectory: true)
         let readyMarker = root.appendingPathComponent("ready")
+        let termHandlerMarker = root.appendingPathComponent("term-handler-ran")
         let replacementScript = root.appendingPathComponent("replacement.sh")
         let replacementPIDFile = root.appendingPathComponent("replacement.pid")
         let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
@@ -4313,7 +4317,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let policy = SSHForegroundAuthenticationRetryPolicy()
         let classifiedAuthentication = policy.classifyingTransientFailure(
             in: """
-            trap '/usr/bin/nohup /usr/bin/script -q /dev/null /bin/sh "$CMUX_TEST_REPLACEMENT_SCRIPT" </dev/null >/dev/null 2>&1 & exit 143' TERM
+            trap ': > "$CMUX_TEST_TERM_HANDLER_RAN"; /usr/bin/nohup /usr/bin/script -q /dev/null /bin/sh "$CMUX_TEST_REPLACEMENT_SCRIPT" </dev/null >/dev/null 2>&1 & exit 143' TERM
             : > "$CMUX_TEST_READY_MARKER"
             while :; do /bin/sleep 30; done
             """
@@ -4328,7 +4332,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         test -f "$CMUX_TEST_READY_MARKER" || exit 98
         cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$"
         wait "$cmux_test_auth_root" 2>/dev/null || true
-        test ! -s "$CMUX_TEST_REPLACEMENT_PID"
+        test ! -e "$CMUX_TEST_TERM_HANDLER_RAN"
         trap - EXIT
         """
 
@@ -4339,6 +4343,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             "CMUX_TEST_READY_MARKER": readyMarker.path,
             "CMUX_TEST_REPLACEMENT_SCRIPT": replacementScript.path,
             "CMUX_TEST_REPLACEMENT_PID": replacementPIDFile.path,
+            "CMUX_TEST_TERM_HANDLER_RAN": termHandlerMarker.path,
             "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
         ]) { _, override in override }
         process.standardInput = FileHandle.nullDevice
@@ -4357,6 +4362,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         }
 
         #expect(process.terminationStatus == 0)
+        #expect(!fileManager.fileExists(atPath: termHandlerMarker.path))
         #expect(replacementPID == nil)
     }
 
