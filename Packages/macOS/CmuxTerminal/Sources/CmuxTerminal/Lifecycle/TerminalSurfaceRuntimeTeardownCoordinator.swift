@@ -14,8 +14,9 @@ internal import CMUXDebugLog
 /// through completed free. While both close slots are occupied, new ownership
 /// waits for a worker-completion signal, so retained frees cannot grow without
 /// bound. If both workers exceed their five-second watchdog, queued creations
-/// report a visible failure. A late native free keeps its pointer ownership and
-/// restores admission only after it returns.
+/// report a visible failure and retain their bounded FIFO owners. A late native
+/// free keeps its pointer ownership, restores admission only after it returns,
+/// and retries those creations in their original order.
 /// Each admitted hibernation also owns one independently startable utility slot.
 /// Slot occupancy fences new ownership until one active free completes. The app constructs
 /// exactly one instance and injects it through
@@ -33,7 +34,6 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     private let closeTeardownTimeout: Duration
     private nonisolated let closeTeardownClock: any Clock<Duration>
     private let closeTeardownStalledObserver: @Sendable (Int) -> Void
-    private let closeTeardownRecoveredObserver: @Sendable (Int) -> Void
     private nonisolated let submissionDrain:
         TerminalSurfaceRuntimeTeardownSubmissionDrain
     private nonisolated let recoveryRescanScheduler:
@@ -74,7 +74,6 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         closeTeardownTimeout = .seconds(5)
         closeTeardownClock = ContinuousClock()
         closeTeardownStalledObserver = { _ in }
-        closeTeardownRecoveredObserver = { _ in }
         let recoveryRescanScheduler =
             TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler(
                 maximumEntryCount: Self.maximumRuntimeSurfaceOwnerCount
@@ -103,14 +102,12 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         maximumRuntimeSurfaceOwnerCount: Int,
         closeTeardownTimeout: Duration = .seconds(5),
         closeTeardownClock: any Clock<Duration> = ContinuousClock(),
-        closeTeardownStalledObserver: @escaping @Sendable (Int) -> Void = { _ in },
-        closeTeardownRecoveredObserver: @escaping @Sendable (Int) -> Void = { _ in }
+        closeTeardownStalledObserver: @escaping @Sendable (Int) -> Void = { _ in }
     ) {
         precondition(closeTeardownTimeout > .zero)
         self.closeTeardownTimeout = closeTeardownTimeout
         self.closeTeardownClock = closeTeardownClock
         self.closeTeardownStalledObserver = closeTeardownStalledObserver
-        self.closeTeardownRecoveredObserver = closeTeardownRecoveredObserver
         let recoveryRescanScheduler =
             TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler(
                 maximumEntryCount: maximumRuntimeSurfaceOwnerCount
@@ -584,7 +581,6 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
 
         if recoveredStalledCloseSlot {
             updateCloseTeardownAdmission()
-            closeTeardownRecoveredObserver(executionSlot)
         }
 
         await finishFree(request)

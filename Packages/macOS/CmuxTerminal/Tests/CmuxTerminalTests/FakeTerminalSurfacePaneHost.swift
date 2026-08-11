@@ -8,6 +8,7 @@ final class FakeTerminalSurfacePaneHost: NSView, TerminalSurfacePaneHosting {
     private let onAttach: (() -> Void)?
     private(set) var explicitInputCount = 0
     private(set) var runtimeSurfaceCreationFailureMessages: [String] = []
+    private(set) var activeRuntimeSurfaceCreationFailureMessage: String?
     let runtimeSurfaceCreationFailures: AsyncStream<String>
     private let runtimeSurfaceCreationFailureContinuation:
         AsyncStream<String>.Continuation
@@ -47,8 +48,13 @@ final class FakeTerminalSurfacePaneHost: NSView, TerminalSurfacePaneHosting {
     func setMobileViewportBorder(size: CGSize?, drawRight: Bool, drawBottom: Bool) {}
 
     func showRuntimeSurfaceCreationFailure(message: String) {
+        activeRuntimeSurfaceCreationFailureMessage = message
         runtimeSurfaceCreationFailureMessages.append(message)
         runtimeSurfaceCreationFailureContinuation.yield(message)
+    }
+
+    func clearRuntimeSurfaceCreationFailure() {
+        activeRuntimeSurfaceCreationFailureMessage = nil
     }
 
     func terminalSurfaceDidReceiveExplicitInput() {

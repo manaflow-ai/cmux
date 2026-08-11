@@ -29,6 +29,9 @@ public protocol TerminalSurfacePaneHosting: NSView {
     /// Shows a permanent failure message when the native terminal cannot start.
     func showRuntimeSurfaceCreationFailure(message: String)
 
+    /// Clears a prior creation failure after the native terminal starts.
+    func clearRuntimeSurfaceCreationFailure()
+
     /// Notifies the pane that explicit terminal input is about to be sent.
     func terminalSurfaceDidReceiveExplicitInput()
 

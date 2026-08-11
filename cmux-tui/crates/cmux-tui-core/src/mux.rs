@@ -4210,6 +4210,12 @@ impl Mux {
                 if complete || mux.shutting_down.load(Ordering::Acquire) {
                     mux.terminal_adoptions.lock().unwrap().remove(&task.record.terminal_id);
                 } else {
+                    #[cfg(debug_assertions)]
+                    if let Some(signal) =
+                        std::env::var_os("CMUX_TUI_TEST_TERMINAL_ADOPTION_RETRY_SIGNAL")
+                    {
+                        let _ = std::fs::write(signal, b"1");
+                    }
                     task.delay = (task.delay * 2).min(Duration::from_secs(5));
                     task.next_attempt = Instant::now() + task.delay;
                     state.requeue_retry(task);
@@ -23623,13 +23629,12 @@ mod tests {
 
         mux.close_terminal(&host.terminal_id, &host.incarnation).unwrap();
         assert!(mux.list_agents(None, None).is_empty());
-        assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
-        assert_eq!(
+        assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 0);
+        assert!(
             crate::resource_api::public_session_snapshot(&mux).unwrap()["agents"]
                 .as_array()
                 .unwrap()
-                .len(),
-            1
+                .is_empty()
         );
         assert!(mux.surface_notification(first.id).is_none());
         assert!(mux.surface(first.id).is_none());
@@ -26364,21 +26369,28 @@ mod tests {
     #[test]
     fn cleanup_scheduled_during_the_final_retry_gets_a_fresh_retry_budget() {
         let mux = test_mux();
-        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
-        let first = mux.surface(first.id).unwrap();
+        let options = mux.surface_options.lock().unwrap().clone();
+        let first =
+            Surface::spawn_for_test(mux.next_id(), options.clone(), Arc::downgrade(&mux)).unwrap();
         let (first_failing, _) = first.set_recovering_server_shutdown_for_test();
-        let second = Surface::spawn_for_test(
-            mux.next_id(),
-            mux.surface_options.lock().unwrap().clone(),
-            Arc::downgrade(&mux),
-        )
-        .unwrap();
+        let second = Surface::spawn_for_test(mux.next_id(), options, Arc::downgrade(&mux)).unwrap();
         let (second_failing, _) = second.set_recovering_server_shutdown_for_test();
         let injected = Arc::new(AtomicBool::new(false));
+        let (injected_tx, injected_rx) = std::sync::mpsc::sync_channel(1);
         *mux.shutdown_owner_reconciler.after_attempt.lock().unwrap() = Some(Arc::new({
             let mux = mux.clone();
             let injected = injected.clone();
             move |attempt| {
+                if injected.load(Ordering::Acquire) {
+                    return;
+                }
+                if attempt < SHUTDOWN_RECONCILE_MAX_ATTEMPTS {
+                    // Publish real pending work to bypass only the retry
+                    // backoff. The worker consumes this signal before its next
+                    // attempt, so hosted load cannot delay the final hook.
+                    mux.shutdown_owner_reconciler.schedule();
+                    return;
+                }
                 if attempt != SHUTDOWN_RECONCILE_MAX_ATTEMPTS
                     || injected.swap(true, Ordering::AcqRel)
                 {
@@ -26387,15 +26399,21 @@ mod tests {
                 mux.retire_surface_runtime(second.clone());
                 first_failing.store(false, Ordering::Release);
                 second_failing.store(false, Ordering::Release);
+                let _ = injected_tx.send(());
             }
         }));
 
-        assert!(mux.close_surface(first.id).unwrap());
-        let completed = mux
-            .shutdown_owner_reconciler
-            .wait_until(Instant::now() + Duration::from_secs(2), || {
-                injected.load(Ordering::Acquire) && mux.shutdown_owners.is_empty()
-            });
+        let deadline = Instant::now() + Duration::from_secs(2);
+        mux.retire_surface_runtime(first);
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .expect("final cleanup attempt exceeded its failure deadline");
+        injected_rx
+            .recv_timeout(remaining)
+            .expect("final cleanup attempt did not stage the second owner");
+        let completed = mux.shutdown_owner_reconciler.wait_until(deadline, || {
+            injected.load(Ordering::Acquire) && mux.shutdown_owners.is_empty()
+        });
         let reconciled =
             completed && injected.load(Ordering::Acquire) && mux.shutdown_owners.is_empty();
         if !reconciled {

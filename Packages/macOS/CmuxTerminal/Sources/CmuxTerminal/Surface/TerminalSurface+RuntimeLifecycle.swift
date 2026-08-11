@@ -762,10 +762,20 @@ extension TerminalSurface {
     }
 
     @MainActor
-    private func runtimeSurfaceOwnershipRecoveryFailure()
+    private func runtimeSurfaceOwnershipRecoveryFailure(
+        generation: UInt64
+    )
         -> TerminalSurfaceRuntimeOwnershipRecoveryFailure {
         { [weak self] in
-            self?.failRuntimeSurfaceCreationForTeardownCapacity()
+            guard let self,
+                  self.runtimeSurfaceAdmissionCreationGeneration == generation,
+                  self.surface == nil,
+                  self.runtimeSurfaceAdmissionDeferredCreationSource != nil else {
+                return
+            }
+            self.failRuntimeSurfaceCreationForTeardownCapacity(
+                preservingRecoveryOwner: true
+            )
         }
     }
 
@@ -774,6 +784,9 @@ extension TerminalSurface {
         view: any TerminalSurfaceNativeViewing,
         source: RuntimeSurfaceCreationSource
     ) -> TerminalSurfaceRuntimeOwnershipReservation? {
+        precondition(runtimeSurfaceAdmissionCreationGeneration < UInt64.max)
+        runtimeSurfaceAdmissionCreationGeneration += 1
+        let creationGeneration = runtimeSurfaceAdmissionCreationGeneration
         runtimeSurfaceAdmissionDeferredCreationSource =
             (
                 runtimeSurfaceAdmissionDeferredCreationSource
@@ -787,7 +800,9 @@ extension TerminalSurface {
                 onRecovery: runtimeSurfaceOwnershipRecovery(
                     teardownCoordinator: teardownCoordinator
                 ),
-                onFailure: runtimeSurfaceOwnershipRecoveryFailure()
+                onFailure: runtimeSurfaceOwnershipRecoveryFailure(
+                    generation: creationGeneration
+                )
             )
         switch admissionResult {
         case .reserved(let reservation):
@@ -817,7 +832,7 @@ extension TerminalSurface {
             }
             return nil
         case .closeTeardownStalled:
-            failRuntimeSurfaceCreationForTeardownCapacity()
+            retainRuntimeSurfaceCreationUntilTeardownRecovers()
             return nil
         }
     }
@@ -849,7 +864,9 @@ extension TerminalSurface {
                 onRecovery: runtimeSurfaceOwnershipRecovery(
                     teardownCoordinator: teardownCoordinator
                 ),
-                onFailure: runtimeSurfaceOwnershipRecoveryFailure(),
+                onFailure: runtimeSurfaceOwnershipRecoveryFailure(
+                    generation: runtimeSurfaceAdmissionCreationGeneration
+                ),
                 capacityReservation: capacityReservation
             )
         switch admissionResult {
@@ -868,7 +885,9 @@ extension TerminalSurface {
             teardownCoordinator
                 .requestRuntimeSurfaceOwnershipRecoveryRescan()
         case .closeTeardownStalled:
-            failRuntimeSurfaceCreationForTeardownCapacity()
+            failRuntimeSurfaceCreationForTeardownCapacity(
+                preservingRecoveryOwner: true
+            )
         }
     }
 
@@ -904,14 +923,38 @@ extension TerminalSurface {
         runtimeTeardown.cancelRuntimeSurfaceOwnershipRecovery(id)
         runtimeTeardown
             .cancelRuntimeSurfaceOwnershipRecoveryOverflow(surfaceID: id)
+        precondition(runtimeSurfaceAdmissionCreationGeneration < UInt64.max)
+        runtimeSurfaceAdmissionCreationGeneration += 1
         runtimeSurfaceAdmissionOverflowSequence = nil
         runtimeSurfaceAdmissionDeferredCreationSource = nil
         runtimeSurfaceAdmissionDeferredCreationView = nil
     }
 
     @MainActor
-    func failRuntimeSurfaceCreationForTeardownCapacity() {
-        cancelRuntimeSurfaceCreationAfterAdmissionRecovery()
+    private func retainRuntimeSurfaceCreationUntilTeardownRecovers() {
+        let registration = runtimeTeardown
+            .registerRuntimeSurfaceOwnershipRecoveryOverflow(
+                surfaceID: id,
+                surface: self
+            )
+        switch registration {
+        case .registered(let sequence), .updated(let sequence):
+            runtimeSurfaceAdmissionOverflowSequence = sequence
+            failRuntimeSurfaceCreationForTeardownCapacity(
+                preservingRecoveryOwner: true
+            )
+        case .rejected:
+            failRuntimeSurfaceCreationForTeardownCapacity()
+        }
+    }
+
+    @MainActor
+    func failRuntimeSurfaceCreationForTeardownCapacity(
+        preservingRecoveryOwner: Bool = false
+    ) {
+        if !preservingRecoveryOwner {
+            cancelRuntimeSurfaceCreationAfterAdmissionRecovery()
+        }
         paneHost.showRuntimeSurfaceCreationFailure(
             message: String(
                 localized: "terminal.surface.runtimeCreation.capacityExceeded",
@@ -1069,6 +1112,7 @@ extension TerminalSurface {
         registry.registerRuntimeSurface(createdSurface, ownerId: id)
         cacheControllingTTYIdentity(for: createdSurface)
         recordRuntimeSurfaceCreation()
+        paneHost.clearRuntimeSurfaceCreationFailure()
         // Install the shared PTY tee so output consumers receive every byte
         // the read thread produces, in order, before the VT parser runs.
         // Paired iPhones consume these bytes via `terminal.bytes` events

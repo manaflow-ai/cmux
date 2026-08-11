@@ -17,6 +17,7 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler:
     let surfaceID: UUID
     let sequence: UInt64
     weak var surface: TerminalSurface?
+    var failureReported = false
     var previousID: UUID?
     var nextID: UUID?
 
@@ -41,6 +42,7 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler:
     var headID: UUID?
     var tailID: UUID?
     var failureThroughSequence: UInt64?
+    var failureCursorID: UUID?
     var rescanRequested = false
     var rescanTask: Task<Void, Never>?
   }
@@ -89,6 +91,7 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler:
       state.withLockUnchecked { state in
         if let entry = state.entriesByID[surfaceID] {
           entry.surface = surface
+          entry.failureReported = false
           state.rescanRequested = true
           prepareRescanTaskIfNeeded(state: &state, startGate: &startGate)
           return .updated(sequence: entry.sequence)
@@ -151,6 +154,9 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler:
         state.failureThroughSequence ?? 0,
         tail.sequence
       )
+      if state.failureCursorID == nil {
+        state.failureCursorID = state.headID
+      }
       state.rescanRequested = true
       prepareRescanTaskIfNeeded(state: &state, startGate: &startGate)
     }
@@ -186,21 +192,13 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler:
     var processedCount = 0
     if shouldRun {
       while processedCount < Self.maximumBatchCount {
-        if let failedEntry = state.withLockUnchecked({ state -> OverflowEntry? in
-          guard let cutoff = state.failureThroughSequence,
-            let headID = state.headID,
-            let entry = state.entriesByID[headID],
-            entry.sequence <= cutoff
-          else {
-            normalizeFailureCutoff(in: &state)
-            return nil
-          }
-          _ = removeOverflow(surfaceID: entry.surfaceID, from: &state)
-          normalizeFailureCutoff(in: &state)
-          return entry
+        if let failedEntry = state.withLockUnchecked({ state in
+          takeNextFailureEntry(from: &state)
         }) {
           failedEntry.surface?
-            .failRuntimeSurfaceCreationForTeardownCapacity()
+            .failRuntimeSurfaceCreationForTeardownCapacity(
+              preservingRecoveryOwner: true
+            )
           processedCount += 1
           continue
         }
@@ -295,23 +293,34 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler:
     } else {
       state.tailID = entry.previousID
     }
+    if state.failureCursorID == surfaceID {
+      state.failureCursorID = entry.nextID
+    }
     if state.entriesByID.isEmpty {
       state.headID = nil
       state.tailID = nil
       state.failureThroughSequence = nil
+      state.failureCursorID = nil
       state.rescanRequested = false
     }
     return entry
   }
 
-  private func normalizeFailureCutoff(in state: inout State) {
-    guard let cutoff = state.failureThroughSequence else { return }
-    guard let headID = state.headID,
-      let head = state.entriesByID[headID],
-      head.sequence <= cutoff
-    else {
-      state.failureThroughSequence = nil
-      return
+  private func takeNextFailureEntry(
+    from state: inout State
+  ) -> OverflowEntry? {
+    guard let cutoff = state.failureThroughSequence else { return nil }
+    while let currentID = state.failureCursorID,
+      let entry = state.entriesByID[currentID]
+    {
+      guard entry.sequence <= cutoff else { break }
+      state.failureCursorID = entry.nextID
+      guard !entry.failureReported else { continue }
+      entry.failureReported = true
+      return entry
     }
+    state.failureThroughSequence = nil
+    state.failureCursorID = nil
+    return nil
   }
 }

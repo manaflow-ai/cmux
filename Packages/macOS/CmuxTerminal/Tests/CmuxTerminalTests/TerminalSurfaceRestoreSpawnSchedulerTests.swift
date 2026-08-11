@@ -634,28 +634,43 @@ import CmuxTerminalCore
         #expect(scheduler.scheduledSurfaceIds.last == fixtures[0].surface.id)
     }
 
+    @Test func successfulRuntimeSurfaceCreationClearsCapacityFailure() {
+        let fixture = makeSurfaceFixture(
+            registry: FakeSurfaceRegistry(),
+            scheduler: RecordingRestoreSpawnScheduler(),
+            runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator()
+        )
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in }
+        defer {
+            fixture.surface.releaseSurfaceForTesting()
+            TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil
+        }
+
+        fixture.surface.failRuntimeSurfaceCreationForTeardownCapacity()
+        #expect(
+            fixture.paneHost.activeRuntimeSurfaceCreationFailureMessage != nil
+        )
+
+        fixture.surface.installRuntimeSurfaceForTesting(
+            UnsafeMutableRawPointer(bitPattern: 0x7542)!
+        )
+
+        #expect(
+            fixture.paneHost.activeRuntimeSurfaceCreationFailureMessage == nil
+        )
+    }
+
     @Test func stalledCloseWorkersFailDeferredCreationAndRecoverSafely() async throws {
         let clock = ManualTerminalSurfaceRuntimeTeardownClock()
         let stalledSlots = AsyncStream<Int>.makeStream()
-        let recoveredSlots = AsyncStream<Int>.makeStream()
-        let releaseFirstRecoveredSlot = DispatchSemaphore(value: 0)
-        let shouldBlockRecoveredSlot = OSAllocatedUnfairLock(initialState: true)
+        let finishFreeStarted = DispatchSemaphore(value: 0)
+        let releaseFinishFree = DispatchSemaphore(value: 0)
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
             maximumRuntimeSurfaceOwnerCount: 2,
             closeTeardownTimeout: .seconds(5),
             closeTeardownClock: clock,
             closeTeardownStalledObserver: { slot in
                 stalledSlots.continuation.yield(slot)
-            },
-            closeTeardownRecoveredObserver: { slot in
-                recoveredSlots.continuation.yield(slot)
-                let shouldBlock = shouldBlockRecoveredSlot.withLock { shouldBlock in
-                    defer { shouldBlock = false }
-                    return shouldBlock
-                }
-                if shouldBlock {
-                    releaseFirstRecoveredSlot.wait()
-                }
             }
         )
         let pointers = (0..<2).map { _ in
@@ -673,13 +688,18 @@ import CmuxTerminalCore
             }
             freeStarted.continuation.finish()
             stalledSlots.continuation.finish()
-            recoveredSlots.continuation.finish()
-            releaseFirstRecoveredSlot.signal()
+            releaseFinishFree.signal()
         }
         let reservations = try (0..<2).map { _ in
             try #require(coordinator.reserveRuntimeSurfaceOwnership())
         }
         let tickets = try pointers.enumerated().map { index, pointer in
+            let byteTeeLease: (any TerminalByteTeeLease)? = index == 0
+                ? FakeTerminalByteTeeLease {
+                    finishFreeStarted.signal()
+                    releaseFinishFree.wait()
+                }
+                : nil
             try #require(
                 coordinator.enqueueRuntimeTeardown(
                     id: UUID(),
@@ -688,7 +708,7 @@ import CmuxTerminalCore
                     surface: pointer,
                     callbackContext: nil,
                     manualIOContext: nil,
-                    byteTeeLease: nil,
+                    byteTeeLease: byteTeeLease,
                     runtimeOwnershipReservation: reservations[index],
                     freeSurface: { pointer in
                         freeStarted.continuation.yield(index)
@@ -747,10 +767,13 @@ import CmuxTerminalCore
             )
             #expect(
                 deferredFixtures[index].surface
-                    .runtimeSurfaceAdmissionDeferredCreationSource == nil
+                    .runtimeSurfaceAdmissionDeferredCreationSource != nil
             )
         }
-        assertOverflowStorageIsEmpty(coordinator)
+        #expect(
+            coordinator.debugRuntimeSurfaceOwnershipRecoveryOverflowSnapshot
+                .entryCount == 1
+        )
 
         let rejectedAfterStall = makeSurfaceFixture(
             registry: registry,
@@ -767,16 +790,36 @@ import CmuxTerminalCore
             try #require(await postStallFailureIterator.next())
                 == expectedMessage
         )
-
-        var recoveredSlotIterator = recoveredSlots.stream.makeAsyncIterator()
-        releaseFrees[0].signal()
-        _ = try #require(await recoveredSlotIterator.next())
         #expect(
-            !coordinator.debugCloseTeardownAllStalled,
+            rejectedAfterStall.surface
+                .runtimeSurfaceAdmissionDeferredCreationSource != nil
+        )
+        let firstDeferredAttemptCount = deferredFixtures[0].surface
+            .debugRuntimeSurfaceCreateAttemptCountForTesting()
+
+        let stalledStateAfterFree = Task.detached {
+            finishFreeStarted.wait()
+            let stalled = coordinator.debugCloseTeardownAllStalled
+            releaseFinishFree.signal()
+            return stalled
+        }
+        releaseFrees[0].signal()
+        let remainedAllStalled = await stalledStateAfterFree.value
+        #expect(
+            !remainedAllStalled,
             "returned close worker retained the all-stalled admission failure"
         )
-        releaseFirstRecoveredSlot.signal()
         #expect(await tickets[0].wait(timeout: nil))
+        await waitForMainActorQueueBarrier()
+        #expect(
+            deferredFixtures[0].surface
+                .debugRuntimeSurfaceCreateAttemptCountForTesting()
+                == firstDeferredAttemptCount + 1
+        )
+        #expect(
+            deferredFixtures[0].surface
+                .runtimeSurfaceAdmissionDeferredCreationSource == nil
+        )
         #expect(
             freedPointerBits.withLock { $0 }
                 == [UInt(bitPattern: pointers[0])]
@@ -794,6 +837,86 @@ import CmuxTerminalCore
                 == Set(pointers.map { UInt(bitPattern: $0) })
         )
         #expect(coordinator.debugRuntimeSurfaceOwnerCount == 0)
+    }
+
+    @Test func completedFailureBatchRescansOverflowAndIgnoresStaleFailure() async throws {
+        let capacity = 34
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
+            maximumRuntimeSurfaceOwnerCount: capacity
+        )
+        let owners = try (0..<capacity).map { _ in
+            try #require(coordinator.reserveRuntimeSurfaceOwnership())
+        }
+        defer {
+            for owner in owners {
+                coordinator.cancelRuntimeSurfaceOwnership(owner)
+            }
+        }
+        let registry = FakeSurfaceRegistry()
+        let scheduler = RecordingRestoreSpawnScheduler()
+        let fixtures = (0..<capacity).map { _ in
+            makeSurfaceFixture(
+                registry: registry,
+                scheduler: scheduler,
+                runtimeTeardown: coordinator
+            )
+        }
+        for (index, fixture) in fixtures.enumerated() {
+            fixture.surface.createSurface(for: fixture.nativeView)
+            scheduler.runScheduledOperation(at: index)
+        }
+
+        let failures = coordinator.runtimeOwnershipAdmission
+            .failRecoveriesForAllStalledCloseTeardowns()
+        #expect(failures.count == capacity)
+        coordinator.runtimeOwnershipAdmission.clearAllStalledCloseTeardowns()
+
+        let overflow = makeSurfaceFixture(
+            registry: registry,
+            scheduler: scheduler,
+            runtimeTeardown: coordinator
+        )
+        overflow.surface.createSurface(for: overflow.nativeView)
+        scheduler.runScheduledOperation(at: capacity)
+        await waitForMainActorQueueBarrier()
+        #expect(
+            coordinator.debugRuntimeSurfaceOwnershipRecoveryOverflowSnapshot
+                .headID == overflow.surface.id
+        )
+
+        for failure in failures.prefix(32) {
+            failure()
+        }
+        coordinator.cancelRuntimeSurfaceOwnership(owners[0])
+        let target = try #require(fixtures.last)
+        let targetAttemptCount = target.surface
+            .debugRuntimeSurfaceCreateAttemptCountForTesting()
+        target.surface.createSurface(
+            for: target.nativeView,
+            source: .inputDemand
+        )
+        #expect(
+            target.surface.debugRuntimeSurfaceCreateAttemptCountForTesting()
+                == targetAttemptCount + 1
+        )
+
+        coordinator.runtimeOwnershipAdmission
+            .completeStalledCloseRecoveryFailures(32)
+        await waitForMainActorQueueBarrier()
+        #expect(
+            coordinator.debugRuntimeSurfaceOwnershipRecoveryOverflowSnapshot
+                .headID == nil
+        )
+
+        for failure in failures.suffix(from: 32) {
+            failure()
+        }
+        coordinator.runtimeOwnershipAdmission
+            .completeStalledCloseRecoveryFailures(capacity - 32)
+        #expect(target.paneHost.runtimeSurfaceCreationFailureMessages.isEmpty)
+        overflow.surface.beginPortalCloseLifecycle(
+            reason: "test.completedFailureBatch"
+        )
     }
 
     @Test func lifecycleCancellationSynchronouslyRemovesOverflowEntries() throws {
@@ -1422,5 +1545,11 @@ import CmuxTerminalCore
         #expect(snapshot.linkedNodeCount == 0)
         #expect(snapshot.headID == nil)
         #expect(snapshot.tailID == nil)
+    }
+
+    private func waitForMainActorQueueBarrier() async {
+        await Task.detached {
+            await MainActor.run {}
+        }.value
     }
 }
