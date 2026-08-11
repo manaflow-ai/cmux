@@ -5886,6 +5886,45 @@ fn journal_agent_future_socket_from_different_session_preserves_hook_session() {
 }
 
 #[test]
+fn journal_agent_later_socket_session_replaces_active_socket_session() {
+    let mut registry =
+        WorkspaceRegistry::in_memory("journal-agent-new-active-socket-session").unwrap();
+    commit_terminal_topology(&mut registry, "journal-agent-new-active-socket-session-topology");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    for (revision, source_session) in [(1, "socket-session-a"), (2, "socket-session-b")] {
+        let result = json!({
+            "id":agent_resource(&terminal_id),
+            "session_id":registry.session_id(),
+            "terminal_id":terminal_id,
+            "state":"working",
+            "source":"socket",
+            "updated_at_ms":revision.to_string(),
+            "source_session":source_session,
+            "extra":{},
+        });
+        registry
+            .commit_agent_projection(
+                &WorkspaceMutation::new(
+                    format!("journal-agent-new-active-socket-session-{revision}"),
+                    "socket-test",
+                )
+                .unwrap(),
+                &json!({"source_session":source_session}),
+                Some(revision),
+                &terminal_id,
+                &result,
+                &json!([]),
+            )
+            .unwrap();
+    }
+
+    let agent = registry.public_projections().unwrap().agents.remove(0);
+    assert_eq!(agent.state, "working");
+    assert_eq!(agent.source, "socket");
+    assert_eq!(agent.source_session.as_deref(), Some("socket-session-b"));
+}
+
+#[test]
 fn journal_agent_socket_with_missing_session_preserves_hook_identity() {
     let mut registry =
         WorkspaceRegistry::in_memory("journal-agent-socket-missing-session").unwrap();

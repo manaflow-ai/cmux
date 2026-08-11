@@ -715,6 +715,14 @@ fn merge_projection(
     if next.begins_session {
         return next;
     }
+    let different_structured_socket_session = current.source == "socket"
+        && next.source == "socket"
+        && current.source_session.is_some()
+        && next.source_session.is_some()
+        && current.source_session != next.source_session;
+    if different_structured_socket_session {
+        return next;
+    }
     let same_session_identity = current.source_session.is_some()
         && current.source_session == next.source_session
         && current.provider.is_some()
