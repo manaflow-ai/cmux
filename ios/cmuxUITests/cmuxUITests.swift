@@ -1437,6 +1437,9 @@ final class cmuxUITests: XCTestCase {
         let afterID = "MobileWorkspaceRow-workspace-mixed-after"
         let selectedProbeID =
             "MobileWorkspaceListPreviewSelection-workspace-mixed-alpha-inactive"
+        let computerOrderTileID = "MobileWorkspaceSortTile-computerPriority"
+        let recentTileID = "MobileWorkspaceSortTile-recentActivity"
+        let automaticTileID = "MobileWorkspaceSortTile-automatic"
 
         let workspaceList = element("MobileWorkspaceList")
         XCTAssertTrue(workspaceList.waitForExistence(timeout: 8))
@@ -1446,14 +1449,10 @@ final class cmuxUITests: XCTestCase {
 
         // Choose Computer Order through the production view-options control.
         tap(filterButton, in: app)
-        let computerOrderTile = app.buttons[
-            "MobileWorkspaceSortTile-computerPriority"
-        ]
+        let computerOrderTile = element(computerOrderTileID)
         XCTAssertTrue(waitForHittable(computerOrderTile, timeout: 3))
         tap(computerOrderTile, in: app)
-        XCTAssertTrue(
-            app.buttons["MobileWorkspaceSortTile-computerPriority"].isSelected
-        )
+        XCTAssertTrue(element(computerOrderTileID).isSelected)
         capture("workspace-groups-01-computer-order-control")
         dismissViewOptions()
 
@@ -1498,15 +1497,13 @@ final class cmuxUITests: XCTestCase {
         // Exercise every sort tile. Selection identity survives both reorder
         // transitions, and Automatic restores the incoming grouped topology.
         tap(filterButton, in: app)
-        let recentTileID = "MobileWorkspaceSortTile-recentActivity"
-        tap(app.buttons[recentTileID], in: app)
+        tap(element(recentTileID), in: app)
         XCTAssertTrue(element(selectedProbeID).exists)
-        XCTAssertTrue(app.buttons[recentTileID].isSelected)
+        XCTAssertTrue(element(recentTileID).isSelected)
         capture("workspace-groups-05-recent-activity-control")
-        let automaticTileID = "MobileWorkspaceSortTile-automatic"
-        tap(app.buttons[automaticTileID], in: app)
+        tap(element(automaticTileID), in: app)
         XCTAssertTrue(element(selectedProbeID).exists)
-        XCTAssertTrue(app.buttons[automaticTileID].isSelected)
+        XCTAssertTrue(element(automaticTileID).isSelected)
         capture("workspace-groups-06-automatic-control")
         dismissViewOptions()
         XCTAssertNotNil(orderedFrames(computerOrder, state: "Automatic"))
@@ -1514,8 +1511,8 @@ final class cmuxUITests: XCTestCase {
         capture("workspace-groups-07-automatic-grouped")
 
         tap(filterButton, in: app)
-        tap(app.buttons[recentTileID], in: app)
-        XCTAssertTrue(app.buttons[recentTileID].isSelected)
+        tap(element(recentTileID), in: app)
+        XCTAssertTrue(element(recentTileID).isSelected)
         dismissViewOptions()
         let recentActivityOrder = [
             afterID,
@@ -1632,9 +1629,9 @@ final class cmuxUITests: XCTestCase {
         tap(filterButton, in: app)
         XCTAssertTrue(app.staticTexts["All Workspaces"].waitForExistence(timeout: 3))
         XCTAssertFalse(element("MobileWorkspaceSortPicker").exists)
-        XCTAssertFalse(app.buttons[recentTileID].exists)
-        XCTAssertFalse(app.buttons[automaticTileID].exists)
-        XCTAssertFalse(app.buttons["MobileWorkspaceSortTile-computerPriority"].exists)
+        XCTAssertFalse(element(recentTileID).exists)
+        XCTAssertFalse(element(automaticTileID).exists)
+        XCTAssertFalse(element(computerOrderTileID).exists)
         capture("workspace-groups-15-single-computer-hides-sort")
         dismissViewOptions()
 
@@ -1697,22 +1694,19 @@ final class cmuxUITests: XCTestCase {
         captureSidebar("workspace-groups-17-visible-selection-computer-order")
 
         tap(sidebarFilter, in: sidebarApp)
-        tap(sidebarApp.buttons[recentTileID], in: sidebarApp)
+        tap(sidebarElement(recentTileID), in: sidebarApp)
         dismissSidebarViewOptions()
         XCTAssertTrue(sidebarSelectedRow.isSelected)
         captureSidebar("workspace-groups-18-visible-selection-recent-activity")
 
         tap(sidebarFilter, in: sidebarApp)
-        tap(sidebarApp.buttons[automaticTileID], in: sidebarApp)
+        tap(sidebarElement(automaticTileID), in: sidebarApp)
         dismissSidebarViewOptions()
         XCTAssertTrue(sidebarSelectedRow.isSelected)
         captureSidebar("workspace-groups-19-visible-selection-automatic")
 
         tap(sidebarFilter, in: sidebarApp)
-        tap(
-            sidebarApp.buttons["MobileWorkspaceSortTile-computerPriority"],
-            in: sidebarApp
-        )
+        tap(sidebarElement(computerOrderTileID), in: sidebarApp)
         dismissSidebarViewOptions()
         XCTAssertTrue(sidebarSelectedRow.isSelected)
         captureSidebar("workspace-groups-20-visible-selection-computer-order-restored")
