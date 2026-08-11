@@ -765,7 +765,7 @@ struct TerminalSurfaceLaunchResolverTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func stalledCommandShimRemovalKeepsTheProcessRemovalLaneOccupied() async throws {
+    func stalledCommandShimRemovalRejectsAdditionalOwnedWork() async throws {
         let firstShims = TerminalSurfaceAgentCommandShimSet(
             directoryPath: "/tmp/stalled-command-shims",
             shims: []
@@ -805,14 +805,14 @@ struct TerminalSurfaceLaunchResolverTests {
         clock.advance(by: .seconds(5))
         #expect(!(await firstRelease.value))
 
-        let secondRelease = Task { await secondState.release(removalClock: clock) }
-        try await clock.waitUntilSleepers()
-        #expect(await remover.invocationCount == 1)
-        clock.advance(by: .seconds(5))
-        #expect(!(await secondRelease.value))
+        let secondReleaseSucceeded = await secondState.release(removalClock: clock)
 
-        await remover.complete()
-        await remover.waitUntilInvocation(count: 2)
+        #expect(!secondReleaseSucceeded)
+        #expect(await remover.invocationCount == 1)
+        #expect(failures.failureCount == 2)
+        #expect(failures.lastFailure?.0 == secondShims)
+        #expect(failures.lastFailure?.1 == "command shim removal lane is occupied")
+
         await remover.complete()
     }
 

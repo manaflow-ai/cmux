@@ -50,20 +50,9 @@ private actor TerminalSurfaceAgentCommandShimRemovalRequest {
 }
 
 actor TerminalSurfaceAgentCommandShimRemovalLane {
-    private struct PendingRemoval: Sendable {
-        let directoryPath: String
-        let shims: TerminalSurfaceAgentCommandShimSet
-        let attemptLimit: Int
-        let operation:
-            @Sendable (TerminalSurfaceAgentCommandShimSet) async throws -> Void
-        let reportFailure:
-            @Sendable (TerminalSurfaceAgentCommandShimSet, String) -> Void
-        let request: TerminalSurfaceAgentCommandShimRemovalRequest
-    }
-
-    private var pendingRemovals: [PendingRemoval] = []
-    private var nextPendingRemovalIndex = 0
-    private var requests: [String: TerminalSurfaceAgentCommandShimRemovalRequest] = [:]
+    private var activeDirectoryPath: String?
+    private var activeRequest: TerminalSurfaceAgentCommandShimRemovalRequest?
+    private var activeWorkerID: UUID?
     private var worker: Task<Void, Never>?
 
     fileprivate func submit(
@@ -73,43 +62,30 @@ actor TerminalSurfaceAgentCommandShimRemovalLane {
         @escaping @Sendable (TerminalSurfaceAgentCommandShimSet) async throws -> Void,
         reportFailure:
         @escaping @Sendable (TerminalSurfaceAgentCommandShimSet, String) -> Void
-    ) -> TerminalSurfaceAgentCommandShimRemovalRequest {
+    ) async -> TerminalSurfaceAgentCommandShimRemovalRequest {
         precondition(attemptLimit > 0)
-        if let request = requests[shims.directoryPath] { return request }
-        let request = TerminalSurfaceAgentCommandShimRemovalRequest()
-        requests[shims.directoryPath] = request
-        pendingRemovals.append(
-            PendingRemoval(
-                directoryPath: shims.directoryPath,
-                shims: shims,
-                attemptLimit: attemptLimit,
-                operation: operation,
-                reportFailure: reportFailure,
-                request: request
-            )
-        )
-        startWorkerIfNeeded()
-        return request
-    }
-
-    private func startWorkerIfNeeded() {
-        guard worker == nil else { return }
-        worker = Task { [weak self] in
-            guard let self else { return }
-            await self.drainPendingRemovals()
+        if activeDirectoryPath == shims.directoryPath, let activeRequest {
+            return activeRequest
         }
-    }
+        let request = TerminalSurfaceAgentCommandShimRemovalRequest()
+        guard worker == nil else {
+            let description = "command shim removal lane is occupied"
+            reportFailure(shims, description)
+            await request.resolve(.failure(description))
+            return request
+        }
 
-    private func drainPendingRemovals() async {
-        while nextPendingRemovalIndex < pendingRemovals.count {
-            let pending = pendingRemovals[nextPendingRemovalIndex]
-            nextPendingRemovalIndex += 1
+        let workerID = UUID()
+        activeDirectoryPath = shims.directoryPath
+        activeRequest = request
+        activeWorkerID = workerID
+        worker = Task.detached(priority: .utility) { [weak self] in
             var outcome = TerminalSurfaceShimRemovalOutcome.failure(
                 "command shim removal made no attempt"
             )
-            for _ in 0..<pending.attemptLimit {
+            for _ in 0..<attemptLimit {
                 do {
-                    try await pending.operation(pending.shims)
+                    try await operation(shims)
                     outcome = .success
                     break
                 } catch {
@@ -117,13 +93,19 @@ actor TerminalSurfaceAgentCommandShimRemovalLane {
                 }
             }
             if case let .failure(description) = outcome {
-                pending.reportFailure(pending.shims, description)
+                reportFailure(shims, description)
             }
-            await pending.request.resolve(outcome)
-            requests[pending.directoryPath] = nil
+            await request.resolve(outcome)
+            await self?.finish(workerID: workerID)
         }
-        pendingRemovals.removeAll(keepingCapacity: true)
-        nextPendingRemovalIndex = 0
+        return request
+    }
+
+    private func finish(workerID: UUID) {
+        guard activeWorkerID == workerID else { return }
+        activeDirectoryPath = nil
+        activeRequest = nil
+        activeWorkerID = nil
         worker = nil
     }
 }

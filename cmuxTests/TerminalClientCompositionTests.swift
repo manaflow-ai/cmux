@@ -4293,6 +4293,7 @@ private final class TerminalBackendManualClock: Clock, @unchecked Sendable {
 
 private enum ReconnectSupervisorTestError: Error {
     case streamEnded
+    case timedOut
 }
 
 private actor ScriptedBackendReadiness {
