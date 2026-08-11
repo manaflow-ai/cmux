@@ -21440,7 +21440,7 @@ mod tests {
                 terminal_id: host.terminal_id.clone(),
                 incarnation: new_incarnation,
             },
-            public_id.clone(),
+            public_id,
         )
         .unwrap();
         insert_surface_checked(&mux, &mut mux.state.lock().unwrap(), new_surface.clone()).unwrap();
