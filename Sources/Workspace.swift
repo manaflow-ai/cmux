@@ -471,6 +471,14 @@ extension Workspace {
                 ? sessionRestorePolicy.restorableTmuxStartCommand(terminalPanel.surface.debugTmuxStartCommand())
                 : nil
             let agentWasRunning: Bool? = {
+                // A queued or running cmux-authored restore still owns this
+                // terminal even before process discovery catches up. Persist
+                // that durable lifecycle intent ahead of transient shell or
+                // process evidence so an early prompt-idle report cannot drop
+                // the restore on relaunch.
+                if restoredAgentLifecycle.ownsInFlightRestoredCommand(panelId: panelId) {
+                    return true
+                }
                 if let resumeBinding, resumeBinding.isAgentHookBinding {
                     guard let bindingKindValue = Self.normalizedResumeBindingValue(resumeBinding.kind),
                           let bindingKind = RestorableAgentKind(
