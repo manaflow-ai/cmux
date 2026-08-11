@@ -20651,6 +20651,151 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn terminal_exit_scope_includes_an_index_only_alias_in_an_inactive_workspace() {
+        let mux = test_mux();
+        let source = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let terminal_id = source.terminal_public_id().cloned().unwrap();
+        let host = mux.resource_terminal_host_identity(&source).unwrap();
+        let (source_workspace, source_workspace_public_id) = mux.with_state(|state| {
+            let pane = state.pane_of(source.id).unwrap();
+            let (workspace, _) = state.screen_of(pane).unwrap();
+            let workspace = state.workspaces[workspace].id;
+            (workspace, state.resource_indexes.workspace_ids[&workspace].clone())
+        });
+        let inactive = mux.create_empty_workspace(Some("inactive".into()), None, None).unwrap();
+        let (seed, _) = mux
+            .create_terminal_surface_in_workspace(
+                inactive.workspace,
+                None,
+                None,
+                None,
+                Some((80, 24)),
+            )
+            .unwrap();
+        let target_pane = mux.with_state(|state| state.pane_of(seed.id).unwrap());
+        mux.resource_project_terminal_selected(
+            crate::ResourceSelectors {
+                terminal: Some(terminal_id.to_string()),
+                ..Mux::ordinary_resource_selectors()
+            },
+            mux.ordinary_pane_selectors(target_pane).unwrap(),
+            usize::MAX,
+            None,
+            None,
+            &WorkspaceMutation::new("project-terminal-into-inactive-workspace", "test").unwrap(),
+        )
+        .unwrap();
+        let index_only = mux.with_state(|state| {
+            state
+                .placements_of_content(&ContentPublicId::Terminal(terminal_id.clone()))
+                .iter()
+                .filter_map(|surface| state.surfaces.get(surface))
+                .find(|surface| {
+                    state
+                        .pane_of(surface.id)
+                        .and_then(|pane| state.screen_of(pane))
+                        .is_some_and(|(workspace, _)| {
+                            state.workspaces[workspace].id == inactive.workspace
+                        })
+                })
+                .cloned()
+                .unwrap()
+        });
+        let secondary_id = restore_terminal_id(904);
+        let secondary_content = ContentPublicId::Terminal(secondary_id.clone());
+        let index_only_tab = mux.with_state(|state| {
+            state.resource_indexes.tab_ids[&index_only.id].clone()
+        });
+
+        let resource_commit = {
+            let mut registry = mux.workspace_registry.lock().unwrap();
+            let topology = registry.resource_topology_snapshot().unwrap();
+            let mut tab = topology
+                .tabs
+                .iter()
+                .find(|tab| tab.public_id == index_only_tab)
+                .cloned()
+                .unwrap();
+            tab.content_id = secondary_content.clone();
+            tab.terminal_id = Some(host.terminal_id.clone());
+            let terminal = registry.terminal_record(&host.terminal_id).unwrap().unwrap();
+            registry
+                .commit_resource_patch(
+                    &WorkspaceMutation::new("seed-secondary-terminal-alias", "test").unwrap(),
+                    "terminal.project",
+                    &serde_json::json!({"fixture":"secondary-terminal-alias"}),
+                    None,
+                    Some(topology.revision),
+                    &ResourcePatch {
+                        changes: vec![
+                            ResourceChange::UpsertTerminal {
+                                public_id: secondary_id.clone(),
+                                terminal,
+                            },
+                            ResourceChange::UpsertTab(tab),
+                            ResourceChange::SetActiveWorkspace {
+                                workspace_id: Some(source_workspace_public_id),
+                            },
+                        ],
+                    },
+                    &serde_json::json!({}),
+                    &serde_json::json!([]),
+                )
+                .unwrap()
+        };
+        {
+            let mut state = mux.state.lock().unwrap();
+            state.resource_revision = resource_commit.revision;
+            state.active_workspace = state.workspace_index(source_workspace).unwrap();
+            let detached = state.surfaces.remove(&index_only.id).unwrap();
+            unregister_terminal_placement(&mut state, &detached);
+            unregister_terminal_host_placement(&mux, &mut state, &detached);
+            let primary_content = ContentPublicId::Terminal(terminal_id.clone());
+            state
+                .resource_indexes
+                .content_placements
+                .get_mut(&primary_content)
+                .unwrap()
+                .retain(|placement| *placement != index_only.id);
+            state.resource_indexes.content_ids.insert(index_only.id, secondary_content.clone());
+            state
+                .resource_indexes
+                .content_placements
+                .insert(secondary_content, vec![index_only.id]);
+            state.terminal_catalog.insert(secondary_id.clone(), source.clone());
+            state
+                .terminal_catalog_by_host
+                .entry(host.terminal_id.clone())
+                .or_default()
+                .insert(secondary_id);
+        }
+
+        let projection = {
+            let registry = mux.workspace_registry.lock().unwrap();
+            let state = mux.state.lock().unwrap();
+            mux.terminal_exit_detach_projection_locked(
+                &registry,
+                &state,
+                &host.terminal_id,
+                Some(&host.incarnation),
+                &terminal_id,
+            )
+            .unwrap()
+            .unwrap()
+        };
+
+        assert!(projection.tab_ids.contains(&index_only_tab));
+        assert!(projection.patch.changes.iter().any(|change| {
+            matches!(
+                change,
+                ResourceChange::TombstoneTab { tab_id, .. } if tab_id == &index_only_tab
+            )
+        }));
+        mux.shutdown();
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn stale_terminal_exit_rejects_stale_or_missing_incarnation() {
         let mux = test_mux();
         let old_surface = mux.new_workspace(None, Some((80, 24))).unwrap();
