@@ -1571,13 +1571,20 @@ mod tests {
         assert!(!mac_environment_contains(&argv_only, expected));
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
-    fn mac_process_scope_signals_the_current_unique_identity() {
+    fn process_scope_signals_the_current_exact_identity() {
         let pid = std::process::id();
-        let identity = process_identity(pid).unwrap();
-
-        assert!(signal_process_with(identity, libc::SIGCONT));
+        #[cfg(target_os = "macos")]
+        {
+            let identity = process_identity(pid).unwrap();
+            assert!(signal_process_with(identity, libc::SIGCONT));
+        }
+        #[cfg(target_os = "linux")]
+        {
+            let pidfd = pidfd_open(pid).unwrap();
+            pidfd_send_signal(&pidfd, libc::SIGCONT).unwrap();
+        }
     }
 
     #[cfg(target_os = "macos")]
