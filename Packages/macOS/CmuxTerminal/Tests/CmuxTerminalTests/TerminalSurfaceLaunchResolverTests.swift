@@ -157,10 +157,14 @@ struct TerminalSurfaceLaunchResolverTests {
     func commandShimInstallUsesInjectedFiveSecondDeadline() async throws {
         let clock = LaunchResolverManualClock()
         let installer = BlockingCommandShimInstaller()
+        let cleanupRecorder = CommandShimCleanupRecorder()
         let filesystem = TerminalSurfaceRuntimeFilesystem(
             agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp"),
             installAgentCommandShims: { _, _, _ in
                 await installer.install()
+            },
+            removeAgentCommandShims: { shims in
+                await cleanupRecorder.record(shims)
             },
             isExecutableFile: { _ in false }
         )
@@ -202,7 +206,12 @@ struct TerminalSurfaceLaunchResolverTests {
         #expect(await installer.isBlocked)
         #expect(secondResolved.environment["CMUX_AGENT_COMMAND_SHIM_ROOT"] == nil)
 
-        await installer.complete()
+        let lateShims = TerminalSurfaceAgentCommandShimSet(
+            directoryPath: "/tmp/late-command-shims",
+            shims: []
+        )
+        await installer.complete(with: lateShims)
+        #expect(await cleanupRecorder.next() == lateShims)
         let thirdResolution = Task { await resolver.resolveInstallingCommandShim(request) }
         await installer.waitUntilBlocked()
         #expect(await installer.invocationCount == 2)
@@ -287,9 +296,30 @@ private actor BlockingCommandShimInstaller {
         for waiter in waiters { waiter.resume() }
     }
 
-    func complete() {
-        completion?.resume(returning: nil)
+    func complete(with result: TerminalSurfaceAgentCommandShimSet? = nil) {
+        completion?.resume(returning: result)
         completion = nil
+    }
+}
+
+private actor CommandShimCleanupRecorder {
+    private var recorded: [TerminalSurfaceAgentCommandShimSet] = []
+    private var waiters:
+        [CheckedContinuation<TerminalSurfaceAgentCommandShimSet, Never>] = []
+
+    func record(_ shims: TerminalSurfaceAgentCommandShimSet) {
+        guard waiters.isEmpty else {
+            waiters.removeFirst().resume(returning: shims)
+            return
+        }
+        recorded.append(shims)
+    }
+
+    func next() async -> TerminalSurfaceAgentCommandShimSet {
+        guard recorded.isEmpty else { return recorded.removeFirst() }
+        return await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
     }
 }
 
