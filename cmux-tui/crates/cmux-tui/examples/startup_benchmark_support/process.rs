@@ -2201,6 +2201,64 @@ fn find_named_file(root: &Path, name: &str) -> Result<Option<PathBuf>> {
 mod tests {
     use super::*;
 
+    const SENTINEL_PATH_ENV: &str = "CMUX_STARTUP_TEST_SENTINEL_PATH";
+    const START_MARKER_PATH_ENV: &str = "CMUX_STARTUP_TEST_START_MARKER_PATH";
+
+    fn current_test_target() -> Target {
+        Target {
+            kind: TargetKind::Candidate,
+            binary: env::current_exe().unwrap(),
+            source: env::current_dir().unwrap(),
+            sha: "0".repeat(40),
+            expected_binary_sha256: "0".repeat(64),
+            observed_sha: "0".repeat(40),
+            ghostty_sha: "0".repeat(40),
+            zig_version: "test".into(),
+            rust_toolchain: "test".into(),
+            embedded_identity_verified: true,
+            version: "test".into(),
+            launcher: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn direct_launcher_sibling_write_helper() {
+        let Ok(sentinel_path) = env::var(SENTINEL_PATH_ENV) else {
+            return;
+        };
+        let start_marker_path = env::var(START_MARKER_PATH_ENV).unwrap();
+        fs::write(start_marker_path, b"started").unwrap();
+        fs::write(sentinel_path, b"changed").unwrap();
+    }
+
+    #[test]
+    fn direct_product_launch_cannot_change_an_adjacent_sentinel() {
+        let fixture_parent = tempfile::tempdir().unwrap();
+        let mut common =
+            Common::new(current_test_target(), Scenario::Cold, false, fixture_parent.path())
+                .unwrap();
+        let start_marker = common.root.path().join("helper-started");
+        let sentinel = fixture_parent.path().join("protected-sentinel");
+        fs::write(&sentinel, b"protected").unwrap();
+
+        let helper = format!("{}::direct_launcher_sibling_write_helper", module_path!());
+        let mut command =
+            common.std_command(&["--exact".into(), helper, "--nocapture".into()], false).unwrap();
+        command.env(START_MARKER_PATH_ENV, &start_marker);
+        command.env(SENTINEL_PATH_ENV, &sentinel);
+        let captured =
+            run_captured(command, SuiteDeadline::at(Instant::now() + PROCESS_TIMEOUT)).unwrap();
+        assert!(captured.status.success(), "helper test failed with status {:?}", captured.status);
+        common.root.mark_quiescent();
+
+        assert_eq!(fs::read(&start_marker).unwrap(), b"started");
+        assert_eq!(
+            fs::read(&sentinel).unwrap(),
+            b"protected",
+            "the product launcher allowed a child to change a sibling of its fixture root"
+        );
+    }
+
     #[test]
     fn probe_tracker_answers_each_observed_query_once() {
         let mut tracker = ProbeTracker::default();
