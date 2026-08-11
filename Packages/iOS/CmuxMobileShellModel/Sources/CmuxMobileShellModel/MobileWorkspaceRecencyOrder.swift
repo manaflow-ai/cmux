@@ -115,17 +115,12 @@ public struct MobileWorkspaceRecencyOrder: Sendable {
 
             var normalizedWorkspace = workspace
             normalizedWorkspace.groupID = groupID
-            if var members = membersByGroupID[groupID] {
-                members.append(normalizedWorkspace)
-                membersByGroupID[groupID] = members
-            } else {
-                membersByGroupID[groupID] = GroupMembers(
-                    workspaces: [normalizedWorkspace],
-                    firstWorkspaceIndex: index,
-                    newestActivityAt: normalizedWorkspace.lastActivityAt,
-                    containsPinnedWorkspace: normalizedWorkspace.isPinned
-                )
-            }
+            membersByGroupID[groupID, default: GroupMembers(
+                workspaces: [],
+                firstWorkspaceIndex: index,
+                newestActivityAt: nil,
+                containsPinnedWorkspace: false
+            )].append(normalizedWorkspace)
         }
 
         var blocks = ungroupedBlocks
