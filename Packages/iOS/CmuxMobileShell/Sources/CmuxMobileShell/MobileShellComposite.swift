@@ -2845,7 +2845,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
     /// Cached local Tailscale readiness for the current paired-Mac snapshot.
-    private var hasStoredUsableTailscaleAuthorization = false
+    var hasStoredUsableTailscaleAuthorization = false
     /// Load status for ``pairedMacs`` in the current signed-in account/team scope.
     public internal(set) var pairedMacLoadState: PairedMacLoadState = .notLoaded
     /// Visible representative id to all stored ids for that logical paired Mac.
