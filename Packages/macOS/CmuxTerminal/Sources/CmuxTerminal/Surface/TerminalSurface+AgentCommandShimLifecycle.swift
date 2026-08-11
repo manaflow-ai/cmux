@@ -1,22 +1,35 @@
 import Foundation
 
+struct TerminalSurfaceAgentCommandShimPreparation {
+    let commandShims: AgentCommandShimSet?
+    let launchResourceSnapshot: TerminalSurfaceLaunchResourceSnapshot
+}
+
 extension TerminalSurface {
     @MainActor
-    func agentCommandShimStateForSurface(
+    func agentCommandShimPreparationForSurface(
         view: any TerminalSurfaceNativeViewing,
         source: RuntimeSurfaceCreationSource
-    ) -> (isReady: Bool, shims: AgentCommandShimSet?) {
+    ) -> TerminalSurfaceAgentCommandShimPreparation? {
         guard let embeddedRuntime else {
-            agentCommandShimInstallCompleted = true
-            return (true, nil)
+            let preparation = TerminalSurfaceAgentCommandShimPreparation(
+                commandShims: nil,
+                launchResourceSnapshot: .unavailable
+            )
+            agentCommandShimPreparation = preparation
+            return preparation
         }
         guard let wrapperDirectoryURL = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true) else {
-            agentCommandShimInstallCompleted = true
-            return (true, nil)
+            let preparation = TerminalSurfaceAgentCommandShimPreparation(
+                commandShims: nil,
+                launchResourceSnapshot: .unavailable
+            )
+            agentCommandShimPreparation = preparation
+            return preparation
         }
 
-        if agentCommandShimInstallCompleted {
-            return (true, agentCommandShims)
+        if let agentCommandShimPreparation {
+            return agentCommandShimPreparation
         }
 
         agentCommandShimPendingCreationSource =
@@ -109,7 +122,13 @@ extension TerminalSurface {
             #endif
             let installTask = Task.detached(priority: .utility, operation: installOperation)
             agentCommandShimInstallTask = installTask
-            agentCommandShimCompletionTask = Task { @MainActor [weak self, weak view, runtimeFilesystem] in
+            agentCommandShimCompletionTask = Task { @MainActor [weak self, weak view, runtimeFilesystem, launchResourceProvider] in
+                let launchResourceSnapshot: TerminalSurfaceLaunchResourceSnapshot
+                if let launchResourceProvider {
+                    launchResourceSnapshot = await launchResourceProvider.snapshot()
+                } else {
+                    launchResourceSnapshot = .unavailable
+                }
                 let shims = await installTask.value
                 guard !Task.isCancelled else {
                     if let shims {
@@ -123,15 +142,17 @@ extension TerminalSurface {
                     }
                     return
                 }
-                self.agentCommandShims = shims
                 self.agentCommandShimInstallTask = nil
                 self.agentCommandShimCompletionTask = nil
                 self.agentCommandShimInstallLease = nil
                 self.agentCommandShimInstallResultGate = nil
                 self.agentCommandShimDeadlineTask?.cancel()
                 self.agentCommandShimDeadlineTask = nil
-                guard !self.agentCommandShimInstallCompleted else { return }
-                self.agentCommandShimInstallCompleted = true
+                guard self.agentCommandShimPreparation == nil else { return }
+                self.agentCommandShimPreparation = TerminalSurfaceAgentCommandShimPreparation(
+                    commandShims: shims,
+                    launchResourceSnapshot: launchResourceSnapshot
+                )
                 let source = self.agentCommandShimPendingCreationSource ?? source
                 self.agentCommandShimPendingCreationSource = nil
                 self.resumeSurfaceCreationAfterAgentCommandShimsReady(view: view, source: source)
@@ -141,16 +162,26 @@ extension TerminalSurface {
             // starve PTY spawn (#9769).
             let deadline = embeddedRuntime.agentCommandShimInstallDeadline
             let clock = embeddedRuntime.agentCommandShimInstallDeadlineClock
-            agentCommandShimDeadlineTask = Task { @MainActor [weak self, weak view] in
+            agentCommandShimDeadlineTask = Task { @MainActor [weak self, weak view, launchResourceProvider] in
                 try? await clock.sleep(for: deadline, tolerance: nil)
+                let launchResourceSnapshot: TerminalSurfaceLaunchResourceSnapshot
+                if let launchResourceProvider {
+                    launchResourceSnapshot = await launchResourceProvider.completedSnapshot()
+                        ?? .unavailable
+                } else {
+                    launchResourceSnapshot = .unavailable
+                }
                 guard !Task.isCancelled else { return }
-                guard let self, !self.agentCommandShimInstallCompleted else { return }
+                guard let self, self.agentCommandShimPreparation == nil else { return }
                 guard self.agentCommandShimInstallResultGate?.expire() == true else {
                     return
                 }
                 self.agentCommandShimInstallLease?.invalidate()
                 self.agentCommandShimInstallTask?.cancel()
-                self.agentCommandShimInstallCompleted = true
+                self.agentCommandShimPreparation = TerminalSurfaceAgentCommandShimPreparation(
+                    commandShims: nil,
+                    launchResourceSnapshot: launchResourceSnapshot
+                )
                 self.agentCommandShimDeadlineTask = nil
                 let source = self.agentCommandShimPendingCreationSource ?? source
                 self.agentCommandShimPendingCreationSource = nil
@@ -158,7 +189,7 @@ extension TerminalSurface {
             }
         }
 
-        return (false, nil)
+        return nil
     }
 
     @MainActor
@@ -177,8 +208,8 @@ extension TerminalSurface {
         // A deadline-released spawn marks the install completed without
         // shims. Reopen the gate after cancelling that install so a later
         // runtime generation can try again.
-        if agentCommandShims == nil {
-            agentCommandShimInstallCompleted = false
+        if agentCommandShimPreparation?.commandShims == nil {
+            agentCommandShimPreparation = nil
         }
     }
 

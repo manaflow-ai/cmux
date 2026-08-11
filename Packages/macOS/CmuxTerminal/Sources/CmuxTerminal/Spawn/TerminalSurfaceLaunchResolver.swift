@@ -67,17 +67,16 @@ public struct TerminalSurfaceLaunchResourceSnapshot: Sendable, Equatable {
 
 /// Starts one fixed bundle-resource inspection outside the main actor and
 /// shares its immutable result across terminal launches.
-public final class TerminalSurfaceLaunchResourceProvider: @unchecked Sendable {
-    private final class State: @unchecked Sendable {
-        private let lock = NSLock()
+public final class TerminalSurfaceLaunchResourceProvider: Sendable {
+    private actor State {
         private var snapshot: TerminalSurfaceLaunchResourceSnapshot?
 
         func install(_ snapshot: TerminalSurfaceLaunchResourceSnapshot) {
-            lock.withLock { self.snapshot = snapshot }
+            self.snapshot = snapshot
         }
 
         func current() -> TerminalSurfaceLaunchResourceSnapshot? {
-            lock.withLock { snapshot }
+            snapshot
         }
     }
 
@@ -103,7 +102,7 @@ public final class TerminalSurfaceLaunchResourceProvider: @unchecked Sendable {
                 isExecutableFile: isExecutableFile,
                 directoryExists: directoryExists
             )
-            state.install(snapshot)
+            await state.install(snapshot)
             return snapshot
         }
     }
@@ -112,8 +111,8 @@ public final class TerminalSurfaceLaunchResourceProvider: @unchecked Sendable {
         await task.value
     }
 
-    public func currentSnapshotOrUnavailable() -> TerminalSurfaceLaunchResourceSnapshot {
-        state.current() ?? .unavailable
+    public func completedSnapshot() async -> TerminalSurfaceLaunchResourceSnapshot? {
+        await state.current()
     }
 }
 
@@ -226,17 +225,6 @@ public final class TerminalSurfaceLaunchResolver {
 
     /// Resolves spawn environment, command, working directory, and one-shot input.
     public func resolve(
-        _ request: TerminalSurfaceLaunchRequest,
-        commandShims: TerminalSurfaceAgentCommandShimSet?
-    ) -> TerminalSurfaceResolvedLaunch {
-        resolve(
-            request,
-            commandShims: commandShims,
-            launchResourceSnapshot: launchResourceProvider.currentSnapshotOrUnavailable()
-        )
-    }
-
-    private func resolve(
         _ request: TerminalSurfaceLaunchRequest,
         commandShims: TerminalSurfaceAgentCommandShimSet?,
         launchResourceSnapshot: TerminalSurfaceLaunchResourceSnapshot

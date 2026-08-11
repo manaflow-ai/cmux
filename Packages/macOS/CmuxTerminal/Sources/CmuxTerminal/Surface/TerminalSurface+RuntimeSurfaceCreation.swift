@@ -16,7 +16,8 @@ extension TerminalSurface {
         app: ghostty_app_t,
         for view: any TerminalSurfaceNativeViewing,
         scaleFactors: (x: CGFloat, y: CGFloat, layer: CGFloat),
-        agentCommandShims: AgentCommandShimSet?
+        agentCommandShims: AgentCommandShimSet?,
+        launchResourceSnapshot: TerminalSurfaceLaunchResourceSnapshot
     ) -> (createdSurface: ghostty_surface_t?, runtimeInitialInput: String?) {
         guard let embeddedRuntime else { return (nil, nil) }
         let engine = embeddedRuntime.engine
@@ -57,7 +58,8 @@ extension TerminalSurface {
                 initialEnvironmentOverrides: initialEnvironmentOverrides,
                 additionalEnvironment: additionalEnvironment
             ),
-            commandShims: agentCommandShims
+            commandShims: agentCommandShims,
+            launchResourceSnapshot: launchResourceSnapshot
         )
         var surfaceConfig = ghostty_surface_config_new()
         let magnificationPercent = globalFontMagnificationPercent()

@@ -38,7 +38,8 @@ struct TerminalSurfaceLaunchResolverTests {
                     "ADDED": "added",
                 ]
             ),
-            commandShims: nil
+            commandShims: nil,
+            launchResourceSnapshot: .unavailable
         )
 
         #expect(resolved.workingDirectory == "/request")
@@ -72,7 +73,8 @@ struct TerminalSurfaceLaunchResolverTests {
                 initialEnvironmentOverrides: [:],
                 additionalEnvironment: [:]
             ),
-            commandShims: nil
+            commandShims: nil,
+            launchResourceSnapshot: .unavailable
         )
 
         #expect(resolved.command == nil)
@@ -99,7 +101,8 @@ struct TerminalSurfaceLaunchResolverTests {
                 initialEnvironmentOverrides: ["SHELL": "/bin/zsh"],
                 additionalEnvironment: ["SHELL": "/usr/local/bin/nu"]
             ),
-            commandShims: nil
+            commandShims: nil,
+            launchResourceSnapshot: .unavailable
         )
 
         #expect(resolved.environment["SHELL"] == "/opt/homebrew/bin/fish")
@@ -124,7 +127,8 @@ struct TerminalSurfaceLaunchResolverTests {
                 initialEnvironmentOverrides: [:],
                 additionalEnvironment: [:]
             ),
-            commandShims: nil
+            commandShims: nil,
+            launchResourceSnapshot: .unavailable
         )
 
         #expect(resolved.command == nil)
@@ -146,7 +150,8 @@ struct TerminalSurfaceLaunchResolverTests {
                 initialEnvironmentOverrides: [:],
                 additionalEnvironment: [:]
             ),
-            commandShims: nil
+            commandShims: nil,
+            launchResourceSnapshot: .unavailable
         )
 
         #expect(resolved.command == nil)
@@ -177,14 +182,21 @@ struct TerminalSurfaceLaunchResolverTests {
             additionalEnvironment: [:]
         )
 
-        _ = await resolver.resolveInstallingCommandShim(request)
-        _ = await resolver.resolveInstallingCommandShim(request)
+        let firstResolved = await resolver.resolveInstallingCommandShim(request)
+        let secondResolved = await resolver.resolveInstallingCommandShim(request)
 
         #expect(recorder.paths == [
             "/tmp/cmux-test-resources/bin/cmux",
             "/tmp/cmux-test-resources/bin/ghostty",
         ])
         #expect(!recorder.checkedOnMainThread)
+        #expect(
+            firstResolved.environment["CMUX_BUNDLED_CLI_PATH"]
+                == "/tmp/cmux-test-resources/bin/cmux"
+        )
+        #expect(firstResolved.environment["GHOSTTY_BIN"] == "/tmp/cmux-test-resources/bin/ghostty")
+        #expect(firstResolved.environment["PATH"] == "/tmp/cmux-test-resources/bin:/usr/bin")
+        #expect(secondResolved.environment == firstResolved.environment)
     }
 
     @Test(.timeLimit(.minutes(1)))

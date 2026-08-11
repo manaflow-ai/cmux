@@ -27,7 +27,7 @@ import CmuxTerminalCore
         )
         let scheduler = RecordingRestoreSpawnScheduler()
         let surface = makeSurface(scheduler: scheduler, nativeView: nativeView, paneHost: paneHost)
-        surface.agentCommandShimInstallCompleted = true
+        surface.markAgentCommandShimPreparationReady()
         defer { surface.closeHeadlessStartupWindowIfNeeded() }
 
         // A first bootstrap start records the hidden startup window and
@@ -62,7 +62,7 @@ import CmuxTerminalCore
         )
         let scheduler = RecordingRestoreSpawnScheduler()
         let surface = makeSurface(scheduler: scheduler, nativeView: nativeView, paneHost: paneHost)
-        surface.agentCommandShimInstallCompleted = true
+        surface.markAgentCommandShimPreparationReady()
         defer { surface.closeHeadlessStartupWindowIfNeeded() }
 
         surface.scheduleHeadlessRuntimeStartIfNeeded(reason: "test-first-start", source: .inputDemand)
@@ -86,7 +86,7 @@ import CmuxTerminalCore
         )
         let scheduler = RecordingRestoreSpawnScheduler()
         let surface = makeSurface(scheduler: scheduler, nativeView: nativeView, paneHost: paneHost)
-        surface.agentCommandShimInstallCompleted = true
+        surface.markAgentCommandShimPreparationReady()
         defer { surface.closeHeadlessStartupWindowIfNeeded() }
 
         surface.scheduleHeadlessRuntimeStartIfNeeded(reason: "test-first-start", source: .inputDemand)
@@ -137,6 +137,9 @@ import CmuxTerminalCore
         // task never completes (disk pressure, starved queues), PTY spawn must
         // still proceed without it instead of waiting forever (#9769).
         await waitForCreateAttemptCount(surface, 1)
+        let deadlinePreparation = try #require(surface.agentCommandShimPreparation)
+        #expect(deadlinePreparation.commandShims == nil)
+        #expect(deadlinePreparation.launchResourceSnapshot == .unavailable)
 
         let lateShims = TerminalSurfaceAgentCommandShimSet(
             directoryPath: "/tmp/late-surface-command-shims",
@@ -150,8 +153,11 @@ import CmuxTerminalCore
         // agent-hibernation suspend), the next runtime creation attempts a
         // fresh install instead of permanently reporting ready-without-shim.
         surface.cancelAgentCommandShimInstallLifecycle()
-        let regatedState = surface.agentCommandShimStateForSurface(view: nativeView, source: .inputDemand)
-        #expect(!regatedState.isReady)
+        let regatedPreparation = surface.agentCommandShimPreparationForSurface(
+            view: nativeView,
+            source: .inputDemand
+        )
+        #expect(regatedPreparation == nil)
 
     }
 

@@ -705,13 +705,14 @@ extension TerminalSurface {
         ) {
             return
         }
-        let agentShimState = agentCommandShimStateForSurface(view: view, source: source)
-        guard agentShimState.isReady else { return }
+        guard let agentCommandShimPreparation = agentCommandShimPreparationForSurface(
+            view: view,
+            source: source
+        ) else { return }
         if shouldPaceRuntimeSurfaceCreation(source: source) {
             enqueueRestoredRuntimeSurfaceCreation(for: view)
             return
         }
-        let agentCommandShims = agentShimState.shims
 #if DEBUG
         runtimeSurfaceCreateAttemptCountForTesting += 1
 #endif
@@ -739,7 +740,8 @@ extension TerminalSurface {
             app: app,
             for: view,
             scaleFactors: scaleFactors,
-            agentCommandShims: agentCommandShims
+            agentCommandShims: agentCommandShimPreparation.commandShims,
+            launchResourceSnapshot: agentCommandShimPreparation.launchResourceSnapshot
         )
         surface = runtimeSurfaceCreation.createdSurface
         let runtimeInitialInput = runtimeSurfaceCreation.runtimeInitialInput

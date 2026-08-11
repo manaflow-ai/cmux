@@ -315,14 +315,13 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         TerminalSurfaceRuntimeTeardownReservation?
     var headlessStartupWindow: NSWindow?
     var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
-    var agentCommandShims: AgentCommandShimSet?
+    var agentCommandShimPreparation: TerminalSurfaceAgentCommandShimPreparation?
     var agentCommandShimInstallTask: Task<AgentCommandShimSet?, Never>?
     var agentCommandShimCompletionTask: Task<Void, Never>?
     var agentCommandShimDeadlineTask: Task<Void, Never>?
     var agentCommandShimInstallLease: TerminalSurfaceCommandShimInstallLease?
     var agentCommandShimInstallResultGate:
         TerminalSurfaceCommandShimInstallResultGate?
-    var agentCommandShimInstallCompleted = false
     var agentCommandShimPendingCreationSource: RuntimeSurfaceCreationSource?
     /// The retained byte-tee lease for the libghostty PTY tee callback (cmux
     /// fork extension). Installed in `createSurface` after
