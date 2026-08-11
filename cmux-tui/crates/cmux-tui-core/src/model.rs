@@ -953,27 +953,41 @@ impl State {
             .map(|screen| screen.id)
             .collect::<HashSet<_>>();
 
+        let mut removed_screen_positions_by_workspace =
+            HashMap::<WorkspaceId, Vec<usize>>::new();
+        for screen in &removed_screens {
+            let Some(workspace_id) = self.resource_indexes.screen_workspace.get(screen) else {
+                continue;
+            };
+            let Some((_, screen_index)) =
+                self.resource_indexes.screen_positions.get(screen).copied()
+            else {
+                continue;
+            };
+            removed_screen_positions_by_workspace
+                .entry(*workspace_id)
+                .or_default()
+                .push(screen_index);
+        }
+        for positions in removed_screen_positions_by_workspace.values_mut() {
+            positions.sort_unstable();
+        }
+
         let mut selected_screens = target_screens.clone();
         for workspace_id in &selected_workspaces {
             let Some(workspace) = self.workspace_by_id(*workspace_id) else { continue };
             if let Some(screen) = workspace.screens.get(workspace.active_screen) {
                 selected_screens.insert(screen.id);
             }
-            let mut removed_positions = removed_screens
-                .iter()
-                .filter_map(|screen| {
-                    let (workspace_index, screen_index) =
-                        self.resource_indexes.screen_positions.get(screen).copied()?;
-                    (workspace_index == self.workspace_index(*workspace_id)?)
-                        .then_some(screen_index)
-                })
-                .collect::<Vec<_>>();
-            removed_positions.sort_unstable();
+            let removed_positions = removed_screen_positions_by_workspace
+                .get(workspace_id)
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
             let survivor_count = workspace.screens.len().saturating_sub(removed_positions.len());
             if survivor_count > 0 {
                 let mut original_index = workspace.active_screen.min(survivor_count - 1);
                 for removed in removed_positions {
-                    if removed <= original_index {
+                    if *removed <= original_index {
                         original_index += 1;
                     }
                 }
@@ -981,6 +995,23 @@ impl State {
                     selected_screens.insert(screen.id);
                 }
             }
+        }
+
+        let mut selected_screens_by_workspace = HashMap::<WorkspaceId, Vec<ScreenId>>::new();
+        for screen in &selected_screens {
+            let Some(workspace_id) = self.resource_indexes.screen_workspace.get(screen) else {
+                continue;
+            };
+            selected_screens_by_workspace.entry(*workspace_id).or_default().push(*screen);
+        }
+        for screen_ids in selected_screens_by_workspace.values_mut() {
+            screen_ids.sort_by_key(|screen| {
+                self.resource_indexes
+                    .screen_positions
+                    .get(screen)
+                    .map(|(_, position)| *position)
+                    .unwrap_or(usize::MAX)
+            });
         }
 
         let mut selected_panes = target_panes.clone();
@@ -1010,22 +1041,13 @@ impl State {
             .iter()
             .filter_map(|workspace_id| self.workspace_by_id(*workspace_id))
             .map(|workspace| {
-                let mut screen_ids = selected_screens
-                    .iter()
-                    .filter(|screen| {
-                        self.resource_indexes.screen_workspace.get(screen) == Some(&workspace.id)
-                    })
-                    .copied()
+                let screens = selected_screens_by_workspace
+                    .get(&workspace.id)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|screen| screen_at(*screen))
+                    .cloned()
                     .collect::<Vec<_>>();
-                screen_ids.sort_by_key(|screen| {
-                    self.resource_indexes
-                        .screen_positions
-                        .get(screen)
-                        .map(|(_, position)| *position)
-                        .unwrap_or(usize::MAX)
-                });
-                let screens =
-                    screen_ids.into_iter().filter_map(screen_at).cloned().collect::<Vec<_>>();
                 let active_screen_id =
                     workspace.screens.get(workspace.active_screen).map(|screen| screen.id);
                 let active_screen = active_screen_id
@@ -1169,6 +1191,29 @@ impl State {
             .iter()
             .filter_map(|pane| self.resource_indexes.pane_screen.get(pane).copied())
             .collect::<HashSet<_>>();
+        let mut target_screens_by_workspace =
+            HashMap::<WorkspaceId, Vec<(ScreenId, usize)>>::new();
+        for screen in &target_screens {
+            let Some(workspace_id) = self.resource_indexes.screen_workspace.get(screen) else {
+                continue;
+            };
+            let Some((_, position)) = self.resource_indexes.screen_positions.get(screen) else {
+                continue;
+            };
+            target_screens_by_workspace
+                .entry(*workspace_id)
+                .or_default()
+                .push((*screen, *position));
+        }
+        for screens in target_screens_by_workspace.values_mut() {
+            screens.sort_by_key(|(_, position)| *position);
+        }
+        let projected_workspace_indexes = scoped
+            .workspaces
+            .iter()
+            .enumerate()
+            .map(|(index, workspace)| (workspace.id, index))
+            .collect::<HashMap<_, _>>();
         let owned_panes = scoped.panes.keys().copied().collect::<HashSet<_>>();
         let old_split_slots = target_screens
             .iter()
@@ -1188,11 +1233,11 @@ impl State {
             .collect::<HashSet<_>>();
 
         for workspace_id in scoped_workspaces {
-            let Some(projected_workspace) =
-                scoped.workspaces.iter().find(|workspace| workspace.id == *workspace_id)
+            let Some(projected_workspace_index) = projected_workspace_indexes.get(workspace_id)
             else {
                 continue;
             };
+            let projected_workspace = &scoped.workspaces[*projected_workspace_index];
             let selected_screen = projected_workspace
                 .screens
                 .get(projected_workspace.active_screen)
@@ -1206,26 +1251,18 @@ impl State {
             let Some(workspace_index) = self.workspace_index(*workspace_id) else {
                 continue;
             };
-            let mut owned_screens = target_screens
-                .iter()
-                .filter(|screen| {
-                    self.resource_indexes.screen_workspace.get(screen) == Some(workspace_id)
-                })
-                .filter_map(|screen| {
-                    self.resource_indexes
-                        .screen_positions
-                        .get(screen)
-                        .map(|(_, position)| (*screen, *position))
-                })
-                .collect::<Vec<_>>();
-            owned_screens.sort_by_key(|(_, position)| *position);
-            for (screen_id, position) in &owned_screens {
+            let owned_screens = target_screens_by_workspace
+                .get(workspace_id)
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
+            for (screen_id, position) in owned_screens {
                 if let Some(projected) = projected_screens.get(screen_id) {
                     self.workspaces[workspace_index].screens[*position] = projected.clone();
                 }
             }
             let mut removed = owned_screens
-                .into_iter()
+                .iter()
+                .copied()
                 .filter(|(screen, _)| !projected_screens.contains_key(screen))
                 .collect::<Vec<_>>();
             removed.sort_by_key(|(_, position)| std::cmp::Reverse(*position));

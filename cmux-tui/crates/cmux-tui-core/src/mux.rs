@@ -18973,6 +18973,61 @@ mod tests {
     }
 
     #[test]
+    fn terminal_exit_projection_discovery_is_linear_in_affected_workspaces() {
+        fn projection_metrics(workspace_count: usize) -> ([usize; 4], usize) {
+            let mux = test_mux();
+            let source = mux.new_workspace(None, Some((80, 24))).unwrap();
+            let terminal_id = source.terminal_public_id().cloned().unwrap();
+            let host = mux.resource_terminal_host_identity(&source).unwrap();
+
+            for _ in 1..workspace_count {
+                let destination = mux.new_workspace(None, Some((80, 24))).unwrap();
+                let destination_pane =
+                    mux.with_state(|state| state.pane_of(destination.id).unwrap());
+                mux.resource_project_terminal_selected(
+                    crate::ResourceSelectors {
+                        terminal: Some(terminal_id.to_string()),
+                        ..Mux::ordinary_resource_selectors()
+                    },
+                    mux.ordinary_pane_selectors(destination_pane).unwrap(),
+                    usize::MAX,
+                    None,
+                    None,
+                    &WorkspaceMutation::new("project-terminal-for-scale-test", "test").unwrap(),
+                )
+                .unwrap();
+            }
+
+            let metrics = {
+                let registry = mux.workspace_registry.lock().unwrap();
+                let state = mux.state.lock().unwrap();
+                let projection = mux
+                    .terminal_exit_detach_projection_locked(
+                        &registry,
+                        &state,
+                        &host.terminal_id,
+                        Some(&host.incarnation),
+                        &terminal_id,
+                    )
+                    .unwrap()
+                    .unwrap();
+                (projection.topology_scope_sizes(), projection.topology_discovery_steps())
+            };
+            mux.shutdown();
+            metrics
+        }
+
+        let (small_scope, small_steps) = projection_metrics(8);
+        let (large_scope, large_steps) = projection_metrics(16);
+
+        assert_eq!(small_scope, [8, 8, 8, 15]);
+        assert_eq!(large_scope, [16, 16, 16, 31]);
+        assert_eq!(small_steps, 63);
+        assert_eq!(large_steps, 127);
+        assert_eq!(large_steps, small_steps * 2 + 1);
+    }
+
+    #[test]
     fn terminal_exit_in_an_inactive_workspace_does_not_stamp_focus() {
         let mux = test_mux();
         let closing = mux.new_workspace(None, Some((80, 24))).unwrap();
