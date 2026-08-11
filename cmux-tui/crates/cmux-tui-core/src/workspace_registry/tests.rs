@@ -5751,6 +5751,187 @@ fn journal_agent_legacy_upgrade_backfills_archived_agent_event_kinds() {
 }
 
 #[test]
+fn journal_agent_legacy_upgrade_backfills_large_archived_segment_in_pages() {
+    use std::io::Write as _;
+
+    const ARCHIVED_RECORD_COUNT: usize = 1_025;
+
+    let root = temp_root("journal-agent-large-archived-kind");
+    let session = "journal-agent-large-archived-kind";
+    let database = root.join(session_storage_component(session)).join(WORKSPACE_REGISTRY_FILE);
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, session).unwrap();
+        commit_terminal_topology(&mut registry, "journal-agent-large-archived-kind-topology");
+        let ingress = crate::agent_hook_journal_ingress(
+            "pi",
+            "AgentStart",
+            Some(terminal_id.as_str()),
+            json!({"context":{"session_id":"large-archived-session"}}),
+        )
+        .unwrap();
+        let validated = crate::journal_kernel::ValidatedJournalIngress {
+            class: JournalClass::Observation,
+            replay: JournalReplayPolicy::Advisory,
+            sensitivity: JournalSensitivity::Sensitive,
+        };
+        registry
+            .append_journal_ingress(
+                &ingress,
+                &validated,
+                "client_large_archived_kind",
+                "journal_agent_large_archived_kind_start",
+            )
+            .unwrap();
+        let producer = JournalProducer { kind: "test".into(), id: "large-archive".into() };
+        let payload = json!({});
+        let tx = registry.connection.unchecked_transaction().unwrap();
+        while session_journal::session_journal_head(&tx).unwrap()
+            < u64::try_from(ARCHIVED_RECORD_COUNT).unwrap()
+        {
+            let sequence = session_journal::session_journal_head(&tx).unwrap() + 1;
+            let event_id = format!("event_agent_large_archive_{sequence:04}");
+            session_journal::append_journal_record(
+                &tx,
+                &session_journal::JournalAppend {
+                    event_id: &event_id,
+                    schema_version: 1,
+                    kind: "agent.unknown",
+                    class: JournalClass::Observation,
+                    replay: JournalReplayPolicy::Advisory,
+                    occurred_at_ms: sequence,
+                    producer: &producer,
+                    authority: None,
+                    causation_id: None,
+                    correlation_id: None,
+                    causation_depth: 0,
+                    subjects: &[],
+                    sensitivity: JournalSensitivity::Metadata,
+                    payload: &payload,
+                    content: None,
+                    resource_revision: None,
+                    previous_resource_revision: None,
+                },
+            )
+            .unwrap();
+        }
+        tx.commit().unwrap();
+
+        let page = registry.session_journal_after(0, ARCHIVED_RECORD_COUNT + 1).unwrap();
+        assert_eq!(page.records.len(), ARCHIVED_RECORD_COUNT);
+        let through = page.head_sequence;
+        let archived = page
+            .records
+            .iter()
+            .map(session_journal::journal_record_for_archive)
+            .collect::<Vec<_>>();
+        let uncompressed = serde_json::to_vec(&archived).unwrap();
+        assert!(uncompressed.len() <= session_journal::MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES);
+        let digest = Sha256::digest(&uncompressed);
+        let digest_hex = digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+        let mut encoder = flate2::GzBuilder::new()
+            .mtime(0)
+            .write(Vec::new(), flate2::Compression::fast());
+        encoder.write_all(&uncompressed).unwrap();
+        let compressed = encoder.finish().unwrap();
+        let start_sequence = archived.first().unwrap().sequence;
+        let end_sequence = archived.last().unwrap().sequence;
+        let segment_id =
+            format!("segment_{start_sequence}_{end_sequence}_{digest_hex}");
+
+        registry
+            .create_journal_checkpoint(
+                through,
+                1,
+                &json!({
+                    "session_snapshot":{"cursor":{"revision":"1"}},
+                    "journal_extensions":{"producers":[],"hooks":[]},
+                }),
+                &[],
+                "client_large_archived_kind",
+                "journal_agent_large_archived_kind_checkpoint",
+            )
+            .unwrap();
+        let plan = match registry
+            .begin_journal_segment_seal(
+                through,
+                "client_large_archived_kind",
+                "journal_agent_large_archived_kind_segment",
+            )
+            .unwrap()
+        {
+            JournalSegmentSealStart::Prepare(plan) => plan,
+            JournalSegmentSealStart::Replay(_) => panic!("first large archived seal replayed"),
+        };
+        let reader = SessionJournalReader::open(&database).unwrap();
+        let prepared = plan.prepare(&reader).unwrap();
+        registry
+            .commit_journal_segment_seal(
+                prepared,
+                "client_large_archived_kind",
+                "journal_agent_large_archived_kind_segment",
+            )
+            .unwrap()
+            .expect("large archived segment boundary remained stable");
+        drop(reader);
+
+        let tx = registry.connection.unchecked_transaction().unwrap();
+        tx.execute_batch(
+            "DROP TRIGGER journal_segments_reject_delete;
+             DELETE FROM journal_segments;",
+        )
+        .unwrap();
+        tx.execute(
+            "INSERT INTO journal_segments(
+               segment_id, start_sequence, end_sequence, record_count, codec, content,
+               uncompressed_bytes, sha256, sealed_at_ms
+             ) VALUES(?1, ?2, ?3, ?4, 'gzip-json-v1', ?5, ?6, ?7, ?8)",
+            params![
+                segment_id,
+                i64::try_from(start_sequence).unwrap(),
+                i64::try_from(end_sequence).unwrap(),
+                i64::try_from(archived.len()).unwrap(),
+                compressed,
+                i64::try_from(uncompressed.len()).unwrap(),
+                digest.as_slice(),
+                i64::try_from(unix_epoch_ms().unwrap()).unwrap(),
+            ],
+        )
+        .unwrap();
+        tx.execute_batch(
+            "CREATE TRIGGER journal_segments_reject_delete
+             BEFORE DELETE ON journal_segments
+             BEGIN SELECT RAISE(ABORT, 'journal segments are immutable'); END;
+             UPDATE journal_event_index
+             SET kind = NULL
+             WHERE sequence BETWEEN 1 AND 1025;
+             DELETE FROM resource_agent_projections;
+             DELETE FROM meta
+             WHERE key IN (
+               'agent_projection_journal_sequence_v1',
+               'agent_projection_journal_candidate_sequence_v1',
+               'agent_projection_journal_rebuild_target_sequence_v1'
+             );",
+        )
+        .unwrap();
+        tx.commit().unwrap();
+    }
+
+    let reopened = WorkspaceRegistry::open(&root, session).unwrap();
+    assert!(reopened.agent_projection_rebuild_pending().unwrap());
+    for _ in 0..8 {
+        if reopened.continue_agent_projection_rebuild().unwrap() {
+            break;
+        }
+    }
+    assert!(!reopened.agent_projection_rebuild_pending().unwrap());
+    let agent = reopened.public_projections().unwrap().agents.remove(0);
+    assert_eq!(agent.source_session.as_deref(), Some("large-archived-session"));
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn journal_agent_kind_backfill_uses_the_missing_kind_index() {
     let registry = WorkspaceRegistry::in_memory("journal-agent-kind-backfill-index").unwrap();
     let plan = {
@@ -7385,7 +7566,7 @@ fn journal_agent_prejournal_projection_migrates_once_and_survives_reopen() {
 }
 
 #[test]
-fn journal_agent_prejournal_projection_migration_is_bounded_on_open() {
+fn journal_agent_prejournal_projection_migration_is_bounded_on_open_and_preserves_live_events() {
     const PROJECTION_COUNT: usize = 65;
 
     let root = temp_root("journal-agent-bounded-prejournal-migration");
@@ -7455,7 +7636,7 @@ fn journal_agent_prejournal_projection_migration_is_bounded_on_open() {
         tx.commit().unwrap();
     }
 
-    let reopened = WorkspaceRegistry::open(&root, session).unwrap();
+    let mut reopened = WorkspaceRegistry::open(&root, session).unwrap();
     let migration_records = reopened
         .connection
         .query_row("SELECT COUNT(*) FROM session_journal WHERE kind = 'agent.report'", [], |row| {
@@ -7473,6 +7654,39 @@ fn journal_agent_prejournal_projection_migration_is_bounded_on_open() {
         PROJECTION_COUNT,
         "a bounded migration must keep the last durable agent snapshot visible"
     );
+    let last_terminal =
+        TerminalPublicId::parse(format!("term_{:032x}", PROJECTION_COUNT + 999)).unwrap();
+    let ingress = crate::agent_hook_journal_ingress(
+        "pi",
+        "SessionStart",
+        Some(last_terminal.as_str()),
+        json!({"session_id":"live-between-migration-pages"}),
+    )
+    .unwrap();
+    let validated = crate::journal_kernel::ValidatedJournalIngress {
+        class: JournalClass::Observation,
+        replay: JournalReplayPolicy::Advisory,
+        sensitivity: JournalSensitivity::Sensitive,
+    };
+    reopened
+        .append_journal_ingress(
+            &ingress,
+            &validated,
+            "client_live_between_migration_pages",
+            "journal_agent_live_between_migration_pages",
+        )
+        .unwrap();
+    for _ in 0..8 {
+        if reopened.continue_agent_projection_rebuild().unwrap() {
+            break;
+        }
+    }
+    assert!(!reopened.agent_projection_rebuild_pending().unwrap());
+    let agent = reopened
+        .public_agent_projections(Some(&last_terminal), None)
+        .unwrap()
+        .remove(0);
+    assert_eq!(agent.source_session.as_deref(), Some("live-between-migration-pages"));
     drop(reopened);
     fs::remove_dir_all(root).unwrap();
 }
