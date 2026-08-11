@@ -81,6 +81,10 @@ public struct NotificationFeedPreviewView: View {
                         NotificationFeedPreviewWorkspaceDestination(
                             workspaceName: workspaceName(for: workspaceID)
                         )
+                        .onAppear {
+                            guard restoreSearchOnPop else { return }
+                            primarySearchCoordinator.deactivateCurrentSearch()
+                        }
                         .onDisappear {
                             guard restoreSearchOnPop else { return }
                             restoreSearchOnPop = false
@@ -155,7 +159,6 @@ public struct NotificationFeedPreviewView: View {
             open: { item in
                 let workspaceID = MobileWorkspacePreview.ID(rawValue: item.remoteWorkspaceID)
                 if selectedTab == .search {
-                    primarySearchCoordinator.deactivateCurrentSearch()
                     restoreSearchOnPop = true
                     if searchNotificationPath.last != workspaceID {
                         searchNotificationPath = [workspaceID]

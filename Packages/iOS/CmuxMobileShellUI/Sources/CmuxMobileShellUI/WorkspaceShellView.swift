@@ -402,6 +402,15 @@ struct WorkspaceShellView: View {
                         createWorkspace: createWorkspaceInCompactStack,
                         canCreateWorkspaceForSelection: canCreateWorkspaceForSelection
                     )
+                    // Ending the session at select-time swallows the push
+                    // (the field dismissal consumes the navigation), so it
+                    // ends here once the detail is up — the push minimized
+                    // the field already — leaving nothing for the platform
+                    // to mis-restore on pop.
+                    .onAppear {
+                        guard restoreWorkspaceSearchOnPop else { return }
+                        primarySearchCoordinator.deactivateCurrentSearch()
+                    }
                     .onDisappear {
                         guard restoreWorkspaceSearchOnPop else { return }
                         restoreWorkspaceSearchOnPop = false
@@ -469,6 +478,10 @@ struct WorkspaceShellView: View {
                     createWorkspace: createWorkspaceInCompactStack,
                     canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
                 )
+                .onAppear {
+                    guard restoreNotificationSearchOnPop else { return }
+                    primarySearchCoordinator.deactivateCurrentSearch()
+                }
                 .onDisappear {
                     guard restoreNotificationSearchOnPop else { return }
                     restoreNotificationSearchOnPop = false
@@ -896,7 +909,6 @@ struct WorkspaceShellView: View {
                 selectedTab: selectedPrimaryTab
             ) {
             case .mountedNotificationSearch:
-                primarySearchCoordinator.deactivateCurrentSearch()
                 restoreNotificationSearchOnPop = true
                 if notificationSearchNavigationPath.last != workspaceID {
                     notificationSearchNavigationPath = [workspaceID]
@@ -987,7 +999,6 @@ struct WorkspaceShellView: View {
     /// `workspaceSearchTabContent`.
     private func selectWorkspaceFromSearch(_ id: MobileWorkspacePreview.ID) {
         pendingCompactCreateNavigationWorkspaceIDs = nil
-        primarySearchCoordinator.deactivateCurrentSearch()
         restoreWorkspaceSearchOnPop = true
         store.selectedWorkspaceID = id
         if workspaceSearchNavigationPath.last != id {

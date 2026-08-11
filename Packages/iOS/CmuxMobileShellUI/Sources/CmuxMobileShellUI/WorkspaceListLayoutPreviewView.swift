@@ -589,6 +589,10 @@ public struct WorkspaceListLayoutPreviewView: View {
                             ))
                             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                                 fixtureWorkspaceDetail(for: workspaceID)
+                                    .onAppear {
+                                        guard restoreSearchOnPop else { return }
+                                        primarySearchCoordinator.deactivateCurrentSearch()
+                                    }
                                     .onDisappear {
                                         guard restoreSearchOnPop else { return }
                                         restoreSearchOnPop = false
@@ -654,7 +658,6 @@ public struct WorkspaceListLayoutPreviewView: View {
         selectedWorkspaceID = id
         if showsTabScaffold,
            selectedPrimaryTab == .search || primarySearchCoordinator.isPresented {
-            primarySearchCoordinator.deactivateCurrentSearch()
             restoreSearchOnPop = true
             if searchFixturePath.last != id {
                 searchFixturePath = [id]
