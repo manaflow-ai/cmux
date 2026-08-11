@@ -115,8 +115,7 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
     func claimRecoveryCapacity()
         -> TerminalSurfaceRuntimeOwnershipRecoveryCapacityReservation? {
         state.withLock { state in
-            guard !state.closeTeardownAllStalled,
-                  recoveryCapacityIsOpen(in: state) else {
+            guard overflowRecoveryCapacityIsOpen(in: state) else {
                 return nil
             }
             let reservation =
@@ -127,9 +126,7 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
     }
 
     func recoveryCapacityIsOpen() -> Bool {
-        state.withLock {
-            !$0.closeTeardownAllStalled && recoveryCapacityIsOpen(in: $0)
-        }
+        state.withLock { overflowRecoveryCapacityIsOpen(in: $0) }
     }
 
     func releaseRecoveryCapacity(
@@ -384,6 +381,15 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
             < maximumOwnerCount
     }
 
+    private func overflowRecoveryCapacityIsOpen(
+        in state: TerminalSurfaceRuntimeOwnershipAdmissionState
+    ) -> Bool {
+        !state.closeTeardownAllStalled
+            && state.recoveryHeadID == nil
+            && !state.recoveryGrantIsScheduled
+            && recoveryCapacityIsOpen(in: state)
+    }
+
     private func takeRecoveryRescanRequest(
         from state: inout TerminalSurfaceRuntimeOwnershipAdmissionState
     ) -> Bool {
@@ -436,15 +442,17 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
     }
 
     private func recoveryGrantDidComplete() {
-        let output = state.withLock { state in
+        let grant = state.withLock { state in
             state.recoveryGrantIsScheduled = false
             let grant = takeNextRecoveryGrant(from: &state)
-            return (grant, takeRecoveryRescanRequest(from: &state))
+            _ = takeRecoveryRescanRequest(from: &state)
+            return grant
         }
-        schedule(output.0)
-        if output.1 {
-            recoveryRescanScheduler.requestRescan()
-        }
+        schedule(grant)
+        // The overflow FIFO can proceed only after every older primary grant
+        // has run. Recheck it after each grant, including the final grant that
+        // clears `recoveryGrantIsScheduled` without another state transition.
+        recoveryRescanScheduler.requestRescan()
     }
 
 #if DEBUG
