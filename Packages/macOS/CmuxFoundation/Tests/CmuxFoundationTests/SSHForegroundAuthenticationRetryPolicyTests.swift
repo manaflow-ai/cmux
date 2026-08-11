@@ -2101,6 +2101,29 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func authenticationProcessWaitHasBoundedFailure(
+        shellPath: String
+    ) throws {
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        ( trap '' HUP INT TERM; while :; do /bin/sleep 30; done ) &
+        cmux_test_auth_pid=$!
+        trap '/bin/kill -KILL "$cmux_test_auth_pid" >/dev/null 2>&1 || true' EXIT
+        cmux_ssh_wait_for_auth_process_exit "$cmux_test_auth_pid"
+        cmux_test_wait_status=$?
+        test "$cmux_test_wait_status" -eq 1 || exit 99
+        /bin/kill -0 "$cmux_test_auth_pid" 2>/dev/null || exit 98
+        /bin/kill -KILL "$cmux_test_auth_pid" >/dev/null 2>&1 || exit 97
+        wait "$cmux_test_auth_pid" 2>/dev/null || true
+        trap - EXIT
+        """
+
+        let result = try runShellCommand(command, shellPath: shellPath)
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
     func recoverySweepCompletesPreservedUnpublishedOwnership(shellPath: String) throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
@@ -3865,6 +3888,71 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             environment: [
                 "CMUX_TEST_QUEUE_WORK": root.appendingPathComponent("queue-work").path,
                 "CMUX_TEST_RECOVERY_STARTED": root.appendingPathComponent("started").path,
+                "TMPDIR": root.path,
+            ],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func recoverySchedulerRetainsOwnerDuringBackoff(shellPath: String) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-ssh-auth-recovery-owner-backoff-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_resume_failed_auth_group_reapers() {
+          cmux_test_pass_count=$(/usr/bin/awk 'END { print NR + 0 }' \
+            "$CMUX_TEST_PASSES" 2>/dev/null || printf '0\n')
+          cmux_test_pass_count=$((cmux_test_pass_count + 1))
+          printf '%s\n' "$cmux_test_pass_count" >> "$CMUX_TEST_PASSES"
+          if [ "$cmux_test_pass_count" -ge 2 ]; then
+            /bin/rm -f -- "$CMUX_TEST_QUEUE_WORK"
+          fi
+        }
+        cmux_ssh_auth_recovery_queue_has_work_locked() {
+          [ -e "$CMUX_TEST_QUEUE_WORK" ]
+        }
+        : > "$CMUX_TEST_QUEUE_WORK"
+        cmux_ssh_schedule_failed_auth_group_recovery || exit 99
+
+        cmux_test_first_deadline=$(($(cmux_ssh_auth_now_millis) + 2000))
+        while [ "$(/usr/bin/awk 'END { print NR + 0 }' \
+          "$CMUX_TEST_PASSES" 2>/dev/null || printf '0\n')" -lt 1 ]; do
+          cmux_test_first_now=$(cmux_ssh_auth_now_millis) || exit 98
+          [ "$cmux_test_first_now" -lt "$cmux_test_first_deadline" ] || exit 97
+          /bin/sleep 0.01
+        done
+        cmux_test_owner="$TMPDIR/cmux-ssh-auth-recovery.$(/usr/bin/id -u)/sweep.lock/owner"
+        test -s "$cmux_test_owner" || exit 96
+        cmux_test_first_owner=$(/bin/cat "$cmux_test_owner") || exit 95
+        /bin/sleep 0.2
+        test -s "$cmux_test_owner" || exit 94
+        test "$(/bin/cat "$cmux_test_owner")" = "$cmux_test_first_owner" || exit 93
+        cmux_ssh_schedule_failed_auth_group_recovery || exit 92
+
+        cmux_test_done_deadline=$(($(cmux_ssh_auth_now_millis) + 4000))
+        while [ "$(/usr/bin/awk 'END { print NR + 0 }' \
+          "$CMUX_TEST_PASSES" 2>/dev/null || printf '0\n')" -lt 2 ]; do
+          cmux_test_done_now=$(cmux_ssh_auth_now_millis) || exit 91
+          [ "$cmux_test_done_now" -lt "$cmux_test_done_deadline" ] || exit 90
+          /bin/sleep 0.01
+        done
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_TEST_PASSES": root.appendingPathComponent("passes").path,
+                "CMUX_TEST_QUEUE_WORK": root.appendingPathComponent("queue-work").path,
                 "TMPDIR": root.path,
             ],
             shellPath: shellPath

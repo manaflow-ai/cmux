@@ -33,6 +33,31 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
         #expect(cleanupDefinition.lowerBound < firstSignalTrap.lowerBound)
     }
 
+    @Test func attachSignalUsesBoundedAuthenticationProcessWait() {
+        let command = SSHPTYAttachStartupCommandBuilder.command(
+            sessionID: "ssh-test-session",
+            foregroundAuth: SSHPTYAttachStartupCommandBuilder.ForegroundAuth(
+                destination: "bounded-wait.example.test",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                token: "foreground-auth-token"
+            )
+        )
+        let decodedCommand = command.replacingOccurrences(of: "'\"'\"'", with: "'")
+
+        #expect(
+            decodedCommand.contains(
+                "cmux_ssh_wait_for_auth_process_exit \"$cmux_ssh_attach_auth_pid\""
+            )
+        )
+        #expect(
+            !decodedCommand.contains(
+                "wait \"$cmux_ssh_attach_auth_pid\" 2>/dev/null || true"
+            )
+        )
+    }
+
     @Test func restoredAttachSignalTerminatesForegroundAuthenticationProcessTree() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory

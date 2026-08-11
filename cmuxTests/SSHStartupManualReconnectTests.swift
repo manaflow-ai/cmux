@@ -158,6 +158,21 @@ struct SSHStartupManualReconnectTests {
         )
     }
 
+    @Test func foregroundAuthenticationSignalUsesBoundedProcessWait() throws {
+        let startupCommand = try Self.generatedPersistentSSHForegroundAuthenticationStartupCommand()
+
+        #expect(
+            startupCommand.contains(
+                "cmux_ssh_wait_for_auth_process_exit \"$CMUX_SSH_AUTH_PID\""
+            )
+        )
+        #expect(
+            !startupCommand.contains(
+                "wait \"$CMUX_SSH_AUTH_PID\" 2>/dev/null || true"
+            )
+        )
+    }
+
     @Test func controlCThroughForegroundAuthenticationPTYExitsWithoutWaitingForInput() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
