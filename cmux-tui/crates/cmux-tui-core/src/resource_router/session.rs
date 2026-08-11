@@ -53,11 +53,15 @@ pub(super) fn dispatch(
                 Err(ConfigReloadError::TimedOut) => {
                     return Err(effects::mark_indeterminate(mux, prepared));
                 }
-                Err(error) => {
+                Err(ConfigReloadError::OwnerStopped) => {
                     return effects::commit_known_failure(
                         mux,
                         prepared,
-                        resource_operation_error(error.into()),
+                        ResourceError::operation_failed(
+                            "session.reload_config",
+                            "owner_stopped",
+                            json!({}),
+                        ),
                     );
                 }
             }

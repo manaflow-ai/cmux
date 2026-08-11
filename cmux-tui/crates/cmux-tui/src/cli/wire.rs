@@ -444,10 +444,19 @@ fn localize_operation_error(plan: &RequestPlan, error: &mut Value) {
     );
     if is_lifecycle_operation
         && error["code"] == "operation.failed"
-        && error["details"]["reason"] == "lifecycle_not_ready"
     {
-        error["message"] =
-            Value::String(crate::localization::catalog().local_server.starting.to_string());
+        let message = match error["details"]["reason"].as_str() {
+            Some("lifecycle_not_ready") => {
+                Some(crate::localization::catalog().local_server.starting)
+            }
+            Some("owner_stopped") => {
+                Some(crate::localization::catalog().local_server.reload_owner_stopped)
+            }
+            _ => None,
+        };
+        if let Some(message) = message {
+            error["message"] = Value::String(message.to_string());
+        }
     }
 }
 
