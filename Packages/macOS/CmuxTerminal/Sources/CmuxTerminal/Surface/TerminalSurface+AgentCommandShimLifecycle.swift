@@ -14,15 +14,6 @@ extension TerminalSurface {
             agentCommandShimPreparation = preparation
             return preparation
         }
-        guard let wrapperDirectoryURL = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true) else {
-            let preparation = TerminalSurfaceAgentCommandShimPreparation(
-                commandShims: nil,
-                launchResourceSnapshot: .unavailable
-            )
-            agentCommandShimPreparation = preparation
-            return preparation
-        }
-
         if let agentCommandShimPreparation {
             return agentCommandShimPreparation
         }
@@ -47,7 +38,6 @@ extension TerminalSurface {
             #if compiler(>=6.2)
             let installOperation: @concurrent @Sendable () async -> AgentCommandShimSet? = {
                 [
-                    wrapperDirectoryURL,
                     surfaceId,
                     temporaryDirectory,
                     runtimeFilesystem,
@@ -55,7 +45,10 @@ extension TerminalSurface {
                     installLease,
                     installResultGate
                 ] in
-                _ = await launchResourceProvider.snapshot()
+                let launchResourceSnapshot = await launchResourceProvider.snapshot()
+                guard let wrapperDirectoryURL = launchResourceSnapshot.wrapperDirectoryURL else {
+                    return nil
+                }
                 guard !Task.isCancelled else { return nil }
                 guard let installToken = await installLease.acquire() else {
                     return nil
@@ -80,7 +73,6 @@ extension TerminalSurface {
             #else
             let installOperation: @Sendable () async -> AgentCommandShimSet? = {
                 [
-                    wrapperDirectoryURL,
                     surfaceId,
                     temporaryDirectory,
                     runtimeFilesystem,
@@ -88,7 +80,10 @@ extension TerminalSurface {
                     installLease,
                     installResultGate
                 ] in
-                _ = await launchResourceProvider.snapshot()
+                let launchResourceSnapshot = await launchResourceProvider.snapshot()
+                guard let wrapperDirectoryURL = launchResourceSnapshot.wrapperDirectoryURL else {
+                    return nil
+                }
                 guard !Task.isCancelled else { return nil }
                 guard let installToken = await installLease.acquire() else {
                     return nil
