@@ -3,6 +3,7 @@ import Foundation
 
 final class SSHPTYAttachReconnectInputFilter {
     private static let escape: UInt8 = 0x1B
+    private static let endOfTransmission: UInt8 = 0x04
     private static let bell: UInt8 = 0x07
     private static let leftBracket: UInt8 = 0x5B
     private static let rightBracket: UInt8 = 0x5D
@@ -180,10 +181,10 @@ final class SSHPTYAttachReconnectInputFilter {
             return true
         }
 
-        func flushPendingThenShutdown() async {
-            if let filter = reconnectInputFilter, filter.hasPendingInput {
-                _ = await writeOrShutdown(filter.flushPendingInput())
-            }
+        func finishStdin() {
+            // Reconnect input can disappear with the old bridge during wake.
+            // It is not an intentional EOF for the newly attached remote PTY.
+            guard reconnectInputFilter == nil else { return }
             _ = shutdown(fd, SHUT_WR)
         }
 
@@ -210,7 +211,7 @@ final class SSHPTYAttachReconnectInputFilter {
                 stopSignalFD: stopSignalFD,
                 timeoutMilliseconds: timeoutMilliseconds
             ) else {
-                await flushPendingThenShutdown()
+                finishStdin()
                 return
             }
 
@@ -222,7 +223,7 @@ final class SSHPTYAttachReconnectInputFilter {
                     stopSignalFD: nil,
                     timeoutMilliseconds: pendingProbeContinuationTimeoutMilliseconds
                 ) else {
-                    await flushPendingThenShutdown()
+                    finishStdin()
                     return
                 }
                 if pendingReadiness.inputReady {
@@ -273,10 +274,10 @@ final class SSHPTYAttachReconnectInputFilter {
                     }
                 }
             } else if count == 0 {
-                await flushPendingThenShutdown()
+                finishStdin()
                 return
             } else if errno != EINTR {
-                await flushPendingThenShutdown()
+                finishStdin()
                 return
             }
         }
@@ -299,6 +300,10 @@ final class SSHPTYAttachReconnectInputFilter {
         var output = Data()
         var index = 0
         while index < bytes.count {
+            if bytes[index] == Self.endOfTransmission {
+                index += 1
+                continue
+            }
             guard bytes[index] == Self.escape else {
                 isFiltering = false
                 output.append(contentsOf: bytes[index...])
@@ -485,6 +490,8 @@ final class SSHPTYAttachReconnectInputFilter {
         let final = bytes[finalIndex]
 
         switch final {
+        case 0x49, 0x4F:
+            return parameters.isEmpty && intermediates.isEmpty
         case 0x52, 0x63, 0x6E:
             return intermediates.isEmpty
         case 0x75:

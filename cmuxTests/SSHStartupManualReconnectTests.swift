@@ -400,7 +400,7 @@ struct SSHStartupManualReconnectTests {
             "case \"$count\" in",
             "  1) exit 0 ;;",
             "  2) exit 255 ;;",
-            "  3) printf '%s\\n' 'Bad owner or permissions on ~/.ssh/config' >&2; exit 255 ;;",
+            "  3) printf '%s\\n' 'Connection closed by UNKNOWN port 65535' >&2; exit 255 ;;",
             "  *) exit 0 ;;",
             "esac",
         ])
