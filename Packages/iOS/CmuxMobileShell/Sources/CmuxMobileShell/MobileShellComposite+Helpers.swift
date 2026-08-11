@@ -15,7 +15,7 @@ extension MobileShellComposite {
     }
 
     static func diagnosticSurfaceHandle(_ surfaceID: String) -> UInt32 {
-        DiagnosticCorrelation.handle(for: surfaceID) ?? 0
+        DiagnosticCorrelation().handle(for: surfaceID) ?? 0
     }
 
     static func workspaceActionCapabilities(

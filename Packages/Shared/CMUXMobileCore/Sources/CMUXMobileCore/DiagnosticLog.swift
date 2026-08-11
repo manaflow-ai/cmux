@@ -47,6 +47,10 @@ public final class DiagnosticLog: Sendable {
     /// The optional live observer, delivered retained events on the drain task.
     private let tap: TapBox
 
+    /// Stateless hashing seam used to reduce opaque model identifiers before
+    /// they enter the event ring. Swift supplies its process-randomized seed.
+    private let correlation = DiagnosticCorrelation()
+
     /// The drain task. Its closure captures only local stream/store values, so
     /// deinitialization can finish ingress and let accepted clear commands drain
     /// to their acknowledgements without retaining this log.
@@ -211,7 +215,7 @@ public final class DiagnosticLog: Sendable {
     ) {
         recordAppEvent(
             kind,
-            surface: DiagnosticCorrelation.handle(for: correlationID),
+            surface: correlation.handle(for: correlationID),
             elapsedMilliseconds: elapsedMilliseconds,
             failure: failure,
             count: count

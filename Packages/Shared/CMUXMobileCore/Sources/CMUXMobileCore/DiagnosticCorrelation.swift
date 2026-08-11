@@ -7,9 +7,11 @@ import Foundation
 /// while a later launch produces a different value. This keeps workspace,
 /// surface, panel, and computer operations debuggable without persisting their
 /// raw identifiers or creating a cross-launch tracking key.
-public enum DiagnosticCorrelation {
+public struct DiagnosticCorrelation: Sendable {
+    public init() {}
+
     /// Returns a process-local handle for a non-empty opaque identifier.
-    public static func handle(for rawValue: String?) -> UInt32? {
+    public func handle(for rawValue: String?) -> UInt32? {
         guard let rawValue, !rawValue.isEmpty else { return nil }
         var hasher = Hasher()
         hasher.combine(rawValue)
