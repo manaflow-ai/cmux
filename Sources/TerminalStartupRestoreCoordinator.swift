@@ -6,44 +6,11 @@ import Foundation
 /// Commits structured terminal restores after their owning topology is authoritative.
 @MainActor
 final class TerminalStartupRestoreCoordinator {
-    private struct PendingChatResumeBinding {
-        let sessionID: String
-        let source: String
-        let workingDirectory: String?
-
-        func intent(panelID: UUID, workspaceID: UUID) -> AgentChatResumeIntent {
-            AgentChatResumeIntent(
-                sessionID: sessionID,
-                source: source,
-                surfaceID: panelID.uuidString,
-                workspaceID: workspaceID.uuidString,
-                workingDirectory: workingDirectory
-            )
-        }
-    }
-
-    private struct PendingRestore {
-        let panel: TerminalPanel
-        /// Owner at staging time, before a cross-topology adoption can retarget the panel.
-        let stagedWorkspaceID: UUID
-        let snapshot: SessionRestorableAgentSnapshot?
-        let manualResumeAvailable: Bool
-        let willRunStartupCommand: Bool
-        let willRunStartupInput: Bool
-        let resumeWorkingDirectory: String?
-        let chatResumeBinding: PendingChatResumeBinding?
-        let ownedResumeLaunchClaim: SessionRestorableAgentSnapshot?
-
-        var willRunStartupWork: Bool {
-            willRunStartupCommand || willRunStartupInput
-        }
-    }
-
     let lifecycle: RestoredAgentLifecycleCoordinator
 
     private let workspaceID: UUID
     private let resumeIntentRecorder: any AgentChatResumeIntentRecording
-    private var pendingRestoresByPanelID: [UUID: PendingRestore] = [:]
+    private var pendingRestoresByPanelID: [UUID: PendingTerminalStartupRestore] = [:]
 
     /// Creates one restore owner for a workspace or Dock terminal container.
     ///
@@ -107,7 +74,7 @@ final class TerminalStartupRestoreCoordinator {
         agentSessionAlreadyActive: Bool = false,
         ownsResumeLaunchClaim: Bool = false
     ) {
-        pendingRestoresByPanelID[panel.id] = PendingRestore(
+        pendingRestoresByPanelID[panel.id] = PendingTerminalStartupRestore(
             panel: panel,
             stagedWorkspaceID: panel.workspaceId,
             snapshot: snapshot,
@@ -223,7 +190,7 @@ final class TerminalStartupRestoreCoordinator {
         lifecycle.removeAllSessionRestores()
     }
 
-    private func removePendingRestore(panelID: UUID) -> PendingRestore? {
+    private func removePendingRestore(panelID: UUID) -> PendingTerminalStartupRestore? {
         guard let pending = pendingRestoresByPanelID.removeValue(forKey: panelID) else {
             return nil
         }
@@ -247,7 +214,7 @@ final class TerminalStartupRestoreCoordinator {
         resumeBinding: SurfaceResumeBindingSnapshot?,
         workingDirectory: String?,
         agentSessionAlreadyActive: Bool
-    ) -> PendingChatResumeBinding? {
+    ) -> PendingTerminalStartupRestoreChatBinding? {
         guard !agentSessionAlreadyActive else { return nil }
 
         let session: (id: String, source: String)?
@@ -264,7 +231,7 @@ final class TerminalStartupRestoreCoordinator {
         }
         guard let session else { return nil }
 
-        return PendingChatResumeBinding(
+        return PendingTerminalStartupRestoreChatBinding(
             sessionID: session.id,
             source: session.source,
             workingDirectory: workingDirectory

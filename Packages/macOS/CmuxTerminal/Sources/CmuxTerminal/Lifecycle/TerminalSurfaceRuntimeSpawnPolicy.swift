@@ -1,11 +1,6 @@
 /// How a terminal surface should enter its native Ghostty runtime.
 public struct TerminalSurfaceRuntimeSpawnPolicy: Equatable, Sendable {
-    enum SpawnTiming: Equatable, Sendable {
-        case immediate
-        case pacedSessionRestore
-    }
-
-    let spawnTiming: SpawnTiming
+    let spawnTiming: TerminalSurfaceRuntimeSpawnTiming
     let requiresStartupRestoreAdmission: Bool
 
     /// Creates the native runtime surface as soon as its view is ready.
