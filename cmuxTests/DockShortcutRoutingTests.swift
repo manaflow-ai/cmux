@@ -1911,6 +1911,18 @@ private extension DockShortcutRoutingTests {
             true,
             forKey: RightSidebarBetaFeatureSettings.dockEnabledKey
         )
+        defer {
+            if let previousDockEnabledSetting {
+                standardDefaults.set(
+                    previousDockEnabledSetting,
+                    forKey: RightSidebarBetaFeatureSettings.dockEnabledKey
+                )
+            } else {
+                standardDefaults.removeObject(
+                    forKey: RightSidebarBetaFeatureSettings.dockEnabledKey
+                )
+            }
+        }
 
         let appDelegate = AppDelegate()
         appDelegate.notificationStore = TerminalNotificationStore.shared
@@ -1956,16 +1968,6 @@ private extension DockShortcutRoutingTests {
         appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: window)
 
         defer {
-            if let previousDockEnabledSetting {
-                standardDefaults.set(
-                    previousDockEnabledSetting,
-                    forKey: RightSidebarBetaFeatureSettings.dockEnabledKey
-                )
-            } else {
-                standardDefaults.removeObject(
-                    forKey: RightSidebarBetaFeatureSettings.dockEnabledKey
-                )
-            }
             defaults.removePersistentDomain(forName: suiteName)
             KeyboardShortcutSettings.resetAll()
             KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
