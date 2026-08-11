@@ -2814,7 +2814,7 @@ impl Mux {
         }
         if let Some(runtime) = effects.terminal_runtime {
             self.purge_terminal_runtime_side_tables(&runtime);
-            self.terminate_terminal_runtime(&runtime);
+            self.retire_surface_runtime(runtime);
         }
         let host_termination = self.terminate_prepared_terminal_hosts(host_cleanup);
         match effects.tree_publication {
