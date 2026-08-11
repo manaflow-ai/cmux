@@ -196,6 +196,7 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
         initializationError = L10n.text("error.terminal_snapshot", "The terminal snapshot was invalid.")
         return
       }
+      updateSurfaceSize(reportGeometry: true)
     case .bytes:
       processOutput(event.payload)
     case .resize:
@@ -249,6 +250,7 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
 
   private func recreateSurface() {
     ready = false
+    lastReportedGeometry = nil
     surfaceLifetime.replace(with: nil)
     guard let runtime else { return }
 
