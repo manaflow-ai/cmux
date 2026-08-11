@@ -2800,12 +2800,21 @@ fn interrupted_creation_retries_transient_host_adoption_before_running() {
     harness.restart_with_adoption_retry_signals(&retry_signal_path, &adopted_signal_path);
     retry_signal.receive(Duration::from_secs(15));
     fs::rename(held_endpoint, endpoint).unwrap();
-    adopted_signal.receive(Duration::from_secs(15));
+    let adoption_deadline = Instant::now() + Duration::from_secs(15);
+    adopted_signal.receive(adoption_deadline.saturating_duration_since(Instant::now()));
+    wait_for_socket(&harness.socket);
 
-    let resolved = request(
+    let mut resolved = request(
         &harness.socket,
         serde_json::json!({"id":2,"cmd":"resolve-terminal","terminal_id":terminal_id}),
     );
+    if resolved["lifecycle"] == "adopting" {
+        adopted_signal.receive(adoption_deadline.saturating_duration_since(Instant::now()));
+        resolved = request(
+            &harness.socket,
+            serde_json::json!({"id":2,"cmd":"resolve-terminal","terminal_id":terminal_id}),
+        );
+    }
     let surface = resolved["surface"].as_u64().expect("recovered terminal has a surface");
     assert_eq!(resolved["lifecycle"], "running");
     assert_eq!(resolved["terminal_incarnation"], incarnation);
