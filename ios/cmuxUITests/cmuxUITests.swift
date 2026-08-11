@@ -3747,13 +3747,20 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(prompt.waitForExistence(timeout: 4))
         XCTAssertTrue(imageChip.exists)
         XCTAssertTrue(fileChip.exists)
+        let removeButtons = app.buttons.matching(
+            NSPredicate(format: "label == %@", "Remove Attachment")
+        )
         XCTAssertEqual(
-            app.buttons.matching(
-                NSPredicate(format: "label == %@", "Remove Attachment")
-            ).count,
+            removeButtons.count,
             2,
             "Previewing must not merge or remove the independent delete actions"
         )
+        for index in 0..<removeButtons.count {
+            let removeButton = removeButtons.element(boundBy: index)
+            XCTAssertGreaterThanOrEqual(removeButton.frame.width, 44)
+            XCTAssertGreaterThanOrEqual(removeButton.frame.height, 44)
+            XCTAssertTrue(removeButton.isHittable)
+        }
     }
 
     /// Agent templates need an instruction before launch, while the plain

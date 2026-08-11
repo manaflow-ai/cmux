@@ -69,6 +69,10 @@ private struct TaskComposerAttachmentChip: View {
                     .symbolRenderingMode(.palette)
                     .foregroundStyle(.white, .black.opacity(0.65))
                     .frame(width: 22, height: 22)
+                    // Keep the small corner glyph while giving removal the
+                    // same minimum activation target as every dock control.
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(isRemoveDisabled)
@@ -76,10 +80,12 @@ private struct TaskComposerAttachmentChip: View {
                 "mobile.taskComposer.attachments.remove",
                 defaultValue: "Remove Attachment"
             ))
-            .offset(x: 5, y: -5)
+            .offset(x: 16, y: -16)
         }
-        .padding(.top, 5)
-        .padding(.trailing, 5)
+        // Reserve the portion of the 44pt target that sits outside the chip,
+        // avoiding clipping without moving the visible glyph inward.
+        .padding(.top, 16)
+        .padding(.trailing, 16)
     }
 }
 
