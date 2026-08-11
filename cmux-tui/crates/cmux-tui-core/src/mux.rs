@@ -18642,7 +18642,7 @@ mod tests {
         };
         assert_eq!(
             topology_scope_sizes,
-            [1, 2, 2, 2],
+            [1, 1, 1, 1],
             "terminal exit copied unrelated topology owners"
         );
         assert_eq!(

@@ -363,6 +363,7 @@ pub(super) struct TerminalExitDetachProjection {
     workspace_ids: HashSet<WorkspaceId>,
     catalog_public_ids: HashSet<TerminalPublicId>,
     target_surfaces: HashSet<SurfaceId>,
+    #[cfg(test)]
     topology_discovery_steps: usize,
     terminal_indexes: TerminalIndexProjection,
     runtime: Option<Arc<Surface>>,
@@ -3227,6 +3228,8 @@ impl Mux {
         let target_surfaces = targets.iter().copied().collect::<HashSet<_>>();
         let (mut projected, topology_discovery_steps) =
             state.clone_terminal_scope(&workspace_ids, &catalog_public_ids, &target_surfaces);
+        #[cfg(not(test))]
+        let _ = topology_discovery_steps;
         terminal_indexes.seed(&mut projected);
         let (runtime, removed, _) = remove_terminal_catalogs_and_targets_from_state(
             self,
@@ -3296,6 +3299,7 @@ impl Mux {
             workspace_ids,
             catalog_public_ids,
             target_surfaces,
+            #[cfg(test)]
             topology_discovery_steps,
             terminal_indexes,
             runtime,
