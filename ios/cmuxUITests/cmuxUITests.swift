@@ -1908,16 +1908,6 @@ final class cmuxUITests: XCTestCase {
 
         let searchField = app.searchFields["Search notifications"]
         XCTAssertTrue(waitForHittable(searchField, timeout: 3))
-
-        // Opening a notification later marks it read; with the search
-        // presentation settled, release the unread filter before editing
-        // begins so the opened row remains visible under the query filter
-        // alone when the search session is restored.
-        tap(unreadFilter, in: app)
-        guard waitForHittable(readRow, timeout: 3) else {
-            return XCTFail("Releasing the unread filter must reveal read rows")
-        }
-
         XCTAssertTrue(focusTextInput(searchField, in: app))
         searchField.typeText("Tests passed")
 
@@ -1926,6 +1916,8 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(waitForNotHittable(readRow, timeout: 3))
 
         matchingRow.tap()
+        // Opening marks the notification read, so the still-active unread
+        // filter hides its row after the session is restored below.
         let workspaceDestination = app.descendants(matching: .any)[
             "MobileNotificationFeedPreviewWorkspaceDestination"
         ]
@@ -1957,8 +1949,16 @@ final class cmuxUITests: XCTestCase {
             app.frame.midY,
             "Notification search field must restore at the bottom, got \(fieldFrame)"
         )
-        XCTAssertTrue(waitForHittable(matchingRow, timeout: 3))
-        XCTAssertTrue(waitForNotHittable(nonmatchingRow, timeout: 3))
+        // The restored session accepts filter edits: releasing the unread
+        // filter reveals the (now read) opened row, still narrowed by the
+        // restored query, which keeps the non-matching read row hidden.
+        tap(unreadFilter, in: app)
+        guard waitForHittable(matchingRow, timeout: 3) else {
+            return XCTFail("Releasing the unread filter must reveal the opened row under the restored query")
+        }
+        guard waitForNotHittable(readRow, timeout: 3) else {
+            return XCTFail("Restored query must keep filtering after the unread filter is released")
+        }
     }
 
     @MainActor
