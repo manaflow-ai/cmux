@@ -42,4 +42,51 @@ mod tests {
     fn native_non_windows_builds_keep_zigs_native_target() {
         assert_eq!(zig_target_arg("aarch64-apple-darwin", "aarch64-apple-darwin"), None);
     }
+
+    #[test]
+    fn cross_targets_keep_their_explicit_zig_abi() {
+        let cases = [
+            (
+                "x86_64-pc-windows-gnu",
+                "aarch64-unknown-linux-gnu",
+                "-Dtarget=x86_64-windows-gnu",
+            ),
+            (
+                "x86_64-pc-windows-msvc",
+                "aarch64-unknown-linux-gnu",
+                "-Dtarget=x86_64-windows-msvc",
+            ),
+            (
+                "aarch64-pc-windows-msvc",
+                "x86_64-unknown-linux-gnu",
+                "-Dtarget=aarch64-windows-msvc",
+            ),
+            ("x86_64-apple-darwin", "aarch64-unknown-linux-gnu", "-Dtarget=x86_64-macos"),
+            ("aarch64-apple-darwin", "x86_64-unknown-linux-gnu", "-Dtarget=aarch64-macos"),
+            (
+                "x86_64-unknown-linux-gnu",
+                "aarch64-unknown-linux-gnu",
+                "-Dtarget=x86_64-linux-gnu",
+            ),
+            (
+                "aarch64-unknown-linux-gnu",
+                "x86_64-unknown-linux-gnu",
+                "-Dtarget=aarch64-linux-gnu",
+            ),
+            (
+                "x86_64-unknown-linux-musl",
+                "aarch64-unknown-linux-gnu",
+                "-Dtarget=x86_64-linux-musl",
+            ),
+            (
+                "aarch64-unknown-linux-musl",
+                "x86_64-unknown-linux-gnu",
+                "-Dtarget=aarch64-linux-musl",
+            ),
+        ];
+
+        for (target, host, expected) in cases {
+            assert_eq!(zig_target_arg(target, host).as_deref(), Some(expected), "{target}");
+        }
+    }
 }
