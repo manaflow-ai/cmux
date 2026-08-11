@@ -531,7 +531,11 @@ func handleWebSocketPTY(w http.ResponseWriter, r *http.Request, cfg wsPTYServerC
 
 	attachment, err := cfg.PTYHub.attach(r.Context(), conn, auth)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "ws pty attach failed: %v\n", err)
+		logPersistentDaemonEvent(
+			stderr,
+			"ws_pty_attach_failed",
+			"error_category", persistentDaemonErrorCategory(err),
+		)
 		_ = conn.Close(websocket.StatusInternalError, truncateWebSocketCloseReason(err.Error()))
 		return
 	}
@@ -1330,9 +1334,12 @@ func (h *wsPTYHub) startSession(sessionKey wsPTYSessionKey, sessionID string, co
 		if tmpScript != "" {
 			_ = os.Remove(tmpScript)
 		}
-		if h.stderr != nil {
-			_, _ = fmt.Fprintf(h.stderr, "pty session start failed session=%s: %v\n", sessionID, err)
-		}
+		logPersistentDaemonEvent(
+			h.stderr,
+			"pty_start_fault",
+			"session_id", sessionID,
+			"error_category", persistentDaemonErrorCategory(err),
+		)
 		return nil, err
 	}
 	session := &wsPTYSession{
@@ -2170,7 +2177,12 @@ func (h *wsPTYHub) applyPTYSizeWithWriteLock(session *wsPTYSession, cols int, ro
 		lastErr = fmt.Errorf("pty size remained %dx%d after resize to %dx%d", actual.Cols, actual.Rows, cols, rows)
 	}
 	if h.stderr != nil && lastErr != nil {
-		_, _ = fmt.Fprintf(h.stderr, "ws pty resize failed session=%s: %v\n", session.id, lastErr)
+		logPersistentDaemonEvent(
+			h.stderr,
+			"pty_resize_fault",
+			"session_id", session.id,
+			"error_category", persistentDaemonErrorCategory(lastErr),
+		)
 	}
 	return false
 }

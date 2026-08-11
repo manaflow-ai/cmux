@@ -53654,124 +53654,16 @@
     "cli.ssh.manualReconnectPrompt.detail": {
       "extractionState": "manual",
       "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] انتهى اتصال SSH؛ قد تظل الجلسة البعيدة قيد التشغيل."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] SSH veza je prekinuta; udaljena sesija možda još uvijek radi."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] SSH-forbindelsen blev afbrudt; fjernsessionen kører muligvis stadig."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] die SSH-Verbindung wurde beendet; die Remote-Sitzung läuft möglicherweise noch."
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "[cmux] the SSH connection ended; the remote session may still be running."
           }
         },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] la conexión SSH terminó; es posible que la sesión remota siga en ejecución."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] la connexion SSH s’est interrompue ; la session distante est peut-être toujours en cours."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] la connessione SSH è terminata; la sessione remota potrebbe essere ancora in esecuzione."
-          }
-        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "[cmux] SSH 接続が終了しました。リモートセッションはまだ実行中の可能性があります。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] ការតភ្ជាប់ SSH បានបញ្ចប់។ សម័យពីចម្ងាយអាចនៅតែដំណើរការ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] SSH 연결이 종료되었습니다. 원격 세션은 계속 실행 중일 수 있습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] SSH-tilkoblingen ble avsluttet; den eksterne økten kan fortsatt kjøre."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] połączenie SSH zostało zakończone; sesja zdalna może nadal działać."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] a conexão SSH foi encerrada; a sessão remota ainda pode estar em execução."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] SSH-соединение завершилось; удалённый сеанс может всё ещё выполняться."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] การเชื่อมต่อ SSH สิ้นสุดลง เซสชันระยะไกลอาจยังทำงานอยู่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] SSH bağlantısı sona erdi; uzak oturum hâlâ çalışıyor olabilir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] SSH-з’єднання завершилося; віддалений сеанс може все ще працювати."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] SSH 连接已结束；远程会话可能仍在运行。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] SSH 連線已結束；遠端工作階段可能仍在執行。"
           }
         }
       }
@@ -54779,124 +54671,16 @@
     "cli.ssh.terminalExitPrompt.prompt": {
       "extractionState": "manual",
       "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] اضغط Enter لإغلاق هذا الجزء."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] pritisnite Enter za zatvaranje ovog okna."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] tryk på Enter for at lukke denne rude."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] drücken Sie Enter, um diesen Bereich zu schließen."
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "[cmux] press Enter to close this pane."
           }
         },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] pulsa Enter para cerrar este panel."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] appuyez sur Entrée pour fermer ce volet."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] premi Invio per chiudere questo riquadro."
-          }
-        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "[cmux] 閉じるには Enter を押してください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] ចុច Enter ដើម្បីបិទផ្ទាំងនេះ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] 이 창을 닫으려면 Enter를 누르세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] trykk Enter for å lukke denne ruten."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] naciśnij Enter, aby zamknąć ten panel."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] pressione Enter para fechar este painel."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] нажмите Enter, чтобы закрыть эту панель."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] กด Enter เพื่อปิดบานหน้าต่างนี้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] bu bölmeyi kapatmak için Enter'a basın."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] натисніть Enter, щоб закрити цю панель."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] 按 Enter 关闭此窗格。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] 按 Enter 關閉此窗格。"
           }
         }
       }
@@ -54924,13 +54708,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh-pty-attach: bridge closed while the remote PTY session is still running; reattaching"
+            "value": "The SSH terminal connection ended while the remote session is still running; reconnecting."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh-pty-attach: ブリッジが閉じましたが、リモート PTY セッションは引き続き実行中です。再接続します"
+            "value": "SSH ターミナル接続が終了しましたが、リモートセッションは引き続き実行中です。再接続します。"
           }
         }
       }
@@ -54992,13 +54776,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh-pty-attach: bridge closed before remote PTY exit could be confirmed; preserving the remote session for reattach"
+            "value": "The SSH terminal connection ended before the remote session state could be confirmed; preserving it for reconnect."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh-pty-attach: リモート PTY の終了を確認できる前にブリッジが閉じました。再接続のためリモートセッションを維持します"
+            "value": "リモートセッションの状態を確認できる前に SSH ターミナル接続が終了しました。再接続のためセッションを維持します。"
           }
         }
       }
@@ -55016,6 +54800,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "[cmux] リモートセッションが失われました。新しいシェルを開始します。"
+          }
+        }
+      }
+    },
+    "cli.sshSessionList.remoteStateUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote PTY session state is unavailable for one or more workspaces."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 つ以上のワークスペースでリモート PTY セッションの状態を取得できません。"
           }
         }
       }

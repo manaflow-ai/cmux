@@ -1,14 +1,24 @@
 package main
 
 import (
+	"bytes"
+	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
 func TestPersistentDaemonLogsConnectionAndPTYLifecycle(t *testing.T) {
+	const firstAttachmentToken = "secret-token-must-not-be-logged"
+	const secondAttachmentToken = "second-secret-token-must-not-be-logged"
+	const firstCommand = "sleep 60"
+	const secondCommand = "exit 0"
+	const terminalInput = "terminal-input-must-not-be-logged"
+	const requestID = "request-id-must-not-be-logged"
 	logOutput := newNotifyingBuffer()
 	socketPath, stop := startPersistentDaemonWithVerifierAndLogForTest(
 		t,
@@ -21,15 +31,15 @@ func TestPersistentDaemonLogsConnectionAndPTYLifecycle(t *testing.T) {
 	defer conn.Close()
 
 	attach := persistentTestRPCCall(t, conn, reader, writer, rpcRequest{
-		ID:     1,
+		ID:     requestID + "-attach",
 		Method: "pty.attach",
 		Params: map[string]any{
 			"session_id":              "logged-session",
 			"attachment_id":           "logged-attachment",
-			"client_attachment_token": "secret-token-must-not-be-logged",
+			"client_attachment_token": firstAttachmentToken,
 			"cols":                    80,
 			"rows":                    24,
-			"command":                 "sleep 60",
+			"command":                 firstCommand,
 		},
 	})
 	if ok, _ := attach["ok"].(bool); !ok {
@@ -38,21 +48,34 @@ func TestPersistentDaemonLogsConnectionAndPTYLifecycle(t *testing.T) {
 	readPersistentTestEvent(t, conn, reader, func(frame map[string]any) bool {
 		return frame["event"] == "pty.ready" && frame["attachment_id"] == "logged-attachment"
 	})
+	writeResponse := persistentTestRPCCall(t, conn, reader, writer, rpcRequest{
+		ID:     requestID + "-write",
+		Method: "pty.write",
+		Params: map[string]any{
+			"session_id":              "logged-session",
+			"attachment_id":           "logged-attachment",
+			"client_attachment_token": firstAttachmentToken,
+			"data_base64":             base64.StdEncoding.EncodeToString([]byte(terminalInput)),
+		},
+	})
+	if ok, _ := writeResponse["ok"].(bool); !ok {
+		t.Fatalf("pty.write failed: %v", writeResponse)
+	}
 
 	detach := persistentTestRPCCall(t, conn, reader, writer, rpcRequest{
-		ID:     2,
+		ID:     requestID + "-detach",
 		Method: "pty.detach",
 		Params: map[string]any{
 			"session_id":              "logged-session",
 			"attachment_id":           "logged-attachment",
-			"client_attachment_token": "secret-token-must-not-be-logged",
+			"client_attachment_token": firstAttachmentToken,
 		},
 	})
 	if ok, _ := detach["ok"].(bool); !ok {
 		t.Fatalf("pty.detach failed: %v", detach)
 	}
 	closeResponse := persistentTestRPCCall(t, conn, reader, writer, rpcRequest{
-		ID:     3,
+		ID:     requestID + "-close",
 		Method: "pty.close",
 		Params: map[string]any{
 			"session_id": "logged-session",
@@ -62,15 +85,15 @@ func TestPersistentDaemonLogsConnectionAndPTYLifecycle(t *testing.T) {
 		t.Fatalf("pty.close failed: %v", closeResponse)
 	}
 	exitingAttach := persistentTestRPCCall(t, conn, reader, writer, rpcRequest{
-		ID:     4,
+		ID:     requestID + "-exit",
 		Method: "pty.attach",
 		Params: map[string]any{
 			"session_id":              "logged-exit-session",
 			"attachment_id":           "logged-exit-attachment",
-			"client_attachment_token": "second-secret-token-must-not-be-logged",
+			"client_attachment_token": secondAttachmentToken,
 			"cols":                    80,
 			"rows":                    24,
-			"command":                 "exit 0",
+			"command":                 secondCommand,
 		},
 	})
 	if ok, _ := exitingAttach["ok"].(bool); !ok {
@@ -93,8 +116,17 @@ func TestPersistentDaemonLogsConnectionAndPTYLifecycle(t *testing.T) {
 			t.Fatalf("persistent daemon log = %q, want %q", logged, event)
 		}
 	}
-	if strings.Contains(logged, "secret-token-must-not-be-logged") {
-		t.Fatalf("persistent daemon log exposed an attachment token: %q", logged)
+	for _, secret := range []string{
+		firstAttachmentToken,
+		secondAttachmentToken,
+		firstCommand,
+		secondCommand,
+		terminalInput,
+		requestID,
+	} {
+		if strings.Contains(logged, secret) {
+			t.Fatalf("persistent daemon log exposed sensitive request data %q: %q", secret, logged)
+		}
 	}
 }
 
@@ -139,5 +171,135 @@ func TestPersistentDaemonLogRotationIsSizeBounded(t *testing.T) {
 	}
 	if !strings.Contains(string(newest), "event-11-") {
 		t.Fatalf("newest persistent daemon log lost the latest event: %q", string(newest))
+	}
+}
+
+func TestPersistentDaemonFaultLogsExcludeRawRequestDetails(t *testing.T) {
+	const attachmentToken = "fault-token-must-not-be-logged"
+	const command = "fault-command-must-not-be-logged"
+	const terminalInput = "fault-input-must-not-be-logged"
+	const requestID = "fault-request-id-must-not-be-logged"
+	const rawFailure = "raw-failure-detail-must-not-be-logged"
+
+	logOutput := newNotifyingBuffer()
+	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, logOutput)
+	t.Cleanup(hub.closeAll)
+	hub.openPTY = func() (*os.File, *os.File, error) {
+		return nil, nil, errors.New(rawFailure)
+	}
+	writer := &captureRPCFrameWriter{}
+	server := &rpcServer{ptyHub: hub, frameWriter: writer}
+	attachResponse := server.handleRequest(rpcRequest{
+		ID:     requestID + "-attach",
+		Method: "pty.attach",
+		Params: map[string]any{
+			"session_id":              "fault-session",
+			"attachment_id":           "fault-attachment",
+			"client_attachment_token": attachmentToken,
+			"cols":                    80,
+			"rows":                    24,
+			"command":                 command,
+		},
+	})
+	if attachResponse.OK {
+		t.Fatalf("pty.attach unexpectedly succeeded: %+v", attachResponse)
+	}
+
+	notification := rpcRequest{
+		ID:     requestID + "-write",
+		Method: "pty.write",
+		Params: map[string]any{
+			"session_id":              "fault-session",
+			"attachment_id":           "fault-attachment",
+			"client_attachment_token": attachmentToken,
+			"data_base64":             base64.StdEncoding.EncodeToString([]byte(terminalInput)),
+		},
+	}
+	if err := server.handleNotificationResponse(notification, rpcResponse{
+		OK: false,
+		Error: &rpcError{
+			Code:    "pty_input_queue_full",
+			Message: rawFailure,
+		},
+	}); err != nil {
+		t.Fatalf("handle notification failure: %v", err)
+	}
+
+	logged := logOutput.String()
+	for _, event := range []string{
+		"event=pty_start_fault",
+		"event=pty_attach_failed",
+		"event=pty_channel_fault",
+	} {
+		if !strings.Contains(logged, event) {
+			t.Fatalf("persistent daemon log = %q, want %q", logged, event)
+		}
+	}
+	for _, secret := range []string{
+		attachmentToken,
+		command,
+		terminalInput,
+		requestID,
+		rawFailure,
+	} {
+		if strings.Contains(logged, secret) {
+			t.Fatalf("persistent daemon fault log exposed request data %q: %q", secret, logged)
+		}
+	}
+}
+
+func TestPersistentDaemonProcessOutputUsesRotatingWriter(t *testing.T) {
+	const helperEnvironment = "CMUX_TEST_PERSISTENT_PROCESS_OUTPUT"
+	const pathEnvironment = "CMUX_TEST_PERSISTENT_PROCESS_LOG_PATH"
+	const stdoutMarker = "process-stdout-marker"
+	const stderrMarker = "process-stderr-marker"
+
+	if os.Getenv(helperEnvironment) == "1" {
+		logOutput, err := openPersistentDaemonLogWithLimit(os.Getenv(pathEnvironment), 512, 2)
+		if err != nil {
+			t.Fatalf("open helper process log: %v", err)
+		}
+		route, err := routePersistentDaemonProcessOutput(logOutput)
+		if err != nil {
+			t.Fatalf("route helper process output: %v", err)
+		}
+		_, _ = fmt.Fprintln(os.Stdout, stdoutMarker)
+		_, _ = fmt.Fprintln(os.Stderr, stderrMarker)
+		if err := route.Close(); err != nil {
+			t.Fatalf("close helper process output route: %v", err)
+		}
+		if err := logOutput.Close(); err != nil {
+			t.Fatalf("close helper process log: %v", err)
+		}
+		return
+	}
+
+	logPath := filepath.Join(t.TempDir(), "daemon.log")
+	command := exec.Command(os.Args[0], "-test.run=^TestPersistentDaemonProcessOutputUsesRotatingWriter$")
+	command.Env = append(
+		os.Environ(),
+		helperEnvironment+"=1",
+		pathEnvironment+"="+logPath,
+	)
+	var output bytes.Buffer
+	command.Stdout = &output
+	command.Stderr = &output
+	if err := command.Run(); err != nil {
+		t.Fatalf("process-output helper failed: %v; output=%q", err, output.String())
+	}
+	logged, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read process-output log: %v", err)
+	}
+	if !strings.Contains(string(logged), stdoutMarker) ||
+		!strings.Contains(string(logged), stderrMarker) {
+		t.Fatalf("process output did not reach rotating log: %q", string(logged))
+	}
+	info, err := os.Stat(logPath)
+	if err != nil {
+		t.Fatalf("stat process-output log: %v", err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("process-output log mode = %o, want 600", info.Mode().Perm())
 	}
 }

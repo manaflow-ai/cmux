@@ -111,15 +111,16 @@ struct SSHStartupManualReconnectTests {
             reconnectLimitDefault: 0
         )
         let result = Self.runProcess(
-            executablePath: "/bin/sh",
-            arguments: ["-c", startupCommand],
+            executablePath: "/usr/bin/script",
+            arguments: ["-q", "-F", "/dev/null", "/bin/sh", "-c", startupCommand],
             environment: ProcessInfo.processInfo.environment,
             standardInput: "\n",
             timeout: 5
         )
 
-        #expect(!result.timedOut, Comment(rawValue: result.stderr))
-        #expect(result.status == 7, Comment(rawValue: result.stderr))
+        let transcript = result.stdout + result.stderr
+        #expect(!result.timedOut, Comment(rawValue: transcript))
+        #expect(result.status == 7, Comment(rawValue: transcript))
         let requiredResets = [
             "\u{1B}[?1004l", // focus reporting
             "\u{1B}[?1000l", // mouse reporting
@@ -129,11 +130,11 @@ struct SSHStartupManualReconnectTests {
             "\u{1B}[?2048l", // in-band resize reports
             "\u{1B}[?2026l", // synchronized output
         ]
-        let closePrompt = result.stderr.range(of: "press Enter to close this pane")
+        let closePrompt = transcript.range(of: "press Enter to close this pane")
         #expect(closePrompt != nil)
         for reset in requiredResets {
-            let resetRange = result.stderr.range(of: reset)
-            #expect(resetRange != nil, Comment(rawValue: result.stderr))
+            let resetRange = transcript.range(of: reset)
+            #expect(resetRange != nil, Comment(rawValue: transcript))
             if let resetRange, let closePrompt {
                 #expect(resetRange.lowerBound < closePrompt.lowerBound)
             }

@@ -166,6 +166,17 @@ extension CMUXCLI {
                 exitCode: reconciliationUnavailableExitCode
             )
         }
+        let sessionIDs = sessions.compactMap { session -> String? in
+            guard let rawSessionID = session["session_id"] as? String else { return nil }
+            let normalizedSessionID = rawSessionID.trimmingCharacters(in: .whitespacesAndNewlines)
+            return normalizedSessionID.isEmpty ? nil : normalizedSessionID
+        }
+        guard sessionIDs.count == sessions.count else {
+            throw CLIError(
+                message: sshPTYReconciliationUnavailableMessage(detail: nil),
+                exitCode: reconciliationUnavailableExitCode
+            )
+        }
         let errors: [[String: Any]]
         if let rawErrors = response["errors"] {
             guard let parsedErrors = rawErrors as? [[String: Any]] else {
@@ -188,9 +199,7 @@ extension CMUXCLI {
         }
         if intentionalOnly, !intentionalCleanup { return false }
 
-        let sessionStillRunning = sessions.contains {
-            (($0["session_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "") == sessionID
-        }
+        let sessionStillRunning = sessionIDs.contains(sessionID)
         if !intentionalCleanup, sessionStillRunning {
             let message: String
             if sessionRunningExitCode == .bridgeClosedWithoutProgress {
@@ -199,10 +208,12 @@ extension CMUXCLI {
                     defaultValue: "ssh-pty-attach: bridge closed without receiving new output while the remote PTY session is still running"
                 )
             } else {
-                message = String(
+                let detail = String(
                     localized: "cli.sshPtyAttach.bridgeClosedSessionRunning",
-                    defaultValue: "ssh-pty-attach: bridge closed while the remote PTY session is still running; reattaching"
+                    defaultValue: "The SSH terminal connection ended while the remote session is still running; reconnecting.",
+                    bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
                 )
+                message = detail
             }
             throw CLIError(
                 message: message,
@@ -228,7 +239,8 @@ extension CMUXCLI {
     private func sshPTYReconciliationUnavailableMessage(detail: String?) -> String {
         let message = String(
             localized: "cli.sshPtyAttach.reconciliationUnavailableReattach",
-            defaultValue: "ssh-pty-attach: bridge closed before remote PTY exit could be confirmed; preserving the remote session for reattach"
+            defaultValue: "The SSH terminal connection ended before the remote session state could be confirmed; preserving it for reconnect.",
+            bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
         )
         guard let detail = detail?.trimmingCharacters(in: .whitespacesAndNewlines),
               !detail.isEmpty else {

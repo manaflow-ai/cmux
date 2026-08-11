@@ -12481,16 +12481,12 @@ struct CMUXCLI {
     }
 
     func sshSessionListFailureMessage(_ errors: [[String: Any]]) -> String {
-        let count = errors.count
-        let summary = "ssh-session-list failed for \(count) remote workspace\(count == 1 ? "" : "s")"
-        let details = errors.map { error in
-            let workspace = debugString(error["workspace_ref"])
-                ?? debugString(error["workspace_id"])
-                ?? "workspace:?"
-            let message = userFacingRemotePTYErrorMessage(error["error"])
-            return "- \(workspace): \(message)"
-        }
-        return ([summary] + details).joined(separator: "\n")
+        _ = errors
+        return String(
+            localized: "cli.sshSessionList.remoteStateUnavailable",
+            defaultValue: "Remote PTY session state is unavailable for one or more workspaces.",
+            bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+        )
     }
 
     private func runSSHSessionCleanup(

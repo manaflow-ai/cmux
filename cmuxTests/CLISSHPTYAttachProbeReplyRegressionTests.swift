@@ -90,7 +90,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         wait(for: [socketHandled, bridgeHandled], timeout: 5)
         #expect(!result.timedOut)
         #expect(result.status == SSHPTYAttachExitCode.bridgeClosedSessionRunning.rawValue)
-        #expect(result.stderr.contains("bridge closed before remote PTY exit could be confirmed"))
+        #expect(result.stderr.contains("remote session state could be confirmed"))
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
         #expect(methods.contains("workspace.remote.pty_sessions"))
         #expect(!methods.contains("workspace.remote.pty_attach_end"))
@@ -100,6 +100,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let malformedResults: [[String: Any]] = [
             ["errors": []],
             ["sessions": [], "errors": "invalid"],
+            ["sessions": [[:]], "errors": []],
+            ["sessions": [["session_id": "  "]], "errors": []],
+            ["sessions": [["session_id": 42]], "errors": []],
         ]
         for (index, malformedResult) in malformedResults.enumerated() {
             let cliPath = try bundledCLIPath()
@@ -165,7 +168,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             wait(for: [socketHandled, bridgeHandled], timeout: 5)
             #expect(!result.timedOut)
             #expect(result.status == SSHPTYAttachExitCode.bridgeClosedSessionRunning.rawValue)
-            #expect(result.stderr.contains("bridge closed before remote PTY exit could be confirmed"))
+            #expect(result.stderr.contains("remote session state could be confirmed"))
+            let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
+            #expect(!methods.contains("workspace.remote.pty_attach_end"))
         }
     }
 

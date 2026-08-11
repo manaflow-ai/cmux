@@ -75,8 +75,9 @@ PTY lifecycle:
 Persistent-daemon logging is always enabled. The current log is
 `~/.cmux/daemon/<version>/<slot>/daemon.log`, mode `0600`. It records daemon
 start/readiness/stop, authenticated connection lifecycle, PTY attach/detach/
-close/exit, and channel or PTY-operation faults. Tokens, commands, and terminal
-input are never logged.
+close/exit, channel or PTY-operation faults, and process-level stdout/stderr.
+Faults are persisted as bounded codes or categories rather than raw error text.
+Tokens, commands, terminal input, and RPC request identifiers are never logged.
 
 The log rotates at 2 MiB. `daemon.log` is the newest file, with at most two
 older generations in `daemon.log.1` and `daemon.log.2`, so one slot uses at
