@@ -25,25 +25,6 @@ public final class TerminalSurfaceLaunchResourceProvider: Sendable {
         }
     }
 
-    /// Starts one inspection through an injected file manager.
-    public convenience init(
-        resourceURL: URL?,
-        isExecutableFile: @escaping @Sendable (String) -> Bool,
-        fileManager: FileManager
-    ) {
-        self.init(
-            resourceURL: resourceURL,
-            isExecutableFile: isExecutableFile,
-            directoryExists: { path in
-                var isDirectory: ObjCBool = false
-                return fileManager.fileExists(
-                    atPath: path,
-                    isDirectory: &isDirectory
-                ) && isDirectory.boolValue
-            }
-        )
-    }
-
     /// Waits for and returns the shared resource snapshot.
     public func snapshot() async -> TerminalSurfaceLaunchResourceSnapshot {
         await task.value

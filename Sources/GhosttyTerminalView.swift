@@ -435,7 +435,13 @@ class GhosttyApp {
         TerminalSurfaceLaunchResourceProvider(
             resourceURL: Bundle.main.resourceURL,
             isExecutableFile: { FileManager.default.isExecutableFile(atPath: $0) },
-            fileManager: .default
+            directoryExists: { path in
+                var isDirectory: ObjCBool = false
+                return FileManager.default.fileExists(
+                    atPath: path,
+                    isDirectory: &isDirectory
+                ) && isDirectory.boolValue
+            }
         )
 
     /// Capabilities that exist only in the legacy embedded ownership graph.

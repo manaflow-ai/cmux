@@ -164,7 +164,8 @@ struct TerminalSurfaceLaunchResolverTests {
         let filesystem = TerminalSurfaceRuntimeFilesystem(
             agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp"),
             installAgentCommandShims: { _, _, _ in nil },
-            isExecutableFile: { recorder.record(path: $0) }
+            isExecutableFile: { recorder.record(path: $0) },
+            directoryExists: { _ in true }
         )
         let resolver = makeResolver(
             defaultArguments: ["/bin/zsh", "-l"],
@@ -351,7 +352,8 @@ struct TerminalSurfaceLaunchResolverTests {
             removeAgentCommandShims: { shims in
                 await cleanupRecorder.record(shims)
             },
-            isExecutableFile: { _ in false }
+            isExecutableFile: { _ in false },
+            directoryExists: { _ in false }
         )
         let resolver = makeResolver(
             defaultArguments: ["/bin/zsh", "-l"],
@@ -425,7 +427,8 @@ struct TerminalSurfaceLaunchResolverTests {
             runtimeFilesystem: runtimeFilesystem ?? TerminalSurfaceRuntimeFilesystem(
                 agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp"),
                 installAgentCommandShims: { _, _, _ in nil },
-                isExecutableFile: { _ in false }
+                isExecutableFile: { _ in false },
+                directoryExists: { _ in false }
             ),
             sessionPortBase: 40_000,
             sessionPortRangeSize: 100,

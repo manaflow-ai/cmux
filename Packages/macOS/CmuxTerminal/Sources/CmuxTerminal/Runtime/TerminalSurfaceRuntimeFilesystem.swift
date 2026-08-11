@@ -347,6 +347,9 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
     /// Returns whether the path points at an executable file.
     public let isExecutableFile: @Sendable (_ path: String) -> Bool
 
+    /// Returns whether the path points at a directory.
+    public let directoryExists: @Sendable (_ path: String) -> Bool
+
     /// Shared ownership gate for installs that can outlive a launch deadline.
     public let agentCommandShimInstallGate: TerminalSurfaceCommandShimInstallGate
 
@@ -360,12 +363,14 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
                 try? FileManager.default.removeItem(atPath: shims.directoryPath)
             },
         isExecutableFile: @escaping @Sendable (_ path: String) -> Bool,
+        directoryExists: @escaping @Sendable (_ path: String) -> Bool,
         agentCommandShimInstallGate: TerminalSurfaceCommandShimInstallGate = .init()
     ) {
         self.agentCommandShimTemporaryDirectory = agentCommandShimTemporaryDirectory
         self.installAgentCommandShims = installAgentCommandShims
         self.removeAgentCommandShims = removeAgentCommandShims
         self.isExecutableFile = isExecutableFile
+        self.directoryExists = directoryExists
         self.agentCommandShimInstallGate = agentCommandShimInstallGate
     }
 }

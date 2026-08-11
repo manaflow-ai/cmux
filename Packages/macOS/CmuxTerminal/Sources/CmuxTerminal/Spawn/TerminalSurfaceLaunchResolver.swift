@@ -76,7 +76,7 @@ public final class TerminalSurfaceLaunchResolver {
             ?? TerminalSurfaceLaunchResourceProvider(
                 resourceURL: resourceURL,
                 isExecutableFile: runtimeFilesystem.isExecutableFile,
-                fileManager: .default
+                directoryExists: runtimeFilesystem.directoryExists
             )
         self.bundleIdentifier = bundleIdentifier
         self.ambientEnvironment = ambientEnvironment

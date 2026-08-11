@@ -2415,7 +2415,8 @@ struct TerminalClientCompositionTests {
                 removeAgentCommandShims: { shims in
                     await cleanupRecorder.record(shims)
                 },
-                isExecutableFile: { _ in false }
+                isExecutableFile: { _ in false },
+                directoryExists: { _ in false }
             ),
             sessionPortBase: 40_000,
             sessionPortRangeSize: 100,
@@ -3123,7 +3124,8 @@ struct TerminalClientCompositionTests {
             runtimeFilesystem: TerminalSurfaceRuntimeFilesystem(
                 agentCommandShimTemporaryDirectory: URL(fileURLWithPath: NSTemporaryDirectory()),
                 installAgentCommandShims: { _, _, _ in nil },
-                isExecutableFile: { _ in false }
+                isExecutableFile: { _ in false },
+                directoryExists: { _ in false }
             ),
             sessionPortBase: 40_000,
             sessionPortRangeSize: 100,

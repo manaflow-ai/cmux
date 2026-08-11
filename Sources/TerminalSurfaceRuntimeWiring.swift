@@ -164,7 +164,14 @@ extension TerminalSurfaceRuntimeFilesystem {
                     fileManager: fileManager
                 )
             },
-            isExecutableFile: { FileManager.default.isExecutableFile(atPath: $0) }
+            isExecutableFile: { FileManager.default.isExecutableFile(atPath: $0) },
+            directoryExists: { path in
+                var isDirectory: ObjCBool = false
+                return FileManager.default.fileExists(
+                    atPath: path,
+                    isDirectory: &isDirectory
+                ) && isDirectory.boolValue
+            }
         )
     }
 }

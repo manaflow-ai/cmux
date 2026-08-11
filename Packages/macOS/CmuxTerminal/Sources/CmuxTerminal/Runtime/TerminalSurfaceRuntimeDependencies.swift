@@ -135,7 +135,7 @@ public struct TerminalSurfaceEmbeddedRuntimeDependencies {
             ?? TerminalSurfaceLaunchResourceProvider(
                 resourceURL: Bundle.main.resourceURL,
                 isExecutableFile: runtimeFilesystem.isExecutableFile,
-                fileManager: .default
+                directoryExists: runtimeFilesystem.directoryExists
             )
         self.agentCommandShimInstallDeadline = agentCommandShimInstallDeadline
         self.agentCommandShimInstallDeadlineClock = agentCommandShimInstallDeadlineClock

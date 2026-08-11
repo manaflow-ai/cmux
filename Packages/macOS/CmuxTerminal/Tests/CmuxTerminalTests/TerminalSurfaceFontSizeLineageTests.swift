@@ -1767,7 +1767,8 @@ private func setFontBindingResult(_ result: Bool)
                         isDirectory: true
                     ),
                     installAgentCommandShims: { _, _, _ in nil },
-                    isExecutableFile: { _ in false }
+                    isExecutableFile: { _ in false },
+                    directoryExists: { _ in false }
                 ),
                 sessionPortBase: 40_000,
                 sessionPortRangeSize: 100,
