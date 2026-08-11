@@ -4812,8 +4812,7 @@ impl Mux {
                 _ => None,
             },
         ))?;
-        let projection_current =
-            self.sync_agent_records_for_terminals(&registry, terminal_ids)?;
+        let projection_current = self.sync_agent_records_for_terminals(&registry, terminal_ids)?;
         drop(registry);
         if projection_current {
             self.publish_journal_event();
