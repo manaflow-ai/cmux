@@ -7,6 +7,7 @@ enum FrontendServiceError: LocalizedError {
   case connectionFailure(String, localization: Localization)
   case requestRejected(String, localization: Localization)
   case terminalAttachFailure(String, localization: Localization)
+  case requestQueueFull(localization: Localization)
   case terminalAttachQueueFull(localization: Localization)
   case mutationIndeterminate(
     operation: String,
@@ -54,6 +55,11 @@ enum FrontendServiceError: LocalizedError {
       )
     case .terminalAttachFailure(_, let localization):
       return localization.text("error.terminal_attach", "The terminal could not be attached.")
+    case .requestQueueFull(let localization):
+      return localization.text(
+        "error.request_queue_full",
+        "Too many frontend requests are waiting. Try again after they finish."
+      )
     case .terminalAttachQueueFull(let localization):
       return localization.text(
         "error.terminal_attach_queue_full",
@@ -71,7 +77,8 @@ enum FrontendServiceError: LocalizedError {
     switch self {
     case .connectionFailure(let message, _), .requestRejected(let message, _),
       .terminalAttachFailure(let message, _): return message
-    case .localized, .terminalAttachQueueFull, .mutationIndeterminate: return nil
+    case .localized, .requestQueueFull, .terminalAttachQueueFull, .mutationIndeterminate:
+      return nil
     }
   }
 }
@@ -142,13 +149,32 @@ private func continuousClockFFITimeout(
 final class SerialFFIExecutor: @unchecked Sendable {
   private let queue: DispatchQueue
   private let timeoutScheduler: FFITimeoutScheduler
+  private let pendingLock = NSLock()
+  private let maximumPendingCancellableOperations: Int
+  private var pendingCancellableOperations = 0
 
   init(
     label: String,
+    maximumPendingCancellableOperations: Int = 16,
     timeoutScheduler: @escaping FFITimeoutScheduler = continuousClockFFITimeout
   ) {
     queue = DispatchQueue(label: label)
+    self.maximumPendingCancellableOperations = max(1, maximumPendingCancellableOperations)
     self.timeoutScheduler = timeoutScheduler
+  }
+
+  private func reserveCancellableOperation() -> Bool {
+    pendingLock.lock()
+    defer { pendingLock.unlock() }
+    guard pendingCancellableOperations < maximumPendingCancellableOperations else { return false }
+    pendingCancellableOperations += 1
+    return true
+  }
+
+  private func releaseCancellableOperation() {
+    pendingLock.lock()
+    pendingCancellableOperations -= 1
+    pendingLock.unlock()
   }
 
   func run<T: Sendable>(
@@ -166,9 +192,11 @@ final class SerialFFIExecutor: @unchecked Sendable {
     timeoutNanoseconds: UInt64? = nil,
     _ operation: @escaping @Sendable () -> T,
     onEnqueued: (@Sendable () -> Void)? = nil
-  ) async -> T? {
+  ) async throws -> T? {
+    guard reserveCancellableOperation() else { throw SerialFFIExecutorError.queueFull }
     let waiter = FFIResultWaiter<T>()
-    queue.async {
+    queue.async { [self] in
+      defer { releaseCancellableOperation() }
       guard cancellation.beginExecution() else {
         Task { await waiter.complete(nil) }
         return
@@ -192,6 +220,10 @@ final class SerialFFIExecutor: @unchecked Sendable {
       }
     }
   }
+}
+
+enum SerialFFIExecutorError: Error {
+  case queueFull
 }
 
 private actor FFIResultWaiter<T: Sendable> {
@@ -297,13 +329,20 @@ func copyFrontendCString(
 actor FrontendService {
   private static let requestTimeoutMilliseconds: UInt64 = 15_000
   private static let requestTimeoutNanoseconds = requestTimeoutMilliseconds * 1_000_000
+  private static let maximumPendingRequests = 16
   private static let maximumPendingAttaches = 8
 
   private var raw: OpaquePointer?
   private let localization: Localization
-  private let controlQueue = SerialFFIExecutor(label: "cmux.native-frontend.control")
+  private let controlQueue = SerialFFIExecutor(
+    label: "cmux.native-frontend.control",
+    maximumPendingCancellableOperations: Self.maximumPendingRequests
+  )
   // One attach lane limits blocking handshakes without delaying resource control.
-  private let attachQueue = SerialFFIExecutor(label: "cmux.native-frontend.attach")
+  private let attachQueue = SerialFFIExecutor(
+    label: "cmux.native-frontend.attach",
+    maximumPendingCancellableOperations: Self.maximumPendingAttaches
+  )
   private var requestCancellations: [UUID: FFICancellation] = [:]
   private var attachCancellations: [UUID: FFICancellation] = [:]
   private var isShuttingDown = false
@@ -385,28 +424,35 @@ actor FrontendService {
     let requestID = UUID()
     requestCancellations[requestID] = queueCancellation
     defer { requestCancellations[requestID] = nil }
-    let queuedResponse: Result<String, DetachedRequestFailure>? = await controlQueue.runCancellable(
-      cancellation: queueCancellation,
-      timeoutNanoseconds: Self.requestTimeoutNanoseconds
-    ) {
-      var error = [CChar](repeating: 0, count: 4_096)
-      let result = operation.withCString { operationPointer in
-        paramsJSON.withCString { paramsPointer in
-          cmux_frontend_client_request_cancellable(
-            OpaquePointer(bitPattern: rawAddress)!,
-            operationPointer,
-            paramsPointer,
-            mutation,
-            &error,
-            error.count,
-            FrontendService.requestTimeoutMilliseconds,
-            requestCancellation.raw
-          )
+    let queuedResponse: Result<String, DetachedRequestFailure>?
+    do {
+      queuedResponse = try await controlQueue.runCancellable(
+        cancellation: queueCancellation,
+        timeoutNanoseconds: Self.requestTimeoutNanoseconds
+      ) {
+        var error = [CChar](repeating: 0, count: 4_096)
+        let result = operation.withCString { operationPointer in
+          paramsJSON.withCString { paramsPointer in
+            cmux_frontend_client_request_cancellable(
+              OpaquePointer(bitPattern: rawAddress)!,
+              operationPointer,
+              paramsPointer,
+              mutation,
+              &error,
+              error.count,
+              FrontendService.requestTimeoutMilliseconds,
+              requestCancellation.raw
+            )
+          }
         }
+        guard let result else {
+          return .failure(DetachedRequestFailure(message: decodeError(error)))
+        }
+        defer { cmux_frontend_string_free(result) }
+        return .success(String(cString: result))
       }
-      guard let result else { return .failure(DetachedRequestFailure(message: decodeError(error))) }
-      defer { cmux_frontend_string_free(result) }
-      return .success(String(cString: result))
+    } catch SerialFFIExecutorError.queueFull {
+      throw FrontendServiceError.requestQueueFull(localization: localization)
     }
     guard let response = queuedResponse else { throw CancellationError() }
     try Task.checkCancellation()
@@ -449,23 +495,30 @@ actor FrontendService {
     let attachID = UUID()
     attachCancellations[attachID] = queueCancellation
     defer { attachCancellations[attachID] = nil }
-    let queuedResult: Result<UInt, DetachedRequestFailure>? = await attachQueue.runCancellable(
-      cancellation: queueCancellation,
-      timeoutNanoseconds: Self.requestTimeoutNanoseconds
-    ) {
-      var error = [CChar](repeating: 0, count: 2_048)
-      let terminal = id.withCString {
-        cmux_frontend_client_attach_terminal_cancellable(
-          OpaquePointer(bitPattern: rawAddress)!,
-          $0,
-          &error,
-          error.count,
-          FrontendService.requestTimeoutMilliseconds,
-          attachCancellation.raw
-        )
+    let queuedResult: Result<UInt, DetachedRequestFailure>?
+    do {
+      queuedResult = try await attachQueue.runCancellable(
+        cancellation: queueCancellation,
+        timeoutNanoseconds: Self.requestTimeoutNanoseconds
+      ) {
+        var error = [CChar](repeating: 0, count: 2_048)
+        let terminal = id.withCString {
+          cmux_frontend_client_attach_terminal_cancellable(
+            OpaquePointer(bitPattern: rawAddress)!,
+            $0,
+            &error,
+            error.count,
+            FrontendService.requestTimeoutMilliseconds,
+            attachCancellation.raw
+          )
+        }
+        guard let terminal else {
+          return .failure(DetachedRequestFailure(message: decodeError(error)))
+        }
+        return .success(UInt(bitPattern: terminal))
       }
-      guard let terminal else { return .failure(DetachedRequestFailure(message: decodeError(error))) }
-      return .success(UInt(bitPattern: terminal))
+    } catch SerialFFIExecutorError.queueFull {
+      throw FrontendServiceError.terminalAttachQueueFull(localization: localization)
     }
     guard let result = queuedResult else { throw CancellationError() }
     switch result {

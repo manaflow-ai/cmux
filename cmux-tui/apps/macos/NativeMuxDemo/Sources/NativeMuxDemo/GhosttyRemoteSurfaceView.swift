@@ -18,11 +18,13 @@ final class GhosttyTerminalInputRelay: Sendable {
 
   @discardableResult
   func send(_ data: Data) -> Bool {
-    if case .dropped = continuation.yield(.bytes(data)) {
+    switch continuation.yield(.bytes(data)) {
+    case .enqueued:
+      return true
+    case .dropped, .terminated:
       dropContinuation.yield()
       return false
     }
-    return true
   }
 }
 

@@ -124,6 +124,7 @@ final class NativeTerminalModel {
     didStart = true
     errorMessage = ""
     beginInputOverloadReporting()
+    beginInputDelivery()
     attachTask = Task { [weak self] in
       guard let self else { return }
       do {
@@ -143,7 +144,6 @@ final class NativeTerminalModel {
           await handle.shutdown()
           return
         }
-        beginInputDelivery(to: handle)
         beginUpdates(from: handle)
         requestRenderDrain(from: handle)
       } catch {
@@ -158,7 +158,7 @@ final class NativeTerminalModel {
   }
 
   private func beginInputOverloadReporting() {
-    inputDropTask?.cancel()
+    guard inputDropTask == nil else { return }
     let stream = inputDropStream
     inputDropTask = Task { [weak self] in
       for await _ in stream {
@@ -168,14 +168,17 @@ final class NativeTerminalModel {
     }
   }
 
-  private func beginInputDelivery(to handle: TerminalHandle) {
-    inputTask?.cancel()
+  private func beginInputDelivery() {
+    guard inputTask == nil else { return }
     let stream = inputStream
     inputTask = Task { [weak self] in
       for await input in stream {
-        guard !Task.isCancelled else { break }
+        guard !Task.isCancelled, let self, !isShuttingDown else { return }
+        guard let handle, isAttached else { continue }
         let accepted = await handle.submit(input)
-        guard let self, !isShuttingDown else { return }
+        guard !Task.isCancelled, !isShuttingDown,
+          let activeHandle = self.handle, activeHandle === handle
+        else { continue }
         let rejected = localization.text(
           "error.terminal_input_rejected",
           "Terminal input was rejected."
@@ -235,7 +238,8 @@ final class NativeTerminalModel {
           await Task.yield()
         }
         if let rendererError = surfaceView.initializationError {
-          errorMessage = rendererError
+          await failAttachment(handle, message: rendererError)
+          return
         }
         let nextDidExit = await handle.hasExited()
         if didExit != nextDidExit { didExit = nextDidExit }
@@ -261,11 +265,9 @@ final class NativeTerminalModel {
   }
 
   private func failAttachment(_ handle: TerminalHandle, message: String) async {
-    let workers = [updateTask, inputTask, inputDropTask, resizeTask].compactMap { $0 }
+    let workers = [updateTask, resizeTask].compactMap { $0 }
     for worker in workers { worker.cancel() }
     updateTask = nil
-    inputTask = nil
-    inputDropTask = nil
     resizeTask = nil
     drainRequested = false
     self.handle = nil
