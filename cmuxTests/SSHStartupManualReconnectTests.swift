@@ -102,6 +102,45 @@ struct SSHStartupManualReconnectTests {
         )
     }
 
+    @Test func terminalTeardownDisablesRemoteInputReportingModesBeforePrompt() {
+        let startupCommand = CMUXCLI(args: ["cmux"]).buildReusableSSHStartupCommand(
+            sshCommand: "exit 7",
+            shellFeatures: "",
+            remoteRelayPort: 0,
+            isShellSnippet: true,
+            reconnectLimitDefault: 0
+        )
+        let result = Self.runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", startupCommand],
+            environment: ProcessInfo.processInfo.environment,
+            standardInput: "\n",
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 7, Comment(rawValue: result.stderr))
+        let requiredResets = [
+            "\u{1B}[?1004l", // focus reporting
+            "\u{1B}[?1000l", // mouse reporting
+            "\u{1B}[?2004l", // bracketed paste
+            "\u{1B}[999<u", // Kitty keyboard stack
+            "\u{1B}[0;1=u", // Kitty keyboard flags
+            "\u{1B}[?2048l", // in-band resize reports
+            "\u{1B}[?2026l", // synchronized output
+        ]
+        for reset in requiredResets {
+            #expect(result.stderr.contains(reset), Comment(rawValue: result.stderr))
+        }
+        let focusReset = result.stderr.range(of: "\u{1B}[?1004l")
+        let closePrompt = result.stderr.range(of: "press Enter to close this pane")
+        #expect(focusReset != nil)
+        #expect(closePrompt != nil)
+        if let focusReset, let closePrompt {
+            #expect(focusReset.lowerBound < closePrompt.lowerBound)
+        }
+    }
+
     @Test func directSignalTerminatesForegroundAuthenticationProcessTree() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
