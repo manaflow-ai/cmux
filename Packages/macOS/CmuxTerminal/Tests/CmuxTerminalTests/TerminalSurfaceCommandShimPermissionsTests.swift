@@ -219,7 +219,16 @@ struct TerminalSurfaceCommandShimPermissionsTests {
                 fileManager: fileManager
             )
         )
+        let replacement = try #require(
+            TerminalSurface.installAgentCommandShimsIfPossible(
+                wrapperDirectoryURL: wrapperDirectory,
+                surfaceId: surfaceId,
+                temporaryDirectory: temporaryDirectory,
+                fileManager: fileManager
+            )
+        )
         #expect(shim.directoryPath == shimDirectory.path)
+        #expect(replacement.directoryPath != shim.directoryPath)
         for directory in [parentDirectory, shimDirectory] {
             let attributes = try fileManager.attributesOfItem(atPath: directory.path)
             let permissions = try #require(attributes[.posixPermissions] as? NSNumber)

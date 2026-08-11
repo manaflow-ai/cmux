@@ -515,6 +515,62 @@ struct TerminalSurfaceLaunchResolverTests {
         #expect(thirdResolved.environment["CMUX_AGENT_COMMAND_SHIM_ROOT"] == nil)
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func canceledLaunchReleasesNewShimsBeforeOwnershipTransfer() async throws {
+        let clock = LaunchResolverManualClock()
+        let installer = BlockingCommandShimInstaller()
+        let cleanupRecorder = CommandShimCleanupRecorder()
+        let shellBlocker = DispatchSemaphore(value: 0)
+        defer { shellBlocker.signal() }
+        let shims = TerminalSurfaceAgentCommandShimSet(
+            directoryPath: "/tmp/canceled-command-shims",
+            shims: []
+        )
+        let filesystem = TerminalSurfaceRuntimeFilesystem(
+            agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp"),
+            installAgentCommandShims: { _, _, _ in
+                await installer.install()
+            },
+            removeAgentCommandShims: { shims in
+                await cleanupRecorder.record(shims)
+            },
+            isExecutableFile: { _ in false },
+            directoryExists: { _ in false }
+        )
+        let resolver = makeResolver(
+            defaultArguments: ["/bin/zsh", "-l"],
+            defaultArgumentsProvider: {
+                shellBlocker.wait()
+                return ["/bin/zsh", "-l"]
+            },
+            runtimeFilesystem: filesystem,
+            resourceURL: URL(fileURLWithPath: "/tmp/cmux-test-resources"),
+            agentCommandShimInstallDeadlineClock: clock
+        )
+        let request = TerminalSurfaceLaunchRequest(
+            workspaceID: UUID(),
+            surfaceID: UUID(),
+            configTemplate: nil,
+            workingDirectory: nil,
+            portOrdinal: 0,
+            initialCommand: nil,
+            initialInput: nil,
+            initialEnvironmentOverrides: [:],
+            additionalEnvironment: [:]
+        )
+        let resolution = Task { await resolver.resolveInstallingCommandShim(request) }
+        await installer.waitUntilBlocked()
+        await installer.complete(with: shims)
+        while clock.sleepInvocationCount < 2 { await Task.yield() }
+
+        resolution.cancel()
+        let canceled = await resolution.value
+
+        #expect(canceled.commandShimLease == nil)
+        #expect(canceled.resolvedLaunch.environment["CMUX_AGENT_COMMAND_SHIM_ROOT"] == nil)
+        #expect(await cleanupRecorder.next() == shims)
+    }
+
     @Test
     func commandShimLeaseRetainsOwnershipAfterBoundedRemovalFailure() async {
         let shims = TerminalSurfaceAgentCommandShimSet(
@@ -775,6 +831,7 @@ private final class LaunchResolverManualClock: Clock, @unchecked Sendable {
 
     private let lock = NSLock()
     private var currentInstant = Instant(offset: .zero)
+    private var sleepInvocations = 0
     private var sleepers: [UUID: Sleeper] = [:]
     private var cancelledSleeperIDs: Set<UUID> = []
     private var parkWaiters: [
@@ -786,6 +843,7 @@ private final class LaunchResolverManualClock: Clock, @unchecked Sendable {
     }
 
     var minimumResolution: Duration { .zero }
+    var sleepInvocationCount: Int { lock.withLock { sleepInvocations } }
 
     func sleep(until deadline: Instant, tolerance: Duration?) async throws {
         let identifier = UUID()
@@ -793,6 +851,7 @@ private final class LaunchResolverManualClock: Clock, @unchecked Sendable {
             try await withCheckedThrowingContinuation {
                 (continuation: CheckedContinuation<Void, any Error>) in
                 lock.lock()
+                sleepInvocations += 1
                 if cancelledSleeperIDs.remove(identifier) != nil {
                     lock.unlock()
                     continuation.resume(throwing: CancellationError())
