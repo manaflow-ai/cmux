@@ -19,6 +19,7 @@ struct NotificationFeedView: View {
     let projection: NotificationFeedProjection
     let refreshesOnAppear: Bool
     let actions: NotificationFeedActions
+    @Environment(\.mobilePrimarySearchDestination) private var isSearchDestination
 
     var body: some View {
         @Bindable var projection = projection
@@ -39,8 +40,7 @@ struct NotificationFeedView: View {
                 loadMoreRows: { projection.extendRowWindow() }
             )
         }
-        .navigationTitle(L10n.string("mobile.notificationFeed.title", defaultValue: "Notifications"))
-        .navigationBarTitleDisplayMode(.large)
+        .modifier(NotificationFeedNavigationTitle(isEnabled: !isSearchDestination))
         .toolbar {
             if projection.sourceUnreadCount > 0 {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -63,6 +63,26 @@ struct NotificationFeedView: View {
             await actions.refresh()
         }
         .accessibilityIdentifier("MobileNotificationFeed")
+    }
+}
+
+/// The search-role tab hosts an inactive searchable's field inline under any
+/// navigation title on the field's stack root (measured at y=169 after a
+/// pop), so the search-destination instance stays title-less like the
+/// workspace search stack; the notifications tab keeps the large title.
+private struct NotificationFeedNavigationTitle: ViewModifier {
+    let isEnabled: Bool
+
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content
+                .navigationTitle(
+                    L10n.string("mobile.notificationFeed.title", defaultValue: "Notifications")
+                )
+                .navigationBarTitleDisplayMode(.large)
+        } else {
+            content
+        }
     }
 }
 
