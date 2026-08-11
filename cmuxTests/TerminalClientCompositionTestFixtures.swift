@@ -1,6 +1,7 @@
 import Foundation
 import CmuxFoundation
 import CmuxGit
+import CmuxRemoteSession
 import CmuxSettings
 import CmuxSidebarGit
 import CmuxWorkspaces
