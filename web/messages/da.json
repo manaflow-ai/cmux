@@ -158,6 +158,7 @@
       "signOut": "Log ud",
       "signingOut": "Logger ud…",
       "signOutError": "Kunne ikke logge ud. Prøv igen.",
+      "organizationSwitchError": "Kunne ikke skifte organisation. Prøv igen.",
       "signIn": "Log ind"
     },
     "aiAccounts": {
