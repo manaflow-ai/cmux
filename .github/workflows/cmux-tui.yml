@@ -21,8 +21,14 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
-      - name: Set up pinned Rust
-        uses: ./.github/actions/setup-cmux-tui-rust
+      - name: Set up Rust
+        run: |
+          rustc --version || true
+          if ! command -v cargo >/dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs |
+              sh -s -- -y --default-toolchain stable
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
 
       - name: Compile core tests with visible diagnostics
         working-directory: cmux-tui
