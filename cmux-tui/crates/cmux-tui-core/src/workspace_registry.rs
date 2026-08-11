@@ -418,6 +418,11 @@ impl PersistentSessionStateResetter {
         persistent_session_state_dir(&self.state_root, session_name)
     }
 
+    /// Returns whether this process can enforce the reset deletion boundary.
+    pub fn checked_deletion_supported(&self) -> bool {
+        checked_reset_deletion_supported(&self.state_root)
+    }
+
     /// Builds a read-only reset preview for `session_name`.
     pub fn preview(
         &self,
@@ -2942,9 +2947,8 @@ fn unsupported_checked_reset_deletion(path: &Path, label: &str) -> anyhow::Resul
     )
 }
 
-/// Return whether this process can enforce descriptor-relative reset deletion boundaries.
 #[cfg(any(target_os = "linux", target_os = "android"))]
-pub fn checked_reset_deletion_supported(root: &Path) -> bool {
+fn checked_reset_deletion_supported(root: &Path) -> bool {
     use std::ffi::OsStr;
     use std::os::fd::AsRawFd;
 
@@ -2952,20 +2956,18 @@ pub fn checked_reset_deletion_supported(root: &Path) -> bool {
         .is_ok_and(|parent| open_reset_child_dir(parent.as_raw_fd(), OsStr::new("."), root).is_ok())
 }
 
-/// Return whether this process can enforce descriptor-relative reset deletion boundaries.
 #[cfg(any(target_os = "ios", target_os = "macos"))]
-pub fn checked_reset_deletion_supported(root: &Path) -> bool {
+fn checked_reset_deletion_supported(root: &Path) -> bool {
     open_verified_reset_directory(root, "workspace state root").is_ok()
 }
 
-/// Return whether this process can enforce descriptor-relative reset deletion boundaries.
 #[cfg(not(any(
     target_os = "ios",
     target_os = "macos",
     target_os = "linux",
     target_os = "android"
 )))]
-pub fn checked_reset_deletion_supported(_root: &Path) -> bool {
+fn checked_reset_deletion_supported(_root: &Path) -> bool {
     false
 }
 

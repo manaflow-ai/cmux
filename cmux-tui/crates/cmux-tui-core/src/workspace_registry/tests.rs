@@ -471,9 +471,11 @@ fn checked_reset_deletion_support_uses_state_root() {
     let root = temp_root("reset-capability-state-root");
     fs::create_dir_all(&root).unwrap();
 
-    assert!(checked_reset_deletion_supported(&root));
+    assert!(PersistentSessionStateResetter::new(root.as_path()).checked_deletion_supported());
     assert_eq!(fs::read_dir(&root).unwrap().count(), 0, "capability probe leaked an entry");
-    assert!(!checked_reset_deletion_supported(&root.join("missing")));
+    assert!(
+        !PersistentSessionStateResetter::new(root.join("missing")).checked_deletion_supported()
+    );
 
     fs::remove_dir_all(root).unwrap();
 }
@@ -493,7 +495,7 @@ fn checked_reset_deletion_support_does_not_require_writable_state_root() {
     read_only_permissions.set_mode(0o500);
     fs::set_permissions(&root, read_only_permissions).unwrap();
 
-    let supported = checked_reset_deletion_supported(&root);
+    let supported = PersistentSessionStateResetter::new(root.as_path()).checked_deletion_supported();
 
     fs::set_permissions(&root, original_permissions).unwrap();
     fs::remove_dir_all(root).unwrap();

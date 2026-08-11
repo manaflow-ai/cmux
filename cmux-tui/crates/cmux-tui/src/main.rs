@@ -818,7 +818,10 @@ enum ResetStateRecoverySupport {
 }
 
 fn reset_state_recovery_support(state_root: Option<&Path>) -> ResetStateRecoverySupport {
-    if state_root.is_some_and(cmux_tui_core::checked_reset_deletion_supported) {
+    if state_root
+        .map(cmux_tui_core::PersistentSessionStateResetter::new)
+        .is_some_and(|resetter| resetter.checked_deletion_supported())
+    {
         ResetStateRecoverySupport::Supported
     } else {
         ResetStateRecoverySupport::Unsupported
