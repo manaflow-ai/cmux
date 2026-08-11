@@ -495,23 +495,17 @@ extension Workspace {
         panelId: UUID,
         restorableAgent: SessionRestorableAgentSnapshot?,
         willRunStartupCommand: Bool,
-        willRunStartupInput: Bool
+        willRunStartupInput: Bool,
+        resumeSessionWorkingDirectory: String?
     ) {
-        if let restorableAgent {
-            restoredAgentSnapshotsByPanelId[panelId] = restorableAgent
-        } else {
-            restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
-        }
-        if willRunStartupCommand {
-            restoredAgentResumeStatesByPanelId[panelId] = .autoResumeCommandRunning
-        } else if willRunStartupInput {
-            restoredAgentResumeStatesByPanelId[panelId] = .awaitingAutoResumeCommand
-        } else if restorableAgent != nil {
-            restoredAgentResumeStatesByPanelId[panelId] = .manualResumeAvailable
-        } else {
-            restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
-        }
-        invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
+        restoredAgentLifecycle.seedSessionRestore(
+            panelId: panelId,
+            snapshot: restorableAgent,
+            manualResumeAvailable: restorableAgent != nil,
+            willRunStartupCommand: willRunStartupCommand,
+            willRunStartupInput: willRunStartupInput,
+            resumeWorkingDirectory: resumeSessionWorkingDirectory
+        )
     }
 
     func seedDetachedRestoredAgentState(from detached: DetachedSurfaceTransfer) {
@@ -525,7 +519,8 @@ extension Workspace {
             panelId: detached.panelId,
             snapshot: detached.restorableAgent,
             resumeState: detached.restorableAgentResumeState,
-            completedGeneration: detached.restoredAgentCompletedGeneration
+            completedGeneration: detached.restoredAgentCompletedGeneration,
+            resumeWorkingDirectory: detached.restoredResumeSessionWorkingDirectory
         )
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: detached.panelId)
     }
