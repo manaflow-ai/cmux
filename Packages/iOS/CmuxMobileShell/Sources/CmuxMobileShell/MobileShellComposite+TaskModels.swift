@@ -1,6 +1,14 @@
 internal import CmuxMobileRPC
 public import CmuxMobileShellModel
 import Foundation
+#if DEBUG
+import OSLog
+
+nonisolated private let taskModelTraceLog = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "TaskModels"
+)
+#endif
 
 private enum MobileTaskModelRefreshEvent: Sendable {
     case host(MobileTaskModelListResult?)
@@ -92,26 +100,51 @@ extension MobileShellComposite {
         macDeviceID: String,
         instanceTag: String?
     ) async throws -> MobileTaskModelListResult {
+        #if DEBUG
+        taskModelTraceLog.info(
+            "fetch.begin provider=\(provider.rawValue, privacy: .public) target=\(macDeviceID, privacy: .public)/\(instanceTag ?? "nil", privacy: .public) foreground=\(self.foregroundMacDeviceID ?? "nil", privacy: .public)/\(self.activeMacInstanceTag ?? "nil", privacy: .public) remote=\(self.remoteClient != nil) cancelled=\(Task.isCancelled)"
+        )
+        #endif
         if !matchesForegroundPairing(
             macDeviceID: macDeviceID,
             instanceTag: instanceTag
         ) || remoteClient == nil {
-            guard await switchToMac(
+            #if DEBUG
+            taskModelTraceLog.info("fetch.switch.begin")
+            #endif
+            let didSwitch = await switchToMac(
                 macDeviceID: macDeviceID,
                 instanceTag: instanceTag
-            ) else {
+            )
+            #if DEBUG
+            taskModelTraceLog.info(
+                "fetch.switch.end ok=\(didSwitch) foreground=\(self.foregroundMacDeviceID ?? "nil", privacy: .public)/\(self.activeMacInstanceTag ?? "nil", privacy: .public) remote=\(self.remoteClient != nil) cancelled=\(Task.isCancelled)"
+            )
+            #endif
+            guard didSwitch else {
                 throw MobileShellConnectionError.connectionClosed
             }
         }
         let context = captureWorkspaceCreateContext()
+        #if DEBUG
+        taskModelTraceLog.info(
+            "fetch.context value=\(context != nil) device=\(context?.macDeviceID ?? "nil", privacy: .public) tag=\(context?.instanceTag ?? "nil", privacy: .public) cancelled=\(Task.isCancelled)"
+        )
+        #endif
         guard !Task.isCancelled,
               let context,
               context.macDeviceID == macDeviceID,
               instanceTag == nil || context.instanceTag == instanceTag else {
+            #if DEBUG
+            taskModelTraceLog.error("fetch.context.reject")
+            #endif
             throw MobileShellConnectionError.invalidResponse
         }
 
         do {
+            #if DEBUG
+            taskModelTraceLog.info("fetch.request.begin")
+            #endif
             let response = try await context.client.sendRequest(
                 MobileCoreRPCClient.requestData(
                     method: "mobile.task.models.list",
@@ -122,6 +155,9 @@ extension MobileShellComposite {
                 // the concurrent backend catalog keeps the picker responsive.
                 timeoutNanoseconds: 35_000_000_000
             )
+            #if DEBUG
+            taskModelTraceLog.info("fetch.request.end bytes=\(response.count)")
+            #endif
             guard context.isCurrent(
                 macDeviceID: foregroundMacDeviceID,
                 instanceTag: activeMacInstanceTag,
@@ -154,6 +190,11 @@ extension MobileShellComposite {
             }
             return MobileTaskModelListResult(models: models, source: source)
         } catch {
+            #if DEBUG
+            taskModelTraceLog.error(
+                "fetch.error cancelled=\(Task.isCancelled) value=\(String(describing: error), privacy: .public)"
+            )
+            #endif
             // View lifecycle and connection-trigger retries intentionally
             // cancel superseded probes. Cancellation says nothing about Mac
             // availability and must never enter transport recovery.
@@ -213,6 +254,11 @@ extension MobileShellComposite {
         instanceTag: String?,
         didUpdate: (@MainActor (MobileTaskModelListResult) -> Void)? = nil
     ) async {
+        #if DEBUG
+        taskModelTraceLog.info(
+            "refresh.begin provider=\(provider.rawValue, privacy: .public) target=\(macDeviceID, privacy: .public)/\(instanceTag ?? "nil", privacy: .public) cancelled=\(Task.isCancelled)"
+        )
+        #endif
         await refreshTaskModels(
             provider: provider,
             macDeviceID: macDeviceID,
@@ -226,6 +272,9 @@ extension MobileShellComposite {
             },
             didUpdate: didUpdate
         )
+        #if DEBUG
+        taskModelTraceLog.info("refresh.end cancelled=\(Task.isCancelled)")
+        #endif
     }
 
     /// Refreshes only from an already-connected selected Mac.
