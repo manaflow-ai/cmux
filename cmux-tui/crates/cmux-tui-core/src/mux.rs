@@ -20597,7 +20597,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn stale_terminal_exit_rejects_a_new_in_memory_incarnation() {
+    fn stale_terminal_exit_uses_durable_incarnation_when_callback_omits_it() {
         let mux = test_mux();
         let old_surface = mux.new_workspace(None, Some((80, 24))).unwrap();
         let old_host = mux.resource_terminal_host_identity(&old_surface).unwrap();
@@ -20637,6 +20637,25 @@ mod tests {
         };
 
         assert!(error.to_string().contains("runtime changed hosts or incarnations"));
+        let error_without_incarnation = {
+            let registry = mux.workspace_registry.lock().unwrap();
+            let state = mux.state.lock().unwrap();
+            match mux.terminal_exit_detach_projection_locked(
+                &registry,
+                &state,
+                &old_host.terminal_id,
+                None,
+                &public_id,
+            ) {
+                Err(error) => error,
+                Ok(_) => panic!("unfenced terminal exit unexpectedly produced a projection"),
+            }
+        };
+        assert!(
+            error_without_incarnation
+                .to_string()
+                .contains("runtime changed hosts or incarnations")
+        );
         assert!(mux.surface(new_surface.id).is_some());
         removed.kill();
         new_surface.kill();

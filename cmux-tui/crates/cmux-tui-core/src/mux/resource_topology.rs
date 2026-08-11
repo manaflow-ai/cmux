@@ -2659,9 +2659,16 @@ impl Mux {
                 "terminal_incarnation_mismatch"
             );
         }
+        let terminal_incarnation = terminal_incarnation
+            .or(durable_terminal.incarnation.as_deref())
+            .context("terminal exit has no durable incarnation")?;
         let content_id = ContentPublicId::Terminal(terminal_public_id.clone());
-        let catalog_public_ids =
-            terminal_catalog_public_ids_by_host(self, state, terminal_id, terminal_incarnation);
+        let catalog_public_ids = terminal_catalog_public_ids_by_host(
+            self,
+            state,
+            terminal_id,
+            Some(terminal_incarnation),
+        );
         let runtime = state.terminal_catalog.get(terminal_public_id).or_else(|| {
             catalog_public_ids.iter().find_map(|public_id| state.terminal_catalog.get(public_id))
         });
@@ -2670,7 +2677,7 @@ impl Mux {
                 .resource_terminal_host_identity(runtime)
                 .context("terminal runtime omitted its durable host identity")?;
             anyhow::ensure!(
-                terminal_host_matches(&host, terminal_id, terminal_incarnation),
+                terminal_host_matches(&host, terminal_id, Some(terminal_incarnation)),
                 "terminal exit runtime changed hosts or incarnations"
             );
         }
@@ -2679,7 +2686,7 @@ impl Mux {
             self,
             state,
             terminal_public_id,
-            Some((terminal_id, terminal_incarnation)),
+            Some((terminal_id, Some(terminal_incarnation))),
         );
         if targets.is_empty() && !has_runtime {
             return Ok(None);
@@ -2710,8 +2717,7 @@ impl Mux {
                 cleanup_public_ids.push(catalog_public_id);
             }
         }
-        let terminal_hosts =
-            vec![(terminal_id.to_string(), terminal_incarnation.map(str::to_owned))];
+        let terminal_hosts = vec![(terminal_id.to_string(), Some(terminal_incarnation.to_owned()))];
         let terminal_indexes = TerminalIndexProjection::capture(
             self,
             state,
@@ -2732,7 +2738,7 @@ impl Mux {
                 .resource_terminal_host_identity(runtime)
                 .context("terminal runtime omitted its durable host identity")?;
             anyhow::ensure!(
-                terminal_host_matches(&host, terminal_id, terminal_incarnation),
+                terminal_host_matches(&host, terminal_id, Some(terminal_incarnation)),
                 "terminal exit runtime changed hosts or incarnations"
             );
         }
