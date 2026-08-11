@@ -189,6 +189,40 @@ import CmuxTerminalCore
         #expect(surface.runtimeSurfacePointer == nil)
     }
 
+    @Test func startupRestoreRuntimeWaitsForExplicitAdmission() {
+        let nativeView = FakeTerminalSurfaceNativeView(
+            frame: NSRect(x: 0, y: 0, width: 800, height: 600)
+        )
+        let paneHost = FakeTerminalSurfacePaneHost(
+            surfaceView: nativeView,
+            attachesThroughSurfaceModel: true
+        )
+        let scheduler = RecordingRestoreSpawnScheduler()
+        let surface = makeSurface(
+            runtimeSpawnPolicy: .heldForStartupRestoreAdmission,
+            scheduler: scheduler,
+            nativeView: nativeView,
+            paneHost: paneHost
+        )
+        surface.agentCommandShimInstallCompleted = true
+        defer { surface.closeHeadlessStartupWindowIfNeeded() }
+
+        surface.scheduleHeadlessRuntimeStartIfNeeded(reason: "before-admission")
+        surface.createSurface(for: nativeView, source: .inputDemand)
+
+        #expect(surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 0)
+        #expect(scheduler.scheduledSurfaceIds.isEmpty)
+
+        surface.admitStartupRestoreRuntime()
+
+        #expect(surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 1)
+        #expect(scheduler.scheduledSurfaceIds.isEmpty)
+
+        surface.admitStartupRestoreRuntime()
+
+        #expect(surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 1)
+    }
+
     @Test func configurationReloadDefersAndPromotesRuntimeCreation() {
         let nativeView = FakeTerminalSurfaceNativeView(
             frame: NSRect(x: 0, y: 0, width: 800, height: 600)
