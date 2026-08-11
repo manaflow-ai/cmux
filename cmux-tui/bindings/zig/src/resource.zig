@@ -16481,7 +16481,14 @@ test "queued request admission expires without writing a frame" {
         failure: ?anyerror = null,
 
         fn run(self: *@This()) void {
-            var params = try raw.wire.Object.init(std.testing.allocator, &.{}, &.{});
+            var params = raw.wire.Object.init(
+                std.testing.allocator,
+                &.{},
+                &.{},
+            ) catch |failure| {
+                self.failure = failure;
+                return;
+            };
             defer params.deinit(std.testing.allocator);
             var result = self.client.read(
                 .machine_list,
