@@ -129,15 +129,14 @@ struct SSHStartupManualReconnectTests {
             "\u{1B}[?2048l", // in-band resize reports
             "\u{1B}[?2026l", // synchronized output
         ]
-        for reset in requiredResets {
-            #expect(result.stderr.contains(reset), Comment(rawValue: result.stderr))
-        }
-        let focusReset = result.stderr.range(of: "\u{1B}[?1004l")
         let closePrompt = result.stderr.range(of: "press Enter to close this pane")
-        #expect(focusReset != nil)
         #expect(closePrompt != nil)
-        if let focusReset, let closePrompt {
-            #expect(focusReset.lowerBound < closePrompt.lowerBound)
+        for reset in requiredResets {
+            let resetRange = result.stderr.range(of: reset)
+            #expect(resetRange != nil, Comment(rawValue: result.stderr))
+            if let resetRange, let closePrompt {
+                #expect(resetRange.lowerBound < closePrompt.lowerBound)
+            }
         }
     }
 

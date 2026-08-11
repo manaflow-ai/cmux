@@ -1073,7 +1073,7 @@ func waitPersistentDaemonReady(reader *os.File, logFile string) error {
 	}
 }
 
-func runPersistentDaemonServer(slot string, leasePort int, stderr io.Writer) error {
+func runPersistentDaemonServer(slot string, leasePort int, stderr io.Writer) (resultErr error) {
 	paths, err := persistentDaemonPathsForSlot(slot)
 	if err != nil {
 		return err
@@ -1096,6 +1096,28 @@ func runPersistentDaemonServer(slot string, leasePort int, stderr io.Writer) err
 	}
 	defer syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
 
+	daemonLog, err := openPersistentDaemonLog(paths.logFile)
+	if err != nil {
+		return fmt.Errorf("open persistent daemon log: %w", err)
+	}
+	stderr = daemonLog
+	logPersistentDaemonEvent(
+		stderr,
+		"daemon_start",
+		"version", version,
+		"slot", paths.slot,
+		"lease_port", strconv.Itoa(leasePort),
+		"pid", strconv.Itoa(os.Getpid()),
+	)
+	defer func() {
+		fields := []string{"status", "clean"}
+		if resultErr != nil {
+			fields = []string{"status", "error", "error", resultErr.Error()}
+		}
+		logPersistentDaemonEvent(stderr, "daemon_stop", fields...)
+		_ = daemonLog.Close()
+	}()
+
 	_ = os.Remove(paths.socket)
 	listener, err := net.Listen("unix", paths.socket)
 	if err != nil {
@@ -1104,6 +1126,7 @@ func runPersistentDaemonServer(slot string, leasePort int, stderr io.Writer) err
 	defer listener.Close()
 	defer os.Remove(paths.socket)
 	_ = os.Chmod(paths.socket, 0o600)
+	logPersistentDaemonEvent(stderr, "daemon_ready", "socket", paths.socket)
 
 	signalPersistentDaemonReady()
 	config := persistentDaemonServerConfig{emptyIdleTimeout: persistentDaemonEmptyIdleTimeout}
@@ -1344,27 +1367,32 @@ func handlePersistentDaemonConnWithAuthTimeout(
 	requestShutdown func(),
 ) {
 	defer conn.Close()
+	defer logPersistentDaemonEvent(stderr, "connection_closed")
+	logPersistentDaemonEvent(stderr, "connection_accepted")
 	if timeout > 0 {
 		if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
+			logPersistentDaemonEvent(stderr, "connection_fault", "phase", "auth_deadline", "error", err.Error())
 			return
 		}
 	}
 	reader := bufio.NewReaderSize(conn, 64*1024)
 	writer := &stdioFrameWriter{writer: bufio.NewWriter(conn)}
 	if err := authenticatePersistentDaemonConn(reader, writer, verifier); err != nil {
-		if stderr != nil {
-			_, _ = fmt.Fprintf(stderr, "persistent daemon connection rejected: %v\n", err)
-		}
+		logPersistentDaemonEvent(stderr, "connection_rejected", "error", err.Error())
 		return
 	}
+	logPersistentDaemonEvent(stderr, "connection_authenticated")
 	if timeout > 0 {
 		if err := conn.SetDeadline(time.Time{}); err != nil {
+			logPersistentDaemonEvent(stderr, "connection_fault", "phase", "clear_auth_deadline", "error", err.Error())
 			return
 		}
 	}
-	_ = runRPCServerWithReader(reader, writer, hub, false, requestShutdown, func() {
+	if err := runRPCServerWithReader(reader, writer, hub, false, requestShutdown, func() {
 		_ = conn.Close()
-	})
+	}); err != nil {
+		logPersistentDaemonEvent(stderr, "connection_fault", "phase", "rpc", "error", err.Error())
+	}
 }
 
 func authenticatePersistentDaemonConn(reader *bufio.Reader, writer *stdioFrameWriter, verifier persistentDaemonTokenVerifier) error {
@@ -1838,6 +1866,13 @@ func (s *rpcServer) handleNotificationResponse(req rpcRequest, resp rpcResponse)
 	if resp.Error != nil && strings.TrimSpace(resp.Error.Message) != "" {
 		detail = strings.TrimSpace(resp.Error.Message)
 	}
+	s.logPTYEvent(
+		"pty_channel_fault",
+		"session_id", sessionID,
+		"attachment_id", attachmentID,
+		"operation", req.Method,
+		"error", detail,
+	)
 	err := s.frameWriter.writeEvent(rpcEvent{
 		Event:           "pty.error",
 		SessionID:       sessionID,
@@ -2448,6 +2483,13 @@ func (s *rpcServer) handlePTYAttachContextWithReservation(
 		notifyReservationReady,
 	)
 	if err != nil {
+		s.logPTYEvent(
+			"pty_attach_failed",
+			"session_id", strings.TrimSpace(sessionID),
+			"attachment_id", attachmentID,
+			"require_existing", strconv.FormatBool(requireExisting),
+			"error", ptyAttachErrorMessage(err),
+		)
 		return rpcResponse{
 			ID: req.ID,
 			OK: false,
@@ -2459,6 +2501,13 @@ func (s *rpcServer) handlePTYAttachContextWithReservation(
 	}
 	if err := operationCtx.Err(); err != nil {
 		hub.dropAttachment(attachment)
+		s.logPTYEvent(
+			"pty_attach_failed",
+			"session_id", strings.TrimSpace(sessionID),
+			"attachment_id", attachmentID,
+			"require_existing", strconv.FormatBool(requireExisting),
+			"error", ptyAttachErrorMessage(err),
+		)
 		return rpcResponse{
 			ID: req.ID,
 			OK: false,
@@ -2470,6 +2519,13 @@ func (s *rpcServer) handlePTYAttachContextWithReservation(
 	}
 	if !s.trackPTYAttachment(attachment) {
 		hub.dropAttachment(attachment)
+		s.logPTYEvent(
+			"pty_attach_failed",
+			"session_id", strings.TrimSpace(sessionID),
+			"attachment_id", attachmentID,
+			"require_existing", strconv.FormatBool(requireExisting),
+			"error", "RPC connection closed before PTY attachment completed",
+		)
 		return rpcResponse{
 			ID: req.ID,
 			OK: false,
@@ -2717,6 +2773,12 @@ func (s *rpcServer) ptyAttachmentPump(ctx context.Context, attachment *wsPTYAtta
 	for {
 		select {
 		case <-ctx.Done():
+			s.logPTYEvent(
+				"pty_channel_closed",
+				"session_id", attachment.sessionKey.sessionID,
+				"attachment_id", attachment.id,
+				"reason", "connection_closed",
+			)
 			if s.ptyHub != nil {
 				s.ptyHub.dropAttachment(attachment)
 			}
@@ -2727,6 +2789,13 @@ func (s *rpcServer) ptyAttachmentPump(ctx context.Context, attachment *wsPTYAtta
 				select {
 				case frame := <-attachment.send:
 					if err := s.frameWriter.writeEvent(rpcPTYEventForFrame(attachment, frame)); err != nil {
+						s.logPTYEvent(
+							"pty_channel_fault",
+							"session_id", attachment.sessionKey.sessionID,
+							"attachment_id", attachment.id,
+							"direction", "daemon_to_client",
+							"error", err.Error(),
+						)
 						if s.ptyHub != nil {
 							s.ptyHub.dropAttachment(attachment)
 						}
@@ -2739,6 +2808,13 @@ func (s *rpcServer) ptyAttachmentPump(ctx context.Context, attachment *wsPTYAtta
 			}
 		case frame := <-attachment.send:
 			if err := s.frameWriter.writeEvent(rpcPTYEventForFrame(attachment, frame)); err != nil {
+				s.logPTYEvent(
+					"pty_channel_fault",
+					"session_id", attachment.sessionKey.sessionID,
+					"attachment_id", attachment.id,
+					"direction", "daemon_to_client",
+					"error", err.Error(),
+				)
 				if s.ptyHub != nil {
 					s.ptyHub.dropAttachment(attachment)
 				}
@@ -2746,6 +2822,13 @@ func (s *rpcServer) ptyAttachmentPump(ctx context.Context, attachment *wsPTYAtta
 			}
 		}
 	}
+}
+
+func (s *rpcServer) logPTYEvent(event string, fields ...string) {
+	if s == nil || s.ptyHub == nil {
+		return
+	}
+	logPersistentDaemonEvent(s.ptyHub.stderr, event, fields...)
 }
 
 func (s *rpcServer) trackPTYAttachment(attachment *wsPTYAttachment) bool {

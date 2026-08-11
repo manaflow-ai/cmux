@@ -164,7 +164,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
             wait(for: [socketHandled, bridgeHandled], timeout: 5)
             #expect(!result.timedOut)
-            #expect(result.status == SSHPTYAttachExitCode.retryableTransient.rawValue)
+            #expect(result.status == SSHPTYAttachExitCode.bridgeClosedSessionRunning.rawValue)
             #expect(result.stderr.contains("bridge closed before remote PTY exit could be confirmed"))
         }
     }

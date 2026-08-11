@@ -70,6 +70,18 @@ PTY lifecycle:
 5. Sessions with no attachments keep their last-known size and are reaped by the daemon idle TTL.
 6. Closing the owning workspace sends an authenticated slot-shutdown request, waits a bounded interval for the daemon lock to be released, and removes the relay's shell-state directory. As defense in depth, a daemon launched with `--persistent-lease-port` observes that exact `~/.cmux/relay/<port>.slot` lease, but retires passively only after the observed lease disappears and both stdio connections and live PTY sessions are empty. A detached live PTY survives lease loss until it exits or is closed explicitly. Older callers that omit the flag retain the prior behavior without unsafe broad lease scanning.
 
+### Persistent daemon diagnostics
+
+Persistent-daemon logging is always enabled. The current log is
+`~/.cmux/daemon/<version>/<slot>/daemon.log`, mode `0600`. It records daemon
+start/readiness/stop, authenticated connection lifecycle, PTY attach/detach/
+close/exit, and channel or PTY-operation faults. Tokens, commands, and terminal
+input are never logged.
+
+The log rotates at 2 MiB. `daemon.log` is the newest file, with at most two
+older generations in `daemon.log.1` and `daemon.log.2`, so one slot uses at
+most approximately 6 MiB of diagnostics.
+
 ## Cloud WebSocket PTY transport
 
 The WebSocket PTY transport is locked until the backend writes a short-lived

@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -1236,10 +1237,26 @@ func (h *wsPTYHub) prepareAttachmentWithReservation(
 
 	if superseded != nil {
 		superseded.closeNow()
+		logPersistentDaemonEvent(
+			h.stderr,
+			"pty_detach",
+			"session_id", sessionID,
+			"attachment_id", superseded.id,
+			"reason", "superseded",
+		)
 	}
 	if shouldApplySize {
 		h.applyCurrentPTYSize(session)
 	}
+	logPersistentDaemonEvent(
+		h.stderr,
+		"pty_attach",
+		"session_id", sessionID,
+		"attachment_id", attachment.id,
+		"persistent", strconv.FormatBool(persistent),
+		"require_existing", strconv.FormatBool(requireExisting),
+		"replay_bytes", strconv.Itoa(attachment.replayBytes),
+	)
 	return attachment, attachmentCtx, sessionDone, nil
 }
 
@@ -1532,6 +1549,13 @@ func (h *wsPTYHub) detach(attachment *wsPTYAttachment) bool {
 	if shouldApplySize {
 		h.applyCurrentPTYSize(session)
 	}
+	logPersistentDaemonEvent(
+		h.stderr,
+		"pty_detach",
+		"session_id", session.id,
+		"attachment_id", attachment.id,
+		"reason", "attachment_removed",
+	)
 	return true
 }
 
@@ -1634,6 +1658,7 @@ func (h *wsPTYHub) closeSessionByID(sessionID string) bool {
 	if start := h.startingSessions[sessionKey]; start != nil {
 		start.closeRequested = true
 		h.mu.Unlock()
+		logPersistentDaemonEvent(h.stderr, "pty_close", "session_id", sessionID, "phase", "starting")
 		return true
 	}
 	session := h.sessions[sessionKey]
@@ -1645,6 +1670,7 @@ func (h *wsPTYHub) closeSessionByID(sessionID string) bool {
 	h.cancelIdleReapLocked(session)
 	session.closed = true
 	h.mu.Unlock()
+	logPersistentDaemonEvent(h.stderr, "pty_close", "session_id", sessionID, "phase", "running")
 
 	session.terminateProcesses()
 	session.closePTYFiles()
@@ -1937,6 +1963,9 @@ func (h *wsPTYHub) pumpSession(session *wsPTYSession) {
 }
 
 func (h *wsPTYHub) finishSession(session *wsPTYSession) {
+	// Record the exit before closing session.done so an attachment cannot
+	// observe pty.exit ahead of the corresponding persistent diagnostic.
+	logPersistentDaemonEvent(h.stderr, "pty_exit", "session_id", session.id)
 	session.closePTYFiles()
 
 	h.mu.Lock()

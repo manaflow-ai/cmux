@@ -131,9 +131,9 @@ extension CMUXCLI {
         sessionID: String,
         lifecycleID: String,
         intentionalOnly: Bool,
-        sessionRunningExitCode: SSHPTYAttachExitCode = .bridgeClosedSessionRunning
+        sessionRunningExitCode: SSHPTYAttachExitCode = .bridgeClosedSessionRunning,
+        reconciliationUnavailableExitCode: SSHPTYAttachExitCode = .retryableTransient
     ) throws -> Bool {
-        let reconciliationFailure = "ssh-pty-attach: bridge closed before remote PTY exit could be confirmed"
         let response: [String: Any]
         do {
             var params: [String: Any] = [
@@ -149,8 +149,10 @@ extension CMUXCLI {
             response = try client.sendV2(method: "workspace.remote.pty_sessions", params: params)
         } catch {
             throw CLIError(
-                message: "\(reconciliationFailure): \(userFacingRemotePTYErrorMessage(error))",
-                exitCode: SSHPTYAttachExitCode.retryableTransient
+                message: sshPTYReconciliationUnavailableMessage(
+                    detail: userFacingRemotePTYErrorMessage(error)
+                ),
+                exitCode: reconciliationUnavailableExitCode
             )
         }
 
@@ -159,12 +161,18 @@ extension CMUXCLI {
         let intentionalCleanup = requestedLifecycle == "intentional_cleanup_requested" ||
             requestedLifecycle == "intentionally_closed"
         guard let sessions = response["sessions"] as? [[String: Any]] else {
-            throw CLIError(message: reconciliationFailure, exitCode: SSHPTYAttachExitCode.retryableTransient)
+            throw CLIError(
+                message: sshPTYReconciliationUnavailableMessage(detail: nil),
+                exitCode: reconciliationUnavailableExitCode
+            )
         }
         let errors: [[String: Any]]
         if let rawErrors = response["errors"] {
             guard let parsedErrors = rawErrors as? [[String: Any]] else {
-                throw CLIError(message: reconciliationFailure, exitCode: SSHPTYAttachExitCode.retryableTransient)
+                throw CLIError(
+                    message: sshPTYReconciliationUnavailableMessage(detail: nil),
+                    exitCode: reconciliationUnavailableExitCode
+                )
             }
             errors = parsedErrors
         } else {
@@ -172,8 +180,10 @@ extension CMUXCLI {
         }
         if !intentionalCleanup, !errors.isEmpty {
             throw CLIError(
-                message: "\(reconciliationFailure)\n\(sshSessionListFailureMessage(errors))",
-                exitCode: SSHPTYAttachExitCode.retryableTransient
+                message: sshPTYReconciliationUnavailableMessage(
+                    detail: sshSessionListFailureMessage(errors)
+                ),
+                exitCode: reconciliationUnavailableExitCode
             )
         }
         if intentionalOnly, !intentionalCleanup { return false }
@@ -189,7 +199,10 @@ extension CMUXCLI {
                     defaultValue: "ssh-pty-attach: bridge closed without receiving new output while the remote PTY session is still running"
                 )
             } else {
-                message = "ssh-pty-attach: bridge closed while remote PTY session is still running"
+                message = String(
+                    localized: "cli.sshPtyAttach.bridgeClosedSessionRunning",
+                    defaultValue: "ssh-pty-attach: bridge closed while the remote PTY session is still running; reattaching"
+                )
             }
             throw CLIError(
                 message: message,
@@ -210,6 +223,18 @@ extension CMUXCLI {
             )
         }
         return true
+    }
+
+    private func sshPTYReconciliationUnavailableMessage(detail: String?) -> String {
+        let message = String(
+            localized: "cli.sshPtyAttach.reconciliationUnavailableReattach",
+            defaultValue: "ssh-pty-attach: bridge closed before remote PTY exit could be confirmed; preserving the remote session for reattach"
+        )
+        guard let detail = detail?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !detail.isEmpty else {
+            return message
+        }
+        return "\(message): \(detail)"
     }
 
     func readSSHPTYBridgeReady(fd: Int32) throws -> (attachmentToken: String, replayBytes: Int) {

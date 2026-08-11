@@ -12866,7 +12866,8 @@ struct CMUXCLI {
         var readinessDelivery: Task<Void, Never>?
         func reconcileBridgeEnd(
             intentionalOnly: Bool,
-            sessionRunningExitCode: SSHPTYAttachExitCode = .bridgeClosedSessionRunning
+            sessionRunningExitCode: SSHPTYAttachExitCode = .bridgeClosedSessionRunning,
+            reconciliationUnavailableExitCode: SSHPTYAttachExitCode = .retryableTransient
         ) throws -> Bool {
             do {
                 return try reconcileSSHPTYBridgeEnd(
@@ -12874,7 +12875,8 @@ struct CMUXCLI {
                     sessionID: sessionID,
                     lifecycleID: lifecycleID,
                     intentionalOnly: intentionalOnly,
-                    sessionRunningExitCode: sessionRunningExitCode
+                    sessionRunningExitCode: sessionRunningExitCode,
+                    reconciliationUnavailableExitCode: reconciliationUnavailableExitCode
                 )
             } catch let error as CLIError {
                 if let exitCode = SSHPTYAttachExitCode(rawValue: error.exitCode) {
@@ -13101,7 +13103,8 @@ struct CMUXCLI {
                     sessionRunningExitCode: sshPTYAttachBridgeClosedExitCode(
                         receivedLiveOutput: outputProgress.receivedLiveOutput,
                         readyUptime: bridgeReadyUptime
-                    )
+                    ),
+                    reconciliationUnavailableExitCode: .bridgeClosedSessionRunning
                 )
                 attachFinished = true
                 return
@@ -13114,7 +13117,8 @@ struct CMUXCLI {
                         sessionRunningExitCode: sshPTYAttachBridgeClosedExitCode(
                             receivedLiveOutput: outputProgress.receivedLiveOutput,
                             readyUptime: bridgeReadyUptime
-                        )
+                        ),
+                        reconciliationUnavailableExitCode: .bridgeClosedSessionRunning
                     )
                     attachFinished = true
                     return
