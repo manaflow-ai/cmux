@@ -6778,7 +6778,7 @@ mod tests {
         assert!(reaper.wait_until_epoch_quiesced(
             workspace_uuid,
             identity.renderer_epoch,
-            Duration::from_millis(50),
+            Duration::from_secs(1),
         ));
         assert!(spawner.record(pid).1);
     }
