@@ -3699,6 +3699,7 @@ mod tests {
         let mut ready_catalog = catalog.clone();
         ready_catalog.machines[0].connectable = true;
         let server_catalog = catalog;
+        let (finish, finished) = mpsc::channel();
         let server = thread::spawn(move || {
             let first_mutation_id = {
                 let (mut stream, mut reader) = serve_initial_snapshot_with_capabilities(
@@ -3748,6 +3749,7 @@ mod tests {
                 ready_catalog,
                 &[protocol::EXTERNAL_MACHINE_CONNECT_CAPABILITY],
             );
+            finished.recv().unwrap();
         });
 
         let provider = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
@@ -3790,6 +3792,7 @@ mod tests {
             controller.provider.ui_state_for_open_connection().request,
             Some(MachineRequest::Switch(_))
         ));
+        finish.send(()).unwrap();
         controller.close();
         server.join().unwrap();
     }
