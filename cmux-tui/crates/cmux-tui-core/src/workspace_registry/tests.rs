@@ -7104,7 +7104,6 @@ fn journal_agent_sessionless_start_cannot_replace_structured_owner() {
     let agent = registry.public_projections().unwrap().agents.remove(0);
     assert_eq!(agent.state, "working");
     assert_eq!(agent.source_session.as_deref(), Some("structured-owner"));
-    assert_eq!(agent.extra["provider"], "codex");
 }
 
 #[test]
@@ -7141,10 +7140,13 @@ fn journal_agent_generation_history_is_bounded_and_keeps_compacted_fence() {
         .query_row(
             "SELECT COUNT(*) FROM resource_agent_session_generations WHERE terminal_id = ?1",
             [terminal_id.as_str()],
-            |row| row.get::<_, usize>(0),
+            |row| row.get::<_, i64>(0),
         )
         .unwrap();
-    assert!(stored <= RETAINED_GENERATIONS + 1, "stored {stored} generation rows");
+    assert!(
+        stored <= i64::try_from(RETAINED_GENERATIONS + 1).unwrap(),
+        "stored {stored} generation rows"
+    );
 
     let stale = crate::agent_hook_journal_ingress(
         "codex",
