@@ -3095,7 +3095,8 @@ final class cmuxUITests: XCTestCase {
             modelPill.waitForExistence(timeout: 8),
             "The backend snapshot must populate while host discovery remains in flight"
         )
-        tap(modelPill, in: app)
+        XCTAssertTrue(modelPill.isHittable)
+        modelPill.tap()
         let snapshotA = app.buttons[snapshotAName]
         let snapshotB = app.buttons[snapshotBName]
         XCTAssertTrue(snapshotA.waitForExistence(timeout: 4))
@@ -3103,9 +3104,12 @@ final class cmuxUITests: XCTestCase {
         tapMenuItem(snapshotA, in: app)
         XCTAssertEqual(modelPill.value as? String, snapshotAName)
 
-        tap(modelPill, in: app)
-        XCTAssertTrue(snapshotB.waitForExistence(timeout: 4))
+        modelPill.tap()
+        // Release as soon as the second menu is presented. Waiting for another
+        // accessibility query here can outlive the production RPC timeout and
+        // turn a menu-snapshot test into a closed-connection test.
         hostServer.releaseTaskModelResponse()
+        XCTAssertTrue(snapshotB.waitForExistence(timeout: 4))
 
         let hostReplacementApplied = NSPredicate(
             format: "value == %@",

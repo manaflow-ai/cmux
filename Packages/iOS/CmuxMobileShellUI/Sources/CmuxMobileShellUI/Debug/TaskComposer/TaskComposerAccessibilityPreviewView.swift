@@ -6,6 +6,7 @@ import CmuxMobileShellModel
 import CmuxMobileSupport
 import Foundation
 import SwiftUI
+import UIKit
 
 /// Deterministic host for accessibility UI tests. It presents the production
 /// composer through its real presenter, including iPad keyboard behavior.
@@ -287,14 +288,11 @@ public struct TaskComposerAccessibilityPreviewView: View {
         terminals: []
     )
 
+    @MainActor
     private static func makeStagedPreviewAttachments() async -> [TaskComposerAttachment] {
-        await Task.detached(priority: .utility) {
-            guard let bundledImageURL = Bundle.module.url(
-                forResource: "Onboarding-notifications-en",
-                withExtension: "png"
-            ),
-            let imageData = try? Data(contentsOf: bundledImageURL),
-            let imageID = UUID(uuidString: "11111111-1111-1111-1111-111111111111"),
+        guard let imageData = stagedPreviewImageData() else { return [] }
+        return await Task.detached(priority: .utility) {
+            guard let imageID = UUID(uuidString: "11111111-1111-1111-1111-111111111111"),
             let fileID = UUID(uuidString: "22222222-2222-2222-2222-222222222222") else {
                 return []
             }
@@ -332,6 +330,40 @@ public struct TaskComposerAccessibilityPreviewView: View {
                 ),
             ]
         }.value
+    }
+
+    /// Produces a deterministic, high-chroma PNG so UI tests can distinguish
+    /// the staged bytes from Quick Look chrome or a blank placeholder.
+    @MainActor
+    private static func stagedPreviewImageData() -> Data? {
+        let cellCount = 8
+        let cellSize: CGFloat = 40
+        let size = CGSize(
+            width: CGFloat(cellCount) * cellSize,
+            height: CGFloat(cellCount) * cellSize
+        )
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: size, format: format).pngData { _ in
+            for row in 0..<cellCount {
+                for column in 0..<cellCount {
+                    let index = row * cellCount + column
+                    UIColor(
+                        hue: CGFloat(index) / CGFloat(cellCount * cellCount),
+                        saturation: 0.9,
+                        brightness: 0.95,
+                        alpha: 1
+                    ).setFill()
+                    UIRectFill(CGRect(
+                        x: CGFloat(column) * cellSize,
+                        y: CGFloat(row) * cellSize,
+                        width: cellSize,
+                        height: cellSize
+                    ))
+                }
+            }
+        }
     }
 
     private static func searchPreviewDirectories(
