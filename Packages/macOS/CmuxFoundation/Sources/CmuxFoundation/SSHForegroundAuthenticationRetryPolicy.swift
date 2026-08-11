@@ -416,29 +416,9 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               "$cmux_ssh_auth_publisher_group_dir/publisher.new"; then
             return 0
           fi
-
-          if [ ! -s "$cmux_ssh_auth_publisher_group_dir/identity" ]; then return 1; fi
-          cmux_ssh_auth_publisher_group_identity=$(/bin/cat -- \
-            "$cmux_ssh_auth_publisher_group_dir/identity" 2>/dev/null || true)
-          cmux_ssh_auth_publisher_anchor=${cmux_ssh_auth_publisher_group_identity%%|*}
-          cmux_ssh_auth_publisher_remainder=${cmux_ssh_auth_publisher_group_identity#*|}
-          cmux_ssh_auth_publisher_group=${cmux_ssh_auth_publisher_remainder%%|*}
-          cmux_ssh_auth_publisher_started=${cmux_ssh_auth_publisher_remainder#*|}
-          case "$cmux_ssh_auth_publisher_anchor:$cmux_ssh_auth_publisher_group:$cmux_ssh_auth_publisher_started" in
-            *[!A-Za-z0-9_:]*|:*|*:) return 1 ;;
-          esac
-
-          cmux_ssh_auth_publisher_anchor_identity=$(cmux_ssh_auth_identity \
-            "$cmux_ssh_auth_publisher_anchor")
-          cmux_ssh_auth_publisher_parent=${cmux_ssh_auth_publisher_anchor_identity%%|*}
-          cmux_ssh_auth_publisher_anchor_remainder=${cmux_ssh_auth_publisher_anchor_identity#*|}
-          cmux_ssh_auth_publisher_observed_group=${cmux_ssh_auth_publisher_anchor_remainder%%|*}
-          cmux_ssh_auth_publisher_observed_started=${cmux_ssh_auth_publisher_anchor_remainder#*|}
-          case "$cmux_ssh_auth_publisher_parent" in ''|0|1|*[!0-9]*) return 1 ;; esac
-          [ "$cmux_ssh_auth_publisher_observed_group" = \
-            "$cmux_ssh_auth_publisher_group" ] && \
-            [ "$cmux_ssh_auth_publisher_observed_started" = \
-              "$cmux_ssh_auth_publisher_started" ]
+          # The anchor's current parent is not a publisher identity. A durable
+          # publisher or cleanup-owner record is the only liveness proof.
+          return 1
         }
 
         cmux_ssh_auth_reclaim_stale_reaper_lock() {
