@@ -10,7 +10,20 @@ struct TerminalSurfaceLoginShellArgumentsResolverTests {
         #expect(resolver.resolve() == [
             "/usr/bin/login", "-flp", "tester",
             "/bin/bash", "--noprofile", "--norc", "-c",
-            "exec -l /opt/homebrew/bin/fish",
+            "exec -l -- \"$1\"", "cmux-login-shell", "/opt/homebrew/bin/fish",
+        ])
+    }
+
+    @Test func passesLoginShellPathAsDataInsteadOfShellSyntax() {
+        let resolver = TerminalSurfaceLoginShellArgumentsResolver {
+            (name: "tester", shell: "/tmp/shell path; touch /tmp/cmux-injected")
+        }
+
+        #expect(resolver.resolve() == [
+            "/usr/bin/login", "-flp", "tester",
+            "/bin/bash", "--noprofile", "--norc", "-c",
+            "exec -l -- \"$1\"", "cmux-login-shell",
+            "/tmp/shell path; touch /tmp/cmux-injected",
         ])
     }
 
