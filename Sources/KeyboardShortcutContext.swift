@@ -392,13 +392,11 @@ extension AppDelegate {
                 .dockBrowserPanel(owning: window.firstResponder, in: window) {
                 return panel
             }
-            if let rightSidebarMode = context.keyboardFocusCoordinator
-                .activeRightSidebarMode {
-                guard rightSidebarMode == .dock,
-                      let windowDock = existingWindowDock(
-                          forWindowId: context.windowId
-                      ),
-                      let focusedPanelId = windowDock.focusedPanelId else {
+            if context.keyboardFocusCoordinator.activeRightSidebarMode == .dock {
+                guard let windowDock = existingWindowDock(
+                    forWindowId: context.windowId
+                ),
+                let focusedPanelId = windowDock.focusedPanelId else {
                     return nil
                 }
                 return windowDock.browserPanel(for: focusedPanelId)
