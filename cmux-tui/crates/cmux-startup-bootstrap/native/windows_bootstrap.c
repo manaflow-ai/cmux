@@ -1,18 +1,19 @@
-#define _CRT_SECURE_NO_WARNINGS
 #define WIN32_LEAN_AND_MEAN
+#define _WIN32_WINNT 0x0A00
 #include <windows.h>
+#include <aclapi.h>
 #include <bcrypt.h>
 #include <intrin.h>
+#include <limits.h>
+#include <stddef.h>
 #include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <wchar.h>
 
 #pragma comment(lib, "bcrypt.lib")
+#pragma comment(lib, "advapi32.lib")
 
-#define SCHEMA_VERSION 1u
+#define SCHEMA_VERSION 2u
 #define MAX_CONFIG_BYTES (64u * 1024u)
+#define MAX_WIDE_CHARS 32767u
 #define CONFIG_HEADER_BYTES 104u
 #define RECORD_HEADER_BYTES 56u
 #define CONFIG_FIELD_COUNT 6u
@@ -25,10 +26,17 @@
 #define READY_HANDLES_INHERITABLE (1u << 2)
 #define READY_PRIVATE_JOB_MEMBER (1u << 3)
 #define READY_TRUSTED_PATH_DENIED (1u << 4)
+#define READY_BOOTSTRAP_WRITE_DENIED (1u << 5)
 #define STAGE_CONFIG_CONSUMED 1u
 #define STAGE_LAUNCH_VALIDATED 2u
 #define STAGE_STANDARD_HANDLES_VALIDATED 3u
 #define STAGE_TIMING_CONSUMED 4u
+#define STAGE_NATIVE_ENTRY_REACHED 5u
+#define STAGE_NATIVE_CONFIG_READ_STARTED 6u
+#define ENTRY_STAGE_REACHED 1u
+#define ENTRY_STAGE_CONFIG_READ_STARTED 2u
+#define ENTRY_STAGE_CONFIG_CONSUMED 3u
+#define ENTRY_CHECKPOINT_BYTES 48u
 #define TIMING_PAGE_BYTES 4096u
 #define TIMING_T0_OFFSET 40u
 #define TIMING_GENERATION_OFFSET 48u
@@ -36,7 +44,10 @@
 static const unsigned char CONFIG_MAGIC[8] = {'C','M','U','X','B','0','0','1'};
 static const unsigned char ARM_MAGIC[8] = {'C','M','U','X','A','0','0','1'};
 static const unsigned char EVENT_MAGIC[8] = {'C','M','U','X','E','0','0','1'};
+static const unsigned char ENTRY_MAGIC[8] = {'C','M','U','X','N','0','0','1'};
 static const unsigned char TIMING_MAGIC[8] = {'C','M','U','X','T','0','0','1'};
+
+void __cdecl __security_init_cookie(void);
 
 typedef struct BootstrapConfig {
     unsigned char nonce[32];
@@ -44,20 +55,20 @@ typedef struct BootstrapConfig {
     HANDLE control_write;
     HANDLE standard_handles[3];
     HANDLE query_job;
-    wchar_t *timing;
-    wchar_t *fixture_root;
-    wchar_t *target;
+    WCHAR *timing;
+    WCHAR *fixture_root;
+    WCHAR *target;
     char target_sha256[65];
-    wchar_t *trusted_probe;
+    WCHAR *trusted_probe;
     char bootstrap_sha256[65];
-    wchar_t **arguments;
+    WCHAR **arguments;
     uint32_t argument_count;
 } BootstrapConfig;
 
 typedef struct BufferCursor {
     const unsigned char *bytes;
-    size_t length;
-    size_t offset;
+    SIZE_T length;
+    SIZE_T offset;
 } BufferCursor;
 
 typedef struct TimingPage {
@@ -66,6 +77,107 @@ typedef struct TimingPage {
     unsigned char *view;
     unsigned char nonce[32];
 } TimingPage;
+
+typedef struct EntryArguments {
+    WCHAR *config_path;
+    WCHAR *checkpoint_path;
+    WCHAR *nonce_text;
+    unsigned char nonce[32];
+} EntryArguments;
+
+static void memory_zero(void *target, SIZE_T length) {
+    volatile unsigned char *output = (volatile unsigned char *)target;
+    SIZE_T index;
+    for (index = 0; index < length; ++index) output[index] = 0;
+}
+
+static void memory_copy(void *target, const void *source, SIZE_T length) {
+    volatile unsigned char *output = (volatile unsigned char *)target;
+    const volatile unsigned char *input = (const volatile unsigned char *)source;
+    SIZE_T index;
+    for (index = 0; index < length; ++index) output[index] = input[index];
+}
+
+static int bytes_equal(const void *left, const void *right, SIZE_T length) {
+    const volatile unsigned char *a = (const volatile unsigned char *)left;
+    const volatile unsigned char *b = (const volatile unsigned char *)right;
+    SIZE_T index;
+    unsigned char difference = 0;
+    for (index = 0; index < length; ++index) difference |= (unsigned char)(a[index] ^ b[index]);
+    return difference == 0;
+}
+
+static void *heap_array(SIZE_T count, SIZE_T item_bytes, int zero) {
+    SIZE_T bytes;
+    if (item_bytes != 0 && count > SIZE_MAX / item_bytes) {
+        SetLastError(ERROR_ARITHMETIC_OVERFLOW);
+        return NULL;
+    }
+    bytes = count * item_bytes;
+    if (bytes == 0) bytes = 1;
+    return HeapAlloc(GetProcessHeap(), zero ? HEAP_ZERO_MEMORY : 0, bytes);
+}
+
+static void heap_release(void *value) {
+    if (value != NULL) (void)HeapFree(GetProcessHeap(), 0, value);
+}
+
+static SIZE_T wide_length(const WCHAR *value) {
+    SIZE_T length = 0;
+    if (value == NULL) return SIZE_MAX;
+    while (length <= MAX_WIDE_CHARS && value[length] != L'\0') ++length;
+    return length <= MAX_WIDE_CHARS ? length : SIZE_MAX;
+}
+
+static WCHAR *wide_duplicate(const WCHAR *value) {
+    SIZE_T length = wide_length(value);
+    WCHAR *result;
+    if (length == SIZE_MAX) return NULL;
+    result = (WCHAR *)heap_array(length + 1u, sizeof(WCHAR), 1);
+    if (result != NULL) memory_copy(result, value, length * sizeof(WCHAR));
+    return result;
+}
+
+static int wide_equal_ignore_case(const WCHAR *left, const WCHAR *right) {
+    return CompareStringOrdinal(left, -1, right, -1, TRUE) == CSTR_EQUAL;
+}
+
+static int wide_prefix_ignore_case(const WCHAR *value, const WCHAR *prefix, SIZE_T prefix_length) {
+    SIZE_T value_length = wide_length(value);
+    if (value_length == SIZE_MAX || value_length <= prefix_length || prefix_length > INT_MAX) {
+        return 0;
+    }
+    return CompareStringOrdinal(value, (int)prefix_length, prefix, (int)prefix_length, TRUE)
+        == CSTR_EQUAL;
+}
+
+static WCHAR *last_separator(WCHAR *value) {
+    SIZE_T length = wide_length(value);
+    if (length == SIZE_MAX) return NULL;
+    while (length != 0) {
+        --length;
+        if (value[length] == L'\\' || value[length] == L'/') return value + length;
+    }
+    return NULL;
+}
+
+static const WCHAR *last_separator_const(const WCHAR *value) {
+    return (const WCHAR *)last_separator((WCHAR *)value);
+}
+
+static unsigned char ascii_lower(unsigned char value) {
+    return value >= 'A' && value <= 'Z' ? (unsigned char)(value + ('a' - 'A')) : value;
+}
+
+static int hash_text_equal(const char *left, const char *right) {
+    SIZE_T index;
+    for (index = 0; index < 64u; ++index) {
+        if (ascii_lower((unsigned char)left[index]) != ascii_lower((unsigned char)right[index])) {
+            return 0;
+        }
+    }
+    return left[64] == '\0' && right[64] == '\0';
+}
 
 static uint32_t read_u32(const unsigned char *value) {
     return (uint32_t)value[0]
@@ -77,9 +189,7 @@ static uint32_t read_u32(const unsigned char *value) {
 static uint64_t read_u64(const unsigned char *value) {
     uint64_t result = 0;
     unsigned int index;
-    for (index = 0; index < 8; ++index) {
-        result |= ((uint64_t)value[index]) << (index * 8);
-    }
+    for (index = 0; index < 8; ++index) result |= ((uint64_t)value[index]) << (index * 8);
     return result;
 }
 
@@ -128,68 +238,59 @@ static int send_event(
         SetLastError(ERROR_BUFFER_OVERFLOW);
         return 0;
     }
-    ZeroMemory(record, sizeof(record));
-    CopyMemory(record, EVENT_MAGIC, 8);
+    memory_zero(record, sizeof(record));
+    memory_copy(record, EVENT_MAGIC, 8);
     write_u32(record + 8, SCHEMA_VERSION);
     write_u32(record + 12, total);
     write_u32(record + 16, type);
     write_u32(record + 20, flags);
-    CopyMemory(record + 24, nonce, 32);
-    if (payload_length != 0u) {
-        CopyMemory(record + RECORD_HEADER_BYTES, payload, payload_length);
-    }
+    memory_copy(record + 24, nonce, 32);
+    if (payload_length != 0u) memory_copy(record + RECORD_HEADER_BYTES, payload, payload_length);
     return write_all(output, record, total);
 }
 
 static int send_stage(HANDLE output, const unsigned char nonce[32], uint32_t stage) {
     unsigned char payload[4];
     write_u32(payload, stage);
-    return send_event(output, nonce, EVENT_STAGE, 0, payload, sizeof(payload));
+    return send_event(output, nonce, EVENT_STAGE, 0, payload, (uint32_t)sizeof(payload));
 }
 
 static void send_error(HANDLE output, const unsigned char nonce[32], DWORD error, uint32_t stage) {
     unsigned char payload[8];
     write_u32(payload, error == ERROR_SUCCESS ? ERROR_INVALID_DATA : error);
     write_u32(payload + 4, stage);
-    (void)send_event(output, nonce, EVENT_ERROR, 0, payload, sizeof(payload));
+    (void)send_event(output, nonce, EVENT_ERROR, 0, payload, (uint32_t)sizeof(payload));
 }
 
 static int take_field(BufferCursor *cursor, const unsigned char **value, uint32_t *length) {
     uint32_t field_length;
-    if (cursor->offset > cursor->length || cursor->length - cursor->offset < 4u) {
-        return 0;
-    }
+    if (cursor->offset > cursor->length || cursor->length - cursor->offset < 4u) return 0;
     field_length = read_u32(cursor->bytes + cursor->offset);
     cursor->offset += 4u;
-    if ((size_t)field_length > cursor->length - cursor->offset) {
-        return 0;
-    }
+    if ((SIZE_T)field_length > cursor->length - cursor->offset) return 0;
     *value = cursor->bytes + cursor->offset;
     *length = field_length;
     cursor->offset += field_length;
     return 1;
 }
 
-static wchar_t *take_utf16(BufferCursor *cursor) {
+static WCHAR *take_utf16(BufferCursor *cursor) {
     const unsigned char *value;
     uint32_t length;
-    wchar_t *result;
-    size_t units;
-    if (!take_field(cursor, &value, &length) || length == 0u || (length & 1u) != 0u) {
-        return NULL;
-    }
-    units = length / sizeof(wchar_t);
-    if (units > (SIZE_MAX / sizeof(wchar_t)) - 1u) {
-        return NULL;
-    }
-    result = (wchar_t *)calloc(units + 1u, sizeof(wchar_t));
-    if (result == NULL) {
-        return NULL;
-    }
-    CopyMemory(result, value, length);
-    if (wmemchr(result, L'\0', units) != NULL) {
-        free(result);
-        return NULL;
+    WCHAR *result;
+    SIZE_T units;
+    SIZE_T index;
+    if (!take_field(cursor, &value, &length) || length == 0u || (length & 1u) != 0u) return NULL;
+    units = length / sizeof(WCHAR);
+    if (units > MAX_WIDE_CHARS) return NULL;
+    result = (WCHAR *)heap_array(units + 1u, sizeof(WCHAR), 1);
+    if (result == NULL) return NULL;
+    memory_copy(result, value, length);
+    for (index = 0; index < units; ++index) {
+        if (result[index] == L'\0') {
+            heap_release(result);
+            return NULL;
+        }
     }
     return result;
 }
@@ -198,15 +299,11 @@ static int take_hash(BufferCursor *cursor, char output[65]) {
     const unsigned char *value;
     uint32_t length;
     uint32_t index;
-    if (!take_field(cursor, &value, &length) || length != 64u) {
-        return 0;
-    }
+    if (!take_field(cursor, &value, &length) || length != 64u) return 0;
     for (index = 0; index < 64u; ++index) {
         unsigned char byte = value[index];
         if (!((byte >= '0' && byte <= '9') || (byte >= 'a' && byte <= 'f')
-              || (byte >= 'A' && byte <= 'F'))) {
-            return 0;
-        }
+              || (byte >= 'A' && byte <= 'F'))) return 0;
         output[index] = (char)byte;
     }
     output[64] = '\0';
@@ -215,40 +312,32 @@ static int take_hash(BufferCursor *cursor, char output[65]) {
 
 static void free_config(BootstrapConfig *config) {
     uint32_t index;
-    free(config->timing);
-    free(config->fixture_root);
-    free(config->target);
-    free(config->trusted_probe);
+    heap_release(config->timing);
+    heap_release(config->fixture_root);
+    heap_release(config->target);
+    heap_release(config->trusted_probe);
     if (config->arguments != NULL) {
         for (index = 0; index < config->argument_count; ++index) {
-            free(config->arguments[index]);
+            heap_release(config->arguments[index]);
         }
     }
-    free(config->arguments);
-    ZeroMemory(config, sizeof(*config));
+    heap_release(config->arguments);
+    memory_zero(config, sizeof(*config));
 }
 
-static int parse_config(
-    const unsigned char *bytes,
-    size_t length,
-    BootstrapConfig *config
-) {
+static int parse_config(const unsigned char *bytes, SIZE_T length, BootstrapConfig *config) {
     BufferCursor cursor;
     uint32_t index;
     uint32_t argument_count;
     if (length < CONFIG_HEADER_BYTES || length > MAX_CONFIG_BYTES
-        || memcmp(bytes, CONFIG_MAGIC, 8) != 0
+        || !bytes_equal(bytes, CONFIG_MAGIC, 8)
         || read_u32(bytes + 8) != SCHEMA_VERSION
         || read_u32(bytes + 12) != (uint32_t)length
-        || read_u32(bytes + 16) != CONFIG_FIELD_COUNT) {
-        return 0;
-    }
+        || read_u32(bytes + 16) != CONFIG_FIELD_COUNT) return 0;
     argument_count = read_u32(bytes + 20);
-    if (argument_count > 1024u) {
-        return 0;
-    }
-    ZeroMemory(config, sizeof(*config));
-    CopyMemory(config->nonce, bytes + 24, 32);
+    if (argument_count > 1024u) return 0;
+    memory_zero(config, sizeof(*config));
+    memory_copy(config->nonce, bytes + 24, 32);
     config->control_read = (HANDLE)(uintptr_t)read_u64(bytes + 56);
     config->control_write = (HANDLE)(uintptr_t)read_u64(bytes + 64);
     config->standard_handles[0] = (HANDLE)(uintptr_t)read_u64(bytes + 72);
@@ -257,9 +346,7 @@ static int parse_config(
     config->query_job = (HANDLE)(uintptr_t)read_u64(bytes + 96);
     if (config->control_read == NULL || config->control_write == NULL
         || config->standard_handles[0] == NULL || config->standard_handles[1] == NULL
-        || config->standard_handles[2] == NULL || config->query_job == NULL) {
-        return 0;
-    }
+        || config->standard_handles[2] == NULL || config->query_job == NULL) return 0;
     cursor.bytes = bytes;
     cursor.length = length;
     cursor.offset = CONFIG_HEADER_BYTES;
@@ -278,7 +365,7 @@ static int parse_config(
     }
     config->argument_count = argument_count;
     if (argument_count != 0u) {
-        config->arguments = (wchar_t **)calloc(argument_count, sizeof(wchar_t *));
+        config->arguments = (WCHAR **)heap_array(argument_count, sizeof(WCHAR *), 1);
         if (config->arguments == NULL) {
             free_config(config);
             return 0;
@@ -298,23 +385,21 @@ static int parse_config(
     return 1;
 }
 
-static unsigned char *read_config_file(const wchar_t *path, size_t *length_out) {
+static unsigned char *read_config_file(const WCHAR *path, SIZE_T *length_out) {
     HANDLE file;
     LARGE_INTEGER size;
     unsigned char *bytes;
     DWORD count;
     file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
         FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, NULL);
-    if (file == INVALID_HANDLE_VALUE) {
-        return NULL;
-    }
+    if (file == INVALID_HANDLE_VALUE) return NULL;
     if (!GetFileSizeEx(file, &size) || size.QuadPart <= 0
         || size.QuadPart > (LONGLONG)MAX_CONFIG_BYTES) {
         CloseHandle(file);
         SetLastError(ERROR_BAD_LENGTH);
         return NULL;
     }
-    bytes = (unsigned char *)malloc((size_t)size.QuadPart);
+    bytes = (unsigned char *)heap_array((SIZE_T)size.QuadPart, 1, 0);
     if (bytes == NULL) {
         CloseHandle(file);
         SetLastError(ERROR_OUTOFMEMORY);
@@ -323,7 +408,7 @@ static unsigned char *read_config_file(const wchar_t *path, size_t *length_out) 
     count = (DWORD)size.QuadPart;
     if (!read_all(file, bytes, count)) {
         DWORD error = GetLastError();
-        free(bytes);
+        heap_release(bytes);
         CloseHandle(file);
         SetLastError(error);
         return NULL;
@@ -333,9 +418,9 @@ static unsigned char *read_config_file(const wchar_t *path, size_t *length_out) 
     return bytes;
 }
 
-static void hex_bytes(const unsigned char *bytes, size_t length, char *output) {
+static void hex_bytes(const unsigned char *bytes, SIZE_T length, char *output) {
     static const char HEX[] = "0123456789abcdef";
-    size_t index;
+    SIZE_T index;
     for (index = 0; index < length; ++index) {
         output[index * 2] = HEX[bytes[index] >> 4];
         output[index * 2 + 1] = HEX[bytes[index] & 0x0f];
@@ -343,7 +428,7 @@ static void hex_bytes(const unsigned char *bytes, size_t length, char *output) {
     output[length * 2] = '\0';
 }
 
-static int hash_file(const wchar_t *path, char output[65]) {
+static int hash_file(const WCHAR *path, char output[65]) {
     BCRYPT_ALG_HANDLE algorithm = NULL;
     BCRYPT_HASH_HANDLE hash = NULL;
     HANDLE file = INVALID_HANDLE_VALUE;
@@ -358,8 +443,8 @@ static int hash_file(const wchar_t *path, char output[65]) {
     status = BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, NULL, 0);
     if (status < 0) goto cleanup;
     status = BCryptGetProperty(algorithm, BCRYPT_OBJECT_LENGTH, (PUCHAR)&object_bytes,
-        sizeof(object_bytes), &result_bytes, 0);
-    if (status < 0 || result_bytes != sizeof(object_bytes)) goto cleanup;
+        (ULONG)sizeof(object_bytes), &result_bytes, 0);
+    if (status < 0 || result_bytes != (DWORD)sizeof(object_bytes)) goto cleanup;
     object = (PUCHAR)HeapAlloc(GetProcessHeap(), 0, object_bytes);
     if (object == NULL) goto cleanup;
     status = BCryptCreateHash(algorithm, &hash, object, object_bytes, NULL, 0, 0);
@@ -368,12 +453,12 @@ static int hash_file(const wchar_t *path, char output[65]) {
         FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, NULL);
     if (file == INVALID_HANDLE_VALUE) goto cleanup;
     for (;;) {
-        if (!ReadFile(file, buffer, sizeof(buffer), &read, NULL)) goto cleanup;
+        if (!ReadFile(file, buffer, (DWORD)sizeof(buffer), &read, NULL)) goto cleanup;
         if (read == 0) break;
         status = BCryptHashData(hash, buffer, read, 0);
         if (status < 0) goto cleanup;
     }
-    status = BCryptFinishHash(hash, digest, sizeof(digest), 0);
+    status = BCryptFinishHash(hash, digest, (ULONG)sizeof(digest), 0);
     if (status < 0) goto cleanup;
     hex_bytes(digest, sizeof(digest), output);
     result = 1;
@@ -386,78 +471,94 @@ cleanup:
     return result;
 }
 
-static wchar_t *full_path(const wchar_t *path) {
+static WCHAR *full_path(const WCHAR *path) {
     DWORD needed = GetFullPathNameW(path, 0, NULL, NULL);
-    wchar_t *result;
-    if (needed == 0) return NULL;
-    result = (wchar_t *)calloc((size_t)needed + 1u, sizeof(wchar_t));
+    WCHAR *result;
+    if (needed == 0 || needed > MAX_WIDE_CHARS) return NULL;
+    result = (WCHAR *)heap_array((SIZE_T)needed + 1u, sizeof(WCHAR), 1);
     if (result == NULL) return NULL;
     if (GetFullPathNameW(path, needed + 1u, result, NULL) == 0) {
-        free(result);
+        heap_release(result);
         return NULL;
     }
     return result;
 }
 
-static void trim_trailing_separators(wchar_t *path) {
-    size_t length = wcslen(path);
+static void trim_trailing_separators(WCHAR *path) {
+    SIZE_T length = wide_length(path);
+    if (length == SIZE_MAX) return;
     while (length > 3u && (path[length - 1u] == L'\\' || path[length - 1u] == L'/')) {
         path[--length] = L'\0';
     }
 }
 
-static int path_is_within(const wchar_t *path, const wchar_t *root) {
-    size_t root_length = wcslen(root);
-    return wcslen(path) > root_length && _wcsnicmp(path, root, root_length) == 0
+static int path_is_within(const WCHAR *path, const WCHAR *root) {
+    SIZE_T root_length = wide_length(root);
+    return root_length != SIZE_MAX && wide_prefix_ignore_case(path, root, root_length)
         && (path[root_length] == L'\\' || path[root_length] == L'/');
 }
 
-static int parent_is(const wchar_t *path, const wchar_t *root) {
-    wchar_t *copy = _wcsdup(path);
-    wchar_t *separator;
+static int parent_is(const WCHAR *path, const WCHAR *root) {
+    WCHAR *copy = wide_duplicate(path);
+    WCHAR *separator;
     int result;
     if (copy == NULL) return 0;
-    separator = wcsrchr(copy, L'\\');
-    if (separator == NULL) separator = wcsrchr(copy, L'/');
+    separator = last_separator(copy);
     if (separator == NULL) {
-        free(copy);
+        heap_release(copy);
         return 0;
     }
     *separator = L'\0';
     trim_trailing_separators(copy);
-    result = _wcsicmp(copy, root) == 0;
-    free(copy);
+    result = wide_equal_ignore_case(copy, root);
+    heap_release(copy);
     return result;
 }
 
-static int config_name_matches_nonce(const wchar_t *path, const unsigned char nonce[32]) {
-    wchar_t expected[39];
-    static const wchar_t HEX[] = L"0123456789abcdef";
-    const wchar_t *name = wcsrchr(path, L'\\');
-    unsigned int index;
-    name = name == NULL ? path : name + 1;
-    wcscpy(expected, L"bootstrap-");
-    for (index = 0; index < 8; ++index) {
-        expected[10 + index * 2] = HEX[nonce[index] >> 4];
-        expected[11 + index * 2] = HEX[nonce[index] & 0x0f];
+static int name_matches_nonce(
+    const WCHAR *path,
+    const WCHAR *prefix,
+    SIZE_T prefix_length,
+    const unsigned char nonce[32]
+) {
+    static const WCHAR HEX[] = L"0123456789abcdef";
+    const WCHAR *separator = last_separator_const(path);
+    const WCHAR *name = separator == NULL ? path : separator + 1;
+    SIZE_T name_length = wide_length(name);
+    SIZE_T index;
+    if (name_length != prefix_length + 20u) return 0;
+    if (CompareStringOrdinal(name, (int)prefix_length, prefix, (int)prefix_length, TRUE)
+        != CSTR_EQUAL) return 0;
+    for (index = 0; index < 8u; ++index) {
+        if (name[prefix_length + index * 2u] != HEX[nonce[index] >> 4]
+            || name[prefix_length + index * 2u + 1u] != HEX[nonce[index] & 0x0f]) return 0;
     }
-    wcscpy(expected + 26, L".bin");
-    return _wcsicmp(name, expected) == 0;
+    return name[prefix_length + 16u] == L'.'
+        && (name[prefix_length + 17u] == L'b' || name[prefix_length + 17u] == L'B')
+        && (name[prefix_length + 18u] == L'i' || name[prefix_length + 18u] == L'I')
+        && (name[prefix_length + 19u] == L'n' || name[prefix_length + 19u] == L'N');
 }
 
-static int validate_paths(const wchar_t *config_path, const BootstrapConfig *config) {
-    wchar_t *fixture = full_path(config->fixture_root);
-    wchar_t *target = full_path(config->target);
-    wchar_t *timing = full_path(config->timing);
-    wchar_t *probe = full_path(config->trusted_probe);
-    wchar_t *config_full = full_path(config_path);
+static int validate_paths(
+    const WCHAR *config_path,
+    const WCHAR *checkpoint_path,
+    const BootstrapConfig *config
+) {
+    static const WCHAR CONFIG_PREFIX[] = L"bootstrap-";
+    static const WCHAR ENTRY_PREFIX[] = L"bootstrap-entry-";
+    WCHAR *fixture = full_path(config->fixture_root);
+    WCHAR *target = full_path(config->target);
+    WCHAR *timing = full_path(config->timing);
+    WCHAR *probe = full_path(config->trusted_probe);
+    WCHAR *config_full = full_path(config_path);
+    WCHAR *checkpoint_full = full_path(checkpoint_path);
     DWORD fixture_attributes;
     DWORD target_attributes;
     DWORD timing_attributes;
     DWORD probe_attributes;
     int valid = 0;
     if (fixture == NULL || target == NULL || timing == NULL || probe == NULL
-        || config_full == NULL) goto cleanup;
+        || config_full == NULL || checkpoint_full == NULL) goto cleanup;
     trim_trailing_separators(fixture);
     fixture_attributes = GetFileAttributesW(fixture);
     target_attributes = GetFileAttributesW(target);
@@ -475,18 +576,44 @@ static int validate_paths(const wchar_t *config_path, const BootstrapConfig *con
         && !path_is_within(probe, fixture)
         && parent_is(timing, fixture)
         && parent_is(config_full, fixture)
-        && config_name_matches_nonce(config_full, config->nonce);
+        && parent_is(checkpoint_full, fixture)
+        && name_matches_nonce(config_full, CONFIG_PREFIX, 10u, config->nonce)
+        && name_matches_nonce(checkpoint_full, ENTRY_PREFIX, 16u, config->nonce);
 cleanup:
-    free(fixture);
-    free(target);
-    free(timing);
-    free(probe);
-    free(config_full);
+    heap_release(fixture);
+    heap_release(target);
+    heap_release(timing);
+    heap_release(probe);
+    heap_release(config_full);
+    heap_release(checkpoint_full);
     if (!valid) SetLastError(ERROR_ACCESS_DENIED);
     return valid;
 }
 
-static int trusted_path_write_denied(const wchar_t *path) {
+static int write_entry_checkpoint(
+    const WCHAR *path,
+    const unsigned char nonce[32],
+    uint32_t stage,
+    DWORD creation
+) {
+    unsigned char record[ENTRY_CHECKPOINT_BYTES];
+    HANDLE file;
+    int result;
+    memory_zero(record, sizeof(record));
+    memory_copy(record, ENTRY_MAGIC, 8);
+    write_u32(record + 8, SCHEMA_VERSION);
+    write_u32(record + 12, stage);
+    memory_copy(record + 16, nonce, 32);
+    file = CreateFileW(path, GENERIC_WRITE, FILE_SHARE_READ, NULL, creation,
+        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_WRITE_THROUGH, NULL);
+    if (file == INVALID_HANDLE_VALUE) return 0;
+    result = write_all(file, record, (DWORD)sizeof(record)) && SetEndOfFile(file)
+        && FlushFileBuffers(file);
+    if (!CloseHandle(file)) result = 0;
+    return result;
+}
+
+static int trusted_path_write_denied(const WCHAR *path) {
     HANDLE handle = CreateFileW(path, GENERIC_WRITE, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
     if (handle != INVALID_HANDLE_VALUE) {
         CloseHandle(handle);
@@ -494,6 +621,70 @@ static int trusted_path_write_denied(const wchar_t *path) {
         return 0;
     }
     return GetLastError() == ERROR_ACCESS_DENIED;
+}
+
+static int access_allowed(
+    PSECURITY_DESCRIPTOR descriptor,
+    HANDLE token,
+    DWORD desired_access,
+    int *allowed
+) {
+    GENERIC_MAPPING mapping;
+    PRIVILEGE_SET *privileges = NULL;
+    DWORD privileges_length = 0;
+    DWORD granted = 0;
+    BOOL access = FALSE;
+    int result = 0;
+    mapping.GenericRead = FILE_GENERIC_READ;
+    mapping.GenericWrite = FILE_GENERIC_WRITE;
+    mapping.GenericExecute = FILE_GENERIC_EXECUTE;
+    mapping.GenericAll = FILE_ALL_ACCESS;
+    MapGenericMask(&desired_access, &mapping);
+    SetLastError(ERROR_SUCCESS);
+    if (AccessCheck(descriptor, token, desired_access, &mapping, NULL, &privileges_length,
+        &granted, &access) || GetLastError() != ERROR_INSUFFICIENT_BUFFER
+        || privileges_length == 0) goto cleanup;
+    privileges = (PRIVILEGE_SET *)heap_array(privileges_length, 1, 1);
+    if (privileges == NULL) goto cleanup;
+    if (!AccessCheck(descriptor, token, desired_access, &mapping, privileges,
+        &privileges_length, &granted, &access)) goto cleanup;
+    *allowed = access != FALSE;
+    result = 1;
+cleanup:
+    heap_release(privileges);
+    return result;
+}
+
+static int bootstrap_access_policy(const WCHAR *path) {
+    const SECURITY_INFORMATION information = OWNER_SECURITY_INFORMATION
+        | GROUP_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION;
+    PSECURITY_DESCRIPTOR descriptor = NULL;
+    HANDLE process_token = NULL;
+    HANDLE impersonation_token = NULL;
+    DWORD descriptor_length = 0;
+    int read_execute_allowed = 0;
+    int write_allowed = 0;
+    int result = 0;
+    if (GetFileSecurityW(path, information, NULL, 0, &descriptor_length)
+        || GetLastError() != ERROR_INSUFFICIENT_BUFFER || descriptor_length == 0) goto cleanup;
+    descriptor = (PSECURITY_DESCRIPTOR)heap_array(descriptor_length, 1, 1);
+    if (descriptor == NULL
+        || !GetFileSecurityW(path, information, descriptor, descriptor_length,
+            &descriptor_length)
+        || !OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | TOKEN_DUPLICATE, &process_token)
+        || !DuplicateToken(process_token, SecurityImpersonation, &impersonation_token)
+        || !access_allowed(descriptor, impersonation_token, GENERIC_READ | GENERIC_EXECUTE,
+            &read_execute_allowed)
+        || !access_allowed(descriptor, impersonation_token, GENERIC_WRITE, &write_allowed)) {
+        goto cleanup;
+    }
+    result = read_execute_allowed && !write_allowed;
+    if (!result) SetLastError(ERROR_ACCESS_DENIED);
+cleanup:
+    if (impersonation_token != NULL) CloseHandle(impersonation_token);
+    if (process_token != NULL) CloseHandle(process_token);
+    heap_release(descriptor);
+    return result;
 }
 
 static int validate_handles(const BootstrapConfig *config, int *all_inheritable) {
@@ -512,7 +703,7 @@ static int validate_handles(const BootstrapConfig *config, int *all_inheritable)
 
 static int open_timing(const BootstrapConfig *config, TimingPage *timing) {
     LARGE_INTEGER size;
-    ZeroMemory(timing, sizeof(*timing));
+    memory_zero(timing, sizeof(*timing));
     timing->file = CreateFileW(config->timing, GENERIC_READ | GENERIC_WRITE,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING,
         FILE_ATTRIBUTE_NORMAL, NULL);
@@ -523,12 +714,12 @@ static int open_timing(const BootstrapConfig *config, TimingPage *timing) {
     timing->view = (unsigned char *)MapViewOfFile(timing->mapping, FILE_MAP_ALL_ACCESS, 0, 0,
         TIMING_PAGE_BYTES);
     if (timing->view == NULL) return 0;
-    if (memcmp(timing->view, TIMING_MAGIC, 8) != 0
-        || memcmp(timing->view + 8, config->nonce, 32) != 0) {
+    if (!bytes_equal(timing->view, TIMING_MAGIC, 8)
+        || !bytes_equal(timing->view + 8, config->nonce, 32)) {
         SetLastError(ERROR_INVALID_DATA);
         return 0;
     }
-    CopyMemory(timing->nonce, config->nonce, 32);
+    memory_copy(timing->nonce, config->nonce, 32);
     if (!DeleteFileW(config->timing)) return 0;
     return 1;
 }
@@ -537,7 +728,7 @@ static void close_timing(TimingPage *timing) {
     if (timing->view != NULL) UnmapViewOfFile(timing->view);
     if (timing->mapping != NULL) CloseHandle(timing->mapping);
     if (timing->file != NULL && timing->file != INVALID_HANDLE_VALUE) CloseHandle(timing->file);
-    ZeroMemory(timing, sizeof(*timing));
+    memory_zero(timing, sizeof(*timing));
 }
 
 static int record_t0(TimingPage *timing) {
@@ -551,7 +742,7 @@ static int record_t0(TimingPage *timing) {
     uint64_t unused_remainder;
     volatile LONG64 *generation = (volatile LONG64 *)(timing->view + TIMING_GENERATION_OFFSET);
     volatile LONG64 *t0 = (volatile LONG64 *)(timing->view + TIMING_T0_OFFSET);
-    if (memcmp(timing->view + 8, timing->nonce, 32) != 0) return 0;
+    if (!bytes_equal(timing->view + 8, timing->nonce, 32)) return 0;
     if (InterlockedCompareExchange64(generation, -1, 0) != 0) {
         SetLastError(ERROR_ALREADY_EXISTS);
         return 0;
@@ -572,10 +763,10 @@ static int record_t0(TimingPage *timing) {
     return 1;
 }
 
-static size_t quoted_length(const wchar_t *value) {
-    size_t length = 2u;
-    size_t slashes = 0u;
-    const wchar_t *cursor;
+static SIZE_T quoted_length(const WCHAR *value) {
+    SIZE_T length = 2u;
+    SIZE_T slashes = 0u;
+    const WCHAR *cursor;
     for (cursor = value; *cursor != L'\0'; ++cursor) {
         if (*cursor == L'\\') {
             ++slashes;
@@ -590,9 +781,9 @@ static size_t quoted_length(const wchar_t *value) {
     return length + slashes * 2u;
 }
 
-static wchar_t *append_quoted(wchar_t *output, const wchar_t *value) {
-    size_t slashes = 0u;
-    const wchar_t *cursor;
+static WCHAR *append_quoted(WCHAR *output, const WCHAR *value) {
+    SIZE_T slashes = 0u;
+    const WCHAR *cursor;
     *output++ = L'"';
     for (cursor = value; *cursor != L'\0'; ++cursor) {
         if (*cursor == L'\\') {
@@ -605,14 +796,12 @@ static wchar_t *append_quoted(wchar_t *output, const wchar_t *value) {
             }
             *output++ = L'\\';
             *output++ = L'"';
-            slashes = 0u;
         } else {
             while (slashes != 0u) {
                 *output++ = L'\\';
                 --slashes;
             }
             *output++ = *cursor;
-            slashes = 0u;
         }
     }
     while (slashes != 0u) {
@@ -624,17 +813,17 @@ static wchar_t *append_quoted(wchar_t *output, const wchar_t *value) {
     return output;
 }
 
-static wchar_t *product_command_line(const BootstrapConfig *config) {
-    size_t total = quoted_length(config->target) + 1u;
+static WCHAR *product_command_line(const BootstrapConfig *config) {
+    SIZE_T total = quoted_length(config->target) + 1u;
     uint32_t index;
-    wchar_t *line;
-    wchar_t *cursor;
+    WCHAR *line;
+    WCHAR *cursor;
     for (index = 0; index < config->argument_count; ++index) {
-        size_t addition = quoted_length(config->arguments[index]) + 1u;
+        SIZE_T addition = quoted_length(config->arguments[index]) + 1u;
         if (total > SIZE_MAX - addition) return NULL;
         total += addition;
     }
-    line = (wchar_t *)calloc(total, sizeof(wchar_t));
+    line = (WCHAR *)heap_array(total, sizeof(WCHAR), 1);
     if (line == NULL) return NULL;
     cursor = append_quoted(line, config->target);
     for (index = 0; index < config->argument_count; ++index) {
@@ -656,7 +845,7 @@ static int create_product(
     STARTUPINFOEXW startup;
     PROCESS_INFORMATION process;
     HANDLE handles[3];
-    wchar_t *command_line = NULL;
+    WCHAR *command_line = NULL;
     DWORD resume_count;
     int result = 0;
     int attributes_initialized = 0;
@@ -672,9 +861,9 @@ static int create_product(
         handles, sizeof(handles), NULL, NULL)) goto cleanup;
     command_line = product_command_line(config);
     if (command_line == NULL) goto cleanup;
-    ZeroMemory(&startup, sizeof(startup));
-    ZeroMemory(&process, sizeof(process));
-    startup.StartupInfo.cb = sizeof(startup);
+    memory_zero(&startup, sizeof(startup));
+    memory_zero(&process, sizeof(process));
+    startup.StartupInfo.cb = (DWORD)sizeof(startup);
     startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
     startup.StartupInfo.hStdInput = handles[0];
     startup.StartupInfo.hStdOutput = handles[1];
@@ -692,8 +881,7 @@ static int create_product(
     }
     resume_count = ResumeThread(process.hThread);
     if (resume_count != 1u) {
-        if (resume_count == (DWORD)-1) SetLastError(GetLastError());
-        else SetLastError(ERROR_INVALID_PARAMETER);
+        if (resume_count != (DWORD)-1) SetLastError(ERROR_INVALID_PARAMETER);
         TerminateProcess(process.hProcess, 125);
         WaitForSingleObject(process.hProcess, INFINITE);
         goto process_cleanup;
@@ -705,7 +893,7 @@ process_cleanup:
     CloseHandle(process.hThread);
     CloseHandle(process.hProcess);
 cleanup:
-    free(command_line);
+    heap_release(command_line);
     if (attributes != NULL) {
         if (attributes_initialized) DeleteProcThreadAttributeList(attributes);
         HeapFree(GetProcessHeap(), 0, attributes);
@@ -715,23 +903,100 @@ cleanup:
 
 static int read_arm(HANDLE input, const unsigned char nonce[32]) {
     unsigned char record[48];
-    return read_all(input, record, sizeof(record))
-        && memcmp(record, ARM_MAGIC, 8) == 0
+    return read_all(input, record, (DWORD)sizeof(record))
+        && bytes_equal(record, ARM_MAGIC, 8)
         && read_u32(record + 8) == SCHEMA_VERSION
-        && read_u32(record + 12) == sizeof(record)
-        && memcmp(record + 16, nonce, 32) == 0;
+        && read_u32(record + 12) == (uint32_t)sizeof(record)
+        && bytes_equal(record + 16, nonce, 32);
 }
 
-static int bootstrap_run(const wchar_t *config_path) {
+static int decode_nonce(const WCHAR *text, unsigned char nonce[32]) {
+    SIZE_T index;
+    if (wide_length(text) != 64u) return 0;
+    for (index = 0; index < 32u; ++index) {
+        WCHAR high = text[index * 2u];
+        WCHAR low = text[index * 2u + 1u];
+        unsigned int a;
+        unsigned int b;
+        if (high >= L'0' && high <= L'9') a = (unsigned int)(high - L'0');
+        else if (high >= L'a' && high <= L'f') a = (unsigned int)(high - L'a' + 10);
+        else if (high >= L'A' && high <= L'F') a = (unsigned int)(high - L'A' + 10);
+        else return 0;
+        if (low >= L'0' && low <= L'9') b = (unsigned int)(low - L'0');
+        else if (low >= L'a' && low <= L'f') b = (unsigned int)(low - L'a' + 10);
+        else if (low >= L'A' && low <= L'F') b = (unsigned int)(low - L'A' + 10);
+        else return 0;
+        nonce[index] = (unsigned char)((a << 4) | b);
+    }
+    return 1;
+}
+
+static const WCHAR *skip_spaces(const WCHAR *cursor) {
+    while (*cursor == L' ' || *cursor == L'\t') ++cursor;
+    return cursor;
+}
+
+static WCHAR *take_strict_quoted_argument(const WCHAR **cursor) {
+    const WCHAR *start;
+    SIZE_T length;
+    WCHAR *result;
+    *cursor = skip_spaces(*cursor);
+    if (**cursor != L'"') return NULL;
+    start = ++*cursor;
+    while (**cursor != L'\0' && **cursor != L'"') ++*cursor;
+    if (**cursor != L'"') return NULL;
+    length = (SIZE_T)(*cursor - start);
+    if (length == 0 || length > MAX_WIDE_CHARS) return NULL;
+    result = (WCHAR *)heap_array(length + 1u, sizeof(WCHAR), 1);
+    if (result == NULL) return NULL;
+    memory_copy(result, start, length * sizeof(WCHAR));
+    ++*cursor;
+    if (**cursor != L'\0' && **cursor != L' ' && **cursor != L'\t') {
+        heap_release(result);
+        return NULL;
+    }
+    return result;
+}
+
+static void free_entry_arguments(EntryArguments *arguments) {
+    heap_release(arguments->config_path);
+    heap_release(arguments->checkpoint_path);
+    heap_release(arguments->nonce_text);
+    memory_zero(arguments, sizeof(*arguments));
+}
+
+static int parse_entry_arguments(EntryArguments *arguments) {
+    const WCHAR *cursor = GetCommandLineW();
+    WCHAR *program;
+    memory_zero(arguments, sizeof(*arguments));
+    program = take_strict_quoted_argument(&cursor);
+    arguments->config_path = take_strict_quoted_argument(&cursor);
+    arguments->checkpoint_path = take_strict_quoted_argument(&cursor);
+    arguments->nonce_text = take_strict_quoted_argument(&cursor);
+    cursor = skip_spaces(cursor);
+    if (program == NULL || arguments->config_path == NULL || arguments->checkpoint_path == NULL
+        || arguments->nonce_text == NULL || *cursor != L'\0'
+        || !decode_nonce(arguments->nonce_text, arguments->nonce)) {
+        heap_release(program);
+        free_entry_arguments(arguments);
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return 0;
+    }
+    heap_release(program);
+    return 1;
+}
+
+static int bootstrap_run(const EntryArguments *entry) {
     unsigned char *bytes = NULL;
-    size_t length = 0;
+    SIZE_T length = 0;
     BootstrapConfig config;
-    wchar_t self_path[32768];
+    WCHAR self_path[MAX_WIDE_CHARS + 1u];
     char observed_bootstrap_sha256[65];
     char observed_target_sha256[65];
     int handles_inheritable = 0;
     int bootstrap_in_job = 0;
     int trusted_denied = 0;
+    int bootstrap_write_denied = 0;
     TimingPage timing;
     DWORD exit_code = 125;
     int product_contained = 0;
@@ -741,24 +1006,37 @@ static int bootstrap_run(const wchar_t *config_path) {
     DWORD error;
     uint32_t stage = 0;
     int result = 0;
-    ZeroMemory(&config, sizeof(config));
-    ZeroMemory(&timing, sizeof(timing));
-    bytes = read_config_file(config_path, &length);
+    memory_zero(&config, sizeof(config));
+    memory_zero(&timing, sizeof(timing));
+    if (!write_entry_checkpoint(entry->checkpoint_path, entry->nonce, ENTRY_STAGE_REACHED,
+        CREATE_NEW)) return 125;
+    if (!write_entry_checkpoint(entry->checkpoint_path, entry->nonce,
+        ENTRY_STAGE_CONFIG_READ_STARTED, OPEN_EXISTING)) return 125;
+    bytes = read_config_file(entry->config_path, &length);
     if (bytes == NULL || !parse_config(bytes, length, &config)) {
-        free(bytes);
+        heap_release(bytes);
         return 125;
     }
-    free(bytes);
-    if (!validate_paths(config_path, &config) || !DeleteFileW(config_path)) goto failure;
+    heap_release(bytes);
+    if (!bytes_equal(config.nonce, entry->nonce, 32)
+        || !validate_paths(entry->config_path, entry->checkpoint_path, &config)
+        || !DeleteFileW(entry->config_path)
+        || !write_entry_checkpoint(entry->checkpoint_path, entry->nonce,
+            ENTRY_STAGE_CONFIG_CONSUMED, OPEN_EXISTING)) goto failure;
+    if (!send_stage(config.control_write, config.nonce, STAGE_NATIVE_ENTRY_REACHED)
+        || !send_stage(config.control_write, config.nonce, STAGE_NATIVE_CONFIG_READ_STARTED)) {
+        goto failure;
+    }
     stage = STAGE_CONFIG_CONSUMED;
     if (!send_stage(config.control_write, config.nonce, stage)) goto failure;
-    if (GetModuleFileNameW(NULL, self_path, 32768) == 0
+    if (GetModuleFileNameW(NULL, self_path, MAX_WIDE_CHARS + 1u) == 0
         || !hash_file(self_path, observed_bootstrap_sha256)
-        || _stricmp(observed_bootstrap_sha256, config.bootstrap_sha256) != 0
+        || !hash_text_equal(observed_bootstrap_sha256, config.bootstrap_sha256)
         || !hash_file(config.target, observed_target_sha256)
-        || _stricmp(observed_target_sha256, config.target_sha256) != 0) goto failure;
+        || !hash_text_equal(observed_target_sha256, config.target_sha256)) goto failure;
     trusted_denied = trusted_path_write_denied(config.trusted_probe);
-    if (!trusted_denied) goto failure;
+    bootstrap_write_denied = bootstrap_access_policy(self_path);
+    if (!trusted_denied || !bootstrap_write_denied) goto failure;
     stage = STAGE_LAUNCH_VALIDATED;
     if (!send_stage(config.control_write, config.nonce, stage)) goto failure;
     if (!validate_handles(&config, &handles_inheritable) || !handles_inheritable
@@ -772,9 +1050,9 @@ static int bootstrap_run(const wchar_t *config_path) {
     stage = STAGE_TIMING_CONSUMED;
     if (!send_stage(config.control_write, config.nonce, stage)) goto failure;
     flags = READY_CONFIG_CONSUMED | READY_HANDLES_VALID | READY_HANDLES_INHERITABLE
-        | READY_PRIVATE_JOB_MEMBER | READY_TRUSTED_PATH_DENIED;
+        | READY_PRIVATE_JOB_MEMBER | READY_TRUSTED_PATH_DENIED | READY_BOOTSTRAP_WRITE_DENIED;
     {
-        size_t index;
+        SIZE_T index;
         for (index = 0; index < 32u; ++index) {
             unsigned int high;
             unsigned int low;
@@ -786,7 +1064,7 @@ static int bootstrap_run(const wchar_t *config_path) {
         }
     }
     if (!send_event(config.control_write, config.nonce, EVENT_READY, flags,
-        payload, sizeof(payload))) goto failure;
+        payload, (uint32_t)sizeof(payload))) goto failure;
     if (!read_arm(config.control_read, config.nonce)) goto failure;
     if (!create_product(&config, &timing, &exit_code, &product_contained)) goto failure;
     write_u32(payload, exit_code);
@@ -810,7 +1088,17 @@ cleanup:
     return result;
 }
 
-int wmain(int argc, wchar_t **argv) {
-    if (argc != 2) return 125;
-    return bootstrap_run(argv[1]);
+static int bootstrap_entry_inner(void) {
+    EntryArguments arguments;
+    int result;
+    if (!parse_entry_arguments(&arguments)) return 125;
+    result = bootstrap_run(&arguments);
+    free_entry_arguments(&arguments);
+    return result;
+}
+
+__declspec(safebuffers) void WINAPI bootstrap_entry(void) {
+    /* The custom entry cannot check a cookie before the process initializes it. */
+    __security_init_cookie();
+    ExitProcess((UINT)bootstrap_entry_inner());
 }

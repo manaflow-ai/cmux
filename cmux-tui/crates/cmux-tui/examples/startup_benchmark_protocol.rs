@@ -48,6 +48,8 @@ pub enum BootstrapStage {
     HandlesDuplicated,
     ConfigWritten,
     ProcessResumed,
+    NativeEntryReached,
+    NativeConfigReadStarted,
     ConfigConsumed,
     LaunchValidated,
     StandardHandlesValidated,

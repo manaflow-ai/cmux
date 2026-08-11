@@ -9,7 +9,8 @@ use anyhow::{Context, Result, bail};
 #[cfg(windows)]
 use cmux_startup_bootstrap::{
     BOOTSTRAP_SCHEMA_VERSION, BootstrapChildStage, BootstrapConfig, BootstrapLaunchEvidence,
-    BootstrapMessage, BootstrapProductLaunch, encode_arm, encode_config, read_event,
+    BootstrapMessage, BootstrapProductLaunch, NativeEntryCheckpointStage,
+    decode_native_entry_checkpoint, encode_arm, encode_config, read_event,
 };
 use cmux_tui_core::platform::transport;
 #[cfg(any(target_os = "linux", windows))]
@@ -589,7 +590,7 @@ mod platform {
             ] {
                 sudo(["dscl", ".", "-create", &format!("/Users/{}", self.user), key, &value])?;
             }
-            sudo(["dscl", ".", "-passwd", &format!("/Users/{}", self.user), "*"])?;
+            sudo(["dscl", ".", "-create", &format!("/Users/{}", self.user), "Password", "*"])?;
             sudo([
                 "dscl",
                 ".",
@@ -1258,6 +1259,8 @@ mod platform {
             let timing = launch.timing.canonicalize()?;
             let target = launch.target.canonicalize()?;
             let config_path = fixture_root.join(format!("bootstrap-{}.bin", &launch.nonce[..16]));
+            let entry_checkpoint_path =
+                fixture_root.join(format!("bootstrap-entry-{}.bin", &launch.nonce[..16]));
             verify_file_sha256(
                 &bootstrap_binary,
                 &launch.windows_bootstrap_sha256,
@@ -1269,7 +1272,11 @@ mod platform {
             let current_directory = wide(fixture_root.as_os_str());
             let mut command_line = wide(std::ffi::OsStr::new(&windows_command_line(
                 &bootstrap_binary,
-                &[config_path.to_string_lossy().into_owned()],
+                &[
+                    config_path.to_string_lossy().into_owned(),
+                    entry_checkpoint_path.to_string_lossy().into_owned(),
+                    launch.nonce.clone(),
+                ],
             )));
             // SAFETY: zero is a valid initial state for these Win32 structs.
             let mut startup: STARTUPINFOW = unsafe { zeroed() };
@@ -1374,6 +1381,7 @@ mod platform {
                 pipes,
                 BootstrapIdentity {
                     config_path,
+                    entry_checkpoint_path,
                     trusted_probe,
                     bootstrap_binary,
                     bootstrap_sha256: launch.windows_bootstrap_sha256.clone(),
@@ -1456,6 +1464,7 @@ mod platform {
         reader: Option<thread::JoinHandle<()>>,
         status: Option<thread::JoinHandle<()>>,
         config_path: PathBuf,
+        entry_checkpoint_path: PathBuf,
         trusted_probe: TrustedPathProbe,
         bootstrap_binary: PathBuf,
         bootstrap_sha256: String,
@@ -1468,6 +1477,7 @@ mod platform {
 
     struct BootstrapIdentity {
         config_path: PathBuf,
+        entry_checkpoint_path: PathBuf,
         trusted_probe: TrustedPathProbe,
         bootstrap_binary: PathBuf,
         bootstrap_sha256: String,
@@ -1492,6 +1502,7 @@ mod platform {
         ) -> Result<Self> {
             let BootstrapIdentity {
                 config_path,
+                entry_checkpoint_path,
                 trusted_probe,
                 bootstrap_binary,
                 bootstrap_sha256,
@@ -1537,6 +1548,7 @@ mod platform {
                 reader: Some(reader),
                 status: Some(status),
                 config_path,
+                entry_checkpoint_path,
                 trusted_probe,
                 bootstrap_binary,
                 bootstrap_sha256,
@@ -1554,18 +1566,25 @@ mod platform {
                 .checked_add(BOOTSTRAP_STARTUP_TIMEOUT)
                 .context("Windows native bootstrap loader deadline overflow")?;
             loop {
-                let event =
-                    match self.receive_until(deadline, "wait for restricted bootstrap READY") {
-                        Ok(event) => event,
-                        Err(error) if Instant::now() >= deadline => {
-                            trace.observe(BootstrapObservedEvent::BootstrapTimeout);
-                            return Err(error);
-                        }
-                        Err(error) => {
-                            trace.observe(BootstrapObservedEvent::Error);
-                            return Err(error);
-                        }
-                    };
+                let event = match self
+                    .receive_until(deadline, "wait for restricted bootstrap READY")
+                {
+                    Ok(event) => event,
+                    Err(error) if Instant::now() >= deadline => {
+                        self.record_native_entry_checkpoint(trace).with_context(|| {
+                            format!("read native entry checkpoint after loader timeout: {error:#}")
+                        })?;
+                        trace.observe(BootstrapObservedEvent::BootstrapTimeout);
+                        return Err(error);
+                    }
+                    Err(error) => {
+                        self.record_native_entry_checkpoint(trace).with_context(|| {
+                            format!("read native entry checkpoint after READY failure: {error:#}")
+                        })?;
+                        trace.observe(BootstrapObservedEvent::Error);
+                        return Err(error);
+                    }
+                };
                 match event {
                     BootstrapEvent::Message(BootstrapMessage::Stage { nonce: observed, stage })
                         if observed == nonce =>
@@ -1580,14 +1599,24 @@ mod platform {
                         standard_handles_inheritable,
                         private_job_member,
                         trusted_path_write_denied,
+                        bootstrap_write_denied,
                     }) if observed == nonce
                         && bootstrap_sha256 == self.bootstrap_sha256
                         && config_consumed
                         && standard_handles_valid
                         && standard_handles_inheritable
                         && private_job_member
-                        && trusted_path_write_denied =>
+                        && trusted_path_write_denied
+                        && bootstrap_write_denied =>
                     {
+                        if self.record_native_entry_checkpoint(trace)?
+                            != Some(NativeEntryCheckpointStage::ConfigConsumed)
+                        {
+                            trace.observe(BootstrapObservedEvent::Error);
+                            bail!(
+                                "restricted bootstrap did not publish its consumed config checkpoint"
+                            );
+                        }
                         if self.config_path.exists() {
                             trace.observe(BootstrapObservedEvent::Error);
                             bail!("restricted bootstrap did not consume its launch config");
@@ -1602,7 +1631,14 @@ mod platform {
                                 .unwrap_or(u64::MAX),
                             exact_job_proof: private_job_member,
                             trusted_path_write_denied,
+                            bootstrap_write_denied,
                         });
+                        fs::remove_file(&self.entry_checkpoint_path).with_context(|| {
+                            format!(
+                                "remove consumed native entry checkpoint {}",
+                                self.entry_checkpoint_path.display()
+                            )
+                        })?;
                         trace.observe(BootstrapObservedEvent::Ready);
                         return Ok(());
                     }
@@ -1611,33 +1647,70 @@ mod platform {
                         windows_error,
                         stage,
                     }) if observed == nonce => {
+                        self.record_native_entry_checkpoint(trace)?;
                         trace.observe(BootstrapObservedEvent::Error);
                         bail!(
                             "restricted bootstrap failed before READY at native stage {stage} with Windows error {windows_error}"
                         )
                     }
                     BootstrapEvent::ProcessExited(Ok(code)) => {
+                        self.record_native_entry_checkpoint(trace)?;
                         trace.observe(BootstrapObservedEvent::Exit(code));
                         bail!("restricted bootstrap exited before READY with code {code}")
                     }
                     BootstrapEvent::ProcessExited(Err(error)) => {
+                        self.record_native_entry_checkpoint(trace)?;
                         trace.observe(BootstrapObservedEvent::Error);
                         bail!("read restricted bootstrap exit state: {error}")
                     }
                     BootstrapEvent::PipeEof => {
+                        self.record_native_entry_checkpoint(trace)?;
                         trace.observe(BootstrapObservedEvent::Eof);
                         bail!("restricted bootstrap event pipe closed before READY")
                     }
                     BootstrapEvent::ProtocolError(error) => {
+                        self.record_native_entry_checkpoint(trace)?;
                         trace.observe(BootstrapObservedEvent::Error);
                         bail!("restricted bootstrap event protocol failed: {error}")
                     }
                     _ => {
+                        self.record_native_entry_checkpoint(trace)?;
                         trace.observe(BootstrapObservedEvent::Error);
                         bail!("restricted bootstrap READY evidence mismatch")
                     }
                 }
             }
+        }
+
+        fn record_native_entry_checkpoint(
+            &self,
+            trace: &mut BootstrapStartupTrace,
+        ) -> Result<Option<NativeEntryCheckpointStage>> {
+            let bytes = match fs::read(&self.entry_checkpoint_path) {
+                Ok(bytes) => bytes,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+                Err(error) => {
+                    return Err(error).with_context(|| {
+                        format!(
+                            "read native entry checkpoint {}",
+                            self.entry_checkpoint_path.display()
+                        )
+                    });
+                }
+            };
+            let stage = decode_native_entry_checkpoint(&bytes, &self.nonce)?;
+            record_stage_once(trace, BootstrapStage::NativeEntryReached);
+            if matches!(
+                stage,
+                NativeEntryCheckpointStage::ConfigReadStarted
+                    | NativeEntryCheckpointStage::ConfigConsumed
+            ) {
+                record_stage_once(trace, BootstrapStage::NativeConfigReadStarted);
+            }
+            if stage == NativeEntryCheckpointStage::ConfigConsumed {
+                record_stage_once(trace, BootstrapStage::ConfigConsumed);
+            }
+            Ok(Some(stage))
         }
 
         fn arm_and_wait(&mut self, nonce: &str, require_descendant: bool) -> Result<ExitStatus> {
@@ -1718,6 +1791,18 @@ mod platform {
                 &self.bootstrap_sha256,
                 "dedicated Windows bootstrap after containment cleanup",
             )?;
+            match fs::remove_file(&self.entry_checkpoint_path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    return Err(error).with_context(|| {
+                        format!(
+                            "remove native entry checkpoint {}",
+                            self.entry_checkpoint_path.display()
+                        )
+                    });
+                }
+            }
             self.trusted_probe.verify_and_remove()?;
             if let Some(evidence) = &self.evidence {
                 evidence.validate(&self.nonce, &self.bootstrap_sha256)?;
@@ -1748,6 +1833,14 @@ mod platform {
                 BootstrapStage::StandardHandlesValidated
             }
             BootstrapChildStage::TimingConsumed => BootstrapStage::TimingConsumed,
+            BootstrapChildStage::NativeEntryReached => BootstrapStage::NativeEntryReached,
+            BootstrapChildStage::NativeConfigReadStarted => BootstrapStage::NativeConfigReadStarted,
+        }
+    }
+
+    fn record_stage_once(trace: &mut BootstrapStartupTrace, stage: BootstrapStage) {
+        if !trace.stages.iter().any(|observation| observation.stage == stage) {
+            trace.observe(BootstrapObservedEvent::Stage(stage));
         }
     }
 

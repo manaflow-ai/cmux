@@ -61,6 +61,7 @@ struct PreflightEvidence {
     windows_bootstrap_ready_elapsed_ms: Option<u64>,
     windows_bootstrap_exact_job: Option<bool>,
     windows_bootstrap_trusted_path_write_denied: Option<bool>,
+    windows_bootstrap_self_write_denied: Option<bool>,
     supervisor_ready: bool,
     timing_records: u64,
     supervisor_sha256: String,
@@ -633,7 +634,7 @@ fn run_controller(values: &[String]) -> Result<()> {
     #[cfg(not(windows))]
     let bootstrap_evidence: Option<BootstrapLaunchEvidence> = None;
     let evidence = PreflightEvidence {
-        schema_version: 4,
+        schema_version: 5,
         backend,
         policy: "fixture-root-only-write",
         handshake: "nonce-bound-ready-arm-with-pre-exec-t0",
@@ -686,6 +687,9 @@ fn run_controller(values: &[String]) -> Result<()> {
         windows_bootstrap_trusted_path_write_denied: bootstrap_evidence
             .as_ref()
             .map(|evidence| evidence.trusted_path_write_denied),
+        windows_bootstrap_self_write_denied: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.bootstrap_write_denied),
         supervisor_ready: true,
         timing_records: if timing_result.is_ok() { 1 } else { 0 },
         supervisor_sha256,
@@ -870,6 +874,7 @@ fn platform_proofs_pass(evidence: &PreflightEvidence) -> bool {
             && evidence.windows_bootstrap_ready_elapsed_ms.is_none()
             && evidence.windows_bootstrap_exact_job.is_none()
             && evidence.windows_bootstrap_trusted_path_write_denied.is_none()
+            && evidence.windows_bootstrap_self_write_denied.is_none()
     }
     #[cfg(target_os = "macos")]
     {
@@ -895,6 +900,7 @@ fn platform_proofs_pass(evidence: &PreflightEvidence) -> bool {
             && evidence.windows_bootstrap_ready_elapsed_ms.is_none()
             && evidence.windows_bootstrap_exact_job.is_none()
             && evidence.windows_bootstrap_trusted_path_write_denied.is_none()
+            && evidence.windows_bootstrap_self_write_denied.is_none()
     }
     #[cfg(windows)]
     {
@@ -923,6 +929,7 @@ fn platform_proofs_pass(evidence: &PreflightEvidence) -> bool {
             && evidence.windows_bootstrap_ready_elapsed_ms.is_some_and(|elapsed| elapsed <= 30_000)
             && evidence.windows_bootstrap_exact_job == Some(true)
             && evidence.windows_bootstrap_trusted_path_write_denied == Some(true)
+            && evidence.windows_bootstrap_self_write_denied == Some(true)
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     {

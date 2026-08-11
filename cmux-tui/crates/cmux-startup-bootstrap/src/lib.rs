@@ -4,12 +4,13 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
-pub const BOOTSTRAP_SCHEMA_VERSION: u32 = 1;
+pub const BOOTSTRAP_SCHEMA_VERSION: u32 = 2;
 pub const MAX_BOOTSTRAP_CONFIG_BYTES: usize = 64 * 1024;
 pub const MAX_BOOTSTRAP_RECORD_BYTES: usize = 4 * 1024;
 pub const CONFIG_MAGIC: [u8; 8] = *b"CMUXB001";
 pub const ARM_MAGIC: [u8; 8] = *b"CMUXA001";
 pub const EVENT_MAGIC: [u8; 8] = *b"CMUXE001";
+pub const NATIVE_ENTRY_CHECKPOINT_MAGIC: [u8; 8] = *b"CMUXN001";
 
 const CONFIG_HEADER_BYTES: usize = 104;
 const RECORD_HEADER_BYTES: usize = 56;
@@ -21,11 +22,13 @@ const READY_HANDLES_VALID: u32 = 1 << 1;
 const READY_HANDLES_INHERITABLE: u32 = 1 << 2;
 const READY_PRIVATE_JOB_MEMBER: u32 = 1 << 3;
 const READY_TRUSTED_PATH_DENIED: u32 = 1 << 4;
+const READY_BOOTSTRAP_WRITE_DENIED: u32 = 1 << 5;
 const READY_ALL_FLAGS: u32 = READY_CONFIG_CONSUMED
     | READY_HANDLES_VALID
     | READY_HANDLES_INHERITABLE
     | READY_PRIVATE_JOB_MEMBER
-    | READY_TRUSTED_PATH_DENIED;
+    | READY_TRUSTED_PATH_DENIED
+    | READY_BOOTSTRAP_WRITE_DENIED;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BootstrapProductLaunch {
@@ -93,6 +96,8 @@ pub enum BootstrapChildStage {
     LaunchValidated = 2,
     StandardHandlesValidated = 3,
     TimingConsumed = 4,
+    NativeEntryReached = 5,
+    NativeConfigReadStarted = 6,
 }
 
 impl BootstrapChildStage {
@@ -102,8 +107,41 @@ impl BootstrapChildStage {
             2 => Ok(Self::LaunchValidated),
             3 => Ok(Self::StandardHandlesValidated),
             4 => Ok(Self::TimingConsumed),
+            5 => Ok(Self::NativeEntryReached),
+            6 => Ok(Self::NativeConfigReadStarted),
             _ => bail!("Windows bootstrap event contained an unknown stage"),
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u32)]
+pub enum NativeEntryCheckpointStage {
+    EntryReached = 1,
+    ConfigReadStarted = 2,
+    ConfigConsumed = 3,
+}
+
+pub fn decode_native_entry_checkpoint(
+    bytes: &[u8],
+    expected_nonce: &str,
+) -> Result<NativeEntryCheckpointStage> {
+    if bytes.len() != 48 {
+        bail!("Windows native entry checkpoint had the wrong length");
+    }
+    require_magic(bytes, &NATIVE_ENTRY_CHECKPOINT_MAGIC, "native entry checkpoint")?;
+    if read_u32(bytes, 8)? != BOOTSTRAP_SCHEMA_VERSION {
+        bail!("Windows native entry checkpoint schema changed");
+    }
+    let expected_nonce = decode_hex_32(expected_nonce, "native entry checkpoint nonce")?;
+    if bytes[16..48] != expected_nonce[..] {
+        bail!("Windows native entry checkpoint nonce changed");
+    }
+    match read_u32(bytes, 12)? {
+        1 => Ok(NativeEntryCheckpointStage::EntryReached),
+        2 => Ok(NativeEntryCheckpointStage::ConfigReadStarted),
+        3 => Ok(NativeEntryCheckpointStage::ConfigConsumed),
+        _ => bail!("Windows native entry checkpoint stage changed"),
     }
 }
 
@@ -121,6 +159,7 @@ pub enum BootstrapMessage {
         standard_handles_inheritable: bool,
         private_job_member: bool,
         trusted_path_write_denied: bool,
+        bootstrap_write_denied: bool,
     },
     Exit {
         nonce: String,
@@ -145,6 +184,7 @@ pub struct BootstrapLaunchEvidence {
     pub ready_elapsed_ms: u64,
     pub exact_job_proof: bool,
     pub trusted_path_write_denied: bool,
+    pub bootstrap_write_denied: bool,
 }
 
 impl BootstrapLaunchEvidence {
@@ -157,6 +197,7 @@ impl BootstrapLaunchEvidence {
             || self.ready_elapsed_ms > 30_000
             || !self.exact_job_proof
             || !self.trusted_path_write_denied
+            || !self.bootstrap_write_denied
         {
             bail!("Windows bootstrap evidence identity or containment proof failed");
         }
@@ -341,6 +382,7 @@ pub fn decode_event(bytes: &[u8]) -> Result<BootstrapMessage> {
             standard_handles_inheritable: flags & READY_HANDLES_INHERITABLE != 0,
             private_job_member: flags & READY_PRIVATE_JOB_MEMBER != 0,
             trusted_path_write_denied: flags & READY_TRUSTED_PATH_DENIED != 0,
+            bootstrap_write_denied: flags & READY_BOOTSTRAP_WRITE_DENIED != 0,
         }),
         3 if bytes.len() == 64 && flags == 0 => {
             let contained = read_u32(bytes, 60)?;
@@ -376,6 +418,7 @@ fn encode_event(message: &BootstrapMessage) -> Result<Vec<u8>> {
             standard_handles_inheritable,
             private_job_member,
             trusted_path_write_denied,
+            bootstrap_write_denied,
         } => {
             let mut flags = 0;
             flags |= u32::from(*config_consumed) * READY_CONFIG_CONSUMED;
@@ -383,6 +426,7 @@ fn encode_event(message: &BootstrapMessage) -> Result<Vec<u8>> {
             flags |= u32::from(*standard_handles_inheritable) * READY_HANDLES_INHERITABLE;
             flags |= u32::from(*private_job_member) * READY_PRIVATE_JOB_MEMBER;
             flags |= u32::from(*trusted_path_write_denied) * READY_TRUSTED_PATH_DENIED;
+            flags |= u32::from(*bootstrap_write_denied) * READY_BOOTSTRAP_WRITE_DENIED;
             (2, flags, nonce, decode_hex_32(bootstrap_sha256, "bootstrap SHA-256")?.to_vec())
         }
         BootstrapMessage::Exit { nonce, code, private_job_descendant_contained } => {
@@ -585,7 +629,7 @@ mod tests {
     #[test]
     fn binary_config_rejects_schema_nonce_and_record_bounds() {
         let mut bytes = encode_config(&config()).unwrap();
-        bytes[8..12].copy_from_slice(&2_u32.to_le_bytes());
+        bytes[8..12].copy_from_slice(&3_u32.to_le_bytes());
         assert!(decode_config(&bytes).is_err());
         assert!(config().validate_identity(Path::new("/fixture/bootstrap-wrong.bin")).is_err());
         let mut oversized = config();
@@ -618,6 +662,7 @@ mod tests {
             standard_handles_inheritable: true,
             private_job_member: true,
             trusted_path_write_denied: true,
+            bootstrap_write_denied: true,
         };
         let bytes = encode_event(&message).unwrap();
         assert_eq!(decode_event(&bytes).unwrap(), message);
@@ -630,7 +675,7 @@ mod tests {
         let message =
             BootstrapMessage::Error { nonce: "78".repeat(32), windows_error: 5, stage: 7 };
         let mut schema = encode_event(&message).unwrap();
-        schema[8..12].copy_from_slice(&2_u32.to_le_bytes());
+        schema[8..12].copy_from_slice(&3_u32.to_le_bytes());
         assert!(decode_event(&schema).is_err());
         let mut truncated = encode_event(&message).unwrap();
         truncated.pop();
@@ -647,6 +692,26 @@ mod tests {
     }
 
     #[test]
+    fn native_entry_checkpoint_is_bounded_schema_and_nonce_bound() {
+        let nonce = "9a".repeat(32);
+        let mut checkpoint = [0_u8; 48];
+        checkpoint[..8].copy_from_slice(&NATIVE_ENTRY_CHECKPOINT_MAGIC);
+        checkpoint[8..12].copy_from_slice(&BOOTSTRAP_SCHEMA_VERSION.to_le_bytes());
+        checkpoint[12..16]
+            .copy_from_slice(&(NativeEntryCheckpointStage::ConfigReadStarted as u32).to_le_bytes());
+        checkpoint[16..].copy_from_slice(&decode_hex_32(&nonce, "test nonce").unwrap());
+        assert_eq!(
+            decode_native_entry_checkpoint(&checkpoint, &nonce).unwrap(),
+            NativeEntryCheckpointStage::ConfigReadStarted
+        );
+        assert!(decode_native_entry_checkpoint(&checkpoint[..47], &nonce).is_err());
+        checkpoint[8..12].copy_from_slice(&3_u32.to_le_bytes());
+        assert!(decode_native_entry_checkpoint(&checkpoint, &nonce).is_err());
+        checkpoint[8..12].copy_from_slice(&BOOTSTRAP_SCHEMA_VERSION.to_le_bytes());
+        assert!(decode_native_entry_checkpoint(&checkpoint, &"bc".repeat(32)).is_err());
+    }
+
+    #[test]
     fn evidence_requires_exact_bootstrap_nonce_resume_and_loader_budget() {
         let evidence = BootstrapLaunchEvidence {
             schema_version: BOOTSTRAP_SCHEMA_VERSION,
@@ -657,6 +722,7 @@ mod tests {
             ready_elapsed_ms: 30_000,
             exact_job_proof: true,
             trusted_path_write_denied: true,
+            bootstrap_write_denied: true,
         };
         evidence.validate(&"ab".repeat(32), &"ef".repeat(32)).unwrap();
         let mut wrong_resume = evidence.clone();

@@ -127,7 +127,7 @@ if hashlib.sha256(preflight_bytes).hexdigest() != get(
 ):
     raise SystemExit("sandbox preflight file does not match its attested SHA-256")
 preflight = json.loads(preflight_bytes)
-if not isinstance(preflight, dict) or preflight.get("schema_version") != 4:
+if not isinstance(preflight, dict) or preflight.get("schema_version") != 5:
     raise SystemExit("sandbox preflight evidence has the wrong schema")
 windows_preflight_fields = (
     "windows_bootstrap_sha256",
@@ -137,6 +137,7 @@ windows_preflight_fields = (
     "windows_bootstrap_ready_elapsed_ms",
     "windows_bootstrap_exact_job",
     "windows_bootstrap_trusted_path_write_denied",
+    "windows_bootstrap_self_write_denied",
 )
 if any(field not in preflight for field in windows_preflight_fields):
     raise SystemExit("sandbox preflight evidence is missing a Windows bootstrap field")
@@ -188,7 +189,7 @@ if os.environ["RUNNER_OS"] == "Windows":
         )
     ):
         raise SystemExit("trusted Windows bootstrap import evidence is invalid")
-    approved_physical_dependencies = {"bcrypt.dll", "kernel32.dll"}
+    approved_physical_dependencies = {"advapi32.dll", "bcrypt.dll", "kernel32.dll"}
     api_set_pattern = re.compile(
         r"(?i:(?:api|ext)-[a-z0-9-]+-l[0-9]+-[0-9]+-[0-9]+\.dll)"
     )
@@ -213,6 +214,7 @@ if os.environ["RUNNER_OS"] == "Windows":
         or not 0 <= ready_elapsed_ms <= 30_000
         or preflight["windows_bootstrap_exact_job"] is not True
         or preflight["windows_bootstrap_trusted_path_write_denied"] is not True
+        or preflight["windows_bootstrap_self_write_denied"] is not True
     ):
         raise SystemExit("sandbox preflight has invalid native Windows bootstrap proof")
 elif any(get(dotted) is not None for dotted in windows_bootstrap_fields):
