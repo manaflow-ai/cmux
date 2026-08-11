@@ -4587,10 +4587,7 @@ impl Mux {
                         .map(|terminal_ids| terminal_ids.iter().cloned().collect::<Vec<_>>())
                 })
                 .or_else(|| {
-                    surface
-                        .terminal_public_id()
-                        .cloned()
-                        .map(|terminal_id| vec![terminal_id])
+                    surface.terminal_public_id().cloned().map(|terminal_id| vec![terminal_id])
                 })
                 .unwrap_or_default()
         };
