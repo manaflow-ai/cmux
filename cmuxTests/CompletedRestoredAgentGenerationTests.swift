@@ -141,6 +141,54 @@ struct CompletedRestoredAgentGenerationTests {
         #expect(destination.resumeStatesByPanelId[panelId] == .observedAgentCommandRunning)
     }
 
+    @Test("Snapshotless Dock transfer keeps completion until a newer process generation")
+    func snapshotlessDockTransferKeepsCompletionUntilNewGeneration() throws {
+        let panelId = UUID()
+        let completedGeneration = RestoredAgentCompletedGeneration(
+            completedAt: 100,
+            processIdentities: []
+        )
+        let destination = RestoredAgentLifecycleCoordinator(dateProvider: { 200 })
+        destination.seedTransferredState(
+            panelId: panelId,
+            snapshot: nil,
+            resumeState: .completedAgentExit,
+            completedGeneration: completedGeneration,
+            resumeWorkingDirectory: nil
+        )
+
+        destination.setSnapshot(nil, panelId: panelId)
+        destination.retainSessionRestores(for: [panelId])
+        #expect(
+            destination.completedGeneration(panelId: panelId)?.completedAt
+                == completedGeneration.completedAt
+        )
+
+        let replacementSnapshot = agentSnapshot(
+            sessionId: "snapshotless-dock-replacement",
+            workingDirectory: "/tmp/snapshotless-dock-replacement",
+            capturedAt: 90
+        )
+        let replacementIdentity = AgentPIDProcessIdentity(
+            pid: 654,
+            startSeconds: 150,
+            startMicroseconds: 0
+        )
+        let accepted = destination.reconcileCompletedAgent(
+            panelId: panelId,
+            observation: indexEntry(
+                snapshot: replacementSnapshot,
+                updatedAt: 160,
+                identity: replacementIdentity
+            ),
+            currentProcessIdentity: { _ in replacementIdentity }
+        )
+
+        #expect(accepted)
+        #expect(destination.resumeStatesByPanelId[panelId] == .observedAgentCommandRunning)
+        #expect(destination.snapshotsByPanelId[panelId]?.sessionId == replacementSnapshot.sessionId)
+    }
+
     @Test
     func workspaceTransferPreservesCompletionGenerationAndShellActivity() throws {
         let source = Workspace()

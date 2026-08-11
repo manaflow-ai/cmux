@@ -74,13 +74,12 @@ struct TerminalStartupRestoreFailureTests {
         let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
         let startupCommand = try #require(restoredPanel.surface.debugInitialCommand())
         let remoteCommand = try decodedRemoteCommand(from: startupCommand)
-        let expectedRestoreInput = " cmux restore codex persistent-ssh-session\n"
+        let initialCommand = try decodedInitialCommand(from: remoteCommand)
 
         #expect(startupCommand.contains("ssh-pty-attach"))
-        #expect(
-            remoteCommand.contains(Data(expectedRestoreInput.utf8).base64EncodedString()),
-            "\(remoteCommand)"
-        )
+        #expect(initialCommand.contains("/srv/project"), "\(initialCommand)")
+        #expect(initialCommand.contains("codex resume persistent-ssh-session"), "\(initialCommand)")
+        #expect(!initialCommand.contains("cmux restore"), "\(initialCommand)")
         #expect(!restoredPanel.surface.canCreateRuntimeSurface)
 
         restored.terminalStartupRestoreCoordinator.commitPendingRestores(
@@ -275,6 +274,18 @@ struct TerminalStartupRestoreFailureTests {
         )
         let encoded = String(script[range]).split(separator: " ", maxSplits: 1).last.map(String.init)
         let data = try #require(encoded.flatMap { Data(base64Encoded: $0) })
+        return try #require(String(data: data, encoding: .utf8))
+    }
+
+    private func decodedInitialCommand(from bootstrap: String) throws -> String {
+        let payloadLine = try #require(bootstrap.split(separator: "\n").first { line in
+            line.contains("printf %s '") && line.contains("> \"$cmux_initial_command_tmp\"")
+        })
+        let prefixRange = try #require(payloadLine.range(of: "printf %s '"))
+        let encodedSuffix = payloadLine[prefixRange.upperBound...]
+        let closingQuote = try #require(encodedSuffix.firstIndex(of: "'"))
+        let encodedCommand = String(encodedSuffix[..<closingQuote])
+        let data = try #require(Data(base64Encoded: encodedCommand))
         return try #require(String(data: data, encoding: .utf8))
     }
 
