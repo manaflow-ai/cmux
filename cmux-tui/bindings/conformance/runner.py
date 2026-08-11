@@ -1568,7 +1568,7 @@ def run_live_case(
     adapter: Adapter,
     binary: Path,
     constants: Mapping[str, str],
-) -> tuple[str, ...]:
+) -> dict[str, str]:
     try:
         exact_binary = binary.expanduser().resolve(strict=True)
     except FileNotFoundError as error:
@@ -1593,6 +1593,7 @@ def run_live_case(
     process: subprocess.Popen[str] | None = None
     setup: dict[str, tuple[str, list[str]]] = {}
     creation: dict[str, LiveCreationEvidence] = {}
+    failures: dict[str, str] = {}
     try:
         process, websocket_url = start_live_server(
             exact_binary,
@@ -1656,57 +1657,65 @@ def run_live_case(
             websocket_token,
         )
         for transport in transports:
-            stable_id, duplicate_ids = setup[transport]
-            evidence = creation[transport]
-            workspace_name = f"{base_name}-{transport}"
-            payload = live_payload(
-                identifier=f"live-{transport}-exit-restart",
-                operation="live-exit-restart",
-                transport=transport,
-                socket_path=socket_path,
-                websocket_url=websocket_url,
-                websocket_token=websocket_token,
-                constants=constants,
-                workspace_name=workspace_name,
-                key_prefix=transport,
-            )
-            payload.update(
-                {
-                    "expected_created_path": evidence.created_path,
-                    "expected_correlation_key": evidence.correlation_key,
-                    "expected_creation_generation": (
-                        evidence.creation_generation
-                    ),
-                    "expected_creation_revision": evidence.creation_revision,
-                    "expected_exited_at": evidence.exited_at,
-                    "expected_exit_revision": evidence.exit_revision,
-                    "exit_timeout_ms": "0",
-                    "expected_exit_code": 17,
-                }
-            )
-            validate_live_exit_restart(
-                adapter.request(payload, timeout=45),
-                transport,
-                evidence,
-            )
-            payload = live_payload(
-                identifier=f"live-{transport}-restart",
-                operation="live-restart",
-                transport=transport,
-                socket_path=socket_path,
-                websocket_url=websocket_url,
-                websocket_token=websocket_token,
-                constants=constants,
-                workspace_name=workspace_name,
-                key_prefix=transport,
-            )
-            payload["expected_stable_id"] = stable_id
-            payload["expected_duplicate_ids"] = duplicate_ids
-            validate_live_restart(
-                adapter.request(payload, timeout=45),
-                transport,
-            )
-        return transports
+            try:
+                stable_id, duplicate_ids = setup[transport]
+                evidence = creation[transport]
+                workspace_name = f"{base_name}-{transport}"
+                payload = live_payload(
+                    identifier=f"live-{transport}-exit-restart",
+                    operation="live-exit-restart",
+                    transport=transport,
+                    socket_path=socket_path,
+                    websocket_url=websocket_url,
+                    websocket_token=websocket_token,
+                    constants=constants,
+                    workspace_name=workspace_name,
+                    key_prefix=transport,
+                )
+                payload.update(
+                    {
+                        "expected_created_path": evidence.created_path,
+                        "expected_correlation_key": evidence.correlation_key,
+                        "expected_creation_generation": (
+                            evidence.creation_generation
+                        ),
+                        "expected_creation_revision": (
+                            evidence.creation_revision
+                        ),
+                        "expected_exited_at": evidence.exited_at,
+                        "expected_exit_revision": evidence.exit_revision,
+                        "exit_timeout_ms": "0",
+                        "expected_exit_code": 17,
+                    }
+                )
+                validate_live_exit_restart(
+                    adapter.request(payload, timeout=45),
+                    transport,
+                    evidence,
+                )
+                payload = live_payload(
+                    identifier=f"live-{transport}-restart",
+                    operation="live-restart",
+                    transport=transport,
+                    socket_path=socket_path,
+                    websocket_url=websocket_url,
+                    websocket_token=websocket_token,
+                    constants=constants,
+                    workspace_name=workspace_name,
+                    key_prefix=transport,
+                )
+                payload["expected_stable_id"] = stable_id
+                payload["expected_duplicate_ids"] = duplicate_ids
+                validate_live_restart(
+                    adapter.request(payload, timeout=45),
+                    transport,
+                )
+            except BaseException as error:
+                # A failed transport must not be reported as evidence that a
+                # later transport ran. Keep the shared restart state and
+                # exercise every supported transport independently.
+                failures[transport] = str(error)
+        return failures
     finally:
         if process is not None:
             stop_live_server(process, socket_path)
@@ -1798,7 +1807,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not args.fake_only and args.cmux_tui_bin is not None:
             transports = live_transports(language)
             try:
-                run_live_case(adapter, args.cmux_tui_bin, constants)
+                failures = run_live_case(
+                    adapter, args.cmux_tui_bin, constants
+                )
             except BaseException as error:
                 for transport in transports:
                     results.append(
@@ -1811,11 +1822,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                     )
             else:
                 for transport in transports:
+                    detail = failures.get(transport)
                     results.append(
                         CaseResult(
                             language,
                             f"live-creation-exit-restart-{transport}",
-                            "PASS",
+                            "FAIL" if detail is not None else "PASS",
+                            detail or "",
                         )
                     )
 

@@ -732,17 +732,7 @@ impl Mux {
                         // must preserve those durable views instead of making
                         // unrelated host adoption a precondition.
                         let surface = state.surfaces.get(surface_slot);
-                        let identity = surface
-                            .and_then(|surface| surface.resource_identity().cloned())
-                            .or_else(|| {
-                                Some(TabResourceIdentity::new(
-                                    state.resource_indexes.tab_ids.get(surface_slot)?.clone(),
-                                    state.resource_indexes.content_ids.get(surface_slot)?.clone(),
-                                ))
-                            })
-                            .with_context(|| {
-                                format!("pane surface {surface_slot} has no resource identity")
-                            })?;
+                        let identity = projected_tab_identity(state, *surface_slot)?;
                         let before_tab = before_tabs.get(&identity.tab_id);
                         live_tabs.insert(identity.tab_id.clone());
                         tab_order.push(identity.tab_id.clone());
@@ -1078,13 +1068,7 @@ fn ordered_terminal_tab_ids(
     let mut tabs = Vec::new();
     for pane in state.panes.values() {
         for (position, surface_slot) in pane.tabs.iter().enumerate() {
-            let surface = state
-                .surfaces
-                .get(surface_slot)
-                .with_context(|| format!("pane references missing surface {surface_slot}"))?;
-            let identity = surface
-                .resource_identity()
-                .with_context(|| format!("pane surface {surface_slot} has no resource identity"))?;
+            let identity = projected_tab_identity(state, *surface_slot)?;
             if let ContentPublicId::Terminal(terminal_id) = &identity.content_id {
                 tabs.push((
                     terminal_id.clone(),
@@ -1096,6 +1080,31 @@ fn ordered_terminal_tab_ids(
         }
     }
     Ok(terminal_tab_ids_in_canonical_order(tabs))
+}
+
+/// Resolve the durable placement identity without making runtime adoption a
+/// projection precondition. Restart restores these indexes before it installs
+/// terminal surfaces, and every projection phase must accept that state.
+fn projected_tab_identity(
+    state: &State,
+    surface_slot: crate::SurfaceId,
+) -> anyhow::Result<TabResourceIdentity> {
+    if let Some(identity) =
+        state.surfaces.get(&surface_slot).and_then(|surface| surface.resource_identity())
+    {
+        return Ok(identity.clone());
+    }
+    let tab_id = state
+        .resource_indexes
+        .tab_ids
+        .get(&surface_slot)
+        .cloned()
+        .with_context(|| format!("pane surface {surface_slot} has no durable tab identity"))?;
+    let content_id =
+        state.resource_indexes.content_ids.get(&surface_slot).cloned().with_context(|| {
+            format!("pane surface {surface_slot} has no durable content identity")
+        })?;
+    Ok(TabResourceIdentity::new(tab_id, content_id))
 }
 
 fn registry_screen_from_live(

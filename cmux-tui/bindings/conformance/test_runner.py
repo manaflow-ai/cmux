@@ -305,8 +305,8 @@ class LiveOrchestrationTests(unittest.TestCase):
                 (object(), "ws://127.0.0.1:41001"),
                 (object(), "ws://127.0.0.1:41002"),
             ]
-            transports = run_live_case(adapter, Path(sys.executable), {})
-            self.assertEqual(transports, ("unix", "websocket"))
+            failures = run_live_case(adapter, Path(sys.executable), {})
+            self.assertEqual(failures, {})
             return adapter, start, stop
 
     def test_live_orchestration_orders_creation_exit_and_cleanup(self) -> None:
