@@ -176,18 +176,16 @@ struct WorkspaceShellView: View {
     // the destination stack's own onAppear.
     @State private var workspacesStackIsOnScreen = false
     @State private var notificationsStackIsOnScreen = false
-    // Workspaces opened from search results push onto the search stacks; the
-    // search session ends from the pushed detail (committing the query), so
-    // popping lands on the still-filtered results with the query preserved in
-    // the bottom search control. Every programmatic re-presentation route
-    // (isPresented, searchFocused, UIKit bridging) measurably hosts the field
-    // in the top navigation drawer, so re-expanding is left to the user's own
-    // tap on the control — the only activation the platform hosts at the
-    // bottom.
-    @State private var workspaceSearchNavigationPath: [MobileWorkspacePreview.ID] = []
-    @State private var notificationSearchNavigationPath: [MobileWorkspacePreview.ID] = []
-    @State private var restoreWorkspaceSearchOnPop = false
-    @State private var restoreNotificationSearchOnPop = false
+    // Workspaces opened from search results push onto the search tab's own
+    // stack; the search session ends from the pushed detail (committing the
+    // query), so popping lands on the still-filtered results with the query
+    // preserved in the bottom search control. Every programmatic
+    // re-presentation route (isPresented, searchFocused, UIKit bridging)
+    // measurably hosts the field in the top navigation drawer, so
+    // re-expanding is left to the user's own tap on the control, the only
+    // activation the platform hosts at the bottom.
+    @State private var primarySearchNavigationPath: [MobileWorkspacePreview.ID] = []
+    @State private var restorePrimarySearchOnPop = false
     @State private var showingRootSettings = false
     @State private var settingsPairingScannerHandoff = SettingsPairingScannerHandoff()
     @State private var showingRootDeviceTree = false
@@ -286,12 +284,8 @@ struct WorkspaceShellView: View {
                 .onChange(of: pendingPrimarySearchNotificationNavigationID) { _, _ in
                     consumePendingPrimarySearchNavigation(for: .notifications)
                 }
-            } workspaceSearch: {
-                workspaceSearchTabContent(
-                    canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
-                )
-            } notificationSearch: {
-                notificationSearchTabContent(presentation: presentation)
+            } search: {
+                searchTabContent(presentation: presentation)
             }
             .background {
                 NotificationFeedSearchProjectionSync(
@@ -307,10 +301,8 @@ struct WorkspaceShellView: View {
             }
             .onChange(of: selectedPrimaryTab) { oldValue, newValue in
                 if oldValue == .search, newValue != .search {
-                    workspaceSearchNavigationPath = []
-                    notificationSearchNavigationPath = []
-                    restoreWorkspaceSearchOnPop = false
-                    restoreNotificationSearchOnPop = false
+                    primarySearchNavigationPath = []
+                    restorePrimarySearchOnPop = false
                 }
             }
             .onChange(of: store.deeplinkWorkspaceNavigationRequest) { _, request in
@@ -367,58 +359,78 @@ struct WorkspaceShellView: View {
         }
     }
 
-    private func workspaceSearchTabContent(canCreateWorkspaceForSelection: Bool) -> some View {
+    /// The search tab's ONE stack and ONE searchable, mounted from launch;
+    /// only the root content switches with the coordinator's scope. The
+    /// platform adopts the search-role tab's searchable once per TabView, so
+    /// a scope-switched second searchable is never adopted and its inactive
+    /// field hosts inline at the top after a pop.
+    private func searchTabContent(
+        presentation: WorkspaceShellRenderPresentation
+    ) -> some View {
         workspaceActionToastOverlay {
-            NavigationStack(path: $workspaceSearchNavigationPath) {
-                MobilePrimaryWorkspaceSearchContentHost(
-                    searchCoordinator: primarySearchCoordinator
-                ) { searchText in
-                    workspaceList(
-                        navigationStyle: .push,
-                        searchText: searchText,
-                        canCreateWorkspaceForSelection: canCreateWorkspaceForSelection,
-                        showsNavigationToolbar: true,
-                        selectWorkspaceAction: selectWorkspaceFromSearch,
-                        createWorkspaceAction: createWorkspaceFromSearch,
-                        createWorkspaceInGroupAction: createWorkspaceInGroupFromSearchClosure,
-                        createWorkspaceGroupAction: createWorkspaceGroupFromSearchClosure
-                    )
+            NavigationStack(path: $primarySearchNavigationPath) {
+                Group {
+                    switch primarySearchCoordinator.scope {
+                    case .workspaces:
+                        MobilePrimaryWorkspaceSearchContentHost(
+                            searchCoordinator: primarySearchCoordinator
+                        ) { searchText in
+                            workspaceList(
+                                navigationStyle: .push,
+                                searchText: searchText,
+                                canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection,
+                                showsNavigationToolbar: true,
+                                selectWorkspaceAction: selectWorkspaceFromSearch,
+                                createWorkspaceAction: createWorkspaceFromSearch,
+                                createWorkspaceInGroupAction: createWorkspaceInGroupFromSearchClosure,
+                                createWorkspaceGroupAction: createWorkspaceGroupFromSearchClosure
+                            )
+                        }
+                    case .notifications:
+                        NotificationFeedStoreView(
+                            store: store,
+                            items: presentation.notificationFeedItems,
+                            status: presentation.notificationFeedStatus,
+                            projection: notificationFeedProjection,
+                            selectedMacDeviceIDs: presentation.selectedNotificationFeedMacDeviceIDs
+                        )
+                    }
                 }
                 // Rooted inside the stack so the search-role tab presents the
                 // field at its bottom control.
                 .modifier(MobilePrimarySearchFieldModifier(
                     searchCoordinator: primarySearchCoordinator,
-                    scope: .workspaces,
+                    scope: primarySearchCoordinator.scope,
                     submit: { selectedPrimaryTab = primarySearchCoordinator.commitSubmit() }
                 ))
                 .toolbar {
-                    if workspaceSearchNavigationPath.isEmpty {
+                    if primarySearchNavigationPath.isEmpty {
                         rootToolbarContent
                     }
                 }
-                // A plain navigation push; the session ended at select and
-                // is restored through the focus engine once the pop finishes
-                // and the path-driven bar hide below has returned the bar.
                 .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                     workspaceDestination(
                         for: workspaceID,
                         createWorkspace: createWorkspaceInCompactStack,
-                        canCreateWorkspaceForSelection: canCreateWorkspaceForSelection
+                        canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
                     )
                     // Ending the session at select-time swallows the push
                     // (the field dismissal consumes the navigation), so it
-                    // ends here once the detail is up — the push minimized
-                    // the field already — committing the query into the
-                    // bottom control for the return.
+                    // ends here once the detail is up, committing the query
+                    // into the bottom control for the return.
                     .onAppear {
-                        guard restoreWorkspaceSearchOnPop else { return }
-                        restoreWorkspaceSearchOnPop = false
+                        guard restorePrimarySearchOnPop else { return }
+                        restorePrimarySearchOnPop = false
                         primarySearchCoordinator.deactivateCurrentSearch()
                     }
                 }
             }
+            // On the NavigationStack, not the stack's root content: a tab-bar
+            // visibility preference on the searchable's own node detaches the
+            // field from the tab-bar anchor and hosts it inline at the top
+            // after a pop.
             .toolbarVisibility(
-                workspaceSearchNavigationPath.isEmpty ? .automatic : .hidden,
+                primarySearchNavigationPath.isEmpty ? .automatic : .hidden,
                 for: .tabBar
             )
         }
@@ -445,51 +457,6 @@ struct WorkspaceShellView: View {
                 .accessibilityIdentifier("MobileWorkspaceActionToast")
             }
         }
-    }
-
-    private func notificationSearchTabContent(
-        presentation: WorkspaceShellRenderPresentation
-    ) -> some View {
-        NavigationStack(path: $notificationSearchNavigationPath) {
-            NotificationFeedStoreView(
-                store: store,
-                items: presentation.notificationFeedItems,
-                status: presentation.notificationFeedStatus,
-                projection: notificationFeedProjection,
-                selectedMacDeviceIDs: presentation.selectedNotificationFeedMacDeviceIDs
-            )
-            .modifier(MobilePrimarySearchFieldModifier(
-                searchCoordinator: primarySearchCoordinator,
-                scope: .notifications,
-                submit: { selectedPrimaryTab = primarySearchCoordinator.commitSubmit() }
-            ))
-            .toolbar {
-                if notificationSearchNavigationPath.isEmpty {
-                    rootToolbarContent
-                }
-            }
-            // Mirrors workspaceSearchTabContent.
-            .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
-                workspaceDestination(
-                    for: workspaceID,
-                    createWorkspace: createWorkspaceInCompactStack,
-                    canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
-                )
-                .onAppear {
-                    guard restoreNotificationSearchOnPop else { return }
-                    restoreNotificationSearchOnPop = false
-                    primarySearchCoordinator.deactivateCurrentSearch()
-                }
-            }
-        }
-        // On the NavigationStack, not the stack's root content: a tab-bar
-        // visibility preference on the searchable's own node detaches the
-        // field from the tab-bar anchor and hosts it inline at the top after
-        // a pop (measured at y=169).
-        .toolbarVisibility(
-            notificationSearchNavigationPath.isEmpty ? .automatic : .hidden,
-            for: .tabBar
-        )
     }
 
     private func layoutContent(canCreateWorkspaceForSelection: Bool) -> some View {
@@ -904,9 +871,9 @@ struct WorkspaceShellView: View {
                 selectedTab: selectedPrimaryTab
             ) {
             case .mountedNotificationSearch:
-                restoreNotificationSearchOnPop = true
-                if notificationSearchNavigationPath.last != workspaceID {
-                    notificationSearchNavigationPath = [workspaceID]
+                restorePrimarySearchOnPop = true
+                if primarySearchNavigationPath.last != workspaceID {
+                    primarySearchNavigationPath = [workspaceID]
                 }
             case .notificationTabAfterSearchDismissal:
                 pendingPrimarySearchNotificationNavigationID = workspaceID
@@ -991,13 +958,13 @@ struct WorkspaceShellView: View {
 
     /// Opens a workspace tapped in the search results by pushing it onto the
     /// search tab's own stack over the live search session; see
-    /// `workspaceSearchTabContent`.
+    /// `searchTabContent`.
     private func selectWorkspaceFromSearch(_ id: MobileWorkspacePreview.ID) {
         pendingCompactCreateNavigationWorkspaceIDs = nil
-        restoreWorkspaceSearchOnPop = true
+        restorePrimarySearchOnPop = true
         store.selectedWorkspaceID = id
-        if workspaceSearchNavigationPath.last != id {
-            workspaceSearchNavigationPath = [id]
+        if primarySearchNavigationPath.last != id {
+            primarySearchNavigationPath = [id]
         }
     }
 

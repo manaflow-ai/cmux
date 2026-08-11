@@ -8,8 +8,7 @@ import SwiftUI
 struct MobilePrimaryTabScaffold<
     Workspaces: View,
     Notifications: View,
-    WorkspaceSearch: View,
-    NotificationSearch: View
+    Search: View
 >: View {
     @Binding var selection: MobilePrimaryTab
     @Bindable var searchCoordinator: MobilePrimarySearchCoordinator
@@ -17,8 +16,7 @@ struct MobilePrimaryTabScaffold<
     let taskComposerAction: (() -> Void)?
     let workspaces: Workspaces
     let notifications: Notifications
-    let workspaceSearch: WorkspaceSearch
-    let notificationSearch: NotificationSearch
+    let search: Search
 
     init(
         selection: Binding<MobilePrimaryTab>,
@@ -27,8 +25,7 @@ struct MobilePrimaryTabScaffold<
         taskComposerAction: (() -> Void)? = nil,
         @ViewBuilder workspaces: () -> Workspaces,
         @ViewBuilder notifications: () -> Notifications,
-        @ViewBuilder workspaceSearch: () -> WorkspaceSearch,
-        @ViewBuilder notificationSearch: () -> NotificationSearch
+        @ViewBuilder search: () -> Search
     ) {
         _selection = selection
         self.searchCoordinator = searchCoordinator
@@ -36,8 +33,7 @@ struct MobilePrimaryTabScaffold<
         self.taskComposerAction = taskComposerAction
         self.workspaces = workspaces()
         self.notifications = notifications()
-        self.workspaceSearch = workspaceSearch()
-        self.notificationSearch = notificationSearch()
+        self.search = search()
     }
 
     var body: some View {
@@ -104,24 +100,18 @@ struct MobilePrimaryTabScaffold<
         )
     }
 
-    @ViewBuilder
+    /// One stable search subtree: the platform adopts the search-role tab's
+    /// searchable once per TabView, so the caller provides a SINGLE stack
+    /// whose root content switches by scope. Scope-switching between two
+    /// stacks left the late-mounted searchable unadopted, and its inactive
+    /// field hosted inline at the top after a pop.
     private var searchDestination: some View {
-        switch searchCoordinator.scope {
-        case .workspaces:
-            workspaceSearch
-                .modifier(MobilePrimarySearchLifecycleModifier(
-                    scope: .workspaces,
-                    update: updateSearchLifecycle
-                ))
-                .environment(\.mobilePrimarySearchDestination, true)
-        case .notifications:
-            notificationSearch
-                .modifier(MobilePrimarySearchLifecycleModifier(
-                    scope: .notifications,
-                    update: updateSearchLifecycle
-                ))
-                .environment(\.mobilePrimarySearchDestination, true)
-        }
+        search
+            .modifier(MobilePrimarySearchLifecycleModifier(
+                scope: searchCoordinator.scope,
+                update: updateSearchLifecycle
+            ))
+            .environment(\.mobilePrimarySearchDestination, true)
     }
 
     private func updateSearchLifecycle(scope: MobilePrimarySearchScope, isSearching: Bool) {

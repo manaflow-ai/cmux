@@ -571,18 +571,26 @@ public struct WorkspaceListLayoutPreviewView: View {
                     } notifications: {
                         Text("Notification feed fixture")
                             .foregroundStyle(.secondary)
-                    } workspaceSearch: {
+                    } search: {
                         NavigationStack(path: $searchFixturePath) {
-                            MobilePrimaryWorkspaceSearchContentHost(
-                                searchCoordinator: primarySearchCoordinator
-                            ) { searchText in
-                                workspaceListFixture(searchText: searchText)
+                            Group {
+                                switch primarySearchCoordinator.scope {
+                                case .workspaces:
+                                    MobilePrimaryWorkspaceSearchContentHost(
+                                        searchCoordinator: primarySearchCoordinator
+                                    ) { searchText in
+                                        workspaceListFixture(searchText: searchText)
+                                    }
+                                case .notifications:
+                                    Text("Notification feed fixture")
+                                        .foregroundStyle(.secondary)
+                                }
                             }
                             // Rooted inside the stack so the search-role tab
                             // presents the field at its bottom control.
                             .modifier(MobilePrimarySearchFieldModifier(
                                 searchCoordinator: primarySearchCoordinator,
-                                scope: .workspaces,
+                                scope: primarySearchCoordinator.scope,
                                 submit: {
                                     selectedPrimaryTab = primarySearchCoordinator.commitSubmit()
                                 }
@@ -600,9 +608,6 @@ public struct WorkspaceListLayoutPreviewView: View {
                             searchFixturePath.isEmpty ? .automatic : .hidden,
                             for: .tabBar
                         )
-                    } notificationSearch: {
-                        Text("Notification feed fixture")
-                            .foregroundStyle(.secondary)
                     }
                 } else {
                     workspaceListStack

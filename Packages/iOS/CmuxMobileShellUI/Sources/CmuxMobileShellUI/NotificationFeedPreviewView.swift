@@ -60,21 +60,26 @@ public struct NotificationFeedPreviewView: View {
                 .onChange(of: pendingSearchNotificationNavigationID) { _, _ in
                     consumePendingSearchNavigation(for: .notifications)
                 }
-            } workspaceSearch: {
-                NotificationFeedPreviewWorkspacesView()
-            } notificationSearch: {
+            } search: {
                 NavigationStack(path: $searchNotificationPath) {
-                    NotificationFeedView(
-                        status: .ready,
-                        projection: projection,
-                        refreshesOnAppear: false,
-                        actions: actions
-                    )
+                    Group {
+                        switch primarySearchCoordinator.scope {
+                        case .workspaces:
+                            NotificationFeedPreviewWorkspacesView()
+                        case .notifications:
+                            NotificationFeedView(
+                                status: .ready,
+                                projection: projection,
+                                refreshesOnAppear: false,
+                                actions: actions
+                            )
+                        }
+                    }
                     // Rooted inside the stack so the search-role tab presents
                     // the field at its bottom control.
                     .modifier(MobilePrimarySearchFieldModifier(
                         searchCoordinator: primarySearchCoordinator,
-                        scope: .notifications,
+                        scope: primarySearchCoordinator.scope,
                         submit: { selectedTab = primarySearchCoordinator.commitSubmit() }
                     ))
                     .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
@@ -91,7 +96,7 @@ public struct NotificationFeedPreviewView: View {
                 // On the NavigationStack, not the stack's root content: a
                 // tab-bar visibility preference on the searchable's own node
                 // detaches the field from the tab-bar anchor and hosts it
-                // inline at the top after a pop (measured at y=169).
+                // inline at the top after a pop.
                 .toolbarVisibility(
                     searchNotificationPath.isEmpty ? .automatic : .hidden,
                     for: .tabBar
