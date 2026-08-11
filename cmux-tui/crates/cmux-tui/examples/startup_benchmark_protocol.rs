@@ -1,3 +1,7 @@
+// This protocol module is included by three explicit examples. Each consumer uses a different
+// side of the timing-page protocol, so items that are live in one consumer are dead in another.
+#![allow(dead_code)]
+
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -174,10 +178,10 @@ pub fn monotonic_ns() -> std::io::Result<u64> {
         }
         let seconds = u64::try_from(value.tv_sec).map_err(std::io::Error::other)?;
         let nanos = u64::try_from(value.tv_nsec).map_err(std::io::Error::other)?;
-        return seconds
+        seconds
             .checked_mul(1_000_000_000)
             .and_then(|value| value.checked_add(nanos))
-            .ok_or_else(|| std::io::Error::other("monotonic clock overflow"));
+            .ok_or_else(|| std::io::Error::other("monotonic clock overflow"))
     }
     #[cfg(windows)]
     {

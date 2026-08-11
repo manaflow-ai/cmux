@@ -192,9 +192,6 @@ mod platform {
             "/cmux-bin",
         ]);
         append_contained_environment(&mut command);
-        if let Some((uid, gid)) = &identity {
-            command.arg("--uid").arg(uid).arg("--gid").arg(gid);
-        }
         command.arg("--ro-bind");
         command.arg(&current).arg(sandbox_supervisor);
         command.arg("--ro-bind").arg(&launch.target).arg(sandbox_target);
@@ -215,6 +212,11 @@ mod platform {
         command.args(["--dev", "/dev", "--proc", "/proc", "--bind"]);
         command.arg(&launch.fixture_root).arg(&launch.fixture_root);
         command.arg("--chdir").arg(&launch.fixture_root);
+        if let Some((uid, gid)) = &identity {
+            // Bubblewrap processes mount sources in argument order. Change identity only after it
+            // opens every trusted host path, then run the contained command as the dedicated user.
+            command.arg("--gid").arg(gid).arg("--uid").arg(uid);
+        }
         command.arg("--");
         let mut contained = launch.clone();
         contained.target = sandbox_target.into();
@@ -659,12 +661,18 @@ mod platform {
     use std::time::Instant;
 
     use windows_sys::Win32::Foundation::{
-        CloseHandle, DuplicateHandle, HANDLE, INVALID_HANDLE_VALUE, LocalFree, WAIT_OBJECT_0,
+        CloseHandle, DuplicateHandle, GENERIC_ALL, HANDLE, INVALID_HANDLE_VALUE, LocalFree,
+        WAIT_OBJECT_0,
     };
-    use windows_sys::Win32::Security::Authorization::ConvertStringSidToSidW;
+    use windows_sys::Win32::Security::Authorization::{
+        ConvertStringSidToSidW, EXPLICIT_ACCESS_W, GRANT_ACCESS, GetNamedSecurityInfoW,
+        NO_MULTIPLE_TRUSTEE, SE_FILE_OBJECT, SetEntriesInAclW, SetNamedSecurityInfoW,
+        TRUSTEE_IS_SID, TRUSTEE_IS_UNKNOWN, TRUSTEE_W,
+    };
     use windows_sys::Win32::Security::{
-        CreateRestrictedToken, DISABLE_MAX_PRIVILEGE, GetLengthSid, LOGON32_LOGON_INTERACTIVE,
-        LOGON32_PROVIDER_DEFAULT, LogonUserW, PSID, SID_AND_ATTRIBUTES, SetTokenInformation,
+        ACL, CreateRestrictedToken, DACL_SECURITY_INFORMATION, DISABLE_MAX_PRIVILEGE, GetLengthSid,
+        LOGON32_LOGON_INTERACTIVE, LOGON32_PROVIDER_DEFAULT, LogonUserW, PSECURITY_DESCRIPTOR,
+        PSID, SID_AND_ATTRIBUTES, SUB_CONTAINERS_AND_OBJECTS_INHERIT, SetTokenInformation,
         TOKEN_MANDATORY_LABEL, TokenIntegrityLevel, WRITE_RESTRICTED,
     };
     use windows_sys::Win32::System::Console::{
@@ -786,7 +794,6 @@ mod platform {
         // boundary before it tries to unload a profile after an error.
         profile: Option<LoadedProfile>,
         restricting_sid: OwnedSid,
-        sid_text: String,
         product_assigned: bool,
     }
 
@@ -869,7 +876,7 @@ mod platform {
                 },
                 "set low token integrity",
             )?;
-            configure_fixture_acl(&launch.fixture_root, &user, &sid_text)?;
+            configure_fixture_acl(&launch.fixture_root, &user, restricting_sid.0)?;
             let (job, query_job, completion_port) =
                 create_non_breakaway_job(launch.prove_private_job)?;
             Ok(Self {
@@ -879,7 +886,6 @@ mod platform {
                 query_job,
                 completion_port,
                 restricting_sid,
-                sid_text,
                 product_assigned: false,
             })
         }
@@ -949,7 +955,7 @@ mod platform {
                 unsafe { GetExitCodeProcess(process_handle.0, &mut code) },
                 "read restricted product exit code",
             )?;
-            let _ = (&self.restricting_sid, &self.sid_text);
+            let _ = &self.restricting_sid;
             Ok(ExitStatus::from_raw(code))
         }
 
@@ -1074,11 +1080,93 @@ mod platform {
         Ok((job, query_job, completion_port))
     }
 
-    fn configure_fixture_acl(root: &Path, user: &str, sid: &str) -> Result<()> {
-        let root = root.to_string_lossy();
-        run_acl([root.as_ref(), "/grant", &format!("{user}:(OI)(CI)(F)"), "/T", "/C"])?;
-        run_acl([root.as_ref(), "/grant", &format!("*{sid}:(OI)(CI)(F)"), "/T", "/C"])?;
-        run_acl([root.as_ref(), "/setintegritylevel", "(OI)(CI)L", "/T", "/C"])
+    fn configure_fixture_acl(root: &Path, user: &str, sid: PSID) -> Result<()> {
+        let root_text = root.to_string_lossy();
+        run_acl([root_text.as_ref(), "/grant", &format!("{user}:(OI)(CI)(F)"), "/T", "/C"])?;
+        grant_restricting_sid_tree(root, sid)?;
+        run_acl([root_text.as_ref(), "/setintegritylevel", "(OI)(CI)L", "/T", "/C"])
+    }
+
+    fn grant_restricting_sid_tree(path: &Path, sid: PSID) -> Result<()> {
+        let metadata = fs::symlink_metadata(path)?;
+        if metadata.file_type().is_symlink() {
+            bail!("Windows benchmark fixture contains a symbolic link: {}", path.display());
+        }
+        grant_restricting_sid(path, sid, metadata.is_dir())?;
+        if metadata.is_dir() {
+            for entry in fs::read_dir(path)? {
+                grant_restricting_sid_tree(&entry?.path(), sid)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn grant_restricting_sid(path: &Path, sid: PSID, container: bool) -> Result<()> {
+        let path = wide(path.as_os_str());
+        let mut old_dacl: *mut ACL = null_mut();
+        let mut security_descriptor: PSECURITY_DESCRIPTOR = null_mut();
+        // SAFETY: path is NUL-terminated and the requested output pointers are writable.
+        check_windows_error(
+            unsafe {
+                GetNamedSecurityInfoW(
+                    path.as_ptr(),
+                    SE_FILE_OBJECT,
+                    DACL_SECURITY_INFORMATION,
+                    null_mut(),
+                    null_mut(),
+                    &mut old_dacl,
+                    null_mut(),
+                    &mut security_descriptor,
+                )
+            },
+            "read Windows fixture DACL",
+        )?;
+        let entry = EXPLICIT_ACCESS_W {
+            grfAccessPermissions: GENERIC_ALL,
+            grfAccessMode: GRANT_ACCESS,
+            grfInheritance: if container { SUB_CONTAINERS_AND_OBJECTS_INHERIT } else { 0 },
+            Trustee: TRUSTEE_W {
+                pMultipleTrustee: null_mut(),
+                MultipleTrusteeOperation: NO_MULTIPLE_TRUSTEE,
+                TrusteeForm: TRUSTEE_IS_SID,
+                TrusteeType: TRUSTEE_IS_UNKNOWN,
+                ptstrName: sid.cast::<u16>(),
+            },
+        };
+        let mut new_dacl: *mut ACL = null_mut();
+        // SAFETY: the explicit SID entry and old DACL remain live for this allocation call.
+        let build_result = unsafe { SetEntriesInAclW(1, &entry, old_dacl, &mut new_dacl) };
+        if build_result != 0 {
+            // SAFETY: GetNamedSecurityInfoW allocated this descriptor with LocalAlloc.
+            unsafe { LocalFree(security_descriptor.cast()) };
+            return check_windows_error(build_result, "build Windows restricting-SID DACL");
+        }
+        // SAFETY: path and the merged DACL remain live for this assignment call.
+        let assign_result = unsafe {
+            SetNamedSecurityInfoW(
+                path.as_ptr(),
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION,
+                null_mut(),
+                null_mut(),
+                new_dacl,
+                null_mut(),
+            )
+        };
+        // SAFETY: both ACL APIs allocate their returned buffers with LocalAlloc.
+        unsafe {
+            LocalFree(new_dacl.cast());
+            LocalFree(security_descriptor.cast());
+        }
+        check_windows_error(assign_result, "assign Windows restricting-SID DACL")
+    }
+
+    fn check_windows_error(error: u32, operation: &str) -> Result<()> {
+        if error == 0 {
+            return Ok(());
+        }
+        let error = i32::try_from(error).context("Windows error code exceeded i32")?;
+        Err(std::io::Error::from_raw_os_error(error)).context(operation.to_string())
     }
 
     fn run_acl<const N: usize>(arguments: [&str; N]) -> Result<()> {

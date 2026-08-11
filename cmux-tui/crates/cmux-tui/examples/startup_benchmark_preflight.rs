@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use cmux_tui_core::platform::transport;
@@ -196,44 +196,33 @@ fn run_controller(values: &[String]) -> Result<()> {
         let stderr = read_bounded_tail(supervisor_stderr, MAX_SUPERVISOR_STDERR_BYTES);
         let _ = startup_sender.send(SupervisorStartupEvent::StderrClosed(stderr));
     });
-    let startup_deadline = Instant::now()
-        .checked_add(CONTROL_TIMEOUT)
-        .context("preflight supervisor startup deadline overflow")?;
-    let mut supervisor_stream = loop {
-        let remaining = startup_deadline.saturating_duration_since(Instant::now());
-        match startup_receiver.recv_timeout(remaining) {
-            Ok(SupervisorStartupEvent::Connected(stream)) => break stream?,
-            Ok(SupervisorStartupEvent::StderrClosed(stderr)) => {
-                let stderr = stderr?;
-                let status = child
-                    .wait_timeout(CONTROL_TIMEOUT)?
-                    .context("failed preflight supervisor did not exit")?;
-                unblock_control_listener(&control_path);
-                control_thread
-                    .join()
-                    .map_err(|_| anyhow::anyhow!("control accept thread panicked"))?;
-                stderr_thread
-                    .join()
-                    .map_err(|_| anyhow::anyhow!("supervisor stderr thread panicked"))?;
-                bail!(
-                    "preflight supervisor exited before READY with {status}: {}",
-                    String::from_utf8_lossy(&stderr)
-                );
-            }
-            Err(error) => {
-                let _ = child.kill();
-                let status =
-                    child.wait().context("reap preflight supervisor after READY timeout")?;
-                unblock_control_listener(&control_path);
-                control_thread
-                    .join()
-                    .map_err(|_| anyhow::anyhow!("control accept thread panicked"))?;
-                let stderr = receive_supervisor_stderr(&startup_receiver, stderr_thread)?;
-                return Err(error).context(format!(
-                    "preflight supervisor did not connect; exit {status}; stderr: {}",
-                    String::from_utf8_lossy(&stderr)
-                ));
-            }
+    let mut supervisor_stream = match startup_receiver.recv_timeout(CONTROL_TIMEOUT) {
+        Ok(SupervisorStartupEvent::Connected(stream)) => stream?,
+        Ok(SupervisorStartupEvent::StderrClosed(stderr)) => {
+            let stderr = stderr?;
+            let status = child
+                .wait_timeout(CONTROL_TIMEOUT)?
+                .context("failed preflight supervisor did not exit")?;
+            unblock_control_listener(&control_path);
+            control_thread.join().map_err(|_| anyhow::anyhow!("control accept thread panicked"))?;
+            stderr_thread
+                .join()
+                .map_err(|_| anyhow::anyhow!("supervisor stderr thread panicked"))?;
+            bail!(
+                "preflight supervisor exited before READY with {status}: {}",
+                String::from_utf8_lossy(&stderr)
+            );
+        }
+        Err(error) => {
+            let _ = child.kill();
+            let status = child.wait().context("reap preflight supervisor after READY timeout")?;
+            unblock_control_listener(&control_path);
+            control_thread.join().map_err(|_| anyhow::anyhow!("control accept thread panicked"))?;
+            let stderr = receive_supervisor_stderr(&startup_receiver, stderr_thread)?;
+            return Err(error).context(format!(
+                "preflight supervisor did not connect; exit {status}; stderr: {}",
+                String::from_utf8_lossy(&stderr)
+            ));
         }
     };
     control_thread.join().map_err(|_| anyhow::anyhow!("control accept thread panicked"))?;
@@ -382,7 +371,12 @@ fn run_probe(values: &[String]) -> Result<()> {
     inbound.read_exact(&mut inbound_release)?;
     drop(inbound_listener);
     let platform = product_platform_proofs()?;
-    let current = env::current_exe()?;
+    // The outer supervisor binds this exact trusted binary at the private Linux alias.
+    // `/proc/self/exe` resolves to an unmounted host path inside Bubblewrap.
+    #[cfg(target_os = "linux")]
+    let current = PathBuf::from("/cmux-bin/product");
+    #[cfg(not(target_os = "linux"))]
+    let current = env::current_exe().context("resolve contained preflight executable")?;
     let mut child = Command::new(current);
     child
         .arg("--probe-child")
