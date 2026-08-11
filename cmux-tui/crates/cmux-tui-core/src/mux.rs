@@ -2380,15 +2380,8 @@ impl BrowserRuntimeSlot {
 }
 
 enum BrowserSurfaceBootstrap {
-    ExistingTarget {
-        runtime: Arc<BrowserRuntime>,
-        target_id: String,
-        url: String,
-    },
-    Provider {
-        tab_id: TabPublicId,
-        url: String,
-    },
+    ExistingTarget { runtime: Arc<BrowserRuntime>, target_id: String, url: String },
+    Provider { tab_id: TabPublicId, url: String },
 }
 
 enum SurfaceResizeRestore {
@@ -8876,11 +8869,7 @@ impl Mux {
                                 }
                             }
                         }
-                        BrowserSurfaceBootstrap::ExistingTarget {
-                            runtime,
-                            target_id,
-                            url,
-                        } => {
+                        BrowserSurfaceBootstrap::ExistingTarget { runtime, target_id, url } => {
                             runtime.bootstrap_surface_sync(
                                 thread_surface.clone(),
                                 BrowserBootstrap::ExistingTarget { target_id, url },
