@@ -407,39 +407,45 @@ final class cmuxUITests: XCTestCase {
             "CMUX_UITEST_AUTOCONNECT_MIGRATION": "ineligible",
             "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": UUID().uuidString,
         ]
-        do {
-            let automaticApp = launchApp(
-                mockData: true,
-                environment: migrationEnvironment,
-                launchArguments: [methodKey, "automatic"]
-            )
-            defer { automaticApp.terminate() }
-
-            XCTAssertTrue(
-                automaticApp.descendants(matching: .any)["MobileDisconnectedWorkspaceShell"]
-                    .waitForExistence(timeout: 12)
-            )
-            XCTAssertFalse(automaticApp.buttons["MobileShowAddDeviceButton"].exists)
-            XCTAssertFalse(automaticApp.buttons["MobileShowAddDeviceToolbarButton"].exists)
-        }
-
-        let tailscaleApp = launchApp(
+        let app = launchApp(
             mockData: true,
             environment: migrationEnvironment,
-            launchArguments: [methodKey, "tailscale"]
+            launchArguments: [methodKey, "automatic"]
         )
-        defer { tailscaleApp.terminate() }
+        defer { app.terminate() }
 
         XCTAssertTrue(
-            tailscaleApp.descendants(matching: .any)["MobileDisconnectedWorkspaceShell"]
+            app.descendants(matching: .any)["MobileDisconnectedWorkspaceShell"]
                 .waitForExistence(timeout: 12)
         )
-        XCTAssertTrue(tailscaleApp.buttons["MobileShowAddDeviceButton"].exists)
-        XCTAssertTrue(tailscaleApp.buttons["MobileShowAddDeviceToolbarButton"].exists)
+        XCTAssertFalse(app.buttons["MobileShowAddDeviceButton"].exists)
+        XCTAssertFalse(app.buttons["MobileShowAddDeviceToolbarButton"].exists)
 
-        tailscaleApp.buttons["MobileShowAddDeviceButton"].tap()
+        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 4))
+        tap(settings, in: app)
+        let picker = app.descendants(matching: .any)["MobileSettingsConnectionMethod"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 4))
+        tap(picker, in: app)
+        let tailscale = app.descendants(matching: .any)[
+            "MobileSettingsConnectionMethodTailscale"
+        ]
+        XCTAssertTrue(tailscale.waitForExistence(timeout: 4))
+        tap(tailscale, in: app)
+
+        let done = app.buttons["MobileSettingsDone"]
+        XCTAssertTrue(done.waitForExistence(timeout: 4))
+        tap(done, in: app)
         XCTAssertTrue(
-            tailscaleApp.descendants(matching: .any)["MobileAddDeviceForm"]
+            app.descendants(matching: .any)["MobileSettingsView"]
+                .waitForNonExistence(timeout: 4)
+        )
+        XCTAssertTrue(app.buttons["MobileShowAddDeviceButton"].waitForExistence(timeout: 4))
+        XCTAssertTrue(app.buttons["MobileShowAddDeviceToolbarButton"].exists)
+
+        tap(app.buttons["MobileShowAddDeviceButton"], in: app)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileAddDeviceForm"]
                 .waitForExistence(timeout: 4)
         )
     }
