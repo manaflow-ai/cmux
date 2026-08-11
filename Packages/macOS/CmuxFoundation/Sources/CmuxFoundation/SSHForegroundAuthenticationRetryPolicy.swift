@@ -1415,8 +1415,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             if [ "$cmux_ssh_auth_recovery_sweep_ready" != 1 ]; then exit 0; fi
             case "${CMUX_SSH_AUTH_RECOVERY_MAX_PASSES:-8}" in
               1|2|3|4|5|6|7|8)
-                cmux_ssh_auth_recovery_sweep_max_passes=\
-                  "${CMUX_SSH_AUTH_RECOVERY_MAX_PASSES:-8}"
+                cmux_ssh_auth_recovery_sweep_max_passes="${CMUX_SSH_AUTH_RECOVERY_MAX_PASSES:-8}"
                 ;;
               *) cmux_ssh_auth_recovery_sweep_max_passes=8 ;;
             esac
