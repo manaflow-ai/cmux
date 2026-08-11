@@ -6,18 +6,18 @@ actor TerminalSurfaceLaunchResourceProviderState {
     private var waiters: [
         UUID: CheckedContinuation<TerminalSurfaceLaunchResourceSnapshot, Never>
     ] = [:]
-    private var deadlineTasks: [UUID: Task<Void, Never>] = [:]
+    private var deadlineTask: Task<Void, Never>?
+
+    var pendingWaiterCount: Int { waiters.count }
+    var pendingDeadlineCount: Int { deadlineTask == nil ? 0 : 1 }
 
     func install(_ snapshot: TerminalSurfaceLaunchResourceSnapshot) {
         self.snapshot = snapshot
         cachedFallback = nil
         let continuations = Array(waiters.values)
         waiters.removeAll()
-        let tasks = Array(deadlineTasks.values)
-        deadlineTasks.removeAll()
-        for task in tasks {
-            task.cancel()
-        }
+        deadlineTask?.cancel()
+        deadlineTask = nil
         for continuation in continuations {
             continuation.resume(returning: snapshot)
         }
@@ -62,13 +62,15 @@ actor TerminalSurfaceLaunchResourceProviderState {
                 return
             }
             waiters[identifier] = continuation
-            deadlineTasks[identifier] = Task.detached(priority: .utility) { [weak self] in
-                do {
-                    try await clock.sleep(for: deadline, tolerance: nil)
-                } catch {
-                    return
+            if deadlineTask == nil {
+                deadlineTask = Task.detached(priority: .utility) { [weak self] in
+                    do {
+                        try await clock.sleep(for: deadline, tolerance: nil)
+                    } catch {
+                        return
+                    }
+                    await self?.deadlineElapsed()
                 }
-                await self?.deadlineElapsed()
             }
         }
     }
@@ -84,7 +86,10 @@ actor TerminalSurfaceLaunchResourceProviderState {
         guard let continuation = waiters.removeValue(forKey: identifier) else {
             return
         }
-        deadlineTasks.removeValue(forKey: identifier)?.cancel()
+        if waiters.isEmpty {
+            deadlineTask?.cancel()
+            deadlineTask = nil
+        }
         continuation.resume(returning: .unavailable)
     }
 
@@ -94,11 +99,8 @@ actor TerminalSurfaceLaunchResourceProviderState {
         cachedFallback = fallback
         let continuations = Array(waiters.values)
         waiters.removeAll()
-        let tasks = Array(deadlineTasks.values)
-        deadlineTasks.removeAll()
-        for task in tasks {
-            task.cancel()
-        }
+        deadlineTask?.cancel()
+        deadlineTask = nil
         for continuation in continuations {
             continuation.resume(returning: fallback)
         }

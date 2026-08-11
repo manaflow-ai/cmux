@@ -4,7 +4,10 @@ actor TerminalSurfaceDefaultShellArgumentsState {
     private var resolvedArguments: [String]?
     private var cachedFallbackArguments: [String]?
     private var waiters: [UUID: CheckedContinuation<[String], Never>] = [:]
-    private var deadlineTasks: [UUID: Task<Void, Never>] = [:]
+    private var deadlineTask: Task<Void, Never>?
+
+    var pendingWaiterCount: Int { waiters.count }
+    var pendingDeadlineCount: Int { deadlineTask == nil ? 0 : 1 }
 
     func publish(_ arguments: [String]) {
         guard resolvedArguments == nil else { return }
@@ -12,11 +15,8 @@ actor TerminalSurfaceDefaultShellArgumentsState {
         cachedFallbackArguments = nil
         let continuations = Array(waiters.values)
         waiters.removeAll()
-        let tasks = Array(deadlineTasks.values)
-        deadlineTasks.removeAll()
-        for task in tasks {
-            task.cancel()
-        }
+        deadlineTask?.cancel()
+        deadlineTask = nil
         for continuation in continuations {
             continuation.resume(returning: arguments)
         }
@@ -48,13 +48,15 @@ actor TerminalSurfaceDefaultShellArgumentsState {
                 return
             }
             waiters[identifier] = continuation
-            deadlineTasks[identifier] = Task.detached(priority: .utility) { [weak self] in
-                do {
-                    try await clock.sleep(for: deadline, tolerance: nil)
-                } catch {
-                    return
+            if deadlineTask == nil {
+                deadlineTask = Task.detached(priority: .utility) { [weak self] in
+                    do {
+                        try await clock.sleep(for: deadline, tolerance: nil)
+                    } catch {
+                        return
+                    }
+                    await self?.deadlineElapsed(with: fallback)
                 }
-                await self?.deadlineElapsed(with: fallback)
             }
         }
     }
@@ -68,8 +70,10 @@ actor TerminalSurfaceDefaultShellArgumentsState {
     private func recordCancellation(_ identifier: UUID, with fallback: [String]) {
         guard resolvedArguments == nil, cachedFallbackArguments == nil else { return }
         guard let continuation = waiters.removeValue(forKey: identifier) else { return }
-        let deadlineTask = deadlineTasks.removeValue(forKey: identifier)
-        deadlineTask?.cancel()
+        if waiters.isEmpty {
+            deadlineTask?.cancel()
+            deadlineTask = nil
+        }
         continuation.resume(returning: fallback)
     }
 
@@ -78,11 +82,8 @@ actor TerminalSurfaceDefaultShellArgumentsState {
         cachedFallbackArguments = fallback
         let continuations = Array(waiters.values)
         waiters.removeAll()
-        let tasks = Array(deadlineTasks.values)
-        deadlineTasks.removeAll()
-        for task in tasks {
-            task.cancel()
-        }
+        deadlineTask?.cancel()
+        deadlineTask = nil
         for continuation in continuations {
             continuation.resume(returning: fallback)
         }
