@@ -1025,11 +1025,13 @@ final class FileExplorerStore: ObservableObject {
         guard node.isDirectory else { return }
         expandedPaths.insert(node.path)
         if node.children == nil, loadTasks[node.path] == nil, !loadingPaths.contains(node.path) {
+            // Require a provider before flipping isLoading so a nil provider
+            // cannot leave the node stuck in the loading state.
+            guard let provider else { return }
             node.isLoading = true
             node.error = nil
             objectWillChange.send()
             let nodePath = node.path
-            guard let provider else { return }
             let task = Task { [weak self] in
                 guard let self else { return }
                 await self.loadChildren(for: node, at: nodePath, using: provider)
