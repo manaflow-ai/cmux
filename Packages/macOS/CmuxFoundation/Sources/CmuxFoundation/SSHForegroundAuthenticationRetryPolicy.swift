@@ -1073,19 +1073,17 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           # Publish the actual function-subshell worker. POSIX shells retain
           # the parent shell's `$$`, while this direct child reports it as PPID.
           if ! cmux_ssh_auth_publish_current_worker \
-            "$cmux_ssh_auth_cleanup_owner_publish_file"; then
+            "$cmux_ssh_auth_cleanup_owner_file"; then
             cmux_ssh_auth_cleanup_claim_abort_locked
             return 1
           fi
           cmux_ssh_auth_cleanup_claim_record=$(/bin/cat -- \
-            "$cmux_ssh_auth_cleanup_owner_publish_file" 2>/dev/null || true)
+            "$cmux_ssh_auth_cleanup_owner_file" 2>/dev/null || true)
           if [ -z "$cmux_ssh_auth_cleanup_claim_record" ] || ! \
             printf '%s\n' "$cmux_ssh_auth_cleanup_claim_record" \
               > "$cmux_ssh_auth_cleanup_lock_owner_publish_file" 2>/dev/null || ! \
             /bin/mv -f -- "$cmux_ssh_auth_cleanup_lock_owner_publish_file" \
-              "$cmux_ssh_auth_cleanup_lock_owner_file" 2>/dev/null || ! \
-            /bin/mv -f -- "$cmux_ssh_auth_cleanup_owner_publish_file" \
-              "$cmux_ssh_auth_cleanup_owner_file" 2>/dev/null; then
+              "$cmux_ssh_auth_cleanup_lock_owner_file" 2>/dev/null; then
             cmux_ssh_auth_cleanup_claim_abort_locked
             return 1
           fi
@@ -1405,10 +1403,9 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           # can identify that worker through PPID without a command-substitution
           # process becoming the recorded owner.
           if ! cmux_ssh_auth_publish_current_worker \
-            "$cmux_ssh_auth_recovery_claim.new" || ! \
-            /bin/mv -f -- "$cmux_ssh_auth_recovery_claim.new" \
-              "$cmux_ssh_auth_recovery_claim" 2>/dev/null; then
-            /bin/rm -f -- "$cmux_ssh_auth_recovery_claim.new" 2>/dev/null || true
+            "$cmux_ssh_auth_recovery_claim"; then
+            /bin/rm -f -- "$cmux_ssh_auth_recovery_claim" \
+              "$cmux_ssh_auth_recovery_claim.new" 2>/dev/null || true
             cmux_ssh_auth_recovery_unlock
             return 1
           fi
