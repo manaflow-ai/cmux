@@ -7459,7 +7459,6 @@ mod unix {
                     }
                     assert_eq!(hello_frame.flags, FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS);
 
-                    let hello = ClientHello::decode(&hello_frame.payload)?;
                     let response = HostHello {
                         selected_version: 4,
                         granted_rights: CapabilityRights::ADMIN,
