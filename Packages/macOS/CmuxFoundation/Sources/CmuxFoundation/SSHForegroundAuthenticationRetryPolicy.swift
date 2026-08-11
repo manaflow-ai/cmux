@@ -2353,6 +2353,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           if [ -z "$cmux_ssh_auth_root_identity" ]; then exit 0; fi
           cmux_ssh_auth_durable_cleanup_pending=0
           cmux_ssh_auth_preserve_unpublished_root() {
+            cmux_ssh_auth_recovery_configure_paths || return 1
             cmux_ssh_auth_preserve_state="${CMUX_SSH_AUTH_GROUP_DIR:-}"
             if [ -z "$cmux_ssh_auth_preserve_state" ] || \
               ! cmux_ssh_auth_recovery_group_path_is_valid \
