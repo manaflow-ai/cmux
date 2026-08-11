@@ -101,7 +101,15 @@ import CmuxTerminalCore
     }
 
     @Test func hungAgentShimInstallDoesNotStarveRuntimeSpawn() async throws {
-        let bundleResourceURL = try #require(Bundle.main.resourceURL)
+        let injectedResourceURL = URL(
+            fileURLWithPath: "/tmp/cmux-injected-test-resources",
+            isDirectory: true
+        )
+        let launchResourceProvider = TerminalSurfaceLaunchResourceProvider(
+            resourceURL: injectedResourceURL,
+            isExecutableFile: { _ in false },
+            directoryExists: { _ in false }
+        )
         let nativeView = FakeTerminalSurfaceNativeView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         let paneHost = FakeTerminalSurfacePaneHost(
             surfaceView: nativeView,
@@ -125,12 +133,18 @@ import CmuxTerminalCore
             nativeView: nativeView,
             paneHost: paneHost,
             runtimeFilesystem: runtimeFilesystem,
+            launchResourceProvider: launchResourceProvider,
             agentCommandShimInstallDeadline: .milliseconds(100)
         )
         defer { surface.closeHeadlessStartupWindowIfNeeded() }
 
         surface.scheduleHeadlessRuntimeStartIfNeeded(reason: "test-shim-hang", source: .inputDemand)
         await shimInstaller.waitForInstallStart()
+        #expect(
+            await shimInstaller.wrapperDirectoryURLs == [
+                injectedResourceURL.appendingPathComponent("bin", isDirectory: true),
+            ]
+        )
         #expect(surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 0)
 
         // The wrapper shim is an optional PATH convenience. When its install
@@ -141,7 +155,7 @@ import CmuxTerminalCore
         #expect(deadlinePreparation.commandShims == nil)
         #expect(
             deadlinePreparation.launchResourceSnapshot.wrapperDirectoryURL
-                == bundleResourceURL.appendingPathComponent("bin", isDirectory: true)
+                == injectedResourceURL.appendingPathComponent("bin", isDirectory: true)
         )
 
         let lateShims = TerminalSurfaceAgentCommandShimSet(
@@ -187,6 +201,7 @@ import CmuxTerminalCore
             installAgentCommandShims: { _, _, _ in nil },
             isExecutableFile: { _ in false }
         ),
+        launchResourceProvider: TerminalSurfaceLaunchResourceProvider? = nil,
         agentCommandShimInstallDeadline: Duration = .seconds(5)
     ) -> TerminalSurface {
         TerminalSurface(
@@ -205,6 +220,7 @@ import CmuxTerminalCore
                 runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator(),
                 restoreSpawnScheduler: scheduler,
                 runtimeFilesystem: runtimeFilesystem,
+                launchResourceProvider: launchResourceProvider,
                 agentCommandShimInstallDeadline: agentCommandShimInstallDeadline,
                 sessionPortBase: 40_000,
                 sessionPortRangeSize: 100,

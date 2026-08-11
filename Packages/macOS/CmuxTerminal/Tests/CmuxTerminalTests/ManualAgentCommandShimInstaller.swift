@@ -7,13 +7,14 @@ actor ManualAgentCommandShimInstaller {
     private var startContinuations: [CheckedContinuation<Void, Never>] = []
     private var completedResult: TerminalSurfaceAgentCommandShimSet?
     private var didComplete = false
+    private(set) var wrapperDirectoryURLs: [URL] = []
 
     func install(
         wrapperDirectoryURL: URL,
         surfaceId: UUID,
         temporaryDirectory: URL
     ) async -> TerminalSurfaceAgentCommandShimSet? {
-        _ = wrapperDirectoryURL
+        wrapperDirectoryURLs.append(wrapperDirectoryURL)
         _ = surfaceId
         _ = temporaryDirectory
         if didComplete {
