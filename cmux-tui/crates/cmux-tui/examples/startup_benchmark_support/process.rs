@@ -187,7 +187,7 @@ pub struct Fixture(FixtureState);
 
 enum FixtureState {
     Cold(Box<Common>),
-    Warm { common: Box<Common>, server: RunningHeadless },
+    Warm { common: Box<Common>, server: Box<RunningHeadless> },
     Headless(Box<Common>),
     Restored { common: Box<Common>, state: PathBuf, terminal_id: String },
     Incompatible { common: Box<Common>, state: PathBuf, database: PathBuf, expected: String },
@@ -215,7 +215,7 @@ impl Fixture {
                 assert_ping(&common, &socket, deadline)?;
                 common.setup_evidence.readiness_lines += 1;
                 common.setup_evidence.socket_rpcs += 1;
-                Ok(Self(FixtureState::Warm { common: Box::new(common), server }))
+                Ok(Self(FixtureState::Warm { common: Box::new(common), server: Box::new(server) }))
             }
             Scenario::Restored => {
                 let state = common.path("restored-state");
