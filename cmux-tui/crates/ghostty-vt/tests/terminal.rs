@@ -342,6 +342,35 @@ fn vt_replay_restores_cursor_position_after_tabstops() {
     }
 }
 
+#[test]
+fn vt_replay_restores_cursor_inside_origin_mode_scrolling_region() {
+    let mut source = Terminal::new(12, 8, 0, Callbacks::default()).unwrap();
+    source.vt_write(b"screen contents");
+    source.vt_write(b"\x1b[?69h\x1b[3;7r\x1b[4;10s\x1b[?6h\x1b[2;3H");
+    let expected = source.cursor_position().unwrap();
+    assert_eq!(expected, (5, 3));
+
+    let full = source.vt_replay_bytes().unwrap();
+    let bounded = source.vt_replay_bounded_bytes(8 * 1024 * 1024).unwrap();
+    for replay in [&full, &bounded] {
+        let mut mirror = Terminal::new(12, 8, 0, Callbacks::default()).unwrap();
+        mirror.vt_write(replay);
+        assert!(mirror.mode(6, false), "replay lost DECOM");
+        assert_eq!(
+            mirror.cursor_position().unwrap(),
+            expected,
+            "mirror cursor diverged inside the scrolling region"
+        );
+
+        mirror.vt_write(b"\x1b[1;1H");
+        assert_eq!(
+            mirror.cursor_position().unwrap(),
+            (3, 2),
+            "replay lost the DECOM scrolling-region origin"
+        );
+    }
+}
+
 fn assert_theme_portable_replay_boundaries(
     label: &str,
     transcript: &[u8],
