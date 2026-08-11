@@ -321,6 +321,7 @@ pub struct CmuxFrontendRenderEvent {
     pub kind: u32,
     pub cols: u16,
     pub rows: u16,
+    pub input_epoch: u64,
     pub payload_length: usize,
 }
 
@@ -1136,6 +1137,7 @@ pub unsafe extern "C" fn cmux_frontend_terminal_copy_next_render_event(
         kind: next.kind as u32,
         cols: next.cols,
         rows: next.rows,
+        input_epoch: next.input_epoch,
         payload_length: next.payload.len(),
     };
     if next.payload.len() > capacity || (!next.payload.is_empty() && buffer.is_null()) {
@@ -1173,9 +1175,17 @@ pub unsafe extern "C" fn cmux_frontend_terminal_discard_render_events(
 }
 
 fn enqueue_terminal(terminal: &CmuxFrontendTerminal, frame: Frame) -> bool {
+    enqueue_terminal_for_epoch(terminal, frame, None)
+}
+
+fn enqueue_terminal_for_epoch(
+    terminal: &CmuxFrontendTerminal,
+    frame: Frame,
+    input_epoch: Option<u64>,
+) -> bool {
     let active = terminal.active.lock().unwrap();
     let Some(active) = active.as_ref() else { return false };
-    enqueue_active_terminal(active, &terminal.state, frame)
+    enqueue_active_terminal(active, &terminal.state, frame, input_epoch)
 }
 
 /// Registers a signal-only callback for one terminal's rendered state.
@@ -1212,6 +1222,61 @@ pub unsafe extern "C" fn cmux_frontend_terminal_send(
     enqueue_terminal(terminal, Frame::new(MessageKind::Input, bytes.to_vec()))
 }
 
+/// Queues raw PTY input only if the renderer still owns `input_epoch`.
+///
+/// # Safety
+///
+/// The byte buffer must be readable for `length` bytes during this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_frontend_terminal_send_for_epoch(
+    terminal: *mut CmuxFrontendTerminal,
+    input_epoch: u64,
+    bytes: *const u8,
+    length: usize,
+) -> bool {
+    let Some((terminal, bytes)) =
+        (unsafe { terminal.as_ref() }).zip(unsafe { bytes_from_ffi(bytes, length) })
+    else {
+        return false;
+    };
+    enqueue_terminal_for_epoch(
+        terminal,
+        Frame::new(MessageKind::Input, bytes.to_vec()),
+        Some(input_epoch),
+    )
+}
+
+fn enqueue_terminal_key(
+    terminal: &CmuxFrontendTerminal,
+    chord: &str,
+    repeat: bool,
+    input_epoch: Option<u64>,
+) -> bool {
+    let encoded_result = {
+        let mut state = terminal.state.lock().unwrap();
+        if !super::client_state_accepts_terminal_commands(&state)
+            || input_epoch.is_some_and(|expected| expected != state.input_epoch)
+        {
+            return false;
+        }
+        state.encode_key(chord, repeat)
+    };
+    let encoded = match encoded_result {
+        Ok(encoded) => encoded,
+        Err(error) => {
+            terminal.state.lock().unwrap().status = format!("key: {error}");
+            terminal.updates.notify();
+            return false;
+        }
+    };
+    encoded.is_empty()
+        || enqueue_terminal_for_epoch(
+            terminal,
+            Frame::new(MessageKind::Input, encoded),
+            input_epoch,
+        )
+}
+
 /// Encodes a named key chord using this terminal's local libghostty modes.
 ///
 /// # Safety
@@ -1236,22 +1301,35 @@ pub unsafe extern "C" fn cmux_frontend_terminal_send_key(
             return false;
         }
     };
-    let encoded_result = {
-        let mut state = terminal.state.lock().unwrap();
-        if !super::client_state_accepts_terminal_commands(&state) {
-            return false;
-        }
-        state.encode_key(chord, repeat)
-    };
-    let encoded = match encoded_result {
-        Ok(encoded) => encoded,
+    enqueue_terminal_key(terminal, chord, repeat, None)
+}
+
+/// Encodes a named key only if the renderer still owns `input_epoch`.
+///
+/// # Safety
+///
+/// The chord must be a readable NUL-terminated UTF-8 string.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_frontend_terminal_send_key_for_epoch(
+    terminal: *mut CmuxFrontendTerminal,
+    input_epoch: u64,
+    chord: *const c_char,
+    repeat: bool,
+) -> bool {
+    let Some(terminal) = (unsafe { terminal.as_ref() }) else { return false };
+    if chord.is_null() {
+        return false;
+    }
+    // SAFETY: checked non-null; the C API requires a NUL-terminated chord.
+    let chord = match unsafe { CStr::from_ptr(chord) }.to_str() {
+        Ok(chord) => chord,
         Err(error) => {
             terminal.state.lock().unwrap().status = format!("key: {error}");
             terminal.updates.notify();
             return false;
         }
     };
-    encoded.is_empty() || enqueue_terminal(terminal, Frame::new(MessageKind::Input, encoded))
+    enqueue_terminal_key(terminal, chord, repeat, Some(input_epoch))
 }
 
 /// Queues opaque paste bytes for one terminal attachment.
@@ -1271,6 +1349,30 @@ pub unsafe extern "C" fn cmux_frontend_terminal_paste(
         return false;
     };
     enqueue_terminal(terminal, Frame::new(MessageKind::Paste, bytes.to_vec()))
+}
+
+/// Queues paste bytes only if the renderer still owns `input_epoch`.
+///
+/// # Safety
+///
+/// The byte buffer must be readable for `length` bytes during this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_frontend_terminal_paste_for_epoch(
+    terminal: *mut CmuxFrontendTerminal,
+    input_epoch: u64,
+    bytes: *const u8,
+    length: usize,
+) -> bool {
+    let Some((terminal, bytes)) =
+        (unsafe { terminal.as_ref() }).zip(unsafe { bytes_from_ffi(bytes, length) })
+    else {
+        return false;
+    };
+    enqueue_terminal_for_epoch(
+        terminal,
+        Frame::new(MessageKind::Paste, bytes.to_vec()),
+        Some(input_epoch),
+    )
 }
 
 /// Updates one terminal viewer's character dimensions.
@@ -1674,8 +1776,13 @@ mod tests {
             active: Mutex::new(None),
             next_request: AtomicU64::new(1),
         };
-        let mut descriptor =
-            CmuxFrontendRenderEvent { kind: 0, cols: 0, rows: 0, payload_length: 0 };
+        let mut descriptor = CmuxFrontendRenderEvent {
+            kind: 0,
+            cols: 0,
+            rows: 0,
+            input_epoch: 0,
+            payload_length: 0,
+        };
         assert!(unsafe {
             cmux_frontend_terminal_copy_next_render_event(
                 &mut terminal,

@@ -802,7 +802,7 @@ final class FrontendModel {
             operation,
             selectors: selectors,
             onSuccess: { await self.reconcileFocusMutation(requestID) },
-            onIndeterminate: { _ = self.focusMutations.finish(requestID) },
+            onIndeterminate: { await self.reconcileFocusMutation(requestID) },
             onFailure: {
                 guard let rollback = self.focusMutations.rollback(requestID) else { return false }
                 self.selectedWorkspaceID = rollback.workspaceID
@@ -1052,7 +1052,7 @@ final class FrontendModel {
         selectors: [String: String],
         fields: [String: JSONValue] = [:],
         onSuccess: (() async -> Void)? = nil,
-        onIndeterminate: (() -> Void)? = nil,
+        onIndeterminate: (() async -> Void)? = nil,
         onFailure: (() -> Bool)? = nil
     ) -> Bool {
         guard let service, let machineID, let sessionID else { return false }
@@ -1098,8 +1098,11 @@ final class FrontendModel {
             } catch {
                 if let serviceError = error as? FrontendServiceError,
                    serviceError.requiresAuthoritativeReconciliation {
-                    onIndeterminate?()
-                    scheduleRefresh()
+                    if let onIndeterminate {
+                        await onIndeterminate()
+                    } else {
+                        scheduleRefresh()
+                    }
                     recordAndPresent(serviceError)
                     return
                 }

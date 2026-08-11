@@ -442,6 +442,7 @@ struct ActiveTerminal {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct TerminalCommand {
     stream_id: u64,
+    input_epoch: u64,
     requires_ready: bool,
     payload: Bytes,
 }
@@ -449,9 +450,12 @@ struct TerminalCommand {
 fn terminal_command_is_current(
     command: &TerminalCommand,
     current_stream_id: Option<u64>,
+    current_input_epoch: u64,
     ready: bool,
 ) -> bool {
-    (!command.requires_ready || ready) && current_stream_id == Some(command.stream_id)
+    (!command.requires_ready || ready)
+        && command.input_epoch == current_input_epoch
+        && current_stream_id == Some(command.stream_id)
 }
 
 impl ActiveTerminal {
@@ -500,6 +504,7 @@ struct ClientState {
     local_parser_cursor: u64,
     source_cursor: u64,
     resync_count: u64,
+    input_epoch: u64,
     expected_sequence: Option<u64>,
     cols: u16,
     rows: u16,
@@ -526,6 +531,7 @@ struct NativeRenderEvent {
     kind: NativeRenderEventKind,
     cols: u16,
     rows: u16,
+    input_epoch: u64,
     payload: Vec<u8>,
 }
 
@@ -595,6 +601,7 @@ impl ClientState {
             local_parser_cursor: 0,
             source_cursor: 0,
             resync_count: 0,
+            input_epoch: 1,
             expected_sequence: None,
             cols: 0,
             rows: 0,
@@ -629,6 +636,7 @@ impl ClientState {
                 <= MAX_NATIVE_RENDER_EVENT_BYTES
             && let Some(previous) = events.back_mut()
             && previous.kind == NativeRenderEventKind::Bytes
+            && previous.input_epoch == self.input_epoch
             && previous.payload.len().saturating_add(payload.len()) <= 1024 * 1024
         {
             self.native_render_event_bytes =
@@ -647,7 +655,13 @@ impl ClientState {
         }
         self.native_render_event_bytes =
             self.native_render_event_bytes.saturating_add(payload.len());
-        events.push_back(NativeRenderEvent { kind, cols, rows, payload });
+        events.push_back(NativeRenderEvent {
+            kind,
+            cols,
+            rows,
+            input_epoch: self.input_epoch,
+            payload,
+        });
         true
     }
 
@@ -677,6 +691,11 @@ impl ClientState {
     fn fail_closed_for_stream_restart(&mut self) {
         self.bootstrap_committed = false;
         self.ready = false;
+        self.advance_input_epoch();
+    }
+
+    fn advance_input_epoch(&mut self) {
+        self.input_epoch = self.input_epoch.saturating_add(1);
     }
 
     fn prepare_handshake(&mut self, terminal_id: TerminalPublicId) -> Result<(), String> {
@@ -908,6 +927,7 @@ impl ClientState {
                 self.ready = false;
                 self.exited = true;
                 self.status = "exited".into();
+                self.advance_input_epoch();
                 let effect = self.continue_after_native_event(
                     NativeRenderEventKind::Exit,
                     self.cols,
@@ -1043,19 +1063,28 @@ fn enqueue_active_terminal(
     terminal: &ActiveTerminal,
     state: &Arc<Mutex<ClientState>>,
     frame: Frame,
+    expected_input_epoch: Option<u64>,
 ) -> bool {
     let Ok(encoded) = encode_frame(&frame) else { return false };
     let requires_ready = matches!(frame.kind, MessageKind::Input | MessageKind::Paste);
-    if terminal.closed.load(Ordering::Acquire)
-        || (requires_ready && !client_state_accepts_terminal_commands(&state.lock().unwrap()))
-    {
+    if terminal.closed.load(Ordering::Acquire) {
         return false;
     }
+    let input_epoch = {
+        let state = state.lock().unwrap();
+        if (requires_ready && !client_state_accepts_terminal_commands(&state))
+            || expected_input_epoch.is_some_and(|expected| expected != state.input_epoch)
+        {
+            return false;
+        }
+        state.input_epoch
+    };
     let Some(stream) = terminal.streams.borrow().clone() else { return false };
     terminal
         .command_sender
         .try_send(TerminalCommand {
             stream_id: stream.id(),
+            input_epoch,
             requires_ready,
             payload: Bytes::from(encoded),
         })
@@ -1605,10 +1634,14 @@ fn start_terminal_tasks(
                 return;
             }
             let current = command_streams.borrow().clone();
-            let ready = client_state_accepts_terminal_commands(&command_state.lock().unwrap());
+            let (ready, input_epoch) = {
+                let state = command_state.lock().unwrap();
+                (client_state_accepts_terminal_commands(&state), state.input_epoch)
+            };
             if !terminal_command_is_current(
                 &command,
                 current.as_ref().map(|stream| stream.id()),
+                input_epoch,
                 ready,
             ) {
                 continue;
@@ -1747,7 +1780,7 @@ fn copy_utf8(value: &str, buffer: *mut c_char, capacity: usize) -> usize {
 fn enqueue_command(client: &CmuxTerminalClient, frame: Frame) -> bool {
     let terminal = client.terminal.lock().unwrap();
     let Some(terminal) = terminal.as_ref() else { return false };
-    enqueue_active_terminal(terminal, &client.state, frame)
+    enqueue_active_terminal(terminal, &client.state, frame, None)
 }
 
 unsafe fn terminal_id_from_ffi(terminal_id: *const c_char) -> Result<TerminalPublicId, String> {
@@ -2490,6 +2523,7 @@ mod tests {
         ));
         let events = state.native_render_events.as_ref().unwrap();
         assert_eq!(events.len(), 1);
+        assert_eq!(events[0].input_epoch, 1);
         assert_eq!(events[0].payload, b"onetwo");
         assert_eq!(state.native_render_event_bytes, 6);
         state.native_render_events.as_mut().unwrap().clear();
@@ -2517,9 +2551,18 @@ mod tests {
         let events = state.native_render_events.as_ref().unwrap();
         assert_eq!(events.len(), MAX_NATIVE_RENDER_EVENTS);
         assert_eq!(events.back().unwrap().payload, b"ab");
+        state.fail_closed_for_stream_restart();
+        assert_eq!(state.input_epoch, 2);
         state.prepare_handshake(test_terminal_id()).unwrap();
         assert!(state.native_render_events.as_ref().unwrap().is_empty());
         assert_eq!(state.native_render_event_bytes, 0);
+        assert!(state.push_native_render_event(
+            NativeRenderEventKind::Reset,
+            80,
+            24,
+            Vec::new()
+        ));
+        assert_eq!(state.native_render_events.as_ref().unwrap()[0].input_epoch, 2);
     }
 
     #[test]
@@ -2873,6 +2916,7 @@ mod tests {
         let (sender, mut receiver) = mpsc::channel::<TerminalCommand>(2);
         let encode = |kind, payload: &'static [u8]| TerminalCommand {
             stream_id: 7,
+            input_epoch: 11,
             requires_ready: true,
             payload: Bytes::from(encode_frame(&Frame::new(kind, payload.to_vec())).unwrap()),
         };
@@ -2894,21 +2938,25 @@ mod tests {
     fn terminal_commands_do_not_cross_readiness_or_stream_epochs() {
         let input = TerminalCommand {
             stream_id: 7,
+            input_epoch: 11,
             requires_ready: true,
             payload: Bytes::from_static(b"input"),
         };
-        assert!(!terminal_command_is_current(&input, Some(7), false));
-        assert!(!terminal_command_is_current(&input, Some(8), true));
-        assert!(!terminal_command_is_current(&input, None, true));
-        assert!(terminal_command_is_current(&input, Some(7), true));
+        assert!(!terminal_command_is_current(&input, Some(7), 11, false));
+        assert!(!terminal_command_is_current(&input, Some(8), 11, true));
+        assert!(!terminal_command_is_current(&input, None, 11, true));
+        assert!(!terminal_command_is_current(&input, Some(7), 12, true));
+        assert!(terminal_command_is_current(&input, Some(7), 11, true));
 
         let resize = TerminalCommand {
             stream_id: 7,
+            input_epoch: 11,
             requires_ready: false,
             payload: Bytes::from_static(b"resize"),
         };
-        assert!(terminal_command_is_current(&resize, Some(7), false));
-        assert!(!terminal_command_is_current(&resize, Some(8), true));
+        assert!(terminal_command_is_current(&resize, Some(7), 11, false));
+        assert!(!terminal_command_is_current(&resize, Some(8), 11, true));
+        assert!(!terminal_command_is_current(&resize, Some(7), 12, true));
     }
 
     #[test]

@@ -678,19 +678,33 @@ actor TerminalHandle {
     await ffiQueue.run(operation)
   }
 
-  func submit(_ queuedInput: QueuedTerminalInput, epoch: TerminalInputEpoch) async -> Bool? {
+  func submit(_ input: TerminalInput, inputEpoch: UInt64) async -> Bool {
     guard let rawAddress = raw.map({ UInt(bitPattern: $0) }) else { return false }
     return await enqueue {
-      epoch.submitIfCurrent(queuedInput) {
-        let raw = OpaquePointer(bitPattern: rawAddress)!
-        switch queuedInput.input {
-        case .bytes(let data):
-          return data.withUnsafeBytes { cmux_frontend_terminal_send(raw, $0.bindMemory(to: UInt8.self).baseAddress, $0.count) }
-        case .paste(let text):
-          let data = Data(text.utf8)
-          return data.withUnsafeBytes { cmux_frontend_terminal_paste(raw, $0.bindMemory(to: UInt8.self).baseAddress, $0.count) }
-        case .key(let chord, let isRepeat):
-          return chord.withCString { cmux_frontend_terminal_send_key(raw, $0, isRepeat) }
+      let raw = OpaquePointer(bitPattern: rawAddress)!
+      switch input {
+      case .bytes(let data):
+        return data.withUnsafeBytes {
+          cmux_frontend_terminal_send_for_epoch(
+            raw,
+            inputEpoch,
+            $0.bindMemory(to: UInt8.self).baseAddress,
+            $0.count
+          )
+        }
+      case .paste(let text):
+        let data = Data(text.utf8)
+        return data.withUnsafeBytes {
+          cmux_frontend_terminal_paste_for_epoch(
+            raw,
+            inputEpoch,
+            $0.bindMemory(to: UInt8.self).baseAddress,
+            $0.count
+          )
+        }
+      case .key(let chord, let isRepeat):
+        return chord.withCString {
+          cmux_frontend_terminal_send_key_for_epoch(raw, inputEpoch, $0, isRepeat)
         }
       }
     }
@@ -787,6 +801,19 @@ struct TerminalRenderEvent: Sendable {
   let kind: Kind
   let geometry: TerminalGeometry
   let payload: Data
+  let inputEpoch: UInt64
+
+  init(
+    kind: Kind,
+    geometry: TerminalGeometry,
+    payload: Data,
+    inputEpoch: UInt64 = 1
+  ) {
+    self.kind = kind
+    self.geometry = geometry
+    self.payload = payload
+    self.inputEpoch = inputEpoch
+  }
 }
 
 struct TerminalRenderEventBatch: Sendable {
@@ -849,7 +876,8 @@ func drainTerminalRenderEvents(
     result.append(TerminalRenderEvent(
       kind: kind,
       geometry: TerminalGeometry(cols: descriptor.cols, rows: descriptor.rows),
-      payload: payload
+      payload: payload,
+      inputEpoch: descriptor.input_epoch
     ))
   }
   return TerminalRenderEventBatch(

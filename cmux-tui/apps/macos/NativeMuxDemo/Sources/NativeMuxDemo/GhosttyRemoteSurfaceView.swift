@@ -5,23 +5,20 @@ import GhosttyKit
 import QuartzCore
 
 final class GhosttyTerminalInputRelay: Sendable {
-  private let continuation: AsyncStream<QueuedTerminalInput>.Continuation
+  private let continuation: AsyncStream<TerminalInputQueueEvent>.Continuation
   private let dropContinuation: AsyncStream<Void>.Continuation
-  private let epoch: TerminalInputEpoch
 
   init(
-    continuation: AsyncStream<QueuedTerminalInput>.Continuation,
-    dropContinuation: AsyncStream<Void>.Continuation,
-    epoch: TerminalInputEpoch
+    continuation: AsyncStream<TerminalInputQueueEvent>.Continuation,
+    dropContinuation: AsyncStream<Void>.Continuation
   ) {
     self.continuation = continuation
     self.dropContinuation = dropContinuation
-    self.epoch = epoch
   }
 
   @discardableResult
   func send(_ data: Data) -> Bool {
-    switch continuation.yield(epoch.stamp(.bytes(data))) {
+    switch continuation.yield(.input(.bytes(data))) {
     case .enqueued:
       return true
     case .dropped, .terminated:
@@ -33,8 +30,8 @@ final class GhosttyTerminalInputRelay: Sendable {
     }
   }
 
-  func invalidateEpoch() {
-    epoch.advance()
+  func beginEpoch(_ epoch: UInt64) {
+    continuation.yield(.epoch(epoch))
   }
 }
 
@@ -288,7 +285,8 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
   func apply(_ event: TerminalRenderEvent) {
     switch event.kind {
     case .reset:
-      clearLocalInputEpoch()
+      callbackContext.inputRelay.beginEpoch(event.inputEpoch)
+      clearLocalInputState()
       ready = false
       renderStreamValid = false
       lastReportedGeometry = nil
@@ -320,14 +318,14 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
         ghostty_surface_refresh(surface)
       }
     case .exit:
-      clearLocalInputEpoch()
+      callbackContext.inputRelay.beginEpoch(event.inputEpoch)
+      clearLocalInputState()
       ready = false
       renderStreamValid = false
     }
   }
 
-  private func clearLocalInputEpoch() {
-    callbackContext.inputRelay.invalidateEpoch()
+  private func clearLocalInputState() {
     markedText.mutableString.setString("")
     markedTextRange = NSRange(location: NSNotFound, length: 0)
     markedTextSelection = NSRange(location: NSNotFound, length: 0)
@@ -337,7 +335,9 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
   }
 
   private func failClosedForInvalidSnapshot() {
-    clearLocalInputEpoch()
+    // Transport epochs start at one, so zero fences this failed snapshot.
+    callbackContext.inputRelay.beginEpoch(0)
+    clearLocalInputState()
     ready = false
     renderStreamValid = false
     lastReportedGeometry = nil

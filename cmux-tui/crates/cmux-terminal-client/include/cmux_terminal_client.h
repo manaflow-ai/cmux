@@ -38,6 +38,7 @@ typedef struct {
     uint32_t kind;
     uint16_t cols;
     uint16_t rows;
+    uint64_t input_epoch;
     size_t payload_length;
 } CmuxFrontendRenderEvent;
 
@@ -155,12 +156,27 @@ bool cmux_frontend_terminal_send(
     CmuxFrontendTerminal *terminal,
     const uint8_t *bytes,
     size_t length);
+bool cmux_frontend_terminal_send_for_epoch(
+    CmuxFrontendTerminal *terminal,
+    uint64_t input_epoch,
+    const uint8_t *bytes,
+    size_t length);
 bool cmux_frontend_terminal_send_key(
     CmuxFrontendTerminal *terminal,
     const char *chord,
     bool repeat);
+bool cmux_frontend_terminal_send_key_for_epoch(
+    CmuxFrontendTerminal *terminal,
+    uint64_t input_epoch,
+    const char *chord,
+    bool repeat);
 bool cmux_frontend_terminal_paste(
     CmuxFrontendTerminal *terminal,
+    const uint8_t *bytes,
+    size_t length);
+bool cmux_frontend_terminal_paste_for_epoch(
+    CmuxFrontendTerminal *terminal,
+    uint64_t input_epoch,
     const uint8_t *bytes,
     size_t length);
 bool cmux_frontend_terminal_resize(
