@@ -372,8 +372,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
     public internal(set) var notificationFeedStatus: MobileNotificationFeedStatus = .idle
     public private(set) var notificationFeedUnreadCount: Int = 0
-    /// Last authoritative chat-session snapshots, keyed by the workspace row id the UI renders.
-    var chatSessionSnapshotsByWorkspaceID: [String: [ChatSessionDescriptor]] = [:]
     /// The group sections the UI renders. A materialized derivation of every
     /// entry in ``workspacesByMac``. Each group's `isCollapsed` reflects this
     /// device's choice (see ``groupCollapseStore``), not the Mac's live value.
