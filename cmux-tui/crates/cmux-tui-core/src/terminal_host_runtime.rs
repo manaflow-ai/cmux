@@ -6344,6 +6344,30 @@ mod unix {
         }
 
         #[test]
+        fn public_renderer_discovery_is_protocol_v5_only() {
+            assert_eq!(PROTOCOL_VERSION, 5, "public renderer discovery changes the handshake");
+
+            let host = test_host_shared();
+            let token = host
+                .capabilities
+                .mint(host.terminal_id, CapabilityRights::RENDERER, Duration::from_secs(60))
+                .unwrap();
+            let legacy_hello = ClientHello {
+                min_version: 4,
+                max_version: 4,
+                role: ClientRole::Renderer,
+                requested_rights: CapabilityRights::RENDERER,
+                terminal_id: TerminalId::UNSPECIFIED,
+                token,
+            };
+
+            assert!(
+                authenticate_client(&host, &legacy_hello).is_err(),
+                "protocol v4 must not acquire the v5 unspecified-id behavior"
+            );
+        }
+
+        #[test]
         fn public_renderer_grant_authenticates_without_private_host_identity() {
             let host = test_host_shared();
             let token = host
@@ -6362,6 +6386,7 @@ mod unix {
             let response = authenticate_client(&host, &hello)
                 .expect("a terminal-bound public grant must not require the private host id");
 
+            assert_eq!(response.selected_version, 5);
             assert_eq!(response.terminal_id, host.terminal_id);
             assert_eq!(response.incarnation, host.incarnation);
             assert_eq!(response.granted_rights, CapabilityRights::RENDERER);
