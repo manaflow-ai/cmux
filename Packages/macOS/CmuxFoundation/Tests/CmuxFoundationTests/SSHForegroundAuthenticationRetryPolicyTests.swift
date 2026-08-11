@@ -5264,6 +5264,32 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(fallback.contains("printf '%s\\n%s|%s|%s'"))
     }
 
+    @Test func unpublishedFallbackDoesNotKillAfterIncompleteDiscovery() throws {
+        let functions = SSHForegroundAuthenticationRetryPolicy()
+            .processTreeTerminationShellFunction()
+        let fallbackStart = try #require(
+            functions.range(of: "cmux_ssh_auth_force_unpublished_process_tree() (")
+        )
+        let durableStart = try #require(
+            functions.range(
+                of: "cmux_ssh_terminate_unpublished_auth_process_tree() (",
+                range: fallbackStart.upperBound..<functions.endIndex
+            )
+        )
+        let fallback = functions[fallbackStart.lowerBound..<durableStart.lowerBound]
+        let incompleteDiscoveryExit = try #require(
+            fallback.range(
+                of: "if [ \"$cmux_ssh_auth_direct_capture_status\" != 0 ]; then exit"
+            )
+        )
+        let firstKill = try #require(
+            fallback.range(of: "kill -KILL \"$cmux_ssh_auth_direct_pid\"")
+        )
+
+        #expect(incompleteDiscoveryExit.lowerBound < firstKill.lowerBound)
+        #expect(fallback.contains("trap 'cmux_ssh_auth_direct_resume_stopped' EXIT"))
+    }
+
     @Test func cleanupClaimsOwnershipBeforeCancellationAndFreezeTransaction() throws {
         let functions = SSHForegroundAuthenticationRetryPolicy()
             .processTreeTerminationShellFunction()
