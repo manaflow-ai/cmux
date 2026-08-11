@@ -159,6 +159,12 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
            source_session TEXT NOT NULL CHECK(length(source_session) > 0),
            generation INTEGER NOT NULL CHECK(generation > 0),
            superseded INTEGER NOT NULL CHECK(superseded IN (0, 1)),
+           journal_identity TEXT CHECK (
+             journal_identity IS NULL OR (
+               length(journal_identity) = 64
+               AND journal_identity NOT GLOB '*[^0-9a-f]*'
+             )
+           ),
            PRIMARY KEY(terminal_id, provider, source_session),
            UNIQUE(terminal_id, generation)
          );
@@ -177,7 +183,33 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
              terminal_id DESC
            );",
     )?;
+    ensure_resource_agent_session_journal_identity(transaction)?;
     backfill_resource_agent_session_generations_once(transaction)?;
+    Ok(())
+}
+
+fn ensure_resource_agent_session_journal_identity(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<()> {
+    let columns = {
+        let mut statement =
+            transaction.prepare("PRAGMA table_info(resource_agent_session_generations)")?;
+        statement
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<HashSet<_>, _>>()?
+    };
+    if !columns.contains("journal_identity") {
+        transaction.execute(
+            "ALTER TABLE resource_agent_session_generations
+             ADD COLUMN journal_identity TEXT CHECK (
+               journal_identity IS NULL OR (
+                 length(journal_identity) = 64
+                 AND journal_identity NOT GLOB '*[^0-9a-f]*'
+               )
+             )",
+            [],
+        )?;
+    }
     Ok(())
 }
 

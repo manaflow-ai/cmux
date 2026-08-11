@@ -822,6 +822,25 @@ fn append_resource_journal_record_at(
     }
     collect_subjects(result, &mut subjects);
     collect_subjects(changes, &mut subjects);
+    if operation == "agent.report"
+        && let Some(terminal_id) = result.get("terminal_id").and_then(Value::as_str)
+        && let Some(source_session) = result
+            .get("source_session")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+    {
+        let provider = result
+            .get("extra")
+            .and_then(|extra| extra.get("provider"))
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("");
+        subjects.insert(crate::agent_hooks::agent_session_subject(
+            terminal_id,
+            provider,
+            source_session,
+        ));
+    }
     expand_topology_subjects(transaction, &mut subjects)?;
     let subjects = subjects.into_iter().collect::<Vec<_>>();
     let producer = JournalProducer { kind: "resource_operation".into(), id: origin.into() };

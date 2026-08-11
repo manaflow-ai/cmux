@@ -4643,6 +4643,10 @@ impl Mux {
         if let Some(hook) = self.journal_before_publish.lock().unwrap().clone() {
             hook();
         }
+        self.publish_journal_commit();
+    }
+
+    fn publish_journal_commit(&self) {
         self.journal_kernel.notify_commit();
         let mut epoch = self.journal_event_epoch.lock().unwrap();
         *epoch = epoch.wrapping_add(1);
@@ -4816,6 +4820,8 @@ impl Mux {
         drop(registry);
         if projection_current {
             self.publish_journal_event();
+        } else {
+            self.publish_journal_commit();
         }
         Ok(commits)
     }
@@ -5045,8 +5051,12 @@ impl Mux {
         let projection_current =
             self.sync_agent_records_from_journal_ingress(&registry, ingress)?;
         drop(registry);
-        if !commit.replayed && projection_current {
-            self.publish_journal_event();
+        if !commit.replayed {
+            if projection_current {
+                self.publish_journal_event();
+            } else {
+                self.publish_journal_commit();
+            }
         }
         Ok(commit)
     }

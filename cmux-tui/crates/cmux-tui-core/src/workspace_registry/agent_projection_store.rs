@@ -18,6 +18,7 @@ const AGENT_PROJECTION_PREJOURNAL_MIGRATION_CURSOR_KEY: &str =
 const UNKNOWN_AGENT_PROVIDER_GENERATION_KEY: &str = "";
 const AGENT_PROJECTION_PREJOURNAL_MIGRATION_PAGE_SIZE: usize = 64;
 const AGENT_PROJECTION_JOURNAL_REBUILD_PAGE_SIZE: usize = 1_024;
+const AGENT_SESSION_GENERATION_RETENTION: usize = 64;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct AgentProjectionRow {
@@ -146,6 +147,12 @@ fn record_agent_session_generation(
         return Ok(());
     };
     let provider = agent_generation_provider(next.provider.as_deref());
+    let journal_identity = ensure_agent_session_journal_identity(
+        transaction,
+        next,
+        provider,
+        source_session,
+    )?;
     let existing = transaction
         .query_row(
             "SELECT generation, superseded
@@ -165,6 +172,12 @@ fn record_agent_session_generation(
         )
         .optional()?;
     if let Some((generation, superseded)) = existing {
+        transaction.execute(
+            "UPDATE resource_agent_session_generations
+             SET journal_identity = COALESCE(journal_identity, ?4)
+             WHERE terminal_id = ?1 AND provider = ?2 AND source_session = ?3",
+            params![next.terminal_id.as_str(), provider, source_session, journal_identity],
+        )?;
         anyhow::ensure!(generation > 0, "agent session generation is not positive");
         if superseded {
             if rebuilding_generation_history {
@@ -220,6 +233,20 @@ fn record_agent_session_generation(
         return Ok(());
     }
 
+    if !rebuilding_generation_history
+        && agent_session_identity_precedes_record(
+            transaction,
+            &journal_identity,
+            next.committed_sequence,
+        )?
+    {
+        anyhow::bail!(
+            "agent {} report session {:?} belongs to a compacted superseded generation",
+            next.source,
+            next.source_session,
+        );
+    }
+
     if let Some((active_provider, active_session, active_generation)) = active {
         anyhow::ensure!(active_generation > 0, "active agent session generation is not positive");
         transaction.execute(
@@ -233,10 +260,19 @@ fn record_agent_session_generation(
     let generation = next_agent_session_generation(transaction, &next.terminal_id)?;
     transaction.execute(
         "INSERT INTO resource_agent_session_generations(
-           terminal_id, provider, source_session, generation, superseded
-         ) VALUES(?1, ?2, ?3, ?4, 0)",
-        params![next.terminal_id.as_str(), provider, source_session, generation],
+           terminal_id, provider, source_session, generation, superseded, journal_identity
+         ) VALUES(?1, ?2, ?3, ?4, 0, ?5)",
+        params![
+            next.terminal_id.as_str(),
+            provider,
+            source_session,
+            generation,
+            journal_identity,
+        ],
     )?;
+    if !rebuilding_generation_history {
+        compact_agent_session_generations(transaction, Some(&next.terminal_id))?;
+    }
     Ok(())
 }
 
@@ -260,6 +296,88 @@ fn next_agent_session_generation(
     maximum.checked_add(1).context("agent session generation exhausted")
 }
 
+fn agent_session_identity_precedes_record(
+    transaction: &Transaction<'_>,
+    journal_identity: &str,
+    committed_sequence: u64,
+) -> anyhow::Result<bool> {
+    let committed_sequence =
+        i64::try_from(committed_sequence).context("agent journal sequence exceeds SQLite range")?;
+    transaction
+        .query_row(
+            "SELECT EXISTS(
+               SELECT 1 FROM journal_subject_index
+               WHERE kind = 'agent_session' AND id = ?1 AND sequence < ?2
+             )",
+            params![journal_identity, committed_sequence],
+            |row| row.get::<_, bool>(0),
+        )
+        .map_err(Into::into)
+}
+
+fn ensure_agent_session_journal_identity(
+    transaction: &Transaction<'_>,
+    next: &AgentProjectionRow,
+    provider: &str,
+    source_session: &str,
+) -> anyhow::Result<String> {
+    let subject = crate::agent_hooks::agent_session_subject(
+        next.terminal_id.as_str(),
+        provider,
+        source_session,
+    );
+    let sequence = i64::try_from(next.committed_sequence)
+        .context("agent journal sequence exceeds SQLite range")?;
+    transaction.execute(
+        "INSERT OR IGNORE INTO journal_subject_index(sequence, kind, id)
+         VALUES(?1, ?2, ?3)",
+        params![sequence, subject.kind.as_str(), subject.id.as_str()],
+    )?;
+    Ok(subject.id)
+}
+
+fn compact_agent_session_generations(
+    transaction: &Transaction<'_>,
+    terminal_id: Option<&TerminalPublicId>,
+) -> anyhow::Result<()> {
+    let retention = i64::try_from(AGENT_SESSION_GENERATION_RETENTION)?;
+    if let Some(terminal_id) = terminal_id {
+        transaction.execute(
+            "DELETE FROM resource_agent_session_generations
+             WHERE terminal_id = ?1
+               AND superseded = 1
+               AND journal_identity IS NOT NULL
+               AND generation <= COALESCE((
+                 SELECT generation
+                 FROM resource_agent_session_generations
+                 WHERE terminal_id = ?1
+                   AND superseded = 1
+                   AND journal_identity IS NOT NULL
+                 ORDER BY generation DESC
+                 LIMIT 1 OFFSET ?2
+               ), 0)",
+            params![terminal_id.as_str(), retention],
+        )?;
+    } else {
+        transaction.execute(
+            "DELETE FROM resource_agent_session_generations
+             WHERE rowid IN (
+               SELECT rowid FROM (
+                 SELECT rowid,
+                        ROW_NUMBER() OVER (
+                          PARTITION BY terminal_id ORDER BY generation DESC
+                        ) AS retained_rank
+                 FROM resource_agent_session_generations
+                 WHERE superseded = 1 AND journal_identity IS NOT NULL
+               )
+               WHERE retained_rank > ?1
+             )",
+            [retention],
+        )?;
+    }
+    Ok(())
+}
+
 fn record_superseded_agent_session_generation(
     transaction: &Transaction<'_>,
     next: &AgentProjectionRow,
@@ -268,6 +386,12 @@ fn record_superseded_agent_session_generation(
         return Ok(());
     };
     let provider = agent_generation_provider(next.provider.as_deref());
+    let journal_identity = ensure_agent_session_journal_identity(
+        transaction,
+        next,
+        provider,
+        source_session,
+    )?;
     let exists = transaction.query_row(
         "SELECT EXISTS(
            SELECT 1 FROM resource_agent_session_generations
@@ -277,14 +401,26 @@ fn record_superseded_agent_session_generation(
         |row| row.get::<_, bool>(0),
     )?;
     if exists {
+        transaction.execute(
+            "UPDATE resource_agent_session_generations
+             SET journal_identity = COALESCE(journal_identity, ?4)
+             WHERE terminal_id = ?1 AND provider = ?2 AND source_session = ?3",
+            params![next.terminal_id.as_str(), provider, source_session, journal_identity],
+        )?;
         return Ok(());
     }
     let generation = next_agent_session_generation(transaction, &next.terminal_id)?;
     transaction.execute(
         "INSERT INTO resource_agent_session_generations(
-           terminal_id, provider, source_session, generation, superseded
-         ) VALUES(?1, ?2, ?3, ?4, 1)",
-        params![next.terminal_id.as_str(), provider, source_session, generation],
+           terminal_id, provider, source_session, generation, superseded, journal_identity
+         ) VALUES(?1, ?2, ?3, ?4, 1, ?5)",
+        params![
+            next.terminal_id.as_str(),
+            provider,
+            source_session,
+            generation,
+            journal_identity,
+        ],
     )?;
     Ok(())
 }
@@ -340,6 +476,9 @@ pub(super) fn rebuild_agent_projections_from_journal(
             "agent projection journal rebuild range {sequence}..={target} is invalid for head {head_sequence}"
         );
         replay_agent_projection_journal_page(&tx, sequence, target, allow_archived_kind_backfill)?;
+    }
+    if !agent_projection_rebuild_active(&tx)? {
+        compact_agent_session_generations(&tx, None)?;
     }
     tx.commit()?;
     Ok(())
@@ -644,10 +783,17 @@ fn append_prejournal_projection_migration(
     let event_id = format!("event_agent_projection_migration_{}", encode_lower_hex(&digest));
     let producer =
         JournalProducer { kind: "migration".into(), id: PREJOURNAL_MIGRATION_PRODUCER_ID.into() };
-    let subjects = vec![
+    let mut subjects = vec![
         JournalSubject { kind: "session".into(), id: session_id },
         JournalSubject { kind: "terminal".into(), id: projection.terminal_id.to_string() },
     ];
+    if let Some(source_session) = projection.source_session.as_deref() {
+        subjects.push(crate::agent_hooks::agent_session_subject(
+            projection.terminal_id.as_str(),
+            agent_generation_provider(projection.provider.as_deref()),
+            source_session,
+        ));
+    }
     let result = projection
         .result
         .clone()
@@ -938,12 +1084,7 @@ fn hook_projection_is_nested_agent(payload: &Value) -> bool {
     let Some(normalized) = payload.get("normalized").and_then(Value::as_object) else {
         return false;
     };
-    normalized.get("agent_depth").and_then(Value::as_u64).is_some_and(|depth| depth > 0)
-        || normalized.get("parent_agent_node_id").is_some()
-        || normalized
-            .get("agent_relation")
-            .and_then(Value::as_str)
-            .is_some_and(|relation| relation != "root")
+    crate::agent_hooks::normalized_agent_is_nested(normalized)
 }
 
 fn lifecycle_key(value: &str) -> String {
@@ -970,6 +1111,9 @@ fn merge_projection(
         return current;
     }
     if next.begins_session {
+        if current.source_session.is_some() && next.source_session.is_none() {
+            return current;
+        }
         return next;
     }
     let different_structured_socket_session = current.source == "socket"

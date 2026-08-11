@@ -17,6 +17,7 @@ const NORMALIZED_TEXT_BYTES: usize = 8 * 1024;
 const MAX_OPAQUE_IDENTIFIER_BYTES: usize = 512;
 const MAX_LABEL_BYTES: usize = 128;
 const REDACTED_AGENT_VALUE: &str = "[redacted]";
+const AGENT_SESSION_SUBJECT_FORMAT: &[u8] = b"cmux.agent-session.v1\0";
 
 const AGENT_EVENT_KINDS: [&str; 12] = [
     "agent.session.started",
@@ -47,9 +48,16 @@ pub fn agent_hook_journal_ingress(
     add_agent_topology(source, native_event, terminal_id.as_ref(), &mut normalized);
     let kind = semantic_kind(source, native_event, &normalized);
     let native = canonical_native_payload(source, native_event, &normalized);
-    let mut subjects = Vec::with_capacity(4);
-    if let Some(terminal_id) = terminal_id {
+    let mut subjects = Vec::with_capacity(5);
+    if let Some(terminal_id) = terminal_id.as_ref() {
         subjects.push(JournalSubject { kind: "terminal".into(), id: terminal_id.to_string() });
+    }
+    if let Some(terminal_id) = terminal_id.as_ref()
+        && !normalized_agent_is_nested(&normalized)
+        && let Some(source_session) =
+        normalized.get("agent_session_id").and_then(Value::as_str).filter(|value| !value.is_empty())
+    {
+        subjects.push(agent_session_subject(terminal_id.as_str(), source, source_session));
     }
     for (field, kind) in [
         ("agent_tree_id", "agent_tree"),
@@ -78,6 +86,36 @@ pub fn agent_hook_journal_ingress(
         causation_id: None,
         correlation_id: None,
     })
+}
+
+pub(crate) fn agent_session_subject(
+    terminal_id: &str,
+    provider: &str,
+    source_session: &str,
+) -> JournalSubject {
+    let mut digest = Sha256::new();
+    digest.update(AGENT_SESSION_SUBJECT_FORMAT);
+    for component in [terminal_id, provider, source_session] {
+        digest.update((component.len() as u64).to_be_bytes());
+        digest.update(component.as_bytes());
+    }
+    let digest = digest.finalize();
+    let mut id = String::with_capacity(digest.len() * 2);
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    for byte in digest.iter().copied() {
+        id.push(char::from(HEX[usize::from(byte >> 4)]));
+        id.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    JournalSubject { kind: "agent_session".into(), id }
+}
+
+pub(crate) fn normalized_agent_is_nested(normalized: &Map<String, Value>) -> bool {
+    normalized.get("agent_depth").and_then(Value::as_u64).is_some_and(|depth| depth > 0)
+        || normalized.get("parent_agent_node_id").is_some()
+        || normalized
+            .get("agent_relation")
+            .and_then(Value::as_str)
+            .is_some_and(|relation| relation != "root")
 }
 
 fn redact_agent_native(native_event: &str, mut native: Value) -> Value {
@@ -1215,6 +1253,9 @@ mod tests {
         assert_eq!(child.payload["normalized"]["native_child_agent_id"], "child-b");
         assert_eq!(child.payload["normalized"]["agent_relation"], "explicit");
         assert_eq!(root.payload["normalized"]["agent_relation"], "root");
+        for nested in [&root, &parent, &child, &completed] {
+            assert!(!nested.subjects.iter().any(|subject| subject.kind == "agent_session"));
+        }
         assert_eq!(
             parent.payload["normalized"]["parent_agent_node_id"],
             root.payload["normalized"]["agent_node_id"]
@@ -1399,7 +1440,7 @@ mod tests {
     #[test]
     fn terminal_identity_is_a_subject_and_unknown_events_remain_canonical() {
         let terminal = "term_00000000000000000000000000000001";
-        let native = json!({"future":true});
+        let native = json!({"future":true,"session_id":"future-session"});
         let ingress = agent_hook_journal_ingress(
             "future-agent",
             "NewLifecycle",
@@ -1420,6 +1461,11 @@ mod tests {
         );
         assert!(ingress.subjects.iter().any(|subject| subject.kind == "agent_tree"));
         assert!(ingress.subjects.iter().any(|subject| subject.kind == "agent_node"));
+        assert!(
+            ingress
+                .subjects
+                .contains(&agent_session_subject(terminal, "future-agent", "future-session"))
+        );
     }
 
     #[test]
