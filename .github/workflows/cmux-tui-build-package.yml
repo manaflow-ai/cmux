@@ -480,6 +480,13 @@ jobs:
           cd ../cmux-tui
           cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target x86_64-pc-windows-gnu
 
+      - name: Run native Windows tests
+        shell: bash
+        run: |
+          unset CMUX_GHOSTTY_SRC
+          cd cmux-tui
+          cargo test --workspace --locked --target x86_64-pc-windows-gnu
+
       - name: Verify long Windows state path
         shell: bash
         run: |

@@ -5,7 +5,6 @@ use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::net::Shutdown;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
 
@@ -22,8 +21,10 @@ use cmux_tui_core::platform::transport;
 use cmux_tui_core::{Mux, SurfaceOptions};
 use fs4::FileExt;
 use serde_json::{Value, json};
+use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
 use windows_sys::Win32::System::Threading::{
-    CREATE_BREAKAWAY_FROM_JOB, CREATE_NEW_PROCESS_GROUP, DETACHED_PROCESS, WaitForSingleObject,
+    CREATE_BREAKAWAY_FROM_JOB, CREATE_NEW_PROCESS_GROUP, DETACHED_PROCESS, OpenProcess,
+    PROCESS_TERMINATE, SYNCHRONIZE, TerminateProcess, WaitForSingleObject,
 };
 
 const MAX_CARRIER_FRAME_BYTES: usize = 65_535;
@@ -33,7 +34,6 @@ const OWNER_START_TIMEOUT: Duration = Duration::from_secs(10);
 const OWNER_START_LOCK_TIMEOUT: Duration = Duration::from_secs(15);
 const OWNER_LOG_TAIL_BYTES: u64 = 8 * 1024;
 const OWNER_READY: &str = "cmux-tui-windows-owner-ready-v1";
-const SHUTDOWN_REQUEST_MARKERS: [&[u8]; 2] = [b"shutdown-daemon", b"session.shutdown"];
 // WSAENETDOWN is how Windows reports connect() against an orphaned AF_UNIX path.
 const WINDOWS_STALE_AF_UNIX_SOCKET_ERROR: i32 = 10_050;
 const REMOTE_COMMANDS: &[&str] = &[
@@ -51,6 +51,43 @@ const REMOTE_COMMANDS: &[&str] = &[
     "remote-stop",
     "install-self",
 ];
+
+#[derive(Default)]
+struct ShutdownFrameDetector {
+    pending: Vec<u8>,
+    discarding_oversize: bool,
+}
+
+impl ShutdownFrameDetector {
+    fn observe(&mut self, bytes: &[u8]) -> bool {
+        let mut shutdown = false;
+        for &byte in bytes {
+            if byte == b'\n' {
+                if !self.discarding_oversize {
+                    shutdown |= serde_json::from_slice::<Value>(&self.pending)
+                        .is_ok_and(|frame| is_shutdown_request(&frame));
+                }
+                self.pending.clear();
+                self.discarding_oversize = false;
+            } else if !self.discarding_oversize {
+                if self.pending.len() < MAX_CARRIER_FRAME_BYTES {
+                    self.pending.push(byte);
+                } else {
+                    self.pending.clear();
+                    self.discarding_oversize = true;
+                }
+            }
+        }
+        shutdown
+    }
+}
+
+fn is_shutdown_request(frame: &Value) -> bool {
+    frame.get("cmd").and_then(Value::as_str) == Some("shutdown-daemon")
+        || (frame.get("protocol").and_then(Value::as_str) == Some("cmux.protocol/2")
+            && frame.get("type").and_then(Value::as_str) == Some("request")
+            && frame.get("operation").and_then(Value::as_str) == Some("session.shutdown"))
+}
 
 pub fn is_remote_invocation(args: &[String]) -> bool {
     args.first().is_some_and(|argument| REMOTE_COMMANDS.contains(&argument.as_str()))
@@ -94,7 +131,61 @@ pub(crate) struct ManagedSshConnection {
     pub lease: ManagedSshLease,
 }
 
-type ActiveSshProcesses = Arc<Mutex<Vec<Arc<Mutex<Child>>>>>;
+type ActiveSshProcesses = Arc<Mutex<ActiveSshProcessRegistry>>;
+
+#[derive(Default)]
+struct ActiveSshProcessRegistry {
+    closing: bool,
+    processes: Vec<Arc<OwnedSshProcessHandle>>,
+}
+
+struct OwnedSshProcessHandle(HANDLE);
+
+// A Windows kernel process handle can be used from any thread until its
+// owning wrapper closes it.
+unsafe impl Send for OwnedSshProcessHandle {}
+unsafe impl Sync for OwnedSshProcessHandle {}
+
+impl OwnedSshProcessHandle {
+    fn open(child: &Child) -> io::Result<Self> {
+        // SAFETY: the process id comes from a live child and the returned
+        // handle is owned by this wrapper.
+        let handle = unsafe { OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, 0, child.id()) };
+        if handle.is_null() { Err(io::Error::last_os_error()) } else { Ok(Self(handle)) }
+    }
+
+    fn terminate_and_wait(&self) {
+        // SAFETY: the handle remains valid for both synchronous calls.
+        unsafe {
+            let _ = TerminateProcess(self.0, 1);
+            let _ = WaitForSingleObject(self.0, 5_000);
+        }
+    }
+}
+
+impl Drop for OwnedSshProcessHandle {
+    fn drop(&mut self) {
+        // SAFETY: this wrapper owns the process handle.
+        unsafe {
+            CloseHandle(self.0);
+        }
+    }
+}
+
+fn register_ssh_process(
+    processes: &ActiveSshProcesses,
+    cancellation: &crate::machine_runtime::MachineConnectCancellation,
+    process: Arc<OwnedSshProcessHandle>,
+) -> anyhow::Result<bool> {
+    let mut active =
+        processes.lock().map_err(|_| anyhow!("Windows SSH process registry is unavailable"))?;
+    if active.closing || cancellation.is_cancelled() {
+        Ok(false)
+    } else {
+        active.processes.push(process);
+        Ok(true)
+    }
+}
 
 pub(crate) struct ManagedSshLease {
     cancellation: Arc<crate::machine_runtime::MachineConnectCancellation>,
@@ -281,7 +372,7 @@ fn start_managed_ssh_bridge(
     let listener = transport::listen(&socket_path).with_context(|| {
         format!("could not create Windows SSH bridge {}", socket_path.display())
     })?;
-    let processes: ActiveSshProcesses = Arc::new(Mutex::new(Vec::new()));
+    let processes: ActiveSshProcesses = Arc::new(Mutex::new(ActiveSshProcessRegistry::default()));
     let diagnostic = Arc::new(Mutex::new(String::new()));
     let worker_options = options.clone();
     let worker_cancellation = Arc::clone(&cancellation);
@@ -356,20 +447,28 @@ fn proxy_local_connection_over_ssh(
     let mut ssh_stdin = child.stdin.take().context("Windows OpenSSH stdin is unavailable")?;
     let mut ssh_stdout = child.stdout.take().context("Windows OpenSSH stdout is unavailable")?;
     let mut ssh_stderr = child.stderr.take().context("Windows OpenSSH stderr is unavailable")?;
-    let child = Arc::new(Mutex::new(child));
-    processes
-        .lock()
-        .map_err(|_| anyhow!("Windows SSH process registry is unavailable"))?
-        .push(Arc::clone(&child));
+    let process_handle = match OwnedSshProcessHandle::open(&child) {
+        Ok(handle) => Arc::new(handle),
+        Err(error) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(error).context("could not retain the Windows OpenSSH process handle");
+        }
+    };
+    let registered = register_ssh_process(processes, cancellation, Arc::clone(&process_handle))?;
+    if !registered {
+        let _ = child.kill();
+        let _ = child.wait();
+        anyhow::bail!("machine connection was canceled");
+    }
 
     let mut upload = local.try_clone_box()?;
     let upload_shutdown = local.try_clone_box()?;
-    let saw_shutdown = Arc::new(AtomicBool::new(false));
-    let upload_saw_shutdown = Arc::clone(&saw_shutdown);
+    let (shutdown_tx, shutdown_rx) = mpsc::sync_channel(1);
     let upload_thread =
         std::thread::Builder::new().name("windows-ssh-upload".into()).spawn(move || {
             let mut buffer = [0_u8; 8 * 1024];
-            let mut tail = Vec::new();
+            let mut shutdown_detector = ShutdownFrameDetector::default();
             loop {
                 let size = match upload.read(&mut buffer) {
                     Ok(0) => break,
@@ -377,15 +476,8 @@ fn proxy_local_connection_over_ssh(
                     Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
                     Err(_) => break,
                 };
-                tail.extend_from_slice(&buffer[..size]);
-                if SHUTDOWN_REQUEST_MARKERS
-                    .iter()
-                    .any(|marker| tail.windows(marker.len()).any(|bytes| bytes == *marker))
-                {
-                    upload_saw_shutdown.store(true, Ordering::Release);
-                }
-                if tail.len() > 64 {
-                    tail.drain(..tail.len() - 64);
+                if shutdown_detector.observe(&buffer[..size]) {
+                    let _ = shutdown_tx.try_send(());
                 }
                 if ssh_stdin.write_all(&buffer[..size]).is_err() || ssh_stdin.flush().is_err() {
                     break;
@@ -419,13 +511,9 @@ fn proxy_local_connection_over_ssh(
     let _ = local.shutdown(Shutdown::Both);
     let _ = upload_thread.join();
     let _ = stderr_thread.join();
-    let exit_status = child
-        .lock()
-        .map_err(|_| anyhow!("Windows SSH process state is unavailable"))?
-        .wait()
-        .context("could not wait for Windows OpenSSH client")?;
+    let exit_status = child.wait().context("could not wait for Windows OpenSSH client")?;
     if let Ok(mut active) = processes.lock() {
-        active.retain(|candidate| !Arc::ptr_eq(candidate, &child));
+        active.processes.retain(|candidate| !Arc::ptr_eq(candidate, &process_handle));
     }
     let connection_diagnostic =
         connection_diagnostic.lock().map(|bytes| sanitize_diagnostic(&bytes)).unwrap_or_default();
@@ -434,7 +522,7 @@ fn proxy_local_connection_over_ssh(
     {
         *value = connection_diagnostic.clone();
     }
-    if saw_shutdown.load(Ordering::Acquire) {
+    if shutdown_rx.try_recv().is_ok() {
         cancellation.cancel();
     }
     if !exit_status.success() {
@@ -454,12 +542,26 @@ fn parse_ssh_destination(destination: &str) -> anyhow::Result<(String, Option<u1
         !destination.starts_with('-') && !destination.chars().any(char::is_whitespace),
         "SSH destination is invalid"
     );
+    let (user_prefix, host_port) =
+        destination.rsplit_once('@').map_or(("", destination), |(user, host)| (user, host));
+    let normalized = if !host_port.starts_with('[') && host_port.matches(':').count() >= 2 {
+        if user_prefix.is_empty() {
+            format!("[{host_port}]")
+        } else {
+            format!("{user_prefix}@[{host_port}]")
+        }
+    } else {
+        destination.to_owned()
+    };
     let url =
-        url::Url::parse(&format!("ssh://{destination}")).context("SSH destination is invalid")?;
+        url::Url::parse(&format!("ssh://{normalized}")).context("SSH destination is invalid")?;
     anyhow::ensure!(url.password().is_none(), "SSH destination cannot contain a password");
     anyhow::ensure!(matches!(url.path(), "" | "/"), "SSH destination cannot contain a path");
-    let host = url.host_str().context("SSH destination must contain a host")?;
-    let host = if host.contains(':') { format!("[{host}]") } else { host.to_owned() };
+    let host = match url.host().context("SSH destination must contain a host")? {
+        url::Host::Domain(host) => host.to_owned(),
+        url::Host::Ipv4(host) => host.to_string(),
+        url::Host::Ipv6(host) => host.to_string(),
+    };
     let destination =
         if url.username().is_empty() { host } else { format!("{}@{host}", url.username()) };
     Ok((destination, url.port()))
@@ -478,13 +580,20 @@ fn validate_remote_component(value: &str, label: &str) -> anyhow::Result<()> {
 
 fn windows_remote_relay_command(options: &ManagedSshOptions) -> anyhow::Result<String> {
     validate_managed_ssh_options(options)?;
-    let mut command =
-        format!("{} remote-relay --stdio --session {}", options.remote_binary, options.session);
+    let mut command = format!(
+        "{} remote-relay --stdio --session {}",
+        quote_windows_command_argument(&options.remote_binary),
+        quote_windows_command_argument(&options.session)
+    );
     if let Some(state_dir) = &options.remote_state_dir {
         command.push_str(" --state-dir ");
-        command.push_str(state_dir);
+        command.push_str(&quote_windows_command_argument(state_dir));
     }
     Ok(command)
+}
+
+fn quote_windows_command_argument(value: &str) -> String {
+    format!("\"{value}\"")
 }
 
 fn wake_ssh_listener(path: &Path) {
@@ -494,12 +603,15 @@ fn wake_ssh_listener(path: &Path) {
 }
 
 fn kill_active_ssh_processes(processes: &ActiveSshProcesses) {
-    let children = processes.lock().map(|value| value.clone()).unwrap_or_default();
-    for child in children {
-        if let Ok(mut child) = child.lock() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
+    let active = processes
+        .lock()
+        .map(|mut registry| {
+            registry.closing = true;
+            std::mem::take(&mut registry.processes)
+        })
+        .unwrap_or_default();
+    for process in active {
+        process.terminate_and_wait();
     }
 }
 
@@ -1052,4 +1164,90 @@ fn copy_windows_carrier_download(
 
 fn windows_daemon_name() -> String {
     std::env::var("COMPUTERNAME").unwrap_or_else(|_| "Windows".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shutdown_detector_requires_a_complete_exact_control_frame() {
+        let mut detector = ShutdownFrameDetector::default();
+        let ordinary = json!({
+            "id": 1,
+            "cmd": "terminal.input.write",
+            "params": {"text": "shutdown-daemon session.shutdown"},
+        })
+        .to_string();
+        assert!(!detector.observe(format!("{ordinary}\n").as_bytes()));
+
+        let public = json!({
+            "protocol": "cmux.protocol/2",
+            "type": "request",
+            "id": "stop",
+            "operation": "session.shutdown",
+            "params": {"force": true},
+        })
+        .to_string();
+        let split = public.len() / 2;
+        assert!(!detector.observe(&public.as_bytes()[..split]));
+        assert!(detector.observe(format!("{}\n", &public[split..]).as_bytes()));
+
+        assert!(detector.observe(b"{\"id\":2,\"cmd\":\"shutdown-daemon\"}\n"));
+    }
+
+    #[test]
+    fn native_ssh_uses_unbracketed_ipv6_hosts() {
+        assert_eq!(
+            parse_ssh_destination("user@[2001:db8::1]:2222").unwrap(),
+            ("user@2001:db8::1".into(), Some(2222))
+        );
+        assert_eq!(parse_ssh_destination("2001:db8::1").unwrap(), ("2001:db8::1".into(), None));
+    }
+
+    #[test]
+    fn windows_relay_command_quotes_expanding_paths() {
+        let options = ManagedSshOptions {
+            destination: "buildbox".into(),
+            session: "main".into(),
+            remote_binary: r"%LOCALAPPDATA%\cmux\bin\cmux-tui.exe".into(),
+            remote_state_dir: Some(r"%LOCALAPPDATA%\cmux\remote".into()),
+            ssh_args: Vec::new(),
+            connect_timeout: Duration::from_secs(30),
+        };
+
+        assert_eq!(
+            windows_remote_relay_command(&options).unwrap(),
+            r#""%LOCALAPPDATA%\cmux\bin\cmux-tui.exe" remote-relay --stdio --session "main" --state-dir "%LOCALAPPDATA%\cmux\remote""#
+        );
+    }
+
+    #[test]
+    fn closing_registry_rejects_late_process_registration() {
+        let processes: ActiveSshProcesses =
+            Arc::new(Mutex::new(ActiveSshProcessRegistry::default()));
+        let cancellation = Arc::new(crate::machine_runtime::MachineConnectCancellation::default());
+        let handle = unsafe { OpenProcess(SYNCHRONIZE, 0, std::process::id()) };
+        assert!(!handle.is_null());
+        let process = Arc::new(OwnedSshProcessHandle(handle));
+        let mut held_registry = processes.lock().unwrap();
+        let registering_processes = Arc::clone(&processes);
+        let registering_cancellation = Arc::clone(&cancellation);
+        let (started_tx, started_rx) = mpsc::sync_channel(1);
+        let (result_tx, result_rx) = mpsc::sync_channel(1);
+        let registering = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            let result =
+                register_ssh_process(&registering_processes, &registering_cancellation, process);
+            result_tx.send(result).unwrap();
+        });
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        cancellation.cancel();
+        held_registry.closing = true;
+        drop(held_registry);
+
+        assert!(!result_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap());
+        registering.join().unwrap();
+        assert!(processes.lock().unwrap().processes.is_empty());
+    }
 }

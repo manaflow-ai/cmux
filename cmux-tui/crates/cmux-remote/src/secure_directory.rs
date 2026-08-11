@@ -53,10 +53,11 @@ mod windows {
     use std::io;
     use std::mem::size_of;
     use std::os::windows::ffi::OsStrExt;
-    use std::os::windows::fs::MetadataExt;
     use std::path::{Component, Path, PathBuf};
 
-    use windows_sys::Win32::Foundation::{CloseHandle, ERROR_INSUFFICIENT_BUFFER, HANDLE};
+    use windows_sys::Win32::Foundation::{
+        CloseHandle, ERROR_INSUFFICIENT_BUFFER, HANDLE, INVALID_HANDLE_VALUE,
+    };
     use windows_sys::Win32::Security::Authorization::{SE_FILE_OBJECT, SetNamedSecurityInfoW};
     use windows_sys::Win32::Security::{
         ACCESS_ALLOWED_ACE, ACL, ACL_REVISION, AddAccessAllowedAceEx, CONTAINER_INHERIT_ACE,
@@ -64,15 +65,19 @@ mod windows {
         OBJECT_INHERIT_ACE, PROTECTED_DACL_SECURITY_INFORMATION, PSID, TOKEN_QUERY, TOKEN_USER,
         TokenUser,
     };
-    use windows_sys::Win32::Storage::FileSystem::{FILE_ALL_ACCESS, FILE_ATTRIBUTE_REPARSE_POINT};
+    use windows_sys::Win32::Storage::FileSystem::{
+        BY_HANDLE_FILE_INFORMATION, CreateFileW, FILE_ALL_ACCESS, FILE_ATTRIBUTE_DIRECTORY,
+        FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+        FILE_READ_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE, GetFileInformationByHandle,
+        OPEN_EXISTING,
+    };
     use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
     use super::DirectoryAccess;
 
     pub(super) fn ensure_secure_directory(path: &Path, access: DirectoryAccess) -> io::Result<()> {
         validate_path(path)?;
-        fs::create_dir_all(path)?;
-        validate_local_app_data_path(path)?;
+        create_local_app_data_path(path)?;
         if matches!(access, DirectoryAccess::ManagedOwnerOnly) {
             restrict_to_current_user(path)?;
         }
@@ -89,42 +94,96 @@ mod windows {
         Ok(())
     }
 
-    fn validate_local_app_data_path(path: &Path) -> io::Result<()> {
+    fn create_local_app_data_path(path: &Path) -> io::Result<()> {
         let local_app_data = std::env::var_os("LOCALAPPDATA")
             .map(PathBuf::from)
             .ok_or_else(|| invalid_path(path, "requires LOCALAPPDATA"))?;
+        validate_path(&local_app_data)?;
         let trusted_root = local_app_data.canonicalize()?;
-        let resolved = path.canonicalize()?;
-        if !path_starts_with_case_insensitive(&resolved, &trusted_root) {
-            return Err(invalid_path(path, "must stay within LOCALAPPDATA"));
-        }
-        let relative = resolved.strip_prefix(&trusted_root).map_err(|_| {
-            invalid_path(path, "could not resolve relative to the trusted profile directory")
-        })?;
-        let mut current = trusted_root;
-        for component in relative.components() {
+        let relative = relative_components_case_insensitive(path, &local_app_data)
+            .or_else(|| relative_components_case_insensitive(path, &trusted_root))
+            .ok_or_else(|| invalid_path(path, "must stay within LOCALAPPDATA"))?;
+        let mut current = trusted_root.clone();
+        let mut open_directories = vec![open_directory_no_follow(&trusted_root, path)?];
+        for component in relative {
             current.push(component);
-            let metadata = fs::symlink_metadata(&current)?;
-            if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-                return Err(invalid_path(path, "contains a reparse-point component"));
+            match fs::create_dir(&current) {
+                Ok(()) => {}
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                    return Err(invalid_path(path, "a validated parent directory disappeared"));
+                }
+                Err(error) => return Err(error),
             }
-            if !metadata.is_dir() {
-                return Err(invalid_path(path, "contains a non-directory component"));
-            }
+            open_directories.push(open_directory_no_follow(&current, path)?);
         }
         Ok(())
     }
 
-    fn path_starts_with_case_insensitive(path: &Path, root: &Path) -> bool {
-        let mut path = path.components();
-        root.components().all(|expected| {
-            path.next().is_some_and(|actual| {
+    struct DirectoryHandle(HANDLE);
+
+    impl Drop for DirectoryHandle {
+        fn drop(&mut self) {
+            unsafe {
+                CloseHandle(self.0);
+            }
+        }
+    }
+
+    fn open_directory_no_follow(
+        directory: &Path,
+        requested_path: &Path,
+    ) -> io::Result<DirectoryHandle> {
+        let mut wide = directory.as_os_str().encode_wide().collect::<Vec<_>>();
+        wide.push(0);
+        let handle = unsafe {
+            CreateFileW(
+                wide.as_ptr(),
+                FILE_READ_ATTRIBUTES,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                std::ptr::null(),
+                OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+                std::ptr::null_mut(),
+            )
+        };
+        if handle == INVALID_HANDLE_VALUE {
+            return Err(io::Error::last_os_error());
+        }
+        let handle = DirectoryHandle(handle);
+        let mut information = unsafe { std::mem::zeroed::<BY_HANDLE_FILE_INFORMATION>() };
+        if unsafe { GetFileInformationByHandle(handle.0, &mut information) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if information.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return Err(invalid_path(requested_path, "contains a reparse-point component"));
+        }
+        if information.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY == 0 {
+            return Err(invalid_path(requested_path, "contains a non-directory component"));
+        }
+        Ok(handle)
+    }
+
+    fn relative_components_case_insensitive(path: &Path, root: &Path) -> Option<Vec<PathBuf>> {
+        let path_components = path.components().collect::<Vec<_>>();
+        let root_components = root.components().collect::<Vec<_>>();
+        if path_components.len() < root_components.len()
+            || !root_components.iter().zip(&path_components).all(|(expected, actual)| {
                 actual
                     .as_os_str()
                     .to_string_lossy()
                     .eq_ignore_ascii_case(&expected.as_os_str().to_string_lossy())
             })
-        })
+        {
+            return None;
+        }
+        path_components[root_components.len()..]
+            .iter()
+            .map(|component| match component {
+                Component::Normal(value) => Some(PathBuf::from(value)),
+                _ => None,
+            })
+            .collect()
     }
 
     fn restrict_to_current_user(path: &Path) -> io::Result<()> {
@@ -229,6 +288,59 @@ mod windows {
             io::ErrorKind::PermissionDenied,
             format!("insecure state directory {}: {reason}", path.display()),
         )
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use std::fs;
+    use std::path::PathBuf;
+    use std::process::Command;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use super::{DirectoryAccess, ensure_secure_directory};
+
+    #[test]
+    fn rejects_an_outside_root_before_creating_it() {
+        let local_app_data = PathBuf::from(std::env::var_os("LOCALAPPDATA").unwrap());
+        let outside = local_app_data.parent().unwrap().join(format!(
+            "cmux-outside-root-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+
+        let result = ensure_secure_directory(&outside, DirectoryAccess::ManagedOwnerOnly);
+
+        assert!(result.is_err());
+        assert!(!outside.exists(), "an invalid state path created an outside-root directory");
+    }
+
+    #[test]
+    fn rejects_a_junction_without_creating_through_it() {
+        let local_app_data = PathBuf::from(std::env::var_os("LOCALAPPDATA").unwrap());
+        let suffix = format!(
+            "{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        );
+        let base = local_app_data.join(format!("cmux-secure-junction-{suffix}"));
+        ensure_secure_directory(&base, DirectoryAccess::OwnerControlled).unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let junction = base.join("redirect");
+        let command =
+            format!("mklink /J \"{}\" \"{}\" >NUL", junction.display(), outside.path().display());
+        assert!(
+            Command::new("cmd.exe").args(["/D", "/S", "/C", &command]).status().unwrap().success()
+        );
+        let through_junction = junction.join("created");
+
+        let result = ensure_secure_directory(&through_junction, DirectoryAccess::OwnerControlled);
+        let escaped = outside.path().join("created").exists();
+        fs::remove_dir(&junction).unwrap();
+        fs::remove_dir(&base).unwrap();
+
+        assert!(result.is_err());
+        assert!(!escaped, "a rejected junction created a directory outside LOCALAPPDATA");
     }
 }
 

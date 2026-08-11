@@ -2133,16 +2133,27 @@ fn connect_provider_machine(
         anyhow::bail!("machine connection was canceled");
     }
     let open = OpenConnection { client, connection_id, machine_id: machine.id };
-    let mut connections = match registry.lock() {
-        Ok(connections) => connections,
-        Err(_) => {
+    let published = cancellation.with_active(|| {
+        registry
+            .lock()
+            .map(|mut connections| {
+                connections.insert(key, open.clone());
+            })
+            .map_err(|_| ())
+    });
+    match published {
+        Some(Ok(())) => {}
+        Some(Err(())) => {
             session.begin_shutdown();
-            let _ = open.client.close_machine(open.connection_id);
+            let _ = open.client.close_machine(open.connection_id.clone());
             anyhow::bail!(localization::catalog().sidebar.machine_provider_update_failed);
         }
-    };
-    connections.insert(key, open.clone());
-    drop(connections);
+        None => {
+            session.begin_shutdown();
+            let _ = open.client.close_machine(open.connection_id.clone());
+            anyhow::bail!("machine connection was canceled");
+        }
+    }
     Ok(MachineConnection {
         session,
         _lease: Some(Box::new(ProviderMachineConnectionLease { open, key, registry })),
