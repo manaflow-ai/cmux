@@ -4365,67 +4365,218 @@ mod tests {
         }
     }
 
-    #[derive(Default)]
-    struct FakeReapControlState {
-        waiting: bool,
-        release_requested: bool,
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    enum FakeProcessPhase {
+        #[default]
+        Running,
+        Crashed,
+        Terminated,
+        Reaped(i32),
+    }
+
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    enum FakeReapDisposition {
+        #[default]
+        Released,
+        Held,
     }
 
     #[derive(Default)]
-    struct FakeReapControl {
-        state: Mutex<FakeReapControlState>,
+    struct FakeProcessLifecycleState {
+        phase: FakeProcessPhase,
+        reap_disposition: FakeReapDisposition,
+        waiting_for_release: bool,
+        control_closed: bool,
+        termination_requested: bool,
+        try_wait_count: usize,
+        wait_failures_remaining: usize,
+        terminate_failures_remaining: usize,
+    }
+
+    #[derive(Default)]
+    struct FakeProcessLifecycle {
+        state: Mutex<FakeProcessLifecycleState>,
         changed: Condvar,
     }
 
-    impl FakeReapControl {
-        fn mark_waiting(&self) {
-            self.state.lock().unwrap().waiting = true;
+    impl FakeProcessLifecycle {
+        fn crash(&self) {
+            let mut state = self.state.lock().unwrap();
+            if !matches!(state.phase, FakeProcessPhase::Reaped(_)) {
+                state.phase = FakeProcessPhase::Crashed;
+                self.changed.notify_all();
+            }
+        }
+
+        fn close_control(&self) {
+            self.state.lock().unwrap().control_closed = true;
+        }
+
+        fn terminate(&self) -> io::Result<()> {
+            let mut state = self.state.lock().unwrap();
+            assert!(
+                state.control_closed,
+                "renderer control capability must close before process termination"
+            );
+            if state.terminate_failures_remaining > 0 {
+                state.terminate_failures_remaining -= 1;
+                return Err(io::Error::other("injected renderer termination failure"));
+            }
+            state.termination_requested = true;
+            if state.phase == FakeProcessPhase::Running {
+                state.phase = FakeProcessPhase::Terminated;
+            }
+            self.changed.notify_all();
+            Ok(())
+        }
+
+        fn try_wait(&self) -> io::Result<Option<ExitStatus>> {
+            let mut state = self.state.lock().unwrap();
+            state.try_wait_count += 1;
+            let raw_status = match state.phase {
+                FakeProcessPhase::Reaped(raw_status) => {
+                    return Ok(Some(ExitStatus::from_raw(raw_status)));
+                }
+                FakeProcessPhase::Crashed => Some(1 << 8),
+                FakeProcessPhase::Terminated
+                    if state.reap_disposition == FakeReapDisposition::Released =>
+                {
+                    Some(9)
+                }
+                FakeProcessPhase::Running | FakeProcessPhase::Terminated => None,
+            };
+            if let Some(raw_status) = raw_status {
+                state.phase = FakeProcessPhase::Reaped(raw_status);
+                return Ok(Some(ExitStatus::from_raw(raw_status)));
+            }
+            Ok(None)
+        }
+
+        fn wait(&self) -> io::Result<ExitStatus> {
+            let mut state = self.state.lock().unwrap();
+            if state.wait_failures_remaining > 0 {
+                state.wait_failures_remaining -= 1;
+                return Err(io::Error::other("injected renderer wait failure"));
+            }
+            loop {
+                let raw_status = match state.phase {
+                    FakeProcessPhase::Running => {
+                        return Err(io::Error::other("fake renderer was not terminated"));
+                    }
+                    FakeProcessPhase::Crashed => Some(1 << 8),
+                    FakeProcessPhase::Terminated
+                        if state.reap_disposition == FakeReapDisposition::Released =>
+                    {
+                        Some(9)
+                    }
+                    FakeProcessPhase::Terminated => {
+                        state.waiting_for_release = true;
+                        self.changed.notify_all();
+                        state = self
+                            .changed
+                            .wait_while(state, |state| {
+                                state.phase == FakeProcessPhase::Terminated
+                                    && state.reap_disposition == FakeReapDisposition::Held
+                            })
+                            .unwrap();
+                        state.waiting_for_release = false;
+                        None
+                    }
+                    FakeProcessPhase::Reaped(raw_status) => {
+                        return Ok(ExitStatus::from_raw(raw_status));
+                    }
+                };
+                if let Some(raw_status) = raw_status {
+                    state.phase = FakeProcessPhase::Reaped(raw_status);
+                    return Ok(ExitStatus::from_raw(raw_status));
+                }
+            }
+        }
+
+        fn hold_reap(self: &Arc<Self>) -> FakeReapHold {
+            let mut state = self.state.lock().unwrap();
+            assert_eq!(state.phase, FakeProcessPhase::Running, "only a live renderer can be held");
+            assert_eq!(
+                state.reap_disposition,
+                FakeReapDisposition::Released,
+                "renderer reap is already held"
+            );
+            state.reap_disposition = FakeReapDisposition::Held;
+            FakeReapHold { lifecycle: self.clone(), released: false }
+        }
+
+        fn release_reap(&self) {
+            let mut state = self.state.lock().unwrap();
+            state.reap_disposition = FakeReapDisposition::Released;
             self.changed.notify_all();
         }
 
-        fn wait_until_waiting(&self) {
+        fn wait_until_held_wait_is_observed(&self) {
             let state = self.state.lock().unwrap();
             let (state, timeout) = self
                 .changed
-                .wait_timeout_while(state, Duration::from_secs(1), |state| !state.waiting)
+                .wait_timeout_while(state, Duration::from_secs(1), |state| {
+                    !state.waiting_for_release
+                })
                 .unwrap();
-            assert!(state.waiting && !timeout.timed_out(), "fake renderer never entered wait");
+            assert!(
+                state.waiting_for_release && !timeout.timed_out(),
+                "fake renderer never observed the reap hold"
+            );
         }
 
-        fn release(&self) {
-            self.state.lock().unwrap().release_requested = true;
-            self.changed.notify_all();
+        fn set_wait_failures(&self, failures: usize) {
+            self.state.lock().unwrap().wait_failures_remaining = failures;
+        }
+
+        fn set_terminate_failures(&self, failures: usize) {
+            self.state.lock().unwrap().terminate_failures_remaining = failures;
+        }
+
+        fn snapshot(&self) -> (bool, bool, bool) {
+            let state = self.state.lock().unwrap();
+            (
+                state.termination_requested,
+                matches!(state.phase, FakeProcessPhase::Reaped(_)),
+                state.control_closed,
+            )
+        }
+
+        fn try_wait_count(&self) -> usize {
+            self.state.lock().unwrap().try_wait_count
         }
     }
 
-    #[derive(Clone)]
-    struct FakeReapHold(Arc<FakeReapControl>);
+    struct FakeReapHold {
+        lifecycle: Arc<FakeProcessLifecycle>,
+        released: bool,
+    }
 
     impl FakeReapHold {
         fn wait_until_waiting(&self) {
-            self.0.wait_until_waiting();
+            self.lifecycle.wait_until_held_wait_is_observed();
         }
 
-        fn release(&self) {
-            self.0.release();
+        fn release(mut self) {
+            self.lifecycle.release_reap();
+            self.released = true;
+        }
+    }
+
+    impl Drop for FakeReapHold {
+        fn drop(&mut self) {
+            if !self.released {
+                self.lifecycle.release_reap();
+            }
         }
     }
 
     #[derive(Default)]
     struct FakeProcessRecord {
-        crashed: bool,
-        control_closed: bool,
-        terminated: bool,
-        reaped: bool,
-        terminated_at: Option<Instant>,
-        reap_delay: Duration,
-        reap_control: Option<Arc<FakeReapControl>>,
+        lifecycle: Arc<FakeProcessLifecycle>,
         sent_messages: Vec<RendererControlMessage>,
         decoder: Option<RendererControlIncrementalDecoder>,
         receive_count: usize,
-        try_wait_count: usize,
-        wait_failures_remaining: usize,
-        terminate_failures_remaining: usize,
         send_failure_after: Option<usize>,
         send_would_block: bool,
         maximum_write_size: Option<usize>,
@@ -4442,45 +4593,42 @@ mod tests {
     struct FakeSpawner(Arc<Mutex<FakeSpawnerState>>);
 
     impl FakeSpawner {
+        fn lifecycle(&self, pid: u32) -> Arc<FakeProcessLifecycle> {
+            self.0.lock().unwrap().processes[&pid].lifecycle.clone()
+        }
+
         fn spawn_count(&self) -> usize {
             self.0.lock().unwrap().spawn_count
         }
 
         fn crash(&self, pid: u32) {
-            self.0.lock().unwrap().processes.get_mut(&pid).unwrap().crashed = true;
+            self.lifecycle(pid).crash();
         }
 
         fn record(&self, pid: u32) -> (bool, bool, usize) {
-            let state = self.0.lock().unwrap();
-            let record = state.processes.get(&pid).unwrap();
-            (record.terminated, record.reaped, record.sent_messages.len())
+            let (lifecycle, sent_message_count) = {
+                let state = self.0.lock().unwrap();
+                let record = state.processes.get(&pid).unwrap();
+                (record.lifecycle.clone(), record.sent_messages.len())
+            };
+            let (terminated, reaped, _) = lifecycle.snapshot();
+            (terminated, reaped, sent_message_count)
         }
 
         fn control_closed(&self, pid: u32) -> bool {
-            self.0.lock().unwrap().processes[&pid].control_closed
-        }
-
-        fn set_reap_delay(&self, pid: u32, reap_delay: Duration) {
-            self.0.lock().unwrap().processes.get_mut(&pid).unwrap().reap_delay = reap_delay;
+            self.lifecycle(pid).snapshot().2
         }
 
         fn hold_reap(&self, pid: u32) -> FakeReapHold {
-            let control = Arc::new(FakeReapControl::default());
-            let mut state = self.0.lock().unwrap();
-            let record = state.processes.get_mut(&pid).unwrap();
-            record.reap_delay = Duration::from_secs(1);
-            record.reap_control = Some(control.clone());
-            FakeReapHold(control)
+            self.lifecycle(pid).hold_reap()
         }
 
         fn set_wait_failures(&self, pid: u32, failures: usize) {
-            self.0.lock().unwrap().processes.get_mut(&pid).unwrap().wait_failures_remaining =
-                failures;
+            self.lifecycle(pid).set_wait_failures(failures);
         }
 
         fn set_terminate_failures(&self, pid: u32, failures: usize) {
-            self.0.lock().unwrap().processes.get_mut(&pid).unwrap().terminate_failures_remaining =
-                failures;
+            self.lifecycle(pid).set_terminate_failures(failures);
         }
 
         fn set_send_failure_after(&self, pid: u32, successful_frames: usize) {
@@ -4498,7 +4646,15 @@ mod tests {
         }
 
         fn all_reaped(&self) -> bool {
-            self.0.lock().unwrap().processes.values().all(|record| record.reaped)
+            let lifecycles = self
+                .0
+                .lock()
+                .unwrap()
+                .processes
+                .values()
+                .map(|record| record.lifecycle.clone())
+                .collect::<Vec<_>>();
+            lifecycles.into_iter().all(|lifecycle| lifecycle.snapshot().1)
         }
 
         fn messages(&self, pid: u32) -> Vec<RendererControlMessage> {
@@ -4506,15 +4662,19 @@ mod tests {
         }
 
         fn poll_counts(&self, pid: u32) -> (usize, usize) {
-            let state = self.0.lock().unwrap();
-            let record = &state.processes[&pid];
-            (record.try_wait_count, record.receive_count)
+            let (lifecycle, receive_count) = {
+                let state = self.0.lock().unwrap();
+                let record = &state.processes[&pid];
+                (record.lifecycle.clone(), record.receive_count)
+            };
+            (lifecycle.try_wait_count(), receive_count)
         }
     }
 
     struct FakeProcess {
         pid: u32,
         state: Arc<Mutex<FakeSpawnerState>>,
+        lifecycle: Arc<FakeProcessLifecycle>,
     }
 
     impl RendererProcess for FakeProcess {
@@ -4566,79 +4726,19 @@ mod tests {
         }
 
         fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
-            let mut state = self.state.lock().unwrap();
-            let record = state.processes.get_mut(&self.pid).unwrap();
-            record.try_wait_count += 1;
-            if record.crashed {
-                record.reaped = true;
-                return Ok(Some(ExitStatus::from_raw(1 << 8)));
-            }
-            if record.terminated
-                && record
-                    .terminated_at
-                    .is_some_and(|terminated_at| terminated_at.elapsed() >= record.reap_delay)
-            {
-                record.reaped = true;
-                return Ok(Some(ExitStatus::from_raw(9)));
-            }
-            Ok(None)
+            self.lifecycle.try_wait()
         }
 
         fn wait(&mut self) -> io::Result<ExitStatus> {
-            loop {
-                let remaining = {
-                    let mut state = self.state.lock().unwrap();
-                    let record = state.processes.get_mut(&self.pid).unwrap();
-                    if record.wait_failures_remaining > 0 {
-                        record.wait_failures_remaining -= 1;
-                        return Err(io::Error::other("injected renderer wait failure"));
-                    }
-                    if record.crashed {
-                        record.reaped = true;
-                        return Ok(ExitStatus::from_raw(1 << 8));
-                    }
-                    let Some(terminated_at) = record.terminated_at else {
-                        return Err(io::Error::other("fake renderer was not terminated"));
-                    };
-                    let elapsed = terminated_at.elapsed();
-                    if elapsed >= record.reap_delay {
-                        record.reaped = true;
-                        return Ok(ExitStatus::from_raw(9));
-                    }
-                    record.reap_delay.saturating_sub(elapsed)
-                };
-                if let Some(control) = self
-                    .state
-                    .lock()
-                    .unwrap()
-                    .processes
-                    .get(&self.pid)
-                    .and_then(|record| record.reap_control.clone())
-                {
-                    control.mark_waiting();
-                }
-                thread::park_timeout(remaining);
-            }
+            self.lifecycle.wait()
         }
 
         fn close_control(&mut self) {
-            self.state.lock().unwrap().processes.get_mut(&self.pid).unwrap().control_closed = true;
+            self.lifecycle.close_control();
         }
 
         fn terminate(&mut self) -> io::Result<()> {
-            let mut state = self.state.lock().unwrap();
-            let record = state.processes.get_mut(&self.pid).unwrap();
-            assert!(
-                record.control_closed,
-                "renderer control capability must close before process termination"
-            );
-            if record.terminate_failures_remaining > 0 {
-                record.terminate_failures_remaining -= 1;
-                return Err(io::Error::other("injected renderer termination failure"));
-            }
-            record.terminated = true;
-            record.terminated_at.get_or_insert_with(Instant::now);
-            Ok(())
+            self.lifecycle.terminate()
         }
     }
 
@@ -4650,8 +4750,10 @@ mod tests {
             state.next_pid = state.next_pid.max(4_000).saturating_add(1);
             let pid = state.next_pid;
             state.spawn_count += 1;
-            state.processes.insert(pid, FakeProcessRecord::default());
-            Ok(FakeProcess { pid, state: self.0.clone() })
+            let record = FakeProcessRecord::default();
+            let lifecycle = record.lifecycle.clone();
+            state.processes.insert(pid, record);
+            Ok(FakeProcess { pid, state: self.0.clone(), lifecycle })
         }
     }
 
@@ -5811,10 +5913,12 @@ mod tests {
         let workspace = WorkspaceUuid::new();
         core.set_presentation_workspace(PresentationId::new(), Some(workspace));
         let status = core.statuses()[0].clone();
-        spawner.set_reap_delay(status.pid.unwrap(), Duration::from_millis(600));
+        let reap_hold = spawner.hold_reap(status.pid.unwrap());
 
         assert!(!core.retire_if_epoch(workspace, status.renderer_epoch).unwrap());
         assert!(!core.retire_if_epoch(workspace, status.renderer_epoch).unwrap());
+        reap_hold.wait_until_waiting();
+        reap_hold.release();
         assert!(core.reaper.wait_until_epoch_quiesced(
             workspace,
             status.renderer_epoch,
@@ -6551,7 +6655,7 @@ mod tests {
     }
 
     #[test]
-    fn many_worker_shutdown_closes_controls_and_reaps_under_one_global_deadline() {
+    fn many_worker_shutdown_closes_controls_and_reaps_after_process_release() {
         const WORKER_COUNT: usize = 96;
 
         let spawner = FakeSpawner::default();
@@ -6561,25 +6665,29 @@ mod tests {
         }
         let pids =
             core.statuses().into_iter().map(|status| status.pid.unwrap()).collect::<Vec<_>>();
-        for pid in &pids {
-            spawner.set_reap_delay(*pid, Duration::from_millis(30));
-        }
+        let first_retired_pid = core
+            .workers
+            .values()
+            .next()
+            .and_then(|worker| worker.process.as_ref())
+            .map(RendererProcess::pid)
+            .unwrap();
+        let reap_hold = spawner.hold_reap(first_retired_pid);
+        let release = thread::spawn(move || {
+            reap_hold.wait_until_waiting();
+            reap_hold.release();
+        });
 
-        let started = Instant::now();
         core.shutdown();
-        let elapsed = started.elapsed();
+        release.join().unwrap();
 
-        assert!(
-            elapsed < Duration::from_millis(400),
-            "96 workers must share one retirement deadline, elapsed {elapsed:?}"
-        );
         assert!(core.statuses().is_empty());
         assert!(spawner.all_reaped());
         assert!(pids.into_iter().all(|pid| spawner.control_closed(pid)));
     }
 
     #[test]
-    fn retirement_reports_unreaped_identity_without_waiting_past_batch_deadline() {
+    fn retirement_reports_unreaped_identity_until_process_release() {
         let mut spawner = FakeSpawner::default();
         let workspace_uuid = WorkspaceUuid::new();
         let process = spawner
@@ -6590,7 +6698,7 @@ mod tests {
             })
             .unwrap();
         let pid = process.pid();
-        spawner.set_reap_delay(pid, Duration::from_millis(100));
+        let reap_hold = spawner.hold_reap(pid);
         let identity = RendererWorkerIdentity {
             workspace_uuid,
             renderer_epoch: 77,
@@ -6600,17 +6708,25 @@ mod tests {
         let reaper = RendererProcessReaper::start(Arc::new(|| {})).unwrap();
         let permit = reaper.try_acquire().unwrap();
 
-        let started = Instant::now();
         let report = reaper.retire(
             vec![RetiredRendererProcess { identity, process, _permit: permit }],
-            Duration::from_millis(10),
+            Duration::ZERO,
         );
 
-        assert!(started.elapsed() < Duration::from_millis(80));
         assert_eq!(report.unreaped, vec![identity]);
         assert!(spawner.control_closed(pid));
         assert!(spawner.record(pid).0, "termination must be requested before reporting");
         assert!(!spawner.record(pid).1, "the background reaper still owns this process");
+
+        reap_hold.wait_until_waiting();
+        reap_hold.release();
+
+        assert!(reaper.wait_until_epoch_quiesced(
+            workspace_uuid,
+            identity.renderer_epoch,
+            Duration::from_secs(1),
+        ));
+        assert!(spawner.record(pid).1);
     }
 
     #[test]
@@ -6667,7 +6783,7 @@ mod tests {
             })
             .unwrap();
         let first_pid = first.pid();
-        spawner.set_reap_delay(first_pid, Duration::from_millis(20));
+        let reap_hold = spawner.hold_reap(first_pid);
         spawner.set_wait_failures(first_pid, 1);
         let first_identity = RendererWorkerIdentity {
             workspace_uuid: first_workspace,
@@ -6685,6 +6801,7 @@ mod tests {
         );
         assert_eq!(first_report.unreaped, vec![first_identity]);
         assert!(!spawner.record(first_pid).1, "a wait error is not proof of reap");
+        reap_hold.release();
         assert!(reaper.wait_until_epoch_quiesced(
             first_workspace,
             first_identity.renderer_epoch,
