@@ -1,4 +1,4 @@
 struct TerminalSurfaceAgentCommandShimPreparation {
-    let commandShims: AgentCommandShimSet?
+    let commandShims: TerminalSurfaceAgentCommandShimSet?
     let launchResourceSnapshot: TerminalSurfaceLaunchResourceSnapshot
 }
