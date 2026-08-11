@@ -1312,6 +1312,12 @@ fn merge_projection(
         }
         return next;
     }
+    let begins_new_structured_session_with_turn = next.begins_turn
+        && next.source_session.is_some()
+        && (current.source_session != next.source_session || current.provider != next.provider);
+    if begins_new_structured_session_with_turn {
+        return next;
+    }
     let different_structured_socket_session = current.source == "socket"
         && next.source == "socket"
         && current.source_session.is_some()
