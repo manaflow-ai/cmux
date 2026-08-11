@@ -557,6 +557,7 @@ impl MachineConnectionHub {
     }
 
     fn connect_with_retry(&self, key: MachineKey, retry_failed: bool) -> anyhow::Result<Session> {
+        let mut observed_attempt = false;
         loop {
             if self.inner.closed.load(Ordering::Acquire) {
                 anyhow::bail!(crate::localization::catalog().sidebar.no_active_session);
@@ -574,6 +575,7 @@ impl MachineConnectionHub {
                     return Ok(connection.session.clone());
                 }
                 MachineConnectionState::Connecting => {
+                    observed_attempt = true;
                     let deadline = slot
                         .active_attempt
                         .as_ref()
@@ -612,7 +614,7 @@ impl MachineConnectionHub {
                     drop(slots);
                 }
                 MachineConnectionState::Failed(error)
-                    if !retry_failed || slot.active_attempt.is_some() =>
+                    if !retry_failed || observed_attempt || slot.active_attempt.is_some() =>
                 {
                     return Err(anyhow::anyhow!(error.clone()));
                 }
@@ -642,6 +644,7 @@ impl MachineConnectionHub {
                         }
                         return Err(error.into());
                     }
+                    observed_attempt = true;
                 }
             }
         }
@@ -924,6 +927,24 @@ mod tests {
             matches!(result, Ok(Err(_))),
             "closing the hub left its caller blocked inside the connector"
         );
+    }
+
+    #[test]
+    fn failed_connection_attempt_returns_after_one_try_per_request() {
+        let key = MachineKey(42);
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let connector_calls = Arc::clone(&calls);
+        let connector: MachineConnectFn = Arc::new(move |_| {
+            connector_calls.fetch_add(1, Ordering::Relaxed);
+            anyhow::bail!("test connection failed")
+        });
+        let hub = MachineConnectionHub::new([(key, connector)]);
+
+        assert!(hub.connect(key).is_err());
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
+
+        assert!(hub.connect(key).is_err());
+        assert_eq!(calls.load(Ordering::Relaxed), 2);
     }
 
     #[test]
