@@ -316,6 +316,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var agentCommandShimCompletionTask: Task<Void, Never>?
     var agentCommandShimDeadlineTask: Task<Void, Never>?
     var agentCommandShimInstallLease: TerminalSurfaceCommandShimInstallLease?
+    var agentCommandShimInstallResultGate:
+        TerminalSurfaceCommandShimInstallResultGate?
     var agentCommandShimInstallCompleted = false
     var agentCommandShimPendingCreationSource: RuntimeSurfaceCreationSource?
     /// The retained byte-tee lease for the libghostty PTY tee callback (cmux
@@ -817,6 +819,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     deinit {
+        agentCommandShimInstallResultGate?.expire()
         agentCommandShimInstallLease?.invalidate()
         agentCommandShimInstallTask?.cancel()
         agentCommandShimCompletionTask?.cancel()

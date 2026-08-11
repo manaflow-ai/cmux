@@ -11398,7 +11398,7 @@ class TerminalController {
         case .unavailable:
             return "ERROR: Persistent terminal backend is not enabled"
         case .unknown:
-            return "STATUS cmuxd request=\(requestID.uuidString) status=indeterminate retry_safe=false"
+            return "STATUS cmuxd request=\(requestID.uuidString) status=indeterminate finished=true retry_safe=false recovery_method=system.tree"
         case .known(let status):
             return "STATUS cmuxd request=\(requestID.uuidString) status=\(status.rawValue)"
         }

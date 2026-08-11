@@ -301,6 +301,33 @@ final class TerminalSurfaceCommandShimInstallLease: @unchecked Sendable {
     }
 }
 
+final class TerminalSurfaceCommandShimInstallResultGate: @unchecked Sendable {
+    private enum State {
+        case pending
+        case accepted
+        case expired
+    }
+
+    private let lock = NSLock()
+    private var state = State.pending
+
+    func acceptResult() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard case .pending = state else { return false }
+        state = .accepted
+        return true
+    }
+
+    func expire() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard case .pending = state else { return false }
+        state = .expired
+        return true
+    }
+}
+
 /// Filesystem operations injected into ``TerminalSurface`` runtime creation.
 public struct TerminalSurfaceRuntimeFilesystem: Sendable {
     /// The root directory used for per-surface agent command shims.

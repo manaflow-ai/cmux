@@ -5117,7 +5117,9 @@ struct CMUXCLI {
 
         case "terminal-backend-diagnostics":
             let reset = commandArgs.contains("--reset")
-            let unexpected = commandArgs.filter { $0 != "--reset" && $0 != "--" }
+            let unexpected = commandArgs.filter {
+                $0 != "--reset" && $0 != "--json" && $0 != "--"
+            }
             if let extra = unexpected.first {
                 throw CLIError(
                     message: String(
@@ -36651,7 +36653,7 @@ export default CMUXSessionRestore;
           reload-config
           surface-health [--workspace <id|ref|index>] [--window <id|ref|index>]
           debug-terminals
-          terminal-backend-diagnostics [--reset]
+          terminal-backend-diagnostics [--reset] [--json]
           trigger-flash [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
           list-panels [--workspace <id|ref|index>] [--window <id|ref|index>]
           focus-panel --panel <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>]

@@ -78,11 +78,12 @@ extension ControlCommandCoordinator {
             return .ok(.object([
                 "request_id": .string(requestID.uuidString),
                 "status": .string("indeterminate"),
-                "finished": .bool(false),
+                "finished": .bool(true),
                 "committed": .null,
                 "canonical_snapshot_acknowledged": .null,
                 "swift_projection_installed": .null,
                 "retry_safe": .bool(false),
+                "recovery_method": .string("system.tree"),
             ]))
         case .known(let status):
             let isFinished = status == .projected || status == .failed
