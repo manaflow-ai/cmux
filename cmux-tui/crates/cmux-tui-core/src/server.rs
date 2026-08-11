@@ -13852,6 +13852,17 @@ mod tests {
         serde_json::to_string(&request).unwrap()
     }
 
+    fn journal_subscription_filter(
+        max_sensitivity: JournalSensitivity,
+        mut filter: Value,
+    ) -> Value {
+        filter
+            .as_object_mut()
+            .expect("journal subscription filter fixture is an object")
+            .insert("max_sensitivity".into(), json!(max_sensitivity));
+        filter
+    }
+
     fn test_stream_id(index: u64) -> StreamPublicId {
         StreamPublicId::parse(format!("stream_{index:032x}"))
             .expect("test stream id uses the public wire format")
@@ -15398,17 +15409,16 @@ mod tests {
                 "session":"current",
                 "stream_id":first_stream,
                 "start":"beginning",
-                "filter":{
+                "filter":journal_subscription_filter(JournalSensitivity::Sensitive, json!({
                     "kinds":["workspace.*"],
                     "classes":["state"],
                     "subjects":[{"kind":"workspace","id":workspace_id}],
-                    "max_sensitivity":"sensitive",
                     "regex":{
                         "pattern":"JOURNAL|missing",
                         "field":"payload",
                         "case_sensitive":false,
                     },
-                },
+                })),
             }),
             None,
         );
@@ -15467,7 +15477,10 @@ mod tests {
                 "session":"current",
                 "stream_id":second_stream,
                 "cursor":cursor,
-                "filter":{"kinds":["workspace.rename"]},
+                "filter":journal_subscription_filter(
+                    JournalSensitivity::Sensitive,
+                    json!({"kinds":["workspace.rename"]}),
+                ),
             }),
             None,
         );
@@ -15547,16 +15560,15 @@ mod tests {
                     &format!("subject_head_{index}"),
                 )
                 .unwrap();
-            let filter_value = json!({
+            let filter_value = journal_subscription_filter(JournalSensitivity::Sensitive, json!({
                 "kinds":["agent.child.completed"],
                 "subjects":[subject.clone()],
-                "max_sensitivity":"sensitive",
                 "regex":{
                     "pattern":marker,
                     "field":"payload",
                     "case_sensitive":true,
                 },
-            });
+            }));
             let direct = mux
                 .session_journal_reader()
                 .unwrap()
@@ -15629,10 +15641,9 @@ mod tests {
                 "stream_id":stream_id,
                 "start":"beginning",
                 "follow":false,
-                "filter":{
+                "filter":journal_subscription_filter(JournalSensitivity::Sensitive, json!({
                     "kinds":["workspace.*"],
-                    "max_sensitivity":"sensitive",
-                },
+                })),
             }),
             None,
         );
@@ -15727,15 +15738,14 @@ mod tests {
                 "session":"current",
                 "stream_id":stream_id,
                 "start":"beginning",
-                "filter":{
+                "filter":journal_subscription_filter(JournalSensitivity::Sensitive, json!({
                     "kinds":["terminal.output"],
-                    "max_sensitivity":"sensitive",
                     "regex":{
                         "pattern":"fatal: SIMD [a-z]+",
                         "field":"terminal_output",
                         "case_sensitive":true
                     }
-                }
+                }))
             }),
             None,
         );
@@ -16022,7 +16032,10 @@ mod tests {
                     "machine":"current",
                     "session":"current",
                     "stream_id":stream_id,
-                    "filter":{"max_sensitivity":"sensitive"},
+                    "filter":journal_subscription_filter(
+                        JournalSensitivity::Sensitive,
+                        json!({}),
+                    ),
                 }),
                 None,
             );
@@ -16163,7 +16176,10 @@ mod tests {
                 "session":"current",
                 "stream_id":"stream_00000000000000000000000000000038",
                 "start":"beginning",
-                "filter":{"kinds":["plugin.demo.*"]}
+                "filter":journal_subscription_filter(
+                    JournalSensitivity::Metadata,
+                    json!({"kinds":["plugin.demo.*"]}),
+                )
             }),
             None,
         );
