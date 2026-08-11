@@ -1205,6 +1205,16 @@ mod tests {
     }
 
     #[test]
+    fn nested_remote_help_stops_before_windows_command_execution() {
+        for arguments in [
+            vec!["connect".into(), "--help".into()],
+            vec!["remote-stop".into(), "--help".into()],
+        ] {
+            assert!(run_inner(&arguments).is_ok(), "{arguments:?}");
+        }
+    }
+
+    #[test]
     fn windows_relay_command_quotes_expanding_paths() {
         let options = ManagedSshOptions {
             destination: "buildbox".into(),
