@@ -260,6 +260,17 @@ func focusMutationTrackerRejectsStaleRollback() {
     #expect(rollback?.screenID == "screen-a")
 }
 
+@Test @MainActor
+func terminalTitleLookupIsAnImmutableValueSnapshot() {
+    let owner = TerminalTitleOwner(terminalID: "terminal-a", title: "before")
+    let lookup = TerminalTitleFn(owners: [owner.terminalID: owner])
+
+    owner.replace(with: "after")
+
+    #expect(lookup("terminal-a") == "before")
+    #expect(TerminalTitleFn(owners: [owner.terminalID: owner])("terminal-a") == "after")
+}
+
 @Test
 func terminalInputRelayReportsBoundedBufferDrops() async {
     let input = AsyncStream<TerminalInput>.makeStream(bufferingPolicy: .bufferingOldest(1))

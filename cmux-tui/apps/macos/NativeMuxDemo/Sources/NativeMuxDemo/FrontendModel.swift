@@ -63,14 +63,14 @@ final class TerminalTitleOwner {
 
 @MainActor
 struct TerminalTitleFn {
-    private let lookup: (String) -> String?
+    private let titles: [String: String]
 
     init(owners: [String: TerminalTitleOwner]) {
-        lookup = { owners[$0]?.title }
+        titles = owners.mapValues(\.title)
     }
 
     func callAsFunction(_ terminalID: String) -> String? {
-        lookup(terminalID)
+        titles[terminalID]
     }
 }
 
