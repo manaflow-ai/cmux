@@ -1167,6 +1167,23 @@ mod tests {
     }
 
     #[test]
+    fn journal_agent_explicit_session_ignores_ambiguous_info_id() {
+        let ingress = agent_hook_journal_ingress(
+            "opencode",
+            "session.created",
+            None,
+            json!({
+                "session_id":"session-1",
+                "properties":{"info":{"id":"message-1"}},
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(ingress.payload["normalized"]["agent_session_id"], "session-1");
+        assert_eq!(ingress.payload["native"]["identifiers"]["agent_session_id"], "session-1");
+    }
+
+    #[test]
     fn dedicated_question_and_plan_tools_are_semantic_events() {
         let question = agent_hook_journal_ingress(
             "claude-code",
