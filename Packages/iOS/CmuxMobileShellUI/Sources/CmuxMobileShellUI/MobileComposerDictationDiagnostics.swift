@@ -7,6 +7,7 @@ extension ComposerDictationDiagnosticEvent {
     /// The one bridge from composer dictation lifecycle facts into the app
     /// log. Both terminal and chat composers use it, so every support-package
     /// case is exhaustively classified in one compiler-checked switch.
+    @MainActor
     func recordAppDiagnostic(
         correlationID: String,
         store: CMUXMobileShellStore

@@ -391,6 +391,21 @@ private extension MobileIrohSettingsView {
                 "mobile.iroh.diagnostics.failure.resourceLimitReached",
                 defaultValue: "Resource Limit Reached"
             )
+        case .some(.attachmentCountLimitReached):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.attachmentCountLimitReached",
+                defaultValue: "Attachment Count Limit Reached"
+            )
+        case .some(.attachmentAggregateSizeLimitReached):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.attachmentAggregateSizeLimitReached",
+                defaultValue: "Attachment Size Limit Reached"
+            )
+        case .some(.localStateUnavailable):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.localStateUnavailable",
+                defaultValue: "Local State Unavailable"
+            )
         case .some(.endpointUnavailable):
             L10n.string("mobile.iroh.diagnostics.failure.endpointUnavailable", defaultValue: "Endpoint Unavailable")
         case .some(.identityMismatch):
