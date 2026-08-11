@@ -131,12 +131,14 @@ public final class TerminalSurfaceLaunchResolver {
             launchResourceSnapshot: launchResourceSnapshot,
             defaultShellArguments: nil
         )
+        var resolvedDefaultShellArguments: [String]?
         if resolution.requiresDefaultShellArguments {
             let defaultShellArguments = await defaultShellArgumentsProvider.arguments(
                 fallback: synchronousDefaultShellArguments,
                 deadline: agentCommandShimInstallDeadline,
                 clock: agentCommandShimInstallDeadlineClock
             )
+            resolvedDefaultShellArguments = defaultShellArguments
             let launchForm = TerminalSurfaceLaunchForm(arguments: defaultShellArguments)
                 ?? .fallbackLoginShell
             let draft = resolution.resolvedLaunch
@@ -148,13 +150,30 @@ public final class TerminalSurfaceLaunchResolver {
                 waitAfterCommand: draft.waitAfterCommand
             )
         }
-        let ownedCommandShimLease = commandShimLease ?? shims.map {
-            TerminalSurfaceAgentCommandShimLease(
-                shims: $0,
+        if Task.isCancelled, commandShimLease == nil, let shims {
+            await runtimeFilesystem.cleanupUnownedAgentCommandShims(
+                shims,
+                retryClock: agentCommandShimInstallDeadlineClock
+            )
+            resolution = resolve(
+                request,
+                commandShims: nil,
+                launchResourceSnapshot: launchResourceSnapshot,
+                defaultShellArguments: resolvedDefaultShellArguments
+            )
+        }
+        let ownedCommandShimLease: TerminalSurfaceAgentCommandShimLease?
+        if let commandShimLease {
+            ownedCommandShimLease = commandShimLease
+        } else if !Task.isCancelled, let shims {
+            ownedCommandShimLease = TerminalSurfaceAgentCommandShimLease(
+                shims: shims,
                 removalAttemptLimit: runtimeFilesystem.agentCommandShimRemovalAttemptLimit,
                 remove: runtimeFilesystem.removeAgentCommandShims,
                 reportRemovalFailure: runtimeFilesystem.reportAgentCommandShimRemovalFailure
             )
+        } else {
+            ownedCommandShimLease = nil
         }
         return TerminalSurfaceOwnedLaunch(
             resolvedLaunch: resolution.resolvedLaunch,

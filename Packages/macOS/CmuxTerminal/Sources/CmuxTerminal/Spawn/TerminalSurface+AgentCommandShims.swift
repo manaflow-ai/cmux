@@ -2,7 +2,7 @@ public import Foundation
 public import CmuxTerminalCore
 
 extension TerminalSurface {
-    /// Writes every available bundled agent wrapper shim into one per-surface directory.
+    /// Writes every available bundled agent wrapper shim into one per-install directory.
     ///
     /// Adding an agent to ``TerminalSurfaceAgentCommandShimDefinition/bundled``
     /// automatically gives it the same lifecycle, permissions, `PATH`, bundle-
@@ -103,7 +103,10 @@ extension TerminalSurface {
             .appendingPathComponent("cmux-cli-shims", isDirectory: true)
             .standardizedFileURL
         let shimDirectory = shimParentDirectory
-            .appendingPathComponent(surfaceId.uuidString, isDirectory: true)
+            .appendingPathComponent(
+                "\(surfaceId.uuidString)-\(UUID().uuidString)",
+                isDirectory: true
+            )
             .standardizedFileURL
         guard !isCancelled() else { return nil }
         var removeShimDirectoryOnExit = false

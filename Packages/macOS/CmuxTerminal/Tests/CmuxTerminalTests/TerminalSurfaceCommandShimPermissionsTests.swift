@@ -81,9 +81,8 @@ struct TerminalSurfaceCommandShimPermissionsTests {
         let wrapperDirectory = root.appending(path: "bin", directoryHint: .isDirectory)
         let aliasDirectory = root.appending(path: "aliases", directoryHint: .isDirectory)
         let surfaceID = UUID()
-        let shimDirectory = temporaryDirectory
+        let shimParentDirectory = temporaryDirectory
             .appending(path: "cmux-cli-shims", directoryHint: .isDirectory)
-            .appending(path: surfaceID.uuidString, directoryHint: .isDirectory)
         defer { try? setupFileManager.removeItem(at: root) }
 
         for directory in [wrapperDirectory, aliasDirectory] {
@@ -122,7 +121,13 @@ struct TerminalSurfaceCommandShimPermissionsTests {
         let result = await installTask.value
 
         #expect(result == nil)
-        #expect(!setupFileManager.fileExists(atPath: shimDirectory.path))
+        let remainingShimDirectories = (
+            try? setupFileManager.contentsOfDirectory(
+                at: shimParentDirectory,
+                includingPropertiesForKeys: nil
+            )
+        ) ?? []
+        #expect(remainingShimDirectories.isEmpty)
     }
 
     @Test("Cancelled reinstall preserves the current per-surface shim directory")
@@ -198,16 +203,13 @@ struct TerminalSurfaceCommandShimPermissionsTests {
             directoryHint: .isDirectory
         )
         let surfaceId = UUID()
-        let shimDirectory = parentDirectory.appending(path: surfaceId.uuidString, directoryHint: .isDirectory)
         let wrapperDirectory = root.appending(path: "bin", directoryHint: .isDirectory)
         let wrapper = wrapperDirectory.appending(path: "cmux-claude-wrapper", directoryHint: .notDirectory)
         defer { try? fileManager.removeItem(at: root) }
 
-        try fileManager.createDirectory(at: shimDirectory, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: parentDirectory, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: wrapperDirectory, withIntermediateDirectories: true)
-        for directory in [parentDirectory, shimDirectory] {
-            try fileManager.setAttributes([.posixPermissions: 0o775], ofItemAtPath: directory.path)
-        }
+        try fileManager.setAttributes([.posixPermissions: 0o775], ofItemAtPath: parentDirectory.path)
         try "#!/bin/sh\nexit 0\n".write(to: wrapper, atomically: true, encoding: .utf8)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: wrapper.path)
 
@@ -227,7 +229,12 @@ struct TerminalSurfaceCommandShimPermissionsTests {
                 fileManager: fileManager
             )
         )
-        #expect(shim.directoryPath == shimDirectory.path)
+        let shimDirectory = URL(fileURLWithPath: shim.directoryPath, isDirectory: true)
+        #expect(
+            shimDirectory.deletingLastPathComponent().standardizedFileURL
+                == parentDirectory.standardizedFileURL
+        )
+        #expect(shimDirectory.lastPathComponent.hasPrefix("\(surfaceId.uuidString)-"))
         #expect(replacement.directoryPath != shim.directoryPath)
         for directory in [parentDirectory, shimDirectory] {
             let attributes = try fileManager.attributesOfItem(atPath: directory.path)
