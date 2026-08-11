@@ -37,6 +37,8 @@ class StoredDispatchWorkItemScannerTests(unittest.TestCase):
                     Wrapper<DispatchWorkItem>
                 var inferred = DispatchWorkItem {}
                 var inferredArray = [DispatchWorkItem]()
+                var inferredGenericArray = Array<DispatchWorkItem>()
+                var inferredGenericDictionary = Dictionary<String, DispatchWorkItem>()
             }
             """
         )
@@ -49,6 +51,11 @@ class StoredDispatchWorkItemScannerTests(unittest.TestCase):
                 ("generic", "Wrapper<DispatchWorkItem>"),
                 ("inferred", "<inferred:DispatchWorkItem>"),
                 ("inferredArray", "<inferred:[DispatchWorkItem]>"),
+                ("inferredGenericArray", "<inferred:[DispatchWorkItem]>"),
+                (
+                    "inferredGenericDictionary",
+                    "<inferred:[DispatchWorkItem]>",
+                ),
             ],
         )
 
@@ -212,8 +219,11 @@ class StoredDispatchWorkItemScannerTests(unittest.TestCase):
             struct FixtureView: View {
                 @State private var task = Task {}
                 @State private var detachedTask = Task.detached {}
+                @State private var taskArray = [Task<Void, Never>]()
+                @State private var taskDictionary = Dictionary<String, Task<Void, Never>>()
                 @State private var timer = DispatchSource.makeTimerSource(queue: .main)
                 @State private var feedback = Timer.scheduledTimer(withTimeInterval: 1, repeats: false) { _ in }
+                @State private var feedbackTimers = Array<Timer>()
             }
             """,
             "Packages/macOS/Fixture/Sources/Fixture/FixtureView.swift",
@@ -224,6 +234,12 @@ class StoredDispatchWorkItemScannerTests(unittest.TestCase):
             [
                 ("task", "<inferred:Task>", "member:FixtureView"),
                 ("detachedTask", "<inferred:Task>", "member:FixtureView"),
+                ("taskArray", "<inferred:[Task]>", "member:FixtureView"),
+                (
+                    "taskDictionary",
+                    "<inferred:[Task]>",
+                    "member:FixtureView",
+                ),
                 (
                     "timer",
                     "<inferred:DispatchSourceTimer>",
@@ -234,6 +250,32 @@ class StoredDispatchWorkItemScannerTests(unittest.TestCase):
                     "<inferred:Timer>",
                     "member:FixtureView",
                 ),
+                (
+                    "feedbackTimers",
+                    "<inferred:[Timer]>",
+                    "member:FixtureView",
+                ),
+            ],
+        )
+
+    def test_audits_async_state_handles_in_shared_macos_packages(self) -> None:
+        declarations = LINT.scan_declarations(
+            """
+            struct SharedFixtureView: View {
+                @State private var refreshTask: Task<Void, Never>?
+            }
+            """,
+            "Packages/Shared/Fixture/Sources/Fixture/SharedFixtureView.swift",
+        )
+
+        self.assertEqual(
+            [(item.name, item.type_text, item.context) for item in declarations],
+            [
+                (
+                    "refreshTask",
+                    "Task<Void,Never>?",
+                    "member:SharedFixtureView",
+                )
             ],
         )
 
