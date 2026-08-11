@@ -549,6 +549,7 @@ impl WorkspaceRegistry {
         agent_projection_rebuild_active(&self.connection)
     }
 
+    #[cfg(test)]
     pub(crate) fn continue_agent_projection_rebuild(&self) -> anyhow::Result<bool> {
         let (_, pending, _) = self.continue_agent_projection_rebuild_page()?;
         Ok(!pending)
