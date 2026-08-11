@@ -9,74 +9,72 @@ struct SSHTerminalExitPromptInputFilterTests {
 
         let wakeTraffic = Data([0x04, 0x04])
             + Data("\u{1B}[I\u{1B}[O\u{1B}[13;2u\u{1B}[?0u".utf8)
-        let wakeTrafficDismisses = filter.consume(wakeTraffic)
-        let enterDismisses = filter.consume(Data([0x0D]))
+        let consumedWakeTraffic = filter.consume(wakeTraffic)
+        let consumedEnter = filter.consume(Data([0x0D]))
 
-        #expect(!wakeTrafficDismisses)
-        #expect(enterDismisses)
+        #expect(!consumedWakeTraffic)
+        #expect(consumedEnter)
     }
 
     @Test func ignoresFragmentedControlSequences() {
         var filter = SSHTerminalExitPromptInputFilter()
 
-        let firstFragmentDismisses = filter.consume(Data("\u{1B}[13;".utf8))
-        let secondFragmentDismisses = filter.consume(Data("2u\u{1B}]11;rgb:ffff".utf8))
-        let thirdFragmentDismisses = filter.consume(Data("/ffff/ffff\u{07}".utf8))
-        let enterDismisses = filter.consume(Data([0x0A]))
+        let consumedCSIFragment = filter.consume(Data("\u{1B}[13;".utf8))
+        let consumedOSCStart = filter.consume(Data("2u\u{1B}]11;rgb:ffff".utf8))
+        let consumedOSCEnd = filter.consume(Data("/ffff/ffff\u{07}".utf8))
+        let consumedEnter = filter.consume(Data([0x0A]))
 
-        #expect(!firstFragmentDismisses)
-        #expect(!secondFragmentDismisses)
-        #expect(!thirdFragmentDismisses)
-        #expect(enterDismisses)
+        #expect(!consumedCSIFragment)
+        #expect(!consumedOSCStart)
+        #expect(!consumedOSCEnd)
+        #expect(consumedEnter)
     }
 
     @Test func embeddedNewlineAbandonsIncompleteControlInputWithoutDismissing() {
         var oscFilter = SSHTerminalExitPromptInputFilter()
 
-        let oscFragmentDismisses = oscFilter.consume(Data("\u{1B}]11;rgb:ffff".utf8))
-        let oscEmbeddedNewlineDismisses = oscFilter.consume(Data([0x0D, 0x0A]))
-        let oscEnterDismisses = oscFilter.consume(Data([0x0D]))
+        let consumedOSCFragment = oscFilter.consume(Data("\u{1B}]11;rgb:ffff".utf8))
+        let consumedEmbeddedNewline = oscFilter.consume(Data([0x0D, 0x0A]))
+        let consumedEnterAfterOSC = oscFilter.consume(Data([0x0D]))
 
-        #expect(!oscFragmentDismisses)
-        #expect(!oscEmbeddedNewlineDismisses)
-        #expect(oscEnterDismisses)
+        #expect(!consumedOSCFragment)
+        #expect(!consumedEmbeddedNewline)
+        #expect(consumedEnterAfterOSC)
 
         var controlStringFilter = SSHTerminalExitPromptInputFilter()
 
-        let controlFragmentDismisses = controlStringFilter.consume(Data("\u{1B}P1+rfragment".utf8))
-        let controlEmbeddedReturnDismisses = controlStringFilter.consume(Data([0x0D]))
-        let controlEmbeddedNewlineDismisses = controlStringFilter.consume(Data([0x0A]))
-        let controlEnterDismisses = controlStringFilter.consume(Data([0x0A]))
+        let consumedControlStringFragment = controlStringFilter.consume(Data("\u{1B}P1+rfragment".utf8))
+        let consumedCarriageReturn = controlStringFilter.consume(Data([0x0D]))
+        let consumedLineFeed = controlStringFilter.consume(Data([0x0A]))
+        let consumedEnterAfterControlString = controlStringFilter.consume(Data([0x0A]))
 
-        #expect(!controlFragmentDismisses)
-        #expect(!controlEmbeddedReturnDismisses)
-        #expect(!controlEmbeddedNewlineDismisses)
-        #expect(controlEnterDismisses)
+        #expect(!consumedControlStringFragment)
+        #expect(!consumedCarriageReturn)
+        #expect(!consumedLineFeed)
+        #expect(consumedEnterAfterControlString)
     }
 
     @Test func newlineResetsAFragmentedBracketedPasteTerminator() {
         var filter = SSHTerminalExitPromptInputFilter()
 
-        let partialPasteDismisses = filter.consume(Data("\u{1B}[200~paste\u{1B}[201".utf8))
-        let embeddedNewlinesDismiss = filter.consume(Data("\n~still pasted\n".utf8))
-        let orphanedTerminatorDismisses = filter.consume(Data("\u{1B}[201~".utf8))
-        let enterDismisses = filter.consume(Data([0x0A]))
+        let consumedPasteStart = filter.consume(Data("\u{1B}[200~paste\u{1B}[201".utf8))
+        let consumedFragmentReset = filter.consume(Data("\n~still pasted\n".utf8))
+        let consumedPasteEnd = filter.consume(Data("\u{1B}[201~".utf8))
+        let consumedEnter = filter.consume(Data([0x0A]))
 
-        #expect(!partialPasteDismisses)
-        #expect(!embeddedNewlinesDismiss)
-        #expect(!orphanedTerminatorDismisses)
-        #expect(enterDismisses)
+        #expect(!consumedPasteStart)
+        #expect(!consumedFragmentReset)
+        #expect(!consumedPasteEnd)
+        #expect(consumedEnter)
     }
 
     @Test func ignoresNewlinesInsideBracketedPaste() {
         var filter = SSHTerminalExitPromptInputFilter()
 
-        let pastedNewlinesDismiss = filter.consume(
-            Data("\u{1B}[200~pasted\ntext\r\u{1B}[201~".utf8)
-        )
-        let enterDismisses = filter.consume(Data([0x0A]))
+        let consumedPaste = filter.consume(Data("\u{1B}[200~pasted\ntext\r\u{1B}[201~".utf8))
+        let consumedEnter = filter.consume(Data([0x0A]))
 
-        #expect(!pastedNewlinesDismiss)
-        #expect(enterDismisses)
+        #expect(!consumedPaste)
+        #expect(consumedEnter)
     }
 }
