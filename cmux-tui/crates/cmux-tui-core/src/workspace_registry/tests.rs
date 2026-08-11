@@ -6255,31 +6255,26 @@ fn journal_agent_legacy_upgrade_backfills_large_archived_segment_in_pages() {
 }
 
 #[test]
-fn journal_agent_kind_backfill_uses_the_missing_kind_index() {
+fn journal_agent_kind_backfill_defers_kind_dependent_indexes() {
     let registry = WorkspaceRegistry::in_memory("journal-agent-kind-backfill-index").unwrap();
-    let plan = {
-        let mut statement = registry
-            .connection
-            .prepare(
-                "EXPLAIN QUERY PLAN
-                 SELECT event.sequence
-                 FROM journal_event_index event
-                      INDEXED BY journal_event_index_by_missing_kind_sequence
-                 JOIN session_journal journal ON journal.sequence = event.sequence
-                 WHERE event.kind IS NULL
-                 ORDER BY event.sequence ASC
-                 LIMIT 1024",
-            )
-            .unwrap();
-        statement
-            .query_map([], |row| row.get::<_, String>(3))
-            .unwrap()
-            .collect::<Result<Vec<_>, _>>()
-            .unwrap()
-    };
+    let indexes = registry
+        .connection
+        .prepare(
+            "SELECT name FROM sqlite_master
+             WHERE type = 'index' AND tbl_name = 'journal_event_index'
+             ORDER BY name ASC",
+        )
+        .unwrap()
+        .query_map([], |row| row.get::<_, String>(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
     assert!(
-        plan.iter().any(|detail| detail.contains("journal_event_index_by_missing_kind_sequence")),
-        "missing-kind scan must use its partial sequence index: {plan:#?}"
+        !indexes.iter().any(|name| {
+            name == "journal_event_index_by_missing_kind_sequence"
+                || name == "journal_event_index_by_agent_sequence"
+        }),
+        "open must not build a kind-dependent full-journal index: {indexes:#?}"
     );
 }
 
@@ -7653,7 +7648,7 @@ fn journal_agent_projection_checkpoint_refresh_visits_terminal_once() {
         .connection
         .execute_batch(
             "CREATE TEMP TABLE resource_agent_projection_rebuild_changes (
-               terminal_id TEXT PRIMARY KEY NOT NULL
+               terminal_id TEXT NOT NULL
              );",
         )
         .unwrap();
@@ -7685,6 +7680,29 @@ fn journal_agent_projection_checkpoint_refresh_visits_terminal_once() {
     refresh.unwrap();
 
     assert_eq!(visited, vec![(terminal_id, "idle".to_string())]);
+
+    registry
+        .connection
+        .execute(
+            "WITH RECURSIVE copies(number) AS (
+               SELECT 1
+               UNION ALL
+               SELECT number + 1 FROM copies WHERE number < 1024
+             )
+             INSERT INTO resource_agent_projection_rebuild_changes(terminal_id)
+             SELECT ?1 FROM copies",
+            [terminal_id.as_str()],
+        )
+        .unwrap();
+    let mut page_count = 0;
+    registry
+        .visit_agent_projection_rebuild_changes(|_| {
+            page_count += 1;
+            anyhow::ensure!(page_count <= 1_024, "projection refresh page is unbounded");
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(page_count, 1_024);
 }
 
 #[test]
