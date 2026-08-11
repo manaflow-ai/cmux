@@ -3067,7 +3067,6 @@ final class cmuxUITests: XCTestCase {
         let backButton = hostApp.buttons["MobileWorkspaceBackButton"]
         XCTAssertTrue(backButton.waitForExistence(timeout: 4))
         tap(backButton, in: hostApp)
-        grantNotificationAuthorizationIfRequested()
         XCTAssertTrue(
             hostApp.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
                 .waitForExistence(timeout: 4)
@@ -6576,6 +6575,7 @@ final class cmuxUITests: XCTestCase {
 
         let row = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
         XCTAssertTrue(row.waitForExistence(timeout: 8))
+        grantNotificationAuthorizationIfRequested()
         row.tap()
         XCTAssertTrue(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8))
     }
