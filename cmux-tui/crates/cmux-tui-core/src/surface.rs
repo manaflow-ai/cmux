@@ -8691,10 +8691,15 @@ mod tests {
 
     #[test]
     fn clear_history_updates_the_authoritative_terminal_and_attach_mirrors() {
-        let mux = Mux::new_for_test("clear-history", SurfaceOptions::default());
+        let mux = Mux::new_for_test(
+            "clear-history",
+            SurfaceOptions {
+                command: Some(vec!["/bin/cat".to_string()]),
+                ..SurfaceOptions::default()
+            },
+        );
         let events = mux.subscribe();
-        let surface =
-            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
         surface.with_terminal(|term| {
             term.vt_write(b"\x1b]133;C\x07");
             for line in 0..40 {
@@ -8732,7 +8737,11 @@ mod tests {
         );
         assert_eq!(mirror.history_rows(), 0);
         assert_eq!(mirror.viewport_text().unwrap(), authoritative_after);
-        assert!(events.try_iter().any(|event| matches!(event, MuxEvent::SurfaceOutput(1))));
+        assert!(
+            events
+                .try_iter()
+                .any(|event| matches!(event, MuxEvent::SurfaceOutput(id) if id == surface.id))
+        );
     }
 
     #[test]
