@@ -1,3 +1,4 @@
+import Dispatch
 import Foundation
 import Observation
 
@@ -40,6 +41,17 @@ struct FrontendResourceGeneration: Sendable {
 struct FrontendRecoveryPolicy: Sendable {
     let maximumAttempts: Int
     let initialBackoffNanoseconds: UInt64
+    let stableWindowNanoseconds: UInt64
+
+    init(
+        maximumAttempts: Int,
+        initialBackoffNanoseconds: UInt64,
+        stableWindowNanoseconds: UInt64 = 30_000_000_000
+    ) {
+        self.maximumAttempts = maximumAttempts
+        self.initialBackoffNanoseconds = initialBackoffNanoseconds
+        self.stableWindowNanoseconds = stableWindowNanoseconds
+    }
 
     static let standard = FrontendRecoveryPolicy(
         maximumAttempts: 3,
@@ -58,6 +70,29 @@ struct FrontendRecoveryPolicy: Sendable {
 }
 
 typealias FrontendRecoveryDelay = @Sendable (UInt64) async throws -> Void
+typealias FrontendRecoveryNow = @Sendable () -> UInt64
+
+struct FrontendRecoveryTracker: Sendable {
+    private(set) var attempts = 0
+    private var repairedAt: UInt64?
+
+    mutating func recordAttempt() {
+        attempts += 1
+        repairedAt = nil
+    }
+
+    mutating func recordSuccessfulRepair(at now: UInt64) {
+        repairedAt = now
+    }
+
+    mutating func resetIfStable(now: UInt64, stableWindowNanoseconds: UInt64) {
+        guard let repairedAt, now >= repairedAt,
+            now - repairedAt >= stableWindowNanoseconds
+        else { return }
+        attempts = 0
+        self.repairedAt = nil
+    }
+}
 
 func appendingTransportDiagnostic(
     _ diagnostic: String,
@@ -205,6 +240,7 @@ final class FrontendModel {
     @ObservationIgnored private var transportDiagnosticEntries: [String] = []
     @ObservationIgnored private let recoveryPolicy: FrontendRecoveryPolicy
     @ObservationIgnored private let recoveryDelay: FrontendRecoveryDelay
+    @ObservationIgnored private let recoveryNow: FrontendRecoveryNow
 
     init(
         configuration: DemoLaunchConfiguration = .processEnvironment(),
@@ -214,6 +250,9 @@ final class FrontendModel {
             try await ContinuousClock().sleep(
                 for: .nanoseconds(Int64(clamping: nanoseconds))
             )
+        },
+        recoveryNow: @escaping FrontendRecoveryNow = {
+            DispatchTime.now().uptimeNanoseconds
         }
     ) {
         self.localization = localization
@@ -221,6 +260,7 @@ final class FrontendModel {
         shouldAutoConnect = configuration.autoConnect
         self.recoveryPolicy = recoveryPolicy
         self.recoveryDelay = recoveryDelay
+        self.recoveryNow = recoveryNow
     }
 
     var isConnected: Bool { service != nil && snapshot != nil }
@@ -422,7 +462,7 @@ final class FrontendModel {
         updatesTask = Task { [weak self] in
             var updates = initialUpdates
             var resourceStream = initialStream
-            var recoveryAttempts = 0
+            var recovery = FrontendRecoveryTracker()
             while !Task.isCancelled {
                 var endReason = FrontendResourceStreamEndReason.none
                 var recoveryNeeded = false
@@ -457,15 +497,19 @@ final class FrontendModel {
                     return
                 }
                 do {
+                    recovery.resetIfStable(
+                        now: recoveryNow(),
+                        stableWindowNanoseconds: recoveryPolicy.stableWindowNanoseconds
+                    )
                     guard let delay = recoveryPolicy.backoffNanoseconds(
-                        forRecoveryAttempt: recoveryAttempts
+                        forRecoveryAttempt: recovery.attempts
                     ) else {
                         throw FrontendServiceError.localized(localization.text(
                             "error.session_event_recovery_limit",
                             "The session update stream could not recover. Reconnect to try again."
                         ))
                     }
-                    recoveryAttempts += 1
+                    recovery.recordAttempt()
                     try await recoveryDelay(delay)
                     guard let machineID = self.machineID, let sessionID = self.sessionID else {
                         return
@@ -478,6 +522,7 @@ final class FrontendModel {
                     )
                     updates = recovered.updates
                     resourceStream = recovered.stream
+                    recovery.recordSuccessfulRepair(at: recoveryNow())
                 } catch {
                     await self.disconnectAfterFailure(error)
                     return

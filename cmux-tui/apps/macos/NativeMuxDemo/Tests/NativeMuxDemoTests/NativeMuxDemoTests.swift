@@ -318,7 +318,7 @@ func terminalHandleFFIQueuePreservesFIFOAndDisconnectDrain() async {
 }
 
 @Test
-func canceledQueuedFFIOperationDoesNotExecute() async {
+func canceledQueuedFFIOperationDoesNotExecute() async throws {
     let executor = SerialFFIExecutor(label: "test.native-terminal.cancel")
     let firstStarted = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
     let releaseFirst = DispatchSemaphore(value: 0)
@@ -335,7 +335,7 @@ func canceledQueuedFFIOperationDoesNotExecute() async {
     let operations = EventLog()
     let cancellation = FFICancellation {}
     let second = Task {
-        await executor.runCancellable(
+        try await executor.runCancellable(
             cancellation: cancellation,
             { operations.append("canceled"); return true },
             onEnqueued: { queued.continuation.yield() }
@@ -354,7 +354,7 @@ func canceledQueuedFFIOperationDoesNotExecute() async {
 }
 
 @Test
-func queuedFFIOperationDeadlineIncludesTimeBeforeExecution() async {
+func queuedFFIOperationDeadlineIncludesTimeBeforeExecution() async throws {
     let executor = SerialFFIExecutor(
         label: "test.native-terminal.queue-deadline",
         timeoutScheduler: { _, action in Task { await action() } }
@@ -372,7 +372,7 @@ func queuedFFIOperationDeadlineIncludesTimeBeforeExecution() async {
 
     let operations = EventLog()
     let cancellation = FFICancellation { operations.append("cancel") }
-    let queuedResult = await executor.runCancellable(
+    let queuedResult = try await executor.runCancellable(
         cancellation: cancellation,
         timeoutNanoseconds: 10_000_000
     ) {
@@ -389,7 +389,7 @@ func queuedFFIOperationDeadlineIncludesTimeBeforeExecution() async {
 }
 
 @Test
-func completedFFIOperationCancelsPendingDeadline() async {
+func completedFFIOperationCancelsPendingDeadline() async throws {
     let deadlineHold = AsyncStream<Void>.makeStream()
     let deadlineCancelled = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
     let executor = SerialFFIExecutor(
@@ -405,7 +405,7 @@ func completedFFIOperationCancelsPendingDeadline() async {
         }
     )
 
-    let result = await executor.runCancellable(
+    let result = try await executor.runCancellable(
         cancellation: FFICancellation {},
         timeoutNanoseconds: 15_000_000_000
     ) {
@@ -416,6 +416,37 @@ func completedFFIOperationCancelsPendingDeadline() async {
     for await _ in deadlineCancelled.stream { break }
     deadlineHold.continuation.finish()
     deadlineCancelled.continuation.finish()
+}
+
+@Test
+func serialFFIExecutorBoundsActiveAndQueuedCancellableWork() async throws {
+    let executor = SerialFFIExecutor(
+        label: "test.native-terminal.queue-bound",
+        maximumPendingCancellableOperations: 1
+    )
+    let firstStarted = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    let releaseFirst = DispatchSemaphore(value: 0)
+    let first = Task {
+        try await executor.runCancellable(cancellation: FFICancellation {}) {
+            firstStarted.continuation.yield()
+            releaseFirst.wait()
+            return true
+        }
+    }
+    for await _ in firstStarted.stream { break }
+
+    do {
+        _ = try await executor.runCancellable(cancellation: FFICancellation {}) { true }
+        Issue.record("The bounded serial executor accepted too much work.")
+    } catch SerialFFIExecutorError.queueFull {
+    } catch {
+        Issue.record("The bounded serial executor returned an unexpected error: \(error)")
+    }
+
+    releaseFirst.signal()
+    let firstResult = try await first.value
+    #expect(firstResult == true)
+    firstStarted.continuation.finish()
 }
 
 @Test
@@ -523,6 +554,19 @@ func resourceRecoveryPolicyHasABoundedExponentialBackoff() {
     #expect(policy.backoffNanoseconds(forRecoveryAttempt: 1) == 200)
     #expect(policy.backoffNanoseconds(forRecoveryAttempt: 2) == 400)
     #expect(policy.backoffNanoseconds(forRecoveryAttempt: 3) == nil)
+}
+
+@Test
+func resourceRecoveryBudgetResetsOnlyAfterAStableRepairWindow() {
+    var recovery = FrontendRecoveryTracker()
+    recovery.recordAttempt()
+    recovery.recordSuccessfulRepair(at: 1_000)
+
+    recovery.resetIfStable(now: 1_099, stableWindowNanoseconds: 100)
+    #expect(recovery.attempts == 1)
+
+    recovery.resetIfStable(now: 1_100, stableWindowNanoseconds: 100)
+    #expect(recovery.attempts == 0)
 }
 
 @Test
