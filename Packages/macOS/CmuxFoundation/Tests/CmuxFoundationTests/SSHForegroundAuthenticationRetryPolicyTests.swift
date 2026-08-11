@@ -2295,6 +2295,62 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func failedDurableFallbackRetriesInProcessCleanup(shellPath: String) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-ssh-auth-unpublished-handoff-retry-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let groupDirectory = root.appendingPathComponent(
+            "cmux-ssh-auth-group.preallocated",
+            isDirectory: true
+        )
+        let attempts = root.appendingPathComponent("attempts")
+        let signals = root.appendingPathComponent("signals")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_test_force_attempts=0
+        cmux_ssh_auth_identity() {
+          test "$1" = 101 || return 1
+          if [ "$cmux_test_force_attempts" -ge 2 ]; then return 1; fi
+          printf '1|777|Thu_Jan_1_00:00:00_1970\n'
+        }
+        cmux_ssh_terminate_unpublished_auth_process_tree() { return 1; }
+        cmux_ssh_terminate_owned_auth_group() { :; }
+        cmux_ssh_auth_force_unpublished_process_tree() {
+          cmux_test_force_attempts=$((cmux_test_force_attempts + 1))
+          printf '%s\n' "$cmux_test_force_attempts" > "$CMUX_TEST_ATTEMPTS"
+          test "$cmux_test_force_attempts" -ge 2
+        }
+        cmux_ssh_auth_recovery_enqueue() { return 1; }
+        kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
+        CMUX_SSH_AUTH_GROUP_DIR="$CMUX_TEST_GROUP_DIR"
+        export CMUX_SSH_AUTH_GROUP_DIR
+        : > "$CMUX_TEST_SIGNALS"
+        cmux_ssh_terminate_auth_process_tree 101 1
+        test "$(/bin/cat "$CMUX_TEST_ATTEMPTS")" -eq 2 || exit 99
+        test ! -s "$CMUX_TEST_SIGNALS" || exit 98
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_TEST_ATTEMPTS": attempts.path,
+                "CMUX_TEST_GROUP_DIR": groupDirectory.path,
+                "CMUX_TEST_SIGNALS": signals.path,
+                "TMPDIR": root.path,
+            ],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
     func unpublishedAllocationFailureStillKillsDescendants(
         shellPath: String
     ) throws {
@@ -5469,6 +5525,63 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
 
         #expect(claimAcquisition.lowerBound < cancellationPublication.lowerBound)
         #expect(claimAcquisition.lowerBound < cleanupTransaction.lowerBound)
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func cleanupRetryRetainsReparentedOwnedIdentity(shellPath: String) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-ssh-auth-reparented-owned-retry-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let groupDirectory = root.appendingPathComponent(
+            "cmux-ssh-auth-group.published",
+            isDirectory: true
+        )
+        let retained = root.appendingPathComponent("retained")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_identity() {
+          test "$1" = 101 || return 1
+          printf '1|777777|Thu_Jan_1_00:00:00_1970\n'
+        }
+        cmux_ssh_auth_cleanup_claim() { return 0; }
+        cmux_ssh_auth_cleanup_claim_is_current() { return 0; }
+        cmux_ssh_auth_cleanup_claim_release() { :; }
+        cmux_ssh_auth_resume_signaled_processes() { return 0; }
+        cmux_ssh_auth_run_cleanup_transactions() {
+          printf '202 9 888888 S Thu Jan 1 00:00:00 1970\n' \
+            > "$cmux_ssh_auth_process_snapshot"
+          cmux_ssh_auth_expand_owned_processes \
+            "$cmux_ssh_auth_process_snapshot" || return 1
+          /usr/bin/grep -Fqx \
+            '202 9 888888 Thu_Jan_1_00:00:00_1970 S' \
+            "$cmux_ssh_auth_owned_processes" || return 1
+          : > "$CMUX_TEST_RETAINED"
+        }
+        printf '101|777777|Thu_Jan_1_00:00:00_1970\n' \
+          > "$CMUX_SSH_AUTH_GROUP_DIR/identity"
+        printf '202 1 888888 Thu_Jan_1_00:00:00_1970 R\n' \
+          > "$CMUX_SSH_AUTH_GROUP_DIR/owned"
+        cmux_ssh_terminate_owned_auth_group 999999
+        test -e "$CMUX_TEST_RETAINED" || exit 99
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
+                "CMUX_TEST_RETAINED": retained.path,
+                "TMPDIR": root.path,
+            ],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
