@@ -222,6 +222,32 @@ jobs:
           CMUX_TEST_WS_LATENCY_BUDGET_MS: "2000"
           CMUX_TEST_TIMEOUT_SCALE: "4"
         run: |
+          cat > "$RUNNER_TEMP/ring.supp" <<'SUPPRESSIONS'
+          # ring 0.17 AES-GCM uses initialized bytes through assembly that
+          # Valgrind 3.22 cannot model. Keep these suppressions at the
+          # ring/rustls boundary so unrelated reports still fail the job.
+          {
+             ring-aes-gcm-decrypt
+             Memcheck:Cond
+             fun:*ring*aead*algorithm*Algorithm*open_within*
+          }
+          {
+             ring-aes-gcm-writev-vector-0
+             Memcheck:Param
+             writev(vector[0])
+             fun:writev
+             ...
+             fun:*rustls*ChunkVecBuffer*write_to*
+          }
+          {
+             ring-aes-gcm-writev-vector-1
+             Memcheck:Param
+             writev(vector[1])
+             fun:writev
+             ...
+             fun:*rustls*ChunkVecBuffer*write_to*
+          }
+          SUPPRESSIONS
           while IFS= read -r bin; do
             [ -n "$bin" ] || continue
             echo "Running valgrind for $bin"
@@ -230,7 +256,7 @@ jobs:
               --leak-check=full \
               --show-leak-kinds=definite \
               --errors-for-leak-kinds=definite \
-              --suppressions=../.github/valgrind-ring.supp \
+              --suppressions="$RUNNER_TEMP/ring.supp" \
               --track-origins=yes \
               -- "$bin" --test-threads=1
           done < target/valgrind-test-binaries.txt
