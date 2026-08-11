@@ -51,78 +51,19 @@ struct ViewportColumnsView: View {
     let terminalStates: [String: NativeTerminalViewState]
     let terminalTitle: TerminalTitleFn
 
-    @State private var pendingWidths: [String: CGFloat] = [:]
-
     var body: some View {
         GeometryReader { geometry in
             ScrollView(.horizontal) {
-                HStack(spacing: 8) {
+                LazyHStack(spacing: 8) {
                     ForEach(columns) { column in
-                        let naturalWidth = max(
-                            360,
-                            geometry.size.width * max(0.25, column.width)
+                        ViewportColumnView(
+                            actions: actions,
+                            snapshot: snapshot,
+                            column: column,
+                            availableSize: geometry.size,
+                            terminalStates: terminalStates,
+                            terminalTitle: terminalTitle
                         )
-                        let renderedWidth = pendingWidths[column.id] ?? naturalWidth
-                        VStack(spacing: 0) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "rectangle.portrait")
-                                Text(column.columnID.suffix(6))
-                                    .font(.system(.caption2, design: .monospaced))
-                                Spacer()
-                                Text(column.widthLabel(localization: localization))
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                            .padding(.horizontal, 8)
-                            .frame(height: 24)
-                            .background(.bar)
-                            LayoutNodeView(
-                                actions: actions,
-                                snapshot: snapshot,
-                                node: column.root,
-                                terminalStates: terminalStates,
-                                terminalTitle: terminalTitle
-                            )
-                            .padding(4)
-                        }
-                        .frame(
-                            width: renderedWidth,
-                            height: max(1, geometry.size.height - 12)
-                        )
-                        .background(Color(nsColor: .controlBackgroundColor).opacity(0.45))
-                        .clipShape(.rect(cornerRadius: 8))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(.separator.opacity(0.7), lineWidth: 1)
-                        }
-                        .overlay(alignment: .trailing) {
-                            Rectangle()
-                                .fill(.clear)
-                                .frame(width: 8)
-                                .contentShape(.rect)
-                                .gesture(
-                                    DragGesture(minimumDistance: 1)
-                                        .onChanged { value in
-                                            pendingWidths[column.id] = max(
-                                                240,
-                                                naturalWidth + value.translation.width
-                                            )
-                                        }
-                                        .onEnded { value in
-                                            let width = max(
-                                                240,
-                                                naturalWidth + value.translation.width
-                                            )
-                                            pendingWidths[column.id] = nil
-                                            if let paneID = column.root.paneIDs.first {
-                                                actions.setViewportWidth(
-                                                    paneID,
-                                                    Int(width / 8.4)
-                                                )
-                                            }
-                                        }
-                                )
-                        }
                     }
                 }
                 .padding(6)
@@ -134,6 +75,86 @@ struct ViewportColumnsView: View {
             "base width %.2f",
             baseWidth
         ))
+    }
+}
+
+private struct ViewportColumnView: View {
+    @Environment(\.localization) private var localization
+    let actions: LayoutActions
+    let snapshot: ResourceSnapshot
+    let column: ViewportColumn
+    let availableSize: CGSize
+    let terminalStates: [String: NativeTerminalViewState]
+    let terminalTitle: TerminalTitleFn
+
+    @State private var pendingWidth: CGFloat?
+
+    var body: some View {
+        let naturalWidth = max(
+            360,
+            availableSize.width * max(0.25, column.width)
+        )
+        let renderedWidth = pendingWidth ?? naturalWidth
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Image(systemName: "rectangle.portrait")
+                Text(column.columnID.suffix(6))
+                    .font(.system(.caption2, design: .monospaced))
+                Spacer()
+                Text(column.widthLabel(localization: localization))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 24)
+            .background(.bar)
+            LayoutNodeView(
+                actions: actions,
+                snapshot: snapshot,
+                node: column.root,
+                terminalStates: terminalStates,
+                terminalTitle: terminalTitle
+            )
+            .padding(4)
+        }
+        .frame(
+            width: renderedWidth,
+            height: max(1, availableSize.height - 12)
+        )
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.45))
+        .clipShape(.rect(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(.separator.opacity(0.7), lineWidth: 1)
+        }
+        .overlay(alignment: .trailing) {
+            Rectangle()
+                .fill(.clear)
+                .frame(width: 8)
+                .contentShape(.rect)
+                .gesture(
+                    DragGesture(minimumDistance: 1)
+                        .onChanged { value in
+                            pendingWidth = max(
+                                240,
+                                naturalWidth + value.translation.width
+                            )
+                        }
+                        .onEnded { value in
+                            let width = max(
+                                240,
+                                naturalWidth + value.translation.width
+                            )
+                            pendingWidth = nil
+                            if let paneID = column.root.paneIDs.first {
+                                actions.setViewportWidth(
+                                    paneID,
+                                    Int(width / 8.4)
+                                )
+                            }
+                        }
+                )
+        }
     }
 }
 

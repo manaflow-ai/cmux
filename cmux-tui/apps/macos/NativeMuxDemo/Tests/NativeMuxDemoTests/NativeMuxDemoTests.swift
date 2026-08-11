@@ -346,10 +346,15 @@ func canceledQueuedFFIOperationDoesNotExecute() async throws {
     releaseFirst.signal()
 
     _ = await first.value
-    let secondResult = await second.value
+    do {
+        _ = try await second.value
+        Issue.record("A canceled queued operation returned a value.")
+    } catch is CancellationError {
+    } catch {
+        Issue.record("A canceled queued operation returned an unexpected error: \(error)")
+    }
     firstStarted.continuation.finish()
     queued.continuation.finish()
-    #expect(secondResult == nil)
     #expect(operations.snapshot.isEmpty)
 }
 
@@ -372,15 +377,20 @@ func queuedFFIOperationDeadlineIncludesTimeBeforeExecution() async throws {
 
     let operations = EventLog()
     let cancellation = FFICancellation { operations.append("cancel") }
-    let queuedResult = try await executor.runCancellable(
-        cancellation: cancellation,
-        timeoutNanoseconds: 10_000_000
-    ) {
-        operations.append("execute")
-        return true
+    do {
+        _ = try await executor.runCancellable(
+            cancellation: cancellation,
+            timeoutNanoseconds: 10_000_000
+        ) {
+            operations.append("execute")
+            return true
+        }
+        Issue.record("A timed-out queued operation returned a value.")
+    } catch SerialFFIExecutorError.timedOut {
+    } catch {
+        Issue.record("A timed-out queued operation returned an unexpected error: \(error)")
     }
 
-    #expect(queuedResult == nil)
     #expect(operations.snapshot == ["cancel"])
     releaseFirst.signal()
     _ = await first.value
@@ -1035,6 +1045,40 @@ func resetKeepsSurfaceCreationError() {
     #expect(view.initializationError == testLocalization.text(
         "error.ghostty_runtime",
         "The embedded Ghostty renderer could not start."
+    ))
+}
+
+@Test @MainActor
+func invalidResetBlocksLaterRenderEventsAndReadyState() {
+    let input = AsyncStream<TerminalInput>.makeStream()
+    let drops = AsyncStream<Void>.makeStream()
+    let relay = GhosttyTerminalInputRelay(
+        continuation: input.continuation,
+        dropContinuation: drops.continuation
+    )
+    let view = GhosttyRemoteSurfaceView(
+        runtime: nil,
+        inputRelay: relay,
+        localization: testLocalization
+    )
+    let geometry = TerminalGeometry(cols: 80, rows: 24)
+
+    view.apply(TerminalRenderEvent(
+        kind: .reset,
+        geometry: geometry,
+        payload: Data("invalid".utf8)
+    ))
+    view.apply(TerminalRenderEvent(
+        kind: .bytes,
+        geometry: geometry,
+        payload: Data("stale".utf8)
+    ))
+    view.apply(TerminalRenderEvent(kind: .ready, geometry: geometry, payload: Data()))
+
+    #expect(!view.renderStreamValid)
+    #expect(view.initializationError == testLocalization.text(
+        "error.terminal_snapshot",
+        "The terminal snapshot was invalid."
     ))
 }
 

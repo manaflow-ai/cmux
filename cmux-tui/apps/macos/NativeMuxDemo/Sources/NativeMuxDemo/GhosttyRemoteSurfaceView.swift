@@ -201,6 +201,7 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
   private var lastReportedGeometry: TerminalGeometry?
   private var sentRightMousePress = false
   private var ready = false
+  private(set) var renderStreamValid = false
 
   override var acceptsFirstResponder: Bool { true }
 
@@ -232,23 +233,31 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
   func apply(_ event: TerminalRenderEvent) {
     switch event.kind {
     case .reset:
+      ready = false
+      renderStreamValid = false
+      lastReportedGeometry = nil
+      surfaceLifetime.replace(with: nil)
       guard let reset = NativeKittyResetMetadata.decode(event.payload) else {
-        initializationError = localization.text("error.terminal_snapshot", "The terminal snapshot was invalid.")
+        failClosedForInvalidSnapshot()
         return
       }
       recreateSurface()
       setGrid(event.geometry)
       guard let surface else { return }
       guard restoreKittyReplay(surface: surface, metadata: reset) else {
-        initializationError = localization.text("error.terminal_snapshot", "The terminal snapshot was invalid.")
+        failClosedForInvalidSnapshot()
         return
       }
+      renderStreamValid = true
       updateSurfaceSize(reportGeometry: true)
     case .bytes:
+      guard renderStreamValid else { return }
       processOutput(event.payload)
     case .resize:
+      guard renderStreamValid else { return }
       setGrid(event.geometry)
     case .ready:
+      guard renderStreamValid, surface != nil else { return }
       ready = true
       if let surface {
         ghostty_surface_set_focus(surface, window?.firstResponder === self)
@@ -256,7 +265,19 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
       }
     case .exit:
       ready = false
+      renderStreamValid = false
     }
+  }
+
+  private func failClosedForInvalidSnapshot() {
+    ready = false
+    renderStreamValid = false
+    lastReportedGeometry = nil
+    surfaceLifetime.replace(with: nil)
+    initializationError = localization.text(
+      "error.terminal_snapshot",
+      "The terminal snapshot was invalid."
+    )
   }
 
   private func restoreKittyReplay(

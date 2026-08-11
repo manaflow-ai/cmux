@@ -8,7 +8,9 @@ enum FrontendServiceError: LocalizedError {
   case requestRejected(String, localization: Localization)
   case terminalAttachFailure(String, localization: Localization)
   case requestQueueFull(localization: Localization)
+  case requestQueueTimedOut(localization: Localization)
   case terminalAttachQueueFull(localization: Localization)
+  case terminalAttachQueueTimedOut(localization: Localization)
   case mutationIndeterminate(
     operation: String,
     idempotencyKey: String,
@@ -60,11 +62,18 @@ enum FrontendServiceError: LocalizedError {
         "error.request_queue_full",
         "Too many frontend requests are waiting. Try again after they finish."
       )
+    case .requestQueueTimedOut(let localization):
+      return localization.text(
+        "error.request_failure",
+        "The frontend request failed. See diagnostics for details."
+      )
     case .terminalAttachQueueFull(let localization):
       return localization.text(
         "error.terminal_attach_queue_full",
         "Too many terminal attachments are waiting. Try again after they finish."
       )
+    case .terminalAttachQueueTimedOut(let localization):
+      return localization.text("error.terminal_attach", "The terminal could not be attached.")
     case .mutationIndeterminate(_, _, let localization):
       return localization.text(
         "error.mutation_indeterminate",
@@ -77,7 +86,8 @@ enum FrontendServiceError: LocalizedError {
     switch self {
     case .connectionFailure(let message, _), .requestRejected(let message, _),
       .terminalAttachFailure(let message, _): return message
-    case .localized, .requestQueueFull, .terminalAttachQueueFull, .mutationIndeterminate:
+    case .localized, .requestQueueFull, .requestQueueTimedOut,
+      .terminalAttachQueueFull, .terminalAttachQueueTimedOut, .mutationIndeterminate:
       return nil
     }
   }
@@ -192,48 +202,60 @@ final class SerialFFIExecutor: @unchecked Sendable {
     timeoutNanoseconds: UInt64? = nil,
     _ operation: @escaping @Sendable () -> T,
     onEnqueued: (@Sendable () -> Void)? = nil
-  ) async throws -> T? {
+  ) async throws -> T {
     guard reserveCancellableOperation() else { throw SerialFFIExecutorError.queueFull }
     let waiter = FFIResultWaiter<T>()
     queue.async { [self] in
       defer { releaseCancellableOperation() }
       guard cancellation.beginExecution() else {
-        Task { await waiter.complete(nil) }
+        Task { await waiter.complete(.cancelled) }
         return
       }
       let result = operation()
       cancellation.finishExecution()
-      Task { await waiter.complete(result) }
+      Task { await waiter.complete(.value(result)) }
     }
     if let timeoutNanoseconds {
       let timeoutTask = timeoutScheduler(timeoutNanoseconds) {
-        if cancellation.cancel() { await waiter.complete(nil) }
+        if cancellation.cancel() { await waiter.complete(.timedOut) }
       }
       await waiter.installTimeoutTask(timeoutTask)
     }
     onEnqueued?()
-    return await withTaskCancellationHandler {
+    let result = await withTaskCancellationHandler {
       await waiter.value()
     } onCancel: {
       if cancellation.cancel() {
-        Task { await waiter.complete(nil) }
+        Task { await waiter.complete(.cancelled) }
       }
+    }
+    switch result {
+    case .value(let value): return value
+    case .cancelled: throw CancellationError()
+    case .timedOut: throw SerialFFIExecutorError.timedOut
     }
   }
 }
 
 enum SerialFFIExecutorError: Error {
   case queueFull
+  case timedOut
+}
+
+private enum FFIWaitResult<T: Sendable>: Sendable {
+  case value(T)
+  case cancelled
+  case timedOut
 }
 
 private actor FFIResultWaiter<T: Sendable> {
-  private var continuation: CheckedContinuation<T?, Never>?
+  private var continuation: CheckedContinuation<FFIWaitResult<T>, Never>?
   private var completed = false
-  private var result: T?
+  private var result: FFIWaitResult<T>?
   private var timeoutTask: Task<Void, Never>?
 
-  func value() async -> T? {
-    if completed { return result }
+  func value() async -> FFIWaitResult<T> {
+    if let result { return result }
     return await withCheckedContinuation { continuation in
       self.continuation = continuation
     }
@@ -247,7 +269,7 @@ private actor FFIResultWaiter<T: Sendable> {
     }
   }
 
-  func complete(_ result: T?) {
+  func complete(_ result: FFIWaitResult<T>) {
     guard !completed else { return }
     completed = true
     self.result = result
@@ -424,7 +446,7 @@ actor FrontendService {
     let requestID = UUID()
     requestCancellations[requestID] = queueCancellation
     defer { requestCancellations[requestID] = nil }
-    let queuedResponse: Result<String, DetachedRequestFailure>?
+    let queuedResponse: Result<String, DetachedRequestFailure>
     do {
       queuedResponse = try await controlQueue.runCancellable(
         cancellation: queueCancellation,
@@ -453,11 +475,12 @@ actor FrontendService {
       }
     } catch SerialFFIExecutorError.queueFull {
       throw FrontendServiceError.requestQueueFull(localization: localization)
+    } catch SerialFFIExecutorError.timedOut {
+      throw FrontendServiceError.requestQueueTimedOut(localization: localization)
     }
-    guard let response = queuedResponse else { throw CancellationError() }
     try Task.checkCancellation()
     let payload: String
-    switch response {
+    switch queuedResponse {
     case .success(let value): payload = value
     case .failure(let error):
       throw FrontendServiceError.requestFailure(error.message, localization: localization)
@@ -495,7 +518,7 @@ actor FrontendService {
     let attachID = UUID()
     attachCancellations[attachID] = queueCancellation
     defer { attachCancellations[attachID] = nil }
-    let queuedResult: Result<UInt, DetachedRequestFailure>?
+    let queuedResult: Result<UInt, DetachedRequestFailure>
     do {
       queuedResult = try await attachQueue.runCancellable(
         cancellation: queueCancellation,
@@ -519,9 +542,10 @@ actor FrontendService {
       }
     } catch SerialFFIExecutorError.queueFull {
       throw FrontendServiceError.terminalAttachQueueFull(localization: localization)
+    } catch SerialFFIExecutorError.timedOut {
+      throw FrontendServiceError.terminalAttachQueueTimedOut(localization: localization)
     }
-    guard let result = queuedResult else { throw CancellationError() }
-    switch result {
+    switch queuedResult {
     case .success(let value):
       let queue = attachQueue
       let address = try await Self.transferAttachedTerminal(
