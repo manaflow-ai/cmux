@@ -30,10 +30,9 @@ Detectors (all line/regex heuristics, never an AST):
 - sleep-then-assert: a real sleep immediately followed (within 3 non-blank
   lines) by an assertion, where the sleep is NOT a loop body (i.e. not a poll).
   This is the "sleep as synchronization" ban. Deadline-bounded polls and
-  scenario-pacing sleeps with no trailing assert are allowed. An injected Swift
-  test clock can use an adjacent `test-determinism: injected-clock` annotation;
-  the annotation is accepted only on an instance receiver whose name ends in
-  `Clock`.
+  scenario-pacing sleeps with no trailing assert are allowed. A separately
+  awaited async-iterator value used by the next assertion is also allowed
+  because the event, not elapsed time, owns assertion readiness.
 
 Usage:
     check-test-determinism.py                 # scan, print findings, exit 0
@@ -207,15 +206,25 @@ _SLEEP_CALL = re.compile(
     """
 )
 
-# An injected test clock can keep the production sleep-shaped API while its
-# test closure returns immediately. The audited annotation is deliberately
-# local: it applies only to this call, only in Swift, and only to an instance
-# receiver named like a clock. It cannot suppress Task.sleep, Thread.sleep, or
-# a constructed ContinuousClock().sleep call.
-_INSTANCE_SLEEP = re.compile(r"\b([A-Za-z_]\w*)\.sleep\s*\(")
-_INJECTED_CLOCK_ANNOTATION = re.compile(
-    r"\btest-determinism:\s*injected-clock\b"
+# A separately awaited async-iterator value is an explicit owner signal when
+# the next assertion consumes that value. Keep this narrow: an assertion that
+# contains the await is not a prior signal.
+_AWAITED_ITERATOR_NEXT = re.compile(
+    r"^\s*(?:let|var)\s+([A-Za-z_]\w*)\s*=\s*"
+    r"(?:try[?!]?\s+)?await\s+([A-Za-z_]\w*)\.next\s*\(\s*\)\s*$"
 )
+_ASYNC_ITERATOR_BINDING = re.compile(
+    r"\b(?:let|var)\s+([A-Za-z_]\w*)\s*=\s*"
+    r"([A-Za-z_]\w*)\.makeAsyncIterator\s*\("
+)
+_ASYNC_STREAM_BINDING = re.compile(
+    r"\blet\s*\(\s*([A-Za-z_]\w*)\s*,\s*[A-Za-z_]\w*\s*\)\s*"
+    r"=\s*AsyncStream(?:<[^>]+>)?\.makeStream\s*\("
+)
+_SWIFT_TEST_FUNCTION = re.compile(
+    r"^(\s*)(?:(@Test(?:\s*\([^)]*\))?)\s+)?func\s+\w+.*\{\s*$"
+)
+_SWIFT_TEST_ATTRIBUTE = re.compile(r"^\s*@Test(?:\s*\([^)]*\))?\s*$")
 
 # The shell BARE-COMMAND sleep form (`sleep 0.3`) has no parentheses, so it can
 # only be recognized positionally. It is matched ONLY in shell files: in Swift /
@@ -456,25 +465,138 @@ def _sleep_in_loop(lines: list[str], idx: int) -> bool:
     return False
 
 
-def _is_audited_injected_clock_sleep(
-    raw_lines: list[str], idx: int, path_suffix: str
+def _async_stream_signal_controls_next_assertion(
+    lines: list[str], idx: int, path_suffix: str
 ) -> bool:
     if path_suffix != ".swift":
         return False
-    instance_sleep = _INSTANCE_SLEEP.search(raw_lines[idx])
-    if not instance_sleep or not instance_sleep.group(1).lower().endswith("clock"):
+    scope = _swift_test_function_scope(lines, idx)
+    if scope is None:
         return False
-    annotation_lines = [raw_lines[idx]]
-    if idx > 0:
-        annotation_lines.append(raw_lines[idx - 1])
-    return any(_INJECTED_CLOCK_ANNOTATION.search(line) for line in annotation_lines)
+    scope_start, scope_end = scope
+
+    signal = _AWAITED_ITERATOR_NEXT.search(_strip_comment(lines[idx], path_suffix))
+    if not signal:
+        return False
+    value_name = signal.group(1)
+    iterator_name = signal.group(2)
+
+    iterator_idx: Optional[int] = None
+    stream_name: Optional[str] = None
+    for candidate_idx in range(idx - 1, -1, -1):
+        code = _strip_comment(lines[candidate_idx], path_suffix)
+        if not code.strip():
+            continue
+        iterator = _ASYNC_ITERATOR_BINDING.search(code)
+        if not iterator or iterator.group(1) != iterator_name:
+            return False
+        iterator_idx = candidate_idx
+        stream_name = iterator.group(2)
+        break
+    if iterator_idx is None or stream_name is None:
+        return False
+
+    source = "\n".join(
+        _strip_comment(line, path_suffix)
+        for line in lines[scope_start : scope_end + 1]
+    )
+    if len(re.findall(rf"\b{re.escape(stream_name)}\b", source)) != 2:
+        return False
+    if len(re.findall(rf"\b{re.escape(iterator_name)}\b", source)) != 2:
+        return False
+
+    signal_indent = len(lines[idx]) - len(lines[idx].lstrip())
+    has_async_stream_binding = False
+    for candidate_idx in range(iterator_idx - 1, scope_start - 1, -1):
+        code = _strip_comment(lines[candidate_idx], path_suffix)
+        if not code.strip():
+            continue
+        indent = len(lines[candidate_idx]) - len(lines[candidate_idx].lstrip())
+        if indent < signal_indent:
+            break
+        stream = _ASYNC_STREAM_BINDING.search(code)
+        if (
+            indent == signal_indent
+            and stream
+            and stream.group(1) == stream_name
+            and _async_stream_uses_default_buffering(
+                lines, candidate_idx, path_suffix
+            )
+        ):
+            has_async_stream_binding = True
+            break
+    if not has_async_stream_binding:
+        return False
+
+    for candidate in lines[idx + 1 :]:
+        code = _strip_comment(candidate, path_suffix)
+        if not code.strip():
+            continue
+        expected_literal = (
+            r"(?:nil|true|false|[-+]?\d[\d_]*(?:\.\d+)?|"
+            r"\.[A-Za-z_]\w*(?:\(\s*[-+]?\d[\d_]*(?:\.\d+)?\s*\))?)"
+        )
+        return bool(
+            re.fullmatch(
+                rf"\s*#expect\(\s*{re.escape(value_name)}\s*"
+                rf"(?:==|!=)\s*{expected_literal}\s*\)\s*",
+                code,
+            )
+        )
+    return False
+
+
+def _swift_test_function_scope(
+    lines: list[str], idx: int
+) -> Optional[tuple[int, int]]:
+    for start_idx in range(idx, -1, -1):
+        function = _SWIFT_TEST_FUNCTION.match(lines[start_idx])
+        if not function:
+            continue
+        function_indent = len(function.group(1))
+        if function.group(2) is None:
+            attribute_idx = start_idx - 1
+            while attribute_idx >= 0 and not lines[attribute_idx].strip():
+                attribute_idx -= 1
+            if attribute_idx < 0:
+                continue
+            attribute = lines[attribute_idx]
+            attribute_indent = len(attribute) - len(attribute.lstrip())
+            if (
+                attribute_indent != function_indent
+                or not _SWIFT_TEST_ATTRIBUTE.match(attribute)
+            ):
+                continue
+        for end_idx in range(start_idx + 1, len(lines)):
+            candidate = lines[end_idx]
+            indent = len(candidate) - len(candidate.lstrip())
+            if indent == function_indent and candidate.strip() == "}":
+                return (start_idx, end_idx) if idx < end_idx else None
+        return None
+    return None
+
+
+def _async_stream_uses_default_buffering(
+    lines: list[str], start_idx: int, path_suffix: str
+) -> bool:
+    call_lines: list[str] = []
+    depth = 0
+    saw_open = False
+    for candidate in lines[start_idx:]:
+        code = _strip_comment(candidate, path_suffix)
+        call_lines.append(code)
+        depth += code.count("(") - code.count(")")
+        saw_open = saw_open or "(" in code
+        if saw_open and depth <= 0:
+            call = "\n".join(call_lines)
+            return "bufferingPolicy" not in call
+    return False
 
 
 def detect_sleep_then_assert(
     lines: list[str],
     idx: int,
     path_suffix: str,
-    raw_lines: Optional[list[str]] = None,
 ) -> bool:
     """Sleep on lines[idx] followed by an assertion within 3 non-blank lines."""
     line = lines[idx]
@@ -482,10 +604,6 @@ def detect_sleep_then_assert(
     if not is_sleep and path_suffix == ".sh":
         is_sleep = bool(_SHELL_BARE_SLEEP.search(line))
     if not is_sleep:
-        return False
-    if raw_lines is not None and _is_audited_injected_clock_sleep(
-        raw_lines, idx, path_suffix
-    ):
         return False
     if _sleep_in_loop(lines, idx):
         return False
@@ -500,6 +618,8 @@ def detect_sleep_then_assert(
         # If we run into a loop header right after the sleep, the following
         # assert is inside a poll, not gated solely by the sleep.
         if _LOOP_HEADER.search(nxt):
+            return False
+        if _async_stream_signal_controls_next_assertion(lines, j, path_suffix):
             return False
         if _is_assertion_line(nxt):
             return True
@@ -544,7 +664,7 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
             findings.append(Finding(rel_posix, line_no, RULE_LIVE_NETWORK_HOST, snippet))
         if detect_fixed_port_bind(code):
             findings.append(Finding(rel_posix, line_no, RULE_FIXED_PORT_BIND, snippet))
-        if detect_sleep_then_assert(code_lines, i, suffix, raw_lines):
+        if detect_sleep_then_assert(code_lines, i, suffix):
             findings.append(Finding(rel_posix, line_no, RULE_SLEEP_THEN_ASSERT, snippet))
 
     return findings
@@ -687,18 +807,117 @@ def _self_test() -> int:
             "try await testClock.sleep(for: .seconds(7))\n#expect(done)\n",
             {RULE_SLEEP_THEN_ASSERT},
         ),
+        # Awaiting the owner signal inside the assertion is not a prior causal
+        # boundary. The sleep still gates the assertion and must be reported.
         (
-            "cmuxTests/annotated-runtime-clock.swift",
-            "// test-determinism: injected-clock\n"
-            "try await Task.sleep(for: .seconds(7))\n"
-            "#expect(done)\n",
+            "cmuxTests/signal-inside-assert.swift",
+            "try await testClock.sleep(for: .seconds(7))\n"
+            "#expect(await iterator.next() == .seconds(7))\n",
             {RULE_SLEEP_THEN_ASSERT},
         ),
+        # Calling next() without awaiting it does not establish readiness.
         (
-            "cmuxTests/annotated-continuous-clock.swift",
-            "// test-determinism: injected-clock\n"
-            "try await ContinuousClock().sleep(for: .seconds(7))\n"
-            "#expect(done)\n",
+            "cmuxTests/unawaited-signal.swift",
+            "try await testClock.sleep(for: .seconds(7))\n"
+            "let pending = iterator.next()\n"
+            "#expect(pending != nil)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        # Awaiting an unrelated value does not own the following assertion.
+        (
+            "cmuxTests/unrelated-awaited-signal.swift",
+            "try await testClock.sleep(for: .seconds(7))\n"
+            "let observed = await iterator.next()\n"
+            "#expect(otherState == .ready)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        # Swift permits await on a synchronous iterator with a warning. That
+        # syntax alone is not an asynchronous owner signal.
+        (
+            "cmuxTests/synchronous-iterator.swift",
+            "let values = [7]\n"
+            "try await testClock.sleep(for: .seconds(7))\n"
+            "var iterator = values.makeIterator()\n"
+            "let observed = await iterator.next()\n"
+            "#expect(observed == 7)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        # The awaited value in a diagnostic message is not a data dependency.
+        (
+            "cmuxTests/signal-name-only-in-message.swift",
+            "@Test func messageOnly() async throws {\n"
+            "    let (events, continuation) = AsyncStream.makeStream(of: Int.self)\n"
+            "    try await testClock.sleep(for: .seconds(7))\n"
+            "    var iterator = events.makeAsyncIterator()\n"
+            "    let observed = await iterator.next()\n"
+            "    #expect(isReady, \"observed\")\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        # Unrelated state in the same assertion can still depend on the sleep.
+        (
+            "cmuxTests/signal-combined-with-state.swift",
+            "@Test func combinedState() async throws {\n"
+            "    let (events, continuation) = AsyncStream.makeStream(of: Int.self)\n"
+            "    try await testClock.sleep(for: .seconds(7))\n"
+            "    var iterator = events.makeAsyncIterator()\n"
+            "    let observed = await iterator.next()\n"
+            "    #expect(observed == 7 && isReady)\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        # A lossy stream can make elapsed time select the observed value.
+        (
+            "cmuxTests/lossy-async-stream.swift",
+            "@Test func lossy() async throws {\n"
+            "    let (events, continuation) = AsyncStream.makeStream(\n"
+            "        of: Int.self,\n"
+            "        bufferingPolicy: .bufferingNewest(1)\n"
+            "    )\n"
+            "    try await testClock.sleep(for: .seconds(7))\n"
+            "    var iterator = events.makeAsyncIterator()\n"
+            "    let observed = await iterator.next()\n"
+            "    #expect(observed == 7)\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        # Comment text cannot turn a synchronous value read into an await.
+        (
+            "cmuxTests/await-only-in-comment.swift",
+            "@Test func commentOnly() async throws {\n"
+            "    let (events, continuation) = AsyncStream.makeStream(of: Int.self)\n"
+            "    try await testClock.sleep(for: .seconds(7))\n"
+            "    var iterator = events.makeAsyncIterator()\n"
+            "    let observed = currentValue // let observed = await iterator.next()\n"
+            "    #expect(observed == 7)\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        # A second iterator can consume the first event and make elapsed time
+        # select the value observed by this assertion.
+        (
+            "cmuxTests/shared-async-stream.swift",
+            "@Test func sharedStream() async throws {\n"
+            "    let (events, continuation) = AsyncStream.makeStream(of: Int.self)\n"
+            "    var competingIterator = events.makeAsyncIterator()\n"
+            "    try await testClock.sleep(for: .seconds(7))\n"
+            "    var iterator = events.makeAsyncIterator()\n"
+            "    let observed = await iterator.next()\n"
+            "    #expect(observed == 7)\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        # A fallback after next() can make the assertion read sleep-controlled
+        # state when the stream is complete.
+        (
+            "cmuxTests/async-stream-next-fallback.swift",
+            "@Test func fallback() async throws {\n"
+            "    let (events, continuation) = AsyncStream.makeStream(of: Int.self)\n"
+            "    try await testClock.sleep(for: .seconds(7))\n"
+            "    var iterator = events.makeAsyncIterator()\n"
+            "    let observed = await iterator.next() ?? currentState\n"
+            "    #expect(observed == 7)\n"
+            "}\n",
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
@@ -838,13 +1057,36 @@ def _self_test() -> int:
             "            time.sleep(0.3)\n"
             "        _must('ok' in body, body)\n",
         ),
-        # The named clock delegates to an injected closure that returns
-        # immediately. The adjacent audited annotation documents that fact.
+        # A separately awaited async-iterator event owns assertion readiness.
         (
             "cmuxTests/n22.swift",
-            "// test-determinism: injected-clock\n"
-            "try await testClock.sleep(for: .seconds(7))\n"
-            "#expect(await iterator.next() == .seconds(7))\n",
+            "@Test func ownerSignal() async throws {\n"
+            "    let (events, continuation) = AsyncStream.makeStream(of: Int.self)\n"
+            "    try await testClock.sleep(for: .seconds(7))\n"
+            "    var iterator = events.makeAsyncIterator()\n"
+            "    let observed = await iterator.next()\n"
+            "    #expect(observed == 7)\n"
+            "}\n",
+        ),
+        # Independent Swift Testing functions can reuse local signal names.
+        (
+            "cmuxTests/n23.swift",
+            "@Test\n"
+            "func first() async throws {\n"
+            "    let (events, continuation) = AsyncStream.makeStream(of: Int.self)\n"
+            "    try await firstClock.sleep(for: .seconds(7))\n"
+            "    var iterator = events.makeAsyncIterator()\n"
+            "    let observed = await iterator.next()\n"
+            "    #expect(observed == 7)\n"
+            "}\n"
+            "@Test(\"named\")\n"
+            "func second() async throws {\n"
+            "    let (events, continuation) = AsyncStream.makeStream(of: Int.self)\n"
+            "    try await secondClock.sleep(for: .seconds(7))\n"
+            "    var iterator = events.makeAsyncIterator()\n"
+            "    let observed = await iterator.next()\n"
+            "    #expect(observed == 7)\n"
+            "}\n",
         ),
     ]
 
