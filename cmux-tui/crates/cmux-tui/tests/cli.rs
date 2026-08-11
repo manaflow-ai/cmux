@@ -1200,23 +1200,30 @@ fn graceful_shutdown_stops_server_owned_sidebar_process() {
         &mut server.child,
         shutdown_deadline.saturating_duration_since(Instant::now()),
     );
-    let process_exits_published = owned_process_exits.iter().all(|process_exit| {
-        process_exit.wait_until(shutdown_deadline).expect("wait for server-owned process exit")
-    });
+    let process_exits_published = owned_process_exits
+        .iter()
+        .map(|process_exit| {
+            process_exit.wait_until(shutdown_deadline).expect("wait for server-owned process exit")
+        })
+        .collect::<Vec<_>>();
     // The successful fixture has no durable host and one direct /bin/cat
     // process. cmux-pty executes that program directly, and /bin/cat does not
     // fork, so its exact PID exit also proves this fixture cannot retain a
     // process-group descendant. The pre-captured pidfd/kqueue event proves
     // that exit without racing zombie reaping or PID reuse.
     // Unexpected durable hosts stay in this result and fail below.
-    let owned_processes_stopped = process_exits_published;
+    let owned_processes_stopped = process_exits_published.iter().all(|published| *published);
 
     // Keep lifecycle regressions leak-free. Every captured process group and
     // record belongs to this fixture's private state root.
-    if !owned_processes_stopped || used_durable_host {
-        for pid in &owned_pids {
+    // Never signal a numeric PID after its exact exit event. PID or process
+    // group reuse could target unrelated work.
+    for (pid, process_exit_published) in owned_pids.iter().zip(&process_exits_published) {
+        if !*process_exit_published {
             signal_test_process_group(*pid, libc::SIGKILL);
         }
+    }
+    if !owned_processes_stopped || used_durable_host {
         for (record_path, record) in &records {
             let _ = cmux_tui_core::terminal_host_runtime::remove_stale_terminal_host_record(
                 record_path,
