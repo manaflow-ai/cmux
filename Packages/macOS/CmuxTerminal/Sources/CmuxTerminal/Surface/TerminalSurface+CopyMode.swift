@@ -56,12 +56,7 @@ extension TerminalSurface {
         if let externalRuntime {
             let confirmedCopyModeActive = externalRuntime.snapshot.copyModeActive
             setKeyboardCopyModeActive(confirmedCopyModeActive)
-            let operation: TerminalExternalCopyModeOperation = confirmedCopyModeActive
-                ? .exit
-                : .enter
-            return externalRuntime.enqueue(
-                .copyMode(operation: operation, adjustment: nil, count: 1)
-            ).accepted
+            return externalRuntime.enqueue(.toggleCopyMode).accepted
         }
         let handled = surfaceView.toggleKeyboardCopyMode()
         if handled {

@@ -591,6 +591,8 @@ public enum TerminalExternalRuntimeMutation: Equatable, Sendable {
     case resize(TerminalExternalViewport)
     case bindingAction(action: String, repeatCount: UInt32)
     case selection(TerminalExternalSelectionOperation)
+    /// Resolves enter versus exit at the ordered runtime mutation owner.
+    case toggleCopyMode
     case copyMode(
         operation: TerminalExternalCopyModeOperation,
         adjustment: TerminalExternalCopyModeAdjustment?,

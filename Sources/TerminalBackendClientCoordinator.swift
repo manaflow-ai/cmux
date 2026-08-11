@@ -1753,6 +1753,20 @@ actor TerminalBackendClientCoordinator:
             outcome.install(response.state)
             outcome.selection = response.selection?.externalSelection
             outcome.selectionWasRead = true
+        case .toggleCopyMode:
+            let state = try await connection.session.terminalState(
+                surfaceID: binding.surfaceID
+            ).state
+            let operation: BackendTerminalCopyModeOperation = state.copyMode
+                ? .exit
+                : .enter
+            let response = try await connection.session.terminalCopyMode(
+                surfaceID: binding.surfaceID,
+                operation: operation,
+                adjustment: nil,
+                count: 1
+            )
+            outcome.install(response)
         case .copyMode(let operation, let adjustment, let count):
             let response = try await connection.session.terminalCopyMode(
                 surfaceID: binding.surfaceID,

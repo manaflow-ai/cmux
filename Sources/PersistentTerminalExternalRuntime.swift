@@ -1345,7 +1345,16 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         _ queued: TerminalBackendQueuedMutation
     ) async throws {
         guard let binding else { throw TerminalBackendClientError.unavailable }
-        let mutation = queued.mutation
+        let mutation: TerminalExternalRuntimeMutation = switch queued.mutation {
+        case .toggleCopyMode:
+            .copyMode(
+                operation: snapshot.copyModeActive ? .exit : .enter,
+                adjustment: nil,
+                count: 1
+            )
+        default:
+            queued.mutation
+        }
         updatePresentationState(for: mutation)
 
         if shouldApplyLocallyOnly(mutation) {
@@ -1479,7 +1488,8 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
             self.preedit = preedit
         case .reparent, .closeCanonicalTerminal:
             invalidateRendererStateOperations()
-        case .input, .mouse, .bindingAction, .selection, .copyMode, .search, .scroll:
+        case .input, .mouse, .bindingAction, .selection, .toggleCopyMode, .copyMode,
+             .search, .scroll:
             break
         }
     }
@@ -1513,7 +1523,7 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
             needsDescriptor = backendPresentationOpen || canPresent
         case .input:
             needsDescriptor = backendPresentationOpen || canPresent
-        case .bindingAction, .selection, .copyMode, .search, .scroll,
+        case .bindingAction, .selection, .toggleCopyMode, .copyMode, .search, .scroll,
              .closeCanonicalTerminal:
             needsDescriptor = false
         }

@@ -639,6 +639,17 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
                     operation: Self.backendSelectionOperation(operation)
                 )
                 try installUXState(response.state)
+            case .toggleCopyMode:
+                let operation: TerminalExternalCopyModeOperation = snapshot.copyModeActive
+                    ? .exit
+                    : .enter
+                let response = try await session.terminalCopyMode(
+                    surfaceID: selection.surfaceID,
+                    operation: Self.backendCopyModeOperation(operation),
+                    adjustment: nil,
+                    count: 1
+                )
+                try install(response)
             case .copyMode(let operation, let adjustment, let count):
                 let response = try await session.terminalCopyMode(
                     surfaceID: selection.surfaceID,
