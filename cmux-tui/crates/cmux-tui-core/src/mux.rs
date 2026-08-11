@@ -1936,7 +1936,7 @@ pub struct Mux {
     durable_terminal_defaults: AtomicBool,
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
     agent_records: Mutex<HashMap<TerminalPublicId, TerminalAgentRecord>>,
-    agent_projection_cache_sequence: AtomicU64,
+    agent_projection_rebuild_terminals: Mutex<HashSet<TerminalPublicId>>,
     agent_projection_rebuild_running: AtomicBool,
     #[cfg(test)]
     agent_projection_refresh_failure: AtomicBool,
@@ -2210,8 +2210,6 @@ impl Mux {
             terminal_notifications,
             notification_ledger,
         } = restore_public_projections(&state, registry.public_projections()?)?;
-        let agent_projection_cache_sequence =
-            registry.agent_projection_journal_cursor_for_cache()?;
         let journal_producers = registry.journal_producer_manifests()?;
         let session_public_id = registry.session_id().clone();
         let journal_kernel = crate::journal_kernel::JournalKernel::new(
@@ -2313,7 +2311,7 @@ impl Mux {
             durable_terminal_defaults: AtomicBool::new(has_terminal_defaults),
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
             agent_records: Mutex::new(agent_records),
-            agent_projection_cache_sequence: AtomicU64::new(agent_projection_cache_sequence),
+            agent_projection_rebuild_terminals: Mutex::new(HashSet::new()),
             agent_projection_rebuild_running: AtomicBool::new(false),
             #[cfg(test)]
             agent_projection_refresh_failure: AtomicBool::new(false),
@@ -4837,15 +4835,7 @@ impl Mux {
                 _ => None,
             }),
         )
-        .and_then(|terminal_ids| self.sync_agent_records_for_terminals(&registry, terminal_ids))
-        .and_then(|current| {
-            if current {
-                self.advance_agent_projection_cache_sequence(
-                    registry.agent_projection_journal_cursor_for_cache()?,
-                );
-            }
-            Ok(current)
-        });
+        .and_then(|terminal_ids| self.sync_agent_records_for_terminals(&registry, terminal_ids));
         drop(registry);
         self.publish_committed_journal(projection_current);
         Ok(commits)
@@ -5026,15 +5016,16 @@ impl Mux {
         }
         let result = (|| -> anyhow::Result<(bool, bool)> {
             let registry = mux.workspace_registry.lock().unwrap();
-            let (checkpoint_ready, pending) = registry.continue_agent_projection_rebuild_page()?;
+            let (checkpoint_ready, pending, terminal_ids) =
+                registry.continue_agent_projection_rebuild_page()?;
+            let mut rebuild_terminals = mux.agent_projection_rebuild_terminals.lock().unwrap();
+            rebuild_terminals.extend(terminal_ids);
             if !checkpoint_ready {
                 return Ok((false, pending));
             }
-            let cache_sequence = mux.agent_projection_cache_sequence.load(Ordering::Acquire);
-            let (checkpoint_sequence, terminal_ids) =
-                registry.agent_projection_checkpoint_terminal_ids(cache_sequence)?;
+            let terminal_ids = std::mem::take(&mut *rebuild_terminals);
+            drop(rebuild_terminals);
             mux.refresh_agent_records_for_terminals(&registry, terminal_ids)?;
-            mux.advance_agent_projection_cache_sequence(checkpoint_sequence);
             Ok((true, pending))
         })();
         match result {
@@ -5088,13 +5079,7 @@ impl Mux {
         let mut registry = self.workspace_registry.lock().unwrap();
         let commit =
             registry.append_journal_ingress(ingress, &validated, origin, idempotency_key)?;
-        let projection_current =
-            self.sync_agent_records_from_journal_ingress(&registry, ingress).map(|current| {
-                if current {
-                    self.advance_agent_projection_cache_sequence(commit.sequence);
-                }
-                current
-            });
+        let projection_current = self.sync_agent_records_from_journal_ingress(&registry, ingress);
         drop(registry);
         if !commit.replayed {
             self.publish_committed_journal(projection_current);
@@ -5168,10 +5153,6 @@ impl Mux {
             records.insert(projection.terminal_id, record);
         }
         Ok(())
-    }
-
-    fn advance_agent_projection_cache_sequence(&self, sequence: u64) {
-        self.agent_projection_cache_sequence.fetch_max(sequence, Ordering::AcqRel);
     }
 
     pub(crate) fn journal_hook_states(
@@ -8484,9 +8465,6 @@ impl Mux {
         )?;
         state.resource_revision = commit.revision;
         if !commit.replayed {
-            self.advance_agent_projection_cache_sequence(
-                registry.agent_projection_journal_cursor_for_cache()?,
-            );
             records.insert(terminal_id.clone(), record.clone());
         }
         drop(records);

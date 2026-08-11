@@ -47,7 +47,8 @@ pub(super) fn apply_agent_projection_journal_record(
     payload: &Value,
     resource_revision: Option<u64>,
     rebuilding_generation_history: bool,
-) -> anyhow::Result<()> {
+    replaying_projection_journal: bool,
+) -> anyhow::Result<Option<TerminalPublicId>> {
     let advances_cursor = kind.starts_with("agent.");
     let Some(next) = projection_from_journal_record(
         sequence,
@@ -62,13 +63,13 @@ pub(super) fn apply_agent_projection_journal_record(
         if advances_cursor {
             advance_agent_projection_journal_cursor(transaction, sequence)?;
         }
-        return Ok(());
+        return Ok(None);
     };
     if !terminal_is_live(transaction, &next.terminal_id)? {
         if advances_cursor {
             advance_agent_projection_journal_cursor(transaction, sequence)?;
         }
-        return Ok(());
+        return Ok(None);
     }
     let current = stored_projection(transaction, &next.terminal_id)?;
     validate_projection_transition(current.as_ref(), &next)?;
@@ -77,12 +78,13 @@ pub(super) fn apply_agent_projection_journal_record(
     // journal replay instead owns a fixed historical prefix. Validate new
     // structured identities before commit, then leave their projection work
     // after the fixed prefix and remember where permissive history ends.
-    if !rebuilding_generation_history
+    if !replaying_projection_journal
+        && !rebuilding_generation_history
         && agent_projection_journal_rebuild_target(transaction)?.is_some()
     {
         validate_deferred_agent_session_generation(transaction, current.as_ref(), &next)?;
         note_agent_projection_journal_live_sequence(transaction, sequence)?;
-        return Ok(());
+        return Ok(None);
     }
     let selected = merge_projection(current.clone(), next.clone());
     upsert_projection(transaction, &selected)?;
@@ -99,7 +101,7 @@ pub(super) fn apply_agent_projection_journal_record(
     if advances_cursor {
         advance_agent_projection_journal_cursor(transaction, sequence)?;
     }
-    Ok(())
+    Ok(Some(next.terminal_id))
 }
 
 fn validate_projection_transition(
@@ -480,11 +482,11 @@ fn record_superseded_agent_session_generation(
 pub(super) fn rebuild_agent_projections_from_journal(
     connection: &Connection,
     allow_archived_kind_backfill: bool,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<(bool, HashSet<TerminalPublicId>)> {
     let tx = connection.unchecked_transaction()?;
     if !resource_store::backfill_resource_agent_session_generations_page(&tx)? {
         tx.commit()?;
-        return Ok(false);
+        return Ok((false, HashSet::new()));
     }
     let mut sequence = agent_projection_journal_cursor(&tx)?;
     if sequence.is_none() && prejournal_projection_migration_cursor(&tx)?.is_none() {
@@ -493,7 +495,7 @@ pub(super) fn rebuild_agent_projections_from_journal(
     if prejournal_projection_migration_cursor(&tx)?.is_some() {
         if !migrate_prejournal_projections_page(&tx)? {
             tx.commit()?;
-            return Ok(false);
+            return Ok((false, HashSet::new()));
         }
         store_agent_projection_journal_cursor(&tx, 0)?;
         sequence = Some(0);
@@ -516,10 +518,10 @@ pub(super) fn rebuild_agent_projections_from_journal(
         candidate <= head_sequence,
         "agent projection journal candidate {candidate} is ahead of journal head {head_sequence}"
     );
-    let checkpoint_ready = if candidate <= sequence {
+    let (checkpoint_ready, terminal_ids) = if candidate <= sequence {
         store_agent_projection_journal_cursor(&tx, head_sequence)?;
         clear_agent_projection_journal_rebuild_target(&tx)?;
-        true
+        (true, HashSet::new())
     } else {
         let target = match agent_projection_journal_rebuild_target(&tx)? {
             Some(target) => target,
@@ -539,7 +541,7 @@ pub(super) fn rebuild_agent_projections_from_journal(
         clear_agent_projection_journal_live_sequence(&tx)?;
     }
     tx.commit()?;
-    Ok(checkpoint_ready)
+    Ok((checkpoint_ready, terminal_ids))
 }
 
 impl WorkspaceRegistry {
@@ -548,47 +550,16 @@ impl WorkspaceRegistry {
     }
 
     pub(crate) fn continue_agent_projection_rebuild(&self) -> anyhow::Result<bool> {
-        let (_, pending) = self.continue_agent_projection_rebuild_page()?;
+        let (_, pending, _) = self.continue_agent_projection_rebuild_page()?;
         Ok(!pending)
     }
 
-    pub(crate) fn continue_agent_projection_rebuild_page(&self) -> anyhow::Result<(bool, bool)> {
-        let checkpoint_ready = rebuild_agent_projections_from_journal(&self.connection, true)?;
-        Ok((checkpoint_ready, self.agent_projection_rebuild_pending()?))
-    }
-
-    pub(crate) fn agent_projection_journal_cursor_for_cache(&self) -> anyhow::Result<u64> {
-        Ok(agent_projection_journal_cursor(&self.connection)?.unwrap_or(0))
-    }
-
-    pub(crate) fn agent_projection_checkpoint_terminal_ids(
+    pub(crate) fn continue_agent_projection_rebuild_page(
         &self,
-        after_sequence: u64,
-    ) -> anyhow::Result<(u64, HashSet<TerminalPublicId>)> {
-        let through_sequence = self.agent_projection_journal_cursor_for_cache()?;
-        anyhow::ensure!(
-            through_sequence >= after_sequence,
-            "agent projection cache sequence {after_sequence} is ahead of rebuild checkpoint {through_sequence}"
-        );
-        let mut statement = self.connection.prepare(
-            "SELECT terminal_id
-             FROM resource_agent_projections
-             WHERE committed_revision > ?1 AND committed_revision <= ?2
-             ORDER BY terminal_id ASC",
-        )?;
-        let terminal_ids = statement
-            .query_map(
-                params![
-                    i64::try_from(after_sequence)
-                        .context("agent projection cache sequence exceeds SQLite range")?,
-                    i64::try_from(through_sequence)
-                        .context("agent projection checkpoint exceeds SQLite range")?,
-                ],
-                |row| row.get::<_, String>(0),
-            )?
-            .map(|row| Ok(TerminalPublicId::parse(row?)?))
-            .collect::<anyhow::Result<HashSet<_>>>()?;
-        Ok((through_sequence, terminal_ids))
+    ) -> anyhow::Result<(bool, bool, HashSet<TerminalPublicId>)> {
+        let (checkpoint_ready, terminal_ids) =
+            rebuild_agent_projections_from_journal(&self.connection, true)?;
+        Ok((checkpoint_ready, self.agent_projection_rebuild_pending()?, terminal_ids))
     }
 
     #[cfg(test)]
@@ -643,7 +614,7 @@ impl WorkspaceRegistry {
         )?;
         transaction.commit()?;
 
-        rebuild_agent_projections_from_journal(&self.connection, true)?;
+        let _ = rebuild_agent_projections_from_journal(&self.connection, true)?;
         let target = agent_projection_journal_rebuild_target(&self.connection)?
             .context("checkpoint test rebuild target is absent")?;
 
@@ -693,13 +664,13 @@ fn replay_agent_projection_journal_page(
     sequence: u64,
     target_sequence: u64,
     allow_archived_kind_backfill: bool,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<(bool, HashSet<TerminalPublicId>)> {
     if !session_journal::backfill_journal_event_index_kinds_page(
         transaction,
         AGENT_PROJECTION_JOURNAL_REBUILD_PAGE_SIZE,
         allow_archived_kind_backfill,
     )? {
-        return Ok(false);
+        return Ok((false, HashSet::new()));
     }
     let projection_sequences = {
         let mut statement = transaction.prepare(
@@ -726,13 +697,14 @@ fn replay_agent_projection_journal_page(
     let last_sequence = projection_sequences.last().copied();
     let page_is_full = projection_sequences.len() == AGENT_PROJECTION_JOURNAL_REBUILD_PAGE_SIZE;
     let live_sequence = agent_projection_journal_live_sequence(transaction)?;
+    let mut terminal_ids = HashSet::new();
     for record in
         session_journal::query_session_journal_sequences(transaction, &projection_sequences)?
     {
         if !record.kind.starts_with("agent.") {
             continue;
         }
-        apply_agent_projection_journal_record(
+        if let Some(terminal_id) = apply_agent_projection_journal_record(
             transaction,
             record.sequence,
             &record.kind,
@@ -742,7 +714,10 @@ fn replay_agent_projection_journal_page(
             &record.payload,
             record.resource_revision,
             live_sequence.is_none_or(|live_sequence| record.sequence < live_sequence),
-        )?;
+            true,
+        )? {
+            terminal_ids.insert(terminal_id);
+        }
     }
     let checkpoint_ready = match last_sequence {
         Some(last_sequence) if page_is_full && last_sequence < target_sequence => {
@@ -763,7 +738,7 @@ fn replay_agent_projection_journal_page(
             true
         }
     };
-    Ok(checkpoint_ready)
+    Ok((checkpoint_ready, terminal_ids))
 }
 
 fn agent_projection_journal_cursor(connection: &Connection) -> anyhow::Result<Option<u64>> {
