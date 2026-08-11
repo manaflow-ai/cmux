@@ -2007,6 +2007,18 @@ mod tests {
         payload
     }
 
+    #[test]
+    fn current_snapshot_fixture_matches_the_protocol_version() {
+        let snapshot = decode_renderer_snapshot(
+            &test_snapshot_payload(b"current protocol"),
+            PROTOCOL_VERSION,
+        )
+        .expect("the current snapshot fixture must use the current wire schema");
+
+        assert_eq!((snapshot.cols, snapshot.rows), (80, 24));
+        assert_eq!(snapshot.replay, b"current protocol");
+    }
+
     fn test_colors_payload() -> Vec<u8> {
         let mut payload = Vec::new();
         payload.extend_from_slice(&2u16.to_le_bytes());
