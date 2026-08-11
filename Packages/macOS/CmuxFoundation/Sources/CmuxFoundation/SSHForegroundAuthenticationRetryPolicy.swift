@@ -1919,11 +1919,90 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             exit 1
           fi
 
+          cmux_ssh_auth_direct_stopped_records=
+          cmux_ssh_auth_direct_complete=0
+          cmux_ssh_auth_direct_resume_stopped() {
+            if [ "$cmux_ssh_auth_direct_complete" = 1 ]; then return; fi
+            printf '%s\n' "$cmux_ssh_auth_direct_stopped_records" | \
+              while IFS='|' read -r cmux_ssh_auth_direct_resume_pid \
+                cmux_ssh_auth_direct_resume_group \
+                cmux_ssh_auth_direct_resume_started \
+                cmux_ssh_auth_direct_resume_extra; do
+                case "$cmux_ssh_auth_direct_resume_pid:$cmux_ssh_auth_direct_resume_group:$cmux_ssh_auth_direct_resume_started" in
+                  *[!A-Za-z0-9_:]*|:*|*:) continue ;;
+                esac
+                if [ -n "$cmux_ssh_auth_direct_resume_extra" ]; then continue; fi
+                cmux_ssh_auth_direct_resume_current=$(cmux_ssh_auth_stable_identity \
+                  "$cmux_ssh_auth_direct_resume_pid") || continue
+                if [ "$cmux_ssh_auth_direct_resume_current" = \
+                  "$cmux_ssh_auth_direct_resume_group|$cmux_ssh_auth_direct_resume_started" ]; then
+                  kill -CONT "$cmux_ssh_auth_direct_resume_pid" >/dev/null 2>&1 || true
+                fi
+              done
+          }
+          trap 'cmux_ssh_auth_direct_resume_stopped' EXIT
+          trap 'exit 129' HUP
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
+
+          cmux_ssh_auth_direct_freeze() {
+            cmux_ssh_auth_direct_freeze_pid="$1"
+            cmux_ssh_auth_direct_freeze_parent="$2"
+            cmux_ssh_auth_direct_freeze_group="$3"
+            cmux_ssh_auth_direct_freeze_started="$4"
+            cmux_ssh_auth_direct_freeze_expected="$cmux_ssh_auth_direct_freeze_parent|$cmux_ssh_auth_direct_freeze_group|$cmux_ssh_auth_direct_freeze_started"
+            cmux_ssh_auth_direct_freeze_current=$(cmux_ssh_auth_identity \
+              "$cmux_ssh_auth_direct_freeze_pid" \
+              "$cmux_ssh_auth_direct_deadline_millis") || return $?
+            if [ "$cmux_ssh_auth_direct_freeze_current" != \
+              "$cmux_ssh_auth_direct_freeze_expected" ]; then return 1; fi
+
+            # Record before STOP so every normal or trapped exit can resume the
+            # exact stable identity. The durable path remains preferred; this
+            # bounded fallback is only for failures before any STOP journal.
+            if [ -n "$cmux_ssh_auth_direct_stopped_records" ]; then
+              cmux_ssh_auth_direct_stopped_records="$cmux_ssh_auth_direct_stopped_records
+$cmux_ssh_auth_direct_freeze_pid|$cmux_ssh_auth_direct_freeze_group|$cmux_ssh_auth_direct_freeze_started"
+            else
+              cmux_ssh_auth_direct_stopped_records="$cmux_ssh_auth_direct_freeze_pid|$cmux_ssh_auth_direct_freeze_group|$cmux_ssh_auth_direct_freeze_started"
+            fi
+            kill -STOP "$cmux_ssh_auth_direct_freeze_pid" >/dev/null 2>&1 || return 1
+            while :; do
+              if cmux_ssh_auth_direct_freeze_observed=$(cmux_ssh_auth_stopped_identity \
+                "$cmux_ssh_auth_direct_freeze_pid" \
+                "$cmux_ssh_auth_direct_deadline_millis"); then
+                [ "$cmux_ssh_auth_direct_freeze_observed" = \
+                  "$cmux_ssh_auth_direct_freeze_expected" ] || return 1
+                return 0
+              else
+                case "$?" in 124) return 124 ;; esac
+              fi
+              cmux_ssh_auth_direct_freeze_stable=$(cmux_ssh_auth_stable_identity \
+                "$cmux_ssh_auth_direct_freeze_pid" \
+                "$cmux_ssh_auth_direct_deadline_millis") || return $?
+              if [ "$cmux_ssh_auth_direct_freeze_stable" != \
+                "$cmux_ssh_auth_direct_freeze_group|$cmux_ssh_auth_direct_freeze_started" ]; then
+                return 1
+              fi
+              /bin/sleep 0.01
+            done
+          }
+
+          if cmux_ssh_auth_direct_freeze \
+            "$cmux_ssh_auth_direct_root_pid" \
+            "$cmux_ssh_auth_direct_root_parent" \
+            "$cmux_ssh_auth_direct_root_group" \
+            "$cmux_ssh_auth_direct_root_started"; then
+            :
+          else
+            case "$?" in 124) exit 124 ;; *) exit 1 ;; esac
+          fi
+
           # State creation can fail while cleanup still owns a live unpublished
-          # tree. Capture a bounded descendant closure in memory. Even when the
-          # capture limit is reached, kill every stable identity already found,
-          # root-first, so a captured parent cannot continue to spawn children.
-          cmux_ssh_auth_direct_records="$cmux_ssh_auth_direct_root_pid|$cmux_ssh_auth_direct_root_group|$cmux_ssh_auth_direct_root_started"
+          # tree. Freeze each stable parent before child discovery, then KILL the
+          # bounded frozen closure root-first. A frozen parent cannot add a late
+          # child between its scan and its final signal.
+          cmux_ssh_auth_direct_records="$cmux_ssh_auth_direct_stopped_records"
           cmux_ssh_auth_direct_frontier="$cmux_ssh_auth_direct_root_pid"
           cmux_ssh_auth_direct_count=1
           cmux_ssh_auth_direct_depth=0
@@ -1987,8 +2066,20 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                 esac
                 if [ "$cmux_ssh_auth_direct_parent_observed" != \
                   "$cmux_ssh_auth_direct_parent" ]; then continue; fi
-                cmux_ssh_auth_direct_records="$cmux_ssh_auth_direct_records
-$cmux_ssh_auth_direct_pid|$cmux_ssh_auth_direct_group|$cmux_ssh_auth_direct_started"
+                if cmux_ssh_auth_direct_freeze \
+                  "$cmux_ssh_auth_direct_pid" \
+                  "$cmux_ssh_auth_direct_parent_observed" \
+                  "$cmux_ssh_auth_direct_group" \
+                  "$cmux_ssh_auth_direct_started"; then
+                  :
+                else
+                  case "$?" in
+                    124) cmux_ssh_auth_direct_capture_status=124 ;;
+                    *) cmux_ssh_auth_direct_capture_status=1 ;;
+                  esac
+                  break
+                fi
+                cmux_ssh_auth_direct_records="$cmux_ssh_auth_direct_stopped_records"
                 cmux_ssh_auth_direct_next_frontier="$cmux_ssh_auth_direct_next_frontier $cmux_ssh_auth_direct_pid"
                 cmux_ssh_auth_direct_count=$((cmux_ssh_auth_direct_count + 1))
               done
@@ -1999,6 +2090,9 @@ $cmux_ssh_auth_direct_pid|$cmux_ssh_auth_direct_group|$cmux_ssh_auth_direct_star
             cmux_ssh_auth_direct_depth=$((cmux_ssh_auth_direct_depth + 1))
           done
 
+          # A failed freeze can still have a write-ahead record. Include every
+          # such identity in the final kill or EXIT-resume decision.
+          cmux_ssh_auth_direct_records="$cmux_ssh_auth_direct_stopped_records"
           cmux_ssh_auth_direct_kill_status=0
           printf '%s\n' "$cmux_ssh_auth_direct_records" | (
             cmux_ssh_auth_direct_record_status=0
@@ -2041,6 +2135,10 @@ $cmux_ssh_auth_direct_pid|$cmux_ssh_auth_direct_group|$cmux_ssh_auth_direct_star
             done
             exit "$cmux_ssh_auth_direct_record_status"
           ) || cmux_ssh_auth_direct_kill_status=$?
+
+          if [ "$cmux_ssh_auth_direct_kill_status" = 0 ]; then
+            cmux_ssh_auth_direct_complete=1
+          fi
 
           if [ "$cmux_ssh_auth_direct_capture_status" = 124 ] || \
             [ "$cmux_ssh_auth_direct_kill_status" = 124 ]; then exit 124; fi
