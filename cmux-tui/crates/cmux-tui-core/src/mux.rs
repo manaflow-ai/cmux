@@ -8900,6 +8900,20 @@ impl Mux {
         Ok(())
     }
 
+    pub(crate) fn retire_killed_kitty_image_surface(self: &Arc<Self>, surface: &Surface) {
+        // The host is already terminating. Waiting for it to acknowledge a
+        // disabled quota can keep the released process share reserved forever.
+        let runtime_id = surface.terminal_runtime_id().unwrap_or(surface.id);
+        {
+            let mut budget = self.kitty_image_budget.lock().unwrap();
+            budget.entries.remove(&runtime_id);
+            budget.blocked_surfaces.remove(&runtime_id);
+            Self::rebalance_kitty_image_budget_owners(&mut budget);
+        }
+        self.kitty_image_budget_changed.notify_all();
+        self.start_kitty_image_budget_worker();
+    }
+
     pub(crate) fn resource_terminal_host_identity(
         &self,
         surface: &Surface,
