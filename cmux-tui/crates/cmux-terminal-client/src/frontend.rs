@@ -45,7 +45,9 @@ impl CmuxFrontendAttachCancellation {
 
     fn cancel(&self) {
         self.canceled.store(true, Ordering::Release);
-        self.notify.notify_waiters();
+        // One signal belongs to one attach. `notify_one` stores a permit if
+        // cancellation wins the race before the waiter registers.
+        self.notify.notify_one();
     }
 
     async fn cancelled(&self) {
