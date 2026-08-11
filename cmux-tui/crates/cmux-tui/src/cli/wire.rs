@@ -285,8 +285,11 @@ fn run_response(
                     continue;
                 }
                 if !response.ok {
-                    let error = serde_json::to_value(response.error.expect("validated error"))
+                    let mut error = serde_json::to_value(response.error.expect("validated error"))
                         .expect("resource errors serialize");
+                    if matches!(global.output, OutputMode::Quiet | OutputMode::Human) {
+                        localize_operation_error(plan, &mut error);
+                    }
                     return print_operation_error(&error, global.output);
                 }
                 let result = response.result.expect("validated result");
@@ -429,6 +432,30 @@ fn print_success(value: &Value, output: OutputMode) -> i32 {
 
 fn print_operation_error(error: &Value, output: OutputMode) -> i32 {
     print_local_error(error, output, 1)
+}
+
+fn localize_operation_error(plan: &RequestPlan, error: &mut Value) {
+    let is_lifecycle_operation = matches!(
+        &plan.operation,
+        WireOperation::Typed(
+            cmux_tui_core::resource::ResourceOperation::SessionShutdown
+                | cmux_tui_core::resource::ResourceOperation::SessionReloadConfig
+        )
+    );
+    if is_lifecycle_operation && error["code"] == "operation.failed" {
+        let message = match error["details"]["reason"].as_str() {
+            Some("lifecycle_not_ready") => {
+                Some(crate::localization::catalog().local_server.starting)
+            }
+            Some("owner_stopped") => {
+                Some(crate::localization::catalog().local_server.reload_owner_stopped)
+            }
+            _ => None,
+        };
+        if let Some(message) = message {
+            error["message"] = Value::String(message.to_string());
+        }
+    }
 }
 
 pub(super) fn print_local_error(error: &Value, output: OutputMode, exit_code: i32) -> i32 {
@@ -658,9 +685,12 @@ fn human_key_rank(key: &str) -> usize {
     }
 }
 
-fn resolve_socket(global: &GlobalArgs) -> PathBuf {
+pub(super) fn resolve_socket(global: &GlobalArgs) -> PathBuf {
     if let Some(path) = &global.socket {
         return path.clone();
+    }
+    if let Some(session) = &global.session {
+        return cmux_tui_core::server::default_socket_path(session);
     }
     for name in ["CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET"] {
         if let Some(path) = std::env::var_os(name)
@@ -669,7 +699,7 @@ fn resolve_socket(global: &GlobalArgs) -> PathBuf {
             return PathBuf::from(path);
         }
     }
-    cmux_tui_core::server::default_socket_path(global.session.as_deref().unwrap_or("main"))
+    cmux_tui_core::server::default_socket_path("main")
 }
 
 #[cfg(test)]
@@ -768,5 +798,49 @@ mod tests {
         };
         assert_eq!(response_read_timeout(&stream, false), Some(Duration::from_millis(250)));
         assert_eq!(response_read_timeout(&stream, true), None);
+    }
+
+    #[test]
+    fn stopped_owner_reload_error_is_localized_for_human_output() {
+        const PROBE_LOCALE: &str = "CMUX_TEST_STOPPED_OWNER_RELOAD_LOCALE";
+        if let Ok(locale) = std::env::var(PROBE_LOCALE) {
+            let plan = RequestPlan {
+                operation: WireOperation::Typed(ResourceOperation::SessionReloadConfig),
+                params: json!({}),
+                idempotency_key: Some("reload-owner-stopped".into()),
+                stream: false,
+            };
+            let mut error = json!({
+                "code":"operation.failed",
+                "message":"owner_stopped",
+                "details":{"operation":"session.reload_config","reason":"owner_stopped"},
+                "retryable":false,
+            });
+
+            localize_operation_error(&plan, &mut error);
+
+            let expected = match locale.as_str() {
+                "en_US.UTF-8" => {
+                    "the local server stopped before it applied the configuration reload; start the session and retry"
+                }
+                "ja_JP.UTF-8" => {
+                    "ローカルサーバーが設定の再読み込みを適用する前に停止しました。セッションを起動して再試行してください"
+                }
+                _ => panic!("unexpected probe locale {locale}"),
+            };
+            assert_eq!(error["message"], expected);
+            return;
+        }
+
+        for locale in ["en_US.UTF-8", "ja_JP.UTF-8"] {
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .arg("stopped_owner_reload_error_is_localized_for_human_output")
+                .arg("--nocapture")
+                .env(PROBE_LOCALE, locale)
+                .env("LC_ALL", locale)
+                .status()
+                .unwrap();
+            assert!(status.success(), "{locale} localization probe failed");
+        }
     }
 }

@@ -1386,6 +1386,8 @@ pub struct PtyTerminalRuntime {
     supports_clear_history_key_fallback: AtomicBool,
     host_identity: Option<crate::terminal_host_runtime::TerminalHostIdentity>,
     #[cfg(unix)]
+    pending_host_binding: Mutex<Option<crate::mux::PendingTerminalHostBinding>>,
+    #[cfg(unix)]
     host_exit_record_path: Option<PathBuf>,
     pid: Option<u32>,
     command: Vec<String>,
@@ -2341,6 +2343,8 @@ impl Surface {
                 ),
                 host_identity: None,
                 #[cfg(unix)]
+                pending_host_binding: Mutex::new(None),
+                #[cfg(unix)]
                 host_exit_record_path: None,
                 pid,
                 command: argv,
@@ -2768,6 +2772,11 @@ impl Surface {
         let sequence_boundary = snapshot.sequence_boundary;
         let protocol_version = attachment.protocol_version();
         let host_identity = attachment.identity();
+        let mux_owner =
+            mux.upgrade().ok_or_else(|| anyhow::anyhow!("terminal host has no mux owner"))?;
+        let pending_host_binding =
+            mux_owner.register_pending_terminal_host(id, host_identity.clone())?;
+        drop(mux_owner);
         let journal_generation = Arc::from(host_identity.incarnation.clone());
         let host_exit_record_path = attachment.exit_record_path();
         let supports_clear_history_key_fallback = attachment.supports_clear_history();
@@ -2805,6 +2814,7 @@ impl Surface {
                     supports_clear_history_key_fallback,
                 ),
                 host_identity: Some(host_identity),
+                pending_host_binding: Mutex::new(Some(pending_host_binding)),
                 host_exit_record_path: Some(host_exit_record_path),
                 pid: snapshot.pid,
                 command: snapshot.command,
@@ -3842,6 +3852,7 @@ impl Surface {
                 lifetime: PtyLifetime::SessionOwned,
                 supports_clear_history_key_fallback: AtomicBool::new(false),
                 host_identity: Some(identity),
+                pending_host_binding: Mutex::new(None),
                 host_exit_record_path: None,
                 pid: None,
                 command,
@@ -4073,6 +4084,8 @@ impl Surface {
                 lifetime,
                 supports_clear_history_key_fallback: AtomicBool::new(false),
                 host_identity: None,
+                #[cfg(unix)]
+                pending_host_binding: Mutex::new(None),
                 #[cfg(unix)]
                 host_exit_record_path: None,
                 pid: Some(id as u32),
@@ -5314,6 +5327,13 @@ impl Surface {
         &self,
     ) -> Option<crate::terminal_host_runtime::TerminalHostIdentity> {
         self.as_pty().and_then(|pty| pty.host_identity.clone())
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn release_pending_terminal_host_binding(&self) {
+        if let Some(pty) = self.as_pty() {
+            pty.pending_host_binding.lock().unwrap().take();
+        }
     }
 
     pub fn terminal_host_connection_state(&self) -> Option<TerminalHostConnectionState> {
