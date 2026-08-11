@@ -17,6 +17,7 @@ public final class TerminalSurfaceLaunchResolver {
     private let bundleIdentifier: String?
     private let ambientEnvironment: [String: String]
     private let defaultShellArguments: DefaultShellArguments
+    private let defaultShellArgumentsProvider: TerminalSurfaceDefaultShellArgumentsProvider
     private let resolvedUserShell: @MainActor () -> String?
     private let userGhosttyCommand: @MainActor () -> GhosttyConfiguredCommand?
     private let agentCommandShimInstallDeadline: Duration
@@ -78,17 +79,28 @@ public final class TerminalSurfaceLaunchResolver {
         self.bundleIdentifier = bundleIdentifier
         self.ambientEnvironment = ambientEnvironment
         self.defaultShellArguments = defaultShellArguments
+        self.defaultShellArgumentsProvider = TerminalSurfaceDefaultShellArgumentsProvider(
+            resolve: defaultShellArguments
+        )
         self.agentCommandShimInstallDeadline = agentCommandShimInstallDeadline
         self.agentCommandShimInstallDeadlineClock = agentCommandShimInstallDeadlineClock
     }
 
     /// Installs per-surface agent command shims, then resolves the exact launch.
+    ///
+    /// A repeated resolution can reuse the canonical terminal's existing shim
+    /// lease so a placement change does not replace or remove its live directory.
     public func resolveInstallingCommandShim(
-        _ request: TerminalSurfaceLaunchRequest
-    ) async -> TerminalSurfaceResolvedLaunch {
-        let launchResourceSnapshot = await launchResourceProvider.snapshot()
+        _ request: TerminalSurfaceLaunchRequest,
+        reusing commandShimLease: TerminalSurfaceAgentCommandShimLease? = nil
+    ) async -> TerminalSurfaceOwnedLaunch {
+        async let resourceSnapshot = launchResourceProvider.snapshot()
+        async let resolvedDefaultShellArguments = defaultShellArgumentsProvider.arguments()
+        let launchResourceSnapshot = await resourceSnapshot
         let shims: TerminalSurfaceAgentCommandShimSet?
-        if let wrapperDirectoryURL = launchResourceSnapshot.wrapperDirectoryURL {
+        if let commandShimLease {
+            shims = commandShimLease.shims
+        } else if let wrapperDirectoryURL = launchResourceSnapshot.wrapperDirectoryURL {
             let attempt = TerminalSurfaceCommandShimInstallAttempt(
                 filesystem: runtimeFilesystem,
                 wrapperDirectoryURL: wrapperDirectoryURL,
@@ -104,10 +116,21 @@ public final class TerminalSurfaceLaunchResolver {
         } else {
             shims = nil
         }
-        return resolve(
+        let resolvedLaunch = resolve(
             request,
             commandShims: shims,
-            launchResourceSnapshot: launchResourceSnapshot
+            launchResourceSnapshot: launchResourceSnapshot,
+            defaultShellArguments: await resolvedDefaultShellArguments
+        )
+        let ownedCommandShimLease = commandShimLease ?? shims.map {
+            TerminalSurfaceAgentCommandShimLease(
+                shims: $0,
+                remove: runtimeFilesystem.removeAgentCommandShims
+            )
+        }
+        return TerminalSurfaceOwnedLaunch(
+            resolvedLaunch: resolvedLaunch,
+            commandShimLease: ownedCommandShimLease
         )
     }
 
@@ -116,6 +139,20 @@ public final class TerminalSurfaceLaunchResolver {
         _ request: TerminalSurfaceLaunchRequest,
         commandShims: TerminalSurfaceAgentCommandShimSet?,
         launchResourceSnapshot: TerminalSurfaceLaunchResourceSnapshot
+    ) -> TerminalSurfaceResolvedLaunch {
+        resolve(
+            request,
+            commandShims: commandShims,
+            launchResourceSnapshot: launchResourceSnapshot,
+            defaultShellArguments: defaultShellArguments()
+        )
+    }
+
+    private func resolve(
+        _ request: TerminalSurfaceLaunchRequest,
+        commandShims: TerminalSurfaceAgentCommandShimSet?,
+        launchResourceSnapshot: TerminalSurfaceLaunchResourceSnapshot,
+        defaultShellArguments: [String]
     ) -> TerminalSurfaceResolvedLaunch {
         var baseConfig = request.configTemplate ?? CmuxSurfaceConfigTemplate()
         var environment = baseConfig.environmentVariables
@@ -274,7 +311,7 @@ public final class TerminalSurfaceLaunchResolver {
             $0 + (appInitialInput ?? "")
         } ?? appInitialInput
         let launchForm = configuredLaunchForm
-            ?? TerminalSurfaceLaunchForm(arguments: defaultShellArguments())
+            ?? TerminalSurfaceLaunchForm(arguments: defaultShellArguments)
             ?? .fallbackLoginShell
         return TerminalSurfaceResolvedLaunch(
             workingDirectory: workingDirectory,

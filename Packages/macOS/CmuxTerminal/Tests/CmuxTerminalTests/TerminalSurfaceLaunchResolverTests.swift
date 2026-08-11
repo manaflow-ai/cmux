@@ -182,8 +182,8 @@ struct TerminalSurfaceLaunchResolverTests {
             additionalEnvironment: [:]
         )
 
-        let firstResolved = await resolver.resolveInstallingCommandShim(request)
-        let secondResolved = await resolver.resolveInstallingCommandShim(request)
+        let firstResolved = (await resolver.resolveInstallingCommandShim(request)).resolvedLaunch
+        let secondResolved = (await resolver.resolveInstallingCommandShim(request)).resolvedLaunch
 
         #expect(recorder.paths == [
             "/tmp/cmux-test-resources/bin/cmux",
@@ -264,7 +264,7 @@ struct TerminalSurfaceLaunchResolverTests {
         try await clock.waitUntilSleepers()
 
         clock.advance(by: .seconds(5))
-        let resolved = await resolution.value
+        let resolved = await resolution.value.resolvedLaunch
 
         #expect(resolved.environment["CMUX_AGENT_COMMAND_SHIM_ROOT"] == nil)
         #expect(resolved.command == nil)
@@ -274,7 +274,7 @@ struct TerminalSurfaceLaunchResolverTests {
 
         let secondResolution = Task { await resolver.resolveInstallingCommandShim(request) }
         try await clock.waitUntilSleepers()
-        let secondResolved = await secondResolution.value
+        let secondResolved = await secondResolution.value.resolvedLaunch
         #expect(await installer.invocationCount == 1)
         #expect(await installer.isBlocked)
         #expect(secondResolved.environment["CMUX_AGENT_COMMAND_SHIM_ROOT"] == nil)
@@ -289,7 +289,7 @@ struct TerminalSurfaceLaunchResolverTests {
         await installer.waitUntilBlocked()
         #expect(await installer.invocationCount == 2)
         await installer.complete()
-        let thirdResolved = await thirdResolution.value
+        let thirdResolved = await thirdResolution.value.resolvedLaunch
         #expect(thirdResolved.environment["CMUX_AGENT_COMMAND_SHIM_ROOT"] == nil)
     }
 

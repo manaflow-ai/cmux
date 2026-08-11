@@ -550,8 +550,9 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
     private let client: any TerminalBackendClient
     private let launchRequest: TerminalSurfaceLaunchRequest
     private let resolveLaunch: @MainActor (
-        TerminalSurfaceLaunchRequest
-    ) async -> TerminalSurfaceResolvedLaunch
+        TerminalSurfaceLaunchRequest,
+        TerminalSurfaceAgentCommandShimLease?
+    ) async -> TerminalSurfaceOwnedLaunch
     private let initialColumns: UInt16
     private let initialRows: UInt16
     private let presentationRegistry: TerminalBackendPresentationRegistry
@@ -579,6 +580,7 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
     private var nextSequence: UInt64 = 1
     private var binding: TerminalBackendTerminalBinding?
     private var resolvedRequest: TerminalBackendTerminalRequest?
+    private var commandShimLease: TerminalSurfaceAgentCommandShimLease?
     private var bindingTask: Task<TerminalBackendTerminalBinding, any Error>?
     private var bindingTaskID: UUID?
     private var bindingTaskGeneration: UInt64?
@@ -655,8 +657,20 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
     ) {
         self.client = client
         self.launchRequest = launchRequest
-        self.resolveLaunch = launchResolution ?? { request in
-            await launchResolver.resolveInstallingCommandShim(request)
+        if let launchResolution {
+            self.resolveLaunch = { request, _ in
+                TerminalSurfaceOwnedLaunch(
+                    resolvedLaunch: await launchResolution(request),
+                    commandShimLease: nil
+                )
+            }
+        } else {
+            self.resolveLaunch = { request, commandShimLease in
+                await launchResolver.resolveInstallingCommandShim(
+                    request,
+                    reusing: commandShimLease
+                )
+            }
         }
         self.initialColumns = initialColumns
         self.initialRows = initialRows
@@ -1175,122 +1189,142 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         let presentationID = presentationID
         let task = Task<TerminalBackendTerminalBinding, any Error> { @MainActor [weak self] in
             guard let self else { throw CancellationError() }
-            let request: TerminalBackendTerminalRequest
-            if let cachedRequest {
-                request = cachedRequest
-            } else {
-                let launch = await resolveLaunch(launchRequest)
-                try self.validateBindingAttempt(
-                    id: attemptID,
-                    generation: placementGeneration,
-                    workspaceID: workspaceID
-                )
-                request = TerminalBackendTerminalRequest(
-                    appWorkspaceID: workspaceID,
-                    appSurfaceID: launchRequest.surfaceID,
-                    workingDirectory: launch.workingDirectory,
-                    command: launch.command,
-                    arguments: launch.arguments,
-                    environment: launch.environment,
-                    initialInput: launch.initialInput,
-                    waitAfterCommand: launch.waitAfterCommand,
-                    columns: self.initialColumns,
-                    rows: self.initialRows
-                )
-            }
-            try self.validateBindingAttempt(
-                id: attemptID,
-                generation: placementGeneration,
-                workspaceID: workspaceID
-            )
-            let placement = TerminalBackendTopologyPlacement(
-                workspaceID: request.appWorkspaceID,
-                surfaceID: request.appSurfaceID
-            )
-            while true {
-                let admissionLease = try await topologyAuthorizationGate?
-                    .waitUntilAuthorized(placement)
-                try self.validateBindingAttempt(
-                    id: attemptID,
-                    generation: placementGeneration,
-                    workspaceID: workspaceID
-                )
-                let binding = try await client.ensureTerminal(request)
-                do {
+            var unadoptedCommandShimLease: TerminalSurfaceAgentCommandShimLease?
+            do {
+                let request: TerminalBackendTerminalRequest
+                if let cachedRequest {
+                    request = cachedRequest
+                } else {
+                    let ownedLaunch = await resolveLaunch(
+                        launchRequest,
+                        self.commandShimLease
+                    )
+                    if let lease = ownedLaunch.commandShimLease,
+                       lease !== self.commandShimLease {
+                        unadoptedCommandShimLease = lease
+                    }
                     try self.validateBindingAttempt(
                         id: attemptID,
                         generation: placementGeneration,
-                        workspaceID: workspaceID,
-                        binding: binding
+                        workspaceID: workspaceID
                     )
-                    if let topologyAuthorizationGate, let admissionLease {
-                        try await topologyAuthorizationGate.validate(admissionLease)
+                    let launch = ownedLaunch.resolvedLaunch
+                    request = TerminalBackendTerminalRequest(
+                        appWorkspaceID: workspaceID,
+                        appSurfaceID: launchRequest.surfaceID,
+                        workingDirectory: launch.workingDirectory,
+                        command: launch.command,
+                        arguments: launch.arguments,
+                        environment: launch.environment,
+                        initialInput: launch.initialInput,
+                        waitAfterCommand: launch.waitAfterCommand,
+                        columns: self.initialColumns,
+                        rows: self.initialRows
+                    )
+                }
+                try self.validateBindingAttempt(
+                    id: attemptID,
+                    generation: placementGeneration,
+                    workspaceID: workspaceID
+                )
+                let placement = TerminalBackendTopologyPlacement(
+                    workspaceID: request.appWorkspaceID,
+                    surfaceID: request.appSurfaceID
+                )
+                while true {
+                    let admissionLease = try await topologyAuthorizationGate?
+                        .waitUntilAuthorized(placement)
+                    try self.validateBindingAttempt(
+                        id: attemptID,
+                        generation: placementGeneration,
+                        workspaceID: workspaceID
+                    )
+                    if let lease = unadoptedCommandShimLease {
+                        self.commandShimLease = lease
+                        unadoptedCommandShimLease = nil
+                    }
+                    let binding = try await client.ensureTerminal(request)
+                    do {
                         try self.validateBindingAttempt(
                             id: attemptID,
                             generation: placementGeneration,
                             workspaceID: workspaceID,
                             binding: binding
                         )
-                    }
+                        if let topologyAuthorizationGate, let admissionLease {
+                            try await topologyAuthorizationGate.validate(admissionLease)
+                            try self.validateBindingAttempt(
+                                id: attemptID,
+                                generation: placementGeneration,
+                                workspaceID: workspaceID,
+                                binding: binding
+                            )
+                        }
 
-                    let uxState = try await client.readTerminalUXState(from: binding)
-                    try self.validateBindingAttempt(
-                        id: attemptID,
-                        generation: placementGeneration,
-                        workspaceID: workspaceID,
-                        binding: binding
-                    )
-                    if let topologyAuthorizationGate, let admissionLease {
-                        try await topologyAuthorizationGate.validate(admissionLease)
-                    }
+                        let uxState = try await client.readTerminalUXState(from: binding)
+                        try self.validateBindingAttempt(
+                            id: attemptID,
+                            generation: placementGeneration,
+                            workspaceID: workspaceID,
+                            binding: binding
+                        )
+                        if let topologyAuthorizationGate, let admissionLease {
+                            try await topologyAuthorizationGate.validate(admissionLease)
+                        }
 
-                    // No suspension is allowed between this final local check
-                    // and publishing the binding into the MainActor runtime.
-                    try self.validateBindingAttempt(
-                        id: attemptID,
-                        generation: placementGeneration,
-                        workspaceID: workspaceID,
-                        binding: binding
-                    )
-                    self.resolvedRequest = request
-                    self.binding = binding
-                    self.currentWorkspaceID = binding.appWorkspaceID
-                    self.diagnosticsWorkspaceContext.update(binding.appWorkspaceID)
-                    self.state = .live
-                    self.bindingReconcileRequested = false
-                    self.replaceSnapshot(
-                        lifecycle: .live,
-                        copyModeActive: uxState.copyModeActive,
-                        mouseTracking: uxState.mouseTracking,
-                        copyCursor: uxState.copyCursor,
-                        cursor: uxState.cursor,
-                        terminalUXWasRead: uxState.terminalUXWasRead,
-                        selection: uxState.selection,
-                        selectionWasRead: uxState.selectionWasRead,
-                        search: uxState.search,
-                        viewportState: uxState.viewportState
-                    )
-                    self.requestAccessibilityRefresh()
-                    self.clearBindingTask(ifCurrent: attemptID)
-                    return binding
-                } catch TerminalBackendTopologyAdmissionError.invalidated {
-                    try? await client.detachPresentation(
-                        presentationID: presentationID,
-                        from: binding
-                    )
-                    try self.validateBindingAttempt(
-                        id: attemptID,
-                        generation: placementGeneration,
-                        workspaceID: workspaceID
-                    )
-                    continue
-                } catch {
-                    try? await client.detachPresentation(
-                        presentationID: presentationID,
-                        from: binding
-                    )
-                    throw error
+                        // No suspension is allowed between this final local check
+                        // and publishing the binding into the MainActor runtime.
+                        try self.validateBindingAttempt(
+                            id: attemptID,
+                            generation: placementGeneration,
+                            workspaceID: workspaceID,
+                            binding: binding
+                        )
+                        self.resolvedRequest = request
+                        self.binding = binding
+                        self.currentWorkspaceID = binding.appWorkspaceID
+                        self.diagnosticsWorkspaceContext.update(binding.appWorkspaceID)
+                        self.state = .live
+                        self.bindingReconcileRequested = false
+                        self.replaceSnapshot(
+                            lifecycle: .live,
+                            copyModeActive: uxState.copyModeActive,
+                            mouseTracking: uxState.mouseTracking,
+                            copyCursor: uxState.copyCursor,
+                            cursor: uxState.cursor,
+                            terminalUXWasRead: uxState.terminalUXWasRead,
+                            selection: uxState.selection,
+                            selectionWasRead: uxState.selectionWasRead,
+                            search: uxState.search,
+                            viewportState: uxState.viewportState
+                        )
+                        self.requestAccessibilityRefresh()
+                        self.clearBindingTask(ifCurrent: attemptID)
+                        return binding
+                    } catch TerminalBackendTopologyAdmissionError.invalidated {
+                        try? await client.detachPresentation(
+                            presentationID: presentationID,
+                            from: binding
+                        )
+                        try self.validateBindingAttempt(
+                            id: attemptID,
+                            generation: placementGeneration,
+                            workspaceID: workspaceID
+                        )
+                        continue
+                    } catch {
+                        try? await client.detachPresentation(
+                            presentationID: presentationID,
+                            from: binding
+                        )
+                        throw error
+                    }
                 }
+            } catch {
+                if let unadoptedCommandShimLease {
+                    await unadoptedCommandShimLease.release()
+                }
+                throw error
             }
         }
         bindingTaskID = attemptID
@@ -1460,6 +1494,7 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
             state = .processExited
             queue.removeAll()
             pendingVisibility = nil
+            await releaseCommandShimLease()
             await stopRendererPresentation()
             if detachAfterCanonicalClose {
                 detachPresentation()
@@ -2534,6 +2569,12 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
             accessibility: nil,
             accessibilityWasRead: true
         )
+    }
+
+    private func releaseCommandShimLease() async {
+        let lease = commandShimLease
+        commandShimLease = nil
+        await lease?.release()
     }
 
     private func requestAccessibilityRefresh() {
