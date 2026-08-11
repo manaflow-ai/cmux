@@ -251,11 +251,14 @@ struct WorkspaceMacTitlePicker: View, Equatable {
                 width: value.labelWidth,
                 statusLine: value.statusLine
             )
-            // Put the identity on the rendered label as well as the Menu.
+            // Put the identity and status on the final combined label element.
             // UIKit's toolbar bridge can otherwise omit the outer SwiftUI
             // identifier from the native accessibility tree used by CUA.
             .accessibilityElement(children: .combine)
             .accessibilityLabel(value.title)
+            .accessibilityValue(
+                value.statusLine.map(WorkspaceConnectionStatusLineView.text) ?? ""
+            )
             .accessibilityIdentifier("MobileWorkspaceMacPicker")
         }
         .buttonStyle(.plain)
@@ -321,7 +324,6 @@ private struct WorkspaceMacTitlePickerLabel: View {
         .frame(width: width, alignment: .center)
         .clipped()
         .contentShape(Rectangle())
-        .accessibilityValue(statusLine.map(WorkspaceConnectionStatusLineView.text) ?? "")
     }
 }
 #endif
