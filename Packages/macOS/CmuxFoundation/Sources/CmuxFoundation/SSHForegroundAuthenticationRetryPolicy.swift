@@ -508,29 +508,97 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           [ $((cmux_ssh_auth_orphan_now - cmux_ssh_auth_orphaned_at)) -ge 86400 ]
         }
 
-        cmux_ssh_auth_group_owned_processes_are_gone() (
+        cmux_ssh_auth_recover_expired_orphan() (
           cmux_ssh_auth_orphan_group_dir="$1"
-          if [ -L "$cmux_ssh_auth_orphan_group_dir/identity" ] || \
-            [ -L "$cmux_ssh_auth_orphan_group_dir/owned" ] || \
-            [ -L "$cmux_ssh_auth_orphan_group_dir/processes" ]; then return 1; fi
+          cmux_ssh_auth_expected_dir_identity="$(/usr/bin/id -u):700"
+          cmux_ssh_auth_observed_dir_identity=$(/usr/bin/stat -f '%u:%Lp' \
+            "$cmux_ssh_auth_orphan_group_dir" 2>/dev/null || true)
+          if [ "$cmux_ssh_auth_observed_dir_identity" != \
+            "$cmux_ssh_auth_expected_dir_identity" ]; then return 1; fi
+          for cmux_ssh_auth_orphan_state in identity cancel cleanup.owner \
+            cleanup.owner.new processes processes.stopped owned owned.next groups \
+            groups.next groups.resume frozen individuals ordered signaled.groups \
+            signaled.pids; do
+            if [ -L "$cmux_ssh_auth_orphan_group_dir/$cmux_ssh_auth_orphan_state" ]; then
+              return 1
+            fi
+          done
+          if [ -L "$cmux_ssh_auth_orphan_group_dir/cleanup.lock" ] || \
+            [ -L "$cmux_ssh_auth_orphan_group_dir/reaper.lock" ]; then return 1; fi
           cmux_ssh_auth_orphan_identity=$(/bin/cat -- \
             "$cmux_ssh_auth_orphan_group_dir/identity" 2>/dev/null || true)
+          cmux_ssh_auth_orphan_anchor=${cmux_ssh_auth_orphan_identity%%|*}
           cmux_ssh_auth_orphan_remainder=${cmux_ssh_auth_orphan_identity#*|}
-          cmux_ssh_auth_owned_group=${cmux_ssh_auth_orphan_remainder%%|*}
-          case "$cmux_ssh_auth_owned_group" in ''|0|*[!0-9]*) return 1 ;; esac
+          cmux_ssh_auth_orphan_group=${cmux_ssh_auth_orphan_remainder%%|*}
+          cmux_ssh_auth_orphan_started=${cmux_ssh_auth_orphan_remainder#*|}
+          case "$cmux_ssh_auth_orphan_anchor:$cmux_ssh_auth_orphan_group:$cmux_ssh_auth_orphan_started" in
+            *[!A-Za-z0-9_:]*|:*|*:) return 1 ;;
+          esac
+          if cmux_ssh_auth_group_publisher_is_live \
+            "$cmux_ssh_auth_orphan_group_dir" || \
+            cmux_ssh_auth_group_anchor_is_live \
+              "$cmux_ssh_auth_orphan_group_dir"; then return 1; fi
+
+          cmux_ssh_auth_cleanup_owner_file="$cmux_ssh_auth_orphan_group_dir/cleanup.owner"
+          cmux_ssh_auth_cleanup_owner_publish_file="$cmux_ssh_auth_orphan_group_dir/cleanup.owner.new"
+          cmux_ssh_auth_cleanup_lock="$cmux_ssh_auth_orphan_group_dir/cleanup.lock"
+          cmux_ssh_auth_cleanup_lock_owner_file="$cmux_ssh_auth_cleanup_lock/owner"
+          cmux_ssh_auth_cleanup_lock_owner_publish_file="$cmux_ssh_auth_cleanup_lock/owner.new"
+          cmux_ssh_auth_process_snapshot="$cmux_ssh_auth_orphan_group_dir/processes"
+          cmux_ssh_auth_poststop_snapshot="$cmux_ssh_auth_orphan_group_dir/processes.stopped"
           cmux_ssh_auth_owned_processes="$cmux_ssh_auth_orphan_group_dir/owned"
-          if [ ! -f "$cmux_ssh_auth_owned_processes" ]; then
-            cmux_ssh_auth_owned_processes=/dev/null
-          fi
-          cmux_ssh_auth_caller_group=0
-          cmux_ssh_auth_orphan_snapshot="$cmux_ssh_auth_orphan_group_dir/processes"
+          cmux_ssh_auth_next_owned_processes="$cmux_ssh_auth_orphan_group_dir/owned.next"
+          cmux_ssh_auth_owned_groups="$cmux_ssh_auth_orphan_group_dir/groups"
+          cmux_ssh_auth_next_owned_groups="$cmux_ssh_auth_orphan_group_dir/groups.next"
+          cmux_ssh_auth_resume_groups="$cmux_ssh_auth_orphan_group_dir/groups.resume"
+          cmux_ssh_auth_frozen_processes="$cmux_ssh_auth_orphan_group_dir/frozen"
+          cmux_ssh_auth_individual_processes="$cmux_ssh_auth_orphan_group_dir/individuals"
+          cmux_ssh_auth_ordered_processes="$cmux_ssh_auth_orphan_group_dir/ordered"
+          cmux_ssh_auth_signaled_groups="$cmux_ssh_auth_orphan_group_dir/signaled.groups"
+          cmux_ssh_auth_signaled_processes="$cmux_ssh_auth_orphan_group_dir/signaled.pids"
           cmux_ssh_auth_orphan_now=$(cmux_ssh_auth_now_millis) || return 1
           case "$cmux_ssh_auth_orphan_now" in ''|*[!0-9]*) return 1 ;; esac
-          cmux_ssh_auth_orphan_deadline=$((cmux_ssh_auth_orphan_now + 500))
-          cmux_ssh_auth_take_process_snapshot_until \
-            "$cmux_ssh_auth_orphan_snapshot" \
-            "$cmux_ssh_auth_orphan_deadline" || return 1
-          [ ! -s "$cmux_ssh_auth_orphan_snapshot" ]
+          cmux_ssh_auth_deadline_millis=$((cmux_ssh_auth_orphan_now + 500))
+          cmux_ssh_auth_hard_deadline_millis=$((cmux_ssh_auth_orphan_now + 2000))
+          cmux_ssh_auth_orphan_transaction_complete=0
+          CMUX_SSH_AUTH_CLEANUP_CLAIM_RECORD=
+          cmux_ssh_auth_orphan_cleanup() {
+            if [ "$cmux_ssh_auth_orphan_transaction_complete" != 1 ]; then
+              cmux_ssh_auth_deadline_millis="${cmux_ssh_auth_hard_deadline_millis:-0}"
+              cmux_ssh_auth_resume_signaled_processes >/dev/null 2>&1 || true
+            fi
+            cmux_ssh_auth_cleanup_claim_release
+          }
+          trap 'cmux_ssh_auth_orphan_cleanup' EXIT
+          cmux_ssh_auth_cleanup_claim || return 1
+          cmux_ssh_auth_cleanup_claim_is_current || return 1
+          cmux_ssh_auth_claimed_dir_identity=$(/usr/bin/stat -f '%u:%Lp' \
+            "$cmux_ssh_auth_orphan_group_dir" 2>/dev/null || true)
+          if [ "$cmux_ssh_auth_claimed_dir_identity" != \
+            "$cmux_ssh_auth_expected_dir_identity" ]; then return 1; fi
+          cmux_ssh_auth_claimed_group_identity=$(/bin/cat -- \
+            "$cmux_ssh_auth_orphan_group_dir/identity" 2>/dev/null || true)
+          if [ "$cmux_ssh_auth_claimed_group_identity" != \
+            "$cmux_ssh_auth_orphan_identity" ]; then return 1; fi
+          : > "$cmux_ssh_auth_orphan_group_dir/cancel" 2>/dev/null || return 1
+          cmux_ssh_auth_owned_group=0
+          cmux_ssh_auth_caller_group=$(/usr/bin/env LC_ALL=C LANG=C \
+            /bin/ps -o pgid= -p "$$" 2>/dev/null | /usr/bin/tr -d '[:space:]')
+          case "$cmux_ssh_auth_caller_group" in ''|0|*[!0-9]*) return 1 ;; esac
+          if [ ! -e "$cmux_ssh_auth_owned_processes" ]; then
+            : > "$cmux_ssh_auth_owned_processes" || return 1
+          fi
+          cmux_ssh_auth_run_cleanup_transactions || return 1
+          cmux_ssh_auth_orphan_transaction_complete=1
+          cmux_ssh_auth_cleanup_claim_is_current || return 1
+          cmux_ssh_auth_reclaim_stale_reaper_lock \
+            "$cmux_ssh_auth_orphan_group_dir/reaper.lock" || return 1
+          CMUX_SSH_AUTH_GROUP_DIR="$cmux_ssh_auth_orphan_group_dir"
+          export CMUX_SSH_AUTH_GROUP_DIR
+          \#(groupStateFileRemovalShellCommand(includingCancellationMarker: false))
+          cmux_ssh_auth_cleanup_claim_release
+          /bin/rm -f -- "$cmux_ssh_auth_orphan_group_dir/cancel" 2>/dev/null || true
+          /bin/rmdir "$cmux_ssh_auth_orphan_group_dir" 2>/dev/null
         )
 
         cmux_ssh_auth_group_creation_retention_expired() {
@@ -1648,12 +1716,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                 "$cmux_ssh_auth_recovery_group_dir/orphaned.new" 2>/dev/null || true
             elif cmux_ssh_auth_group_orphan_retention_expired \
               "$cmux_ssh_auth_recovery_group_dir"; then
-              if cmux_ssh_auth_group_owned_processes_are_gone \
+              if ! cmux_ssh_auth_recover_expired_orphan \
                 "$cmux_ssh_auth_recovery_group_dir"; then
-                (CMUX_SSH_AUTH_GROUP_DIR="$cmux_ssh_auth_recovery_group_dir"
-                  \#(processGroupStateRemovalShellCommand())
-                  /bin/rmdir "$CMUX_SSH_AUTH_GROUP_DIR" 2>/dev/null || true)
-              else
                 printf '%s\n' "$cmux_ssh_auth_recovery_group_dir" \
                   >> "$CMUX_SSH_AUTH_RECOVERY_SEGMENT.retry"
               fi
