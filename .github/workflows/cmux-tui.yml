@@ -900,7 +900,13 @@ jobs:
           supervisor="$release/startup_benchmark_supervisor.exe"
           preflight="$release/startup_benchmark_preflight.exe"
           evidence="$RUNNER_TEMP/startup-containment/preflight.json"
+          appcontainer_evidence="$RUNNER_TEMP/startup-containment/windows-appcontainer-feasibility.json"
           test -f "$CMUX_BENCH_TEST_WINDOWS_BOOTSTRAP"
+          "$preflight" \
+            --appcontainer-feasibility \
+            --fixture-parent "$CMUX_BENCH_TEST_FIXTURE_PARENT" \
+            --output "$appcontainer_evidence"
+          test -s "$appcontainer_evidence"
           "$preflight" \
             --supervisor "$supervisor" \
             --windows-bootstrap-binary "$CMUX_BENCH_TEST_WINDOWS_BOOTSTRAP" \
@@ -920,6 +926,18 @@ jobs:
             ${{ runner.temp }}/startup-containment/*-bootstrap-failure.json
             ${{ runner.temp }}/startup-containment/*-bootstrap-hang.json
             ${{ runner.temp }}/startup-containment/*-bootstrap-hang.dmp
+            ${{ runner.temp }}/startup-containment/windows-appcontainer-feasibility-failure.json
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload Windows AppContainer feasibility evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-appcontainer-feasibility-${{ inputs.commit }}
+          path: |
+            ${{ runner.temp }}/startup-containment/windows-appcontainer-feasibility.json
+            ${{ runner.temp }}/startup-containment/windows-appcontainer-feasibility-failure.json
           if-no-files-found: warn
           retention-days: 7
 

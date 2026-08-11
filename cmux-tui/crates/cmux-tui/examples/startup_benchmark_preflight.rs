@@ -1,3 +1,5 @@
+#[cfg(windows)]
+mod startup_benchmark_appcontainer;
 mod startup_benchmark_protocol;
 
 use std::env;
@@ -139,13 +141,20 @@ enum SupervisorStartupEvent {
     ProductOutput(Vec<u8>),
     ProductOutputClosed(io::Result<()>),
     StderrClosed(io::Result<Vec<u8>>),
+    #[cfg(windows)]
     PostArmControl(Result<String>),
 }
 
 enum ProductAwaitOutcome {
     Line(Vec<u8>),
-    StartupFailure { checkpoint_name: Option<String> },
-    NativeExit { code: u32 },
+    #[cfg(windows)]
+    StartupFailure {
+        checkpoint_name: Option<String>,
+    },
+    #[cfg(windows)]
+    NativeExit {
+        code: u32,
+    },
 }
 
 enum PreflightProtocolOutcome {
@@ -170,7 +179,9 @@ struct SupervisorEventOwner {
     control_thread: Option<thread::JoinHandle<()>>,
     output_thread: Option<thread::JoinHandle<()>>,
     stderr_thread: Option<thread::JoinHandle<()>>,
+    #[cfg(windows)]
     post_arm_control_thread: Option<thread::JoinHandle<()>>,
+    #[cfg(windows)]
     sender: mpsc::Sender<SupervisorStartupEvent>,
     stderr: Option<Vec<u8>>,
     output_closed: bool,
@@ -179,6 +190,7 @@ struct SupervisorEventOwner {
     complete_product_lines: u64,
     product_output_error: Option<String>,
     native_exit_code: Option<u32>,
+    #[cfg(windows)]
     post_arm_nonce: Option<String>,
 }
 
@@ -210,6 +222,7 @@ impl SupervisorEventOwner {
                 unblock_control_listener(&self.control_path);
                 self.fail("preflight supervisor did not connect", error)
             }
+            #[cfg(windows)]
             Ok(SupervisorStartupEvent::PostArmControl(_)) => self.fail(
                 "preflight supervisor protocol failed before READY",
                 "post-ARM control arrived before ARM",
@@ -217,6 +230,7 @@ impl SupervisorEventOwner {
         }
     }
 
+    #[cfg(windows)]
     fn watch_post_arm_control(
         &mut self,
         mut stream: Box<dyn transport::Stream>,
@@ -246,9 +260,11 @@ impl SupervisorEventOwner {
             .context("preflight product-event deadline overflow")?;
         match self.product_line_until(description, deadline, None)? {
             ProductAwaitOutcome::Line(line) => Ok(line),
+            #[cfg(windows)]
             ProductAwaitOutcome::StartupFailure { .. } => {
                 self.fail(format!("preflight supervisor failed before {description}"), "FAILURE")
             }
+            #[cfg(windows)]
             ProductAwaitOutcome::NativeExit { code } => self.fail(
                 format!("preflight product exited before {description}"),
                 format!("native exit {code}"),
@@ -260,7 +276,7 @@ impl SupervisorEventOwner {
         &mut self,
         description: &str,
         deadline: Instant,
-        nonce: Option<&str>,
+        _nonce: Option<&str>,
     ) -> Result<ProductAwaitOutcome> {
         loop {
             if let Some(line) = self.take_product_line()? {
@@ -280,8 +296,9 @@ impl SupervisorEventOwner {
                 Ok(SupervisorStartupEvent::ProductOutputClosed(result)) => {
                     self.record_product_output_closed(result);
                 }
+                #[cfg(windows)]
                 Ok(SupervisorStartupEvent::PostArmControl(line)) => {
-                    let nonce = nonce.context("post-ARM control arrived without a nonce owner")?;
+                    let nonce = _nonce.context("post-ARM control arrived without a nonce owner")?;
                     let line = line.context("read preflight post-ARM control")?;
                     if let Ok(SupervisorStartupLine::Failure { checkpoint_name }) =
                         parse_supervisor_startup_line(&line, nonce)
@@ -425,6 +442,7 @@ impl SupervisorEventOwner {
                         "a second control connection arrived",
                     );
                 }
+                #[cfg(windows)]
                 Ok(SupervisorStartupEvent::PostArmControl(line)) => {
                     let line = line.context("read preflight completion control")?;
                     let nonce = self
@@ -485,6 +503,7 @@ impl SupervisorEventOwner {
                 Ok(SupervisorStartupEvent::StderrClosed(stderr)) => {
                     self.stderr = Some(stderr.context("read failed preflight supervisor stderr")?);
                 }
+                #[cfg(windows)]
                 Ok(SupervisorStartupEvent::PostArmControl(_)) => {
                     return self.fail(
                         "preflight supervisor sent duplicate post-ARM status",
@@ -546,6 +565,7 @@ impl SupervisorEventOwner {
             }
         }
         let _ = self.join_control_thread();
+        #[cfg(windows)]
         if let Some(thread) = self.post_arm_control_thread.take() {
             let _ = thread.join();
         }
@@ -576,6 +596,7 @@ impl SupervisorEventOwner {
 
     fn join_event_threads(&mut self) -> Result<()> {
         self.join_control_thread()?;
+        #[cfg(windows)]
         if let Some(thread) = self.post_arm_control_thread.take() {
             thread.join().map_err(|_| anyhow::anyhow!("post-ARM control thread panicked"))?;
         }
@@ -603,6 +624,18 @@ fn main() {
 fn run() -> Result<()> {
     let values = env::args().skip(1).collect::<Vec<_>>();
     match values.first().map(String::as_str) {
+        #[cfg(windows)]
+        Some("--appcontainer-feasibility") => {
+            startup_benchmark_appcontainer::run_controller(&values[1..])
+        }
+        #[cfg(windows)]
+        Some("--appcontainer-broker") => startup_benchmark_appcontainer::run_broker(&values[1..]),
+        #[cfg(windows)]
+        Some("--appcontainer-probe") => startup_benchmark_appcontainer::run_probe(&values[1..]),
+        #[cfg(windows)]
+        Some("--appcontainer-probe-child") => {
+            startup_benchmark_appcontainer::run_probe_child(&values[1..])
+        }
         Some("--probe") => run_probe(&values[1..]),
         Some("--probe-child") => run_probe_child(&values[1..]),
         Some("--breakaway-probe") => Ok(()),
@@ -751,6 +784,49 @@ fn persist_relayed_product_started_evidence(
     file.write_all(b"\n")?;
     file.flush()?;
     Ok(path)
+}
+
+#[cfg(windows)]
+fn copy_final_product_lifecycle_evidence(
+    fixture_root: &Path,
+    output: &Path,
+    relayed: &BootstrapLaunchEvidence,
+    expected_nonce: &str,
+    expected_bootstrap_sha256: &str,
+) -> Result<PathBuf> {
+    relayed.validate_started(expected_nonce, expected_bootstrap_sha256)?;
+    let source =
+        fixture_root.join(format!("windows-bootstrap-evidence-{}.json", &expected_nonce[..16]));
+    let final_evidence: BootstrapLaunchEvidence =
+        read_bounded_json_file(&source, MAX_BOOTSTRAP_CHECKPOINT_BYTES as usize)?;
+    final_evidence.validate(expected_nonce, expected_bootstrap_sha256)?;
+    let mut expected = relayed.clone();
+    expected.private_desktop_closed_after_job_empty = true;
+    if final_evidence != expected {
+        bail!("final product lifecycle evidence changed outside its cleanup field");
+    }
+    let stem = output.file_stem().and_then(|value| value.to_str()).unwrap_or("preflight");
+    let destination = output.with_file_name(format!("{stem}-product-bootstrap-final.json"));
+    write_new_json_file(&destination, &final_evidence)?;
+    Ok(destination)
+}
+
+#[cfg(windows)]
+fn read_bounded_json_file<T: for<'de> Deserialize<'de>>(path: &Path, maximum: usize) -> Result<T> {
+    let metadata = fs::symlink_metadata(path)?;
+    if !metadata.file_type().is_file() || metadata.len() == 0 || metadata.len() > maximum as u64 {
+        bail!("final lifecycle evidence is not one bounded regular file");
+    }
+    Ok(serde_json::from_slice(&fs::read(path)?)?)
+}
+
+#[cfg(windows)]
+fn write_new_json_file(path: &Path, value: &impl Serialize) -> Result<()> {
+    let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
+    serde_json::to_writer(&mut file, value)?;
+    file.write_all(b"\n")?;
+    file.flush()?;
+    Ok(())
 }
 
 fn read_identity_bound_artifact(
@@ -910,6 +986,7 @@ fn run_controller(values: &[String]) -> Result<()> {
     let output_thread = thread::spawn(move || {
         read_product_events(supervisor_output, &output_sender);
     });
+    #[cfg(windows)]
     let post_arm_sender = startup_sender.clone();
     let stderr_thread = thread::spawn(move || {
         let stderr = read_bounded_tail(supervisor_stderr, MAX_SUPERVISOR_STDERR_BYTES);
@@ -923,7 +1000,9 @@ fn run_controller(values: &[String]) -> Result<()> {
         control_thread: Some(control_thread),
         output_thread: Some(output_thread),
         stderr_thread: Some(stderr_thread),
+        #[cfg(windows)]
         post_arm_control_thread: None,
+        #[cfg(windows)]
         sender: post_arm_sender,
         stderr: None,
         output_closed: false,
@@ -932,6 +1011,7 @@ fn run_controller(values: &[String]) -> Result<()> {
         complete_product_lines: 0,
         product_output_error: None,
         native_exit_code: None,
+        #[cfg(windows)]
         post_arm_nonce: None,
     };
     #[cfg(windows)]
@@ -1069,13 +1149,46 @@ fn run_controller(values: &[String]) -> Result<()> {
             Ok(PreflightProtocolOutcome::StartupFailure { checkpoint_name, public_deadline }) => {
                 let finished = events.finish_failure_until(public_deadline);
                 let observation = events.controller_failure_observation(&nonce);
-                let copied = copy_bootstrap_failure_checkpoint(
+                let mut copied = copy_bootstrap_failure_checkpoint(
                     &root,
                     &output,
                     checkpoint_name.as_deref(),
                     &nonce,
                     Some(&observation),
                 );
+                #[cfg(windows)]
+                if let Some(relayed) = relayed_bootstrap_evidence.as_ref() {
+                    let relay = persist_relayed_product_started_evidence(
+                        &output,
+                        relayed,
+                        &nonce,
+                        &windows_bootstrap_sha256,
+                        &observation,
+                        events.native_exit_code,
+                    );
+                    let final_evidence = finished.as_ref().ok().map(|_| {
+                        copy_final_product_lifecycle_evidence(
+                            &root,
+                            &output,
+                            relayed,
+                            &nonce,
+                            &windows_bootstrap_sha256,
+                        )
+                    });
+                    copied = match (copied, relay, final_evidence) {
+                        (Ok(mut paths), Ok(relay), Some(Ok(final_evidence))) => {
+                            paths.extend([relay, final_evidence]);
+                            Ok(paths)
+                        }
+                        (Ok(mut paths), Ok(relay), None) => {
+                            paths.push(relay);
+                            Ok(paths)
+                        }
+                        (Err(error), _, _) | (_, Err(error), _) | (_, _, Some(Err(error))) => {
+                            Err(error)
+                        }
+                    };
+                }
                 return match (copied, finished) {
                     (Ok(paths), Ok((status, stderr, _))) => Err(anyhow::anyhow!(
                         "preflight supervisor reported bounded startup failure; artifacts {}; exit {status}; stderr: {}",
@@ -1970,6 +2083,20 @@ fn unblock_control_listener(path: &Path) {
     }
 }
 
+#[cfg(unix)]
+fn make_write_probe_permissive(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    fs::set_permissions(path, fs::Permissions::from_mode(0o666))?;
+    Ok(())
+}
+
+#[cfg(windows)]
+fn make_write_probe_permissive(_path: &Path) -> Result<()> {
+    // The Windows write-restricted SID is the independent mandatory write boundary.
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::Cursor;
@@ -1984,7 +2111,7 @@ mod tests {
 
         match receiver.recv().unwrap() {
             SupervisorStartupEvent::ProductOutput(bytes) => {
-                assert_eq!(bytes, b"partial-without-newline")
+                assert_eq!(bytes, b"partial-without-newline");
             }
             _ => panic!("product reader did not preserve its partial bytes"),
         }
@@ -1993,18 +2120,4 @@ mod tests {
             SupervisorStartupEvent::ProductOutputClosed(Ok(()))
         ));
     }
-}
-
-#[cfg(unix)]
-fn make_write_probe_permissive(path: &Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-
-    fs::set_permissions(path, fs::Permissions::from_mode(0o666))?;
-    Ok(())
-}
-
-#[cfg(windows)]
-fn make_write_probe_permissive(_path: &Path) -> Result<()> {
-    // The Windows write-restricted SID is the independent mandatory write boundary.
-    Ok(())
 }

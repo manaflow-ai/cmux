@@ -1,11 +1,244 @@
 #!/usr/bin/env python3
 import hashlib
+import ipaddress
 import json
 import math
 import os
 import pathlib
 import re
 import sys
+
+
+def require_exact_object(value, expected_fields, label):
+    if not isinstance(value, dict) or set(value) != set(expected_fields):
+        raise SystemExit(f"{label} has unknown or missing fields")
+
+
+def require_true_fields(value, fields, label):
+    if any(value[field] is not True for field in fields):
+        raise SystemExit(f"{label} has a failed proof field")
+
+
+def validate_appcontainer_feasibility(path):
+    evidence = json.loads(path.read_text(encoding="utf-8"))
+    require_exact_object(
+        evidence,
+        {
+            "schema_version",
+            "backend",
+            "nonce",
+            "profile_name",
+            "appcontainer_sid",
+            "account_sid",
+            "profile_user_sid_matches_account",
+            "no_capabilities",
+            "broker",
+            "profile_folder_owned_state",
+            "registry_owned_state",
+            "profile_delete_succeeded",
+            "sid_derived_after_delete_matches",
+            "profile_folder_absent_after_delete",
+            "registry_store_delete_contract",
+            "network_isolation_entry_absent_after_delete",
+            "acl_restorations",
+        },
+        "AppContainer feasibility evidence",
+    )
+    nonce = evidence["nonce"]
+    if (
+        evidence["schema_version"] != 1
+        or evidence["backend"] != "windows-appcontainer-feasibility"
+        or not isinstance(nonce, str)
+        or re.fullmatch(r"[0-9a-f]{64}", nonce) is None
+        or evidence["profile_name"] != f"cmux.bench.ac.{nonce[:32]}"
+    ):
+        raise SystemExit("AppContainer feasibility identity is invalid")
+    sid_pattern = re.compile(r"S-1(?:-\d+)+")
+    appcontainer_sid = evidence["appcontainer_sid"]
+    account_sid = evidence["account_sid"]
+    if (
+        not isinstance(appcontainer_sid, str)
+        or sid_pattern.fullmatch(appcontainer_sid) is None
+        or not isinstance(account_sid, str)
+        or sid_pattern.fullmatch(account_sid) is None
+        or appcontainer_sid == account_sid
+    ):
+        raise SystemExit("AppContainer feasibility SIDs are invalid")
+    require_true_fields(
+        evidence,
+        {
+            "profile_user_sid_matches_account",
+            "no_capabilities",
+            "profile_folder_owned_state",
+            "registry_owned_state",
+            "profile_delete_succeeded",
+            "sid_derived_after_delete_matches",
+            "profile_folder_absent_after_delete",
+            "registry_store_delete_contract",
+            "network_isolation_entry_absent_after_delete",
+        },
+        "AppContainer feasibility cleanup",
+    )
+
+    broker = evidence["broker"]
+    require_exact_object(
+        broker,
+        {
+            "schema_version",
+            "nonce",
+            "appcontainer_sid",
+            "product",
+            "create_process_as_user_succeeded",
+            "explicit_three_handle_list",
+            "security_capabilities_applied",
+            "product_exact_job_before_resume",
+            "product_resume_previous_count",
+            "product_process_id",
+            "product_primary_thread_id",
+            "descendant_observed_in_job",
+            "active_process_zero",
+        },
+        "AppContainer broker evidence",
+    )
+    if (
+        broker["schema_version"] != 1
+        or broker["nonce"] != nonce
+        or broker["appcontainer_sid"] != appcontainer_sid
+        or broker["product_resume_previous_count"] != 1
+        or not isinstance(broker["product_process_id"], int)
+        or isinstance(broker["product_process_id"], bool)
+        or broker["product_process_id"] <= 0
+        or not isinstance(broker["product_primary_thread_id"], int)
+        or isinstance(broker["product_primary_thread_id"], bool)
+        or broker["product_primary_thread_id"] <= 0
+    ):
+        raise SystemExit("AppContainer broker identity is invalid")
+    require_true_fields(
+        broker,
+        {
+            "create_process_as_user_succeeded",
+            "explicit_three_handle_list",
+            "security_capabilities_applied",
+            "product_exact_job_before_resume",
+            "descendant_observed_in_job",
+            "active_process_zero",
+        },
+        "AppContainer broker containment",
+    )
+
+    product = broker["product"]
+    require_exact_object(
+        product,
+        {
+            "schema_version",
+            "nonce",
+            "entry_reached",
+            "fixture_write",
+            "adjacent_write_denied",
+            "profile_owned_write",
+            "registry_owned_write",
+            "outbound_network_denied",
+            "inbound_network_denied",
+            "inbound_bound_address",
+            "descendant_ready",
+            "token_is_appcontainer",
+            "appcontainer_sid_match",
+            "restricting_sid_count_zero",
+            "capability_count_zero",
+            "low_integrity",
+            "no_enabled_privileges",
+            "account_authentication_match",
+        },
+        "AppContainer product evidence",
+    )
+    if product["schema_version"] != 1 or product["nonce"] != nonce:
+        raise SystemExit("AppContainer product identity is invalid")
+    require_true_fields(
+        product,
+        {
+            "entry_reached",
+            "fixture_write",
+            "adjacent_write_denied",
+            "profile_owned_write",
+            "registry_owned_write",
+            "outbound_network_denied",
+            "inbound_network_denied",
+            "descendant_ready",
+            "token_is_appcontainer",
+            "appcontainer_sid_match",
+            "restricting_sid_count_zero",
+            "capability_count_zero",
+            "low_integrity",
+            "no_enabled_privileges",
+            "account_authentication_match",
+        },
+        "AppContainer product isolation",
+    )
+    inbound_address = product["inbound_bound_address"]
+    if inbound_address is not None:
+        if not isinstance(inbound_address, str):
+            raise SystemExit("AppContainer inbound address is not a string")
+        match = re.fullmatch(r"(?:\[([^]]+)\]|([^:]+)):(\d{1,5})", inbound_address)
+        if match is None:
+            raise SystemExit("AppContainer inbound address is malformed")
+        address = ipaddress.ip_address(match.group(1) or match.group(2))
+        port = int(match.group(3))
+        if (
+            not 1 <= port <= 65535
+            or address.is_loopback
+            or address.is_unspecified
+            or address.is_multicast
+        ):
+            raise SystemExit("AppContainer inbound address is not a private probe endpoint")
+
+    restorations = evidence["acl_restorations"]
+    if not isinstance(restorations, list) or len(restorations) < 3:
+        raise SystemExit("AppContainer ACL restoration evidence is incomplete")
+    seen_paths = set()
+    grants = []
+    for restoration in restorations:
+        require_exact_object(
+            restoration,
+            {"path", "grant", "before_sha256", "restored_sha256", "exact_restore"},
+            "AppContainer ACL restoration",
+        )
+        before = restoration["before_sha256"]
+        restored = restoration["restored_sha256"]
+        restored_path = restoration["path"]
+        grant = restoration["grant"]
+        if (
+            not isinstance(restored_path, str)
+            or not restored_path
+            or restored_path in seen_paths
+            or grant
+            not in {
+                "account-full+appcontainer-full+low-label",
+                "target-read-execute",
+                "target-parent-traverse",
+            }
+            or not isinstance(before, str)
+            or re.fullmatch(r"[0-9a-f]{64}", before) is None
+            or restored != before
+            or restoration["exact_restore"] is not True
+        ):
+            raise SystemExit("AppContainer ACL restoration is invalid")
+        seen_paths.add(restored_path)
+        grants.append(grant)
+    if (
+        grants.count("account-full+appcontainer-full+low-label") != 1
+        or grants.count("target-read-execute") != 1
+        or grants.count("target-parent-traverse") < 1
+    ):
+        raise SystemExit("AppContainer ACL grants are incomplete")
+
+
+if len(sys.argv) == 3 and sys.argv[1] == "--appcontainer-feasibility":
+    validate_appcontainer_feasibility(pathlib.Path(sys.argv[2]))
+    raise SystemExit(0)
+if len(sys.argv) != 2:
+    raise SystemExit(
+        "usage: verify-startup-benchmark.py [--appcontainer-feasibility] <evidence>"
+    )
 
 path = pathlib.Path(sys.argv[1])
 document = json.loads(path.read_text(encoding="utf-8"))
@@ -129,6 +362,11 @@ if hashlib.sha256(preflight_bytes).hexdigest() != get(
 preflight = json.loads(preflight_bytes)
 if not isinstance(preflight, dict) or preflight.get("schema_version") != 8:
     raise SystemExit("sandbox preflight evidence has the wrong schema")
+appcontainer_feasibility_path = path.parent / "windows-appcontainer-feasibility.json"
+if os.environ["RUNNER_OS"] == "Windows":
+    validate_appcontainer_feasibility(appcontainer_feasibility_path)
+elif appcontainer_feasibility_path.exists():
+    raise SystemExit("non-Windows evidence contains an AppContainer feasibility record")
 windows_preflight_fields = (
     "windows_bootstrap_sha256",
     "windows_bootstrap_config_nonce",

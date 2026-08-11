@@ -1267,6 +1267,15 @@ jobs:
             fi
             "$preflight" "${args[@]}"
           }
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            appcontainer_evidence="$ARTIFACT_DIR/windows-appcontainer-feasibility.json"
+            "$preflight" \
+              --appcontainer-feasibility \
+              --fixture-parent "$PREFLIGHT_PARENT" \
+              --output "$appcontainer_evidence"
+            "$PYTHON_CMD" "$TRUSTED_SOURCE/cmux-tui/scripts/verify-startup-benchmark.py" \
+              --appcontainer-feasibility "$appcontainer_evidence"
+          fi
           if [[ "$RUNNER_OS" == "Linux" ]]; then
             unprivileged_evidence="$ARTIFACT_DIR/sandbox-preflight-unprivileged.json"
             if run_preflight "$unprivileged_evidence"; then
