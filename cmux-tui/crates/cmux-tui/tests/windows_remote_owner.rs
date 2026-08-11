@@ -142,9 +142,8 @@ impl LinkGroup for WindowsStdioLinkGroup {
             .stdout(Stdio::piped())
             .stderr(Stdio::from(stderr))
             .kill_on_drop(true);
-        let mut child = command
-            .spawn()
-            .map_err(|error| ProviderError::Transport(error.to_string()))?;
+        let mut child =
+            command.spawn().map_err(|error| ProviderError::Transport(error.to_string()))?;
         let stdin = child.stdin.take().ok_or_else(|| {
             ProviderError::Transport("Windows carrier stdin was not piped".into())
         })?;
