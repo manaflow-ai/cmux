@@ -32,7 +32,11 @@ extension TaskComposerSheet {
 
     var selectedModel: MobileTaskAgentModel? {
         guard let selectedModelID else { return nil }
-        return modelAvailability.selectedModel(id: selectedModelID)
+        // Once a user chooses from a presented menu, that concrete selection
+        // owns the request until they change it. A later catalog replacement
+        // can change the available choices, but must not silently strip the
+        // already-visible model from submission.
+        return availableModels.first { $0.id == selectedModelID }
     }
 
     func validatedModelID(

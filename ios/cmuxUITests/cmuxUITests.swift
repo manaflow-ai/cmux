@@ -3108,7 +3108,7 @@ final class cmuxUITests: XCTestCase {
         // Release as soon as the second menu is presented. Waiting for another
         // accessibility query here can outlive the production RPC timeout and
         // turn a menu-snapshot test into a closed-connection test.
-        hostServer.releaseTaskModelResponse()
+        await hostServer.releaseTaskModelResponses()
         XCTAssertTrue(snapshotB.waitForExistence(timeout: 4))
 
         let hostReplacementApplied = NSPredicate(
@@ -9638,7 +9638,11 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private var heldTerminalPasteResponse: (() -> Void)?
     private var taskModelRequestReached = false
     private var taskModelRequestReachedWaiters: [CheckedContinuation<Void, Never>] = []
-    private var heldTaskModelResponse: (() -> Void)?
+    // Connection ownership can supersede one refresh with another. Retain all
+    // requests so releasing the gate cannot strand the current owner, and let
+    // later requests pass through after the release point.
+    private var heldTaskModelResponses: [() -> Void] = []
+    private var taskModelResponsesWereReleased = false
     private var workspaces: [Workspace] = [
         Workspace(
             id: "workspace-main",
@@ -10004,12 +10008,13 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
                     )
                 }
             } else if method == "mobile.task.models.list",
-                      holdsTaskModelResponse {
+                      holdsTaskModelResponse,
+                      !taskModelResponsesWereReleased {
                 taskModelRequestReached = true
                 let waiters = taskModelRequestReachedWaiters
                 taskModelRequestReachedWaiters = []
                 for waiter in waiters { waiter.resume() }
-                heldTaskModelResponse = { [weak self, weak connection] in
+                heldTaskModelResponses.append { [weak self, weak connection] in
                     guard let self, let connection else { return }
                     self.sendResponse(
                         responseFrame,
@@ -10069,11 +10074,19 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         }
     }
 
-    func releaseTaskModelResponse() {
-        queue.async { [weak self] in
-            let response = self?.heldTaskModelResponse
-            self?.heldTaskModelResponse = nil
-            response?()
+    func releaseTaskModelResponses() async {
+        await withCheckedContinuation { continuation in
+            queue.async { [weak self] in
+                guard let self else {
+                    continuation.resume()
+                    return
+                }
+                taskModelResponsesWereReleased = true
+                let responses = heldTaskModelResponses
+                heldTaskModelResponses.removeAll()
+                for response in responses { response() }
+                continuation.resume()
+            }
         }
     }
 
