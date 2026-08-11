@@ -1506,11 +1506,11 @@ describe("apns sender transport", () => {
         maximumActive = Math.max(maximumActive, active);
         if (!bootstrapComplete) requestsBeforeBootstrap += 1;
         this.emit("response", { ":status": 200 });
-        setTimeout(() => {
+        queueMicrotask(() => {
           active -= 1;
           if (this.ordinal === 1) bootstrapComplete = true;
           this.emit("end");
-        }, 1);
+        });
         return this;
       }
     }

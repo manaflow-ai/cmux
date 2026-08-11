@@ -156,6 +156,8 @@ final class PushRegistrationURLScript: @unchecked Sendable {
     private var stubs: [PushRegistrationURLProtocol.Stub] = []
     private var capturedRequests: [URLRequest] = []
     private var capturedBodies: [Data?] = []
+    private var requestCountContinuations:
+        [UUID: AsyncStream<Int>.Continuation] = [:]
 
     var requests: [URLRequest] {
         get async {
@@ -173,13 +175,44 @@ final class PushRegistrationURLScript: @unchecked Sendable {
         _ expectedCount: Int,
         timeout: Duration = .seconds(1)
     ) async -> Bool {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: timeout)
-        while lock.withLock({ capturedRequests.count }) < expectedCount {
-            guard clock.now < deadline else { return false }
-            try? await clock.sleep(for: .milliseconds(1))
+        let updates = requestCountUpdates()
+        return await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                for await count in updates {
+                    if count >= expectedCount {
+                        return true
+                    }
+                }
+                return false
+            }
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+                return false
+            }
+            let reachedCount = await group.next() ?? false
+            group.cancelAll()
+            return reachedCount
         }
-        return true
+    }
+
+    private func requestCountUpdates() -> AsyncStream<Int> {
+        let identifier = UUID()
+        return AsyncStream { continuation in
+            let count = lock.withLock {
+                requestCountContinuations[identifier] = continuation
+                return capturedRequests.count
+            }
+            continuation.yield(count)
+            continuation.onTermination = { [weak self] _ in
+                self?.removeRequestCountContinuation(identifier)
+            }
+        }
+    }
+
+    private func removeRequestCountContinuation(_ identifier: UUID) {
+        lock.withLock {
+            _ = requestCountContinuations.removeValue(forKey: identifier)
+        }
     }
 
     func reset(
@@ -196,16 +229,26 @@ final class PushRegistrationURLScript: @unchecked Sendable {
         _ request: URLRequest,
         body: Data?
     ) -> PushRegistrationURLProtocol.Stub {
-        lock.lock()
-        defer { lock.unlock() }
-        capturedRequests.append(request)
-        capturedBodies.append(body)
-        guard !stubs.isEmpty else {
-            return .response(
-                500,
-                json: #"{"error":"unscripted_request"}"#
+        let update = lock.withLock {
+            capturedRequests.append(request)
+            capturedBodies.append(body)
+            let stub = if stubs.isEmpty {
+                PushRegistrationURLProtocol.Stub.response(
+                    500,
+                    json: #"{"error":"unscripted_request"}"#
+                )
+            } else {
+                stubs.removeFirst()
+            }
+            return (
+                stub: stub,
+                count: capturedRequests.count,
+                continuations: Array(requestCountContinuations.values)
             )
         }
-        return stubs.removeFirst()
+        for continuation in update.continuations {
+            continuation.yield(update.count)
+        }
+        return update.stub
     }
 }
