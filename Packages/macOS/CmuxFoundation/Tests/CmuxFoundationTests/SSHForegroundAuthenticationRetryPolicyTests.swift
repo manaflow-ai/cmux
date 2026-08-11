@@ -1873,7 +1873,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         /usr/bin/grep -Fqx '101 1 777 Thu_Jan_1_00:00:00_1970' \
           "$cmux_test_state/signaled.pids" || exit 95
         /usr/bin/grep -Fqx "$cmux_test_state" \
-          "$TMPDIR/cmux-ssh-auth-recovery/queue.0" || exit 94
+          "$TMPDIR/cmux-ssh-auth-recovery.$(/usr/bin/id -u)/queue.0" || exit 94
         """
 
         let result = try runShellCommand(
@@ -1915,7 +1915,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         /usr/bin/grep -Fqx '101 1 777 Thu_Jan_1_00:00:00_1970 R' \
           "$cmux_test_state/owned" || exit 95
         /usr/bin/grep -Fqx "$cmux_test_state" \
-          "$TMPDIR/cmux-ssh-auth-recovery/queue.0" || exit 94
+          "$TMPDIR/cmux-ssh-auth-recovery.$(/usr/bin/id -u)/queue.0" || exit 94
         """
 
         let result = try runShellCommand(
@@ -2549,7 +2549,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         wait || exit 98
         test "$cmux_test_launched_count" -eq 8 || exit 97
         cmux_test_active_slots=$(/usr/bin/find \
-          "$TMPDIR/cmux-ssh-auth-recovery" -type d -name 'active.*' -print 2>/dev/null)
+          "$TMPDIR/cmux-ssh-auth-recovery.$(/usr/bin/id -u)" \
+            -type d -name 'active.*' -print 2>/dev/null)
         test -z "$cmux_test_active_slots" || exit 96
         """
 
@@ -2799,7 +2800,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         test "$(/usr/bin/stat -f '%u:%Lp' "$cmux_test_group")" = \
           "$(/usr/bin/id -u):700" || exit 97
         /usr/bin/grep -Fxq "$cmux_test_group" \
-          "$TMPDIR/cmux-ssh-auth-recovery/queue.0" || exit 96
+          "$TMPDIR/cmux-ssh-auth-recovery.$(/usr/bin/id -u)/queue.0" || exit 96
         cmux_test_created=$(/bin/cat "$cmux_test_group/created") || exit 95
         case "$cmux_test_created" in ''|*[!0-9]*) exit 94 ;; esac
         """
@@ -2830,8 +2831,9 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         done
         wait
         test ! -s "$CMUX_TEST_FAILURES" || exit 99
-        /bin/cat "$TMPDIR/cmux-ssh-auth-recovery/queue.0" \
-          "$TMPDIR/cmux-ssh-auth-recovery/queue.1" > "$CMUX_TEST_ENTRIES" || exit 98
+        /bin/cat "$TMPDIR/cmux-ssh-auth-recovery.$(/usr/bin/id -u)/queue.0" \
+          "$TMPDIR/cmux-ssh-auth-recovery.$(/usr/bin/id -u)/queue.1" \
+          > "$CMUX_TEST_ENTRIES" || exit 98
         test "$(/usr/bin/wc -l < "$CMUX_TEST_ENTRIES" | /usr/bin/tr -d '[:space:]')" -eq 16 || exit 97
         test "$(/usr/bin/sort -u "$CMUX_TEST_ENTRIES" | /usr/bin/wc -l | /usr/bin/tr -d '[:space:]')" -eq 16 || exit 96
         """
@@ -2856,13 +2858,15 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
         cmux_ssh_auth_recovery_lock || exit 99
         if /usr/bin/lockf -s -t 0 \
-          "$TMPDIR/cmux-ssh-auth-recovery/lock" /usr/bin/true; then
+          "$TMPDIR/cmux-ssh-auth-recovery.$(/usr/bin/id -u)/lock" \
+          /usr/bin/true; then
           cmux_ssh_auth_recovery_unlock
           exit 98
         fi
         cmux_ssh_auth_recovery_unlock
         /usr/bin/lockf -s -t 1 \
-          "$TMPDIR/cmux-ssh-auth-recovery/lock" /usr/bin/true || exit 97
+          "$TMPDIR/cmux-ssh-auth-recovery.$(/usr/bin/id -u)/lock" \
+          /usr/bin/true || exit 97
         """
 
         let result = try runShellCommand(command, environment: ["TMPDIR": root.path])
@@ -2946,7 +2950,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_test_drain_deadline=$(($(cmux_ssh_auth_now_millis) + 5000))
         while :; do
           cmux_test_queue_present=0
-          for cmux_test_segment in "$TMPDIR/cmux-ssh-auth-recovery"/queue.[0-9]*; do
+          for cmux_test_segment in \
+            "$TMPDIR/cmux-ssh-auth-recovery.$(/usr/bin/id -u)"/queue.[0-9]*; do
             if [ -e "$cmux_test_segment" ]; then cmux_test_queue_present=1; fi
           done
           if [ "$cmux_test_queue_present" -eq 0 ]; then break; fi
@@ -3006,7 +3011,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         test -s "$CMUX_TEST_GROUP/identity" || exit 99
         test -e "$CMUX_TEST_SCHEDULED" || exit 98
         /usr/bin/grep -Fxq "$CMUX_TEST_GROUP" \
-          "$TMPDIR/cmux-ssh-auth-recovery"/queue.[0-9]* || exit 97
+          "$TMPDIR/cmux-ssh-auth-recovery.$(/usr/bin/id -u)"/queue.[0-9]* || exit 97
         """
 
         let result = try runShellCommand(
@@ -3321,15 +3326,18 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let command = """
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
         cmux_ssh_auth_recovery_complete_segment() {
-          /bin/chmod 500 "$TMPDIR/cmux-ssh-auth-recovery" || exit 99
+          /bin/chmod 500 \
+            "$TMPDIR/cmux-ssh-auth-recovery.$(/usr/bin/id -u)" || exit 99
           return 1
         }
         CMUX_SSH_AUTH_GROUP_DIR=
         export CMUX_SSH_AUTH_GROUP_DIR
         cmux_ssh_auth_recovery_enqueue "$TMPDIR/cmux-ssh-auth-group.test" || exit 98
         cmux_ssh_resume_failed_auth_group_reapers || exit 97
-        /bin/chmod 700 "$TMPDIR/cmux-ssh-auth-recovery" || exit 96
-        test -s "$TMPDIR/cmux-ssh-auth-recovery/queue.0.claim" || exit 95
+        /bin/chmod 700 \
+          "$TMPDIR/cmux-ssh-auth-recovery.$(/usr/bin/id -u)" || exit 96
+        test -s \
+          "$TMPDIR/cmux-ssh-auth-recovery.$(/usr/bin/id -u)/queue.0.claim" || exit 95
         cmux_ssh_auth_recovery_claim_segment || exit 94
         test "$CMUX_SSH_AUTH_RECOVERY_SEGMENT_INDEX" = 0 || exit 93
         """
@@ -3633,7 +3641,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         done
 
         cmux_test_release_deadline=$(($(cmux_ssh_auth_now_millis) + 2000))
-        while [ -d "$TMPDIR/cmux-ssh-auth-recovery/sweep.lock" ]; do
+        while [ -d \
+          "$TMPDIR/cmux-ssh-auth-recovery.$(/usr/bin/id -u)/sweep.lock" ]; do
           cmux_test_release_now=$(cmux_ssh_auth_now_millis) || exit 96
           [ "$cmux_test_release_now" -lt "$cmux_test_release_deadline" ] || exit 95
           /bin/sleep 0.01
@@ -3689,7 +3698,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           /bin/sleep 0.01
         done
         cmux_test_release_deadline=$(($(cmux_ssh_auth_now_millis) + 2000))
-        while [ -d "$TMPDIR/cmux-ssh-auth-recovery/sweep.lock" ]; do
+        while [ -d \
+          "$TMPDIR/cmux-ssh-auth-recovery.$(/usr/bin/id -u)/sweep.lock" ]; do
           cmux_test_release_now=$(cmux_ssh_auth_now_millis) || exit 96
           [ "$cmux_test_release_now" -lt "$cmux_test_release_deadline" ] || exit 95
           /bin/sleep 0.01

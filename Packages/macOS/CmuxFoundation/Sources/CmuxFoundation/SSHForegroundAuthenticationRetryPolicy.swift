@@ -527,11 +527,6 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           if [ "$cmux_ssh_auth_reaper_observed_dir_identity" != \
             "$cmux_ssh_auth_reaper_expected_dir_identity" ]; then return 0; fi
           if [ ! -s "$cmux_ssh_auth_reaper_group_dir/identity" ]; then return 0; fi
-          cmux_ssh_auth_reaper_caller_group=$(/usr/bin/env LC_ALL=C LANG=C \
-            /bin/ps -o pgid= -p "$$" 2>/dev/null | /usr/bin/tr -d '[:space:]')
-          case "$cmux_ssh_auth_reaper_caller_group" in ''|*[!0-9]*) return 0 ;; esac
-          cmux_ssh_auth_reaper_publisher_identity=$(cmux_ssh_auth_stable_identity "$$")
-          if [ -z "$cmux_ssh_auth_reaper_publisher_identity" ]; then return 0; fi
           cmux_ssh_auth_reaper_lock="$cmux_ssh_auth_reaper_group_dir/reaper.lock"
           # Serialize the mkdir-to-publisher transition under the durable
           # recovery lock. A second launcher must not classify the creator's
@@ -557,10 +552,11 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             cmux_ssh_auth_recovery_unlock
             return 0
           fi
-          if ! printf '%s|%s\n' "$$" "$cmux_ssh_auth_reaper_publisher_identity" \
-              > "$cmux_ssh_auth_reaper_lock/publisher.new" 2>/dev/null || ! \
-            /bin/mv -f -- "$cmux_ssh_auth_reaper_lock/publisher.new" \
-              "$cmux_ssh_auth_reaper_lock/publisher" 2>/dev/null; then
+          # This function can run in a long-lived recovery subshell after the
+          # startup shell has exited. POSIX shells retain the startup shell's
+          # `$$` in that subshell, so publish and inspect the current worker.
+          if ! cmux_ssh_auth_publish_current_worker \
+              "$cmux_ssh_auth_reaper_lock/publisher"; then
             /bin/rm -f -- "$cmux_ssh_auth_reaper_lock/publisher.new" \
               "$cmux_ssh_auth_reaper_lock/generation" \
               "$cmux_ssh_auth_reaper_lock/generation.new" 2>/dev/null || true
@@ -568,6 +564,33 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             cmux_ssh_auth_recovery_unlock
             return 0
           fi
+          cmux_ssh_auth_reaper_publisher_record=$(/bin/cat -- \
+            "$cmux_ssh_auth_reaper_lock/publisher" 2>/dev/null || true)
+          if ! cmux_ssh_auth_parse_recorded_process \
+              "$cmux_ssh_auth_reaper_publisher_record"; then
+            /bin/rm -f -- "$cmux_ssh_auth_reaper_lock/publisher" \
+              "$cmux_ssh_auth_reaper_lock/publisher.new" \
+              "$cmux_ssh_auth_reaper_lock/generation" \
+              "$cmux_ssh_auth_reaper_lock/generation.new" 2>/dev/null || true
+            /bin/rmdir "$cmux_ssh_auth_reaper_lock" 2>/dev/null || true
+            cmux_ssh_auth_recovery_unlock
+            return 0
+          fi
+          cmux_ssh_auth_reaper_publisher_pid="$CMUX_SSH_AUTH_RECORDED_PID"
+          cmux_ssh_auth_reaper_caller_group=$(/usr/bin/env LC_ALL=C LANG=C \
+            /bin/ps -o pgid= -p "$cmux_ssh_auth_reaper_publisher_pid" \
+              2>/dev/null | /usr/bin/tr -d '[:space:]')
+          case "$cmux_ssh_auth_reaper_caller_group" in
+            ''|*[!0-9]*)
+              /bin/rm -f -- "$cmux_ssh_auth_reaper_lock/publisher" \
+                "$cmux_ssh_auth_reaper_lock/publisher.new" \
+                "$cmux_ssh_auth_reaper_lock/generation" \
+                "$cmux_ssh_auth_reaper_lock/generation.new" 2>/dev/null || true
+              /bin/rmdir "$cmux_ssh_auth_reaper_lock" 2>/dev/null || true
+              cmux_ssh_auth_recovery_unlock
+              return 0
+              ;;
+          esac
           # Every SSH startup shares these durable slots. The slot publisher
           # closes the mkdir-to-owner gap, then the reaper holds the slot with
           # its precise process identity until cleanup exits.
@@ -600,7 +623,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               > "$cmux_ssh_auth_reaper_slot/generation.new" 2>/dev/null || ! \
             /bin/mv -f -- "$cmux_ssh_auth_reaper_slot/generation.new" \
               "$cmux_ssh_auth_reaper_slot/generation" 2>/dev/null || ! \
-            printf '%s|%s\n' "$$" "$cmux_ssh_auth_reaper_publisher_identity" \
+            printf '%s\n' "$cmux_ssh_auth_reaper_publisher_record" \
               > "$cmux_ssh_auth_reaper_slot/publisher.new" 2>/dev/null || ! \
             /bin/mv -f -- "$cmux_ssh_auth_reaper_slot/publisher.new" \
               "$cmux_ssh_auth_reaper_slot/publisher" 2>/dev/null; then
@@ -733,17 +756,16 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
         }
 
         cmux_ssh_auth_recovery_configure_paths() {
+          cmux_ssh_auth_recovery_user_id=$(/usr/bin/id -u 2>/dev/null) || return 1
+          case "$cmux_ssh_auth_recovery_user_id" in
+            ''|*[!0-9]*) return 1 ;;
+          esac
           if [ -n "${TMPDIR:-}" ]; then
             cmux_ssh_auth_recovery_base="$TMPDIR"
-            cmux_ssh_auth_recovery_root="$cmux_ssh_auth_recovery_base/cmux-ssh-auth-recovery"
           else
             cmux_ssh_auth_recovery_base=/tmp
-            cmux_ssh_auth_recovery_user_id=$(/usr/bin/id -u 2>/dev/null) || return 1
-            case "$cmux_ssh_auth_recovery_user_id" in
-              ''|*[!0-9]*) return 1 ;;
-            esac
-            cmux_ssh_auth_recovery_root="$cmux_ssh_auth_recovery_base/cmux-ssh-auth-recovery.$cmux_ssh_auth_recovery_user_id"
           fi
+          cmux_ssh_auth_recovery_root="$cmux_ssh_auth_recovery_base/cmux-ssh-auth-recovery.$cmux_ssh_auth_recovery_user_id"
         }
 
         cmux_ssh_auth_recovery_prepare() {
