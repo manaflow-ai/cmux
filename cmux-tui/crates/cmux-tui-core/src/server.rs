@@ -15060,7 +15060,7 @@ mod tests {
             Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
 
         for index in 0..32_u128 {
-            let marker = format!("subject-head-marker-{index}");
+            let marker = format!("subject-head-child-{index}");
             let ingress = crate::agent_hook_journal_ingress(
                 "codex",
                 "SubagentStop",
@@ -15069,8 +15069,8 @@ mod tests {
                     "session_id":"subject-head-root",
                     "root_session_id":"subject-head-root",
                     "parent_session_id":"subject-head-root",
-                    "child_agent_id":format!("subject-head-child-{index}"),
-                    "message":marker,
+                    "child_agent_id":marker.clone(),
+                    "message":"complete",
                 }),
             )
             .unwrap();
