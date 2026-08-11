@@ -6569,13 +6569,13 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     private func openSelectedWorkspaceIfNeeded(_ app: XCUIApplication) throws {
+        grantNotificationAuthorizationIfRequested()
         if app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8) {
             return
         }
 
         let row = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
         XCTAssertTrue(row.waitForExistence(timeout: 8))
-        grantNotificationAuthorizationIfRequested()
         row.tap()
         XCTAssertTrue(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8))
     }
