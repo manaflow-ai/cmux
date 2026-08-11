@@ -2757,6 +2757,7 @@ impl ResetExclusiveRenameProbeCleanup {
                         .downcast_ref::<std::io::Error>()
                         .is_some_and(|error| error.kind() == std::io::ErrorKind::NotFound) =>
                 {
+                    removed = false;
                     continue;
                 }
                 Err(_) => {
@@ -2764,13 +2765,20 @@ impl ResetExclusiveRenameProbeCleanup {
                     continue;
                 }
             };
+            let exact_entry = reset_stat_device(&current) == entry.device
+                && reset_stat_inode(&current) == entry.inode;
             let owned_entry = self.entries.iter().any(|owned| {
                 reset_stat_device(&current) == owned.device
                     && reset_stat_inode(&current) == owned.inode
             });
-            if !owned_entry
-                || reset_unlink_child(self.parent_fd, &entry.name, &entry.display_path, 0).is_err()
-            {
+            if !owned_entry {
+                removed = false;
+                continue;
+            }
+            if !exact_entry {
+                removed = false;
+            }
+            if reset_unlink_child(self.parent_fd, &entry.name, &entry.display_path, 0).is_err() {
                 removed = false;
             }
         }

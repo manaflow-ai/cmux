@@ -517,6 +517,38 @@ fn checked_reset_deletion_support_rejects_read_only_state_root() {
     assert!(!supported);
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn reset_exclusive_rename_probe_rejects_swapped_entries() {
+    use std::ffi::OsString;
+    use std::os::fd::AsRawFd;
+
+    let root = temp_root("reset-capability-swapped-entries");
+    fs::create_dir_all(&root).unwrap();
+    let directory = File::open(&root).unwrap();
+    let mut cleanup = ResetExclusiveRenameProbeCleanup {
+        parent_fd: directory.as_raw_fd(),
+        entries: Vec::new(),
+    };
+    for suffix in ["source", "target"] {
+        let name = OsString::from(format!("probe-{suffix}"));
+        cleanup.entries.push(
+            create_reset_exclusive_rename_probe_entry(directory.as_raw_fd(), name, &root).unwrap(),
+        );
+    }
+    let source = cleanup.entries[0].display_path.clone();
+    let target = cleanup.entries[1].display_path.clone();
+    let temporary = root.join("probe-temporary");
+    fs::rename(&source, &temporary).unwrap();
+    fs::rename(&target, &source).unwrap();
+    fs::rename(&temporary, &target).unwrap();
+
+    assert!(!cleanup.remove_entries(), "swapped probe entries reported support");
+    assert!(!source.exists(), "swapped source probe was not cleaned up");
+    assert!(!target.exists(), "swapped target probe was not cleaned up");
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn unsupported_checked_reset_deletion_does_not_mutate_tree() {
     let root = temp_root("reset-unsupported-platform-delete");
