@@ -1,0 +1,145 @@
+name: cmux-tui renderer signal
+run-name: cmux-tui renderer signal @ ${{ github.event.pull_request.head.sha }}
+
+on:
+  pull_request:
+    branches:
+      - feat-ios-scene-renderer
+    paths:
+      - ".github/workflows/cmux-tui-renderer-signal.yml"
+      - "cmux-tui/crates/cmux-tui-core/src/model.rs"
+      - "cmux-tui/crates/cmux-tui-core/src/renderer_supervisor.rs"
+
+concurrency:
+  group: cmux-tui-renderer-signal-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: renderer signal test (${{ matrix.os }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos
+            runner: blacksmith-6vcpu-macos-15
+          - os: linux
+            runner: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Require exact PR head
+        env:
+          EXACT_COMMIT: ${{ github.event.pull_request.head.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
+
+      - name: Init ghostty submodule
+        run: git submodule update --init --depth 1 ghostty
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Ensure Rust
+        shell: bash
+        run: |
+          if ! command -v cargo >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+              | sh -s -- -y --default-toolchain stable
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+          rustc --version
+          cargo --version
+
+      - name: cargo fmt
+        working-directory: cmux-tui
+        run: cargo fmt --check
+
+      - name: renderer signal behavior
+        working-directory: cmux-tui
+        run: |
+          cargo test --workspace --locked \
+            explicit_reap_release_quiesces_owned_renderer_without_sleep
+          cargo test --workspace --locked \
+            many_worker_shutdown_returns_at_one_deadline_before_process_release
+
+  artifact:
+    name: renderer signal macOS artifact
+    runs-on: blacksmith-6vcpu-macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Require exact PR head
+        env:
+          EXACT_COMMIT: ${{ github.event.pull_request.head.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
+
+      - name: Init ghostty submodule
+        run: git submodule update --init --depth 1 ghostty
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Ensure Rust
+        shell: bash
+        run: |
+          if ! command -v cargo >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+              | sh -s -- -y --default-toolchain stable
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+          rustc --version
+          cargo --version
+
+      - name: Build cmux-tui
+        working-directory: cmux-tui
+        env:
+          CMUX_TUI_BUILD_COMMIT: ${{ github.event.pull_request.head.sha }}
+        run: cargo build -p cmux-tui --bin cmux-tui --release --locked --target aarch64-apple-darwin
+
+      - name: Stage binary
+        run: |
+          mkdir -p dist
+          cp cmux-tui/target/aarch64-apple-darwin/release/cmux-tui \
+            dist/cmux-tui-aarch64-apple-darwin
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-tui-aarch64-apple-darwin
+          path: dist/cmux-tui-aarch64-apple-darwin
+          if-no-files-found: error
+
+  verification:
+    name: renderer signal hosted verification
+    if: always()
+    needs:
+      - test
+      - artifact
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 5
+    env:
+      TEST_RESULT: ${{ needs.test.result }}
+      ARTIFACT_RESULT: ${{ needs.artifact.result }}
+    steps:
+      - name: Require renderer proof
+        run: |
+          test "$TEST_RESULT" = success
+          test "$ARTIFACT_RESULT" = success
