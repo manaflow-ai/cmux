@@ -473,6 +473,7 @@ fn checked_reset_deletion_support_uses_state_root() {
     fs::create_dir_all(&root).unwrap();
 
     assert!(checked_reset_deletion_supported(&root));
+    assert_eq!(fs::read_dir(&root).unwrap().count(), 0, "capability probe leaked an entry");
     assert!(!checked_reset_deletion_supported(&root.join("missing")));
 
     fs::remove_dir_all(root).unwrap();
@@ -482,14 +483,35 @@ fn checked_reset_deletion_support_uses_state_root() {
 #[test]
 fn reset_exclusive_rename_probe_rejects_blocked_syscalls() {
     assert!(reset_exclusive_rename_probe_error_supported(&std::io::Error::from_raw_os_error(
-        libc::ENOENT
+        libc::EEXIST
     )));
-    assert!(!reset_exclusive_rename_probe_error_supported(&std::io::Error::from_raw_os_error(
-        libc::ENOSYS
-    )));
-    assert!(!reset_exclusive_rename_probe_error_supported(&std::io::Error::from_raw_os_error(
-        libc::EPERM
-    )));
+    for error_code in [libc::ENOSYS, libc::EPERM, libc::EINVAL, libc::ENOTSUP] {
+        assert!(!reset_exclusive_rename_probe_error_supported(
+            &std::io::Error::from_raw_os_error(error_code)
+        ));
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn checked_reset_deletion_support_rejects_read_only_state_root() {
+    use std::os::unix::fs::PermissionsExt;
+
+    if unsafe { libc::geteuid() } == 0 {
+        return;
+    }
+    let root = temp_root("reset-capability-read-only-state-root");
+    fs::create_dir_all(&root).unwrap();
+    let original_permissions = fs::metadata(&root).unwrap().permissions();
+    let mut read_only_permissions = original_permissions.clone();
+    read_only_permissions.set_mode(0o500);
+    fs::set_permissions(&root, read_only_permissions).unwrap();
+
+    let supported = checked_reset_deletion_supported(&root);
+
+    fs::set_permissions(&root, original_permissions).unwrap();
+    fs::remove_dir_all(root).unwrap();
+    assert!(!supported);
 }
 
 #[test]
