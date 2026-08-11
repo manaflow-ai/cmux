@@ -1907,14 +1907,15 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               # Do not kill the root after a partial STOP or snapshot. Keep the
               # durable root attached until recovery can rescan the full tree.
               cmux_ssh_terminate_owned_auth_group
+              # The unpublished transaction publishes rollback-only before it
+              # can issue STOP. Without that marker, setup failed while the
+              # root was still safe for the final stable-identity KILL below.
               if [ -n "${CMUX_SSH_AUTH_GROUP_DIR:-}" ] && \
                 [ -f "$CMUX_SSH_AUTH_GROUP_DIR/rollback-only" ]; then
                 cmux_ssh_auth_recovery_enqueue \
                   "$CMUX_SSH_AUTH_GROUP_DIR" >/dev/null 2>&1 || true
                 cmux_ssh_schedule_failed_auth_group_recovery
                 cmux_ssh_auth_durable_cleanup_pending=1
-              else
-                exit 1
               fi
             fi
           else
