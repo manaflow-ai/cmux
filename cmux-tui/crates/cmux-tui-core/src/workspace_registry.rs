@@ -1270,12 +1270,7 @@ fn rename_reset_dir_for_deletion_at(
         ));
         let candidate = root.join(&candidate_name);
         ensure_reset_dir_fingerprint_at(root_directory, source, kind, expected_fingerprint)?;
-        validate_reset_child_directory_at(
-            root_directory,
-            source_name,
-            source,
-            locked_directory,
-        )?;
+        validate_reset_child_directory_at(root_directory, source_name, source, locked_directory)?;
         match reset_rename_child_exclusive(
             root_directory.as_raw_fd(),
             source_name,
