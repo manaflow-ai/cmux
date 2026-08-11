@@ -7361,6 +7361,8 @@ mod unix {
         fn protocol_five_daemon_adopts_a_live_protocol_four_record() {
             let (record_path, mut record, lease) = record_fixture("protocol-four-adoption");
             record.record_version = 4;
+            fs::remove_file(&record_path).unwrap();
+            write_record(&record_path, &record).unwrap();
             let endpoint = PathBuf::from(&record.endpoint);
             prepare_private_dir(endpoint.parent().unwrap()).unwrap();
             let _ = fs::remove_file(&endpoint);
