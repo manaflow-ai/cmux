@@ -54,7 +54,7 @@ $SIG{USR2} = $signal->("D");
 $SIG{INT} = $signal->("T");
 $SIG{TERM} = $signal->("T");
 $SIG{HUP} = $signal->("T");
-$SIG{PIPE} = "DEFAULT";
+$SIG{PIPE} = "IGNORE";
 
 $child_pid = fork();
 defined($child_pid) or die "fork: $!";
@@ -86,11 +86,19 @@ my $phase = "transfer";
 my $deadline = clock_gettime(CLOCK_MONOTONIC) + $transfer_timeout;
 my $child_status;
 my $progress_buffer = "";
+my $output_open = 1;
 my $select = IO::Select->new($progress, $signals);
 
 sub publish {
     my ($event) = @_;
-    print {$output} "$event\n" or exit 1;
+    return 0 unless $output_open;
+    if (!print {$output} "$event\n") {
+        $output_open = 0;
+        close($output);
+        begin_termination("TERM");
+        return 0;
+    }
+    return 1;
 }
 
 sub begin_termination {
