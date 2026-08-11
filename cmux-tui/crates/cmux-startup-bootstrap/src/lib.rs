@@ -2108,13 +2108,13 @@ mod tests {
         let bytes = encode_arm(&nonce).unwrap();
         assert_eq!(bytes.len(), 48);
         assert_eq!(decode_arm(&bytes).unwrap(), nonce);
-        let mut changed = bytes;
-        changed.push(0);
-        assert!(decode_arm(&changed).is_err());
         let adopted = encode_account_launcher_adopted(&nonce).unwrap();
         assert_eq!(adopted.len(), 48);
         assert_eq!(&adopted[..8], &ACCOUNT_LAUNCHER_ADOPTED_MAGIC);
         assert_eq!(&adopted[16..], &bytes[16..]);
+        let mut changed = bytes;
+        changed.push(0);
+        assert!(decode_arm(&changed).is_err());
     }
 
     #[test]
