@@ -1,5 +1,8 @@
 pub fn zig_target_arg(target: &str, host: &str) -> Option<String> {
-    if target == host {
+    // Preserve Zig's native target selection for existing native builds. The
+    // GNU Windows host is the exception: Zig otherwise defaults to MSVC and
+    // requires a Windows SDK even when the Rust toolchain is MinGW-only.
+    if target == host && !target.ends_with("-windows-gnu") {
         return None;
     }
     zig_target_for_rust_target(target).map(|zig_target| format!("-Dtarget={zig_target}"))
