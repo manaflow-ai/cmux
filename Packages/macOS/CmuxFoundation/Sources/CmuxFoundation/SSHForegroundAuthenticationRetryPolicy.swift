@@ -288,42 +288,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
         """#
     }
 
-    /// Builds the bounded helper that terminates foreground SSH authentication.
-    ///
-    /// The classifier publishes a signal-resistant anchor in its isolated PTY
-    /// process group. Cleanup validates the anchor and stable process identities,
-    /// freezes the descendant closure in bounded batches, then KILLs each batch.
-    /// The shared wrapper PID is KILLed only while its original identity still
-    /// matches.
-    ///
-    /// - Returns: Shell functions that terminate the owned group and outer tree.
-    public func processTreeTerminationShellFunction() -> String {
+    private func recordedProcessLivenessShellFunctions() -> String {
         #"""
-        \#(processIdentityShellFunctions())
-
-        \#(ownedProcessGroupTerminationShellFunctions())
-
-        cmux_ssh_wait_for_auth_process_exit() {
-          cmux_ssh_auth_wait_pid="$1"
-          case "$cmux_ssh_auth_wait_pid" in ''|0|*[!0-9]*) return 1 ;; esac
-          cmux_ssh_auth_wait_started="$(cmux_ssh_auth_now_millis)" || return 1
-          case "$cmux_ssh_auth_wait_started" in ''|*[!0-9]*) return 1 ;; esac
-          cmux_ssh_auth_wait_deadline=$((cmux_ssh_auth_wait_started + 500))
-          while /bin/kill -0 "$cmux_ssh_auth_wait_pid" 2>/dev/null; do
-            cmux_ssh_auth_wait_state=$(/usr/bin/env LC_ALL=C LANG=C \
-              /bin/ps -o state= -p "$cmux_ssh_auth_wait_pid" 2>/dev/null | \
-              /usr/bin/tr -d '[:space:]')
-            case "$cmux_ssh_auth_wait_state" in Z*) break ;; esac
-            cmux_ssh_auth_wait_now="$(cmux_ssh_auth_now_millis)" || return 1
-            case "$cmux_ssh_auth_wait_now" in ''|*[!0-9]*) return 1 ;; esac
-            if [ "$cmux_ssh_auth_wait_now" -ge \
-              "$cmux_ssh_auth_wait_deadline" ]; then return 1; fi
-            /bin/sleep 0.01
-          done
-          wait "$cmux_ssh_auth_wait_pid" 2>/dev/null || true
-          return 0
-        }
-
         cmux_ssh_auth_parse_recorded_process() {
           cmux_ssh_auth_record_file="$1"
           if [ ! -s "$cmux_ssh_auth_record_file" ]; then return 1; fi
@@ -386,6 +352,46 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             /usr/bin/tr -d '[:space:]')
           case "$cmux_ssh_auth_observed_state" in Z*) return 1 ;; esac
           /bin/kill -0 "$CMUX_SSH_AUTH_RECORDED_PID" 2>/dev/null
+        }
+        """#
+    }
+
+    /// Builds the bounded helper that terminates foreground SSH authentication.
+    ///
+    /// The classifier publishes a signal-resistant anchor in its isolated PTY
+    /// process group. Cleanup validates the anchor and stable process identities,
+    /// freezes the descendant closure in bounded batches, then KILLs each batch.
+    /// The shared wrapper PID is KILLed only while its original identity still
+    /// matches.
+    ///
+    /// - Returns: Shell functions that terminate the owned group and outer tree.
+    public func processTreeTerminationShellFunction() -> String {
+        #"""
+        \#(processIdentityShellFunctions())
+
+        \#(ownedProcessGroupTerminationShellFunctions())
+
+        \#(recordedProcessLivenessShellFunctions())
+
+        cmux_ssh_wait_for_auth_process_exit() {
+          cmux_ssh_auth_wait_pid="$1"
+          case "$cmux_ssh_auth_wait_pid" in ''|0|*[!0-9]*) return 1 ;; esac
+          cmux_ssh_auth_wait_started="$(cmux_ssh_auth_now_millis)" || return 1
+          case "$cmux_ssh_auth_wait_started" in ''|*[!0-9]*) return 1 ;; esac
+          cmux_ssh_auth_wait_deadline=$((cmux_ssh_auth_wait_started + 500))
+          while /bin/kill -0 "$cmux_ssh_auth_wait_pid" 2>/dev/null; do
+            cmux_ssh_auth_wait_state=$(/usr/bin/env LC_ALL=C LANG=C \
+              /bin/ps -o state= -p "$cmux_ssh_auth_wait_pid" 2>/dev/null | \
+              /usr/bin/tr -d '[:space:]')
+            case "$cmux_ssh_auth_wait_state" in Z*) break ;; esac
+            cmux_ssh_auth_wait_now="$(cmux_ssh_auth_now_millis)" || return 1
+            case "$cmux_ssh_auth_wait_now" in ''|*[!0-9]*) return 1 ;; esac
+            if [ "$cmux_ssh_auth_wait_now" -ge \
+              "$cmux_ssh_auth_wait_deadline" ]; then return 1; fi
+            /bin/sleep 0.01
+          done
+          wait "$cmux_ssh_auth_wait_pid" 2>/dev/null || true
+          return 0
         }
 
         cmux_ssh_auth_publish_current_worker() {
@@ -2828,6 +2834,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
     public func classifyingTransientFailure(in command: String) -> String {
         let ownedGroupCommand = [
             processIdentityShellFunctions(),
+            recordedProcessLivenessShellFunctions(),
             "cmux_ssh_auth_group_dir=\"${CMUX_SSH_AUTH_GROUP_DIR:-}\"",
             "if [ -z \"$cmux_ssh_auth_group_dir\" ]; then exec /usr/bin/env LC_ALL=C LANG=C /bin/zsh -fc \(shellQuote(command)); fi",
             "cmux_ssh_auth_expected_dir_identity=\"$(/usr/bin/id -u):700\"",
