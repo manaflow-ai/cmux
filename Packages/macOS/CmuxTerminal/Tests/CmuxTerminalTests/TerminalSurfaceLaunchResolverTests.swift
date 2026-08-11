@@ -165,6 +165,7 @@ struct TerminalSurfaceLaunchResolverTests {
         let filesystem = TerminalSurfaceRuntimeFilesystem(
             agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp"),
             installAgentCommandShims: { _, _, _ in nil },
+            removeAgentCommandShims: { _ in },
             isExecutableFile: { recorder.record(path: $0) },
             directoryExists: { _ in true }
         )
@@ -329,6 +330,7 @@ struct TerminalSurfaceLaunchResolverTests {
         let filesystem = TerminalSurfaceRuntimeFilesystem(
             agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp"),
             installAgentCommandShims: { _, _, _ in nil },
+            removeAgentCommandShims: { _ in },
             isExecutableFile: { _ in false },
             directoryExists: { _ in
                 blocker.wait()
@@ -531,14 +533,18 @@ struct TerminalSurfaceLaunchResolverTests {
             }
         )
 
-        await state.release()
+        let firstReleaseSucceeded = await state.release()
 
+        #expect(!firstReleaseSucceeded)
         #expect(recorder.attemptCount == 3)
         #expect(recorder.failureCount == 1)
+        #expect(recorder.lastFailure?.0 == shims)
+        #expect(recorder.lastFailure?.1.contains("attempt: 3") == true)
         #expect(await state.hasOwnedShims)
 
-        await state.release()
+        let secondReleaseSucceeded = await state.release()
 
+        #expect(secondReleaseSucceeded)
         #expect(recorder.attemptCount == 4)
         #expect(recorder.failureCount == 1)
         #expect(!(await state.hasOwnedShims))
@@ -566,6 +572,7 @@ struct TerminalSurfaceLaunchResolverTests {
             runtimeFilesystem: runtimeFilesystem ?? TerminalSurfaceRuntimeFilesystem(
                 agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp"),
                 installAgentCommandShims: { _, _, _ in nil },
+                removeAgentCommandShims: { _ in },
                 isExecutableFile: { _ in false },
                 directoryExists: { _ in false }
             ),
@@ -697,6 +704,9 @@ private final class CommandShimRemovalRecorder: @unchecked Sendable {
 
     var attemptCount: Int { state.withLock { $0.attempts } }
     var failureCount: Int { state.withLock { $0.failures.count } }
+    var lastFailure: (TerminalSurfaceAgentCommandShimSet, String)? {
+        state.withLock { $0.failures.last }
+    }
 
     func remove(_ shims: TerminalSurfaceAgentCommandShimSet) throws {
         let failure = state.withLock { state -> CommandShimRemovalTestError? in

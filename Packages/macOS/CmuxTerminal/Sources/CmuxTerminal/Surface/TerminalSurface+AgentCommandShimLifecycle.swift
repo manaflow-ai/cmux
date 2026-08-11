@@ -64,7 +64,7 @@ extension TerminalSurface {
                 )
                 guard installResultGate.acceptResult() else {
                     if let shims {
-                        await runtimeFilesystem.removeAgentCommandShims(shims)
+                        await runtimeFilesystem.cleanupUnownedAgentCommandShims(shims)
                     }
                     return nil
                 }
@@ -99,7 +99,7 @@ extension TerminalSurface {
                 )
                 guard installResultGate.acceptResult() else {
                     if let shims {
-                        await runtimeFilesystem.removeAgentCommandShims(shims)
+                        await runtimeFilesystem.cleanupUnownedAgentCommandShims(shims)
                     }
                     return nil
                 }
@@ -113,13 +113,13 @@ extension TerminalSurface {
                 let shims = await installTask.value
                 guard !Task.isCancelled else {
                     if let shims {
-                        await runtimeFilesystem.removeAgentCommandShims(shims)
+                        await runtimeFilesystem.cleanupUnownedAgentCommandShims(shims)
                     }
                     return
                 }
                 guard let self else {
                     if let shims {
-                        await runtimeFilesystem.removeAgentCommandShims(shims)
+                        await runtimeFilesystem.cleanupUnownedAgentCommandShims(shims)
                     }
                     return
                 }

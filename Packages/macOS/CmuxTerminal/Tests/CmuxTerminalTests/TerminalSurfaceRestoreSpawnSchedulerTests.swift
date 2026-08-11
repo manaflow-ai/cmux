@@ -128,6 +128,7 @@ import CmuxTerminalCore
             installAgentCommandShims: {
                 await shimInstaller.install(wrapperDirectoryURL: $0, surfaceId: $1, temporaryDirectory: $2)
             },
+            removeAgentCommandShims: { _ in },
             isExecutableFile: { _ in false },
             directoryExists: { _ in false }
         )
@@ -406,6 +407,7 @@ import CmuxTerminalCore
         runtimeFilesystem: TerminalSurfaceRuntimeFilesystem = TerminalSurfaceRuntimeFilesystem(
             agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
             installAgentCommandShims: { _, _, _ in nil },
+            removeAgentCommandShims: { _ in },
             isExecutableFile: { _ in false },
             directoryExists: { _ in false }
         )

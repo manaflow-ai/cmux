@@ -2572,9 +2572,11 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
     }
 
     private func releaseCommandShimLease() async {
-        let lease = commandShimLease
-        commandShimLease = nil
-        await lease?.release()
+        guard let lease = commandShimLease else { return }
+        guard await lease.release() else { return }
+        if commandShimLease === lease {
+            commandShimLease = nil
+        }
     }
 
     private func requestAccessibilityRefresh() {

@@ -3124,6 +3124,7 @@ struct TerminalClientCompositionTests {
             runtimeFilesystem: TerminalSurfaceRuntimeFilesystem(
                 agentCommandShimTemporaryDirectory: URL(fileURLWithPath: NSTemporaryDirectory()),
                 installAgentCommandShims: { _, _, _ in nil },
+                removeAgentCommandShims: { _ in },
                 isExecutableFile: { _ in false },
                 directoryExists: { _ in false }
             ),

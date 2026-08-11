@@ -164,6 +164,9 @@ extension TerminalSurfaceRuntimeFilesystem {
                     fileManager: fileManager
                 )
             },
+            removeAgentCommandShims: { shims in
+                try FileManager.default.removeItem(atPath: shims.directoryPath)
+            },
             isExecutableFile: { FileManager.default.isExecutableFile(atPath: $0) },
             directoryExists: { path in
                 var isDirectory: ObjCBool = false

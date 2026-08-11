@@ -151,7 +151,9 @@ public final class TerminalSurfaceLaunchResolver {
         let ownedCommandShimLease = commandShimLease ?? shims.map {
             TerminalSurfaceAgentCommandShimLease(
                 shims: $0,
-                remove: runtimeFilesystem.removeAgentCommandShims
+                removalAttemptLimit: runtimeFilesystem.agentCommandShimRemovalAttemptLimit,
+                remove: runtimeFilesystem.removeAgentCommandShims,
+                reportRemovalFailure: runtimeFilesystem.reportAgentCommandShimRemovalFailure
             )
         }
         return TerminalSurfaceOwnedLaunch(
@@ -406,7 +408,7 @@ private final class TerminalSurfaceCommandShimInstallAttempt: @unchecked Sendabl
             )
             guard self?.resolve(shims) == true else {
                 if let shims {
-                    await filesystem.removeAgentCommandShims(shims)
+                    await filesystem.cleanupUnownedAgentCommandShims(shims)
                 }
                 return
             }

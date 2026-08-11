@@ -1,5 +1,6 @@
 public import Foundation
 public import CmuxTerminalCore
+internal import os
 
 /// Limits command-shim installation to one live operation per runtime
 /// filesystem owner, including an installer that does not stop on cancellation.
@@ -342,7 +343,14 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
 
     /// Removes a shim set that completed after its launch owner released it.
     public let removeAgentCommandShims:
-        @Sendable (_ shims: TerminalSurfaceAgentCommandShimSet) async -> Void
+        @Sendable (_ shims: TerminalSurfaceAgentCommandShimSet) async throws -> Void
+
+    /// Reports the final error after bounded shim removal attempts fail.
+    public let reportAgentCommandShimRemovalFailure:
+        @Sendable (_ shims: TerminalSurfaceAgentCommandShimSet, _ errorDescription: String) -> Void
+
+    /// Maximum removal attempts made by one lease release operation.
+    public let agentCommandShimRemovalAttemptLimit: Int
 
     /// Returns whether the path points at an executable file.
     public let isExecutableFile: @Sendable (_ path: String) -> Bool
@@ -359,18 +367,42 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
         installAgentCommandShims:
             @escaping @Sendable (_ wrapperDirectoryURL: URL, _ surfaceId: UUID, _ temporaryDirectory: URL) async -> TerminalSurfaceAgentCommandShimSet?,
         removeAgentCommandShims:
-            @escaping @Sendable (_ shims: TerminalSurfaceAgentCommandShimSet) async -> Void = { shims in
-                try? FileManager.default.removeItem(atPath: shims.directoryPath)
-            },
+            @escaping @Sendable (_ shims: TerminalSurfaceAgentCommandShimSet) async throws -> Void,
+        reportAgentCommandShimRemovalFailure:
+            (@Sendable (_ shims: TerminalSurfaceAgentCommandShimSet, _ errorDescription: String) -> Void)? = nil,
+        agentCommandShimRemovalAttemptLimit: Int = 3,
         isExecutableFile: @escaping @Sendable (_ path: String) -> Bool,
         directoryExists: @escaping @Sendable (_ path: String) -> Bool,
         agentCommandShimInstallGate: TerminalSurfaceCommandShimInstallGate = .init()
     ) {
+        precondition(agentCommandShimRemovalAttemptLimit > 0)
         self.agentCommandShimTemporaryDirectory = agentCommandShimTemporaryDirectory
         self.installAgentCommandShims = installAgentCommandShims
         self.removeAgentCommandShims = removeAgentCommandShims
+        self.reportAgentCommandShimRemovalFailure =
+            reportAgentCommandShimRemovalFailure ?? { shims, errorDescription in
+                Logger(
+                    subsystem: "com.cmuxterm.app",
+                    category: "agent-command-shims"
+                ).error(
+                    "Failed to remove command shims at \(shims.directoryPath, privacy: .public): \(errorDescription, privacy: .public)"
+                )
+            }
+        self.agentCommandShimRemovalAttemptLimit = agentCommandShimRemovalAttemptLimit
         self.isExecutableFile = isExecutableFile
         self.directoryExists = directoryExists
         self.agentCommandShimInstallGate = agentCommandShimInstallGate
+    }
+
+    func cleanupUnownedAgentCommandShims(
+        _ shims: TerminalSurfaceAgentCommandShimSet
+    ) async {
+        let lease = TerminalSurfaceAgentCommandShimLease(
+            shims: shims,
+            removalAttemptLimit: agentCommandShimRemovalAttemptLimit,
+            remove: removeAgentCommandShims,
+            reportRemovalFailure: reportAgentCommandShimRemovalFailure
+        )
+        await lease.release()
     }
 }

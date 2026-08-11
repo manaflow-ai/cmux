@@ -12,17 +12,26 @@ public final class TerminalSurfaceAgentCommandShimLease: Sendable {
 
     init(
         shims: TerminalSurfaceAgentCommandShimSet,
-        remove: @escaping @Sendable (TerminalSurfaceAgentCommandShimSet) async -> Void
+        removalAttemptLimit: Int,
+        remove: @escaping @Sendable (TerminalSurfaceAgentCommandShimSet) async throws -> Void,
+        reportRemovalFailure:
+            @escaping @Sendable (TerminalSurfaceAgentCommandShimSet, String) -> Void
     ) {
         self.shims = shims
         self.state = TerminalSurfaceAgentCommandShimLeaseState(
             shims: shims,
-            remove: remove
+            removalAttemptLimit: removalAttemptLimit,
+            remove: remove,
+            reportRemovalFailure: reportRemovalFailure
         )
     }
 
-    /// Removes the owned shim directory exactly once.
-    public func release() async {
+    /// Removes the owned shim directory with bounded retries.
+    ///
+    /// Returns `false` after the final failure so the owner can retain the lease
+    /// and request cleanup again later.
+    @discardableResult
+    public func release() async -> Bool {
         await state.release()
     }
 }
