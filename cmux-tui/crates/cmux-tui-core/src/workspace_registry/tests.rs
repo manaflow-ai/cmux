@@ -7084,9 +7084,13 @@ fn journal_agent_sessionless_start_cannot_replace_structured_owner() {
     for (index, payload) in
         [json!({"context":{"session_id":"structured-owner"}}), json!({})].into_iter().enumerate()
     {
-        let ingress =
-            crate::agent_hook_journal_ingress("codex", "AgentStart", Some(terminal_id.as_str()), payload)
-                .unwrap();
+        let ingress = crate::agent_hook_journal_ingress(
+            "codex",
+            "AgentStart",
+            Some(terminal_id.as_str()),
+            payload,
+        )
+        .unwrap();
         registry
             .append_journal_ingress(
                 &ingress,
