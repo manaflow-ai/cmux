@@ -7357,6 +7357,97 @@ mod unix {
         }
 
         #[test]
+        fn protocol_five_daemon_adopts_a_live_protocol_four_record() {
+            let (record_path, mut record, lease) = record_fixture("protocol-four-adoption");
+            record.record_version = 4;
+            let endpoint = PathBuf::from(&record.endpoint);
+            prepare_private_dir(endpoint.parent().unwrap()).unwrap();
+            let _ = fs::remove_file(&endpoint);
+            let listener = UnixListener::bind(&endpoint).unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let terminal_id =
+                TerminalId::from_bytes(decode_hex_array(&record.terminal_id).unwrap());
+            let incarnation =
+                HostIncarnation::from_bytes(decode_hex_array(&record.incarnation).unwrap());
+            let fake_host = thread::spawn(move || -> anyhow::Result<bool> {
+                let deadline = Instant::now() + Duration::from_secs(2);
+                loop {
+                    let (mut stream, _) = match listener.accept() {
+                        Ok(connection) => connection,
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            if Instant::now() >= deadline {
+                                return Ok(false);
+                            }
+                            thread::sleep(Duration::from_millis(2));
+                            continue;
+                        }
+                        Err(error) => return Err(error.into()),
+                    };
+                    stream.set_read_timeout(Some(Duration::from_secs(1)))?;
+                    let hello_frame = read_required_frame(&mut stream, "owner hello")?;
+                    if hello_frame.version != 4 {
+                        continue;
+                    }
+
+                    let hello = ClientHello::decode(&hello_frame.payload)?;
+                    let response = HostHello {
+                        selected_version: 4,
+                        granted_rights: CapabilityRights::ADMIN,
+                        terminal_id,
+                        incarnation,
+                    };
+                    let mut host_hello = Frame::new(MessageKind::HostHello, response.encode());
+                    host_hello.version = 4;
+                    host_hello.request_id = hello_frame.request_id;
+                    write_frame(&mut stream, &host_hello)?;
+
+                    let snapshot = HostSnapshot {
+                        cols: 80,
+                        rows: 24,
+                        cell_pixels: DEFAULT_CELL_PIXELS,
+                        replay: b"protocol-four-live-state".to_vec(),
+                        kitty_image_aliases: Vec::new(),
+                        kitty_state: test_kitty_state(),
+                        sequence_boundary: 0,
+                        colors: TerminalColorOverrides::default(),
+                        pid: Some(42),
+                        command: vec!["/bin/cat".into()],
+                        cwd: Some("/tmp".into()),
+                    };
+                    let mut snapshot_frame =
+                        Frame::new(MessageKind::Snapshot, encode_snapshot(&snapshot)?);
+                    snapshot_frame.version = 4;
+                    write_frame(&mut stream, &snapshot_frame)?;
+                    let mut colors = Frame::new(
+                        MessageKind::Colors,
+                        encode_terminal_color_overrides(&TerminalColorOverrides::default()),
+                    );
+                    colors.version = 4;
+                    write_frame(&mut stream, &colors)?;
+
+                    let release = read_required_frame(&mut stream, "viewer release")?;
+                    return Ok(release.kind == MessageKind::ReleaseViewer);
+                }
+            });
+
+            let attachment = connect_current_record_with_timeout(
+                record.clone(),
+                record_path.clone(),
+                Duration::from_secs(1),
+            )
+            .expect("protocol-v4 discovery record did not fall back to its live host");
+            assert_eq!(attachment.protocol_version(), 4);
+            assert_eq!(attachment.snapshot.replay, b"protocol-four-live-state");
+            drop(attachment);
+            assert!(fake_host.join().unwrap().unwrap());
+
+            let _ = fs::remove_file(endpoint);
+            drop(lease);
+            assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+            let _ = fs::remove_dir_all(record_path.parent().unwrap());
+        }
+
+        #[test]
         fn termination_adoption_does_not_probe_legacy_protocols_for_receipt_hosts() {
             let (record_path, record, lease) = record_fixture("terminate-current-protocol");
             assert!(record.supports_terminate_ack);
