@@ -6,6 +6,7 @@
 //! little-endian so non-Rust clients can implement it without sharing a
 //! serializer or ABI.
 
+use std::collections::HashSet;
 use std::fmt;
 use std::io::{self, Read, Write};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -17,8 +18,16 @@ pub const HEADER_LEN: usize = 32;
 pub const PROTOCOL_VERSION: u16 = 3;
 pub const MAX_FRAME_PAYLOAD: usize = 16 * 1024 * 1024;
 pub const MAX_KITTY_IMAGE_ALIASES: usize = 4_096;
+pub const MAX_SNAPSHOT_REPLAY_BYTES: usize = 8 * 1024 * 1024;
+pub const MAX_SNAPSHOT_STRING_BYTES: usize = 256 * 1024;
+pub const MAX_SNAPSHOT_ARGUMENTS: usize = 256;
 pub const KITTY_IMAGE_ALIAS_COUNT_LEN: usize = size_of::<u16>();
 pub const KITTY_IMAGE_ALIAS_ENCODED_LEN: usize = 2 * size_of::<u32>();
+pub const DEFAULT_SNAPSHOT_CELL_PIXELS: (u16, u16) = (8, 16);
+pub const DEFAULT_SNAPSHOT_NEXT_IMAGE_ID: u32 = 2_147_483_647;
+const LEGACY_PROTOCOL_VERSION: u16 = 1;
+const TERMINAL_DIMENSION_MAX: u16 = 10_000;
+const TERMINAL_CELL_AREA_MAX: u64 = 4_000_000;
 const EXIT_PAYLOAD_VERSION: u16 = 1;
 const EXIT_PAYLOAD_HEADER_LEN: usize = 12;
 const EXIT_PAYLOAD_STATUS_LEN: usize = EXIT_PAYLOAD_HEADER_LEN + 4;
@@ -67,6 +76,365 @@ pub const CLEAR_HISTORY_ACK_AMBIGUOUS: u8 = 5;
 /// `ClearHistoryAck` status: the PTY accepted no fallback bytes before the
 /// bounded write deadline expired.
 pub const CLEAR_HISTORY_ACK_FALLBACK_WRITE_TIMEOUT: u8 = 6;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SnapshotKittyReplayState {
+    pub limits: (u64, u64, u64, u64),
+    pub replay_cursor_offset: u32,
+    pub replay_next_image_ids: (u32, u32),
+    pub next_image_ids: (u32, u32),
+}
+
+impl SnapshotKittyReplayState {
+    pub const fn disabled() -> Self {
+        Self {
+            limits: (0, 0, 0, 0),
+            replay_cursor_offset: 0,
+            replay_next_image_ids: (DEFAULT_SNAPSHOT_NEXT_IMAGE_ID, DEFAULT_SNAPSHOT_NEXT_IMAGE_ID),
+            next_image_ids: (DEFAULT_SNAPSHOT_NEXT_IMAGE_ID, DEFAULT_SNAPSHOT_NEXT_IMAGE_ID),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SnapshotPayload {
+    pub cols: u16,
+    pub rows: u16,
+    pub cell_pixels: (u16, u16),
+    pub replay: Vec<u8>,
+    pub kitty_image_aliases: Vec<(u32, u32)>,
+    pub kitty_state: SnapshotKittyReplayState,
+    pub pid: Option<u32>,
+    pub command: Vec<String>,
+    pub cwd: Option<String>,
+}
+
+impl SnapshotPayload {
+    pub fn view(&self) -> SnapshotPayloadRef<'_> {
+        SnapshotPayloadRef {
+            cols: self.cols,
+            rows: self.rows,
+            cell_pixels: self.cell_pixels,
+            replay: &self.replay,
+            kitty_image_aliases: &self.kitty_image_aliases,
+            kitty_state: self.kitty_state,
+            pid: self.pid,
+            command: &self.command,
+            cwd: self.cwd.as_deref(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SnapshotPayloadRef<'a> {
+    pub cols: u16,
+    pub rows: u16,
+    pub cell_pixels: (u16, u16),
+    pub replay: &'a [u8],
+    pub kitty_image_aliases: &'a [(u32, u32)],
+    pub kitty_state: SnapshotKittyReplayState,
+    pub pid: Option<u32>,
+    pub command: &'a [String],
+    pub cwd: Option<&'a str>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SnapshotCodecError(String);
+
+impl SnapshotCodecError {
+    fn new(message: impl Into<String>) -> Self {
+        Self(message.into())
+    }
+}
+
+impl fmt::Display for SnapshotCodecError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for SnapshotCodecError {}
+
+pub fn encode_snapshot_payload(
+    snapshot: SnapshotPayloadRef<'_>,
+) -> Result<Vec<u8>, SnapshotCodecError> {
+    let (cols, rows) = normalize_snapshot_geometry(snapshot.cols, snapshot.rows)?;
+    validate_snapshot_cell_pixels(cols, rows, snapshot.cell_pixels)?;
+    validate_snapshot_aliases(snapshot.kitty_image_aliases)?;
+    validate_snapshot_kitty_state(snapshot.kitty_state, snapshot.replay.len())?;
+    if snapshot.command.len() > MAX_SNAPSHOT_ARGUMENTS {
+        return Err(SnapshotCodecError::new("terminal snapshot has too many command arguments"));
+    }
+
+    let mut output = Vec::new();
+    output.extend_from_slice(&cols.to_le_bytes());
+    output.extend_from_slice(&rows.to_le_bytes());
+    output.extend_from_slice(&snapshot.pid.unwrap_or(0).to_le_bytes());
+    put_snapshot_bytes(&mut output, snapshot.replay, MAX_SNAPSHOT_REPLAY_BYTES)?;
+    put_snapshot_optional_string(&mut output, snapshot.cwd)?;
+    output.extend_from_slice(&(snapshot.command.len() as u16).to_le_bytes());
+    for argument in snapshot.command {
+        put_snapshot_string(&mut output, argument)?;
+    }
+    output.extend_from_slice(&(snapshot.kitty_image_aliases.len() as u16).to_le_bytes());
+    for (image_id, image_number) in snapshot.kitty_image_aliases {
+        output.extend_from_slice(&image_id.to_le_bytes());
+        output.extend_from_slice(&image_number.to_le_bytes());
+    }
+    output.extend_from_slice(&snapshot.cell_pixels.0.max(1).to_le_bytes());
+    output.extend_from_slice(&snapshot.cell_pixels.1.max(1).to_le_bytes());
+    for limit in [
+        snapshot.kitty_state.limits.0,
+        snapshot.kitty_state.limits.1,
+        snapshot.kitty_state.limits.2,
+        snapshot.kitty_state.limits.3,
+    ] {
+        output.extend_from_slice(&limit.to_le_bytes());
+    }
+    output.extend_from_slice(&snapshot.kitty_state.replay_cursor_offset.to_le_bytes());
+    output.extend_from_slice(&snapshot.kitty_state.replay_next_image_ids.0.to_le_bytes());
+    output.extend_from_slice(&snapshot.kitty_state.next_image_ids.0.to_le_bytes());
+    output.extend_from_slice(&snapshot.kitty_state.replay_next_image_ids.1.to_le_bytes());
+    output.extend_from_slice(&snapshot.kitty_state.next_image_ids.1.to_le_bytes());
+    if output.len() > MAX_FRAME_PAYLOAD {
+        return Err(SnapshotCodecError::new("terminal snapshot payload is too large"));
+    }
+    Ok(output)
+}
+
+pub fn decode_snapshot_payload(
+    payload: &[u8],
+    protocol_version: u16,
+) -> Result<SnapshotPayload, SnapshotCodecError> {
+    if !(LEGACY_PROTOCOL_VERSION..=PROTOCOL_VERSION).contains(&protocol_version) {
+        return Err(SnapshotCodecError::new(format!(
+            "unsupported terminal snapshot protocol {protocol_version}"
+        )));
+    }
+    let mut decoder = SnapshotDecoder::new(payload);
+    let (cols, rows) = normalize_snapshot_geometry(decoder.u16()?, decoder.u16()?)?;
+    let pid = match decoder.u32()? {
+        0 => None,
+        pid => Some(pid),
+    };
+    let replay = decoder.bytes(MAX_SNAPSHOT_REPLAY_BYTES)?.to_vec();
+    let cwd = decoder.optional_string()?;
+    let argument_count = decoder.u16()? as usize;
+    if argument_count > MAX_SNAPSHOT_ARGUMENTS {
+        return Err(SnapshotCodecError::new("terminal snapshot has too many command arguments"));
+    }
+    let mut command = Vec::with_capacity(argument_count);
+    for _ in 0..argument_count {
+        command.push(decoder.string()?);
+    }
+    let kitty_image_aliases = if protocol_version >= 2 {
+        let count = decoder.u16()? as usize;
+        if count > MAX_KITTY_IMAGE_ALIASES {
+            return Err(SnapshotCodecError::new(
+                "terminal snapshot has too many Kitty image aliases",
+            ));
+        }
+        let mut aliases = Vec::with_capacity(count);
+        for _ in 0..count {
+            aliases.push((decoder.u32()?, decoder.u32()?));
+        }
+        validate_snapshot_aliases(&aliases)?;
+        aliases
+    } else {
+        Vec::new()
+    };
+    let cell_pixels = if protocol_version >= 2 {
+        (decoder.u16()?.max(1), decoder.u16()?.max(1))
+    } else {
+        DEFAULT_SNAPSHOT_CELL_PIXELS
+    };
+    validate_snapshot_cell_pixels(cols, rows, cell_pixels)?;
+    let kitty_state = if protocol_version >= 3 {
+        let limits = (decoder.u64()?, decoder.u64()?, decoder.u64()?, decoder.u64()?);
+        let replay_cursor_offset = decoder.u32()?;
+        let primary_replay_next_image_id = decoder.u32()?;
+        let primary_next_image_id = decoder.u32()?;
+        let alternate_replay_next_image_id = decoder.u32()?;
+        let alternate_next_image_id = decoder.u32()?;
+        let state = SnapshotKittyReplayState {
+            limits,
+            replay_cursor_offset,
+            replay_next_image_ids: (primary_replay_next_image_id, alternate_replay_next_image_id),
+            next_image_ids: (primary_next_image_id, alternate_next_image_id),
+        };
+        validate_snapshot_kitty_state(state, replay.len())?;
+        state
+    } else {
+        SnapshotKittyReplayState::disabled()
+    };
+    decoder.finish()?;
+    Ok(SnapshotPayload {
+        cols,
+        rows,
+        cell_pixels,
+        replay,
+        kitty_image_aliases,
+        kitty_state,
+        pid,
+        command,
+        cwd,
+    })
+}
+
+fn normalize_snapshot_geometry(cols: u16, rows: u16) -> Result<(u16, u16), SnapshotCodecError> {
+    let cols = cols.clamp(1, TERMINAL_DIMENSION_MAX);
+    let rows = rows.clamp(1, TERMINAL_DIMENSION_MAX);
+    if u64::from(cols) * u64::from(rows) > TERMINAL_CELL_AREA_MAX {
+        return Err(SnapshotCodecError::new(format!(
+            "terminal geometry {cols}x{rows} exceeds the {TERMINAL_CELL_AREA_MAX}-cell limit"
+        )));
+    }
+    Ok((cols, rows))
+}
+
+fn validate_snapshot_cell_pixels(
+    cols: u16,
+    rows: u16,
+    cell_pixels: (u16, u16),
+) -> Result<(), SnapshotCodecError> {
+    cols.checked_mul(cell_pixels.0.max(1)).ok_or_else(|| {
+        SnapshotCodecError::new("terminal snapshot pixel width exceeds the protocol limit")
+    })?;
+    rows.checked_mul(cell_pixels.1.max(1)).ok_or_else(|| {
+        SnapshotCodecError::new("terminal snapshot pixel height exceeds the protocol limit")
+    })?;
+    Ok(())
+}
+
+fn validate_snapshot_aliases(aliases: &[(u32, u32)]) -> Result<(), SnapshotCodecError> {
+    if aliases.len() > MAX_KITTY_IMAGE_ALIASES {
+        return Err(SnapshotCodecError::new("terminal snapshot has too many Kitty image aliases"));
+    }
+    let mut image_ids = HashSet::with_capacity(aliases.len());
+    for (image_id, image_number) in aliases {
+        if *image_id == 0 || *image_number == 0 || !image_ids.insert(*image_id) {
+            return Err(SnapshotCodecError::new(
+                "terminal snapshot has invalid Kitty image aliases",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_snapshot_kitty_state(
+    state: SnapshotKittyReplayState,
+    replay_length: usize,
+) -> Result<(), SnapshotCodecError> {
+    if state.replay_cursor_offset as usize > replay_length
+        || state.replay_next_image_ids.0 == 0
+        || state.replay_next_image_ids.1 == 0
+        || state.next_image_ids.0 == 0
+        || state.next_image_ids.1 == 0
+    {
+        return Err(SnapshotCodecError::new("terminal snapshot has invalid Kitty replay state"));
+    }
+    Ok(())
+}
+
+fn put_snapshot_bytes(
+    output: &mut Vec<u8>,
+    value: &[u8],
+    maximum: usize,
+) -> Result<(), SnapshotCodecError> {
+    if value.len() > maximum || value.len() > u32::MAX as usize {
+        return Err(SnapshotCodecError::new("terminal snapshot field is too large"));
+    }
+    output.extend_from_slice(&(value.len() as u32).to_le_bytes());
+    output.extend_from_slice(value);
+    Ok(())
+}
+
+fn put_snapshot_string(output: &mut Vec<u8>, value: &str) -> Result<(), SnapshotCodecError> {
+    put_snapshot_bytes(output, value.as_bytes(), MAX_SNAPSHOT_STRING_BYTES)
+}
+
+fn put_snapshot_optional_string(
+    output: &mut Vec<u8>,
+    value: Option<&str>,
+) -> Result<(), SnapshotCodecError> {
+    match value {
+        Some(value) => {
+            output.push(1);
+            put_snapshot_string(output, value)
+        }
+        None => {
+            output.push(0);
+            Ok(())
+        }
+    }
+}
+
+struct SnapshotDecoder<'a> {
+    payload: &'a [u8],
+    offset: usize,
+}
+
+impl<'a> SnapshotDecoder<'a> {
+    fn new(payload: &'a [u8]) -> Self {
+        Self { payload, offset: 0 }
+    }
+
+    fn take(&mut self, length: usize) -> Result<&'a [u8], SnapshotCodecError> {
+        let end = self
+            .offset
+            .checked_add(length)
+            .filter(|end| *end <= self.payload.len())
+            .ok_or_else(|| SnapshotCodecError::new("truncated terminal snapshot"))?;
+        let bytes = &self.payload[self.offset..end];
+        self.offset = end;
+        Ok(bytes)
+    }
+
+    fn u8(&mut self) -> Result<u8, SnapshotCodecError> {
+        Ok(self.take(1)?[0])
+    }
+
+    fn u16(&mut self) -> Result<u16, SnapshotCodecError> {
+        Ok(u16::from_le_bytes(self.take(2)?.try_into().expect("fixed u16 slice")))
+    }
+
+    fn u32(&mut self) -> Result<u32, SnapshotCodecError> {
+        Ok(u32::from_le_bytes(self.take(4)?.try_into().expect("fixed u32 slice")))
+    }
+
+    fn u64(&mut self) -> Result<u64, SnapshotCodecError> {
+        Ok(u64::from_le_bytes(self.take(8)?.try_into().expect("fixed u64 slice")))
+    }
+
+    fn bytes(&mut self, maximum: usize) -> Result<&'a [u8], SnapshotCodecError> {
+        let length = self.u32()? as usize;
+        if length > maximum {
+            return Err(SnapshotCodecError::new("terminal snapshot field is too large"));
+        }
+        self.take(length)
+    }
+
+    fn string(&mut self) -> Result<String, SnapshotCodecError> {
+        std::str::from_utf8(self.bytes(MAX_SNAPSHOT_STRING_BYTES)?)
+            .map(str::to_owned)
+            .map_err(|_| SnapshotCodecError::new("terminal snapshot string is not UTF-8"))
+    }
+
+    fn optional_string(&mut self) -> Result<Option<String>, SnapshotCodecError> {
+        match self.u8()? {
+            0 => Ok(None),
+            1 => self.string().map(Some),
+            _ => Err(SnapshotCodecError::new("terminal snapshot has an invalid optional string")),
+        }
+    }
+
+    fn finish(self) -> Result<(), SnapshotCodecError> {
+        if self.offset != self.payload.len() {
+            return Err(SnapshotCodecError::new("terminal snapshot has trailing bytes"));
+        }
+        Ok(())
+    }
+}
 
 /// Authoritative process completion as retained by the terminal host.
 ///
@@ -929,5 +1297,28 @@ mod tests {
             Err(ProtocolError::PayloadTooLarge { len, max })
                 if len == MAX_FRAME_PAYLOAD + 1 && max == MAX_FRAME_PAYLOAD
         ));
+    }
+
+    #[test]
+    fn current_snapshot_codec_owns_the_kitty_cursor_order() {
+        let snapshot = SnapshotPayload {
+            cols: 80,
+            rows: 24,
+            cell_pixels: (9, 18),
+            replay: b"snapshot".to_vec(),
+            kitty_image_aliases: vec![(41, 77)],
+            kitty_state: SnapshotKittyReplayState {
+                limits: (1024, 2048, 32, 64),
+                replay_cursor_offset: 3,
+                replay_next_image_ids: (11, 13),
+                next_image_ids: (12, 14),
+            },
+            pid: Some(123),
+            command: vec!["/bin/sh".into(), "-l".into()],
+            cwd: Some("/tmp".into()),
+        };
+
+        let encoded = encode_snapshot_payload(snapshot.view()).unwrap();
+        assert_eq!(decode_snapshot_payload(&encoded, PROTOCOL_VERSION).unwrap(), snapshot);
     }
 }
