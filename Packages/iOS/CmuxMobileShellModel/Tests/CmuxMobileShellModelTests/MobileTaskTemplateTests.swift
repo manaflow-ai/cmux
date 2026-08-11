@@ -20,6 +20,17 @@ import Testing
             "",
         ])
         #expect(seeds.allSatisfy { $0.defaultDirectory == nil })
+        #expect(seeds.allSatisfy { $0.isBuiltIn })
+    }
+
+    @Test func userCreatedTemplatesAreCustomByDefault() {
+        let template = MobileTaskTemplate(
+            name: "Build",
+            icon: "hammer",
+            command: "swift test"
+        )
+
+        #expect(!template.isBuiltIn)
     }
 
     @Test func onlyWhitespaceCommandsArePlainShells() {
@@ -46,12 +57,30 @@ import Testing
             name: "Build",
             icon: "hammer",
             command: "swift test",
-            defaultDirectory: "~/code/cmux"
+            defaultDirectory: "~/code/cmux",
+            isBuiltIn: true
         )
 
         let data = try JSONEncoder().encode(template)
         let decoded = try JSONDecoder().decode(MobileTaskTemplate.self, from: data)
 
         #expect(decoded == template)
+    }
+
+    @Test func legacyTemplateWithoutProvenanceDecodesAsCustom() throws {
+        let id = UUID()
+        let data = Data("""
+        {
+          "id": "\(id.uuidString)",
+          "name": "Legacy",
+          "icon": "hammer",
+          "command": "swift test"
+        }
+        """.utf8)
+
+        let decoded = try JSONDecoder().decode(MobileTaskTemplate.self, from: data)
+
+        #expect(decoded.id == id)
+        #expect(!decoded.isBuiltIn)
     }
 }

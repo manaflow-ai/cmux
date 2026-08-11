@@ -353,6 +353,7 @@ struct TaskComposerSheet: View {
             selectedTemplateID: selectedTemplateID,
             models: availableModels,
             selectedModelID: selectedModelID,
+            isModelLoading: isModelLoading,
             isSubmitting: submissionPhase.showsProgress,
             isSubmitEnabled: selectedMachine != nil
                 && canLaunchSelectedTemplate
@@ -468,6 +469,10 @@ struct TaskComposerSheet: View {
         )
     }
 
+    private var isModelLoading: Bool {
+        displayedModels.isEmpty && modelRefreshOperationID != nil
+    }
+
     private func restartModelRefresh() {
         modelRefreshTask?.cancel()
         modelRefreshOperationID = nil
@@ -511,6 +516,7 @@ struct TaskComposerSheet: View {
             ) {
                 displayedModels = refreshedModels
             }
+            modelRefreshOperationID = nil
             modelRefreshTask = nil
         }
     }

@@ -42,6 +42,7 @@ struct TaskTemplateEditorView: View {
                                 }
                             }
                         }
+                        .deleteDisabled(template.isBuiltIn)
                     }
                     .onDelete { offsets in
                         deleteTemplates(offsets)

@@ -15,6 +15,8 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
     // v4 resets the unshipped seeds onto the environment-only prompt contract.
     private static let templatesKey = "cmux.mobile.taskTemplates.v4"
     private static let seededKey = "cmux.mobile.taskTemplates.seeded.v4"
+    private static let builtInProtectionMigrationKey =
+        "cmux.mobile.taskTemplates.builtInProtectionMigrated.v1"
     private static let legacyKeys = [
         "cmux.mobile.taskTemplates.v1",
         "cmux.mobile.taskTemplates.seeded.v1",
@@ -39,13 +41,15 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
     /// Returns all stored templates, seeding defaults on the first read.
     public func listTemplates() -> [MobileTaskTemplate] {
         seedIfNeeded()
-        return loadTemplates()
+        return migrateBuiltInProtectionIfNeeded(loadTemplates())
     }
 
     /// Appends a template and persists the full list.
     public func addTemplate(_ template: MobileTaskTemplate) {
         var templates = listTemplates()
-        templates.append(template)
+        var customTemplate = template
+        customTemplate.isBuiltIn = false
+        templates.append(customTemplate)
         saveTemplates(templates)
     }
 
@@ -53,7 +57,9 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
     public func updateTemplate(_ template: MobileTaskTemplate) {
         var templates = listTemplates()
         guard let index = templates.firstIndex(where: { $0.id == template.id }) else { return }
-        templates[index] = template
+        var updatedTemplate = template
+        updatedTemplate.isBuiltIn = templates[index].isBuiltIn
+        templates[index] = updatedTemplate
         saveTemplates(templates)
     }
 
@@ -61,9 +67,13 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
     public func deleteTemplates(ids: Set<MobileTaskTemplate.ID>) {
         guard !ids.isEmpty else { return }
         var templates = listTemplates()
-        templates.removeAll { ids.contains($0.id) }
+        let deletedIDs = Set(templates.lazy.compactMap { template in
+            ids.contains(template.id) && !template.isBuiltIn ? template.id : nil
+        })
+        guard !deletedIDs.isEmpty else { return }
+        templates.removeAll { deletedIDs.contains($0.id) }
         saveTemplates(templates)
-        if let lastTemplateID = lastTemplateID(), ids.contains(lastTemplateID) {
+        if let lastTemplateID = lastTemplateID(), deletedIDs.contains(lastTemplateID) {
             setLastTemplateID(nil)
         }
     }
@@ -152,6 +162,7 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
         let keys = [
             Self.templatesKey,
             Self.seededKey,
+            Self.builtInProtectionMigrationKey,
             Self.lastTemplateIDKey,
             Self.lastMacDeviceIDKey,
             Self.composerDraftKey,
@@ -187,6 +198,46 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
             return []
         }
         return templates
+    }
+
+    private func migrateBuiltInProtectionIfNeeded(
+        _ templates: [MobileTaskTemplate]
+    ) -> [MobileTaskTemplate] {
+        guard !defaults.bool(forKey: Self.builtInProtectionMigrationKey) else {
+            return templates
+        }
+
+        var migratedTemplates = templates
+        var didChange = false
+        for index in migratedTemplates.indices
+        where !migratedTemplates[index].isBuiltIn
+            && Self.matchesLegacyBuiltInSeed(migratedTemplates[index]) {
+            migratedTemplates[index].isBuiltIn = true
+            didChange = true
+        }
+        if didChange {
+            saveTemplates(migratedTemplates)
+        }
+        defaults.set(true, forKey: Self.builtInProtectionMigrationKey)
+        return migratedTemplates
+    }
+
+    private static func matchesLegacyBuiltInSeed(
+        _ template: MobileTaskTemplate
+    ) -> Bool {
+        guard template.defaultDirectory == nil else { return false }
+        switch (template.icon, template.command) {
+        case ("agent:claude", "claude -- \"$CMUX_TASK_PROMPT\""):
+            return true
+        case ("agent:codex", "codex -- \"$CMUX_TASK_PROMPT\""):
+            return true
+        case ("agent:opencode", "opencode --prompt \"$CMUX_TASK_PROMPT\""):
+            return true
+        case ("terminal", ""):
+            return true
+        default:
+            return false
+        }
     }
 
     private func saveTemplates(_ templates: [MobileTaskTemplate]) {

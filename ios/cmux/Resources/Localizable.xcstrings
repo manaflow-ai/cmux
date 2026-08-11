@@ -11741,6 +11741,23 @@
         }
       }
     },
+    "mobile.taskComposer.model.loading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading models"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデルを読み込み中"
+          }
+        }
+      }
+    },
     "mobile.taskComposer.openingShell": {
       "extractionState": "manual",
       "localizations": {

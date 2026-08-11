@@ -16,6 +16,7 @@ struct TaskComposerLayout: View {
     let selectedTemplateID: MobileTaskTemplate.ID?
     let models: [MobileTaskAgentModel]
     let selectedModelID: String?
+    let isModelLoading: Bool
     let isSubmitting: Bool
     let isSubmitEnabled: Bool
     let failureTitle: String
@@ -140,6 +141,8 @@ struct TaskComposerLayout: View {
 
                         if !models.isEmpty {
                             modelPill
+                        } else if isModelLoading {
+                            modelLoadingPill
                         }
                     }
                 }
@@ -301,6 +304,36 @@ struct TaskComposerLayout: View {
         // See agentPill: identity-swap the pill so the new title cannot be
         // clipped by the old frame mid-animation.
         .id(selectedModelName)
+    }
+
+    private var modelLoadingPill: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "cpu")
+                .font(.caption.weight(.semibold))
+                .accessibilityHidden(true)
+
+            Text(L10n.string(
+                "mobile.taskComposer.model.loading",
+                defaultValue: "Loading models"
+            ))
+                .lineLimit(1)
+
+            ProgressView()
+                .controlSize(.mini)
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: true, vertical: false)
+        .padding(.horizontal, 12)
+        .frame(minHeight: 38)
+        .background(Color.primary.opacity(0.07), in: Capsule())
+        .frame(minHeight: 44)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(L10n.string(
+            "mobile.taskComposer.model.loading",
+            defaultValue: "Loading models"
+        ))
+        .accessibilityIdentifier("MobileTaskComposerModelLoadingPill")
     }
 
     private var submitButton: some View {
