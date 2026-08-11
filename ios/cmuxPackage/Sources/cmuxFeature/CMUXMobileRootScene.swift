@@ -20,20 +20,6 @@ import CmuxMobileTerminal
 
 private let mobileRootSceneLog = Logger(subsystem: "dev.cmux.ios", category: "mobile-root-scene")
 
-#if DEBUG
-/// Test-only substitute for the external account revoke. It lets XCUITest drive
-/// the production local deletion and root-presentation lifecycle without
-/// mutating an account-owned computer binding.
-@MainActor
-private struct SuccessfulComputerForgetUITestStub: MobileIrohMacForgetting {
-    func forgetComputer(
-        macDeviceID _: String,
-        instanceTag _: String?,
-        expectedAccountID _: String
-    ) async throws {}
-}
-#endif
-
 /// Top-level mobile scene root.
 ///
 /// Renders the live cmux mobile UI: a ``CMUXMobileAppView`` backed by a fresh

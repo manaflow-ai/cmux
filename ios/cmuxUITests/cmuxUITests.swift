@@ -2542,10 +2542,25 @@ final class cmuxUITests: XCTestCase {
 
         server.stop()
         serverIsRunning = false
+        let connectionStatus = app.descendants(matching: .any)[
+            "MobileTerminalMacConnectionStatus"
+        ]
         XCTAssertTrue(
-            app.descendants(matching: .any)["MobileTerminalMacConnectionStatus"]
-                .waitForExistence(timeout: 12),
+            connectionStatus.waitForExistence(timeout: 12),
             "The mock Mac must disconnect before deletion so removing its final saved row changes root shells."
+        )
+        let disconnected = XCTNSPredicateExpectation(
+            predicate: NSPredicate(
+                format: "label CONTAINS[c] %@ OR label CONTAINS[c] %@",
+                "Reconnecting",
+                "Disconnected"
+            ),
+            object: connectionStatus
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [disconnected], timeout: 12),
+            .completed,
+            "The connection status must leave Connected before the final saved computer is forgotten."
         )
 
         let backButton = app.buttons["MobileWorkspaceBackButton"]
