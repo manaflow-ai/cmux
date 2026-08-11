@@ -43,6 +43,27 @@ thread_local! {
         const { std::cell::Cell::new(false) };
     static POST_SPAWN_FAILURE_MARKER: std::cell::RefCell<Option<std::path::PathBuf>> =
         const { std::cell::RefCell::new(None) };
+    #[cfg(target_os = "macos")]
+    static FORCE_TASK_NAME_FOR_PID_FAILURE: std::cell::Cell<bool> =
+        const { std::cell::Cell::new(false) };
+}
+
+#[cfg(all(test, target_os = "macos"))]
+struct ForcedTaskNameForPidFailure {
+    previous: bool,
+}
+
+#[cfg(all(test, target_os = "macos"))]
+impl Drop for ForcedTaskNameForPidFailure {
+    fn drop(&mut self) {
+        FORCE_TASK_NAME_FOR_PID_FAILURE.set(self.previous);
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+fn force_task_name_for_pid_failure_for_test() -> ForcedTaskNameForPidFailure {
+    let previous = FORCE_TASK_NAME_FOR_PID_FAILURE.replace(true);
+    ForcedTaskNameForPidFailure { previous }
 }
 
 #[cfg(test)]
@@ -1306,7 +1327,7 @@ fn stable_process_in_session(
 /// An OS-backed reference to one process instance that cannot retarget after PID reuse.
 pub struct StableProcessHandle {
     pid: libc::pid_t,
-    audit_token: MacAuditToken,
+    pid_version: u32,
 }
 
 #[cfg(target_os = "macos")]
@@ -1320,21 +1341,33 @@ struct MacAuditToken {
 impl StableProcessHandle {
     /// Capture the process currently using `pid`, or return `None` if it is already gone.
     pub fn capture(pid: libc::pid_t) -> io::Result<Option<Self>> {
+        let pid_version = match Self::task_pid_version(pid)? {
+            Some(pid_version) => pid_version,
+            None => {
+                let Some(pid_version) = mac_process_pid_version(pid)? else { return Ok(None) };
+                pid_version
+            }
+        };
+        Ok(Some(Self { pid, pid_version }))
+    }
+
+    fn task_pid_version(pid: libc::pid_t) -> io::Result<Option<u32>> {
         const TASK_AUDIT_TOKEN: libc::task_flavor_t = 15;
         let mut task = 0;
         // SAFETY: mach_task_self returns the calling process's send right.
         #[allow(deprecated)]
         let current_task = unsafe { libc::mach_task_self() };
         // SAFETY: `task` points to writable storage for one task-name right.
+        #[cfg(test)]
+        let name_result = if FORCE_TASK_NAME_FOR_PID_FAILURE.get() {
+            libc::KERN_FAILURE
+        } else {
+            unsafe { task_name_for_pid(current_task, pid, &mut task) }
+        };
+        #[cfg(not(test))]
         let name_result = unsafe { task_name_for_pid(current_task, pid, &mut task) };
         if name_result != libc::KERN_SUCCESS {
-            return if process_is_gone(pid)? {
-                Ok(None)
-            } else {
-                Err(io::Error::other(format!(
-                    "cannot acquire stable process identity for PID {pid}: Mach error {name_result}"
-                )))
-            };
+            return Ok(None);
         }
 
         let mut audit_token = MacAuditToken { values: [0; 8] };
@@ -1353,13 +1386,7 @@ impl StableProcessHandle {
         // SAFETY: `task` is the send right returned by task_name_for_pid.
         let _ = unsafe { mach_port_deallocate(current_task, task) };
         if info_result != libc::KERN_SUCCESS {
-            return if process_is_gone(pid)? {
-                Ok(None)
-            } else {
-                Err(io::Error::other(format!(
-                    "cannot read stable process identity for PID {pid}: Mach error {info_result}"
-                )))
-            };
+            return Ok(None);
         }
         let expected_pid = u32::try_from(pid)
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid process id"))?;
@@ -1369,7 +1396,7 @@ impl StableProcessHandle {
                 "stable process identity returned a mismatched PID",
             ));
         }
-        Ok(Some(Self { pid, audit_token }))
+        Ok(Some(audit_token.values[7]))
     }
 
     /// Return whether this exact process instance is still alive.
@@ -1380,10 +1407,14 @@ impl StableProcessHandle {
     /// Signal this exact process instance, returning false if it is already gone.
     pub fn signal(&self, signal: libc::c_int) -> io::Result<bool> {
         let signal_process = resolve_proc_signal_with_audittoken()?;
-        let mut token = self.audit_token;
+        let expected_pid = u32::try_from(self.pid)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid process id"))?;
+        let mut token = MacAuditToken { values: [u32::MAX; 8] };
+        token.values[5] = expected_pid;
+        token.values[7] = self.pid_version;
         loop {
-            // SAFETY: the audit token came from TASK_AUDIT_TOKEN for this
-            // process instance; libproc validates its PID generation.
+            // SAFETY: the PID and PID version came from kernel process
+            // metadata; libproc validates them together before signaling.
             let result = unsafe { signal_process(&mut token, signal) };
             if result == 0 {
                 #[cfg(test)]
@@ -1399,6 +1430,22 @@ impl StableProcessHandle {
                 return Err(io::Error::from_raw_os_error(result));
             }
         }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn mac_process_pid_version(pid: libc::pid_t) -> io::Result<Option<u32>> {
+    let expected_pid = u32::try_from(pid)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid process id"))?;
+    if let Some(pid_version) = crate::unix_process_scope::mac_process_pid_version(expected_pid) {
+        return Ok(Some(pid_version));
+    }
+    if process_is_gone(pid)? {
+        Ok(None)
+    } else {
+        Err(io::Error::other(format!(
+            "cannot acquire stable process identity for PID {pid}: kernel PID version is unavailable"
+        )))
     }
 }
 
@@ -2171,6 +2218,18 @@ mod tests {
             io::Error::last_os_error()
         );
         true
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_process_identity_survives_unavailable_task_name_access() {
+        let _failure = force_task_name_for_pid_failure_for_test();
+        let pid = libc::pid_t::try_from(std::process::id()).unwrap();
+
+        let process = StableProcessHandle::capture(pid).unwrap().unwrap();
+
+        assert!(process.matches_current().unwrap());
+        assert!(process.signal(0).unwrap());
     }
 
     #[cfg(target_os = "macos")]
