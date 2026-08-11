@@ -5261,6 +5261,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(rootStop.lowerBound < descendantDiscovery.lowerBound)
         #expect(fallback.contains("cmux_ssh_auth_stopped_identity"))
         #expect(fallback.contains("kill -CONT"))
+        #expect(fallback.contains("printf '%s\\n%s|%s|%s'"))
     }
 
     @Test func cleanupClaimsOwnershipBeforeCancellationAndFreezeTransaction() throws {
