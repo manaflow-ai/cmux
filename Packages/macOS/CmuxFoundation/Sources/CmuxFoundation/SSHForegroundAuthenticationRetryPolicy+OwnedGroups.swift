@@ -422,69 +422,76 @@ extension SSHForegroundAuthenticationRetryPolicy {
               "$cmux_ssh_auth_state" \
               >> "$cmux_ssh_auth_signaled_processes" || return 1
             kill -STOP "$cmux_ssh_auth_pid" >/dev/null 2>&1 || true
-            # Confirm each child before STOP reaches its parent. zsh can have a
-            # child in vfork while the parent must run for the child to finish
-            # exec; stopping both without this handoff can leave the child
-            # runnable until the shared deadline expires.
-            while :; do
-              cmux_ssh_auth_take_process_snapshot \
-                "$cmux_ssh_auth_poststop_snapshot" || return 1
-              if /usr/bin/awk \
-                -v cmux_pid="$cmux_ssh_auth_pid" \
-                -v cmux_group="$cmux_ssh_auth_group" \
-                -v cmux_started="$cmux_ssh_auth_started" '
-                NF >= 5 {
-                  cmux_observed_started = $5
-                  if (NF >= 9) {
-                    cmux_observed_started = $5 "_" $6 "_" $7 "_" $8 "_" $9
-                  }
-                  if ($1 == cmux_pid && $3 == cmux_group &&
-                      cmux_observed_started == cmux_started && $4 !~ /Z/) {
-                    cmux_live = 1
-                    if ($4 ~ /T/) cmux_stopped = 1
-                  }
-                }
-                END { exit(cmux_live && !cmux_stopped ? 1 : 0) }
-              ' "$cmux_ssh_auth_poststop_snapshot"; then
-                break
-              fi
-              cmux_ssh_auth_deadline_allows_work || return 1
-              /bin/sleep 0.01
-            done
           done < "$cmux_ssh_auth_ordered_processes"
 
-          cmux_ssh_auth_take_process_snapshot \
-            "$cmux_ssh_auth_poststop_snapshot" || return 1
-          # Keep resume records only for exact identities that remain stopped.
-          # A signaled identity absent from the verified snapshot exited and is
-          # already safe; any matching live identity must still be stopped.
-          /usr/bin/awk '
-            FILENAME == ARGV[1] && NF >= 6 {
-              cmux_original[$2 SUBSEP $4 SUBSEP $5] = $6
-              next
-            }
-            FILENAME == ARGV[2] && NF >= 5 {
-              cmux_started = $5
-              if (NF >= 9) cmux_started = $5 "_" $6 "_" $7 "_" $8 "_" $9
-              cmux_key = $1 SUBSEP $3 SUBSEP cmux_started
-              if ($4 !~ /Z/) cmux_live[cmux_key] = 1
-              if ($4 ~ /T/ && $4 !~ /Z/) cmux_stopped[cmux_key] = 1
-              next
-            }
-            FILENAME == ARGV[3] && NF >= 4 {
-              cmux_key = $1 SUBSEP $3 SUBSEP $4
-              if (cmux_key in cmux_live && !(cmux_key in cmux_stopped)) {
-                cmux_unconfirmed = 1
+          # STOP can remain pending on a zsh vfork child until its parent has
+          # stopped. Confirm the whole batch. If an exact child is still live
+          # after its exact parent is stopped, CONT cancels the stale pending
+          # STOP and the following STOP arms a fresh delivery.
+          while :; do
+            cmux_ssh_auth_take_process_snapshot \
+              "$cmux_ssh_auth_poststop_snapshot" || return 1
+            : > "$cmux_ssh_auth_next_owned_processes" || return 1
+            if /usr/bin/awk \
+              -v cmux_unconfirmed_path="$cmux_ssh_auth_next_owned_processes" '
+              FILENAME == ARGV[1] && NF >= 6 {
+                cmux_key = $2 SUBSEP $4 SUBSEP $5
+                cmux_original[cmux_key] = $6
+                cmux_original_key_for_pid[$2] = cmux_key
+                next
               }
-              if (cmux_key in cmux_stopped && cmux_key in cmux_original) {
-                print $1, $2, $3, $4, cmux_original[cmux_key]
+              FILENAME == ARGV[2] && NF >= 5 {
+                cmux_started = $5
+                if (NF >= 9) cmux_started = $5 "_" $6 "_" $7 "_" $8 "_" $9
+                cmux_key = $1 SUBSEP $3 SUBSEP cmux_started
+                if ($4 !~ /Z/) {
+                  cmux_live[cmux_key] = 1
+                  cmux_current_key_for_pid[$1] = cmux_key
+                }
+                if ($4 ~ /T/ && $4 !~ /Z/) cmux_stopped[cmux_key] = 1
+                next
               }
-            }
-            END { exit(cmux_unconfirmed ? 1 : 0) }
-          ' "$cmux_ssh_auth_ordered_processes" \
-            "$cmux_ssh_auth_poststop_snapshot" \
-            "$cmux_ssh_auth_signaled_processes" \
-            > "$cmux_ssh_auth_frozen_processes" || return 1
+              FILENAME == ARGV[3] && NF >= 4 {
+                cmux_key = $1 SUBSEP $3 SUBSEP $4
+                if (cmux_key in cmux_live && !(cmux_key in cmux_stopped)) {
+                  cmux_parent_key = cmux_original_key_for_pid[$2]
+                  cmux_rearm = (cmux_parent_key != "" &&
+                    cmux_current_key_for_pid[$2] == cmux_parent_key &&
+                    cmux_parent_key in cmux_stopped) ? 1 : 0
+                  print $1, $2, $3, $4, $5, cmux_rearm \
+                    > cmux_unconfirmed_path
+                  cmux_unconfirmed = 1
+                }
+                if (cmux_key in cmux_stopped && cmux_key in cmux_original) {
+                  print $1, $2, $3, $4, cmux_original[cmux_key]
+                }
+              }
+              END { exit(cmux_unconfirmed ? 1 : 0) }
+            ' "$cmux_ssh_auth_ordered_processes" \
+              "$cmux_ssh_auth_poststop_snapshot" \
+              "$cmux_ssh_auth_signaled_processes" \
+              > "$cmux_ssh_auth_frozen_processes"; then
+              break
+            fi
+            cmux_ssh_auth_deadline_allows_work || return 1
+            while read -r cmux_ssh_auth_pid cmux_ssh_auth_parent \
+              cmux_ssh_auth_group cmux_ssh_auth_started \
+              cmux_ssh_auth_state cmux_ssh_auth_rearm; do
+              if [ "$cmux_ssh_auth_rearm" != 1 ]; then continue; fi
+              cmux_ssh_auth_expected_identity="$cmux_ssh_auth_group|$cmux_ssh_auth_started"
+              if cmux_ssh_auth_current_identity=$(cmux_ssh_auth_stable_identity \
+                "$cmux_ssh_auth_pid" "$cmux_ssh_auth_deadline_millis"); then
+                :
+              else
+                case "$?" in 124) return 1 ;; *) continue ;; esac
+              fi
+              if [ "$cmux_ssh_auth_current_identity" != \
+                "$cmux_ssh_auth_expected_identity" ]; then continue; fi
+              kill -CONT "$cmux_ssh_auth_pid" >/dev/null 2>&1 || true
+              kill -STOP "$cmux_ssh_auth_pid" >/dev/null 2>&1 || true
+            done < "$cmux_ssh_auth_next_owned_processes"
+            /bin/sleep 0.01
+          done
           cmux_ssh_auth_expand_owned_processes "$cmux_ssh_auth_poststop_snapshot" || return 1
           # A process can fork between the initial snapshot and its own STOP.
           # Roll back unless every post-STOP identity was in the exact initial set.
