@@ -546,4 +546,19 @@ describe("dashboard account menu", () => {
       "/dashboard/coderouter?team=team-3",
     );
   });
+
+  test("does not replace navigation that happened after a switch started", () => {
+    expect(
+      __test.shouldNavigateAfterSwitch(
+        "/dashboard/coderouter?team=team-1",
+        "/dashboard/billing?",
+      ),
+    ).toBe(false);
+    expect(
+      __test.shouldNavigateAfterSwitch(
+        "/dashboard/coderouter?team=team-1",
+        "/dashboard/coderouter?team=team-1",
+      ),
+    ).toBe(true);
+  });
 });

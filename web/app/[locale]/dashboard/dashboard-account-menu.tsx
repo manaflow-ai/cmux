@@ -8,7 +8,7 @@ import {
 } from "@stackframe/stack";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocale, useTranslations } from "next-intl";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
 import { Link, useRouter } from "@/i18n/navigation";
@@ -126,6 +126,7 @@ function DashboardOrganizationSwitcher() {
   const teams = user.useTeams();
   const router = useRouter();
   const queryClient = useQueryClient();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const t = useTranslations("dashboard.accountMenu");
   const [switchError, setSwitchError] = useState(false);
@@ -133,13 +134,19 @@ function DashboardOrganizationSwitcher() {
   type SwitchRequest = {
     readonly team: (typeof teams)[number] | null;
     readonly organizationId: string;
+    readonly originLocation: string;
   };
   const activeSwitchRef = useRef<Promise<void> | null>(null);
   const activeSwitchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
   const queuedSwitchRef = useRef<SwitchRequest | null>(null);
+  const currentLocation = `${pathname}?${searchParams.toString()}`;
+  const currentLocationRef = useRef(currentLocation);
   const mountedRef = useRef(true);
+  useEffect(() => {
+    currentLocationRef.current = currentLocation;
+  }, [currentLocation]);
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -211,7 +218,11 @@ function DashboardOrganizationSwitcher() {
   ) => {
     const organizationId = team?.id ?? personal?.id;
     if (!organizationId) return;
-    const request = { team, organizationId };
+    const request = {
+      team,
+      organizationId,
+      originLocation: currentLocationRef.current,
+    };
     if (activeSwitchRef.current) {
       queuedSwitchRef.current = request;
       return;
@@ -235,6 +246,12 @@ function DashboardOrganizationSwitcher() {
   }
   function applySuccessfulSwitch(request: SwitchRequest) {
     const organizationId = recordSuccessfulSwitch(request);
+    if (
+      !shouldNavigateAfterSwitch(
+        request.originLocation,
+        currentLocationRef.current,
+      )
+    ) return;
     router.push(
       `/dashboard/coderouter?team=${
         encodeURIComponent(organizationId)
@@ -267,10 +284,7 @@ function DashboardOrganizationSwitcher() {
       activeSwitchRef.current = null;
       if (timedOut) {
         queuedSwitchRef.current = null;
-        void queryClient.invalidateQueries({
-          queryKey: organizationQueryKey,
-          exact: true,
-        });
+        applySuccessfulSwitch(request);
         setSwitchPending(false);
         return;
       }
@@ -417,7 +431,14 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-export const __test = { parseOrganizationCatalog };
+function shouldNavigateAfterSwitch(
+  originLocation: string,
+  currentLocation: string,
+): boolean {
+  return originLocation === currentLocation;
+}
+
+export const __test = { parseOrganizationCatalog, shouldNavigateAfterSwitch };
 
 function ChevronsUpDown() {
   return (
