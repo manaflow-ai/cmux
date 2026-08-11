@@ -30,6 +30,19 @@ import Testing
         #expect(!policy.allows(instanceTag: nil))
     }
 
+    @MainActor
+    @Test func authenticatedOfficialHostAcceptsLegacyMacWithoutInstanceTag() {
+        let officialShell = MobileShellComposite(
+            buildCompatibilityPolicy: .official
+        )
+        let developmentShell = MobileShellComposite(
+            buildCompatibilityPolicy: .development(expectedInstanceTag: "icap")
+        )
+
+        #expect(officialShell.macBuildIsCompatible(instanceTag: nil))
+        #expect(!developmentShell.macBuildIsCompatible(instanceTag: nil))
+    }
+
     @Test func scopedStoreHidesAndRejectsIncompatibleRows() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
