@@ -586,6 +586,47 @@ import Testing
         #expect(routes.isEmpty)
     }
 
+    @Test func usableTailscaleAuthorizationRequiresACurrentExactRouteMatch() throws {
+        let current = try tailscale()
+        let stale = try tailscale(50_907)
+        let base = MobilePairedMac(
+            macDeviceID: "test-mac",
+            displayName: "Test Mac",
+            routes: [current],
+            createdAt: .distantPast,
+            lastSeenAt: .now,
+            isActive: true,
+            stackUserID: "user-1"
+        )
+
+        let authorized = MobilePairedMac(
+            macDeviceID: base.macDeviceID,
+            displayName: base.displayName,
+            routes: base.routes,
+            createdAt: base.createdAt,
+            lastSeenAt: base.lastSeenAt,
+            isActive: base.isActive,
+            stackUserID: base.stackUserID,
+            legacyTailscaleRoutes: [current]
+        )
+        let staleAuthorization = MobilePairedMac(
+            macDeviceID: base.macDeviceID,
+            displayName: base.displayName,
+            routes: base.routes,
+            createdAt: base.createdAt,
+            lastSeenAt: base.lastSeenAt,
+            isActive: base.isActive,
+            stackUserID: base.stackUserID,
+            legacyTailscaleRoutes: [stale]
+        )
+
+        #expect(MobileShellComposite.hasUsableTailscaleAuthorization(in: [authorized]))
+        #expect(!MobileShellComposite.hasUsableTailscaleAuthorization(in: [base]))
+        #expect(!MobileShellComposite.hasUsableTailscaleAuthorization(
+            in: [staleAuthorization]
+        ))
+    }
+
     @Test func changingToUnavailableTailscaleDropsLiveIrohWithoutFallback() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()

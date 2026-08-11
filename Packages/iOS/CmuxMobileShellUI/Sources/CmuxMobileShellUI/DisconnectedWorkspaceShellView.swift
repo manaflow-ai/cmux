@@ -41,6 +41,13 @@ struct DisconnectedWorkspaceShellView: View {
     var body: some View {
         NavigationStack {
             content
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    if store?.tailscalePairingRequired == true {
+                        MobileTailscalePairingRequiredBanner(
+                            scanPairingCode: showPairingScanner
+                        )
+                    }
+                }
                 .navigationTitle(L10n.string("mobile.workspaces.title", defaultValue: "Workspaces"))
                 .mobileInlineNavigationTitle()
                 .toolbar {
@@ -220,6 +227,10 @@ struct DisconnectedWorkspaceShellView: View {
     /// in that case the newer attempt is still in flight or has already
     /// connected, and alerting "couldn't connect" would be wrong — skip it.
     private func connect(to computer: MacComputerSnapshot) {
+        if store?.tailscalePairingRequired == true {
+            showPairingScanner()
+            return
+        }
         guard connectingMacID == nil, let store else { return }
         connectingMacID = computer.id
         Task {

@@ -186,8 +186,9 @@ extension MobilePairingScannerSheet {
         L10n.string(
             "mobile.pairing.scannerInstruction",
             defaultValue: """
-            On your Mac, open Tailscale Pairing in cmux to show the QR. \
-            Install Tailscale on both devices and connect them to the same Tailscale network first.
+            On cmux 0.64.17, choose Connect iPhone/iPad and scan the Pair iPhone code. On newer \
+            versions, open Tailscale Pairing. Install Tailscale on both devices and use the same \
+            Tailscale network first.
             """
         )
     }

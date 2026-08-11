@@ -101,7 +101,8 @@ struct PairingView: View {
                         "mobile.addDevice.help",
                         defaultValue: """
                         Install Tailscale on both devices and connect them to the same Tailscale network. \
-                        On your Mac, open Tailscale Pairing in cmux to show the QR, then scan it here. \
+                        On cmux 0.64.17, choose Connect iPhone/iPad and scan the Pair iPhone code. \
+                        On newer versions, open Tailscale Pairing and scan its code here. \
                         Manual host and port entry is an advanced fallback for reconnecting an already paired Mac.
                         """
                     ))

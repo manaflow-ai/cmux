@@ -110,6 +110,40 @@ extension MobileShellComposite {
         return nil
     }
 
+    /// Whether any paired Mac retains a current route matching an exact local
+    /// Tailscale grant. A grant for an old endpoint is not usable after the Mac
+    /// changes address, so both route sets must still agree.
+    static func hasUsableTailscaleAuthorization(in macs: [MobilePairedMac]) -> Bool {
+        macs.contains { mac in
+            mac.routes.contains { route in
+                legacyTailscaleAuthorizationEvidence(
+                    for: route,
+                    macDeviceID: mac.macDeviceID,
+                    persistedRoutes: mac.legacyTailscaleRoutes ?? []
+                ) != nil
+            }
+        }
+    }
+
+    /// Whether Tailscale Only can dial an endpoint the user authorized locally.
+    public var hasUsableTailscaleAuthorization: Bool {
+        if connectionState == .connected,
+           remoteClient?.usesLocallyAuthorizedTailscaleRoute == true {
+            return true
+        }
+        let storedMacs = storedPairedMacsIncludingHidden.isEmpty
+            ? pairedMacs
+            : storedPairedMacsIncludingHidden
+        return Self.hasUsableTailscaleAuthorization(in: storedMacs)
+    }
+
+    /// Whether the selected Tailscale method still needs its one-time pairing grant.
+    public var tailscalePairingRequired: Bool {
+        connectionMethodStore?.method == .tailscale
+            && pairedMacLoadState != .notLoaded
+            && !hasUsableTailscaleAuthorization
+    }
+
     /// The strict Tailscale policy for one paired Mac: only exact grant routes
     /// remain dialable while the user has selected Tailscale.
     struct TailscaleRouteRequirement {

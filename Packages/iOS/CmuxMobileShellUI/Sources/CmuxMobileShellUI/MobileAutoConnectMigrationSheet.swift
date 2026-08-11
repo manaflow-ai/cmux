@@ -3,10 +3,11 @@ import SwiftUI
 
 /// Explains the BETA-to-Auto-Connect migration and exposes its two outcomes.
 struct MobileAutoConnectMigrationSheet: View {
-    let continueWithAutoConnect: () -> Void
-    let openConnectionSettings: () -> Void
+    let useAutoConnect: () -> Void
+    let setUpTailscale: () -> Void
     let showsLayoutProbe: Bool
     @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         ViewThatFits(in: .vertical) {
@@ -25,7 +26,9 @@ struct MobileAutoConnectMigrationSheet: View {
             }
         }
         #endif
-        .presentationSizing(.fitted)
+        .modifier(MobileAutoConnectMigrationPresentationSizing(
+            usesPageSizing: dynamicTypeSize.isAccessibilitySize
+        ))
         .presentationContentInteraction(.scrolls)
         .presentationDragIndicator(.visible)
     }
@@ -33,10 +36,23 @@ struct MobileAutoConnectMigrationSheet: View {
     private var content: some View {
         MobileAutoConnectMigrationContent(
             layout: verticalSizeClass == .compact ? .compact : .regular,
-            continueWithAutoConnect: continueWithAutoConnect,
-            openConnectionSettings: openConnectionSettings
+            useAutoConnect: useAutoConnect,
+            setUpTailscale: setUpTailscale
         )
         .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+private struct MobileAutoConnectMigrationPresentationSizing: ViewModifier {
+    let usesPageSizing: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if usesPageSizing {
+            content.presentationSizing(.page)
+        } else {
+            content.presentationSizing(.fitted)
+        }
     }
 }
 
@@ -54,15 +70,15 @@ private struct MobileAutoConnectMigrationViewportProbe: View {
 
 private struct MobileAutoConnectMigrationContent: View {
     let layout: MobileAutoConnectMigrationLayout
-    let continueWithAutoConnect: () -> Void
-    let openConnectionSettings: () -> Void
+    let useAutoConnect: () -> Void
+    let setUpTailscale: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: layout.contentSpacing) {
             MobileAutoConnectMigrationExplanation(layout: layout)
             MobileAutoConnectMigrationActions(
-                continueWithAutoConnect: continueWithAutoConnect,
-                openConnectionSettings: openConnectionSettings
+                useAutoConnect: useAutoConnect,
+                setUpTailscale: setUpTailscale
             )
         }
         .frame(maxWidth: 560, alignment: .leading)

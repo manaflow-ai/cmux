@@ -292,7 +292,7 @@ final class cmuxUITests: XCTestCase {
         tap(tailscaleMethod, in: app)
         XCTAssertTrue(app.staticTexts["Connect over Tailscale"].waitForExistence(timeout: 4))
         XCTAssertTrue(app.staticTexts[
-            "Connect only over Tailscale. Install it on both devices, join the same network, then scan the pairing code shown by cmux on your Mac."
+            "Works with cmux 0.64.17 or later. Install Tailscale on both devices and join the same network. On 0.64.17, choose Connect iPhone/iPad and scan the Pair iPhone code once."
         ].waitForExistence(timeout: 4))
         // The choice is exclusive: selecting one method must deselect the other.
         XCTAssertTrue(tailscaleMethod.isSelected)
@@ -330,7 +330,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(scannerGuidance.waitForExistence(timeout: 4))
         XCTAssertEqual(
             scannerGuidance.label,
-            "On your Mac, open Tailscale Pairing in cmux to show the QR. Install Tailscale on both devices and connect them to the same Tailscale network first."
+            "On cmux 0.64.17, choose Connect iPhone/iPad and scan the Pair iPhone code. On newer versions, open Tailscale Pairing. Install Tailscale on both devices and use the same Tailscale network first."
         )
         XCTAssertTrue(scannerCancel.waitForExistence(timeout: 4))
         capture("onboarding-05-scanner-fallback")
@@ -524,6 +524,17 @@ final class cmuxUITests: XCTestCase {
         ]
         XCTAssertTrue(retainedAutomatic.waitForExistence(timeout: 4))
         XCTAssertTrue(retainedAutomatic.isSelected)
+
+        let settingsTailscale = secondRelaunch.descendants(matching: .any)[
+            "MobileSettingsConnectionMethodTailscale"
+        ]
+        XCTAssertTrue(settingsTailscale.waitForExistence(timeout: 4))
+        settingsTailscale.tap()
+        XCTAssertTrue(
+            secondRelaunch.descendants(matching: .any)["MobilePairingScannerPreview"]
+                .waitForExistence(timeout: 4),
+            "Selecting Tailscale without a local grant must start its scanner."
+        )
     }
 
     /// Continuing acknowledges the notice without changing the default method,

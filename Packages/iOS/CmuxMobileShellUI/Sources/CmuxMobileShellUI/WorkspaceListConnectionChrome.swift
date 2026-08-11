@@ -21,6 +21,7 @@ enum WorkspaceConnectionStatusLine: Equatable {
 enum WorkspaceListConnectionChrome: Equatable {
     case none
     case recoveryBanner
+    case tailscalePairingRequired
     case macStatusRow
     case statusLine(WorkspaceConnectionStatusLine)
 
@@ -30,11 +31,14 @@ enum WorkspaceListConnectionChrome: Equatable {
         connectionRecoveryFailed: Bool,
         isRecoveringConnection: Bool,
         connectionStatus: MobileMacConnectionStatus,
+        tailscalePairingRequired: Bool = false,
         isInitialConnectionLoading: Bool = false,
         initialConnectionTimedOut: Bool = false
     ) {
         if hasStore && connectionRequiresReauth {
             self = .recoveryBanner
+        } else if hasStore && tailscalePairingRequired {
+            self = .tailscalePairingRequired
         } else if isInitialConnectionLoading || initialConnectionTimedOut {
             self = .macStatusRow
         } else if connectionStatus == .reconnecting || (hasStore && isRecoveringConnection) {

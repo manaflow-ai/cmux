@@ -668,6 +668,7 @@ import Testing
             ticket: ticket,
             allowsStackAuthFallback: true
         )
+        #expect(!client.usesLocallyAuthorizedTailscaleRoute)
         let request = try MobileCoreRPCClient.requestData(method: "workspace.list")
 
         let task = Task { try await client.sendRequest(request) }
@@ -720,6 +721,7 @@ import Testing
             ticket: ticket,
             legacyTailscaleAuthorizationEvidence: evidence
         )
+        #expect(client.usesLocallyAuthorizedTailscaleRoute)
         let request = try MobileCoreRPCClient.requestData(method: "workspace.list")
 
         let task = Task { try await client.sendRequest(request) }

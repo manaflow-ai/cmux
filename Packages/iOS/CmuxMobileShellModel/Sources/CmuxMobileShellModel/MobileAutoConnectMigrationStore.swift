@@ -43,7 +43,6 @@ public final class MobileAutoConnectMigrationStore {
 
         let isEligible = defaults.string(forKey: MobileOnboardingStore.progressKey)
             == MobileOnboardingProgress.complete.rawValue
-            && defaults.object(forKey: MobileConnectionMethodStore.methodKey) == nil
         let snapshot: MobileAutoConnectMigrationResolution = isEligible ? .pending : .ineligible
         self.resolution = snapshot
         defaults.set(snapshot.rawValue, forKey: Self.resolutionKey)
