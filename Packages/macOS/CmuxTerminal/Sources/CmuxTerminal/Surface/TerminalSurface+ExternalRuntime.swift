@@ -30,7 +30,11 @@ extension TerminalSurface {
         guard event.key != 0 else { return .rejected(.unsupported) }
         didReceiveExplicitInput()
         hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
-        return externalRuntime.enqueue(.input(.key(event)))
+        let result = externalRuntime.enqueue(.input(.key(event)))
+        if result.accepted, event.action != .release {
+            didAcceptExplicitInput()
+        }
+        return result
     }
 
     /// Updates visual IME marked text without committing bytes to the PTY.
@@ -145,7 +149,11 @@ extension TerminalSurface {
     func enqueueExternalInput(_ input: TerminalExternalInput) -> TerminalExternalIngressResult? {
         guard let externalRuntime else { return nil }
         hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
-        return externalRuntime.enqueue(.input(input))
+        let result = externalRuntime.enqueue(.input(input))
+        if result.accepted {
+            didAcceptExplicitInput()
+        }
+        return result
     }
 
     func inputSendResult(from result: TerminalExternalIngressResult) -> InputSendResult {

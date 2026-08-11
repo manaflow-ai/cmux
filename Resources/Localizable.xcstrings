@@ -112048,6 +112048,23 @@
         }
       }
     },
+    "dock.error.focusUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock could not be revealed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dockを表示できませんでした"
+          }
+        }
+      }
+    },
     "dock.error.unavailable": {
       "extractionState": "manual",
       "localizations": {

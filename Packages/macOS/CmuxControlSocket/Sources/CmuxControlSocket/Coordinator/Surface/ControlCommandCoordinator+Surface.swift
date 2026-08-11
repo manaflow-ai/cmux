@@ -307,6 +307,12 @@ extension ControlCommandCoordinator {
                 message: "Surface not found",
                 data: .object(["surface_id": .string(id.uuidString)])
             )
+        case .dockUnavailable(let message):
+            return .err(
+                code: "unavailable",
+                message: message,
+                data: .object(["surface_id": .string(surfaceID.uuidString)])
+            )
         case .focused(let windowID, let workspaceID, let focusedSurfaceID):
             return .ok(.object([
                 "workspace_id": .string(workspaceID.uuidString),

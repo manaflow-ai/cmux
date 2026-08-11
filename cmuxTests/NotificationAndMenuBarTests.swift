@@ -647,10 +647,34 @@ final class NotificationDockBadgeTests: XCTestCase {
 
     override func tearDown() {
         TerminalNotificationStore.shared.resetNotificationSettingsPromptHooksForTesting()
+        TerminalNotificationStore.shared.setBackendActivityUnreadWorkspaceIDs([])
         TerminalNotificationStore.shared.replaceNotificationsForTesting([])
         TerminalNotificationStore.shared.resetNotificationDeliveryHandlerForTesting()
         TerminalNotificationStore.shared.resetSuppressedNotificationFeedbackHandlerForTesting()
         super.tearDown()
+    }
+
+    func testBackendActivityRefreshesCanonicalUnreadProjection() {
+        let store = TerminalNotificationStore.shared
+        let workspaceID = UUID()
+        store.replaceNotificationsForTesting([])
+        store.setBackendActivityUnreadWorkspaceIDs([])
+
+        store.setBackendActivityUnreadWorkspaceIDs([workspaceID])
+
+        XCTAssertEqual(store.unreadCount, 1)
+        XCTAssertEqual(store.unreadCount(forTabId: workspaceID), 1)
+        XCTAssertEqual(store.sidebarUnread.totalUnreadCount, 1)
+        XCTAssertEqual(
+            store.sidebarUnread.summaryByWorkspaceId[workspaceID]?.unreadCount,
+            1
+        )
+
+        store.setBackendActivityUnreadWorkspaceIDs([])
+
+        XCTAssertEqual(store.unreadCount, 0)
+        XCTAssertEqual(store.sidebarUnread.totalUnreadCount, 0)
+        XCTAssertNil(store.sidebarUnread.summaryByWorkspaceId[workspaceID])
     }
 
     func testNotificationClickActionRoundTripsAndIsStored() {

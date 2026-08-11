@@ -2497,9 +2497,11 @@ final class Workspace: Identifiable, ObservableObject {
     var panelCustomTitleSources: [UUID: CustomTitleSource] = [:]
     @Published var pinnedPanelIds: Set<UUID> = []
     var pinMutationTokensByPanelId: [UUID: UUID] = [:]
-    @Published var manualUnreadPanelIds: Set<UUID> = [] {
-        didSet {
-            guard manualUnreadPanelIds != oldValue else { return }
+    let panelUnread = WorkspacePanelUnreadModel()
+    var manualUnreadPanelIds: Set<UUID> {
+        get { panelUnread.panelIds }
+        set {
+            guard panelUnread.replace(with: newValue) else { return }
             syncPanelDerivedWorkspaceUnread()
         }
     }
@@ -4021,6 +4023,7 @@ final class Workspace: Identifiable, ObservableObject {
             }
             self.lastTerminalConfigInheritanceFontSizeLineage = lineage
         }
+        installTerminalVisualBellRouting(for: terminalPanel)
         terminalPanel.onRequestWorkspacePaneFlash = { [weak self, weak terminalPanel] reason in
             guard let self, let terminalPanel else { return }
             let panelID = self.surfaceOwnershipTarget(for: terminalPanel.id)?.containerPanelID
@@ -4891,7 +4894,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     func markPanelUnread(_ panelId: UUID) {
         guard panels[panelId] != nil else { return }
-        let didClearRestored = restoredUnreadPanelIndicators.removeValue(forKey: panelId) != nil
+        let didClearRestored = clearRestoredUnreadIndicatorState(panelId: panelId)
         let didInsertManual = manualUnreadPanelIds.insert(panelId).inserted
         guard didInsertManual || didClearRestored else { return }
         manualUnreadMarkedAt[panelId] = Date()
@@ -5001,7 +5004,9 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func clearRestoredUnreadIndicatorState(panelId: UUID) -> Bool {
-        restoredUnreadPanelIndicators.removeValue(forKey: panelId) != nil
+        guard restoredUnreadPanelIndicators[panelId] != nil else { return false }
+        restoredUnreadPanelIndicators.removeValue(forKey: panelId)
+        return true
     }
 
     static func shouldShowUnreadIndicator(

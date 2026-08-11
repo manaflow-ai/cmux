@@ -123,6 +123,32 @@ struct TerminalSurfaceExternalRuntimeTests {
         #expect(fixture.surface.surface == nil)
     }
 
+    @Test func externalInputNotifiesItsOwnerOnlyAfterAcceptance() {
+        let fixture = makeFixture()
+        defer { fixture.surface.detachExternalPresentationPreservingCanonicalTerminal() }
+        var acceptedInputCount = 0
+        fixture.surface.onExplicitInput = { acceptedInputCount += 1 }
+
+        #expect(fixture.surface.sendText("accepted"))
+        #expect(acceptedInputCount == 1)
+
+        fixture.runtime.rejectNext(.queueFull)
+        #expect(!fixture.surface.sendText("rejected"))
+        #expect(acceptedInputCount == 1)
+
+        #expect(fixture.surface.sendExternalKeyEvent(TerminalExternalKeyEvent(
+            key: 42,
+            action: .press
+        )).accepted)
+        #expect(acceptedInputCount == 2)
+
+        #expect(fixture.surface.sendExternalKeyEvent(TerminalExternalKeyEvent(
+            key: 42,
+            action: .release
+        )).accepted)
+        #expect(acceptedInputCount == 2)
+    }
+
     @Test func saturatedStrictIngressCannotDropDesiredVisibility() {
         let fixture = makeFixture()
         defer { fixture.surface.detachExternalPresentationPreservingCanonicalTerminal() }
