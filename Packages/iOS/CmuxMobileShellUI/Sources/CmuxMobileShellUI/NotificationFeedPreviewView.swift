@@ -16,6 +16,10 @@ public struct NotificationFeedPreviewView: View {
     @State private var items: [MobileNotificationFeedItem]
     @State private var projection = NotificationFeedProjection()
     @State private var notificationRoute: NotificationWorkspaceRoute?
+    // Mirrors the shell: the search tab pushes onto its own path-based stack
+    // and re-presents the search after the pop completes.
+    @State private var searchNotificationPath: [MobileWorkspacePreview.ID] = []
+    @State private var restoreSearchOnPop = false
     @State private var pendingSearchNotificationNavigationID: MobileWorkspacePreview.ID?
     @State private var macSelection: WorkspaceMacSelection = .all
 
@@ -59,7 +63,7 @@ public struct NotificationFeedPreviewView: View {
             } workspaceSearch: {
                 NotificationFeedPreviewWorkspacesView()
             } notificationSearch: {
-                NavigationStack {
+                NavigationStack(path: $searchNotificationPath) {
                     NotificationFeedView(
                         status: .ready,
                         projection: projection,
@@ -73,19 +77,23 @@ public struct NotificationFeedPreviewView: View {
                         scope: .notifications,
                         submit: { selectedTab = primarySearchCoordinator.commitSubmit() }
                     ))
-                    .navigationDestination(isPresented: notificationRouteIsPresented) {
+                    .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                         NotificationFeedPreviewWorkspaceDestination(
-                            workspaceName: notificationRoute.map { workspaceName(for: $0.id) }
-                                ?? L10n.string(
-                                    "mobile.notificationFeed.workspaceFallback",
-                                    defaultValue: "Workspace"
-                                )
+                            workspaceName: workspaceName(for: workspaceID)
                         )
+                        // Mirrors the shell: re-present the search once the
+                        // pop has completed and the bar is back.
+                        .onDisappear {
+                            guard restoreSearchOnPop else { return }
+                            restoreSearchOnPop = false
+                            guard selectedTab == .search,
+                                  searchNotificationPath.isEmpty else { return }
+                            primarySearchCoordinator.setPresentation(true)
+                        }
                     }
-                    // Route-state-driven so the bar (and the search field's
-                    // bottom anchor) return as the pop commits.
+                    // Path-state-driven hide, mirroring the shell.
                     .toolbarVisibility(
-                        notificationRoute == nil ? .automatic : .hidden,
+                        searchNotificationPath.isEmpty ? .automatic : .hidden,
                         for: .tabBar
                     )
                 }
@@ -141,12 +149,8 @@ public struct NotificationFeedPreviewView: View {
                         defaultValue: "Workspace"
                     )
             )
+            .toolbarVisibility(.hidden, for: .tabBar)
         }
-        // Route-state-driven so the bar returns as the pop commits.
-        .toolbarVisibility(
-            notificationRoute == nil ? .automatic : .hidden,
-            for: .tabBar
-        )
     }
 
     private var actions: NotificationFeedActions {
@@ -154,7 +158,11 @@ public struct NotificationFeedPreviewView: View {
             open: { item in
                 let workspaceID = MobileWorkspacePreview.ID(rawValue: item.remoteWorkspaceID)
                 if selectedTab == .search {
-                    notificationRoute = NotificationWorkspaceRoute(id: workspaceID)
+                    primarySearchCoordinator.deactivateCurrentSearch()
+                    restoreSearchOnPop = true
+                    if searchNotificationPath.last != workspaceID {
+                        searchNotificationPath = [workspaceID]
+                    }
                 } else if primarySearchCoordinator.isPresented {
                     pendingSearchNotificationNavigationID = workspaceID
                     transitionPrimaryTab(to: .notifications)

@@ -178,6 +178,15 @@ struct WorkspaceShellView: View {
     // the destination stack's own onAppear.
     @State private var workspacesStackIsOnScreen = false
     @State private var notificationsStackIsOnScreen = false
+    // Selecting a search result ends the platform search session (a session
+    // kept live across the push re-hosts its field in the top navigation bar
+    // on pop, and the platform refuses a bottom restore whenever the tab bar
+    // was hidden on the detail). These flags re-present the search AFTER the
+    // pop completes: by then the path is empty, the tab bar is back (its hide
+    // is path-state-driven), and a fresh presentation of the stack-rooted
+    // field anchors at the bottom like a search-control tap.
+    @State private var restoreWorkspaceSearchOnPop = false
+    @State private var restoreNotificationSearchOnPop = false
     @State private var showingRootSettings = false
     @State private var settingsPairingScannerHandoff = SettingsPairingScannerHandoff()
     @State private var showingRootDeviceTree = false
@@ -263,12 +272,8 @@ struct WorkspaceShellView: View {
                                 createWorkspace: createWorkspaceInCompactStack,
                                 canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
                             )
+                            .toolbarVisibility(.hidden, for: .tabBar)
                     }
-                    // Path-state-driven so the bar returns as the pop commits.
-                    .toolbarVisibility(
-                        notificationNavigationPath.isEmpty ? .automatic : .hidden,
-                        for: .tabBar
-                    )
                 }
                 .onAppear {
                     notificationsStackIsOnScreen = true
@@ -303,6 +308,8 @@ struct WorkspaceShellView: View {
                 if oldValue == .search, newValue != .search {
                     notificationSearchNavigationPath = []
                     workspaceSearchNavigationPath = []
+                    restoreWorkspaceSearchOnPop = false
+                    restoreNotificationSearchOnPop = false
                 }
             }
             .onChange(of: store.deeplinkWorkspaceNavigationRequest) { _, request in
@@ -401,16 +408,21 @@ struct WorkspaceShellView: View {
                         createWorkspace: createWorkspaceInCompactStack,
                         canCreateWorkspaceForSelection: canCreateWorkspaceForSelection
                     )
+                    // Re-present the search only once the pop transition has
+                    // completed: the path is already empty (the bar is back)
+                    // and a fresh presentation of the stack-rooted field
+                    // anchors at the bottom like a search-control tap.
+                    .onDisappear {
+                        guard restoreWorkspaceSearchOnPop else { return }
+                        restoreWorkspaceSearchOnPop = false
+                        guard selectedPrimaryTab == .search,
+                              workspaceSearchNavigationPath.isEmpty else { return }
+                        primarySearchCoordinator.setPresentation(true)
+                    }
                 }
             }
-            // The tab bar hides while a detail is pushed, but driven by PATH
-            // STATE at the stack level rather than a modifier on the
-            // destination: a per-destination hide stays in force until the
-            // popped view unmounts at animation end, which removes the bottom
-            // anchor the platform needs and re-hosts the restored search
-            // field in the top navigation bar. The path empties when the pop
-            // commits, so the bar (and the field's anchor) return with the
-            // transition, like UIKit's hidesBottomBarWhenPushed.
+            // Path-state-driven hide: the bar leaves with the push and is
+            // already back when the popped detail's onDisappear fires.
             .toolbarVisibility(
                 workspaceSearchNavigationPath.isEmpty ? .automatic : .hidden,
                 for: .tabBar
@@ -468,9 +480,17 @@ struct WorkspaceShellView: View {
                     createWorkspace: createWorkspaceInCompactStack,
                     canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
                 )
+                // Mirrors the workspace search stack; see
+                // `restoreNotificationSearchOnPop`.
+                .onDisappear {
+                    guard restoreNotificationSearchOnPop else { return }
+                    restoreNotificationSearchOnPop = false
+                    guard selectedPrimaryTab == .search,
+                          notificationSearchNavigationPath.isEmpty else { return }
+                    primarySearchCoordinator.setPresentation(true)
+                }
             }
-            // Path-state-driven like the workspace search stack: the bar (and
-            // the search field's bottom anchor) return when the pop commits.
+            // Path-state-driven hide, mirroring the workspace search stack.
             .toolbarVisibility(
                 notificationSearchNavigationPath.isEmpty ? .automatic : .hidden,
                 for: .tabBar
@@ -890,6 +910,8 @@ struct WorkspaceShellView: View {
                 selectedTab: selectedPrimaryTab
             ) {
             case .mountedNotificationSearch:
+                primarySearchCoordinator.deactivateCurrentSearch()
+                restoreNotificationSearchOnPop = true
                 if notificationSearchNavigationPath.last != workspaceID {
                     notificationSearchNavigationPath = [workspaceID]
                 }
@@ -976,11 +998,13 @@ struct WorkspaceShellView: View {
 
     /// Opens a workspace tapped in the search results by pushing it onto the
     /// search tab's own stack — no tab transition, so the push cannot land on
-    /// an off-window stack. The search field is rooted inside this stack, so
-    /// the platform minimizes it across the push and restores it (bottom
-    /// placement, query intact) when the detail pops.
+    /// an off-window stack. The search session ends across the push
+    /// (committing the query preserves it) and is re-presented after the pop
+    /// completes; see `restoreWorkspaceSearchOnPop`.
     private func selectWorkspaceFromSearch(_ id: MobileWorkspacePreview.ID) {
         pendingCompactCreateNavigationWorkspaceIDs = nil
+        primarySearchCoordinator.deactivateCurrentSearch()
+        restoreWorkspaceSearchOnPop = true
         store.selectedWorkspaceID = id
         if workspaceSearchNavigationPath.last != id {
             workspaceSearchNavigationPath = [id]

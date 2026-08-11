@@ -176,8 +176,10 @@ public struct WorkspaceListLayoutPreviewView: View {
     }
 
     @State private var fixtureRoute: FixtureWorkspaceRoute?
-    // Mirrors the shell: search results push onto the search tab's own stack.
+    // Mirrors the shell: search results push onto the search tab's own stack,
+    // and the search session is re-presented after the pop completes.
     @State private var searchFixturePath: [MobileWorkspacePreview.ID] = []
+    @State private var restoreSearchOnPop = false
 
     private var scrollMetricsEnabled: Bool {
         ProcessInfo.processInfo.environment["CMUX_UITEST_SCROLL_METRICS"] == "1"
@@ -589,9 +591,18 @@ public struct WorkspaceListLayoutPreviewView: View {
                             ))
                             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                                 fixtureWorkspaceDetail(for: workspaceID)
+                                    // Mirrors the shell: re-present the search
+                                    // once the pop has completed.
+                                    .onDisappear {
+                                        guard restoreSearchOnPop else { return }
+                                        restoreSearchOnPop = false
+                                        guard selectedPrimaryTab == .search,
+                                              searchFixturePath.isEmpty else { return }
+                                        primarySearchCoordinator.setPresentation(true)
+                                    }
                             }
                             // Mirrors the shell: path-state-driven hide so the
-                            // bar returns with the pop and re-anchors the field.
+                            // bar is already back when onDisappear fires.
                             .toolbarVisibility(
                                 searchFixturePath.isEmpty ? .automatic : .hidden,
                                 for: .tabBar
@@ -609,6 +620,7 @@ public struct WorkspaceListLayoutPreviewView: View {
         .onChange(of: selectedPrimaryTab) { oldValue, newValue in
             if oldValue == .search, newValue != .search {
                 searchFixturePath = []
+                restoreSearchOnPop = false
             }
         }
         .overlay(alignment: .topLeading) {
@@ -648,6 +660,8 @@ public struct WorkspaceListLayoutPreviewView: View {
         selectedWorkspaceID = id
         if showsTabScaffold,
            selectedPrimaryTab == .search || primarySearchCoordinator.isPresented {
+            primarySearchCoordinator.deactivateCurrentSearch()
+            restoreSearchOnPop = true
             if searchFixturePath.last != id {
                 searchFixturePath = [id]
             }
