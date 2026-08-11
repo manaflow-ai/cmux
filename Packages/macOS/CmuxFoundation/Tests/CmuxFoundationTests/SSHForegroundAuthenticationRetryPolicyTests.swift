@@ -1660,6 +1660,63 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func rollbackResumesValidatedMemberWithoutSignalingLaterGroupJoiner(
+        shellPath: String
+    ) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-ssh-auth-resume-later-group-joiner-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_now_millis() { printf '1000\n'; }
+        cmux_ssh_auth_take_process_snapshot_until() {
+          /bin/cp "$CMUX_TEST_CURRENT" "$1"
+        }
+        kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
+        printf '101 7 11 T Thu Jan 1 00:00:00 1970\n999 7 11 T Fri Jan 2 00:00:00 1970\n' \
+          > "$CMUX_TEST_CURRENT"
+        printf '11 101 1 Thu_Jan_1_00:00:00_1970\n' \
+          > "$CMUX_TEST_SIGNALED_GROUPS"
+        : > "$CMUX_TEST_SIGNALED_PIDS"
+        : > "$CMUX_TEST_FROZEN"
+        : > "$CMUX_TEST_SIGNALS"
+        cmux_ssh_auth_process_snapshot="$CMUX_TEST_SNAPSHOT"
+        cmux_ssh_auth_resume_groups="$CMUX_TEST_RESUME_GROUPS"
+        cmux_ssh_auth_individual_processes="$CMUX_TEST_INDIVIDUALS"
+        cmux_ssh_auth_signaled_groups="$CMUX_TEST_SIGNALED_GROUPS"
+        cmux_ssh_auth_signaled_processes="$CMUX_TEST_SIGNALED_PIDS"
+        cmux_ssh_auth_frozen_processes="$CMUX_TEST_FROZEN"
+        cmux_ssh_auth_resume_signaled_processes || exit 99
+        test "$(/usr/bin/wc -l < "$CMUX_TEST_SIGNALS" | /usr/bin/tr -d '[:space:]')" \
+          -eq 1 || exit 98
+        /usr/bin/grep -Fqx -- '-CONT 101' "$CMUX_TEST_SIGNALS" || exit 97
+        ! /usr/bin/grep -Fqx -- '-CONT -- -11' "$CMUX_TEST_SIGNALS" || exit 96
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_TEST_CURRENT": root.appendingPathComponent("current").path,
+                "CMUX_TEST_FROZEN": root.appendingPathComponent("frozen").path,
+                "CMUX_TEST_INDIVIDUALS": root.appendingPathComponent("individuals").path,
+                "CMUX_TEST_RESUME_GROUPS": root.appendingPathComponent("groups.resume").path,
+                "CMUX_TEST_SIGNALED_GROUPS": root.appendingPathComponent("signaled.groups").path,
+                "CMUX_TEST_SIGNALED_PIDS": root.appendingPathComponent("signaled.pids").path,
+                "CMUX_TEST_SIGNALS": root.appendingPathComponent("signals").path,
+                "CMUX_TEST_SNAPSHOT": root.appendingPathComponent("snapshot").path,
+            ],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
     func rollbackResumesEveryJournaledStopAfterTerminationDeadline(shellPath: String) throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
