@@ -5,6 +5,19 @@ import Testing
 
 @Suite(.serialized)
 struct MainActorTaskStoreTests {
+    private final class CancellationFlag: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = false
+
+        func mark() {
+            lock.withLock { value = true }
+        }
+
+        var isMarked: Bool {
+            lock.withLock { value }
+        }
+    }
+
     /// Lock-protected because task-context destruction may occur off-main.
     private final class ReleaseStackRecorder: @unchecked Sendable {
         private let lock = NSLock()
@@ -112,6 +125,7 @@ struct MainActorTaskStoreTests {
         let cancelled = AsyncStream<Void>.makeStream()
         defer { cancelled.continuation.finish() }
         var cancelledIterator = cancelled.stream.makeAsyncIterator()
+        let cancellationFlag = CancellationFlag()
         let suspension = AsyncStream<Void>.makeStream()
         defer { suspension.continuation.finish() }
         var store: MainActorTaskStore<String>? = MainActorTaskStore()
@@ -122,6 +136,7 @@ struct MainActorTaskStoreTests {
                 started.continuation.yield()
                 for await _ in suspension.stream {}
             } onCancel: {
+                cancellationFlag.mark()
                 cancelled.continuation.yield()
             }
         }
@@ -129,6 +144,7 @@ struct MainActorTaskStoreTests {
         _ = try #require(await startedIterator.next())
         store = nil
         #expect(weakStore == nil)
+        #expect(cancellationFlag.isMarked)
         _ = try #require(await cancelledIterator.next())
     }
 
