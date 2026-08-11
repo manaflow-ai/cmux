@@ -272,6 +272,81 @@ struct VaultRestoreRelaunchPersistenceTests {
         #expect(persistedTerminal.wasAgentRunning == false)
     }
 
+    @Test("Dock restore adopts staged startup work from its source workspace")
+    func dockRestoreAdoptsSourceWorkspaceStartupWork() throws {
+        let launch = try makeLaunch(sessionID: "vault-dock-restore-transfer")
+        let agent = try #require(launch.startupRestoreAgent)
+        let defaults = try makeAutoResumeDefaults()
+        defer { defaults.store.removePersistentDomain(forName: defaults.name) }
+        var resumeIntents: [AgentChatResumeIntent] = []
+        let resumeIntentRecorder = AgentChatResumeIntentRecorder {
+            resumeIntents.append($0)
+        }
+        let source = Workspace(
+            agentSessionAutoResumeDefaults: defaults.store,
+            agentChatResumeIntentRecorder: resumeIntentRecorder
+        )
+        defer { source.teardownAllPanels() }
+        let dockWorkspaceID = UUID()
+        let dock = DockSplitStore(
+            workspaceId: dockWorkspaceID,
+            baseDirectoryProvider: { nil },
+            agentSessionAutoResumeDefaults: defaults.store,
+            agentChatResumeIntentRecorder: resumeIntentRecorder
+        )
+        defer { dock.closeAllPanels() }
+        let savedPanelID = UUID()
+        let panelSnapshot = SessionPanelSnapshot(
+            id: savedPanelID,
+            type: .terminal,
+            title: "Vault Dock restore",
+            customTitle: nil,
+            directory: launch.workingDirectory,
+            isPinned: false,
+            isManuallyUnread: false,
+            gitBranch: nil,
+            pullRequest: nil,
+            listeningPorts: [],
+            ttyName: nil,
+            terminal: SessionTerminalPanelSnapshot(
+                workingDirectory: launch.workingDirectory,
+                agent: agent,
+                wasAgentRunning: true
+            ),
+            browser: nil,
+            markdown: nil,
+            filePreview: nil,
+            rightSidebarTool: nil,
+            project: nil
+        )
+        let restoredIDs = dock.restoreSessionSnapshot(
+            SessionSplitContainerSnapshot(
+                focusedPanelId: savedPanelID,
+                layout: .pane(SessionPaneLayoutSnapshot(
+                    panelIds: [savedPanelID],
+                    selectedPanelId: savedPanelID
+                )),
+                panels: [panelSnapshot],
+                sourceWorkspaceIdsByPanelId: [savedPanelID: source.id]
+            ),
+            sourceWorkspaceResolver: { workspaceID in
+                workspaceID == source.id ? source : nil
+            }
+        )
+        let restoredPanelID = try #require(restoredIDs[savedPanelID])
+        let restoredPanel = try #require(dock.panels[restoredPanelID] as? TerminalPanel)
+
+        #expect(restoredPanel.surface.debugInitialInputForTesting() == launch.initialInput)
+        #expect(restoredPanel.surface.canCreateRuntimeSurface)
+        #expect(
+            dock.restoredAgentLifecycle.snapshotsByPanelId[restoredPanelID]?.sessionId
+                == agent.sessionId
+        )
+        #expect(resumeIntents.count == 1)
+        #expect(resumeIntents.first?.surfaceID == restoredPanelID.uuidString)
+        #expect(resumeIntents.first?.workspaceID == dockWorkspaceID.uuidString)
+    }
+
     private func makeLaunch(sessionID: String) throws -> SessionEntryResumeLaunch {
         let entry = SessionEntry(
             id: "codex:\(sessionID)",
