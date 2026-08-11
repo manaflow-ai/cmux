@@ -1413,11 +1413,22 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               cmux_ssh_auth_recovery_unlock
             fi
             if [ "$cmux_ssh_auth_recovery_sweep_ready" != 1 ]; then exit 0; fi
+            case "${CMUX_SSH_AUTH_RECOVERY_MAX_PASSES:-8}" in
+              1|2|3|4|5|6|7|8)
+                cmux_ssh_auth_recovery_sweep_max_passes=\
+                  "${CMUX_SSH_AUTH_RECOVERY_MAX_PASSES:-8}"
+                ;;
+              *) cmux_ssh_auth_recovery_sweep_max_passes=8 ;;
+            esac
+            cmux_ssh_auth_recovery_sweep_pass=0
             trap 'cmux_ssh_auth_release_reaper_lock_if_current \
               "$cmux_ssh_auth_recovery_sweep_lock" \
               "$cmux_ssh_auth_recovery_sweep_generation" 1 \
               >/dev/null 2>&1 || true' EXIT
             while :; do
+              cmux_ssh_auth_recovery_sweep_pass=$((
+                cmux_ssh_auth_recovery_sweep_pass + 1
+              ))
               cmux_ssh_resume_failed_auth_group_reapers \
                 </dev/null >/dev/null 2>&1
               cmux_ssh_auth_recovery_sweep_reschedule=0
@@ -1430,12 +1441,45 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                     "$cmux_ssh_auth_recovery_sweep_lock" \
                     "$cmux_ssh_auth_recovery_sweep_generation"; then
                   if cmux_ssh_auth_recovery_queue_has_work_locked; then
-                    cmux_ssh_auth_recovery_sweep_reschedule=1
-                    /bin/rm -f -- \
-                      "$cmux_ssh_auth_recovery_sweep_lock/pending" \
-                      "$cmux_ssh_auth_recovery_sweep_lock/pending.new" \
-                      2>/dev/null || true
+                    if [ "$cmux_ssh_auth_recovery_sweep_pass" -ge \
+                      "$cmux_ssh_auth_recovery_sweep_max_passes" ]; then
+                      # Stop one automatic worker at its bounded pass limit.
+                      # The durable queue remains for a later explicit sweep.
+                      printf 'recovery-v1|%s|%s\n' \
+                        "$cmux_ssh_auth_recovery_sweep_generation" \
+                        "$cmux_ssh_auth_recovery_sweep_pass" \
+                        > "$cmux_ssh_auth_recovery_root/sweep.failed.new" \
+                        2>/dev/null && \
+                        /bin/mv -f -- \
+                          "$cmux_ssh_auth_recovery_root/sweep.failed.new" \
+                          "$cmux_ssh_auth_recovery_root/sweep.failed" \
+                          2>/dev/null || true
+                      /bin/rm -f -- \
+                        "$cmux_ssh_auth_recovery_sweep_lock/owner" \
+                        "$cmux_ssh_auth_recovery_sweep_lock/owner.new" \
+                        "$cmux_ssh_auth_recovery_sweep_lock/publisher" \
+                        "$cmux_ssh_auth_recovery_sweep_lock/publisher.new" \
+                        "$cmux_ssh_auth_recovery_sweep_lock/generation" \
+                        "$cmux_ssh_auth_recovery_sweep_lock/generation.new" \
+                        "$cmux_ssh_auth_recovery_sweep_lock/pending" \
+                        "$cmux_ssh_auth_recovery_sweep_lock/pending.new" \
+                        2>/dev/null || true
+                      if /bin/rmdir "$cmux_ssh_auth_recovery_sweep_lock" \
+                        2>/dev/null; then
+                        cmux_ssh_auth_recovery_sweep_released=1
+                      fi
+                    else
+                      cmux_ssh_auth_recovery_sweep_reschedule=1
+                      /bin/rm -f -- \
+                        "$cmux_ssh_auth_recovery_sweep_lock/pending" \
+                        "$cmux_ssh_auth_recovery_sweep_lock/pending.new" \
+                        2>/dev/null || true
+                    fi
                   else
+                    /bin/rm -f -- \
+                      "$cmux_ssh_auth_recovery_root/sweep.failed" \
+                      "$cmux_ssh_auth_recovery_root/sweep.failed.new" \
+                      2>/dev/null || true
                     /bin/rm -f -- "$cmux_ssh_auth_recovery_sweep_lock/owner" \
                       "$cmux_ssh_auth_recovery_sweep_lock/owner.new" \
                       "$cmux_ssh_auth_recovery_sweep_lock/publisher" \
