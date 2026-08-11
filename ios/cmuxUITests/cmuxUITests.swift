@@ -7433,7 +7433,9 @@ final class cmuxUITests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) throws -> ChatTranscriptMetrics {
-        let imageAttachment = app.buttons["ChatAttachmentButton"]
+        let imageAttachment = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS %@", "ci-failure.png"))
+            .firstMatch
         let cardElements = [
             app.buttons["ChatQuestionOption0"],
             app.buttons["ChatPermissionApprove"],
