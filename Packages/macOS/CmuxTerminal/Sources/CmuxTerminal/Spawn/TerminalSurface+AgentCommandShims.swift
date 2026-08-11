@@ -113,11 +113,31 @@ extension TerminalSurface {
             }
         }
         do {
-            try fileManager.createDirectory(at: shimDirectory, withIntermediateDirectories: true)
-            removeShimDirectoryOnExit = true
-            for directory in [shimParentDirectory, shimDirectory] {
-                try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+            try fileManager.createDirectory(
+                at: shimParentDirectory,
+                withIntermediateDirectories: true
+            )
+            try fileManager.setAttributes(
+                [.posixPermissions: 0o700],
+                ofItemAtPath: shimParentDirectory.path
+            )
+            var isDirectory: ObjCBool = false
+            if fileManager.fileExists(
+                atPath: shimDirectory.path,
+                isDirectory: &isDirectory
+            ) {
+                guard isDirectory.boolValue else { return nil }
+            } else {
+                try fileManager.createDirectory(
+                    at: shimDirectory,
+                    withIntermediateDirectories: false
+                )
+                removeShimDirectoryOnExit = true
             }
+            try fileManager.setAttributes(
+                [.posixPermissions: 0o700],
+                ofItemAtPath: shimDirectory.path
+            )
         } catch {
             return nil
         }
