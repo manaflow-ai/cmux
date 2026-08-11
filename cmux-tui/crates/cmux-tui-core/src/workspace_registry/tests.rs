@@ -7072,6 +7072,95 @@ fn journal_agent_unidentified_completion_cannot_finish_active_run() {
 }
 
 #[test]
+fn journal_agent_sessionless_start_cannot_replace_structured_owner() {
+    let mut registry = WorkspaceRegistry::in_memory("journal-agent-sessionless-start").unwrap();
+    commit_terminal_topology(&mut registry, "journal-agent-sessionless-start-topology");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let validated = crate::journal_kernel::ValidatedJournalIngress {
+        class: JournalClass::Observation,
+        replay: JournalReplayPolicy::Advisory,
+        sensitivity: JournalSensitivity::Sensitive,
+    };
+    for (index, payload) in
+        [json!({"context":{"session_id":"structured-owner"}}), json!({})].into_iter().enumerate()
+    {
+        let ingress =
+            crate::agent_hook_journal_ingress("codex", "AgentStart", Some(terminal_id.as_str()), payload)
+                .unwrap();
+        registry
+            .append_journal_ingress(
+                &ingress,
+                &validated,
+                "client_sessionless_start",
+                &format!("journal_agent_sessionless_start_{index}"),
+            )
+            .unwrap();
+    }
+
+    let agent = registry.public_projections().unwrap().agents.remove(0);
+    assert_eq!(agent.state, "working");
+    assert_eq!(agent.source_session.as_deref(), Some("structured-owner"));
+    assert_eq!(agent.extra["provider"], "codex");
+}
+
+#[test]
+fn journal_agent_generation_history_is_bounded_and_keeps_compacted_fence() {
+    const RETAINED_GENERATIONS: usize = 64;
+    let mut registry = WorkspaceRegistry::in_memory("journal-agent-bounded-generations").unwrap();
+    commit_terminal_topology(&mut registry, "journal-agent-bounded-generations-topology");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let validated = crate::journal_kernel::ValidatedJournalIngress {
+        class: JournalClass::Observation,
+        replay: JournalReplayPolicy::Advisory,
+        sensitivity: JournalSensitivity::Sensitive,
+    };
+    for index in 0..RETAINED_GENERATIONS + 8 {
+        let ingress = crate::agent_hook_journal_ingress(
+            "codex",
+            "AgentStart",
+            Some(terminal_id.as_str()),
+            json!({"context":{"session_id":format!("bounded-session-{index:03}")}}),
+        )
+        .unwrap();
+        registry
+            .append_journal_ingress(
+                &ingress,
+                &validated,
+                "client_bounded_generations",
+                &format!("journal_agent_bounded_generation_{index:03}"),
+            )
+            .unwrap();
+    }
+
+    let stored = registry
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM resource_agent_session_generations WHERE terminal_id = ?1",
+            [terminal_id.as_str()],
+            |row| row.get::<_, usize>(0),
+        )
+        .unwrap();
+    assert!(stored <= RETAINED_GENERATIONS + 1, "stored {stored} generation rows");
+
+    let stale = crate::agent_hook_journal_ingress(
+        "codex",
+        "AgentStart",
+        Some(terminal_id.as_str()),
+        json!({"context":{"session_id":"bounded-session-000"}}),
+    )
+    .unwrap();
+    let error = registry
+        .append_journal_ingress(
+            &stale,
+            &validated,
+            "client_bounded_generations",
+            "journal_agent_bounded_generation_stale",
+        )
+        .unwrap_err();
+    assert!(format!("{error:#}").contains("generation"));
+}
+
+#[test]
 fn journal_agent_plugin_report_cannot_write_projection() {
     let root = temp_root("journal-agent-untrusted-report");
     let session = "journal-agent-untrusted-report";

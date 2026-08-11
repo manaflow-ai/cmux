@@ -20757,6 +20757,8 @@ mod tests {
             serde_json::json!({"context":{"session_id":"pending-publish-session"}}),
         )
         .unwrap();
+        let journal_epoch = mux.journal_event_epoch();
+        let shared_epoch = mux.shared_journal_epoch();
 
         let commit = mux
             .append_journal_ingress(
@@ -20767,6 +20769,8 @@ mod tests {
             .unwrap();
 
         assert!(observed_receiver.try_recv().is_err());
+        assert_ne!(mux.journal_event_epoch(), journal_epoch);
+        assert_ne!(mux.shared_journal_epoch(), shared_epoch);
         assert!(mux.list_agents(Some(surface_id), None).is_empty());
         assert_eq!(
             mux.session_journal_after(commit.sequence.saturating_sub(1), 1)
