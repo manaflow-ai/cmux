@@ -77,6 +77,11 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
                 claimedCapacity = false
             }
             guard !state.closeTeardownAllStalled else {
+                if state.recoveryEntriesByID[recoveryID] != nil {
+                    state.recoveryEntriesByID[recoveryID]?.action = onRecovery
+                    state.recoveryEntriesByID[recoveryID]?.failure = onFailure
+                    return (.deferred, claimedCapacity)
+                }
                 return (.closeTeardownStalled, claimedCapacity)
             }
             if !state.closeTeardownDegraded,
