@@ -14,14 +14,14 @@ struct SimulatorCameraToolsContent: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             if !applicationRows.isEmpty {
-                Picker(simulatorStrings.bundleIdentifier, selection: $targetBundleIdentifier) {
+                SimulatorLocalizedPicker(simulatorStrings.bundleIdentifier, selection: $targetBundleIdentifier) {
                     Text(simulatorStrings.foregroundApp).tag("")
                     ForEach(applicationRows) { application in
                         Text(verbatim: application.displayName).tag(application.id)
                     }
                 }
             }
-            Picker(simulatorStrings.cameraMirror, selection: $mirrorMode) {
+            SimulatorLocalizedPicker(simulatorStrings.cameraMirror, selection: $mirrorMode) {
                 Text(simulatorStrings.cameraMirrorAuto).tag(SimulatorCameraMirrorMode.auto)
                 Text(simulatorStrings.cameraMirrorOn).tag(SimulatorCameraMirrorMode.on)
                 Text(simulatorStrings.cameraMirrorOff).tag(SimulatorCameraMirrorMode.off)
@@ -31,7 +31,7 @@ struct SimulatorCameraToolsContent: View {
                 coordinator.scheduleControlAction("camera-mirror") { await $0.setCameraMirror(mode) }
             }
             if let status = coordinator.cameraStatus, !status.hostCameras.isEmpty {
-                Picker(simulatorStrings.hostCameraDevice, selection: $hostCameraID) {
+                SimulatorLocalizedPicker(simulatorStrings.hostCameraDevice, selection: $hostCameraID) {
                     ForEach(status.hostCameras) { camera in
                         Text(verbatim: camera.name).tag(camera.id)
                     }

@@ -16,7 +16,7 @@ struct SimulatorNotificationPrivacyToolsContent: View {
             }
             .disabled(bundleIdentifier.isEmpty)
             Divider()
-            Picker(simulatorStrings.privacyService, selection: $service) {
+            SimulatorLocalizedPicker(simulatorStrings.privacyService, selection: $service) {
                 ForEach(SimulatorPrivacyService.allCases, id: \.rawValue) { service in
                     Text(simulatorStrings.privacy(service)).tag(service)
                 }

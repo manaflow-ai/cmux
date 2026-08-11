@@ -40,3 +40,41 @@ struct SimulatorLocalizedLabel: View {
         }
     }
 }
+
+struct SimulatorLocalizedToggle: View {
+    let title: LocalizedStringResource
+    @Binding var isOn: Bool
+
+    init(_ title: LocalizedStringResource, isOn: Binding<Bool>) {
+        self.title = title
+        _isOn = isOn
+    }
+
+    var body: some View {
+        Toggle(isOn: $isOn) {
+            Text(title)
+        }
+    }
+}
+
+struct SimulatorLocalizedPicker<SelectionValue: Hashable, Content: View>: View {
+    let title: LocalizedStringResource
+    @Binding var selection: SelectionValue
+    @ViewBuilder let content: () -> Content
+
+    init(
+        _ title: LocalizedStringResource,
+        selection: Binding<SelectionValue>,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.title = title
+        _selection = selection
+        self.content = content
+    }
+
+    var body: some View {
+        Picker(selection: $selection, content: content) {
+            Text(title)
+        }
+    }
+}

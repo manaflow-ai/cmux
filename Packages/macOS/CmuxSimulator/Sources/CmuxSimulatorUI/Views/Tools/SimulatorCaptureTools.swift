@@ -9,7 +9,7 @@ struct SimulatorCaptureTools: View {
     var body: some View {
         SimulatorToolSection(simulatorStrings.capture) {
             HStack {
-                Picker(simulatorStrings.screenshot, selection: $screenshotFormat) {
+                SimulatorLocalizedPicker(simulatorStrings.screenshot, selection: $screenshotFormat) {
                     ForEach(SimulatorScreenshotFormat.allCases, id: \.rawValue) { format in
                         Text(verbatim: format.rawValue.uppercased()).tag(format)
                     }
@@ -21,7 +21,7 @@ struct SimulatorCaptureTools: View {
                 }
             }
             HStack {
-                Picker(simulatorStrings.startRecording, selection: $videoCodec) {
+                SimulatorLocalizedPicker(simulatorStrings.startRecording, selection: $videoCodec) {
                     ForEach(SimulatorVideoCodec.allCases, id: \.rawValue) { codec in
                         Text(verbatim: codec.rawValue.uppercased()).tag(codec)
                     }

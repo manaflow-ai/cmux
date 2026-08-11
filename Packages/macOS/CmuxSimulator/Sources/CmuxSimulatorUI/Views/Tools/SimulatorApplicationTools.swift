@@ -24,14 +24,14 @@ struct SimulatorApplicationTools: View {
                 }
             }
             if !applicationRows.isEmpty {
-                Picker(simulatorStrings.applications, selection: $selectedBundleIdentifier) {
+                SimulatorLocalizedPicker(simulatorStrings.applications, selection: $selectedBundleIdentifier) {
                     ForEach(applicationRows) { application in
                         Text(verbatim: application.displayName).tag(application.id)
                     }
                 }
                 TextField(String(localized: simulatorStrings.launchArguments), text: $arguments)
-                Toggle(simulatorStrings.terminateRunning, isOn: $terminateRunning)
-                Toggle(simulatorStrings.waitForDebugger, isOn: $waitForDebugger)
+                SimulatorLocalizedToggle(simulatorStrings.terminateRunning, isOn: $terminateRunning)
+                SimulatorLocalizedToggle(simulatorStrings.waitForDebugger, isOn: $waitForDebugger)
                 HStack {
                     SimulatorLocalizedButton(simulatorStrings.launch) {
                         coordinator.scheduleControlAction("launch-application") {

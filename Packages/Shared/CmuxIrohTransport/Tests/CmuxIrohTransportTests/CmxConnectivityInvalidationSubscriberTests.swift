@@ -47,9 +47,9 @@ struct CmxConnectivityInvalidationSubscriberTests {
         ))
     }
 
-    @Test(
-        "rejects route material, wrong protocol, booleans, and oversized frames",
-        arguments: [
+    @Test("rejects route material, wrong protocol, booleans, and oversized frames")
+    func rejectsInvalidFrames() {
+        let invalidFrames = [
             #"{"type":"connectivity.invalidate","protocolVersion":1,"revision":1,"at":2,"routes":[]}"#,
             #"{"type":"connectivity.invalidate","protocolVersion":2,"revision":1,"at":2}"#,
             #"{"type":"connectivity.invalidate","protocolVersion":1,"revision":0,"at":2}"#,
@@ -62,10 +62,11 @@ struct CmxConnectivityInvalidationSubscriberTests {
                 return #"{"type":"connectivity.invalidate","protocolVersion":1,"revision":1,"at":2,"pad":"\#(padding)"}"#
             }(),
         ]
-    )
-    func rejectsInvalidFrame(_ text: String) {
-        #expect(throws: CmxConnectivityInvalidationError.invalidFrame) {
-            try CmxConnectivityInvalidation.parse(Data(text.utf8))
+
+        for text in invalidFrames {
+            #expect(throws: CmxConnectivityInvalidationError.invalidFrame) {
+                try CmxConnectivityInvalidation.parse(Data(text.utf8))
+            }
         }
     }
 

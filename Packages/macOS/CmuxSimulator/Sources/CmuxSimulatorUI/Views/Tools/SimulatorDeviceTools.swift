@@ -35,23 +35,23 @@ struct SimulatorDeviceTools: View {
 #if DEBUG
             SimulatorDebugTools(coordinator: coordinator)
 #endif
-            Toggle(simulatorStrings.colorBlendedLayers, isOn: $colorBlendedLayers)
+            SimulatorLocalizedToggle(simulatorStrings.colorBlendedLayers, isOn: $colorBlendedLayers)
                 .onChange(of: colorBlendedLayers) { _, enabled in
                     coordinator.setCoreAnimationDiagnostic(.blended, enabled: enabled)
                 }
-            Toggle(simulatorStrings.colorCopiedImages, isOn: $colorCopiedImages)
+            SimulatorLocalizedToggle(simulatorStrings.colorCopiedImages, isOn: $colorCopiedImages)
                 .onChange(of: colorCopiedImages) { _, enabled in
                     coordinator.setCoreAnimationDiagnostic(.copies, enabled: enabled)
                 }
-            Toggle(simulatorStrings.colorMisalignedImages, isOn: $colorMisalignedImages)
+            SimulatorLocalizedToggle(simulatorStrings.colorMisalignedImages, isOn: $colorMisalignedImages)
                 .onChange(of: colorMisalignedImages) { _, enabled in
                     coordinator.setCoreAnimationDiagnostic(.misaligned, enabled: enabled)
                 }
-            Toggle(simulatorStrings.colorOffscreenRendering, isOn: $colorOffscreenRendering)
+            SimulatorLocalizedToggle(simulatorStrings.colorOffscreenRendering, isOn: $colorOffscreenRendering)
                 .onChange(of: colorOffscreenRendering) { _, enabled in
                     coordinator.setCoreAnimationDiagnostic(.offscreen, enabled: enabled)
                 }
-            Toggle(simulatorStrings.slowAnimations, isOn: $slowAnimations)
+            SimulatorLocalizedToggle(simulatorStrings.slowAnimations, isOn: $slowAnimations)
                 .onChange(of: slowAnimations) { _, enabled in
                     coordinator.setCoreAnimationDiagnostic(.slowAnimations, enabled: enabled)
                 }

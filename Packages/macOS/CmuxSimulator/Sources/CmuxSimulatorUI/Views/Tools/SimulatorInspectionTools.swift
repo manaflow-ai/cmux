@@ -66,7 +66,7 @@ struct SimulatorInspectionTools: View {
                 }
             }
                 .disabled(!coordinator.supports(.accessibility))
-            Toggle(
+            SimulatorLocalizedToggle(
                 simulatorStrings.accessibilityOverlay,
                 isOn: Binding(
                     get: { coordinator.accessibilityOverlayEnabled },
