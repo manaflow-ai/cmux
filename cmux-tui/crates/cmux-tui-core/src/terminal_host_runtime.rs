@@ -30,10 +30,10 @@ use crate::terminal_host_protocol::{
     CLEAR_HISTORY_ACK_OK, CLEAR_HISTORY_ACK_PRESERVATION_FAILED, CLEAR_HISTORY_ACK_STREAM_TIMEOUT,
     FLAG_COLORS_FOLLOW, FLAG_SMART_RENDERER, FLAG_VIEWER_SIZE_ACKS, Frame,
     KITTY_IMAGE_ALIAS_COUNT_LEN, KITTY_IMAGE_ALIAS_ENCODED_LEN, MAX_FRAME_PAYLOAD,
-    MAX_KITTY_IMAGE_ALIASES, MessageKind, PROTOCOL_VERSION, RESIZE_ACK_CANONICAL_CHANGED,
-    SnapshotKittyReplayState, SnapshotPayloadRef, TerminalExit, decode_snapshot_payload,
-    encode_snapshot_payload, encode_terminal_exit, read_frame, wait_for_native_child_status,
-    write_frame,
+    MAX_KITTY_IMAGE_ALIASES, MAX_SNAPSHOT_REPLAY_BYTES, MessageKind, PROTOCOL_VERSION,
+    RESIZE_ACK_CANONICAL_CHANGED, SnapshotKittyReplayState, SnapshotPayloadRef, TerminalExit,
+    decode_snapshot_payload, encode_snapshot_payload, encode_terminal_exit, read_frame,
+    wait_for_native_child_status, write_frame,
 };
 
 const HOST_RECORD_VERSION: u32 = 2;
@@ -76,13 +76,14 @@ pub const MAX_TERMINAL_COLORS_PAYLOAD: usize = 8 + 3 * 3 + 2 + 256 * 4;
 const _: () = assert!(
     2 * size_of::<u16>()
         + size_of::<u32>()
-        + crate::surface::VT_REPLAY_MAX_BYTES
+        + MAX_SNAPSHOT_REPLAY_BYTES
         + KITTY_IMAGE_ALIAS_COUNT_LEN
         + MAX_KITTY_IMAGE_ALIASES * KITTY_IMAGE_ALIAS_ENCODED_LEN
         + CELL_PIXEL_SIZE_ENCODED_LEN
         + KITTY_REPLAY_STATE_ENCODED_LEN
         <= MAX_FRAME_PAYLOAD
 );
+const _: () = assert!(crate::surface::VT_REPLAY_MAX_BYTES == MAX_SNAPSHOT_REPLAY_BYTES);
 const _: () = assert!(SMART_RENDERER_PROTOCOL_VERSION <= PROTOCOL_VERSION);
 
 pub(crate) fn normalize_terminal_geometry(cols: u16, rows: u16) -> anyhow::Result<(u16, u16)> {
@@ -4593,9 +4594,8 @@ mod unix {
                 };
                 break (viewer_sizes, size, cell_pixels, term);
             };
-            let replay = term.vt_replay_bounded_theme_portable_with_aliases(
-                crate::surface::VT_REPLAY_MAX_BYTES,
-            )?;
+            let replay =
+                term.vt_replay_bounded_theme_portable_with_aliases(MAX_SNAPSHOT_REPLAY_BYTES)?;
             let colors = term.color_overrides();
             let (cols, rows) = *size;
             let cell_pixels = *cell_pixels;

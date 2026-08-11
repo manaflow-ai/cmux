@@ -19,7 +19,10 @@ pub const PROTOCOL_VERSION: u16 = 3;
 pub const MAX_FRAME_PAYLOAD: usize = 16 * 1024 * 1024;
 pub const MAX_KITTY_IMAGE_ALIASES: usize = 4_096;
 /// Maximum retained terminal replay bytes in one snapshot.
-pub const MAX_SNAPSHOT_REPLAY_BYTES: usize = 8 * 1024 * 1024;
+///
+/// This is the existing terminal producer limit. The complete encoded payload
+/// must also fit within [`MAX_FRAME_PAYLOAD`].
+pub const MAX_SNAPSHOT_REPLAY_BYTES: usize = 15_692_632;
 /// Maximum UTF-8 bytes in one snapshot command argument or working directory.
 pub const MAX_SNAPSHOT_STRING_BYTES: usize = 256 * 1024;
 /// Maximum command arguments in one snapshot.
@@ -1414,5 +1417,29 @@ mod tests {
                 "terminal snapshot dimensions must be nonzero",
             );
         }
+    }
+
+    #[test]
+    fn snapshot_codec_accepts_the_existing_replay_range_above_the_old_client_limit() {
+        let replay_len = 8 * 1024 * 1024 + 1;
+        let snapshot = SnapshotPayload {
+            cols: 80,
+            rows: 24,
+            cell_pixels: DEFAULT_SNAPSHOT_CELL_PIXELS,
+            replay: vec![b'x'; replay_len],
+            kitty_image_aliases: Vec::new(),
+            kitty_state: SnapshotKittyReplayState::disabled(),
+            pid: None,
+            command: Vec::new(),
+            cwd: None,
+        };
+
+        let encoded = encode_snapshot_payload(snapshot.view()).unwrap();
+        assert!(encoded.len() <= MAX_FRAME_PAYLOAD);
+        drop(snapshot);
+        assert_eq!(
+            decode_snapshot_payload(&encoded, PROTOCOL_VERSION).unwrap().replay.len(),
+            replay_len,
+        );
     }
 }
