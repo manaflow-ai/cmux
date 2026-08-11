@@ -150,7 +150,7 @@ struct TabSnapshot: Decodable, Identifiable, Sendable {
 
 struct TerminalSnapshot: Decodable, Identifiable, Sendable {
     let id: String
-    let tabID: String
+    let tabID: String?
     let title: String
     let cols: UInt16
     let rows: UInt16

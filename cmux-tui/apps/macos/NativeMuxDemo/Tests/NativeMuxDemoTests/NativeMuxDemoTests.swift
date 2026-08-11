@@ -37,6 +37,31 @@ private func nativeResetPayload() -> Data {
 }
 
 @Test
+func decodesAnUnplacedExitedTerminal() throws {
+    let data = Data(
+        #"""
+        {
+          "machine":{"id":"machine_11111111111111111111111111111111"},
+          "session":{"id":"session_22222222222222222222222222222222","name":"demo"},
+          "workspaces":[],"screens":[],"panes":[],"tabs":[],
+          "terminals":[{
+            "id":"term_88888888888888888888888888888888",
+            "tab_id":null,"title":"","cols":80,"rows":24,
+            "running":false,"lifecycle":"exited"
+          }],
+          "browsers":[],
+          "cursor":{"generation":"g","revision":"9"}
+        }
+        """#.utf8
+    )
+
+    let snapshot = try JSONDecoder().decode(ResourceSnapshot.self, from: data)
+    let terminal = try #require(snapshot.terminals.first)
+    #expect(terminal.tabID == nil)
+    #expect(terminal.lifecycle == "exited")
+}
+
+@Test
 func decodesEveryNativeLayoutShape() async throws {
     let data = Data(
         #"""
@@ -332,6 +357,24 @@ func queuedFFIOperationDeadlineIncludesTimeBeforeExecution() async {
 }
 
 @Test
+func canceledAttachedTerminalIsDisconnectedBeforeOwnershipIsLost() async {
+    let operations = EventLog()
+    do {
+        _ = try await FrontendService.transferAttachedTerminal(
+            42,
+            cancellationRequested: true
+        ) { address in
+            operations.append("disconnect:\(address)")
+        }
+        Issue.record("A canceled terminal attach transferred ownership.")
+    } catch is CancellationError {
+        #expect(operations.snapshot == ["disconnect:42"])
+    } catch {
+        Issue.record("A canceled terminal attach returned an unexpected error: \(error)")
+    }
+}
+
+@Test
 func resizeQueueKeepsOnlyNewestPendingGeometry() {
     var queue = NewestResizeQueue()
     let firstStarts = queue.submit(TerminalGeometry(cols: 80, rows: 24))
@@ -441,6 +484,27 @@ func mutationIndeterminateErrorKeepsTheRetryIdentityForReconciliation() {
     #expect(operation == "workspace.create")
     #expect(idempotencyKey == "native-test-42")
     #expect(error.requiresAuthoritativeReconciliation)
+}
+
+@Test
+func rawServiceFailuresStayOutOfLocalizedUserMessages() {
+    let raw = "invitation has no Iroh route"
+    let connection = FrontendServiceError.connectionFailure(raw)
+    #expect(connection.localizedDescription == L10n.text(
+        "error.connection_failure",
+        "The frontend could not connect. See diagnostics for details."
+    ))
+    #expect(connection.localizedDescription != raw)
+    #expect(connection.diagnosticDescription == raw)
+
+    let request = FrontendServiceError.requestFailure(
+        #"{"code":"transport.closed","message":"socket ended"}"#
+    )
+    #expect(request.localizedDescription == L10n.text(
+        "error.request_failure",
+        "The frontend request failed. See diagnostics for details."
+    ))
+    #expect(request.diagnosticDescription?.contains("socket ended") == true)
 }
 
 @Test

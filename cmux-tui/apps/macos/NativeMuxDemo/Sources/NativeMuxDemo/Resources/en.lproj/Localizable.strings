@@ -44,6 +44,8 @@
 "column.base_width" = "base width %.2f";
 "pane.short_id" = "Pane %@";
 "error.connection_closed" = "The frontend connection is closed.";
+"error.connection_failure" = "The frontend could not connect. See diagnostics for details.";
+"error.request_failure" = "The frontend request failed. See diagnostics for details.";
 "error.no_machine" = "The daemon did not identify exactly one machine.";
 "error.no_session" = "The daemon did not identify exactly one session.";
 "error.too_many_changes" = "Too many changes are waiting. Try again after they finish.";
@@ -52,6 +54,7 @@
 "error.terminal_input_rejected" = "Terminal input was rejected.";
 "error.terminal_input_overloaded" = "Terminal input is busy; try again.";
 "error.terminal_attach" = "The terminal could not be attached.";
+"error.terminal_attach_queue_full" = "Too many terminal attachments are waiting. Try again after they finish.";
 "error.terminal_resize_rejected" = "Terminal resize was rejected.";
 "error.terminal_snapshot" = "The terminal snapshot was invalid.";
 "error.ghostty_runtime" = "The embedded Ghostty renderer could not start.";

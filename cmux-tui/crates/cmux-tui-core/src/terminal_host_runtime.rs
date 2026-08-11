@@ -32,9 +32,9 @@ use crate::terminal_host_protocol::{
     FLAG_VIEWER_SIZE_ACKS, Frame, HostLaunchFailure, HostLaunchFailureKind,
     KITTY_IMAGE_ALIAS_COUNT_LEN, KITTY_IMAGE_ALIAS_ENCODED_LEN, LAUNCH_ACTIVATION_PROTOCOL_VERSION,
     MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MessageKind, PROTOCOL_VERSION,
-    RESIZE_ACK_CANONICAL_CHANGED, TerminalExit, decode_host_launch_failure, decode_terminal_exit,
-    encode_host_launch_failure, encode_terminal_exit, read_frame, wait_for_native_child_status,
-    write_frame,
+    RESIZE_ACK_CANONICAL_CHANGED, TERMINAL_CELL_AREA_MAX, TERMINAL_DIMENSION_MAX, TerminalExit,
+    decode_host_launch_failure, decode_terminal_exit, encode_host_launch_failure,
+    encode_terminal_exit, read_frame, wait_for_native_child_status, write_frame,
 };
 
 const HOST_RECORD_VERSION: u32 = 4;
@@ -68,8 +68,6 @@ const MAX_SMART_RETAINED_FRAMES: usize = 4096;
 const HOST_PARSER_QUEUE_CAPACITY: usize = 256;
 const MAX_HOST_PARSER_QUEUED_BYTES: usize = 16 * 1024 * 1024;
 const HOST_START_NONCE_LEN: usize = 32;
-const TERMINAL_DIMENSION_MAX: u16 = 10_000;
-const TERMINAL_CELL_AREA_MAX: u64 = 4_000_000;
 const DEFAULT_CELL_PIXELS: (u16, u16) = (8, 16);
 const CELL_PIXEL_SIZE_ENCODED_LEN: usize = 2 * size_of::<u16>();
 const KITTY_GRAPHICS_LIMITS_ENCODED_LEN: usize = 4 * size_of::<u64>();

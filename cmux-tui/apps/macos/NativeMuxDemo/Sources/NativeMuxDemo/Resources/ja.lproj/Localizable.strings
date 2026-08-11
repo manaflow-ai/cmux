@@ -44,6 +44,8 @@
 "column.base_width" = "基準幅 %.2f";
 "pane.short_id" = "ペイン %@";
 "error.connection_closed" = "フロントエンド接続が閉じています。";
+"error.connection_failure" = "フロントエンドに接続できませんでした。詳細は診断情報を確認してください。";
+"error.request_failure" = "フロントエンドの要求に失敗しました。詳細は診断情報を確認してください。";
 "error.no_machine" = "デーモンでマシンを1台に特定できませんでした。";
 "error.no_session" = "デーモンでセッションを1つに特定できませんでした。";
 "error.too_many_changes" = "待機中の変更が多すぎます。完了後にもう一度お試しください。";
@@ -52,6 +54,7 @@
 "error.terminal_input_rejected" = "ターミナル入力が拒否されました。";
 "error.terminal_input_overloaded" = "ターミナル入力が混雑しています。もう一度お試しください。";
 "error.terminal_attach" = "ターミナルに接続できませんでした。";
+"error.terminal_attach_queue_full" = "待機中のターミナル接続が多すぎます。完了後にもう一度お試しください。";
 "error.terminal_resize_rejected" = "ターミナルのサイズ変更が拒否されました。";
 "error.terminal_snapshot" = "ターミナルのスナップショットが無効です。";
 "error.ghostty_runtime" = "組み込み Ghostty レンダラーを起動できませんでした。";

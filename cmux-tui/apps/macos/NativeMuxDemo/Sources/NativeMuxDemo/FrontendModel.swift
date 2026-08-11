@@ -227,7 +227,7 @@ final class FrontendModel {
                     params: [:]
                 )
                 guard let machine = uniqueFrontendIdentity(machines) else {
-                    throw FrontendServiceError.message(
+                    throw FrontendServiceError.localized(
                         L10n.text(
                             "error.no_machine",
                             "The daemon did not identify exactly one machine."
@@ -239,7 +239,7 @@ final class FrontendModel {
                     params: ["machine": .string(machine.id)]
                 )
                 guard let session = uniqueFrontendIdentity(sessions) else {
-                    throw FrontendServiceError.message(
+                    throw FrontendServiceError.localized(
                         L10n.text(
                             "error.no_session",
                             "The daemon did not identify exactly one session."
@@ -311,6 +311,17 @@ final class FrontendModel {
             await owned.shutdown()
         }
         isConnecting = false
+        recordAndPresent(error)
+    }
+
+    private func recordAndPresent(_ error: any Error) {
+        if let diagnostic = (error as? FrontendServiceError)?.diagnosticDescription,
+           !diagnostic.isEmpty
+        {
+            transportDiagnostics = [transportDiagnostics, diagnostic]
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n")
+        }
         errorMessage = error.localizedDescription
     }
 
@@ -383,7 +394,7 @@ final class FrontendModel {
                 guard !Task.isCancelled, let self else { return }
                 guard recoveryNeeded || endReason == .gap else {
                     await self.disconnectAfterFailure(
-                        FrontendServiceError.message(L10n.text(
+                        FrontendServiceError.localized(L10n.text(
                             "error.session_event_stream_ended",
                             "The session event stream ended."
                         ))
@@ -454,7 +465,7 @@ final class FrontendModel {
                 )
             }
         }
-        throw lastError ?? FrontendServiceError.message(L10n.text(
+        throw lastError ?? FrontendServiceError.localized(L10n.text(
             "error.session_event_stream_ended",
             "The session event stream ended."
         ))
@@ -525,7 +536,7 @@ final class FrontendModel {
             do {
                 try await refreshNow()
             } catch {
-                errorMessage = error.localizedDescription
+                recordAndPresent(error)
             }
         }
     }
@@ -732,7 +743,7 @@ final class FrontendModel {
             applySnapshot(next)
         } catch {
             guard focusMutations.finish(requestID) else { return }
-            errorMessage = error.localizedDescription
+            recordAndPresent(error)
             scheduleRefresh()
         }
     }
@@ -982,11 +993,11 @@ final class FrontendModel {
                    serviceError.requiresAuthoritativeReconciliation {
                     onIndeterminate?()
                     scheduleRefresh()
-                    errorMessage = serviceError.localizedDescription
+                    recordAndPresent(serviceError)
                     return
                 }
                 if onFailure?() ?? true {
-                    errorMessage = error.localizedDescription
+                    recordAndPresent(error)
                 }
             }
         }
