@@ -125,6 +125,28 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
             }
         }
         keyboardObservers.append(ChatKeyboardNotificationToken(observer))
+
+        let didHideObserver = NotificationCenter.default.addObserver(
+            forName: UIResponder.keyboardDidHideNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.resetKeyboardTracking()
+            }
+        }
+        keyboardObservers.append(ChatKeyboardNotificationToken(didHideObserver))
+
+        let didBecomeActiveObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.resetUnfocusedKeyboardTracking()
+            }
+        }
+        keyboardObservers.append(ChatKeyboardNotificationToken(didBecomeActiveObserver))
     }
 
     private func installLayoutConstraints() {
@@ -235,6 +257,26 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
             duration: effectiveDuration,
             transitionID: transitionID
         )
+    }
+
+    private func resetUnfocusedKeyboardTracking() {
+        guard !containsFirstResponder(in: composerHostingController.view) else { return }
+        resetKeyboardTracking()
+    }
+
+    private func resetKeyboardTracking() {
+        keyboardTransitionID &+= 1
+        stopKeyboardAnimation(removeAnimations: true)
+        keyboardAnimationStartOverlap = 0
+        keyboardAnimationTargetOverlap = 0
+        pinAnimationToVisibleOverlap(0)
+    }
+
+    private func containsFirstResponder(in view: UIView) -> Bool {
+        if view.isFirstResponder {
+            return true
+        }
+        return view.subviews.contains { containsFirstResponder(in: $0) }
     }
 
     private func effectiveKeyboardTransitionDuration(
