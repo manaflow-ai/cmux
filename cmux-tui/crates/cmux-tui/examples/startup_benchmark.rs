@@ -64,6 +64,8 @@ fn target_from_args(args: &Args, kind: TargetKind) -> Result<Target> {
         launcher: launcher.clone(),
         supervisor_binary: args.supervisor_binary.clone(),
         supervisor_binary_sha256: args.supervisor_binary_sha256.clone(),
+        windows_bootstrap_binary: args.windows_bootstrap_binary.clone(),
+        windows_bootstrap_sha256: args.windows_bootstrap_sha256.clone(),
         trusted_source: args.trusted_source.clone(),
         trusted_sha: args.trusted_sha.clone(),
     })?

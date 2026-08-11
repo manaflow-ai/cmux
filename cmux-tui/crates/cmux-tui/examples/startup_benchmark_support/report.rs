@@ -229,6 +229,10 @@ pub struct InfrastructureMetadata {
     pub expected_supervisor_sha256: String,
     pub supervisor_sha256: String,
     pub supervisor_bytes: u64,
+    pub windows_bootstrap_binary: Option<String>,
+    pub expected_windows_bootstrap_sha256: Option<String>,
+    pub windows_bootstrap_sha256: Option<String>,
+    pub windows_bootstrap_bytes: Option<u64>,
     pub preflight_evidence: String,
     pub expected_preflight_sha256: String,
     pub preflight_sha256: String,
@@ -249,7 +253,22 @@ impl InfrastructureMetadata {
         }
         let evidence: SandboxPreflightEvidence = serde_json::from_slice(&preflight)
             .context("sandbox preflight evidence was not valid JSON")?;
-        evidence.validate(&args.sandbox_backend, &supervisor_sha256)?;
+        evidence.validate(
+            &args.sandbox_backend,
+            &supervisor_sha256,
+            (!args.windows_bootstrap_sha256.is_empty())
+                .then_some(args.windows_bootstrap_sha256.as_str()),
+        )?;
+        #[cfg(windows)]
+        let bootstrap = Some(fs::read(&args.windows_bootstrap_binary)?);
+        #[cfg(not(windows))]
+        let bootstrap: Option<Vec<u8>> = None;
+        let windows_bootstrap_sha256 =
+            bootstrap.as_ref().map(|bytes| format!("{:x}", Sha256::digest(bytes)));
+        #[cfg(windows)]
+        if windows_bootstrap_sha256.as_deref() != Some(args.windows_bootstrap_sha256.as_str()) {
+            bail!("dedicated Windows bootstrap changed after argument validation");
+        }
         Ok(Self {
             trusted_sha: args.trusted_sha.clone(),
             trusted_source: args.trusted_source.display().to_string(),
@@ -261,6 +280,14 @@ impl InfrastructureMetadata {
             expected_supervisor_sha256: args.supervisor_binary_sha256.clone(),
             supervisor_sha256,
             supervisor_bytes: supervisor.len() as u64,
+            windows_bootstrap_binary: bootstrap
+                .as_ref()
+                .map(|_| args.windows_bootstrap_binary.display().to_string()),
+            expected_windows_bootstrap_sha256: bootstrap
+                .as_ref()
+                .map(|_| args.windows_bootstrap_sha256.clone()),
+            windows_bootstrap_sha256,
+            windows_bootstrap_bytes: bootstrap.as_ref().map(|bytes| bytes.len() as u64),
             preflight_evidence: args.sandbox_preflight.display().to_string(),
             expected_preflight_sha256: args.sandbox_preflight_sha256.clone(),
             preflight_sha256,
@@ -298,14 +325,25 @@ struct SandboxPreflightEvidence {
     windows_caller_se_impersonate_enabled: Option<bool>,
     windows_standard_handles_valid: Option<bool>,
     windows_explicit_handle_list: Option<bool>,
+    windows_bootstrap_sha256: Option<String>,
+    windows_bootstrap_config_nonce: Option<String>,
+    windows_bootstrap_config_consumed: Option<bool>,
+    windows_bootstrap_ready_elapsed_ms: Option<u64>,
+    windows_bootstrap_exact_job: Option<bool>,
+    windows_bootstrap_trusted_path_write_denied: Option<bool>,
     supervisor_ready: bool,
     timing_records: u64,
     supervisor_sha256: String,
 }
 
 impl SandboxPreflightEvidence {
-    fn validate(&self, backend: &str, supervisor_sha256: &str) -> Result<()> {
-        if self.schema_version != 2
+    fn validate(
+        &self,
+        backend: &str,
+        supervisor_sha256: &str,
+        windows_bootstrap_sha256: Option<&str>,
+    ) -> Result<()> {
+        if self.schema_version != 3
             || self.backend != backend
             || self.policy != "fixture-root-only-write"
             || self.handshake != "nonce-bound-ready-arm-with-pre-exec-t0"
@@ -349,6 +387,16 @@ impl SandboxPreflightEvidence {
                     && self.windows_caller_se_impersonate_enabled == Some(true)
                     && self.windows_standard_handles_valid == Some(true)
                     && self.windows_explicit_handle_list == Some(true)
+                    && self.windows_bootstrap_sha256.as_deref() == windows_bootstrap_sha256
+                    && self.windows_bootstrap_config_nonce.as_deref().is_some_and(|value| {
+                        value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+                    })
+                    && self.windows_bootstrap_config_consumed == Some(true)
+                    && self
+                        .windows_bootstrap_ready_elapsed_ms
+                        .is_some_and(|elapsed| elapsed <= 10_000)
+                    && self.windows_bootstrap_exact_job == Some(true)
+                    && self.windows_bootstrap_trusted_path_write_denied == Some(true)
             }
             _ => false,
         };
@@ -368,6 +416,12 @@ impl SandboxPreflightEvidence {
             && self.windows_caller_se_impersonate_enabled.is_none()
             && self.windows_standard_handles_valid.is_none()
             && self.windows_explicit_handle_list.is_none()
+            && self.windows_bootstrap_sha256.is_none()
+            && self.windows_bootstrap_config_nonce.is_none()
+            && self.windows_bootstrap_config_consumed.is_none()
+            && self.windows_bootstrap_ready_elapsed_ms.is_none()
+            && self.windows_bootstrap_exact_job.is_none()
+            && self.windows_bootstrap_trusted_path_write_denied.is_none()
     }
 
     fn linux_provenance_absent(&self) -> bool {

@@ -686,6 +686,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-startup-bootstrap"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "memmap2",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "cmux-terminal-client"
 version = "0.1.0"
 dependencies = [
@@ -714,6 +726,7 @@ dependencies = [
  "cmux-pty",
  "cmux-remote",
  "cmux-remote-protocol",
+ "cmux-startup-bootstrap",
  "cmux-tui-core",
  "cmux-tui-machine-agent-protocol",
  "cmux-tui-machine-protocol",

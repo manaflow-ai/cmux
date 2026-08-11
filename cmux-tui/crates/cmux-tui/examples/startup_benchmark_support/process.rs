@@ -51,6 +51,8 @@ pub struct Target {
     pub launcher: Vec<String>,
     pub supervisor_binary: PathBuf,
     pub supervisor_binary_sha256: String,
+    pub windows_bootstrap_binary: PathBuf,
+    pub windows_bootstrap_sha256: String,
     pub trusted_source: PathBuf,
     pub trusted_sha: String,
 }
@@ -66,6 +68,8 @@ impl Target {
             launcher,
             supervisor_binary,
             supervisor_binary_sha256,
+            windows_bootstrap_binary,
+            windows_bootstrap_sha256,
             trusted_source,
             trusted_sha,
         } = input;
@@ -92,6 +96,10 @@ impl Target {
                 "trusted supervisor SHA-256 mismatch: expected {supervisor_binary_sha256}, observed {observed_supervisor_sha256}"
             );
         }
+        #[cfg(windows)]
+        if binary_sha256(&windows_bootstrap_binary)? != windows_bootstrap_sha256 {
+            bail!("trusted Windows bootstrap SHA-256 mismatch before execution");
+        }
         let observed_trusted_sha = git_sha(&trusted_source)?;
         if observed_trusted_sha != trusted_sha {
             bail!(
@@ -116,6 +124,8 @@ impl Target {
             launcher,
             supervisor_binary,
             supervisor_binary_sha256,
+            windows_bootstrap_binary,
+            windows_bootstrap_sha256,
             trusted_source,
             trusted_sha,
         })
@@ -167,6 +177,10 @@ impl Target {
         if binary_sha256(&self.supervisor_binary)? != self.supervisor_binary_sha256 {
             bail!("trusted supervisor changed after execution");
         }
+        #[cfg(windows)]
+        if binary_sha256(&self.windows_bootstrap_binary)? != self.windows_bootstrap_sha256 {
+            bail!("trusted Windows bootstrap changed after execution");
+        }
         Ok(())
     }
 }
@@ -180,6 +194,8 @@ pub struct TargetInput {
     pub launcher: Vec<String>,
     pub supervisor_binary: PathBuf,
     pub supervisor_binary_sha256: String,
+    pub windows_bootstrap_binary: PathBuf,
+    pub windows_bootstrap_sha256: String,
     pub trusted_source: PathBuf,
     pub trusted_sha: String,
 }
@@ -912,8 +928,15 @@ impl Common {
             self.target.expected_binary_sha256.clone(),
             "--supervisor-sha256".into(),
             self.target.supervisor_binary_sha256.clone(),
-            "--".into(),
         ];
+        #[cfg(windows)]
+        args.extend([
+            "--windows-bootstrap-binary".into(),
+            self.target.windows_bootstrap_binary.to_string_lossy().into_owned(),
+            "--windows-bootstrap-sha256".into(),
+            self.target.windows_bootstrap_sha256.clone(),
+        ]);
+        args.push("--".into());
         args.extend(product_args.iter().cloned());
         args
     }
@@ -2871,6 +2894,8 @@ mod tests {
     const SENTINEL_PATH_ENV: &str = "CMUX_STARTUP_TEST_SENTINEL_PATH";
     const START_MARKER_PATH_ENV: &str = "CMUX_STARTUP_TEST_START_MARKER_PATH";
     const SUPERVISOR_PATH_ENV: &str = "CMUX_BENCH_TEST_SUPERVISOR";
+    #[cfg(windows)]
+    const BOOTSTRAP_PATH_ENV: &str = "CMUX_BENCH_TEST_WINDOWS_BOOTSTRAP";
     const FIXTURE_PARENT_ENV: &str = "CMUX_BENCH_TEST_FIXTURE_PARENT";
 
     fn current_test_target() -> Target {
@@ -2880,6 +2905,18 @@ mod tests {
         );
         let supervisor_binary_sha256 =
             binary_sha256(&supervisor_binary).expect("hash trusted test supervisor");
+        #[cfg(windows)]
+        let windows_bootstrap_binary = PathBuf::from(
+            env::var_os(BOOTSTRAP_PATH_ENV)
+                .expect("CMUX_BENCH_TEST_WINDOWS_BOOTSTRAP must name the minimal bootstrap"),
+        );
+        #[cfg(not(windows))]
+        let windows_bootstrap_binary = PathBuf::new();
+        #[cfg(windows)]
+        let windows_bootstrap_sha256 =
+            binary_sha256(&windows_bootstrap_binary).expect("hash trusted test bootstrap");
+        #[cfg(not(windows))]
+        let windows_bootstrap_sha256 = String::new();
         Target {
             kind: TargetKind::Candidate,
             binary: env::current_exe().unwrap(),
@@ -2895,6 +2932,8 @@ mod tests {
             launcher: Vec::new(),
             supervisor_binary,
             supervisor_binary_sha256,
+            windows_bootstrap_binary,
+            windows_bootstrap_sha256,
             trusted_source: env::current_dir().unwrap(),
             trusted_sha: "0".repeat(40),
         }

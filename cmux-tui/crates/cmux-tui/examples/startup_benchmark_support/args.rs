@@ -16,6 +16,8 @@ pub struct Args {
     pub trusted_source: PathBuf,
     pub supervisor_binary: PathBuf,
     pub supervisor_binary_sha256: String,
+    pub windows_bootstrap_binary: PathBuf,
+    pub windows_bootstrap_sha256: String,
     pub sandbox_backend: String,
     pub sandbox_preflight: PathBuf,
     pub sandbox_preflight_sha256: String,
@@ -47,6 +49,8 @@ impl Args {
             trusted_source: PathBuf::new(),
             supervisor_binary: PathBuf::new(),
             supervisor_binary_sha256: String::new(),
+            windows_bootstrap_binary: PathBuf::new(),
+            windows_bootstrap_sha256: String::new(),
             sandbox_backend: String::new(),
             sandbox_preflight: PathBuf::new(),
             sandbox_preflight_sha256: String::new(),
@@ -77,6 +81,12 @@ impl Args {
                 "--supervisor-binary" => args.supervisor_binary = parser.path(&key, inline)?,
                 "--supervisor-binary-sha256" => {
                     args.supervisor_binary_sha256 = parser.value(&key, inline)?;
+                }
+                "--windows-bootstrap-binary" => {
+                    args.windows_bootstrap_binary = parser.path(&key, inline)?;
+                }
+                "--windows-bootstrap-sha256" => {
+                    args.windows_bootstrap_sha256 = parser.value(&key, inline)?;
                 }
                 "--sandbox-backend" => args.sandbox_backend = parser.value(&key, inline)?,
                 "--sandbox-preflight" => args.sandbox_preflight = parser.path(&key, inline)?,
@@ -138,6 +148,18 @@ impl Args {
         validate_sha(&self.baseline_sha, "--baseline-sha")?;
         validate_sha(&self.candidate_sha, "--candidate-sha")?;
         validate_sha256(&self.supervisor_binary_sha256, "--supervisor-binary-sha256")?;
+        #[cfg(windows)]
+        {
+            self.windows_bootstrap_binary =
+                canonical_file(&self.windows_bootstrap_binary, "--windows-bootstrap-binary")?;
+            validate_sha256(&self.windows_bootstrap_sha256, "--windows-bootstrap-sha256")?;
+        }
+        #[cfg(not(windows))]
+        if !self.windows_bootstrap_binary.as_os_str().is_empty()
+            || !self.windows_bootstrap_sha256.is_empty()
+        {
+            bail!("Windows bootstrap options are invalid on this platform");
+        }
         validate_sha256(&self.sandbox_preflight_sha256, "--sandbox-preflight-sha256")?;
         if self.sandbox_backend != expected_sandbox_backend() {
             bail!("--sandbox-backend must be {} on this platform", expected_sandbox_backend());

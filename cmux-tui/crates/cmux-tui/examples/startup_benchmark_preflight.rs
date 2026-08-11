@@ -11,6 +11,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
+use cmux_startup_bootstrap::BootstrapLaunchEvidence;
 use cmux_tui_core::platform::transport;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -53,6 +54,12 @@ struct PreflightEvidence {
     windows_caller_se_impersonate_enabled: Option<bool>,
     windows_standard_handles_valid: Option<bool>,
     windows_explicit_handle_list: Option<bool>,
+    windows_bootstrap_sha256: Option<String>,
+    windows_bootstrap_config_nonce: Option<String>,
+    windows_bootstrap_config_consumed: Option<bool>,
+    windows_bootstrap_ready_elapsed_ms: Option<u64>,
+    windows_bootstrap_exact_job: Option<bool>,
+    windows_bootstrap_trusted_path_write_denied: Option<bool>,
     supervisor_ready: bool,
     timing_records: u64,
     supervisor_sha256: String,
@@ -367,6 +374,10 @@ fn copy_bootstrap_failure_checkpoint(
 
 fn run_controller(values: &[String]) -> Result<()> {
     let supervisor = required_path(values, "--supervisor")?;
+    #[cfg(windows)]
+    let windows_bootstrap = required_path(values, "--windows-bootstrap-binary")?;
+    #[cfg(windows)]
+    let windows_bootstrap_sha256 = required_value(values, "--windows-bootstrap-sha256")?;
     let fixture_parent = required_path(values, "--fixture-parent")?;
     let output = required_path(values, "--output")?;
     let backend = required_value(values, "--backend")?;
@@ -400,6 +411,12 @@ fn run_controller(values: &[String]) -> Result<()> {
 
     let current = env::current_exe().context("resolve preflight product executable")?;
     let supervisor_sha256 = sha256_file(&supervisor, "trusted supervisor")?;
+    #[cfg(windows)]
+    if sha256_file(&windows_bootstrap, "trusted minimal Windows bootstrap")?
+        != windows_bootstrap_sha256
+    {
+        bail!("minimal Windows bootstrap SHA-256 mismatch before preflight");
+    }
     let target_sha256 = sha256_file(&current, "preflight product")?;
     let nonce = timing.nonce_hex();
     let mut command = Command::new(&supervisor);
@@ -418,6 +435,14 @@ fn run_controller(values: &[String]) -> Result<()> {
         &target_sha256,
         "--supervisor-sha256",
         &supervisor_sha256,
+    ]);
+    #[cfg(windows)]
+    command
+        .arg("--windows-bootstrap-binary")
+        .arg(&windows_bootstrap)
+        .arg("--windows-bootstrap-sha256")
+        .arg(&windows_bootstrap_sha256);
+    command.args([
         "--prove-private-job",
         "--",
         "--probe",
@@ -594,8 +619,20 @@ fn run_controller(values: &[String]) -> Result<()> {
     drop(network_listener);
     let (bwrap_version, unprivileged_userns_clone, max_user_namespaces) =
         linux_platform_metadata()?;
+    #[cfg(windows)]
+    let bootstrap_evidence: Option<BootstrapLaunchEvidence> = {
+        let path = root.join(format!("windows-bootstrap-evidence-{}.json", &nonce[..16]));
+        let evidence: BootstrapLaunchEvidence = serde_json::from_slice(
+            &fs::read(&path)
+                .with_context(|| format!("read Windows bootstrap evidence {}", path.display()))?,
+        )?;
+        evidence.validate(&nonce, &windows_bootstrap_sha256)?;
+        Some(evidence)
+    };
+    #[cfg(not(windows))]
+    let bootstrap_evidence: Option<BootstrapLaunchEvidence> = None;
     let evidence = PreflightEvidence {
-        schema_version: 2,
+        schema_version: 3,
         backend,
         policy: "fixture-root-only-write",
         handshake: "nonce-bound-ready-arm-with-pre-exec-t0",
@@ -627,6 +664,24 @@ fn run_controller(values: &[String]) -> Result<()> {
         windows_caller_se_impersonate_enabled: cfg!(windows).then_some(true),
         windows_standard_handles_valid: cfg!(windows).then_some(true),
         windows_explicit_handle_list: cfg!(windows).then_some(true),
+        windows_bootstrap_sha256: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.bootstrap_sha256.clone()),
+        windows_bootstrap_config_nonce: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.config_nonce.clone()),
+        windows_bootstrap_config_consumed: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.config_consumed),
+        windows_bootstrap_ready_elapsed_ms: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.ready_elapsed_ms),
+        windows_bootstrap_exact_job: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.exact_job_proof),
+        windows_bootstrap_trusted_path_write_denied: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.trusted_path_write_denied),
         supervisor_ready: true,
         timing_records: if timing_result.is_ok() { 1 } else { 0 },
         supervisor_sha256,
@@ -804,6 +859,12 @@ fn platform_proofs_pass(evidence: &PreflightEvidence) -> bool {
             && evidence.windows_caller_se_impersonate_enabled.is_none()
             && evidence.windows_standard_handles_valid.is_none()
             && evidence.windows_explicit_handle_list.is_none()
+            && evidence.windows_bootstrap_sha256.is_none()
+            && evidence.windows_bootstrap_config_nonce.is_none()
+            && evidence.windows_bootstrap_config_consumed.is_none()
+            && evidence.windows_bootstrap_ready_elapsed_ms.is_none()
+            && evidence.windows_bootstrap_exact_job.is_none()
+            && evidence.windows_bootstrap_trusted_path_write_denied.is_none()
     }
     #[cfg(target_os = "macos")]
     {
@@ -822,6 +883,12 @@ fn platform_proofs_pass(evidence: &PreflightEvidence) -> bool {
             && evidence.windows_caller_se_impersonate_enabled.is_none()
             && evidence.windows_standard_handles_valid.is_none()
             && evidence.windows_explicit_handle_list.is_none()
+            && evidence.windows_bootstrap_sha256.is_none()
+            && evidence.windows_bootstrap_config_nonce.is_none()
+            && evidence.windows_bootstrap_config_consumed.is_none()
+            && evidence.windows_bootstrap_ready_elapsed_ms.is_none()
+            && evidence.windows_bootstrap_exact_job.is_none()
+            && evidence.windows_bootstrap_trusted_path_write_denied.is_none()
     }
     #[cfg(windows)]
     {
@@ -840,6 +907,15 @@ fn platform_proofs_pass(evidence: &PreflightEvidence) -> bool {
             && evidence.windows_caller_se_impersonate_enabled == Some(true)
             && evidence.windows_standard_handles_valid == Some(true)
             && evidence.windows_explicit_handle_list == Some(true)
+            && evidence.windows_bootstrap_sha256.as_ref().is_some_and(|value| value.len() == 64)
+            && evidence
+                .windows_bootstrap_config_nonce
+                .as_ref()
+                .is_some_and(|value| value.len() == 64)
+            && evidence.windows_bootstrap_config_consumed == Some(true)
+            && evidence.windows_bootstrap_ready_elapsed_ms.is_some_and(|elapsed| elapsed <= 10_000)
+            && evidence.windows_bootstrap_exact_job == Some(true)
+            && evidence.windows_bootstrap_trusted_path_write_denied == Some(true)
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     {
