@@ -9185,6 +9185,8 @@ impl Mux {
                         budget.blocked_surfaces.insert(id);
                     }
                 }
+                pending_operations
+                    .retain(|pending| budget.entries.contains_key(&pending.surface_id));
                 Self::rebalance_kitty_image_budget_owners(&mut budget);
                 budget.expansion_in_flight = false;
                 if budget.blocked_surfaces.is_empty() {
