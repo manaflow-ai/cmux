@@ -126,6 +126,17 @@ class FakeLiveAdapter:
         }
 
 
+class UnixRestartFailureAdapter(FakeLiveAdapter):
+    def request(self, payload: dict, *, timeout: float = 45.0) -> dict:
+        if (
+            payload["transport"] == "unix"
+            and payload["op"] == "live-exit-restart"
+        ):
+            self.requests.append(json.loads(json.dumps(payload)))
+            raise ConformanceFailure("unix restart failed")
+        return super().request(payload, timeout=timeout)
+
+
 class ContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -360,6 +371,30 @@ class LiveOrchestrationTests(unittest.TestCase):
             self.assertEqual(
                 restarted[transport]["expected_exited_at"], "1001"
             )
+
+    def test_unix_restart_failure_does_not_skip_websocket_restart(self) -> None:
+        adapter = UnixRestartFailureAdapter()
+        with (
+            patch("runner.start_live_server") as start,
+            patch("runner.stop_live_server"),
+        ):
+            start.side_effect = [
+                (object(), "ws://127.0.0.1:41001"),
+                (object(), "ws://127.0.0.1:41002"),
+            ]
+            failures = run_live_case(adapter, Path(sys.executable), {})
+
+        self.assertEqual(failures, {"unix": "unix restart failed"})
+        websocket_restart_operations = [
+            payload["op"]
+            for payload in adapter.requests
+            if payload["transport"] == "websocket"
+            and payload["op"] in {"live-exit-restart", "live-restart"}
+        ]
+        self.assertEqual(
+            websocket_restart_operations,
+            ["live-exit-restart", "live-restart"],
+        )
 
 
 class EnvelopeServerTests(unittest.TestCase):
