@@ -2346,6 +2346,36 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
 
           if [ -z "$cmux_ssh_auth_root_identity" ]; then exit 0; fi
           cmux_ssh_auth_durable_cleanup_pending=0
+          cmux_ssh_auth_preserve_unpublished_root() {
+            cmux_ssh_auth_preserve_state="${CMUX_SSH_AUTH_GROUP_DIR:-}"
+            if [ -z "$cmux_ssh_auth_preserve_state" ] || \
+              ! cmux_ssh_auth_recovery_group_path_is_valid \
+                "$cmux_ssh_auth_preserve_state" || \
+              [ ! -d "$cmux_ssh_auth_preserve_state" ] || \
+              [ -L "$cmux_ssh_auth_preserve_state" ]; then return 1; fi
+            cmux_ssh_auth_preserve_expected="$(/usr/bin/id -u):700"
+            cmux_ssh_auth_preserve_observed=$(/usr/bin/stat -f '%u:%Lp' \
+              "$cmux_ssh_auth_preserve_state" 2>/dev/null || true)
+            if [ "$cmux_ssh_auth_preserve_observed" != \
+              "$cmux_ssh_auth_preserve_expected" ]; then return 1; fi
+            if [ -s "$cmux_ssh_auth_preserve_state/identity" ]; then
+              cmux_ssh_terminate_owned_auth_group
+              return 0
+            fi
+            umask 077
+            printf '%s %s %s %s\n' "$cmux_ssh_auth_root_pid" \
+              "$cmux_ssh_auth_observed_parent" "$cmux_ssh_auth_root_group" \
+              "$cmux_ssh_auth_root_started" \
+              > "$cmux_ssh_auth_preserve_state/unpublished.root" || return 1
+            printf '%s %s %s %s R\n' "$cmux_ssh_auth_root_pid" \
+              "$cmux_ssh_auth_observed_parent" "$cmux_ssh_auth_root_group" \
+              "$cmux_ssh_auth_root_started" \
+              > "$cmux_ssh_auth_preserve_state/owned" || return 1
+            : > "$cmux_ssh_auth_preserve_state/rollback-only" || return 1
+            cmux_ssh_auth_recovery_enqueue \
+              "$cmux_ssh_auth_preserve_state" >/dev/null 2>&1 || return 1
+            cmux_ssh_schedule_failed_auth_group_recovery
+          }
           if [ -z "${CMUX_SSH_AUTH_GROUP_DIR:-}" ] || \
             [ ! -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" ]; then
             if cmux_ssh_terminate_unpublished_auth_process_tree \
@@ -2372,9 +2402,17 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                 cmux_ssh_schedule_failed_auth_group_recovery
                 cmux_ssh_auth_durable_cleanup_pending=1
               else
-                cmux_ssh_auth_force_unpublished_process_tree \
+                if cmux_ssh_auth_force_unpublished_process_tree \
                   "$cmux_ssh_auth_root_pid" "$cmux_ssh_auth_observed_parent" \
-                  "$cmux_ssh_auth_root_group" "$cmux_ssh_auth_root_started" || true
+                  "$cmux_ssh_auth_root_group" "$cmux_ssh_auth_root_started"; then
+                  :
+                else
+                  # The bounded fallback resumed its partial STOP journal. Do
+                  # not kill only the root and orphan the remaining closure.
+                  # Publish the exact root as durable recovery ownership.
+                  cmux_ssh_auth_durable_cleanup_pending=1
+                  cmux_ssh_auth_preserve_unpublished_root || true
+                fi
               fi
             fi
           else
