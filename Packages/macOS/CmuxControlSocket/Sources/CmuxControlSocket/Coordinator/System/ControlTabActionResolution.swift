@@ -23,8 +23,9 @@ public enum ControlTabActionResolution: Sendable, Equatable {
         /// carries `accepted` / `routed` instead.
         case routedToRemote
         /// The terminal create entered the local serialized backend queue.
-        /// RPC acceptance and canonical projection are still pending.
-        case submittedToBackend(requestID: UUID)
+        /// RPC acceptance and canonical projection are still pending, but the
+        /// reserved surface identity is stable for request correlation.
+        case submittedToBackend(requestID: UUID, createdSurfaceID: UUID)
         /// `close_left` / `close_right` / `close_others` — the `closed` and
         /// `skipped_pinned` counts.
         case closed(closed: Int, skippedPinned: Int)

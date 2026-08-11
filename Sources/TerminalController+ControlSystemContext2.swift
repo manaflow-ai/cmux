@@ -240,7 +240,10 @@ extension TerminalController {
                 // via %window-add and the mirror positions it, so no local reorder here.
                 return finish(.routedToRemote)
             case .submittedToBackend(let submission):
-                return finish(.submittedToBackend(requestID: submission.requestID))
+                return finish(.submittedToBackend(
+                    requestID: submission.requestID,
+                    createdSurfaceID: submission.surfaceID
+                ))
             case .failed:
                 return .createFailed
             }

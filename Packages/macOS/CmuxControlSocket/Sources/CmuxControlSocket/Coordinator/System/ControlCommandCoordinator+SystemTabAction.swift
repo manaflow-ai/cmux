@@ -134,7 +134,7 @@ extension ControlCommandCoordinator {
                 payload["created_surface_ref"] = .null
                 payload["created_tab_id"] = .null
                 payload["created_tab_ref"] = .null
-            case .submittedToBackend(let requestID):
+            case .submittedToBackend(let requestID, let createdSurfaceID):
                 payload["submitted"] = .bool(true)
                 payload["accepted"] = .bool(false)
                 payload["request_id"] = .string(requestID.uuidString)
@@ -142,10 +142,10 @@ extension ControlCommandCoordinator {
                 payload["retry_safe"] = .bool(false)
                 payload["submission_target"] = .string("cmuxd")
                 payload["pending_projection"] = .bool(true)
-                payload["created_surface_id"] = .null
-                payload["created_surface_ref"] = .null
-                payload["created_tab_id"] = .null
-                payload["created_tab_ref"] = .null
+                payload["created_surface_id"] = .string(createdSurfaceID.uuidString)
+                payload["created_surface_ref"] = ref(.surface, createdSurfaceID)
+                payload["created_tab_id"] = .string(createdSurfaceID.uuidString)
+                payload["created_tab_ref"] = tabRef(createdSurfaceID)
             case .closed(let closed, let skippedPinned):
                 payload["closed"] = .int(Int64(closed))
                 payload["skipped_pinned"] = .int(Int64(skippedPinned))
