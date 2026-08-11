@@ -34,6 +34,30 @@ extension ReconnectRouteSelectionTests {
         #expect(attemptedKinds.allSatisfy { $0 == .iroh })
     }
 
+    @Test func sameMacEventStreamRecoveryPreservesSelectedWorkspace() async throws {
+        let fixture = try await makeRecoveryOwnerFixture()
+        defer { fixture.release() }
+        await fixture.router.setWorkspaceIDs(["cmux-master", "hevy-cli"])
+
+        #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        let firstClient = try #require(fixture.store.remoteClient)
+        let hevyWorkspace = try #require(
+            fixture.store.workspaces.first { $0.rpcWorkspaceID.rawValue == "hevy-cli" }
+        )
+        fixture.store.selectedWorkspaceID = hevyWorkspace.id
+        let firstTransport = try #require(fixture.box.get())
+
+        await firstTransport.close()
+
+        #expect(try await pollUntil {
+            guard let replacement = fixture.store.remoteClient else { return false }
+            return replacement !== firstClient
+                && fixture.store.connectionState == .connected
+        })
+        #expect(fixture.store.selectedWorkspace?.rpcWorkspaceID.rawValue == "hevy-cli")
+    }
+
     @Test func recoveryWaitsForOldPhysicalTransportBeforeRedialing() async throws {
         let closeGate = LivenessTransportCloseGate()
         let fixture = try await makeRecoveryOwnerFixture(
