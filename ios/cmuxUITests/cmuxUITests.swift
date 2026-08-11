@@ -4814,14 +4814,14 @@ final class cmuxUITests: XCTestCase {
     @MainActor
     func testAgentChatMissingAttachmentSessionDoesNotClaimMacUnreachable() throws {
         let app = launchAgentChatPreviewApp(environment: [
+            "CMUX_UITEST_MOCK_DATA": "1",
             "CMUX_UITEST_AGENT_CHAT_ARTIFACT_FAILURE": "session_not_found",
         ])
         let table = app.tables["ChatTranscriptTableView"]
         _ = try scrollToRichAgentChatFixtureRegion(table: table, app: app)
-        let attachment = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "label == %@", "ci-failure.png"))
-            .firstMatch
+        let attachment = app.buttons["ChatAttachmentButton"]
         XCTAssertTrue(attachment.waitForExistence(timeout: 4))
+        XCTAssertEqual(attachment.label, "ci-failure.png")
         guard scrollTranscript(table, toReveal: attachment, timeout: 10) else {
             XCTFail("Missing attachment never became visible")
             return
