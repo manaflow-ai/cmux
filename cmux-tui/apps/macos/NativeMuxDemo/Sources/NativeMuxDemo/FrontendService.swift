@@ -705,8 +705,8 @@ struct TerminalRenderEventBatch: Sendable {
 
 func drainTerminalRenderEvents(
   maximumEvents: Int = 64,
-  maximumEventBytes: Int = 4_194_304,
-  maximumBytes: Int = 8_388_608,
+  maximumEventBytes: Int = Int(CMUX_TERMINAL_CLIENT_COPY_MAX_BYTES),
+  maximumBytes: Int = Int(CMUX_TERMINAL_CLIENT_COPY_MAX_BYTES),
   discard: () -> Void = {},
   copy: (
     _ descriptor: inout CmuxFrontendRenderEvent,

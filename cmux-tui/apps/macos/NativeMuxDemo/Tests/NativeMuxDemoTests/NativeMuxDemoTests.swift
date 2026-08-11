@@ -792,6 +792,33 @@ func renderDrainRejectsOversizedEventBeforeAllocation() {
 }
 
 @Test
+func renderDrainAcceptsResetAboveFormerFrontendLimit() {
+    let formerFrontendLimit = 4 * 1024 * 1024
+    let payloadLength = formerFrontendLimit + 1
+    var leased = true
+    let batch = drainTerminalRenderEvents { descriptor, buffer, capacity in
+        guard leased else { return false }
+        descriptor = CmuxFrontendRenderEvent()
+        descriptor.kind = TerminalRenderEvent.Kind.reset.rawValue
+        descriptor.cols = 80
+        descriptor.rows = 24
+        descriptor.payload_length = payloadLength
+        guard let buffer, capacity >= payloadLength else { return true }
+        buffer.initialize(repeating: 0, count: payloadLength)
+        leased = false
+        return true
+    }
+
+    #expect(payloadLength < Int(CMUX_TERMINAL_CLIENT_COPY_MAX_BYTES))
+    #expect(batch.events.count == 1)
+    #expect(batch.events.first?.kind == .reset)
+    #expect(batch.events.first?.payload.count == payloadLength)
+    #expect(!batch.hasMore)
+    #expect(!batch.overflowed)
+    #expect(!leased)
+}
+
+@Test
 func renderDrainLeavesTheNextEventAtTheBatchByteBudget() {
     var pending = [Data("four".utf8), Data("five".utf8)]
     var leased: Data?
