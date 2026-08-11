@@ -153,7 +153,7 @@ struct TerminalSurfaceLaunchResolverTests {
         #expect(resolved.arguments == ["/bin/zsh", "-l"])
     }
 
-    @Test func fixedBundleResourceChecksRunOffMainActorOncePerResolver() {
+    @Test func fixedBundleResourceChecksRunOffMainActorOncePerResolver() async {
         let recorder = LaunchResourceFileCheckRecorder()
         let filesystem = TerminalSurfaceRuntimeFilesystem(
             agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp"),
@@ -177,8 +177,8 @@ struct TerminalSurfaceLaunchResolverTests {
             additionalEnvironment: [:]
         )
 
-        _ = resolver.resolve(request, commandShims: nil)
-        _ = resolver.resolve(request, commandShims: nil)
+        _ = await resolver.resolveInstallingCommandShim(request)
+        _ = await resolver.resolveInstallingCommandShim(request)
 
         #expect(recorder.paths == [
             "/tmp/cmux-test-resources/bin/cmux",

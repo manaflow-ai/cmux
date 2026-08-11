@@ -75,7 +75,7 @@ public struct TerminalSurfaceEmbeddedRuntimeDependencies {
     public let runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator
     public let restoreSpawnScheduler: any TerminalSurfaceRuntimeSpawnScheduling
     public let runtimeFilesystem: TerminalSurfaceRuntimeFilesystem
-    public let launchResourceSnapshot: TerminalSurfaceLaunchResourceSnapshot?
+    public let launchResourceProvider: TerminalSurfaceLaunchResourceProvider?
     public let agentCommandShimInstallDeadline: Duration
     public let agentCommandShimInstallDeadlineClock: any Clock<Duration>
     public let sessionPortBase: Int
@@ -88,7 +88,7 @@ public struct TerminalSurfaceEmbeddedRuntimeDependencies {
         runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator,
         restoreSpawnScheduler: any TerminalSurfaceRuntimeSpawnScheduling,
         runtimeFilesystem: TerminalSurfaceRuntimeFilesystem,
-        launchResourceSnapshot: TerminalSurfaceLaunchResourceSnapshot? = nil,
+        launchResourceProvider: TerminalSurfaceLaunchResourceProvider? = nil,
         agentCommandShimInstallDeadline: Duration = .seconds(5),
         agentCommandShimInstallDeadlineClock: any Clock<Duration> = ContinuousClock(),
         sessionPortBase: Int,
@@ -100,7 +100,7 @@ public struct TerminalSurfaceEmbeddedRuntimeDependencies {
         self.runtimeTeardown = runtimeTeardown
         self.restoreSpawnScheduler = restoreSpawnScheduler
         self.runtimeFilesystem = runtimeFilesystem
-        self.launchResourceSnapshot = launchResourceSnapshot
+        self.launchResourceProvider = launchResourceProvider
         self.agentCommandShimInstallDeadline = agentCommandShimInstallDeadline
         self.agentCommandShimInstallDeadlineClock = agentCommandShimInstallDeadlineClock
         self.sessionPortBase = sessionPortBase
@@ -133,7 +133,7 @@ public struct TerminalSurfaceRuntimeDependencies {
         runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator,
         restoreSpawnScheduler: any TerminalSurfaceRuntimeSpawnScheduling,
         runtimeFilesystem: TerminalSurfaceRuntimeFilesystem,
-        launchResourceSnapshot: TerminalSurfaceLaunchResourceSnapshot? = nil,
+        launchResourceProvider: TerminalSurfaceLaunchResourceProvider? = nil,
         agentCommandShimInstallDeadline: Duration = .seconds(5),
         agentCommandShimInstallDeadlineClock: any Clock<Duration> = ContinuousClock(),
         sessionPortBase: Int,
@@ -156,7 +156,7 @@ public struct TerminalSurfaceRuntimeDependencies {
             runtimeTeardown: runtimeTeardown,
             restoreSpawnScheduler: restoreSpawnScheduler,
             runtimeFilesystem: runtimeFilesystem,
-            launchResourceSnapshot: launchResourceSnapshot,
+            launchResourceProvider: launchResourceProvider,
             agentCommandShimInstallDeadline: agentCommandShimInstallDeadline,
             agentCommandShimInstallDeadlineClock: agentCommandShimInstallDeadlineClock,
             sessionPortBase: sessionPortBase,

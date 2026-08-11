@@ -29,7 +29,62 @@ public struct TerminalSurfaceLaunchResourceSnapshot: Sendable, Equatable {
         self.shellIntegrationDirectoryPath = shellIntegrationDirectoryPath
     }
 
-    public nonisolated static func loadOffMainThread(
+    public static let unavailable = Self(
+        wrapperDirectoryURL: nil,
+        cliBinPath: nil,
+        bundledCLIPath: nil,
+        ghosttyCLIPath: nil,
+        shellIntegrationDirectoryPath: nil
+    )
+
+    fileprivate nonisolated static func inspect(
+        resourceURL: URL?,
+        isExecutableFile: @Sendable (String) -> Bool,
+        directoryExists: @Sendable (String) -> Bool
+    ) -> Self {
+        guard let resourceURL else { return .unavailable }
+        let wrapperDirectoryURL = resourceURL.appendingPathComponent(
+            "bin",
+            isDirectory: true
+        )
+        let bundledCLIPath = wrapperDirectoryURL.appendingPathComponent("cmux").path
+        let ghosttyCLIPath = wrapperDirectoryURL.appendingPathComponent("ghostty").path
+        let shellIntegrationDirectoryPath = resourceURL.appendingPathComponent(
+            "shell-integration",
+            isDirectory: true
+        ).path
+        return Self(
+            wrapperDirectoryURL: wrapperDirectoryURL,
+            cliBinPath: wrapperDirectoryURL.path,
+            bundledCLIPath: isExecutableFile(bundledCLIPath) ? bundledCLIPath : nil,
+            ghosttyCLIPath: isExecutableFile(ghosttyCLIPath) ? ghosttyCLIPath : nil,
+            shellIntegrationDirectoryPath: directoryExists(shellIntegrationDirectoryPath)
+                ? shellIntegrationDirectoryPath
+                : nil
+        )
+    }
+}
+
+/// Starts one fixed bundle-resource inspection outside the main actor and
+/// shares its immutable result across terminal launches.
+public final class TerminalSurfaceLaunchResourceProvider: @unchecked Sendable {
+    private final class State: @unchecked Sendable {
+        private let lock = NSLock()
+        private var snapshot: TerminalSurfaceLaunchResourceSnapshot?
+
+        func install(_ snapshot: TerminalSurfaceLaunchResourceSnapshot) {
+            lock.withLock { self.snapshot = snapshot }
+        }
+
+        func current() -> TerminalSurfaceLaunchResourceSnapshot? {
+            lock.withLock { snapshot }
+        }
+    }
+
+    private let state: State
+    private let task: Task<TerminalSurfaceLaunchResourceSnapshot, Never>
+
+    public init(
         resourceURL: URL?,
         isExecutableFile: @escaping @Sendable (String) -> Bool,
         directoryExists: @escaping @Sendable (String) -> Bool = { path in
@@ -39,41 +94,26 @@ public struct TerminalSurfaceLaunchResourceSnapshot: Sendable, Equatable {
                 isDirectory: &isDirectory
             ) && isDirectory.boolValue
         }
-    ) -> Self {
-        let inspect: @Sendable () -> Self = {
-            guard let resourceURL else {
-                return Self(
-                    wrapperDirectoryURL: nil,
-                    cliBinPath: nil,
-                    bundledCLIPath: nil,
-                    ghosttyCLIPath: nil,
-                    shellIntegrationDirectoryPath: nil
-                )
-            }
-            let wrapperDirectoryURL = resourceURL.appendingPathComponent(
-                "bin",
-                isDirectory: true
+    ) {
+        let state = State()
+        self.state = state
+        task = Task.detached(priority: .utility) {
+            let snapshot = TerminalSurfaceLaunchResourceSnapshot.inspect(
+                resourceURL: resourceURL,
+                isExecutableFile: isExecutableFile,
+                directoryExists: directoryExists
             )
-            let bundledCLIPath = wrapperDirectoryURL.appendingPathComponent("cmux").path
-            let ghosttyCLIPath = wrapperDirectoryURL.appendingPathComponent("ghostty").path
-            let shellIntegrationDirectoryPath = resourceURL.appendingPathComponent(
-                "shell-integration",
-                isDirectory: true
-            ).path
-            return Self(
-                wrapperDirectoryURL: wrapperDirectoryURL,
-                cliBinPath: wrapperDirectoryURL.path,
-                bundledCLIPath: isExecutableFile(bundledCLIPath) ? bundledCLIPath : nil,
-                ghosttyCLIPath: isExecutableFile(ghosttyCLIPath) ? ghosttyCLIPath : nil,
-                shellIntegrationDirectoryPath: directoryExists(shellIntegrationDirectoryPath)
-                    ? shellIntegrationDirectoryPath
-                    : nil
-            )
+            state.install(snapshot)
+            return snapshot
         }
-        if Thread.isMainThread {
-            return DispatchQueue.global(qos: .userInitiated).sync(execute: inspect)
-        }
-        return inspect()
+    }
+
+    public func snapshot() async -> TerminalSurfaceLaunchResourceSnapshot {
+        await task.value
+    }
+
+    public func currentSnapshotOrUnavailable() -> TerminalSurfaceLaunchResourceSnapshot {
+        state.current() ?? .unavailable
     }
 }
 
@@ -87,7 +127,7 @@ public final class TerminalSurfaceLaunchResolver {
     private let runtimeFilesystem: TerminalSurfaceRuntimeFilesystem
     private let sessionPortBase: Int
     private let sessionPortRangeSize: Int
-    private let launchResourceSnapshot: TerminalSurfaceLaunchResourceSnapshot
+    private let launchResourceProvider: TerminalSurfaceLaunchResourceProvider
     private let bundleIdentifier: String?
     private let ambientEnvironment: [String: String]
     private let defaultShellArguments: DefaultShellArguments
@@ -111,7 +151,7 @@ public final class TerminalSurfaceLaunchResolver {
             sessionPortBase: dependencies.sessionPortBase,
             sessionPortRangeSize: dependencies.sessionPortRangeSize,
             resourceURL: resourceURL,
-            launchResourceSnapshot: dependencies.launchResourceSnapshot,
+            launchResourceProvider: dependencies.launchResourceProvider,
             bundleIdentifier: bundleIdentifier,
             ambientEnvironment: ambientEnvironment,
             defaultShellArguments: Self.macOSLoginShellArguments,
@@ -129,7 +169,7 @@ public final class TerminalSurfaceLaunchResolver {
         sessionPortBase: Int,
         sessionPortRangeSize: Int,
         resourceURL: URL?,
-        launchResourceSnapshot: TerminalSurfaceLaunchResourceSnapshot? = nil,
+        launchResourceProvider: TerminalSurfaceLaunchResourceProvider? = nil,
         bundleIdentifier: String?,
         ambientEnvironment: [String: String],
         defaultShellArguments: @escaping DefaultShellArguments,
@@ -143,8 +183,8 @@ public final class TerminalSurfaceLaunchResolver {
         self.runtimeFilesystem = runtimeFilesystem
         self.sessionPortBase = sessionPortBase
         self.sessionPortRangeSize = sessionPortRangeSize
-        self.launchResourceSnapshot = launchResourceSnapshot
-            ?? TerminalSurfaceLaunchResourceSnapshot.loadOffMainThread(
+        self.launchResourceProvider = launchResourceProvider
+            ?? TerminalSurfaceLaunchResourceProvider(
                 resourceURL: resourceURL,
                 isExecutableFile: runtimeFilesystem.isExecutableFile
             )
@@ -159,6 +199,7 @@ public final class TerminalSurfaceLaunchResolver {
     public func resolveInstallingCommandShim(
         _ request: TerminalSurfaceLaunchRequest
     ) async -> TerminalSurfaceResolvedLaunch {
+        let launchResourceSnapshot = await launchResourceProvider.snapshot()
         let shims: TerminalSurfaceAgentCommandShimSet?
         if let wrapperDirectoryURL = launchResourceSnapshot.wrapperDirectoryURL {
             let attempt = TerminalSurfaceCommandShimInstallAttempt(
@@ -176,13 +217,29 @@ public final class TerminalSurfaceLaunchResolver {
         } else {
             shims = nil
         }
-        return resolve(request, commandShims: shims)
+        return resolve(
+            request,
+            commandShims: shims,
+            launchResourceSnapshot: launchResourceSnapshot
+        )
     }
 
     /// Resolves spawn environment, command, working directory, and one-shot input.
     public func resolve(
         _ request: TerminalSurfaceLaunchRequest,
         commandShims: TerminalSurfaceAgentCommandShimSet?
+    ) -> TerminalSurfaceResolvedLaunch {
+        resolve(
+            request,
+            commandShims: commandShims,
+            launchResourceSnapshot: launchResourceProvider.currentSnapshotOrUnavailable()
+        )
+    }
+
+    private func resolve(
+        _ request: TerminalSurfaceLaunchRequest,
+        commandShims: TerminalSurfaceAgentCommandShimSet?,
+        launchResourceSnapshot: TerminalSurfaceLaunchResourceSnapshot
     ) -> TerminalSurfaceResolvedLaunch {
         var baseConfig = request.configTemplate ?? CmuxSurfaceConfigTemplate()
         var environment = baseConfig.environmentVariables

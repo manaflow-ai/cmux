@@ -37,7 +37,7 @@ extension TerminalSurface {
             sessionPortBase: embeddedRuntime.sessionPortBase,
             sessionPortRangeSize: embeddedRuntime.sessionPortRangeSize,
             resourceURL: Bundle.main.resourceURL,
-            launchResourceSnapshot: embeddedRuntime.launchResourceSnapshot,
+            launchResourceProvider: embeddedRuntime.launchResourceProvider,
             bundleIdentifier: Bundle.main.bundleIdentifier,
             ambientEnvironment: ProcessInfo.processInfo.environment,
             // Embedded Ghostty computes its own default-shell argv. The shared

@@ -24,6 +24,7 @@ extension TerminalSurface {
 
         if agentCommandShimInstallTask == nil {
             let runtimeFilesystem = embeddedRuntime.runtimeFilesystem
+            let launchResourceProvider = embeddedRuntime.launchResourceProvider
             let surfaceId = id
             // Explicit captures and arguments: the region-based isolation
             // checker cannot analyze the legacy closure's implicit captures
@@ -42,9 +43,14 @@ extension TerminalSurface {
                     surfaceId,
                     temporaryDirectory,
                     runtimeFilesystem,
+                    launchResourceProvider,
                     installLease,
                     installResultGate
                 ] in
+                if let launchResourceProvider {
+                    _ = await launchResourceProvider.snapshot()
+                }
+                guard !Task.isCancelled else { return nil }
                 guard let installToken = await installLease.acquire() else {
                     return nil
                 }
@@ -72,9 +78,14 @@ extension TerminalSurface {
                     surfaceId,
                     temporaryDirectory,
                     runtimeFilesystem,
+                    launchResourceProvider,
                     installLease,
                     installResultGate
                 ] in
+                if let launchResourceProvider {
+                    _ = await launchResourceProvider.snapshot()
+                }
+                guard !Task.isCancelled else { return nil }
                 guard let installToken = await installLease.acquire() else {
                     return nil
                 }
