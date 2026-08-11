@@ -4,7 +4,7 @@ import SwiftUI
 extension cmuxApp {
     func equalizeSplitsCommandButton() -> some View {
         splitCommandButton(title: String(localized: "command.equalizeSplits.title", defaultValue: "Equalize Splits"), shortcut: menuShortcut(for: .equalizeSplits)) {
-            if let dock = appDelegate.focusedDockStoreForShortcut(
+            if let dock = AppDelegate.shared?.focusedDockStoreForShortcut(
                 preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
             ) {
                 _ = dock.performShortcutCommand(.equalizeSplits)

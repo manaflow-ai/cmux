@@ -11,7 +11,7 @@ extension cmuxApp {
             ),
             shortcut: menuShortcut(for: .nextSurface)
         ) {
-            if let dock = appDelegate.focusedDockStoreForShortcut(
+            if let dock = AppDelegate.shared?.focusedDockStoreForShortcut(
                 preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
             ) {
                 _ = dock.performShortcutCommand(.selectNextSurface)
@@ -26,7 +26,7 @@ extension cmuxApp {
             ),
             shortcut: menuShortcut(for: .prevSurface)
         ) {
-            if let dock = appDelegate.focusedDockStoreForShortcut(
+            if let dock = AppDelegate.shared?.focusedDockStoreForShortcut(
                 preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
             ) {
                 _ = dock.performShortcutCommand(.selectPreviousSurface)
@@ -41,7 +41,7 @@ extension cmuxApp {
             ),
             shortcut: menuShortcut(for: .moveSurfaceLeft)
         ) {
-            if let dock = appDelegate.focusedDockStoreForShortcut(
+            if let dock = AppDelegate.shared?.focusedDockStoreForShortcut(
                 preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
             ) {
                 _ = dock.performShortcutCommand(.moveSurface(offset: -1))
@@ -56,7 +56,7 @@ extension cmuxApp {
             ),
             shortcut: menuShortcut(for: .moveSurfaceRight)
         ) {
-            if let dock = appDelegate.focusedDockStoreForShortcut(
+            if let dock = AppDelegate.shared?.focusedDockStoreForShortcut(
                 preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
             ) {
                 _ = dock.performShortcutCommand(.moveSurface(offset: 1))
