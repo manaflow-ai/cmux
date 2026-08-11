@@ -5171,6 +5171,109 @@ fn journal_agent_generation_backfill_runs_once() {
 }
 
 #[test]
+fn journal_agent_generation_backfill_is_bounded_and_resumable() {
+    const REPORT_COUNT: usize = 300;
+
+    let root = temp_root("journal-agent-generation-backfill-bounded");
+    let session = "journal-agent-generation-backfill-bounded";
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, session).unwrap();
+        commit_terminal_topology(&mut registry, "journal-agent-generation-backfill-topology");
+        let current = json!({
+            "id":agent_resource(&terminal_id),
+            "session_id":registry.session_id(),
+            "terminal_id":terminal_id,
+            "state":"working",
+            "source":"socket",
+            "updated_at_ms":"1",
+            "source_session":"current-generation-session",
+            "extra":{"provider":"pi"},
+        });
+        registry
+            .commit_agent_projection(
+                &WorkspaceMutation::new("journal-agent-generation-current", "socket-test")
+                    .unwrap(),
+                &json!({"source_session":"current-generation-session"}),
+                Some(1),
+                &terminal_id,
+                &current,
+                &json!([]),
+            )
+            .unwrap();
+        for index in 0..REPORT_COUNT {
+            let historical = canonical_json(&json!({
+                "id":agent_resource(&terminal_id),
+                "session_id":registry.session_id(),
+                "terminal_id":terminal_id,
+                "state":"done",
+                "source":"socket",
+                "updated_at_ms":(index + 2).to_string(),
+                "source_session":format!("historical-generation-{index:03}"),
+                "extra":{"provider":"pi"},
+            }))
+            .unwrap();
+            registry
+                .connection
+                .execute(
+                    "INSERT INTO resource_mutations(
+                       idempotency_key, origin, operation, fingerprint,
+                       result_json, committed_revision
+                     ) VALUES(?1, 'test', 'agent.report', ?2, ?3, ?4)",
+                    params![
+                        format!("journal-agent-generation-history-{index:03}"),
+                        format!("history-{index:03}"),
+                        historical,
+                        i64::try_from(index + 2).unwrap(),
+                    ],
+                )
+                .unwrap();
+        }
+        registry.connection.execute("DELETE FROM resource_agent_session_generations", []).unwrap();
+        registry
+            .connection
+            .execute(
+                "DELETE FROM meta
+                 WHERE key LIKE 'resource_agent_session_generation_backfill_%'",
+                [],
+            )
+            .unwrap();
+    }
+
+    let reopened = WorkspaceRegistry::open(&root, session).unwrap();
+    let first_page = reopened
+        .connection
+        .query_row("SELECT COUNT(*) FROM resource_agent_session_generations", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .unwrap();
+    assert!(first_page > 0);
+    assert!(
+        first_page < i64::try_from(REPORT_COUNT).unwrap(),
+        "one open imported all {first_page} legacy generations"
+    );
+    for _ in 0..8 {
+        if reopened.continue_agent_projection_rebuild().unwrap() {
+            break;
+        }
+    }
+    assert!(!reopened.agent_projection_rebuild_pending().unwrap());
+    let active = reopened
+        .connection
+        .query_row(
+            "SELECT source_session
+             FROM resource_agent_session_generations
+             WHERE terminal_id = ?1 AND superseded = 0",
+            [terminal_id.as_str()],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap();
+    assert_eq!(active, "current-generation-session");
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn journal_agent_live_session_waits_in_journal_for_pending_rebuild() {
     const EVENT_COUNT: usize = 1_025;
 
@@ -6908,6 +7011,43 @@ fn journal_agent_late_hook_does_not_reopen_final_socket_session() {
     assert_eq!(agent.state, "done");
     assert_eq!(agent.source, "socket");
     assert_eq!(agent.source_session.as_deref(), Some("shared-session"));
+}
+
+#[test]
+fn journal_agent_sessionless_activity_does_not_reopen_final_session() {
+    let mut registry = WorkspaceRegistry::in_memory("journal-agent-sessionless-after-final").unwrap();
+    commit_terminal_topology(&mut registry, "journal-agent-sessionless-after-final-topology");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let validated = crate::journal_kernel::ValidatedJournalIngress {
+        class: JournalClass::Observation,
+        replay: JournalReplayPolicy::Advisory,
+        sensitivity: JournalSensitivity::Sensitive,
+    };
+    for (index, event, payload) in [
+        (0, "SessionStart", json!({"session_id":"final-session"})),
+        (1, "AgentEnd", json!({"session_id":"final-session"})),
+        (2, "PreToolUse", json!({})),
+    ] {
+        let ingress = crate::agent_hook_journal_ingress(
+            "pi",
+            event,
+            Some(terminal_id.as_str()),
+            payload,
+        )
+        .unwrap();
+        registry
+            .append_journal_ingress(
+                &ingress,
+                &validated,
+                "client_sessionless_after_final",
+                &format!("journal_agent_sessionless_after_final_{index}"),
+            )
+            .unwrap();
+    }
+
+    let agent = registry.public_projections().unwrap().agents.remove(0);
+    assert_eq!(agent.state, "done");
+    assert_eq!(agent.source_session.as_deref(), Some("final-session"));
 }
 
 #[test]
