@@ -3421,7 +3421,51 @@ impl Mux {
         }
         let mut plan =
             self.resource_close_plan_locked(operation, slots, &registry, &state, &notifications)?;
-        let projection = plan.state.project(self, &registry, &state, json!({}))?;
+        let mut projection = plan.state.project(self, &registry, &state, json!({}))?;
+        if !plan.terminal_batch.is_empty() {
+            for public_id in &plan.closed_terminal_public_ids {
+                let terminal_id = registry.terminal_host_id(public_id)?.with_context(|| {
+                    format!("terminal {public_id} has no durable host before close")
+                })?;
+                let expected_incarnation = plan
+                    .terminal_batch
+                    .iter()
+                    .find(|(candidate, _)| candidate == &terminal_id)
+                    .map(|(_, incarnation)| incarnation.clone())
+                    .with_context(|| {
+                        format!("terminal close plan omitted durable host {terminal_id}")
+                    })?;
+                if !projection.patch.changes.iter().any(|change| {
+                    matches!(
+                        change,
+                        ResourceChange::TombstoneTerminal { public_id: closing, .. }
+                            if closing == public_id
+                    )
+                }) {
+                    projection.patch.changes.push(ResourceChange::TombstoneTerminal {
+                        public_id: public_id.clone(),
+                        expected_incarnation,
+                    });
+                }
+            }
+            let changes = projection.changes.as_array_mut().ok_or_else(|| {
+                terminal_close_state_error("terminal close projection changes are not an array")
+            })?;
+            for public_id in &plan.closed_terminal_public_ids {
+                if !changes.iter().any(|change| {
+                    change["kind"] == "delete"
+                        && change["resource"] == "terminal"
+                        && change["id"].as_str() == Some(public_id.as_str())
+                }) {
+                    changes.push(json!({
+                        "kind":"delete",
+                        "sequence":changes.len(),
+                        "resource":"terminal",
+                        "id":public_id,
+                    }));
+                }
+            }
+        }
         #[cfg(test)]
         if let Some(hook) = self.resource_projection_before_commit.lock().unwrap().clone() {
             hook();
@@ -3719,11 +3763,7 @@ impl Mux {
             .copied()
             .collect::<HashSet<_>>();
         let catalog_public_ids = terminal_indexes.catalog_public_ids.clone();
-        let mut closed_terminal_public_ids = if !terminal_public_ids.is_empty() {
-            catalog_public_ids.iter().cloned().collect::<Vec<_>>()
-        } else {
-            Vec::new()
-        };
+        let mut closed_terminal_public_ids = terminal_public_ids.clone();
         closed_terminal_public_ids.sort_by(|left, right| left.as_str().cmp(right.as_str()));
         let target_surfaces = surface_ids.iter().copied().collect::<HashSet<_>>();
         let mut state_projection = if !terminal_public_ids.is_empty() {

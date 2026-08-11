@@ -1798,6 +1798,10 @@ fn resource_close_atomically_detaches_its_tombstoned_terminal() {
                         creation_ordinal: 1,
                     }),
                     ResourceChange::TombstoneTab { tab_id: tab_id(1), close_content: false },
+                    ResourceChange::TombstoneTerminal {
+                        public_id: terminal_public_id.clone(),
+                        expected_incarnation: None,
+                    },
                     ResourceChange::SetTabOrder { pane_id: pane_id(1), tab_ids: Vec::new() },
                 ],
             },
@@ -1810,7 +1814,11 @@ fn resource_close_atomically_detaches_its_tombstoned_terminal() {
 
     assert_eq!(close.terminal_batch.closed, 1);
     assert!(registry.resource_topology_snapshot().unwrap().tabs.is_empty());
-    assert_eq!(registry.terminal_resource_id(TERMINAL_ONE).unwrap(), Some(terminal_public_id));
+    assert_eq!(registry.terminal_resource_id(TERMINAL_ONE).unwrap(), None);
+    assert_eq!(
+        registry.terminal_resource_id_including_tombstone(TERMINAL_ONE).unwrap(),
+        Some(terminal_public_id)
+    );
     assert_eq!(
         registry.terminal_record(TERMINAL_ONE).unwrap().unwrap().lifecycle,
         TerminalLifecycle::Tombstoned
