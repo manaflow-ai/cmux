@@ -6655,7 +6655,7 @@ mod tests {
     }
 
     #[test]
-    fn many_worker_shutdown_closes_controls_and_reaps_after_process_release() {
+    fn many_worker_shutdown_returns_at_one_deadline_before_process_release() {
         const WORKER_COUNT: usize = 96;
 
         let spawner = FakeSpawner::default();
@@ -6663,27 +6663,40 @@ mod tests {
         for _ in 0..WORKER_COUNT {
             core.set_presentation_workspace(PresentationId::new(), Some(WorkspaceUuid::new()));
         }
-        let pids =
-            core.statuses().into_iter().map(|status| status.pid.unwrap()).collect::<Vec<_>>();
-        let first_retired_pid = core
-            .workers
-            .values()
-            .next()
-            .and_then(|worker| worker.process.as_ref())
-            .map(RendererProcess::pid)
-            .unwrap();
-        let reap_hold = spawner.hold_reap(first_retired_pid);
-        let release = thread::spawn(move || {
-            reap_hold.wait_until_waiting();
-            reap_hold.release();
+        let statuses = core.statuses();
+        let reap_holds = statuses
+            .iter()
+            .map(|status| spawner.hold_reap(status.pid.unwrap()))
+            .collect::<Vec<_>>();
+        let (shutdown_complete, shutdown_completed) = sync_channel(1);
+        let shutdown = thread::spawn(move || {
+            core.shutdown();
+            if shutdown_complete.send(core).is_err() {
+                panic!("shutdown observer dropped before receiving the supervisor");
+            }
         });
 
-        core.shutdown();
-        release.join().unwrap();
+        reap_holds[0].wait_until_waiting();
+        let core = shutdown_completed
+            .recv_timeout(Duration::from_secs(2))
+            .expect("96 held processes must share one shutdown deadline");
+        shutdown.join().unwrap();
 
         assert!(core.statuses().is_empty());
+        assert!(!spawner.all_reaped(), "shutdown must return before process release");
+        assert!(statuses.iter().all(|status| spawner.control_closed(status.pid.unwrap())));
+
+        for reap_hold in reap_holds {
+            reap_hold.release();
+        }
+        for status in &statuses {
+            assert!(core.reaper.wait_until_epoch_quiesced(
+                status.workspace_uuid,
+                status.renderer_epoch,
+                Duration::from_secs(1),
+            ));
+        }
         assert!(spawner.all_reaped());
-        assert!(pids.into_iter().all(|pid| spawner.control_closed(pid)));
     }
 
     #[test]
