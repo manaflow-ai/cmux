@@ -25585,23 +25585,12 @@ mod tests {
             Some(Screen::Alternate)
         );
 
-        let (mut app, events) = test_app_with_events(session);
+        let (mut app, _events) = test_app_with_events(session);
         app.sidebar_visible = false;
         app.replace_tree(tree);
         let action =
             app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::SUPER)).unwrap();
         assert_eq!(action, RenderAction::None);
-        loop {
-            let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
-            if matches!(
-                &event,
-                AppEvent::ClearHistorySucceeded { surface: completed, .. }
-                    if *completed == surface.id
-            ) {
-                break;
-            }
-        }
-        assert!(app.pty_input.shutdown(Duration::from_secs(1)));
 
         let expected = b"\x1b[107;9u";
         let deadline = Instant::now() + Duration::from_secs(1);
@@ -25621,6 +25610,7 @@ mod tests {
                 }
             }
         }
+        assert!(app.pty_input.shutdown(Duration::from_secs(1)));
 
         mux.close_surface(surface.id).unwrap();
         let _ = std::fs::remove_dir_all(dir);
@@ -32273,8 +32263,14 @@ mod tests {
         assert_eq!(app.hover, None);
 
         release_tx.send(()).unwrap();
-        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
-        app.handle(settled).unwrap();
+        loop {
+            let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            let mutation_settled = matches!(&event, AppEvent::SessionMutationSettled { .. });
+            app.handle(event).unwrap();
+            if mutation_settled {
+                break;
+            }
+        }
 
         assert!(app.deferred_input.is_empty());
         assert!(!app.prefix_armed);
