@@ -2241,9 +2241,8 @@ mod tests {
         let sentinel = fixture_parent.path().join("protected-sentinel");
         fs::write(&sentinel, b"protected").unwrap();
 
-        let helper = format!("{}::direct_launcher_sibling_write_helper", module_path!());
-        let mut command =
-            common.std_command(&["--exact".into(), helper, "--nocapture".into()], false).unwrap();
+        let helper = "direct_launcher_sibling_write_helper".to_string();
+        let mut command = common.std_command(&[helper, "--nocapture".into()], false).unwrap();
         command.env(START_MARKER_PATH_ENV, &start_marker);
         command.env(SENTINEL_PATH_ENV, &sentinel);
         let captured =
