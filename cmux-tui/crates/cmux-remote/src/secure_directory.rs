@@ -48,11 +48,11 @@ pub fn ensure_secure_directory(path: &Path, access: DirectoryAccess) -> io::Resu
 
 #[cfg(windows)]
 mod windows {
-    use std::ffi::c_void;
+    use std::ffi::{OsString, c_void};
     use std::fs;
     use std::io;
     use std::mem::size_of;
-    use std::os::windows::ffi::OsStrExt;
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
     use std::path::{Component, Path, PathBuf};
 
     use windows_sys::Win32::Foundation::{
@@ -74,7 +74,7 @@ mod windows {
         FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT, FILE_DELETE_CHILD,
         FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES,
         FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_WRITE_ATTRIBUTES, FILE_WRITE_DATA, FILE_WRITE_EA,
-        GetFileInformationByHandle, OPEN_EXISTING, WRITE_DAC, WRITE_OWNER,
+        GetFileInformationByHandle, GetLongPathNameW, OPEN_EXISTING, WRITE_DAC, WRITE_OWNER,
     };
     use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
@@ -107,8 +107,15 @@ mod windows {
             .ok_or_else(|| invalid_path(path, "requires LOCALAPPDATA"))?;
         validate_path(&local_app_data)?;
         let trusted_root = local_app_data.canonicalize()?;
+        // Environment variables can use an 8.3 alias such as RUNNER~1 while
+        // LOCALAPPDATA uses the long spelling. Expand only existing names;
+        // unlike canonicalize(), GetLongPathNameW does not resolve junctions.
+        let long_path = long_path_with_missing_suffix(path)?;
+        let long_local_app_data = long_path_with_missing_suffix(&local_app_data)?;
         let relative = relative_components_case_insensitive(path, &local_app_data)
             .or_else(|| relative_components_case_insensitive(path, &trusted_root))
+            .or_else(|| relative_components_case_insensitive(&long_path, &long_local_app_data))
+            .or_else(|| relative_components_case_insensitive(&long_path, &trusted_root))
             .ok_or_else(|| invalid_path(path, "must stay within LOCALAPPDATA"))?;
         let mut current = trusted_root.clone();
         let mut open_directories = vec![open_directory_no_follow(&trusted_root, path)?];
@@ -130,6 +137,55 @@ mod windows {
             open_directories.push(open_directory_no_follow(&current, path)?);
         }
         Ok(final_created)
+    }
+
+    fn long_path_with_missing_suffix(path: &Path) -> io::Result<PathBuf> {
+        let mut existing = path.to_path_buf();
+        let mut missing = Vec::new();
+        loop {
+            match fs::symlink_metadata(&existing) {
+                Ok(_) => break,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                    let component = existing
+                        .file_name()
+                        .ok_or_else(|| invalid_path(path, "has no existing Windows path prefix"))?;
+                    missing.push(PathBuf::from(component));
+                    existing = existing
+                        .parent()
+                        .ok_or_else(|| invalid_path(path, "has no existing Windows path prefix"))?
+                        .to_path_buf();
+                }
+                Err(error) => return Err(error),
+            }
+        }
+
+        let mut long = get_long_path_name(&existing)?;
+        for component in missing.into_iter().rev() {
+            long.push(component);
+        }
+        Ok(long)
+    }
+
+    fn get_long_path_name(path: &Path) -> io::Result<PathBuf> {
+        let encoded = path.as_os_str().encode_wide().chain(Some(0)).collect::<Vec<_>>();
+        // SAFETY: `encoded` is live and NUL-terminated. The null output query
+        // only asks Windows for the required buffer size.
+        let required = unsafe { GetLongPathNameW(encoded.as_ptr(), std::ptr::null_mut(), 0) };
+        if required == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let mut buffer = vec![0_u16; required as usize];
+        // SAFETY: both buffers remain live and the output buffer has the size
+        // returned by the query above.
+        let written =
+            unsafe { GetLongPathNameW(encoded.as_ptr(), buffer.as_mut_ptr(), buffer.len() as u32) };
+        if written == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if written as usize >= buffer.len() {
+            return Err(io::Error::other("Windows long-path expansion changed during validation"));
+        }
+        Ok(PathBuf::from(OsString::from_wide(&buffer[..written as usize])))
     }
 
     struct OwnedSecurityDescriptor(PSECURITY_DESCRIPTOR);
@@ -337,14 +393,16 @@ mod windows {
             return Err(io::Error::last_os_error());
         }
         let mut encoded = path.as_os_str().encode_wide().chain(Some(0)).collect::<Vec<_>>();
-        // SAFETY: `encoded` is a mutable NUL-terminated path and `acl` remains
-        // live for the duration of the synchronous call.
+        // SAFETY: `encoded` is a mutable NUL-terminated path, and `sid` and
+        // `acl` remain live for the duration of the synchronous call.
         let status = unsafe {
             SetNamedSecurityInfoW(
                 encoded.as_mut_ptr(),
                 SE_FILE_OBJECT,
-                DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
-                std::ptr::null_mut::<c_void>() as PSID,
+                OWNER_SECURITY_INFORMATION
+                    | DACL_SECURITY_INFORMATION
+                    | PROTECTED_DACL_SECURITY_INFORMATION,
+                sid,
                 std::ptr::null_mut::<c_void>() as PSID,
                 acl,
                 std::ptr::null(),
@@ -432,12 +490,28 @@ mod windows {
 
 #[cfg(all(test, windows))]
 mod windows_tests {
+    use std::ffi::OsString;
     use std::fs;
+    use std::io;
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
     use std::path::PathBuf;
     use std::process::Command;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::{DirectoryAccess, ensure_secure_directory};
+    use windows_sys::Win32::Storage::FileSystem::GetShortPathNameW;
+
+    fn short_path(path: &std::path::Path) -> PathBuf {
+        let encoded = path.as_os_str().encode_wide().chain(Some(0)).collect::<Vec<_>>();
+        let required = unsafe { GetShortPathNameW(encoded.as_ptr(), std::ptr::null_mut(), 0) };
+        assert!(required > 0, "short-path size query failed: {}", io::Error::last_os_error());
+        let mut buffer = vec![0_u16; required as usize];
+        let written = unsafe {
+            GetShortPathNameW(encoded.as_ptr(), buffer.as_mut_ptr(), buffer.len() as u32)
+        };
+        assert!(written > 0 && (written as usize) < buffer.len());
+        PathBuf::from(OsString::from_wide(&buffer[..written as usize]))
+    }
 
     #[test]
     fn rejects_an_outside_root_before_creating_it() {
@@ -470,6 +544,21 @@ mod windows_tests {
     }
 
     #[test]
+    fn accepts_short_path_alias_within_local_app_data() {
+        let temp = std::env::temp_dir();
+        let short_temp = short_path(&temp);
+        let directory = short_temp.join(format!(
+            "cmux-secure-short-path-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+
+        ensure_secure_directory(&directory, DirectoryAccess::ManagedOwnerOnly).unwrap();
+
+        fs::remove_dir(&directory).unwrap();
+    }
+
+    #[test]
     fn rejects_a_junction_without_creating_through_it() {
         let local_app_data = PathBuf::from(std::env::var_os("LOCALAPPDATA").unwrap());
         let suffix = format!(
@@ -479,19 +568,29 @@ mod windows_tests {
         );
         let base = local_app_data.join(format!("cmux-secure-junction-{suffix}"));
         ensure_secure_directory(&base, DirectoryAccess::OwnerControlled).unwrap();
-        let outside = tempfile::tempdir().unwrap();
+        let outside =
+            local_app_data.parent().unwrap().join(format!("cmux-junction-target-{suffix}"));
+        fs::create_dir(&outside).unwrap();
         let junction = base.join("redirect");
-        let command =
-            format!("mklink /J \"{}\" \"{}\" >NUL", junction.display(), outside.path().display());
+        let output = Command::new("cmd.exe")
+            .args(["/D", "/C", "mklink", "/J"])
+            .arg(&junction)
+            .arg(&outside)
+            .output()
+            .unwrap();
         assert!(
-            Command::new("cmd.exe").args(["/D", "/S", "/C", &command]).status().unwrap().success()
+            output.status.success(),
+            "mklink failed: stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
         );
         let through_junction = junction.join("created");
 
         let result = ensure_secure_directory(&through_junction, DirectoryAccess::OwnerControlled);
-        let escaped = outside.path().join("created").exists();
+        let escaped = outside.join("created").exists();
         fs::remove_dir(&junction).unwrap();
         fs::remove_dir(&base).unwrap();
+        fs::remove_dir(&outside).unwrap();
 
         assert!(result.is_err());
         assert!(!escaped, "a rejected junction created a directory outside LOCALAPPDATA");

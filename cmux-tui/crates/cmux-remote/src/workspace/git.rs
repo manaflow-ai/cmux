@@ -887,6 +887,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn structured_diff_decodes_modified_git_paths() {
         let (_directory, root) = git_root().await;
@@ -918,6 +919,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn structured_diff_decodes_renamed_git_paths() {
         let (_directory, root) = git_root().await;

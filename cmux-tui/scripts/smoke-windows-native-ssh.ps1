@@ -84,7 +84,20 @@ try {
     if (-not $snapshotTask.Wait([TimeSpan]::FromSeconds(20))) {
         throw "native Windows SSH did not publish its local endpoint within 20 seconds"
     }
-    $snapshot = $snapshotTask.Result | ConvertFrom-Json
+    $snapshotLine = $snapshotTask.Result
+    if ([string]::IsNullOrWhiteSpace($snapshotLine)) {
+        $detail = "SSH client closed stdout without an endpoint"
+        if ($client.WaitForExit(5000)) {
+            $stderr = $client.StandardError.ReadToEnd().Trim()
+            if ([string]::IsNullOrWhiteSpace($stderr)) {
+                $detail = "$detail (exit code $($client.ExitCode))"
+            } else {
+                $detail = "$detail (exit code $($client.ExitCode)): $stderr"
+            }
+        }
+        throw "native Windows SSH startup failed: $detail"
+    }
+    $snapshot = $snapshotLine | ConvertFrom-Json
     if ($snapshot.event -ne "connection-snapshot" -or [string]::IsNullOrWhiteSpace($snapshot.local_socket)) {
         throw "native Windows SSH published an invalid connection snapshot"
     }

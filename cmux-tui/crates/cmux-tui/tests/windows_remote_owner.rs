@@ -19,6 +19,7 @@ use cmux_remote::provider::{
 use cmux_remote::session::SessionLimits;
 use cmux_remote_protocol::{LanePolicy, SessionId};
 use serde_json::Value;
+use tokio::sync::watch;
 use wait_timeout::ChildExt as _;
 
 fn wait_for_exit(child: &mut Child, timeout: Duration) -> bool {
@@ -93,17 +94,6 @@ fn write_terminal(executable: &str, socket: &Path, terminal: &str, command: &str
     assert_cmux_success(&output);
 }
 
-fn spawn_carrier(executable: &str, session: &str, state_root: &Path) -> Child {
-    Command::new(executable)
-        .args(["remote-link", "--stdio", "--session", session, "--state-dir"])
-        .arg(state_root)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap()
-}
-
 fn spawn_owner(executable: &str, session: &str, state_root: &Path) -> Child {
     Command::new(executable)
         .args(["remote-mux-owner", "--session", session, "--state-dir"])
@@ -121,6 +111,7 @@ struct WindowsStdioLinkGroup {
     state_root: PathBuf,
     carrier_log: PathBuf,
     evidence: CarrierEvidence,
+    carrier_exit: watch::Sender<u64>,
 }
 
 #[async_trait]
@@ -143,34 +134,33 @@ impl LinkGroup for WindowsStdioLinkGroup {
             .append(true)
             .open(&self.carrier_log)
             .map_err(|error| ProviderError::Transport(error.to_string()))?;
-        let mut child = tokio::process::Command::new(&self.executable)
+        let mut command = tokio::process::Command::new(&self.executable);
+        command
             .args(["remote-link", "--stdio", "--session", &self.session, "--state-dir"])
             .arg(&self.state_root)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::from(stderr))
-            .spawn()
-            .map_err(|error| ProviderError::Transport(error.to_string()))?;
+            .kill_on_drop(true);
+        let mut child =
+            command.spawn().map_err(|error| ProviderError::Transport(error.to_string()))?;
         let stdin = child.stdin.take().ok_or_else(|| {
             ProviderError::Transport("Windows carrier stdin was not piped".into())
         })?;
         let stdout = child.stdout.take().ok_or_else(|| {
             ProviderError::Transport("Windows carrier stdout was not piped".into())
         })?;
+        let carrier_exit = self.carrier_exit.clone();
+        tokio::spawn(async move {
+            let _ = child.wait().await;
+            carrier_exit.send_modify(|count| *count += 1);
+        });
 
         Ok(Box::new(LengthDelimitedLink::new("windows-stdio-regression", 65_535, stdout, stdin)))
     }
 
     async fn close(&self) -> Result<(), ProviderError> {
         Ok(())
-    }
-}
-
-fn assert_process_stays_running(child: &mut Child, duration: Duration, label: &str) {
-    if let Some(status) = child.wait_timeout(duration).unwrap() {
-        let mut stderr = String::new();
-        child.stderr.take().unwrap().read_to_string(&mut stderr).unwrap();
-        panic!("{label} exited unexpectedly ({status}): {stderr}");
     }
 }
 
@@ -216,21 +206,53 @@ fn windows_remote_stop_recovers_an_orphaned_mux_socket() {
     );
 }
 
-#[test]
-fn windows_remote_carrier_exit_preserves_resident_mux_owner() {
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn windows_remote_carrier_exit_preserves_resident_mux_owner() {
     let executable = env!("CARGO_BIN_EXE_cmux-tui");
     let state_root = tempfile::tempdir().unwrap();
     let session = format!("carrier-owner-{}", std::process::id());
     let session_state = state_root.path().join("sessions").join(&session);
     let mux_socket = session_state.join("mux.sock");
+    let carrier_log = state_root.path().join("carrier.log");
 
     // GitHub's Windows runner forbids CREATE_BREAKAWAY_FROM_JOB. Launch the
     // durable owner from the longer-lived test job, then verify that the SSH
     // carrier can come and go without owning the mux or its ConPTY children.
     let mut owner = spawn_owner(executable, &session, state_root.path());
     wait_for_mux_owner(&mut owner, &mux_socket);
-    let mut carrier = spawn_carrier(executable, &session, state_root.path());
-    assert_process_stays_running(&mut carrier, Duration::from_millis(250), "remote carrier");
+    let (carrier_exit_tx, mut carrier_exit_rx) = watch::channel(0_u64);
+    let prior_carrier_exits = *carrier_exit_rx.borrow();
+    let group = Arc::new(WindowsStdioLinkGroup {
+        executable: PathBuf::from(executable),
+        session: session.clone(),
+        state_root: state_root.path().to_path_buf(),
+        carrier_log,
+        evidence: CarrierEvidence::Ssh { destination: "windows-carrier-survival".into() },
+        carrier_exit: carrier_exit_tx,
+    });
+    let client = tokio::time::timeout(
+        Duration::from_secs(5),
+        ClientConnection::connect(
+            group,
+            ClientConnectionConfig {
+                identity: StaticIdentity::generate().unwrap(),
+                expected_daemon: None,
+                auth: ClientAuthMode::Carrier,
+                device_name: "windows-carrier-survival".into(),
+                session: SessionId([90; 16]),
+                lane_policy: LanePolicy::Single,
+                limits: SessionLimits::default(),
+                reconnect: ReconnectPolicy {
+                    heartbeat_interval: None,
+                    maximum_attempts: Some(1),
+                    ..ReconnectPolicy::default()
+                },
+            },
+        ),
+    )
+    .await
+    .expect("Windows carrier handshake timed out")
+    .expect("Windows carrier handshake failed");
     let created = Command::new(executable)
         .arg("--socket")
         .arg(&mux_socket)
@@ -251,17 +273,21 @@ fn windows_remote_carrier_exit_preserves_resident_mux_owner() {
         "Write-Output 'CMUX_WINDOWS_BEFORE_CARRIER_LOSS'\r",
     );
 
-    drop(carrier.stdin.take());
-    if !wait_for_exit(&mut carrier, Duration::from_secs(5)) {
-        let _ = carrier.kill();
-        panic!("remote carrier did not exit after stdin closed");
-    }
-    let mut stderr = String::new();
-    carrier.stderr.take().unwrap().read_to_string(&mut stderr).unwrap();
+    tokio::time::timeout(Duration::from_secs(5), client.close())
+        .await
+        .expect("Windows carrier close timed out")
+        .expect("Windows carrier close failed");
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while *carrier_exit_rx.borrow() <= prior_carrier_exits {
+            carrier_exit_rx.changed().await.expect("Windows carrier exit watcher closed");
+        }
+    })
+    .await
+    .expect("Windows carrier process did not exit");
 
     let owner_survived = wait_until(Duration::from_secs(2), || socket_accepts(&mux_socket));
     if !owner_survived {
-        panic!("mux owner died with the SSH carrier: {stderr}");
+        panic!("mux owner died with the authenticated SSH carrier");
     }
     write_terminal(
         executable,
@@ -337,6 +363,7 @@ async fn windows_remote_stdio_completes_authenticated_handshake() {
     let mux_socket = session_state.join("mux.sock");
     let link_socket = session_state.join("link.sock");
     let carrier_log = state_root.path().join("carrier.log");
+    let (carrier_exit, _carrier_exit_rx) = watch::channel(0_u64);
     let mut owner = spawn_owner(executable.to_str().unwrap(), &session, state_root.path());
     wait_for_mux_owner(&mut owner, &mux_socket);
     assert!(
@@ -350,6 +377,7 @@ async fn windows_remote_stdio_completes_authenticated_handshake() {
         state_root: state_root.path().to_path_buf(),
         carrier_log: carrier_log.clone(),
         evidence: CarrierEvidence::Ssh { destination: "windows-stdio-regression".into() },
+        carrier_exit,
     });
     let config = ClientConnectionConfig {
         identity: StaticIdentity::generate().unwrap(),

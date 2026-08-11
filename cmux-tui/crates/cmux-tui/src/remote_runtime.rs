@@ -1192,7 +1192,13 @@ async fn bootstrap_initial_ssh_route(
                 let resolved = bootstrap.install_verified_target().await?;
                 resolved.target
             } else {
-                bootstrap.ensure_installed_target().await?.target
+                bootstrap
+                    .ensure_installed_target_for_session(
+                        &ssh.remote_session,
+                        ssh.remote_state_dir.as_deref(),
+                    )
+                    .await?
+                    .target
             };
             Ok::<_, BootstrapError>(target)
         }) => {
@@ -5769,6 +5775,104 @@ mod tests {
     fn ssh_bootstrap_rejects_option_like_destination() {
         let endpoint = Url::parse("ssh://-Fvalidation@localhost").unwrap();
         assert!(ssh_bootstrap_destination(&endpoint).is_err());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn automatic_windows_upgrade_stops_resident_owner_before_replacing_binary() {
+        use std::ffi::OsString;
+        use std::os::unix::fs::PermissionsExt;
+
+        static WINDOWS_COMPANION_ENV_LOCK: std::sync::LazyLock<tokio::sync::Mutex<()>> =
+            std::sync::LazyLock::new(|| tokio::sync::Mutex::new(()));
+
+        struct RestoreEnv {
+            previous: Option<OsString>,
+        }
+
+        impl Drop for RestoreEnv {
+            fn drop(&mut self) {
+                // SAFETY: this test serializes changes to this test-only environment variable.
+                unsafe {
+                    match &self.previous {
+                        Some(value) => std::env::set_var("CMUX_TUI_WINDOWS_REMOTE_BINARY", value),
+                        None => std::env::remove_var("CMUX_TUI_WINDOWS_REMOTE_BINARY"),
+                    }
+                }
+            }
+        }
+
+        let _lock = WINDOWS_COMPANION_ENV_LOCK.lock().await;
+        let directory = tempfile::tempdir().unwrap();
+        let ssh_script = directory.path().join("ssh");
+        let scp_script = directory.path().join("scp");
+        let companion = directory.path().join("cmux-tui.exe");
+        let stopped = directory.path().join("owner-stopped");
+        let installed = directory.path().join("binary-installed");
+        let package_version = cmux_remote::ssh_bootstrap::NPM_BOOTSTRAP_VERSION
+            .unwrap_or(cmux_remote::ssh_bootstrap::DISTRIBUTION_VERSION);
+        let protocol = cmux_remote_protocol::REMOTE_PROTOCOL_VERSION;
+        fs::write(&companion, b"windows-companion").unwrap();
+        fs::write(
+            &ssh_script,
+            format!(
+                r#"#!/bin/sh
+case "$*" in
+  *CMUX_WINDOWS_CMD_V1*) printf '%s\n' CMUX_WINDOWS_CMD_V1 ;;
+  *remote-stop*) : > '{stopped}' ;;
+  *"remote-probe --json"*)
+    if [ -f '{installed}' ]; then
+      printf '%s' '{{"app":"cmux-tui","version":"{package_version}","distribution_version":"{package_version}","npm_bootstrap_version":"{package_version}","build_identity":"{build_identity}","remote_protocol":{protocol},"os":"windows","arch":"x86_64"}}'
+    else
+      printf '%s' '{{"app":"cmux-tui","version":"0.0.1","distribution_version":"0.0.1","npm_bootstrap_version":"0.0.1","build_identity":"stale","remote_protocol":{protocol},"os":"windows","arch":"x86_64"}}'
+    fi
+    ;;
+  *powershell.exe*)
+    if [ ! -f '{stopped}' ]; then
+      printf '%s' 'running Windows image is locked' >&2
+      exit 32
+    fi
+    : > '{installed}'
+    ;;
+esac
+"#,
+                stopped = stopped.display(),
+                installed = installed.display(),
+                build_identity = cmux_remote::ssh_bootstrap::BUILD_IDENTITY,
+            ),
+        )
+        .unwrap();
+        fs::write(&scp_script, "#!/bin/sh\nexit 0\n").unwrap();
+        fs::set_permissions(&ssh_script, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::set_permissions(&scp_script, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let previous = std::env::var_os("CMUX_TUI_WINDOWS_REMOTE_BINARY");
+        let _restore = RestoreEnv { previous };
+        // SAFETY: this test serializes changes to this test-only environment variable.
+        unsafe { std::env::set_var("CMUX_TUI_WINDOWS_REMOTE_BINARY", &companion) };
+
+        let ssh = SshProviderConfig {
+            ssh_binary: ssh_script.to_string_lossy().into_owned(),
+            remote_session: "main".into(),
+            remote_state_dir: Some(r"%LOCALAPPDATA%\cmux\state".into()),
+            ..SshProviderConfig::default()
+        };
+        bootstrap_initial_ssh_route(
+            &Url::parse("ssh://windows-host").unwrap(),
+            &ssh,
+            SshBootstrapOptions {
+                auto_install: true,
+                upgrade: false,
+                attempt_timeout: Duration::from_secs(5),
+            },
+            false,
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert!(stopped.exists());
+        assert!(installed.exists());
     }
 
     #[cfg(unix)]

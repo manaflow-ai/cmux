@@ -263,6 +263,24 @@ impl SshBootstrapper {
     }
 
     pub async fn ensure_installed_target(&self) -> Result<ResolvedBootstrap, BootstrapError> {
+        self.ensure_installed_target_for_daemon(None).await
+    }
+
+    /// Resolve and, when needed, replace the target used by one remote
+    /// session. Windows keeps a running executable locked, so an incompatible
+    /// resident owner must stop before the companion is replaced.
+    pub async fn ensure_installed_target_for_session(
+        &self,
+        session: &str,
+        state_dir: Option<&str>,
+    ) -> Result<ResolvedBootstrap, BootstrapError> {
+        self.ensure_installed_target_for_daemon(Some((session, state_dir))).await
+    }
+
+    async fn ensure_installed_target_for_daemon(
+        &self,
+        daemon: Option<(&str, Option<&str>)>,
+    ) -> Result<ResolvedBootstrap, BootstrapError> {
         let (target, installed) = self.probe_target().await?;
         if installed.as_ref().is_some_and(|probe| self.compatible(probe)) {
             return Ok(ResolvedBootstrap { outcome: BootstrapOutcome::AlreadyInstalled, target });
@@ -275,6 +293,13 @@ impl SshBootstrapper {
                 }),
                 None => Err(BootstrapError::Missing),
             };
+        }
+
+        if installed.is_some()
+            && matches!(target.shell, SshRemoteShell::WindowsCmd)
+            && let Some((session, state_dir)) = daemon
+        {
+            self.stop_daemon_target(&target, session, state_dir).await?;
         }
 
         self.install_verified_for_target(target).await

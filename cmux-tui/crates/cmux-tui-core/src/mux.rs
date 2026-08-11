@@ -8900,6 +8900,20 @@ impl Mux {
         Ok(())
     }
 
+    pub(crate) fn retire_killed_kitty_image_surface(self: &Arc<Self>, surface: &Surface) {
+        // The host is already terminating. Waiting for it to acknowledge a
+        // disabled quota can keep the released process share reserved forever.
+        let runtime_id = surface.terminal_runtime_id().unwrap_or(surface.id);
+        {
+            let mut budget = self.kitty_image_budget.lock().unwrap();
+            budget.entries.remove(&runtime_id);
+            budget.blocked_surfaces.remove(&runtime_id);
+            Self::rebalance_kitty_image_budget_owners(&mut budget);
+        }
+        self.kitty_image_budget_changed.notify_all();
+        self.start_kitty_image_budget_worker();
+    }
+
     pub(crate) fn resource_terminal_host_identity(
         &self,
         surface: &Surface,
@@ -8988,7 +9002,10 @@ impl Mux {
 
     fn prune_dead_kitty_image_surfaces(budget: &mut KittyImageBudgetState) {
         budget.entries.retain(|_, entry| {
-            entry.surface.as_ref().is_none_or(|surface| surface.strong_count() > 0)
+            entry
+                .surface
+                .as_ref()
+                .is_none_or(|surface| surface.upgrade().is_some_and(|surface| !surface.is_dead()))
         });
         let live_ids = budget.entries.keys().copied().collect::<HashSet<_>>();
         budget.blocked_surfaces.retain(|id| live_ids.contains(id));
@@ -19000,6 +19017,70 @@ mod tests {
         }
         assert!(mux.close_surface(first.id).unwrap());
         wait_for_kitty_image_budget(&mux);
+    }
+
+    #[test]
+    fn pending_killed_kitty_expansion_cannot_block_the_next_terminal_reservation() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        wait_for_kitty_image_budget(&mux);
+
+        let gate = Arc::new((Mutex::new(false), Condvar::new()));
+        let (started_sender, started_receiver) = std::sync::mpsc::sync_channel(1);
+        let first_id = first.id;
+        *mux.kitty_image_budget_operation.lock().unwrap() = Some(Arc::new({
+            let gate = gate.clone();
+            move |surface, limits, _deadline| {
+                if surface.id == first_id {
+                    let _ = started_sender.try_send(());
+                    let (released, changed) = &*gate;
+                    let mut released = released.lock().unwrap();
+                    while !*released {
+                        released = changed.wait(released).unwrap();
+                    }
+                }
+                surface.set_kitty_graphics_limits(
+                    limits.image_bytes,
+                    limits.inflight_bytes,
+                    limits.images,
+                    limits.placements,
+                )
+            }
+        }));
+
+        second.kill();
+        started_receiver.recv_timeout(Duration::from_secs(2)).unwrap();
+        first.kill();
+
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let creating_mux = mux.clone();
+        let creator = std::thread::spawn(move || {
+            let _ = sender.send(creating_mux.new_tab(Some(pane), None, Some((80, 24))));
+        });
+        let created_before_release = receiver.recv_timeout(Duration::from_millis(250)).ok();
+        let returned_before_release = created_before_release.is_some();
+        {
+            let (released, changed) = &*gate;
+            *released.lock().unwrap() = true;
+            changed.notify_all();
+        }
+        let replacement = match created_before_release {
+            Some(result) => result.unwrap(),
+            None => receiver.recv_timeout(Duration::from_secs(3)).unwrap().unwrap(),
+        };
+        creator.join().unwrap();
+
+        *mux.kitty_image_budget_operation.lock().unwrap() = None;
+        assert!(mux.close_surface(replacement.id).unwrap());
+        assert!(mux.close_surface(second.id).unwrap());
+        assert!(mux.close_surface(first.id).unwrap());
+        wait_for_kitty_image_budget(&mux);
+        assert!(
+            returned_before_release,
+            "a pending killed-surface expansion blocked terminal creation"
+        );
     }
 
     #[test]
