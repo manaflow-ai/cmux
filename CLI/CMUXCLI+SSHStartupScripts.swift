@@ -1,4 +1,5 @@
 import CmuxFoundation
+import Darwin
 import Foundation
 
 extension CMUXCLI {
@@ -6,6 +7,7 @@ extension CMUXCLI {
         guard commandArgs.isEmpty else {
             throw CLIError(message: "__ssh-auth-recovery takes no arguments", exitCode: 2)
         }
+        guard sshAuthenticationRecoveryQueueMayHaveWork() else { return }
 
         let recoveryProgram = [
             SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction(),
@@ -19,6 +21,28 @@ extension CMUXCLI {
         )
         guard result.status == 0 else {
             throw CLIError(message: "SSH authentication recovery helper failed", exitCode: result.status)
+        }
+    }
+
+    private func sshAuthenticationRecoveryQueueMayHaveWork() -> Bool {
+        let recoveryBase = ProcessInfo.processInfo.environment["TMPDIR"] ?? "/tmp"
+        let recoveryRoot = URL(fileURLWithPath: recoveryBase, isDirectory: true)
+            .appendingPathComponent("cmux-ssh-auth-recovery.\(getuid())", isDirectory: true)
+        guard FileManager.default.fileExists(atPath: recoveryRoot.path) else { return false }
+
+        do {
+            let entries = try FileManager.default.contentsOfDirectory(
+                at: recoveryRoot,
+                includingPropertiesForKeys: [.fileSizeKey]
+            )
+            return entries.contains { entry in
+                guard entry.lastPathComponent.hasPrefix("queue.") else { return false }
+                guard let values = try? entry.resourceValues(forKeys: [.fileSizeKey]) else { return true }
+                return (values.fileSize ?? 1) > 0
+            }
+        } catch {
+            // Fail open so the shell helper can apply its secure-path checks.
+            return true
         }
     }
 
