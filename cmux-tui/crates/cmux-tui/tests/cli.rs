@@ -89,7 +89,7 @@ impl HeadlessServer {
             {
                 return format!("could not read server stderr: {error}");
             }
-            return String::from_utf8_lossy(&bytes).into_owned();
+            String::from_utf8_lossy(&bytes).into_owned()
         }
         #[cfg(not(unix))]
         {
