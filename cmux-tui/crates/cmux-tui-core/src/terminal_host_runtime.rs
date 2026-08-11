@@ -1625,11 +1625,11 @@ mod unix {
         pub fn mint_public_renderer_grant(&self, ttl: Duration) -> anyhow::Result<RendererGrant> {
             anyhow::ensure!(
                 self.protocol_version >= PUBLIC_RENDERER_GRANT_PROTOCOL_VERSION,
-                "terminal host protocol v{} cannot authenticate public renderer grants; v{} or newer is required",
-                self.protocol_version,
-                PUBLIC_RENDERER_GRANT_PROTOCOL_VERSION,
+                "Public renderer access is unavailable for this terminal."
             );
-            self.mint_renderer_grant(ttl)
+            let mut grant = self.mint_renderer_grant(ttl)?;
+            grant.terminal_id = TerminalId::UNSPECIFIED.to_hex();
+            Ok(grant)
         }
 
         pub fn persist_workspace(&mut self, workspace_key: &str) -> anyhow::Result<()> {
