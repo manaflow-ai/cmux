@@ -241,12 +241,7 @@ impl ResourceCloseState {
     fn install(self, live: &mut State) {
         match self {
             Self::Full(state) => *live = state,
-            Self::Terminal {
-                state,
-                workspace_ids,
-                catalog_public_ids,
-                target_surfaces,
-            } => {
+            Self::Terminal { state, workspace_ids, catalog_public_ids, target_surfaces } => {
                 live.install_terminal_scope(
                     state,
                     &workspace_ids,
@@ -3071,11 +3066,8 @@ impl Mux {
             .collect::<HashSet<_>>();
         let catalog_public_ids = terminal_indexes.catalog_public_ids.clone();
         let target_surfaces = targets.iter().copied().collect::<HashSet<_>>();
-        let mut projected = state.clone_terminal_scope(
-            &workspace_ids,
-            &catalog_public_ids,
-            &target_surfaces,
-        );
+        let mut projected =
+            state.clone_terminal_scope(&workspace_ids, &catalog_public_ids, &target_surfaces);
         terminal_indexes.seed(&mut projected);
         let (runtime, removed, _) = remove_terminal_catalogs_and_targets_from_state(
             self,
