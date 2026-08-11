@@ -2237,7 +2237,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
-    func unpublishedSetupFailureStillKillsStableRoot(shellPath: String) throws {
+    func unpublishedFallbackFailurePublishesDurableOwnership(shellPath: String) throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-ssh-auth-unpublished-setup-failure-\(UUID().uuidString)",
@@ -2248,6 +2248,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             isDirectory: true
         )
         let signals = root.appendingPathComponent("signals")
+        let enqueuedGroup = root.appendingPathComponent("enqueued-group")
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         try createSecureGroupDirectory(at: groupDirectory)
         defer { try? fileManager.removeItem(at: root) }
@@ -2260,19 +2261,30 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         }
         cmux_ssh_auth_publish_current_worker() { return 1; }
         cmux_ssh_terminate_owned_auth_group() { :; }
+        cmux_ssh_auth_force_unpublished_process_tree() { return 1; }
+        cmux_ssh_auth_recovery_enqueue() {
+          printf '%s\n' "$1" > "$CMUX_TEST_ENQUEUED_GROUP"
+        }
         kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
         CMUX_SSH_AUTH_GROUP_DIR="$CMUX_TEST_GROUP_DIR"
         export CMUX_SSH_AUTH_GROUP_DIR
         : > "$CMUX_TEST_SIGNALS"
         cmux_ssh_terminate_auth_process_tree 101 1
-        /usr/bin/grep -Fqx -- '-KILL 101' "$CMUX_TEST_SIGNALS" || exit 99
-        test ! -e "$CMUX_SSH_AUTH_GROUP_DIR/rollback-only" || exit 98
+        if /usr/bin/grep -Fqx -- '-KILL 101' "$CMUX_TEST_SIGNALS"; then exit 99; fi
+        test -f "$CMUX_SSH_AUTH_GROUP_DIR/rollback-only" || exit 98
+        /usr/bin/grep -Fqx '101 1 777 Thu_Jan_1_00:00:00_1970' \
+          "$CMUX_SSH_AUTH_GROUP_DIR/unpublished.root" || exit 97
+        /usr/bin/grep -Fqx '101 1 777 Thu_Jan_1_00:00:00_1970 R' \
+          "$CMUX_SSH_AUTH_GROUP_DIR/owned" || exit 96
+        /usr/bin/grep -Fqx "$CMUX_SSH_AUTH_GROUP_DIR" \
+          "$CMUX_TEST_ENQUEUED_GROUP" || exit 95
         """
 
         let result = try runShellCommand(
             command,
             environment: [
                 "CMUX_TEST_GROUP_DIR": groupDirectory.path,
+                "CMUX_TEST_ENQUEUED_GROUP": enqueuedGroup.path,
                 "CMUX_TEST_SIGNALS": signals.path,
                 "TMPDIR": root.path,
             ],
