@@ -1397,9 +1397,7 @@ impl State {
             .collect::<Vec<_>>();
         self.resource_indexes.screen_positions.remove(&removed.id);
         for (screen, index) in shifted {
-            self.resource_indexes
-                .screen_positions
-                .insert(screen, (workspace_index, index));
+            self.resource_indexes.screen_positions.insert(screen, (workspace_index, index));
         }
         removed
     }
