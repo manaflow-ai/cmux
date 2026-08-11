@@ -2813,6 +2813,45 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(result.status == 0, "Shell failed: \(result.standardError)")
     }
 
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func authenticationGroupFactoryRetriesTransientRecoveryLockFailure(
+        shellPath: String
+    ) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-factory-lock-retry-\(UUID().uuidString)", isDirectory: true)
+        let lockAttempts = root.appendingPathComponent("lock-attempts")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_test_lock_attempts=0
+        cmux_ssh_auth_recovery_lock() {
+          cmux_test_lock_attempts=$((cmux_test_lock_attempts + 1))
+          printf '%s\n' "$cmux_test_lock_attempts" > "$CMUX_TEST_LOCK_ATTEMPTS"
+          [ "$cmux_test_lock_attempts" -ge 3 ]
+        }
+        cmux_ssh_auth_recovery_unlock() { :; }
+        cmux_test_group=$(cmux_ssh_auth_create_group_dir) || exit 99
+        test "$(/bin/cat "$CMUX_TEST_LOCK_ATTEMPTS")" -eq 3 || exit 98
+        test -d "$cmux_test_group" || exit 97
+        /usr/bin/grep -Fxq "$cmux_test_group" \
+          "$TMPDIR/cmux-ssh-auth-recovery.$(/usr/bin/id -u)/queue.0" || exit 96
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_TEST_LOCK_ATTEMPTS": lockAttempts.path,
+                "TMPDIR": root.path,
+            ],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
     @Test func recoveryQueueSerializesConcurrentEnqueues() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
