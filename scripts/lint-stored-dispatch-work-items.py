@@ -2,9 +2,9 @@
 """Reject deferred-action handles that can build recursive release chains.
 
 The parent-repository gate covers DispatchWorkItem declarations in Sources,
-CLI, ios, package Sources, and the pinned Bonsplit sources. It also audits
-stored Task and DispatchSourceTimer handles in ContentView, whose unusually
-large Swift value snapshots make replacement chains especially dangerous.
+CLI, ios, package Sources, and the pinned Bonsplit sources. It also rejects
+closure-bearing deferred handles stored inline in macOS SwiftUI State, where a
+successor closure can capture a value snapshot that still owns its predecessor.
 Other gitlink dependencies such as Ghostty remain dependency-owned and must be
 audited when their pinned revisions change.
 """
@@ -43,7 +43,12 @@ KEYWORDS = TYPE_DECLARATIONS | CALLABLE_DECLARATIONS | STATEMENT_STARTERS | {
     "willSet",
 }
 IDENTIFIER_KINDS = {"escaped_identifier", "identifier"}
-CONTENT_VIEW_AUDITED_HANDLE_TYPES = ("Task", "DispatchSourceTimer")
+SWIFTUI_STATE_AUDITED_HANDLE_TYPES = ("Task", "DispatchSourceTimer", "Timer")
+MACOS_SWIFTUI_SOURCE_PREFIXES = (
+    "Sources/",
+    "Packages/macOS/",
+    "vendor/bonsplit/Sources/",
+)
 
 
 @dataclass(frozen=True)
@@ -312,6 +317,24 @@ def _significant(tokens: list[Token], start: int, step: int = 1) -> int | None:
     return None
 
 
+def _has_attribute(
+    tokens: list[Token], declaration_start: int, attribute: str
+) -> bool:
+    index = declaration_start - 1
+    while index >= 0:
+        token = tokens[index]
+        if token.value in {"{", "}", ";"}:
+            return False
+        if token.kind == "keyword" and token.value in STATEMENT_STARTERS | CALLABLE_DECLARATIONS:
+            return False
+        if token.value == attribute:
+            at_index = _significant(tokens, index - 1, step=-1)
+            if at_index is not None and tokens[at_index].value == "@":
+                return True
+        index -= 1
+    return False
+
+
 def _scope_for_open_brace(tokens: list[Token], brace_index: int) -> Scope:
     start = brace_index - 1
     while start >= 0 and tokens[start].value not in {"{", "}", ";"}:
@@ -493,10 +516,10 @@ def _dispatch_type_text(declaration_tokens: list[Token]) -> str | None:
     return None
 
 
-def _content_view_handle_type_text(
+def _swiftui_state_handle_type_text(
     declaration_tokens: list[Token],
 ) -> str | None:
-    for audited_type in CONTENT_VIEW_AUDITED_HANDLE_TYPES:
+    for audited_type in SWIFTUI_STATE_AUDITED_HANDLE_TYPES:
         if type_text := _annotated_type_text(declaration_tokens, audited_type):
             return type_text
 
@@ -531,6 +554,8 @@ def _content_view_handle_type_text(
         return "<inferred:Task>"
     if initializer[:3] == ["DispatchSource", ".", "makeTimerSource"]:
         return "<inferred:DispatchSourceTimer>"
+    if initializer[:3] == ["Timer", ".", "scheduledTimer"]:
+        return "<inferred:Timer>"
     return None
 
 
@@ -613,10 +638,11 @@ def scan_declarations(source: str, path: str) -> list[Declaration]:
         type_text = _dispatch_type_text(declaration_tokens)
         if (
             type_text is None
-            and path == "Sources/ContentView.swift"
-            and context == "member:ContentView"
+            and path.startswith(MACOS_SWIFTUI_SOURCE_PREFIXES)
+            and context.startswith("member:")
+            and _has_attribute(tokens, index, "State")
         ):
-            type_text = _content_view_handle_type_text(declaration_tokens)
+            type_text = _swiftui_state_handle_type_text(declaration_tokens)
         if type_text is None:
             continue
         declarations.append(
@@ -669,10 +695,10 @@ def main() -> int:
         return 0
 
     print(
-        "Stored DispatchWorkItem declarations, and Task or DispatchSourceTimer handles in "
-        "ContentView, can rebuild recursive release chains. Use a scheduler that cannot "
-        "retain prior queued work, or prove that replacement drops the predecessor before "
-        "capturing owner state.",
+        "Stored DispatchWorkItem declarations and closure-bearing handles in macOS SwiftUI "
+        "State can rebuild recursive release chains. Use a scheduler that cannot retain "
+        "prior queued work, or prove that replacement drops the predecessor before capturing "
+        "owner state.",
         file=sys.stderr,
     )
     lines_by_key: dict[tuple[str, str, str, str], list[int]] = collections.defaultdict(list)

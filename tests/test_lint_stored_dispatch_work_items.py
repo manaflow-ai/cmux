@@ -170,71 +170,94 @@ class StoredDispatchWorkItemScannerTests(unittest.TestCase):
             [("workByName", "<inferred:[DispatchWorkItem]>")],
         )
 
-    def test_audits_stored_async_handles_in_content_view(self) -> None:
+    def test_audits_stored_async_handles_in_macos_swiftui_state(self) -> None:
         declarations = LINT.scan_declarations(
             """
-            struct ContentView: View {
-                @State private var fallbackTask: Task<Void, Never>?
+            struct FixtureView: View {
+                @State
+                private var fallbackTask: Task<Void, Never>?
                 @State private var tasksByPanel: [String: Task<Void, Never>] = [:]
                 @State private var expiryTimer: DispatchSourceTimer?
+                @State private var feedbackTimer: Timer?
             }
             """,
-            "Sources/ContentView.swift",
+            "Sources/FixtureView.swift",
         )
 
         self.assertEqual(
             [(item.name, item.type_text, item.context) for item in declarations],
             [
-                ("fallbackTask", "Task<Void,Never>?", "member:ContentView"),
+                ("fallbackTask", "Task<Void,Never>?", "member:FixtureView"),
                 (
                     "tasksByPanel",
                     "[String:Task<Void,Never>]",
-                    "member:ContentView",
+                    "member:FixtureView",
                 ),
                 (
                     "expiryTimer",
                     "DispatchSourceTimer?",
-                    "member:ContentView",
+                    "member:FixtureView",
+                ),
+                (
+                    "feedbackTimer",
+                    "Timer?",
+                    "member:FixtureView",
                 ),
             ],
         )
 
-    def test_audits_inferred_async_handles_in_content_view(self) -> None:
+    def test_audits_inferred_async_handles_in_macos_swiftui_state(self) -> None:
         declarations = LINT.scan_declarations(
             """
-            struct ContentView: View {
+            struct FixtureView: View {
                 @State private var task = Task {}
                 @State private var detachedTask = Task.detached {}
                 @State private var timer = DispatchSource.makeTimerSource(queue: .main)
+                @State private var feedback = Timer.scheduledTimer(withTimeInterval: 1, repeats: false) { _ in }
             }
             """,
-            "Sources/ContentView.swift",
+            "Packages/macOS/Fixture/Sources/Fixture/FixtureView.swift",
         )
 
         self.assertEqual(
             [(item.name, item.type_text, item.context) for item in declarations],
             [
-                ("task", "<inferred:Task>", "member:ContentView"),
-                ("detachedTask", "<inferred:Task>", "member:ContentView"),
+                ("task", "<inferred:Task>", "member:FixtureView"),
+                ("detachedTask", "<inferred:Task>", "member:FixtureView"),
                 (
                     "timer",
                     "<inferred:DispatchSourceTimer>",
-                    "member:ContentView",
+                    "member:FixtureView",
+                ),
+                (
+                    "feedback",
+                    "<inferred:Timer>",
+                    "member:FixtureView",
                 ),
             ],
         )
 
-    def test_does_not_audit_stored_async_handles_outside_content_view(self) -> None:
-        declarations = self.scan(
+    def test_does_not_audit_non_state_or_ios_async_handles(self) -> None:
+        declarations = LINT.scan_declarations(
+            """
+            struct FixtureView: View {
+                private var task: Task<Void, Never>?
+                private var timer: DispatchSourceTimer?
+            }
+            """,
+            "Sources/FixtureView.swift",
+        )
+        ios_declarations = LINT.scan_declarations(
             """
             struct FixtureView: View {
                 @State private var task: Task<Void, Never>?
-                @State private var timer: DispatchSourceTimer?
             }
-            """
+            """,
+            "Packages/iOS/Fixture/Sources/Fixture/FixtureView.swift",
         )
 
         self.assertEqual(declarations, [])
+        self.assertEqual(ios_declarations, [])
 
     def test_allowance_comparison_rejects_changed_ownership_and_stale_entries(self) -> None:
         allowance = LINT.Allowance(
