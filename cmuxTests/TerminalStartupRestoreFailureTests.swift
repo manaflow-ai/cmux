@@ -176,6 +176,79 @@ struct TerminalStartupRestoreFailureTests {
         #expect(controller.teardownValidationEpochByPanel[sourceKey] == nil)
     }
 
+    @Test("Closing a staged relaunch cancels its restore transaction")
+    func closingStagedRelaunchCancelsRestore() throws {
+        let sessionID = "closed-staged-restore-\(UUID().uuidString)"
+        let workingDirectory = "/tmp/closed-staged-restore"
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: sessionID,
+            workingDirectory: workingDirectory,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/usr/local/bin/codex",
+                arguments: ["/usr/local/bin/codex", "resume", sessionID],
+                workingDirectory: workingDirectory,
+                environment: [:],
+                capturedAt: 1_800_000_302,
+                source: "process"
+            )
+        )
+        defer {
+            AgentResumeLaunchGuard.shared.releaseResumeLaunch(
+                kind: agent.kind.rawValue,
+                sessionId: sessionID
+            )
+        }
+        let defaults = try makeAutoResumeDefaults()
+        defer { defaults.store.removePersistentDomain(forName: defaults.name) }
+        let recorder = AgentChatResumeIntentRecorder { _ in }
+        let source = Workspace(
+            workingDirectory: workingDirectory,
+            initialTerminalInput: " cmux restore codex \(sessionID)\n",
+            initialTerminalStartupRestoreAgent: agent,
+            agentSessionAutoResumeDefaults: defaults.store,
+            agentChatResumeIntentRecorder: recorder
+        )
+        defer { source.teardownAllPanels() }
+        let sourcePanelID = try #require(source.focusedPanelId)
+        let persisted = source.sessionSnapshot(includeScrollback: false)
+
+        let restored = Workspace(
+            agentSessionAutoResumeDefaults: defaults.store,
+            agentChatResumeIntentRecorder: recorder
+        )
+        defer { restored.teardownAllPanels() }
+        let restoredPanelIDs = restored.restoreSessionSnapshot(
+            persisted,
+            startupRestoreCommitOwner: .tabManagerTopology
+        )
+        let restoredPanelID = try #require(restoredPanelIDs[sourcePanelID])
+        let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
+        #expect(!restoredPanel.surface.canCreateRuntimeSurface)
+        #expect(
+            !AgentResumeLaunchGuard.shared.claimResumeLaunch(
+                kind: agent.kind.rawValue,
+                sessionId: sessionID
+            )
+        )
+
+        #expect(restored.closePanel(restoredPanelID, force: true))
+        #expect(restored.terminalPanel(for: restoredPanelID) == nil)
+        #expect(restoredPanel.surface.debugTeardownRequest().requestedAt != nil)
+        #expect(
+            AgentResumeLaunchGuard.shared.claimResumeLaunch(
+                kind: agent.kind.rawValue,
+                sessionId: sessionID
+            )
+        )
+
+        restored.terminalStartupRestoreCoordinator.commitPendingRestores(
+            panelIDs: [restoredPanelID]
+        )
+        #expect(restored.restoredAgentSnapshotsByPanelId[restoredPanelID] == nil)
+    }
+
     private func makeAutoResumeDefaults() throws -> (store: UserDefaults, name: String) {
         let name = "cmux-terminal-startup-failure-\(UUID().uuidString)"
         let store = try #require(UserDefaults(suiteName: name))

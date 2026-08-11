@@ -57,6 +57,40 @@ struct VaultQueuedRestoreIdentityTests {
         #expect(terminal.wasAgentRunning == true)
     }
 
+    @Test("Queued Vault identity remains authoritative after shell startup")
+    func queuedIdentitySurvivesShellStartup() throws {
+        let queuedLaunch = try makeLaunch(sessionID: "vault-running-original")
+        let queuedAgent = try #require(queuedLaunch.startupRestoreAgent)
+        let replacementLaunch = try makeLaunch(sessionID: "vault-running-replacement")
+        let replacementAgent = try #require(replacementLaunch.startupRestoreAgent)
+        let workspace = Workspace(
+            workingDirectory: queuedLaunch.workingDirectory,
+            initialTerminalInput: queuedLaunch.initialInput,
+            initialTerminalStartupRestoreAgent: queuedAgent,
+            agentChatResumeIntentRecorder: AgentChatResumeIntentRecorder { _ in }
+        )
+        defer { workspace.teardownAllPanels() }
+        let panelID = try #require(workspace.focusedPanelId)
+
+        workspace.updatePanelShellActivityState(
+            panelId: panelID,
+            state: .commandRunning
+        )
+        #expect(
+            workspace.restoredAgentResumeStatesByPanelId[panelID]
+                == .autoResumeCommandRunning
+        )
+
+        // Generic shell activity proves that startup began, but it does not
+        // authorize a different indexed session to inherit that startup phase.
+        workspace.restoredAgentSnapshotsByPanelId[panelID] = replacementAgent
+
+        #expect(
+            workspace.restoredAgentSnapshotsByPanelId[panelID]?.sessionId
+                == queuedAgent.sessionId
+        )
+    }
+
     private func makeLaunch(sessionID: String) throws -> SessionEntryResumeLaunch {
         let entry = SessionEntry(
             id: "codex:\(sessionID)",
