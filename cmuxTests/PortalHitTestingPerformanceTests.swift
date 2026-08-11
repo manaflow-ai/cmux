@@ -553,6 +553,32 @@ struct PortalHitTestingPerformanceTests {
     }
 
     @Test
+    func hierarchyMutationHookIgnoresNullSubviewFromObjectiveC() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let rootView = try #require(window.contentView)
+        let invalidator = PortalSplitDividerCacheInvalidator()
+        defer { invalidator.invalidate() }
+        let collected = PortalSplitDividerRegion.collect(in: rootView)
+        invalidator.observe(
+            rootView: rootView,
+            geometryViews: collected.geometryObservedViews,
+            hierarchyNodes: collected.hierarchyNodes
+        ) {}
+        #expect(invalidator.isHierarchyCurrent(for: rootView))
+
+        _ = rootView.perform(#selector(NSView.addSubview(_:)), with: nil)
+
+        #expect(invalidator.isHierarchyCurrent(for: rootView))
+    }
+
+    @Test
     func hierarchyMutationInvalidatesAfterPureSubviewReorder() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
