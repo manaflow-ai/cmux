@@ -2150,6 +2150,11 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         }
         cmux_ssh_launch_owned_auth_group_reaper "$CMUX_SSH_AUTH_GROUP_DIR"
         cmux_test_reaper_pid=$!
+        if ! cmux_test_wait_pid_exit "$cmux_test_reaper_pid" 5000; then
+          /bin/kill -KILL "$cmux_test_reaper_pid" 2>/dev/null || true
+          wait "$cmux_test_reaper_pid" 2>/dev/null || true
+          exit 96
+        fi
         wait "$cmux_test_reaper_pid"
         cmux_test_reaper_status=$?
         test "$cmux_test_reaper_status" -eq 0 || exit 95
