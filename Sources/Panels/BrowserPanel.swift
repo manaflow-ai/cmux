@@ -7351,13 +7351,14 @@ extension BrowserPanel {
 
         switch target {
         case .webView:
-            noteWebViewFocused()
+            prepareFocusIntentForActivation(.browser(.webView))
             focus()
             return true
         case .addressBar:
             guard let requestId = requestAddressBarFocus(
                 selectionIntent: .preserveFieldEditorSelection
             ) else {
+                prepareFocusIntentForActivation(.browser(.webView))
                 _ = requestExplicitWebViewFocus()
                 return true
             }
