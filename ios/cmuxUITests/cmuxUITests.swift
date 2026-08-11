@@ -3097,18 +3097,13 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(modelPill.isHittable)
         modelPill.tap()
         let snapshotA = app.buttons[snapshotAName]
-        let firstMenuSnapshotB = app.buttons[snapshotBName]
-        XCTAssertTrue(snapshotA.waitForExistence(timeout: 4))
-        XCTAssertTrue(firstMenuSnapshotB.exists)
-        tapMenuItem(snapshotA, in: app)
-        XCTAssertEqual(modelPill.value as? String, snapshotAName)
-
-        modelPill.tap()
-        // Release as soon as the second menu is presented. Waiting for another
-        // accessibility query here can outlive the production RPC timeout and
-        // turn a menu-snapshot test into a closed-connection test.
-        await hostServer.releaseTaskModelResponses()
         let presentedSnapshotB = app.buttons[snapshotBName]
+        XCTAssertTrue(snapshotA.waitForExistence(timeout: 4))
+        XCTAssertTrue(presentedSnapshotB.exists)
+        // Release while this menu is still presented. One menu cycle exercises
+        // the snapshot boundary directly without occupying the shared mock-host
+        // connection across unrelated accessibility waits.
+        await hostServer.releaseTaskModelResponses()
         XCTAssertTrue(presentedSnapshotB.waitForExistence(timeout: 4))
         XCTAssertTrue(
             presentedSnapshotB.exists,
