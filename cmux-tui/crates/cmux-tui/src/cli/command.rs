@@ -17,6 +17,7 @@ pub(super) enum ParsedCommand {
 }
 
 pub(super) enum CommandPlan {
+    Server(super::lifecycle::ServerPlan),
     AgentHooks(crate::agent_hook_install::Plan),
     Protocol(RequestPlan),
     SessionResetState(SessionResetStatePlan),
@@ -153,6 +154,7 @@ pub(super) fn parse(args: &[String]) -> Result<CommandPlan, UsageError> {
         .ok_or_else(|| UsageError::new("missing resource scope"))?;
     let mut selectors = Selectors::default();
     let plan = match scope {
+        "server" => parse_server(&tokens.words[1..], &mut tokens.flags)?,
         "machine" => parse_machine(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "session" => parse_session(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "client" => parse_client(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
@@ -173,10 +175,36 @@ pub(super) fn parse(args: &[String]) -> Result<CommandPlan, UsageError> {
         "projection" => parse_projection(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "provider" => parse_provider(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "raw" => parse_raw(&tokens.words[1..], &mut tokens.flags)?,
-        value => return Err(UsageError::new(format!("unknown resource scope {value:?}"))),
+        value => return Err(super::unknown_scope(value)),
     };
     tokens.flags.reject_remaining()?;
     Ok(plan)
+}
+
+fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
+    let action = match strs(words).as_slice() {
+        ["status"] => super::lifecycle::ServerAction::Status,
+        ["stop"] => super::lifecycle::ServerAction::Stop { force: flags.boolean("force") },
+        ["reload-config"] => super::lifecycle::ServerAction::ReloadConfig,
+        ["start"] => {
+            return Err(UsageError::new(
+                crate::localization::catalog().local_server.start_options_after_action,
+            ));
+        }
+        [action] => {
+            let messages = &crate::localization::catalog().local_server;
+            return Err(UsageError::new(messages.unknown_server_action(
+                action,
+                super::suggestion(action, &["start", "status", "stop", "reload-config"]),
+            )));
+        }
+        _ => {
+            return Err(UsageError::new(
+                crate::localization::catalog().local_server.invalid_action_syntax,
+            ));
+        }
+    };
+    Ok(CommandPlan::Server(super::lifecycle::ServerPlan { action, session: None }))
 }
 
 fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
@@ -426,6 +454,23 @@ fn parse_session(
             force: flags.boolean("force"),
             confirm_reset: flags.take("confirm-reset"),
         })),
+        [selector, "stop"] => {
+            let session = match Selector::parse(selector).map_err(|_| {
+                UsageError::new(crate::localization::catalog().local_server.session_name_required)
+            })? {
+                Selector::Name(name) if !name.is_empty() => Some(name),
+                Selector::Current => None,
+                Selector::Name(_) | Selector::Id(_) => {
+                    return Err(UsageError::new(
+                        crate::localization::catalog().local_server.session_name_required,
+                    ));
+                }
+            };
+            Ok(CommandPlan::Server(super::lifecycle::ServerPlan {
+                action: super::lifecycle::ServerAction::Stop { force: flags.boolean("force") },
+                session,
+            }))
+        }
         [selector, "config", "reload"] => {
             selectors.insert("session", "session", selector)?;
             request(ResourceOperation::SessionReloadConfig, selectors, flags, Map::new())

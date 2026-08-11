@@ -1315,20 +1315,14 @@ fn remove_reset_dir_children_from_handle(
             expected_entries,
             ignored_root_child,
         ) {
-            restore_reset_staged_child(
+            return Err(restore_changed_reset_child(
                 directory.as_raw_fd(),
                 &staged_child.name,
                 &child_name,
                 &staged_child.display_path,
                 &child_display,
-            )
-            .with_context(|| {
-                format!(
-                    "preserve changed reset path {} after validation failed: {error:#}",
-                    child_display.display()
-                )
-            })?;
-            return Err(error);
+                error,
+            ));
         }
         if reset_stat_is_dir(&staged_child.stat) {
             let child_directory = open_reset_child_dir(
@@ -1457,14 +1451,18 @@ fn stage_reset_child_for_deletion(
                     || reset_stat_inode(&stat) != reset_stat_inode(expected)
                     || reset_stat_kind(&stat) != reset_stat_kind(expected)
                 {
-                    restore_reset_staged_child(
+                    let error = anyhow::anyhow!(
+                        "reset path changed during reset: {}",
+                        display_path.display()
+                    );
+                    return Err(restore_changed_reset_child(
                         parent_fd,
                         &private_name,
                         name,
                         &private_display,
                         display_path,
-                    )?;
-                    anyhow::bail!("reset path changed during reset: {}", display_path.display());
+                        error,
+                    ));
                 }
                 return Ok(ResetStagedChild {
                     name: private_name,
@@ -1486,27 +1484,27 @@ fn stage_reset_child_for_deletion(
 }
 
 #[cfg(unix)]
-fn restore_reset_staged_child(
+fn restore_changed_reset_child(
     parent_fd: std::os::fd::RawFd,
-    staged_name: &std::ffi::OsStr,
+    private_name: &std::ffi::OsStr,
     original_name: &std::ffi::OsStr,
-    staged_display: &Path,
+    private_display: &Path,
     original_display: &Path,
-) -> anyhow::Result<()> {
-    reset_rename_child_exclusive(
+    verification_error: anyhow::Error,
+) -> anyhow::Error {
+    match reset_rename_child_exclusive(
         parent_fd,
-        staged_name,
+        private_name,
         original_name,
-        staged_display,
+        private_display,
         original_display,
-    )
-    .with_context(|| {
-        format!(
-            "restore changed reset path {} from retained private path {}",
-            original_display.display(),
-            staged_display.display()
-        )
-    })
+    ) {
+        Ok(()) => verification_error,
+        Err(restore_error) => anyhow::anyhow!(
+            "{verification_error:#}; failed to restore changed reset path {}: {restore_error:#}",
+            original_display.display()
+        ),
+    }
 }
 
 #[cfg(unix)]
