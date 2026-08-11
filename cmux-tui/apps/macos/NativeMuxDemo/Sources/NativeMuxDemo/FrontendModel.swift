@@ -71,14 +71,13 @@ final class TerminalTitleOwner {
     let terminalID: String
     private(set) var title: String
 
-    private let onTitleChange: (() -> Void)?
     private var pendingTitle: String?
     private var deliveryTask: Task<Void, Never>?
+    private var subscribers: [UUID: AsyncStream<String>.Continuation] = [:]
 
-    init(terminalID: String, title: String, onTitleChange: (() -> Void)? = nil) {
+    init(terminalID: String, title: String) {
         self.terminalID = terminalID
         self.title = title
-        self.onTitleChange = onTitleChange
     }
 
     func submit(_ nextTitle: String) {
@@ -92,7 +91,7 @@ final class TerminalTitleOwner {
             deliveryTask = nil
             if let latest, latest != title {
                 title = latest
-                onTitleChange?()
+                publish(latest)
             }
             if pendingTitle != nil { submit(pendingTitle ?? title) }
         }
@@ -104,27 +103,48 @@ final class TerminalTitleOwner {
         pendingTitle = nil
         if title != nextTitle {
             title = nextTitle
-            onTitleChange?()
+            publish(nextTitle)
         }
+    }
+
+    func subscribe() -> TerminalTitleSubscription {
+        let id = UUID()
+        let pair = AsyncStream<String>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        subscribers[id] = pair.continuation
+        pair.continuation.onTermination = { @Sendable [weak self] _ in
+            Task { @MainActor [weak self] in self?.subscribers[id] = nil }
+        }
+        return TerminalTitleSubscription(current: title, updates: pair.stream)
+    }
+
+    private func publish(_ nextTitle: String) {
+        for continuation in subscribers.values { continuation.yield(nextTitle) }
     }
 
     func cancel() {
         deliveryTask?.cancel()
         deliveryTask = nil
         pendingTitle = nil
+        for continuation in subscribers.values { continuation.finish() }
+        subscribers.removeAll()
     }
+}
+
+struct TerminalTitleSubscription: Sendable {
+    let current: String
+    let updates: AsyncStream<String>
 }
 
 @MainActor
 struct TerminalTitleFn {
-    private let titles: [String: String]
+    private let owners: [String: TerminalTitleOwner]
 
     init(owners: [String: TerminalTitleOwner]) {
-        titles = owners.mapValues(\.title)
+        self.owners = owners
     }
 
-    func callAsFunction(_ terminalID: String) -> String? {
-        titles[terminalID]
+    func callAsFunction(_ terminalID: String) -> TerminalTitleSubscription? {
+        owners[terminalID]?.subscribe()
     }
 }
 
@@ -140,8 +160,6 @@ final class FrontendModel {
     private(set) var transportDiagnostics = ""
     private(set) var selectedWorkspaceID: String?
     private(set) var selectedScreenID: String?
-    private(set) var terminalTitleRevision: UInt64 = 0
-
     @ObservationIgnored private var service: FrontendService?
     @ObservationIgnored private var updatesTask: Task<Void, Never>?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
@@ -634,10 +652,7 @@ final class FrontendModel {
             } else {
                 terminalTitles[terminal.id] = TerminalTitleOwner(
                     terminalID: terminal.id,
-                    title: terminal.title,
-                    onTitleChange: { [weak self] in
-                        if let self { terminalTitleRevision &+= 1 }
-                    }
+                    title: terminal.title
                 )
             }
         }
@@ -656,8 +671,7 @@ final class FrontendModel {
     }
 
     func terminalTitleLookup() -> TerminalTitleFn {
-        _ = terminalTitleRevision
-        return TerminalTitleFn(owners: terminalTitles)
+        TerminalTitleFn(owners: terminalTitles)
     }
 
     func selectWorkspace(_ workspace: WorkspaceSnapshot) {

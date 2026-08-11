@@ -13,6 +13,9 @@ struct PaneView: View {
     let terminalStates: [String: NativeTerminalViewState]
     let terminalTitle: TerminalTitleFn
 
+    @State private var observedTerminalID: String?
+    @State private var observedTerminalTitle: String?
+
     private var pane: PaneSnapshot? { snapshot.pane(paneID) }
     private var tabs: [TabSnapshot] { snapshot.tabs(in: paneID) }
     private var activeTab: TabSnapshot? {
@@ -43,6 +46,20 @@ struct PaneView: View {
                     pane?.focused == true ? Color.accentColor : Color(nsColor: .separatorColor),
                     lineWidth: 1
                 )
+        }
+        .task(id: activeTerminalID) {
+            observedTerminalID = nil
+            observedTerminalTitle = nil
+            guard let terminalID = activeTerminalID,
+                let subscription = terminalTitle(terminalID),
+                !Task.isCancelled
+            else { return }
+            observedTerminalID = terminalID
+            observedTerminalTitle = subscription.current
+            for await title in subscription.updates {
+                guard !Task.isCancelled else { return }
+                observedTerminalTitle = title
+            }
         }
     }
 
@@ -143,13 +160,26 @@ struct PaneView: View {
             return pane?.displayName ?? String(paneID.suffix(5))
         }
         if let name = activeTab.name, !name.isEmpty { return name }
-        if let title = terminalTitle(activeTab.contentID), !title.isEmpty {
-            return title
+        if activeTab.contentKind == "terminal" {
+            if observedTerminalID == activeTab.contentID,
+                let observedTerminalTitle,
+                !observedTerminalTitle.isEmpty
+            {
+                return observedTerminalTitle
+            }
+            if let title = snapshot.terminal(for: activeTab)?.title, !title.isEmpty {
+                return title
+            }
         }
         if let browser = snapshot.browser(for: activeTab), !browser.title.isEmpty {
             return browser.title
         }
         return localizedContentKind(activeTab.contentKind)
+    }
+
+    private var activeTerminalID: String? {
+        guard let activeTab, activeTab.contentKind == "terminal" else { return nil }
+        return activeTab.contentID
     }
 }
 

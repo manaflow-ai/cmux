@@ -1326,19 +1326,11 @@ mod tests {
                     let _ = ready.send(());
                     std::future::pending::<Result<(), String>>().await
                 };
-                run_frontend_connect_stage(
-                    pending,
-                    None,
-                    Some(waiting_cancellation.as_ref()),
-                )
-                .await
+                run_frontend_connect_stage(pending, None, Some(waiting_cancellation.as_ref())).await
             });
             let _ = ready_rx.await;
             cancellation.cancel();
-            assert_eq!(
-                waiter.await.unwrap().unwrap_err(),
-                FRONTEND_CONNECTION_CANCELLED_ERROR
-            );
+            assert_eq!(waiter.await.unwrap().unwrap_err(), FRONTEND_CONNECTION_CANCELLED_ERROR);
         });
     }
 

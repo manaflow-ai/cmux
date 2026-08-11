@@ -438,21 +438,24 @@ func focusMutationTrackerRejectsStaleRollback() {
 }
 
 @Test @MainActor
-func terminalTitleLookupIsImmutableAndSignalsAValueRefresh() {
-    var refreshCount = 0
-    let owner = TerminalTitleOwner(
-        terminalID: "terminal-a",
-        title: "before",
-        onTitleChange: { refreshCount += 1 }
-    )
-    let lookup = TerminalTitleFn(owners: [owner.terminalID: owner])
+func terminalTitleLookupStreamsOnlyTheSelectedOwner() async throws {
+    let selected = TerminalTitleOwner(terminalID: "terminal-a", title: "before")
+    let unrelated = TerminalTitleOwner(terminalID: "terminal-b", title: "other")
+    let lookup = TerminalTitleFn(owners: [
+        selected.terminalID: selected,
+        unrelated.terminalID: unrelated,
+    ])
+    let subscription = try #require(lookup("terminal-a"))
 
-    owner.replace(with: "after")
+    unrelated.replace(with: "not-selected")
+    selected.replace(with: "after")
+    var updates = subscription.updates.makeAsyncIterator()
 
-    #expect(lookup("terminal-a") == "before")
-    #expect(TerminalTitleFn(owners: [owner.terminalID: owner])("terminal-a") == "after")
+    #expect(subscription.current == "before")
+    #expect(await updates.next() == "after")
     #expect(lookup("terminal-missing") == nil)
-    #expect(refreshCount == 1)
+    selected.cancel()
+    unrelated.cancel()
 }
 
 @Test
