@@ -43,6 +43,27 @@ thread_local! {
         const { std::cell::Cell::new(false) };
     static POST_SPAWN_FAILURE_MARKER: std::cell::RefCell<Option<std::path::PathBuf>> =
         const { std::cell::RefCell::new(None) };
+    #[cfg(target_os = "macos")]
+    static FORCE_TASK_NAME_FOR_PID_FAILURE: std::cell::Cell<bool> =
+        const { std::cell::Cell::new(false) };
+}
+
+#[cfg(all(test, target_os = "macos"))]
+struct ForcedTaskNameForPidFailure {
+    previous: bool,
+}
+
+#[cfg(all(test, target_os = "macos"))]
+impl Drop for ForcedTaskNameForPidFailure {
+    fn drop(&mut self) {
+        FORCE_TASK_NAME_FOR_PID_FAILURE.set(self.previous);
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+fn force_task_name_for_pid_failure_for_test() -> ForcedTaskNameForPidFailure {
+    let previous = FORCE_TASK_NAME_FOR_PID_FAILURE.replace(true);
+    ForcedTaskNameForPidFailure { previous }
 }
 
 #[cfg(test)]
@@ -1326,6 +1347,13 @@ impl StableProcessHandle {
         #[allow(deprecated)]
         let current_task = unsafe { libc::mach_task_self() };
         // SAFETY: `task` points to writable storage for one task-name right.
+        #[cfg(test)]
+        let name_result = if FORCE_TASK_NAME_FOR_PID_FAILURE.get() {
+            libc::KERN_FAILURE
+        } else {
+            unsafe { task_name_for_pid(current_task, pid, &mut task) }
+        };
+        #[cfg(not(test))]
         let name_result = unsafe { task_name_for_pid(current_task, pid, &mut task) };
         if name_result != libc::KERN_SUCCESS {
             return if process_is_gone(pid)? {
@@ -2171,6 +2199,18 @@ mod tests {
             io::Error::last_os_error()
         );
         true
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_process_identity_survives_unavailable_task_name_access() {
+        let _failure = force_task_name_for_pid_failure_for_test();
+        let pid = libc::pid_t::try_from(std::process::id()).unwrap();
+
+        let process = StableProcessHandle::capture(pid).unwrap().unwrap();
+
+        assert!(process.matches_current().unwrap());
+        assert!(process.signal(0).unwrap());
     }
 
     #[cfg(target_os = "macos")]
