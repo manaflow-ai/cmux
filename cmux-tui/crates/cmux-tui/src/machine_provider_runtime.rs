@@ -490,6 +490,9 @@ impl ProviderMachineRuntime {
                 };
                 let session_available = open.is_some();
                 self.stage_connection(open, Some(rollback))?;
+                // A staged explicit switch supersedes any deferred selection
+                // from an earlier create or enrollment response.
+                self.accepted_selection = None;
                 let mut ui = self.ui_state(session_available);
                 ui.notice = self.take_notice();
                 let mut result = MachineActionResult::replace(ui, session, label);
