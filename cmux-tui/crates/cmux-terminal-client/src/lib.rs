@@ -2954,10 +2954,7 @@ mod tests {
         apply_test_colors(&mut state, boundary);
         let mut early_output = Frame::new(MessageKind::Output, b"early".to_vec());
         early_output.sequence = boundary + 1;
-        assert_eq!(
-            state.apply(early_output).unwrap_err(),
-            "live frame arrived before Ready"
-        );
+        assert_eq!(state.apply(early_output).unwrap_err(), "live frame arrived before Ready");
         state.apply(ready).unwrap();
         assert!(client_state_accepts_terminal_commands(&state));
 
