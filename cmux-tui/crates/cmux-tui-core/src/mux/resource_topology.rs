@@ -385,6 +385,16 @@ pub(super) struct TerminalExitDetachEffects {
 
 impl TerminalExitDetachProjection {
     #[cfg(test)]
+    pub(super) fn topology_scope_sizes(&self) -> [usize; 4] {
+        [
+            self.state.workspaces.len(),
+            self.state.workspaces.iter().map(|workspace| workspace.screens.len()).sum(),
+            self.state.panes.len(),
+            self.state.surfaces.len(),
+        ]
+    }
+
+    #[cfg(test)]
     pub(super) fn terminal_index_scope_sizes(&self) -> [usize; 4] {
         [
             self.terminal_indexes.catalog_by_runtime.len(),

@@ -18574,6 +18574,44 @@ mod tests {
     }
 
     #[test]
+    fn terminal_exit_projection_copies_only_target_and_focus_owners() {
+        let mux = test_mux();
+        let closing = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let terminal_id = closing.terminal_public_id().cloned().unwrap();
+        let host = mux.resource_terminal_host_identity(&closing).unwrap();
+        let (workspace, closing_pane) = mux.with_state(|state| {
+            let pane = state.pane_of(closing.id).unwrap();
+            let (workspace, _) = state.screen_of(pane).unwrap();
+            (state.workspaces[workspace].id, pane)
+        });
+        for _ in 0..6 {
+            mux.new_screen(Some(workspace), Some((80, 24))).unwrap();
+        }
+        assert!(mux.focus_pane(closing_pane));
+
+        let topology_scope_sizes = {
+            let registry = mux.workspace_registry.lock().unwrap();
+            let state = mux.state.lock().unwrap();
+            mux.terminal_exit_detach_projection_locked(
+                &registry,
+                &state,
+                &host.terminal_id,
+                Some(&host.incarnation),
+                &terminal_id,
+            )
+            .unwrap()
+            .unwrap()
+            .topology_scope_sizes()
+        };
+        assert_eq!(
+            topology_scope_sizes,
+            [1, 2, 2, 2],
+            "terminal exit copied unrelated topology owners"
+        );
+        mux.shutdown();
+    }
+
+    #[test]
     fn terminal_close_publishes_newly_focused_sibling_pane() {
         let mux = test_mux();
         let closing = mux.new_workspace(None, Some((80, 24))).unwrap();
