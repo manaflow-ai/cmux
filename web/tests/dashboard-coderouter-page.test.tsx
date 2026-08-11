@@ -9,6 +9,7 @@ let cutoverReady = true;
 let hostedControlConfigured = true;
 let hostedExchangeCalls = 0;
 let selectedTeamId: string | null = "team-1";
+let scopedTeamId: string | null = null;
 let authorizedTeams: Array<{
   teamId: string;
   teamName: string;
@@ -30,7 +31,16 @@ mock.module("next-intl/server", () => ({
 }));
 
 mock.module("next/headers", () => ({
-  headers: async () => new Headers(),
+  headers: async () =>
+    new Headers(
+      scopedTeamId
+        ? {
+          cookie: `cmux_coderouter_organization=${
+            encodeURIComponent(scopedTeamId)
+          }`,
+        }
+        : undefined,
+    ),
 }));
 
 mock.module("next/navigation", () => ({
@@ -151,6 +161,7 @@ describe("coderouter dashboard", () => {
     hostedExchangeCalls = 0;
     metricsTeamIds.length = 0;
     selectedTeamId = "team-1";
+    scopedTeamId = null;
     authorizedTeams = [{
       teamId: "team-1",
       teamName: "Team One",
@@ -241,6 +252,33 @@ describe("coderouter dashboard", () => {
   test("uses the authenticated selected team when the URL has no team scope", async () => {
     authorizationAvailable = true;
     selectedTeamId = "team-2";
+    authorizedTeams = [
+      {
+        teamId: "team-1",
+        teamName: "Team One",
+        use: true,
+        manageAccounts: true,
+      },
+      {
+        teamId: "team-2",
+        teamName: "Team Two",
+        use: true,
+        manageAccounts: true,
+      },
+    ];
+
+    await CoderouterOverviewPage({
+      params: Promise.resolve({ locale: "en" }),
+      searchParams: Promise.resolve({}),
+    });
+
+    expect(metricsTeamIds).toEqual(["team-2"]);
+  });
+
+  test("uses the persisted CodeRouter scope before the Stack default", async () => {
+    authorizationAvailable = true;
+    selectedTeamId = "team-1";
+    scopedTeamId = "team-2";
     authorizedTeams = [
       {
         teamId: "team-1",

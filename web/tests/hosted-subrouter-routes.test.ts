@@ -536,11 +536,15 @@ describe("hosted Subrouter account routes", () => {
     });
 
     const organizationsResponse = await organizationsRoute.GET(
-      request("/api/coderouter/organizations"),
+      request("/api/coderouter/organizations", {
+        headers: {
+          cookie: "cmux_coderouter_organization=team-b",
+        },
+      }),
     );
     expect(organizationsResponse.status).toBe(200);
     expect(await organizationsResponse.json()).toEqual({
-      selectedTeamId: "team-a",
+      selectedTeamId: "team-b",
       teams: [
         {
           id: "team-a",
@@ -562,6 +566,18 @@ describe("hosted Subrouter account routes", () => {
         },
       ],
     });
+
+    const unauthorizedScopeResponse = await organizationsRoute.GET(
+      request("/api/coderouter/organizations", {
+        headers: {
+          cookie: "cmux_coderouter_organization=team-not-authorized",
+        },
+      }),
+    );
+    expect(unauthorizedScopeResponse.status).toBe(200);
+    expect((await unauthorizedScopeResponse.json()).selectedTeamId).toBe(
+      "team-a",
+    );
 
     const logoutResponse = await logoutRoute.POST(
       request("/api/subrouter/logout", { method: "POST" }),

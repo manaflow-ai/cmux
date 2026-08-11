@@ -218,10 +218,7 @@ describe("dashboard account menu", () => {
       id: "team-2",
       displayName: "Authorized",
     });
-    expect(setSelectedTeam).toHaveBeenCalledWith({
-      id: "team-2",
-      displayName: "Authorized",
-    });
+    expect(setSelectedTeam).not.toHaveBeenCalled();
     expect(routerPush).toHaveBeenCalledWith(
       "/dashboard/coderouter?team=team-2",
     );
@@ -378,45 +375,7 @@ describe("dashboard account menu", () => {
     })).toMatchObject({ selectedTeamId: "missing" });
   });
 
-  test("keeps the explicit organization route when Stack persistence fails", async () => {
-    searchTeam = "team-2";
-    organizationQuery = {
-      data: {
-        selectedTeamId: "team-2",
-        teams: [{
-          id: "team-2",
-          name: "Team",
-          personal: false,
-          permissions: { use: true, manageAccounts: false },
-        }],
-      },
-      isPending: false,
-      isError: false,
-    };
-    routerPush.mockClear();
-    currentUser = {
-      id: "user-lawrence",
-      displayName: "Lawrence",
-      primaryEmail: "lawrence@example.com",
-      signOut: async () => undefined,
-      selectedTeam: { id: "team-2" },
-      useTeams: () => [{ id: "team-2", displayName: "Team" }],
-      setSelectedTeam: async () => {
-        throw new Error("Stack unavailable");
-      },
-    };
-    renderToStaticMarkup(<DashboardAccountMenu />);
-
-    await handlers.switchOrganization?.({
-      id: "team-2",
-      displayName: "Team",
-    });
-    expect(routerPush).toHaveBeenCalledWith(
-      "/dashboard/coderouter?team=team-2",
-    );
-  });
-
-  test("serializes organization switches and applies the latest request", async () => {
+  test("applies successive CodeRouter scopes without mutating Stack selection", async () => {
     searchTeam = "team-2";
     organizationQuery = {
       data: {
@@ -439,11 +398,8 @@ describe("dashboard account menu", () => {
       isPending: false,
       isError: false,
     };
-    let finishFirstSwitch: (() => void) | undefined;
-    const firstSwitch = new Promise<void>((resolve) => {
-      finishFirstSwitch = resolve;
-    });
-    const guardedSetSelectedTeam = mock(() => firstSwitch);
+    routerPush.mockClear();
+    const setSelectedTeam = mock(async () => undefined);
     currentUser = {
       id: "user-lawrence",
       displayName: "Lawrence",
@@ -454,80 +410,8 @@ describe("dashboard account menu", () => {
         { id: "team-2", displayName: "Team Two" },
         { id: "team-3", displayName: "Team Three" },
       ],
-      setSelectedTeam: guardedSetSelectedTeam,
+      setSelectedTeam,
     };
-    renderToStaticMarkup(<DashboardAccountMenu />);
-
-    const first = handlers.switchOrganization?.({
-      id: "team-2",
-      displayName: "Team Two",
-    });
-    const second = handlers.switchOrganization?.({
-      id: "team-3",
-      displayName: "Team Three",
-    });
-    await second;
-
-    expect(guardedSetSelectedTeam).toHaveBeenCalledTimes(1);
-    finishFirstSwitch?.();
-    await first;
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(guardedSetSelectedTeam).toHaveBeenCalledTimes(2);
-    expect(routerPush).toHaveBeenCalledWith(
-      "/dashboard/coderouter?team=team-3",
-    );
-    expect(routerPush).toHaveBeenCalledWith(
-      "/dashboard/coderouter?team=team-2",
-    );
-  });
-
-  test("keeps the latest explicit route when queued persistence fails", async () => {
-    searchTeam = "team-1";
-    organizationQuery = {
-      data: {
-        selectedTeamId: "team-1",
-        teams: [
-          {
-            id: "team-2",
-            name: "Team Two",
-            personal: false,
-            permissions: { use: true, manageAccounts: false },
-          },
-          {
-            id: "team-3",
-            name: "Team Three",
-            personal: false,
-            permissions: { use: true, manageAccounts: false },
-          },
-        ],
-      },
-      isPending: false,
-      isError: false,
-    };
-    let finishFirstSwitch: (() => void) | undefined;
-    const firstSwitch = new Promise<void>((resolve) => {
-      finishFirstSwitch = resolve;
-    });
-    let requestCount = 0;
-    const serialSetSelectedTeam = mock(() => {
-      requestCount += 1;
-      return requestCount === 1
-        ? firstSwitch
-        : Promise.reject(new Error("Stack unavailable"));
-    });
-    currentUser = {
-      id: "user-lawrence",
-      displayName: "Lawrence",
-      primaryEmail: "lawrence@example.com",
-      signOut: async () => undefined,
-      selectedTeam: { id: "team-1" },
-      useTeams: () => [
-        { id: "team-2", displayName: "Team Two" },
-        { id: "team-3", displayName: "Team Three" },
-      ],
-      setSelectedTeam: serialSetSelectedTeam,
-    };
-    routerPush.mockClear();
     renderToStaticMarkup(<DashboardAccountMenu />);
 
     await handlers.switchOrganization?.({
@@ -538,10 +422,8 @@ describe("dashboard account menu", () => {
       id: "team-3",
       displayName: "Team Three",
     });
-    finishFirstSwitch?.();
-    await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(serialSetSelectedTeam).toHaveBeenCalledTimes(2);
+    expect(setSelectedTeam).not.toHaveBeenCalled();
     expect(routerPush).toHaveBeenCalledWith(
       "/dashboard/coderouter?team=team-3",
     );

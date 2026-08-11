@@ -22,6 +22,9 @@ import {
   type CoderouterTeamMetrics,
 } from "@/services/coderouter/teamMetrics";
 import {
+  coderouterOrganizationFromCookieHeader,
+} from "@/services/coderouter/organizationScope";
+import {
   AddAiAccountForms,
   DeleteAiAccountButton,
 } from "../components/ai-account-forms";
@@ -74,6 +77,9 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
     redirect("/");
   }
   const requestHeaders = await headers();
+  const scopedTeamId = coderouterOrganizationFromCookieHeader(
+    requestHeaders.get("cookie"),
+  );
   const tokenStore = {
     headers: { get: (name: string) => requestHeaders.get(name) },
   };
@@ -151,6 +157,7 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
   const selectedTeam = selectTeam(
     teams,
     team,
+    scopedTeamId,
     authenticated.selectedTeamId,
   );
   const [accountState, metrics] = await Promise.all([
@@ -453,12 +460,17 @@ function StatusPanel({ title, body }: { title: string; body: string }) {
 function selectTeam(
   teams: readonly DashboardTeam[],
   requestedTeamId: string | undefined,
+  scopedTeamId: string | null,
   selectedTeamId: string | null,
 ): DashboardTeam {
   const requested = requestedTeamId?.trim();
   if (requested) {
     const selected = teams.find((team) => team.id === requested);
     if (selected) return selected;
+  }
+  if (scopedTeamId) {
+    const scoped = teams.find((team) => team.id === scopedTeamId);
+    if (scoped) return scoped;
   }
   if (selectedTeamId) {
     const selected = teams.find((team) => team.id === selectedTeamId);

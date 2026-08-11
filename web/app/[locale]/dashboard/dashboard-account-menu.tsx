@@ -9,14 +9,16 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocale, useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
 import { Link, useRouter } from "@/i18n/navigation";
+import {
+  persistCoderouterOrganizationScope,
+} from "@/services/coderouter/organizationScope";
 
 const menuItemClass =
   "flex min-h-9 w-full cursor-default select-none items-center gap-2 px-2.5 py-2 text-left text-sm text-foreground no-underline outline-none data-[highlighted]:bg-code-bg";
 const ORGANIZATION_CATALOG_TIMEOUT_MS = 15_000;
-const ORGANIZATION_SWITCH_TIMEOUT_MS = 10_000;
 
 export function DashboardAccountMenu() {
   const t = useTranslations("dashboard.accountMenu");
@@ -128,30 +130,6 @@ function DashboardOrganizationSwitcher() {
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   const t = useTranslations("dashboard.accountMenu");
-  const [switchError, setSwitchError] = useState(false);
-  const [switchPending, setSwitchPending] = useState(false);
-  type SwitchRequest = {
-    readonly team: (typeof teams)[number] | null;
-    readonly organizationId: string;
-  };
-  const activeSwitchRef = useRef<Promise<void> | null>(null);
-  const activeSwitchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
-  const queuedSwitchRef = useRef<SwitchRequest | null>(null);
-  const mountedRef = useRef(true);
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      activeSwitchRef.current = null;
-      queuedSwitchRef.current = null;
-      if (activeSwitchTimerRef.current) {
-        clearTimeout(activeSwitchTimerRef.current);
-        activeSwitchTimerRef.current = null;
-      }
-    };
-  }, []);
   const organizationQueryKey = [
     "coderouter-organizations",
     user.id,
@@ -211,82 +189,25 @@ function DashboardOrganizationSwitcher() {
   ) => {
     const organizationId = team?.id ?? personal?.id;
     if (!organizationId) return;
-    const request = {
-      team,
-      organizationId,
-    };
-    // The URL is the dashboard's authoritative organization scope, so reflect
-    // the user's choice immediately. Stack selection is serialized below only
-    // to persist the default for later visits without an explicit team.
-    router.push(
-      `/dashboard/coderouter?team=${encodeURIComponent(organizationId)}`,
-    );
-    router.refresh();
-    if (activeSwitchRef.current) {
-      queuedSwitchRef.current = request;
-      return;
-    }
-    runSwitch(request);
-  };
-  function recordSuccessfulSwitch(request: SwitchRequest) {
-    const { team } = request;
+    // CodeRouter scope is independent of Stack's global selected team. Persist
+    // it synchronously, and validate it against fresh permissions on every read.
+    persistCoderouterOrganizationScope(organizationId);
     queryClient.setQueryData<OrganizationCatalog>(
       organizationQueryKey,
       (current) =>
         current
-          ? { ...current, selectedTeamId: team?.id ?? null }
+          ? { ...current, selectedTeamId: organizationId }
           : current,
     );
     void queryClient.invalidateQueries({
       queryKey: organizationQueryKey,
       exact: true,
     });
-  }
-  function runSwitch(request: SwitchRequest) {
-    setSwitchPending(true);
-    setSwitchError(false);
-    const operation = user.setSelectedTeam(request.team);
-    activeSwitchRef.current = operation;
-    const timeout = setTimeout(() => {
-      if (!mountedRef.current) return;
-      if (activeSwitchRef.current !== operation) return;
-      activeSwitchTimerRef.current = null;
-      setSwitchPending(false);
-      setSwitchError(true);
-    }, ORGANIZATION_SWITCH_TIMEOUT_MS);
-    activeSwitchTimerRef.current = timeout;
-
-    void operation.then(() => {
-      if (!mountedRef.current) return;
-      if (activeSwitchRef.current !== operation) return;
-      clearTimeout(timeout);
-      activeSwitchTimerRef.current = null;
-      activeSwitchRef.current = null;
-      recordSuccessfulSwitch(request);
-      const queued = queuedSwitchRef.current;
-      queuedSwitchRef.current = null;
-      if (queued) {
-        runSwitch(queued);
-        return;
-      }
-      setSwitchPending(false);
-      setSwitchError(false);
-    }, () => {
-      if (!mountedRef.current) return;
-      if (activeSwitchRef.current !== operation) return;
-      clearTimeout(timeout);
-      activeSwitchTimerRef.current = null;
-      activeSwitchRef.current = null;
-      const queued = queuedSwitchRef.current;
-      queuedSwitchRef.current = null;
-      if (queued) {
-        runSwitch(queued);
-        return;
-      }
-      setSwitchPending(false);
-      setSwitchError(true);
-    });
-  }
+    router.push(
+      `/dashboard/coderouter?team=${encodeURIComponent(organizationId)}`,
+    );
+    router.refresh();
+  };
   const shared = {
     teams: selectableTeams,
     teamId: personal?.id === selectedTeamId ? undefined : selectedTeamId,
@@ -305,26 +226,7 @@ function DashboardOrganizationSwitcher() {
     )
     : <TeamSwitcher {...shared} onChange={switchOrganization} />;
   return (
-    <>
-      <fieldset
-        disabled={switchPending}
-        aria-busy={switchPending}
-        className="m-0 min-w-0 border-0 p-0 disabled:cursor-wait disabled:opacity-60"
-      >
-        {switcher}
-      </fieldset>
-      {switchError ? (
-        <p role="alert" className="mt-1 text-xs text-red-600 dark:text-red-400">
-          <button
-            type="button"
-            className="text-left underline"
-            onClick={() => globalThis.location.reload()}
-          >
-            {t("organizationSwitchError")}
-          </button>
-        </p>
-      ) : null}
-    </>
+    switcher
   );
 }
 
