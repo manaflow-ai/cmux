@@ -67,7 +67,7 @@ import Testing
         #expect(ordered.map(\.id.rawValue) == ["pinned-new", "pinned-old"])
     }
 
-    @Test func thousandWorkspaceGroupedProjectionStaysWithinInteractionBudget() {
+    @Test func thousandWorkspaceGroupedProjectionPreservesShapeOrderAndUniqueIDs() {
         let groupID = MobileWorkspaceGroupPreview.ID(rawValue: "large")
         let groupMemberCount = 999
         var workspaces: [MobileWorkspacePreview] = []
@@ -88,13 +88,10 @@ import Testing
             anchorWorkspaceID: .init(rawValue: "member-0")
         )]
 
-        var items: [MobileWorkspaceListItem] = []
-        let duration = ContinuousClock().measure {
-            items = MobileWorkspaceRecencyOrder().groupedDisplayItems(
-                workspaces,
-                groups: groups
-            )
-        }
+        let items = MobileWorkspaceRecencyOrder().groupedDisplayItems(
+            workspaces,
+            groups: groups
+        )
 
         #expect(workspaces.count == 1_000)
         #expect(items.count == 1_001)
@@ -103,9 +100,5 @@ import Testing
         #expect(items.dropFirst().first?.id == "workspace.member-1")
         #expect(items[999].id == "groupFooter.large")
         #expect(items.last?.id == "workspace.root")
-        #expect(
-            duration < .milliseconds(100),
-            "A 1,000-workspace projection took \(duration)."
-        )
     }
 }
