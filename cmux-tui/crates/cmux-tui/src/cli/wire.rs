@@ -442,9 +442,7 @@ fn localize_operation_error(plan: &RequestPlan, error: &mut Value) {
                 | cmux_tui_core::resource::ResourceOperation::SessionReloadConfig
         )
     );
-    if is_lifecycle_operation
-        && error["code"] == "operation.failed"
-    {
+    if is_lifecycle_operation && error["code"] == "operation.failed" {
         let message = match error["details"]["reason"].as_str() {
             Some("lifecycle_not_ready") => {
                 Some(crate::localization::catalog().local_server.starting)
