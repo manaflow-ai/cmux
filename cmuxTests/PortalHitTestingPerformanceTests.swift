@@ -1,4 +1,5 @@
 import AppKit
+import ObjectiveC
 import Testing
 
 #if canImport(cmux_DEV)
@@ -10,6 +11,14 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct PortalHitTestingPerformanceTests {
+    private typealias PositionedSubviewImplementation = @convention(c) (
+        AnyObject,
+        Selector,
+        AnyObject?,
+        Int,
+        AnyObject?
+    ) -> Void
+
     private final class CapturingView: NSView {
         override func hitTest(_ point: NSPoint) -> NSView? {
             bounds.contains(point) ? self : nil
@@ -518,6 +527,36 @@ struct PortalHitTestingPerformanceTests {
         }
         withExtendedLifetime(controlSubtree.splitDelegate) {}
         withExtendedLifetime(insertedSubtree.splitDelegate) {}
+    }
+
+    @Test
+    func nilPositionedSubviewFromAppKitDoesNotCrashHierarchyTracking() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let rootView = try #require(window.contentView)
+        let invalidator = PortalSplitDividerCacheInvalidator()
+        invalidator.observe(
+            rootView: rootView,
+            geometryViews: [rootView],
+            hierarchyNodes: [(view: rootView, containsSplitView: false)],
+            onChange: {}
+        )
+
+        let selector = #selector(NSView.addSubview(_:positioned:relativeTo:))
+        let method = try #require(class_getInstanceMethod(NSView.self, selector))
+        let implementation = unsafeBitCast(
+            method_getImplementation(method),
+            to: PositionedSubviewImplementation.self
+        )
+        implementation(rootView, selector, nil, NSWindow.OrderingMode.above.rawValue, nil)
+
+        #expect(invalidator.isHierarchyCurrent(for: rootView))
     }
 
     @Test
