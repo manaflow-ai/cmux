@@ -2502,18 +2502,22 @@ mod tests {
             accept_hello(&mut stream, &mut reader, "provider-secret");
             let request: RequestEnvelope = read_test_frame(&mut reader);
             assert!(matches!(request.request, ProviderRequest::Snapshot(_)));
-            stream
-                .write_all(&vec![b'x'; MAX_CONTROL_FRAME_BYTES + 1])
-                .expect("write oversized frame");
-            if let Err(error) = stream.write_all(b"\n").and_then(|()| stream.flush()) {
-                assert!(
-                    matches!(
-                        error.kind(),
-                        io::ErrorKind::BrokenPipe | io::ErrorKind::ConnectionReset
-                    ),
-                    "finish oversized frame: {error}"
-                );
-            }
+            let accept_rejection_close = |result: io::Result<()>| {
+                if let Err(error) = result {
+                    assert!(
+                        matches!(
+                            error.kind(),
+                            io::ErrorKind::BrokenPipe
+                                | io::ErrorKind::ConnectionAborted
+                                | io::ErrorKind::ConnectionReset
+                        ),
+                        "write oversized frame: {error}"
+                    );
+                }
+            };
+            accept_rejection_close(stream.write_all(&vec![b'x'; MAX_CONTROL_FRAME_BYTES + 1]));
+            accept_rejection_close(stream.write_all(b"\n"));
+            accept_rejection_close(stream.flush());
         });
 
         let (provider, _) = ProviderClient::connect_authenticated(
