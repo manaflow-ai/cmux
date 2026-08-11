@@ -1215,7 +1215,7 @@ mod tests {
 
     #[test]
     fn bootstrap_checkpoint_preserves_product_lifecycle_and_controller_tail() {
-        let records = bootstrap_failure_records(None, None);
+        let mut records = bootstrap_failure_records(None, None);
         let first_newline = records.iter().position(|byte| *byte == b'\n').unwrap();
         let mut first: serde_json::Value =
             serde_json::from_slice(&records[..first_newline]).unwrap();
@@ -1251,7 +1251,7 @@ mod tests {
 
     #[test]
     fn bootstrap_checkpoint_rejects_mismatched_native_exit_state() {
-        let mut records = bootstrap_failure_records(None, None);
+        let records = bootstrap_failure_records(None, None);
         let first_newline = records.iter().position(|byte| *byte == b'\n').unwrap();
         let mut first: serde_json::Value =
             serde_json::from_slice(&records[..first_newline]).unwrap();

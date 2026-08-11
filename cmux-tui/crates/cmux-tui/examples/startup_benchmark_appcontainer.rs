@@ -109,7 +109,7 @@ struct BrokerConfig {
 struct BrokerFailureEvidence {
     schema_version: u32,
     nonce: String,
-    stage: &'static str,
+    stage: String,
     error: String,
 }
 
@@ -384,7 +384,7 @@ pub(super) fn run_broker(values: &[String]) -> Result<()> {
             let failure = BrokerFailureEvidence {
                 schema_version: EVIDENCE_SCHEMA_VERSION,
                 nonce: config.nonce.clone(),
-                stage: "account-broker-product-launch",
+                stage: "account-broker-product-launch".into(),
                 error: bounded_error(&error),
             };
             let write = write_new_json(&config.failure_output, &failure);
@@ -1239,7 +1239,7 @@ fn launch_appcontainer_product(config: &BrokerConfig) -> Result<BrokerEvidence> 
     drop(product_owner);
     drop(job);
     drop(completion);
-    output_thread.join().map_err(|_| anyhow::anyhow!("AppContainer output reader panicked"))??;
+    output_thread.join().map_err(|_| anyhow::anyhow!("AppContainer output reader panicked"))?;
     let stderr = stderr_thread
         .join()
         .map_err(|_| anyhow::anyhow!("AppContainer stderr reader panicked"))??;
@@ -1436,7 +1436,8 @@ fn enable_privilege(token: HANDLE, name: &str) -> Result<()> {
         PrivilegeCount: 1,
         Privileges: [LUID_AND_ATTRIBUTES { Luid: luid, Attributes: SE_PRIVILEGE_ENABLED }],
     };
-    windows_sys::Win32::Foundation::SetLastError(ERROR_SUCCESS);
+    // SAFETY: setting the calling thread's last-error value has no pointer or lifetime contract.
+    unsafe { windows_sys::Win32::Foundation::SetLastError(ERROR_SUCCESS) };
     // SAFETY: token is live and requested names one valid privilege entry.
     check(
         unsafe { AdjustTokenPrivileges(token, 0, &requested, 0, null_mut(), null_mut()) },
@@ -1553,8 +1554,8 @@ fn network_profile_present(
             !entry.appContainerSid.is_null()
                 && !entry.userSid.is_null()
                 && unsafe { pwstr_equals(entry.appContainerName, expected_name) }
-                && unsafe { EqualSid(entry.appContainerSid, appcontainer_sid.0) } != 0
-                && unsafe { EqualSid(entry.userSid, account_sid.0) } != 0
+                && unsafe { EqualSid(entry.appContainerSid, appcontainer_sid.0.cast()) } != 0
+                && unsafe { EqualSid(entry.userSid, account_sid.0.cast()) } != 0
         })
     };
     if !entries.is_null() {
