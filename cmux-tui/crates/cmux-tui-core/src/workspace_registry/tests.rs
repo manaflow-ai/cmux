@@ -5010,7 +5010,7 @@ fn journal_agent_projection_cursor_advances_and_replays_only_a_suffix() {
         )
         .unwrap();
 
-    let reopened = WorkspaceRegistry::open(&root, session).unwrap();
+    let mut reopened = WorkspaceRegistry::open(&root, session).unwrap();
     let applied = reopened
         .connection
         .query_row(
@@ -5280,6 +5280,25 @@ fn journal_agent_generation_backfill_is_bounded_and_resumable() {
         first_page < i64::try_from(REPORT_COUNT).unwrap(),
         "one open imported all {first_page} legacy generations"
     );
+    let live_hook = crate::agent_hook_journal_ingress(
+        "pi",
+        "AgentEnd",
+        Some(terminal_id.as_str()),
+        json!({"session_id":"current-generation-session"}),
+    )
+    .unwrap();
+    reopened
+        .append_journal_ingress(
+            &live_hook,
+            &crate::journal_kernel::ValidatedJournalIngress {
+                class: JournalClass::Observation,
+                replay: JournalReplayPolicy::Advisory,
+                sensitivity: JournalSensitivity::Sensitive,
+            },
+            "client_generation_backfill_live_hook",
+            "journal_agent_generation_backfill_live_hook",
+        )
+        .unwrap();
     for _ in 0..8 {
         if reopened.continue_agent_projection_rebuild().unwrap() {
             break;
@@ -5297,6 +5316,8 @@ fn journal_agent_generation_backfill_is_bounded_and_resumable() {
         )
         .unwrap();
     assert_eq!(active, "current-generation-session");
+    let agent = reopened.public_projections().unwrap().agents.remove(0);
+    assert_eq!(agent.state, "done");
     drop(reopened);
     fs::remove_dir_all(root).unwrap();
 }
