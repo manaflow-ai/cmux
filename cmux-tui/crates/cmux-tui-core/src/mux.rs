@@ -15797,6 +15797,13 @@ fn restore_resource_state(
             }
         };
     }
+    for (workspace_index, workspace) in workspaces.iter().enumerate() {
+        for (screen_index, screen) in workspace.screens.iter().enumerate() {
+            indexes
+                .screen_positions
+                .insert(screen.id, (workspace_index, screen_index));
+        }
+    }
     let active_workspace = match topology.active_workspace.as_ref() {
         Some(active) => workspaces
             .iter()
@@ -18620,10 +18627,10 @@ mod tests {
         }
         assert!(mux.focus_pane(closing_pane));
 
-        let topology_scope_sizes = {
+        let (topology_scope_sizes, topology_discovery_steps) = {
             let registry = mux.workspace_registry.lock().unwrap();
             let state = mux.state.lock().unwrap();
-            mux.terminal_exit_detach_projection_locked(
+            let projection = mux.terminal_exit_detach_projection_locked(
                 &registry,
                 &state,
                 &host.terminal_id,
@@ -18631,13 +18638,20 @@ mod tests {
                 &terminal_id,
             )
             .unwrap()
-            .unwrap()
-            .topology_scope_sizes()
+            .unwrap();
+            (
+                projection.topology_scope_sizes(),
+                projection.topology_discovery_steps(),
+            )
         };
         assert_eq!(
             topology_scope_sizes,
             [1, 2, 2, 2],
             "terminal exit copied unrelated topology owners"
+        );
+        assert_eq!(
+            topology_discovery_steps, 10,
+            "terminal exit inspected unrelated topology owners"
         );
         mux.shutdown();
     }
@@ -18665,7 +18679,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(mux.active_pane(), Some(sibling_pane));
+        assert_eq!(mux.with_state(|state| state.active_pane()), Some(sibling_pane));
         let batches = mux.resource_events_after(before_revision).unwrap().batches;
         assert_eq!(batches.len(), 1);
         let changes = batches[0].changes.as_array().unwrap();

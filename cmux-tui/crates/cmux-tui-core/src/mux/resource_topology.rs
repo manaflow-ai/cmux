@@ -363,6 +363,7 @@ pub(super) struct TerminalExitDetachProjection {
     workspace_ids: HashSet<WorkspaceId>,
     catalog_public_ids: HashSet<TerminalPublicId>,
     target_surfaces: HashSet<SurfaceId>,
+    topology_discovery_steps: usize,
     terminal_indexes: TerminalIndexProjection,
     runtime: Option<Arc<Surface>>,
     removed: Vec<Arc<Surface>>,
@@ -392,6 +393,11 @@ impl TerminalExitDetachProjection {
             self.state.panes.len(),
             self.state.surfaces.len(),
         ]
+    }
+
+    #[cfg(test)]
+    pub(super) fn topology_discovery_steps(&self) -> usize {
+        self.topology_discovery_steps
     }
 
     #[cfg(test)]
@@ -3219,7 +3225,7 @@ impl Mux {
             .collect::<HashSet<_>>();
         let catalog_public_ids = terminal_indexes.catalog_public_ids.clone();
         let target_surfaces = targets.iter().copied().collect::<HashSet<_>>();
-        let mut projected =
+        let (mut projected, topology_discovery_steps) =
             state.clone_terminal_scope(&workspace_ids, &catalog_public_ids, &target_surfaces);
         terminal_indexes.seed(&mut projected);
         let (runtime, removed, _) = remove_terminal_catalogs_and_targets_from_state(
@@ -3290,6 +3296,7 @@ impl Mux {
             workspace_ids,
             catalog_public_ids,
             target_surfaces,
+            topology_discovery_steps,
             terminal_indexes,
             runtime,
             removed,
@@ -3712,11 +3719,13 @@ impl Mux {
         let target_surfaces = surface_ids.iter().copied().collect::<HashSet<_>>();
         let mut state_projection = if !terminal_public_ids.is_empty() {
             ResourceCloseState::Terminal {
-                state: state.clone_terminal_scope(
-                    &workspace_ids,
-                    &catalog_public_ids,
-                    &target_surfaces,
-                ),
+                state: state
+                    .clone_terminal_scope(
+                        &workspace_ids,
+                        &catalog_public_ids,
+                        &target_surfaces,
+                    )
+                    .0,
                 workspace_ids,
                 catalog_public_ids,
                 target_surfaces,

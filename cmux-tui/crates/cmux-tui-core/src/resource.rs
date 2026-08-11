@@ -1418,6 +1418,8 @@ pub struct PublicSlotIndexes {
     pub splits: HashMap<SplitPublicId, crate::SplitId>,
     pub split_ids: HashMap<crate::SplitId, SplitPublicId>,
     pub screen_workspace: HashMap<crate::ScreenId, crate::WorkspaceId>,
+    /// Direct live owner position for each screen slot.
+    pub screen_positions: HashMap<crate::ScreenId, (usize, usize)>,
     pub pane_screen: HashMap<crate::PaneId, crate::ScreenId>,
     pub tab_pane: HashMap<crate::SurfaceId, crate::PaneId>,
 }
