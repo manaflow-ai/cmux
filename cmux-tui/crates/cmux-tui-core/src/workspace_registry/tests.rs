@@ -3117,7 +3117,7 @@ fn schema_eight_rejects_multiple_live_views_for_one_browser() {
             "SELECT COUNT(*) FROM resource_tabs
              WHERE content_kind = 'browser' AND content_id = ?1 AND deleted_revision IS NULL",
             [browser.as_str()],
-            |row| row.get::<_, u64>(0),
+            |row| row.get::<_, i64>(0),
         )
         .unwrap();
     assert_eq!(live_views, 2, "fixture must contain two live views of one valid browser");
