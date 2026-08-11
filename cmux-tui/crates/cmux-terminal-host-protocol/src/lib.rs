@@ -212,7 +212,9 @@ pub fn decode_snapshot_payload(
         )));
     }
     let mut decoder = SnapshotDecoder::new(payload);
-    let (cols, rows) = normalize_snapshot_geometry(decoder.u16()?, decoder.u16()?)?;
+    let cols = decoder.u16()?;
+    let rows = decoder.u16()?;
+    validate_snapshot_geometry(cols, rows)?;
     let pid = match decoder.u32()? {
         0 => None,
         pid => Some(pid),
@@ -284,12 +286,25 @@ pub fn decode_snapshot_payload(
 fn normalize_snapshot_geometry(cols: u16, rows: u16) -> Result<(u16, u16), SnapshotCodecError> {
     let cols = cols.clamp(1, TERMINAL_DIMENSION_MAX);
     let rows = rows.clamp(1, TERMINAL_DIMENSION_MAX);
+    validate_snapshot_geometry(cols, rows)?;
+    Ok((cols, rows))
+}
+
+fn validate_snapshot_geometry(cols: u16, rows: u16) -> Result<(), SnapshotCodecError> {
+    if cols == 0 || rows == 0 {
+        return Err(SnapshotCodecError::new("terminal snapshot dimensions must be nonzero"));
+    }
+    if cols > TERMINAL_DIMENSION_MAX || rows > TERMINAL_DIMENSION_MAX {
+        return Err(SnapshotCodecError::new(format!(
+            "terminal geometry {cols}x{rows} exceeds the dimension limit"
+        )));
+    }
     if u64::from(cols) * u64::from(rows) > TERMINAL_CELL_AREA_MAX {
         return Err(SnapshotCodecError::new(format!(
             "terminal geometry {cols}x{rows} exceeds the {TERMINAL_CELL_AREA_MAX}-cell limit"
         )));
     }
-    Ok((cols, rows))
+    Ok(())
 }
 
 fn validate_snapshot_cell_pixels(
@@ -1349,5 +1364,13 @@ mod tests {
             snapshot,
             "version 3 keeps the original producer cursor layout",
         );
+        for dimension_offset in [0, 2] {
+            let mut invalid = version_three_fixture;
+            invalid[dimension_offset..dimension_offset + 2].fill(0);
+            assert_eq!(
+                decode_snapshot_payload(&invalid, 3).unwrap_err().to_string(),
+                "terminal snapshot dimensions must be nonzero",
+            );
+        }
     }
 }
