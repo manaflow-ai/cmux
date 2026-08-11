@@ -26444,6 +26444,7 @@ mod tests {
         .unwrap();
         let (second_failing, _) = second.set_recovering_server_shutdown_for_test();
         let injected = Arc::new(AtomicBool::new(false));
+        let (injected_tx, injected_rx) = std::sync::mpsc::sync_channel(1);
         *mux.shutdown_owner_reconciler.after_attempt.lock().unwrap() = Some(Arc::new({
             let mux = mux.clone();
             let injected = injected.clone();
@@ -26456,15 +26457,21 @@ mod tests {
                 mux.retire_surface_runtime(second.clone());
                 first_failing.store(false, Ordering::Release);
                 second_failing.store(false, Ordering::Release);
+                let _ = injected_tx.send(());
             }
         }));
 
+        let deadline = Instant::now() + Duration::from_secs(2);
         assert!(mux.close_surface(first.id).unwrap());
-        let completed = mux
-            .shutdown_owner_reconciler
-            .wait_until(Instant::now() + Duration::from_secs(2), || {
-                injected.load(Ordering::Acquire) && mux.shutdown_owners.is_empty()
-            });
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .expect("final cleanup attempt exceeded its failure deadline");
+        injected_rx
+            .recv_timeout(remaining)
+            .expect("final cleanup attempt did not stage the second owner");
+        let completed = mux.shutdown_owner_reconciler.wait_until(deadline, || {
+            injected.load(Ordering::Acquire) && mux.shutdown_owners.is_empty()
+        });
         let reconciled =
             completed && injected.load(Ordering::Acquire) && mux.shutdown_owners.is_empty();
         if !reconciled {
