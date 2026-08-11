@@ -6514,6 +6514,36 @@ mod unix {
             exited_host_fixture_with_parser_at(root)
         }
 
+        #[test]
+        fn opening_terminal_host_fifo_for_inspection_never_blocks() {
+            use std::os::unix::ffi::OsStrExt;
+            use std::os::unix::fs::FileTypeExt;
+
+            let root = std::env::temp_dir().join(format!(
+                "cmux-terminal-host-fifo-tests-{}-{}",
+                std::process::id(),
+                RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            prepare_private_dir(&root).unwrap();
+            let fifo_path = root.join("record.json");
+            let fifo = CString::new(fifo_path.as_os_str().as_bytes()).unwrap();
+            // SAFETY: fifo is a valid path and the mode grants access only to this user.
+            assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+            let directory = File::open(&root).unwrap();
+
+            let opened = open_terminal_host_child_at(
+                &directory,
+                OsStr::new("record.json"),
+                libc::O_RDONLY,
+            )
+            .unwrap()
+            .unwrap();
+
+            assert!(opened.metadata().unwrap().file_type().is_fifo());
+            drop(opened);
+            fs::remove_dir_all(root).unwrap();
+        }
+
         fn test_host_shared() -> Arc<HostShared> {
             let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
             term.resize(80, 24, u32::from(DEFAULT_CELL_PIXELS.0), u32::from(DEFAULT_CELL_PIXELS.1))
