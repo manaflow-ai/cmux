@@ -301,7 +301,15 @@ extension CMUXCLI {
         let trimmedOneTimeCommand = oneTimeCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasOneTimeCommand = trimmedOneTimeCommand?.isEmpty == false
         let authRetryPolicy = SSHForegroundAuthenticationRetryPolicy()
+        let authenticationResult = authRetryPolicy.persistentAuthenticationResultShellLine(
+            variablePrefix: "cmux_ssh",
+            terminalFailureCommand: "break"
+        )
         let backoffBuilder = SSHRetryBackoffScriptBuilder(context: .startup)
+        let terminalExitPromptCommand = [
+            shellQuote(resolvedExecutableURL()?.path ?? (args.first ?? "cmux")),
+            "__ssh-terminal-exit-prompt",
+        ].joined(separator: " ")
         var scriptLines: [String] = []
         if !shellFeaturesBootstrap.isEmpty {
             scriptLines.append(shellFeaturesBootstrap)
@@ -363,6 +371,7 @@ extension CMUXCLI {
         ] + reconnectConfiguration + [
             "cmux_ssh_retry=0",
             "cmux_ssh_auth_retry_limit=\(authRetryPolicy.maximumConsecutiveTransientFailures); cmux_ssh_auth_retry=0",
+            "cmux_ssh_auth_succeeded=0",
             // Initial transient foreground-auth failures are a reconnect phase, so boot-time outages share this loop.
             "cmux_ssh_reauth_required=\(hasOneTimeCommand ? 1 : 0)",
             "CMUX_SSH_CHILD_PID=; CMUX_SSH_AUTH_PID=; CMUX_SSH_PENDING_SIGNAL=; CMUX_SSH_PENDING_SIGNAL_NAME=",
@@ -382,7 +391,7 @@ extension CMUXCLI {
         ]
         if hasOneTimeCommand {
             scriptLines.append("  if [ \"$cmux_ssh_reauth_required\" -eq 1 ]; then")
-            scriptLines += ["    ( cmux_ssh_foreground_auth ) <&0 &", "    CMUX_SSH_AUTH_PID=$!; if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_signal_exit \"$CMUX_SSH_PENDING_SIGNAL\" \"${CMUX_SSH_PENDING_SIGNAL_NAME:-TERM}\"; fi; wait \"$CMUX_SSH_AUTH_PID\"; cmux_ssh_status=$?; CMUX_SSH_AUTH_PID=; case \"$cmux_ssh_status\" in 129|130|143) cmux_ssh_retire_for_signal \"$cmux_ssh_status\" ;; esac; if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_session_end; trap - EXIT HUP INT TERM; exit \"$CMUX_SSH_PENDING_SIGNAL\"; fi", "    if [ \"$cmux_ssh_status\" -eq 0 ]; then cmux_ssh_reauth_required=0; cmux_ssh_auth_retry=0; else case \"$cmux_ssh_status\" in 254) cmux_ssh_auth_retry=$((cmux_ssh_auth_retry + 1)); if [ \"$cmux_ssh_auth_retry\" -ge \"$cmux_ssh_auth_retry_limit\" ]; then cmux_ssh_status=255; break; fi ;; \(authRetryPolicy.unclassifiedFailureExitStatus)) cmux_ssh_status=255; break ;; *) break ;; esac; fi", "  fi", "  if [ \"$cmux_ssh_reauth_required\" -eq 0 ]; then"]
+            scriptLines += ["    ( cmux_ssh_foreground_auth ) <&0 &", "    CMUX_SSH_AUTH_PID=$!; if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_signal_exit \"$CMUX_SSH_PENDING_SIGNAL\" \"${CMUX_SSH_PENDING_SIGNAL_NAME:-TERM}\"; fi; wait \"$CMUX_SSH_AUTH_PID\"; cmux_ssh_status=$?; CMUX_SSH_AUTH_PID=; case \"$cmux_ssh_status\" in 129|130|143) cmux_ssh_retire_for_signal \"$cmux_ssh_status\" ;; esac; if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_session_end; trap - EXIT HUP INT TERM; exit \"$CMUX_SSH_PENDING_SIGNAL\"; fi", "    \(authenticationResult)", "  fi", "  if [ \"$cmux_ssh_reauth_required\" -eq 0 ]; then"]
         }
         if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty,
            !hasOneTimeCommand {
@@ -436,6 +445,7 @@ extension CMUXCLI {
         scriptLines.append(retryLimitCondition)
         scriptLines += [
             "  cmux_ssh_retry=$((cmux_ssh_retry + 1))",
+            "  \(backoffBuilder.terminalInputModeResetLine)",
             "  cmux_ssh_note '\\n\\033[33m[cmux] ssh exited with status %s; reconnecting (attempt %s/%s).\\033[0m\\n\\033[2m[cmux] close this pane or press Ctrl-C to stop reconnecting.\\033[0m\\n' \"$cmux_ssh_status\" \"$cmux_ssh_retry\" \"$cmux_ssh_reconnect_limit\"",
         ]
         scriptLines += backoffBuilder.waitLines
@@ -448,8 +458,18 @@ extension CMUXCLI {
             "trap - EXIT HUP INT TERM",
             "cmux_ssh_session_end",
             "if [ \"$cmux_ssh_status\" -ne 0 ]; then",
+            "  \(backoffBuilder.terminalInputModeResetLine)",
+            "  cmux_ssh_prompt_tty_state=$(/bin/stty -g <&0 2>/dev/null || true)",
+            "  cmux_ssh_prompt_restore_tty() { if [ -n \"${cmux_ssh_prompt_tty_state:-}\" ]; then /bin/stty \"$cmux_ssh_prompt_tty_state\" <&0 2>/dev/null || true; cmux_ssh_prompt_tty_state=; fi; }",
+            "  cmux_ssh_prompt_signal_exit() { cmux_ssh_prompt_signal_status=\"$1\"; cmux_ssh_prompt_restore_tty; trap - EXIT HUP INT TERM; exit \"$cmux_ssh_prompt_signal_status\"; }",
+            "  trap 'cmux_ssh_prompt_restore_tty' EXIT",
+            "  trap 'cmux_ssh_prompt_signal_exit 129' HUP",
+            "  trap 'cmux_ssh_prompt_signal_exit 130' INT",
+            "  trap 'cmux_ssh_prompt_signal_exit 143' TERM",
             "  printf '\\n\\033[31m[cmux] ssh exited with status %s.\\033[0m\\n\\033[2m[cmux] the remote VM may have been paused, destroyed, or lost network.\\033[0m\\n\\033[2m[cmux] press Enter to close this pane.\\033[0m\\n' \"$cmux_ssh_status\" >&2 || true",
-            "  IFS= read -r _cmux_dismiss_key 2>/dev/null || true",
+            "  if [ -t 0 ]; then \(terminalExitPromptCommand) <&0; else exec \(terminalExitPromptCommand) <&0; fi",
+            "  cmux_ssh_prompt_restore_tty",
+            "  trap - EXIT HUP INT TERM",
             "fi",
             "exit $cmux_ssh_status",
         ]

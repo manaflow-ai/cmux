@@ -1,3 +1,5 @@
+import CmuxFoundation
+import Darwin
 import Foundation
 
 extension CMUXCLI {
@@ -12,6 +14,46 @@ extension CMUXCLI {
         let detail = String(localized: "cli.ssh.manualReconnectPrompt.detail", defaultValue: "[cmux] the remote VM may have been paused, destroyed, or lost network.")
         let prompt = String(localized: "cli.ssh.manualReconnectPrompt.prompt", defaultValue: "[cmux] press Enter to close this pane. Press r then Enter to reconnect.")
         return "\\n\\033[31m\(status)\\033[0m\\n\\033[2m\(detail)\\033[0m\\n\\033[2m\(prompt)\\033[0m\\n"
+    }
+
+    /// Waits for a post-failure Enter without accepting queued terminal reports.
+    func runSSHTerminalExitPrompt(commandArgs _: [String]) {
+        var original = termios()
+        guard tcgetattr(STDIN_FILENO, &original) == 0 else {
+            parkSSHTerminalExitPromptAfterEOF()
+        }
+
+        var promptMode = original
+        cfmakeraw(&promptMode)
+        promptMode.c_lflag |= tcflag_t(ISIG)
+        // Changing mode and flushing are one terminal operation: no byte queued
+        // before this prompt boundary can later be mistaken for a fresh Enter.
+        guard tcsetattr(STDIN_FILENO, TCSAFLUSH, &promptMode) == 0 else {
+            parkSSHTerminalExitPromptAfterEOF()
+        }
+        defer { _ = tcsetattr(STDIN_FILENO, TCSANOW, &original) }
+
+        var inputFilter = SSHTerminalExitPromptInputFilter()
+        var buffer = [UInt8](repeating: 0, count: 256)
+        while true {
+            let count = Darwin.read(STDIN_FILENO, &buffer, buffer.count)
+            if count > 0 {
+                if inputFilter.consume(Data(buffer.prefix(count))) {
+                    return
+                }
+            } else if count == 0 {
+                parkSSHTerminalExitPromptAfterEOF()
+            } else if errno != EINTR {
+                parkSSHTerminalExitPromptAfterEOF()
+            }
+        }
+    }
+
+    /// Keeps a dead input bridge from dismissing the pane while remaining signal-interruptible.
+    private func parkSSHTerminalExitPromptAfterEOF() -> Never {
+        while true {
+            _ = Darwin.pause()
+        }
     }
 
     func sshRemoteReconnectShellFunction() -> String {

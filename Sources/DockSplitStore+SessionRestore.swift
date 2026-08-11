@@ -144,6 +144,12 @@ extension DockSplitStore {
                 inPane: paneId,
                 excludingStableIdentities: excludingStableIdentities
             )
+        case .filePreview:
+            return restoreSessionFilePreview(
+                from: snapshot,
+                inPane: paneId,
+                excludingStableIdentities: excludingStableIdentities
+            )
         default:
             return nil
         }
@@ -386,6 +392,28 @@ extension DockSplitStore {
         return browser.id
     }
 
+    /// Recreates one persisted file-preview panel in its restored Dock pane.
+    private func restoreSessionFilePreview(
+        from snapshot: SessionPanelSnapshot,
+        inPane paneId: PaneID,
+        excludingStableIdentities: Set<UUID>
+    ) -> UUID? {
+        guard let filePath = snapshot.filePreview?.filePath else { return nil }
+        let panel = FilePreviewPanel(workspaceId: workspaceId, filePath: filePath)
+        guard attachSessionRestoredPanel(
+            panel,
+            snapshot: snapshot,
+            inPane: paneId
+        ) != nil else {
+            return nil
+        }
+        if let stableSurfaceId = snapshot.stableSurfaceId,
+           !excludingStableIdentities.contains(stableSurfaceId) {
+            panel.adoptStableSurfaceId(stableSurfaceId)
+        }
+        return panel.id
+    }
+
     @discardableResult
     private func attachSessionRestoredPanel(
         _ panel: any Panel,
@@ -398,7 +426,7 @@ extension DockSplitStore {
             title: title,
             hasCustomTitle: snapshot.customTitle != nil,
             icon: panel.displayIcon,
-            kind: panel.panelType == .browser ? "browser" : "terminal",
+            kind: Self.surfaceKind(for: panel),
             isDirty: panel.isDirty,
             isLoading: (panel as? BrowserPanel)?.isLoading ?? false,
             isAudioMuted: (panel as? BrowserPanel)?.isMuted ?? false,
@@ -408,7 +436,7 @@ extension DockSplitStore {
             discardPanelOwnershipAndClose(panelId: panel.id)
             return nil
         }
-        surfaceIdToPanelId[tabId] = panel.id
+        bindSurface(tabId, toPanelId: panel.id)
         installSubscription(for: panel)
         applyWindowDockUnreadState(
             snapshot.isManuallyUnread,
