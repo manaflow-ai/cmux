@@ -3815,6 +3815,21 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(fileChip.waitForExistence(timeout: 4))
         XCTAssertEqual(imageChip.label, "preview-photo.png")
         XCTAssertEqual(fileChip.label, "preview-notes.txt")
+        XCTAssertGreaterThanOrEqual(
+            imageChip.frame.width,
+            95.5,
+            "Image previews should be wide enough to make staged content recognizable"
+        )
+        XCTAssertGreaterThanOrEqual(
+            imageChip.frame.height,
+            71.5,
+            "Image previews should be tall enough to make staged content recognizable"
+        )
+        XCTAssertGreaterThanOrEqual(
+            fileChip.frame.height,
+            71.5,
+            "File previews should align with the larger image preview row"
+        )
 
         tap(imageChip, in: app)
         XCTAssertTrue(
@@ -4605,6 +4620,10 @@ final class cmuxUITests: XCTestCase {
         tap(app.buttons["MobileTaskComposerOptionsDoneButton"], in: app)
         let prompt = taskComposerPrompt(in: app)
         XCTAssertTrue(prompt.waitForExistence(timeout: 3))
+        XCTAssertTrue(
+            app.navigationBars["Release checklist"].waitForExistence(timeout: 3),
+            "A non-empty workspace name must immediately become the composer navigation title"
+        )
         try typeText("Verify the release", into: prompt, in: app)
 
         let submit = app.buttons["MobileTaskComposerSubmitButton"]
