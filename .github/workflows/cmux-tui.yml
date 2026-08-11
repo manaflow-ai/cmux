@@ -230,13 +230,14 @@ jobs:
              ring-aes-gcm-decrypt
              Memcheck:Cond
              fun:*ring*aead*algorithm*Algorithm*open_within*
+             ...
+             fun:*rustls*crypto*ring*tls*MessageDecrypter*decrypt*
           }
           {
              ring-aes-gcm-writev-vector-0
              Memcheck:Param
              writev(vector[0])
-             fun:__writev
-             fun:writev
+             fun:*writev
              ...
              fun:*rustls*ChunkVecBuffer*write_to*
           }
@@ -244,8 +245,7 @@ jobs:
              ring-aes-gcm-writev-vector-1
              Memcheck:Param
              writev(vector[1])
-             fun:__writev
-             fun:writev
+             fun:*writev
              ...
              fun:*rustls*ChunkVecBuffer*write_to*
           }
