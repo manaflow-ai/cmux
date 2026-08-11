@@ -354,6 +354,12 @@ struct SandboxPreflightEvidence {
     windows_product_resume_previous_count: Option<u32>,
     windows_product_process_id: Option<u32>,
     windows_product_primary_thread_id: Option<u32>,
+    windows_private_desktop: Option<String>,
+    windows_private_window_station_created: Option<bool>,
+    windows_private_desktop_created: Option<bool>,
+    windows_private_desktop_broker_assigned: Option<bool>,
+    windows_private_desktop_product_assigned: Option<bool>,
+    windows_private_desktop_closed_after_job_empty: Option<bool>,
     supervisor_ready: bool,
     timing_records: u64,
     supervisor_sha256: String,
@@ -366,7 +372,7 @@ impl SandboxPreflightEvidence {
         supervisor_sha256: &str,
         windows_bootstrap_sha256: Option<&str>,
     ) -> Result<()> {
-        if self.schema_version != 7
+        if self.schema_version != 8
             || self.backend != backend
             || self.policy != "fixture-root-only-write"
             || self.handshake != "nonce-bound-ready-arm-with-pre-exec-t0"
@@ -450,6 +456,16 @@ impl SandboxPreflightEvidence {
                     && self.windows_product_resume_previous_count == Some(1)
                     && self.windows_product_process_id.is_some_and(|value| value != 0)
                     && self.windows_product_primary_thread_id.is_some_and(|value| value != 0)
+                    && self.windows_private_desktop.as_ref().is_some_and(|value| {
+                        value.starts_with("cmuxb-")
+                            && value.contains("\\desk-")
+                            && value.len() == 60
+                    })
+                    && self.windows_private_window_station_created == Some(true)
+                    && self.windows_private_desktop_created == Some(true)
+                    && self.windows_private_desktop_broker_assigned == Some(true)
+                    && self.windows_private_desktop_product_assigned == Some(true)
+                    && self.windows_private_desktop_closed_after_job_empty == Some(true)
             }
             _ => false,
         };
@@ -498,6 +514,12 @@ impl SandboxPreflightEvidence {
             && self.windows_product_resume_previous_count.is_none()
             && self.windows_product_process_id.is_none()
             && self.windows_product_primary_thread_id.is_none()
+            && self.windows_private_desktop.is_none()
+            && self.windows_private_window_station_created.is_none()
+            && self.windows_private_desktop_created.is_none()
+            && self.windows_private_desktop_broker_assigned.is_none()
+            && self.windows_private_desktop_product_assigned.is_none()
+            && self.windows_private_desktop_closed_after_job_empty.is_none()
     }
 
     fn linux_provenance_absent(&self) -> bool {

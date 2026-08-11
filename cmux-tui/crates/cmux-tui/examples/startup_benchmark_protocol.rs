@@ -582,7 +582,7 @@ pub fn failure_line(nonce: &str, checkpoint_name: Option<&str>) -> Result<String
 }
 
 pub fn product_started_line(nonce: &str, evidence: &BootstrapLaunchEvidence) -> Result<String> {
-    evidence.validate(nonce, &evidence.bootstrap_sha256)?;
+    evidence.validate_started(nonce, &evidence.bootstrap_sha256)?;
     let payload = serde_json::to_string(evidence)?;
     let line = format!("PRODUCT_STARTED {nonce} {payload}\n");
     if line.len() > MAX_PRODUCT_STARTED_LINE_BYTES {
@@ -604,7 +604,7 @@ pub fn parse_product_started_line(
         line.strip_prefix(&prefix).context("supervisor product-started line identity mismatch")?;
     let evidence: BootstrapLaunchEvidence = serde_json::from_str(payload)?;
     let expected_bootstrap_sha256 = expected_bootstrap_sha256.unwrap_or(&evidence.bootstrap_sha256);
-    evidence.validate(nonce, expected_bootstrap_sha256)?;
+    evidence.validate_started(nonce, expected_bootstrap_sha256)?;
     if product_started_line(nonce, &evidence)?.trim_end() != line {
         bail!("supervisor product-started line was not canonical");
     }
@@ -1053,6 +1053,12 @@ mod tests {
             product_resume_previous_count: 1,
             product_process_id: 41,
             product_primary_thread_id: 42,
+            private_desktop: cmux_startup_bootstrap::private_desktop_name(&nonce).unwrap(),
+            private_window_station_created: true,
+            private_desktop_created: true,
+            private_desktop_broker_assigned: true,
+            private_desktop_product_assigned: true,
+            private_desktop_closed_after_job_empty: false,
         };
         let line = product_started_line(&nonce, &evidence).unwrap();
         assert_eq!(

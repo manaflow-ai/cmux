@@ -127,7 +127,7 @@ if hashlib.sha256(preflight_bytes).hexdigest() != get(
 ):
     raise SystemExit("sandbox preflight file does not match its attested SHA-256")
 preflight = json.loads(preflight_bytes)
-if not isinstance(preflight, dict) or preflight.get("schema_version") != 7:
+if not isinstance(preflight, dict) or preflight.get("schema_version") != 8:
     raise SystemExit("sandbox preflight evidence has the wrong schema")
 windows_preflight_fields = (
     "windows_bootstrap_sha256",
@@ -159,6 +159,12 @@ windows_preflight_fields = (
     "windows_product_resume_previous_count",
     "windows_product_process_id",
     "windows_product_primary_thread_id",
+    "windows_private_desktop",
+    "windows_private_window_station_created",
+    "windows_private_desktop_created",
+    "windows_private_desktop_broker_assigned",
+    "windows_private_desktop_product_assigned",
+    "windows_private_desktop_closed_after_job_empty",
 )
 if any(field not in preflight for field in windows_preflight_fields):
     raise SystemExit("sandbox preflight evidence is missing a Windows bootstrap field")
@@ -225,13 +231,16 @@ if os.environ["RUNNER_OS"] == "Windows":
     broker_authentication_id = preflight["windows_broker_authentication_id"]
     product_process_id = preflight["windows_product_process_id"]
     product_primary_thread_id = preflight["windows_product_primary_thread_id"]
+    bootstrap_nonce = preflight["windows_bootstrap_config_nonce"]
+    expected_private_desktop = (
+        f"cmuxb-{bootstrap_nonce[:24]}\\desk-{bootstrap_nonce[24:48]}"
+        if isinstance(bootstrap_nonce, str)
+        and re.fullmatch(r"[0-9a-fA-F]{64}", bootstrap_nonce) is not None
+        else None
+    )
     if (
         preflight["windows_bootstrap_sha256"] != bootstrap_sha256
-        or not isinstance(preflight["windows_bootstrap_config_nonce"], str)
-        or re.fullmatch(
-            r"[0-9a-fA-F]{64}", preflight["windows_bootstrap_config_nonce"]
-        )
-        is None
+        or expected_private_desktop is None
         or preflight["windows_bootstrap_config_consumed"] is not True
         or preflight["windows_bootstrap_resume_previous_count"] != 1
         or not isinstance(ready_elapsed_ms, int)
@@ -270,6 +279,12 @@ if os.environ["RUNNER_OS"] == "Windows":
         or not isinstance(product_primary_thread_id, int)
         or isinstance(product_primary_thread_id, bool)
         or product_primary_thread_id <= 0
+        or preflight["windows_private_desktop"] != expected_private_desktop
+        or preflight["windows_private_window_station_created"] is not True
+        or preflight["windows_private_desktop_created"] is not True
+        or preflight["windows_private_desktop_broker_assigned"] is not True
+        or preflight["windows_private_desktop_product_assigned"] is not True
+        or preflight["windows_private_desktop_closed_after_job_empty"] is not True
     ):
         raise SystemExit("sandbox preflight has invalid native Windows bootstrap proof")
 elif any(get(dotted) is not None for dotted in windows_bootstrap_fields):

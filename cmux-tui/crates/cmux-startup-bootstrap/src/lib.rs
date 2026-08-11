@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
-pub const BOOTSTRAP_SCHEMA_VERSION: u32 = 4;
+pub const BOOTSTRAP_SCHEMA_VERSION: u32 = 5;
 pub const MAX_BOOTSTRAP_CONFIG_BYTES: usize = 64 * 1024;
 pub const MAX_BOOTSTRAP_RECORD_BYTES: usize = 4 * 1024;
 pub const CONFIG_MAGIC: [u8; 8] = *b"CMUXB001";
@@ -15,7 +15,7 @@ pub const NATIVE_ENTRY_CHECKPOINT_MAGIC: [u8; 8] = *b"CMUXN001";
 
 const CONFIG_HEADER_BYTES: usize = 104;
 const RECORD_HEADER_BYTES: usize = 56;
-const CONFIG_FIELD_COUNT: u32 = 7;
+const CONFIG_FIELD_COUNT: u32 = 8;
 const REQUIRED_HANDLE_COUNT: usize = 6;
 const MAX_PRODUCT_ARGUMENTS: usize = 1024;
 const READY_CONFIG_CONSUMED: u32 = 1 << 0;
@@ -70,6 +70,7 @@ pub struct BootstrapProductLaunch {
     pub trusted_path_probe: PathBuf,
     pub expected_bootstrap_sha256: String,
     pub restricting_sid: String,
+    pub private_desktop: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,6 +93,9 @@ impl BootstrapConfig {
         validate_hex(&self.launch.target_sha256, 64, "bootstrap target SHA-256")?;
         validate_hex(&self.launch.expected_bootstrap_sha256, 64, "bootstrap executable SHA-256")?;
         validate_restricting_sid(&self.launch.restricting_sid)?;
+        if self.launch.private_desktop != private_desktop_name(&self.nonce)? {
+            bail!("Windows bootstrap private desktop identity changed");
+        }
         let expected_name = format!("bootstrap-{}.bin", &self.nonce[..16]);
         if config_path.file_name().and_then(|name| name.to_str()) != Some(&expected_name) {
             bail!("Windows bootstrap config path did not match its nonce");
@@ -119,6 +123,11 @@ impl BootstrapConfig {
         }
         Ok(())
     }
+}
+
+pub fn private_desktop_name(nonce: &str) -> Result<String> {
+    validate_hex(nonce, 64, "bootstrap private-desktop nonce")?;
+    Ok(format!("cmuxb-{}\\desk-{}", &nonce[..24], &nonce[24..48]))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -286,10 +295,20 @@ pub struct BootstrapLaunchEvidence {
     pub product_resume_previous_count: u32,
     pub product_process_id: u32,
     pub product_primary_thread_id: u32,
+    pub private_desktop: String,
+    pub private_window_station_created: bool,
+    pub private_desktop_created: bool,
+    pub private_desktop_broker_assigned: bool,
+    pub private_desktop_product_assigned: bool,
+    pub private_desktop_closed_after_job_empty: bool,
 }
 
 impl BootstrapLaunchEvidence {
-    pub fn validate(&self, expected_nonce: &str, expected_bootstrap_sha256: &str) -> Result<()> {
+    pub fn validate_started(
+        &self,
+        expected_nonce: &str,
+        expected_bootstrap_sha256: &str,
+    ) -> Result<()> {
         if self.schema_version != BOOTSTRAP_SCHEMA_VERSION
             || self.config_nonce != expected_nonce
             || self.bootstrap_sha256 != expected_bootstrap_sha256
@@ -318,6 +337,11 @@ impl BootstrapLaunchEvidence {
             || self.product_resume_previous_count != 1
             || self.product_process_id == 0
             || self.product_primary_thread_id == 0
+            || self.private_desktop != private_desktop_name(expected_nonce)?
+            || !self.private_window_station_created
+            || !self.private_desktop_created
+            || !self.private_desktop_broker_assigned
+            || !self.private_desktop_product_assigned
         {
             bail!("Windows bootstrap evidence identity or containment proof failed");
         }
@@ -327,6 +351,14 @@ impl BootstrapLaunchEvidence {
         validate_hex(&self.restricted_authentication_id, 16, "restricted authentication ID")?;
         validate_hex(&self.product_authentication_id, 16, "product authentication ID")?;
         validate_restricting_sid(&self.restricting_sid)
+    }
+
+    pub fn validate(&self, expected_nonce: &str, expected_bootstrap_sha256: &str) -> Result<()> {
+        self.validate_started(expected_nonce, expected_bootstrap_sha256)?;
+        if !self.private_desktop_closed_after_job_empty {
+            bail!("Windows private desktop was not closed after Job ACTIVE_PROCESS_ZERO");
+        }
+        Ok(())
     }
 }
 
@@ -338,6 +370,9 @@ pub fn encode_config(config: &BootstrapConfig) -> Result<Vec<u8>> {
     validate_hex(&config.launch.target_sha256, 64, "bootstrap target SHA-256")?;
     validate_hex(&config.launch.expected_bootstrap_sha256, 64, "bootstrap executable SHA-256")?;
     validate_restricting_sid(&config.launch.restricting_sid)?;
+    if config.launch.private_desktop != private_desktop_name(&config.nonce)? {
+        bail!("Windows bootstrap private desktop identity changed");
+    }
     let handles = [
         config.control_read,
         config.control_write,
@@ -368,6 +403,7 @@ pub fn encode_config(config: &BootstrapConfig) -> Result<Vec<u8>> {
     push_path(&mut bytes, &config.launch.trusted_path_probe)?;
     push_bytes(&mut bytes, config.launch.expected_bootstrap_sha256.as_bytes())?;
     push_bytes(&mut bytes, config.launch.restricting_sid.as_bytes())?;
+    push_utf16(&mut bytes, &config.launch.private_desktop)?;
     for argument in &config.launch.product_args {
         push_utf16(&mut bytes, argument)?;
     }
@@ -412,6 +448,10 @@ pub fn decode_config(bytes: &[u8]) -> Result<BootstrapConfig> {
     let restricting_sid =
         take_ascii_variable(bytes, &mut cursor, MAX_RESTRICTING_SID_BYTES, "restricting SID")?;
     validate_restricting_sid(&restricting_sid)?;
+    let private_desktop = take_utf16_string(bytes, &mut cursor)?;
+    if private_desktop != private_desktop_name(&nonce)? {
+        bail!("Windows bootstrap private desktop identity changed");
+    }
     let mut product_args = Vec::with_capacity(arg_count);
     for _ in 0..arg_count {
         product_args.push(take_utf16_string(bytes, &mut cursor)?);
@@ -431,6 +471,7 @@ pub fn decode_config(bytes: &[u8]) -> Result<BootstrapConfig> {
             trusted_path_probe,
             expected_bootstrap_sha256,
             restricting_sid,
+            private_desktop,
         },
         control_read: handles[0],
         control_write: handles[1],
@@ -935,6 +976,7 @@ mod tests {
                 trusted_path_probe: PathBuf::from("/trusted/probe"),
                 expected_bootstrap_sha256: "ef".repeat(32),
                 restricting_sid: "S-1-5-21-1-2-3-4".into(),
+                private_desktop: private_desktop_name(&"ab".repeat(32)).unwrap(),
             },
             control_read: 11,
             control_write: 12,
@@ -1130,8 +1172,18 @@ mod tests {
             product_resume_previous_count: 1,
             product_process_id: 41,
             product_primary_thread_id: 42,
+            private_desktop: private_desktop_name(&"ab".repeat(32)).unwrap(),
+            private_window_station_created: true,
+            private_desktop_created: true,
+            private_desktop_broker_assigned: true,
+            private_desktop_product_assigned: true,
+            private_desktop_closed_after_job_empty: true,
         };
         evidence.validate(&"ab".repeat(32), &"ef".repeat(32)).unwrap();
+        let mut before_cleanup = evidence.clone();
+        before_cleanup.private_desktop_closed_after_job_empty = false;
+        before_cleanup.validate_started(&"ab".repeat(32), &"ef".repeat(32)).unwrap();
+        assert!(before_cleanup.validate(&"ab".repeat(32), &"ef".repeat(32)).is_err());
         let mut wrong_resume = evidence.clone();
         wrong_resume.resume_previous_count = 2;
         assert!(wrong_resume.validate(&"ab".repeat(32), &"ef".repeat(32)).is_err());
@@ -1147,5 +1199,15 @@ mod tests {
         let mut late = evidence;
         late.ready_elapsed_ms = 30_001;
         assert!(late.validate(&"ab".repeat(32), &"ef".repeat(32)).is_err());
+    }
+
+    #[test]
+    fn private_desktop_name_is_bounded_and_nonce_bound() {
+        let nonce = "ab".repeat(32);
+        let name = private_desktop_name(&nonce).unwrap();
+        assert_eq!(name, format!("cmuxb-{}\\desk-{}", &nonce[..24], &nonce[24..48]));
+        assert_eq!(name.len(), 60);
+        assert_ne!(name, private_desktop_name(&"cd".repeat(32)).unwrap());
+        assert!(private_desktop_name("short").is_err());
     }
 }

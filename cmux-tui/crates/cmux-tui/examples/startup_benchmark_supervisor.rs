@@ -919,16 +919,18 @@ mod platform {
         WAIT_OBJECT_0, WAIT_TIMEOUT,
     };
     use windows_sys::Win32::Security::Authorization::{
+        ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW,
         ConvertStringSidToSidW, EXPLICIT_ACCESS_W, GRANT_ACCESS, GetNamedSecurityInfoW,
-        NO_MULTIPLE_TRUSTEE, SE_FILE_OBJECT, SetEntriesInAclW, SetNamedSecurityInfoW,
-        TRUSTEE_IS_SID, TRUSTEE_IS_UNKNOWN, TRUSTEE_W,
+        NO_MULTIPLE_TRUSTEE, SDDL_REVISION_1, SE_FILE_OBJECT, SetEntriesInAclW,
+        SetNamedSecurityInfoW, TRUSTEE_IS_SID, TRUSTEE_IS_UNKNOWN, TRUSTEE_W,
     };
     use windows_sys::Win32::Security::{
-        ACL, AdjustTokenPrivileges, DACL_SECURITY_INFORMATION, LOGON32_LOGON_INTERACTIVE,
-        LOGON32_PROVIDER_DEFAULT, LUID_AND_ATTRIBUTES, LogonUserW, LookupPrivilegeValueW,
-        PRIVILEGE_SET, PSECURITY_DESCRIPTOR, PSID, PrivilegeCheck, SE_IMPERSONATE_NAME,
-        SE_PRIVILEGE_ENABLED, SUB_CONTAINERS_AND_OBJECTS_INHERIT, TOKEN_ADJUST_PRIVILEGES,
-        TOKEN_PRIVILEGES, TOKEN_QUERY,
+        ACL, AdjustTokenPrivileges, DACL_SECURITY_INFORMATION, GetTokenInformation,
+        LOGON32_LOGON_INTERACTIVE, LOGON32_PROVIDER_DEFAULT, LUID_AND_ATTRIBUTES, LogonUserW,
+        LookupPrivilegeValueW, PRIVILEGE_SET, PSECURITY_DESCRIPTOR, PSID, PrivilegeCheck,
+        SE_IMPERSONATE_NAME, SE_PRIVILEGE_ENABLED, SECURITY_ATTRIBUTES,
+        SUB_CONTAINERS_AND_OBJECTS_INHERIT, TOKEN_ADJUST_PRIVILEGES, TOKEN_PRIVILEGES, TOKEN_QUERY,
+        TOKEN_USER, TokenUser,
     };
     use windows_sys::Win32::Storage::FileSystem::{FILE_TYPE_UNKNOWN, GetFileType};
     use windows_sys::Win32::System::Console::{
@@ -942,6 +944,11 @@ mod platform {
         SetInformationJobObject, TerminateJobObject,
     };
     use windows_sys::Win32::System::Pipes::CreatePipe;
+    use windows_sys::Win32::System::StationsAndDesktops::{
+        CloseDesktop, CloseWindowStation, CreateDesktopW, CreateWindowStationW, DESKTOP_CREATEMENU,
+        DESKTOP_CREATEWINDOW, DESKTOP_ENUMERATE, DESKTOP_HOOKCONTROL, DESKTOP_READOBJECTS,
+        DESKTOP_WRITEOBJECTS, GetProcessWindowStation, HDESK, HWINSTA, SetProcessWindowStation,
+    };
     use windows_sys::Win32::System::SystemServices::{
         JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO, JOB_OBJECT_QUERY, PRIVILEGE_SET_ALL_NECESSARY,
     };
@@ -952,12 +959,32 @@ mod platform {
         WaitForSingleObject,
     };
     use windows_sys::Win32::UI::Shell::{LoadUserProfileW, PROFILEINFOW, UnloadUserProfile};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        CWF_CREATE_ONLY, WINSTA_ACCESSCLIPBOARD, WINSTA_ACCESSGLOBALATOMS, WINSTA_CREATEDESKTOP,
+        WINSTA_EXITWINDOWS, WINSTA_READATTRIBUTES,
+    };
 
     use super::*;
     use crate::startup_benchmark_protocol::{BootstrapHangArtifactReference, BootstrapTerminal};
     use crate::startup_benchmark_windows_diagnostic::{self, CaptureRequest};
 
     const MAX_BOOTSTRAP_CHECKPOINT_BYTES: usize = 64 * 1024;
+    const STANDARD_RIGHTS_REQUIRED_VALUE: u32 = 0x000f_0000;
+    const PRIVATE_WINSTA_ACCOUNT_ACCESS: u32 = STANDARD_RIGHTS_REQUIRED_VALUE
+        | WINSTA_ACCESSCLIPBOARD as u32
+        | WINSTA_ACCESSGLOBALATOMS as u32
+        | WINSTA_CREATEDESKTOP as u32
+        | WINSTA_EXITWINDOWS as u32
+        | WINSTA_READATTRIBUTES as u32;
+    const PRIVATE_DESKTOP_ACCOUNT_ACCESS: u32 = STANDARD_RIGHTS_REQUIRED_VALUE
+        | DESKTOP_CREATEMENU
+        | DESKTOP_CREATEWINDOW
+        | DESKTOP_ENUMERATE
+        | DESKTOP_HOOKCONTROL
+        | DESKTOP_READOBJECTS
+        | DESKTOP_WRITEOBJECTS;
+    const PRIVATE_WINSTA_OWNER_ACCESS: u32 = 0x000f_037f;
+    const PRIVATE_DESKTOP_OWNER_ACCESS: u32 = 0x000f_01ff;
 
     pub fn run_outer(launch: &Launch) -> Result<ExitStatus> {
         let mut control = transport::connect(&launch.control)
@@ -1052,7 +1079,11 @@ mod platform {
         let cleanup_deadline = Instant::now()
             .checked_add(BOOTSTRAP_CLEANUP_TIMEOUT)
             .context("Windows containment cleanup deadline overflow")?;
-        let cleanup = owner.cleanup(cleanup_deadline);
+        owner.private_desktop.product_assigned = bootstrap.product_started_relayed;
+        let mut cleanup = owner.cleanup(cleanup_deadline);
+        if cleanup.is_ok() {
+            cleanup = bootstrap.record_private_desktop_cleanup(&owner);
+        }
         let bootstrap_cleanup = bootstrap.finish(cleanup_deadline);
         let mut result = combine_windows_results(result, cleanup, bootstrap_cleanup);
         if result.is_err() && !bootstrap.product_started_relayed {
@@ -1134,11 +1165,192 @@ mod platform {
         }
     }
 
+    struct OwnedSecurityDescriptor(PSECURITY_DESCRIPTOR);
+
+    impl OwnedSecurityDescriptor {
+        fn from_sddl(sddl: &str) -> Result<Self> {
+            let sddl = wide(std::ffi::OsStr::new(sddl));
+            let mut descriptor = null_mut();
+            // SAFETY: the SDDL is NUL-terminated and descriptor is writable.
+            check(
+                unsafe {
+                    ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                        sddl.as_ptr(),
+                        SDDL_REVISION_1,
+                        &mut descriptor,
+                        null_mut(),
+                    )
+                },
+                "create private desktop security descriptor",
+            )?;
+            Ok(Self(descriptor))
+        }
+
+        fn security_attributes(&self) -> Result<SECURITY_ATTRIBUTES> {
+            Ok(SECURITY_ATTRIBUTES {
+                nLength: u32::try_from(size_of::<SECURITY_ATTRIBUTES>())?,
+                lpSecurityDescriptor: self.0,
+                bInheritHandle: 0,
+            })
+        }
+    }
+
+    impl Drop for OwnedSecurityDescriptor {
+        fn drop(&mut self) {
+            if !self.0.is_null() {
+                // SAFETY: ConvertStringSecurityDescriptorToSecurityDescriptorW used LocalAlloc.
+                unsafe { LocalFree(self.0.cast()) };
+            }
+        }
+    }
+
+    struct PrivateDesktopOwner {
+        window_station: HWINSTA,
+        desktop: HDESK,
+        name: String,
+        window_station_created: bool,
+        desktop_created: bool,
+        bootstrap_assigned: bool,
+        product_assigned: bool,
+        job_empty_observed: bool,
+        desktop_closed: bool,
+        window_station_closed: bool,
+    }
+
+    impl PrivateDesktopOwner {
+        fn create(nonce: &str, account_token: HANDLE, restricting_sid: &str) -> Result<Self> {
+            let name = cmux_startup_bootstrap::private_desktop_name(nonce)?;
+            let (window_station_name, desktop_name) = name
+                .split_once('\\')
+                .context("private desktop name lacks a window-station separator")?;
+            let trusted_token = current_process_token()?;
+            let trusted_sid = token_user_sid_text(trusted_token.0)?;
+            let account_sid = token_user_sid_text(account_token)?;
+            let station_descriptor = private_object_security_descriptor(
+                &trusted_sid,
+                &account_sid,
+                restricting_sid,
+                PRIVATE_WINSTA_OWNER_ACCESS,
+                PRIVATE_WINSTA_ACCOUNT_ACCESS,
+            )?;
+            let desktop_descriptor = private_object_security_descriptor(
+                &trusted_sid,
+                &account_sid,
+                restricting_sid,
+                PRIVATE_DESKTOP_OWNER_ACCESS,
+                PRIVATE_DESKTOP_ACCOUNT_ACCESS,
+            )?;
+            let mut station_attributes = station_descriptor.security_attributes()?;
+            let mut desktop_attributes = desktop_descriptor.security_attributes()?;
+            let station_name = wide(std::ffi::OsStr::new(window_station_name));
+            let desktop_name = wide(std::ffi::OsStr::new(desktop_name));
+            // SAFETY: this returns a borrowed process-owned station handle.
+            let original_station = unsafe { GetProcessWindowStation() };
+            if original_station.is_null() {
+                return Err(io::Error::last_os_error())
+                    .context("get trusted supervisor window station");
+            }
+            // SAFETY: names and security attributes remain live for this call.
+            let window_station = unsafe {
+                CreateWindowStationW(
+                    station_name.as_ptr(),
+                    CWF_CREATE_ONLY,
+                    PRIVATE_WINSTA_OWNER_ACCESS,
+                    &station_attributes,
+                )
+            };
+            if window_station.is_null() {
+                return Err(io::Error::last_os_error())
+                    .context("create nonce-bound private window station");
+            }
+            // SAFETY: both handles are live. The original handle remains process-owned.
+            if unsafe { SetProcessWindowStation(window_station) } == 0 {
+                let error = io::Error::last_os_error();
+                // SAFETY: window_station was created above and is not inherited.
+                let _ = unsafe { CloseWindowStation(window_station) };
+                return Err(error).context("select private window station for desktop creation");
+            }
+            // SAFETY: the private station is selected and all inputs remain live.
+            let desktop = unsafe {
+                CreateDesktopW(
+                    desktop_name.as_ptr(),
+                    null(),
+                    null(),
+                    0,
+                    PRIVATE_DESKTOP_OWNER_ACCESS,
+                    &desktop_attributes,
+                )
+            };
+            let desktop_error = desktop.is_null().then(io::Error::last_os_error);
+            // SAFETY: restore the trusted supervisor station before any return.
+            let restore_result = unsafe { SetProcessWindowStation(original_station) };
+            if let Some(error) = desktop_error {
+                // SAFETY: window_station is still owned by this function.
+                let _ = unsafe { CloseWindowStation(window_station) };
+                return Err(error).context("create nonce-bound private desktop");
+            }
+            if restore_result == 0 {
+                let error = io::Error::last_os_error();
+                // SAFETY: both objects were created above and are not inherited.
+                let _ = unsafe { CloseDesktop(desktop) };
+                let _ = unsafe { CloseWindowStation(window_station) };
+                return Err(error).context("restore trusted supervisor window station");
+            }
+            Ok(Self {
+                window_station,
+                desktop,
+                name,
+                window_station_created: true,
+                desktop_created: true,
+                bootstrap_assigned: false,
+                product_assigned: false,
+                job_empty_observed: false,
+                desktop_closed: false,
+                window_station_closed: false,
+            })
+        }
+
+        fn close_after_job_empty(&mut self) -> Result<()> {
+            self.job_empty_observed = true;
+            if !self.desktop_closed {
+                // SAFETY: desktop is a live, non-inherited handle owned here.
+                check(unsafe { CloseDesktop(self.desktop) }, "close private desktop")?;
+                self.desktop_closed = true;
+                self.desktop = null_mut();
+            }
+            if !self.window_station_closed {
+                // SAFETY: the desktop was closed and this station handle is still live.
+                check(
+                    unsafe { CloseWindowStation(self.window_station) },
+                    "close private window station",
+                )?;
+                self.window_station_closed = true;
+                self.window_station = null_mut();
+            }
+            Ok(())
+        }
+    }
+
+    impl Drop for PrivateDesktopOwner {
+        fn drop(&mut self) {
+            if !self.desktop_closed && !self.desktop.is_null() {
+                // SAFETY: fallback close for the same owned desktop handle.
+                let _ = unsafe { CloseDesktop(self.desktop) };
+            }
+            if !self.window_station_closed && !self.window_station.is_null() {
+                // SAFETY: fallback close for the same owned station handle.
+                let _ = unsafe { CloseWindowStation(self.window_station) };
+            }
+        }
+    }
+
     struct WindowsLaunchOwner {
         account_token: Option<OwnedHandle>,
         job: OwnedHandle,
         query_job: Option<OwnedHandle>,
         completion_port: OwnedHandle,
+        // Drop fallback closes the Job first, then these UI objects, then the account profile.
+        private_desktop: PrivateDesktopOwner,
         // Keep the profile after all Job handles so field-drop fallback closes the containment
         // boundary before it tries to unload a profile after an error.
         profile: Option<LoadedProfile>,
@@ -1271,6 +1483,18 @@ mod platform {
                 security_deadline,
                 trace,
             )?;
+            let launch_token = profile
+                .as_ref()
+                .map(LoadedProfile::token)
+                .or_else(|| account_token.as_ref().map(|token| token.0))
+                .context("Windows account token is required for private desktop")?;
+            let private_desktop =
+                PrivateDesktopOwner::create(&launch.nonce, launch_token, &sid_text)?;
+            check_security_deadline(
+                security_deadline,
+                trace,
+                "create nonce-bound private desktop",
+            )?;
             let (job, query_job, completion_port) =
                 create_non_breakaway_job(security_deadline, trace)?;
             complete_security_stage(
@@ -1285,6 +1509,7 @@ mod platform {
                 job,
                 query_job,
                 completion_port,
+                private_desktop,
                 restricting_sid_text: sid_text,
                 broker_assigned: false,
             })
@@ -1330,6 +1555,8 @@ mod platform {
             // SAFETY: zero is a valid initial state for these Win32 structs.
             let mut startup: STARTUPINFOW = unsafe { zeroed() };
             startup.cb = u32::try_from(size_of::<STARTUPINFOW>())?;
+            let mut private_desktop = wide(std::ffi::OsStr::new(&self.private_desktop.name));
+            startup.lpDesktop = private_desktop.as_mut_ptr();
             // SAFETY: zero is a valid initial state for PROCESS_INFORMATION.
             let mut process: PROCESS_INFORMATION = unsafe { zeroed() };
             let mut environment =
@@ -1369,6 +1596,7 @@ mod platform {
                 return Err(error).context("assign bootstrap to non-breakaway job");
             }
             self.broker_assigned = true;
+            self.private_desktop.bootstrap_assigned = true;
             trace.observe(BootstrapObservedEvent::Stage(BootstrapStage::JobAssigned));
             let pipes = BootstrapPipes::create()?;
             let control_read = duplicate_into_process(
@@ -1410,6 +1638,7 @@ mod platform {
                         trusted_path_probe,
                         expected_bootstrap_sha256: launch.windows_bootstrap_sha256.clone(),
                         restricting_sid: self.restricting_sid_text.clone(),
+                        private_desktop: self.private_desktop.name.clone(),
                     },
                     control_read,
                     control_write,
@@ -1460,6 +1689,7 @@ mod platform {
                 self.terminate_descendants_and_wait_empty(deadline)?;
                 self.broker_assigned = false;
             }
+            self.private_desktop.close_after_job_empty()?;
             if Instant::now() >= deadline {
                 bail!("Windows containment cleanup deadline expired before profile cleanup");
             }
@@ -1684,6 +1914,29 @@ mod platform {
             }
         }
 
+        fn record_private_desktop_cleanup(&mut self, owner: &WindowsLaunchOwner) -> Result<()> {
+            let desktop = &owner.private_desktop;
+            if !desktop.window_station_created
+                || !desktop.desktop_created
+                || !desktop.bootstrap_assigned
+                || !desktop.product_assigned
+                || !desktop.job_empty_observed
+                || !desktop.desktop_closed
+                || !desktop.window_station_closed
+            {
+                bail!("private desktop lifecycle proof is incomplete after Job cleanup");
+            }
+            let evidence = self
+                .evidence
+                .as_mut()
+                .context("Windows bootstrap evidence is missing after private desktop cleanup")?;
+            if evidence.private_desktop != desktop.name {
+                bail!("private desktop cleanup identity does not match launch evidence");
+            }
+            evidence.private_desktop_closed_after_job_empty = true;
+            Ok(())
+        }
+
         fn capture_product_hang_snapshot(
             &mut self,
             owner: &WindowsLaunchOwner,
@@ -1891,6 +2144,14 @@ mod platform {
                             product_resume_previous_count: 0,
                             product_process_id: 0,
                             product_primary_thread_id: 0,
+                            private_desktop: cmux_startup_bootstrap::private_desktop_name(
+                                &self.nonce,
+                            )?,
+                            private_window_station_created: true,
+                            private_desktop_created: true,
+                            private_desktop_broker_assigned: true,
+                            private_desktop_product_assigned: false,
+                            private_desktop_closed_after_job_empty: false,
                         });
                         fs::remove_file(&self.entry_checkpoint_path).with_context(|| {
                             format!(
@@ -2051,7 +2312,8 @@ mod platform {
                         evidence.product_resume_previous_count = resume_previous_count;
                         evidence.product_process_id = product_process_id;
                         evidence.product_primary_thread_id = product_primary_thread_id;
-                        evidence.validate(&self.nonce, &self.bootstrap_sha256)?;
+                        evidence.private_desktop_product_assigned = true;
+                        evidence.validate_started(&self.nonce, &self.bootstrap_sha256)?;
                         let adoption = encode_product_handles_adopted(nonce)?;
                         let writer = self
                             .writer
@@ -2225,7 +2487,7 @@ mod platform {
         mut trace: BootstrapStartupTrace,
         error: anyhow::Error,
         owner: Option<&mut WindowsLaunchOwner>,
-        bootstrap: Option<&mut BootstrapSession>,
+        mut bootstrap: Option<&mut BootstrapSession>,
     ) -> Result<ExitStatus> {
         if trace.terminal.is_none() {
             trace.observe(BootstrapObservedEvent::Error);
@@ -2254,7 +2516,18 @@ mod platform {
         let containment_started = owner.is_some();
         let bootstrap_started = bootstrap.is_some();
         let containment_result = match owner {
-            Some(owner) => owner.cleanup(cleanup_deadline),
+            Some(owner) => {
+                owner.private_desktop.product_assigned =
+                    bootstrap.as_deref().is_some_and(|value| value.product_started_relayed);
+                let mut cleanup = owner.cleanup(cleanup_deadline);
+                if cleanup.is_ok()
+                    && let Some(bootstrap) = bootstrap.as_deref_mut()
+                    && bootstrap.product_started_relayed
+                {
+                    cleanup = bootstrap.record_private_desktop_cleanup(owner);
+                }
+                cleanup
+            }
             None => Ok(()),
         };
         let bootstrap_result = match bootstrap {
@@ -2609,6 +2882,81 @@ mod platform {
             bail!("supervisor SeImpersonatePrivilege is not enabled");
         }
         Ok(())
+    }
+
+    fn current_process_token() -> Result<OwnedHandle> {
+        let mut token = null_mut();
+        // SAFETY: token points to writable handle storage.
+        check(
+            unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) },
+            "open trusted supervisor token for SID",
+        )?;
+        Ok(OwnedHandle(token))
+    }
+
+    fn token_user_sid_text(token: HANDLE) -> Result<String> {
+        let mut required = 0_u32;
+        // SAFETY: the first call requests the required buffer length.
+        unsafe { GetTokenInformation(token, TokenUser, null_mut(), 0, &mut required) };
+        if required < u32::try_from(size_of::<TOKEN_USER>())? {
+            return Err(io::Error::last_os_error()).context("size Windows token user SID");
+        }
+        let mut bytes = vec![0_u8; usize::try_from(required)?];
+        // SAFETY: bytes has exactly the size returned by the first call.
+        check(
+            unsafe {
+                GetTokenInformation(
+                    token,
+                    TokenUser,
+                    bytes.as_mut_ptr().cast(),
+                    required,
+                    &mut required,
+                )
+            },
+            "read Windows token user SID",
+        )?;
+        // SAFETY: GetTokenInformation initialized a TOKEN_USER at the buffer start.
+        let user = unsafe { &*bytes.as_ptr().cast::<TOKEN_USER>() };
+        let mut text = null_mut();
+        // SAFETY: user SID is live and text points to writable PWSTR storage.
+        check(
+            unsafe { ConvertSidToStringSidW(user.User.Sid, &mut text) },
+            "format Windows token user SID",
+        )?;
+        let value = wide_pointer_to_string(text)?;
+        // SAFETY: ConvertSidToStringSidW allocated text with LocalAlloc.
+        unsafe { LocalFree(text.cast()) };
+        Ok(value)
+    }
+
+    fn wide_pointer_to_string(value: *const u16) -> Result<String> {
+        if value.is_null() {
+            bail!("Windows wide string pointer is null");
+        }
+        let mut length = 0_usize;
+        // SAFETY: callers pass a NUL-terminated Win32-owned string.
+        while unsafe { *value.add(length) } != 0 {
+            length = length.checked_add(1).context("Windows wide string length overflow")?;
+            if length > 256 {
+                bail!("Windows wide string exceeds 256 code units");
+            }
+        }
+        // SAFETY: the scan above proved this initialized range ends before the NUL.
+        String::from_utf16(unsafe { std::slice::from_raw_parts(value, length) })
+            .context("decode Windows wide string")
+    }
+
+    fn private_object_security_descriptor(
+        trusted_sid: &str,
+        account_sid: &str,
+        restricting_sid: &str,
+        trusted_access: u32,
+        contained_access: u32,
+    ) -> Result<OwnedSecurityDescriptor> {
+        let sddl = format!(
+            "D:P(A;;0x{trusted_access:08x};;;{trusted_sid})(A;;0x{contained_access:08x};;;{account_sid})(A;;0x{contained_access:08x};;;{restricting_sid})S:(ML;;NW;;;LW)"
+        );
+        OwnedSecurityDescriptor::from_sddl(&sddl)
     }
 
     fn create_non_breakaway_job(

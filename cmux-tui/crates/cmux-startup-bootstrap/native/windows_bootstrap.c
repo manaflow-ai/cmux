@@ -12,12 +12,12 @@
 #pragma comment(lib, "bcrypt.lib")
 #pragma comment(lib, "advapi32.lib")
 
-#define SCHEMA_VERSION 4u
+#define SCHEMA_VERSION 5u
 #define MAX_CONFIG_BYTES (64u * 1024u)
 #define MAX_WIDE_CHARS 32767u
 #define CONFIG_HEADER_BYTES 104u
 #define RECORD_HEADER_BYTES 56u
-#define CONFIG_FIELD_COUNT 7u
+#define CONFIG_FIELD_COUNT 8u
 #define EVENT_STAGE 1u
 #define EVENT_READY 2u
 #define EVENT_EXIT 3u
@@ -84,6 +84,7 @@ typedef struct BootstrapConfig {
     WCHAR *trusted_probe;
     char bootstrap_sha256[65];
     char restricting_sid[MAX_RESTRICTING_SID_BYTES + 1u];
+    WCHAR *private_desktop;
     WCHAR **arguments;
     uint32_t argument_count;
 } BootstrapConfig;
@@ -168,6 +169,37 @@ static WCHAR *wide_duplicate(const WCHAR *value) {
 
 static int wide_equal_ignore_case(const WCHAR *left, const WCHAR *right) {
     return CompareStringOrdinal(left, -1, right, -1, TRUE) == CSTR_EQUAL;
+}
+
+static WCHAR hex_digit(unsigned char value) {
+    return (WCHAR)(value < 10u ? L'0' + value : L'a' + value - 10u);
+}
+
+static int private_desktop_matches_nonce(
+    const WCHAR *value,
+    const unsigned char nonce[32]
+) {
+    static const WCHAR station_prefix[] = L"cmuxb-";
+    static const WCHAR desktop_prefix[] = L"desk-";
+    SIZE_T cursor = 0;
+    SIZE_T index;
+    if (wide_length(value) != 60u) return 0;
+    for (index = 0; index < 6u; ++index) {
+        if (value[cursor++] != station_prefix[index]) return 0;
+    }
+    for (index = 0; index < 12u; ++index) {
+        if (value[cursor++] != hex_digit((unsigned char)(nonce[index] >> 4))
+            || value[cursor++] != hex_digit((unsigned char)(nonce[index] & 15u))) return 0;
+    }
+    if (value[cursor++] != L'\\') return 0;
+    for (index = 0; index < 5u; ++index) {
+        if (value[cursor++] != desktop_prefix[index]) return 0;
+    }
+    for (index = 12u; index < 24u; ++index) {
+        if (value[cursor++] != hex_digit((unsigned char)(nonce[index] >> 4))
+            || value[cursor++] != hex_digit((unsigned char)(nonce[index] & 15u))) return 0;
+    }
+    return value[cursor] == L'\0';
 }
 
 static int wide_prefix_ignore_case(const WCHAR *value, const WCHAR *prefix, SIZE_T prefix_length) {
@@ -365,6 +397,7 @@ static void free_config(BootstrapConfig *config) {
     heap_release(config->fixture_root);
     heap_release(config->target);
     heap_release(config->trusted_probe);
+    heap_release(config->private_desktop);
     if (config->arguments != NULL) {
         for (index = 0; index < config->argument_count; ++index) {
             heap_release(config->arguments[index]);
@@ -410,6 +443,12 @@ static int parse_config(const unsigned char *bytes, SIZE_T length, BootstrapConf
     config->trusted_probe = take_utf16(&cursor);
     if (config->trusted_probe == NULL || !take_hash(&cursor, config->bootstrap_sha256)
         || !take_sid(&cursor, config->restricting_sid)) {
+        free_config(config);
+        return 0;
+    }
+    config->private_desktop = take_utf16(&cursor);
+    if (config->private_desktop == NULL
+        || !private_desktop_matches_nonce(config->private_desktop, config->nonce)) {
         free_config(config);
         return 0;
     }
@@ -1179,6 +1218,7 @@ static int create_product(
     memory_zero(&process, sizeof(process));
     startup.StartupInfo.cb = (DWORD)sizeof(startup);
     startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+    startup.StartupInfo.lpDesktop = config->private_desktop;
     startup.StartupInfo.hStdInput = handles[0];
     startup.StartupInfo.hStdOutput = handles[1];
     startup.StartupInfo.hStdError = handles[2];

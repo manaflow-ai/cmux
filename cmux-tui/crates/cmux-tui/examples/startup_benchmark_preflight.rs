@@ -11,7 +11,6 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
-#[cfg(windows)]
 use cmux_startup_bootstrap::BootstrapLaunchEvidence;
 use cmux_tui_core::platform::transport;
 use serde::{Deserialize, Serialize};
@@ -91,6 +90,12 @@ struct PreflightEvidence {
     windows_product_resume_previous_count: Option<u32>,
     windows_product_process_id: Option<u32>,
     windows_product_primary_thread_id: Option<u32>,
+    windows_private_desktop: Option<String>,
+    windows_private_window_station_created: Option<bool>,
+    windows_private_desktop_created: Option<bool>,
+    windows_private_desktop_broker_assigned: Option<bool>,
+    windows_private_desktop_product_assigned: Option<bool>,
+    windows_private_desktop_closed_after_job_empty: Option<bool>,
     supervisor_ready: bool,
     timing_records: u64,
     supervisor_sha256: String,
@@ -720,7 +725,7 @@ fn persist_relayed_product_started_evidence(
     controller_observation: &BootstrapControllerFailureObservation,
     native_exit_code: Option<u32>,
 ) -> Result<PathBuf> {
-    evidence.validate(expected_nonce, expected_bootstrap_sha256)?;
+    evidence.validate_started(expected_nonce, expected_bootstrap_sha256)?;
     controller_observation.validate(expected_nonce)?;
     let stem = output.file_stem().and_then(|value| value.to_str()).unwrap_or("preflight");
     let path = output
@@ -1137,7 +1142,11 @@ fn run_controller(values: &[String]) -> Result<()> {
                 .with_context(|| format!("read Windows bootstrap evidence {}", path.display()))?,
         )?;
         evidence.validate(&nonce, &windows_bootstrap_sha256)?;
-        if relayed_bootstrap_evidence.as_ref() != Some(&evidence) {
+        let mut expected_final = relayed_bootstrap_evidence
+            .clone()
+            .context("relayed product-started evidence is missing")?;
+        expected_final.private_desktop_closed_after_job_empty = true;
+        if expected_final != evidence {
             bail!("relayed product-started evidence changed before product exit");
         }
         Some(evidence)
@@ -1145,7 +1154,7 @@ fn run_controller(values: &[String]) -> Result<()> {
     #[cfg(not(windows))]
     let bootstrap_evidence: Option<BootstrapLaunchEvidence> = None;
     let evidence = PreflightEvidence {
-        schema_version: 7,
+        schema_version: 8,
         backend,
         policy: "fixture-root-only-write",
         handshake: "nonce-bound-ready-arm-with-pre-exec-t0",
@@ -1264,6 +1273,24 @@ fn run_controller(values: &[String]) -> Result<()> {
         windows_product_primary_thread_id: bootstrap_evidence
             .as_ref()
             .map(|evidence| evidence.product_primary_thread_id),
+        windows_private_desktop: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.private_desktop.clone()),
+        windows_private_window_station_created: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.private_window_station_created),
+        windows_private_desktop_created: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.private_desktop_created),
+        windows_private_desktop_broker_assigned: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.private_desktop_broker_assigned),
+        windows_private_desktop_product_assigned: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.private_desktop_product_assigned),
+        windows_private_desktop_closed_after_job_empty: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.private_desktop_closed_after_job_empty),
         supervisor_ready: true,
         timing_records: if timing_result.is_ok() { 1 } else { 0 },
         supervisor_sha256,
@@ -1538,6 +1565,14 @@ fn platform_proofs_pass(evidence: &PreflightEvidence) -> bool {
             && evidence.windows_product_resume_previous_count == Some(1)
             && evidence.windows_product_process_id.is_some_and(|value| value != 0)
             && evidence.windows_product_primary_thread_id.is_some_and(|value| value != 0)
+            && evidence.windows_private_desktop.as_ref().is_some_and(|value| {
+                value.starts_with("cmuxb-") && value.contains("\\desk-") && value.len() == 60
+            })
+            && evidence.windows_private_window_station_created == Some(true)
+            && evidence.windows_private_desktop_created == Some(true)
+            && evidence.windows_private_desktop_broker_assigned == Some(true)
+            && evidence.windows_private_desktop_product_assigned == Some(true)
+            && evidence.windows_private_desktop_closed_after_job_empty == Some(true)
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     {
@@ -1568,6 +1603,12 @@ fn windows_account_broker_proofs_absent(evidence: &PreflightEvidence) -> bool {
         && evidence.windows_product_resume_previous_count.is_none()
         && evidence.windows_product_process_id.is_none()
         && evidence.windows_product_primary_thread_id.is_none()
+        && evidence.windows_private_desktop.is_none()
+        && evidence.windows_private_window_station_created.is_none()
+        && evidence.windows_private_desktop_created.is_none()
+        && evidence.windows_private_desktop_broker_assigned.is_none()
+        && evidence.windows_private_desktop_product_assigned.is_none()
+        && evidence.windows_private_desktop_closed_after_job_empty.is_none()
 }
 
 #[cfg(target_os = "linux")]
