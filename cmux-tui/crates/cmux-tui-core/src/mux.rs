@@ -1653,6 +1653,7 @@ pub struct Mux {
     resource_creation_active: AtomicBool,
     terminal_adoptions: Mutex<HashSet<String>>,
     terminal_exit_detaches: Mutex<HashSet<String>>,
+    terminal_exit_detach_signal: Arc<TerminalExitDetachSignal>,
     terminal_adoption_insert_failures: AtomicU64,
     /// Fences the interval between accepting a browser daemon-handoff request
     /// and queueing its acknowledgement. ClientRegistry consults this under
@@ -1665,6 +1666,61 @@ pub struct Mux {
     #[cfg(test)]
     test_surface_runtime: bool,
     pub session: String,
+}
+
+#[derive(Default)]
+struct TerminalExitDetachSignal {
+    state: Mutex<TerminalExitDetachSignalState>,
+    changed: Condvar,
+}
+
+#[derive(Default)]
+struct TerminalExitDetachSignalState {
+    generation: u64,
+    active_workers: usize,
+}
+
+impl TerminalExitDetachSignal {
+    fn register_worker(&self) {
+        self.state.lock().unwrap().active_workers += 1;
+    }
+
+    fn finish_worker(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.active_workers = state.active_workers.saturating_sub(1);
+        self.changed.notify_all();
+    }
+
+    fn snapshot(&self) -> u64 {
+        self.state.lock().unwrap().generation
+    }
+
+    fn notify(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.generation = state.generation.wrapping_add(1);
+        self.changed.notify_all();
+    }
+
+    fn wait(&self, observed_generation: u64, timeout: Duration) -> u64 {
+        let state = self.state.lock().unwrap();
+        let (state, _) = self
+            .changed
+            .wait_timeout_while(state, timeout, |state| {
+                state.generation == observed_generation
+            })
+            .unwrap();
+        state.generation
+    }
+
+    #[cfg(test)]
+    fn wait_for_idle(&self, timeout: Duration) -> bool {
+        let state = self.state.lock().unwrap();
+        let (state, _) = self
+            .changed
+            .wait_timeout_while(state, timeout, |state| state.active_workers > 0)
+            .unwrap();
+        state.active_workers == 0
+    }
 }
 
 #[derive(Clone)]
@@ -1980,6 +2036,7 @@ impl Mux {
             resource_creation_active: AtomicBool::new(false),
             terminal_adoptions: Mutex::new(HashSet::new()),
             terminal_exit_detaches: Mutex::new(HashSet::new()),
+            terminal_exit_detach_signal: Arc::new(TerminalExitDetachSignal::default()),
             terminal_adoption_insert_failures: AtomicU64::new(
                 std::env::var("CMUX_TUI_TEST_ADOPTION_INSERT_FAILURES")
                     .ok()
@@ -6666,6 +6723,7 @@ impl Mux {
 
     pub fn shutdown(&self) {
         self.shutting_down.store(true, Ordering::Release);
+        self.terminal_exit_detach_signal.notify();
         let surfaces = self.state.lock().unwrap().surfaces.values().cloned().collect::<Vec<_>>();
         for surface in surfaces {
             surface.disconnect_for_daemon_shutdown();
@@ -6711,6 +6769,7 @@ impl Mux {
     /// and remain available for the replacement daemon to adopt.
     pub fn request_daemon_shutdown(&self) {
         self.shutting_down.store(true, Ordering::Release);
+        self.terminal_exit_detach_signal.notify();
     }
 
     pub fn daemon_shutdown_requested(&self) -> bool {
@@ -10810,12 +10869,15 @@ impl Mux {
         let cleanup_id = terminal_id.clone();
         let mux = Arc::downgrade(self);
         let surface = Arc::downgrade(surface);
+        let retry_signal = self.terminal_exit_detach_signal.clone();
+        retry_signal.register_worker();
         let spawn_result = std::thread::Builder::new()
             .name(format!("terminal-exit-detach-{terminal_id}"))
             .spawn(move || {
                 let mut delay = Duration::from_millis(25);
+                let mut generation = retry_signal.snapshot();
                 loop {
-                    std::thread::sleep(delay);
+                    generation = retry_signal.wait(generation, delay);
                     let Some(mux) = mux.upgrade() else {
                         break;
                     };
@@ -10842,8 +10904,10 @@ impl Mux {
                         }
                     }
                 }
+                retry_signal.finish_worker();
             });
         if let Err(error) = spawn_result {
+            self.terminal_exit_detach_signal.finish_worker();
             self.terminal_exit_detaches.lock().unwrap().remove(&cleanup_id);
             self.emit(MuxEvent::Status(format!(
                 "could not schedule exited terminal {cleanup_id} detach: {error}"
