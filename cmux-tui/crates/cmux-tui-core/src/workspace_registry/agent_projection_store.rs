@@ -70,9 +70,12 @@ pub(super) fn apply_agent_projection_journal_record(
     }
     // Pre-journal migration still uses the stored projections as its baseline,
     // so live events must update them before a later page snapshots that terminal.
-    // Once journal replay has a target, leave new work for that ordered replay.
+    // Generation import cannot activate the stored identities until its final
+    // page, and ordered journal replay must also keep one fixed target. Leave
+    // new work in the journal during either phase.
     if !rebuilding_generation_history
-        && agent_projection_journal_rebuild_target(transaction)?.is_some()
+        && (resource_store::resource_agent_generation_backfill_pending(transaction)?
+            || agent_projection_journal_rebuild_target(transaction)?.is_some())
     {
         return Ok(());
     }
@@ -413,7 +416,7 @@ pub(super) fn rebuild_agent_projections_from_journal(
     allow_archived_kind_backfill: bool,
 ) -> anyhow::Result<bool> {
     let tx = connection.unchecked_transaction()?;
-    if !super::resource_store::backfill_resource_agent_session_generations_page(&tx)? {
+    if !resource_store::backfill_resource_agent_session_generations_page(&tx)? {
         tx.commit()?;
         return Ok(false);
     }
@@ -579,7 +582,7 @@ impl WorkspaceRegistry {
 }
 
 fn agent_projection_rebuild_active(connection: &Connection) -> anyhow::Result<bool> {
-    Ok(super::resource_store::resource_agent_generation_backfill_pending(connection)?
+    Ok(resource_store::resource_agent_generation_backfill_pending(connection)?
         || prejournal_projection_migration_cursor(connection)?.is_some()
         || agent_projection_journal_rebuild_target(connection)?.is_some())
 }
