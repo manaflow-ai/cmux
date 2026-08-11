@@ -326,6 +326,7 @@ struct TerminalSurfaceCommandShimPermissionsTests {
             maximumEntryCount: 256,
             isCancelled: { false },
             isProcessAlive: { $0 == liveProcessID },
+            cleanupOwner: TerminalSurfaceAgentCommandShimStaleCleanupOwner(),
             fileManager: fileManager
         )
 
@@ -333,19 +334,6 @@ struct TerminalSurfaceCommandShimPermissionsTests {
         #expect(fileManager.fileExists(atPath: staleLiveDirectory.path))
         #expect(fileManager.fileExists(atPath: recentDeadDirectory.path))
         #expect(fileManager.fileExists(atPath: malformedDirectory.path))
-    }
-
-    @Test("Stale cleanup owner claims one pass per temporary root")
-    func staleCleanupOwnerClaimsOnePassPerTemporaryRoot() {
-        let owner = TerminalSurfaceAgentCommandShimStaleCleanupOwner()
-        let firstRoot = URL(fileURLWithPath: "/tmp/cmux-shim-cleanup-a", isDirectory: true)
-        let equivalentFirstRoot = firstRoot.appending(path: "..", directoryHint: .isDirectory)
-            .appending(path: firstRoot.lastPathComponent, directoryHint: .isDirectory)
-        let secondRoot = URL(fileURLWithPath: "/tmp/cmux-shim-cleanup-b", isDirectory: true)
-
-        #expect(owner.claim(firstRoot))
-        #expect(!owner.claim(equivalentFirstRoot))
-        #expect(owner.claim(secondRoot))
     }
 
     @Test("Stale cleanup pass honors entry and cancellation bounds")
@@ -371,6 +359,7 @@ struct TerminalSurfaceCommandShimPermissionsTests {
         }
         let attributes = try fileManager.attributesOfItem(atPath: root.path)
         let ownerUserID = try #require(attributes[.ownerAccountID] as? NSNumber)
+        let cleanupOwner = TerminalSurfaceAgentCommandShimStaleCleanupOwner()
 
         TerminalSurface.removeStaleAgentCommandShimDirectories(
             in: root,
@@ -381,6 +370,7 @@ struct TerminalSurfaceCommandShimPermissionsTests {
             maximumEntryCount: 1,
             isCancelled: { false },
             isProcessAlive: { _ in false },
+            cleanupOwner: cleanupOwner,
             fileManager: fileManager
         )
         let afterBoundedPass = try fileManager.contentsOfDirectory(
@@ -398,6 +388,7 @@ struct TerminalSurfaceCommandShimPermissionsTests {
             maximumEntryCount: 64,
             isCancelled: { true },
             isProcessAlive: { _ in false },
+            cleanupOwner: cleanupOwner,
             fileManager: fileManager
         )
         let afterCancelledPass = try fileManager.contentsOfDirectory(

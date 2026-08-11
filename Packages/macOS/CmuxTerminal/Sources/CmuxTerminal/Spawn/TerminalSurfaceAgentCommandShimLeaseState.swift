@@ -1,10 +1,39 @@
 internal import CmuxTerminalCore
 internal import Foundation
 
+private enum TerminalSurfaceShimRemovalOutcome: Sendable {
+    case success
+    case failure(String)
+    case timedOut
+    case cancelled
+}
+
+private struct TerminalSurfaceShimRemovalError: Error, CustomStringConvertible {
+    let description: String
+}
+
+private actor TerminalSurfaceShimRemovalRace {
+    private var outcome: TerminalSurfaceShimRemovalOutcome?
+    private var waiter: CheckedContinuation<TerminalSurfaceShimRemovalOutcome, Never>?
+
+    func resolve(_ outcome: TerminalSurfaceShimRemovalOutcome) {
+        guard self.outcome == nil else { return }
+        self.outcome = outcome
+        waiter?.resume(returning: outcome)
+        waiter = nil
+    }
+
+    func value() async -> TerminalSurfaceShimRemovalOutcome {
+        if let outcome { return outcome }
+        return await withCheckedContinuation { waiter = $0 }
+    }
+}
+
 actor TerminalSurfaceAgentCommandShimLeaseState {
     private var shims: TerminalSurfaceAgentCommandShimSet?
     private var removalAttempt: (id: UUID, task: Task<Void, any Error>)?
     private let removalAttemptLimit: Int
+    private let removalAttemptTimeout: Duration
     private let remove: @Sendable (TerminalSurfaceAgentCommandShimSet) async throws -> Void
     private let reportRemovalFailure:
         @Sendable (TerminalSurfaceAgentCommandShimSet, String) -> Void
@@ -14,18 +43,21 @@ actor TerminalSurfaceAgentCommandShimLeaseState {
     init(
         shims: TerminalSurfaceAgentCommandShimSet,
         removalAttemptLimit: Int,
+        removalAttemptTimeout: Duration = .seconds(5),
         remove: @escaping @Sendable (TerminalSurfaceAgentCommandShimSet) async throws -> Void,
         reportRemovalFailure:
             @escaping @Sendable (TerminalSurfaceAgentCommandShimSet, String) -> Void
     ) {
         precondition(removalAttemptLimit > 0)
+        precondition(removalAttemptTimeout > .zero)
         self.shims = shims
         self.removalAttemptLimit = removalAttemptLimit
+        self.removalAttemptTimeout = removalAttemptTimeout
         self.remove = remove
         self.reportRemovalFailure = reportRemovalFailure
     }
 
-    func release() async -> Bool {
+    func release(removalClock: any Clock<Duration> = ContinuousClock()) async -> Bool {
         guard let shims else { return true }
         let attempt: (id: UUID, task: Task<Void, any Error>)
         if let removalAttempt {
@@ -34,11 +66,17 @@ actor TerminalSurfaceAgentCommandShimLeaseState {
             let id = UUID()
             let remove = remove
             let removalAttemptLimit = removalAttemptLimit
+            let removalAttemptTimeout = removalAttemptTimeout
             let task = Task.detached(priority: .utility) {
                 var lastError: (any Error)?
                 for _ in 0..<removalAttemptLimit {
                     do {
-                        try await remove(shims)
+                        try await Self.remove(
+                            shims,
+                            deadline: removalAttemptTimeout,
+                            clock: removalClock,
+                            operation: remove
+                        )
                         return
                     } catch {
                         lastError = error
@@ -61,6 +99,52 @@ actor TerminalSurfaceAgentCommandShimLeaseState {
             removalAttempt = nil
             reportRemovalFailure(shims, String(reflecting: error))
             return false
+        }
+    }
+
+    private nonisolated static func remove(
+        _ shims: TerminalSurfaceAgentCommandShimSet,
+        deadline: Duration,
+        clock: any Clock<Duration>,
+        operation: @escaping @Sendable (TerminalSurfaceAgentCommandShimSet) async throws -> Void
+    ) async throws {
+        let race = TerminalSurfaceShimRemovalRace()
+        let removalTask = Task.detached(priority: .utility) {
+            do {
+                try await operation(shims)
+                await race.resolve(.success)
+            } catch {
+                await race.resolve(.failure(String(reflecting: error)))
+            }
+        }
+        let timeoutTask = Task.detached(priority: .utility) {
+            do {
+                try await clock.sleep(for: deadline, tolerance: nil)
+                await race.resolve(.timedOut)
+            } catch {
+                await race.resolve(.cancelled)
+            }
+        }
+        let outcome = await withTaskCancellationHandler {
+            await race.value()
+        } onCancel: {
+            removalTask.cancel()
+            timeoutTask.cancel()
+            Task { await race.resolve(.cancelled) }
+        }
+        removalTask.cancel()
+        timeoutTask.cancel()
+        switch outcome {
+        case .success:
+            return
+        case let .failure(description):
+            throw TerminalSurfaceShimRemovalError(description: description)
+        case .timedOut:
+            throw TerminalSurfaceShimRemovalError(
+                description: "command shim removal exceeded \(deadline)"
+            )
+        case .cancelled:
+            throw CancellationError()
         }
     }
 }

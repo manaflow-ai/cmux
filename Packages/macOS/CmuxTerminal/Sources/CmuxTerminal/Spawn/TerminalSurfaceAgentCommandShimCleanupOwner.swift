@@ -51,7 +51,7 @@ actor TerminalSurfaceAgentCommandShimCleanupOwner {
             leases[directoryPath] = lease
         }
 
-        if await lease.release() {
+        if await lease.release(removalClock: retryClock) {
             finish(directoryPath: directoryPath)
         } else {
             scheduleRetries(directoryPath: directoryPath, retryClock: retryClock)
@@ -72,7 +72,7 @@ actor TerminalSurfaceAgentCommandShimCleanupOwner {
                     return
                 }
                 guard let self else { return }
-                if await self.retry(directoryPath: directoryPath) {
+                if await self.retry(directoryPath: directoryPath, retryClock: retryClock) {
                     return
                 }
             }
@@ -80,12 +80,15 @@ actor TerminalSurfaceAgentCommandShimCleanupOwner {
         }
     }
 
-    private func retry(directoryPath: String) async -> Bool {
+    private func retry(
+        directoryPath: String,
+        retryClock: any Clock<Duration>
+    ) async -> Bool {
         guard let lease = leases[directoryPath] else {
             finish(directoryPath: directoryPath)
             return true
         }
-        guard await lease.release() else { return false }
+        guard await lease.release(removalClock: retryClock) else { return false }
         finish(directoryPath: directoryPath)
         return true
     }
