@@ -909,7 +909,7 @@ extension TerminalSurface {
             // slot. Return admission ownership and use the shared normal
             // entrypoint to queue a fresh paced slot before retrying Ghostty.
             runtimeTeardown.cancelRuntimeSurfaceOwnership(reservation)
-            createSurface(for: view, source: .normal)
+            createSurface(for: view)
             return
         }
         createSurface(
