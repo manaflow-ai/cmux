@@ -1936,7 +1936,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
-    func unpublishedStateCreationFailureStillKillsDescendants(
+    func unpublishedAllocationFailureStillKillsDescendants(
         shellPath: String
     ) throws {
         let fileManager = FileManager.default
@@ -1944,9 +1944,14 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             "cmux-ssh-auth-unpublished-state-failure-\(UUID().uuidString)",
             isDirectory: true
         )
+        let groupDirectory = root.appendingPathComponent(
+            "cmux-ssh-auth-group.preallocated",
+            isDirectory: true
+        )
         let leafPIDFile = root.appendingPathComponent("leaf.pid")
         let leafStateFile = root.appendingPathComponent("leaf.state")
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
         defer { try? fileManager.removeItem(at: root) }
 
         let command = """
@@ -1981,6 +1986,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             environment: [
                 "CMUX_TEST_LEAF_PID": leafPIDFile.path,
                 "CMUX_TEST_LEAF_STATE": leafStateFile.path,
+                "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
                 "TMPDIR": root.path,
             ],
             shellPath: shellPath
