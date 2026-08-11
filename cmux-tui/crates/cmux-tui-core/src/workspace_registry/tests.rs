@@ -7670,7 +7670,7 @@ fn journal_agent_projection_checkpoint_refresh_visits_terminal_once() {
         .unwrap();
     registry
         .connection
-        .authorizer(Some(|context| match context.action {
+        .authorizer(Some(|context: rusqlite::hooks::AuthContext<'_>| match context.action {
             rusqlite::hooks::AuthAction::Read { table_name: "journal_event_index", .. } => {
                 rusqlite::hooks::Authorization::Deny
             }
