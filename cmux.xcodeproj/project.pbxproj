@@ -851,11 +851,13 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		CBAE00000000000000000013 /* CmuxTerminalFrontend in Frameworks */ = {isa = PBXBuildFile; productRef = C7505F0000000000000000A2 /* CmuxTerminalFrontend */; };
 		CBAD00000000000000000304 /* CmuxTerminalRenderCompositor in Frameworks */ = {isa = PBXBuildFile; productRef = CBAD00000000000000000504 /* CmuxTerminalRenderCompositor */; };
 		CBAE00000000000000000014 /* CmuxTerminalRenderCompositor in Frameworks */ = {isa = PBXBuildFile; productRef = CBAD00000000000000000504 /* CmuxTerminalRenderCompositor */; };
+		CBAF00000000000000000018 /* CmuxTerminalRenderCompositor in Frameworks */ = {isa = PBXBuildFile; productRef = CBAD00000000000000000504 /* CmuxTerminalRenderCompositor */; };
 		CBAD00000000000000000302 /* CmuxTerminalRenderProtocol in Frameworks */ = {isa = PBXBuildFile; productRef = CBAD00000000000000000502 /* CmuxTerminalRenderProtocol */; };
 		CBAD00000000000000000306 /* CmuxTerminalRenderProtocol in Frameworks */ = {isa = PBXBuildFile; productRef = CBAD00000000000000000502 /* CmuxTerminalRenderProtocol */; };
 		CBAE00000000000000000015 /* CmuxTerminalRenderProtocol in Frameworks */ = {isa = PBXBuildFile; productRef = CBAD00000000000000000502 /* CmuxTerminalRenderProtocol */; };
 		CBAD00000000000000000303 /* CmuxTerminalRenderTransport in Frameworks */ = {isa = PBXBuildFile; productRef = CBAD00000000000000000503 /* CmuxTerminalRenderTransport */; };
 		CBAE00000000000000000016 /* CmuxTerminalRenderTransport in Frameworks */ = {isa = PBXBuildFile; productRef = CBAD00000000000000000503 /* CmuxTerminalRenderTransport */; };
+		CBAF00000000000000000017 /* CmuxTerminalRenderTransport in Frameworks */ = {isa = PBXBuildFile; productRef = CBAD00000000000000000503 /* CmuxTerminalRenderTransport */; };
 		CFF12E0000000000000000A3 /* CmuxTestSupport in Frameworks */ = {isa = PBXBuildFile; productRef = CFF12E0000000000000000A2 /* CmuxTestSupport */; };
 		A2977C204AD69CF268D38EE3 /* CmuxTestWindowReleaseGuard.m in Sources */ = {isa = PBXBuildFile; fileRef = EA9B442F20273D64D2BA1FC5 /* CmuxTestWindowReleaseGuard.m */; };
 		906900000000000000000002 /* CmuxTopMemoryAttributionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 906900000000000000000001 /* CmuxTopMemoryAttributionTests.swift */; };
@@ -5640,7 +5642,9 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CBAD00000000000000000305 /* CmuxTerminalBackend in Frameworks */,
 				CBAC00000000000000000002 /* CmuxTerminalBackendService in Frameworks */,
 				C7505F0000000000000000A4 /* CmuxTerminalFrontend in Frameworks */,
+				CBAF00000000000000000018 /* CmuxTerminalRenderCompositor in Frameworks */,
 				CBAD00000000000000000306 /* CmuxTerminalRenderProtocol in Frameworks */,
+				CBAF00000000000000000017 /* CmuxTerminalRenderTransport in Frameworks */,
 				730600040000000000000001 /* CmuxWindowing in Frameworks */,
 				5E2701040000000000000003 /* Sentry in Frameworks */,
 			);
@@ -8636,6 +8640,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CBAD00000000000000000501 /* CmuxTerminalBackend */,
 				CBAC00000000000000000004 /* CmuxTerminalBackendService */,
 				CBAD00000000000000000502 /* CmuxTerminalRenderProtocol */,
+				CBAD00000000000000000503 /* CmuxTerminalRenderTransport */,
+				CBAD00000000000000000504 /* CmuxTerminalRenderCompositor */,
 				C7505F0000000000000000A2 /* CmuxTerminalFrontend */,
 				D7032A060000000000000002 /* CmuxBrowser */,
 				5E55500000000000000000E2 /* CmuxCommandPalette */,
