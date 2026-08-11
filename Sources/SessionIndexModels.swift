@@ -297,14 +297,6 @@ struct SessionEntry: Identifiable, Hashable, Sendable {
         )
     }
 
-    /// Compatibility name for the copyable resume command.
-    ///
-    /// Runtime Vault resume must use `resumeLaunch`; this rendered shell command
-    /// remains only for Copy Resume Command and its explicit unsupported-agent fallback.
-    var resumeCommand: String? {
-        copyResumeCommand
-    }
-
     /// Shell command exposed by the Copy Resume Command menu item.
     var copyResumeCommand: String? {
         guard let command = copyResumeCommandWithoutWorkingDirectory else { return nil }

@@ -2,22 +2,34 @@ import CMUXAgentLaunch
 import Foundation
 
 /// The terminal startup plan shared by every Vault resume entry point.
-struct SessionEntryResumeLaunch: Sendable {
+nonisolated struct SessionEntryResumeLaunch: Sendable {
+    /// How the terminal starts the selected Vault session.
     enum Strategy: Sendable, Equatable {
+        /// Resolve structured argv and environment through `cmux restore`.
         case restoreVerb
+        /// Type the quarantined copyable command for an unsupported registration.
         case legacyCommand
     }
 
+    /// The selected structured or compatibility launch strategy.
     let strategy: Strategy
+    /// Input queued into the new terminal, including its trailing return.
     let initialInput: String
+    /// The directory requested for the new terminal surface.
     let workingDirectory: String?
+    /// Lifecycle state used by the restore responder and session persistence.
     let startupRestoreAgent: SessionRestorableAgentSnapshot?
 }
 
-private struct SessionEntryResumeSnapshotComponents {
+/// Agent-specific launch fields used to assemble one restorable snapshot.
+nonisolated private struct SessionEntryResumeSnapshotComponents {
+    /// Captured executable and option arguments before resume arguments are applied.
     let arguments: [String]
+    /// Replay-safe environment required by the agent profile.
     let environment: [String: String]
+    /// Registration metadata for custom Vault agents.
     let registration: CmuxVaultAgentRegistration?
+    /// Captured permission mode when the agent exposes one separately from argv.
     let permissionMode: String?
 }
 
@@ -47,6 +59,7 @@ extension SessionEntry {
         return legacyResumeLaunch
     }
 
+    /// Builds the explicit compatibility launch for an unsupported registration.
     private var legacyResumeLaunch: SessionEntryResumeLaunch? {
         guard let legacyCommand = copyResumeCommand else { return nil }
         return SessionEntryResumeLaunch(
@@ -57,6 +70,7 @@ extension SessionEntry {
         )
     }
 
+    /// Converts this Vault record into the lifecycle snapshot consumed by restore.
     private var vaultResumeSnapshot: SessionRestorableAgentSnapshot? {
         let components: SessionEntryResumeSnapshotComponents
         switch specifics {
@@ -212,6 +226,7 @@ extension SessionEntry {
         return arguments
     }
 
+    /// Normalizes optional Vault metadata before it enters structured launch state.
     private static func nonEmptyResumeValue(_ value: String?) -> String? {
         guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !value.isEmpty else {
