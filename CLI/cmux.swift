@@ -12856,6 +12856,7 @@ struct CMUXCLI {
         var bridgeReachedReady = false
         var sessionLostWillRespawn = false
         var wrapperWillRetrySameSurface = false
+        var preserveLifecycleForRecovery = false
         var noProgressRetryExhausted = false
         var attachFinished = false
         var attachmentToken = ""
@@ -12876,6 +12877,9 @@ struct CMUXCLI {
                 )
             } catch let error as CLIError {
                 if let exitCode = SSHPTYAttachExitCode(rawValue: error.exitCode) {
+                    if exitCode == .bridgeClosedSessionRunning || exitCode == .retryableTransient {
+                        preserveLifecycleForRecovery = true
+                    }
                     if sshPTYAttachWrapperWillRetry(exitCode) {
                         wrapperWillRetrySameSurface = true
                     } else if exitCode == .bridgeClosedWithoutProgress {
@@ -12896,10 +12900,13 @@ struct CMUXCLI {
                     lifecycleID: lifecycleID,
                     attachmentID: attachmentID,
                     attachmentToken: attachmentToken,
-                    retireLifecycle: !sessionLostWillRespawn && !wrapperWillRetrySameSurface,
+                    retireLifecycle: !sessionLostWillRespawn
+                        && !wrapperWillRetrySameSurface
+                        && !preserveLifecycleForRecovery,
                     clearLocalSurface: (!bridgeReachedReady || noProgressRetryExhausted)
                         && !sessionLostWillRespawn
                         && !wrapperWillRetrySameSurface
+                        && !preserveLifecycleForRecovery
                 )
             }
         }
@@ -12940,7 +12947,7 @@ struct CMUXCLI {
                 wrapperWillRetrySameSurface = true
             }
             if closedGeneration {
-                if (try? reconcileBridgeEnd(intentionalOnly: true)) == true {
+                if try reconcileBridgeEnd(intentionalOnly: true) {
                     attachFinished = true
                     return
                 }

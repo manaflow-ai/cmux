@@ -54776,7 +54776,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The SSH terminal connection ended before the remote session state could be confirmed; preserving it for reconnect."
+            "value": "The SSH terminal connection ended before the remote session state could be confirmed; preserving the remote session for reconnection."
           }
         },
         "ja": {
