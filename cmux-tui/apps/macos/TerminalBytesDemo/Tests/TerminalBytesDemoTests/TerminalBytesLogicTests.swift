@@ -194,6 +194,61 @@ private final class LockedInputs: @unchecked Sendable {
     }
 }
 
+private final class LockedString: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage = ""
+
+    var value: String {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+
+    func set(_ value: String) {
+        lock.lock()
+        storage = value
+        lock.unlock()
+    }
+}
+
+private final class LockedUpdateCallback: @unchecked Sendable {
+    private let lock = NSLock()
+    private let registration = TestSignal()
+    private var callback: TerminalUpdateCallback?
+    private var context: UnsafeMutableRawPointer?
+
+    func set(_ callback: TerminalUpdateCallback?, context: UnsafeMutableRawPointer?) {
+        lock.lock()
+        self.callback = callback
+        self.context = context
+        lock.unlock()
+        registration.signal()
+    }
+
+    private var isRegistered: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return callback != nil
+    }
+
+    func waitUntilRegistered() async {
+        while !isRegistered {
+            let generation = registration.generation
+            if !isRegistered {
+                await registration.wait(after: generation)
+            }
+        }
+    }
+
+    func send() {
+        lock.lock()
+        let callback = callback
+        let context = context
+        lock.unlock()
+        callback?(context)
+    }
+}
+
 @MainActor
 private func makeBlockingInputHarness() -> (
     model: TerminalModel,
@@ -587,6 +642,50 @@ struct TerminalBytesLogicTests {
         clock.advance(by: .seconds(1))
         await Task.yield()
         #expect(attempts.value == 2)
+    }
+
+    @Test @MainActor
+    func renderThrottleUsesTheInjectedClockAndStopsOnShutdown() async throws {
+        let updates = LockedUpdateCallback()
+        let frame = LockedString()
+        let clock = ManualTerminalClock()
+        let handle = TerminalClientHandle(
+            rawAddress: 12,
+            attachClient: { _, _, _, _, _ in true },
+            destroyClient: { _ in },
+            detachClient: { _ in },
+            setUpdateCallback: { _, callback, context in
+                updates.set(callback, context: context)
+            },
+            copyFrameClient: { _, buffer, capacity in
+                copyTestCString(frame.value, buffer: buffer, capacity: capacity)
+            },
+            copyDiagnosticsClient: { _, _, _ in 0 }
+        )
+        let model = TerminalModel(
+            configuration: DemoLaunchConfiguration(
+                invitation: "",
+                terminalID: "term_0123456789abcdef0123456789abcdef",
+                autoConnect: false
+            ),
+            retainedClient: handle,
+            clock: clock.clock
+        )
+
+        model.connect()
+        await updates.waitUntilRegistered()
+        frame.set("first")
+        updates.send()
+        await waitUntilObserved { model.frame == "first" }
+
+        frame.set("second")
+        updates.send()
+        #expect(await clock.nextSleepDeadline() == .milliseconds(33))
+        #expect(model.frame == "first")
+
+        clock.advance(by: .milliseconds(33))
+        await waitUntilObserved { model.frame == "second" }
+        model.shutdown()
     }
 
     @Test @MainActor
