@@ -174,15 +174,31 @@ final class PushRegistrationURLScript: @unchecked Sendable {
         lock.withLock { requestCountContinuations.count }
     }
 
-    func waitForRequestCount(_ expectedCount: Int) async -> Bool {
+    func waitForRequestCount(
+        _ expectedCount: Int,
+        timeout: Duration = .seconds(30)
+    ) async -> Bool {
         let updates = requestCountUpdates()
-        for await count in updates {
-            guard !Task.isCancelled else { return false }
-            if count >= expectedCount {
-                return true
+        return await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                for await count in updates {
+                    guard !Task.isCancelled else { return false }
+                    if count >= expectedCount {
+                        return true
+                    }
+                }
+                return false
             }
+            // Request-count publication decides success. This deadline only
+            // bounds a broken test and cancels its stream observation.
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
         }
-        return false
     }
 
     func reset(

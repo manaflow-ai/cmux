@@ -217,16 +217,30 @@ actor RetryDelayRecorder {
 
     private func wait(
         for state: PushRegistrationBackendState,
-        from service: PushRegistrationService
+        from service: PushRegistrationService,
+        timeout: Duration = .seconds(30)
     ) async -> Bool {
         let snapshots = await service.snapshots()
-        for await snapshot in snapshots {
-            guard !Task.isCancelled else { return false }
-            if snapshot.backendState == state {
-                return true
+        return await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                for await snapshot in snapshots {
+                    guard !Task.isCancelled else { return false }
+                    if snapshot.backendState == state {
+                        return true
+                    }
+                }
+                return false
             }
+            // The stream event decides success. This deadline only bounds a
+            // broken test and cancels the observation task when it expires.
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
         }
-        return false
     }
 
     @Test func stateWaitObservesStatePublishedBeforeSubscription() async {
@@ -246,6 +260,26 @@ actor RetryDelayRecorder {
         _ = PushRegistrationURLProtocol.script.take(request, body: nil)
 
         #expect(await PushRegistrationURLProtocol.script.waitForRequestCount(1))
+    }
+
+    @Test func stateWaitHasABoundedFailureDeadline() async {
+        let (service, _) = makeScriptedService()
+
+        #expect(await wait(
+            for: .registered,
+            from: service,
+            timeout: .zero
+        ) == false)
+    }
+
+    @Test func requestCountWaitTimeoutCancelsItsObservation() async {
+        await PushRegistrationURLProtocol.script.reset([])
+
+        #expect(await PushRegistrationURLProtocol.script.waitForRequestCount(
+            1,
+            timeout: .zero
+        ) == false)
+        #expect(PushRegistrationURLProtocol.script.requestCountObserverCount == 0)
     }
 
     @Test func cancellingRequestCountObservationRemovesItsContinuation() async {
