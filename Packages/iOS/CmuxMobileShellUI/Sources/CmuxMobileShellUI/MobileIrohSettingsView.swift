@@ -175,6 +175,7 @@ struct MobileIrohSettingsView: View {
         .navigationTitle(L10n.string("mobile.iroh.title", defaultValue: "Iroh and Relays"))
         .navigationBarTitleDisplayMode(.inline)
         .task { await model.observe() }
+        .onDisappear { model.cancelOperations() }
         .sheet(isPresented: $showsCustomEditor) {
             MobileIrohCustomRelayEditor(relay: editedCustomRelay) { relay, secret in
                 await model.upsertCustomRelay(relay, deviceSecret: secret)

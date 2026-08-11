@@ -74,7 +74,7 @@ extension MobileShellComposite {
                 count: ids.count
             )
         } catch {
-            mobileShellLog.error("notification dismiss sync failed count=\(ids.count, privacy: .public) error=\(String(describing: error), privacy: .public)")
+            mobileShellLog.error("notification dismiss sync failed count=\(ids.count, privacy: .public) error=\(String(describing: error), privacy: .private)")
             recordAppEvent(
                 .notificationFeedItemDismissed,
                 correlationID: macDeviceID,

@@ -201,9 +201,8 @@ public struct WorkspaceChangesSheet: View {
            !forceRefresh,
            let cached = presentationCache.presentation(forPath: path) {
             store.recordAppEvent(
-                .fileDiffLoadSucceeded,
-                correlationID: workspaceID,
-                count: 0
+                .fileDiffCacheHit,
+                correlationID: workspaceID
             )
             return cached
         }

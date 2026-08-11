@@ -38,7 +38,7 @@ struct NotificationFeedStoreView: View {
                     store.recordAppEvent(
                         .searchResultSelected,
                         correlationID: item.notificationID,
-                        count: DiagnosticSearchScope.notifications.rawValue
+                        detail: .searchScope(.notifications)
                     )
                 }
                 store.requestOpenNotificationFeedItem(item)

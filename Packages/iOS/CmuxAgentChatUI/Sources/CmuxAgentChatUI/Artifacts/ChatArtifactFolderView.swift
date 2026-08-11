@@ -115,22 +115,13 @@ struct ChatArtifactFolderView: View {
     }
 
     private func load() async {
-        loader.recordDiagnostic(.artifactListLoadStarted)
         await MainActor.run { state = .loading }
         do {
             let listing = try await loader.list(path: path)
             guard !Task.isCancelled else { return }
             await MainActor.run { state = .listing(listing) }
-            loader.recordDiagnostic(
-                .artifactListLoadSucceeded,
-                count: listing.entries.count
-            )
         } catch {
             await MainActor.run { state = .failed }
-            loader.recordDiagnostic(
-                .artifactListLoadFailed,
-                failure: DiagnosticFailureKind.classify(error)
-            )
         }
     }
 

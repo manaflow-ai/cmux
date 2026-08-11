@@ -236,7 +236,7 @@ struct OnboardingFlowView: View {
     }
 
     private func captureSceneViewed() {
-        diagnosticLog?.recordAppEvent(.onboardingStageChanged)
+        diagnosticLog?.recordAppEvent(.onboardingStageViewed)
         var properties = eventProperties
         properties["surface"] = .string(stage.analyticsValue)
         analytics.capture("ios_onboarding_scene_viewed", properties)

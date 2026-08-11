@@ -304,7 +304,7 @@ extension GhosttySurfaceRepresentable.Coordinator {
             store?.recordAppEvent(
                 .terminalToolbarActionUsed,
                 correlationID: surfaceID,
-                count: diagnosticAction.rawValue
+                detail: .terminalToolbarAction(diagnosticAction)
             )
         }
 
@@ -312,10 +312,17 @@ extension GhosttySurfaceRepresentable.Coordinator {
             _ surfaceView: GhosttySurfaceView,
             didChangeZoom action: TerminalZoomDiagnosticAction
         ) {
+            let diagnosticAction: DiagnosticTerminalZoomAction = switch action {
+            case .stepDecrease: .stepDecrease
+            case .stepIncrease: .stepIncrease
+            case .resetToDefault: .resetToDefault
+            case .restoreBuiltIn: .restoreBuiltIn
+            case .hostSet: .hostSet
+            }
             store?.recordAppEvent(
                 .terminalZoomChanged,
                 correlationID: surfaceID,
-                count: action.rawValue
+                detail: .terminalZoomAction(diagnosticAction)
             )
         }
 

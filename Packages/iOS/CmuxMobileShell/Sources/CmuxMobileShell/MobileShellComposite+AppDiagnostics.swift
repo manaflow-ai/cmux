@@ -22,6 +22,23 @@ extension MobileShellComposite {
         )
     }
 
+    /// Emits one app event with a typed categorical payload.
+    public func recordAppEvent(
+        _ kind: DiagnosticAppEventKind,
+        correlationID: String? = nil,
+        startedAt: Date? = nil,
+        failure: DiagnosticFailureKind? = nil,
+        detail: DiagnosticAppEventDetail
+    ) {
+        diagnosticLog?.recordAppEvent(
+            kind,
+            correlationID: correlationID,
+            elapsedMilliseconds: startedAt.map { appDiagnosticElapsedMilliseconds(since: $0) },
+            failure: failure,
+            detail: detail
+        )
+    }
+
     func appDiagnosticNow() -> Date {
         runtime?.now() ?? Date()
     }

@@ -48,11 +48,11 @@ extension TaskComposerSheet {
                 correlationID: snapshot.operationID.uuidString
             )
             completeSubmission(snapshot)
-        case .failure(.alreadyCompleted):
+        case .failure(let failure @ .alreadyCompleted):
             store.recordAppEvent(
                 .taskComposerRecoveryFailed,
                 correlationID: snapshot.operationID.uuidString,
-                failure: .endpointUnavailable
+                failure: failure.diagnosticFailureKind
             )
             completedOperationRecovery?.recordReconciliationStillMissing()
             failureTitleStyle = .taskAccepted

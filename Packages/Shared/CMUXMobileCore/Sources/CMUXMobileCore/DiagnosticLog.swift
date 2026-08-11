@@ -222,6 +222,45 @@ public final class DiagnosticLog: Sendable {
         )
     }
 
+    /// Records a categorical app-event value through a typed payload instead
+    /// of conflating its raw discriminator with an item or byte count.
+    public nonisolated func recordAppEvent(
+        _ kind: DiagnosticAppEventKind,
+        surface: UInt32? = nil,
+        elapsedMilliseconds: UInt32? = nil,
+        failure: DiagnosticFailureKind? = nil,
+        detail: DiagnosticAppEventDetail
+    ) {
+        guard detail.supports(kind) else {
+            assertionFailure("Unsupported diagnostic detail for \(kind)")
+            return
+        }
+        recordAppEvent(
+            kind,
+            surface: surface,
+            elapsedMilliseconds: elapsedMilliseconds,
+            failure: failure,
+            count: detail.rawValue
+        )
+    }
+
+    /// Records a typed categorical value correlated to an opaque model ID.
+    public nonisolated func recordAppEvent(
+        _ kind: DiagnosticAppEventKind,
+        correlationID: String?,
+        elapsedMilliseconds: UInt32? = nil,
+        failure: DiagnosticFailureKind? = nil,
+        detail: DiagnosticAppEventDetail
+    ) {
+        recordAppEvent(
+            kind,
+            surface: correlation.handle(for: correlationID),
+            elapsedMilliseconds: elapsedMilliseconds,
+            failure: failure,
+            detail: detail
+        )
+    }
+
     /// Snapshot the currently-drained ring and format a plain-language report.
     ///
     /// Reads whatever the drain task has already moved into the ring; it does not

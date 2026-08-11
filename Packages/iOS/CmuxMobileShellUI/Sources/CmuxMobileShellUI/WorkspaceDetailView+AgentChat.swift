@@ -561,12 +561,8 @@ extension WorkspaceDetailView {
                 correlationID: sessionID,
                 count: count
             )
-        case .photoPickerCancelled:
-            store.recordAppEvent(
-                .photoPickerCancelled,
-                correlationID: sessionID,
-                failure: .cancelled
-            )
+        case .photoPickerDismissed:
+            store.recordAppEvent(.photoPickerDismissed, correlationID: sessionID)
         case .composerAttachmentPreparationStarted:
             store.recordAppEvent(
                 .attachmentPreparationStarted,
@@ -583,46 +579,6 @@ extension WorkspaceDetailView {
                 .attachmentPreparationFailed,
                 correlationID: sessionID,
                 failure: .unknown
-            )
-        case .dictationStartRequested:
-            store.recordAppEvent(.dictationStartRequested, correlationID: sessionID)
-        case .dictationStarted:
-            store.recordAppEvent(.dictationStarted, correlationID: sessionID)
-        case .dictationStopRequested:
-            store.recordAppEvent(.dictationStopRequested, correlationID: sessionID)
-        case .dictationStopped:
-            store.recordAppEvent(.dictationStopped, correlationID: sessionID)
-        case .dictationCancelled:
-            store.recordAppEvent(
-                .dictationCancelled,
-                correlationID: sessionID,
-                failure: .cancelled
-            )
-        case .dictationUnavailable(let reason):
-            let failure: DiagnosticFailureKind = reason == .permissionDenied
-                ? .permissionDenied
-                : .endpointUnavailable
-            store.recordAppEvent(
-                .dictationUnavailable,
-                correlationID: sessionID,
-                failure: failure
-            )
-        case .dictationFirstResultReceived:
-            store.recordAppEvent(
-                .dictationFirstResultReceived,
-                correlationID: sessionID
-            )
-        case .dictationRecognitionFailed:
-            store.recordAppEvent(
-                .dictationRecognitionFailed,
-                correlationID: sessionID,
-                failure: .unknown
-            )
-        case .dictationStopTimedOut:
-            store.recordAppEvent(
-                .dictationStopTimedOut,
-                correlationID: sessionID,
-                failure: .timedOut
             )
         }
     }

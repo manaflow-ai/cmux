@@ -30,8 +30,8 @@ public struct ChatComposerView: View {
     #if os(iOS)
     @State private var pickedItems: [PhotosPickerItem] = []
     @State private var isPhotoPickerPresented = false
-    @State private var photoPickerHadSelection = false
     @State private var attachments: [ChatComposerAttachment] = []
+    @State private var attachmentStaging = ChatAttachmentStagingTaskOwner()
     @State private var dictation: ComposerDictationController
     #endif
 
@@ -55,7 +55,8 @@ public struct ChatComposerView: View {
         onSend: @escaping (String, [ChatOutboundAttachment]) -> Void,
         onInterrupt: @escaping (Bool) -> Void,
         onOpenTerminal: @escaping () -> Void,
-        onDiagnosticEvent: @escaping (ChatConversationDiagnosticEvent) -> Void = { _ in }
+        onDiagnosticEvent: @escaping (ChatConversationDiagnosticEvent) -> Void = { _ in },
+        onDictationDiagnosticEvent: @escaping (ComposerDictationDiagnosticEvent) -> Void = { _ in }
     ) {
         self.agentState = agentState
         self.agentKind = agentKind
@@ -70,7 +71,7 @@ public struct ChatComposerView: View {
         self.onDiagnosticEvent = onDiagnosticEvent
         #if os(iOS)
         _dictation = State(initialValue: ComposerDictationController { event in
-            onDiagnosticEvent(Self.chatDiagnosticEvent(for: event))
+            onDictationDiagnosticEvent(event)
         })
         #endif
     }
@@ -88,7 +89,10 @@ public struct ChatComposerView: View {
             #if DEBUG
             .background(ChatComposerDebugAutofocusBridge())
             #endif
-            .onDisappear { dictation.cancel() }
+            .onDisappear {
+                attachmentStaging.cancel()
+                dictation.cancel()
+            }
             .onChange(of: isDraftFocused) { _, focused in
                 if !focused, !dictation.locksComposerField {
                     dictation.stop()
@@ -342,6 +346,7 @@ public struct ChatComposerView: View {
         onSend(trimmedDraft, outbound)
         draft = ""
         #if os(iOS)
+        attachmentStaging.cancel()
         attachments = []
         pickedItems = []
         #endif
@@ -389,7 +394,6 @@ public struct ChatComposerView: View {
 
     private var attachButton: some View {
         Button {
-            photoPickerHadSelection = false
             onDiagnosticEvent(.photoPickerOpened)
             isPhotoPickerPresented = true
         } label: {
@@ -400,6 +404,7 @@ public struct ChatComposerView: View {
             )
         }
         .buttonStyle(.plain)
+        .disabled(attachments.count >= 4)
         .accessibilityIdentifier("ChatComposerAttach")
         .accessibilityLabel(
             String(
@@ -411,19 +416,26 @@ public struct ChatComposerView: View {
         .photosPicker(
             isPresented: $isPhotoPickerPresented,
             selection: $pickedItems,
-            maxSelectionCount: 4,
+            maxSelectionCount: max(4 - attachments.filter { $0.source == .pasteboard }.count, 1),
             matching: .images
         )
         .onChange(of: pickedItems) {
             let items = pickedItems
             guard !items.isEmpty else { return }
-            photoPickerHadSelection = true
             onDiagnosticEvent(.photoPickerSelected(count: items.count))
-            Task { await loadPickedItems(items) }
+            attachmentStaging.cancel()
+            let generation = UUID()
+            attachmentStaging.generation = generation
+            attachmentStaging.task = Task {
+                await loadPickedItems(items, generation: generation)
+            }
         }
         .onChange(of: isPhotoPickerPresented) { oldValue, isPresented in
-            guard oldValue, !isPresented, !photoPickerHadSelection else { return }
-            onDiagnosticEvent(.photoPickerCancelled)
+            guard oldValue, !isPresented else { return }
+            // PhotosPicker does not expose a semantic cancel callback and may
+            // update selection after dismissal. Record only the observable
+            // dismissal fact so a confirmed pick is never mislabeled.
+            onDiagnosticEvent(.photoPickerDismissed)
         }
     }
 
@@ -449,37 +461,6 @@ public struct ChatComposerView: View {
     private func toggleDictation() {
         dictation.toggle(existingText: draft) { merged in
             draft = merged
-        }
-    }
-
-    private static func chatDiagnosticEvent(
-        for event: ComposerDictationDiagnosticEvent
-    ) -> ChatConversationDiagnosticEvent {
-        switch event {
-        case .startRequested:
-            return .dictationStartRequested
-        case .started:
-            return .dictationStarted
-        case .stopRequested:
-            return .dictationStopRequested
-        case .stopped:
-            return .dictationStopped
-        case .cancelled:
-            return .dictationCancelled
-        case .unavailable(let reason):
-            let chatReason: ChatDictationUnavailabilityReason = switch reason {
-            case .unsupportedLocale: .unsupportedLocale
-            case .permissionDenied: .permissionDenied
-            case .recognizerUnavailable: .recognizerUnavailable
-            case .audioEngineStartFailed: .audioEngineStartFailed
-            }
-            return .dictationUnavailable(chatReason)
-        case .firstResultReceived:
-            return .dictationFirstResultReceived
-        case .recognitionFailed:
-            return .dictationRecognitionFailed
-        case .stopTimedOut:
-            return .dictationStopTimedOut
         }
     }
 
@@ -539,11 +520,21 @@ public struct ChatComposerView: View {
         }
     }
 
-    private func loadPickedItems(_ items: [PhotosPickerItem]) async {
+    private func loadPickedItems(
+        _ items: [PhotosPickerItem],
+        generation: UUID
+    ) async {
         isStagingAttachments = true
-        defer { isStagingAttachments = false }
+        defer {
+            if attachmentStaging.generation == generation {
+                isStagingAttachments = false
+                attachmentStaging.task = nil
+            }
+        }
         var staged: [ChatComposerAttachment] = []
-        for (index, item) in items.enumerated() {
+        for (index, item) in items.prefix(4).enumerated() {
+            guard !Task.isCancelled,
+                  attachmentStaging.generation == generation else { return }
             onDiagnosticEvent(.composerAttachmentPreparationStarted)
             guard let data = try? await item.loadTransferable(type: Data.self),
                   let attachment = data.chatComposerImageAttachment(
@@ -560,10 +551,29 @@ public struct ChatComposerView: View {
                 .composerAttachmentPreparationSucceeded(byteCount: attachment.data.count)
             )
         }
-        attachments = staged
-        if !staged.isEmpty {
-            onDiagnosticEvent(.composerAttachmentAdded(count: staged.count))
+        guard !Task.isCancelled,
+              attachmentStaging.generation == generation else { return }
+        let retained = attachments.filter { $0.source == .pasteboard }
+        let accepted = Array(staged.prefix(max(4 - retained.count, 0)))
+        attachments = retained + accepted
+        if !accepted.isEmpty {
+            onDiagnosticEvent(.composerAttachmentAdded(count: accepted.count))
         }
     }
     #endif
 }
+
+#if os(iOS)
+/// Owns one photo-staging operation across SwiftUI view-value recreation.
+@MainActor
+private final class ChatAttachmentStagingTaskOwner {
+    var generation = UUID()
+    var task: Task<Void, Never>?
+
+    func cancel() {
+        generation = UUID()
+        task?.cancel()
+        task = nil
+    }
+}
+#endif

@@ -1169,10 +1169,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @ObservationIgnored var notificationFeedSnapshotsByMac: [String: NotificationFeedMacSnapshot] = [:]
     @ObservationIgnored var notificationFeedKnownRevisionsByMac: [String: Int] = [:]
     @ObservationIgnored var notificationFeedSuccessfulMacIDs: Set<String> = []
-    @ObservationIgnored var notificationFeedRefreshTasksByMac: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored var notificationFeedRefreshTasksByMac:
+        [String: Task<NotificationFeedFetchOutcome, Never>] = [:]
     @ObservationIgnored var notificationFeedRefreshTokensByMac: [String: UUID] = [:]
     @ObservationIgnored var notificationFeedRefreshPendingMacIDs: Set<String> = []
-    @ObservationIgnored var notificationFeedRefreshRetryTasksByMac: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored var notificationFeedRefreshRetryTasksByMac:
+        [String: Task<NotificationFeedFetchOutcome, Never>] = [:]
     @ObservationIgnored var notificationFeedRefreshRetryTokensByMac: [String: UUID] = [:]
     @ObservationIgnored var notificationFeedRefreshGenerationByMac: [String: UInt64] = [:]
     @ObservationIgnored var notificationFeedRefreshRetryConsumedGenerationByMac: [String: UInt64] = [:]
@@ -2114,7 +2116,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let initialDiagnosticRoute: DiagnosticFeedbackRoute = route == .privilegedAgent
             ? .privilegedAgent
             : .email
-        recordAppEvent(.feedbackSubmitStarted, count: initialDiagnosticRoute.rawValue)
+        recordAppEvent(
+            .feedbackSubmitStarted,
+            detail: .feedbackRoute(initialDiagnosticRoute)
+        )
         let outcome: FeedbackSubmissionOutcome
         switch route {
         case .privilegedAgent:
@@ -2155,14 +2160,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             recordAppEvent(
                 .feedbackSubmitSucceeded,
                 startedAt: startedAt,
-                count: finalDiagnosticRoute.rawValue
+                detail: .feedbackRoute(finalDiagnosticRoute)
             )
         case .failed:
             recordAppEvent(
                 .feedbackSubmitFailed,
                 startedAt: startedAt,
                 failure: .unknown,
-                count: finalDiagnosticRoute.rawValue
+                detail: .feedbackRoute(finalDiagnosticRoute)
             )
         }
         return outcome
@@ -7003,7 +7008,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 startedAt: startedAt
             )
         } catch {
-            mobileShellLog.error("setCustomization failed mac=\(macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
+            mobileShellLog.error("setCustomization failed mac=\(macDeviceID, privacy: .private) error=\(String(describing: error), privacy: .private)")
             recordAppEvent(
                 .computerAliasChanged,
                 correlationID: macDeviceID,

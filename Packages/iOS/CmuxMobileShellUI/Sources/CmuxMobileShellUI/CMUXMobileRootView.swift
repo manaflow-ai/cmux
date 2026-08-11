@@ -48,6 +48,9 @@ struct CMUXMobileRootView: View {
     #endif
     @State private var injectedAttachTask: Task<Void, Never>?
     @State private var injectedAttachTaskAttempt: MobileStartupConnectionCoordinator.Attempt?
+    @State private var authRevalidationTask: Task<Void, Never>?
+    @State private var openURLTask: Task<Void, Never>?
+    @State private var openURLTaskToken: UUID?
     #if os(iOS)
     @State private var addDeviceSheetDetent: PresentationDetent = .large
     #endif
@@ -260,6 +263,10 @@ struct CMUXMobileRootView: View {
         }
         .onDisappear {
             cancelInjectedAttachTask(retryLaunchRoute: true)
+            authRevalidationTask?.cancel()
+            authRevalidationTask = nil
+            cancelOpenURLTask(failure: .cancelled)
+            clearAttachTicketAuthenticationIfNeeded()
         }
         #if os(iOS)
         // A notification tap can arrive before the workspace (or terminal) it
@@ -291,18 +298,27 @@ struct CMUXMobileRootView: View {
                 // Re-check the Stack session on resume so one that died while
                 // backgrounded routes to the sign-in page instead of waiting for a
                 // failed connect to surface a confusing host-side message.
-                if authManager.isAuthenticated || authManager.isRestoringSession {
+                if (authManager.isAuthenticated || authManager.isRestoringSession),
+                   authRevalidationTask == nil {
                     diagnosticLog?.recordAppEvent(.authRevalidationStarted)
-                    Task {
+                    authRevalidationTask = Task { @MainActor in
                         await authManager.revalidateSession()
-                        diagnosticLog?.recordAppEvent(
-                            authManager.isAuthenticated
-                                ? .authRevalidationSucceeded
-                                : .authRevalidationFailed,
-                            failure: authManager.isAuthenticated
-                                ? nil
-                                : .authorizationFailed
-                        )
+                        if Task.isCancelled {
+                            diagnosticLog?.recordAppEvent(
+                                .authRevalidationFailed,
+                                failure: .cancelled
+                            )
+                        } else {
+                            diagnosticLog?.recordAppEvent(
+                                authManager.isAuthenticated
+                                    ? .authRevalidationSucceeded
+                                    : .authRevalidationFailed,
+                                failure: authManager.isAuthenticated
+                                    ? nil
+                                    : .authorizationFailed
+                            )
+                        }
+                        authRevalidationTask = nil
                     }
                 }
             } else {
@@ -337,17 +353,7 @@ struct CMUXMobileRootView: View {
                 diagnosticLog?.recordAppEvent(.appOpenURLDeferredForAuthentication)
                 return
             }
-            Task {
-                await store.connectPairingURL(rawURL)
-                diagnosticLog?.recordAppEvent(
-                    store.connectionState == .connected
-                        ? .appOpenURLHandled
-                        : .appOpenURLRejected,
-                    failure: store.connectionState == .connected
-                        ? nil
-                        : .connectionClosed
-                )
-            }
+            startOpenURLConnection(rawURL)
         }
         .onChange(of: isAuthenticated) { _, isAuthenticated in
             syncShellAuthentication(isAuthenticated)
@@ -969,12 +975,7 @@ struct CMUXMobileRootView: View {
         }
         didAuthenticateWithAttachTicket = true
         syncShellAuthentication(true)
-        Task {
-            let result = await store.connectPairingURLResult(rawURL)
-            diagnosticLog?.recordAppEvent(
-                result == .failed ? .appOpenURLRejected : .appOpenURLHandled,
-                failure: result == .failed ? .connectionClosed : nil
-            )
+        startOpenURLConnection(rawURL) { result in
             if result == .needsUserApproval {
                 showAddDevice()
             }
@@ -996,8 +997,7 @@ struct CMUXMobileRootView: View {
         }
         guard isAuthenticated else { return false }
         pendingAttachURL = nil
-        Task {
-            await store.connectPairingURL(rawURL)
+        startOpenURLConnection(rawURL) { _ in
             if store.connectionState != .connected {
                 reconnectStoredMacIfNeeded()
             }
@@ -1008,6 +1008,45 @@ struct CMUXMobileRootView: View {
     private func isRawAttachURL(_ rawURL: String) -> Bool {
         guard let url = URL(string: rawURL) else { return false }
         return MobileRootAuthGate.isAttachURL(url)
+    }
+
+    private func startOpenURLConnection(
+        _ rawURL: String,
+        onResult: @escaping @MainActor (MobilePairingURLConnectionResult) -> Void = { _ in }
+    ) {
+        cancelOpenURLTask(failure: .superseded)
+        let token = UUID()
+        openURLTaskToken = token
+        openURLTask = Task { @MainActor in
+            let result = await store.connectPairingURLResult(rawURL)
+            guard !Task.isCancelled, openURLTaskToken == token else { return }
+            let failure: DiagnosticFailureKind? = switch result {
+            case .connected:
+                nil
+            case .failed:
+                .connectionClosed
+            case .needsUserApproval:
+                .policyUnavailable
+            case .superseded:
+                .superseded
+            }
+            diagnosticLog?.recordAppEvent(
+                result.didConnect ? .appOpenURLHandled : .appOpenURLRejected,
+                failure: failure
+            )
+            onResult(result)
+            guard openURLTaskToken == token else { return }
+            openURLTask = nil
+            openURLTaskToken = nil
+        }
+    }
+
+    private func cancelOpenURLTask(failure: DiagnosticFailureKind) {
+        guard openURLTask != nil else { return }
+        diagnosticLog?.recordAppEvent(.appOpenURLRejected, failure: failure)
+        openURLTaskToken = nil
+        openURLTask?.cancel()
+        openURLTask = nil
     }
 
     private func cancelPairing() {

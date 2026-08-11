@@ -82,6 +82,12 @@ public enum DiagnosticFailureKind: Int, Sendable, Codable, CaseIterable {
     /// A bounded operation could not admit more work because its item-count or
     /// aggregate byte budget was already exhausted.
     case resourceLimitReached = 27
+    /// An attachment picker or composer reached its fixed item-count cap.
+    case attachmentCountLimitReached = 28
+    /// An attachment picker or composer reached its aggregate byte budget.
+    case attachmentAggregateSizeLimitReached = 29
+    /// Required device-local persisted state was absent or unavailable.
+    case localStateUnavailable = 30
     case unknown = 255
 
     /// Reduces a typed or system error to the bounded diagnostic vocabulary.
@@ -236,6 +242,10 @@ public enum DiagnosticRuntimeRole: Int, Sendable, Codable, CaseIterable {
 /// declaration order also prevents stale incremental clients from constructing
 /// a case with a different enum discriminator. Gaps reserve room for each
 /// product area so future events remain easy to audit in exported logs.
+///
+/// `DiagnosticEvent.c` has one stable contract per event. Categorical values
+/// use ``DiagnosticAppEventDetail``. Numeric producers use `count` only for a
+/// documented item count, byte count, ordinal, boolean, or bounded setting.
 public enum DiagnosticAppEventKind: Int, Sendable, Codable, CaseIterable {
     // MARK: App runtime (1-19)
     case appLaunched = 1
@@ -275,7 +285,7 @@ public enum DiagnosticAppEventKind: Int, Sendable, Codable, CaseIterable {
 
     // MARK: Onboarding and migration (40-59)
     case onboardingStarted = 40
-    case onboardingStageChanged = 41
+    case onboardingStageViewed = 41
     case onboardingConnectionMethodChanged = 42
     case onboardingPairingStarted = 43
     case onboardingConnectionRetried = 44
@@ -433,7 +443,9 @@ public enum DiagnosticAppEventKind: Int, Sendable, Codable, CaseIterable {
     case terminalScrollSent = 219
     case terminalScrollFailed = 220
     case terminalThemeChanged = 221
+    /// Detail: ``DiagnosticAppEventDetail/terminalZoomAction(_:)``.
     case terminalZoomChanged = 222
+    /// Detail: ``DiagnosticAppEventDetail/terminalToolbarAction(_:)``.
     case terminalToolbarActionUsed = 223
     case terminalCreateStarted = 224
     case terminalCreateSucceeded = 225
@@ -476,6 +488,9 @@ public enum DiagnosticAppEventKind: Int, Sendable, Codable, CaseIterable {
     case taskComposerRecoveryStarted = 267
     case taskComposerRecovered = 268
     case taskComposerRecoveryFailed = 269
+    /// Count is the admitted attachment count for
+    /// ``DiagnosticFailureKind/attachmentCountLimitReached`` and aggregate
+    /// bytes for ``DiagnosticFailureKind/attachmentAggregateSizeLimitReached``.
     case taskAttachmentLimitReached = 270
 
     // MARK: Agent chat (280-309)
@@ -540,7 +555,9 @@ public enum DiagnosticAppEventKind: Int, Sendable, Codable, CaseIterable {
     case fileDiffLoadStarted = 348
     case fileDiffLoadSucceeded = 349
     case fileDiffLoadFailed = 350
+    /// Count is the zero-based file ordinal in the already-redacted list.
     case fileDiffExpanded = 351
+    case fileDiffCacheHit = 352
     case changedFileSelected = 353
     case diffCopied = 354
 
@@ -622,9 +639,11 @@ public enum DiagnosticAppEventKind: Int, Sendable, Codable, CaseIterable {
     case qrScanFailed = 455
     case qrScanCancelled = 456
     case photoPickerOpened = 457
+    /// Count is the number of picker results returned.
     case photoPickerSelected = 458
-    case photoPickerCancelled = 459
+    case photoPickerDismissed = 459
     case attachmentPreparationStarted = 460
+    /// Count is the prepared attachment's byte size.
     case attachmentPreparationSucceeded = 461
     case attachmentPreparationFailed = 462
 
@@ -665,7 +684,9 @@ public enum DiagnosticAppEventKind: Int, Sendable, Codable, CaseIterable {
     case terminalScrollbackRowsChanged = 529
     case telemetrySharingChanged = 530
     case connectionMethodPreferenceChanged = 531
+    /// Detail: ``DiagnosticAppEventDetail/toolbarConfigurationAction(_:)``.
     case customToolbarChanged = 532
+    /// Detail: ``DiagnosticAppEventDetail/toolbarConfigurationAction(_:)``.
     case terminalShortcutChanged = 533
     case notificationPreferenceChanged = 534
     case appDiagnosticsShared = 535
@@ -728,6 +749,9 @@ public enum DiagnosticAppEventKind: Int, Sendable, Codable, CaseIterable {
     case dictationFirstResultReceived = 657
     case dictationRecognitionFailed = 658
     case dictationStopTimedOut = 659
+
+    // MARK: Appended persistence events
+    case pairedMacStoreWriteStarted = 660
 }
 
 /// High-level lifecycle state for one phone-controlled Simulator stream.

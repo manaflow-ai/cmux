@@ -1130,15 +1130,25 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             correlationID: pairingID
         )
         let team = await resolvedTeam(teamID)
-        guard let mac = (try? await inner.loadAll(stackUserID: account, teamID: team))?
-            .first(where: {
+        let localMacs: [MobilePairedMac]
+        do {
+            localMacs = try await inner.loadAll(stackUserID: account, teamID: team)
+        } catch {
+            diagnosticLog?.recordAppEvent(
+                .pairedMacBackupWriteFailed,
+                correlationID: pairingID,
+                failure: DiagnosticFailureKind.classify(error)
+            )
+            return false
+        }
+        guard let mac = localMacs.first(where: {
                 cmxCanonicalDeviceID($0.macDeviceID) == macDeviceID
                     && $0.instanceTag == instanceTag
             }) else {
             diagnosticLog?.recordAppEvent(
                 .pairedMacBackupWriteFailed,
                 correlationID: pairingID,
-                failure: .endpointUnavailable
+                failure: .localStateUnavailable
             )
             return false
         }

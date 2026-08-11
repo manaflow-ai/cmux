@@ -22,6 +22,11 @@ final class MobileIrohSettingsModel {
         forKey: MobileDebugLog.verboseLogDefaultsKey
     )
     private var diagnosticReloadGeneration: UInt64 = 0
+    @ObservationIgnored private var refreshTask: Task<Void, Never>?
+    @ObservationIgnored private var mutationTask: Task<Void, Never>?
+    @ObservationIgnored private var mutationToken: UUID?
+    @ObservationIgnored private var relayTestTasks: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var relayTestTokens: [String: UUID] = [:]
 
     /// The durable verbose log file, offered for sharing once it exists.
     var verboseLogShareURL: URL? {
@@ -64,10 +69,15 @@ final class MobileIrohSettingsModel {
     }
 
     func refresh() {
-        Task {
-            await controller.refreshIrohSettings()
-            snapshot = await controller.irohSettingsSnapshot()
-            await reloadDiagnostics()
+        refreshTask?.cancel()
+        refreshTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.controller.refreshIrohSettings()
+            guard !Task.isCancelled else { return }
+            self.snapshot = await self.controller.irohSettingsSnapshot()
+            await self.reloadDiagnostics()
+            guard !Task.isCancelled else { return }
+            self.refreshTask = nil
         }
     }
 
@@ -140,29 +150,43 @@ final class MobileIrohSettingsModel {
     }
 
     func testCustomRelay(id: String) {
+        if let existingTask = relayTestTasks[id] {
+            diagnosticLog?.recordAppEvent(
+                .irohCustomRelayTestFailed,
+                correlationID: id,
+                failure: .superseded
+            )
+            existingTask.cancel()
+        }
         diagnosticLog?.recordAppEvent(.irohCustomRelayTestStarted, correlationID: id)
-        Task {
-            let result = await controller.testIrohCustomRelay(id: id)
-            testResults[id] = result
+        let token = UUID()
+        relayTestTokens[id] = token
+        relayTestTasks[id] = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let result = await self.controller.testIrohCustomRelay(id: id)
+            guard !Task.isCancelled, self.relayTestTokens[id] == token else { return }
+            self.testResults[id] = result
             switch result {
             case .reachable:
-                diagnosticLog?.recordAppEvent(
+                self.diagnosticLog?.recordAppEvent(
                     .irohCustomRelayTestSucceeded,
                     correlationID: id
                 )
             case .incomplete:
-                diagnosticLog?.recordAppEvent(
+                self.diagnosticLog?.recordAppEvent(
                     .irohCustomRelayTestFailed,
                     correlationID: id,
                     failure: .policyUnavailable
                 )
             case .failed:
-                diagnosticLog?.recordAppEvent(
+                self.diagnosticLog?.recordAppEvent(
                     .irohCustomRelayTestFailed,
                     correlationID: id,
                     failure: .hostUnreachable
                 )
             }
+            self.relayTestTasks[id] = nil
+            self.relayTestTokens[id] = nil
         }
     }
 
@@ -203,15 +227,48 @@ final class MobileIrohSettingsModel {
         correlationID: String? = nil,
         _ operation: @escaping @MainActor () async throws -> Void
     ) {
-        Task {
-            _ = await mutateAndWait(
+        guard mutationTask == nil else {
+            diagnosticLog?.recordAppEvent(
+                failed,
+                correlationID: correlationID,
+                failure: .superseded
+            )
+            return
+        }
+        let token = UUID()
+        mutationToken = token
+        mutationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            _ = await self.mutateAndWait(
                 started: started,
                 succeeded: succeeded,
                 failed: failed,
                 correlationID: correlationID,
                 operation
             )
+            guard self.mutationToken == token else { return }
+            self.mutationTask = nil
+            self.mutationToken = nil
         }
+    }
+
+    /// Cancels settings work when its owning screen leaves the hierarchy.
+    func cancelOperations() {
+        refreshTask?.cancel()
+        refreshTask = nil
+        mutationTask?.cancel()
+        mutationTask = nil
+        mutationToken = nil
+        for id in relayTestTasks.keys {
+            diagnosticLog?.recordAppEvent(
+                .irohCustomRelayTestFailed,
+                correlationID: id,
+                failure: .cancelled
+            )
+        }
+        relayTestTasks.values.forEach { $0.cancel() }
+        relayTestTasks = [:]
+        relayTestTokens = [:]
     }
 
     private func mutateAndWait(
@@ -233,10 +290,19 @@ final class MobileIrohSettingsModel {
         diagnosticLog?.recordAppEvent(started, correlationID: correlationID)
         defer { isMutating = false }
         do {
+            try Task.checkCancellation()
             try await operation()
+            try Task.checkCancellation()
             snapshot = await controller.irohSettingsSnapshot()
             diagnosticLog?.recordAppEvent(succeeded, correlationID: correlationID)
             return true
+        } catch is CancellationError {
+            diagnosticLog?.recordAppEvent(
+                failed,
+                correlationID: correlationID,
+                failure: .cancelled
+            )
+            return false
         } catch {
             snapshot = await controller.irohSettingsSnapshot()
             showsSaveError = true
@@ -268,6 +334,12 @@ final class MobileIrohSettingsModel {
         guard generation == diagnosticReloadGeneration else { return }
         diagnosticReport = report
         diagnosticExportText = blocks.joined(separator: "\n")
+    }
+
+    deinit {
+        refreshTask?.cancel()
+        mutationTask?.cancel()
+        relayTestTasks.values.forEach { $0.cancel() }
     }
 }
 #endif

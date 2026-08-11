@@ -26,7 +26,11 @@ extension TaskComposerSheet {
     func presentAttachmentPhotoPicker() {
         guard remainingAttachmentCount > 0 else {
             attachmentAlertMessage = Self.attachmentCountFailureMessage
-            store.recordAppEvent(.taskAttachmentLimitReached, count: attachments.count)
+            store.recordAppEvent(
+                .taskAttachmentLimitReached,
+                failure: .attachmentCountLimitReached,
+                count: attachments.count
+            )
             return
         }
         store.recordAppEvent(.taskAttachmentPickerOpened)
@@ -37,7 +41,11 @@ extension TaskComposerSheet {
     func presentAttachmentFileImporter() {
         guard remainingAttachmentCount > 0 else {
             attachmentAlertMessage = Self.attachmentCountFailureMessage
-            store.recordAppEvent(.taskAttachmentLimitReached, count: attachments.count)
+            store.recordAppEvent(
+                .taskAttachmentLimitReached,
+                failure: .attachmentCountLimitReached,
+                count: attachments.count
+            )
             return
         }
         store.recordAppEvent(.taskAttachmentPickerOpened)
@@ -45,11 +53,7 @@ extension TaskComposerSheet {
     }
 
     func stageSelectedPhotos(_ items: [PhotosPickerItem]) {
-        if items.isEmpty {
-            store.recordAppEvent(.photoPickerCancelled, failure: .cancelled)
-        } else {
-            store.recordAppEvent(.photoPickerSelected, count: items.count)
-        }
+        store.recordAppEvent(.photoPickerSelected, count: items.count)
         attachmentStagingTask?.cancel()
         attachmentStagingTask = Task { @MainActor in
             defer {
@@ -166,7 +170,11 @@ extension TaskComposerSheet {
                 at: attachment.localStagedFileURL
             )
             attachmentAlertMessage = Self.attachmentCountFailureMessage
-            store.recordAppEvent(.taskAttachmentLimitReached, count: attachments.count)
+            store.recordAppEvent(
+                .taskAttachmentLimitReached,
+                failure: .attachmentCountLimitReached,
+                count: attachments.count
+            )
             return
         }
         guard totalBytes + attachment.byteCount
@@ -175,7 +183,11 @@ extension TaskComposerSheet {
                 at: attachment.localStagedFileURL
             )
             attachmentAlertMessage = Self.attachmentTotalSizeFailureMessage
-            store.recordAppEvent(.taskAttachmentLimitReached, count: totalBytes)
+            store.recordAppEvent(
+                .taskAttachmentLimitReached,
+                failure: .attachmentAggregateSizeLimitReached,
+                count: totalBytes
+            )
             return
         }
         updateSubmissionRequest(reconcileRecovery: true) {

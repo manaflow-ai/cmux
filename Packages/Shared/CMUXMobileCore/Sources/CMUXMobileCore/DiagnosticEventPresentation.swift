@@ -195,6 +195,9 @@ public struct DiagnosticEventPresentation: Sendable {
         case .routeGated: localized("diagnostics.failure.routeGated", defaultValue: "Route already connecting")
         case .payloadTooLarge: localized("diagnostics.failure.payloadTooLarge", defaultValue: "Payload too large")
         case .resourceLimitReached: localized("diagnostics.failure.resourceLimitReached", defaultValue: "Resource limit reached")
+        case .attachmentCountLimitReached: localized("diagnostics.failure.attachmentCountLimitReached", defaultValue: "Attachment count limit reached")
+        case .attachmentAggregateSizeLimitReached: localized("diagnostics.failure.attachmentAggregateSizeLimitReached", defaultValue: "Attachment size limit reached")
+        case .localStateUnavailable: localized("diagnostics.failure.localStateUnavailable", defaultValue: "Local state unavailable")
         case .unknown: localized("diagnostics.failure.unknown", defaultValue: "Unknown failure")
         }
     }
@@ -643,42 +646,49 @@ public struct DiagnosticEventPresentation: Sendable {
 
     private func terminalToolbarActionName(_ raw: Int) -> String {
         DiagnosticTerminalToolbarAction(rawValue: raw).map(name)
-            ?? "unknown(\(raw))"
+            ?? unknownPayloadName(raw)
     }
 
     private func terminalZoomActionName(_ raw: Int) -> String {
         DiagnosticTerminalZoomAction(rawValue: raw).map(name)
-            ?? "unknown(\(raw))"
+            ?? unknownPayloadName(raw)
     }
 
     private func primaryTabName(_ raw: Int) -> String {
         DiagnosticPrimaryTab(rawValue: raw).map(name)
-            ?? "unknown(\(raw))"
+            ?? unknownPayloadName(raw)
     }
 
     private func searchScopeName(_ raw: Int) -> String {
         DiagnosticSearchScope(rawValue: raw).map(name)
-            ?? "unknown(\(raw))"
+            ?? unknownPayloadName(raw)
     }
 
     private func toolbarConfigurationActionName(_ raw: Int) -> String {
         DiagnosticToolbarConfigurationAction(rawValue: raw).map(name)
-            ?? "unknown(\(raw))"
+            ?? unknownPayloadName(raw)
     }
 
     private func feedbackRouteName(_ raw: Int) -> String {
         DiagnosticFeedbackRoute(rawValue: raw).map(name)
-            ?? "unknown(\(raw))"
+            ?? unknownPayloadName(raw)
     }
 
     private func toastStyleName(_ raw: Int) -> String {
         DiagnosticToastStyle(rawValue: raw).map(name)
-            ?? "unknown(\(raw))"
+            ?? unknownPayloadName(raw)
     }
 
     private func toastDismissReasonName(_ raw: Int) -> String {
         DiagnosticToastDismissReason(rawValue: raw).map(name)
-            ?? "unknown(\(raw))"
+            ?? unknownPayloadName(raw)
+    }
+
+    private func unknownPayloadName(_ raw: Int) -> String {
+        localized(
+            "diagnostics.unknown.payload",
+            defaultValue: "Unknown value (\(raw))"
+        )
     }
 
     private static let appEventKindsWithValuePayload: Set<DiagnosticAppEventKind> = [
@@ -1225,6 +1235,13 @@ public struct DiagnosticEventPresentation: Sendable {
         case "active_sessions": localized("diagnostics.field.activeSessions", defaultValue: "Active sessions")
         case "count": localized("diagnostics.field.count", defaultValue: "Count")
         case "value": localized("diagnostics.field.value", defaultValue: "Value")
+        case "action": localized("diagnostics.field.action", defaultValue: "Action")
+        case "tab": localized("diagnostics.field.tab", defaultValue: "Tab")
+        case "scope": localized("diagnostics.field.scope", defaultValue: "Scope")
+        case "change": localized("diagnostics.field.change", defaultValue: "Change")
+        case "route": localized("diagnostics.field.route", defaultValue: "Route")
+        case "style": localized("diagnostics.field.style", defaultValue: "Style")
+        case "reason": localized("diagnostics.field.reason", defaultValue: "Reason")
         case "outcome": localized("diagnostics.field.outcome", defaultValue: "Outcome")
         case "editable_focused": localized("diagnostics.field.editableFocused", defaultValue: "Editable focused")
         case "created": localized("diagnostics.field.created", defaultValue: "Created")

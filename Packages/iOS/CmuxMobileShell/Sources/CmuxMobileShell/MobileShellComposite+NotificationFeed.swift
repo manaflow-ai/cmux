@@ -47,16 +47,27 @@ extension MobileShellComposite {
                 displayName: target.displayName
             )
         }
+        var outcomes: [NotificationFeedFetchOutcome] = []
         for task in tasks {
-            await task.value
+            outcomes.append(await task.value)
         }
         recomputeNotificationFeedItems()
         notificationFeedStatus = resolvedNotificationFeedStatus()
-        recordAppEvent(
-            .notificationFeedLoadSucceeded,
-            startedAt: startedAt,
-            count: notificationFeedItems.count
-        )
+        if outcomes.contains(.applied) {
+            recordAppEvent(
+                .notificationFeedLoadSucceeded,
+                startedAt: startedAt,
+                count: notificationFeedItems.count
+            )
+        } else {
+            recordAppEvent(
+                .notificationFeedLoadFailed,
+                startedAt: startedAt,
+                failure: Task.isCancelled
+                    ? .cancelled
+                    : (outcomes.contains(.failed) ? .endpointUnavailable : .superseded)
+            )
+        }
     }
 
     /// Resolves feed availability for one computer picker scope. A retained
@@ -723,7 +734,7 @@ extension MobileShellComposite {
         client: MobileCoreRPCClient,
         displayName: String,
         advancesGeneration: Bool = true
-    ) -> Task<Void, Never>? {
+    ) -> Task<NotificationFeedFetchOutcome, Never>? {
         guard notificationFeedClient(for: macDeviceID) === client,
               notificationFeedClientSupportsCapability(macDeviceID: macDeviceID) else { return nil }
         if advancesGeneration {
@@ -743,25 +754,31 @@ extension MobileShellComposite {
         let token = UUID()
         notificationFeedRefreshTokensByMac[macDeviceID] = token
         let task = Task { @MainActor [weak self] in
-            guard let self else { return }
+            guard let self else { return NotificationFeedFetchOutcome.failed }
             var attemptCount = 0
+            var aggregateOutcome = NotificationFeedFetchOutcome.failed
             repeat {
                 self.notificationFeedRefreshPendingMacIDs.remove(macDeviceID)
                 let requiredRevision =
                     self.notificationFeedKnownRevisionsByMac[macDeviceID] ?? -1
-                _ = await self.fetchNotificationFeed(
+                let outcome = await self.fetchNotificationFeed(
                     macDeviceID: macDeviceID,
                     client: client,
                     displayName: displayName,
                     requiredRevision: requiredRevision
                 )
+                if outcome == .applied || aggregateOutcome != .applied {
+                    aggregateOutcome = outcome
+                }
                 attemptCount += 1
             } while attemptCount
                 < mobileShellNotificationFeedMaximumImmediateRefreshAttempts
                 && !Task.isCancelled
                 && self.notificationFeedClient(for: macDeviceID) === client
                 && self.notificationFeedRefreshPendingMacIDs.contains(macDeviceID)
-            guard self.notificationFeedRefreshTokensByMac[macDeviceID] == token else { return }
+            guard self.notificationFeedRefreshTokensByMac[macDeviceID] == token else {
+                return .stale
+            }
             let stillPending =
                 self.notificationFeedRefreshPendingMacIDs.contains(macDeviceID)
             self.notificationFeedRefreshTasksByMac[macDeviceID] = nil
@@ -784,6 +801,7 @@ extension MobileShellComposite {
             if !hasConnectedRefreshInFlight {
                 self.notificationFeedStatus = self.resolvedNotificationFeedStatus()
             }
+            return aggregateOutcome
         }
         notificationFeedRefreshTasksByMac[macDeviceID] = task
         return task
@@ -808,7 +826,7 @@ extension MobileShellComposite {
         let clock = controlPlaneSchedulingClock
         notificationFeedRefreshRetryTasksByMac[macDeviceID] = Task {
             @MainActor [weak self] in
-            guard let self else { return }
+            guard let self else { return .failed }
             defer {
                 if self.notificationFeedRefreshRetryTokensByMac[macDeviceID]
                     == token {
@@ -821,13 +839,13 @@ extension MobileShellComposite {
             do {
                 try await clock.sleep(for: .seconds(1))
             } catch {
-                return
+                return .stale
             }
             guard !Task.isCancelled,
                   self.notificationFeedRefreshRetryTokensByMac[macDeviceID]
                     == token,
                   self.notificationFeedClient(for: macDeviceID) === client else {
-                return
+                return .stale
             }
             let servicedGeneration =
                 self.notificationFeedRefreshGenerationByMac[macDeviceID] ?? 0
@@ -840,10 +858,10 @@ extension MobileShellComposite {
                 displayName: displayName,
                 advancesGeneration: false
             )
-            await refresh?.value
+            let outcome = await refresh?.value ?? .failed
             guard self.notificationFeedRefreshRetryTokensByMac[macDeviceID]
                     == token else {
-                return
+                return outcome
             }
             self.notificationFeedRefreshRetryTasksByMac[macDeviceID] = nil
             self.notificationFeedRefreshRetryTokensByMac[macDeviceID] = nil
@@ -856,6 +874,7 @@ extension MobileShellComposite {
                     displayName: displayName
                 )
             }
+            return outcome
         }
     }
 
@@ -886,8 +905,22 @@ extension MobileShellComposite {
                 operation: { try await decoderTask.value },
                 onCancel: { decoderTask.cancel() }
             )
-            guard !Task.isCancelled else { return .failed }
+            guard !Task.isCancelled else {
+                recordAppEvent(
+                    .notificationFeedLoadFailed,
+                    correlationID: macDeviceID,
+                    startedAt: startedAt,
+                    failure: .cancelled
+                )
+                return .failed
+            }
             guard notificationFeedClient(for: macDeviceID) === client else {
+                recordAppEvent(
+                    .notificationFeedLoadFailed,
+                    correlationID: macDeviceID,
+                    startedAt: startedAt,
+                    failure: .superseded
+                )
                 return .failed
             }
             let applied = applyNotificationFeedSnapshot(
@@ -897,10 +930,11 @@ extension MobileShellComposite {
                 requiredRevision: requiredRevision
             )
             recordAppEvent(
-                .notificationFeedLoadSucceeded,
+                applied ? .notificationFeedLoadSucceeded : .notificationFeedLoadFailed,
                 correlationID: macDeviceID,
                 startedAt: startedAt,
-                count: response.notifications.count
+                failure: applied ? nil : .superseded,
+                count: applied ? response.notifications.count : nil
             )
             return applied ? .applied : .stale
         } catch {

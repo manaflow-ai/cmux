@@ -48,6 +48,12 @@ struct WorkspaceChatPane: View {
                 accessoryShortcuts: chatAccessoryShortcuts(for: conversation),
                 providesOwnChrome: false,
                 runsStoreTask: false,
+                onDictationDiagnosticEvent: { event in
+                    event.recordAppDiagnostic(
+                        correlationID: session.id,
+                        store: store
+                    )
+                },
                 onOpenTerminal: openTerminal
             )
             .environment(\.chatArtifactLoader, artifactLoader)

@@ -59,8 +59,6 @@ struct TerminalComposerView: View {
     @State private var pickerSelection: [PhotosPickerItem] = []
     /// Drives the photo picker's presentation from the attach button.
     @State private var isPickerPresented = false
-    /// Distinguishes a picker dismissal with a selection from a cancellation.
-    @State private var pickerHadSelection = false
     /// Small downsampled thumbnails keyed by attachment id, built ONCE when each
     /// attachment is staged. The chip row renders these instead of decoding the
     /// full multi-MB `Data` from inside the view body on every composer
@@ -405,7 +403,6 @@ struct TerminalComposerView: View {
         )
         .onChange(of: pickerSelection) { _, items in
             guard !items.isEmpty else { return }
-            pickerHadSelection = true
             store.recordAppEvent(
                 .photoPickerSelected,
                 correlationID: terminalID,
@@ -417,13 +414,12 @@ struct TerminalComposerView: View {
             if isPresented {
                 photoPickerDidPresent()
             } else {
-                if !pickerHadSelection {
-                    store.recordAppEvent(
-                        .photoPickerCancelled,
-                        correlationID: terminalID,
-                        failure: .cancelled
-                    )
-                }
+                // PhotosPicker may update its selection binding after this
+                // presentation edge. Dismissal is the only reliable fact.
+                store.recordAppEvent(
+                    .photoPickerDismissed,
+                    correlationID: terminalID
+                )
                 photoPickerDidDismiss()
             }
         }
@@ -521,7 +517,6 @@ struct TerminalComposerView: View {
     /// surface input session synchronously resigns its actual terminal/composer
     /// owner; SwiftUI then mirrors that responder change through `@FocusState`.
     private func presentPhotoPicker() {
-        pickerHadSelection = false
         store.recordAppEvent(.photoPickerOpened, correlationID: terminalID)
         photoPickerWillPresent()
         isPickerPresented = true
@@ -534,53 +529,10 @@ struct TerminalComposerView: View {
         terminalID: String,
         store: CMUXMobileShellStore
     ) {
-        switch event {
-        case .startRequested:
-            store.recordAppEvent(.dictationStartRequested, correlationID: terminalID)
-        case .started:
-            store.recordAppEvent(.dictationStarted, correlationID: terminalID)
-        case .stopRequested:
-            store.recordAppEvent(.dictationStopRequested, correlationID: terminalID)
-        case .stopped:
-            store.recordAppEvent(.dictationStopped, correlationID: terminalID)
-        case .cancelled:
-            store.recordAppEvent(
-                .dictationCancelled,
-                correlationID: terminalID,
-                failure: .cancelled
-            )
-        case .unavailable(let reason):
-            store.recordAppEvent(
-                .dictationUnavailable,
-                correlationID: terminalID,
-                failure: dictationFailure(for: reason)
-            )
-        case .firstResultReceived:
-            store.recordAppEvent(.dictationFirstResultReceived, correlationID: terminalID)
-        case .recognitionFailed:
-            store.recordAppEvent(
-                .dictationRecognitionFailed,
-                correlationID: terminalID,
-                failure: .unknown
-            )
-        case .stopTimedOut:
-            store.recordAppEvent(
-                .dictationStopTimedOut,
-                correlationID: terminalID,
-                failure: .timedOut
-            )
-        }
-    }
-
-    private static func dictationFailure(
-        for reason: ComposerDictationUnavailabilityReason
-    ) -> DiagnosticFailureKind {
-        switch reason {
-        case .permissionDenied:
-            return .permissionDenied
-        case .unsupportedLocale, .recognizerUnavailable, .audioEngineStartFailed:
-            return .endpointUnavailable
-        }
+        event.recordAppDiagnostic(
+            correlationID: terminalID,
+            store: store
+        )
     }
 
     /// Toggle voice dictation. On start the current text is captured as the merge
@@ -686,8 +638,7 @@ struct TerminalComposerView: View {
                     store.recordAppEvent(
                         .attachmentPreparationFailed,
                         correlationID: terminalID,
-                        failure: .resourceLimitReached,
-                        count: staged.count
+                        failure: .attachmentCountLimitReached
                     )
                     break
                 }
@@ -696,8 +647,7 @@ struct TerminalComposerView: View {
                     store.recordAppEvent(
                         .attachmentPreparationFailed,
                         correlationID: terminalID,
-                        failure: .resourceLimitReached,
-                        count: stagedBytes
+                        failure: .attachmentAggregateSizeLimitReached
                     )
                     break
                 }

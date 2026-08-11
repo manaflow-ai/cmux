@@ -608,6 +608,12 @@ extension MobileShellComposite {
             }
             MobileDebugLog.anchormux("workspace.mutation failed action=\(actionName) id=\(logID) kind=\(failureKind) code=\(rpcCode)")
             if disconnectForAuthorizationFailureIfNeeded(error) {
+                recordAppEvent(
+                    diagnosticKinds.failure,
+                    correlationID: logID,
+                    startedAt: startedAt,
+                    failure: failureKind
+                )
                 return .failure(.authorizationFailed(hostDisplayName: hostDisplayName))
             }
             // Only the foreground connection's health drives the foreground

@@ -108,3 +108,57 @@ public enum DiagnosticToastDismissReason: Int, Sendable, Codable, CaseIterable {
     case dismissAll = 4
     case removedFromQueue = 5
 }
+
+/// A typed, privacy-safe value carried by an app diagnostic event.
+///
+/// The durable event schema stores this discriminator in `DiagnosticEvent.c`,
+/// but producers use this enum instead of the generic `count` parameter. That
+/// keeps item counts, byte counts, and categorical values distinct at the API
+/// boundary and lets report presentation assign a stable semantic field name.
+public enum DiagnosticAppEventDetail: Sendable, Equatable {
+    case terminalToolbarAction(DiagnosticTerminalToolbarAction)
+    case terminalZoomAction(DiagnosticTerminalZoomAction)
+    case primaryTab(DiagnosticPrimaryTab)
+    case searchScope(DiagnosticSearchScope)
+    case toolbarConfigurationAction(DiagnosticToolbarConfigurationAction)
+    case feedbackRoute(DiagnosticFeedbackRoute)
+    case toastStyle(DiagnosticToastStyle)
+    case toastDismissReason(DiagnosticToastDismissReason)
+
+    var rawValue: Int {
+        switch self {
+        case .terminalToolbarAction(let value): value.rawValue
+        case .terminalZoomAction(let value): value.rawValue
+        case .primaryTab(let value): value.rawValue
+        case .searchScope(let value): value.rawValue
+        case .toolbarConfigurationAction(let value): value.rawValue
+        case .feedbackRoute(let value): value.rawValue
+        case .toastStyle(let value): value.rawValue
+        case .toastDismissReason(let value): value.rawValue
+        }
+    }
+
+    func supports(_ kind: DiagnosticAppEventKind) -> Bool {
+        switch (self, kind) {
+        case (.terminalToolbarAction(_), .terminalToolbarActionUsed),
+             (.terminalZoomAction(_), .terminalZoomChanged),
+             (.primaryTab(_), .primaryTabSelected),
+             (.searchScope(_), .searchPresented),
+             (.searchScope(_), .searchDismissed),
+             (.searchScope(_), .searchResultSelected),
+             (.toolbarConfigurationAction(_), .customToolbarChanged),
+             (.toolbarConfigurationAction(_), .terminalShortcutChanged),
+             (.feedbackRoute(_), .feedbackSubmitStarted),
+             (.feedbackRoute(_), .feedbackSubmitSucceeded),
+             (.feedbackRoute(_), .feedbackSubmitFailed),
+             (.toastStyle(_), .toastPresented),
+             (.toastStyle(_), .toastCoalesced),
+             (.toastStyle(_), .toastQueued),
+             (.toastStyle(_), .toastDropped),
+             (.toastDismissReason(_), .toastDismissed):
+            true
+        default:
+            false
+        }
+    }
+}

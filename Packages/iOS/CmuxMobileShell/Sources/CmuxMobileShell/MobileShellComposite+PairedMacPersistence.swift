@@ -35,12 +35,28 @@ extension MobileShellComposite {
               !ticket.macDeviceID.hasPrefix("manual-") else { return true }
         let stackUserID = identityProvider?.currentUserID
         let startedAt = appDiagnosticNow()
+        recordAppEvent(
+            .pairedMacStoreWriteStarted,
+            correlationID: ticket.macDeviceID
+        )
         let scope = await currentScopeSnapshot(userID: stackUserID)
         let ticketDisplayName = displayNameOverride ?? ticket.macDisplayName
         var accepted = true
         await performSerializedPairedMacWrite(ifStillCurrent: ifStillCurrent) { [weak self] in
-            guard let self else { return }
-            if let scope, await !self.isScopeCurrent(scope) { return }
+            guard let self else {
+                accepted = false
+                return
+            }
+            if let scope, await !self.isScopeCurrent(scope) {
+                accepted = false
+                self.recordAppEvent(
+                    .pairedMacStoreWriteFailed,
+                    correlationID: ticket.macDeviceID,
+                    startedAt: startedAt,
+                    failure: .superseded
+                )
+                return
+            }
             let scopedMacs = (try? await pairedMacStore.loadAll(
                 stackUserID: stackUserID, teamID: scope?.teamID
             )) ?? []
@@ -117,6 +133,12 @@ extension MobileShellComposite {
                     )
                     guard accepted else {
                         self.recordAppEvent(
+                            .pairedMacStoreWriteFailed,
+                            correlationID: ticket.macDeviceID,
+                            startedAt: startedAt,
+                            failure: .authorizationFailed
+                        )
+                        self.recordAppEvent(
                             .computerRoutesUpdated,
                             correlationID: ticket.macDeviceID,
                             startedAt: startedAt,
@@ -151,7 +173,7 @@ extension MobileShellComposite {
                         )
                     } catch {
                         pairedMacPersistenceLog.error(
-                            "user tailscale grant persist failed: \(String(describing: error), privacy: .public)"
+                            "user tailscale grant persist failed: \(String(describing: error), privacy: .private)"
                         )
                         self.recordAppEvent(
                             .computerRoutesUpdated,
@@ -171,7 +193,7 @@ extension MobileShellComposite {
             } catch {
                 accepted = false
                 pairedMacPersistenceLog.error(
-                    "paired mac upsert failed: \(String(describing: error), privacy: .public)"
+                    "paired mac upsert failed: \(String(describing: error), privacy: .private)"
                 )
                 self.recordAppEvent(
                     .pairedMacStoreWriteFailed,

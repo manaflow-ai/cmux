@@ -158,11 +158,17 @@ struct TerminalShortcutsSettingsView: View {
     }
 
     private func recordShortcutChange(_ action: DiagnosticToolbarConfigurationAction) {
-        diagnosticLog?.recordAppEvent(.terminalShortcutChanged, count: action.rawValue)
+        diagnosticLog?.recordAppEvent(
+            .terminalShortcutChanged,
+            detail: .toolbarConfigurationAction(action)
+        )
     }
 
     private func recordCustomActionChange(_ action: DiagnosticToolbarConfigurationAction) {
-        diagnosticLog?.recordAppEvent(.customToolbarChanged, count: action.rawValue)
+        diagnosticLog?.recordAppEvent(
+            .customToolbarChanged,
+            detail: .toolbarConfigurationAction(action)
+        )
     }
 }
 #endif

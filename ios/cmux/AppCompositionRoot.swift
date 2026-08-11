@@ -52,6 +52,9 @@ final class AppCompositionRoot {
     /// credentials, peer identities, addresses, or free-form errors.
     let diagnosticLog: DiagnosticLog
 
+    /// Owns UIKit lifecycle observers and removes them with the app graph.
+    private let appLifecycleDiagnostics: MobileAppLifecycleDiagnostics
+
     /// The consolidated on-disk log pair: `cmux-app.log` (app-wide, including
     /// the mirrored string debug log) and `cmux-network.log` (network
     /// diagnostics). Fed by the diagnostic ring's event tap; always on, since
@@ -113,6 +116,9 @@ final class AppCompositionRoot {
             appLog.ingest(event)
             transportSentryReporter.ingest(event)
         }
+        self.appLifecycleDiagnostics = MobileAppLifecycleDiagnostics(
+            diagnosticLog: diagnosticLog
+        )
         diagnosticLog.recordAppEvent(.appLaunched)
         diagnosticLog.recordAppEvent(crashReportingEvent)
         // Mirror the string debug log into the app log file so one file holds

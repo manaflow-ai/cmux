@@ -47,6 +47,7 @@ struct TaskComposerSheet: View {
     @State var hasRecordedDraftChange = false
 
     let sessionGeneration: Int
+    private let restoredDraftAtInitialization: Bool
     private let availableMachines: [MobilePairedMac]?
     let submitTaskComposer: @MainActor (
         _ macDeviceID: String,
@@ -107,6 +108,7 @@ struct TaskComposerSheet: View {
         let loadedTemplates = store.taskTemplateStore?.listTemplates() ?? []
         let templates = loadedTemplates
         let draft = store.taskTemplateStore?.composerDraft()
+        self.restoredDraftAtInitialization = draft != nil
         let foregroundMacID = store.connectedMacDeviceID
         // Restore persisted Mac IDs only while they remain paired.
         let availablePairedMacs = availableMachines ?? store.displayPairedMacs
@@ -291,7 +293,7 @@ struct TaskComposerSheet: View {
                     .taskTemplateListLoaded,
                     count: templates.count
                 )
-                if store.taskTemplateStore?.composerDraft() != nil {
+                if restoredDraftAtInitialization {
                     store.recordAppEvent(.draftRestored)
                 }
             }
@@ -321,6 +323,9 @@ struct TaskComposerSheet: View {
                 isFileImporterPresented: $isAttachmentFileImporterPresented,
                 remainingCount: remainingAttachmentCount,
                 selectedPhotos: stageSelectedPhotos,
+                dismissedPhotos: {
+                    store.recordAppEvent(.photoPickerDismissed)
+                },
                 selectedFiles: stageSelectedFiles
             ))
             .alert(

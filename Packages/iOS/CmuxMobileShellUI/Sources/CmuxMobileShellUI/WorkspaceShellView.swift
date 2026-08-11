@@ -298,7 +298,7 @@ struct WorkspaceShellView: View {
             .onChange(of: primarySearchCoordinator.isPresented) { _, isPresented in
                 store.recordAppEvent(
                     isPresented ? .searchPresented : .searchDismissed,
-                    count: diagnosticSearchScope.rawValue
+                    detail: .searchScope(diagnosticSearchScope)
                 )
                 if !isPresented {
                     consumePendingPrimarySearchNavigation(for: selectedPrimaryTab)
@@ -307,7 +307,7 @@ struct WorkspaceShellView: View {
             .onChange(of: selectedPrimaryTab) { oldValue, newValue in
                 store.recordAppEvent(
                     .primaryTabSelected,
-                    count: diagnosticPrimaryTab(newValue).rawValue
+                    detail: .primaryTab(diagnosticPrimaryTab(newValue))
                 )
                 if oldValue == .search, newValue != .search {
                     notificationSearchNavigationPath = []
@@ -329,7 +329,7 @@ struct WorkspaceShellView: View {
             .onAppear {
                 store.recordAppEvent(
                     .primaryTabSelected,
-                    count: diagnosticPrimaryTab(selectedPrimaryTab).rawValue
+                    detail: .primaryTab(diagnosticPrimaryTab(selectedPrimaryTab))
                 )
                 updateRootToolbarMachineSnapshots(presentation.toolbarMachineSnapshots)
                 consumeDeeplinkNavigationRequestIfNeeded()
@@ -969,7 +969,7 @@ struct WorkspaceShellView: View {
         store.recordAppEvent(
             .searchResultSelected,
             correlationID: id.rawValue,
-            count: DiagnosticSearchScope.workspaces.rawValue
+            detail: .searchScope(.workspaces)
         )
         pendingCompactCreateNavigationWorkspaceIDs = nil
         primarySearchCoordinator.deactivateCurrentSearch()

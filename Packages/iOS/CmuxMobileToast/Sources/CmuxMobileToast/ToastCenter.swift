@@ -99,7 +99,11 @@ public final class ToastCenter {
     /// false (the beta flag is off).
     public func present(_ toast: Toast) {
         guard isEnabled else {
-            recordToastEvent(.toastDropped, toast: toast, count: diagnosticStyle(toast).rawValue)
+            recordToastEvent(
+                .toastDropped,
+                toast: toast,
+                detail: .toastStyle(diagnosticStyle(toast))
+            )
             return
         }
         if let current = presented, current.toast.coalescingKey == toast.coalescingKey {
@@ -110,7 +114,7 @@ public final class ToastCenter {
             recordToastEvent(
                 .toastCoalesced,
                 toast: current.toast,
-                count: diagnosticStyle(toast).rawValue
+                detail: .toastStyle(diagnosticStyle(toast))
             )
             restartAutoDismiss()
             return
@@ -121,14 +125,14 @@ public final class ToastCenter {
                 recordToastEvent(
                     .toastCoalesced,
                     toast: queue[index],
-                    count: diagnosticStyle(toast).rawValue
+                    detail: .toastStyle(diagnosticStyle(toast))
                 )
             } else {
                 queue.append(toast)
                 recordToastEvent(
                     .toastQueued,
                     toast: toast,
-                    count: diagnosticStyle(toast).rawValue
+                    detail: .toastStyle(diagnosticStyle(toast))
                 )
                 if queue.count > Self.queueLimit {
                     let overflow = queue.count - Self.queueLimit
@@ -137,7 +141,7 @@ public final class ToastCenter {
                         recordToastEvent(
                             .toastDropped,
                             toast: droppedToast,
-                            count: diagnosticStyle(droppedToast).rawValue
+                            detail: .toastStyle(diagnosticStyle(droppedToast))
                         )
                     }
                     queue.removeFirst(overflow)
@@ -247,7 +251,7 @@ public final class ToastCenter {
         recordToastEvent(
             .toastPresented,
             toast: toast,
-            count: diagnosticStyle(toast).rawValue
+            detail: .toastStyle(diagnosticStyle(toast))
         )
         restartAutoDismiss()
     }
@@ -298,12 +302,12 @@ public final class ToastCenter {
     private func recordToastEvent(
         _ kind: DiagnosticAppEventKind,
         toast: Toast,
-        count: Int? = nil
+        detail: DiagnosticAppEventDetail
     ) {
         diagnosticLog?.recordAppEvent(
             kind,
             correlationID: toast.id.uuidString,
-            count: count
+            detail: detail
         )
     }
 
@@ -311,7 +315,11 @@ public final class ToastCenter {
         _ toast: Toast,
         reason: DiagnosticToastDismissReason
     ) {
-        recordToastEvent(.toastDismissed, toast: toast, count: reason.rawValue)
+        recordToastEvent(
+            .toastDismissed,
+            toast: toast,
+            detail: .toastDismissReason(reason)
+        )
     }
 
     private func diagnosticStyle(_ toast: Toast) -> DiagnosticToastStyle {

@@ -345,6 +345,7 @@ public final class MobilePushCoordinator {
 
     /// Hand a freshly-registered APNs token to the network layer.
     public func handleDeviceToken(_ token: Data) async {
+        diagnosticLog?.recordAppEvent(.pushDeviceTokenReceived, count: token.count)
         diagnosticLog?.recordAppEvent(.pushBackendSyncStarted)
         await registration.register(deviceToken: token)
         registrationSnapshot = await registration.snapshot
@@ -353,7 +354,11 @@ public final class MobilePushCoordinator {
 
     /// Make the APNs callback failure visible without retaining Apple's
     /// free-form error text, which can contain unstable device details.
-    public func handleDeviceTokenFailure() async {
+    public func handleDeviceTokenFailure(error: (any Error)? = nil) async {
+        diagnosticLog?.recordAppEvent(
+            .pushDeviceTokenRegistrationFailed,
+            failure: error.map(DiagnosticFailureKind.classify) ?? .unknown
+        )
         await registration.deviceTokenRegistrationFailed()
         registrationSnapshot = await registration.snapshot
     }
@@ -607,14 +612,22 @@ public final class MobilePushCoordinator {
     /// Whether to show a banner while the app is foreground, scoped to the Mac
     /// that sent the notification when the payload includes it.
     public func shouldPresentInForeground(workspaceId: String?, surfaceId: String?, macDeviceId: String?) -> Bool {
-        guard let store, let workspaceId,
-              store.selectedWorkspaceMatches(remoteWorkspaceID: workspaceId, macDeviceID: macDeviceId) else {
-            return true
+        diagnosticLog?.recordAppEvent(.pushReceivedInForeground)
+        let shouldPresent: Bool
+        if let store, let workspaceId,
+           store.selectedWorkspaceMatches(remoteWorkspaceID: workspaceId, macDeviceID: macDeviceId) {
+            if let surfaceId {
+                shouldPresent = store.selectedTerminalID?.rawValue != surfaceId
+            } else {
+                shouldPresent = false
+            }
+        } else {
+            shouldPresent = true
         }
-        if let surfaceId {
-            return store.selectedTerminalID?.rawValue != surfaceId
-        }
-        return false
+        diagnosticLog?.recordAppEvent(
+            shouldPresent ? .pushPresentedInForeground : .pushSuppressedInForeground
+        )
+        return shouldPresent
     }
 
     /// Deep-link to the workspace/terminal a tapped notification refers to.
@@ -648,6 +661,7 @@ public final class MobilePushCoordinator {
         macDeviceId: String?,
         retargetsToLiveSurfaceOwner: Bool = true
     ) {
+        diagnosticLog?.recordAppEvent(.pushTapped)
         pendingDeeplink = PendingDeeplink(
             workspaceId: workspaceId,
             surfaceId: surfaceId,
@@ -985,6 +999,10 @@ public final class MobilePushCoordinator {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         guard !trimmed.isEmpty else { return }
+        diagnosticLog?.recordAppEvent(
+            .pushRemoteDismissReceived,
+            count: trimmed.count
+        )
         await deliveredNotificationClearer.removeDelivered(ids: trimmed)
         diagnosticLog?.recordAppEvent(.pushRemoteDismissApplied, count: trimmed.count)
     }

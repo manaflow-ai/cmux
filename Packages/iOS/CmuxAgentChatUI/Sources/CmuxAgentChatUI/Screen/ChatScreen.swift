@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import CmuxMobileSupport
 import CmuxMobileToast
 import SwiftUI
 
@@ -28,6 +29,7 @@ public struct ChatScreen: View {
     private let onOpenTerminal: () -> Void
     private let providesOwnChrome: Bool
     private let runsStoreTask: Bool
+    private let onDictationDiagnosticEvent: (ComposerDictationDiagnosticEvent) -> Void
 
     /// Creates the screen.
     ///
@@ -56,6 +58,7 @@ public struct ChatScreen: View {
         accessoryShortcuts: [ChatAccessoryShortcut] = [],
         providesOwnChrome: Bool = true,
         runsStoreTask: Bool = true,
+        onDictationDiagnosticEvent: @escaping (ComposerDictationDiagnosticEvent) -> Void = { _ in },
         onOpenTerminal: @escaping () -> Void
     ) {
         _store = State(initialValue: store)
@@ -64,6 +67,7 @@ public struct ChatScreen: View {
         self.accessoryShortcuts = accessoryShortcuts
         self.providesOwnChrome = providesOwnChrome
         self.runsStoreTask = runsStoreTask
+        self.onDictationDiagnosticEvent = onDictationDiagnosticEvent
         self.onOpenTerminal = onOpenTerminal
     }
 
@@ -222,7 +226,8 @@ public struct ChatScreen: View {
                     Task { await store.interrupt(hard: hard) }
                 },
                 onOpenTerminal: onOpenTerminal,
-                onDiagnosticEvent: { store.recordDiagnostic($0) }
+                onDiagnosticEvent: { store.recordDiagnostic($0) },
+                onDictationDiagnosticEvent: onDictationDiagnosticEvent
             )
             #if os(iOS)
             .layoutPriority(1)

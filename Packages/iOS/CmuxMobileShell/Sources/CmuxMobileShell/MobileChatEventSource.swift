@@ -3,6 +3,18 @@ public import CmuxAgentChat
 public import CmuxMobileRPC
 public import Foundation
 
+private actor MobileArtifactDownloadByteCounter {
+    private var storedValue = 0
+
+    func add(_ byteCount: Int) {
+        storedValue += byteCount
+    }
+
+    var value: Int {
+        storedValue
+    }
+}
+
 /// The iOS implementation of ``CmuxAgentChat/ChatEventSource``: adapts the
 /// mobile RPC client to the chat domain seam.
 ///
@@ -256,22 +268,13 @@ public actor MobileChatEventSource: ChatEventSource {
     }
 
     public func artifactStat(sessionID: String, path: String) async throws -> ChatArtifactStat {
-        do {
-            return try await artifactCall(
-                method: "mobile.chat.artifact.stat",
-                params: [
-                    "session_id": sessionID,
-                    "path": path,
-                ]
-            )
-        } catch {
-            recordAppEvent(
-                .artifactPreviewFailed,
-                correlationID: sessionID,
-                failure: DiagnosticFailureKind.classify(error)
-            )
-            throw error
-        }
+        try await artifactCall(
+            method: "mobile.chat.artifact.stat",
+            params: [
+                "session_id": sessionID,
+                "path": path,
+            ]
+        )
     }
 
     public func artifactFetch(
@@ -295,13 +298,20 @@ public actor MobileChatEventSource: ChatEventSource {
         path: String,
         onChunk: @Sendable (ChatArtifactChunk) async throws -> Void
     ) async throws {
-        _ = try await performArtifactDownload(correlationID: sessionID) {
+        let byteCounter = MobileArtifactDownloadByteCounter()
+        _ = try await performArtifactDownload(
+            correlationID: sessionID,
+            successByteCount: { _ in await byteCounter.value }
+        ) {
             try await fetchArtifactChunks(
                 method: "mobile.chat.artifact.fetch",
                 stringParams: ["session_id": sessionID, "path": path],
                 collectsData: false,
                 progress: nil,
-                onChunk: onChunk
+                onChunk: { chunk in
+                    await byteCounter.add(chunk.data.count)
+                    try await onChunk(chunk)
+                }
             )
         }
     }
@@ -416,6 +426,7 @@ public actor MobileChatEventSource: ChatEventSource {
 
     func performArtifactDownload(
         correlationID: String,
+        successByteCount: @Sendable (Data) async -> Int = { $0.count },
         operation: () async throws -> Data
     ) async throws -> Data {
         let startedAt = Date()
@@ -426,7 +437,7 @@ public actor MobileChatEventSource: ChatEventSource {
                 .artifactDownloadSucceeded,
                 correlationID: correlationID,
                 startedAt: startedAt,
-                count: data.count
+                count: await successByteCount(data)
             )
             return data
         } catch {

@@ -169,12 +169,13 @@ extension MobileShellComposite {
             recordAppEvent(.draftPersistenceFailed, failure: .superseded)
             return false
         }
-        taskTemplateStore?.setComposerDraft(draft)
-        recordAppEvent(
-            taskTemplateStore == nil ? .draftPersistenceFailed : .draftSaved,
-            failure: taskTemplateStore == nil ? .endpointUnavailable : nil
-        )
-        return taskTemplateStore != nil
+        guard let taskTemplateStore else {
+            recordAppEvent(.draftPersistenceFailed, failure: .localStateUnavailable)
+            return false
+        }
+        taskTemplateStore.setComposerDraft(draft)
+        recordAppEvent(.draftSaved)
+        return true
     }
 
     /// Clears the composer draft only for the signed-in session that created
@@ -187,9 +188,12 @@ extension MobileShellComposite {
     public func clearTaskComposerDraft(
         ifSessionGeneration capturedGeneration: Int
     ) -> Bool {
-        guard isSignedIn, capturedGeneration == currentSessionGeneration,
-              let taskTemplateStore else {
+        guard isSignedIn, capturedGeneration == currentSessionGeneration else {
             recordAppEvent(.draftPersistenceFailed, failure: .superseded)
+            return false
+        }
+        guard let taskTemplateStore else {
+            recordAppEvent(.draftPersistenceFailed, failure: .localStateUnavailable)
             return false
         }
         taskTemplateStore.setComposerDraft(nil)
@@ -211,9 +215,12 @@ extension MobileShellComposite {
         _ snapshot: MobileTaskSubmissionSnapshot,
         ifSessionGeneration capturedGeneration: Int
     ) -> Bool {
-        guard isSignedIn, capturedGeneration == currentSessionGeneration,
-              let taskTemplateStore else {
+        guard isSignedIn, capturedGeneration == currentSessionGeneration else {
             recordAppEvent(.settingPersistenceFailed, failure: .superseded)
+            return false
+        }
+        guard let taskTemplateStore else {
+            recordAppEvent(.settingPersistenceFailed, failure: .localStateUnavailable)
             return false
         }
         taskTemplateStore.setLastTemplateID(snapshot.templateID)

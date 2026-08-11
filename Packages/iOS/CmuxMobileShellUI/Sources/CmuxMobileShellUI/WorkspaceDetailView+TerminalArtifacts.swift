@@ -55,7 +55,6 @@ extension WorkspaceDetailView {
             }
         },
         onArtifactPathTapped: { path in
-            store.recordAppEvent(.artifactOpened, correlationID: terminalID)
             selectedTerminalArtifact = TerminalArtifactSelection(
                 workspaceID: workspace.id.rawValue,
                 surfaceID: terminalID,

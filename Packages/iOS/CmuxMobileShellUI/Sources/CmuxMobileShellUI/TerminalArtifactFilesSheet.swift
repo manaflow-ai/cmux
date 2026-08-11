@@ -151,6 +151,9 @@ struct TerminalArtifactFilesSheet: View {
         }
         .frame(idealWidth: 380, idealHeight: 520)
         .task(id: "\(workspaceID)#\(surfaceID)") {
+            sessionLoader = ChatArtifactLoader.unsupported(
+                diagnosticLog: diagnosticLog
+            )
             await loadInitial()
         }
         .task(id: liveRefreshTaskID) {

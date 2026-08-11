@@ -87,7 +87,7 @@ extension MobileShellComposite {
             browserStreamEvents?.browserPanelCreated(descriptor)
             recordAppEvent(
                 .browserCreateSucceeded,
-                correlationID: descriptor.panelID,
+                correlationID: workspaceID,
                 startedAt: startedAt
             )
             return descriptor

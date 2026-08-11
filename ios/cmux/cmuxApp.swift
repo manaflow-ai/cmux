@@ -122,7 +122,6 @@ struct cmuxApp: App {
         Self.root.pushCoordinator.configure(delegate: appDelegate)
         appDelegate.pushCoordinator = Self.root.pushCoordinator
         appDelegate.analytics = Self.root.analytics.emitter
-        appDelegate.diagnosticLog = Self.root.diagnosticLog
     }
 
     var body: some Scene {

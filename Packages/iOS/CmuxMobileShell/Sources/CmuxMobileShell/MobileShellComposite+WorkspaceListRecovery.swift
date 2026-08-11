@@ -122,12 +122,16 @@ extension MobileShellComposite {
     /// Reconnect button both call this.
     public func reconnectOrRefresh() async {
         let diagnosticStartedAt = appDiagnosticNow()
-        recordAppEvent(.workspaceListRecoveryStarted, correlationID: foregroundMacDeviceID)
+        let diagnosticCorrelationID = foregroundMacDeviceID
+        recordAppEvent(
+            .workspaceListRecoveryStarted,
+            correlationID: diagnosticCorrelationID
+        )
         defer {
             let succeeded = workspaceListConnectionStatus == .connected
             recordAppEvent(
                 succeeded ? .workspaceListRecoverySucceeded : .workspaceListRecoveryFailed,
-                correlationID: foregroundMacDeviceID,
+                correlationID: diagnosticCorrelationID,
                 startedAt: diagnosticStartedAt,
                 failure: succeeded ? nil : (Task.isCancelled ? .cancelled : .connectionClosed),
                 count: succeeded ? workspaces.count : nil

@@ -605,7 +605,8 @@ public final class ChatConversationStore {
     private func apply(_ event: ChatSessionEvent) {
         switch event {
         case .appended(let newMessages):
-            let artifactCount = newMessages.reduce(into: 0) { count, message in
+            let freshMessages = newMessages.filter { !knownWindowIDs.contains($0.id) }
+            let artifactCount = freshMessages.reduce(into: 0) { count, message in
                 switch message.kind {
                 case .fileEdit, .attachment:
                     count += 1
@@ -616,7 +617,6 @@ public final class ChatConversationStore {
             if artifactCount > 0 {
                 diagnosticObserver?(.artifactDiscovered(count: artifactCount))
             }
-            let freshMessages = newMessages.filter { !knownWindowIDs.contains($0.id) }
             var reconciledPendingEchoIDs = Set<String>()
             reconcilePending(against: newMessages) { reconciledPendingEchoIDs.insert($0.id) }
             let pendingEchoIDs = pendingEchoBatchIDs(in: newMessages, reconciledPendingEchoIDs: reconciledPendingEchoIDs)

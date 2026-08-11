@@ -989,8 +989,8 @@ struct WorkspaceDetailView: View {
     private func openLocalBrowserFallback() {
         let workspaceID = workspace.id.rawValue
         store.recordAppEvent(.browserCreateStarted, correlationID: workspaceID)
-        let browser = browserStore.openBrowser(for: workspaceID)
-        store.recordAppEvent(.browserCreateSucceeded, correlationID: browser.id.rawValue)
+        _ = browserStore.openBrowser(for: workspaceID)
+        store.recordAppEvent(.browserCreateSucceeded, correlationID: workspaceID)
         stopActiveBrowserStream()
         stopActiveSimulatorStream()
     }
