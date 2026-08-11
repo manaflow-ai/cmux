@@ -130,6 +130,7 @@ extension CMUXCLI {
         surfaceID: String?,
         sessionID: String,
         lifecycleID: String,
+        reconciliationConfirmedSessionEnded: inout Bool,
         intentionalOnly: Bool,
         sessionRunningExitCode: SSHPTYAttachExitCode = .bridgeClosedSessionRunning,
         reconciliationUnavailableExitCode: SSHPTYAttachExitCode = .retryableTransient
@@ -192,6 +193,7 @@ extension CMUXCLI {
                 exitCode: sessionRunningExitCode
             )
         }
+        reconciliationConfirmedSessionEnded = true
         guard let surfaceID else { return true }
         do {
             _ = try client.sendV2(method: "workspace.remote.pty_attach_end", params: [
@@ -202,7 +204,7 @@ extension CMUXCLI {
         } catch {
             throw CLIError(
                 message: "ssh-pty-attach: remote PTY exited but local session cleanup failed: \(userFacingRemotePTYErrorMessage(error))",
-                exitCode: SSHPTYAttachExitCode.retryableTransient
+                exitCode: SSHPTYAttachExitCode.fatal
             )
         }
         return true
