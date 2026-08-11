@@ -1584,66 +1584,6 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(element(selectedProbeID).exists)
         capture("workspace-groups-08-recent-activity-grouped")
 
-        // Collapsing hides the selected member but does not clear selection.
-        let alphaDisclosure = element("MobileWorkspaceGroupDisclosure-mixed-alpha")
-        tap(alphaDisclosure, in: app)
-        XCTAssertTrue(waitForNotHittable(element(alphaInactiveID), timeout: 3))
-        XCTAssertTrue(element(selectedProbeID).exists)
-        capture("workspace-groups-09-selection-survives-collapse")
-
-        // Search intentionally flattens matching rows. Clearing it restores
-        // grouped sections and the pre-search collapsed state.
-        let searchButton = app.tabBars.buttons
-            .matching(NSPredicate(format: "label == %@", "Search"))
-            .firstMatch
-        tap(searchButton, in: app)
-        let searchField = app.searchFields["Search workspaces"]
-        XCTAssertTrue(waitForHittable(searchField, timeout: 3))
-        XCTAssertTrue(focusTextInput(searchField, in: app))
-        searchField.typeText("Inactive Member")
-        XCTAssertTrue(waitForHittable(element(alphaInactiveID), timeout: 3))
-        XCTAssertTrue(waitForNotHittable(element(alphaHeaderID), timeout: 3))
-        XCTAssertTrue(waitForNotHittable(element(betaHeaderID), timeout: 3))
-        let searchFrame = try XCTUnwrap(
-            waitForUsableFrame(of: element(alphaInactiveID), timeout: 3)
-        )
-        XCTAssertEqual(
-            searchFrame.minX,
-            computerFrames[beforeID]!.minX,
-            accuracy: 2,
-            "Search results must flatten the matching group member."
-        )
-        capture("workspace-groups-10-search-flat")
-
-        XCTAssertTrue(focusTextInput(searchField, in: app))
-        searchField.typeText(
-            String(repeating: XCUIKeyboardKey.delete.rawValue, count: 32)
-        )
-        XCTAssertTrue(element(betaHeaderID).waitForExistence(timeout: 3))
-        capture("workspace-groups-11-search-cleared-regrouped")
-
-        tap(app.tabBars.buttons["Workspaces"], in: app)
-        XCTAssertTrue(workspaceList.waitForExistence(timeout: 3))
-        let collapsedRecentOrder = [
-            afterID,
-            betaHeaderID,
-            betaRecentID,
-            betweenID,
-            alphaHeaderID,
-            beforeID,
-        ]
-        XCTAssertNotNil(
-            orderedFrames(collapsedRecentOrder, state: "Cleared search")
-        )
-        XCTAssertTrue(waitForNotHittable(element(alphaInactiveID), timeout: 3))
-        XCTAssertTrue(element(selectedProbeID).exists)
-        capture("workspace-groups-12-cleared-search-restores-groups")
-
-        tap(alphaDisclosure, in: app)
-        XCTAssertTrue(element(alphaInactiveID).waitForExistence(timeout: 3))
-        XCTAssertTrue(element(selectedProbeID).exists)
-        capture("workspace-groups-13-selection-survives-expand")
-
         // Scope to one computer through the production title picker. Recent
         // Activity must not rewrite that Mac's own group and sidebar order.
         tap(macPicker, in: app)
@@ -1668,7 +1608,7 @@ final class cmuxUITests: XCTestCase {
                 state: "Single computer"
             )
         )
-        capture("workspace-groups-14-single-computer-keeps-sidebar-order")
+        capture("workspace-groups-09-single-computer-keeps-sidebar-order")
 
         tap(filterButton, in: app)
         XCTAssertTrue(app.staticTexts["All Workspaces"].waitForExistence(timeout: 3))
@@ -1682,7 +1622,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertFalse(sortTile(
             computerOrderTileID, label: computerOrderTileLabel, in: app, timeout: 0
         ).exists)
-        capture("workspace-groups-15-single-computer-hides-sort")
+        capture("workspace-groups-10-single-computer-hides-sort")
         dismissViewOptions()
 
         // Returning to All Computers restores both groups and the persisted
@@ -1701,7 +1641,67 @@ final class cmuxUITests: XCTestCase {
             orderedFrames(recentActivityOrder, state: "All Computers restored")
         )
         XCTAssertTrue(element(selectedProbeID).exists)
-        capture("workspace-groups-16-all-computers-regrouped")
+        capture("workspace-groups-11-all-computers-regrouped")
+
+        // Collapsing hides the selected member but does not clear selection.
+        let alphaDisclosure = element("MobileWorkspaceGroupDisclosure-mixed-alpha")
+        tap(alphaDisclosure, in: app)
+        XCTAssertTrue(waitForNotHittable(element(alphaInactiveID), timeout: 3))
+        XCTAssertTrue(element(selectedProbeID).exists)
+        capture("workspace-groups-12-selection-survives-collapse")
+
+        // Search intentionally flattens matching rows. Clearing it restores
+        // grouped sections and the pre-search collapsed state.
+        let searchButton = app.tabBars.buttons
+            .matching(NSPredicate(format: "label == %@", "Search"))
+            .firstMatch
+        tap(searchButton, in: app)
+        let searchField = app.searchFields["Search workspaces"]
+        XCTAssertTrue(waitForHittable(searchField, timeout: 3))
+        XCTAssertTrue(focusTextInput(searchField, in: app))
+        searchField.typeText("Inactive Member")
+        XCTAssertTrue(waitForHittable(element(alphaInactiveID), timeout: 3))
+        XCTAssertTrue(waitForNotHittable(element(alphaHeaderID), timeout: 3))
+        XCTAssertTrue(waitForNotHittable(element(betaHeaderID), timeout: 3))
+        let searchFrame = try XCTUnwrap(
+            waitForUsableFrame(of: element(alphaInactiveID), timeout: 3)
+        )
+        XCTAssertEqual(
+            searchFrame.minX,
+            computerFrames[beforeID]!.minX,
+            accuracy: 2,
+            "Search results must flatten the matching group member."
+        )
+        capture("workspace-groups-13-search-flat")
+
+        XCTAssertTrue(focusTextInput(searchField, in: app))
+        searchField.typeText(
+            String(repeating: XCUIKeyboardKey.delete.rawValue, count: 32)
+        )
+        XCTAssertTrue(element(betaHeaderID).waitForExistence(timeout: 3))
+        capture("workspace-groups-14-search-cleared-regrouped")
+
+        tap(app.tabBars.buttons["Workspaces"], in: app)
+        XCTAssertTrue(workspaceList.waitForExistence(timeout: 3))
+        let collapsedRecentOrder = [
+            afterID,
+            betaHeaderID,
+            betaRecentID,
+            betweenID,
+            alphaHeaderID,
+            beforeID,
+        ]
+        XCTAssertNotNil(
+            orderedFrames(collapsedRecentOrder, state: "Cleared search")
+        )
+        XCTAssertTrue(waitForNotHittable(element(alphaInactiveID), timeout: 3))
+        XCTAssertTrue(element(selectedProbeID).exists)
+        capture("workspace-groups-15-cleared-search-restores-groups")
+
+        tap(alphaDisclosure, in: app)
+        XCTAssertTrue(element(alphaInactiveID).waitForExistence(timeout: 3))
+        XCTAssertTrue(element(selectedProbeID).exists)
+        capture("workspace-groups-16-selection-survives-expand")
 
         // A second phase uses the fixture's opt-in sidebar navigation style.
         // It keeps production row rendering and actions, while making the
