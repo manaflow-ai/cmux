@@ -1042,18 +1042,21 @@ mod tests {
     }
 
     #[test]
-    fn journal_agent_oversized_opaque_identifier_is_rejected_without_truncation() {
+    fn journal_agent_invalid_opaque_session_identifier_rejects_ingress() {
         let shared_prefix = "a".repeat(MAX_OPAQUE_IDENTIFIER_BYTES);
-        for suffix in ["x", "y"] {
-            let ingress = agent_hook_journal_ingress(
+        for identifier in [
+            format!("{shared_prefix}x"),
+            format!("{shared_prefix}y"),
+            "control\nsession".into(),
+        ] {
+            let error = agent_hook_journal_ingress(
                 "pi",
                 "agent_start",
                 None,
-                json!({"session_id":format!("{shared_prefix}{suffix}")}),
+                json!({"session_id":identifier}),
             )
-            .unwrap();
-            assert!(ingress.payload["normalized"].get("agent_session_id").is_none());
-            assert!(ingress.payload["native"]["identifiers"].get("agent_session_id").is_none());
+            .unwrap_err();
+            assert!(error.to_string().contains("agent session identifier"));
         }
     }
 

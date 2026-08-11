@@ -5920,6 +5920,14 @@ fn journal_agent_legacy_upgrade_backfills_large_archived_segment_in_pages() {
 
     let reopened = WorkspaceRegistry::open(&root, session).unwrap();
     assert!(reopened.agent_projection_rebuild_pending().unwrap());
+    let _ = reopened.continue_agent_projection_rebuild().unwrap();
+    let missing_kinds = reopened
+        .connection
+        .query_row("SELECT COUNT(*) FROM journal_event_index WHERE kind IS NULL", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .unwrap();
+    assert_eq!(missing_kinds, 0, "one archived segment must be decoded only once");
     for _ in 0..8 {
         if reopened.continue_agent_projection_rebuild().unwrap() {
             break;
