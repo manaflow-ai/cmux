@@ -7679,7 +7679,7 @@ fn journal_agent_projection_checkpoint_refresh_visits_terminal_once() {
         .unwrap();
     refresh.unwrap();
 
-    assert_eq!(visited, vec![(terminal_id, "idle".to_string())]);
+    assert_eq!(visited, vec![(terminal_id.clone(), "idle".to_string())]);
 
     registry
         .connection
