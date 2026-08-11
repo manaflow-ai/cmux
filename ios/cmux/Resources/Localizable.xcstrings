@@ -4642,6 +4642,91 @@
         }
       }
     },
+    "mobile.autoConnectMigration.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-Connect works without Tailscale. It uses an end-to-end encrypted connection, directly when possible and through cmux relays when needed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-ConnectはTailscaleなしで動作します。エンドツーエンドで暗号化された接続を使用し、可能な場合は直接、必要な場合はcmuxリレーを経由して接続します。"
+          }
+        }
+      }
+    },
+    "mobile.autoConnectMigration.continue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue with Auto-Connect"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-Connectを続ける"
+          }
+        }
+      }
+    },
+    "mobile.autoConnectMigration.guidance": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prefer your previous setup? Open Settings → Connection Method and choose Tailscale Only."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前の設定を使いたい場合は、「設定」→「接続方法」を開き、「Tailscaleのみ」を選択してください。"
+          }
+        }
+      }
+    },
+    "mobile.autoConnectMigration.openSettings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Connection Settings"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続設定を開く"
+          }
+        }
+      }
+    },
+    "mobile.autoConnectMigration.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux now uses Auto-Connect"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxはAuto-Connectを使用するようになりました"
+          }
+        }
+      }
+    },
     "mobile.onboarding.connect.method.automatic": {
       "extractionState": "manual",
       "localizations": {

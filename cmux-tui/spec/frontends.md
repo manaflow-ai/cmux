@@ -28,8 +28,8 @@ Send [`identify`](commands.md#identify) immediately after connecting. Verify `da
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":11,"capabilities":["view-attachment-lease-v1","view-attachment-detach-v1","creation-receipts-v1","creation-selector-fallbacks-v1"],"session":"main","pid":12345}}
-{"id":2,"cmd":"set-client-info","kind":"frontend","capabilities":["view-attachment-lease-v1","view-attachment-detach-v1","creation-receipts-v1","creation-selector-fallbacks-v1"]}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":11,"capabilities":["view-attachment-lease-v1","view-attachment-detach-v1","creation-receipts-v1","creation-attempt-keys-v1","creation-selector-fallbacks-v1"],"session":"main","pid":12345}}
+{"id":2,"cmd":"set-client-info","kind":"frontend","capabilities":["view-attachment-lease-v1","view-attachment-detach-v1","creation-receipts-v1","creation-attempt-keys-v1","creation-selector-fallbacks-v1"]}
 {"id":2,"ok":true,"data":{}}
 ```
 
