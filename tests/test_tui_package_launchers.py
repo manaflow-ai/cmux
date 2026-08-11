@@ -4,6 +4,7 @@ import os
 import platform
 import runpy
 import shutil
+import stat
 import subprocess
 import sys
 import zipfile
@@ -159,6 +160,10 @@ def test_pypi_launcher_preserves_uvx_invocation(tmp_path: Path) -> None:
             binaries / f"cmux-tui-{target}",
             "printf '%s\\n' \"$CMUX_TUI_LAUNCHER_COMMAND\"",
         )
+        write_executable(
+            binaries / f"cmux-tui-hook-{target}",
+            "exit 0",
+        )
 
     wheels = tmp_path / "wheels"
     packaged = run(
@@ -178,7 +183,10 @@ def test_pypi_launcher_preserves_uvx_invocation(tmp_path: Path) -> None:
     wheel = wheels / f"cmux-1.2.3-py3-none-{wheel_tag}.whl"
     installed = tmp_path / "installed"
     with zipfile.ZipFile(wheel) as archive:
+        hook = archive.getinfo("cmux_tui/bin/cmux-tui-hook")
+        assert hook.external_attr >> 16 & stat.S_IXUSR
         archive.extractall(installed)
+    assert (installed / "cmux_tui/bin/cmux-tui-hook").is_file()
     (installed / "cmux_tui/bin/cmux-tui").chmod(0o755)
 
     environment = os.environ.copy()
