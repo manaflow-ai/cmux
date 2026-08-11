@@ -2381,6 +2381,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             cmux_ssh_auth_recovery_enqueue \
               "$cmux_ssh_auth_preserve_state" >/dev/null 2>&1 || return 1
             cmux_ssh_schedule_failed_auth_group_recovery
+            return 0
           }
           if [ -z "${CMUX_SSH_AUTH_GROUP_DIR:-}" ] || \
             [ ! -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" ]; then
