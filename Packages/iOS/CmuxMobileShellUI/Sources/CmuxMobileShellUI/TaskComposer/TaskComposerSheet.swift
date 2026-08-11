@@ -22,6 +22,9 @@ struct TaskComposerSheet: View {
     @State var selectedMacInstanceTag: String?
     @State private var modelRefreshTask: Task<Void, Never>?
     @State private var modelRefreshOperationID: UUID?
+    #if DEBUG
+    @State private var modelRefreshDebugEvents: [String] = []
+    #endif
     @State var displayedModels: [MobileTaskAgentModel]
     @State var directory: String
     @State var didEditDirectory = false
@@ -331,8 +334,26 @@ struct TaskComposerSheet: View {
         .background(TaskComposerInitialFocusCoordinator(
             isEnabled: !submissionPhase.disablesRequestEditing
         ))
+        #if DEBUG
+        .overlay(alignment: .topLeading) {
+            if ProcessInfo.processInfo.environment[
+                "CMUX_UITEST_TASK_MODEL_DIAGNOSTICS"
+            ] == "1" {
+                Text(modelRefreshDebugDescription)
+                    .font(.system(size: 1))
+                    .frame(width: 1, height: 1)
+                    .clipped()
+                    .accessibilityIdentifier(
+                        "MobileTaskComposerModelDiagnostics"
+                    )
+            }
+        }
+        #endif
         // Provider/Mac changes replace ownership and cancel obsolete work.
-        .onChange(of: modelRefreshID, initial: true) { _, _ in
+        .onChange(of: modelRefreshID, initial: true) { oldValue, newValue in
+            recordModelRefreshDebugEvent(
+                "owner-change:\(oldValue.connectionIdentity ?? "-")->\(newValue.connectionIdentity ?? "-")"
+            )
             restartModelRefresh()
         }
     }
@@ -464,6 +485,9 @@ struct TaskComposerSheet: View {
     }
 
     private func restartModelRefresh() {
+        recordModelRefreshDebugEvent(
+            "restart:\(modelRefreshID.connectionIdentity ?? "-")"
+        )
         modelRefreshTask?.cancel()
         modelRefreshOperationID = nil
         guard let provider = modelRefreshID.provider,
@@ -486,6 +510,7 @@ struct TaskComposerSheet: View {
         // refreshed. An authoritative host result replaces it in place.
         displayedModels = cachedModels
         modelRefreshTask = Task {
+            recordModelRefreshDebugEvent("task-start:\(operationID.uuidString.prefix(8))")
             await store.refreshTaskModels(
                 provider: provider,
                 macDeviceID: macDeviceID,
@@ -494,8 +519,14 @@ struct TaskComposerSheet: View {
                 guard !Task.isCancelled,
                       modelRefreshOperationID == operationID,
                       modelRefreshID == refreshID else { return }
+                recordModelRefreshDebugEvent(
+                    "update:\(result.source.rawValue):\(result.models.count)"
+                )
                 displayedModels = result.models
             }
+            recordModelRefreshDebugEvent(
+                "task-return:\(Task.isCancelled ? "cancelled" : "active")"
+            )
             guard !Task.isCancelled,
                   modelRefreshOperationID == operationID,
                   modelRefreshID == refreshID else { return }
@@ -509,6 +540,37 @@ struct TaskComposerSheet: View {
             modelRefreshTask = nil
         }
     }
+
+    #if DEBUG
+    private var modelRefreshDebugDescription: String {
+        let provider = modelRefreshID.provider?.rawValue ?? "-"
+        let machineSummary = machines.map {
+            "\($0.macDeviceID)#\($0.instanceTag ?? "-"):\($0.isActive)"
+        }.joined(separator: ",")
+        let connection = store.taskModelConnectionDebugDescription(
+            macDeviceID: selectedMacDeviceID,
+            instanceTag: selectedMacInstanceTag
+        )
+        return [
+            "provider=\(provider)",
+            "selected=\(selectedMacDeviceID)#\(selectedMacInstanceTag ?? "-")",
+            "machines=\(machineSummary)",
+            connection,
+            "events=\(modelRefreshDebugEvents.joined(separator: ","))",
+        ].joined(separator: "|")
+    }
+
+    private func recordModelRefreshDebugEvent(_ event: String) {
+        guard ProcessInfo.processInfo.environment[
+            "CMUX_UITEST_TASK_MODEL_DIAGNOSTICS"
+        ] == "1" else { return }
+        modelRefreshDebugEvents = Array(
+            (modelRefreshDebugEvents + [event]).suffix(20)
+        )
+    }
+    #else
+    private func recordModelRefreshDebugEvent(_: String) {}
+    #endif
 
     private var machineBuildLabelsByID: [String: String] {
         var labels: [String: String] = [:]
