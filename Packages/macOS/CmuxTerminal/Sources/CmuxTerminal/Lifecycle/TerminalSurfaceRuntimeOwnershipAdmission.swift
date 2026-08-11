@@ -85,6 +85,8 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
                 return (.closeTeardownStalled, claimedCapacity)
             }
             if !state.closeTeardownDegraded,
+                state.recoveryHeadID == nil,
+                !state.recoveryGrantIsScheduled,
                 state.reservationIDs.count < maximumOwnerCount,
                 state.ingressReservationIDs.count < maximumOwnerCount
             {
@@ -271,11 +273,17 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
                   let entry = state.recoveryEntriesByID[currentID] {
                 recoveryID = entry.nextID
                 guard entry.pendingFailureDeliveryID == nil else { continue }
+                let deliveryID = UUID()
                 let delivery =
                     TerminalSurfaceRuntimeOwnershipRecoveryFailureDelivery(
                         recoveryID: currentID,
-                        deliveryID: UUID(),
-                        failure: entry.failure
+                        deliveryID: deliveryID,
+                        failure: { [self] in
+                            deliverStalledCloseRecoveryFailure(
+                                recoveryID: currentID,
+                                deliveryID: deliveryID
+                            )
+                        }
                     )
                 state.recoveryEntriesByID[currentID]?
                     .pendingFailureDeliveryID = delivery.deliveryID
@@ -292,6 +300,22 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
             state.recoveryRescanRequested = false
             return failures
         }
+    }
+
+    @MainActor
+    private func deliverStalledCloseRecoveryFailure(
+        recoveryID: UUID,
+        deliveryID: UUID
+    ) {
+        let failure: TerminalSurfaceRuntimeOwnershipRecoveryFailure? =
+            state.withLock { state in
+                guard let entry = state.recoveryEntriesByID[recoveryID],
+                      entry.pendingFailureDeliveryID == deliveryID else {
+                    return nil
+                }
+                return entry.failure
+            }
+        failure?()
     }
 
     func completeStalledCloseRecoveryFailures(
