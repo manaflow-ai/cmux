@@ -5829,15 +5829,13 @@ fn journal_agent_legacy_upgrade_backfills_large_archived_segment_in_pages() {
         assert!(uncompressed.len() <= session_journal::MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES);
         let digest = Sha256::digest(&uncompressed);
         let digest_hex = digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
-        let mut encoder = flate2::GzBuilder::new()
-            .mtime(0)
-            .write(Vec::new(), flate2::Compression::fast());
+        let mut encoder =
+            flate2::GzBuilder::new().mtime(0).write(Vec::new(), flate2::Compression::fast());
         encoder.write_all(&uncompressed).unwrap();
         let compressed = encoder.finish().unwrap();
         let start_sequence = archived.first().unwrap().sequence;
         let end_sequence = archived.last().unwrap().sequence;
-        let segment_id =
-            format!("segment_{start_sequence}_{end_sequence}_{digest_hex}");
+        let segment_id = format!("segment_{start_sequence}_{end_sequence}_{digest_hex}");
 
         registry
             .create_journal_checkpoint(
@@ -7682,10 +7680,7 @@ fn journal_agent_prejournal_projection_migration_is_bounded_on_open_and_preserve
         }
     }
     assert!(!reopened.agent_projection_rebuild_pending().unwrap());
-    let agent = reopened
-        .public_agent_projections(Some(&last_terminal), None)
-        .unwrap()
-        .remove(0);
+    let agent = reopened.public_agent_projections(Some(&last_terminal), None).unwrap().remove(0);
     assert_eq!(agent.source_session.as_deref(), Some("live-between-migration-pages"));
     drop(reopened);
     fs::remove_dir_all(root).unwrap();
