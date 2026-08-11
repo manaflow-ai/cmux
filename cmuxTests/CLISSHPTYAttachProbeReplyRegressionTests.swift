@@ -10,14 +10,17 @@ import Testing
 #endif
 
 extension CLINotifyProcessIntegrationRegressionTests {
-    func testSSHPTYReconciliationTunnelRacePreservesSessionForReattach() throws {
+    func testSSHPTYReconciliationPreservesSessionForReattach() throws {
         let cliPath = try bundledCLIPath()
-        let wrapperRetryStates: [(name: String, value: String?)] = [
-            ("pending", "1"),
-            ("exhausted", "0"),
-            ("direct", nil),
+        let scenarios: [(name: String, wrapperRetry: String?, confirmsRunning: Bool)] = [
+            ("pending-inconclusive", "1", false),
+            ("exhausted-inconclusive", "0", false),
+            ("direct-inconclusive", nil, false),
+            ("pending-confirmed", "1", true),
+            ("exhausted-confirmed", "0", true),
+            ("direct-confirmed", nil, true),
         ]
-        for (index, wrapperRetryState) in wrapperRetryStates.enumerated() {
+        for (index, scenario) in scenarios.enumerated() {
             let socketPath = makeSocketPath("sshptyreconcile\(index)")
             let listenerFD = try bindUnixSocket(at: socketPath)
             let bridge = try bindLoopbackTCP()
@@ -48,6 +51,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 case "workspace.remote.pty_resize":
                     return self.v2Response(id: id, ok: true, result: ["resized": true])
                 case "workspace.remote.pty_sessions":
+                    if scenario.confirmsRunning {
+                        return self.v2Response(id: id, ok: true, result: [
+                            "sessions": [["session_id": sessionID]],
+                            "errors": [],
+                        ])
+                    }
                     // This is the exact callback-order race from issue 9965: the
                     // per-channel bridge has closed and the broker has already
                     // removed its ready tunnel, even though the daemon and PTY
@@ -78,7 +87,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             environment["CMUX_SOCKET_PATH"] = socketPath
             environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
             environment.removeValue(forKey: "CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY")
-            environment["CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY"] = wrapperRetryState.value
+            environment["CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY"] = scenario.wrapperRetry
             let result = runProcess(
                 executablePath: cliPath,
                 arguments: [
@@ -94,17 +103,28 @@ extension CLINotifyProcessIntegrationRegressionTests {
             )
 
             wait(for: [socketHandled, bridgeHandled], timeout: 5)
-            #expect(!result.timedOut, Comment(rawValue: wrapperRetryState.name))
+            #expect(!result.timedOut, Comment(rawValue: scenario.name))
             #expect(
                 result.status == SSHPTYAttachExitCode.bridgeClosedSessionRunning.rawValue,
-                Comment(rawValue: wrapperRetryState.name)
+                Comment(rawValue: scenario.name)
             )
-            #expect(result.stderr.contains("remote session state could be confirmed"))
+            if scenario.confirmsRunning {
+                let claimsAutomaticReconnect = result.stderr.contains("cmux is reconnecting")
+                #expect(
+                    claimsAutomaticReconnect == (scenario.wrapperRetry == "1"),
+                    Comment(rawValue: "\(scenario.name): \(result.stderr)")
+                )
+                if scenario.wrapperRetry != "1" {
+                    #expect(result.stderr.contains("remote session may still be running"))
+                }
+            } else {
+                #expect(result.stderr.contains("remote session state could be confirmed"))
+            }
             let requests = state.snapshot().compactMap { self.jsonObject($0) }
             let reconciliationRequests = requests.filter {
                 $0["method"] as? String == "workspace.remote.pty_sessions"
             }
-            #expect(reconciliationRequests.count == 1, Comment(rawValue: wrapperRetryState.name))
+            #expect(reconciliationRequests.count == 1, Comment(rawValue: scenario.name))
             for request in reconciliationRequests {
                 let params = request["params"] as? [String: Any]
                 #expect(params?["acknowledge_lifecycle"] as? Bool != true)
@@ -291,12 +311,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
         #expect(methods.filter { $0 == "workspace.remote.pty_bridge" }.count == 1)
         #expect(methods.filter { $0 == "workspace.remote.pty_sessions" }.count == 1)
         #expect(!methods.contains("workspace.remote.pty_attach_end"), Comment(rawValue: "\(methods)"))
-        let reconciliationParams = requests.compactMap { request -> [String: Any]? in
+        let reconciliationParams = requests.compactMap { request in
             guard request["method"] as? String == "workspace.remote.pty_sessions" else { return nil }
             return request["params"] as? [String: Any]
         }
-        #expect(reconciliationParams.first?["acknowledge_lifecycle"] as? Bool != true)
-        #expect(reconciliationParams.first?["acknowledge_lifecycle_if_session_absent"] as? Bool != true)
+        #expect(reconciliationParams.count == 1)
+        guard let reconciliationParams = reconciliationParams.first else { return }
+        #expect(reconciliationParams["acknowledge_lifecycle"] as? Bool != true)
+        #expect(reconciliationParams["acknowledge_lifecycle_if_session_absent"] as? Bool != true)
     }
 
     func testSSHPTYAttachPreservesPipedProbeLikeInputBeforeForwardingInput() throws {
