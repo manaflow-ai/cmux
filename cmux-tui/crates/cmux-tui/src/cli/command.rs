@@ -3388,7 +3388,7 @@ mod tests {
                     "session",
                     SESSION,
                     "journal",
-                    "subscribe",
+                    "read",
                     "--from",
                     "beginning",
                     "--kinds",
