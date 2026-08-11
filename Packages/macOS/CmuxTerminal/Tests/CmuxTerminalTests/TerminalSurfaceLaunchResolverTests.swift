@@ -550,6 +550,41 @@ struct TerminalSurfaceLaunchResolverTests {
         #expect(!(await state.hasOwnedShims))
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func lateCommandShimCleanupRetriesThroughInjectedClock() async throws {
+        let shims = TerminalSurfaceAgentCommandShimSet(
+            directoryPath: "/tmp/late-command-shims",
+            shims: []
+        )
+        let clock = LaunchResolverManualClock()
+        let recorder = CommandShimRemovalRecorder(failuresBeforeSuccess: 1)
+        let owner = TerminalSurfaceAgentCommandShimCleanupOwner(
+            removalAttemptLimit: 1,
+            retryDelays: [.seconds(5)],
+            retryClock: clock,
+            remove: { shims in
+                try recorder.remove(shims)
+            },
+            reportRemovalFailure: { shims, errorDescription in
+                recorder.recordFailure(shims, errorDescription: errorDescription)
+            }
+        )
+
+        await owner.cleanup(shims)
+
+        #expect(recorder.attemptCount == 1)
+        #expect(await owner.retainedLeaseCount == 1)
+        #expect(await owner.pendingRetryCount == 1)
+        try await clock.waitUntilSleepers()
+
+        clock.advance(by: .seconds(5))
+        while recorder.attemptCount < 2 { await Task.yield() }
+        while await owner.retainedLeaseCount > 0 { await Task.yield() }
+
+        #expect(recorder.failureCount == 1)
+        #expect(await owner.pendingRetryCount == 0)
+    }
+
     private func makeResolver(
         defaultArguments: [String],
         defaultArgumentsProvider: (@Sendable () -> [String])? = nil,
