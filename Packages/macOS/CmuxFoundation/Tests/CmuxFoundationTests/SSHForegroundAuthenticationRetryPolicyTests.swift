@@ -2396,6 +2396,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         }
         CMUX_SSH_AUTH_GROUP_DIR="$CMUX_TEST_GROUP_DIR"
         export CMUX_SSH_AUTH_GROUP_DIR
+        PS4='+${LINENO}: '
+        set -x
         cmux_ssh_terminate_unpublished_auth_process_tree \
           "$cmux_test_root_pid" "$cmux_test_root_parent" \
           "$cmux_test_root_group" "$cmux_test_root_started" || exit 97
