@@ -9195,25 +9195,13 @@ impl Mux {
         _operation: &str,
         reason: &str,
     ) -> anyhow::Result<()> {
-        let Some(identity) = self.resource_terminal_host_identity(surface) else {
-            let removed = {
-                let mut state = self.state.lock().unwrap();
-                remove_terminal_runtime_from_state(self, &mut state, surface).0
-            };
-            for placement in removed {
-                self.purge_surface_side_tables(placement.id);
-            }
-            self.purge_terminal_runtime_side_tables(surface);
-            if !surface.is_dead() {
-                surface.kill();
-            }
-            return Ok(());
-        };
-        self.persist_terminal_exit(
-            &identity.terminal_id,
-            Some(&identity.incarnation),
-            &TerminalExit::unknown(reason),
-        )?;
+        if let Some(identity) = self.resource_terminal_host_identity(surface) {
+            self.persist_terminal_exit(
+                &identity.terminal_id,
+                Some(&identity.incarnation),
+                &TerminalExit::unknown(reason),
+            )?;
+        }
         let removed = {
             let mut state = self.state.lock().unwrap();
             remove_terminal_runtime_from_state(self, &mut state, surface).0
@@ -9222,9 +9210,7 @@ impl Mux {
             self.purge_surface_side_tables(placement.id);
         }
         self.purge_terminal_runtime_side_tables(surface);
-        if !surface.is_dead() {
-            surface.kill();
-        }
+        self.retire_surface_runtime(surface.clone());
         Ok(())
     }
 
