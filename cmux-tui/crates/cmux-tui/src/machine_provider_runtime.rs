@@ -3702,6 +3702,8 @@ mod tests {
         let listener = socket.listener();
         let mut catalog = snapshot(1, "Existing", protocol::MachineStatus::Running);
         catalog.capabilities.connect_external_machine = true;
+        let mut ready_catalog = catalog.clone();
+        ready_catalog.machines[0].connectable = true;
         let server_catalog = catalog;
         let server = thread::spawn(move || {
             let first_mutation_id = {
@@ -3746,6 +3748,12 @@ mod tests {
                 ),
             );
             serve_runtime_refresh(&mut stream, &mut reader, &server_catalog, None);
+
+            let (_stream, _reader) = serve_initial_snapshot_with_capabilities(
+                &listener,
+                ready_catalog,
+                &[protocol::EXTERNAL_MACHINE_CONNECT_CAPABILITY],
+            );
         });
 
         let provider = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
@@ -3781,7 +3789,13 @@ mod tests {
         controller.provider.reconnect_control().unwrap();
         let result = controller.perform_request(provider_connect("PAIR 4J7K")).unwrap();
 
-        assert!(result.ui.request.is_some());
+        assert_eq!(result.ui.request, Some(MachineRequest::ReconnectProvider));
+
+        controller.provider.reconnect_control().unwrap();
+        assert!(matches!(
+            controller.provider.ui_state_for_open_connection().request,
+            Some(MachineRequest::Switch(_))
+        ));
         controller.close();
         server.join().unwrap();
     }
