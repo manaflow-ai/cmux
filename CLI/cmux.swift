@@ -3525,6 +3525,7 @@ struct CMUXCLI {
         if command == "__sigpipe-probe" { try runSIGPIPEProbe(commandArgs: commandArgs); return }
         if command == "__sigpipe-stdin-pipe-probe" { try runSIGPIPEStdinPipeProbe(); return }
         if command == "__sigpipe-inspect" { try runSIGPIPEInspect(commandArgs: commandArgs); return }
+        if command == "__ssh-terminal-exit-prompt" { runSSHTerminalExitPrompt(commandArgs: commandArgs); return }
         if command == "diff-viewer-server" { try runDiffViewerServerCommand(commandArgs: commandArgs); return }
         if command == "__diff-viewer-refs" { try runDiffViewerRefsCommand(commandArgs: commandArgs); return }
         if command == "__diff-viewer-branch" { try runDiffViewerBranchRegenerateCommand(commandArgs: commandArgs); return }
@@ -12412,9 +12413,9 @@ struct CMUXCLI {
             restore()
         }
 
-        func restore() {
+        func restore(flushInput: Bool = false) {
             guard !restored else { return }
-            tcsetattr(STDIN_FILENO, TCSANOW, &original)
+            tcsetattr(STDIN_FILENO, flushInput ? TCSAFLUSH : TCSANOW, &original)
             restored = true
         }
     }
@@ -13050,8 +13051,9 @@ struct CMUXCLI {
         let fd = connectedFD!
         defer { Darwin.close(fd) }
 
+        let filtersReconnectInput = requireExisting && command == nil && isatty(STDIN_FILENO) == 1
         let rawMode = TerminalRawMode()
-        defer { rawMode?.restore() }
+        defer { rawMode?.restore(flushInput: filtersReconnectInput) }
         let resizeMonitor = SSHPTYResizeMonitor(
             socketPath: client.socketPath,
             explicitPassword: explicitPassword,
@@ -13075,7 +13077,7 @@ struct CMUXCLI {
         do {
             reconnectInputFilterControl = try SSHPTYAttachReconnectInputFilter.startStdinPump(
                 fd: fd,
-                filterEnabled: requireExisting && command == nil && isatty(STDIN_FILENO) == 1,
+                filterEnabled: filtersReconnectInput,
                 beforeForwardingInput: { [resizeMonitor] in
                     await resizeMonitor.resizeBeforeInputIfNeeded()
                 }

@@ -5816,11 +5816,15 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchConnectedApp(port: UInt16, assertStatusRows: Bool = true) throws -> XCUIApplication {
+    private func launchConnectedApp(
+        port: UInt16,
+        assertStatusRows: Bool = true,
+        environment: [String: String] = [:]
+    ) throws -> XCUIApplication {
         let attachURL = try attachURL(port: port)
-        let app = launchApp(mockData: true, environment: [
-            "CMUX_UITEST_ATTACH_URL": attachURL.absoluteString,
-        ])
+        var launchEnvironment = environment
+        launchEnvironment["CMUX_UITEST_ATTACH_URL"] = attachURL.absoluteString
+        let app = launchApp(mockData: true, environment: launchEnvironment)
         waitForWorkspaceShell(in: app)
         try openSelectedWorkspaceIfNeeded(app)
         if assertStatusRows {
@@ -7986,8 +7990,8 @@ final class cmuxUITests: XCTestCase {
     }
 
     /// Verify the built app's two-part keyboard contract at steady state:
-    /// UIKit's keyboard guide resolves to the real software-keyboard edge, and the
-    /// visible composer/toolbar stack resolves to that same guide edge.
+    /// the OS-selected geometry source resolves to the real software-keyboard edge,
+    /// and the visible composer/toolbar stack resolves to that same target.
     @MainActor
     private func assertTerminalDockPinnedToSoftwareKeyboard(
         _ dock: [String: String],
@@ -7997,12 +8001,12 @@ final class cmuxUITests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        guard let guideTop = dock["keyboardGuideTop"].flatMap(Double.init),
+        guard let source = dock["keyboardDockSource"],
               let composerMinY = dock["composerMinY"].flatMap(Double.init),
               let composerMaxY = dock["composerMaxY"].flatMap(Double.init),
               let toolbarMaxY = dock["toolbarMaxY"].flatMap(Double.init) else {
             XCTFail(
-                "Missing keyboard-guide dock geometry for \(context). dock=\(dock)",
+                "Missing keyboard dock geometry for \(context). dock=\(dock)",
                 file: file,
                 line: line
             )
@@ -8010,19 +8014,49 @@ final class cmuxUITests: XCTestCase {
         }
 
         let dockEdge = composerMaxY - composerMinY > 0.5 ? composerMaxY : toolbarMaxY
+        let targetTop: Double
+        switch source {
+        case "notification":
+            guard let notificationTop = dock["keyboardDockTargetTop"].flatMap(Double.init) else {
+                XCTFail(
+                    "Missing notification keyboard target for \(context). dock=\(dock)",
+                    file: file,
+                    line: line
+                )
+                return
+            }
+            targetTop = notificationTop
+        case "layoutGuide":
+            guard let guideTop = dock["keyboardGuideTop"].flatMap(Double.init) else {
+                XCTFail(
+                    "Missing keyboard-guide target for \(context). dock=\(dock)",
+                    file: file,
+                    line: line
+                )
+                return
+            }
+            targetTop = guideTop
+        default:
+            XCTFail(
+                "Unknown keyboard dock source for \(context). dock=\(dock)",
+                file: file,
+                line: line
+            )
+            return
+        }
         XCTAssertEqual(
             dockEdge,
-            guideTop,
+            targetTop,
             accuracy: 1,
-            "Dock must terminate at UIKeyboardLayoutGuide.topAnchor for \(context). dock=\(dock)",
+            "Dock must terminate at its selected keyboard target for \(context). dock=\(dock)",
             file: file,
             line: line
         )
         XCTAssertEqual(
-            Double(surface.frame.minY) + guideTop,
+            Double(surface.frame.minY) + targetTop,
             Double(keyboard.frame.minY),
             accuracy: 2,
-            "UIKeyboardLayoutGuide must resolve to the visible keyboard edge for "
+            "Selected keyboard geometry must resolve to the visible keyboard edge for "
                 + "\(context). keyboard=\(keyboard) surface=\(surface.frame) dock=\(dock)",
             file: file,
             line: line
@@ -8479,6 +8513,63 @@ final class cmuxUITests: XCTestCase {
                 "Shortcut and Composer bars separated during rapid reversal \(cycle). dock=\(dock)"
             )
         }
+    }
+
+    /// iOS 27 falls back to notification-driven keyboard geometry because its
+    /// keyboard layout guide can remain seated at the screen bottom. Force that
+    /// runtime policy on the CI simulator and prove the visible dock follows the
+    /// real software-keyboard edge through the production composer path.
+    @MainActor
+    func testIOS27KeyboardDockWorkaroundPinsComposerToKeyboard() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port, environment: [
+            "CMUX_UITEST_FORCE_IOS27_KEYBOARD_DOCK": "1",
+        ])
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+
+        let composerField = app.descendants(matching: .any)[Composer.field]
+        XCTAssertTrue(composerField.waitForExistence(timeout: 4))
+        composerField.tap()
+
+        guard let keyboard = waitForSoftwareKeyboardKeyPlane(
+            in: app,
+            minimumOverlap: 120,
+            timeout: 4
+        ) else { return }
+        let dock = waitForDock(in: app, describe: "iOS 27 notification fallback tracks keyboard") {
+            $0["keyboardDockSource"] == "notification"
+                && ($0["keyboardHeight"].flatMap(Double.init) ?? 0) > 120
+        }
+
+        guard let dockTargetTop = dock["keyboardDockTargetTop"].flatMap(Double.init),
+              let composerMinY = dock["composerMinY"].flatMap(Double.init),
+              let composerMaxY = dock["composerMaxY"].flatMap(Double.init),
+              let toolbarMaxY = dock["toolbarMaxY"].flatMap(Double.init) else {
+            XCTFail("Missing iOS 27 keyboard-dock fallback geometry. dock=\(dock)")
+            return
+        }
+
+        let dockEdge = composerMaxY - composerMinY > 0.5 ? composerMaxY : toolbarMaxY
+        XCTAssertEqual(
+            dockEdge,
+            dockTargetTop,
+            accuracy: 1,
+            "The iOS 27 fallback must terminate the dock at its notification-derived target. dock=\(dock)"
+        )
+        XCTAssertEqual(
+            Double(surface.frame.minY) + dockTargetTop,
+            Double(keyboard.frame.minY),
+            accuracy: 2,
+            "The iOS 27 fallback must pin the composer to the visible software keyboard. keyboard=\(keyboard) dock=\(dock)"
+        )
+        assertTerminalRenderBottomAttachedToViewport(
+            dock,
+            context: "iOS 27 notification fallback"
+        )
     }
 
     @MainActor
