@@ -93,7 +93,9 @@ extension MobileShellComposite {
             switch trigger {
             case .manual, .connectionMethodChanged:
                 break
-            default:
+            case .networkChange, .presencePush, .foreground, .liveness,
+                 .eventStreamEnded, .subscriptionStartFailed,
+                 .transportWriteTimedOut, .automaticBackoffExpired:
                 MobileDebugLog.anchormux(
                     "connection.recovery coalesced trigger=\(trigger.description) "
                         + "storedMacGeneration=\(storedMacReconnectGeneration)"
