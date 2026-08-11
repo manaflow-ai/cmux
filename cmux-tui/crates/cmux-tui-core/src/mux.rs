@@ -4606,17 +4606,24 @@ impl Mux {
                     .ok_or_else(|| anyhow::anyhow!("terminal exit timeout exceeds deadline range"))
             })
             .transpose()?;
-        // Register before the initial query. A concurrent durable exit either
-        // appears in that query or wakes this exact terminal subscription.
-        let subscription = self.subscribe_terminal_exit(terminal_id);
-        let state = self.terminal_exit_state(terminal_id)?;
-        if state["state"] == "exited" || timeout == Some(Duration::ZERO) {
-            return Ok(state);
+        loop {
+            // Register before each query. A concurrent exit or runtime
+            // publication either appears in that query or wakes this exact
+            // terminal subscription.
+            let subscription = self.subscribe_terminal_exit(terminal_id);
+            let state = self.terminal_exit_state(terminal_id)?;
+            if state["state"] == "exited" || timeout == Some(Duration::ZERO) {
+                return Ok(state);
+            }
+            let explicit_wake = subscription.wait_until(deadline);
+            // One targeted read closes either the exit-notification or
+            // deadline race. An early process-exit wake can precede terminal
+            // catalog publication, so keep waiting while the state is pending.
+            let state = self.terminal_exit_state(terminal_id)?;
+            if state["state"] == "exited" || !explicit_wake {
+                return Ok(state);
+            }
         }
-        let _explicit_wake = subscription.wait_until(deadline);
-        // One targeted read closes either the exit-notification or deadline
-        // race. Idle waits perform no periodic registry work.
-        self.terminal_exit_state(terminal_id)
     }
 
     #[cfg(test)]
@@ -7628,6 +7635,13 @@ impl Mux {
             state.terminal_placements_by_runtime.remove(&runtime_id);
         }
         Some(removed)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn publish_terminal_catalog_for_test(&self, surface: &Arc<Surface>) {
+        let mut state = self.state.lock().unwrap();
+        register_terminal_runtime_checked(self, &mut state, surface).unwrap();
+        register_terminal_placement_checked(&mut state, surface).unwrap();
     }
 
     /// Resolve a process-stable terminal UUID and one live view placement.
@@ -15030,6 +15044,9 @@ fn register_terminal_runtime_checked(
             .entry(host.terminal_id)
             .or_default()
             .insert(terminal_id.clone());
+    }
+    if surface.terminal_exit().is_some() {
+        mux.notify_terminal_exit_waiters(Some(terminal_id.clone()));
     }
     Ok(())
 }
@@ -25830,6 +25847,55 @@ mod tests {
             TerminalLifecycle::Running,
             "durable lifecycle must remain ordered after final terminal output"
         );
+        close_terminal_runtime_for_test(&mux, &surface);
+    }
+
+    #[test]
+    fn process_exit_before_catalog_publication_rewakes_active_waiter() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(Some("early-process-exit".into()), None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+        let unpublished = mux.remove_terminal_catalog_for_test(&terminal_id).unwrap();
+        assert!(unpublished.shares_terminal_runtime(&surface));
+
+        mux.reset_terminal_exit_state_query_count_for_test();
+        let waiting_mux = mux.clone();
+        let waiting_id = terminal_id.clone();
+        let waiter = std::thread::spawn(move || {
+            waiting_mux.wait_for_terminal_exit(&waiting_id, Some(Duration::from_secs(2)))
+        });
+        let waiting_deadline = Instant::now() + Duration::from_secs(1);
+        while mux.terminal_exit_waiter_count_for_test(&terminal_id) != 1
+            || mux.terminal_exit_state_query_count_for_test() != 1
+        {
+            assert!(Instant::now() < waiting_deadline, "process exit wait did not subscribe");
+            std::thread::yield_now();
+        }
+
+        surface.observe_terminal_exit_for_test(TerminalExit {
+            outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 9 },
+            exited_at_ms: 9_876_543,
+        });
+        mux.terminal_process_exited(&surface);
+
+        while mux.terminal_exit_waiter_count_for_test(&terminal_id) != 1
+            || mux.terminal_exit_state_query_count_for_test() != 3
+        {
+            assert!(
+                Instant::now() < waiting_deadline,
+                "exit wait did not resubscribe before terminal publication"
+            );
+            std::thread::yield_now();
+        }
+        mux.publish_terminal_catalog_for_test(&unpublished);
+
+        let exited = waiter.join().unwrap().unwrap();
+        assert_eq!(exited["state"], "exited");
+        assert_eq!(exited["terminal_id"], terminal_id.as_str());
+        assert_eq!(exited["outcome"], serde_json::json!({"kind":"exit","code":9}));
+        assert_eq!(exited["exited_at"], "9876543");
+        assert_eq!(mux.terminal_exit_state_query_count_for_test(), 4);
+        assert_eq!(mux.terminal_exit_waiter_count_for_test(&terminal_id), 0);
         close_terminal_runtime_for_test(&mux, &surface);
     }
 
