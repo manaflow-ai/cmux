@@ -92,6 +92,7 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
             if state.recoveryEntriesByID[recoveryID] != nil {
                 state.recoveryEntriesByID[recoveryID]?.action = onRecovery
                 state.recoveryEntriesByID[recoveryID]?.failure = onFailure
+                state.recoveryEntriesByID[recoveryID]?.failureReported = false
                 return (.deferred, claimedCapacity)
             }
             guard claimedCapacity || recoveryCapacityIsOpen(in: state) else {
@@ -262,10 +263,13 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
         state.withLock { state in
             state.closeTeardownAllStalled = true
             var failures: [TerminalSurfaceRuntimeOwnershipRecoveryFailure] = []
-            while let recoveryID = state.recoveryHeadID,
-                  let failure = state.recoveryEntriesByID[recoveryID]?.failure {
-                failures.append(failure)
-                _ = removeRecoveryAction(recoveryID, from: &state)
+            var recoveryID = state.recoveryHeadID
+            while let currentID = recoveryID,
+                  let entry = state.recoveryEntriesByID[currentID] {
+                recoveryID = entry.nextID
+                guard !entry.failureReported else { continue }
+                state.recoveryEntriesByID[currentID]?.failureReported = true
+                failures.append(entry.failure)
             }
             state.pendingRecoveryFailureCount += failures.count
             precondition(
@@ -302,21 +306,17 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
     }
 
     func clearAllStalledCloseTeardowns() {
-        let output: (
-            grant: TerminalSurfaceRuntimeOwnershipRecoveryGrant?,
-            requestRescan: Bool
-        ) = state.withLock { state in
+        let grant = state.withLock { state in
             guard state.closeTeardownAllStalled else {
-                return (nil, false)
+                return nil
             }
             state.closeTeardownAllStalled = false
             let grant = takeNextRecoveryGrant(from: &state)
-            return (grant, takeRecoveryRescanRequest(from: &state))
+            _ = takeRecoveryRescanRequest(from: &state)
+            return grant
         }
-        schedule(output.0)
-        if output.1 {
-            recoveryRescanScheduler.requestRescan()
-        }
+        schedule(grant)
+        recoveryRescanScheduler.requestRescan()
     }
 
     func cancelRecovery(_ recoveryID: UUID) {

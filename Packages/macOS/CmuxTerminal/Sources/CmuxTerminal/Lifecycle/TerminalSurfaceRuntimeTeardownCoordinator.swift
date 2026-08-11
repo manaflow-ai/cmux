@@ -14,8 +14,9 @@ internal import CMUXDebugLog
 /// through completed free. While both close slots are occupied, new ownership
 /// waits for a worker-completion signal, so retained frees cannot grow without
 /// bound. If both workers exceed their five-second watchdog, queued creations
-/// report a visible failure. A late native free keeps its pointer ownership and
-/// restores admission only after it returns.
+/// report a visible failure and retain their bounded FIFO owners. A late native
+/// free keeps its pointer ownership, restores admission only after it returns,
+/// and retries those creations in their original order.
 /// Each admitted hibernation also owns one independently startable utility slot.
 /// Slot occupancy fences new ownership until one active free completes. The app constructs
 /// exactly one instance and injects it through

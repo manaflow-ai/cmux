@@ -773,7 +773,9 @@ extension TerminalSurface {
                   self.runtimeSurfaceAdmissionDeferredCreationSource != nil else {
                 return
             }
-            self.failRuntimeSurfaceCreationForTeardownCapacity()
+            self.failRuntimeSurfaceCreationForTeardownCapacity(
+                preservingRecoveryOwner: true
+            )
         }
     }
 
@@ -830,7 +832,7 @@ extension TerminalSurface {
             }
             return nil
         case .closeTeardownStalled:
-            failRuntimeSurfaceCreationForTeardownCapacity()
+            retainRuntimeSurfaceCreationUntilTeardownRecovers()
             return nil
         }
     }
@@ -883,7 +885,9 @@ extension TerminalSurface {
             teardownCoordinator
                 .requestRuntimeSurfaceOwnershipRecoveryRescan()
         case .closeTeardownStalled:
-            failRuntimeSurfaceCreationForTeardownCapacity()
+            failRuntimeSurfaceCreationForTeardownCapacity(
+                preservingRecoveryOwner: true
+            )
         }
     }
 
@@ -927,8 +931,29 @@ extension TerminalSurface {
     }
 
     @MainActor
-    func failRuntimeSurfaceCreationForTeardownCapacity() {
-        cancelRuntimeSurfaceCreationAfterAdmissionRecovery()
+    private func retainRuntimeSurfaceCreationUntilTeardownRecovers() {
+        let registration = runtimeTeardown
+            .registerRuntimeSurfaceOwnershipRecoveryOverflow(
+                surfaceID: id,
+                surface: self
+            )
+        switch registration {
+        case .registered(let sequence), .updated(let sequence):
+            runtimeSurfaceAdmissionOverflowSequence = sequence
+            failRuntimeSurfaceCreationForTeardownCapacity(
+                preservingRecoveryOwner: true
+            )
+        case .rejected:
+            failRuntimeSurfaceCreationForTeardownCapacity()
+        }
+    }
+
+    func failRuntimeSurfaceCreationForTeardownCapacity(
+        preservingRecoveryOwner: Bool = false
+    ) {
+        if !preservingRecoveryOwner {
+            cancelRuntimeSurfaceCreationAfterAdmissionRecovery()
+        }
         paneHost.showRuntimeSurfaceCreationFailure(
             message: String(
                 localized: "terminal.surface.runtimeCreation.capacityExceeded",
