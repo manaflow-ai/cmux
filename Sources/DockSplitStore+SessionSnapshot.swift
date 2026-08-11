@@ -18,6 +18,7 @@ extension DockSplitStore {
         }
     ) -> SessionSplitContainerSnapshot {
         flushPendingTerminalTitleUpdates()
+        let notificationStore = resolvedNotificationStore()
         let layoutCodec = SessionSplitContainerLayoutCodec(controller: bonsplitController)
         let rawLayout = layoutCodec.snapshot(panelIdForTabId: { [self] in surfaceIdToPanelId[$0] })
         let orderedPanelIds = orderedSessionPanelIds()
@@ -60,6 +61,7 @@ extension DockSplitStore {
                     ),
                     terminalFontSizeSnapshotProjection:
                         terminalFontSizeSnapshotProjection,
+                    notificationStore: notificationStore,
                     currentAgentProcessIdentity: currentAgentProcessIdentity,
                     agentProcessPresence: agentProcessPresence
                 )
@@ -85,6 +87,27 @@ extension DockSplitStore {
                 ? nil
                 : sourceWorkspaceIdsByPanelId
         )
+    }
+
+    /// Hashes the manual unread bits persisted for this global Dock's panels.
+    func sessionManualUnreadAutosaveFingerprint(
+        notificationStore: TerminalNotificationStore?
+    ) -> Int {
+        self.notificationStore = notificationStore
+        var hasher = Hasher()
+        let panelIds = Array(
+            orderedSessionPanelIds()
+                .prefix(SessionPersistencePolicy.maxPanelsPerWorkspace)
+        )
+        hasher.combine(panelIds.count)
+        for panelId in panelIds {
+            hasher.combine(panelId)
+            hasher.combine(notificationStore?.hasManualUnread(
+                forTabId: workspaceId,
+                surfaceId: panelId
+            ) ?? false)
+        }
+        return hasher.finalize()
     }
 
     /// Captures one Dock panel for the Dock-local closed-item history without
@@ -129,6 +152,7 @@ extension DockSplitStore {
             detectedResumeBinding: nil,
             terminalFontSizeSnapshotProjection:
                 terminalFontSizeSnapshotProjection,
+            notificationStore: resolvedNotificationStore(),
             currentAgentProcessIdentity: {
                 guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
                 return AgentPIDProcessIdentity(pid: pid_t($0))
@@ -167,6 +191,7 @@ extension DockSplitStore {
         detectedResumeBinding: SurfaceResumeBindingSnapshot?,
         terminalFontSizeSnapshotProjection:
             WorkspaceTerminalFontSizeSnapshotProjection?,
+        notificationStore: TerminalNotificationStore?,
         currentAgentProcessIdentity: (Int) -> AgentPIDProcessIdentity?,
         agentProcessPresence: (Int) -> PIDPresence
     ) -> SessionPanelSnapshot? {
@@ -179,9 +204,16 @@ extension DockSplitStore {
             tab: tab
         )
         let directory = sessionWorkingDirectory(panel: panel, transfer: transfer)
+        let isManuallyUnread = scope == .global
+            ? notificationStore?.hasManualUnread(
+                forTabId: workspaceId,
+                surfaceId: panelId
+            ) == true
+            : transfer?.manuallyUnread ?? false
 
         let terminalSnapshot: SessionTerminalPanelSnapshot?
         let browserSnapshot: SessionBrowserPanelSnapshot?
+        let filePreviewSnapshot: SessionFilePreviewPanelSnapshot?
         switch panel.panelType {
         case .terminal:
             guard let terminal = panel as? TerminalPanel else { return nil }
@@ -290,6 +322,7 @@ extension DockSplitStore {
                 wasAgentRunning: agentWasRunning
             )
             browserSnapshot = nil
+            filePreviewSnapshot = nil
         case .browser:
             guard let browser = panel as? BrowserPanel, browser.shouldPersistSessionSnapshot() else {
                 return nil
@@ -311,6 +344,16 @@ extension DockSplitStore {
                 diffViewerToken: diffViewer?.token,
                 diffViewerRequestPath: diffViewer?.requestPath
             )
+            filePreviewSnapshot = nil
+        case .filePreview:
+            guard let filePreview = panel as? FilePreviewPanel else {
+                return nil
+            }
+            terminalSnapshot = nil
+            browserSnapshot = nil
+            filePreviewSnapshot = SessionFilePreviewPanelSnapshot(
+                filePath: filePreview.filePath
+            )
         default:
             return nil
         }
@@ -325,13 +368,13 @@ extension DockSplitStore {
             directory: directory,
             directoryIsTrustedRemoteReport: transfer?.directoryIsTrustedRemoteReport,
             isPinned: false,
-            isManuallyUnread: transfer?.manuallyUnread ?? false,
+            isManuallyUnread: isManuallyUnread,
             listeningPorts: [],
             ttyName: transfer?.ttyName,
             terminal: terminalSnapshot,
             browser: browserSnapshot,
             markdown: nil,
-            filePreview: nil,
+            filePreview: filePreviewSnapshot,
             rightSidebarTool: nil
         )
     }

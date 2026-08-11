@@ -3316,6 +3316,23 @@
         }
       }
     },
+    "mobile.devices.savedDescription.reconnectOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap a saved computer to reconnect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存したコンピュータをタップして再接続します。"
+          }
+        }
+      }
+    },
     "mobile.devices.savedTitle": {
       "extractionState": "manual",
       "localizations": {
@@ -4638,6 +4655,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "ワークスペース"
+          }
+        }
+      }
+    },
+    "mobile.autoConnectMigration.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-Connect works without Tailscale. It uses an end-to-end encrypted connection, directly when possible and through cmux relays when needed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-ConnectはTailscaleなしで動作します。エンドツーエンドで暗号化された接続を使用し、可能な場合は直接、必要な場合はcmuxリレーを経由して接続します。"
+          }
+        }
+      }
+    },
+    "mobile.autoConnectMigration.continue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue with Auto-Connect"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-Connectを続ける"
+          }
+        }
+      }
+    },
+    "mobile.autoConnectMigration.guidance": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prefer your previous setup? Open Settings → Connection Method and choose Tailscale Only."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前の設定を使いたい場合は、「設定」→「接続方法」を開き、「Tailscaleのみ」を選択してください。"
+          }
+        }
+      }
+    },
+    "mobile.autoConnectMigration.openSettings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Connection Settings"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続設定を開く"
+          }
+        }
+      }
+    },
+    "mobile.autoConnectMigration.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux now uses Auto-Connect"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxはAuto-Connectを使用するようになりました"
           }
         }
       }
@@ -13712,13 +13814,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux could not finish restoring this session. Check that the selected cmux build is running, then retry or add this computer again."
+            "value": "cmux could not finish restoring this session. Check that the selected cmux build is running, then retry."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux はこのセッションの復元を完了できませんでした。選択した cmux ビルドが起動していることを確認してから、再試行するか、このコンピュータをもう一度追加してください。"
+            "value": "cmux はこのセッションの復元を完了できませんでした。選択した cmux ビルドが起動していることを確認してから、再試行してください。"
           }
         }
       }
@@ -14178,6 +14280,159 @@
           "stringUnit": {
             "state": "translated",
             "value": "コンピュータの順序"
+          }
+        }
+      }
+    },
+    "mobile.workspaces.preview.mixed.after": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After Groups"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループの後"
+          }
+        }
+      }
+    },
+    "mobile.workspaces.preview.mixed.alphaAnchor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alpha Lead"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アルファ先頭"
+          }
+        }
+      }
+    },
+    "mobile.workspaces.preview.mixed.alphaGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alpha Group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アルファグループ"
+          }
+        }
+      }
+    },
+    "mobile.workspaces.preview.mixed.before": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Before Groups"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループの前"
+          }
+        }
+      }
+    },
+    "mobile.workspaces.preview.mixed.betaAnchor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beta Lead"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ベータ先頭"
+          }
+        }
+      }
+    },
+    "mobile.workspaces.preview.mixed.betaGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beta Group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ベータグループ"
+          }
+        }
+      }
+    },
+    "mobile.workspaces.preview.mixed.between": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Between Groups"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループの間"
+          }
+        }
+      }
+    },
+    "mobile.workspaces.preview.mixed.inactiveMember": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inactive Member"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非アクティブなメンバー"
+          }
+        }
+      }
+    },
+    "mobile.workspaces.preview.mixed.recentMember": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recent Member"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近のメンバー"
           }
         }
       }
