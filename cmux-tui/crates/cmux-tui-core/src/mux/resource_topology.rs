@@ -3617,7 +3617,7 @@ impl Mux {
                 .map(|workspace| workspace.public_id.clone());
             workspace_close = Some(ResourceWorkspaceClose {
                 workspace_key: workspace_key.clone(),
-                remaining_workspaces: self.registry_projection(&projected),
+                remaining_workspaces: self.registry_projection(projected),
                 active_workspace,
                 legacy_result: json!({
                     "workspace":workspace,
@@ -3634,7 +3634,7 @@ impl Mux {
         let selection_resync = if workspace_close.is_some() {
             workspace_was_active && !projected.workspaces.is_empty()
         } else {
-            selection_before != active_tree_selection(&projected)
+            selection_before != active_tree_selection(projected)
         };
         // The workspace revision is filled from the atomic registry commit.
         if let Some(delta) = &mut delta {

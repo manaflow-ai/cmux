@@ -21376,7 +21376,7 @@ mod tests {
 
         {
             let mut state = mux.state.lock().unwrap();
-            state.terminal_catalog.insert(secondary_id.clone(), surface.clone());
+            state.terminal_catalog.insert(secondary_id.clone(), surface);
             state
                 .terminal_catalog_by_host
                 .entry(host.terminal_id.clone())
