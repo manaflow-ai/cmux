@@ -4550,6 +4550,68 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func cleanupRetryResumesPreservedStopJournalBeforeReset(shellPath: String) throws {
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_deadline_allows_work() { return 0; }
+        cmux_ssh_auth_freeze_and_force_owned_processes() {
+          cmux_test_transaction_calls=$((cmux_test_transaction_calls + 1))
+          printf '%s\n' "$cmux_test_transaction_calls" > "$CMUX_TEST_TRANSACTION_CALLS"
+          if [ "$cmux_test_transaction_calls" -eq 1 ]; then
+            printf '101 11 Thu_Jan_1_00:00:00_1970\n' \
+              > "$cmux_ssh_auth_signaled_groups"
+            printf '101 1 11 Thu_Jan_1_00:00:00_1970\n' \
+              > "$cmux_ssh_auth_signaled_processes"
+            return 1
+          fi
+          test -e "$CMUX_TEST_RESUMED" || return 1
+          test ! -s "$cmux_ssh_auth_signaled_groups" || return 1
+          test ! -s "$cmux_ssh_auth_signaled_processes" || return 1
+          return 0
+        }
+        cmux_ssh_auth_resume_signaled_processes() {
+          cmux_test_resume_calls=$((cmux_test_resume_calls + 1))
+          printf '%s\n' "$cmux_test_resume_calls" > "$CMUX_TEST_RESUME_CALLS"
+          if [ "$cmux_test_resume_calls" -eq 1 ]; then return 1; fi
+          /usr/bin/grep -Fxq '101 11 Thu_Jan_1_00:00:00_1970' \
+            "$cmux_ssh_auth_signaled_groups" || return 1
+          /usr/bin/grep -Fxq '101 1 11 Thu_Jan_1_00:00:00_1970' \
+            "$cmux_ssh_auth_signaled_processes" || return 1
+          : > "$CMUX_TEST_RESUMED"
+        }
+        cmux_test_transaction_calls=0
+        cmux_test_resume_calls=0
+        cmux_ssh_auth_frozen_processes="$CMUX_TEST_FROZEN"
+        cmux_ssh_auth_signaled_groups="$CMUX_TEST_SIGNALED_GROUPS"
+        cmux_ssh_auth_signaled_processes="$CMUX_TEST_SIGNALED_PIDS"
+        if cmux_ssh_auth_run_cleanup_transactions; then exit 99; fi
+        cmux_ssh_auth_run_cleanup_transactions || exit 98
+        test "$(/bin/cat "$CMUX_TEST_TRANSACTION_CALLS")" -eq 2 || exit 97
+        test "$(/bin/cat "$CMUX_TEST_RESUME_CALLS")" -eq 2 || exit 96
+        test -e "$CMUX_TEST_RESUMED" || exit 95
+        """
+
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-preserved-stop-journal-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_TEST_FROZEN": root.appendingPathComponent("frozen").path,
+                "CMUX_TEST_RESUMED": root.appendingPathComponent("resumed").path,
+                "CMUX_TEST_RESUME_CALLS": root.appendingPathComponent("resume-calls").path,
+                "CMUX_TEST_SIGNALED_GROUPS": root.appendingPathComponent("signaled.groups").path,
+                "CMUX_TEST_SIGNALED_PIDS": root.appendingPathComponent("signaled.pids").path,
+                "CMUX_TEST_TRANSACTION_CALLS": root.appendingPathComponent("transaction-calls").path,
+            ],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
     func validatedFrozenProcessesReachKillCommitPoint(shellPath: String) throws {
         let command = """
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
