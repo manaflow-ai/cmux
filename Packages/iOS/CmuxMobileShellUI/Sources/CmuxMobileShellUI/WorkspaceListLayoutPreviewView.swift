@@ -590,6 +590,12 @@ public struct WorkspaceListLayoutPreviewView: View {
                             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                                 fixtureWorkspaceDetail(for: workspaceID)
                             }
+                            // Mirrors the shell: path-state-driven hide so the
+                            // bar returns with the pop and re-anchors the field.
+                            .toolbarVisibility(
+                                searchFixturePath.isEmpty ? .automatic : .hidden,
+                                for: .tabBar
+                            )
                         }
                     } notificationSearch: {
                         Text("Notification feed fixture")

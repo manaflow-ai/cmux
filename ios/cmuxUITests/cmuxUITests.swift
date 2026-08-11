@@ -1758,6 +1758,14 @@ final class cmuxUITests: XCTestCase {
 
         let workspaceDetail = app.descendants(matching: .any)["FixtureWorkspaceDetail"]
         XCTAssertTrue(workspaceDetail.waitForExistence(timeout: 3))
+        XCTAssertTrue(
+            waitForNotHittable(app.tabBars.buttons["Workspaces"], timeout: 3),
+            "Tab bar must hide while the search-opened workspace detail is presented"
+        )
+        XCTAssertTrue(
+            workspaceDetail.exists,
+            "Detail must still be presented after the tab bar hides"
+        )
 
         // Pop back. The detail sits inside the search tab's stack behind the
         // system back control; the old cross-tab flow used the custom

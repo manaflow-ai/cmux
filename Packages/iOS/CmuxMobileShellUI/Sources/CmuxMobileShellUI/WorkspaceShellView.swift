@@ -391,11 +391,6 @@ struct WorkspaceShellView: View {
                 // from here raced the search-field dismissal and could record
                 // the push without performing it, stranding the list with no
                 // tab bar (the "stuck after selecting from search" bug).
-                // The tab bar stays visible on the pushed detail (the App
-                // Store search pattern): hiding it removes the bottom anchor
-                // the platform needs to restore the minimized field there
-                // when the detail pops — hidden, the restore re-hosts the
-                // field in the top navigation bar.
                 .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                     workspaceDestination(
                         for: workspaceID,
@@ -404,6 +399,18 @@ struct WorkspaceShellView: View {
                     )
                 }
             }
+            // The tab bar hides while a detail is pushed, but driven by PATH
+            // STATE at the stack level rather than a modifier on the
+            // destination: a per-destination hide stays in force until the
+            // popped view unmounts at animation end, which removes the bottom
+            // anchor the platform needs and re-hosts the restored search
+            // field in the top navigation bar. The path empties when the pop
+            // commits, so the bar (and the field's anchor) return with the
+            // transition, like UIKit's hidesBottomBarWhenPushed.
+            .toolbarVisibility(
+                workspaceSearchNavigationPath.isEmpty ? .automatic : .hidden,
+                for: .tabBar
+            )
         }
     }
 
