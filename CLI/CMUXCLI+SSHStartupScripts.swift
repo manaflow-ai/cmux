@@ -2,6 +2,26 @@ import CmuxFoundation
 import Foundation
 
 extension CMUXCLI {
+    func runSSHAuthenticationRecovery(commandArgs: [String]) throws {
+        guard commandArgs.isEmpty else {
+            throw CLIError(message: "__ssh-auth-recovery takes no arguments", exitCode: 2)
+        }
+
+        let recoveryProgram = [
+            SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction(),
+            "unset CMUX_SSH_AUTH_GROUP_DIR",
+            "cmux_ssh_schedule_failed_auth_group_recovery",
+        ].joined(separator: "\n")
+        let result = CLIProcessRunner.runProcess(
+            executablePath: "/bin/sh",
+            arguments: [],
+            stdinText: recoveryProgram
+        )
+        guard result.status == 0 else {
+            throw CLIError(message: "SSH authentication recovery helper failed", exitCode: result.status)
+        }
+    }
+
     func buildSSHStartupCommand(
         sshCommand: String,
         shellFeatures: String,
@@ -309,10 +329,14 @@ extension CMUXCLI {
             terminalFailureCommand: "break"
         )
         let backoffBuilder = SSHRetryBackoffScriptBuilder(context: .startup)
+        let executableCommand = shellQuote(resolvedExecutableURL()?.path ?? (args.first ?? "cmux"))
         let terminalExitPromptCommand = [
-            shellQuote(resolvedExecutableURL()?.path ?? (args.first ?? "cmux")),
+            executableCommand,
             "__ssh-terminal-exit-prompt",
         ].joined(separator: " ")
+        let authenticationRecoveryCommand = hasOneTimeCommand
+            ? "cmux_ssh_schedule_failed_auth_group_recovery"
+            : "\(executableCommand) __ssh-auth-recovery >/dev/null 2>&1 || true"
         var scriptLines: [String] = []
         if !shellFeaturesBootstrap.isEmpty {
             scriptLines.append(shellFeaturesBootstrap)
@@ -350,8 +374,11 @@ extension CMUXCLI {
             scriptLines += ["cmux_ssh_foreground_auth() {", trimmedOneTimeCommand, "}"]
         }
         // A prior foreground-auth cleanup can outlive the session that created
-        // it, so every SSH startup owns one bounded recovery pass.
-        scriptLines.append(authRetryPolicy.processTreeTerminationShellFunction())
+        // it. Foreground-auth startups need the local process-tree functions;
+        // other startups call the installed recovery helper with a small payload.
+        if hasOneTimeCommand {
+            scriptLines.append(authRetryPolicy.processTreeTerminationShellFunction())
+        }
         let reconnectConfiguration = retryPTYAttachStatus ? [
             "cmux_ssh_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-}\"",
             "case \"$cmux_ssh_reconnect_limit\" in '') cmux_ssh_reconnect_limit='∞'; cmux_ssh_reconnect_unbounded=1 ;; *[!0-9]*) cmux_ssh_reconnect_limit=20; cmux_ssh_reconnect_unbounded=0 ;; *) cmux_ssh_reconnect_unbounded=0 ;; esac",
@@ -393,7 +420,7 @@ extension CMUXCLI {
             "trap 'cmux_ssh_signal_exit 129 HUP' HUP",
             "trap 'cmux_ssh_signal_exit 130 INT' INT",
             "trap 'cmux_ssh_signal_exit 143 TERM' TERM",
-            "cmux_ssh_schedule_failed_auth_group_recovery",
+            authenticationRecoveryCommand,
             "while :; do",
             "  if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_retire_for_signal \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
         ]
