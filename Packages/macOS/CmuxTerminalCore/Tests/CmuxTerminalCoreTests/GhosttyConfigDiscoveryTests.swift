@@ -176,6 +176,21 @@ private struct NoFontProbe: GhosttyFontProbing {
             codepointCoverageProbe: { _, _ in true }
         ))
     }
+
+    @Test func autoInjectedSymbolFontMappingsSkipDefaultFaceCoverageWhenNoFontFamilyConfigured() throws {
+        // Regression test: with no `font-family`, Ghostty's primary face is
+        // its embedded JetBrains Mono, and a `font-codepoint-map` entry
+        // outranks that face. Injecting the whole managed set here would push
+        // ■/○/● onto Apple Symbols even though the default face renders them,
+        // which is the same over-reach the per-codepoint filter avoids for
+        // configured fonts.
+        let path = "/cfg/config"
+        let reader = FakeFileReader(contentsByPath: [path: "font-size = 13"])
+        let discovery = GhosttyConfigDiscovery(fileReader: reader, fontProbe: NoFontProbe())
+        let mappings = try #require(discovery.autoInjectedSymbolFontMappings(configPaths: [path]))
+        #expect(Set(mappings.map(\.0)) == ["U+25B0", "U+25B1", "U+2B21", "U+2B22"])
+        #expect(mappings.allSatisfy { $0.1 == GhosttyConfigDiscovery.symbolFallbackFont })
+    }
 }
 
 @Suite struct GhosttyConfigDiscoveryFontSummaryTests {
