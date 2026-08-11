@@ -215,7 +215,11 @@ struct FileExplorerStoreTests {
             useIPv6: false,
             forwardAgent: true,
             compressionEnabled: true,
-            sshOptions: ["UserKnownHostsFile=/tmp/cmux-known-hosts"]
+            sshOptions: [
+                "UserKnownHostsFile=/tmp/cmux-known-hosts",
+                "ConnectTimeout=60",
+                "BatchMode=no",
+            ]
         )
 
         let connection = SSHFileExplorerConnection(detectedSSHSession: session)
@@ -240,6 +244,9 @@ struct FileExplorerStoreTests {
         #expect(containsArgumentPair(arguments, flag: "-o", value: "ProxyJump=\(session.jumpHost!)"))
         #expect(containsArgumentPair(arguments, flag: "-o", value: "ControlPath=\(session.controlPath!)"))
         #expect(containsArgumentPair(arguments, flag: "-o", value: "BatchMode=yes"))
+        #expect(containsArgumentPair(arguments, flag: "-o", value: "ConnectTimeout=5"))
+        #expect(!containsArgumentPair(arguments, flag: "-o", value: "ConnectTimeout=60"))
+        #expect(!containsArgumentPair(arguments, flag: "-o", value: "BatchMode=no"))
     }
 
     @Test
@@ -259,15 +266,17 @@ struct FileExplorerStoreTests {
             executableName: "et"
         )
 
-        let sshSession = TerminalSSHSessionDetector.detectSSHForTesting(
+        let sshSession = TerminalSSHSessionDetector.detect(
             ttyName: "/dev/ttys001",
             processes: [sshProcess],
-            argumentsByPID: [42: ["ssh", "dev@example.internal"]]
+            argumentsByPID: [42: ["ssh", "dev@example.internal"]],
+            transports: [.ssh]
         )
-        let eternalTerminalSession = TerminalSSHSessionDetector.detectSSHForTesting(
+        let eternalTerminalSession = TerminalSSHSessionDetector.detect(
             ttyName: "/dev/ttys001",
             processes: [eternalTerminalProcess],
-            argumentsByPID: [43: ["et", "dev@example.internal"]]
+            argumentsByPID: [43: ["et", "dev@example.internal"]],
+            transports: [.ssh]
         )
 
         #expect(sshSession?.destination == "dev@example.internal")
@@ -291,7 +300,6 @@ struct FileExplorerStoreTests {
         )
         let workspaceId = UUID()
         let monitor = FileExplorerSSHSessionMonitor(
-            pollInterval: .seconds(60),
             detector: { ttyName in
                 ttyName == "/dev/ttys001" ? session : nil
             }

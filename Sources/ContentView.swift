@@ -917,8 +917,7 @@ struct ContentView: View {
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
     @StateObject private var fileExplorerStore = FileExplorerStore()
     @StateObject private var sessionIndexStore = SessionIndexStore()
-    @State private var fileExplorerSSHSessionMonitor = FileExplorerSSHSessionMonitor()
-    @State private var fileExplorerSSHSnapshot: FileExplorerSSHSessionMonitor.Snapshot?
+    @State private var fileExplorerSSHRootSynchronizer = FileExplorerSSHRootSynchronizer()
     @StateObject private var selectedWorkspaceDirectoryObserver = SelectedWorkspaceDirectoryObserver()
     @State private var commandPaletteOverlayRenderModel = CommandPaletteOverlayRenderModel()
     @State private var backgroundWorkspacePrimeCoordinator = BackgroundWorkspacePrimeCoordinator()
@@ -2452,18 +2451,9 @@ struct ContentView: View {
             // No selection means we have no local cwd to scope by; clear so the
             // sessions panel doesn't keep filtering by a stale previous tab.
             sessionIndexStore.setCurrentDirectoryIfChanged(nil)
-            fileExplorerStore.applyWorkspaceRoot(.none)
-            Task {
-                await fileExplorerSSHSessionMonitor.update(
-                    isEnabled: false,
-                    workspaceId: nil,
-                    ttyName: nil
-                )
-            }
+            fileExplorerSSHRootSynchronizer.clear(store: fileExplorerStore)
             return
         }
-
-        fileExplorerStore.showHiddenFiles = true
 
         if tab.usesRemoteDirectoryProvenance {
             sessionIndexStore.setCurrentDirectoryIfChanged(nil)
@@ -2473,39 +2463,14 @@ struct ContentView: View {
         }
 
         guard shouldSyncFileExplorerStore else {
-            fileExplorerStore.applyWorkspaceRoot(.none)
-            Task {
-                await fileExplorerSSHSessionMonitor.update(
-                    isEnabled: false,
-                    workspaceId: nil,
-                    ttyName: nil
-                )
-            }
+            fileExplorerSSHRootSynchronizer.clear(store: fileExplorerStore)
             return
         }
 
-        let ttyName = tab.focusedPanelId.flatMap { tab.surfaceTTYNames[$0] }
-        Task {
-            await fileExplorerSSHSessionMonitor.update(
-                isEnabled: !tab.usesRemoteDirectoryProvenance,
-                workspaceId: tab.id,
-                ttyName: ttyName
-            )
-        }
-
-        let detectedSSHSession: DetectedSSHSession?
-        if let snapshot = fileExplorerSSHSnapshot,
-           snapshot.workspaceId == tab.id,
-           snapshot.ttyName == ttyName {
-            detectedSSHSession = snapshot.session
-        } else {
-            detectedSSHSession = nil
-        }
-        fileExplorerStore.applyWorkspaceRoot(
-            FileExplorerWorkspaceRootResolver().resolve(
-                workspace: tab,
-                detectedSSHSession: detectedSSHSession
-            )
+        fileExplorerSSHRootSynchronizer.applyWorkspaceRoot(
+            workspace: tab,
+            store: fileExplorerStore,
+            isEnabled: true
         )
     }
 
@@ -2804,10 +2769,7 @@ struct ContentView: View {
             syncFileExplorerDirectory()
         })
         view = AnyView(view.task {
-            let updates = await fileExplorerSSHSessionMonitor.updates()
-            for await snapshot in updates {
-                guard !Task.isCancelled else { return }
-                fileExplorerSSHSnapshot = snapshot
+            fileExplorerSSHRootSynchronizer.startObserving {
                 syncFileExplorerDirectory()
             }
         })

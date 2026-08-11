@@ -1,7 +1,7 @@
 import Foundation
 import Darwin
 
-enum RemoteShellTransport: Sendable {
+enum RemoteShellTransport: Hashable, Sendable {
     case ssh
     case eternalTerminal
 

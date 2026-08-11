@@ -385,8 +385,8 @@ struct DetectedSSHSession: Equatable, Sendable {
 #endif
 }
 
-enum TerminalSSHSessionDetector {
-    struct ProcessSnapshot: Equatable {
+struct TerminalSSHSessionDetector: Sendable {
+    struct ProcessSnapshot: Equatable, Sendable {
         let pid: Int32
         let pgid: Int32
         let tpgid: Int32
@@ -394,97 +394,106 @@ enum TerminalSSHSessionDetector {
         let executableName: String
     }
 
-    static func detect(forTTY ttyName: String) -> DetectedSSHSession? {
-        let normalizedTTY = normalizeTTYName(ttyName)
-        guard !normalizedTTY.isEmpty else { return nil }
-        let processes = processSnapshots(forTTY: normalizedTTY)
-        guard !processes.isEmpty else { return nil }
+    private static let allRemoteShellTransports: Set<RemoteShellTransport> = [.ssh, .eternalTerminal]
 
-        var argumentsByPID: [Int32: [String]] = [:]
-        for process in processes where isForegroundRemoteShellProcess(process, ttyName: normalizedTTY) {
-            if let args = commandLineArguments(forPID: process.pid) {
-                argumentsByPID[process.pid] = args
-            }
-        }
-
-        return detectForTesting(
-            ttyName: normalizedTTY,
-            processes: processes,
-            argumentsByPID: argumentsByPID
-        )
+    func detectSSH(forTTY ttyName: String) -> DetectedSSHSession? {
+        Self.detect(forTTY: ttyName, transports: [.ssh])
     }
 
-    static func detectSSH(forTTY ttyName: String) -> DetectedSSHSession? {
-        let normalizedTTY = normalizeTTYName(ttyName)
-        guard !normalizedTTY.isEmpty else { return nil }
-        let processes = processSnapshots(forTTY: normalizedTTY)
-        guard !processes.isEmpty else { return nil }
-
-        var argumentsByPID: [Int32: [String]] = [:]
-        for process in processes where isForegroundSSHProcess(process, ttyName: normalizedTTY) {
-            if let arguments = commandLineArguments(forPID: process.pid) {
-                argumentsByPID[process.pid] = arguments
-            }
-        }
-
-        return detectSSHForTesting(
-            ttyName: normalizedTTY,
-            processes: processes,
-            argumentsByPID: argumentsByPID
-        )
+    nonisolated static func detect(forTTY ttyName: String) -> DetectedSSHSession? {
+        detect(forTTY: ttyName, transports: allRemoteShellTransports)
     }
 
-    static func detectSSHForTesting(
-        ttyName: String,
-        processes: [ProcessSnapshot],
-        argumentsByPID: [Int32: [String]]
+    nonisolated static func detect(
+        forTTY ttyName: String,
+        transports: Set<RemoteShellTransport>
     ) -> DetectedSSHSession? {
         let normalizedTTY = normalizeTTYName(ttyName)
         guard !normalizedTTY.isEmpty else { return nil }
+        let processes = processSnapshots(forTTY: normalizedTTY)
+        guard !processes.isEmpty else { return nil }
 
-        let candidates = processes
-            .filter { isForegroundSSHProcess($0, ttyName: normalizedTTY) }
-            .sorted { lhs, rhs in
-                if lhs.pid != rhs.pid { return lhs.pid > rhs.pid }
-                return lhs.pgid > rhs.pgid
-            }
+        var argumentsByPID: [Int32: [String]] = [:]
+        var bestCandidate: ProcessSnapshot?
+        var bestSession: DetectedSSHSession?
 
-        for candidate in candidates {
-            guard let arguments = argumentsByPID[candidate.pid],
-                  let session = parseCommandLine(arguments, for: .ssh) else {
+        for process in processes {
+            guard isForegroundProcess(process, ttyName: normalizedTTY, transports: transports) else {
                 continue
             }
-            return session
+            guard let transport = RemoteShellTransport(executableName: process.executableName),
+                  transports.contains(transport) else {
+                continue
+            }
+            let arguments: [String]
+            if let cached = argumentsByPID[process.pid] {
+                arguments = cached
+            } else if let fetched = commandLineArguments(forPID: process.pid) {
+                argumentsByPID[process.pid] = fetched
+                arguments = fetched
+            } else {
+                continue
+            }
+            guard let session = parseCommandLine(arguments, for: transport) else {
+                continue
+            }
+            if let bestCandidate,
+               process.pid < bestCandidate.pid ||
+                (process.pid == bestCandidate.pid && process.pgid <= bestCandidate.pgid) {
+                continue
+            }
+            bestCandidate = process
+            bestSession = session
         }
 
-        return nil
+        return bestSession
     }
 
-    static func detectForTesting(
+    /// Fixture-driven detection used by unit tests via `@testable import`.
+    nonisolated static func detect(
         ttyName: String,
         processes: [ProcessSnapshot],
-        argumentsByPID: [Int32: [String]]
+        argumentsByPID: [Int32: [String]],
+        transports: Set<RemoteShellTransport> = allRemoteShellTransports
     ) -> DetectedSSHSession? {
         let normalizedTTY = normalizeTTYName(ttyName)
         guard !normalizedTTY.isEmpty else { return nil }
 
-        let candidates = processes
-            .filter { isForegroundRemoteShellProcess($0, ttyName: normalizedTTY) }
-            .sorted { lhs, rhs in
-                if lhs.pid != rhs.pid { return lhs.pid > rhs.pid }
-                return lhs.pgid > rhs.pgid
-            }
+        var bestCandidate: ProcessSnapshot?
+        var bestSession: DetectedSSHSession?
 
-        for candidate in candidates {
-            guard let transport = RemoteShellTransport(executableName: candidate.executableName),
-                  let arguments = argumentsByPID[candidate.pid],
+        for process in processes {
+            guard isForegroundProcess(process, ttyName: normalizedTTY, transports: transports),
+                  let transport = RemoteShellTransport(executableName: process.executableName),
+                  transports.contains(transport),
+                  let arguments = argumentsByPID[process.pid],
                   let session = parseCommandLine(arguments, for: transport) else {
                 continue
             }
-            return session
+            if let bestCandidate,
+               process.pid < bestCandidate.pid ||
+                (process.pid == bestCandidate.pid && process.pgid <= bestCandidate.pgid) {
+                continue
+            }
+            bestCandidate = process
+            bestSession = session
         }
 
-        return nil
+        return bestSession
+    }
+
+    /// Compatibility wrapper for existing fixture tests.
+    nonisolated static func detectForTesting(
+        ttyName: String,
+        processes: [ProcessSnapshot],
+        argumentsByPID: [Int32: [String]]
+    ) -> DetectedSSHSession? {
+        detect(
+            ttyName: ttyName,
+            processes: processes,
+            argumentsByPID: argumentsByPID,
+            transports: allRemoteShellTransports
+        )
     }
 
     private static let psPath = "/bin/ps"
@@ -500,20 +509,20 @@ enum TerminalSSHSessionDetector {
         return trimmed
     }
 
-    private static func isForegroundRemoteShellProcess(_ process: ProcessSnapshot, ttyName: String) -> Bool {
-        normalizeTTYName(process.tty) == normalizeTTYName(ttyName) &&
-            RemoteShellTransport(executableName: process.executableName) != nil &&
-            process.pgid > 0 &&
-            process.tpgid > 0 &&
-            process.pgid == process.tpgid
-    }
-
-    private static func isForegroundSSHProcess(_ process: ProcessSnapshot, ttyName: String) -> Bool {
-        normalizeTTYName(process.tty) == normalizeTTYName(ttyName) &&
-            RemoteShellTransport(executableName: process.executableName) == .ssh &&
-            process.pgid > 0 &&
-            process.tpgid > 0 &&
-            process.pgid == process.tpgid
+    private static func isForegroundProcess(
+        _ process: ProcessSnapshot,
+        ttyName: String,
+        transports: Set<RemoteShellTransport>
+    ) -> Bool {
+        guard normalizeTTYName(process.tty) == normalizeTTYName(ttyName),
+              let transport = RemoteShellTransport(executableName: process.executableName),
+              transports.contains(transport),
+              process.pgid > 0,
+              process.tpgid > 0,
+              process.pgid == process.tpgid else {
+            return false
+        }
+        return true
     }
 
     private static func processSnapshots(forTTY ttyName: String) -> [ProcessSnapshot] {

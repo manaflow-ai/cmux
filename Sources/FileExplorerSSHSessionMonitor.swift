@@ -14,19 +14,25 @@ actor FileExplorerSSHSessionMonitor {
         let ttyName: String
     }
 
-    private let pollInterval: Duration
     private let detector: Detector
     private var context: Context?
     private var snapshot: Snapshot?
-    private var pollingTask: Task<Void, Never>?
+    private var detectionTask: Task<Void, Never>?
     private var continuations: [UUID: AsyncStream<Snapshot?>.Continuation] = [:]
 
     init(
-        pollInterval: Duration = .seconds(2),
-        detector: @escaping Detector = { TerminalSSHSessionDetector.detectSSH(forTTY: $0) }
+        detector: @escaping Detector = { ttyName in
+            TerminalSSHSessionDetector().detectSSH(forTTY: ttyName)
+        }
     ) {
-        self.pollInterval = pollInterval
         self.detector = detector
+    }
+
+    deinit {
+        detectionTask?.cancel()
+        for continuation in continuations.values {
+            continuation.finish()
+        }
     }
 
     func updates() -> AsyncStream<Snapshot?> {
@@ -50,36 +56,26 @@ actor FileExplorerSSHSessionMonitor {
               let workspaceId,
               let normalizedTTY,
               !normalizedTTY.isEmpty else {
-            stopPolling(clearSession: true)
+            stopDetection(clearSession: true)
             return
         }
 
         let nextContext = Context(workspaceId: workspaceId, ttyName: normalizedTTY)
-        guard context != nextContext || pollingTask == nil else { return }
-
-        stopPolling(clearSession: true)
         context = nextContext
+        detectionTask?.cancel()
         let detector = detector
-        let pollInterval = pollInterval
-        pollingTask = Task { [weak self] in
-            while !Task.isCancelled {
-                let session = await Task.detached(priority: .utility) {
-                    detector(nextContext.ttyName)
-                }.value
-                guard !Task.isCancelled else { return }
-                await self?.record(session, for: nextContext)
-
-                do {
-                    try await ContinuousClock().sleep(for: pollInterval)
-                } catch {
-                    return
-                }
-            }
+        detectionTask = Task { [weak self] in
+            guard self != nil else { return }
+            let session = await Task.detached(priority: .utility) {
+                detector(nextContext.ttyName)
+            }.value
+            guard !Task.isCancelled, let self else { return }
+            await self.record(session, for: nextContext)
         }
     }
 
     func stop() {
-        stopPolling(clearSession: true)
+        stopDetection(clearSession: true)
         for continuation in continuations.values {
             continuation.finish()
         }
@@ -98,9 +94,9 @@ actor FileExplorerSSHSessionMonitor {
         yield(nextSnapshot)
     }
 
-    private func stopPolling(clearSession: Bool) {
-        pollingTask?.cancel()
-        pollingTask = nil
+    private func stopDetection(clearSession: Bool) {
+        detectionTask?.cancel()
+        detectionTask = nil
         context = nil
         if clearSession, snapshot != nil {
             snapshot = nil

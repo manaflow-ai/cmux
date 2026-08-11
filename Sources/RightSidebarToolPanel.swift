@@ -18,20 +18,17 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     private var fileExplorerStateStorage: FileExplorerState?
     private var sessionIndexStoreStorage: SessionIndexStore?
     private var workspaceObservationCancellable: AnyCancellable?
-    private let fileExplorerSSHSessionMonitor = FileExplorerSSHSessionMonitor()
-    private var fileExplorerSSHMonitorTask: Task<Void, Never>?
-    private var fileExplorerSSHSnapshot: FileExplorerSSHSessionMonitor.Snapshot?
+    private let fileExplorerSSHRootSynchronizer = FileExplorerSSHRootSynchronizer()
     private var isVisibleInUI = false
 
     init(workspace: Workspace, mode: RightSidebarMode) {
         self.id = UUID()
         self.mode = mode
+        fileExplorerSSHRootSynchronizer.startObserving { [weak self] in
+            guard let self, let workspace = self.workspace else { return }
+            self.syncWorkspaceRoot(from: workspace)
+        }
         reattach(to: workspace)
-        observeSSHSessionUpdates()
-    }
-
-    deinit {
-        fileExplorerSSHMonitorTask?.cancel()
     }
 
     var fileExplorerStore: FileExplorerStore {
@@ -133,11 +130,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         fileExplorerStoreStorage?.applyWorkspaceRoot(.none)
         sessionIndexStoreStorage?.setCurrentDirectoryIfChanged(nil)
         workspaceObservationCancellable = nil
-        fileExplorerSSHMonitorTask?.cancel()
-        fileExplorerSSHMonitorTask = nil
-        Task {
-            await fileExplorerSSHSessionMonitor.stop()
-        }
+        fileExplorerSSHRootSynchronizer.stop()
     }
 
     func setVisibleInUI(_ isVisible: Bool) {
@@ -198,6 +191,12 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
             workspace.$remoteConnectionDetail.map { _ in () }.eraseToAnyPublisher(),
             workspace.$remoteDaemonStatus.map { _ in () }.eraseToAnyPublisher(),
             NotificationCenter.default.publisher(for: .ghosttyDidFocusSurface)
+                .filter { [weak workspace] notification in
+                    guard let workspace,
+                          let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID
+                    else { return false }
+                    return tabId == workspace.id
+                }
                 .map { _ in () }
                 .eraseToAnyPublisher()
         )
@@ -209,49 +208,12 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         }
     }
 
-    private func observeSSHSessionUpdates() {
-        let monitor = fileExplorerSSHSessionMonitor
-        fileExplorerSSHMonitorTask = Task { [weak self] in
-            let updates = await monitor.updates()
-            for await snapshot in updates {
-                guard !Task.isCancelled, let self else { return }
-                self.fileExplorerSSHSnapshot = snapshot
-                guard let workspace = self.workspace,
-                      let store = self.fileExplorerStoreStorage else {
-                    continue
-                }
-                self.syncFileExplorerRoot(from: workspace, store: store)
-            }
-        }
-    }
-
     private func syncFileExplorerRoot(from workspace: Workspace, store: FileExplorerStore) {
-        store.showHiddenFiles = true
-        let ttyName = workspace.focusedPanelId.flatMap { workspace.surfaceTTYNames[$0] }
-        let shouldMonitor = isVisibleInUI &&
-            (mode == .files || mode == .find) &&
-            !workspace.usesRemoteDirectoryProvenance
-        Task {
-            await fileExplorerSSHSessionMonitor.update(
-                isEnabled: shouldMonitor,
-                workspaceId: workspace.id,
-                ttyName: ttyName
-            )
-        }
-
-        let detectedSSHSession: DetectedSSHSession?
-        if let snapshot = fileExplorerSSHSnapshot,
-           snapshot.workspaceId == workspace.id,
-           snapshot.ttyName == ttyName {
-            detectedSSHSession = snapshot.session
-        } else {
-            detectedSSHSession = nil
-        }
-        store.applyWorkspaceRoot(
-            FileExplorerWorkspaceRootResolver().resolve(
-                workspace: workspace,
-                detectedSSHSession: detectedSSHSession
-            )
+        let shouldMonitor = isVisibleInUI && (mode == .files || mode == .find)
+        fileExplorerSSHRootSynchronizer.applyWorkspaceRoot(
+            workspace: workspace,
+            store: store,
+            isEnabled: shouldMonitor
         )
     }
 

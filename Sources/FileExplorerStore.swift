@@ -304,7 +304,8 @@ struct SSHFileExplorerConnection: Equatable, Sendable {
            !identityFile.isEmpty {
             arguments += ["-i", identityFile]
         }
-        for option in sshOptions where Self.optionKey(option) != "batchmode" {
+        let overriddenOptionKeys: Set<String> = ["batchmode", "connecttimeout"]
+        for option in sshOptions where !overriddenOptionKeys.contains(Self.optionKey(option) ?? "") {
             arguments += ["-o", option]
         }
         arguments += ["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-T"]
