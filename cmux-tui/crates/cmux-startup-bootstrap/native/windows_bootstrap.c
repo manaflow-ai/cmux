@@ -57,6 +57,13 @@
 #define EXIT_PRODUCT_CREATE_NO_WINDOW (1u << 8)
 #define MAX_RESTRICTING_SID_BYTES 184u
 #define PRIVATE_OBJECT_NAME_CHARS 96u
+#define PRIVATE_DESKTOP_ALL_ACCESS 0x000f01ffu
+#if PRIVATE_DESKTOP_ALL_ACCESS != (STANDARD_RIGHTS_REQUIRED \
+    | DESKTOP_READOBJECTS | DESKTOP_CREATEWINDOW | DESKTOP_CREATEMENU \
+    | DESKTOP_HOOKCONTROL | DESKTOP_JOURNALRECORD | DESKTOP_JOURNALPLAYBACK \
+    | DESKTOP_ENUMERATE | DESKTOP_WRITEOBJECTS | DESKTOP_SWITCHDESKTOP)
+#error "private desktop access mask does not match Windows desktop rights"
+#endif
 #define STAGE_CONFIG_CONSUMED 1u
 #define STAGE_LAUNCH_VALIDATED 2u
 #define STAGE_STANDARD_HANDLES_VALIDATED 3u
@@ -1249,7 +1256,9 @@ static int restricted_desktop_access_proof(
     if (!ImpersonateLoggedOnUser(security->restricted_token)) goto cleanup;
     impersonating = 1;
     opened_station = OpenWindowStationW(desktop->station_name, FALSE, WINSTA_ALL_ACCESS);
-    opened_desktop = OpenDesktopW(desktop->desktop_name, 0, FALSE, DESKTOP_ALL_ACCESS);
+    opened_desktop = OpenDesktopW(
+        desktop->desktop_name, 0, FALSE, PRIVATE_DESKTOP_ALL_ACCESS
+    );
     result = opened_station != NULL && opened_desktop != NULL;
 cleanup:
     if (!result) error = GetLastError();
@@ -1347,7 +1356,7 @@ static int prepare_private_desktop(
             &desktop->station_low_integrity_proven)
         || !object_security_proof((HANDLE)desktop->desktop, account->User.Sid,
             security->restricting_sid, security->system_restricting_sid, low_sid,
-            DESKTOP_ALL_ACCESS, &desktop->desktop_dacl_proven,
+            PRIVATE_DESKTOP_ALL_ACCESS, &desktop->desktop_dacl_proven,
             &desktop->desktop_low_integrity_proven)
         || !restricted_desktop_access_proof(security, desktop)) {
         goto cleanup;
