@@ -18511,6 +18511,57 @@ mod tests {
     }
 
     #[test]
+    fn terminal_close_patch_excludes_unrelated_workspace_resources() {
+        let mux = test_mux();
+        let closing = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let host = mux.resource_terminal_host_identity(&closing).unwrap();
+        let workspace = mux.with_state(|state| {
+            let pane = state.pane_of(closing.id).unwrap();
+            let (workspace, _) = state.screen_of(pane).unwrap();
+            state.workspaces[workspace].id
+        });
+        let unrelated = mux.new_screen(Some(workspace), Some((80, 24))).unwrap();
+        let unrelated_ids = mux.with_state(|state| {
+            let pane = state.pane_of(unrelated.id).unwrap();
+            let (_, screen) = state.screen_of(pane).unwrap();
+            (
+                state.workspaces[state.workspace_index(workspace).unwrap()].screens[screen]
+                    .public_id
+                    .to_string(),
+                state.resource_indexes.pane_ids[&pane].to_string(),
+                state.resource_indexes.tab_ids[&unrelated.id].to_string(),
+            )
+        });
+        let before_revision = mux.with_state(|state| state.resource_revision);
+
+        mux.close_terminal_with_mutation(
+            &host.terminal_id,
+            Some(&host.incarnation),
+            None,
+            None,
+            &WorkspaceMutation::new("close-with-unrelated-screen", "test").unwrap(),
+        )
+        .unwrap();
+
+        let batches = mux.resource_events_after(before_revision).unwrap().batches;
+        assert_eq!(batches.len(), 1);
+        let changes = batches[0].changes.as_array().unwrap();
+        for (resource, id) in [
+            ("screen", unrelated_ids.0.as_str()),
+            ("pane", unrelated_ids.1.as_str()),
+            ("tab", unrelated_ids.2.as_str()),
+        ] {
+            assert!(
+                changes
+                    .iter()
+                    .all(|change| change["resource"] != resource || change["id"] != id),
+                "terminal close included unrelated {resource} {id}"
+            );
+        }
+        mux.shutdown();
+    }
+
+    #[test]
     fn persistent_mux_restart_restores_auxiliary_resources_and_exact_replay() {
         let root = std::env::temp_dir().join(format!(
             "cmux-resource-auxiliary-restart-{}",
