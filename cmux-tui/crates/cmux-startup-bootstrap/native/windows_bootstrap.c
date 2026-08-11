@@ -13,12 +13,12 @@
 #pragma comment(lib, "advapi32.lib")
 #pragma comment(lib, "user32.lib")
 
-#define SCHEMA_VERSION 4u
+#define SCHEMA_VERSION 5u
 #define MAX_CONFIG_BYTES (64u * 1024u)
 #define MAX_WIDE_CHARS 32767u
 #define CONFIG_HEADER_BYTES 104u
 #define RECORD_HEADER_BYTES 56u
-#define CONFIG_FIELD_COUNT 9u
+#define CONFIG_FIELD_COUNT 10u
 #define EVENT_STAGE 1u
 #define EVENT_READY 2u
 #define EVENT_EXIT 3u
@@ -46,6 +46,9 @@
 #define READY_WINDOW_STATION_LOW_INTEGRITY (1u << 19)
 #define READY_DESKTOP_LOW_INTEGRITY (1u << 20)
 #define READY_RESTRICTED_DESKTOP_ACCESS (1u << 21)
+#define READY_RESTRICTED_LOGON_SID_MATCH (1u << 22)
+#define READY_WINDOW_STATION_LOGON_SID_DACL (1u << 23)
+#define READY_DESKTOP_LOGON_SID_DACL (1u << 24)
 #define EXIT_CREATE_PROCESS_AS_USER_SUCCEEDED (1u << 0)
 #define EXIT_PRODUCT_AUTHENTICATION_MATCH (1u << 1)
 #define EXIT_PRODUCT_LOW_INTEGRITY (1u << 2)
@@ -55,6 +58,7 @@
 #define EXIT_PRODUCT_SYSTEM_RESTRICTING_SID_MATCH (1u << 6)
 #define EXIT_PRODUCT_PRIVATE_DESKTOP (1u << 7)
 #define EXIT_PRODUCT_CREATE_NO_WINDOW (1u << 8)
+#define EXIT_PRODUCT_LOGON_SID_MATCH (1u << 9)
 #define MAX_RESTRICTING_SID_BYTES 184u
 #define PRIVATE_OBJECT_NAME_CHARS 96u
 #define PRIVATE_DESKTOP_ALL_ACCESS 0x000f01ffu
@@ -104,6 +108,7 @@ typedef struct BootstrapConfig {
     WCHAR *trusted_probe;
     char bootstrap_sha256[65];
     char restricting_sid[MAX_RESTRICTING_SID_BYTES + 1u];
+    char logon_sid[MAX_RESTRICTING_SID_BYTES + 1u];
     WCHAR *private_window_station;
     WCHAR *private_desktop;
     WCHAR **arguments;
@@ -134,6 +139,8 @@ typedef struct PrivateDesktop {
     int station_low_integrity_proven;
     int desktop_low_integrity_proven;
     int restricted_access_proven;
+    int station_logon_sid_dacl_proven;
+    int desktop_logon_sid_dacl_proven;
 } PrivateDesktop;
 
 typedef struct EntryArguments {
@@ -295,9 +302,9 @@ static int send_event(
     const unsigned char *payload,
     uint32_t payload_length
 ) {
-    unsigned char record[RECORD_HEADER_BYTES + 256];
+    unsigned char record[RECORD_HEADER_BYTES + 512];
     uint32_t total = RECORD_HEADER_BYTES + payload_length;
-    if (payload_length > 256u) {
+    if (payload_length > 512u) {
         SetLastError(ERROR_BUFFER_OVERFLOW);
         return 0;
     }
@@ -389,6 +396,25 @@ static int take_sid(BufferCursor *cursor, char output[MAX_RESTRICTING_SID_BYTES 
     return output[0] == 'S' && output[1] == '-' && output[2] == '1' && output[3] == '-';
 }
 
+static int logon_sid_text_valid(const char *value) {
+    static const char PREFIX[] = "S-1-5-5-";
+    SIZE_T index;
+    unsigned int separators = 0u;
+    for (index = 0; index + 1u < sizeof(PREFIX); ++index) {
+        if (value[index] != PREFIX[index]) return 0;
+    }
+    for (index = sizeof(PREFIX) - 1u; value[index] != '\0'; ++index) {
+        if (value[index] == '-') {
+            ++separators;
+        } else if (value[index] < '0' || value[index] > '9') {
+            return 0;
+        }
+    }
+    return separators == 1u
+        && value[sizeof(PREFIX) - 1u] != '-'
+        && value[index - 1u] != '-';
+}
+
 static void free_config(BootstrapConfig *config) {
     uint32_t index;
     heap_release(config->timing);
@@ -441,7 +467,9 @@ static int parse_config(const unsigned char *bytes, SIZE_T length, BootstrapConf
     }
     config->trusted_probe = take_utf16(&cursor);
     if (config->trusted_probe == NULL || !take_hash(&cursor, config->bootstrap_sha256)
-        || !take_sid(&cursor, config->restricting_sid)) {
+        || !take_sid(&cursor, config->restricting_sid)
+        || !take_sid(&cursor, config->logon_sid)
+        || !logon_sid_text_valid(config->logon_sid)) {
         free_config(config);
         return 0;
     }
@@ -929,6 +957,7 @@ typedef struct TokenProof {
     int restricted;
     int restricting_sid_match;
     int system_restricting_sid_match;
+    int logon_sid_match;
 } TokenProof;
 
 typedef struct BrokerSecurity {
@@ -936,6 +965,7 @@ typedef struct BrokerSecurity {
     HANDLE restricted_token;
     PSID restricting_sid;
     PSID system_restricting_sid;
+    PSID logon_sid;
     TokenProof broker;
     TokenProof restricted;
     int se_increase_quota_present;
@@ -990,6 +1020,7 @@ static uint32_t product_proof_flags(
     if (proof->token.system_restricting_sid_match) {
         flags |= EXIT_PRODUCT_SYSTEM_RESTRICTING_SID_MATCH;
     }
+    if (proof->token.logon_sid_match) flags |= EXIT_PRODUCT_LOGON_SID_MATCH;
     if (proof->private_desktop) flags |= EXIT_PRODUCT_PRIVATE_DESKTOP;
     if (proof->create_no_window) flags |= EXIT_PRODUCT_CREATE_NO_WINDOW;
     return flags;
@@ -999,12 +1030,14 @@ static int token_proof(
     HANDLE token,
     PSID expected_sid,
     PSID expected_system_sid,
+    PSID expected_logon_sid,
     TokenProof *proof
 ) {
     TOKEN_STATISTICS *statistics = NULL;
     TOKEN_MANDATORY_LABEL *label = NULL;
     TOKEN_PRIVILEGES *privileges = NULL;
     TOKEN_GROUPS *restricted_sids = NULL;
+    TOKEN_GROUPS *groups = NULL;
     DWORD index;
     UCHAR *subauthority_count;
     DWORD *integrity_rid;
@@ -1014,7 +1047,9 @@ static int token_proof(
     label = (TOKEN_MANDATORY_LABEL *)token_information(token, TokenIntegrityLevel);
     privileges = (TOKEN_PRIVILEGES *)token_information(token, TokenPrivileges);
     restricted_sids = (TOKEN_GROUPS *)token_information(token, TokenRestrictedSids);
-    if (statistics == NULL || label == NULL || privileges == NULL || restricted_sids == NULL) {
+    groups = (TOKEN_GROUPS *)token_information(token, TokenGroups);
+    if (statistics == NULL || label == NULL || privileges == NULL || restricted_sids == NULL
+        || groups == NULL) {
         goto cleanup;
     }
     proof->authentication_id = statistics->AuthenticationId;
@@ -1055,12 +1090,27 @@ static int token_proof(
         proof->restricting_sid_match = 0;
         proof->system_restricting_sid_match = 0;
     }
+    proof->logon_sid_match = expected_logon_sid == NULL ? 1 : 0;
+    {
+        DWORD logon_sid_count = 0u;
+        for (index = 0; index < groups->GroupCount; ++index) {
+            SID_AND_ATTRIBUTES *group = &groups->Groups[index];
+            if ((group->Attributes & SE_GROUP_LOGON_ID) == SE_GROUP_LOGON_ID) {
+                ++logon_sid_count;
+                if (expected_logon_sid != NULL && EqualSid(group->Sid, expected_logon_sid)) {
+                    proof->logon_sid_match = 1;
+                }
+            }
+        }
+        if (logon_sid_count != 1u) proof->logon_sid_match = 0;
+    }
     result = 1;
 cleanup:
     heap_release(statistics);
     heap_release(label);
     heap_release(privileges);
     heap_release(restricted_sids);
+    heap_release(groups);
     return result;
 }
 
@@ -1206,6 +1256,7 @@ static int acl_has_low_mandatory_label(PACL acl, PSID low_sid) {
 static int object_security_proof(
     HANDLE object,
     PSID account_sid,
+    PSID logon_sid,
     PSID restricting_sid,
     PSID system_restricting_sid,
     PSID low_sid,
@@ -1233,6 +1284,7 @@ static int object_security_proof(
         return 0;
     }
     *dacl_proven = acl_grants_sid(dacl, account_sid, required_access)
+        && acl_grants_sid(dacl, logon_sid, required_access)
         && acl_grants_sid(dacl, restricting_sid, required_access)
         && acl_grants_sid(dacl, system_restricting_sid, required_access);
     *low_integrity_proven = acl_has_low_mandatory_label(sacl, low_sid);
@@ -1351,16 +1403,20 @@ static int prepare_private_desktop(
         || !qualified_desktop_name(desktop->station_name, desktop->desktop_name,
             desktop->qualified_name, PRIVATE_OBJECT_NAME_CHARS * 2u)
         || !object_security_proof((HANDLE)desktop->station, account->User.Sid,
+            security->logon_sid,
             security->restricting_sid, security->system_restricting_sid, low_sid,
             WINSTA_ALL_ACCESS, &desktop->station_dacl_proven,
             &desktop->station_low_integrity_proven)
         || !object_security_proof((HANDLE)desktop->desktop, account->User.Sid,
+            security->logon_sid,
             security->restricting_sid, security->system_restricting_sid, low_sid,
             PRIVATE_DESKTOP_ALL_ACCESS, &desktop->desktop_dacl_proven,
             &desktop->desktop_low_integrity_proven)
         || !restricted_desktop_access_proof(security, desktop)) {
         goto cleanup;
     }
+    desktop->station_logon_sid_dacl_proven = 1;
+    desktop->desktop_logon_sid_dacl_proven = 1;
     desktop->restricted_access_proven = 1;
     result = 1;
 cleanup:
@@ -1379,6 +1435,7 @@ static void close_broker_security(BrokerSecurity *security) {
     if (security->primary_token != NULL) CloseHandle(security->primary_token);
     if (security->restricting_sid != NULL) LocalFree(security->restricting_sid);
     if (security->system_restricting_sid != NULL) LocalFree(security->system_restricting_sid);
+    if (security->logon_sid != NULL) LocalFree(security->logon_sid);
     memory_zero(security, sizeof(*security));
 }
 
@@ -1402,6 +1459,7 @@ static int prepare_broker_security(const BootstrapConfig *config, BrokerSecurity
             &security->se_increase_quota_enabled)
         || !ConvertStringSidToSidA(config->restricting_sid, &security->restricting_sid)
         || !ConvertStringSidToSidW(L"S-1-5-33", &security->system_restricting_sid)
+        || !ConvertStringSidToSidA(config->logon_sid, &security->logon_sid)
         || !ConvertStringSidToSidW(L"S-1-16-4096", &low_sid)) {
         goto failure;
     }
@@ -1430,11 +1488,13 @@ static int prepare_broker_security(const BootstrapConfig *config, BrokerSecurity
             &label,
             (DWORD)sizeof(label) + GetLengthSid(low_sid))
         || !disable_all_privileges(security->restricted_token)
-        || !token_proof(security->primary_token, NULL, NULL, &security->broker)
+        || !token_proof(
+            security->primary_token, NULL, NULL, security->logon_sid, &security->broker)
         || !token_proof(
             security->restricted_token,
             security->restricting_sid,
             security->system_restricting_sid,
+            security->logon_sid,
             &security->restricted)
         || !luid_equal(
             security->broker.authentication_id,
@@ -1443,7 +1503,9 @@ static int prepare_broker_security(const BootstrapConfig *config, BrokerSecurity
         || !security->restricted.low_integrity
         || !security->restricted.no_enabled_privileges
         || !security->restricted.restricting_sid_match
-        || !security->restricted.system_restricting_sid_match) {
+        || !security->restricted.system_restricting_sid_match
+        || !security->broker.logon_sid_match
+        || !security->restricted.logon_sid_match) {
         goto failure;
     }
     LocalFree(low_sid);
@@ -1515,13 +1577,14 @@ static int create_product(
         || !proof->contained
         || !OpenProcessToken(process.hProcess, TOKEN_QUERY, &product_token)
         || !token_proof(product_token, security->restricting_sid,
-            security->system_restricting_sid, &proof->token)
+            security->system_restricting_sid, security->logon_sid, &proof->token)
         || !luid_equal(proof->token.authentication_id, security->broker.authentication_id)
         || !proof->token.restricted
         || !proof->token.low_integrity
         || !proof->token.no_enabled_privileges
         || !proof->token.restricting_sid_match
         || !proof->token.system_restricting_sid_match
+        || !proof->token.logon_sid_match
         || !proof->private_desktop
         || !proof->create_no_window) {
         if (!proof->contained) SetLastError(ERROR_ACCESS_DENIED);
@@ -1700,7 +1763,7 @@ static int bootstrap_run(const EntryArguments *entry) {
     ProductProof product;
     TimingPage timing;
     DWORD exit_code = 125;
-    unsigned char payload[256];
+    unsigned char payload[512];
     uint32_t flags;
     DWORD query_handle_flags = 0;
     DWORD error;
@@ -1773,6 +1836,7 @@ static int bootstrap_run(const EntryArguments *entry) {
     if (security.restricted.system_restricting_sid_match) {
         flags |= READY_SYSTEM_RESTRICTING_SID_MATCH;
     }
+    if (security.restricted.logon_sid_match) flags |= READY_RESTRICTED_LOGON_SID_MATCH;
     if (private_desktop.station != NULL) flags |= READY_PRIVATE_WINDOW_STATION;
     if (private_desktop.desktop != NULL) flags |= READY_PRIVATE_DESKTOP;
     if (private_desktop.station_dacl_proven) flags |= READY_WINDOW_STATION_DACL;
@@ -1784,6 +1848,12 @@ static int bootstrap_run(const EntryArguments *entry) {
         flags |= READY_DESKTOP_LOW_INTEGRITY;
     }
     if (private_desktop.restricted_access_proven) flags |= READY_RESTRICTED_DESKTOP_ACCESS;
+    if (private_desktop.station_logon_sid_dacl_proven) {
+        flags |= READY_WINDOW_STATION_LOGON_SID_DACL;
+    }
+    if (private_desktop.desktop_logon_sid_dacl_proven) {
+        flags |= READY_DESKTOP_LOGON_SID_DACL;
+    }
     {
         SIZE_T index;
         for (index = 0; index < 32u; ++index) {
@@ -1802,13 +1872,20 @@ static int bootstrap_run(const EntryArguments *entry) {
     write_u32(payload + 44, (uint32_t)security.restricted.authentication_id.HighPart);
     {
         SIZE_T sid_length = 0;
+        SIZE_T logon_sid_length = 0;
         while (sid_length <= MAX_RESTRICTING_SID_BYTES
             && config.restricting_sid[sid_length] != '\0') ++sid_length;
-        if (sid_length == 0u || sid_length > MAX_RESTRICTING_SID_BYTES) goto failure;
+        while (logon_sid_length <= MAX_RESTRICTING_SID_BYTES
+            && config.logon_sid[logon_sid_length] != '\0') ++logon_sid_length;
+        if (sid_length == 0u || sid_length > MAX_RESTRICTING_SID_BYTES
+            || logon_sid_length == 0u || logon_sid_length > MAX_RESTRICTING_SID_BYTES
+            || 56u + sid_length + logon_sid_length > sizeof(payload)) goto failure;
         write_u32(payload + 48, (uint32_t)sid_length);
-        memory_copy(payload + 52, config.restricting_sid, sid_length);
+        write_u32(payload + 52, (uint32_t)logon_sid_length);
+        memory_copy(payload + 56, config.restricting_sid, sid_length);
+        memory_copy(payload + 56 + sid_length, config.logon_sid, logon_sid_length);
         if (!send_event(config.control_write, config.nonce, EVENT_READY, flags,
-            payload, (uint32_t)(52u + sid_length))) goto failure;
+            payload, (uint32_t)(56u + sid_length + logon_sid_length))) goto failure;
     }
     if (!read_arm(config.control_read, config.nonce)) goto failure;
     if (!create_product(

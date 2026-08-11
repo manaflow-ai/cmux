@@ -35,11 +35,27 @@ pub const BOOTSTRAP_CLEANUP_TIMEOUT: std::time::Duration = std::time::Duration::
 pub const BOOTSTRAP_HANG_CAPTURE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 pub const MAX_BOOTSTRAP_HANG_REPORT_BYTES: u64 = 256 * 1024;
 pub const MAX_BOOTSTRAP_HANG_DUMP_BYTES: u64 = 16 * 1024 * 1024;
-pub const WINDOWS_DESKTOP_LIFECYCLE_SCHEMA_VERSION: u32 = 1;
+pub const WINDOWS_DESKTOP_LIFECYCLE_SCHEMA_VERSION: u32 = 2;
 
 fn validate_hex(value: &str, length: usize, name: &str) -> Result<()> {
     if value.len() != length || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         bail!("{name} must be {length} hexadecimal characters");
+    }
+    Ok(())
+}
+
+fn validate_logon_sid(value: &str) -> Result<()> {
+    let (high, low) = value
+        .strip_prefix("S-1-5-5-")
+        .and_then(|suffix| suffix.split_once('-'))
+        .filter(|(_, low)| !low.contains('-'))
+        .context("Windows logon-session SID did not have the S-1-5-5-X-Y form")?;
+    if high.is_empty()
+        || low.is_empty()
+        || !high.bytes().all(|byte| byte.is_ascii_digit())
+        || !low.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        bail!("Windows logon-session SID did not have the S-1-5-5-X-Y form");
     }
     Ok(())
 }
@@ -51,6 +67,12 @@ pub struct WindowsDesktopLifecycleEvidence {
     pub nonce: String,
     pub private_window_station: String,
     pub private_desktop: String,
+    pub account_sid: String,
+    pub logon_sid: String,
+    pub restricting_sid: String,
+    pub system_restricting_sid: String,
+    pub private_window_station_logon_sid_dacl_proven: bool,
+    pub private_desktop_logon_sid_dacl_proven: bool,
     pub supervisor_window_station_before: String,
     pub supervisor_desktop_before: String,
     pub supervisor_window_station_after_create: String,
@@ -76,7 +98,21 @@ impl WindowsDesktopLifecycleEvidence {
         if self.private_window_station != station || self.private_desktop != desktop {
             bail!("Windows private desktop lifecycle identity changed");
         }
-        if self.supervisor_window_station_before.is_empty()
+        for (name, sid) in [
+            ("account", &self.account_sid),
+            ("logon", &self.logon_sid),
+            ("restricting", &self.restricting_sid),
+            ("system restricting", &self.system_restricting_sid),
+        ] {
+            if !sid.starts_with("S-1-") || sid.len() > 184 {
+                bail!("Windows desktop lifecycle {name} SID was invalid");
+            }
+        }
+        validate_logon_sid(&self.logon_sid)?;
+        if self.system_restricting_sid != cmux_startup_bootstrap::WINDOWS_WRITE_RESTRICTED_CODE_SID
+            || !self.private_window_station_logon_sid_dacl_proven
+            || !self.private_desktop_logon_sid_dacl_proven
+            || self.supervisor_window_station_before.is_empty()
             || self.supervisor_desktop_before.is_empty()
             || self.supervisor_window_station_after_create != self.supervisor_window_station_before
             || self.supervisor_desktop_after_create != self.supervisor_desktop_before
@@ -974,6 +1010,13 @@ mod tests {
             nonce,
             private_window_station,
             private_desktop,
+            account_sid: "S-1-5-21-1-2-3-1001".into(),
+            logon_sid: "S-1-5-5-123-456".into(),
+            restricting_sid: "S-1-5-21-1-2-3-4".into(),
+            system_restricting_sid: cmux_startup_bootstrap::WINDOWS_WRITE_RESTRICTED_CODE_SID
+                .into(),
+            private_window_station_logon_sid_dacl_proven: true,
+            private_desktop_logon_sid_dacl_proven: true,
             supervisor_window_station_before: "Service-0x0-3e7$\\Default".into(),
             supervisor_desktop_before: "Default".into(),
             supervisor_window_station_after_create: "Service-0x0-3e7$\\Default".into(),
@@ -1015,6 +1058,27 @@ mod tests {
     }
 
     #[test]
+    fn windows_desktop_lifecycle_requires_exact_logon_sid_dacl_proof() {
+        let evidence = valid_windows_desktop_lifecycle_evidence();
+
+        let mut station_missing = evidence.clone();
+        station_missing.private_window_station_logon_sid_dacl_proven = false;
+        assert!(station_missing.validate(&station_missing.nonce).is_err());
+
+        let mut desktop_missing = evidence.clone();
+        desktop_missing.private_desktop_logon_sid_dacl_proven = false;
+        assert!(desktop_missing.validate(&desktop_missing.nonce).is_err());
+
+        let mut invalid_sid = evidence;
+        invalid_sid.logon_sid = "not-a-sid".into();
+        assert!(invalid_sid.validate(&invalid_sid.nonce).is_err());
+
+        let mut wrong_kind = valid_windows_desktop_lifecycle_evidence();
+        wrong_kind.logon_sid = "S-1-5-21-1-2-3-1001".into();
+        assert!(wrong_kind.validate(&wrong_kind.nonce).is_err());
+    }
+
+    #[test]
     fn windows_desktop_lifecycle_rejects_wrong_length_nonce() {
         let evidence = valid_windows_desktop_lifecycle_evidence();
         let nonce = "ab".repeat(NONCE_BYTES - 1);
@@ -1052,8 +1116,10 @@ mod tests {
             exact_job_proof: true,
             trusted_path_write_denied: true,
             bootstrap_write_denied: true,
+            account_sid: "S-1-5-21-1-2-3-1001".into(),
             restricting_sid: "S-1-5-21-1-2-3-4".into(),
             system_restricting_sid: cmux_startup_bootstrap::WINDOWS_WRITE_RESTRICTED_CODE_SID.into(),
+            logon_sid: "S-1-5-5-123-456".into(),
             private_window_station: "cmux-ws-abababababababababababababababab".into(),
             private_desktop:
                 "cmux-ws-abababababababababababababababab\\cmux-desk-abababababababababababababababab"
@@ -1071,16 +1137,20 @@ mod tests {
             restricted_token_write_restricted: true,
             restricted_token_restricting_sid_match: true,
             restricted_token_system_restricting_sid_match: true,
+            restricted_token_logon_sid_match: true,
             restricted_token_low_integrity: true,
             restricted_token_no_enabled_privileges: true,
             window_station_dacl_proven: true,
             desktop_dacl_proven: true,
+            window_station_logon_sid_dacl_proven: true,
+            desktop_logon_sid_dacl_proven: true,
             window_station_low_integrity: true,
             desktop_low_integrity: true,
             restricted_desktop_access_proven: true,
             product_write_restricted: true,
             product_restricting_sid_match: true,
             product_system_restricting_sid_match: true,
+            product_logon_sid_match: true,
             product_low_integrity: true,
             product_no_enabled_privileges: true,
             product_exact_job: true,

@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
-pub const BOOTSTRAP_SCHEMA_VERSION: u32 = 4;
+pub const BOOTSTRAP_SCHEMA_VERSION: u32 = 5;
 pub const MAX_BOOTSTRAP_CONFIG_BYTES: usize = 64 * 1024;
 pub const MAX_BOOTSTRAP_RECORD_BYTES: usize = 4 * 1024;
 pub const CONFIG_MAGIC: [u8; 8] = *b"CMUXB001";
@@ -14,7 +14,7 @@ pub const NATIVE_ENTRY_CHECKPOINT_MAGIC: [u8; 8] = *b"CMUXN001";
 
 const CONFIG_HEADER_BYTES: usize = 104;
 const RECORD_HEADER_BYTES: usize = 56;
-const CONFIG_FIELD_COUNT: u32 = 9;
+const CONFIG_FIELD_COUNT: u32 = 10;
 const REQUIRED_HANDLE_COUNT: usize = 6;
 const MAX_PRODUCT_ARGUMENTS: usize = 1024;
 const READY_CONFIG_CONSUMED: u32 = 1 << 0;
@@ -39,6 +39,9 @@ const READY_DESKTOP_DACL: u32 = 1 << 18;
 const READY_WINDOW_STATION_LOW_INTEGRITY: u32 = 1 << 19;
 const READY_DESKTOP_LOW_INTEGRITY: u32 = 1 << 20;
 const READY_RESTRICTED_DESKTOP_ACCESS: u32 = 1 << 21;
+const READY_RESTRICTED_LOGON_SID_MATCH: u32 = 1 << 22;
+const READY_WINDOW_STATION_LOGON_SID_DACL: u32 = 1 << 23;
+const READY_DESKTOP_LOGON_SID_DACL: u32 = 1 << 24;
 const READY_ALL_FLAGS: u32 = READY_CONFIG_CONSUMED
     | READY_HANDLES_VALID
     | READY_HANDLES_INHERITABLE
@@ -60,7 +63,10 @@ const READY_ALL_FLAGS: u32 = READY_CONFIG_CONSUMED
     | READY_DESKTOP_DACL
     | READY_WINDOW_STATION_LOW_INTEGRITY
     | READY_DESKTOP_LOW_INTEGRITY
-    | READY_RESTRICTED_DESKTOP_ACCESS;
+    | READY_RESTRICTED_DESKTOP_ACCESS
+    | READY_RESTRICTED_LOGON_SID_MATCH
+    | READY_WINDOW_STATION_LOGON_SID_DACL
+    | READY_DESKTOP_LOGON_SID_DACL;
 const EXIT_CREATE_PROCESS_AS_USER_SUCCEEDED: u32 = 1 << 0;
 const EXIT_PRODUCT_AUTHENTICATION_MATCH: u32 = 1 << 1;
 const EXIT_PRODUCT_LOW_INTEGRITY: u32 = 1 << 2;
@@ -70,6 +76,7 @@ const EXIT_PRODUCT_RESTRICTING_SID_MATCH: u32 = 1 << 5;
 const EXIT_PRODUCT_SYSTEM_RESTRICTING_SID_MATCH: u32 = 1 << 6;
 const EXIT_PRODUCT_PRIVATE_DESKTOP: u32 = 1 << 7;
 const EXIT_PRODUCT_CREATE_NO_WINDOW: u32 = 1 << 8;
+const EXIT_PRODUCT_LOGON_SID_MATCH: u32 = 1 << 9;
 const EXIT_ALL_FLAGS: u32 = EXIT_CREATE_PROCESS_AS_USER_SUCCEEDED
     | EXIT_PRODUCT_AUTHENTICATION_MATCH
     | EXIT_PRODUCT_LOW_INTEGRITY
@@ -78,7 +85,8 @@ const EXIT_ALL_FLAGS: u32 = EXIT_CREATE_PROCESS_AS_USER_SUCCEEDED
     | EXIT_PRODUCT_RESTRICTING_SID_MATCH
     | EXIT_PRODUCT_SYSTEM_RESTRICTING_SID_MATCH
     | EXIT_PRODUCT_PRIVATE_DESKTOP
-    | EXIT_PRODUCT_CREATE_NO_WINDOW;
+    | EXIT_PRODUCT_CREATE_NO_WINDOW
+    | EXIT_PRODUCT_LOGON_SID_MATCH;
 const MAX_RESTRICTING_SID_BYTES: usize = 184;
 pub const WINDOWS_WRITE_RESTRICTED_CODE_SID: &str = "S-1-5-33";
 
@@ -92,6 +100,7 @@ pub struct BootstrapProductLaunch {
     pub trusted_path_probe: PathBuf,
     pub expected_bootstrap_sha256: String,
     pub restricting_sid: String,
+    pub logon_sid: String,
     pub private_window_station: String,
     pub private_desktop: String,
 }
@@ -116,6 +125,7 @@ impl BootstrapConfig {
         validate_hex(&self.launch.target_sha256, 64, "bootstrap target SHA-256")?;
         validate_hex(&self.launch.expected_bootstrap_sha256, 64, "bootstrap executable SHA-256")?;
         validate_restricting_sid(&self.launch.restricting_sid)?;
+        validate_logon_sid(&self.launch.logon_sid)?;
         let (expected_station, expected_desktop) = windows_private_desktop_identity(&self.nonce)?;
         if self.launch.private_window_station != expected_station
             || format!("{}\\{}", self.launch.private_window_station, self.launch.private_desktop)
@@ -243,9 +253,13 @@ pub enum BootstrapMessage {
         window_station_low_integrity: bool,
         desktop_low_integrity: bool,
         restricted_desktop_access: bool,
+        restricted_logon_sid_match: bool,
+        window_station_logon_sid_dacl: bool,
+        desktop_logon_sid_dacl: bool,
         broker_authentication_id: AuthenticationId,
         restricted_authentication_id: AuthenticationId,
         restricting_sid: String,
+        logon_sid: String,
     },
     Exit {
         nonce: String,
@@ -260,6 +274,7 @@ pub enum BootstrapMessage {
         product_system_restricting_sid_match: bool,
         product_private_desktop: bool,
         product_create_no_window: bool,
+        product_logon_sid_match: bool,
         product_authentication_id: AuthenticationId,
     },
     ProductStarted {
@@ -274,6 +289,7 @@ pub enum BootstrapMessage {
         product_system_restricting_sid_match: bool,
         product_private_desktop: bool,
         product_create_no_window: bool,
+        product_logon_sid_match: bool,
         product_authentication_id: AuthenticationId,
         resume_previous_count: u32,
     },
@@ -308,8 +324,10 @@ pub struct BootstrapLaunchEvidence {
     pub exact_job_proof: bool,
     pub trusted_path_write_denied: bool,
     pub bootstrap_write_denied: bool,
+    pub account_sid: String,
     pub restricting_sid: String,
     pub system_restricting_sid: String,
+    pub logon_sid: String,
     pub private_window_station: String,
     pub private_desktop: String,
     pub private_desktop_ready_before_resume: bool,
@@ -325,16 +343,20 @@ pub struct BootstrapLaunchEvidence {
     pub restricted_token_write_restricted: bool,
     pub restricted_token_restricting_sid_match: bool,
     pub restricted_token_system_restricting_sid_match: bool,
+    pub restricted_token_logon_sid_match: bool,
     pub restricted_token_low_integrity: bool,
     pub restricted_token_no_enabled_privileges: bool,
     pub window_station_dacl_proven: bool,
     pub desktop_dacl_proven: bool,
+    pub window_station_logon_sid_dacl_proven: bool,
+    pub desktop_logon_sid_dacl_proven: bool,
     pub window_station_low_integrity: bool,
     pub desktop_low_integrity: bool,
     pub restricted_desktop_access_proven: bool,
     pub product_write_restricted: bool,
     pub product_restricting_sid_match: bool,
     pub product_system_restricting_sid_match: bool,
+    pub product_logon_sid_match: bool,
     pub product_low_integrity: bool,
     pub product_no_enabled_privileges: bool,
     pub product_exact_job: bool,
@@ -366,6 +388,7 @@ impl BootstrapLaunchEvidence {
             || !self.restricted_token_write_restricted
             || !self.restricted_token_restricting_sid_match
             || !self.restricted_token_system_restricting_sid_match
+            || !self.restricted_token_logon_sid_match
             || !self.restricted_token_low_integrity
             || !self.restricted_token_no_enabled_privileges
             || self.system_restricting_sid != WINDOWS_WRITE_RESTRICTED_CODE_SID
@@ -375,12 +398,15 @@ impl BootstrapLaunchEvidence {
             || !self.bootstrap_create_no_window
             || !self.window_station_dacl_proven
             || !self.desktop_dacl_proven
+            || !self.window_station_logon_sid_dacl_proven
+            || !self.desktop_logon_sid_dacl_proven
             || !self.window_station_low_integrity
             || !self.desktop_low_integrity
             || !self.restricted_desktop_access_proven
             || !self.product_write_restricted
             || !self.product_restricting_sid_match
             || !self.product_system_restricting_sid_match
+            || !self.product_logon_sid_match
             || !self.product_low_integrity
             || !self.product_no_enabled_privileges
             || !self.product_exact_job
@@ -395,7 +421,9 @@ impl BootstrapLaunchEvidence {
         validate_hex(&self.broker_authentication_id, 16, "broker authentication ID")?;
         validate_hex(&self.restricted_authentication_id, 16, "restricted authentication ID")?;
         validate_hex(&self.product_authentication_id, 16, "product authentication ID")?;
-        validate_restricting_sid(&self.restricting_sid)
+        validate_restricting_sid(&self.account_sid)?;
+        validate_restricting_sid(&self.restricting_sid)?;
+        validate_logon_sid(&self.logon_sid)
     }
 }
 
@@ -414,6 +442,7 @@ pub fn encode_config(config: &BootstrapConfig) -> Result<Vec<u8>> {
     validate_hex(&config.launch.target_sha256, 64, "bootstrap target SHA-256")?;
     validate_hex(&config.launch.expected_bootstrap_sha256, 64, "bootstrap executable SHA-256")?;
     validate_restricting_sid(&config.launch.restricting_sid)?;
+    validate_logon_sid(&config.launch.logon_sid)?;
     let (expected_station, expected_desktop) = windows_private_desktop_identity(&config.nonce)?;
     if config.launch.private_window_station != expected_station
         || format!("{}\\{}", config.launch.private_window_station, config.launch.private_desktop)
@@ -451,6 +480,7 @@ pub fn encode_config(config: &BootstrapConfig) -> Result<Vec<u8>> {
     push_path(&mut bytes, &config.launch.trusted_path_probe)?;
     push_bytes(&mut bytes, config.launch.expected_bootstrap_sha256.as_bytes())?;
     push_bytes(&mut bytes, config.launch.restricting_sid.as_bytes())?;
+    push_bytes(&mut bytes, config.launch.logon_sid.as_bytes())?;
     push_utf16(&mut bytes, &config.launch.private_window_station)?;
     push_utf16(&mut bytes, &config.launch.private_desktop)?;
     for argument in &config.launch.product_args {
@@ -497,6 +527,9 @@ pub fn decode_config(bytes: &[u8]) -> Result<BootstrapConfig> {
     let restricting_sid =
         take_ascii_variable(bytes, &mut cursor, MAX_RESTRICTING_SID_BYTES, "restricting SID")?;
     validate_restricting_sid(&restricting_sid)?;
+    let logon_sid =
+        take_ascii_variable(bytes, &mut cursor, MAX_RESTRICTING_SID_BYTES, "logon SID")?;
+    validate_logon_sid(&logon_sid)?;
     let private_window_station = take_utf16_string(bytes, &mut cursor)?;
     let private_desktop = take_utf16_string(bytes, &mut cursor)?;
     let mut product_args = Vec::with_capacity(arg_count);
@@ -518,6 +551,7 @@ pub fn decode_config(bytes: &[u8]) -> Result<BootstrapConfig> {
             trusted_path_probe,
             expected_bootstrap_sha256,
             restricting_sid,
+            logon_sid,
             private_window_station,
             private_desktop,
         },
@@ -593,16 +627,22 @@ pub fn decode_event(bytes: &[u8]) -> Result<BootstrapMessage> {
             nonce,
             stage: BootstrapChildStage::from_u32(read_u32(bytes, 56)?)?,
         }),
-        2 if bytes.len() >= 108 && flags & !READY_ALL_FLAGS == 0 => {
+        2 if bytes.len() >= 112 && flags & !READY_ALL_FLAGS == 0 => {
             let sid_length = usize::try_from(read_u32(bytes, 104)?)?;
+            let logon_sid_length = usize::try_from(read_u32(bytes, 108)?)?;
             if sid_length == 0
                 || sid_length > MAX_RESTRICTING_SID_BYTES
-                || bytes.len() != 108 + sid_length
+                || logon_sid_length == 0
+                || logon_sid_length > MAX_RESTRICTING_SID_BYTES
+                || bytes.len() != 112 + sid_length + logon_sid_length
             {
-                bail!("Windows bootstrap READY restricting SID length was invalid");
+                bail!("Windows bootstrap READY SID length was invalid");
             }
-            let restricting_sid = std::str::from_utf8(&bytes[108..])?.to_owned();
+            let restricting_end = 112 + sid_length;
+            let restricting_sid = std::str::from_utf8(&bytes[112..restricting_end])?.to_owned();
+            let logon_sid = std::str::from_utf8(&bytes[restricting_end..])?.to_owned();
             validate_restricting_sid(&restricting_sid)?;
+            validate_logon_sid(&logon_sid)?;
             Ok(BootstrapMessage::Ready {
                 nonce,
                 bootstrap_sha256: encode_hex(&bytes[56..88]),
@@ -629,6 +669,9 @@ pub fn decode_event(bytes: &[u8]) -> Result<BootstrapMessage> {
                 window_station_low_integrity: flags & READY_WINDOW_STATION_LOW_INTEGRITY != 0,
                 desktop_low_integrity: flags & READY_DESKTOP_LOW_INTEGRITY != 0,
                 restricted_desktop_access: flags & READY_RESTRICTED_DESKTOP_ACCESS != 0,
+                restricted_logon_sid_match: flags & READY_RESTRICTED_LOGON_SID_MATCH != 0,
+                window_station_logon_sid_dacl: flags & READY_WINDOW_STATION_LOGON_SID_DACL != 0,
+                desktop_logon_sid_dacl: flags & READY_DESKTOP_LOGON_SID_DACL != 0,
                 broker_authentication_id: AuthenticationId {
                     low_part: read_u32(bytes, 88)?,
                     high_part: read_u32(bytes, 92)? as i32,
@@ -638,6 +681,7 @@ pub fn decode_event(bytes: &[u8]) -> Result<BootstrapMessage> {
                     high_part: read_u32(bytes, 100)? as i32,
                 },
                 restricting_sid,
+                logon_sid,
             })
         }
         3 if bytes.len() == 72 && flags & !EXIT_ALL_FLAGS == 0 => {
@@ -661,6 +705,7 @@ pub fn decode_event(bytes: &[u8]) -> Result<BootstrapMessage> {
                     != 0,
                 product_private_desktop: flags & EXIT_PRODUCT_PRIVATE_DESKTOP != 0,
                 product_create_no_window: flags & EXIT_PRODUCT_CREATE_NO_WINDOW != 0,
+                product_logon_sid_match: flags & EXIT_PRODUCT_LOGON_SID_MATCH != 0,
                 product_authentication_id: AuthenticationId {
                     low_part: read_u32(bytes, 64)?,
                     high_part: read_u32(bytes, 68)? as i32,
@@ -692,6 +737,7 @@ pub fn decode_event(bytes: &[u8]) -> Result<BootstrapMessage> {
                     != 0,
                 product_private_desktop: flags & EXIT_PRODUCT_PRIVATE_DESKTOP != 0,
                 product_create_no_window: flags & EXIT_PRODUCT_CREATE_NO_WINDOW != 0,
+                product_logon_sid_match: flags & EXIT_PRODUCT_LOGON_SID_MATCH != 0,
                 product_authentication_id: AuthenticationId {
                     low_part: read_u32(bytes, 60)?,
                     high_part: read_u32(bytes, 64)? as i32,
@@ -734,9 +780,13 @@ fn encode_event(message: &BootstrapMessage) -> Result<Vec<u8>> {
             window_station_low_integrity,
             desktop_low_integrity,
             restricted_desktop_access,
+            restricted_logon_sid_match,
+            window_station_logon_sid_dacl,
+            desktop_logon_sid_dacl,
             broker_authentication_id,
             restricted_authentication_id,
             restricting_sid,
+            logon_sid,
         } => {
             let mut flags = 0;
             flags |= u32::from(*config_consumed) * READY_CONFIG_CONSUMED;
@@ -763,7 +813,12 @@ fn encode_event(message: &BootstrapMessage) -> Result<Vec<u8>> {
             flags |= u32::from(*window_station_low_integrity) * READY_WINDOW_STATION_LOW_INTEGRITY;
             flags |= u32::from(*desktop_low_integrity) * READY_DESKTOP_LOW_INTEGRITY;
             flags |= u32::from(*restricted_desktop_access) * READY_RESTRICTED_DESKTOP_ACCESS;
+            flags |= u32::from(*restricted_logon_sid_match) * READY_RESTRICTED_LOGON_SID_MATCH;
+            flags |=
+                u32::from(*window_station_logon_sid_dacl) * READY_WINDOW_STATION_LOGON_SID_DACL;
+            flags |= u32::from(*desktop_logon_sid_dacl) * READY_DESKTOP_LOGON_SID_DACL;
             validate_restricting_sid(restricting_sid)?;
+            validate_logon_sid(logon_sid)?;
             let mut payload = decode_hex_32(bootstrap_sha256, "bootstrap SHA-256")?.to_vec();
             payload.extend_from_slice(&broker_authentication_id.low_part.to_le_bytes());
             payload.extend_from_slice(&(broker_authentication_id.high_part as u32).to_le_bytes());
@@ -771,7 +826,9 @@ fn encode_event(message: &BootstrapMessage) -> Result<Vec<u8>> {
             payload
                 .extend_from_slice(&(restricted_authentication_id.high_part as u32).to_le_bytes());
             payload.extend_from_slice(&u32::try_from(restricting_sid.len())?.to_le_bytes());
+            payload.extend_from_slice(&u32::try_from(logon_sid.len())?.to_le_bytes());
             payload.extend_from_slice(restricting_sid.as_bytes());
+            payload.extend_from_slice(logon_sid.as_bytes());
             (2, flags, nonce, payload)
         }
         BootstrapMessage::Exit {
@@ -787,6 +844,7 @@ fn encode_event(message: &BootstrapMessage) -> Result<Vec<u8>> {
             product_system_restricting_sid_match,
             product_private_desktop,
             product_create_no_window,
+            product_logon_sid_match,
             product_authentication_id,
         } => {
             let mut flags = 0;
@@ -801,6 +859,7 @@ fn encode_event(message: &BootstrapMessage) -> Result<Vec<u8>> {
                 * EXIT_PRODUCT_SYSTEM_RESTRICTING_SID_MATCH;
             flags |= u32::from(*product_private_desktop) * EXIT_PRODUCT_PRIVATE_DESKTOP;
             flags |= u32::from(*product_create_no_window) * EXIT_PRODUCT_CREATE_NO_WINDOW;
+            flags |= u32::from(*product_logon_sid_match) * EXIT_PRODUCT_LOGON_SID_MATCH;
             let mut payload = code.to_le_bytes().to_vec();
             payload.extend_from_slice(&u32::from(*private_job_descendant_contained).to_le_bytes());
             payload.extend_from_slice(&product_authentication_id.low_part.to_le_bytes());
@@ -824,6 +883,7 @@ fn encode_event(message: &BootstrapMessage) -> Result<Vec<u8>> {
             product_system_restricting_sid_match,
             product_private_desktop,
             product_create_no_window,
+            product_logon_sid_match,
             product_authentication_id,
             resume_previous_count,
         } => {
@@ -839,6 +899,7 @@ fn encode_event(message: &BootstrapMessage) -> Result<Vec<u8>> {
                 * EXIT_PRODUCT_SYSTEM_RESTRICTING_SID_MATCH;
             flags |= u32::from(*product_private_desktop) * EXIT_PRODUCT_PRIVATE_DESKTOP;
             flags |= u32::from(*product_create_no_window) * EXIT_PRODUCT_CREATE_NO_WINDOW;
+            flags |= u32::from(*product_logon_sid_match) * EXIT_PRODUCT_LOGON_SID_MATCH;
             let mut payload = u32::from(*private_job_descendant_contained).to_le_bytes().to_vec();
             payload.extend_from_slice(&product_authentication_id.low_part.to_le_bytes());
             payload.extend_from_slice(&(product_authentication_id.high_part as u32).to_le_bytes());
@@ -1001,6 +1062,23 @@ fn validate_restricting_sid(value: &str) -> Result<()> {
     Ok(())
 }
 
+fn validate_logon_sid(value: &str) -> Result<()> {
+    validate_restricting_sid(value)?;
+    let (high, low) = value
+        .strip_prefix("S-1-5-5-")
+        .and_then(|suffix| suffix.split_once('-'))
+        .filter(|(_, low)| !low.contains('-'))
+        .context("logon SID did not have the S-1-5-5-X-Y form")?;
+    if high.is_empty()
+        || low.is_empty()
+        || !high.bytes().all(|byte| byte.is_ascii_digit())
+        || !low.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        bail!("logon SID did not have the S-1-5-5-X-Y form");
+    }
+    Ok(())
+}
+
 fn decode_hex_32(value: &str, name: &str) -> Result<[u8; 32]> {
     validate_hex(value, 64, name)?;
     let mut decoded = [0_u8; 32];
@@ -1039,6 +1117,7 @@ mod tests {
                 trusted_path_probe: PathBuf::from("/trusted/probe"),
                 expected_bootstrap_sha256: "ef".repeat(32),
                 restricting_sid: "S-1-5-21-1-2-3-4".into(),
+                logon_sid: "S-1-5-5-123-456".into(),
                 private_window_station: "cmux-ws-abababababababababababababababab".into(),
                 private_desktop: "cmux-desk-abababababababababababababababab".into(),
             },
@@ -1074,6 +1153,12 @@ mod tests {
         let mut invalid_sid = config();
         invalid_sid.launch.restricting_sid = "not-a-sid".into();
         assert!(encode_config(&invalid_sid).is_err());
+        let mut invalid_logon_sid = config();
+        invalid_logon_sid.launch.logon_sid = "not-a-sid".into();
+        assert!(encode_config(&invalid_logon_sid).is_err());
+        let mut wrong_kind_logon_sid = config();
+        wrong_kind_logon_sid.launch.logon_sid = "S-1-5-21-1-2-3-1001".into();
+        assert!(encode_config(&wrong_kind_logon_sid).is_err());
         let mut interactive_desktop = config();
         interactive_desktop.launch.private_window_station = "WinSta0".into();
         interactive_desktop.launch.private_desktop = "Default".into();
@@ -1128,9 +1213,13 @@ mod tests {
             window_station_low_integrity: true,
             desktop_low_integrity: true,
             restricted_desktop_access: true,
+            restricted_logon_sid_match: true,
+            window_station_logon_sid_dacl: true,
+            desktop_logon_sid_dacl: true,
             broker_authentication_id: AuthenticationId { low_part: 7, high_part: 9 },
             restricted_authentication_id: AuthenticationId { low_part: 7, high_part: 9 },
             restricting_sid: "S-1-5-21-1-2-3-4".into(),
+            logon_sid: "S-1-5-5-123-456".into(),
         };
         let bytes = encode_event(&message).unwrap();
         assert_eq!(decode_event(&bytes).unwrap(), message);
@@ -1150,6 +1239,7 @@ mod tests {
             product_system_restricting_sid_match: true,
             product_private_desktop: true,
             product_create_no_window: true,
+            product_logon_sid_match: true,
             product_authentication_id: AuthenticationId { low_part: 7, high_part: 9 },
         };
         assert_eq!(decode_event(&encode_event(&exit).unwrap()).unwrap(), exit);
@@ -1166,6 +1256,7 @@ mod tests {
             product_system_restricting_sid_match: true,
             product_private_desktop: true,
             product_create_no_window: true,
+            product_logon_sid_match: true,
             product_authentication_id: AuthenticationId { low_part: 7, high_part: 9 },
             resume_previous_count: 1,
         };
@@ -1228,8 +1319,10 @@ mod tests {
             exact_job_proof: true,
             trusted_path_write_denied: true,
             bootstrap_write_denied: true,
+            account_sid: "S-1-5-21-1-2-3-1001".into(),
             restricting_sid: "S-1-5-21-1-2-3-4".into(),
             system_restricting_sid: WINDOWS_WRITE_RESTRICTED_CODE_SID.into(),
+            logon_sid: "S-1-5-5-123-456".into(),
             private_window_station: "cmux-ws-abababababababababababababababab".into(),
             private_desktop:
                 "cmux-ws-abababababababababababababababab\\cmux-desk-abababababababababababababababab"
@@ -1247,16 +1340,20 @@ mod tests {
             restricted_token_write_restricted: true,
             restricted_token_restricting_sid_match: true,
             restricted_token_system_restricting_sid_match: true,
+            restricted_token_logon_sid_match: true,
             restricted_token_low_integrity: true,
             restricted_token_no_enabled_privileges: true,
             window_station_dacl_proven: true,
             desktop_dacl_proven: true,
+            window_station_logon_sid_dacl_proven: true,
+            desktop_logon_sid_dacl_proven: true,
             window_station_low_integrity: true,
             desktop_low_integrity: true,
             restricted_desktop_access_proven: true,
             product_write_restricted: true,
             product_restricting_sid_match: true,
             product_system_restricting_sid_match: true,
+            product_logon_sid_match: true,
             product_low_integrity: true,
             product_no_enabled_privileges: true,
             product_exact_job: true,
@@ -1271,6 +1368,12 @@ mod tests {
         let mut wrong_sid_proof = evidence.clone();
         wrong_sid_proof.product_restricting_sid_match = false;
         assert!(wrong_sid_proof.validate(&"ab".repeat(32), &"ef".repeat(32)).is_err());
+        let mut wrong_logon_sid_proof = evidence.clone();
+        wrong_logon_sid_proof.product_logon_sid_match = false;
+        assert!(wrong_logon_sid_proof.validate(&"ab".repeat(32), &"ef".repeat(32)).is_err());
+        let mut invalid_logon_sid = evidence.clone();
+        invalid_logon_sid.logon_sid = "not-a-sid".into();
+        assert!(invalid_logon_sid.validate(&"ab".repeat(32), &"ef".repeat(32)).is_err());
         let mut wrong_desktop = evidence.clone();
         wrong_desktop.private_desktop = "WinSta0\\Default".into();
         assert!(wrong_desktop.validate(&"ab".repeat(32), &"ef".repeat(32)).is_err());

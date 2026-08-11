@@ -928,9 +928,9 @@ mod platform {
         GetAce, GetTokenInformation, LABEL_SECURITY_INFORMATION, LOGON32_LOGON_INTERACTIVE,
         LOGON32_PROVIDER_DEFAULT, LUID_AND_ATTRIBUTES, LogonUserW, LookupPrivilegeValueW,
         PRIVILEGE_SET, PSECURITY_DESCRIPTOR, PSID, PrivilegeCheck, SE_IMPERSONATE_NAME,
-        SE_PRIVILEGE_ENABLED, SE_SECURITY_NAME, SECURITY_ATTRIBUTES,
+        SE_PRIVILEGE_ENABLED, SE_SECURITY_NAME, SECURITY_ATTRIBUTES, SID_AND_ATTRIBUTES,
         SUB_CONTAINERS_AND_OBJECTS_INHERIT, SYSTEM_MANDATORY_LABEL_ACE, TOKEN_ADJUST_PRIVILEGES,
-        TOKEN_PRIVILEGES, TOKEN_QUERY, TOKEN_USER, TokenUser,
+        TOKEN_GROUPS, TOKEN_PRIVILEGES, TOKEN_QUERY, TOKEN_USER, TokenGroups, TokenUser,
     };
     use windows_sys::Win32::Storage::FileSystem::{FILE_TYPE_UNKNOWN, GetFileType};
     use windows_sys::Win32::System::Console::{
@@ -951,7 +951,7 @@ mod platform {
     };
     use windows_sys::Win32::System::SystemServices::{
         ACCESS_ALLOWED_ACE_TYPE, JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO, JOB_OBJECT_QUERY,
-        PRIVILEGE_SET_ALL_NECESSARY, SYSTEM_MANDATORY_LABEL_ACE_TYPE,
+        PRIVILEGE_SET_ALL_NECESSARY, SE_GROUP_LOGON_ID, SYSTEM_MANDATORY_LABEL_ACE_TYPE,
         SYSTEM_MANDATORY_LABEL_NO_WRITE_UP,
     };
     use windows_sys::Win32::System::Threading::{
@@ -1131,6 +1131,7 @@ mod platform {
 
     const READ_CONTROL_ACCESS: u32 = 0x0002_0000;
     const PRIVATE_DESKTOP_ALL_ACCESS: u32 = 0x000f_01ff;
+    const LOGON_ID_ATTRIBUTES: u32 = SE_GROUP_LOGON_ID as u32;
 
     struct SupervisorDesktopIdentity {
         process_station: HANDLE,
@@ -1245,6 +1246,9 @@ mod platform {
         station_name: String,
         desktop_name: String,
         qualified_wide: Vec<u16>,
+        account_sid: String,
+        logon_sid: String,
+        restricting_sid: String,
         supervisor_identity: SupervisorDesktopIdentity,
         supervisor_station_after_create: String,
         supervisor_desktop_after_create: String,
@@ -1252,7 +1256,8 @@ mod platform {
 
     impl PrivateDesktopOwner {
         fn create(
-            account_token: HANDLE,
+            account_sid: &str,
+            logon_sid: &str,
             restricting_sid: &str,
             nonce: &str,
             deadline: Instant,
@@ -1263,19 +1268,22 @@ mod platform {
                 .strip_prefix(&format!("{station_name}\\"))
                 .context("private desktop identity did not contain its window station")?
                 .to_string();
-            let account_sid = OwnedSid::from_string(&token_user_sid_string(account_token)?)?;
+            let account_sid = OwnedSid::from_string(account_sid)?;
+            let logon_sid = OwnedSid::from_string(logon_sid)?;
             let restricting_sid = OwnedSid::from_string(restricting_sid)?;
             let system_restricting_sid = OwnedSid::from_string(WINDOWS_WRITE_RESTRICTED_CODE_SID)?;
             let low_integrity_sid = OwnedSid::from_string("S-1-16-4096")?;
             let station_access = u32::try_from(WINSTA_ALL_ACCESS)? | READ_CONTROL_ACCESS;
             let station_security = PrivateObjectSecurity::new(
                 account_sid.0,
+                logon_sid.0,
                 restricting_sid.0,
                 system_restricting_sid.0,
                 station_access,
             )?;
             let desktop_security = PrivateObjectSecurity::new(
                 account_sid.0,
+                logon_sid.0,
                 restricting_sid.0,
                 system_restricting_sid.0,
                 PRIVATE_DESKTOP_ALL_ACCESS,
@@ -1336,6 +1344,7 @@ mod platform {
             prove_private_object_security(
                 station.0,
                 account_sid.0,
+                logon_sid.0,
                 restricting_sid.0,
                 system_restricting_sid.0,
                 low_integrity_sid.0,
@@ -1345,6 +1354,7 @@ mod platform {
             prove_private_object_security(
                 desktop.0,
                 account_sid.0,
+                logon_sid.0,
                 restricting_sid.0,
                 system_restricting_sid.0,
                 low_integrity_sid.0,
@@ -1364,6 +1374,9 @@ mod platform {
                 station_name,
                 desktop_name,
                 qualified_wide,
+                account_sid: sid_string(account_sid.0)?,
+                logon_sid: sid_string(logon_sid.0)?,
+                restricting_sid: sid_string(restricting_sid.0)?,
                 supervisor_identity,
                 supervisor_station_after_create,
                 supervisor_desktop_after_create,
@@ -1400,6 +1413,12 @@ mod platform {
                 nonce: nonce.to_string(),
                 private_window_station: self.station_name.clone(),
                 private_desktop: format!("{}\\{}", self.station_name, self.desktop_name),
+                account_sid: self.account_sid,
+                logon_sid: self.logon_sid,
+                restricting_sid: self.restricting_sid,
+                system_restricting_sid: WINDOWS_WRITE_RESTRICTED_CODE_SID.into(),
+                private_window_station_logon_sid_dacl_proven: true,
+                private_desktop_logon_sid_dacl_proven: true,
                 supervisor_window_station_before: self
                     .supervisor_identity
                     .process_station_name
@@ -1422,15 +1441,17 @@ mod platform {
     impl PrivateObjectSecurity {
         fn new(
             account_sid: PSID,
+            logon_sid: PSID,
             restricting_sid: PSID,
             system_restricting_sid: PSID,
             access: u32,
         ) -> Result<Self> {
             let account = sid_string(account_sid)?;
+            let logon = sid_string(logon_sid)?;
             let restricting = sid_string(restricting_sid)?;
             let system = sid_string(system_restricting_sid)?;
             let sddl = format!(
-                "D:P(A;;0x{access:08x};;;OW)(A;;0x{access:08x};;;{account})(A;;0x{access:08x};;;{restricting})(A;;0x{access:08x};;;{system})S:(ML;;NW;;;LW)"
+                "D:P(A;;0x{access:08x};;;OW)(A;;0x{access:08x};;;{account})(A;;0x{access:08x};;;{logon})(A;;0x{access:08x};;;{restricting})(A;;0x{access:08x};;;{system})S:(ML;;NW;;;LW)"
             );
             let sddl = wide(std::ffi::OsStr::new(&sddl));
             let mut descriptor = null_mut();
@@ -1524,6 +1545,83 @@ mod platform {
         sid_string(user.User.Sid)
     }
 
+    fn single_logon_group_index(attributes: &[u32]) -> Result<usize> {
+        let matches = attributes
+            .iter()
+            .enumerate()
+            .filter_map(|(index, attributes)| {
+                (*attributes & LOGON_ID_ATTRIBUTES == LOGON_ID_ATTRIBUTES).then_some(index)
+            })
+            .collect::<Vec<_>>();
+        match matches.as_slice() {
+            [index] => Ok(*index),
+            [] => bail!("account token contained no logon-session SID"),
+            _ => bail!("account token contained multiple logon-session SIDs"),
+        }
+    }
+
+    fn token_groups_required_bytes(group_count: usize) -> Result<usize> {
+        std::mem::offset_of!(TOKEN_GROUPS, Groups)
+            .checked_add(
+                group_count
+                    .checked_mul(size_of::<SID_AND_ATTRIBUTES>())
+                    .context("account token group array size overflow")?,
+            )
+            .context("account token group buffer size overflow")
+    }
+
+    fn validate_token_group_bounds(returned_bytes: usize, group_count: usize) -> Result<()> {
+        let required_bytes = token_groups_required_bytes(group_count)?;
+        if returned_bytes < required_bytes {
+            bail!(
+                "account token group array was truncated: returned {returned_bytes} bytes, required {required_bytes}"
+            );
+        }
+        Ok(())
+    }
+
+    fn token_logon_sid_string(token: HANDLE) -> Result<String> {
+        let mut bytes = 0_u32;
+        unsafe { GetTokenInformation(token, TokenGroups, null_mut(), 0, &mut bytes) };
+        if bytes < u32::try_from(size_of::<TOKEN_GROUPS>())? {
+            bail!("account token did not report a token-groups size");
+        }
+        let words = usize::try_from(bytes)?
+            .checked_add(size_of::<usize>() - 1)
+            .context("account token-groups size overflow")?
+            / size_of::<usize>();
+        let mut buffer = vec![0_usize; words];
+        check(
+            unsafe {
+                GetTokenInformation(
+                    token,
+                    TokenGroups,
+                    buffer.as_mut_ptr().cast(),
+                    bytes,
+                    &mut bytes,
+                )
+            },
+            "read benchmark account token groups",
+        )?;
+        let returned_bytes = usize::try_from(bytes)?;
+        let buffer_bytes = buffer
+            .len()
+            .checked_mul(size_of::<usize>())
+            .context("account token group buffer capacity overflow")?;
+        if returned_bytes < size_of::<TOKEN_GROUPS>() || returned_bytes > buffer_bytes {
+            bail!("account token groups returned an invalid byte count");
+        }
+        let groups = unsafe { &*buffer.as_ptr().cast::<TOKEN_GROUPS>() };
+        let group_count = usize::try_from(groups.GroupCount)?;
+        validate_token_group_bounds(returned_bytes, group_count)?;
+        let first = std::ptr::addr_of!(groups.Groups).cast::<SID_AND_ATTRIBUTES>();
+        let attributes = (0..group_count)
+            .map(|index| unsafe { (*first.add(index)).Attributes })
+            .collect::<Vec<_>>();
+        let index = single_logon_group_index(&attributes)?;
+        sid_string(unsafe { (*first.add(index)).Sid })
+    }
+
     fn sid_string(sid: PSID) -> Result<String> {
         if sid.is_null() {
             bail!("security SID was null");
@@ -1545,6 +1643,7 @@ mod platform {
     fn prove_private_object_security(
         object: HANDLE,
         account_sid: PSID,
+        logon_sid: PSID,
         restricting_sid: PSID,
         system_restricting_sid: PSID,
         low_integrity_sid: PSID,
@@ -1570,6 +1669,7 @@ mod platform {
         let _descriptor = OwnedLocalDescriptor(descriptor);
         let dacl_valid = unsafe {
             acl_grants_sid(dacl, account_sid, required_access)
+                && acl_grants_sid(dacl, logon_sid, required_access)
                 && acl_grants_sid(dacl, restricting_sid, required_access)
                 && acl_grants_sid(dacl, system_restricting_sid, required_access)
         };
@@ -1657,6 +1757,8 @@ mod platform {
         // Keep the profile after all Job handles so field-drop fallback closes the containment
         // boundary before it tries to unload a profile after an error.
         profile: Option<LoadedProfile>,
+        account_sid_text: String,
+        logon_sid_text: String,
         restricting_sid_text: String,
         broker_assigned: bool,
     }
@@ -1784,8 +1886,11 @@ mod platform {
                 .map(LoadedProfile::token)
                 .or_else(|| account_token.as_ref().map(|token| token.0))
                 .context("Windows account token owner is missing")?;
+            let account_sid_text = token_user_sid_string(account_token_handle)?;
+            let logon_sid_text = token_logon_sid_string(account_token_handle)?;
             let private_desktop = PrivateDesktopOwner::create(
-                account_token_handle,
+                &account_sid_text,
+                &logon_sid_text,
                 &sid_text,
                 &launch.nonce,
                 security_deadline,
@@ -1817,6 +1922,8 @@ mod platform {
                 private_desktop: Some(private_desktop),
                 desktop_lifecycle_evidence_path,
                 nonce: launch.nonce.clone(),
+                account_sid_text,
+                logon_sid_text,
                 restricting_sid_text: sid_text,
                 broker_assigned: false,
             })
@@ -1951,6 +2058,7 @@ mod platform {
                         trusted_path_probe,
                         expected_bootstrap_sha256: launch.windows_bootstrap_sha256.clone(),
                         restricting_sid: self.restricting_sid_text.clone(),
+                        logon_sid: self.logon_sid_text.clone(),
                         private_window_station,
                         private_desktop: private_desktop_name,
                     },
@@ -1992,7 +2100,9 @@ mod platform {
                     process_id: process.dwProcessId,
                     primary_thread_id: process.dwThreadId,
                     target_cmux_bench_environment_filtered,
+                    account_sid: self.account_sid_text.clone(),
                     restricting_sid: self.restricting_sid_text.clone(),
+                    logon_sid: self.logon_sid_text.clone(),
                     private_desktop_ready_before_resume: true,
                     bootstrap_create_no_window: bootstrap_creation_flags & CREATE_NO_WINDOW != 0,
                 },
@@ -2103,7 +2213,9 @@ mod platform {
         process_id: u32,
         primary_thread_id: u32,
         target_cmux_bench_environment_filtered: bool,
+        account_sid: String,
         restricting_sid: String,
+        logon_sid: String,
         private_desktop_ready_before_resume: bool,
         bootstrap_create_no_window: bool,
         product_started_relayed: bool,
@@ -2122,7 +2234,9 @@ mod platform {
         process_id: u32,
         primary_thread_id: u32,
         target_cmux_bench_environment_filtered: bool,
+        account_sid: String,
         restricting_sid: String,
+        logon_sid: String,
         private_desktop_ready_before_resume: bool,
         bootstrap_create_no_window: bool,
     }
@@ -2154,7 +2268,9 @@ mod platform {
                 process_id,
                 primary_thread_id,
                 target_cmux_bench_environment_filtered,
+                account_sid,
                 restricting_sid,
+                logon_sid,
                 private_desktop_ready_before_resume,
                 bootstrap_create_no_window,
             } = identity;
@@ -2210,7 +2326,9 @@ mod platform {
                 process_id,
                 primary_thread_id,
                 target_cmux_bench_environment_filtered,
+                account_sid,
                 restricting_sid,
+                logon_sid,
                 private_desktop_ready_before_resume,
                 bootstrap_create_no_window,
                 product_started_relayed: false,
@@ -2300,9 +2418,13 @@ mod platform {
                         window_station_low_integrity,
                         desktop_low_integrity,
                         restricted_desktop_access,
+                        restricted_logon_sid_match,
+                        window_station_logon_sid_dacl,
+                        desktop_logon_sid_dacl,
                         broker_authentication_id,
                         restricted_authentication_id,
                         restricting_sid,
+                        logon_sid,
                     }) if observed == nonce
                         && bootstrap_sha256 == self.bootstrap_sha256
                         && config_consumed
@@ -2327,7 +2449,11 @@ mod platform {
                         && window_station_low_integrity
                         && desktop_low_integrity
                         && restricted_desktop_access
-                        && restricting_sid == self.restricting_sid =>
+                        && restricted_logon_sid_match
+                        && window_station_logon_sid_dacl
+                        && desktop_logon_sid_dacl
+                        && restricting_sid == self.restricting_sid
+                        && logon_sid == self.logon_sid =>
                     {
                         let (private_window_station_name, private_desktop_name) =
                             windows_private_desktop_identity(&observed)?;
@@ -2354,8 +2480,10 @@ mod platform {
                             exact_job_proof: private_job_member,
                             trusted_path_write_denied,
                             bootstrap_write_denied,
+                            account_sid: self.account_sid.clone(),
                             restricting_sid,
                             system_restricting_sid: WINDOWS_WRITE_RESTRICTED_CODE_SID.into(),
+                            logon_sid,
                             private_window_station: private_window_station_name,
                             private_desktop: private_desktop_name,
                             private_desktop_ready_before_resume: self
@@ -2377,17 +2505,21 @@ mod platform {
                             restricted_token_restricting_sid_match: restricting_sid_match,
                             restricted_token_system_restricting_sid_match:
                                 system_restricting_sid_match,
+                            restricted_token_logon_sid_match: restricted_logon_sid_match,
                             restricted_token_low_integrity: restricted_low_integrity,
                             restricted_token_no_enabled_privileges:
                                 restricted_no_enabled_privileges,
                             window_station_dacl_proven: window_station_dacl,
                             desktop_dacl_proven: desktop_dacl,
+                            window_station_logon_sid_dacl_proven: window_station_logon_sid_dacl,
+                            desktop_logon_sid_dacl_proven: desktop_logon_sid_dacl,
                             window_station_low_integrity,
                             desktop_low_integrity,
                             restricted_desktop_access_proven: restricted_desktop_access,
                             product_write_restricted: false,
                             product_restricting_sid_match: false,
                             product_system_restricting_sid_match: false,
+                            product_logon_sid_match: false,
                             product_low_integrity: false,
                             product_no_enabled_privileges: false,
                             product_exact_job: false,
@@ -2534,6 +2666,7 @@ mod platform {
                         product_system_restricting_sid_match,
                         product_private_desktop,
                         product_create_no_window,
+                        product_logon_sid_match,
                         product_authentication_id,
                         resume_previous_count,
                     }) if observed == nonce => {
@@ -2548,6 +2681,7 @@ mod platform {
                             || !product_system_restricting_sid_match
                             || !product_private_desktop
                             || !product_create_no_window
+                            || !product_logon_sid_match
                             || resume_previous_count != 1
                         {
                             bail!("restricted bootstrap product-started evidence mismatch");
@@ -2567,6 +2701,7 @@ mod platform {
                         evidence.product_restricting_sid_match = product_restricting_sid_match;
                         evidence.product_system_restricting_sid_match =
                             product_system_restricting_sid_match;
+                        evidence.product_logon_sid_match = product_logon_sid_match;
                         evidence.product_low_integrity = product_low_integrity;
                         evidence.product_no_enabled_privileges = product_no_enabled_privileges;
                         evidence.product_exact_job = private_job_descendant_contained;
@@ -2594,6 +2729,7 @@ mod platform {
                         product_system_restricting_sid_match,
                         product_private_desktop,
                         product_create_no_window,
+                        product_logon_sid_match,
                         product_authentication_id,
                     }) if observed == nonce => {
                         let evidence = self
@@ -2611,6 +2747,7 @@ mod platform {
                             || !product_system_restricting_sid_match
                             || !product_private_desktop
                             || !product_create_no_window
+                            || !product_logon_sid_match
                             || product_authentication_id.evidence_value()
                                 != evidence.product_authentication_id
                         {
@@ -3507,6 +3644,23 @@ mod platform {
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        #[test]
+        fn logon_group_selector_requires_exactly_one_logon_sid() {
+            assert_eq!(single_logon_group_index(&[0, LOGON_ID_ATTRIBUTES, 4]).unwrap(), 1);
+            assert!(single_logon_group_index(&[0, 4]).is_err());
+            assert!(single_logon_group_index(&[LOGON_ID_ATTRIBUTES, LOGON_ID_ATTRIBUTES]).is_err());
+        }
+
+        #[test]
+        fn token_group_bounds_reject_truncation_and_overflow() {
+            let offset = std::mem::offset_of!(TOKEN_GROUPS, Groups);
+            let one_group = token_groups_required_bytes(1).unwrap();
+            assert_eq!(one_group, offset + size_of::<SID_AND_ATTRIBUTES>());
+            validate_token_group_bounds(one_group, 1).unwrap();
+            assert!(validate_token_group_bounds(one_group - 1, 1).is_err());
+            assert!(token_groups_required_bytes(usize::MAX).is_err());
+        }
 
         #[test]
         fn bootstrap_environment_binds_only_the_trusted_entry_identity() {

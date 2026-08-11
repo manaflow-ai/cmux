@@ -127,7 +127,7 @@ if hashlib.sha256(preflight_bytes).hexdigest() != get(
 ):
     raise SystemExit("sandbox preflight file does not match its attested SHA-256")
 preflight = json.loads(preflight_bytes)
-if not isinstance(preflight, dict) or preflight.get("schema_version") != 8:
+if not isinstance(preflight, dict) or preflight.get("schema_version") != 9:
     raise SystemExit("sandbox preflight evidence has the wrong schema")
 windows_preflight_fields = (
     "windows_bootstrap_sha256",
@@ -138,11 +138,15 @@ windows_preflight_fields = (
     "windows_bootstrap_exact_job",
     "windows_bootstrap_trusted_path_write_denied",
     "windows_bootstrap_self_write_denied",
+    "windows_account_sid",
     "windows_restricting_sid",
     "windows_system_restricting_sid",
+    "windows_logon_sid",
     "windows_private_window_station",
     "windows_private_desktop",
     "windows_private_desktop_ready_before_resume",
+    "windows_private_window_station_logon_sid_dacl_proven",
+    "windows_private_desktop_logon_sid_dacl_proven",
     "windows_supervisor_window_station_before",
     "windows_supervisor_desktop_before",
     "windows_supervisor_window_station_after_create",
@@ -167,6 +171,7 @@ windows_preflight_fields = (
     "windows_restricted_token_no_enabled_privileges",
     "windows_restricted_token_restricting_sid_match",
     "windows_restricted_token_system_restricting_sid_match",
+    "windows_restricted_token_logon_sid_match",
     "windows_window_station_dacl_proven",
     "windows_desktop_dacl_proven",
     "windows_window_station_low_integrity",
@@ -177,6 +182,7 @@ windows_preflight_fields = (
     "windows_product_no_enabled_privileges",
     "windows_product_restricting_sid_match",
     "windows_product_system_restricting_sid_match",
+    "windows_product_logon_sid_match",
     "windows_product_exact_job",
     "windows_product_private_desktop",
     "windows_product_create_no_window",
@@ -249,6 +255,8 @@ if os.environ["RUNNER_OS"] == "Windows":
         raise SystemExit("trusted Windows bootstrap imports an unapproved DLL")
     ready_elapsed_ms = preflight["windows_bootstrap_ready_elapsed_ms"]
     restricting_sid = preflight["windows_restricting_sid"]
+    account_sid = preflight["windows_account_sid"]
+    logon_sid = preflight["windows_logon_sid"]
     broker_authentication_id = preflight["windows_broker_authentication_id"]
     nonce = preflight["windows_bootstrap_config_nonce"]
     private_window_station = f"cmux-ws-{nonce[:32]}" if isinstance(nonce, str) else ""
@@ -272,13 +280,21 @@ if os.environ["RUNNER_OS"] == "Windows":
         or preflight["windows_bootstrap_exact_job"] is not True
         or preflight["windows_bootstrap_trusted_path_write_denied"] is not True
         or preflight["windows_bootstrap_self_write_denied"] is not True
+        or not isinstance(account_sid, str)
+        or len(account_sid) > 184
+        or re.fullmatch(r"S-1(?:-\d+)+", account_sid) is None
         or not isinstance(restricting_sid, str)
         or len(restricting_sid) > 184
         or re.fullmatch(r"S-1(?:-\d+)+", restricting_sid) is None
         or preflight["windows_system_restricting_sid"] != "S-1-5-33"
+        or not isinstance(logon_sid, str)
+        or len(logon_sid) > 184
+        or re.fullmatch(r"S-1-5-5-\d+-\d+", logon_sid) is None
         or preflight["windows_private_window_station"] != private_window_station
         or preflight["windows_private_desktop"] != private_desktop
         or preflight["windows_private_desktop_ready_before_resume"] is not True
+        or preflight["windows_private_window_station_logon_sid_dacl_proven"] is not True
+        or preflight["windows_private_desktop_logon_sid_dacl_proven"] is not True
         or not isinstance(preflight["windows_supervisor_window_station_before"], str)
         or not preflight["windows_supervisor_window_station_before"]
         or preflight["windows_supervisor_window_station_after_create"]
@@ -312,6 +328,7 @@ if os.environ["RUNNER_OS"] == "Windows":
         or preflight["windows_restricted_token_no_enabled_privileges"] is not True
         or preflight["windows_restricted_token_restricting_sid_match"] is not True
         or preflight["windows_restricted_token_system_restricting_sid_match"] is not True
+        or preflight["windows_restricted_token_logon_sid_match"] is not True
         or preflight["windows_window_station_dacl_proven"] is not True
         or preflight["windows_desktop_dacl_proven"] is not True
         or preflight["windows_window_station_low_integrity"] is not True
@@ -322,6 +339,7 @@ if os.environ["RUNNER_OS"] == "Windows":
         or preflight["windows_product_no_enabled_privileges"] is not True
         or preflight["windows_product_restricting_sid_match"] is not True
         or preflight["windows_product_system_restricting_sid_match"] is not True
+        or preflight["windows_product_logon_sid_match"] is not True
         or preflight["windows_product_exact_job"] is not True
         or preflight["windows_product_private_desktop"] is not True
         or preflight["windows_product_create_no_window"] is not True

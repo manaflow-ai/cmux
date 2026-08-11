@@ -333,11 +333,15 @@ struct SandboxPreflightEvidence {
     windows_bootstrap_exact_job: Option<bool>,
     windows_bootstrap_trusted_path_write_denied: Option<bool>,
     windows_bootstrap_self_write_denied: Option<bool>,
+    windows_account_sid: Option<String>,
     windows_restricting_sid: Option<String>,
     windows_system_restricting_sid: Option<String>,
+    windows_logon_sid: Option<String>,
     windows_private_window_station: Option<String>,
     windows_private_desktop: Option<String>,
     windows_private_desktop_ready_before_resume: Option<bool>,
+    windows_private_window_station_logon_sid_dacl_proven: Option<bool>,
+    windows_private_desktop_logon_sid_dacl_proven: Option<bool>,
     windows_supervisor_window_station_before: Option<String>,
     windows_supervisor_desktop_before: Option<String>,
     windows_supervisor_window_station_after_create: Option<String>,
@@ -360,6 +364,7 @@ struct SandboxPreflightEvidence {
     windows_restricted_token_write_restricted: Option<bool>,
     windows_restricted_token_restricting_sid_match: Option<bool>,
     windows_restricted_token_system_restricting_sid_match: Option<bool>,
+    windows_restricted_token_logon_sid_match: Option<bool>,
     windows_restricted_token_low_integrity: Option<bool>,
     windows_restricted_token_no_enabled_privileges: Option<bool>,
     windows_window_station_dacl_proven: Option<bool>,
@@ -370,6 +375,7 @@ struct SandboxPreflightEvidence {
     windows_product_write_restricted: Option<bool>,
     windows_product_restricting_sid_match: Option<bool>,
     windows_product_system_restricting_sid_match: Option<bool>,
+    windows_product_logon_sid_match: Option<bool>,
     windows_product_low_integrity: Option<bool>,
     windows_product_no_enabled_privileges: Option<bool>,
     windows_product_exact_job: Option<bool>,
@@ -388,7 +394,7 @@ impl SandboxPreflightEvidence {
         supervisor_sha256: &str,
         windows_bootstrap_sha256: Option<&str>,
     ) -> Result<()> {
-        if self.schema_version != 8
+        if self.schema_version != 9
             || self.backend != backend
             || self.policy != "fixture-root-only-write"
             || self.handshake != "nonce-bound-ready-arm-with-pre-exec-t0"
@@ -445,11 +451,19 @@ impl SandboxPreflightEvidence {
                     && self.windows_bootstrap_trusted_path_write_denied == Some(true)
                     && self.windows_bootstrap_self_write_denied == Some(true)
                     && self
+                        .windows_account_sid
+                        .as_ref()
+                        .is_some_and(|value| value.starts_with("S-1-") && value.len() <= 184)
+                    && self
                         .windows_restricting_sid
                         .as_ref()
                         .is_some_and(|value| value.starts_with("S-1-") && value.len() <= 184)
                     && self.windows_system_restricting_sid.as_deref()
                         == Some(cmux_startup_bootstrap::WINDOWS_WRITE_RESTRICTED_CODE_SID)
+                    && self
+                        .windows_logon_sid
+                        .as_ref()
+                        .is_some_and(|value| value.starts_with("S-1-5-5-") && value.len() <= 184)
                     && self
                         .windows_bootstrap_config_nonce
                         .as_ref()
@@ -461,6 +475,8 @@ impl SandboxPreflightEvidence {
                                 && self.windows_private_desktop.as_ref() == Some(&desktop)
                         })
                     && self.windows_private_desktop_ready_before_resume == Some(true)
+                    && self.windows_private_window_station_logon_sid_dacl_proven == Some(true)
+                    && self.windows_private_desktop_logon_sid_dacl_proven == Some(true)
                     && self.windows_supervisor_window_station_before
                         == self.windows_supervisor_window_station_after_create
                     && self.windows_supervisor_window_station_before
@@ -497,6 +513,7 @@ impl SandboxPreflightEvidence {
                     && self.windows_restricted_token_write_restricted == Some(true)
                     && self.windows_restricted_token_restricting_sid_match == Some(true)
                     && self.windows_restricted_token_system_restricting_sid_match == Some(true)
+                    && self.windows_restricted_token_logon_sid_match == Some(true)
                     && self.windows_restricted_token_low_integrity == Some(true)
                     && self.windows_restricted_token_no_enabled_privileges == Some(true)
                     && self.windows_window_station_dacl_proven == Some(true)
@@ -507,6 +524,7 @@ impl SandboxPreflightEvidence {
                     && self.windows_product_write_restricted == Some(true)
                     && self.windows_product_restricting_sid_match == Some(true)
                     && self.windows_product_system_restricting_sid_match == Some(true)
+                    && self.windows_product_logon_sid_match == Some(true)
                     && self.windows_product_low_integrity == Some(true)
                     && self.windows_product_no_enabled_privileges == Some(true)
                     && self.windows_product_exact_job == Some(true)
@@ -540,11 +558,15 @@ impl SandboxPreflightEvidence {
             && self.windows_bootstrap_exact_job.is_none()
             && self.windows_bootstrap_trusted_path_write_denied.is_none()
             && self.windows_bootstrap_self_write_denied.is_none()
+            && self.windows_account_sid.is_none()
             && self.windows_restricting_sid.is_none()
             && self.windows_system_restricting_sid.is_none()
+            && self.windows_logon_sid.is_none()
             && self.windows_private_window_station.is_none()
             && self.windows_private_desktop.is_none()
             && self.windows_private_desktop_ready_before_resume.is_none()
+            && self.windows_private_window_station_logon_sid_dacl_proven.is_none()
+            && self.windows_private_desktop_logon_sid_dacl_proven.is_none()
             && self.windows_supervisor_window_station_before.is_none()
             && self.windows_supervisor_desktop_before.is_none()
             && self.windows_supervisor_window_station_after_create.is_none()
@@ -567,6 +589,7 @@ impl SandboxPreflightEvidence {
             && self.windows_restricted_token_write_restricted.is_none()
             && self.windows_restricted_token_restricting_sid_match.is_none()
             && self.windows_restricted_token_system_restricting_sid_match.is_none()
+            && self.windows_restricted_token_logon_sid_match.is_none()
             && self.windows_restricted_token_low_integrity.is_none()
             && self.windows_restricted_token_no_enabled_privileges.is_none()
             && self.windows_window_station_dacl_proven.is_none()
@@ -577,6 +600,7 @@ impl SandboxPreflightEvidence {
             && self.windows_product_write_restricted.is_none()
             && self.windows_product_restricting_sid_match.is_none()
             && self.windows_product_system_restricting_sid_match.is_none()
+            && self.windows_product_logon_sid_match.is_none()
             && self.windows_product_low_integrity.is_none()
             && self.windows_product_no_enabled_privileges.is_none()
             && self.windows_product_exact_job.is_none()
