@@ -24,6 +24,9 @@ final class GhosttyTerminalInputRelay: Sendable {
     case .dropped, .terminated:
       dropContinuation.yield()
       return false
+    @unknown default:
+      dropContinuation.yield()
+      return false
     }
   }
 }

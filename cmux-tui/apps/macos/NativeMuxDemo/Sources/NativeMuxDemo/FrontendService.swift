@@ -371,12 +371,12 @@ actor FrontendService {
   private let localization: Localization
   private let controlQueue = SerialFFIExecutor(
     label: "cmux.native-frontend.control",
-    maximumPendingCancellableOperations: Self.maximumPendingRequests
+    maximumPendingCancellableOperations: FrontendService.maximumPendingRequests
   )
   // One attach lane limits blocking handshakes without delaying resource control.
   private let attachQueue = SerialFFIExecutor(
     label: "cmux.native-frontend.attach",
-    maximumPendingCancellableOperations: Self.maximumPendingAttaches
+    maximumPendingCancellableOperations: FrontendService.maximumPendingAttaches
   )
   private var requestCancellations: [UUID: FFICancellation] = [:]
   private var attachCancellations: [UUID: FFICancellation] = [:]
@@ -795,7 +795,7 @@ struct TerminalRenderEventBatch: Sendable {
 
 func drainTerminalRenderEvents(
   maximumEvents: Int = 16,
-  maximumEventBytes: Int = Int(CMUX_TERMINAL_CLIENT_COPY_MAX_BYTES),
+  maximumEventBytes: Int = Int(CMUX_TERMINAL_CLIENT_COPY_MAX_BYTES_VALUE),
   maximumBytesEventBytes: Int = 65_536,
   maximumBytes: Int = 262_144,
   discard: () -> Void = {},
