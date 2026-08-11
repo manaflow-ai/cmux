@@ -127,7 +127,7 @@ if hashlib.sha256(preflight_bytes).hexdigest() != get(
 ):
     raise SystemExit("sandbox preflight file does not match its attested SHA-256")
 preflight = json.loads(preflight_bytes)
-if not isinstance(preflight, dict) or preflight.get("schema_version") != 7:
+if not isinstance(preflight, dict) or preflight.get("schema_version") != 8:
     raise SystemExit("sandbox preflight evidence has the wrong schema")
 windows_preflight_fields = (
     "windows_bootstrap_sha256",
@@ -143,6 +143,16 @@ windows_preflight_fields = (
     "windows_private_window_station",
     "windows_private_desktop",
     "windows_private_desktop_ready_before_resume",
+    "windows_supervisor_window_station_before",
+    "windows_supervisor_desktop_before",
+    "windows_supervisor_window_station_after_create",
+    "windows_supervisor_desktop_after_create",
+    "windows_supervisor_window_station_after_cleanup",
+    "windows_supervisor_desktop_after_cleanup",
+    "windows_supervisor_identity_unchanged_after_create",
+    "windows_supervisor_identity_unchanged_after_cleanup",
+    "windows_private_desktop_closed",
+    "windows_private_window_station_closed",
     "windows_bootstrap_create_no_window",
     "windows_broker_authentication_id",
     "windows_restricted_authentication_id",
@@ -269,6 +279,22 @@ if os.environ["RUNNER_OS"] == "Windows":
         or preflight["windows_private_window_station"] != private_window_station
         or preflight["windows_private_desktop"] != private_desktop
         or preflight["windows_private_desktop_ready_before_resume"] is not True
+        or not isinstance(preflight["windows_supervisor_window_station_before"], str)
+        or not preflight["windows_supervisor_window_station_before"]
+        or preflight["windows_supervisor_window_station_after_create"]
+        != preflight["windows_supervisor_window_station_before"]
+        or preflight["windows_supervisor_window_station_after_cleanup"]
+        != preflight["windows_supervisor_window_station_before"]
+        or not isinstance(preflight["windows_supervisor_desktop_before"], str)
+        or not preflight["windows_supervisor_desktop_before"]
+        or preflight["windows_supervisor_desktop_after_create"]
+        != preflight["windows_supervisor_desktop_before"]
+        or preflight["windows_supervisor_desktop_after_cleanup"]
+        != preflight["windows_supervisor_desktop_before"]
+        or preflight["windows_supervisor_identity_unchanged_after_create"] is not True
+        or preflight["windows_supervisor_identity_unchanged_after_cleanup"] is not True
+        or preflight["windows_private_desktop_closed"] is not True
+        or preflight["windows_private_window_station_closed"] is not True
         or preflight["windows_bootstrap_create_no_window"] is not True
         or not isinstance(broker_authentication_id, str)
         or re.fullmatch(r"[0-9a-fA-F]{16}", broker_authentication_id) is None

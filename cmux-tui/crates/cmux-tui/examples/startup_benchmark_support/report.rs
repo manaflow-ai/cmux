@@ -338,6 +338,16 @@ struct SandboxPreflightEvidence {
     windows_private_window_station: Option<String>,
     windows_private_desktop: Option<String>,
     windows_private_desktop_ready_before_resume: Option<bool>,
+    windows_supervisor_window_station_before: Option<String>,
+    windows_supervisor_desktop_before: Option<String>,
+    windows_supervisor_window_station_after_create: Option<String>,
+    windows_supervisor_desktop_after_create: Option<String>,
+    windows_supervisor_window_station_after_cleanup: Option<String>,
+    windows_supervisor_desktop_after_cleanup: Option<String>,
+    windows_supervisor_identity_unchanged_after_create: Option<bool>,
+    windows_supervisor_identity_unchanged_after_cleanup: Option<bool>,
+    windows_private_desktop_closed: Option<bool>,
+    windows_private_window_station_closed: Option<bool>,
     windows_bootstrap_create_no_window: Option<bool>,
     windows_broker_authentication_id: Option<String>,
     windows_restricted_authentication_id: Option<String>,
@@ -378,7 +388,7 @@ impl SandboxPreflightEvidence {
         supervisor_sha256: &str,
         windows_bootstrap_sha256: Option<&str>,
     ) -> Result<()> {
-        if self.schema_version != 7
+        if self.schema_version != 8
             || self.backend != backend
             || self.policy != "fixture-root-only-write"
             || self.handshake != "nonce-bound-ready-arm-with-pre-exec-t0"
@@ -451,6 +461,26 @@ impl SandboxPreflightEvidence {
                                 && self.windows_private_desktop.as_ref() == Some(&desktop)
                         })
                     && self.windows_private_desktop_ready_before_resume == Some(true)
+                    && self.windows_supervisor_window_station_before
+                        == self.windows_supervisor_window_station_after_create
+                    && self.windows_supervisor_window_station_before
+                        == self.windows_supervisor_window_station_after_cleanup
+                    && self.windows_supervisor_desktop_before
+                        == self.windows_supervisor_desktop_after_create
+                    && self.windows_supervisor_desktop_before
+                        == self.windows_supervisor_desktop_after_cleanup
+                    && self
+                        .windows_supervisor_window_station_before
+                        .as_ref()
+                        .is_some_and(|name| !name.is_empty())
+                    && self
+                        .windows_supervisor_desktop_before
+                        .as_ref()
+                        .is_some_and(|name| !name.is_empty())
+                    && self.windows_supervisor_identity_unchanged_after_create == Some(true)
+                    && self.windows_supervisor_identity_unchanged_after_cleanup == Some(true)
+                    && self.windows_private_desktop_closed == Some(true)
+                    && self.windows_private_window_station_closed == Some(true)
                     && self.windows_bootstrap_create_no_window == Some(true)
                     && self.windows_broker_authentication_id.as_ref().is_some_and(|value| {
                         value.len() == 16 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
@@ -515,6 +545,16 @@ impl SandboxPreflightEvidence {
             && self.windows_private_window_station.is_none()
             && self.windows_private_desktop.is_none()
             && self.windows_private_desktop_ready_before_resume.is_none()
+            && self.windows_supervisor_window_station_before.is_none()
+            && self.windows_supervisor_desktop_before.is_none()
+            && self.windows_supervisor_window_station_after_create.is_none()
+            && self.windows_supervisor_desktop_after_create.is_none()
+            && self.windows_supervisor_window_station_after_cleanup.is_none()
+            && self.windows_supervisor_desktop_after_cleanup.is_none()
+            && self.windows_supervisor_identity_unchanged_after_create.is_none()
+            && self.windows_supervisor_identity_unchanged_after_cleanup.is_none()
+            && self.windows_private_desktop_closed.is_none()
+            && self.windows_private_window_station_closed.is_none()
             && self.windows_bootstrap_create_no_window.is_none()
             && self.windows_broker_authentication_id.is_none()
             && self.windows_restricted_authentication_id.is_none()
