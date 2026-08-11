@@ -1455,7 +1455,7 @@ mod unix {
             deadline: Instant,
         ) -> anyhow::Result<()> {
             anyhow::ensure!(
-                self.record.record_version >= HOST_RECORD_VERSION,
+                self.smart_renderer && self.record.record_version >= HOST_RECORD_VERSION,
                 "terminal host does not support a source-ordered detach fence"
             );
             let response = self
@@ -1471,7 +1471,7 @@ mod unix {
         }
 
         pub(crate) fn supports_journal_detach_fence(&self) -> bool {
-            self.record.record_version >= HOST_RECORD_VERSION
+            self.smart_renderer && self.record.record_version >= HOST_RECORD_VERSION
         }
 
         /// Commit the launch ownership handoff after every fallible Surface
