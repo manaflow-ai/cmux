@@ -567,6 +567,81 @@ struct DockSocketLifecycleTests {
         }
     }
 
+    @Test("Workspace Dock browser surfaces resolve programmatic browser commands")
+    @MainActor
+    func workspaceDockBrowserSurfacesResolveBrowserCommands() async throws {
+        try await withBrowserEnabled {
+            try await withSocketAppContext { _, workspace, windowId in
+                let dock = workspace.dockSplit
+                let pane = try #require(
+                    dock.bonsplitController.allPaneIds.first
+                )
+                let browserId = try #require(
+                    dock.newSurface(
+                        kind: .browser,
+                        inPane: pane,
+                        url: URL(string: "about:blank"),
+                        focus: true
+                    )
+                )
+                let routing: [String: Any] = [
+                    "workspace_id": workspace.id.uuidString,
+                    "surface_id": browserId.uuidString,
+                ]
+
+                let urlResult = try v2Result(
+                    method: "browser.url.get",
+                    params: routing
+                )
+                #expect(
+                    urlResult["workspace_id"] as? String ==
+                        workspace.id.uuidString
+                )
+                #expect(
+                    urlResult["surface_id"] as? String ==
+                        browserId.uuidString
+                )
+                #expect(urlResult["url"] as? String == "about:blank")
+
+                var navigateParams = routing
+                navigateParams["url"] = "about:blank"
+                let navigateResult = try await v2ResultOnSocketWorker(
+                    method: "browser.navigate",
+                    params: navigateParams
+                )
+                #expect(
+                    navigateResult["workspace_id"] as? String ==
+                        workspace.id.uuidString
+                )
+                #expect(
+                    navigateResult["window_id"] as? String ==
+                        windowId.uuidString
+                )
+                #expect(
+                    navigateResult["surface_id"] as? String ==
+                        browserId.uuidString
+                )
+
+                let reloadResult = try await v2ResultOnSocketWorker(
+                    method: "browser.reload",
+                    params: routing
+                )
+                #expect(
+                    reloadResult["workspace_id"] as? String ==
+                        workspace.id.uuidString
+                )
+                #expect(
+                    reloadResult["window_id"] as? String ==
+                        windowId.uuidString
+                )
+                #expect(
+                    reloadResult["surface_id"] as? String ==
+                        browserId.uuidString
+                )
+            }
+        }
+    }
+
     @Test("Dock tab selection activates the selected terminal")
     @MainActor
     func dockTabSelectionActivatesSelectedTerminal() throws {
