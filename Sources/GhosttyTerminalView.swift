@@ -518,7 +518,7 @@ class GhosttyApp {
     private var pendingAppearanceSynchronization: PendingAppearanceSynchronization?
     private(set) var usesHostLayerBackground = false
     private(set) var userGhosttyShellIntegrationMode: String = "detect"
-    private(set) var userGhosttyCommand: String?
+    private(set) var userGhosttyCommand: GhosttyConfiguredCommand?
     private(set) var resolvedUserShell: String?
 
     func storedShortcut(
@@ -1349,7 +1349,7 @@ class GhosttyApp {
         userGhosttyCommand = GhosttyConfig.load(
             preferredColorScheme: preferredColorScheme,
             useCache: false
-        ).command
+        ).command.flatMap(GhosttyConfiguredCommand.init(rawValue:))
     }
 
     func loadDefaultConfigFilesWithLegacyFallback(

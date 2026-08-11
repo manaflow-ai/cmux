@@ -79,7 +79,9 @@ struct TerminalShellResolverTests {
         let launchForm = TerminalLaunchCommandPolicy().resolve(
             initialCommand: nil,
             surfaceCommand: nil,
-            userGhosttyCommand: "shell: exec /usr/local/bin/nu --login",
+            userGhosttyCommand: GhosttyConfiguredCommand(
+                rawValue: "shell: exec /usr/local/bin/nu --login"
+            ),
             managedShellCommand: "/run/current-system/sw/bin/fish --init-command source",
             resolvedShell: "/run/current-system/sw/bin/fish"
         )
@@ -93,13 +95,37 @@ struct TerminalShellResolverTests {
         let launchForm = TerminalLaunchCommandPolicy().resolve(
             initialCommand: nil,
             surfaceCommand: nil,
-            userGhosttyCommand: " direct: /usr/local/bin/nu --login ",
+            userGhosttyCommand: GhosttyConfiguredCommand(
+                rawValue: " direct: /usr/local/bin/nu --login "
+            ),
             managedShellCommand: nil,
             resolvedShell: "/bin/zsh"
         )
 
         #expect(launchForm?.command == nil)
         #expect(launchForm?.arguments == ["/usr/local/bin/nu", "--login"])
+    }
+
+    @Test
+    func ghosttyDirectCommandTreatsQuotesAsLiteralCharacters() {
+        let configuredCommand = GhosttyConfiguredCommand(
+            rawValue: "direct:/bin/zsh -c 'printf hello world'"
+        )
+
+        #expect(
+            configuredCommand?.launchForm.arguments == [
+                "/bin/zsh", "-c", "'printf", "hello", "world'",
+            ]
+        )
+    }
+
+    @Test
+    func ghosttyDirectCommandPreservesEmptyArgumentsBetweenSpaces() {
+        let configuredCommand = GhosttyConfiguredCommand(
+            rawValue: "direct:/bin/echo  tail"
+        )
+
+        #expect(configuredCommand?.launchForm.arguments == ["/bin/echo", "", "tail"])
     }
 
     @Test

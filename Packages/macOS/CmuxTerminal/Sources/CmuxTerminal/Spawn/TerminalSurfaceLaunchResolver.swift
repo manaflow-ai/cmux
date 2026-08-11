@@ -18,7 +18,7 @@ public final class TerminalSurfaceLaunchResolver {
     private let ambientEnvironment: [String: String]
     private let defaultShellArguments: DefaultShellArguments
     private let resolvedUserShell: @MainActor () -> String?
-    private let userGhosttyCommand: @MainActor () -> String?
+    private let userGhosttyCommand: @MainActor () -> GhosttyConfiguredCommand?
     private let agentCommandShimInstallDeadline: Duration
     private let agentCommandShimInstallDeadlineClock: any Clock<Duration>
 
@@ -48,7 +48,7 @@ public final class TerminalSurfaceLaunchResolver {
     public init(
         userGhosttyShellIntegrationMode: @escaping @MainActor () -> String,
         resolvedUserShell: @escaping @MainActor () -> String? = { nil },
-        userGhosttyCommand: @escaping @MainActor () -> String? = { nil },
+        userGhosttyCommand: @escaping @MainActor () -> GhosttyConfiguredCommand? = { nil },
         spawnPolicyProvider: any TerminalSurfaceSpawnPolicyProviding,
         runtimeFilesystem: TerminalSurfaceRuntimeFilesystem,
         sessionPortBase: Int,
@@ -88,10 +88,14 @@ public final class TerminalSurfaceLaunchResolver {
                 deadline: agentCommandShimInstallDeadline,
                 clock: agentCommandShimInstallDeadlineClock
             )
-            shims = await withTaskCancellationHandler {
-                await attempt.value()
-            } onCancel: {
-                attempt.cancel()
+            if let attempt {
+                shims = await withTaskCancellationHandler {
+                    await attempt.value()
+                } onCancel: {
+                    attempt.cancel()
+                }
+            } else {
+                shims = nil
             }
         } else {
             shims = nil
@@ -306,29 +310,36 @@ private final class TerminalSurfaceCommandShimInstallAttempt: @unchecked Sendabl
     private var installTask: Task<Void, Never>?
     private var deadlineTask: Task<Void, Never>?
 
-    init(
+    init?(
         filesystem: TerminalSurfaceRuntimeFilesystem,
         wrapperDirectoryURL: URL,
         surfaceID: UUID,
         deadline: Duration,
         clock: any Clock<Duration>
     ) {
+        guard let installToken = filesystem.agentCommandShimInstallGate.claim() else {
+            return nil
+        }
         let temporaryDirectory = filesystem.agentCommandShimTemporaryDirectory
-        let installTask = Task.detached(priority: .utility) { [self] in
+        let installTask = Task.detached(priority: .utility) { [weak self] in
+            defer {
+                filesystem.agentCommandShimInstallGate.release(installToken)
+            }
+            guard !Task.isCancelled else { return }
             let shims = await filesystem.installAgentCommandShims(
                 wrapperDirectoryURL,
                 surfaceID,
                 temporaryDirectory
             )
-            resolve(shims)
+            self?.resolve(shims)
         }
-        let deadlineTask = Task.detached(priority: .utility) { [self] in
+        let deadlineTask = Task.detached(priority: .utility) { [weak self] in
             do {
                 try await clock.sleep(for: deadline, tolerance: nil)
             } catch {
                 return
             }
-            resolve(nil)
+            self?.resolve(nil)
         }
         attach(installTask: installTask, deadlineTask: deadlineTask)
     }

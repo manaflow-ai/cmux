@@ -291,6 +291,9 @@ extension TerminalSurface {
             externalPresentationLease = nil
             return
         }
+        guard let embeddedRuntime else { return }
+        let byteTee = embeddedRuntime.byteTee
+        let runtimeTeardown = embeddedRuntime.runtimeTeardown
 
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
@@ -362,6 +365,9 @@ extension TerminalSurface {
     @MainActor
     public func suspendRuntimeSurfaceForAgentHibernation(reason: String) -> Bool {
         guard externalRuntime == nil else { return false }
+        guard let embeddedRuntime else { return false }
+        let byteTee = embeddedRuntime.byteTee
+        let runtimeTeardown = embeddedRuntime.runtimeTeardown
         guard let teardownReservation =
                 agentHibernationRuntimeTeardownReservation ??
                 runtimeTeardown.reserveIsolatedHibernationTeardown() else {
@@ -458,6 +464,7 @@ extension TerminalSurface {
     /// Reserves the bounded native-free lane at the final pre-signal gate.
     @MainActor
     public func reserveAgentHibernationRuntimeTeardown() -> Bool {
+        guard let runtimeTeardown = embeddedRuntime?.runtimeTeardown else { return false }
         guard agentHibernationRuntimeTeardownTicket == nil else { return false }
         if agentHibernationRuntimeTeardownReservation != nil { return true }
         guard let reservation =
@@ -474,6 +481,7 @@ extension TerminalSurface {
         guard let reservation = agentHibernationRuntimeTeardownReservation else {
             return
         }
+        guard let runtimeTeardown = embeddedRuntime?.runtimeTeardown else { return }
         agentHibernationRuntimeTeardownReservation = nil
         runtimeTeardown.cancelIsolatedHibernationTeardown(reservation)
     }
@@ -621,6 +629,7 @@ extension TerminalSurface {
         view: any TerminalSurfaceNativeViewing,
         source: RuntimeSurfaceCreationSource
     ) -> Bool {
+        guard let engine = embeddedRuntime?.engine else { return false }
         if configurationReloadDeferredRuntimeSurfaceCreation {
             configurationReloadDeferredRuntimeSurfaceCreationSource =
                 (
@@ -687,6 +696,9 @@ extension TerminalSurface {
 #endif
             return
         }
+        guard let embeddedRuntime else { return }
+        let engine = embeddedRuntime.engine
+        let byteTee = embeddedRuntime.byteTee
         if deferRuntimeSurfaceCreationForConfigurationReload(
             view: view,
             source: source

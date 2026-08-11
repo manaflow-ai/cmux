@@ -11,7 +11,7 @@ public struct TerminalSurfaceLaunchDependencies {
     public let sessionPortRangeSize: Int
     public let userGhosttyShellIntegrationMode: @MainActor () -> String
     public let resolvedUserShell: @MainActor () -> String?
-    public let userGhosttyCommand: @MainActor () -> String?
+    public let userGhosttyCommand: @MainActor () -> GhosttyConfiguredCommand?
     public let agentCommandShimInstallDeadline: Duration
     public let agentCommandShimInstallDeadlineClock: any Clock<Duration>
 
@@ -22,7 +22,7 @@ public struct TerminalSurfaceLaunchDependencies {
         sessionPortRangeSize: Int,
         userGhosttyShellIntegrationMode: @escaping @MainActor () -> String,
         resolvedUserShell: @escaping @MainActor () -> String? = { nil },
-        userGhosttyCommand: @escaping @MainActor () -> String? = { nil },
+        userGhosttyCommand: @escaping @MainActor () -> GhosttyConfiguredCommand? = { nil },
         agentCommandShimInstallDeadline: Duration = .seconds(5),
         agentCommandShimInstallDeadlineClock: any Clock<Duration> = ContinuousClock()
     ) {

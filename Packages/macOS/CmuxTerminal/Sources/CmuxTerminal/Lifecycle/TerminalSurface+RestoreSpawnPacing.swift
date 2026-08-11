@@ -10,6 +10,7 @@ extension TerminalSurface {
     @MainActor
     func enqueueRestoredRuntimeSurfaceCreation(for view: any TerminalSurfaceNativeViewing) {
         guard !restoredRuntimeSurfaceStartQueued else { return }
+        guard let restoreSpawnScheduler = embeddedRuntime?.restoreSpawnScheduler else { return }
         restoredRuntimeSurfaceStartQueued = true
         let surfaceId = id
         restoreSpawnScheduler.scheduleRestoredSurfaceSpawn(surfaceId: surfaceId) { [weak self, weak view] in

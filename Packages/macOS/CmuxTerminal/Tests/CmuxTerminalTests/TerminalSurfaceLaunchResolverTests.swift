@@ -194,6 +194,11 @@ struct TerminalSurfaceLaunchResolverTests {
         await installer.waitUntilCancelled()
         #expect(await installer.cancellationCount == 1)
         #expect(await installer.isBlocked)
+
+        let secondResolved = await resolver.resolveInstallingCommandShim(request)
+        #expect(secondResolved.environment["CMUX_AGENT_COMMAND_SHIM_ROOT"] == nil)
+        #expect(await installer.invocationCount == 1)
+        #expect(await installer.isBlocked)
         await installer.complete()
     }
 
@@ -209,7 +214,9 @@ struct TerminalSurfaceLaunchResolverTests {
         TerminalSurfaceLaunchResolver(
             userGhosttyShellIntegrationMode: { "none" },
             resolvedUserShell: { resolvedUserShell },
-            userGhosttyCommand: { userGhosttyCommand },
+            userGhosttyCommand: {
+                userGhosttyCommand.flatMap(GhosttyConfiguredCommand.init(rawValue:))
+            },
             spawnPolicyProvider: FakeSpawnPolicyProvider(),
             runtimeFilesystem: runtimeFilesystem ?? TerminalSurfaceRuntimeFilesystem(
                 agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp"),
@@ -233,9 +240,11 @@ private actor BlockingCommandShimInstaller {
     private var cancellationWaiters: [CheckedContinuation<Void, Never>] = []
     private var completion: CheckedContinuation<TerminalSurfaceAgentCommandShimSet?, Never>?
     private(set) var cancellationCount = 0
+    private(set) var invocationCount = 0
     var isBlocked: Bool { completion != nil }
 
     func install() async -> TerminalSurfaceAgentCommandShimSet? {
+        invocationCount += 1
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 completion = continuation

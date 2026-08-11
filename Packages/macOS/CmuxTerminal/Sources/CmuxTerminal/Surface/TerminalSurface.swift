@@ -94,36 +94,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let fontConfigurationSnapshotProvider:
         @MainActor @Sendable () -> TerminalFontConfigurationSnapshot?
 
-    private var requiredEmbeddedRuntime: TerminalSurfaceEmbeddedRuntimeDependencies {
-        guard let embeddedRuntime else {
-            preconditionFailure("Externally-owned terminals cannot access embedded Ghostty runtime capabilities")
-        }
-        return embeddedRuntime
-    }
-
-    var engine: any TerminalEngineHosting { requiredEmbeddedRuntime.engine }
-    var byteTee: any TerminalByteTeeBinding { requiredEmbeddedRuntime.byteTee }
-    var rendererRealization: any TerminalRendererRealizationScheduling {
-        requiredEmbeddedRuntime.rendererRealization
-    }
-    var runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator {
-        requiredEmbeddedRuntime.runtimeTeardown
-    }
-    var restoreSpawnScheduler: any TerminalSurfaceRuntimeSpawnScheduling {
-        requiredEmbeddedRuntime.restoreSpawnScheduler
-    }
-    var runtimeFilesystem: TerminalSurfaceRuntimeFilesystem {
-        requiredEmbeddedRuntime.runtimeFilesystem
-    }
-    var agentCommandShimInstallDeadline: Duration {
-        requiredEmbeddedRuntime.agentCommandShimInstallDeadline
-    }
-    var agentCommandShimInstallDeadlineClock: any Clock<Duration> {
-        requiredEmbeddedRuntime.agentCommandShimInstallDeadlineClock
-    }
-    var sessionPortBase: Int { requiredEmbeddedRuntime.sessionPortBase }
-    var sessionPortRangeSize: Int { requiredEmbeddedRuntime.sessionPortRangeSize }
-
     /// Presentation state for the current runtime renderer. This distinguishes a
     /// renderer Ghostty created from one cmux has actually presented in a real
     /// window, while preserving Ghostty's native rebuild transaction.

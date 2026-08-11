@@ -18,6 +18,8 @@ extension TerminalSurface {
         scaleFactors: (x: CGFloat, y: CGFloat, layer: CGFloat),
         agentCommandShims: AgentCommandShimSet?
     ) -> (createdSurface: ghostty_surface_t?, runtimeInitialInput: String?) {
+        guard let embeddedRuntime else { return (nil, nil) }
+        let engine = embeddedRuntime.engine
         let baseConfig = runtimeCreationConfigTemplate()
         let runtimeInitialInput = nextRuntimeInitialInput
         let resolvedLaunch = TerminalSurfaceLaunchResolver(
@@ -31,9 +33,9 @@ extension TerminalSurface {
                 engine.userGhosttyCommand
             },
             spawnPolicyProvider: spawnPolicyProvider,
-            runtimeFilesystem: runtimeFilesystem,
-            sessionPortBase: sessionPortBase,
-            sessionPortRangeSize: sessionPortRangeSize,
+            runtimeFilesystem: embeddedRuntime.runtimeFilesystem,
+            sessionPortBase: embeddedRuntime.sessionPortBase,
+            sessionPortRangeSize: embeddedRuntime.sessionPortRangeSize,
             resourceURL: Bundle.main.resourceURL,
             bundleIdentifier: Bundle.main.bundleIdentifier,
             ambientEnvironment: ProcessInfo.processInfo.environment,
@@ -67,7 +69,7 @@ extension TerminalSurface {
         surfaceConfig.platform = ghostty_platform_u(macos: ghostty_platform_macos_s(
             nsview: Unmanaged.passUnretained(view as NSView).toOpaque()
         ))
-        let rendererRealization = rendererRealization
+        let rendererRealization = embeddedRuntime.rendererRealization
         let callbackContext = Unmanaged.passRetained(GhosttySurfaceCallbackContext(
             surfaceHost: view,
             surfaceController: self,

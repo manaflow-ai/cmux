@@ -1,5 +1,45 @@
 import Foundation
 
+/// Ghostty's parsed `command` configuration, with its launch form fixed at
+/// the configuration boundary.
+///
+/// This parser follows `Command.parseCLI` in
+/// `ghostty/src/config/command.zig`. Direct mode splits on each literal space.
+/// Quotes have no grouping meaning and repeated spaces create empty arguments.
+public struct GhosttyConfiguredCommand: Equatable, Sendable {
+    /// The launch form selected by Ghostty's command prefix.
+    public let launchForm: TerminalSurfaceLaunchForm
+
+    /// Parses one effective Ghostty `command` value.
+    public init?(rawValue: String) {
+        let command = rawValue.trimmingCharacters(in: .whitespaces)
+        guard !command.isEmpty else { return nil }
+        guard let separator = command.firstIndex(of: ":") else {
+            guard let launchForm = TerminalSurfaceLaunchForm(command: command) else {
+                return nil
+            }
+            self.launchForm = launchForm
+            return
+        }
+        let prefix = String(command[..<separator])
+        let payload = String(command[command.index(after: separator)...])
+            .trimmingCharacters(in: .whitespaces)
+        let launchForm: TerminalSurfaceLaunchForm?
+        switch prefix {
+        case "direct":
+            launchForm = TerminalSurfaceLaunchForm(
+                arguments: payload.components(separatedBy: " ")
+            )
+        case "shell":
+            launchForm = TerminalSurfaceLaunchForm(command: payload)
+        default:
+            launchForm = TerminalSurfaceLaunchForm(command: command)
+        }
+        guard let launchForm else { return nil }
+        self.launchForm = launchForm
+    }
+}
+
 /// Selects the command passed to Ghostty when creating a terminal surface.
 public struct TerminalLaunchCommandPolicy: Sendable {
     /// Creates a launch-command policy.
@@ -21,7 +61,7 @@ public struct TerminalLaunchCommandPolicy: Sendable {
     public func resolve(
         initialCommand: String?,
         surfaceCommand: String?,
-        userGhosttyCommand: String?,
+        userGhosttyCommand: GhosttyConfiguredCommand?,
         managedShellCommand: String?,
         resolvedShell: String?
     ) -> TerminalSurfaceLaunchForm? {
@@ -31,9 +71,7 @@ public struct TerminalLaunchCommandPolicy: Sendable {
             }
         }
         if let userGhosttyCommand {
-            return TerminalSurfaceLaunchForm(
-                ghosttyConfiguredCommand: userGhosttyCommand
-            )
+            return userGhosttyCommand.launchForm
         }
         for candidate in [managedShellCommand, resolvedShell] {
             if let candidate, !candidate.isEmpty {
@@ -41,28 +79,5 @@ public struct TerminalLaunchCommandPolicy: Sendable {
             }
         }
         return nil
-    }
-}
-
-extension TerminalSurfaceLaunchForm {
-    init?(ghosttyConfiguredCommand rawCommand: String) {
-        let command = rawCommand.trimmingCharacters(in: .whitespaces)
-        guard !command.isEmpty else { return nil }
-        guard let separator = command.firstIndex(of: ":") else {
-            self.init(command: command)
-            return
-        }
-        let prefix = String(command[..<separator])
-        let payload = String(command[command.index(after: separator)...])
-            .trimmingCharacters(in: .whitespaces)
-        switch prefix {
-        case "direct":
-            let arguments = payload.components(separatedBy: " ")
-            self.init(arguments: arguments)
-        case "shell":
-            self.init(command: payload)
-        default:
-            self.init(command: command)
-        }
     }
 }

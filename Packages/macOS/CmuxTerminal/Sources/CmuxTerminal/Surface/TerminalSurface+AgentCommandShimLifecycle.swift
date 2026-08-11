@@ -6,6 +6,10 @@ extension TerminalSurface {
         view: any TerminalSurfaceNativeViewing,
         source: RuntimeSurfaceCreationSource
     ) -> (isReady: Bool, shims: AgentCommandShimSet?) {
+        guard let embeddedRuntime else {
+            agentCommandShimInstallCompleted = true
+            return (true, nil)
+        }
         guard let wrapperDirectoryURL = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true) else {
             agentCommandShimInstallCompleted = true
             return (true, nil)
@@ -19,16 +23,25 @@ extension TerminalSurface {
             (agentCommandShimPendingCreationSource ?? source).promoted(with: source)
 
         if agentCommandShimInstallTask == nil {
+            let runtimeFilesystem = embeddedRuntime.runtimeFilesystem
+            guard let installToken = runtimeFilesystem.agentCommandShimInstallGate.claim() else {
+                agentCommandShimInstallCompleted = true
+                agentCommandShimPendingCreationSource = nil
+                return (true, nil)
+            }
             let surfaceId = id
             // Explicit captures and arguments: the region-based isolation
             // checker cannot analyze the legacy closure's implicit captures
             // and in-closure default-argument evaluation.
-            let runtimeFilesystem = runtimeFilesystem
             let temporaryDirectory = runtimeFilesystem.agentCommandShimTemporaryDirectory
             #if compiler(>=6.2)
             let installOperation: @concurrent @Sendable () async -> AgentCommandShimSet? = {
-                [wrapperDirectoryURL, surfaceId, temporaryDirectory, runtimeFilesystem] in
-                await runtimeFilesystem.installAgentCommandShims(
+                [wrapperDirectoryURL, surfaceId, temporaryDirectory, runtimeFilesystem, installToken] in
+                defer {
+                    runtimeFilesystem.agentCommandShimInstallGate.release(installToken)
+                }
+                guard !Task.isCancelled else { return nil }
+                return await runtimeFilesystem.installAgentCommandShims(
                     wrapperDirectoryURL,
                     surfaceId,
                     temporaryDirectory
@@ -36,8 +49,12 @@ extension TerminalSurface {
             }
             #else
             let installOperation: @Sendable () async -> AgentCommandShimSet? = {
-                [wrapperDirectoryURL, surfaceId, temporaryDirectory, runtimeFilesystem] in
-                await runtimeFilesystem.installAgentCommandShims(
+                [wrapperDirectoryURL, surfaceId, temporaryDirectory, runtimeFilesystem, installToken] in
+                defer {
+                    runtimeFilesystem.agentCommandShimInstallGate.release(installToken)
+                }
+                guard !Task.isCancelled else { return nil }
+                return await runtimeFilesystem.installAgentCommandShims(
                     wrapperDirectoryURL,
                     surfaceId,
                     temporaryDirectory
@@ -66,8 +83,8 @@ extension TerminalSurface {
             // Bounded, cancellable deadline (injected clock): command shims
             // are an optional PATH convenience, and a hung install must never
             // starve PTY spawn (#9769).
-            let deadline = agentCommandShimInstallDeadline
-            let clock = agentCommandShimInstallDeadlineClock
+            let deadline = embeddedRuntime.agentCommandShimInstallDeadline
+            let clock = embeddedRuntime.agentCommandShimInstallDeadlineClock
             agentCommandShimDeadlineTask = Task { @MainActor [weak self, weak view] in
                 try? await clock.sleep(for: deadline, tolerance: nil)
                 guard !Task.isCancelled else { return }
