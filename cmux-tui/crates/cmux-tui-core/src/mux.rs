@@ -20562,7 +20562,6 @@ mod tests {
         let (finished_sender, finished_receiver) = std::sync::mpsc::sync_channel(1);
         *mux.kitty_image_budget_operation.lock().unwrap() = Some(Arc::new({
             let gate = gate.clone();
-            let blocked_once = blocked_once.clone();
             move |_surface, _limits, _deadline| {
                 if !blocked_once.swap(true, Ordering::AcqRel) {
                     let _ = started_sender.try_send(());
