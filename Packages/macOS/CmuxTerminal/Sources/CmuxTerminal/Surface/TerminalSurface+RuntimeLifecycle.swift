@@ -1086,6 +1086,7 @@ extension TerminalSurface {
         registry.registerRuntimeSurface(createdSurface, ownerId: id)
         cacheControllingTTYIdentity(for: createdSurface)
         recordRuntimeSurfaceCreation()
+        paneHost.clearRuntimeSurfaceCreationFailure()
         // Install the shared PTY tee so output consumers receive every byte
         // the read thread produces, in order, before the VT parser runs.
         // Paired iPhones consume these bytes via `terminal.bytes` events

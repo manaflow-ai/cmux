@@ -299,6 +299,11 @@ extension GhosttySurfaceScrollView: TerminalSurfacePaneHosting {
         runtimeSurfaceCreationFailureLabel.stringValue = message
         runtimeSurfaceCreationFailureLabel.isHidden = false
     }
+
+    func clearRuntimeSurfaceCreationFailure() {
+        runtimeSurfaceCreationFailureLabel.stringValue = ""
+        runtimeSurfaceCreationFailureLabel.isHidden = true
+    }
 }
 
 extension TerminalSurface {

@@ -53,6 +53,10 @@ final class FakeTerminalSurfacePaneHost: NSView, TerminalSurfacePaneHosting {
         runtimeSurfaceCreationFailureContinuation.yield(message)
     }
 
+    func clearRuntimeSurfaceCreationFailure() {
+        activeRuntimeSurfaceCreationFailureMessage = nil
+    }
+
     func terminalSurfaceDidReceiveExplicitInput() {
         explicitInputCount += 1
     }

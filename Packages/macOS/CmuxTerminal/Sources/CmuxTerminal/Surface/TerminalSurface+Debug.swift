@@ -277,6 +277,7 @@ extension TerminalSurface {
             on: runtimeSurface,
             callbackContext: callbackContext
         )
+        paneHost.clearRuntimeSurfaceCreationFailure()
     }
 #endif
 }
