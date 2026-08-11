@@ -1249,6 +1249,20 @@ struct MacBsdInfoWithUniqueId {
 }
 
 #[cfg(target_os = "macos")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct MacProcessBirthIdentity {
+    pub(crate) seconds: u64,
+    pub(crate) microseconds: u64,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct MacProcessSignalIdentity {
+    pub(crate) birth: MacProcessBirthIdentity,
+    pub(crate) pid_version: u32,
+}
+
+#[cfg(target_os = "macos")]
 #[repr(C)]
 struct MacAuditToken {
     val: [u32; 8],
@@ -1412,14 +1426,51 @@ fn process_identity(pid: u32) -> Option<ProcessIdentity> {
     Some(mac_process_snapshot(pid)?.identity)
 }
 
-/// Return the kernel PID version used for exact macOS process signaling.
+/// Return the process birth identity, which remains stable across exec.
 #[cfg(target_os = "macos")]
-pub(crate) fn mac_process_pid_version(pid: u32) -> Option<u32> {
-    Some(process_identity(pid)?.started as u32)
+pub(crate) fn mac_process_birth_identity(pid: u32) -> Option<MacProcessBirthIdentity> {
+    if let Some(identity) = mac_process_signal_identity(pid) {
+        return Some(identity.birth);
+    }
+    let bsd = mac_process_bsd_info(pid)?;
+    if bsd.pbi_status == libc::SZOMB {
+        return None;
+    }
+    Some(MacProcessBirthIdentity {
+        seconds: bsd.pbi_start_tvsec,
+        microseconds: bsd.pbi_start_tvusec,
+    })
+}
+
+/// Return one atomic birth-identity and PID-version record for exact signaling.
+#[cfg(target_os = "macos")]
+pub(crate) fn mac_process_signal_identity(pid: u32) -> Option<MacProcessSignalIdentity> {
+    let info = mac_process_info_with_unique_id(pid)?;
+    if info.bsd.pbi_status == libc::SZOMB {
+        return None;
+    }
+    Some(MacProcessSignalIdentity {
+        birth: MacProcessBirthIdentity {
+            seconds: info.bsd.pbi_start_tvsec,
+            microseconds: info.bsd.pbi_start_tvusec,
+        },
+        pid_version: info.unique.id_version as u32,
+    })
 }
 
 #[cfg(target_os = "macos")]
 fn mac_process_snapshot(pid: u32) -> Option<ProcessSnapshot> {
+    let info = mac_process_info_with_unique_id(pid)?;
+    // Keep chronological start time in the high bits for scan filtering and
+    // the kernel PID version in the low bits for race-free signal delivery.
+    let started = (u128::from(info.bsd.pbi_start_tvsec) << 64)
+        | (u128::from(info.bsd.pbi_start_tvusec) << 32)
+        | u128::from(info.unique.id_version as u32);
+    Some(ProcessSnapshot { identity: ProcessIdentity { pid, started }, parent: info.bsd.pbi_ppid })
+}
+
+#[cfg(target_os = "macos")]
+fn mac_process_info_with_unique_id(pid: u32) -> Option<MacBsdInfoWithUniqueId> {
     const PROC_PIDT_BSDINFOWITHUNIQID: libc::c_int = 18;
     let pid_int = libc::c_int::try_from(pid).ok()?;
     let mut info = std::mem::MaybeUninit::<MacBsdInfoWithUniqueId>::zeroed();
@@ -1431,13 +1482,23 @@ fn mac_process_snapshot(pid: u32) -> Option<ProcessSnapshot> {
         return None;
     }
     // SAFETY: proc_pidinfo initialized the full structure.
-    let info = unsafe { info.assume_init() };
-    // Keep chronological start time in the high bits for scan filtering and
-    // the kernel PID version in the low bits for race-free signal delivery.
-    let started = (u128::from(info.bsd.pbi_start_tvsec) << 64)
-        | (u128::from(info.bsd.pbi_start_tvusec) << 32)
-        | u128::from(info.unique.id_version as u32);
-    Some(ProcessSnapshot { identity: ProcessIdentity { pid, started }, parent: info.bsd.pbi_ppid })
+    Some(unsafe { info.assume_init() })
+}
+
+#[cfg(target_os = "macos")]
+fn mac_process_bsd_info(pid: u32) -> Option<libc::proc_bsdinfo> {
+    let pid_int = libc::c_int::try_from(pid).ok()?;
+    let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::zeroed();
+    let size = libc::c_int::try_from(size_of::<libc::proc_bsdinfo>()).ok()?;
+    // SAFETY: info points to writable storage of exactly the requested size.
+    let written = unsafe {
+        libc::proc_pidinfo(pid_int, libc::PROC_PIDTBSDINFO, 0, info.as_mut_ptr().cast(), size)
+    };
+    if written != size {
+        return None;
+    }
+    // SAFETY: proc_pidinfo initialized the full structure.
+    Some(unsafe { info.assume_init() })
 }
 
 #[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
