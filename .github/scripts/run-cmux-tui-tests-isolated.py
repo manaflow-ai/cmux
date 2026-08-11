@@ -17,6 +17,7 @@ import time
 TESTABLE_TARGET_KINDS = frozenset({"lib", "bin", "test", "example"})
 ALLOWED_EMPTY_TEST_TARGETS = frozenset(
     {
+        ("cmux-relay", "bin"),
         ("cmux-tui", "bin"),
         ("cmux_tui_source_watch", "lib"),
     }
