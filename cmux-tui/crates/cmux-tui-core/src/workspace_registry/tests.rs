@@ -6583,6 +6583,64 @@ fn journal_agent_future_socket_from_different_hook_session_is_rejected() {
 }
 
 #[test]
+fn journal_agent_active_socket_rejects_missing_session_identity() {
+    let mut registry =
+        WorkspaceRegistry::in_memory("journal-agent-socket-missing-active-session").unwrap();
+    commit_terminal_topology(&mut registry, "journal-agent-socket-missing-active-topology");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let active = json!({
+        "id":agent_resource(&terminal_id),
+        "session_id":registry.session_id(),
+        "terminal_id":terminal_id,
+        "state":"working",
+        "source":"socket",
+        "updated_at_ms":"1",
+        "source_session":"active-socket-session",
+        "extra":{"provider":"pi"},
+    });
+    let initial_revision = registry.resource_revision().unwrap();
+    registry
+        .commit_agent_projection(
+            &WorkspaceMutation::new("journal-agent-socket-active-session", "socket-test").unwrap(),
+            &json!({"source_session":"active-socket-session"}),
+            Some(initial_revision),
+            &terminal_id,
+            &active,
+            &json!([]),
+        )
+        .unwrap();
+    let active_revision = registry.resource_revision().unwrap();
+    let incomplete = json!({
+        "id":agent_resource(&terminal_id),
+        "session_id":registry.session_id(),
+        "terminal_id":terminal_id,
+        "state":"done",
+        "source":"socket",
+        "updated_at_ms":"2",
+        "source_session":null,
+        "extra":{"provider":"pi"},
+    });
+
+    let error = registry
+        .commit_agent_projection(
+            &WorkspaceMutation::new("journal-agent-socket-missing-active-session", "socket-test")
+                .unwrap(),
+            &json!({"source_session":null}),
+            Some(active_revision),
+            &terminal_id,
+            &incomplete,
+            &json!([]),
+        )
+        .unwrap_err();
+
+    assert!(error.to_string().contains("omits active socket session"));
+    assert_eq!(registry.resource_revision().unwrap(), active_revision);
+    let agent = registry.public_projections().unwrap().agents.remove(0);
+    assert_eq!(agent.state, "working");
+    assert_eq!(agent.source_session.as_deref(), Some("active-socket-session"));
+}
+
+#[test]
 fn journal_agent_socket_generation_rejects_late_superseded_session() {
     let root = temp_root("journal-agent-socket-generation");
     let session = "journal-agent-socket-generation";
