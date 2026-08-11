@@ -4434,7 +4434,7 @@ mod tests {
     }
 
     #[test]
-    fn switching_to_a_lifecycle_tombstone_disables_the_placeholder_session() {
+    fn explicit_provider_switch_to_tombstone_cancels_deferred_selection() {
         let socket = TestProviderSocket::bind();
         let listener = socket.listener();
         let catalog = snapshot(1, "Machine", protocol::MachineStatus::Running);
@@ -4482,6 +4482,10 @@ mod tests {
         runtime.machine_lifecycle_snapshot = lifecycle;
         runtime.reconcile_keys();
         let tombstone_key = key_for_id(&runtime.keys, &id("deleted-machine-uuid")).unwrap();
+        runtime.accepted_selection = Some(AcceptedSelectionIntent {
+            scope_id: Some(id("personal")),
+            machine_id: Some(id("machine-1")),
+        });
 
         let result = runtime.perform_request(MachineRequest::Switch(tombstone_key)).unwrap();
 
@@ -4489,6 +4493,7 @@ mod tests {
         assert_eq!(result.ui.snapshot.active, Some(tombstone_key));
         assert!(!result.ui.session_available);
         assert!(runtime.open.is_none());
+        assert_eq!(runtime.desired_selection().1, Some(id("deleted-machine-uuid")));
         finish.send(()).unwrap();
         drop(result);
         drop(runtime);
