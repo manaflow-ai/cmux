@@ -169,7 +169,7 @@ extension MobileHostAuthorizationTests {
     }
 
     #if DEBUG
-    @Test func testMacIrohVerificationModeUsesTheSharedDefaultsContract() throws {
+    @Test func testMacIrohVerificationModeIgnoresTheRetiredReleaseRelayOnlyPreference() throws {
         let suiteName = "MobileHostIrohAdmissionTests.transport-mode.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -179,7 +179,7 @@ extension MobileHostAuthorizationTests {
             CmxIrohPathPreference.relayOnly.rawValue,
             forKey: CmxIrohPathPreference.defaultsKey
         )
-        #expect(MobileHostIrohRuntime.debugTransportVerificationMode(defaults: defaults) == .relayOnly)
+        #expect(MobileHostIrohRuntime.debugTransportVerificationMode(defaults: defaults) == .automatic)
         defaults.set(
             CmxIrohTransportVerificationMode.directOnly.rawValue,
             forKey: CmxIrohTransportVerificationMode.debugDefaultsKey
