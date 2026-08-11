@@ -883,7 +883,7 @@ func renderDrainAcceptsResetAboveFormerFrontendLimit() {
         return true
     }
 
-    #expect(payloadLength < Int(CMUX_TERMINAL_CLIENT_COPY_MAX_BYTES))
+    #expect(payloadLength < Int(CMUX_TERMINAL_CLIENT_COPY_MAX_BYTES_VALUE))
     #expect(batch.events.count == 1)
     #expect(batch.events.first?.kind == .reset)
     #expect(batch.events.first?.payload.count == payloadLength)

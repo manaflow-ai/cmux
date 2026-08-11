@@ -41,7 +41,7 @@ const MAX_NATIVE_RENDER_EVENT_BYTES: usize = 32 * 1024 * 1024;
 const MAX_NATIVE_RENDER_EVENTS: usize = 4096;
 
 #[unsafe(no_mangle)]
-pub static CMUX_TERMINAL_CLIENT_COPY_MAX_BYTES: usize = MAX_FRAME_PAYLOAD;
+pub static CMUX_TERMINAL_CLIENT_COPY_MAX_BYTES_VALUE: usize = MAX_FRAME_PAYLOAD;
 
 const MAX_NATIVE_RENDER_BYTES_EVENT_BYTES: usize = 64 * 1024;
 
@@ -2332,7 +2332,7 @@ mod tests {
 
     #[test]
     fn c_copy_limit_matches_the_protocol_payload_limit() {
-        assert_eq!(CMUX_TERMINAL_CLIENT_COPY_MAX_BYTES, MAX_FRAME_PAYLOAD);
+        assert_eq!(CMUX_TERMINAL_CLIENT_COPY_MAX_BYTES_VALUE, MAX_FRAME_PAYLOAD);
     }
 
     fn test_terminal_id() -> TerminalPublicId {

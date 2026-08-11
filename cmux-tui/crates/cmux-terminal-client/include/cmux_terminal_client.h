@@ -266,7 +266,9 @@ bool cmux_terminal_client_last_resize_ack(
 // The producer owns the snapshot and may change it between calls. Callers must
 // bound two-pass retries and treat a returned length >= capacity as a truncated
 // snapshot. Returned pointers are never borrowed from client storage.
-extern const size_t CMUX_TERMINAL_CLIENT_COPY_MAX_BYTES;
+#define CMUX_TERMINAL_CLIENT_COPY_MAX_BYTES (16u * 1024u * 1024u)
+// Typed view for FFI importers that do not import expression macros.
+extern const size_t CMUX_TERMINAL_CLIENT_COPY_MAX_BYTES_VALUE;
 size_t cmux_terminal_client_copy_frame(
     const CmuxTerminalClient *client,
     char *buffer,
