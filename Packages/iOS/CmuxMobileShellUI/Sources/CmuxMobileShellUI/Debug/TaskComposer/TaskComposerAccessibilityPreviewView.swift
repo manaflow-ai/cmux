@@ -255,6 +255,7 @@ public struct TaskComposerAccessibilityPreviewView: View {
                                 Image(systemName: "rectangle.2.swap")
                                     .font(.system(size: 17))
                                     .frame(width: 44, height: 44)
+                                    .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                             .accessibilityLabel(displaySettings.taskComposerLayoutStyle.title)
