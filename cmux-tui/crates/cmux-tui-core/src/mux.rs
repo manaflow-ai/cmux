@@ -20977,6 +20977,57 @@ mod tests {
     }
 
     #[test]
+    fn journal_agent_rebuild_checkpoint_does_not_scan_unchanged_agents() {
+        let mux = test_mux();
+        let created = public_request(
+            &mux,
+            "journal-agent-scoped-checkpoint-create",
+            "workspace.create",
+            serde_json::json!({
+                "machine":"current",
+                "session":"current",
+                "initial_content":"terminal",
+            }),
+            Some("journal-agent-scoped-checkpoint-create"),
+        );
+        let terminal_id =
+            TerminalPublicId::parse(created["result"]["value"]["terminal_id"].as_str().unwrap())
+                .unwrap();
+        let surface_id = mux.resource_surface_for_terminal(&terminal_id).unwrap();
+        let ingress = crate::agent_hook_journal_ingress(
+            "pi",
+            "agent_start",
+            Some(terminal_id.as_str()),
+            serde_json::json!({"context":{"session_id":"scoped-checkpoint-session"}}),
+        )
+        .unwrap();
+        mux.append_journal_ingress(
+            &ingress,
+            "journal-agent-scoped-checkpoint",
+            "journal-agent-scoped-checkpoint-start",
+        )
+        .unwrap();
+        assert_eq!(mux.list_agents(Some(surface_id), None)[0].state, AgentState::Working);
+
+        mux.workspace_registry.lock().unwrap().seed_agent_projection_checkpoint_for_test().unwrap();
+        mux.corrupt_agent_projection_for_test(&terminal_id);
+        assert!(mux.agent_projection_rebuild_pending_for_test().unwrap());
+        let (entered, entered_receiver) = std::sync::mpsc::sync_channel(1);
+        let (release, release_receiver) = std::sync::mpsc::sync_channel(1);
+        mux.install_agent_projection_rebuild_after_step_for_test(entered, release_receiver);
+
+        mux.start_agent_projection_rebuild_worker().unwrap();
+        entered_receiver.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            !mux.daemon_shutdown_requested(),
+            "an unchanged malformed projection must not enter the scoped checkpoint refresh"
+        );
+        assert_eq!(mux.list_agents(Some(surface_id), None)[0].state, AgentState::Working);
+        release.send(()).unwrap();
+        mux.shutdown();
+    }
+
+    #[test]
     fn journal_agent_batch_cache_refresh_deduplicates_terminal_ids() {
         let terminal_id = restore_terminal_id(900);
         let first = crate::agent_hook_journal_ingress(

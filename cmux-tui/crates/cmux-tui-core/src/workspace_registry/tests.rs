@@ -5435,6 +5435,121 @@ fn journal_agent_live_session_waits_in_journal_for_pending_rebuild() {
 }
 
 #[test]
+fn journal_agent_pending_rebuild_rejects_retired_live_session() {
+    const EVENT_COUNT: usize = 1_025;
+
+    let root = temp_root("journal-agent-retired-live-during-rebuild");
+    let session = "journal-agent-retired-live-during-rebuild";
+    let database = root.join(session_storage_component(session)).join(WORKSPACE_REGISTRY_FILE);
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let validated = crate::journal_kernel::ValidatedJournalIngress {
+        class: JournalClass::Observation,
+        replay: JournalReplayPolicy::Advisory,
+        sensitivity: JournalSensitivity::Sensitive,
+    };
+    {
+        let mut registry = WorkspaceRegistry::open(&root, session).unwrap();
+        commit_terminal_topology(&mut registry, "journal-agent-retired-live-topology");
+        for (event, source_session, key) in [
+            ("SessionStart", "retired-rebuild-session", "retired-start"),
+            ("AgentEnd", "retired-rebuild-session", "retired-end"),
+            ("SessionStart", "current-rebuild-session", "current-start"),
+        ] {
+            let ingress = crate::agent_hook_journal_ingress(
+                "pi",
+                event,
+                Some(terminal_id.as_str()),
+                json!({"session_id":source_session}),
+            )
+            .unwrap();
+            registry
+                .append_journal_ingress(
+                    &ingress,
+                    &validated,
+                    "client_retired_live_during_rebuild",
+                    key,
+                )
+                .unwrap();
+        }
+
+        let producer = JournalProducer { kind: "test".into(), id: "retired-rebuild".into() };
+        let payload = json!({});
+        let tx = registry.connection.unchecked_transaction().unwrap();
+        for index in 0..EVENT_COUNT {
+            let event_id = format!("event_agent_retired_rebuild_{index:04}");
+            session_journal::append_journal_record(
+                &tx,
+                &session_journal::JournalAppend {
+                    event_id: &event_id,
+                    schema_version: 1,
+                    kind: "agent.unknown",
+                    class: JournalClass::Observation,
+                    replay: JournalReplayPolicy::Advisory,
+                    occurred_at_ms: index as u64,
+                    producer: &producer,
+                    authority: None,
+                    causation_id: None,
+                    correlation_id: None,
+                    causation_depth: 0,
+                    subjects: &[],
+                    sensitivity: JournalSensitivity::Metadata,
+                    payload: &payload,
+                    content: None,
+                    resource_revision: None,
+                    previous_resource_revision: None,
+                },
+            )
+            .unwrap();
+        }
+        tx.commit().unwrap();
+    }
+    Connection::open(&database)
+        .unwrap()
+        .execute_batch(
+            "DELETE FROM meta
+             WHERE key IN (
+               'agent_projection_journal_sequence_v1',
+               'agent_projection_journal_candidate_sequence_v1',
+               'agent_projection_journal_rebuild_target_sequence_v1'
+             );",
+        )
+        .unwrap();
+
+    let mut reopened = WorkspaceRegistry::open(&root, session).unwrap();
+    assert!(reopened.agent_projection_rebuild_pending().unwrap());
+    let late_retired = crate::agent_hook_journal_ingress(
+        "pi",
+        "SessionStart",
+        Some(terminal_id.as_str()),
+        json!({"session_id":"retired-rebuild-session"}),
+    )
+    .unwrap();
+    let error = reopened
+        .append_journal_ingress(
+            &late_retired,
+            &validated,
+            "client_retired_live_during_rebuild",
+            "retired-rebuild-late-start",
+        )
+        .unwrap_err();
+    assert!(
+        error.to_string().contains("superseded generation"),
+        "unexpected retired-session error: {error:#}"
+    );
+
+    for _ in 0..4 {
+        if reopened.continue_agent_projection_rebuild().unwrap() {
+            break;
+        }
+    }
+    assert!(!reopened.agent_projection_rebuild_pending().unwrap());
+    let agent = reopened.public_projections().unwrap().agents.remove(0);
+    assert_eq!(agent.source_session.as_deref(), Some("current-rebuild-session"));
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn journal_agent_projection_rebuild_continues_in_owned_mux_worker() {
     const EVENT_COUNT: usize = 1_025;
 
