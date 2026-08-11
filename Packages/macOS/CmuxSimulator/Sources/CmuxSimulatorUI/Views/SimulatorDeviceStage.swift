@@ -142,11 +142,9 @@ struct SimulatorDeviceStage: View {
                 SimulatorLocalizedButton(simulatorStrings.reconnect) { coordinator.recover() }
             }
         default:
-            ContentUnavailableView(
-                simulatorStrings.selectToStart,
-                systemImage: "iphone",
-                description: nil
-            )
+            ContentUnavailableView {
+                SimulatorLocalizedLabel(simulatorStrings.selectToStart, systemImage: "iphone")
+            }
         }
     }
 
