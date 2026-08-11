@@ -534,12 +534,12 @@ impl<'de> Deserialize<'de> for TerminalSnapshot {
                 return Err(serde::de::Error::custom("terminal tab_ids must be an array"));
             }
             (legacy, Some(Some(tab_ids))) => {
-                if let Some(legacy) = legacy {
-                    if legacy.as_ref() != tab_ids.first() {
-                        return Err(serde::de::Error::custom(
-                            "terminal tab_id must be the first tab_ids item",
-                        ));
-                    }
+                if let Some(legacy) = legacy
+                    && legacy.as_ref() != tab_ids.first()
+                {
+                    return Err(serde::de::Error::custom(
+                        "terminal tab_id must be the first tab_ids item",
+                    ));
                 }
                 tab_ids
             }
