@@ -1412,6 +1412,12 @@ fn process_identity(pid: u32) -> Option<ProcessIdentity> {
     Some(mac_process_snapshot(pid)?.identity)
 }
 
+/// Return the kernel PID version used for exact macOS process signaling.
+#[cfg(target_os = "macos")]
+pub(crate) fn mac_process_pid_version(pid: u32) -> Option<u32> {
+    Some(process_identity(pid)?.started as u32)
+}
+
 #[cfg(target_os = "macos")]
 fn mac_process_snapshot(pid: u32) -> Option<ProcessSnapshot> {
     const PROC_PIDT_BSDINFOWITHUNIQID: libc::c_int = 18;
