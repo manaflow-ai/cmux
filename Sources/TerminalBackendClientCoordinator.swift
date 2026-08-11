@@ -2612,7 +2612,8 @@ actor TerminalBackendClientCoordinator:
         guard rendererWorkerExitLedger.activeFenceCount != expectedCount else { return }
         let identifier = UUID()
         try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Void, any Error>) in
                 if Task.isCancelled {
                     continuation.resume(throwing: CancellationError())
                 } else if rendererWorkerExitLedger.activeFenceCount == expectedCount {
@@ -2640,7 +2641,8 @@ actor TerminalBackendClientCoordinator:
             != expectedCount else { return }
         let identifier = UUID()
         try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Void, any Error>) in
                 let currentCount = rendererPresentationOperationWaiters[presentationID]?.count ?? 0
                 if Task.isCancelled {
                     continuation.resume(throwing: CancellationError())
