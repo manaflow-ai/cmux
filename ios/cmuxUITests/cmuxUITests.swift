@@ -1308,22 +1308,35 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    func testWorkspaceMacPickerUsesComputerCopy() throws {
+    func testWorkspaceMacPickerUsesComputerCopyAndAnnouncesConnectionStatus() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_CONNECTION_STATUS": "reconnecting",
         ])
         defer { app.terminate() }
 
         let picker = app.buttons["MobileWorkspaceMacPicker"]
         XCTAssertTrue(picker.waitForExistence(timeout: 8))
-        XCTAssertTrue(app.staticTexts["All Computers"].exists)
+        XCTAssertEqual(picker.label, "All Computers")
+        XCTAssertEqual(picker.value as? String, "Reconnecting…")
 
         picker.tap()
 
-        XCTAssertTrue(app.staticTexts["Choose Computer"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.staticTexts["All Computers"].exists)
-        XCTAssertFalse(app.staticTexts["Choose Mac"].exists)
-        XCTAssertFalse(app.staticTexts["All Macs"].exists)
+        let allComputersItem = waitForVisibleElement(
+            identifier: "MobileWorkspaceMacPickerAll",
+            in: app,
+            timeout: 3
+        )
+        XCTAssertEqual(allComputersItem?.label, "All Computers")
+        let menuElements = app.descendants(matching: .any)
+        let oldMacCopy = menuElements.matching(
+            NSPredicate(
+                format: "label == %@ OR label == %@",
+                "Choose Mac",
+                "All Macs"
+            )
+        )
+        XCTAssertEqual(oldMacCopy.count, 0)
 
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "workspace-mac-picker-computer-copy"
@@ -1340,7 +1353,9 @@ final class cmuxUITests: XCTestCase {
         ])
         defer { app.terminate() }
 
-        XCTAssertTrue(app.staticTexts["All Computers"].waitForExistence(timeout: 8))
+        let picker = app.buttons["MobileWorkspaceMacPicker"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 8))
+        XCTAssertEqual(picker.label, "All Computers")
         XCTAssertTrue(
             app.descendants(matching: .any)[
                 "MobileWorkspaceGroupHeader-seed-group-0"
@@ -1356,6 +1371,635 @@ final class cmuxUITests: XCTestCase {
         attachment.name = "workspace-groups-all-computers-multiple-macs"
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    @MainActor
+    func testWorkspaceGroupsSurviveSortSearchSelectionAndComputerScope() throws {
+        guard #available(iOS 26.0, *) else {
+            throw XCTSkip("The complete grouped-list journey uses the iOS 26 search tab.")
+        }
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_MIXED_GROUPS": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_SORT_PRIORITY":
+                "preview-macbook-pro,preview-studio",
+        ])
+        defer { app.terminate() }
+
+        func element(_ identifier: String) -> XCUIElement {
+            app.descendants(matching: .any)[identifier]
+        }
+
+        func sortTile(
+            _ identifier: String,
+            label: String,
+            in application: XCUIApplication,
+            timeout: TimeInterval = 3
+        ) -> XCUIElement {
+            let matches = application.descendants(matching: .any).matching(
+                NSPredicate(
+                    format: "identifier == %@ OR label == %@",
+                    identifier,
+                    label
+                )
+            )
+            return waitForVisibleElement(
+                in: matches,
+                app: application,
+                timeout: timeout
+            ) ?? matches.firstMatch
+        }
+
+        func capture(_ name: String) {
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+
+        func orderedFrames(
+            _ identifiers: [String],
+            state: String
+        ) -> [String: CGRect]? {
+            var result: [String: CGRect] = [:]
+            for identifier in identifiers {
+                guard let frame = waitForUsableFrame(
+                    of: element(identifier),
+                    timeout: 4
+                ) else {
+                    XCTFail("\(state): missing usable frame for \(identifier)")
+                    return nil
+                }
+                result[identifier] = frame
+            }
+            for pair in zip(identifiers, identifiers.dropFirst()) {
+                guard let first = result[pair.0], let second = result[pair.1] else {
+                    return nil
+                }
+                XCTAssertLessThan(
+                    first.minY,
+                    second.minY,
+                    "\(state): \(pair.0) must remain before \(pair.1)"
+                )
+            }
+            return result
+        }
+
+        let filterButton = app.buttons["MobileWorkspaceFilterMenu"]
+        let macPicker = app.buttons["MobileWorkspaceMacPicker"]
+        func dismissViewOptions() {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.04, dy: 0.72)).tap()
+            XCTAssertTrue(
+                waitForHittable(filterButton, timeout: 3),
+                "The view-options popover did not dismiss."
+            )
+        }
+
+        let beforeID = "MobileWorkspaceRow-workspace-mixed-before"
+        let alphaHeaderID = "MobileWorkspaceGroupHeader-mixed-alpha"
+        let alphaAnchorID = "MobileWorkspaceRow-workspace-mixed-alpha-anchor"
+        let alphaInactiveID = "MobileWorkspaceRow-workspace-mixed-alpha-inactive"
+        let betweenID = "MobileWorkspaceRow-workspace-mixed-between"
+        let betaHeaderID = "MobileWorkspaceGroupHeader-mixed-beta"
+        let betaAnchorID = "MobileWorkspaceRow-workspace-mixed-beta-anchor"
+        let betaRecentID = "MobileWorkspaceRow-workspace-mixed-beta-recent"
+        let afterID = "MobileWorkspaceRow-workspace-mixed-after"
+        let selectedProbeID =
+            "MobileWorkspaceListPreviewSelection-workspace-mixed-alpha-inactive"
+        let computerOrderTileID = "MobileWorkspaceSortTile-computerPriority"
+        let computerOrderTileLabel = "Computer Order"
+        let recentTileID = "MobileWorkspaceSortTile-recentActivity"
+        let recentTileLabel = "Recent Activity"
+        let automaticTileID = "MobileWorkspaceSortTile-automatic"
+        let automaticTileLabel = "Last Opened"
+
+        func captureGroupedTransitionBurst(
+            _ prefix: String,
+            rootID: String,
+            samples: Int = 8
+        ) {
+            for sample in 1...samples {
+                XCTAssertTrue(
+                    element(alphaHeaderID).exists,
+                    "\(prefix) sample \(sample): Alpha header disappeared."
+                )
+                XCTAssertTrue(
+                    element(betaHeaderID).exists,
+                    "\(prefix) sample \(sample): Beta header disappeared."
+                )
+                let rootFrame = element(rootID).frame
+                XCTAssertGreaterThanOrEqual(
+                    element(alphaInactiveID).frame.minX,
+                    rootFrame.minX + 15,
+                    "\(prefix) sample \(sample): Alpha member flattened."
+                )
+                XCTAssertGreaterThanOrEqual(
+                    element(betaRecentID).frame.minX,
+                    rootFrame.minX + 15,
+                    "\(prefix) sample \(sample): Beta member flattened."
+                )
+                XCTAssertTrue(
+                    element(selectedProbeID).exists,
+                    "\(prefix) sample \(sample): selection identity disappeared."
+                )
+                capture("\(prefix)-\(String(format: "%02d", sample))")
+            }
+        }
+
+        func captureHeaderTransitionBurst(
+            _ prefix: String,
+            samples: Int = 8
+        ) {
+            for sample in 1...samples {
+                XCTAssertTrue(
+                    element(alphaHeaderID).exists,
+                    "\(prefix) sample \(sample): Alpha header disappeared."
+                )
+                XCTAssertTrue(
+                    element(betaHeaderID).exists,
+                    "\(prefix) sample \(sample): Beta header disappeared."
+                )
+                XCTAssertTrue(
+                    element(selectedProbeID).exists,
+                    "\(prefix) sample \(sample): selection identity disappeared."
+                )
+                capture("\(prefix)-\(String(format: "%02d", sample))")
+            }
+        }
+
+        let workspaceList = element("MobileWorkspaceList")
+        XCTAssertTrue(workspaceList.waitForExistence(timeout: 8))
+        XCTAssertTrue(macPicker.waitForExistence(timeout: 8))
+        XCTAssertEqual(macPicker.label, "All Computers")
+        XCTAssertTrue(filterButton.waitForExistence(timeout: 3))
+
+        // Choose Computer Order through the production view-options control.
+        tap(filterButton, in: app)
+        let computerOrderTile = sortTile(
+            computerOrderTileID, label: computerOrderTileLabel, in: app
+        )
+        XCTAssertTrue(waitForHittable(computerOrderTile, timeout: 3))
+        tap(computerOrderTile, in: app)
+        XCTAssertTrue(sortTile(
+            computerOrderTileID, label: computerOrderTileLabel, in: app
+        ).isSelected)
+        capture("workspace-groups-01-computer-order-control")
+        dismissViewOptions()
+
+        let computerOrder = [
+            beforeID,
+            alphaHeaderID,
+            alphaInactiveID,
+            betweenID,
+            betaHeaderID,
+            betaRecentID,
+            afterID,
+        ]
+        guard let computerFrames = orderedFrames(
+            computerOrder,
+            state: "Computer Order"
+        ) else { return }
+        XCTAssertFalse(element(alphaAnchorID).exists)
+        XCTAssertFalse(element(betaAnchorID).exists)
+        XCTAssertGreaterThanOrEqual(
+            computerFrames[alphaInactiveID]!.minX,
+            computerFrames[beforeID]!.minX + 15,
+            "Alpha's inactive member must remain visibly nested."
+        )
+        XCTAssertGreaterThanOrEqual(
+            computerFrames[betaRecentID]!.minX,
+            computerFrames[afterID]!.minX + 15,
+            "Beta's recent member must remain visibly nested."
+        )
+        capture("workspace-groups-02-computer-order-grouped")
+
+        // Select a real member, push its fixture detail, then return. The
+        // read-only DEBUG probe makes the retained push-style identity
+        // observable without adding a selection treatment production omits.
+        tap(element(alphaInactiveID), in: app)
+        XCTAssertTrue(element("FixtureWorkspaceDetail").waitForExistence(timeout: 3))
+        capture("workspace-groups-03-selected-detail")
+        tap(app.buttons["MobileWorkspaceBackButton"], in: app)
+        XCTAssertTrue(workspaceList.waitForExistence(timeout: 3))
+        XCTAssertTrue(element(selectedProbeID).waitForExistence(timeout: 3))
+        capture("workspace-groups-04-selection-after-back")
+
+        // Exercise every sort tile. Selection identity survives both reorder
+        // transitions, and Automatic restores the incoming grouped topology.
+        tap(filterButton, in: app)
+        tap(sortTile(recentTileID, label: recentTileLabel, in: app), in: app)
+        captureGroupedTransitionBurst(
+            "workspace-transition-recent-activity",
+            rootID: afterID
+        )
+        XCTAssertTrue(element(selectedProbeID).exists)
+        XCTAssertTrue(
+            sortTile(recentTileID, label: recentTileLabel, in: app).isSelected
+        )
+        capture("workspace-groups-05-recent-activity-control")
+        tap(sortTile(automaticTileID, label: automaticTileLabel, in: app), in: app)
+        captureGroupedTransitionBurst(
+            "workspace-transition-automatic",
+            rootID: beforeID
+        )
+        XCTAssertTrue(element(selectedProbeID).exists)
+        XCTAssertTrue(
+            sortTile(automaticTileID, label: automaticTileLabel, in: app).isSelected
+        )
+        capture("workspace-groups-06-automatic-control")
+        dismissViewOptions()
+        XCTAssertNotNil(orderedFrames(computerOrder, state: "Automatic"))
+        XCTAssertTrue(element(selectedProbeID).exists)
+        capture("workspace-groups-07-automatic-grouped")
+
+        tap(filterButton, in: app)
+        tap(sortTile(recentTileID, label: recentTileLabel, in: app), in: app)
+        XCTAssertTrue(
+            sortTile(recentTileID, label: recentTileLabel, in: app).isSelected
+        )
+        dismissViewOptions()
+        let recentActivityOrder = [
+            afterID,
+            betaHeaderID,
+            betaRecentID,
+            betweenID,
+            alphaHeaderID,
+            alphaInactiveID,
+            beforeID,
+        ]
+        guard let recentFrames = orderedFrames(
+            recentActivityOrder,
+            state: "Recent Activity"
+        ) else { return }
+        XCTAssertGreaterThanOrEqual(
+            recentFrames[alphaInactiveID]!.minX,
+            recentFrames[beforeID]!.minX + 15,
+            "Recent Activity must keep the timestamp-less Alpha member nested."
+        )
+        XCTAssertGreaterThanOrEqual(
+            recentFrames[betaRecentID]!.minX,
+            recentFrames[afterID]!.minX + 15,
+            "Recent Activity must keep Beta's newest member in its group."
+        )
+        XCTAssertTrue(element(selectedProbeID).exists)
+        capture("workspace-groups-08-recent-activity-grouped")
+
+        // Scope to one computer through the production title picker. Recent
+        // Activity must not rewrite that Mac's own group and sidebar order.
+        tap(macPicker, in: app)
+        let studioName = "Studio Display Bench With A Very Long Name"
+        let studioMenuItem = app.buttons[
+            "MobileWorkspaceMacPickerMachine-preview-studio-stable"
+        ]
+        XCTAssertTrue(studioMenuItem.waitForExistence(timeout: 3))
+        XCTAssertTrue(studioMenuItem.label.hasPrefix(studioName))
+        tapMenuItem(studioMenuItem, in: app)
+        let studioTitle = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label CONTAINS %@", studioName),
+            object: macPicker
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [studioTitle], timeout: 3), .completed)
+        XCTAssertTrue(waitForNotHittable(element(alphaHeaderID), timeout: 3))
+        XCTAssertTrue(waitForNotHittable(element(beforeID), timeout: 3))
+        XCTAssertTrue(waitForNotHittable(element(betweenID), timeout: 3))
+        XCTAssertNotNil(
+            orderedFrames(
+                [betaHeaderID, betaRecentID, afterID],
+                state: "Single computer"
+            )
+        )
+        capture("workspace-groups-09-single-computer-keeps-sidebar-order")
+
+        tap(filterButton, in: app)
+        XCTAssertTrue(app.staticTexts["All Workspaces"].waitForExistence(timeout: 3))
+        XCTAssertFalse(element("MobileWorkspaceSortPicker").exists)
+        XCTAssertFalse(sortTile(
+            recentTileID, label: recentTileLabel, in: app, timeout: 0
+        ).exists)
+        XCTAssertFalse(sortTile(
+            automaticTileID, label: automaticTileLabel, in: app, timeout: 0
+        ).exists)
+        XCTAssertFalse(sortTile(
+            computerOrderTileID, label: computerOrderTileLabel, in: app, timeout: 0
+        ).exists)
+        capture("workspace-groups-10-single-computer-hides-sort")
+        dismissViewOptions()
+
+        // Returning to All Computers restores both groups and the persisted
+        // Recent Activity mode, still with the selected identity intact.
+        tap(macPicker, in: app)
+        tapMenuItem(app.buttons["MobileWorkspaceMacPickerAll"], in: app)
+        let allComputersTitle = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "All Computers"),
+            object: macPicker
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [allComputersTitle], timeout: 3),
+            .completed
+        )
+        XCTAssertNotNil(
+            orderedFrames(recentActivityOrder, state: "All Computers restored")
+        )
+        XCTAssertTrue(element(selectedProbeID).exists)
+        capture("workspace-groups-11-all-computers-regrouped")
+
+        // Collapsing hides the selected member but does not clear selection.
+        let alphaDisclosure = element("MobileWorkspaceGroupDisclosure-mixed-alpha")
+        XCTAssertEqual(alphaDisclosure.label, "Collapse group")
+        tap(alphaDisclosure, in: app)
+        captureHeaderTransitionBurst("workspace-transition-collapse")
+        let collapsedDisclosure = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "Expand group"),
+            object: alphaDisclosure
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [collapsedDisclosure], timeout: 3),
+            .completed
+        )
+        XCTAssertTrue(waitForNotHittable(element(alphaInactiveID), timeout: 3))
+        XCTAssertTrue(element(selectedProbeID).exists)
+        capture("workspace-groups-12-selection-survives-collapse")
+
+        // Search intentionally flattens matching rows. Clearing it restores
+        // grouped sections and the pre-search collapsed state.
+        let searchButton = app.tabBars.buttons
+            .matching(NSPredicate(format: "label == %@", "Search"))
+            .firstMatch
+        tap(searchButton, in: app)
+        let searchField = app.searchFields["Search workspaces"]
+        XCTAssertTrue(waitForHittable(searchField, timeout: 3))
+        XCTAssertTrue(focusTextInput(searchField, in: app))
+        searchField.typeText("Inactive Member")
+        XCTAssertTrue(waitForHittable(element(alphaInactiveID), timeout: 3))
+        XCTAssertTrue(waitForNotHittable(element(alphaHeaderID), timeout: 3))
+        XCTAssertTrue(waitForNotHittable(element(betaHeaderID), timeout: 3))
+        let searchFrame = try XCTUnwrap(
+            waitForUsableFrame(of: element(alphaInactiveID), timeout: 3)
+        )
+        XCTAssertEqual(
+            searchFrame.minX,
+            computerFrames[beforeID]!.minX,
+            accuracy: 2,
+            "Search results must flatten the matching group member."
+        )
+        capture("workspace-groups-13-search-flat")
+
+        XCTAssertTrue(focusTextInput(searchField, in: app))
+        searchField.typeText(
+            String(repeating: XCUIKeyboardKey.delete.rawValue, count: 32)
+        )
+        XCTAssertTrue(element(betaHeaderID).waitForExistence(timeout: 3))
+        capture("workspace-groups-14-search-cleared-regrouped")
+
+        tap(app.tabBars.buttons["Workspaces"], in: app)
+        XCTAssertTrue(workspaceList.waitForExistence(timeout: 3))
+        let collapsedRecentOrder = [
+            afterID,
+            betaHeaderID,
+            betaRecentID,
+            betweenID,
+            alphaHeaderID,
+            beforeID,
+        ]
+        XCTAssertNotNil(
+            orderedFrames(collapsedRecentOrder, state: "Cleared search")
+        )
+        XCTAssertTrue(waitForNotHittable(element(alphaInactiveID), timeout: 3))
+        XCTAssertTrue(element(selectedProbeID).exists)
+        capture("workspace-groups-15-cleared-search-restores-groups")
+
+        tap(alphaDisclosure, in: app)
+        captureHeaderTransitionBurst("workspace-transition-expand")
+        let expandedDisclosure = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "Collapse group"),
+            object: alphaDisclosure
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [expandedDisclosure], timeout: 3),
+            .completed
+        )
+        XCTAssertTrue(element(alphaInactiveID).waitForExistence(timeout: 3))
+        XCTAssertTrue(element(selectedProbeID).exists)
+        capture("workspace-groups-16-selection-survives-expand")
+
+        // A second phase uses the fixture's opt-in sidebar navigation style.
+        // It keeps production row rendering and actions, while making the
+        // retained selection highlight visible in screenshots and AX state.
+        app.terminate()
+        let sidebarApp = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_MIXED_GROUPS": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_SIDEBAR_SELECTION": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_SORT": "computerPriority",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_SORT_PRIORITY":
+                "preview-macbook-pro,preview-studio",
+        ])
+        defer { sidebarApp.terminate() }
+
+        func sidebarElement(_ identifier: String) -> XCUIElement {
+            sidebarApp.descendants(matching: .any)[identifier]
+        }
+
+        func captureSidebar(_ name: String) {
+            let attachment = XCTAttachment(screenshot: sidebarApp.screenshot())
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+
+        let sidebarFilter = sidebarApp.buttons["MobileWorkspaceFilterMenu"]
+        func dismissSidebarViewOptions() {
+            sidebarApp.coordinate(
+                withNormalizedOffset: CGVector(dx: 0.04, dy: 0.72)
+            ).tap()
+            XCTAssertTrue(waitForHittable(sidebarFilter, timeout: 3))
+        }
+
+        let sidebarSelectedRow = sidebarElement(betweenID)
+        XCTAssertTrue(sidebarSelectedRow.waitForExistence(timeout: 8))
+        tap(sidebarSelectedRow, in: sidebarApp)
+        XCTAssertTrue(sidebarSelectedRow.isSelected)
+        captureSidebar("workspace-groups-17-visible-selection-computer-order")
+
+        tap(sidebarFilter, in: sidebarApp)
+        tap(
+            sortTile(recentTileID, label: recentTileLabel, in: sidebarApp),
+            in: sidebarApp
+        )
+        dismissSidebarViewOptions()
+        XCTAssertTrue(sidebarSelectedRow.isSelected)
+        captureSidebar("workspace-groups-18-visible-selection-recent-activity")
+
+        tap(sidebarFilter, in: sidebarApp)
+        tap(
+            sortTile(automaticTileID, label: automaticTileLabel, in: sidebarApp),
+            in: sidebarApp
+        )
+        dismissSidebarViewOptions()
+        XCTAssertTrue(sidebarSelectedRow.isSelected)
+        captureSidebar("workspace-groups-19-visible-selection-automatic")
+
+        tap(sidebarFilter, in: sidebarApp)
+        tap(sortTile(
+            computerOrderTileID, label: computerOrderTileLabel, in: sidebarApp
+        ), in: sidebarApp)
+        dismissSidebarViewOptions()
+        XCTAssertTrue(sidebarSelectedRow.isSelected)
+        captureSidebar("workspace-groups-20-visible-selection-computer-order-restored")
+
+        let sidebarAlphaDisclosure = sidebarElement(
+            "MobileWorkspaceGroupDisclosure-mixed-alpha"
+        )
+        XCTAssertEqual(sidebarAlphaDisclosure.label, "Collapse group")
+        tap(sidebarAlphaDisclosure, in: sidebarApp)
+        let sidebarCollapsedDisclosure = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "Expand group"),
+            object: sidebarAlphaDisclosure
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [sidebarCollapsedDisclosure], timeout: 3),
+            .completed
+        )
+        XCTAssertTrue(sidebarSelectedRow.isSelected)
+        captureSidebar("workspace-groups-21-visible-selection-group-collapsed")
+        tap(sidebarAlphaDisclosure, in: sidebarApp)
+        let sidebarExpandedDisclosure = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "Collapse group"),
+            object: sidebarAlphaDisclosure
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [sidebarExpandedDisclosure], timeout: 3),
+            .completed
+        )
+        XCTAssertTrue(sidebarSelectedRow.isSelected)
+        captureSidebar("workspace-groups-22-visible-selection-group-expanded")
+    }
+
+    @MainActor
+    func testWorkspaceGroupsFlattenForReadAndMachineFiltersAndRestoreAfterClear() throws {
+        guard #available(iOS 26.0, *) else {
+            throw XCTSkip("The grouped-list filter journey requires iOS 26.")
+        }
+
+        func element(_ identifier: String, in app: XCUIApplication) -> XCUIElement {
+            app.descendants(matching: .any)[identifier]
+        }
+
+        func capture(_ name: String, in app: XCUIApplication) {
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+
+        func dismissViewOptions(
+            in app: XCUIApplication,
+            filterButton: XCUIElement
+        ) {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.04, dy: 0.72)).tap()
+            XCTAssertTrue(
+                waitForHittable(filterButton, timeout: 3),
+                "The view-options popover did not dismiss."
+            )
+        }
+
+        let alphaHeaderID = "MobileWorkspaceGroupHeader-mixed-alpha"
+        let alphaInactiveID = "MobileWorkspaceRow-workspace-mixed-alpha-inactive"
+        let betaHeaderID = "MobileWorkspaceGroupHeader-mixed-beta"
+        let betaAnchorID = "MobileWorkspaceRow-workspace-mixed-beta-anchor"
+        let betaRecentID = "MobileWorkspaceRow-workspace-mixed-beta-recent"
+        let afterID = "MobileWorkspaceRow-workspace-mixed-after"
+
+        let readApp = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_MIXED_GROUPS": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_SORT": "recentActivity",
+        ])
+        defer { readApp.terminate() }
+
+        let readFilterButton = readApp.buttons["MobileWorkspaceFilterMenu"]
+        XCTAssertTrue(readFilterButton.waitForExistence(timeout: 8))
+        XCTAssertTrue(element(alphaHeaderID, in: readApp).waitForExistence(timeout: 3))
+        XCTAssertTrue(element(betaHeaderID, in: readApp).waitForExistence(timeout: 3))
+
+        tap(readFilterButton, in: readApp)
+        let unreadButton = readApp.buttons["Unread"]
+        XCTAssertTrue(waitForHittable(unreadButton, timeout: 3))
+        tap(unreadButton, in: readApp)
+        dismissViewOptions(in: readApp, filterButton: readFilterButton)
+
+        let unreadAlpha = element(alphaInactiveID, in: readApp)
+        let unreadBeta = element(betaRecentID, in: readApp)
+        XCTAssertTrue(unreadAlpha.waitForExistence(timeout: 3))
+        XCTAssertTrue(unreadBeta.waitForExistence(timeout: 3))
+        XCTAssertFalse(element(alphaHeaderID, in: readApp).exists)
+        XCTAssertFalse(element(betaHeaderID, in: readApp).exists)
+        XCTAssertEqual(unreadAlpha.frame.minX, unreadBeta.frame.minX, accuracy: 2)
+        capture("workspace-filters-01-unread-flat", in: readApp)
+
+        tap(readFilterButton, in: readApp)
+        let allWorkspacesButton = readApp.buttons["All Workspaces"]
+        XCTAssertTrue(waitForHittable(allWorkspacesButton, timeout: 3))
+        tap(allWorkspacesButton, in: readApp)
+        dismissViewOptions(in: readApp, filterButton: readFilterButton)
+        XCTAssertTrue(element(alphaHeaderID, in: readApp).waitForExistence(timeout: 3))
+        XCTAssertTrue(element(betaHeaderID, in: readApp).waitForExistence(timeout: 3))
+        XCTAssertGreaterThanOrEqual(
+            element(alphaInactiveID, in: readApp).frame.minX,
+            element(afterID, in: readApp).frame.minX + 15
+        )
+        capture("workspace-filters-02-unread-cleared-regrouped", in: readApp)
+        readApp.terminate()
+
+        let machineApp = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_MIXED_GROUPS": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_SORT": "recentActivity",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_FILTER_MACHINE": "preview-studio",
+        ])
+        defer { machineApp.terminate() }
+
+        let machinePicker = machineApp.buttons["MobileWorkspaceMacPicker"]
+        XCTAssertTrue(machinePicker.waitForExistence(timeout: 8))
+        XCTAssertEqual(machinePicker.label, "All Computers")
+        let flatBetaAnchor = element(betaAnchorID, in: machineApp)
+        let flatBetaMember = element(betaRecentID, in: machineApp)
+        let flatAfter = element(afterID, in: machineApp)
+        XCTAssertTrue(flatBetaAnchor.waitForExistence(timeout: 3))
+        XCTAssertTrue(flatBetaMember.waitForExistence(timeout: 3))
+        XCTAssertTrue(flatAfter.waitForExistence(timeout: 3))
+        XCTAssertFalse(element(betaHeaderID, in: machineApp).exists)
+        XCTAssertFalse(element(alphaHeaderID, in: machineApp).exists)
+        XCTAssertEqual(flatBetaAnchor.frame.minX, flatBetaMember.frame.minX, accuracy: 2)
+        XCTAssertEqual(flatBetaMember.frame.minX, flatAfter.frame.minX, accuracy: 2)
+        capture("workspace-filters-03-machine-flat", in: machineApp)
+
+        tap(machinePicker, in: machineApp)
+        let studioMenuItem = machineApp.buttons[
+            "MobileWorkspaceMacPickerMachine-preview-studio-stable"
+        ]
+        XCTAssertTrue(studioMenuItem.waitForExistence(timeout: 3))
+        tapMenuItem(studioMenuItem, in: machineApp)
+        XCTAssertTrue(element(betaHeaderID, in: machineApp).waitForExistence(timeout: 3))
+        XCTAssertFalse(element(betaAnchorID, in: machineApp).exists)
+        XCTAssertGreaterThanOrEqual(
+            element(betaRecentID, in: machineApp).frame.minX,
+            element(afterID, in: machineApp).frame.minX + 15
+        )
+        capture("workspace-filters-04-machine-filter-cleared", in: machineApp)
+
+        tap(machinePicker, in: machineApp)
+        tapMenuItem(machineApp.buttons["MobileWorkspaceMacPickerAll"], in: machineApp)
+        XCTAssertTrue(element(alphaHeaderID, in: machineApp).waitForExistence(timeout: 3))
+        XCTAssertTrue(element(betaHeaderID, in: machineApp).waitForExistence(timeout: 3))
+        capture("workspace-filters-05-all-computers-regrouped", in: machineApp)
     }
 
     /// Regression: the iOS 26 workspace table must underlap the navigation
@@ -2654,7 +3298,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(settings.waitForExistence(timeout: 3))
         XCTAssertTrue(computers.waitForExistence(timeout: 3))
         XCTAssertTrue(picker.waitForExistence(timeout: 3))
-        XCTAssertTrue(app.staticTexts["All Computers"].exists)
+        XCTAssertEqual(picker.label, "All Computers")
         let markAllRead = app.buttons["MobileNotificationFeedMarkAllRead"]
         XCTAssertTrue(markAllRead.waitForExistence(timeout: 3))
         XCTAssertLessThanOrEqual(markAllRead.frame.width, 60)
