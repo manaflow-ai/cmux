@@ -19,7 +19,7 @@ final class WindowTerminalHostView: NSView {
     private var cachedSidebarDividerX: CGFloat?
     private var sidebarDividerMissCount = 0
     private var cachedSplitDividerRegions: [DividerRegion]?
-    private var cachedSplitDividerRootSubviewIds: [ObjectIdentifier]?
+    private weak var cachedSplitDividerRootView: NSView?
     private let splitDividerCacheInvalidator = PortalSplitDividerCacheInvalidator()
     private var splitDividerResizeObserver: NSObjectProtocol?
     private var trackingArea: NSTrackingArea?
@@ -371,15 +371,23 @@ final class WindowTerminalHostView: NSView {
     }
 
     private func splitDividerRegions() -> [DividerRegion] {
-        guard let window, let rootView = window.contentView else { cachedSplitDividerRegions = []; cachedSplitDividerRootSubviewIds = nil; return [] }
-        let rootSubviewIds = rootView.subviews.map { ObjectIdentifier($0) }
-        if let regions = cachedSplitDividerRegions, cachedSplitDividerRootSubviewIds == rootSubviewIds, PortalSplitDividerRegion.allLive(regions) { return regions }
+        guard let window, let rootView = window.contentView else {
+            invalidateSplitDividerRegionCache()
+            return []
+        }
+        if let regions = cachedSplitDividerRegions,
+           cachedSplitDividerRootView === rootView,
+           splitDividerCacheInvalidator.isHierarchyCurrent(for: rootView),
+           PortalSplitDividerRegion.allLive(regions) {
+            return regions
+        }
         let collected = PortalSplitDividerRegion.collect(in: rootView)
         cachedSplitDividerRegions = collected.regions
-        cachedSplitDividerRootSubviewIds = rootSubviewIds
+        cachedSplitDividerRootView = rootView
         splitDividerCacheInvalidator.observe(
+            rootView: rootView,
             geometryViews: collected.geometryObservedViews,
-            structureViews: collected.structureObservedViews
+            hierarchyNodes: collected.hierarchyNodes
         ) { [weak self] in
             guard let self else { return }
             self.invalidateSplitDividerRegionCache()
@@ -390,7 +398,7 @@ final class WindowTerminalHostView: NSView {
 
     private func invalidateSplitDividerRegionCache() {
         cachedSplitDividerRegions = nil
-        cachedSplitDividerRootSubviewIds = nil
+        cachedSplitDividerRootView = nil
         splitDividerCacheInvalidator.invalidate()
     }
 
@@ -1501,10 +1509,40 @@ final class WindowTerminalPortal: NSObject {
         hostedView: GhosttySurfaceScrollView,
         to anchorView: NSView,
         visibleInUI: Bool,
-        zPriority: Int = 0,
-        deferLayoutSynchronization: Bool = false
+        zPriority: Int = 0
     ) {
-        guard ensureInstalled(syncLayout: !deferLayoutSynchronization) else { return }
+        bind(
+            hostedView: hostedView,
+            to: anchorView,
+            visibleInUI: visibleInUI,
+            zPriority: zPriority,
+            syncLayout: true
+        )
+    }
+
+    fileprivate func bindUsingCommittedGeometry(
+        hostedView: GhosttySurfaceScrollView,
+        to anchorView: NSView,
+        visibleInUI: Bool,
+        zPriority: Int = 0
+    ) {
+        bind(
+            hostedView: hostedView,
+            to: anchorView,
+            visibleInUI: visibleInUI,
+            zPriority: zPriority,
+            syncLayout: false
+        )
+    }
+
+    private func bind(
+        hostedView: GhosttySurfaceScrollView,
+        to anchorView: NSView,
+        visibleInUI: Bool,
+        zPriority: Int,
+        syncLayout: Bool
+    ) {
+        guard ensureInstalled(syncLayout: syncLayout) else { return }
 
         let hostedId = ObjectIdentifier(hostedView)
         let anchorId = ObjectIdentifier(anchorView)
@@ -1625,17 +1663,8 @@ final class WindowTerminalPortal: NSObject {
 
         ensureDividerOverlayOnTop()
 
-        if deferLayoutSynchronization {
-            // Bind calls from SwiftUI NSViewRepresentable update/layout callbacks
-            // must not force ancestor layout synchronously. Still reconcile the
-            // portal entry from already-current host geometry so resize/visibility
-            // does not lag until a later external observer turn.
-            synchronizeHostedView(withId: hostedId, syncLayout: false)
-            scheduleDeferredFullSynchronizeAll()
-        } else {
-            synchronizeHostedView(withId: hostedId)
-            scheduleDeferredFullSynchronizeAll()
-        }
+        synchronizeHostedView(withId: hostedId, syncLayout: syncLayout)
+        scheduleDeferredFullSynchronizeAll()
         pruneDeadEntries()
     }
 
@@ -2502,8 +2531,7 @@ enum TerminalWindowPortalRegistry {
         visibleInUI: Bool,
         zPriority: Int = 0,
         expectedSurfaceId: UUID? = nil,
-        expectedGeneration: UInt64? = nil,
-        deferLayoutSynchronization: Bool = false
+        expectedGeneration: UInt64? = nil
     ) {
         guard let window = anchorView.window else { return }
 
@@ -2537,19 +2565,22 @@ enum TerminalWindowPortalRegistry {
             return
         }
 
-        let nextPortal = portal(for: window, syncLayout: !deferLayoutSynchronization)
+        // Representable coordinators stage registry binds after their framework
+        // callbacks return. Each pane consumes the committed anchor geometry;
+        // WindowTerminalPortal coalesces their deferred full convergence into
+        // one window-owned pass instead of forcing window layout per pane.
+        let nextPortal = portal(for: window, syncLayout: false)
 
         if let oldWindowId = hostedToWindowId[hostedId],
            oldWindowId != windowId {
             portalsByWindowId[oldWindowId]?.detachHostedView(withId: hostedId)
         }
 
-        nextPortal.bind(
+        nextPortal.bindUsingCommittedGeometry(
             hostedView: hostedView,
             to: anchorView,
             visibleInUI: visibleInUI,
-            zPriority: zPriority,
-            deferLayoutSynchronization: deferLayoutSynchronization
+            zPriority: zPriority
         )
         hostedToWindowId[hostedId] = windowId
         pruneHostedMappings(for: windowId, validHostedIds: nextPortal.hostedIds())
@@ -2719,6 +2750,14 @@ enum TerminalWindowPortalRegistry {
         let hostedId = ObjectIdentifier(hostedView)
         guard let windowId = hostedToWindowId[hostedId], let portal = portalsByWindowId[windowId] else { return visibleInUI }
         return portal.updateEntryVisibility(forHostedId: hostedId, visibleInUI: visibleInUI)
+    }
+
+    /// Whether the registry entry still names this anchor, including while the
+    /// anchor is temporarily detached and therefore has no live window binding.
+    static func hasEntry(for hostedView: GhosttySurfaceScrollView, boundTo anchorView: NSView) -> Bool {
+        let hostedId = ObjectIdentifier(hostedView)
+        guard let windowId = hostedToWindowId[hostedId], let portal = portalsByWindowId[windowId] else { return false }
+        return portal.isHostedViewBoundToAnchor(withId: hostedId, anchorView: anchorView)
     }
 
     static func isHostedView(_ hostedView: GhosttySurfaceScrollView, boundTo anchorView: NSView) -> Bool {
