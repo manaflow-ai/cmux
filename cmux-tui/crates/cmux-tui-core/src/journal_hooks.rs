@@ -1036,7 +1036,8 @@ mod tests {
         ));
         let lease_path = fixture_path.with_extension("lease");
         let release_path = fixture_path.with_extension("release");
-        for path in [&lease_path, &release_path] {
+        let abort_path = fixture_path.with_extension("abort");
+        for path in [&lease_path, &release_path, &abort_path] {
             let path = std::ffi::CString::new(path.as_os_str().as_bytes())
                 .expect("hook fixture FIFO path");
             assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
@@ -1061,10 +1062,11 @@ mod tests {
         manifest.exec.argv = vec![
             "/bin/sh".into(),
             "-c".into(),
-            "exec 3<&0; (/bin/sh -c 'exec 4>\"$1\"; printf \"ready\\n\" >&4; kill -STOP $$' cmux-hook-child \"$1\" <&3) & IFS= read -r release < \"$2\"; exit 0".into(),
+            "exec 3<&0; (/bin/sh -c 'exec 4>\"$1\"; printf \"ready\\n\" >&4; IFS= read -r abort < \"$2\"' cmux-hook-child \"$1\" \"$3\" <&3) & IFS= read -r release < \"$2\"; exit 0".into(),
             "cmux-hook-test".into(),
             lease_path.to_string_lossy().into_owned(),
             release_path.to_string_lossy().into_owned(),
+            abort_path.to_string_lossy().into_owned(),
         ];
         let delivery = JournalHookDelivery {
             manifest,
@@ -1073,7 +1075,13 @@ mod tests {
         };
         let attempt = JournalHookAttempt { attempt: 1, causation_id: "event_started".into() };
         let failure_deadline = Instant::now() + Duration::from_secs(2);
-        let (exit_code, error) = std::thread::scope(|scope| {
+        let ((exit_code, error), descendant_stopped) = std::thread::scope(|scope| {
+            let abort_gate = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .custom_flags(libc::O_CLOEXEC)
+                .open(&abort_path)
+                .expect("open hook fixture abort gate");
             let (result_tx, result_rx) = mpsc::sync_channel(1);
             scope.spawn(move || {
                 let _ = result_tx.send(execute_delivery(&delivery, &attempt));
@@ -1087,14 +1095,22 @@ mod tests {
             assert_eq!(&ready, b"ready\n");
             drop(lease_registration);
             release_gate.write_all(b"release\n").expect("release direct hook process");
-            result_rx
+            let result = match result_rx
                 .recv_timeout(failure_deadline.saturating_duration_since(Instant::now()))
-                .expect("hook delivery did not complete after release")
+            {
+                Ok(result) => result,
+                Err(error) => {
+                    drop(abort_gate);
+                    panic!("hook delivery did not complete after release: {error}");
+                }
+            };
+            let descendant_stopped = wait_for_fifo_eof(&mut lease_reader, failure_deadline)
+                .expect("wait for hook descendant lease release");
+            (result, descendant_stopped)
         });
-        let descendant_stopped = wait_for_fifo_eof(&mut lease_reader, failure_deadline)
-            .expect("wait for hook descendant lease release");
         let _ = std::fs::remove_file(&lease_path);
         let _ = std::fs::remove_file(&release_path);
+        let _ = std::fs::remove_file(&abort_path);
 
         assert_eq!(exit_code, Some(0), "{error:?}");
         assert_eq!(error, None);
