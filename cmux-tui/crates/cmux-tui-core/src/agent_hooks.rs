@@ -18,6 +18,8 @@ const MAX_OPAQUE_IDENTIFIER_BYTES: usize = 512;
 const MAX_LABEL_BYTES: usize = 128;
 const REDACTED_AGENT_VALUE: &str = "[redacted]";
 const AGENT_SESSION_SUBJECT_FORMAT: &[u8] = b"cmux.agent-session.v1\0";
+const PROPERTIES_INFO_ID_PATH: &[&str] = &["properties", "info", "id"];
+const EVENT_PROPERTIES_INFO_ID_PATH: &[&str] = &["event", "properties", "info", "id"];
 const AGENT_SESSION_ID_PATHS: &[&[&str]] = &[
     &["session_id"],
     &["sessionId"],
@@ -27,10 +29,10 @@ const AGENT_SESSION_ID_PATHS: &[&[&str]] = &[
     &["session", "id"],
     &["properties", "sessionID"],
     &["properties", "sessionId"],
-    &["properties", "info", "id"],
+    PROPERTIES_INFO_ID_PATH,
     &["event", "properties", "sessionID"],
     &["event", "properties", "sessionId"],
-    &["event", "properties", "info", "id"],
+    EVENT_PROPERTIES_INFO_ID_PATH,
     &["event", "properties", "info", "sessionID"],
     &["event", "properties", "info", "sessionId"],
     &["event", "session_id"],
@@ -439,8 +441,14 @@ fn is_child_completion(event: &str) -> bool {
 
 fn normalized_fields(native: &Value) -> Map<String, Value> {
     let mut normalized = Map::new();
+    if let Some(value) = AGENT_SESSION_ID_PATHS
+        .iter()
+        .find_map(|path| agent_session_identifier_at_path(native, path))
+        .and_then(|value| normalized_provider_string("agent_session_id", value))
+    {
+        normalized.insert("agent_session_id".into(), Value::String(value));
+    }
     for (field, paths) in [
-        ("agent_session_id", AGENT_SESSION_ID_PATHS),
         (
             "turn_id",
             &[
@@ -727,11 +735,7 @@ fn normalized_provider_string(field: &str, value: &str) -> Option<String> {
 fn validate_agent_session_identifiers(native: &Value) -> anyhow::Result<()> {
     let mut session_identifier: Option<&str> = None;
     for path in AGENT_SESSION_ID_PATHS {
-        let Some(value) = path
-            .iter()
-            .try_fold(native, |value, component| value.get(*component))
-            .and_then(Value::as_str)
-            .filter(|value| !value.trim().is_empty())
+        let Some(value) = agent_session_identifier_at_path(native, path)
         else {
             continue;
         };
@@ -747,6 +751,33 @@ fn validate_agent_session_identifiers(native: &Value) -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+fn agent_session_identifier_at_path<'a>(native: &'a Value, path: &[&str]) -> Option<&'a str> {
+    let info = if path == PROPERTIES_INFO_ID_PATH {
+        native.get("properties")?.get("info")?
+    } else if path == EVENT_PROPERTIES_INFO_ID_PATH {
+        native.get("event")?.get("properties")?.get("info")?
+    } else {
+        return path
+            .iter()
+            .try_fold(native, |value, component| value.get(*component))
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty());
+    };
+    if ["sessionID", "sessionId"]
+        .iter()
+        .any(|field| {
+            info.get(*field)
+                .and_then(Value::as_str)
+                .is_some_and(|value| !value.trim().is_empty())
+        })
+    {
+        return None;
+    }
+    info.get("id")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
 }
 
 fn safe_opaque_identifier(value: &str) -> bool {
