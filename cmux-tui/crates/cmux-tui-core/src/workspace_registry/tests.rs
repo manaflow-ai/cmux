@@ -5203,7 +5203,11 @@ fn journal_agent_projection_rebuild_keeps_live_terminal_projection_visible() {
         )
         .unwrap();
 
-    assert!(registry.public_projections().unwrap().agents.is_empty());
+    let full_agents = registry.public_projections().unwrap().agents;
+    assert_eq!(full_agents.len(), 1);
+    assert_eq!(full_agents[0].terminal_id, terminal_id);
+    assert_eq!(full_agents[0].state, "working");
+    assert_eq!(full_agents[0].source, "hook");
     let agents = registry.public_agent_projections(Some(&terminal_id), None).unwrap();
     assert_eq!(agents.len(), 1);
     assert_eq!(agents[0].state, "working");
@@ -6760,6 +6764,11 @@ fn journal_agent_prejournal_projection_migration_is_bounded_on_open() {
         "one open must not migrate every legacy projection"
     );
     assert!(reopened.agent_projection_rebuild_pending().unwrap());
+    assert_eq!(
+        reopened.public_projections().unwrap().agents.len(),
+        PROJECTION_COUNT,
+        "a bounded migration must keep the last durable agent snapshot visible"
+    );
     drop(reopened);
     fs::remove_dir_all(root).unwrap();
 }
