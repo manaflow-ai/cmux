@@ -20767,7 +20767,7 @@ mod tests {
                 .terminal_catalog_by_host
                 .entry(host.terminal_id.clone())
                 .or_default()
-                .insert(secondary_id);
+                .insert(secondary_id.clone());
         }
 
         let projection = {
@@ -20791,6 +20791,30 @@ mod tests {
                 ResourceChange::TombstoneTab { tab_id, .. } if tab_id == &index_only_tab
             )
         }));
+
+        mux.close_terminal_with_mutation(
+            &host.terminal_id,
+            Some(&host.incarnation),
+            None,
+            None,
+            &WorkspaceMutation::new("close-terminal-with-secondary-alias", "test").unwrap(),
+        )
+        .unwrap();
+        let registry = mux.workspace_registry.lock().unwrap();
+        assert!(
+            registry
+                .resource_topology_snapshot()
+                .unwrap()
+                .tabs
+                .iter()
+                .all(|tab| tab.public_id != index_only_tab),
+            "explicit close retained the index-only alias tab"
+        );
+        assert!(
+            registry.terminal_host_id(&secondary_id).unwrap().is_none(),
+            "explicit close retained the secondary terminal resource"
+        );
+        drop(registry);
         mux.shutdown();
     }
 
