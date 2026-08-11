@@ -16,6 +16,7 @@ private let nativeGhosttyReadClipboardCallback:
 final class NativeGhosttyRuntime {
   var app: ghostty_app_t { lifetime.app }
   private let lifetime: NativeGhosttyRuntimeLifetime
+  private let focusObserver: NativeGhosttyApplicationFocusObserver
 
   init?() {
     // Remote PTY bytes already contain their color intent. Remove the local
@@ -45,29 +46,35 @@ final class NativeGhosttyRuntime {
     runtimeConfig.write_clipboard_cb = { _, _, _, _, _ in }
     runtimeConfig.close_surface_cb = { _, _ in }
 
-    guard let app = ghostty_app_new(&runtimeConfig, primaryConfig) else {
+    let app: ghostty_app_t
+    let config: ghostty_config_t
+    if let primaryApp = ghostty_app_new(&runtimeConfig, primaryConfig) {
+      app = primaryApp
+      config = primaryConfig
+    } else {
       ghostty_config_free(primaryConfig)
-      guard let fallbackConfig = Self.loadFallbackConfiguration() else { return nil }
-      guard let fallbackApp = ghostty_app_new(&runtimeConfig, fallbackConfig) else {
-        ghostty_config_free(fallbackConfig)
+      guard let fallbackConfig = Self.loadFallbackConfiguration() else {
+        ticker.cancel()
         return nil
       }
-      ticker.install(app: fallbackApp)
-      self.lifetime = NativeGhosttyRuntimeLifetime(
-        app: fallbackApp,
-        config: fallbackConfig,
-        ticker: ticker
-      )
-      ghostty_app_set_focus(fallbackApp, NSApp.isActive)
-      return
+      guard let fallbackApp = ghostty_app_new(&runtimeConfig, fallbackConfig) else {
+        ghostty_config_free(fallbackConfig)
+        ticker.cancel()
+        return nil
+      }
+      app = fallbackApp
+      config = fallbackConfig
     }
     ticker.install(app: app)
     lifetime = NativeGhosttyRuntimeLifetime(
       app: app,
-      config: primaryConfig,
+      config: config,
       ticker: ticker
     )
-    ghostty_app_set_focus(app, NSApp.isActive)
+    focusObserver = NativeGhosttyApplicationFocusObserver(
+      initiallyActive: NSApp.isActive,
+      setFocus: { focused in ghostty_app_set_focus(app, focused) }
+    )
   }
 
   private static func loadConfiguration() -> ghostty_config_t? {
@@ -96,6 +103,47 @@ final class NativeGhosttyRuntime {
     return config
   }
 
+}
+
+@MainActor
+final class NativeGhosttyApplicationFocusObserver: NSObject {
+  private let notificationCenter: NotificationCenter
+  private let setFocus: (Bool) -> Void
+
+  init(
+    notificationCenter: NotificationCenter = .default,
+    initiallyActive: Bool,
+    setFocus: @escaping (Bool) -> Void
+  ) {
+    self.notificationCenter = notificationCenter
+    self.setFocus = setFocus
+    super.init()
+    notificationCenter.addObserver(
+      self,
+      selector: #selector(applicationDidBecomeActive),
+      name: NSApplication.didBecomeActiveNotification,
+      object: nil
+    )
+    notificationCenter.addObserver(
+      self,
+      selector: #selector(applicationDidResignActive),
+      name: NSApplication.didResignActiveNotification,
+      object: nil
+    )
+    setFocus(initiallyActive)
+  }
+
+  deinit {
+    notificationCenter.removeObserver(self)
+  }
+
+  @objc private func applicationDidBecomeActive(_ notification: Notification) {
+    setFocus(true)
+  }
+
+  @objc private func applicationDidResignActive(_ notification: Notification) {
+    setFocus(false)
+  }
 }
 
 /// `@unchecked Sendable` is safe because the main-actor runtime is this

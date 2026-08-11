@@ -94,6 +94,34 @@ private func nativeGhosttyModifiers(_ flags: NSEvent.ModifierFlags) -> ghostty_i
   return ghostty_input_mods_e(value)
 }
 
+func nativeModifierKeyIsPressed(
+  keyCode: UInt16,
+  modifierFlags: NSEvent.ModifierFlags
+) -> Bool? {
+  let rawMask: UInt
+  switch keyCode {
+  case 0x39: return modifierFlags.contains(.capsLock)
+  case 0x38: rawMask = UInt(NX_DEVICELSHIFTKEYMASK)
+  case 0x3C: rawMask = UInt(NX_DEVICERSHIFTKEYMASK)
+  case 0x3B: rawMask = UInt(NX_DEVICELCTLKEYMASK)
+  case 0x3E: rawMask = UInt(NX_DEVICERCTLKEYMASK)
+  case 0x3A: rawMask = UInt(NX_DEVICELALTKEYMASK)
+  case 0x3D: rawMask = UInt(NX_DEVICERALTKEYMASK)
+  case 0x37: rawMask = UInt(NX_DEVICELCMDKEYMASK)
+  case 0x36: rawMask = UInt(NX_DEVICERCMDKEYMASK)
+  default: return nil
+  }
+  return modifierFlags.rawValue & rawMask != 0
+}
+
+func nativeSurfaceShouldHaveFocus(
+  applicationActive: Bool,
+  windowKey: Bool,
+  firstResponder: Bool
+) -> Bool {
+  applicationActive && windowKey && firstResponder
+}
+
 private func nativeEventModifiers(_ modifiers: ghostty_input_mods_e) -> NSEvent.ModifierFlags {
   var result: NSEvent.ModifierFlags = []
   if modifiers.rawValue & GHOSTTY_MODS_SHIFT.rawValue != 0 { result.insert(.shift) }
@@ -202,6 +230,7 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
   private var keyTextAccumulator: [String]?
   private var locallyConsumedKeyCodes: Set<UInt16> = []
   private var lastReportedGeometry: TerminalGeometry?
+  private weak var focusObservedWindow: NSWindow?
   private var sentRightMousePress = false
   private var ready = false
   private(set) var renderStreamValid = false
@@ -227,10 +256,26 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
     }
     registerForDraggedTypes([.string, .fileURL])
     updateTrackingAreas()
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(focusContextDidChange),
+      name: NSApplication.didBecomeActiveNotification,
+      object: nil
+    )
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(focusContextDidChange),
+      name: NSApplication.didResignActiveNotification,
+      object: nil
+    )
   }
 
   required init?(coder: NSCoder) {
     nil
+  }
+
+  deinit {
+    NotificationCenter.default.removeObserver(self)
   }
 
   func apply(_ event: TerminalRenderEvent) {
@@ -263,8 +308,8 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
     case .ready:
       guard renderStreamValid, surface != nil else { return }
       ready = true
+      syncSurfaceFocus()
       if let surface {
-        ghostty_surface_set_focus(surface, window?.firstResponder === self)
         ghostty_surface_refresh(surface)
       }
     case .exit:
@@ -387,10 +432,9 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
 
   override func viewDidMoveToWindow() {
     super.viewDidMoveToWindow()
+    updateWindowFocusObservation()
     updateSurfaceSize(reportGeometry: true)
-    if ready, window?.firstResponder === self, let surface {
-      ghostty_surface_set_focus(surface, true)
-    }
+    syncSurfaceFocus()
   }
 
   override func viewDidChangeBackingProperties() {
@@ -418,14 +462,58 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
 
   override func becomeFirstResponder() -> Bool {
     let accepted = super.becomeFirstResponder()
-    if accepted, ready, let surface { ghostty_surface_set_focus(surface, true) }
+    if accepted { syncSurfaceFocus(firstResponder: true) }
     return accepted
   }
 
   override func resignFirstResponder() -> Bool {
     let resigned = super.resignFirstResponder()
-    if resigned, ready, let surface { ghostty_surface_set_focus(surface, false) }
+    if resigned { syncSurfaceFocus(firstResponder: false) }
     return resigned
+  }
+
+  private func updateWindowFocusObservation() {
+    let center = NotificationCenter.default
+    if let focusObservedWindow {
+      center.removeObserver(
+        self,
+        name: NSWindow.didBecomeKeyNotification,
+        object: focusObservedWindow
+      )
+      center.removeObserver(
+        self,
+        name: NSWindow.didResignKeyNotification,
+        object: focusObservedWindow
+      )
+    }
+    focusObservedWindow = window
+    guard let window else { return }
+    center.addObserver(
+      self,
+      selector: #selector(focusContextDidChange),
+      name: NSWindow.didBecomeKeyNotification,
+      object: window
+    )
+    center.addObserver(
+      self,
+      selector: #selector(focusContextDidChange),
+      name: NSWindow.didResignKeyNotification,
+      object: window
+    )
+  }
+
+  @objc private func focusContextDidChange(_ notification: Notification) {
+    syncSurfaceFocus()
+  }
+
+  private func syncSurfaceFocus(firstResponder: Bool? = nil) {
+    guard ready, let surface else { return }
+    let focused = nativeSurfaceShouldHaveFocus(
+      applicationActive: NSApp.isActive,
+      windowKey: window?.isKeyWindow == true,
+      firstResponder: firstResponder ?? (window?.firstResponder === self)
+    )
+    ghostty_surface_set_focus(surface, focused)
   }
 
   override func keyDown(with event: NSEvent) {
@@ -504,21 +592,13 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
   }
 
   override func flagsChanged(with event: NSEvent) {
-    let flag: UInt32
-    switch event.keyCode {
-    case 0x39: flag = GHOSTTY_MODS_CAPS.rawValue
-    case 0x38, 0x3C: flag = GHOSTTY_MODS_SHIFT.rawValue
-    case 0x3B, 0x3E: flag = GHOSTTY_MODS_CTRL.rawValue
-    case 0x3A, 0x3D: flag = GHOSTTY_MODS_ALT.rawValue
-    case 0x37, 0x36: flag = GHOSTTY_MODS_SUPER.rawValue
-    default: return
-    }
+    guard let pressed = nativeModifierKeyIsPressed(
+      keyCode: event.keyCode,
+      modifierFlags: event.modifierFlags
+    ) else { return }
     guard !hasMarkedText() else { return }
-    let modifiers = nativeGhosttyModifiers(event.modifierFlags)
     let action: ghostty_input_action_e =
-      modifiers.rawValue & flag == 0
-      ? GHOSTTY_ACTION_RELEASE
-      : GHOSTTY_ACTION_PRESS
+      pressed ? GHOSTTY_ACTION_PRESS : GHOSTTY_ACTION_RELEASE
     _ = sendKey(event, action: action)
   }
 

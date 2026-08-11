@@ -15,6 +15,20 @@ private final class EventLog: @unchecked Sendable {
     var snapshot: [String] { lock.lock(); defer { lock.unlock() }; return values }
 }
 
+@MainActor
+private final class TestDemoWindowPlacementWindow: DemoWindowPlacementWindow {
+    let placementVisibleFrame: CGRect?
+    private(set) var appliedFrame: CGRect?
+
+    init(visibleFrame: CGRect?) {
+        placementVisibleFrame = visibleFrame
+    }
+
+    func applyPlacementFrame(_ frame: CGRect) {
+        appliedFrame = frame
+    }
+}
+
 private extension FixedWidthInteger {
     var littleEndianBytes: [UInt8] {
         withUnsafeBytes(of: littleEndian) { Array($0) }
@@ -1165,6 +1179,92 @@ func sideBySideLayoutUsesScreenRelativeGhosttyCoordinates() {
     #expect(layout.ghosttyPlacement.y == 0)
     #expect(layout.ghosttyPlacement.columns >= 80)
     #expect(layout.ghosttyPlacement.rows >= 40)
+}
+
+@Test
+func modifierTransitionsUseTheChangedPhysicalKey() {
+    let cases: [(UInt16, UInt16, UInt, UInt)] = [
+        (0x38, 0x3C, UInt(NX_DEVICELSHIFTKEYMASK), UInt(NX_DEVICERSHIFTKEYMASK)),
+        (0x3B, 0x3E, UInt(NX_DEVICELCTLKEYMASK), UInt(NX_DEVICERCTLKEYMASK)),
+        (0x3A, 0x3D, UInt(NX_DEVICELALTKEYMASK), UInt(NX_DEVICERALTKEYMASK)),
+        (0x37, 0x36, UInt(NX_DEVICELCMDKEYMASK), UInt(NX_DEVICERCMDKEYMASK)),
+    ]
+
+    for (leftKey, rightKey, leftMask, rightMask) in cases {
+        let bothPressed = NSEvent.ModifierFlags(rawValue: leftMask | rightMask)
+        #expect(nativeModifierKeyIsPressed(keyCode: leftKey, modifierFlags: bothPressed) == true)
+        #expect(nativeModifierKeyIsPressed(keyCode: rightKey, modifierFlags: bothPressed) == true)
+
+        let leftOnly = NSEvent.ModifierFlags(rawValue: leftMask)
+        #expect(nativeModifierKeyIsPressed(keyCode: leftKey, modifierFlags: leftOnly) == true)
+        #expect(nativeModifierKeyIsPressed(keyCode: rightKey, modifierFlags: leftOnly) == false)
+    }
+}
+
+@Test
+func surfaceFocusRequiresActiveApplicationKeyWindowAndFirstResponder() {
+    #expect(nativeSurfaceShouldHaveFocus(
+        applicationActive: true,
+        windowKey: true,
+        firstResponder: true
+    ))
+    #expect(!nativeSurfaceShouldHaveFocus(
+        applicationActive: false,
+        windowKey: true,
+        firstResponder: true
+    ))
+    #expect(!nativeSurfaceShouldHaveFocus(
+        applicationActive: true,
+        windowKey: false,
+        firstResponder: true
+    ))
+    #expect(!nativeSurfaceShouldHaveFocus(
+        applicationActive: true,
+        windowKey: true,
+        firstResponder: false
+    ))
+}
+
+@Test @MainActor
+func ghosttyApplicationFocusFollowsActivationNotifications() {
+    let center = NotificationCenter()
+    var states: [Bool] = []
+    let observer = NativeGhosttyApplicationFocusObserver(
+        notificationCenter: center,
+        initiallyActive: false,
+        setFocus: { states.append($0) }
+    )
+
+    center.post(name: NSApplication.didBecomeActiveNotification, object: nil)
+    center.post(name: NSApplication.didResignActiveNotification, object: nil)
+
+    #expect(states == [false, true, false])
+    withExtendedLifetime(observer) {}
+}
+
+@Test @MainActor
+func windowPlacementUsesItsOwnedWindowAndInjectedWriter() throws {
+    let visibleFrame = CGRect(x: 1440, y: 25, width: 1728, height: 971)
+    let target = TestDemoWindowPlacementWindow(visibleFrame: visibleFrame)
+    var writtenData: Data?
+    var writtenURL: URL?
+    let placement = DemoWindowPlacement(
+        windowProvider: { target },
+        writeData: { data, url in
+            writtenData = data
+            writtenURL = url
+        }
+    )
+
+    placement.applyIfConfigured(environment: [
+        "CMUX_NATIVE_WINDOW_LAYOUT_FILE": "/tmp/native-layout.json"
+    ])
+
+    let layout = SideBySideWindowLayout.fit(visibleFrame: visibleFrame)
+    #expect(target.appliedFrame == layout.nativeFrame)
+    #expect(writtenURL?.path == "/tmp/native-layout.json")
+    let data = try #require(writtenData)
+    #expect(try JSONDecoder().decode(GhosttyWindowPlacement.self, from: data) == layout.ghosttyPlacement)
 }
 
 @Test

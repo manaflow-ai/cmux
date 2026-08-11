@@ -7,6 +7,10 @@ final class NativeMuxDemoAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
     let localization: Localization
     private(set) var window: NSWindow?
     private var terminationRequested = false
+    private lazy var windowPlacement = DemoWindowPlacement(
+        windowProvider: { [weak self] in self?.window },
+        writeData: { data, url in try data.write(to: url, options: .atomic) }
+    )
 
     override init() {
         let localization = Localization(bundle: .main, locale: .current)
@@ -45,12 +49,7 @@ final class NativeMuxDemoAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         window.makeKeyAndOrderFront(nil)
         NSApplication.shared.activate(ignoringOtherApps: true)
         model.connectIfConfigured()
-
-        Task { @MainActor in
-            await Task.yield()
-            guard self.window === window else { return }
-            DemoWindowPlacement.applyIfConfigured()
-        }
+        windowPlacement.applyIfConfigured()
     }
 
     func windowWillClose(_ notification: Notification) {

@@ -48,26 +48,57 @@ struct GhosttyWindowPlacement: Codable, Equatable, Sendable {
 }
 
 @MainActor
-enum DemoWindowPlacement {
-  static func applyIfConfigured(
+protocol DemoWindowPlacementWindow: AnyObject {
+  var placementVisibleFrame: CGRect? { get }
+  func applyPlacementFrame(_ frame: CGRect)
+}
+
+extension NSWindow: DemoWindowPlacementWindow {
+  var placementVisibleFrame: CGRect? { screen?.visibleFrame }
+
+  func applyPlacementFrame(_ frame: CGRect) {
+    setFrame(frame, display: true)
+  }
+}
+
+@MainActor
+final class DemoWindowPlacement {
+  private let windowProvider: () -> (any DemoWindowPlacementWindow)?
+  private let writeData: (Data, URL) throws -> Void
+  private let logger: Logger
+
+  init(
+    windowProvider: @escaping () -> (any DemoWindowPlacementWindow)?,
+    writeData: @escaping (Data, URL) throws -> Void,
+    logger: Logger = Logger(
+      subsystem: "com.cmux.NativeMuxDemo",
+      category: "window-placement"
+    )
+  ) {
+    self.windowProvider = windowProvider
+    self.writeData = writeData
+    self.logger = logger
+  }
+
+  func applyIfConfigured(
     environment: [String: String] = ProcessInfo.processInfo.environment
   ) {
     guard
       let layoutPath = environment["CMUX_NATIVE_WINDOW_LAYOUT_FILE"],
       !layoutPath.isEmpty,
-      let window = NSApplication.shared.keyWindow ?? NSApplication.shared.windows.first,
-      let screen = window.screen
+      let window = windowProvider(),
+      let visibleFrame = window.placementVisibleFrame
     else { return }
 
-    let layout = SideBySideWindowLayout.fit(visibleFrame: screen.visibleFrame)
-    window.setFrame(layout.nativeFrame, display: true)
+    let layout = SideBySideWindowLayout.fit(visibleFrame: visibleFrame)
+    window.applyPlacementFrame(layout.nativeFrame)
 
     let placement = layout.ghosttyPlacement
     do {
       let data = try JSONEncoder().encode(placement)
-      try data.write(to: URL(fileURLWithPath: layoutPath), options: .atomic)
+      try writeData(data, URL(fileURLWithPath: layoutPath))
     } catch {
-      Logger(subsystem: "com.cmux.NativeMuxDemo", category: "window-placement").error(
+      logger.error(
         "Failed to write the Ghostty window layout: \(error.localizedDescription, privacy: .public)"
       )
     }
