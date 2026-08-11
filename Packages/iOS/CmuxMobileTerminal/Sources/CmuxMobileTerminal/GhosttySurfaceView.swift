@@ -875,11 +875,46 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     @objc private func handleAppDidBecomeActive() {
+        reconcileNotificationDrivenKeyboardAfterActivation()
         resumeRendering()
         inputSession.send(.sceneDidBecomeActive)
         // The guide reflects the current keyboard even if this surface missed a
         // notification while inactive; force a layout read before the next render.
         setNeedsLayout()
+    }
+
+    /// Clears an iOS 27 notification-derived keyboard reservation that outlived
+    /// its responder while the app was inactive.
+    ///
+    /// UIKit can remove the keyboard after this process resigns active without
+    /// delivering the matching frame notification. The system-layout-guide path
+    /// repairs itself on the next layout, but the notification path otherwise keeps
+    /// its last numeric overlap indefinitely and strands the whole bottom dock near
+    /// the top of the screen. A live local responder is authoritative: preserve its
+    /// overlap when returning from transient overlays such as Control Center.
+    private func reconcileNotificationDrivenKeyboardAfterActivation() {
+        guard keyboardDockGeometrySource == .keyboardNotifications,
+              !hasLocalKeyboardFirstResponder,
+              keyboardHeight > 0 else { return }
+        #if DEBUG
+        guard keyboardHeightOverrideForTesting == nil else { return }
+        #endif
+
+        keyboardNotificationTransitionGeneration &+= 1
+        keyboardHeight = 0
+        keyboardVisible = false
+        inputProxy.setKeyboardShown(false)
+        bottomDockTransitionObserved = false
+        updateNotificationDrivenDockConstraint()
+        updateDockedToolbarVisibility()
+        setNeedsGeometrySync()
+
+        let owner = bottomDockHostView ?? self
+        UIView.performWithoutAnimation {
+            owner.layoutIfNeeded()
+            layoutRenderedTerminalForCurrentViewport()
+            layoutZoomOverlay()
+        }
     }
 
     @objc private func handleAppWillEnterForeground() {
