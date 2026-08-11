@@ -18,6 +18,7 @@ extension ControlCommandCoordinator {
             "accepted": .bool(false),
             "request_id": .string(requestID.uuidString),
             "status_method": .string("terminal_backend.mutation_status"),
+            "retry_safe": .bool(false),
             "submission_target": .string("cmuxd"),
             "pending_projection": .bool(true),
             "window_id": orNull(windowID?.uuidString),

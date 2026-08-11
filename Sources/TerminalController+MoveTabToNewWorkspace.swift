@@ -76,6 +76,7 @@ extension TerminalController {
             payload["pending"] = true
             payload["backend_request_id"] = requestID.uuidString
             payload["status_method"] = "terminal_backend.mutation_status"
+            payload["retry_safe"] = false
         }
         return payload
     }

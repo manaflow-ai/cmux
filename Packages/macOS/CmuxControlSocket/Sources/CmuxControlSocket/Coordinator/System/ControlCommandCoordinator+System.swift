@@ -53,8 +53,8 @@ extension ControlCommandCoordinator {
         }
     }
 
-    /// `terminal_backend.mutation_status` reads the bounded in-process status
-    /// history for a request returned by a queued topology mutation.
+    /// `terminal_backend.mutation_status` reports the local projection phase
+    /// without claiming that an absent local record proves a daemon rollback.
     func terminalBackendMutationStatus(
         _ params: [String: JSONValue]
     ) -> ControlCallResult {
@@ -75,11 +75,15 @@ extension ControlCommandCoordinator {
                 data: .object(["request_id": .string(requestID.uuidString)])
             )
         case .unknown:
-            return .err(
-                code: "not_found",
-                message: "Terminal backend mutation request not found",
-                data: .object(["request_id": .string(requestID.uuidString)])
-            )
+            return .ok(.object([
+                "request_id": .string(requestID.uuidString),
+                "status": .string("indeterminate"),
+                "finished": .bool(false),
+                "committed": .null,
+                "canonical_snapshot_acknowledged": .null,
+                "swift_projection_installed": .null,
+                "retry_safe": .bool(false),
+            ]))
         case .known(let status):
             let isFinished = status == .projected || status == .failed
             return .ok(.object([
@@ -91,6 +95,7 @@ extension ControlCommandCoordinator {
                     status == .committed || status == .projected
                 ),
                 "swift_projection_installed": .bool(status == .projected),
+                "retry_safe": .bool(false),
             ]))
         }
     }

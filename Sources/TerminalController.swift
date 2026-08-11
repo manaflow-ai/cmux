@@ -11398,7 +11398,7 @@ class TerminalController {
         case .unavailable:
             return "ERROR: Persistent terminal backend is not enabled"
         case .unknown:
-            return "ERROR: Terminal backend mutation request not found"
+            return "STATUS cmuxd request=\(requestID.uuidString) status=indeterminate retry_safe=false"
         case .known(let status):
             return "STATUS cmuxd request=\(requestID.uuidString) status=\(status.rawValue)"
         }
@@ -12294,7 +12294,7 @@ class TerminalController {
             }
         }
         if let backendRequestId, let newTabId {
-            return "OK \(newTabId.uuidString) pending backend_request_id=\(backendRequestId.uuidString) status_method=terminal_backend.mutation_status"
+            return "OK \(newTabId.uuidString) pending backend_request_id=\(backendRequestId.uuidString) status_method=terminal_backend.mutation_status retry_safe=false"
         }
         return "OK \(newTabId?.uuidString ?? "unknown")"
     }

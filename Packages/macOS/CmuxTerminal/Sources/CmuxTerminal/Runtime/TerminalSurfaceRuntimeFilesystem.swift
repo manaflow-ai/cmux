@@ -53,23 +53,52 @@ public final class TerminalSurfaceCommandShimInstallGate: @unchecked Sendable {
         }
     }
 
-    private struct Waiter {
+    private final class Waiter {
         let acquisition: Acquisition
         let continuation: CheckedContinuation<UUID?, Never>
+        weak var previous: Waiter?
+        var next: Waiter?
+
+        init(
+            acquisition: Acquisition,
+            continuation: CheckedContinuation<UUID?, Never>
+        ) {
+            self.acquisition = acquisition
+            self.continuation = continuation
+        }
     }
 
     private let lock = NSLock()
+    private let maximumWaiterCount: Int
     private var activeToken: UUID?
-    private var waiters: [Waiter] = []
+    private var waiterHead: Waiter?
+    private var waiterTail: Waiter?
+    private var waiters: [ObjectIdentifier: Waiter] = [:]
 
-    /// Creates an idle install gate.
-    public init() {}
+    /// Creates an idle install gate with a fixed pending-work limit.
+    ///
+    /// - Parameter maximumWaiterCount: The maximum number of installs that can
+    ///   wait behind the active installer. Additional work is rejected.
+    public init(maximumWaiterCount: Int = 64) {
+        precondition(maximumWaiterCount > 0)
+        self.maximumWaiterCount = maximumWaiterCount
+    }
 
     func acquire() async -> UUID? {
+        await acquire(onQueued: {})
+    }
+
+    func acquire(
+        onQueued: @escaping @Sendable () -> Void
+    ) async -> UUID? {
         let acquisition = Acquisition()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                enqueue(acquisition: acquisition, continuation: continuation)
+                enqueue(
+                    acquisition: acquisition,
+                    continuation: continuation,
+                    onQueued: onQueued
+                )
             }
         } onCancel: {
             acquisition.cancel()
@@ -85,8 +114,8 @@ public final class TerminalSurfaceCommandShimInstallGate: @unchecked Sendable {
             return
         }
         activeToken = nil
-        while !waiters.isEmpty {
-            let waiter = waiters.removeFirst()
+        while let waiter = waiterHead {
+            removeWaiterLocked(waiter)
             guard waiter.acquisition.completeWithPermit() else {
                 cancelledContinuations.append(waiter.continuation)
                 continue
@@ -108,7 +137,8 @@ public final class TerminalSurfaceCommandShimInstallGate: @unchecked Sendable {
 
     private func enqueue(
         acquisition: Acquisition,
-        continuation: CheckedContinuation<UUID?, Never>
+        continuation: CheckedContinuation<UUID?, Never>,
+        onQueued: @escaping @Sendable () -> Void
     ) {
         lock.lock()
         if activeToken == nil {
@@ -124,30 +154,68 @@ public final class TerminalSurfaceCommandShimInstallGate: @unchecked Sendable {
             return
         }
 
-        waiters.append(Waiter(acquisition: acquisition, continuation: continuation))
+        guard waiters.count < maximumWaiterCount else {
+            lock.unlock()
+            acquisition.completeAfterCancellation()
+            continuation.resume(returning: nil)
+            return
+        }
+        let waiter = Waiter(
+            acquisition: acquisition,
+            continuation: continuation
+        )
+        appendWaiterLocked(waiter)
         let installed = acquisition.installCancellationHandler { [weak self, weak acquisition] in
             guard let self, let acquisition else { return }
             self.cancel(acquisition)
         }
         guard installed else {
-            waiters.removeAll { $0.acquisition === acquisition }
+            removeWaiterLocked(waiter)
             lock.unlock()
             continuation.resume(returning: nil)
             return
         }
         lock.unlock()
+        onQueued()
     }
 
     private func cancel(_ acquisition: Acquisition) {
         lock.lock()
-        guard let index = waiters.firstIndex(where: { $0.acquisition === acquisition }) else {
+        let identifier = ObjectIdentifier(acquisition)
+        guard let waiter = waiters[identifier] else {
             lock.unlock()
             return
         }
-        let waiter = waiters.remove(at: index)
+        removeWaiterLocked(waiter)
         lock.unlock()
         acquisition.completeAfterCancellation()
         waiter.continuation.resume(returning: nil)
+    }
+
+    private func appendWaiterLocked(_ waiter: Waiter) {
+        waiter.previous = waiterTail
+        waiterTail?.next = waiter
+        waiterTail = waiter
+        if waiterHead == nil {
+            waiterHead = waiter
+        }
+        waiters[ObjectIdentifier(waiter.acquisition)] = waiter
+    }
+
+    private func removeWaiterLocked(_ waiter: Waiter) {
+        if let previous = waiter.previous {
+            previous.next = waiter.next
+        } else {
+            waiterHead = waiter.next
+        }
+        if let next = waiter.next {
+            next.previous = waiter.previous
+        } else {
+            waiterTail = waiter.previous
+        }
+        waiter.previous = nil
+        waiter.next = nil
+        waiters.removeValue(forKey: ObjectIdentifier(waiter.acquisition))
     }
 }
 
