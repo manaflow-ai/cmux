@@ -18,6 +18,13 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     var reportGitResolution: ControlSurfaceReportGitBranchResolution = .recorded(surfaceID: UUID())
     var reportedGit: (workspaceID: UUID, requestedSurfaceID: UUID?, branch: String, isDirty: Bool?)?
     var clearedGit: (workspaceID: UUID, requestedSurfaceID: UUID?)?
+    var reportShellStateResolution: ControlSurfaceReportShellStateResolution = .pending
+    var reportedShellState: (
+        workspaceID: UUID,
+        requestedSurfaceID: UUID?,
+        terminalLifecycleID: UUID?,
+        stateRawValue: String
+    )?
 
     func controlWindowSummaries() -> [ControlWindowSummary] { [] }
     func controlResolveCurrentWindow(routing: ControlRoutingSelectors) -> ControlCurrentWindowResolution {
@@ -109,5 +116,31 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     ) -> ControlSurfaceReportGitBranchResolution {
         clearedGit = (workspaceID, requestedSurfaceID)
         return reportGitResolution
+    }
+
+    nonisolated func controlSurfaceParseShellActivityState(
+        _ rawState: String
+    ) -> String? {
+        switch rawState {
+        case "prompt": "promptIdle"
+        case "running": "commandRunning"
+        case "unknown": "unknown"
+        default: nil
+        }
+    }
+
+    func controlSurfaceReportShellState(
+        workspaceID: UUID,
+        requestedSurfaceID: UUID?,
+        terminalLifecycleID: UUID?,
+        stateRawValue: String
+    ) -> ControlSurfaceReportShellStateResolution {
+        reportedShellState = (
+            workspaceID,
+            requestedSurfaceID,
+            terminalLifecycleID,
+            stateRawValue
+        )
+        return reportShellStateResolution
     }
 }

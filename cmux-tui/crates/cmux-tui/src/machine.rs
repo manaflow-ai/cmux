@@ -5,7 +5,7 @@
 //! presentation snapshot so cloud, SSH, local-socket, and future transports
 //! can share the same Ratatui rail without sharing provider implementation.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
@@ -26,6 +26,18 @@ pub enum MachineStatus {
     Sleeping,
     Stopped,
     Unavailable,
+}
+
+/// Client-side transport state. Provider lifecycle state remains in
+/// [`MachineStatus`], so selecting a running VM never has to imply that its
+/// terminal transport has finished opening.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum MachineConnectionPhase {
+    #[default]
+    Disconnected,
+    Connecting,
+    Ready,
+    Failed,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -333,6 +345,11 @@ pub enum MachineRequest {
     /// before reopening the selected machine.
     ReconnectProvider,
     Create,
+    /// Select one native creation source advertised by the client-local
+    /// catalog. Dynamic providers continue to own the source-less `Create`.
+    CreateFrom {
+        source_id: String,
+    },
     Connect {
         target: String,
         route: MachineConnectRoute,
@@ -347,6 +364,12 @@ pub enum MachineRequest {
     RenameManagedMachine {
         machine: MachineKey,
         expected_version: u64,
+        name: String,
+    },
+    /// Rename a row owned by the client-local catalog. This changes only the
+    /// current process's presentation; it never rewrites SSH or cmux config.
+    RenameClientMachine {
+        machine: MachineKey,
         name: String,
     },
     DeleteManagedMachine {
@@ -398,6 +421,7 @@ pub(crate) enum ManagedWorkspaceSessionMutation {
 pub(crate) struct MachineSession {
     pub session: Session,
     pub label: String,
+    pub machine: Option<MachineKey>,
 }
 
 /// The result of one machine-side action. Most actions only update the rail;
@@ -422,9 +446,10 @@ impl MachineActionResult {
     }
 
     pub(crate) fn replace(ui: MachineUiState, session: Session, label: String) -> Self {
+        let machine = ui.snapshot.active;
         Self {
             ui,
-            replacement: Some(MachineSession { session, label }),
+            replacement: Some(MachineSession { session, label, machine }),
             restart_updates: false,
             session_mutation: None,
             session_label: None,
@@ -471,7 +496,7 @@ pub(crate) trait MachineController: Send {
 
     /// Commit controller-side ownership changes for a replacement only after
     /// the replacement session has passed the shared workspace guard.
-    fn commit_replacement(&mut self) -> anyhow::Result<()> {
+    fn commit_replacement(&mut self, _present: bool) -> anyhow::Result<()> {
         Ok(())
     }
 
@@ -505,6 +530,21 @@ pub enum MachineRailTarget {
     ConnectMachine,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MachineCreationSource {
+    pub id: String,
+    pub name: String,
+    pub subtitle: String,
+}
+
+/// A client-local destination advertised by a native connection source.
+/// `target` is opaque to the picker and is passed back to the owning route.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MachineConnectionTarget {
+    pub target: String,
+    pub name: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct MachineUiState {
     pub snapshot: MachineSnapshot,
@@ -515,7 +555,11 @@ pub struct MachineUiState {
     pub provider: Option<ProviderPresentation>,
     pub connect_accepts_pairing_code: bool,
     pub rail_selection: MachineRailSelection,
+    pub creation_sources: Vec<MachineCreationSource>,
+    pub connection_targets: Vec<MachineConnectionTarget>,
+    connection_phases: HashMap<MachineKey, MachineConnectionPhase>,
     workspace_creation: HashMap<MachineKey, WorkspaceCreationPolicy>,
+    client_renamable_machines: HashSet<MachineKey>,
     managed_machines: Vec<ManagedMachineDescriptor>,
     managed_workspaces: HashMap<MachineKey, Vec<ManagedWorkspaceDescriptor>>,
 }
@@ -597,6 +641,11 @@ impl MachineUiState {
     pub fn new(snapshot: MachineSnapshot) -> Self {
         let selection = snapshot.active_index().unwrap_or_default();
         let session_available = snapshot.active_index().is_some();
+        let connection_phases = snapshot
+            .active
+            .map(|active| (active, MachineConnectionPhase::Ready))
+            .into_iter()
+            .collect();
         let mut state = Self {
             snapshot,
             selection,
@@ -606,12 +655,41 @@ impl MachineUiState {
             provider: None,
             connect_accepts_pairing_code: false,
             rail_selection: MachineRailSelection::Machine,
+            creation_sources: Vec::new(),
+            connection_targets: Vec::new(),
+            connection_phases,
             workspace_creation: HashMap::new(),
+            client_renamable_machines: HashSet::new(),
             managed_machines: Vec::new(),
             managed_workspaces: HashMap::new(),
         };
         state.ensure_rail_selection();
         state
+    }
+
+    pub fn connection_phase(&self, machine: MachineKey) -> MachineConnectionPhase {
+        self.connection_phases.get(&machine).copied().unwrap_or_default()
+    }
+
+    pub fn set_connection_phase(&mut self, machine: MachineKey, phase: MachineConnectionPhase) {
+        self.connection_phases.insert(machine, phase);
+    }
+
+    pub fn set_connection_phases(
+        &mut self,
+        phases: impl IntoIterator<Item = (MachineKey, MachineConnectionPhase)>,
+    ) {
+        self.connection_phases = phases.into_iter().collect();
+    }
+
+    pub fn extend_connection_phases_from(&mut self, previous: &Self) {
+        let visible =
+            self.snapshot.machines.iter().map(|machine| machine.key).collect::<HashSet<_>>();
+        for (machine, phase) in &previous.connection_phases {
+            if visible.contains(machine) {
+                self.connection_phases.entry(*machine).or_insert(*phase);
+            }
+        }
     }
 
     pub fn selected(&self) -> Option<&MachineDescriptor> {
@@ -656,6 +734,24 @@ impl MachineUiState {
 
     pub fn is_provider_machine(&self, machine: MachineKey) -> bool {
         self.workspace_creation.contains_key(&machine)
+    }
+
+    pub fn set_client_renamable_machines(
+        &mut self,
+        machines: impl IntoIterator<Item = MachineKey>,
+    ) {
+        self.client_renamable_machines = machines.into_iter().collect();
+    }
+
+    pub fn extend_client_renamable_machines(
+        &mut self,
+        machines: impl IntoIterator<Item = MachineKey>,
+    ) {
+        self.client_renamable_machines.extend(machines);
+    }
+
+    pub fn is_client_machine_renamable(&self, machine: MachineKey) -> bool {
+        self.client_renamable_machines.contains(&machine)
     }
 
     pub fn set_managed_machines(&mut self, machines: Vec<ManagedMachineDescriptor>) {
