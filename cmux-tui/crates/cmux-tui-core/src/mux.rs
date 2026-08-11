@@ -5661,10 +5661,8 @@ impl Mux {
             return false;
         };
         let state = self.state.lock().unwrap();
-        let surface = state
-            .surfaces
-            .get(&surface_id)
-            .or_else(|| state.terminal_runtime_by_id(surface_id));
+        let surface =
+            state.surfaces.get(&surface_id).or_else(|| state.terminal_runtime_by_id(surface_id));
         let identity_matches = surface
             .and_then(|surface| surface.terminal_host_identity())
             .is_some_and(|current| current == *identity);
