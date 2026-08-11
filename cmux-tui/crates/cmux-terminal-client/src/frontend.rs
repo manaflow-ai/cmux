@@ -13,12 +13,12 @@ use cmux_remote_protocol::{
 use cmux_terminal_host_protocol::{Frame, MessageKind};
 use serde_json::{Value, json};
 use tokio::runtime::Runtime;
-use tokio::sync::oneshot;
+use tokio::sync::{Notify, oneshot};
 
 use super::{
     ActiveTerminal, ClientState, ClientUpdates, ConnectedTransport, TerminalUpdateCallback,
     bytes_from_ffi, connect_transport, connect_with_timeout, copy_utf8, encode_frame,
-    open_terminal_stream_with_timeout, start_terminal_tasks, terminal_id_from_ffi,
+    open_terminal_stream_with_timeout_and_cancel, start_terminal_tasks, terminal_id_from_ffi,
 };
 
 const FRONTEND_CONNECTION_TIMEOUT_ERROR: &str = "frontend connection timed out";
@@ -31,6 +31,31 @@ const RESOURCE_STREAM_END_CANCELED: u8 = 2;
 const RESOURCE_STREAM_END_CLOSED: u8 = 3;
 const RESOURCE_STREAM_END_GAP: u8 = 4;
 const RESOURCE_STREAM_END_ERROR: u8 = 5;
+
+#[repr(C)]
+pub struct CmuxFrontendAttachCancellation {
+    canceled: AtomicBool,
+    notify: Notify,
+}
+
+impl CmuxFrontendAttachCancellation {
+    fn new() -> Self {
+        Self { canceled: AtomicBool::new(false), notify: Notify::new() }
+    }
+
+    fn cancel(&self) {
+        self.canceled.store(true, Ordering::Release);
+        // One signal belongs to one attach. `notify_one` stores a permit if
+        // cancellation wins the race before the waiter registers.
+        self.notify.notify_one();
+    }
+
+    async fn cancelled(&self) {
+        while !self.canceled.load(Ordering::Acquire) {
+            self.notify.notified().await;
+        }
+    }
+}
 
 type PendingResponse = oneshot::Sender<Result<Value, String>>;
 
@@ -673,6 +698,40 @@ pub unsafe extern "C" fn cmux_frontend_string_free(value: *mut c_char) {
     }
 }
 
+/// Creates a cancellation signal for one frontend terminal attachment.
+#[unsafe(no_mangle)]
+pub extern "C" fn cmux_frontend_attach_cancellation_new() -> *mut CmuxFrontendAttachCancellation {
+    Box::into_raw(Box::new(CmuxFrontendAttachCancellation::new()))
+}
+
+/// Cancels an attachment that is queued or waiting for its remote handshake.
+///
+/// # Safety
+///
+/// `cancellation` must be null or point to a live cancellation signal.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_frontend_attach_cancellation_cancel(
+    cancellation: *const CmuxFrontendAttachCancellation,
+) {
+    if let Some(cancellation) = unsafe { cancellation.as_ref() } {
+        cancellation.cancel();
+    }
+}
+
+/// Releases an attachment cancellation signal after its attach call returns.
+///
+/// # Safety
+///
+/// `cancellation` must be null or an owned signal returned by this library.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_frontend_attach_cancellation_free(
+    cancellation: *mut CmuxFrontendAttachCancellation,
+) {
+    if !cancellation.is_null() {
+        drop(unsafe { Box::from_raw(cancellation) });
+    }
+}
+
 /// Opens an independent terminal renderer stream on the existing transport.
 ///
 /// # Safety
@@ -686,6 +745,33 @@ pub unsafe extern "C" fn cmux_frontend_client_attach_terminal(
     error_capacity: usize,
     timeout_milliseconds: u64,
 ) -> *mut CmuxFrontendTerminal {
+    unsafe {
+        cmux_frontend_client_attach_terminal_cancellable(
+            client,
+            terminal_id,
+            error_buffer,
+            error_capacity,
+            timeout_milliseconds,
+            std::ptr::null(),
+        )
+    }
+}
+
+/// Opens a terminal renderer stream with a caller-owned cancellation signal.
+///
+/// # Safety
+///
+/// `client` must outlive the returned terminal. `cancellation` may be null;
+/// otherwise it must stay live until this function returns.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_frontend_client_attach_terminal_cancellable(
+    client: *mut CmuxFrontendClient,
+    terminal_id: *const c_char,
+    error_buffer: *mut c_char,
+    error_capacity: usize,
+    timeout_milliseconds: u64,
+    cancellation: *const CmuxFrontendAttachCancellation,
+) -> *mut CmuxFrontendTerminal {
     let Some(client) = (unsafe { client.as_ref() }) else {
         copy_utf8("frontend client is null", error_buffer, error_capacity);
         return std::ptr::null_mut();
@@ -697,10 +783,18 @@ pub unsafe extern "C" fn cmux_frontend_client_attach_terminal(
             return std::ptr::null_mut();
         }
     };
-    let stream = match client.runtime.block_on(open_terminal_stream_with_timeout(
+    let cancellation = unsafe { cancellation.as_ref() };
+    let cancellation_future = async {
+        match cancellation {
+            Some(cancellation) => cancellation.cancelled().await,
+            None => std::future::pending().await,
+        }
+    };
+    let stream = match client.runtime.block_on(open_terminal_stream_with_timeout_and_cancel(
         &client.multiplexer,
         &terminal_id,
         Some(Duration::from_millis(timeout_milliseconds)),
+        cancellation_future,
     )) {
         Ok(stream) => stream,
         Err(error) => {
@@ -719,6 +813,9 @@ pub unsafe extern "C" fn cmux_frontend_client_attach_terminal(
             Arc::new(Mutex::new(state))
         }
         Err(error) => {
+            client.runtime.block_on(async {
+                let _ = stream.close().await;
+            });
             copy_utf8(&format!("libghostty: {error}"), error_buffer, error_capacity);
             return std::ptr::null_mut();
         }
@@ -1036,6 +1133,23 @@ pub unsafe extern "C" fn cmux_frontend_client_disconnect(client: *mut CmuxFronte
 mod tests {
     use super::*;
     use crate::{NativeRenderEventKind, TerminalPublicId};
+
+    #[test]
+    fn frontend_attach_cancellation_wakes_the_waiter() {
+        let runtime = Runtime::new().unwrap();
+        runtime.block_on(async {
+            let cancellation = Arc::new(CmuxFrontendAttachCancellation::new());
+            let waiting_cancellation = cancellation.clone();
+            let (ready, ready_rx) = oneshot::channel();
+            let waiter = tokio::spawn(async move {
+                let _ = ready.send(());
+                waiting_cancellation.cancelled().await;
+            });
+            let _ = ready_rx.await;
+            cancellation.cancel();
+            waiter.await.unwrap();
+        });
+    }
 
     #[test]
     fn resource_update_queue_bounds_retained_bytes() {

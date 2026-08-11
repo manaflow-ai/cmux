@@ -9,6 +9,15 @@ struct SideBySideWindowLayout: Equatable, Sendable {
   let ghosttyColumns: Int
   let ghosttyRows: Int
 
+  var ghosttyPlacement: GhosttyWindowPlacement {
+    GhosttyWindowPlacement(
+      x: ghosttyPositionX,
+      y: ghosttyPositionY,
+      columns: ghosttyColumns,
+      rows: ghosttyRows
+    )
+  }
+
   static func fit(visibleFrame: CGRect) -> SideBySideWindowLayout {
     let gap = min(12.0, max(0, visibleFrame.width * 0.01))
     let availableWidth = max(1, visibleFrame.width - gap)
@@ -31,7 +40,7 @@ struct SideBySideWindowLayout: Equatable, Sendable {
   }
 }
 
-private struct GhosttyWindowPlacement: Codable {
+struct GhosttyWindowPlacement: Codable, Equatable, Sendable {
   let x: Int
   let y: Int
   let columns: Int
@@ -53,12 +62,7 @@ enum DemoWindowPlacement {
     let layout = SideBySideWindowLayout.fit(visibleFrame: screen.visibleFrame)
     window.setFrame(layout.nativeFrame, display: true)
 
-    let placement = GhosttyWindowPlacement(
-      x: Int(screen.visibleFrame.minX) + layout.ghosttyPositionX,
-      y: layout.ghosttyPositionY,
-      columns: layout.ghosttyColumns,
-      rows: layout.ghosttyRows
-    )
+    let placement = layout.ghosttyPlacement
     do {
       let data = try JSONEncoder().encode(placement)
       try data.write(to: URL(fileURLWithPath: layoutPath), options: .atomic)

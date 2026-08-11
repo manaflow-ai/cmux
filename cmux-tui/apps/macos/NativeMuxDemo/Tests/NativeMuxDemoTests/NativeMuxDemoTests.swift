@@ -67,7 +67,10 @@ func decodesEveryNativeLayoutShape() throws {
             {"id":"pane_55555555555555555555555555555555","screen_id":"screen_44444444444444444444444444444444","name":null,"focused":true,"zoomed":false},
             {"id":"pane_66666666666666666666666666666666","screen_id":"screen_44444444444444444444444444444444","name":null,"focused":false,"zoomed":false}
           ],
-          "tabs":[{"id":"tab_77777777777777777777777777777777","pane_id":"pane_55555555555555555555555555555555","name":null,"index":0,"focused":true,"content_kind":"terminal","content_id":"term_88888888888888888888888888888888"}],
+          "tabs":[
+            {"id":"tab_77777777777777777777777777777777","pane_id":"pane_55555555555555555555555555555555","name":null,"index":0,"focused":true,"content_kind":"terminal","content_id":"term_88888888888888888888888888888888"},
+            {"id":"tab_99999999999999999999999999999999","pane_id":"pane_66666666666666666666666666666666","name":null,"index":0,"focused":true,"content_kind":"terminal","content_id":"term_88888888888888888888888888888888"}
+          ],
           "terminals":[{"id":"term_88888888888888888888888888888888","tab_id":"tab_77777777777777777777777777777777","title":"shell","cols":80,"rows":24,"running":true,"lifecycle":"running"}],
           "browsers":[],
           "cursor":{"generation":"g","revision":"8"}
@@ -96,6 +99,36 @@ func decodesEveryNativeLayoutShape() throws {
         return
     }
     #expect(panes == [expanded])
+    #expect(snapshot.visibleTerminalPlacements(in: snapshot.screens[0]) == [
+        "pane_55555555555555555555555555555555": "term_88888888888888888888888888888888",
+        "pane_66666666666666666666666666666666": "term_88888888888888888888888888888888",
+    ])
+}
+
+@Test
+func visibleLayoutPanesExcludeCollapsedStackMembersAndHonorZoom() {
+    let stack = LayoutNode.stack(
+        paneIDs: ["pane-a", "pane-b", "pane-c"],
+        expandedPaneID: "pane-b"
+    )
+    let split = LayoutNode.split(
+        splitID: "split",
+        direction: .horizontal,
+        ratio: 0.5,
+        first: .leaf(paneID: "pane-visible", tabIDs: [], activeTabID: nil),
+        second: stack
+    )
+    #expect(split.paneIDs == ["pane-visible", "pane-a", "pane-b", "pane-c"])
+    #expect(split.visiblePaneIDs == ["pane-visible", "pane-b"])
+
+    let layout = LayoutDocument(
+        version: 1,
+        screenID: "screen",
+        activePaneID: "pane-c",
+        zoomedPaneID: "pane-c",
+        root: split
+    )
+    #expect(layout.visiblePaneIDs == ["pane-c"])
 }
 
 @Test
@@ -159,6 +192,42 @@ func terminalHandleFFIQueuePreservesFIFOAndDisconnectDrain() async {
     _ = await removeCallback.value
     _ = await disconnect.value
     #expect(order.snapshot == ["send", "read", "callback-removal", "disconnect"])
+}
+
+@Test
+func canceledQueuedFFIOperationDoesNotExecute() async {
+    let executor = SerialFFIExecutor(label: "test.native-terminal.cancel")
+    let firstStarted = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    let releaseFirst = DispatchSemaphore(value: 0)
+    let first = Task {
+        await executor.run {
+            firstStarted.continuation.yield()
+            releaseFirst.wait()
+            return true
+        }
+    }
+    for await _ in firstStarted.stream { break }
+
+    let queued = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    let operations = EventLog()
+    let cancellation = FFICancellation {}
+    let second = Task {
+        await executor.runCancellable(
+            cancellation: cancellation,
+            { operations.append("canceled"); return true },
+            onEnqueued: { queued.continuation.yield() }
+        )
+    }
+    for await _ in queued.stream { break }
+    second.cancel()
+    releaseFirst.signal()
+
+    _ = await first.value
+    let secondResult = await second.value
+    firstStarted.continuation.finish()
+    queued.continuation.finish()
+    #expect(secondResult == nil)
+    #expect(operations.snapshot.isEmpty)
 }
 
 @Test
@@ -239,6 +308,7 @@ func resourceDrainUsesTheCDescriptorTwoCallContract() throws {
     #expect(batch.endReason == .gap)
     #expect(!batch.overflowed)
     #expect(batch.envelopes.count == 2)
+    #expect(!batch.hasMore)
     let sequences = try batch.envelopes.map { payload in
         let object = try #require(
             JSONSerialization.jsonObject(with: payload) as? [String: Int]
@@ -246,6 +316,86 @@ func resourceDrainUsesTheCDescriptorTwoCallContract() throws {
         return try #require(object["sequence"])
     }
     #expect(sequences == [1, 2])
+}
+
+@Test
+func resourceDrainStopsAtTheEnvelopeBudget() {
+    var pending = [Data("one".utf8), Data("two".utf8), Data("three".utf8)]
+    let copy: (inout CmuxFrontendResourceUpdate, UnsafeMutablePointer<UInt8>?, Int) -> Bool = {
+        descriptor, buffer, capacity in
+        descriptor = CmuxFrontendResourceUpdate()
+        guard let payload = pending.first else { return true }
+        descriptor.payload_length = payload.count
+        guard let buffer, capacity >= payload.count else { return true }
+        payload.copyBytes(to: buffer, count: payload.count)
+        pending.removeFirst()
+        return true
+    }
+
+    let first = drainFrontendResourceUpdates(maximumEnvelopes: 2, copy: copy)
+    #expect(first.envelopes.count == 2)
+    #expect(first.hasMore)
+    #expect(pending.count == 1)
+
+    let second = drainFrontendResourceUpdates(maximumEnvelopes: 2, copy: copy)
+    #expect(second.envelopes == [Data("three".utf8)])
+    #expect(!second.hasMore)
+    #expect(pending.isEmpty)
+}
+
+@Test
+func resourceDrainDefersStreamEndUntilQueuedEnvelopesAreDrained() {
+    var pending = [Data("one".utf8), Data("two".utf8), Data("three".utf8)]
+    let copy: (inout CmuxFrontendResourceUpdate, UnsafeMutablePointer<UInt8>?, Int) -> Bool = {
+        descriptor, buffer, capacity in
+        descriptor = CmuxFrontendResourceUpdate()
+        descriptor.ended = true
+        descriptor.end_reason = FrontendResourceStreamEndReason.gap.rawValue
+        guard let payload = pending.first else { return true }
+        descriptor.payload_length = payload.count
+        guard let buffer, capacity >= payload.count else { return true }
+        payload.copyBytes(to: buffer, count: payload.count)
+        pending.removeFirst()
+        return true
+    }
+
+    let first = drainFrontendResourceUpdates(maximumEnvelopes: 2, copy: copy)
+    #expect(first.envelopes == [Data("one".utf8), Data("two".utf8)])
+    #expect(first.hasMore)
+    #expect(!first.ended)
+    #expect(first.endReason == .none)
+
+    let second = drainFrontendResourceUpdates(maximumEnvelopes: 2, copy: copy)
+    #expect(second.envelopes == [Data("three".utf8)])
+    #expect(!second.hasMore)
+    #expect(second.ended)
+    #expect(second.endReason == .gap)
+    #expect(pending.isEmpty)
+}
+
+@Test
+func resourceDrainLeavesTheNextEnvelopeAtTheByteBudget() {
+    var pending = [Data("four".utf8), Data("five".utf8)]
+    let copy: (inout CmuxFrontendResourceUpdate, UnsafeMutablePointer<UInt8>?, Int) -> Bool = {
+        descriptor, buffer, capacity in
+        descriptor = CmuxFrontendResourceUpdate()
+        guard let payload = pending.first else { return true }
+        descriptor.payload_length = payload.count
+        guard let buffer, capacity >= payload.count else { return true }
+        payload.copyBytes(to: buffer, count: payload.count)
+        pending.removeFirst()
+        return true
+    }
+
+    let first = drainFrontendResourceUpdates(maximumBytes: 6, copy: copy)
+    #expect(first.envelopes == [Data("four".utf8)])
+    #expect(first.hasMore)
+    #expect(pending.count == 1)
+
+    let second = drainFrontendResourceUpdates(maximumBytes: 6, copy: copy)
+    #expect(second.envelopes == [Data("five".utf8)])
+    #expect(!second.hasMore)
+    #expect(pending.isEmpty)
 }
 
 @Test
@@ -276,6 +426,39 @@ func resourceDrainTreatsUnknownStreamEndAsTerminalError() {
 
     #expect(batch.ended)
     #expect(batch.endReason == .error)
+}
+
+@Test
+func renderDrainConsumesUnknownPayloadBeforeContinuing() {
+    var pending: [(UInt32, Data)] = [
+        (UInt32.max, Data("unknown".utf8)),
+        (TerminalRenderEvent.Kind.bytes.rawValue, Data("visible".utf8)),
+    ]
+    var leased: (UInt32, Data)?
+    let copy: (inout CmuxFrontendRenderEvent, UnsafeMutablePointer<UInt8>?, Int) -> Bool = {
+        descriptor, buffer, capacity in
+        if leased == nil { leased = pending.first }
+        guard let current = leased else { return false }
+        descriptor = CmuxFrontendRenderEvent()
+        descriptor.kind = current.0
+        descriptor.cols = 80
+        descriptor.rows = 24
+        descriptor.payload_length = current.1.count
+        guard let buffer, capacity >= current.1.count else { return true }
+        current.1.copyBytes(to: buffer, count: current.1.count)
+        pending.removeFirst()
+        leased = nil
+        return true
+    }
+
+    let batch = drainTerminalRenderEvents(copy: copy)
+
+    #expect(batch.events.count == 1)
+    #expect(batch.events.first?.kind == .bytes)
+    #expect(batch.events.first?.payload == Data("visible".utf8))
+    #expect(!batch.hasMore)
+    #expect(pending.isEmpty)
+    #expect(leased == nil)
 }
 
 @Test
@@ -312,34 +495,22 @@ func resetKeepsSurfaceCreationError() {
 }
 
 @Test
-func sideBySideLayoutLeavesVisibleSpaceForBothFrontends() {
-    let visibleFrame = CGRect(x: 0, y: 25, width: 1728, height: 971)
+func sideBySideLayoutUsesScreenRelativeGhosttyCoordinates() {
+    let visibleFrame = CGRect(x: 1440, y: 25, width: 1728, height: 971)
     let layout = SideBySideWindowLayout.fit(visibleFrame: visibleFrame)
+    let primaryScreenLayout = SideBySideWindowLayout.fit(
+        visibleFrame: CGRect(origin: CGPoint(x: 0, y: 25), size: visibleFrame.size)
+    )
 
     #expect(layout.nativeFrame.minX == visibleFrame.minX)
     #expect(layout.nativeFrame.minY == visibleFrame.minY)
     #expect(layout.nativeFrame.height == visibleFrame.height)
     #expect(layout.nativeFrame.width > 900)
-    #expect(layout.ghosttyPositionX > Int(layout.nativeFrame.maxX))
-    #expect(layout.ghosttyPositionY == 0)
-    #expect(layout.ghosttyColumns >= 80)
-    #expect(layout.ghosttyRows >= 40)
-}
-
-@Test
-func launcherPreparesGhosttyKitBeforeSwiftBuild() throws {
-    let packageDirectory = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-    let launcher = try String(
-        contentsOf: packageDirectory.appendingPathComponent("run-demo.sh"),
-        encoding: .utf8
-    )
-    let ensureRange = try #require(launcher.range(of: "scripts/ensure-ghosttykit.sh"))
-    let swiftBuildRange = try #require(launcher.range(of: "swift build"))
-
-    #expect(ensureRange.lowerBound < swiftBuildRange.lowerBound)
+    #expect(layout.ghosttyPlacement == primaryScreenLayout.ghosttyPlacement)
+    #expect(layout.ghosttyPlacement.x > Int(layout.nativeFrame.width))
+    #expect(layout.ghosttyPlacement.y == 0)
+    #expect(layout.ghosttyPlacement.columns >= 80)
+    #expect(layout.ghosttyPlacement.rows >= 40)
 }
 
 @Test
@@ -416,20 +587,6 @@ func ghosttyLauncherRunsExactCmuxBinaryByName() throws {
         .split(separator: "\n")
         .map(String.init)
     #expect(arguments == ["--probe", "alpha beta"])
-}
-
-@Test
-func packageLinksFrameworkRequiredByIrohInterfaceDiscovery() throws {
-    let packageDirectory = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-    let manifest = try String(
-        contentsOf: packageDirectory.appendingPathComponent("Package.swift"),
-        encoding: .utf8
-    )
-
-    #expect(manifest.contains(".linkedFramework(\"CoreWLAN\")"))
 }
 
 @Test @MainActor

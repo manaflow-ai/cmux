@@ -9318,7 +9318,9 @@ impl Mux {
         deadline: Instant,
     ) -> anyhow::Result<()> {
         #[cfg(test)]
-        if let Some(operation) = self.kitty_image_budget_operation.lock().unwrap().clone() {
+        let operation = self.kitty_image_budget_operation.lock().unwrap().clone();
+        #[cfg(test)]
+        if let Some(operation) = operation {
             return operation(surface, limits, deadline);
         }
         surface.set_kitty_graphics_limits_until(limits, deadline)
@@ -9333,12 +9335,9 @@ impl Mux {
             if remaining.is_zero() {
                 return false;
             }
-            let (next, timed_out) =
+            let (next, _) =
                 self.kitty_image_budget_changed.wait_timeout(budget, remaining).unwrap();
             budget = next;
-            if timed_out.timed_out() && Instant::now() >= deadline {
-                return false;
-            }
         }
         true
     }
@@ -19444,9 +19443,18 @@ mod tests {
         let gate = Arc::new((Mutex::new(false), Condvar::new()));
         let (started_sender, started_receiver) = std::sync::mpsc::sync_channel(1);
         let (finished_sender, finished_receiver) = std::sync::mpsc::sync_channel(1);
+        let blocked_id = first.id;
         *mux.kitty_image_budget_operation.lock().unwrap() = Some(Arc::new({
             let gate = gate.clone();
-            move |_surface, _limits, _deadline| {
+            move |surface, limits, _deadline| {
+                if surface.id != blocked_id {
+                    return surface.set_kitty_graphics_limits(
+                        limits.image_bytes,
+                        limits.inflight_bytes,
+                        limits.images,
+                        limits.placements,
+                    );
+                }
                 let _ = started_sender.try_send(());
                 let (released, changed) = &*gate;
                 let mut released = released.lock().unwrap();

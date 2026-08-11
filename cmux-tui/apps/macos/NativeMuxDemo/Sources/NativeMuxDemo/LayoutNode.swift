@@ -13,6 +13,11 @@ struct LayoutDocument: Decodable, Sendable {
         case activePaneID = "active_pane_id"
         case zoomedPaneID = "zoomed_pane_id"
     }
+
+    var visiblePaneIDs: [String] {
+        if let zoomedPaneID { return [zoomedPaneID] }
+        return root.visiblePaneIDs
+    }
 }
 
 struct ViewportColumn: Decodable, Identifiable, Sendable {
@@ -102,6 +107,19 @@ indirect enum LayoutNode: Decodable, Sendable {
             paneIDs
         case .viewport(_, let columns):
             columns.flatMap { $0.root.paneIDs }
+        }
+    }
+
+    var visiblePaneIDs: [String] {
+        switch self {
+        case .leaf(let paneID, _, _):
+            [paneID]
+        case .split(_, _, _, let first, let second):
+            first.visiblePaneIDs + second.visiblePaneIDs
+        case .stack(_, let expandedPaneID):
+            [expandedPaneID]
+        case .viewport(_, let columns):
+            columns.flatMap { $0.root.visiblePaneIDs }
         }
     }
 }

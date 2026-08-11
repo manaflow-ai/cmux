@@ -155,6 +155,7 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
   private var surface: ghostty_surface_t? { surfaceLifetime.surface }
   private var markedText = NSMutableAttributedString()
   private var keyTextAccumulator: [String]?
+  private var locallyConsumedKeyCodes: Set<UInt16> = []
   private var lastReportedGeometry: TerminalGeometry?
   private var sentRightMousePress = false
   private var ready = false
@@ -342,6 +343,7 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
   override func keyDown(with event: NSEvent) {
     guard ready, let surface else { return }
     if event.modifierFlags.contains(.command) {
+      locallyConsumedKeyCodes.insert(event.keyCode)
       super.keyDown(with: event)
       return
     }
@@ -404,6 +406,12 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
   }
 
   override func keyUp(with event: NSEvent) {
+    if locallyConsumedKeyCodes.remove(event.keyCode) != nil
+      || event.modifierFlags.contains(.command)
+    {
+      super.keyUp(with: event)
+      return
+    }
     _ = sendKey(event, action: GHOSTTY_ACTION_RELEASE)
   }
 
@@ -462,9 +470,11 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
     guard modifiers == .command else { return super.performKeyEquivalent(with: event) }
     switch event.charactersIgnoringModifiers?.lowercased() {
     case "v":
+      locallyConsumedKeyCodes.insert(event.keyCode)
       paste(nil)
       return true
     case "c":
+      locallyConsumedKeyCodes.insert(event.keyCode)
       copy(nil)
       return true
     default:

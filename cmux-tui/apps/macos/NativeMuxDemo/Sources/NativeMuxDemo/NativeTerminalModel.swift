@@ -37,8 +37,9 @@ func terminalGeometry(width: CGFloat, height: CGFloat) -> TerminalGeometry {
 @MainActor
 @Observable
 final class NativeTerminalModel {
+  private static let maxRenderBatchesPerPass = 4
+
   let terminalID: String
-  private(set) var diagnostics = ""
   private(set) var errorMessage = ""
   private(set) var isAttached = false
   private(set) var didExit = false
@@ -52,6 +53,7 @@ final class NativeTerminalModel {
   @ObservationIgnored private var drainTask: Task<Void, Never>?
   @ObservationIgnored private var inputDropTask: Task<Void, Never>?
   @ObservationIgnored private var drainRequested = false
+  @ObservationIgnored private var inputErrorMessage: String?
   @ObservationIgnored private var resizeQueue = NewestResizeQueue()
   @ObservationIgnored private let inputStream: AsyncStream<TerminalInput>
   @ObservationIgnored private let inputContinuation: AsyncStream<TerminalInput>.Continuation
@@ -67,7 +69,8 @@ final class NativeTerminalModel {
       surfaceView: surfaceView,
       errorMessage: errorMessage,
       isAttached: isAttached,
-      didExit: didExit
+      didExit: didExit,
+      retryAttach: !isAttached && !errorMessage.isEmpty ? { [weak self] in self?.attach() } : nil
     )
   }
 
@@ -97,6 +100,7 @@ final class NativeTerminalModel {
   func attach() {
     guard !didStart, !isShuttingDown else { return }
     didStart = true
+    errorMessage = ""
     beginInputOverloadReporting()
     attachTask = Task { [weak self] in
       guard let self else { return }
@@ -155,9 +159,11 @@ final class NativeTerminalModel {
           "Terminal input was rejected."
         )
         if !accepted {
+          inputErrorMessage = rejected
           errorMessage = rejected
-        } else if errorMessage == rejected {
-          errorMessage = ""
+        } else if let inputErrorMessage {
+          self.inputErrorMessage = nil
+          if errorMessage == inputErrorMessage { errorMessage = "" }
         }
       }
     }
@@ -181,8 +187,13 @@ final class NativeTerminalModel {
     guard drainTask == nil else { return }
     drainTask = Task { [weak self, weak handle] in
       guard let self, let handle else { return }
-      defer { drainTask = nil }
-      while !Task.isCancelled, !isShuttingDown {
+      defer {
+        let shouldContinue = drainRequested && !isShuttingDown && !Task.isCancelled
+        drainTask = nil
+        if shouldContinue { requestRenderDrain(from: handle) }
+      }
+      for _ in 0..<Self.maxRenderBatchesPerPass {
+        guard !Task.isCancelled, !isShuttingDown else { return }
         drainRequested = false
         let batch = await handle.drainRenderEvents()
         guard !Task.isCancelled, !isShuttingDown else { return }
@@ -190,15 +201,10 @@ final class NativeTerminalModel {
         if let rendererError = surfaceView.initializationError {
           errorMessage = rendererError
         }
-        if let next = await handle.snapshot() {
-          guard !Task.isCancelled, !isShuttingDown else { return }
-          diagnostics = next.diagnostics
-          didExit = next.didExit
-        }
-        if batch.hasMore {
-          await Task.yield()
-          continue
-        }
+        let nextDidExit = await handle.hasExited()
+        if didExit != nextDidExit { didExit = nextDidExit }
+        guard !Task.isCancelled, !isShuttingDown else { return }
+        if batch.hasMore { drainRequested = true }
         if !drainRequested { return }
       }
     }
@@ -212,10 +218,12 @@ final class NativeTerminalModel {
   }
 
   private func reportInputOverload() {
-    errorMessage = L10n.text(
+    let message = L10n.text(
       "error.terminal_input_overloaded",
       "Terminal input is busy; try again."
     )
+    inputErrorMessage = message
+    errorMessage = message
   }
 
   func resize(_ geometry: TerminalGeometry) {

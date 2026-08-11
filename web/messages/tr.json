@@ -158,6 +158,7 @@
       "signOut": "Çıkış yap",
       "signingOut": "Çıkış yapılıyor…",
       "signOutError": "Çıkış yapılamadı. Tekrar deneyin.",
+      "organizationSwitchError": "Kuruluş değiştirilemedi. Tekrar deneyin.",
       "signIn": "Giriş yap"
     },
     "aiAccounts": {

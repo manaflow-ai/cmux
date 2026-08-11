@@ -1,28 +1,4 @@
 import SwiftUI
-import WebKit
-
-private struct NativeWebView: NSViewRepresentable {
-    let url: URL
-
-    func makeNSView(context: Context) -> WKWebView {
-        let webView = WKWebView()
-        context.coordinator.lastURL = url
-        webView.load(URLRequest(url: url))
-        return webView
-    }
-
-    func updateNSView(_ webView: WKWebView, context: Context) {
-        guard context.coordinator.lastURL != url else { return }
-        context.coordinator.lastURL = url
-        webView.load(URLRequest(url: url))
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator() }
-
-    final class Coordinator {
-        var lastURL: URL?
-    }
-}
 
 struct BrowserSurfaceView: View {
     let browser: BrowserSnapshot
@@ -49,7 +25,22 @@ struct BrowserSurfaceView: View {
             if let url = URL(string: browser.url),
               let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https"
             {
-                NativeWebView(url: url)
+                ContentUnavailableView {
+                    Label(
+                        L10n.text("browser.remote_content", "Remote browser content"),
+                        systemImage: "network"
+                    )
+                } description: {
+                    Text(L10n.text(
+                        "browser.manual_load",
+                        "This tab does not load remote content until you open it."
+                    ))
+                } actions: {
+                    Link(destination: url) {
+                        Text(L10n.text("browser.open_external", "Open in Browser"))
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
             } else {
                 ContentUnavailableView(
                     L10n.text("browser.invalid_url", "This browser tab has no valid URL."),

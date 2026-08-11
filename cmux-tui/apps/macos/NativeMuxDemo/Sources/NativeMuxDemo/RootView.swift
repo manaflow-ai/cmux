@@ -74,6 +74,7 @@ struct RootView: View {
 
     private func connected(_ snapshot: ResourceSnapshot) -> some View {
         let terminalStates = model.terminalViewStates()
+        let terminalTitle = model.terminalTitleLookup()
         return HStack(spacing: 0) {
             WorkspaceSidebar(model: model, snapshot: snapshot)
                 .frame(width: 216)
@@ -86,7 +87,8 @@ struct RootView: View {
                         actions: LayoutActions(model: model),
                         snapshot: snapshot,
                         screen: screen,
-                        terminalStates: terminalStates
+                        terminalStates: terminalStates,
+                        terminalTitle: terminalTitle
                     )
                 } else {
                     ContentUnavailableView(

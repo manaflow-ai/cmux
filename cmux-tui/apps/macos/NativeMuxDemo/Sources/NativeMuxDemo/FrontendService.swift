@@ -75,6 +75,70 @@ final class SerialFFIExecutor: @unchecked Sendable {
       onEnqueued?()
     }
   }
+
+  func runCancellable<T: Sendable>(
+    cancellation: FFICancellation,
+    _ operation: @escaping @Sendable () -> T,
+    onEnqueued: (@Sendable () -> Void)? = nil
+  ) async -> T? {
+    await withTaskCancellationHandler {
+      await withCheckedContinuation { continuation in
+        queue.async {
+          guard cancellation.beginExecution() else {
+            continuation.resume(returning: nil)
+            return
+          }
+          continuation.resume(returning: operation())
+        }
+        onEnqueued?()
+      }
+    } onCancel: {
+      cancellation.cancel()
+    }
+  }
+}
+
+final class FFICancellation: @unchecked Sendable {
+  private let lock = NSLock()
+  private var isCancelled = false
+  private let onCancel: @Sendable () -> Void
+
+  init(onCancel: @escaping @Sendable () -> Void) {
+    self.onCancel = onCancel
+  }
+
+  func beginExecution() -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    return !isCancelled
+  }
+
+  func cancel() {
+    lock.lock()
+    guard !isCancelled else {
+      lock.unlock()
+      return
+    }
+    isCancelled = true
+    lock.unlock()
+    onCancel()
+  }
+}
+
+final class FrontendAttachCancellation: @unchecked Sendable {
+  let raw: OpaquePointer
+
+  init() {
+    raw = cmux_frontend_attach_cancellation_new()!
+  }
+
+  deinit {
+    cmux_frontend_attach_cancellation_free(raw)
+  }
+
+  func cancel() {
+    cmux_frontend_attach_cancellation_cancel(raw)
+  }
 }
 
 func copyFrontendCString(
@@ -183,16 +247,26 @@ actor FrontendService {
         L10n.text("error.connection_closed", "The frontend connection is closed.")
       )
     }
-    let result: Result<UInt, DetachedRequestFailure> = await enqueue {
+    let attachCancellation = FrontendAttachCancellation()
+    let queueCancellation = FFICancellation(onCancel: attachCancellation.cancel)
+    let queuedResult: Result<UInt, DetachedRequestFailure>? = await ffiQueue.runCancellable(
+      cancellation: queueCancellation
+    ) {
       var error = [CChar](repeating: 0, count: 2_048)
       let terminal = id.withCString {
-        cmux_frontend_client_attach_terminal(
-          OpaquePointer(bitPattern: rawAddress)!, $0, &error, error.count, 15_000
+        cmux_frontend_client_attach_terminal_cancellable(
+          OpaquePointer(bitPattern: rawAddress)!,
+          $0,
+          &error,
+          error.count,
+          15_000,
+          attachCancellation.raw
         )
       }
       guard let terminal else { return .failure(DetachedRequestFailure(message: decodeError(error))) }
       return .success(UInt(bitPattern: terminal))
     }
+    guard let result = queuedResult else { throw CancellationError() }
     let address: UInt
     switch result {
     case .success(let value): address = value
@@ -226,15 +300,17 @@ actor FrontendService {
   func drainResourceUpdates() async -> FrontendResourceUpdateBatch {
     guard let rawAddress = raw.map({ UInt(bitPattern: $0) }) else {
       return FrontendResourceUpdateBatch(
-        envelopes: [], overflowed: false, ended: true, endReason: .error
+        envelopes: [], hasMore: false, overflowed: false, ended: true, endReason: .error
       )
     }
-    return await enqueue {
+    let batch = await enqueue {
       let raw = OpaquePointer(bitPattern: rawAddress)!
       return drainFrontendResourceUpdates { descriptor, buffer, capacity in
         cmux_frontend_client_copy_resource_update(raw, &descriptor, buffer, capacity)
       }
     }
+    if batch.hasMore { updateSink?.continuation.yield() }
+    return batch
   }
 
   func stopUpdates(generation: UInt64? = nil) async {
@@ -328,15 +404,10 @@ actor TerminalHandle {
     return FrontendUpdateSubscription(generation: generation, stream: pair.stream)
   }
 
-  func snapshot() async -> TerminalRenderSnapshot? {
-    guard let rawAddress = raw.map({ UInt(bitPattern: $0) }) else { return nil }
+  func hasExited() async -> Bool {
+    guard let rawAddress = raw.map({ UInt(bitPattern: $0) }) else { return true }
     return await enqueue {
-      TerminalRenderSnapshot(
-        diagnostics: copyFrontendCString {
-          cmux_frontend_terminal_copy_diagnostics(OpaquePointer(bitPattern: rawAddress), $0, $1)
-        },
-        didExit: cmux_frontend_terminal_has_exited(OpaquePointer(bitPattern: rawAddress))
-      )
+      cmux_frontend_terminal_has_exited(OpaquePointer(bitPattern: rawAddress))
     }
   }
 
@@ -346,26 +417,9 @@ actor TerminalHandle {
     }
     return await enqueue {
       let raw = OpaquePointer(bitPattern: rawAddress)!
-      var result: [TerminalRenderEvent] = []
-      result.reserveCapacity(64)
-      while result.count < 64 {
-        var descriptor = CmuxFrontendRenderEvent()
-        guard cmux_frontend_terminal_copy_next_render_event(raw, &descriptor, nil, 0) else { break }
-        guard let kind = TerminalRenderEvent.Kind(rawValue: descriptor.kind) else {
-          if descriptor.payload_length > 0 { break }
-          continue
-        }
-        var payload = Data()
-        if descriptor.payload_length > 0 {
-          payload = Data(count: descriptor.payload_length)
-          let copied = payload.withUnsafeMutableBytes { bytes in
-            cmux_frontend_terminal_copy_next_render_event(raw, &descriptor, bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count)
-          }
-          guard copied else { break }
-        }
-        result.append(TerminalRenderEvent(kind: kind, geometry: TerminalGeometry(cols: descriptor.cols, rows: descriptor.rows), payload: payload))
+      return drainTerminalRenderEvents { descriptor, buffer, capacity in
+        cmux_frontend_terminal_copy_next_render_event(raw, &descriptor, buffer, capacity)
       }
-      return TerminalRenderEventBatch(events: result, hasMore: result.count == 64)
     }
   }
 
@@ -390,11 +444,6 @@ actor TerminalHandle {
   }
 }
 
-struct TerminalRenderSnapshot: Sendable {
-  let diagnostics: String
-  let didExit: Bool
-}
-
 struct TerminalRenderEvent: Sendable {
   enum Kind: UInt32, Sendable {
     case reset = 1
@@ -412,4 +461,42 @@ struct TerminalRenderEvent: Sendable {
 struct TerminalRenderEventBatch: Sendable {
   let events: [TerminalRenderEvent]
   let hasMore: Bool
+}
+
+func drainTerminalRenderEvents(
+  maximumEvents: Int = 64,
+  copy: (
+    _ descriptor: inout CmuxFrontendRenderEvent,
+    _ buffer: UnsafeMutablePointer<UInt8>?,
+    _ capacity: Int
+  ) -> Bool
+) -> TerminalRenderEventBatch {
+  let eventBudget = max(1, maximumEvents)
+  var processed = 0
+  var result: [TerminalRenderEvent] = []
+  result.reserveCapacity(eventBudget)
+  while processed < eventBudget {
+    var descriptor = CmuxFrontendRenderEvent()
+    guard copy(&descriptor, nil, 0) else { break }
+    var payload = Data()
+    if descriptor.payload_length > 0 {
+      payload = Data(count: descriptor.payload_length)
+      let copied = payload.withUnsafeMutableBytes { bytes in
+        copy(
+          &descriptor,
+          bytes.bindMemory(to: UInt8.self).baseAddress,
+          bytes.count
+        )
+      }
+      guard copied else { break }
+    }
+    processed += 1
+    guard let kind = TerminalRenderEvent.Kind(rawValue: descriptor.kind) else { continue }
+    result.append(TerminalRenderEvent(
+      kind: kind,
+      geometry: TerminalGeometry(cols: descriptor.cols, rows: descriptor.rows),
+      payload: payload
+    ))
+  }
+  return TerminalRenderEventBatch(events: result, hasMore: processed >= eventBudget)
 }

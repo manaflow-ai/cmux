@@ -27,7 +27,7 @@ struct WorkspaceSidebar: View {
                     ForEach(snapshot.orderedWorkspaces) { workspace in
                         WorkspaceSidebarRow(
                             workspace: workspace,
-                            selectedWorkspaceID: selectedWorkspaceID,
+                            isSelected: workspace.id == selectedWorkspaceID,
                             spaceCount: snapshot.screenCount(in: workspace.id),
                             onSelect: { model.selectWorkspace(workspace) },
                             onClose: { model.closeWorkspace(workspace) }
@@ -57,25 +57,24 @@ struct WorkspaceSidebar: View {
 
 private struct WorkspaceSidebarRow: View, Equatable {
     let workspace: WorkspaceSnapshot
-    let selectedWorkspaceID: String?
+    let isSelected: Bool
     let spaceCount: Int
     let onSelect: () -> Void
     let onClose: () -> Void
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.workspace.id == rhs.workspace.id
-            && lhs.selectedWorkspaceID == rhs.selectedWorkspaceID
+            && lhs.isSelected == rhs.isSelected
             && lhs.workspace.name == rhs.workspace.name
             && lhs.workspace.index == rhs.workspace.index
             && lhs.spaceCount == rhs.spaceCount
     }
 
     var body: some View {
-        let selected = workspace.id == selectedWorkspaceID
         return Button(action: onSelect) {
             HStack(spacing: 9) {
-                Image(systemName: selected ? "rectangle.stack.fill" : "rectangle.stack")
-                    .foregroundStyle(selected ? .cyan : .secondary)
+                Image(systemName: isSelected ? "rectangle.stack.fill" : "rectangle.stack")
+                    .foregroundStyle(isSelected ? .cyan : .secondary)
                     .frame(width: 18)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(workspace.name.isEmpty
@@ -96,7 +95,7 @@ private struct WorkspaceSidebarRow: View, Equatable {
             .padding(.vertical, 7)
             .contentShape(.rect)
             .background(
-                selected ? Color.accentColor.opacity(0.14) : Color.clear,
+                isSelected ? Color.accentColor.opacity(0.14) : Color.clear,
                 in: .rect(cornerRadius: 7)
             )
         }
