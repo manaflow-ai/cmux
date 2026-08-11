@@ -1379,9 +1379,7 @@ fn mac_process_instance_identity(
 ) -> io::Result<Option<crate::unix_process_scope::MacProcessInstanceIdentity>> {
     let expected_pid = u32::try_from(pid)
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid process id"))?;
-    if let Some(instance) =
-        crate::unix_process_scope::mac_process_instance_identity(expected_pid)
-    {
+    if let Some(instance) = crate::unix_process_scope::mac_process_instance_identity(expected_pid) {
         return Ok(Some(instance));
     }
     if process_is_gone(pid)? {
