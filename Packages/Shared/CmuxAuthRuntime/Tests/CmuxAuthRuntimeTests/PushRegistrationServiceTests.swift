@@ -303,11 +303,12 @@ actor RetryDelayRecorder {
         await PushRegistrationURLProtocol.script.reset([])
         let updates = PushRegistrationURLProtocol.script.requestCountUpdates()
         #expect(PushRegistrationURLProtocol.script.requestCountObserverCount == 1)
+        var iterator = updates.makeAsyncIterator()
+        #expect(await iterator.next() == 0)
 
         await PushRegistrationURLProtocol.script.reset([])
 
         #expect(PushRegistrationURLProtocol.script.requestCountObserverCount == 0)
-        var iterator = updates.makeAsyncIterator()
         #expect(await iterator.next() == nil)
     }
 
