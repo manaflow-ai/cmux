@@ -8322,7 +8322,11 @@ impl Mux {
         let mut records = self.agent_records.lock().unwrap();
         let record = match records.get(&terminal_id) {
             Some(existing)
-                if existing.source == AgentSource::Hook && source == AgentSource::Socket =>
+                if existing.source == AgentSource::Hook
+                    && source == AgentSource::Socket
+                    && (existing.session.is_none()
+                        || source_session.is_none()
+                        || existing.session == source_session) =>
             {
                 existing.clone()
             }

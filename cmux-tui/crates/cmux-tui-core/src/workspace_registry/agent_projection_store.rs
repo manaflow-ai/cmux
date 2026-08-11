@@ -26,9 +26,11 @@ struct AgentProjectionRow {
     updated_at_ms: u64,
     source_session: Option<String>,
     provider: Option<String>,
+    turn_id: Option<String>,
     committed_sequence: u64,
     result: Option<Value>,
     begins_session: bool,
+    begins_turn: bool,
 }
 
 pub(super) fn apply_agent_projection_journal_record(
@@ -64,20 +66,153 @@ pub(super) fn apply_agent_projection_journal_record(
         return Ok(());
     }
     let current = stored_projection(transaction, &next.terminal_id)?;
-    let selected = merge_projection(current, next);
+    validate_projection_transition(current.as_ref(), &next)?;
+    let selected = merge_projection(current.clone(), next.clone());
     upsert_projection(transaction, &selected)?;
+    if selected.committed_sequence == next.committed_sequence {
+        record_agent_session_generation(transaction, current.as_ref(), &next)?;
+    }
     if advances_cursor {
         advance_agent_projection_journal_cursor(transaction, sequence)?;
     }
     Ok(())
 }
 
+fn validate_projection_transition(
+    current: Option<&AgentProjectionRow>,
+    next: &AgentProjectionRow,
+) -> anyhow::Result<()> {
+    if next.source != "socket" {
+        return Ok(());
+    }
+    let Some(current) = current else {
+        return Ok(());
+    };
+    if next.committed_sequence < current.committed_sequence {
+        return Ok(());
+    }
+    let current_is_active = matches!(current.state.as_str(), "working" | "blocked" | "idle");
+    let conflicting_structured_session = current.source_session.is_some()
+        && next.source_session.is_some()
+        && current.source_session != next.source_session;
+    anyhow::ensure!(
+        current.source != "hook"
+            || next.source != "socket"
+            || !current_is_active
+            || !conflicting_structured_session,
+        "agent socket report session {:?} conflicts with active hook session {:?}",
+        next.source_session,
+        current.source_session
+    );
+    anyhow::ensure!(
+        current.source != "socket"
+            || next.source != "socket"
+            || !current_is_active
+            || !conflicting_structured_session,
+        "agent socket report session {:?} conflicts with active socket session {:?}",
+        next.source_session,
+        current.source_session
+    );
+    Ok(())
+}
+
+/// Keep accepted structured sessions in the same transaction as their journal
+/// projection. A retired identity must stay retired after the current session
+/// becomes final and after the registry reopens.
+fn record_agent_session_generation(
+    transaction: &Transaction<'_>,
+    current: Option<&AgentProjectionRow>,
+    next: &AgentProjectionRow,
+) -> anyhow::Result<()> {
+    let Some(source_session) = next.source_session.as_deref() else {
+        return Ok(());
+    };
+    let existing = transaction
+        .query_row(
+            "SELECT generation, superseded
+             FROM resource_agent_session_generations
+             WHERE terminal_id = ?1 AND source_session = ?2",
+            params![next.terminal_id.as_str(), source_session],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, bool>(1)?)),
+        )
+        .optional()?;
+    let active = transaction
+        .query_row(
+            "SELECT source_session, generation
+             FROM resource_agent_session_generations
+             WHERE terminal_id = ?1 AND superseded = 0",
+            [next.terminal_id.as_str()],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+        )
+        .optional()?;
+    if let Some((generation, superseded)) = existing {
+        anyhow::ensure!(generation > 0, "agent session generation is not positive");
+        if superseded {
+            let active_source = current
+                .filter(|projection| {
+                    projection.source_session.as_deref()
+                        == active.as_ref().map(|(session, _)| session.as_str())
+                })
+                .map(|projection| projection.source.as_str())
+                .unwrap_or("agent");
+            anyhow::bail!(
+                "agent {} report session {:?} conflicts with active {} session {:?}: session belongs to superseded generation {generation}",
+                next.source,
+                next.source_session,
+                active_source,
+                active.as_ref().map(|(session, _)| session),
+            );
+        }
+        anyhow::ensure!(
+            active.as_ref().is_some_and(|(session, active_generation)| {
+                session == source_session && *active_generation == generation
+            }),
+            "current agent session generation is inconsistent"
+        );
+        return Ok(());
+    }
+
+    let generation = match active {
+        Some((active_session, active_generation)) => {
+            anyhow::ensure!(
+                active_generation > 0,
+                "active agent session generation is not positive"
+            );
+            transaction.execute(
+                "UPDATE resource_agent_session_generations
+                 SET superseded = 1
+                 WHERE terminal_id = ?1 AND source_session = ?2 AND superseded = 0",
+                params![next.terminal_id.as_str(), active_session],
+            )?;
+            active_generation
+                .checked_add(1)
+                .context("agent session generation exhausted")?
+        }
+        None => transaction
+            .query_row(
+                "SELECT COALESCE(MAX(generation), 0) + 1
+                 FROM resource_agent_session_generations
+                 WHERE terminal_id = ?1",
+                [next.terminal_id.as_str()],
+                |row| row.get::<_, i64>(0),
+            )?,
+    };
+    transaction.execute(
+        "INSERT INTO resource_agent_session_generations(
+           terminal_id, source_session, generation, superseded
+         ) VALUES(?1, ?2, ?3, 0)",
+        params![next.terminal_id.as_str(), source_session, generation],
+    )?;
+    Ok(())
+}
+
 pub(super) fn rebuild_agent_projections_from_journal(
     connection: &Connection,
+    allow_archived_kind_backfill: bool,
 ) -> anyhow::Result<()> {
     let tx = connection.unchecked_transaction()?;
     let mut sequence = agent_projection_journal_cursor(&tx)?;
-    if sequence.is_none() {
+    if sequence.is_none() && prejournal_projection_migration_cursor(&tx)?.is_none() {
         initialize_prejournal_projection_migration(&tx)?;
     }
     if prejournal_projection_migration_cursor(&tx)?.is_some() {
@@ -121,7 +256,13 @@ pub(super) fn rebuild_agent_projections_from_journal(
             sequence < target && target <= head_sequence,
             "agent projection journal rebuild range {sequence}..={target} is invalid for head {head_sequence}"
         );
-        replay_agent_projection_journal_page(&tx, sequence, target, head_sequence)?;
+        replay_agent_projection_journal_page(
+            &tx,
+            sequence,
+            target,
+            head_sequence,
+            allow_archived_kind_backfill,
+        )?;
     }
     tx.commit()?;
     Ok(())
@@ -134,7 +275,7 @@ impl WorkspaceRegistry {
     }
 
     pub(crate) fn continue_agent_projection_rebuild(&self) -> anyhow::Result<bool> {
-        rebuild_agent_projections_from_journal(&self.connection)?;
+        rebuild_agent_projections_from_journal(&self.connection, true)?;
         Ok(!self.agent_projection_rebuild_pending()?)
     }
 }
@@ -144,10 +285,12 @@ fn replay_agent_projection_journal_page(
     sequence: u64,
     target_sequence: u64,
     head_sequence: u64,
+    allow_archived_kind_backfill: bool,
 ) -> anyhow::Result<()> {
     if !session_journal::backfill_journal_event_index_kinds_page(
         transaction,
         AGENT_PROJECTION_JOURNAL_REBUILD_PAGE_SIZE,
+        allow_archived_kind_backfill,
     )? {
         return Ok(());
     }
@@ -537,6 +680,11 @@ fn projection_from_journal_record(
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())
         .map(str::to_string);
+    let turn_id = normalized
+        .and_then(|fields| fields.get("turn_id"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
     Ok(Some(AgentProjectionRow {
         terminal_id,
         state: state.into(),
@@ -544,9 +692,11 @@ fn projection_from_journal_record(
         updated_at_ms: occurred_at_ms,
         source_session,
         provider,
+        turn_id,
         committed_sequence: sequence,
         result: None,
         begins_session: kind == "agent.session.started",
+        begins_turn: kind == "agent.turn.started",
     }))
 }
 
@@ -586,9 +736,14 @@ fn projection_from_resource_report(
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())
         .map(str::to_string);
-    let provider = result
-        .get("extra")
+    let extra = result.get("extra");
+    let provider = extra
         .and_then(|extra| extra.get("provider"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let turn_id = extra
+        .and_then(|extra| extra.get("turn_id"))
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())
         .map(str::to_string);
@@ -599,9 +754,11 @@ fn projection_from_resource_report(
         updated_at_ms,
         source_session,
         provider,
+        turn_id,
         committed_sequence: sequence,
         result: Some(Value::Object(result.clone())),
         begins_session,
+        begins_turn: false,
     }))
 }
 
@@ -637,9 +794,11 @@ fn projection_from_recovery_event(
         updated_at_ms: occurred_at_ms,
         source_session,
         provider,
+        turn_id: None,
         committed_sequence: sequence,
         result: None,
         begins_session: false,
+        begins_turn: false,
     }))
 }
 
@@ -721,6 +880,12 @@ fn merge_projection(
         && next.source_session.is_some()
         && current.source_session != next.source_session;
     if different_structured_socket_session {
+        let current_is_final = matches!(current.state.as_str(), "done" | "interrupted");
+        let next_is_active = matches!(next.state.as_str(), "working" | "blocked" | "idle");
+        return if current_is_final && next_is_active { next } else { current };
+    }
+    let current_is_active = matches!(current.state.as_str(), "working" | "blocked" | "idle");
+    if current_is_active && current.source != "hook" && next.source == "hook" {
         return next;
     }
     let same_session_identity = current.source_session.is_some()
@@ -733,6 +898,15 @@ fn merge_projection(
         && current.provider == next.provider
         && next.updated_at_ms >= current.updated_at_ms;
     if same_session_identity || same_provider_without_session {
+        let begins_new_structured_turn = next.begins_turn
+            && current.turn_id.is_some()
+            && next.turn_id.is_some()
+            && current.turn_id != next.turn_id;
+        if matches!(current.state.as_str(), "done" | "interrupted")
+            && begins_new_structured_turn
+        {
+            return next;
+        }
         if current.source == "hook" && next.source == "socket" {
             if matches!(next.state.as_str(), "done" | "interrupted") {
                 return if next.updated_at_ms >= current.updated_at_ms { next } else { current };
@@ -858,6 +1032,10 @@ fn projection_result_value(
         |row| row.get::<_, String>(0),
     )?;
     let agent_id = agent_id(&projection.terminal_id)?;
+    let mut extra = json!({"provider":projection.provider});
+    if let Some(turn_id) = &projection.turn_id {
+        extra["turn_id"] = json!(turn_id);
+    }
     Ok(json!({
         "id":agent_id,
         "session_id":session_id,
@@ -866,9 +1044,7 @@ fn projection_result_value(
         "source":projection.source,
         "updated_at_ms":projection.updated_at_ms.to_string(),
         "source_session":projection.source_session,
-        "extra":{
-            "provider":projection.provider,
-        },
+        "extra":extra,
     }))
 }
 

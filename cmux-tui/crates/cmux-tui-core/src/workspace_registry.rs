@@ -2569,7 +2569,7 @@ impl WorkspaceRegistry {
             initialize_resource_mutation_retention(&tx)?;
             tx.commit()?;
         }
-        rebuild_agent_projections_from_journal(&connection)?;
+        rebuild_agent_projections_from_journal(&connection, false)?;
         let stored_name = required_meta(&connection, "session_name")?;
         if stored_name != session_name {
             anyhow::bail!(

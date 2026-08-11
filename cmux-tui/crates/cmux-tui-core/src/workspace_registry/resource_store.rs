@@ -150,6 +150,78 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
              )
            )
          );
+         CREATE TABLE IF NOT EXISTS resource_agent_session_generations (
+           terminal_id TEXT NOT NULL
+             REFERENCES resource_agent_projections(terminal_id) ON DELETE CASCADE,
+           source_session TEXT NOT NULL CHECK(length(source_session) > 0),
+           generation INTEGER NOT NULL CHECK(generation > 0),
+           superseded INTEGER NOT NULL CHECK(superseded IN (0, 1)),
+           PRIMARY KEY(terminal_id, source_session),
+           UNIQUE(terminal_id, generation)
+         );
+         CREATE UNIQUE INDEX IF NOT EXISTS resource_agent_session_generation_current
+           ON resource_agent_session_generations(terminal_id)
+           WHERE superseded = 0;
+         DELETE FROM resource_agent_session_generations
+         WHERE NOT EXISTS (
+           SELECT 1
+           FROM resource_agent_projections projection
+           WHERE projection.terminal_id = resource_agent_session_generations.terminal_id
+         );
+         WITH first_seen AS (
+           SELECT json_extract(result_json, '$.terminal_id') AS terminal_id,
+                  json_extract(result_json, '$.source_session') AS source_session,
+                  MIN(committed_revision) AS first_revision
+           FROM resource_mutations
+           WHERE operation = 'agent.report'
+             AND json_type(result_json, '$.terminal_id') = 'text'
+             AND json_type(result_json, '$.source_session') = 'text'
+             AND length(json_extract(result_json, '$.source_session')) > 0
+           GROUP BY terminal_id, source_session
+         ), ranked AS (
+           SELECT terminal_id, source_session,
+                  ROW_NUMBER() OVER (
+                    PARTITION BY terminal_id
+                    ORDER BY first_revision, source_session
+                  ) AS generation
+           FROM first_seen
+         )
+         INSERT OR IGNORE INTO resource_agent_session_generations(
+           terminal_id, source_session, generation, superseded
+         )
+         SELECT ranked.terminal_id, ranked.source_session, ranked.generation, 1
+         FROM ranked
+         JOIN resource_agent_projections projection
+           ON projection.terminal_id = ranked.terminal_id;
+         UPDATE resource_agent_session_generations AS generation
+         SET superseded = 0
+         WHERE generation.source_session = (
+           SELECT json_extract(projection.result_json, '$.source_session')
+           FROM resource_agent_projections projection
+           WHERE projection.terminal_id = generation.terminal_id
+         );
+         INSERT OR IGNORE INTO resource_agent_session_generations(
+           terminal_id, source_session, generation, superseded
+         )
+         SELECT projection.terminal_id,
+                json_extract(projection.result_json, '$.source_session'),
+                COALESCE(MAX(generation.generation), 0) + 1,
+                0
+         FROM resource_agent_projections projection
+         LEFT JOIN resource_agent_session_generations generation
+           ON generation.terminal_id = projection.terminal_id
+         WHERE json_type(projection.result_json, '$.source_session') = 'text'
+           AND length(json_extract(projection.result_json, '$.source_session')) > 0
+           AND NOT EXISTS (
+             SELECT 1
+             FROM resource_agent_session_generations existing
+             WHERE existing.terminal_id = projection.terminal_id
+               AND existing.source_session = json_extract(
+                 projection.result_json,
+                 '$.source_session'
+               )
+           )
+         GROUP BY projection.terminal_id;
          DROP TRIGGER IF EXISTS resource_agent_projection_terminal_tombstone;
          CREATE INDEX IF NOT EXISTS resource_mutations_by_operation_revision
            ON resource_mutations(operation, committed_revision DESC);

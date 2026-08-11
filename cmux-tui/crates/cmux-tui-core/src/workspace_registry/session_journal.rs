@@ -466,6 +466,7 @@ pub(super) fn ensure_journal_event_index_schema(
 pub(super) fn backfill_journal_event_index_kinds_page(
     transaction: &Transaction<'_>,
     active_limit: usize,
+    allow_archived: bool,
 ) -> anyhow::Result<bool> {
     let active_updates = transaction.execute(
         "UPDATE journal_event_index
@@ -485,25 +486,42 @@ pub(super) fn backfill_journal_event_index_kinds_page(
            )",
         [i64::try_from(active_limit).context("journal kind backfill limit exceeds SQLite")?],
     )?;
-    let archived_segment = transaction
-        .query_row(
-            "SELECT segment_id, start_sequence, end_sequence, record_count, codec,
-                    content, uncompressed_bytes, sha256
-             FROM journal_segments segment
-             WHERE EXISTS (
-               SELECT 1
-               FROM journal_event_index event
-                    INDEXED BY journal_event_index_by_missing_kind_sequence
-               WHERE event.kind IS NULL
-                 AND event.sequence BETWEEN segment.start_sequence AND segment.end_sequence
-             )
-             ORDER BY start_sequence ASC
-             LIMIT 1",
-            [],
-            journal_segment_row,
-        )
-        .optional()?;
+    // Open repairs only the active SQLite page. Background continuations use
+    // the durable `kind IS NULL` partial index as their cursor and decode at
+    // most one sealed segment per turn.
+    let archived_segment = if allow_archived && active_updates == 0 {
+        transaction
+            .query_row(
+                "SELECT segment_id, start_sequence, end_sequence, record_count, codec,
+                        content, uncompressed_bytes, sha256
+                 FROM journal_segments segment
+                 WHERE EXISTS (
+                   SELECT 1
+                   FROM journal_event_index event
+                        INDEXED BY journal_event_index_by_missing_kind_sequence
+                   WHERE event.kind IS NULL
+                     AND event.sequence BETWEEN segment.start_sequence AND segment.end_sequence
+                 )
+                 ORDER BY start_sequence ASC
+                 LIMIT 1",
+                [],
+                journal_segment_row,
+            )
+            .optional()?
+    } else {
+        None
+    };
     let archived_updates = if let Some(segment) = archived_segment {
+        anyhow::ensure!(
+            usize::try_from(segment.3)? <= active_limit,
+            "journal segment {} exceeds the kind backfill record limit",
+            segment.0
+        );
+        anyhow::ensure!(
+            usize::try_from(segment.6)? <= MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES,
+            "journal segment {} exceeds the kind backfill byte limit",
+            segment.0
+        );
         let decoded = decode_journal_segment(segment)?;
         let mut statement = transaction.prepare(
             "UPDATE journal_event_index SET kind = ?1
@@ -530,7 +548,7 @@ pub(super) fn backfill_journal_event_index_kinds_page(
         |row| row.get::<_, bool>(0),
     )?;
     anyhow::ensure!(
-        !pending || active_updates != 0 || archived_updates != 0,
+        !pending || active_updates != 0 || archived_updates != 0 || !allow_archived,
         "journal event index kind backfill cannot find a journal record"
     );
     Ok(!pending)
