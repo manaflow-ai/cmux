@@ -7313,6 +7313,43 @@ fn journal_agent_explicit_start_reopens_final_same_session_identity() {
 }
 
 #[test]
+fn journal_agent_new_session_can_start_with_turn_event() {
+    let mut registry = WorkspaceRegistry::in_memory("journal-agent-new-session-turn-start").unwrap();
+    commit_terminal_topology(&mut registry, "journal-agent-new-session-turn-start-topology");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let validated = crate::journal_kernel::ValidatedJournalIngress {
+        class: JournalClass::Observation,
+        replay: JournalReplayPolicy::Advisory,
+        sensitivity: JournalSensitivity::Sensitive,
+    };
+    for (index, event, source_session, turn_id) in [
+        (0, "SessionStart", "prior-session", "prior-turn"),
+        (1, "AgentStart", "current-session", "current-turn"),
+    ] {
+        let ingress = crate::agent_hook_journal_ingress(
+            "pi",
+            event,
+            Some(terminal_id.as_str()),
+            json!({"session_id":source_session,"turn_id":turn_id}),
+        )
+        .unwrap();
+        registry
+            .append_journal_ingress(
+                &ingress,
+                &validated,
+                "client_new_session_turn_start",
+                &format!("journal_agent_new_session_turn_start_{index}"),
+            )
+            .unwrap();
+    }
+
+    let agent = registry.public_projections().unwrap().agents.remove(0);
+    assert_eq!(agent.state, "working");
+    assert_eq!(agent.source, "hook");
+    assert_eq!(agent.source_session.as_deref(), Some("current-session"));
+}
+
+#[test]
 fn journal_agent_new_turn_identity_reopens_final_reused_session() {
     let root = temp_root("journal-agent-reused-session-new-turn");
     let session = "journal-agent-reused-session-new-turn";
