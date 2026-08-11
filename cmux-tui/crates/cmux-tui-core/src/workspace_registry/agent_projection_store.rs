@@ -13,6 +13,8 @@ const AGENT_PROJECTION_JOURNAL_CANDIDATE_KEY: &str =
     "agent_projection_journal_candidate_sequence_v1";
 const AGENT_PROJECTION_JOURNAL_REBUILD_TARGET_KEY: &str =
     "agent_projection_journal_rebuild_target_sequence_v1";
+const AGENT_PROJECTION_JOURNAL_LIVE_SEQUENCE_KEY: &str =
+    "agent_projection_journal_live_sequence_v1";
 const AGENT_PROJECTION_PREJOURNAL_MIGRATION_CURSOR_KEY: &str =
     "agent_projection_prejournal_migration_terminal_v1";
 const UNKNOWN_AGENT_PROVIDER_GENERATION_KEY: &str = "";
@@ -68,19 +70,20 @@ pub(super) fn apply_agent_projection_journal_record(
         }
         return Ok(());
     }
-    // Pre-journal migration still uses the stored projections as its baseline,
-    // so live events must update them before a later page snapshots that terminal.
-    // Generation import cannot activate the stored identities until its final
-    // page, and ordered journal replay must also keep one fixed target. Leave
-    // new work in the journal during either phase.
-    if !rebuilding_generation_history
-        && (resource_store::resource_agent_generation_backfill_pending(transaction)?
-            || agent_projection_journal_rebuild_target(transaction)?.is_some())
-    {
-        return Ok(());
-    }
     let current = stored_projection(transaction, &next.terminal_id)?;
     validate_projection_transition(current.as_ref(), &next)?;
+    // Pre-journal and generation migration use the stored projections as their
+    // baseline, so live events must keep those projections current. Ordered
+    // journal replay instead owns a fixed historical prefix. Validate new
+    // structured identities before commit, then leave their projection work
+    // after the fixed prefix and remember where permissive history ends.
+    if !rebuilding_generation_history
+        && agent_projection_journal_rebuild_target(transaction)?.is_some()
+    {
+        validate_deferred_agent_session_generation(transaction, current.as_ref(), &next)?;
+        note_agent_projection_journal_live_sequence(transaction, sequence)?;
+        return Ok(());
+    }
     let selected = merge_projection(current.clone(), next.clone());
     upsert_projection(transaction, &selected)?;
     if selected.committed_sequence == next.committed_sequence {
@@ -140,6 +143,62 @@ fn validate_projection_transition(
     Ok(())
 }
 
+fn validate_deferred_agent_session_generation(
+    transaction: &Transaction<'_>,
+    current: Option<&AgentProjectionRow>,
+    next: &AgentProjectionRow,
+) -> anyhow::Result<()> {
+    let Some(source_session) = next.source_session.as_deref() else {
+        return Ok(());
+    };
+    let provider = agent_generation_provider(next.provider.as_deref());
+    let existing = transaction
+        .query_row(
+            "SELECT generation, superseded
+             FROM resource_agent_session_generations
+             WHERE terminal_id = ?1 AND provider = ?2 AND source_session = ?3",
+            params![next.terminal_id.as_str(), provider, source_session],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, bool>(1)?)),
+        )
+        .optional()?;
+    if let Some((generation, superseded)) = existing {
+        anyhow::ensure!(generation > 0, "agent session generation is not positive");
+        if superseded {
+            anyhow::bail!(
+                "agent {} report session {:?} conflicts with active agent session {:?}: session belongs to superseded generation {generation}",
+                next.source,
+                next.source_session,
+                current.and_then(|projection| projection.source_session.as_deref()),
+            );
+        }
+        let active_matches = transaction.query_row(
+            "SELECT EXISTS(
+               SELECT 1 FROM resource_agent_session_generations
+               WHERE terminal_id = ?1 AND provider = ?2 AND source_session = ?3
+                 AND generation = ?4 AND superseded = 0
+             )",
+            params![next.terminal_id.as_str(), provider, source_session, generation],
+            |row| row.get::<_, bool>(0),
+        )?;
+        anyhow::ensure!(active_matches, "current agent session generation is inconsistent");
+        return Ok(());
+    }
+
+    let journal_identity =
+        ensure_agent_session_journal_identity(transaction, next, provider, source_session)?;
+    anyhow::ensure!(
+        !agent_session_identity_precedes_record(
+            transaction,
+            &journal_identity,
+            next.committed_sequence,
+        )?,
+        "agent {} report session {:?} belongs to a compacted superseded generation",
+        next.source,
+        next.source_session,
+    );
+    Ok(())
+}
+
 /// Keep accepted structured sessions in the same transaction as their journal
 /// projection. A retired identity must stay retired after the current session
 /// becomes final and after the registry reopens.
@@ -182,7 +241,14 @@ fn record_agent_session_generation(
         )?;
         anyhow::ensure!(generation > 0, "agent session generation is not positive");
         if superseded {
-            if rebuilding_generation_history {
+            let stored_current_matches = current.is_some_and(|projection| {
+                agent_generation_provider(projection.provider.as_deref()) == provider
+                    && projection.source_session.as_deref() == Some(source_session)
+            });
+            let restore_stored_current_during_backfill = !rebuilding_generation_history
+                && stored_current_matches
+                && resource_store::resource_agent_generation_backfill_pending(transaction)?;
+            if rebuilding_generation_history || restore_stored_current_during_backfill {
                 if let Some((active_provider, active_session, active_generation)) = &active {
                     anyhow::ensure!(
                         *active_generation > 0,
@@ -470,6 +536,7 @@ pub(super) fn rebuild_agent_projections_from_journal(
     };
     if !agent_projection_rebuild_active(&tx)? {
         compact_agent_session_generations(&tx, None)?;
+        clear_agent_projection_journal_live_sequence(&tx)?;
     }
     tx.commit()?;
     Ok(checkpoint_ready)
@@ -488,6 +555,40 @@ impl WorkspaceRegistry {
     pub(crate) fn continue_agent_projection_rebuild_page(&self) -> anyhow::Result<(bool, bool)> {
         let checkpoint_ready = rebuild_agent_projections_from_journal(&self.connection, true)?;
         Ok((checkpoint_ready, self.agent_projection_rebuild_pending()?))
+    }
+
+    pub(crate) fn agent_projection_journal_cursor_for_cache(&self) -> anyhow::Result<u64> {
+        Ok(agent_projection_journal_cursor(&self.connection)?.unwrap_or(0))
+    }
+
+    pub(crate) fn agent_projection_checkpoint_terminal_ids(
+        &self,
+        after_sequence: u64,
+    ) -> anyhow::Result<(u64, HashSet<TerminalPublicId>)> {
+        let through_sequence = self.agent_projection_journal_cursor_for_cache()?;
+        anyhow::ensure!(
+            through_sequence >= after_sequence,
+            "agent projection cache sequence {after_sequence} is ahead of rebuild checkpoint {through_sequence}"
+        );
+        let mut statement = self.connection.prepare(
+            "SELECT terminal_id
+             FROM resource_agent_projections
+             WHERE committed_revision > ?1 AND committed_revision <= ?2
+             ORDER BY terminal_id ASC",
+        )?;
+        let terminal_ids = statement
+            .query_map(
+                params![
+                    i64::try_from(after_sequence)
+                        .context("agent projection cache sequence exceeds SQLite range")?,
+                    i64::try_from(through_sequence)
+                        .context("agent projection checkpoint exceeds SQLite range")?,
+                ],
+                |row| row.get::<_, String>(0),
+            )?
+            .map(|row| Ok(TerminalPublicId::parse(row?)?))
+            .collect::<anyhow::Result<HashSet<_>>>()?;
+        Ok((through_sequence, terminal_ids))
     }
 
     #[cfg(test)]
@@ -624,6 +725,7 @@ fn replay_agent_projection_journal_page(
     };
     let last_sequence = projection_sequences.last().copied();
     let page_is_full = projection_sequences.len() == AGENT_PROJECTION_JOURNAL_REBUILD_PAGE_SIZE;
+    let live_sequence = agent_projection_journal_live_sequence(transaction)?;
     for record in
         session_journal::query_session_journal_sequences(transaction, &projection_sequences)?
     {
@@ -639,7 +741,7 @@ fn replay_agent_projection_journal_page(
             &record.subjects,
             &record.payload,
             record.resource_revision,
-            true,
+            live_sequence.is_none_or(|live_sequence| record.sequence < live_sequence),
         )?;
     }
     let checkpoint_ready = match last_sequence {
@@ -702,6 +804,48 @@ fn agent_projection_journal_rebuild_target(connection: &Connection) -> anyhow::R
             value.parse::<u64>().context("agent projection journal rebuild target is invalid")
         })
         .transpose()
+}
+
+fn agent_projection_journal_live_sequence(connection: &Connection) -> anyhow::Result<Option<u64>> {
+    connection
+        .query_row(
+            "SELECT value FROM meta WHERE key = ?1",
+            [AGENT_PROJECTION_JOURNAL_LIVE_SEQUENCE_KEY],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+        .map(|value| {
+            value.parse::<u64>().context("agent projection live sequence is invalid")
+        })
+        .transpose()
+}
+
+fn note_agent_projection_journal_live_sequence(
+    transaction: &Transaction<'_>,
+    sequence: u64,
+) -> anyhow::Result<()> {
+    if let Some(existing) = agent_projection_journal_live_sequence(transaction)? {
+        anyhow::ensure!(
+            sequence >= existing,
+            "agent projection live sequence cannot move backwards from {existing} to {sequence}"
+        );
+        return Ok(());
+    }
+    transaction.execute(
+        "INSERT INTO meta(key, value) VALUES(?1, ?2)",
+        params![AGENT_PROJECTION_JOURNAL_LIVE_SEQUENCE_KEY, sequence.to_string()],
+    )?;
+    Ok(())
+}
+
+fn clear_agent_projection_journal_live_sequence(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<()> {
+    transaction.execute(
+        "DELETE FROM meta WHERE key = ?1",
+        [AGENT_PROJECTION_JOURNAL_LIVE_SEQUENCE_KEY],
+    )?;
+    Ok(())
 }
 
 fn store_agent_projection_journal_cursor(
