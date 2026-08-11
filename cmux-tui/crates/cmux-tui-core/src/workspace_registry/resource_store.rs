@@ -294,11 +294,9 @@ pub(super) fn backfill_resource_agent_session_generations_page(
         }
     }
 
-    let projection_cursor = meta_value(
-        transaction,
-        RESOURCE_AGENT_SESSION_GENERATION_BACKFILL_PROJECTION_CURSOR_KEY,
-    )?
-    .unwrap_or_default();
+    let projection_cursor =
+        meta_value(transaction, RESOURCE_AGENT_SESSION_GENERATION_BACKFILL_PROJECTION_CURSOR_KEY)?
+            .unwrap_or_default();
     let projections = {
         let mut statement = transaction.prepare(
             "SELECT terminal_id, result_json
@@ -380,10 +378,8 @@ fn import_resource_agent_generation(
     let Some(terminal_id) = result.get("terminal_id").and_then(Value::as_str) else {
         return Ok(());
     };
-    let Some(source_session) = result
-        .get("source_session")
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty())
+    let Some(source_session) =
+        result.get("source_session").and_then(Value::as_str).filter(|value| !value.is_empty())
     else {
         return Ok(());
     };
@@ -432,10 +428,8 @@ fn finalize_resource_agent_generation(
     let Ok(result) = serde_json::from_str::<Value>(result_json) else {
         return Ok(());
     };
-    let Some(source_session) = result
-        .get("source_session")
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty())
+    let Some(source_session) =
+        result.get("source_session").and_then(Value::as_str).filter(|value| !value.is_empty())
     else {
         return Ok(());
     };
