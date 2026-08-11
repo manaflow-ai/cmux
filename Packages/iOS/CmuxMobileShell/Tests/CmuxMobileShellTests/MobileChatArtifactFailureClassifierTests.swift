@@ -12,10 +12,14 @@ struct MobileChatArtifactFailureClassifierTests {
         let classifier = MobileChatArtifactFailureClassifier()
 
         #expect(classifier.classify(MobileShellConnectionError.connectionClosed) == .macUnreachable)
-        #expect(classifier.classify(MobileShellConnectionError.requestTimedOut) == .loadFailed)
-        #expect(classifier.classify(MobileShellConnectionError.transportWriteTimedOut) == .loadFailed)
-        #expect(classifier.classify(MobileShellConnectionError.invalidResponse) == .loadFailed)
-        #expect(classifier.classify(MobileShellConnectionError.connectAttemptGated) == .loadFailed)
+        #expect(classifier.classify(MobileShellConnectionError.requestTimedOut) != .loadFailed)
+        #expect(classifier.classify(MobileShellConnectionError.transportWriteTimedOut) != .loadFailed)
+        #expect(classifier.classify(MobileShellConnectionError.invalidResponse) != .loadFailed)
+        #expect(classifier.classify(MobileShellConnectionError.connectAttemptGated) != .loadFailed)
+        #expect(classifier.classify(MobileShellConnectionError.routeCleanupBlocked) != .loadFailed)
+        #expect(classifier.classify(MobileShellConnectionError.attachTicketExpired) != .loadFailed)
+        #expect(classifier.classify(MobileShellConnectionError.authorizationFailed("denied")) != .loadFailed)
+        #expect(classifier.classify(MobileShellConnectionError.accountMismatch("wrong account")) != .loadFailed)
         #expect(classifier.classify(CocoaError(.fileReadUnknown)) == .loadFailed)
     }
 

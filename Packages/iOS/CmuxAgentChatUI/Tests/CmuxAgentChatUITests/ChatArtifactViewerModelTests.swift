@@ -44,6 +44,40 @@ struct ChatArtifactViewerModelTests {
         #expect(unreachableModel.state == .macUnreachable)
     }
 
+    @Test("damaged image bytes become a visible failure")
+    @MainActor
+    func damagedImageDoesNotBecomeABlankPreview() async {
+        let data = Data("not an image".utf8)
+        let loader = ChatArtifactLoader(
+            supportsArtifacts: true,
+            stat: { _ in
+                ChatArtifactStat(
+                    exists: true,
+                    isDirectory: false,
+                    size: Int64(data.count),
+                    modifiedAt: Date(timeIntervalSince1970: 0),
+                    kind: .image,
+                    mimeType: "image/png"
+                )
+            },
+            stream: { _, onChunk in
+                try await onChunk(ChatArtifactChunk(
+                    data: data,
+                    offset: 0,
+                    totalSize: Int64(data.count),
+                    eof: true
+                ))
+            }
+        )
+        let model = ChatArtifactViewerModel()
+
+        await model.load(path: "/tmp/damaged.png", loader: loader)
+
+        if case .image = model.state {
+            Issue.record("damaged image bytes must render an explicit failure instead of a blank image")
+        }
+    }
+
     @Test("large transport chunks are published in bounded UI batches")
     @MainActor
     func batchesLargeTransportChunks() async {

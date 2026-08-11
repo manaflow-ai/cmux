@@ -17,8 +17,8 @@ import Testing
         )
     }
 
-    @Test func mismatchFailsWithRetryableArtifactError() {
-        #expect(throws: ChatArtifactError.macUnreachable) {
+    @Test func mismatchDoesNotClaimMacUnreachable() {
+        expectFailureOtherThanMacUnreachable {
             try WorkspaceChangesContentFingerprintPolicy().validate(
                 expected: "stat:10:100:2:300:101",
                 observed: "stat:10:100:2:301:101"
@@ -26,8 +26,8 @@ import Testing
         }
     }
 
-    @Test func missingFingerprintAfterEstablishmentFailsWithRetryableError() {
-        #expect(throws: ChatArtifactError.macUnreachable) {
+    @Test func missingFingerprintAfterEstablishmentDoesNotClaimMacUnreachable() {
+        expectFailureOtherThanMacUnreachable {
             try WorkspaceChangesContentFingerprintPolicy().validate(
                 expected: "stat:10:100:2:300:101",
                 observed: nil
@@ -35,14 +35,14 @@ import Testing
         }
     }
 
-    @Test func missingExpectedFingerprintFailsWithRetryableError() {
-        #expect(throws: ChatArtifactError.macUnreachable) {
+    @Test func missingExpectedFingerprintDoesNotClaimMacUnreachable() {
+        expectFailureOtherThanMacUnreachable {
             try WorkspaceChangesContentFingerprintPolicy().validate(
                 expected: nil,
                 observed: "stat:10:100:2:300:101"
             )
         }
-        #expect(throws: ChatArtifactError.macUnreachable) {
+        expectFailureOtherThanMacUnreachable {
             try WorkspaceChangesContentFingerprintPolicy().validate(
                 expected: nil,
                 observed: nil
@@ -51,11 +51,24 @@ import Testing
     }
 
     @Test func presentLegacyFingerprintShapeIsRejected() {
-        #expect(throws: ChatArtifactError.macUnreachable) {
+        expectFailureOtherThanMacUnreachable {
             try WorkspaceChangesContentFingerprintPolicy().validate(
                 expected: "stat:10:100",
                 observed: "stat:10:100"
             )
+        }
+    }
+
+    private func expectFailureOtherThanMacUnreachable(
+        _ operation: () throws -> Void
+    ) {
+        do {
+            try operation()
+            Issue.record("invalid fingerprint state should fail")
+        } catch let error as ChatArtifactError {
+            #expect(error != .macUnreachable)
+        } catch {
+            Issue.record("unexpected error: \(error)")
         }
     }
 }

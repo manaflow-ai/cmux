@@ -11,7 +11,7 @@ struct TerminalArtifactGalleryFailureTests {
     func preservesSpecificFailureMeaning() {
         #expect(TerminalArtifactGalleryFailure(error: ChatArtifactError.macUnreachable) == .macUnreachable)
         #expect(TerminalArtifactGalleryFailure(error: ChatArtifactError.sessionNotFound) == .sessionMissing)
-        #expect(TerminalArtifactGalleryFailure(error: ChatArtifactError.fileNotFound) == .loadFailed)
+        #expect(TerminalArtifactGalleryFailure(error: ChatArtifactError.fileNotFound) != .loadFailed)
         #expect(TerminalArtifactGalleryFailure(error: CocoaError(.fileReadUnknown)) == .loadFailed)
     }
 }

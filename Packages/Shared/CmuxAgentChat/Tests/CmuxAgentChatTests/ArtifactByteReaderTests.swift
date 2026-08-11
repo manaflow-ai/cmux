@@ -23,7 +23,7 @@ struct ArtifactByteReaderTests {
         }
     }
 
-    @Test("listing a file keeps the existing file-not-found semantic")
+    @Test("listing a file is not reported as a missing file")
     func listingFile() throws {
         try withTemporaryDirectory { directory in
             let file = directory.appendingPathComponent("artifact.txt")
@@ -33,9 +33,46 @@ struct ArtifactByteReaderTests {
                 _ = try ArtifactByteReader().list(path: file.path)
                 Issue.record("listing a file should fail")
             } catch ArtifactByteReader.Error.fileNotFound {
-                // Expected wire semantic.
+                Issue.record("an existing non-directory must not be reported as missing")
             } catch {
-                Issue.record("unexpected error: \(error)")
+                // Expected: the path exists, but directory listing does not apply.
+            }
+        }
+    }
+
+    @Test("permission denial is not reported as a missing file")
+    func permissionDenied() throws {
+        try withTemporaryDirectory { directory in
+            guard Darwin.geteuid() != 0 else { return }
+            let file = directory.appendingPathComponent("private.txt")
+            try Data("secret".utf8).write(to: file)
+            try #require(Darwin.chmod(file.path, 0o000) == 0)
+            defer { _ = Darwin.chmod(file.path, 0o600) }
+
+            do {
+                _ = try ArtifactByteReader().fetch(path: file.path, offset: 0, length: 16)
+                Issue.record("an unreadable file should fail")
+            } catch ArtifactByteReader.Error.fileNotFound {
+                Issue.record("permission denial must not be reported as a missing file")
+            } catch {
+                // Expected: a distinct permission/read failure.
+            }
+        }
+    }
+
+    @Test("damaged image data is not reported as an unsupported file type")
+    func damagedImage() throws {
+        try withTemporaryDirectory { directory in
+            let file = directory.appendingPathComponent("damaged.png")
+            try Data("not a png".utf8).write(to: file)
+
+            do {
+                _ = try ArtifactByteReader().thumbnail(path: file.path, maxDimension: 128)
+                Issue.record("damaged image data should fail")
+            } catch ArtifactByteReader.Error.unsupportedMedia {
+                Issue.record("a recognized but damaged image must not be reported as an unsupported type")
+            } catch {
+                // Expected: a distinct decode failure.
             }
         }
     }
