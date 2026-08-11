@@ -657,6 +657,7 @@ import Testing
             try await clock.sleep(for: .seconds(7))
         }
         var iterator = durations.makeAsyncIterator()
+        /* test-determinism diagnostic-only: injected clock */
         #expect(await iterator.next() == .seconds(7))
         continuation.finish()
         try await wait.value
