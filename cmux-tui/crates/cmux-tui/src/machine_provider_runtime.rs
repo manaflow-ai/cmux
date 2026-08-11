@@ -63,6 +63,24 @@ struct AcceptedSelectionIntent {
     machine_id: Option<protocol::OpaqueId>,
 }
 
+fn apply_accepted_selection_if_ready(
+    intent: &AcceptedSelectionIntent,
+    snapshot: &mut protocol::SnapshotResult,
+) -> bool {
+    if intent.scope_id.as_ref().is_some_and(|scope_id| scope_id != &snapshot.selected_scope_id) {
+        return false;
+    }
+    let Some(machine_id) = intent.machine_id.as_ref() else {
+        return true;
+    };
+    let machine_ready =
+        snapshot.machines.iter().any(|machine| &machine.id == machine_id && machine.connectable);
+    if machine_ready {
+        snapshot.selected_machine_id = Some(machine_id.clone());
+    }
+    machine_ready
+}
+
 #[derive(Default)]
 struct AcceptedProviderEffects {
     session_mutation: Option<ManagedWorkspaceSessionMutation>,
@@ -395,21 +413,10 @@ impl ProviderMachineRuntime {
         let surface_snapshot_notice =
             !self.client.supports_capability(protocol::DURABLE_NOTICES_CAPABILITY)?;
         self.observe_snapshot_notice(snapshot.notice.clone(), surface_snapshot_notice);
-        let selection_applied = self.accepted_selection.as_ref().is_none_or(|intent| {
-            let scope_matches = intent
-                .scope_id
-                .as_ref()
-                .is_none_or(|scope_id| scope_id == &snapshot.selected_scope_id);
-            let machine_matches = intent.machine_id.as_ref().is_none_or(|machine_id| {
-                if snapshot.machines.iter().any(|machine| &machine.id == machine_id) {
-                    snapshot.selected_machine_id = Some(machine_id.clone());
-                    true
-                } else {
-                    false
-                }
-            });
-            scope_matches && machine_matches
-        });
+        let selection_applied = self
+            .accepted_selection
+            .as_ref()
+            .is_none_or(|intent| apply_accepted_selection_if_ready(intent, &mut snapshot));
         let machine_lifecycle_snapshot = load_machine_lifecycle_snapshot(&self.client, &snapshot)?;
         let workspace_snapshot = load_workspace_snapshot(&self.client, &snapshot)?;
         self.snapshot = snapshot;
@@ -1202,23 +1209,10 @@ impl ProviderMachineRuntime {
                 load_workspace_snapshot(&client, &snapshot)?,
             )
         };
-        let selection_applied = if let Some(intent) = self.accepted_selection.as_ref() {
-            let scope_matches = intent
-                .scope_id
-                .as_ref()
-                .is_none_or(|scope_id| scope_id == &snapshot.selected_scope_id);
-            let machine_matches = intent.machine_id.as_ref().is_none_or(|machine_id| {
-                if snapshot.machines.iter().any(|machine| &machine.id == machine_id) {
-                    snapshot.selected_machine_id = Some(machine_id.clone());
-                    true
-                } else {
-                    false
-                }
-            });
-            scope_matches && machine_matches
-        } else {
-            true
-        };
+        let selection_applied = self
+            .accepted_selection
+            .as_ref()
+            .is_none_or(|intent| apply_accepted_selection_if_ready(intent, &mut snapshot));
         self.client = Arc::new(client);
         self.snapshot = snapshot;
         self.machine_lifecycle_snapshot = machine_lifecycle_snapshot;
