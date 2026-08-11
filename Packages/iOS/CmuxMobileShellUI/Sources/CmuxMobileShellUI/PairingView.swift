@@ -97,15 +97,13 @@ struct PairingView: View {
                 } header: {
                     Text(L10n.string("mobile.addDevice.title", defaultValue: "Add Computer"))
                 } footer: {
-                    Text(L10n.string(
-                        "mobile.addDevice.help",
-                        defaultValue: """
-                        Install Tailscale on both devices and connect them to the same Tailscale network. \
-                        On cmux 0.64.17, choose Connect iPhone/iPad and scan the Pair iPhone code. \
-                        On newer versions, open Tailscale Pairing and scan its code here. \
-                        Manual host and port entry is an advanced fallback for reconnecting an already paired Mac.
-                        """
-                    ))
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(MobilePairingScannerSheet.guidanceText)
+                        Text(L10n.string(
+                            "mobile.addDevice.help",
+                            defaultValue: "Manual host and port entry is an advanced fallback for reconnecting an already paired Mac."
+                        ))
+                    }
                 }
                 .overlay(alignment: .topLeading) {
                     #if DEBUG

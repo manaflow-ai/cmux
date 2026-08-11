@@ -9,6 +9,30 @@ private let reconnectRouteLog = Logger(
     category: "MobileReconnectRoutes"
 )
 
+/// Canonical identity for one locally authorized legacy Tailscale endpoint.
+private nonisolated struct MobileTailscaleAuthorizationEndpoint:
+    Hashable, Sendable
+{
+    let macDeviceID: String
+    let host: String
+    let port: Int
+
+    init?(macDeviceID: String, route: CmxAttachRoute) {
+        guard route.kind == .tailscale,
+              case let .hostPort(host, port) = route.endpoint,
+              let evidence = try? CmxLegacyTailscaleAuthorizationEvidence(
+                  macDeviceID: macDeviceID,
+                  host: host,
+                  port: port
+              ) else {
+            return nil
+        }
+        self.macDeviceID = evidence.macDeviceID
+        self.host = evidence.host
+        self.port = evidence.port
+    }
+}
+
 enum ReconnectRouteRefreshOutcome: Sendable {
     case refreshedRoutes([CmxAttachRoute])
     case confirmedMissingIroh
@@ -113,16 +137,36 @@ extension MobileShellComposite {
     /// Whether any paired Mac retains a current route matching an exact local
     /// Tailscale grant. A grant for an old endpoint is not usable after the Mac
     /// changes address, so both route sets must still agree.
-    static func hasUsableTailscaleAuthorization(in macs: [MobilePairedMac]) -> Bool {
-        macs.contains { mac in
-            mac.routes.contains { route in
-                legacyTailscaleAuthorizationEvidence(
-                    for: route,
+    nonisolated static func hasUsableTailscaleAuthorization(
+        in macs: [MobilePairedMac]
+    ) -> Bool {
+        var authorizedEndpoints: Set<MobileTailscaleAuthorizationEndpoint> = []
+        for mac in macs {
+            for route in mac.legacyTailscaleRoutes ?? [] {
+                if let endpoint = MobileTailscaleAuthorizationEndpoint(
                     macDeviceID: mac.macDeviceID,
-                    persistedRoutes: mac.legacyTailscaleRoutes ?? []
-                ) != nil
+                    route: route
+                ) {
+                    authorizedEndpoints.insert(endpoint)
+                }
             }
         }
+        guard !authorizedEndpoints.isEmpty else { return false }
+
+        for mac in macs {
+            for route in mac.routes {
+                guard let endpoint = MobileTailscaleAuthorizationEndpoint(
+                    macDeviceID: mac.macDeviceID,
+                    route: route
+                ) else {
+                    continue
+                }
+                if authorizedEndpoints.contains(endpoint) {
+                    return true
+                }
+            }
+        }
+        return false
     }
 
     /// Whether Tailscale Only can dial an endpoint the user authorized locally.
@@ -131,16 +175,13 @@ extension MobileShellComposite {
            remoteClient?.usesLocallyAuthorizedTailscaleRoute == true {
             return true
         }
-        let storedMacs = storedPairedMacsIncludingHidden.isEmpty
-            ? pairedMacs
-            : storedPairedMacsIncludingHidden
-        return Self.hasUsableTailscaleAuthorization(in: storedMacs)
+        return hasStoredUsableTailscaleAuthorization
     }
 
     /// Whether the selected Tailscale method still needs its one-time pairing grant.
     public var tailscalePairingRequired: Bool {
         connectionMethodStore?.method == .tailscale
-            && pairedMacLoadState != .notLoaded
+            && (pairedMacLoadState != .notLoaded || !hasKnownPairedMac)
             && !hasUsableTailscaleAuthorization
     }
 

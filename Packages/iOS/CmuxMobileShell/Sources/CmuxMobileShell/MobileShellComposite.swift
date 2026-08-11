@@ -2838,7 +2838,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Visible store rows for identity-sensitive paths; ``pairedMacs`` is display-coalesced.
     private var storedPairedMacs: [MobilePairedMac] = []
     /// Every scoped SQLite row, including hidden rows, for route refresh and hidden presentation.
-    @ObservationIgnored var storedPairedMacsIncludingHidden: [MobilePairedMac] = []
+    @ObservationIgnored var storedPairedMacsIncludingHidden: [MobilePairedMac] = [] {
+        didSet {
+            hasStoredUsableTailscaleAuthorization = Self
+                .hasUsableTailscaleAuthorization(in: storedPairedMacsIncludingHidden)
+        }
+    }
+    /// Cached local Tailscale readiness for the current paired-Mac snapshot.
+    private var hasStoredUsableTailscaleAuthorization = false
     /// Load status for ``pairedMacs`` in the current signed-in account/team scope.
     public internal(set) var pairedMacLoadState: PairedMacLoadState = .notLoaded
     /// Visible representative id to all stored ids for that logical paired Mac.

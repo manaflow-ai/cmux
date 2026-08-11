@@ -16,10 +16,7 @@ struct MobileTailscalePairingRequiredBanner: View {
             )
             .font(.headline)
 
-            Text(L10n.string(
-                "mobile.tailscalePairingRequired.description",
-                defaultValue: "On cmux 0.64.17, choose Connect iPhone/iPad. On newer versions, open Tailscale Pairing. Then scan the code here once."
-            ))
+            Text(MobilePairingScannerSheet.guidanceText)
             .font(.subheadline)
             .foregroundStyle(.secondary)
 

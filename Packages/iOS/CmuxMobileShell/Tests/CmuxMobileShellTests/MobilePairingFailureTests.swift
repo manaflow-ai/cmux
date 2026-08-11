@@ -47,6 +47,7 @@ import Testing
         )
 
         #expect(category == .tailscaleUnavailable)
+        #expect(!category.isAuthorizationFailure)
         #expect(category.analyticsReason == "tailscale_unavailable")
         #expect(category.message.localizedCaseInsensitiveContains("Tailscale"))
         #expect(category.guidance?.contains("Pair iPhone") == true)

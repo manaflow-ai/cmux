@@ -59,6 +59,23 @@ import Testing
     }
 
     @Test(arguments: MobileAutoConnectMigrationResolution.allCases)
+    func priorIntroductionResolutionDoesNotSuppressMacVersionNotice(
+        _ priorResolution: MobileAutoConnectMigrationResolution
+    ) {
+        let defaults = makeDefaults()
+        defaults.set(
+            priorResolution.rawValue,
+            forKey: MobileAutoConnectMigrationStore.legacyResolutionKey
+        )
+        defaults.set(
+            MobileOnboardingProgress.complete.rawValue,
+            forKey: MobileOnboardingStore.progressKey
+        )
+
+        #expect(MobileAutoConnectMigrationStore(defaults: defaults).resolution == .pending)
+    }
+
+    @Test(arguments: MobileAutoConnectMigrationResolution.allCases)
     func existingResolutionWinsWithoutRecomputing(
         _ resolution: MobileAutoConnectMigrationResolution
     ) {

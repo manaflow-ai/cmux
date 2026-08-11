@@ -432,13 +432,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install Tailscale on both devices and connect them to the same Tailscale network. On cmux 0.64.17, choose Connect iPhone/iPad and scan the Pair iPhone code. On newer versions, open Tailscale Pairing and scan its code here. Manual host and port entry is an advanced fallback for reconnecting an already paired Mac."
+            "value": "Manual host and port entry is an advanced fallback for reconnecting an already paired Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "両方のデバイスにTailscaleをインストールし、同じTailscaleネットワークに接続してください。cmux 0.64.17では「Connect iPhone/iPad」を選び、「Pair iPhone」のコードをスキャンします。新しいバージョンでは「Tailscale Pairing」を開き、表示されたコードをここでスキャンします。ホストとポートの手入力は、ペアリング済みのMacへ再接続するための高度な代替手段です。"
+            "value": "ホストとポートの手入力は、ペアリング済みのMacへ再接続するための高度な代替手段です。"
           }
         }
       }
@@ -19112,36 +19112,19 @@
         }
       }
     },
-    "mobile.pairing.scannerInstruction": {
+    "mobile.tailscalePairing.instructions": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "On cmux 0.64.17, choose Connect iPhone/iPad and scan the Pair iPhone code. On newer versions, open Tailscale Pairing. Install Tailscale on both devices and use the same Tailscale network first."
+            "value": "Install Tailscale on both devices and use the same Tailscale network. On cmux 0.64.17, choose Connect iPhone/iPad and scan the Pair iPhone code. On newer versions, open Tailscale Pairing and scan its code here."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 0.64.17では「Connect iPhone/iPad」を選び、「Pair iPhone」のコードをスキャンします。新しいバージョンでは「Tailscale Pairing」を開きます。先に両方のデバイスへTailscaleをインストールし、同じTailscaleネットワークを使用してください。"
-          }
-        }
-      }
-    },
-    "mobile.tailscalePairingRequired.description": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "On cmux 0.64.17, choose Connect iPhone/iPad. On newer versions, open Tailscale Pairing. Then scan the code here once."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 0.64.17では「Connect iPhone/iPad」を選びます。新しいバージョンでは「Tailscale Pairing」を開き、表示されたコードをここで一度スキャンしてください。"
+            "value": "両方のデバイスにTailscaleをインストールし、同じTailscaleネットワークを使用してください。cmux 0.64.17では「Connect iPhone/iPad」を選び、「Pair iPhone」のコードをスキャンします。新しいバージョンでは「Tailscale Pairing」を開き、表示されたコードをここでスキャンします。"
           }
         }
       }

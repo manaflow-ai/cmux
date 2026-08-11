@@ -11,8 +11,11 @@ import Observation
 @MainActor
 @Observable
 public final class MobileAutoConnectMigrationStore {
-    /// The versioned resolution key for this introduction.
-    public static let resolutionKey = "dev.cmux.mobile.autoConnectIntroduction.v1"
+    /// The prior Auto-Connect-only introduction key. Its resolution cannot
+    /// suppress the newer notice because that notice adds Mac version minima.
+    static let legacyResolutionKey = "dev.cmux.mobile.autoConnectIntroduction.v1"
+    /// The versioned resolution key for the Mac compatibility introduction.
+    public static let resolutionKey = "dev.cmux.mobile.autoConnectIntroduction.v2"
 
     // UserDefaults is Apple-documented thread-safe; OK to hold nonisolated.
     private nonisolated(unsafe) let defaults: UserDefaults
