@@ -587,6 +587,7 @@ allowed_keys = {
     "scenario",
     "passed",
     "hostStatusVerified",
+    "rpcMethodInventoryVerified",
     "terminalRoundTripVerified",
     "workspaceMutationVerified",
     "independentEventsVerified",
@@ -613,6 +614,7 @@ allowed_paths = {
 required_true = (
     "passed",
     "hostStatusVerified",
+    "rpcMethodInventoryVerified",
     "terminalRoundTripVerified",
     "workspaceMutationVerified",
     "independentEventsVerified",
@@ -624,7 +626,7 @@ problems = []
 unexpected_keys = set(report) - allowed_keys
 if unexpected_keys:
     problems.append("report contained unexpected fields")
-if report.get("schemaVersion") != 3:
+if report.get("schemaVersion") != 4:
     problems.append("unexpected schemaVersion")
 if report.get("mode") != expected_mode:
     problems.append("mode mismatch")

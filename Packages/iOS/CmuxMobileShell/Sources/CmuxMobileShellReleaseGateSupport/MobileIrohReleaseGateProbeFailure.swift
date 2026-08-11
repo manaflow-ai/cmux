@@ -9,6 +9,8 @@ public enum MobileIrohReleaseGateProbeFailure: String, Error, Equatable, Sendabl
     case unauthenticatedIrohSession
     /// The authenticated host-status RPC did not return current-main identity.
     case hostStatusRejected
+    /// The Mac did not advertise every RPC method required by this iOS build.
+    case rpcMethodInventoryFailed
     /// No selected terminal could be exercised.
     case terminalUnavailable
     /// The terminal input marker did not return through the output stream.

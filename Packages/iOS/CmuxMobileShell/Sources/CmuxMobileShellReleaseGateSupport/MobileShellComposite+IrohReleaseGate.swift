@@ -53,6 +53,10 @@ extension MobileShellComposite {
         }
         mobileIrohReleaseGateProbeLog.info("probe stage=host_status state=completed")
 
+        mobileIrohReleaseGateProbeLog.info("probe stage=rpc_method_inventory state=begin")
+        try await verifyRPCMethodInventory(client: remoteClient)
+        mobileIrohReleaseGateProbeLog.info("probe stage=rpc_method_inventory state=completed")
+
         guard let target = irohReleaseGateForegroundTarget() else {
             throw MobileIrohReleaseGateProbeFailure.workspaceMutationUnavailable
         }
@@ -140,6 +144,7 @@ extension MobileShellComposite {
 
         return MobileIrohReleaseGateProbeResult(
             hostStatusVerified: true,
+            rpcMethodInventoryVerified: true,
             terminalRoundTripVerified: true,
             workspaceMutationVerified: true,
             independentEventsVerified: true,
@@ -155,6 +160,24 @@ extension MobileShellComposite {
             unrefreshedExpiryDisconnectVerified: unrefreshedExpiryDisconnectVerified,
             soakDurationSeconds: scenario == .relayRollover ? soakDurationSeconds : 0
         )
+    }
+
+    private func verifyRPCMethodInventory(client: MobileCoreRPCClient) async throws {
+        do {
+            let request = try MobileCoreRPCClient.requestData(
+                method: "mobile.rpc.methods",
+                params: [:]
+            )
+            let response = try await client.sendRequest(request)
+            guard MobileIrohReleaseGateResponseValidator.rpcMethodInventory(
+                response,
+                required: MobileIrohReleaseGateRPCMethodInventory.required
+            ) else {
+                throw MobileIrohReleaseGateProbeFailure.rpcMethodInventoryFailed
+            }
+        } catch {
+            throw MobileIrohReleaseGateProbeFailure.rpcMethodInventoryFailed
+        }
     }
 
     private struct RelayRolloverContinuity {

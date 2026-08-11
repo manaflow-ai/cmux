@@ -288,11 +288,12 @@ struct MobileIrohReleaseGateRunnerTests {
     @Test
     func encodedReportContainsNoTopologyOrIdentityFields() throws {
         let report = MobileIrohReleaseGateRunner.Report(
-            schemaVersion: 3,
+            schemaVersion: 4,
             mode: "relayOnly",
             scenario: "relay_rollover",
             passed: true,
             hostStatusVerified: true,
+            rpcMethodInventoryVerified: true,
             terminalRoundTripVerified: true,
             workspaceMutationVerified: true,
             independentEventsVerified: true,
@@ -320,6 +321,7 @@ struct MobileIrohReleaseGateRunnerTests {
             "scenario",
             "passed",
             "hostStatusVerified",
+            "rpcMethodInventoryVerified",
             "terminalRoundTripVerified",
             "workspaceMutationVerified",
             "independentEventsVerified",
@@ -346,6 +348,7 @@ struct MobileIrohReleaseGateRunnerTests {
 
     private static let successfulProbe = MobileIrohReleaseGateProbeResult(
         hostStatusVerified: true,
+        rpcMethodInventoryVerified: true,
         terminalRoundTripVerified: true,
         workspaceMutationVerified: true,
         independentEventsVerified: true,
@@ -356,6 +359,7 @@ struct MobileIrohReleaseGateRunnerTests {
 
     private static let successfulRolloverProbe = MobileIrohReleaseGateProbeResult(
         hostStatusVerified: true,
+        rpcMethodInventoryVerified: true,
         terminalRoundTripVerified: true,
         workspaceMutationVerified: true,
         independentEventsVerified: true,
@@ -373,6 +377,7 @@ struct MobileIrohReleaseGateRunnerTests {
 
     private static let successfulExpiryProbe = MobileIrohReleaseGateProbeResult(
         hostStatusVerified: true,
+        rpcMethodInventoryVerified: true,
         terminalRoundTripVerified: true,
         workspaceMutationVerified: true,
         independentEventsVerified: true,
@@ -460,6 +465,7 @@ struct MobileIrohReleaseGateRunnerTests {
     ) {
         #expect(report.passed == false)
         #expect(report.hostStatusVerified)
+        #expect(report.rpcMethodInventoryVerified)
         #expect(report.terminalRoundTripVerified)
         #expect(report.workspaceMutationVerified)
         #expect(report.independentEventsVerified)

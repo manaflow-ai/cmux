@@ -75,6 +75,7 @@ final class MobileIrohReleaseGateRunner {
         let scenario: String
         let passed: Bool
         let hostStatusVerified: Bool
+        let rpcMethodInventoryVerified: Bool
         let terminalRoundTripVerified: Bool
         let workspaceMutationVerified: Bool
         let independentEventsVerified: Bool
@@ -522,10 +523,11 @@ final class MobileIrohReleaseGateRunner {
         selectedPath: String
     ) -> Report {
         Report(
-            schemaVersion: 3,
+            schemaVersion: 4,
             mode: mode.rawValue,
             scenario: scenario.rawValue,
             passed: probe.hostStatusVerified
+                && probe.rpcMethodInventoryVerified
                 && probe.terminalRoundTripVerified
                 && probe.workspaceMutationVerified
                 && probe.independentEventsVerified
@@ -534,6 +536,7 @@ final class MobileIrohReleaseGateRunner {
                 && probe.artifactScanCountVerified
                 && scenarioPassed(scenario, probe: probe),
             hostStatusVerified: probe.hostStatusVerified,
+            rpcMethodInventoryVerified: probe.rpcMethodInventoryVerified,
             terminalRoundTripVerified: probe.terminalRoundTripVerified,
             workspaceMutationVerified: probe.workspaceMutationVerified,
             independentEventsVerified: probe.independentEventsVerified,
@@ -580,11 +583,12 @@ final class MobileIrohReleaseGateRunner {
         selectedPath: String?
     ) -> Report {
         Report(
-            schemaVersion: 3,
+            schemaVersion: 4,
             mode: mode.rawValue,
             scenario: scenario.rawValue,
             passed: false,
             hostStatusVerified: false,
+            rpcMethodInventoryVerified: false,
             terminalRoundTripVerified: false,
             workspaceMutationVerified: false,
             independentEventsVerified: false,
@@ -612,11 +616,12 @@ final class MobileIrohReleaseGateRunner {
         completedProbe: MobileIrohReleaseGateProbeResult? = nil
     ) -> Report {
         Report(
-            schemaVersion: 3,
+            schemaVersion: 4,
             mode: mode.rawValue,
             scenario: scenario.rawValue,
             passed: false,
             hostStatusVerified: completedProbe?.hostStatusVerified ?? false,
+            rpcMethodInventoryVerified: completedProbe?.rpcMethodInventoryVerified ?? false,
             terminalRoundTripVerified: completedProbe?.terminalRoundTripVerified ?? false,
             workspaceMutationVerified: completedProbe?.workspaceMutationVerified ?? false,
             independentEventsVerified: completedProbe?.independentEventsVerified ?? false,

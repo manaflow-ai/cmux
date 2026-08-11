@@ -3,6 +3,8 @@
 public struct MobileIrohReleaseGateProbeResult: Equatable, Sendable {
     /// Whether `mobile.host.status` decoded over the authenticated session.
     public let hostStatusVerified: Bool
+    /// Whether every mobile RPC required by this iOS build was advertised by the Mac.
+    public let rpcMethodInventoryVerified: Bool
     /// Whether a unique terminal marker traveled phone to Mac and back.
     public let terminalRoundTripVerified: Bool
     /// Whether a workspace was renamed and restored through RPC.
@@ -43,6 +45,7 @@ public struct MobileIrohReleaseGateProbeResult: Equatable, Sendable {
     ///   - artifactScanCountVerified: Artifact count-only scan verification result.
     public init(
         hostStatusVerified: Bool,
+        rpcMethodInventoryVerified: Bool,
         terminalRoundTripVerified: Bool,
         workspaceMutationVerified: Bool,
         independentEventsVerified: Bool,
@@ -59,6 +62,7 @@ public struct MobileIrohReleaseGateProbeResult: Equatable, Sendable {
         soakDurationSeconds: Int = 0
     ) {
         self.hostStatusVerified = hostStatusVerified
+        self.rpcMethodInventoryVerified = rpcMethodInventoryVerified
         self.terminalRoundTripVerified = terminalRoundTripVerified
         self.workspaceMutationVerified = workspaceMutationVerified
         self.independentEventsVerified = independentEventsVerified
