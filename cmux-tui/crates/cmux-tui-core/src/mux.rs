@@ -4889,6 +4889,13 @@ impl Mux {
     }
 
     #[cfg(test)]
+    pub(crate) fn observe_next_journal_ingress_failure_for_test(
+        &self,
+    ) -> crate::journal_ingress::JournalIngressFailureObservation {
+        self.journal_ingress.observe_next_failure()
+    }
+
+    #[cfg(test)]
     pub(crate) fn journal_database_reader_count_for_test(&self) -> u64 {
         self.journal_kernel.database_reader_count()
     }
@@ -19638,22 +19645,14 @@ mod tests {
 
         mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
         let deadline = Instant::now() + Duration::from_secs(2);
-        loop {
-            let detached = mux.resolve_terminal(TERMINAL).unwrap().unwrap().surface.is_none();
-            let retry_finished = !mux.terminal_exit_detaches.contains(TERMINAL);
-            if detached && retry_finished {
-                break;
-            }
-            assert!(Instant::now() < deadline, "atomic exit retry did not detach the terminal");
-            std::thread::sleep(Duration::from_millis(5));
-        }
+        assert!(
+            mux.terminal_exit_detaches.wait_until_finished(TERMINAL, deadline),
+            "atomic exit retry did not detach the terminal"
+        );
+        assert!(mux.resolve_terminal(TERMINAL).unwrap().unwrap().surface.is_none());
         assert_eq!(
             mux.resolve_terminal(TERMINAL).unwrap().unwrap().terminal.lifecycle,
             TerminalLifecycle::Exited
-        );
-        assert!(
-            mux.terminal_exit_detaches.wait_until_finished(TERMINAL, deadline),
-            "terminal detach retry worker did not release its ownership"
         );
     }
 

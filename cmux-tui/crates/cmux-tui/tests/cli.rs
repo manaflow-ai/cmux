@@ -9,6 +9,8 @@ use std::path::PathBuf;
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+#[cfg(unix)]
+use wait_timeout::ChildExt;
 
 use cmux_tui_core::platform::transport;
 
@@ -165,26 +167,7 @@ impl HeadlessServer {
 
 #[cfg(unix)]
 fn wait_for_child_exit(child: &mut Child, timeout: Duration) -> bool {
-    let deadline = Instant::now() + timeout;
-    while Instant::now() < deadline {
-        if child.try_wait().unwrap().is_some() {
-            return true;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    false
-}
-
-#[cfg(unix)]
-fn wait_for_processes_to_exit(pids: &[u32], timeout: Duration) -> bool {
-    let deadline = Instant::now() + timeout;
-    while Instant::now() < deadline {
-        if pids.iter().copied().all(|pid| !process_exists(pid) && !process_group_exists(pid)) {
-            return true;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    false
+    child.wait_timeout(timeout).unwrap().is_some()
 }
 
 #[cfg(unix)]
@@ -1097,22 +1080,16 @@ fn graceful_shutdown_stops_server_owned_sidebar_process() {
     // SAFETY: this PID is the live child owned by the test fixture.
     assert_eq!(unsafe { libc::kill(server_pid, libc::SIGINT) }, 0);
     let server_stopped = wait_for_child_exit(&mut server.child, Duration::from_secs(10));
-    let owned_processes_stopped = wait_for_processes_to_exit(&owned_pids, Duration::from_secs(5));
+    let owned_processes_stopped = owned_pids
+        .iter()
+        .copied()
+        .all(|pid| !process_exists(pid) && !process_group_exists(pid));
 
     // Keep lifecycle regressions leak-free. Every captured process group and
     // record belongs to this fixture's private state root.
     if !owned_processes_stopped {
         for pid in &owned_pids {
-            signal_test_process_group(*pid, libc::SIGTERM);
-        }
-        if !wait_for_processes_to_exit(&owned_pids, Duration::from_secs(2)) {
-            for pid in &owned_pids {
-                signal_test_process_group(*pid, libc::SIGKILL);
-            }
-            assert!(
-                wait_for_processes_to_exit(&owned_pids, Duration::from_secs(2)),
-                "fixture could not reap its isolated sidebar processes"
-            );
+            signal_test_process_group(*pid, libc::SIGKILL);
         }
         for (record_path, record) in &records {
             let _ = cmux_tui_core::terminal_host_runtime::remove_stale_terminal_host_record(

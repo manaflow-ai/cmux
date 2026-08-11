@@ -266,18 +266,23 @@ fn short_lived_terminal_launch_converges_to_durable_exited_result() {
 
     let terminal_id = created["terminal_id"].as_str().expect("run omitted terminal id").to_string();
     assert!(created["terminal_incarnation"].as_str().is_some());
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let resolved = loop {
-        let resolved = request(
-            &harness.socket,
-            serde_json::json!({"id":2,"cmd":"resolve-terminal","terminal_id":terminal_id}),
-        );
-        if resolved["lifecycle"] == "exited" {
-            break resolved;
-        }
-        assert!(Instant::now() < deadline, "short-lived terminal did not exit: {resolved}");
-        std::thread::sleep(Duration::from_millis(10));
-    };
+    let waited = resource_request(
+        &harness.socket,
+        "short-lived-terminal-wait-exit",
+        "terminal.wait_exit",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "terminal":terminal_id,
+            "timeout_ms":"10000",
+        }),
+        None,
+    );
+    assert_eq!(waited["state"], "exited", "short-lived terminal did not exit: {waited}");
+    let resolved = request(
+        &harness.socket,
+        serde_json::json!({"id":2,"cmd":"resolve-terminal","terminal_id":terminal_id}),
+    );
     assert_eq!(resolved["surface"], serde_json::Value::Null);
     assert_eq!(resolved["lifecycle"], "exited");
     assert_eq!(resolved["exit"]["outcome"], serde_json::json!({"kind":"exit","code":23}));
@@ -2878,19 +2883,24 @@ fn ctrl_d_exits_shell_and_detaches_terminal_topology() {
         serde_json::json!({"id":2,"cmd":"send-key","surface":surface,"keys":["ctrl+d"]}),
     );
 
-    let deadline = Instant::now() + Duration::from_secs(10);
-    loop {
-        let resolved = request(
-            &harness.socket,
-            serde_json::json!({"id":3,"cmd":"resolve-terminal","terminal_id":terminal_id}),
-        );
-        if resolved["lifecycle"] == "exited" {
-            assert_eq!(resolved["surface"], serde_json::Value::Null);
-            break;
-        }
-        assert!(Instant::now() < deadline, "Ctrl-D never exited the shell");
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    let waited = resource_request(
+        &harness.socket,
+        "ctrl-d-terminal-wait-exit",
+        "terminal.wait_exit",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "terminal":terminal_id,
+            "timeout_ms":"10000",
+        }),
+        None,
+    );
+    assert_eq!(waited["state"], "exited", "Ctrl-D never exited the shell: {waited}");
+    let resolved = request(
+        &harness.socket,
+        serde_json::json!({"id":3,"cmd":"resolve-terminal","terminal_id":terminal_id}),
+    );
+    assert_eq!(resolved["surface"], serde_json::Value::Null);
 
     let tree = request(&harness.socket, serde_json::json!({"id":4,"cmd":"list-workspaces"}));
     let workspace = tree["workspaces"]

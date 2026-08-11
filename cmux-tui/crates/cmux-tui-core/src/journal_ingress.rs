@@ -2,6 +2,8 @@ use std::collections::VecDeque;
 use std::mem::size_of;
 use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, TrySendError, sync_channel};
 use std::sync::{Arc, Weak};
+#[cfg(test)]
+use std::sync::{Condvar, Mutex};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -221,29 +223,103 @@ pub(crate) struct JournalIngressSender {
     terminal_sender: Option<SyncSender<QueuedJournalEvent>>,
     durable_sender: Option<SyncSender<QueuedJournalEvent>>,
     wake_sender: Option<SyncSender<()>>,
+    #[cfg(test)]
+    observer: Arc<JournalIngressTestObserver>,
 }
 
 pub(crate) struct JournalIngressReceivers {
     terminal: Receiver<QueuedJournalEvent>,
     durable: Receiver<QueuedJournalEvent>,
     wake: Receiver<()>,
+    #[cfg(test)]
+    observer: Arc<JournalIngressTestObserver>,
+}
+
+#[cfg(test)]
+#[derive(Default)]
+struct JournalIngressTestObserver {
+    next_failure: Mutex<Option<Arc<JournalIngressFailureState>>>,
+}
+
+#[cfg(test)]
+#[derive(Default)]
+struct JournalIngressFailureState {
+    observed: Mutex<bool>,
+    changed: Condvar,
+}
+
+#[cfg(test)]
+pub(crate) struct JournalIngressFailureObservation {
+    state: Arc<JournalIngressFailureState>,
+}
+
+#[cfg(test)]
+impl JournalIngressFailureObservation {
+    pub(crate) fn wait(self, timeout: Duration) -> bool {
+        let observed = self.state.observed.lock().unwrap();
+        if *observed {
+            return true;
+        }
+        let (observed, _) = self
+            .state
+            .changed
+            .wait_timeout_while(observed, timeout, |observed| !*observed)
+            .unwrap();
+        *observed
+    }
+}
+
+#[cfg(test)]
+impl JournalIngressTestObserver {
+    fn observe_next_failure(&self) -> JournalIngressFailureObservation {
+        let state = Arc::new(JournalIngressFailureState::default());
+        *self.next_failure.lock().unwrap() = Some(state.clone());
+        JournalIngressFailureObservation { state }
+    }
+
+    fn mark_failure_observed(&self) {
+        let Some(state) = self.next_failure.lock().unwrap().take() else {
+            return;
+        };
+        *state.observed.lock().unwrap() = true;
+        state.changed.notify_all();
+    }
 }
 
 impl JournalIngressSender {
     pub(crate) fn new(enabled: bool) -> (Self, Option<JournalIngressReceivers>) {
         if !enabled {
-            return (Self { terminal_sender: None, durable_sender: None, wake_sender: None }, None);
+            return (
+                Self {
+                    terminal_sender: None,
+                    durable_sender: None,
+                    wake_sender: None,
+                    #[cfg(test)]
+                    observer: Arc::new(JournalIngressTestObserver::default()),
+                },
+                None,
+            );
         }
         let (terminal_sender, terminal) = sync_channel(JOURNAL_TERMINAL_QUEUE_CAPACITY);
         let (durable_sender, durable) = sync_channel(JOURNAL_DURABLE_QUEUE_CAPACITY);
         let (wake_sender, wake) = sync_channel(1);
+        #[cfg(test)]
+        let observer = Arc::new(JournalIngressTestObserver::default());
         (
             Self {
                 terminal_sender: Some(terminal_sender),
                 durable_sender: Some(durable_sender),
                 wake_sender: Some(wake_sender),
+                #[cfg(test)]
+                observer: observer.clone(),
             },
-            Some(JournalIngressReceivers { terminal, durable, wake }),
+            Some(JournalIngressReceivers {
+                terminal,
+                durable,
+                wake,
+                #[cfg(test)]
+                observer,
+            }),
         )
     }
 
@@ -339,6 +415,11 @@ impl JournalIngressSender {
         self.terminal_sender.is_some()
     }
 
+    #[cfg(test)]
+    pub(crate) fn observe_next_failure(&self) -> JournalIngressFailureObservation {
+        self.observer.observe_next_failure()
+    }
+
     fn enqueue(
         &self,
         sender: &SyncSender<QueuedJournalEvent>,
@@ -390,6 +471,8 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                         break;
                     }
                     Err(error) => {
+                        #[cfg(test)]
+                        receivers.observer.mark_failure_observed();
                         let summary = format!("{error:#}");
                         if reported_error.as_deref() != Some(summary.as_str()) {
                             eprintln!("cmux-tui: append session journal batch: {summary}");
@@ -650,6 +733,7 @@ mod tests {
                  END;",
             )
             .unwrap();
+        let failure = mux.observe_next_journal_ingress_failure_for_test();
 
         let terminal_id = Arc::new(public_id("term", 11, TerminalPublicId::parse));
         mux.journal_terminal_output(
@@ -657,7 +741,7 @@ mod tests {
             Arc::from("writer-retry-generation"),
             b"must survive retry".to_vec(),
         );
-        std::thread::sleep(Duration::from_millis(500));
+        assert!(failure.wait(Duration::from_secs(2)), "journal writer did not report the failure");
         injector.execute_batch("DROP TRIGGER reject_test_terminal_output;").unwrap();
         mux.flush_terminal_journal().unwrap();
 

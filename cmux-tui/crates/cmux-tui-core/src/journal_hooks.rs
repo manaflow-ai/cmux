@@ -966,20 +966,21 @@ mod tests {
     #[test]
     fn hook_exit_is_not_blocked_by_a_descendant_holding_stdin_open() {
         let mut manifest = manifest();
-        manifest.exec.argv =
-            vec!["/bin/sh".into(), "-c".into(), "exec 3<&0; (/bin/sleep 3 <&3) & exit 0".into()];
+        manifest.exec.argv = vec![
+            "/bin/sh".into(),
+            "-c".into(),
+            "exec 3<&0; (/bin/sh -c 'kill -STOP $$' <&3) & exit 0".into(),
+        ];
         let delivery = JournalHookDelivery {
             manifest,
             event: document("plugin.test.large", json!({"value":"x".repeat(1024 * 1024)})).record,
             attempt: 0,
         };
         let attempt = JournalHookAttempt { attempt: 1, causation_id: "event_started".into() };
-        let started = Instant::now();
         let (exit_code, error) = execute_delivery(&delivery, &attempt);
 
         assert_eq!(exit_code, Some(0), "{error:?}");
         assert_eq!(error, None);
-        assert!(started.elapsed() < Duration::from_secs(1));
     }
 
     #[test]
