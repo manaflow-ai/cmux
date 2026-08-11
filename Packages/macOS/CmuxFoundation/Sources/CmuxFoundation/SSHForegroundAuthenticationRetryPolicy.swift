@@ -1961,8 +1961,11 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             # exact stable identity. The durable path remains preferred; this
             # bounded fallback is only for failures before any STOP journal.
             if [ -n "$cmux_ssh_auth_direct_stopped_records" ]; then
-              cmux_ssh_auth_direct_stopped_records="$cmux_ssh_auth_direct_stopped_records
-$cmux_ssh_auth_direct_freeze_pid|$cmux_ssh_auth_direct_freeze_group|$cmux_ssh_auth_direct_freeze_started"
+              cmux_ssh_auth_direct_stopped_records=$(printf '%s\n%s|%s|%s' \
+                "$cmux_ssh_auth_direct_stopped_records" \
+                "$cmux_ssh_auth_direct_freeze_pid" \
+                "$cmux_ssh_auth_direct_freeze_group" \
+                "$cmux_ssh_auth_direct_freeze_started") || return 1
             else
               cmux_ssh_auth_direct_stopped_records="$cmux_ssh_auth_direct_freeze_pid|$cmux_ssh_auth_direct_freeze_group|$cmux_ssh_auth_direct_freeze_started"
             fi
