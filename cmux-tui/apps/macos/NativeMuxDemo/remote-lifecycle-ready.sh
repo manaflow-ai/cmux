@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 
-# Consume the lifecycle protocol that is owned by run-remote-demo.sh. Binary
-# transfer has its own budget; daemon startup begins at the first event.
+# Consume the lifecycle protocol that is owned by run-remote-demo.sh. FD7 is
+# the caller's bootstrap writer and event_fd is read-only. The launcher owns
+# the only writer after launcher-started, so EOF is its process-death signal.
 cmux_wait_for_remote_demo_ready() {
   local event_fd="$1"
   local launcher_pid="$2"
@@ -9,27 +10,69 @@ cmux_wait_for_remote_demo_ready() {
   local startup_timeout="$4"
   local app_pid
   local event
+  local read_status
+  local transfer_deadline
   local startup_deadline
   local remaining
   CMUX_REMOTE_DEMO_APP_PID=""
 
-  if ! IFS= read -r -t "$transfer_timeout" -u "$event_fd" event; then
-    kill -0 "$launcher_pid" 2>/dev/null || return 10
-    return 20
+  transfer_deadline=$((SECONDS + transfer_timeout))
+  if IFS= read -r -t "$transfer_timeout" -u "$event_fd" event; then
+    :
+  else
+    read_status=$?
+    if (( read_status > 128 )); then
+      kill -0 "$launcher_pid" 2>/dev/null || return 10
+      return 20
+    fi
+    return 10
   fi
   case "$event" in
-    daemon-starting) ;;
-    failed\ [0-9]*) return 10 ;;
-    *) return 22 ;;
+    launcher-started) ;;
+    failed\ [0-9]*)
+      exec 7>&-
+      return 10
+      ;;
+    *)
+      exec 7>&-
+      return 22
+      ;;
   esac
+  exec 7>&-
+
+  while true; do
+    remaining=$((transfer_deadline - SECONDS))
+    (( remaining > 0 )) || return 20
+    if IFS= read -r -t "$remaining" -u "$event_fd" event; then
+      :
+    else
+      read_status=$?
+      if (( read_status > 128 )); then
+        kill -0 "$launcher_pid" 2>/dev/null || return 10
+        return 20
+      fi
+      return 10
+    fi
+    case "$event" in
+      daemon-starting) break ;;
+      failed\ [0-9]*) return 10 ;;
+      *) return 22 ;;
+    esac
+  done
 
   startup_deadline=$((SECONDS + startup_timeout))
   while true; do
     remaining=$((startup_deadline - SECONDS))
     (( remaining > 0 )) || return 21
-    if ! IFS= read -r -t "$remaining" -u "$event_fd" event; then
-      kill -0 "$launcher_pid" 2>/dev/null || return 10
-      return 21
+    if IFS= read -r -t "$remaining" -u "$event_fd" event; then
+      :
+    else
+      read_status=$?
+      if (( read_status > 128 )); then
+        kill -0 "$launcher_pid" 2>/dev/null || return 10
+        return 21
+      fi
+      return 10
     fi
     case "$event" in
       app-started\ *)

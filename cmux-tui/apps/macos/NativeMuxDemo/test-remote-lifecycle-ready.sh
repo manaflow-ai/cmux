@@ -39,14 +39,18 @@ mkfifo "$STALLED_TRANSFER"
 EVENT_PIPE="$TEST_ROOT/success-events"
 mkfifo "$EVENT_PIPE"
 (
-  printf 'daemon-starting\n' >"$EVENT_PIPE"
-  printf 'app-started 12345\n' >"$EVENT_PIPE"
-  printf 'ready\n' >"$EVENT_PIPE"
+  exec 6>"$EVENT_PIPE"
+  printf 'launcher-started\n' >&6
+  printf 'daemon-starting\n' >&6
+  printf 'app-started 12345\n' >&6
+  printf 'ready\n' >&6
 ) &
 CHILD_PID=$!
 exec 7<>"$EVENT_PIPE"
 EVENT_FD_OPEN=1
-if ! cmux_wait_for_remote_demo_ready 7 "$CHILD_PID" 2 2; then
+exec 8<"$EVENT_PIPE"
+EVENT_READ_FD_OPEN=1
+if ! cmux_wait_for_remote_demo_ready 8 "$CHILD_PID" 2 2; then
   echo "A valid lifecycle event sequence did not become ready." >&2
   exit 1
 fi
@@ -54,6 +58,8 @@ if [[ "$CMUX_REMOTE_DEMO_APP_PID" != "12345" ]]; then
   echo "The lifecycle waiter did not retain the app owner PID." >&2
   exit 1
 fi
+exec 8<&-
+EVENT_READ_FD_OPEN=0
 exec 7<&-
 EVENT_FD_OPEN=0
 wait "$CHILD_PID"
@@ -62,21 +68,27 @@ CHILD_PID=""
 EVENT_PIPE="$TEST_ROOT/invalid-events"
 mkfifo "$EVENT_PIPE"
 (
-  printf 'daemon-starting\n' >"$EVENT_PIPE"
-  printf 'app-started 12345\n' >"$EVENT_PIPE"
-  printf 'app-started 54321\n' >"$EVENT_PIPE"
+  exec 6>"$EVENT_PIPE"
+  printf 'launcher-started\n' >&6
+  printf 'daemon-starting\n' >&6
+  printf 'app-started 12345\n' >&6
+  printf 'app-started 54321\n' >&6
 ) &
 CHILD_PID=$!
 exec 7<>"$EVENT_PIPE"
 EVENT_FD_OPEN=1
+exec 8<"$EVENT_PIPE"
+EVENT_READ_FD_OPEN=1
 set +e
-cmux_wait_for_remote_demo_ready 7 "$CHILD_PID" 2 2
+cmux_wait_for_remote_demo_ready 8 "$CHILD_PID" 2 2
 STATUS=$?
 set -e
 if [[ "$STATUS" != "22" ]]; then
   echo "A duplicate app owner returned $STATUS instead of protocol status 22." >&2
   exit 1
 fi
+exec 8<&-
+EVENT_READ_FD_OPEN=0
 exec 7<&-
 EVENT_FD_OPEN=0
 wait "$CHILD_PID"
@@ -85,19 +97,25 @@ CHILD_PID=""
 EVENT_PIPE="$TEST_ROOT/transfer-events"
 mkfifo "$EVENT_PIPE"
 (
+  exec 6>"$EVENT_PIPE"
+  printf 'launcher-started\n' >&6
   IFS= read -r _ <"$STALLED_TRANSFER"
 ) &
 CHILD_PID=$!
 exec 7<>"$EVENT_PIPE"
 EVENT_FD_OPEN=1
+exec 8<"$EVENT_PIPE"
+EVENT_READ_FD_OPEN=1
 set +e
-cmux_wait_for_remote_demo_ready 7 "$CHILD_PID" 0.05 2
+cmux_wait_for_remote_demo_ready 8 "$CHILD_PID" 1 2
 STATUS=$?
 set -e
 if [[ "$STATUS" != "20" ]]; then
   echo "A stalled transfer returned $STATUS instead of phase status 20." >&2
   exit 1
 fi
+exec 8<&-
+EVENT_READ_FD_OPEN=0
 exec 7<&-
 EVENT_FD_OPEN=0
 kill "$CHILD_PID"
@@ -107,20 +125,26 @@ CHILD_PID=""
 EVENT_PIPE="$TEST_ROOT/startup-events"
 mkfifo "$EVENT_PIPE"
 (
-  printf 'daemon-starting\n' >"$EVENT_PIPE"
+  exec 6>"$EVENT_PIPE"
+  printf 'launcher-started\n' >&6
+  printf 'daemon-starting\n' >&6
   IFS= read -r _ <"$STALLED_TRANSFER"
 ) &
 CHILD_PID=$!
 exec 7<>"$EVENT_PIPE"
 EVENT_FD_OPEN=1
+exec 8<"$EVENT_PIPE"
+EVENT_READ_FD_OPEN=1
 set +e
-cmux_wait_for_remote_demo_ready 7 "$CHILD_PID" 2 0
+cmux_wait_for_remote_demo_ready 8 "$CHILD_PID" 2 0
 STATUS=$?
 set -e
 if [[ "$STATUS" != "21" ]]; then
   echo "A stalled daemon startup returned $STATUS instead of phase status 21." >&2
   exit 1
 fi
+exec 8<&-
+EVENT_READ_FD_OPEN=0
 exec 7<&-
 EVENT_FD_OPEN=0
 kill "$CHILD_PID"
@@ -130,15 +154,21 @@ CHILD_PID=""
 EVENT_PIPE="$TEST_ROOT/exit-events"
 mkfifo "$EVENT_PIPE"
 (
-  printf 'failed 1\n' >"$EVENT_PIPE"
+  exec 6>"$EVENT_PIPE"
+  printf 'launcher-started\n' >&6
+  printf 'failed 1\n' >&6
 ) &
 CHILD_PID=$!
 exec 7<>"$EVENT_PIPE"
 EVENT_FD_OPEN=1
+exec 8<"$EVENT_PIPE"
+EVENT_READ_FD_OPEN=1
 set +e
-cmux_wait_for_remote_demo_ready 7 "$CHILD_PID" 2 2
+cmux_wait_for_remote_demo_ready 8 "$CHILD_PID" 2 2
 STATUS=$?
 set -e
+exec 8<&-
+EVENT_READ_FD_OPEN=0
 exec 7<&-
 EVENT_FD_OPEN=0
 wait "$CHILD_PID"
@@ -151,7 +181,8 @@ fi
 EVENT_PIPE="$TEST_ROOT/silent-exit-events"
 mkfifo "$EVENT_PIPE"
 (
-  printf 'daemon-starting\n' >"$EVENT_PIPE"
+  exec 6>"$EVENT_PIPE"
+  printf 'launcher-started\n' >&6
 ) &
 CHILD_PID=$!
 exec 7<>"$EVENT_PIPE"

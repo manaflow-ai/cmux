@@ -12,7 +12,8 @@ LAUNCHER_PID=""
 APP_PID=""
 ATTACH_PID=""
 ATTACH_FD_OPEN=0
-LIFECYCLE_FD_OPEN=0
+LIFECYCLE_BOOTSTRAP_FD_OPEN=0
+LIFECYCLE_READ_FD_OPEN=0
 TRANSFER_READY_TIMEOUT=300
 DAEMON_READY_TIMEOUT=90
 
@@ -30,6 +31,10 @@ cleanup() {
     exec 8>&-
     ATTACH_FD_OPEN=0
   fi
+  if [[ "$LIFECYCLE_READ_FD_OPEN" == "1" ]]; then
+    exec 8<&-
+    LIFECYCLE_READ_FD_OPEN=0
+  fi
   if [[ -n "$ATTACH_PID" ]] && kill -0 "$ATTACH_PID" 2>/dev/null; then
     kill "$ATTACH_PID" 2>/dev/null
     wait "$ATTACH_PID" 2>/dev/null
@@ -41,9 +46,9 @@ cleanup() {
     kill "$LAUNCHER_PID" 2>/dev/null
     wait "$LAUNCHER_PID" 2>/dev/null
   fi
-  if [[ "$LIFECYCLE_FD_OPEN" == "1" ]]; then
+  if [[ "$LIFECYCLE_BOOTSTRAP_FD_OPEN" == "1" ]]; then
     exec 7<&-
-    LIFECYCLE_FD_OPEN=0
+    LIFECYCLE_BOOTSTRAP_FD_OPEN=0
   fi
   rm -rf -- "$TEST_ROOT"
 }
@@ -92,7 +97,9 @@ for run in $(seq 1 "$TOTAL_RUNS"); do
   LIFECYCLE_PIPE="$TEST_ROOT/lifecycle-$run.pipe"
   /usr/bin/mkfifo "$LIFECYCLE_PIPE"
   exec 7<>"$LIFECYCLE_PIPE"
-  LIFECYCLE_FD_OPEN=1
+  LIFECYCLE_BOOTSTRAP_FD_OPEN=1
+  exec 8<"$LIFECYCLE_PIPE"
+  LIFECYCLE_READ_FD_OPEN=1
   APP_PIDS_BEFORE="$(matching_app_pids)"
   CMUX_NATIVE_LIFECYCLE_PIPE="$LIFECYCLE_PIPE" \
     "$RUN_REMOTE_DEMO" "$REMOTE_HOST" >"$LAUNCH_LOG" 2>&1 &
@@ -100,12 +107,14 @@ for run in $(seq 1 "$TOTAL_RUNS"); do
 
   set +e
   cmux_wait_for_remote_demo_ready \
-    7 \
+    8 \
     "$LAUNCHER_PID" \
     "$TRANSFER_READY_TIMEOUT" \
     "$DAEMON_READY_TIMEOUT"
   READY_STATUS=$?
   set -e
+  exec 7<&-
+  LIFECYCLE_BOOTSTRAP_FD_OPEN=0
   if [[ "$READY_STATUS" != "0" ]]; then
     case "$READY_STATUS" in
       10) echo "Remote demo run $run exited before becoming ready:" >&2 ;;
@@ -119,8 +128,8 @@ for run in $(seq 1 "$TOTAL_RUNS"); do
   fi
 
   PUBLISHED_APP_PID="$CMUX_REMOTE_DEMO_APP_PID"
-  exec 7<&-
-  LIFECYCLE_FD_OPEN=0
+  exec 8<&-
+  LIFECYCLE_READ_FD_OPEN=0
   rm -f -- "$LIFECYCLE_PIPE"
   APP_PID="$(new_app_pid "$APP_PIDS_BEFORE" || true)"
   if [[ -z "$APP_PID" || "$APP_PID" != "$PUBLISHED_APP_PID" ]]; then
