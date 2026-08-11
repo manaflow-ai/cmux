@@ -13,7 +13,9 @@ internal import CMUXDebugLog
 /// Every native surface holds a bounded ownership reservation from creation
 /// through completed free. While both close slots are occupied, new ownership
 /// waits for a worker-completion signal, so retained frees cannot grow without
-/// bound.
+/// bound. If both workers exceed their five-second watchdog, queued creations
+/// report a visible failure. A late native free keeps its pointer ownership and
+/// restores admission only after it returns.
 /// Each admitted hibernation also owns one independently startable utility slot.
 /// Slot occupancy fences new ownership until one active free completes. The app constructs
 /// exactly one instance and injects it through
@@ -28,6 +30,9 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     /// Largest batch that can own independently startable native-free slots.
     public static let maximumIsolatedHibernationTeardownCount = 2
 
+    private let closeTeardownTimeout: Duration
+    private nonisolated let closeTeardownClock: any Clock<Duration>
+    private let closeTeardownStalledObserver: @Sendable (Int) -> Void
     private nonisolated let submissionDrain:
         TerminalSurfaceRuntimeTeardownSubmissionDrain
     private nonisolated let recoveryRescanScheduler:
@@ -46,6 +51,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         [Int: TerminalSurfaceRuntimeActiveTeardown] = [:]
     private var activeHibernationTeardownsBySlot:
         [Int: TerminalSurfaceRuntimeActiveTeardown] = [:]
+    private var stalledCloseExecutionSlots: Set<Int> = []
     private var cancelledTicketIDs: Set<UUID> = []
 #if DEBUG
     // Readable at internal scope in DEBUG so the debug-only extension in
@@ -62,6 +68,9 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
 
     /// Creates the process's teardown coordinator.
     public init() {
+        closeTeardownTimeout = .seconds(5)
+        closeTeardownClock = ContinuousClock()
+        closeTeardownStalledObserver = { _ in }
         let recoveryRescanScheduler =
             TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler(
                 maximumEntryCount: Self.maximumRuntimeSurfaceOwnerCount
@@ -80,7 +89,16 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         )
     }
 
-    init(maximumRuntimeSurfaceOwnerCount: Int) {
+    init(
+        maximumRuntimeSurfaceOwnerCount: Int,
+        closeTeardownTimeout: Duration = .seconds(5),
+        closeTeardownClock: any Clock<Duration> = ContinuousClock(),
+        closeTeardownStalledObserver: @escaping @Sendable (Int) -> Void = { _ in }
+    ) {
+        precondition(closeTeardownTimeout > .zero)
+        self.closeTeardownTimeout = closeTeardownTimeout
+        self.closeTeardownClock = closeTeardownClock
+        self.closeTeardownStalledObserver = closeTeardownStalledObserver
         let recoveryRescanScheduler =
             TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler(
                 maximumEntryCount: maximumRuntimeSurfaceOwnerCount
@@ -102,9 +120,11 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     deinit {
         for active in activeCloseTeardownsBySlot.values {
             active.task.cancel()
+            active.watchdogTask?.cancel()
         }
         for active in activeHibernationTeardownsBySlot.values {
             active.task.cancel()
+            active.watchdogTask?.cancel()
         }
     }
 
@@ -116,12 +136,14 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     nonisolated func reserveRuntimeSurfaceOwnership(
         recoveryID: UUID,
         onRecovery: @escaping TerminalSurfaceRuntimeOwnershipRecovery,
+        onFailure: @escaping TerminalSurfaceRuntimeOwnershipRecoveryFailure = {},
         capacityReservation:
             TerminalSurfaceRuntimeOwnershipRecoveryCapacityReservation? = nil
     ) -> TerminalSurfaceRuntimeOwnershipRecoveryAdmissionResult {
         runtimeOwnershipAdmission.reserve(
             recoveryID: recoveryID,
             onRecovery: onRecovery,
+            onFailure: onFailure,
             capacityReservation: capacityReservation
         )
     }
@@ -462,7 +484,12 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         )
         let active = TerminalSurfaceRuntimeActiveTeardown(
             ticketID: request.ticketID,
-            task: prepared.task
+            task: prepared.task,
+            watchdogTask: makeCloseTeardownWatchdog(
+                request: request,
+                executionLane: executionLane,
+                executionSlot: executionSlot
+            )
         )
         switch executionLane {
         case .boundedClose:
@@ -526,10 +553,12 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             active = activeHibernationTeardownsBySlot[executionSlot]
         }
         guard active?.ticketID == request.ticketID else { return }
+        active?.watchdogTask?.cancel()
 
         switch executionLane {
         case .boundedClose:
             activeCloseTeardownsBySlot.removeValue(forKey: executionSlot)
+            stalledCloseExecutionSlots.remove(executionSlot)
         case .isolatedHibernation:
             activeHibernationTeardownsBySlot.removeValue(forKey: executionSlot)
         }
@@ -552,10 +581,59 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     }
 
     private func updateCloseTeardownAdmission() {
+        if stalledCloseExecutionSlots.count
+            < Self.maximumConcurrentCloseTeardownCount {
+            runtimeOwnershipAdmission.clearAllStalledCloseTeardowns()
+        }
         runtimeOwnershipAdmission.setCloseTeardownDegraded(
             activeCloseTeardownsBySlot.count
                 == Self.maximumConcurrentCloseTeardownCount
         )
+    }
+
+    private func makeCloseTeardownWatchdog(
+        request: TerminalSurfaceRuntimeTeardownRequest,
+        executionLane: TerminalSurfaceRuntimeTeardownExecutionLane,
+        executionSlot: Int
+    ) -> Task<Void, Never>? {
+        guard executionLane == .boundedClose else { return nil }
+        let timeout = closeTeardownTimeout
+        let clock = closeTeardownClock
+        return Task {
+            do {
+                try await clock.sleep(for: timeout, tolerance: nil)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            closeTeardownWatchdogExpired(
+                ticketID: request.ticketID,
+                executionSlot: executionSlot
+            )
+        }
+    }
+
+    private func closeTeardownWatchdogExpired(
+        ticketID: UUID,
+        executionSlot: Int
+    ) {
+        guard activeCloseTeardownsBySlot[executionSlot]?.ticketID == ticketID,
+              stalledCloseExecutionSlots.insert(executionSlot).inserted else {
+            return
+        }
+        closeTeardownStalledObserver(executionSlot)
+        guard stalledCloseExecutionSlots.count
+            == Self.maximumConcurrentCloseTeardownCount else {
+            return
+        }
+        let failures = runtimeOwnershipAdmission
+            .failRecoveriesForAllStalledCloseTeardowns()
+        recoveryRescanScheduler.failPendingOverflowCreations()
+        Task { @MainActor in
+            for failure in failures {
+                failure()
+            }
+        }
     }
 
     private nonisolated func freeNativeSurface(

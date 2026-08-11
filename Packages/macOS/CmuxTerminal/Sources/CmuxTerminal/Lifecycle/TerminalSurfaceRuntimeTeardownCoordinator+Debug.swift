@@ -13,10 +13,15 @@ extension TerminalSurfaceRuntimeTeardownCoordinator {
         pendingRequestsById.count
     }
 
-    /// Test support: whether every close worker has exceeded its deadline and
-    /// new native-surface ownership is fenced until one worker returns.
+    /// Test support: whether both close slots are active and new ownership is
+    /// fenced until one worker returns.
     public var debugCloseTeardownDegraded: Bool {
         runtimeOwnershipAdmission.debugCloseTeardownDegraded
+    }
+
+    /// Test support: both close workers exceeded their watchdog deadlines.
+    public var debugCloseTeardownAllStalled: Bool {
+        runtimeOwnershipAdmission.debugCloseTeardownAllStalled
     }
 
     /// Test support: live plus retained native surfaces charged to admission.

@@ -40,6 +40,7 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler:
     var entriesByID: [UUID: OverflowEntry] = [:]
     var headID: UUID?
     var tailID: UUID?
+    var failureThroughSequence: UInt64?
     var rescanRequested = false
     var rescanTask: Task<Void, Never>?
   }
@@ -136,6 +137,22 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler:
     startGate?.start()
   }
 
+  internal func failPendingOverflowCreations() {
+    var startGate: TerminalSurfaceRuntimeTeardownStartGate?
+    state.withLock { state in
+      guard let tailID = state.tailID,
+        let tail = state.entriesByID[tailID]
+      else { return }
+      state.failureThroughSequence = max(
+        state.failureThroughSequence ?? 0,
+        tail.sequence
+      )
+      state.rescanRequested = true
+      prepareRescanTaskIfNeeded(state: &state, startGate: &startGate)
+    }
+    startGate?.start()
+  }
+
   deinit {
     state.withLock { state in
       state.rescanTask?.cancel()
@@ -165,6 +182,24 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler:
     var processedCount = 0
     if shouldRun {
       while processedCount < Self.maximumBatchCount {
+        if let failedEntry = state.withLock({ state -> OverflowEntry? in
+          guard let cutoff = state.failureThroughSequence,
+            let headID = state.headID,
+            let entry = state.entriesByID[headID],
+            entry.sequence <= cutoff
+          else {
+            normalizeFailureCutoff(in: &state)
+            return nil
+          }
+          _ = removeOverflow(surfaceID: entry.surfaceID, from: &state)
+          normalizeFailureCutoff(in: &state)
+          return entry
+        }) {
+          failedEntry.surface?
+            .failRuntimeSurfaceCreationForTeardownCapacity()
+          processedCount += 1
+          continue
+        }
         guard
           let entry = state.withLock({ state in
             state.headID.flatMap { state.entriesByID[$0] }
@@ -201,7 +236,8 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler:
       }
     }
 
-    let followUp = state.withLock { state -> (OverflowEntry, Bool)? in
+    let followUp = state.withLock {
+      state -> (OverflowEntry, Bool, Bool)? in
       state.rescanTask = nil
       let externallyRequested = state.rescanRequested
       state.rescanRequested = false
@@ -210,19 +246,29 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler:
       else {
         return nil
       }
-      return (entry, externallyRequested)
+      return (
+        entry,
+        externallyRequested,
+        state.failureThroughSequence != nil
+      )
     }
-    guard let (entry, externallyRequested) = followUp else { return }
+    guard let (entry, externallyRequested, failurePending) = followUp else {
+      return
+    }
     let batchWasExhausted = processedCount == Self.maximumBatchCount
     let capacityRemains: Bool
-    if let surface = entry.surface {
+    if failurePending {
+      capacityRemains = true
+    } else if let surface = entry.surface {
       capacityRemains =
         surface.runtimeTeardown
         .runtimeSurfaceOwnershipRecoveryCapacityIsOpen()
     } else {
       capacityRemains = true
     }
-    if capacityRemains && (batchWasExhausted || externallyRequested) {
+    if capacityRemains
+      && (batchWasExhausted || externallyRequested || failurePending)
+    {
       requestRescan()
     }
   }
@@ -248,8 +294,20 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler:
     if state.entriesByID.isEmpty {
       state.headID = nil
       state.tailID = nil
+      state.failureThroughSequence = nil
       state.rescanRequested = false
     }
     return entry
+  }
+
+  private func normalizeFailureCutoff(in state: inout State) {
+    guard let cutoff = state.failureThroughSequence else { return }
+    guard let headID = state.headID,
+      let head = state.entriesByID[headID],
+      head.sequence <= cutoff
+    else {
+      state.failureThroughSequence = nil
+      return
+    }
   }
 }

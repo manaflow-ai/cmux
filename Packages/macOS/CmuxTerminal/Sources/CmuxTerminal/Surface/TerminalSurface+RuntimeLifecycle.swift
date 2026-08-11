@@ -762,6 +762,14 @@ extension TerminalSurface {
     }
 
     @MainActor
+    private func runtimeSurfaceOwnershipRecoveryFailure()
+        -> TerminalSurfaceRuntimeOwnershipRecoveryFailure {
+        { [weak self] in
+            self?.failRuntimeSurfaceCreationForTeardownCapacity()
+        }
+    }
+
+    @MainActor
     private func reserveRuntimeSurfaceOwnershipForCreation(
         view: any TerminalSurfaceNativeViewing,
         source: RuntimeSurfaceCreationSource
@@ -778,7 +786,8 @@ extension TerminalSurface {
                 recoveryID: id,
                 onRecovery: runtimeSurfaceOwnershipRecovery(
                     teardownCoordinator: teardownCoordinator
-                )
+                ),
+                onFailure: runtimeSurfaceOwnershipRecoveryFailure()
             )
         switch admissionResult {
         case .reserved(let reservation):
@@ -804,8 +813,11 @@ extension TerminalSurface {
             case .registered(let sequence), .updated(let sequence):
                 runtimeSurfaceAdmissionOverflowSequence = sequence
             case .rejected:
-                failRuntimeSurfaceCreationForOverflowCapacity()
+                failRuntimeSurfaceCreationForTeardownCapacity()
             }
+            return nil
+        case .closeTeardownStalled:
+            failRuntimeSurfaceCreationForTeardownCapacity()
             return nil
         }
     }
@@ -837,6 +849,7 @@ extension TerminalSurface {
                 onRecovery: runtimeSurfaceOwnershipRecovery(
                     teardownCoordinator: teardownCoordinator
                 ),
+                onFailure: runtimeSurfaceOwnershipRecoveryFailure(),
                 capacityReservation: capacityReservation
             )
         switch admissionResult {
@@ -854,6 +867,8 @@ extension TerminalSurface {
         case .rejected:
             teardownCoordinator
                 .requestRuntimeSurfaceOwnershipRecoveryRescan()
+        case .closeTeardownStalled:
+            failRuntimeSurfaceCreationForTeardownCapacity()
         }
     }
 
@@ -895,7 +910,7 @@ extension TerminalSurface {
     }
 
     @MainActor
-    private func failRuntimeSurfaceCreationForOverflowCapacity() {
+    func failRuntimeSurfaceCreationForTeardownCapacity() {
         cancelRuntimeSurfaceCreationAfterAdmissionRecovery()
         paneHost.showRuntimeSurfaceCreationFailure(
             message: String(
