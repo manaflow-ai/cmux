@@ -10,8 +10,8 @@ use anyhow::{Context, Result, bail};
 use startup_benchmark_support::{
     Args, ComparisonReport, Evidence, Fixture, HostMetadata, InfrastructureMetadata,
     LifecycleRecorder, Pair, PhaseMetric, ProfileReport, RunPhases, SampleKind, SampleSet,
-    Scenario, ScenarioReport, SignedSummary, SuiteDeadline, Target, TargetKind, TargetMetadata,
-    now_unix_ms, run_sample,
+    Scenario, ScenarioReport, SignedSummary, SuiteDeadline, Target, TargetInput, TargetKind,
+    TargetMetadata, now_unix_ms, run_sample,
 };
 
 fn main() {

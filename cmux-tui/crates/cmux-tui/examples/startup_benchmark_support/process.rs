@@ -866,6 +866,10 @@ impl Common {
             self.root.path().to_string_lossy().into_owned(),
             "--target".into(),
             self.target.binary.to_string_lossy().into_owned(),
+            "--target-sha256".into(),
+            self.target.expected_binary_sha256.clone(),
+            "--supervisor-sha256".into(),
+            self.target.supervisor_binary_sha256.clone(),
             "--".into(),
         ];
         args.extend(product_args.iter().cloned());

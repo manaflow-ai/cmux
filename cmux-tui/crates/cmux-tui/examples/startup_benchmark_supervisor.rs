@@ -7,6 +7,8 @@ use std::process::{Command, ExitStatus};
 
 use anyhow::{Context, Result, bail};
 use cmux_tui_core::platform::transport;
+#[cfg(target_os = "linux")]
+use sha2::{Digest, Sha256};
 #[cfg(target_os = "macos")]
 use startup_benchmark_protocol::macos_account_identity;
 use startup_benchmark_protocol::{
@@ -20,6 +22,8 @@ struct Launch {
     nonce: String,
     fixture_root: PathBuf,
     target: PathBuf,
+    target_sha256: String,
+    supervisor_sha256: String,
     product_args: Vec<String>,
     inner: bool,
     prove_private_job: bool,
@@ -90,6 +94,8 @@ fn parse_args(values: impl Iterator<Item = String>) -> Result<Launch> {
         nonce: String::new(),
         fixture_root: PathBuf::new(),
         target: PathBuf::new(),
+        target_sha256: String::new(),
+        supervisor_sha256: String::new(),
         product_args: Vec::new(),
         inner: false,
         prove_private_job: false,
@@ -106,9 +112,13 @@ fn parse_args(values: impl Iterator<Item = String>) -> Result<Launch> {
             "--timing" => launch.timing = required_value(&mut values, &argument)?.into(),
             "--nonce" => launch.nonce = required_value(&mut values, &argument)?,
             "--fixture-root" => {
-                launch.fixture_root = required_value(&mut values, &argument)?.into()
+                launch.fixture_root = required_value(&mut values, &argument)?.into();
             }
             "--target" => launch.target = required_value(&mut values, &argument)?.into(),
+            "--target-sha256" => launch.target_sha256 = required_value(&mut values, &argument)?,
+            "--supervisor-sha256" => {
+                launch.supervisor_sha256 = required_value(&mut values, &argument)?;
+            }
             _ => bail!("unknown supervisor argument {argument}"),
         }
     }
@@ -147,11 +157,21 @@ fn validate_launch(launch: &Launch) -> Result<()> {
     if launch.nonce.len() != 64 || !launch.nonce.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         bail!("control nonce must be 64 hexadecimal characters");
     }
+    for (name, digest) in
+        [("target", &launch.target_sha256), ("supervisor", &launch.supervisor_sha256)]
+    {
+        if digest.len() != 64 || !digest.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            bail!("{name} SHA-256 must be 64 hexadecimal characters");
+        }
+    }
     Ok(())
 }
 
 #[cfg(target_os = "linux")]
 mod platform {
+    use std::fs::File;
+    use std::io::{Read, Seek, SeekFrom};
+    use std::os::fd::{AsRawFd, FromRawFd, RawFd};
     use std::os::unix::process::CommandExt;
 
     use super::*;
@@ -168,15 +188,32 @@ mod platform {
         } else {
             None
         };
-        let current = env::current_exe()?;
+        let current = env::current_exe().context("resolve trusted supervisor executable")?;
+        let supervisor =
+            TrustedBinary::open(&current, &launch.supervisor_sha256, "trusted supervisor")?;
+        let product = TrustedBinary::open(&launch.target, &launch.target_sha256, "product binary")?;
         if let Some((_, gid)) = &identity {
             grant_fixture_group_access(launch, gid)?;
         }
         let sandbox_supervisor = Path::new("/cmux-bin/supervisor");
         let sandbox_target = Path::new("/cmux-bin/product");
+        let (supervisor_fd, product_fd) =
+            if use_sudo { (3, 4) } else { (supervisor.inherited_fd(), product.inherited_fd()) };
         let mut command = if use_sudo {
+            let outer_pid = std::process::id().to_string();
+            let source_supervisor_fd = supervisor.inherited_fd().to_string();
+            let source_product_fd = product.inherited_fd().to_string();
             let mut command = Command::new("sudo");
-            command.args(["-n", "--"]).arg(&bwrap);
+            command.args([
+                "-n",
+                "--",
+                "/bin/sh",
+                "-c",
+                "exec 3<\"/proc/$1/fd/$2\"; exec 4<\"/proc/$1/fd/$3\"; shift 3; exec \"$@\"",
+                "cmux-bwrap-fd-bridge",
+            ]);
+            command.args([outer_pid, source_supervisor_fd, source_product_fd]);
+            command.arg(&bwrap);
             command
         } else {
             Command::new(&bwrap)
@@ -193,9 +230,8 @@ mod platform {
             command.args(["--cap-drop", "ALL"]);
         }
         append_contained_environment(&mut command);
-        command.arg("--ro-bind");
-        command.arg(&current).arg(sandbox_supervisor);
-        command.arg("--ro-bind").arg(&launch.target).arg(sandbox_target);
+        append_binary_data_bind(&mut command, supervisor_fd, sandbox_supervisor);
+        append_binary_data_bind(&mut command, product_fd, sandbox_target);
         for root in ["/usr", "/bin", "/lib", "/lib64"] {
             if Path::new(root).exists() {
                 command.args(["--ro-bind", root, root]);
@@ -233,7 +269,59 @@ mod platform {
         let mut contained = launch.clone();
         contained.target = sandbox_target.into();
         command.arg(sandbox_supervisor).arg("--inner").args(forwarded_args(&contained));
-        command.status().context("launch Bubblewrap supervisor")
+        let status = command.status().context("launch Bubblewrap supervisor");
+        // Keep both source descriptions open until Bubblewrap has consumed its inherited copies.
+        drop((supervisor, product));
+        status
+    }
+
+    struct TrustedBinary {
+        _source: File,
+        inherited: File,
+    }
+
+    impl TrustedBinary {
+        fn open(path: &Path, expected_sha256: &str, name: &str) -> Result<Self> {
+            let mut source =
+                File::open(path).with_context(|| format!("open {name} {}", path.display()))?;
+            if !source.metadata()?.is_file() {
+                bail!("{name} is not a regular file: {}", path.display());
+            }
+            let mut hasher = Sha256::new();
+            let mut buffer = [0_u8; 64 * 1024];
+            loop {
+                let count = source
+                    .read(&mut buffer)
+                    .with_context(|| format!("hash {name} {}", path.display()))?;
+                if count == 0 {
+                    break;
+                }
+                hasher.update(&buffer[..count]);
+            }
+            let observed = format!("{:x}", hasher.finalize());
+            if observed != expected_sha256 {
+                bail!("{name} SHA-256 mismatch: expected {expected_sha256}, observed {observed}");
+            }
+            source.seek(SeekFrom::Start(0))?;
+            // F_DUPFD makes an inheritable duplicate. Rust opens the source with CLOEXEC.
+            let raw = unsafe { libc::fcntl(source.as_raw_fd(), libc::F_DUPFD, 10) };
+            if raw == -1 {
+                return Err(std::io::Error::last_os_error())
+                    .with_context(|| format!("duplicate {name} descriptor"));
+            }
+            // SAFETY: F_DUPFD returned a new owned descriptor.
+            let inherited = unsafe { File::from_raw_fd(raw) };
+            Ok(Self { _source: source, inherited })
+        }
+
+        fn inherited_fd(&self) -> RawFd {
+            self.inherited.as_raw_fd()
+        }
+    }
+
+    fn append_binary_data_bind(command: &mut Command, source: RawFd, destination: &Path) {
+        command.args(["--perms", "0555", "--ro-bind-data"]);
+        command.arg(source.to_string()).arg(destination);
     }
 
     pub fn exec_product(mut command: Command, timing: TimingSink) -> Result<()> {
@@ -420,11 +508,18 @@ mod platform {
                 ("UserShell", "/usr/bin/false".into()),
                 ("NFSHomeDirectory", self.fixture_root.join("home").display().to_string()),
                 ("RealName", format!("cmux benchmark {}", self.user)),
-                ("AuthenticationAuthority", ";DisabledUser;".into()),
             ] {
                 sudo(["dscl", ".", "-create", &format!("/Users/{}", self.user), key, &value])?;
             }
             sudo(["dscl", ".", "-passwd", &format!("/Users/{}", self.user), "*"])?;
+            sudo([
+                "dscl",
+                ".",
+                "-create",
+                &format!("/Users/{}", self.user),
+                "AuthenticationAuthority",
+                ";DisabledUser;",
+            ])?;
             self.launchable = true;
             sudo(["dseditgroup", "-o", "edit", "-a", &self.user, "-t", "user", &self.group])?;
             sudo_path(["chgrp", "-R", &self.group], &self.fixture_root)?;
@@ -488,19 +583,38 @@ mod platform {
     }
 
     fn sudo<const N: usize>(arguments: [&str; N]) -> Result<()> {
-        let status = Command::new("sudo").arg("-n").args(arguments).status()?;
-        if !status.success() {
-            bail!("privileged macOS account command failed with {status}");
+        let output = Command::new("sudo").arg("-n").args(arguments).output()?;
+        if !output.status.success() {
+            bail!(
+                "privileged macOS account command failed with {}: {}",
+                output.status,
+                bounded_command_output(&output.stdout, &output.stderr)
+            );
         }
         Ok(())
     }
 
     fn sudo_path<const N: usize>(arguments: [&str; N], path: &Path) -> Result<()> {
-        let status = Command::new("sudo").arg("-n").args(arguments).arg(path).status()?;
-        if !status.success() {
-            bail!("privileged macOS fixture command failed with {status}");
+        let output = Command::new("sudo").arg("-n").args(arguments).arg(path).output()?;
+        if !output.status.success() {
+            bail!(
+                "privileged macOS fixture command failed with {}: {}",
+                output.status,
+                bounded_command_output(&output.stdout, &output.stderr)
+            );
         }
         Ok(())
+    }
+
+    fn bounded_command_output(stdout: &[u8], stderr: &[u8]) -> String {
+        const LIMIT: usize = 4 * 1024;
+        let stdout = &stdout[..stdout.len().min(LIMIT)];
+        let stderr = &stderr[..stderr.len().min(LIMIT)];
+        format!(
+            "stdout={:?}, stderr={:?}",
+            String::from_utf8_lossy(stdout),
+            String::from_utf8_lossy(stderr)
+        )
     }
 
     pub fn exec_product(mut command: Command, timing: TimingSink) -> Result<()> {
@@ -512,9 +626,13 @@ mod platform {
     fn terminate_job_user(user: &str) -> Result<()> {
         let pids = user_processes(user)?;
         let exits = ExitWatch::new(&pids)?;
-        let status = Command::new("sudo").args(["-n", "pkill", "-KILL", "-u", user]).status()?;
-        if !status.success() && status.code() != Some(1) {
-            bail!("Seatbelt job-user kill failed with {status}");
+        let output = Command::new("sudo").args(["-n", "pkill", "-KILL", "-u", user]).output()?;
+        if !output.status.success() && output.status.code() != Some(1) {
+            bail!(
+                "Seatbelt job-user kill failed with {}: {}",
+                output.status,
+                bounded_command_output(&output.stdout, &output.stderr)
+            );
         }
         exits.wait(CONTROL_TIMEOUT)?;
         let remaining = user_processes(user)?;
@@ -673,8 +791,8 @@ mod platform {
     use std::time::Instant;
 
     use windows_sys::Win32::Foundation::{
-        CloseHandle, DuplicateHandle, GENERIC_ALL, HANDLE, INVALID_HANDLE_VALUE, LocalFree,
-        WAIT_OBJECT_0,
+        CloseHandle, DuplicateHandle, ERROR_NOT_ALL_ASSIGNED, ERROR_SUCCESS, GENERIC_ALL,
+        GetLastError, HANDLE, INVALID_HANDLE_VALUE, LocalFree, SetLastError, WAIT_OBJECT_0,
     };
     use windows_sys::Win32::Security::Authorization::{
         ConvertStringSidToSidW, EXPLICIT_ACCESS_W, GRANT_ACCESS, GetNamedSecurityInfoW,
@@ -682,10 +800,13 @@ mod platform {
         TRUSTEE_IS_SID, TRUSTEE_IS_UNKNOWN, TRUSTEE_W,
     };
     use windows_sys::Win32::Security::{
-        ACL, CreateRestrictedToken, DACL_SECURITY_INFORMATION, DISABLE_MAX_PRIVILEGE, GetLengthSid,
-        LOGON32_LOGON_INTERACTIVE, LOGON32_PROVIDER_DEFAULT, LogonUserW, PSECURITY_DESCRIPTOR,
-        PSID, SID_AND_ATTRIBUTES, SUB_CONTAINERS_AND_OBJECTS_INHERIT, SetTokenInformation,
-        TOKEN_MANDATORY_LABEL, TokenIntegrityLevel, WRITE_RESTRICTED,
+        ACL, AdjustTokenPrivileges, CreateRestrictedToken, DACL_SECURITY_INFORMATION,
+        DISABLE_MAX_PRIVILEGE, GetLengthSid, LOGON32_LOGON_INTERACTIVE, LOGON32_PROVIDER_DEFAULT,
+        LUID_AND_ATTRIBUTES, LogonUserW, LookupPrivilegeValueW, PRIVILEGE_SET,
+        PSECURITY_DESCRIPTOR, PSID, PrivilegeCheck, SE_IMPERSONATE_NAME, SE_PRIVILEGE_ENABLED,
+        SID_AND_ATTRIBUTES, SUB_CONTAINERS_AND_OBJECTS_INHERIT, SetTokenInformation,
+        TOKEN_ADJUST_PRIVILEGES, TOKEN_MANDATORY_LABEL, TOKEN_PRIVILEGES, TOKEN_QUERY,
+        TokenIntegrityLevel, WRITE_RESTRICTED,
     };
     use windows_sys::Win32::System::Console::{
         GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
@@ -698,12 +819,13 @@ mod platform {
         SetInformationJobObject, TerminateJobObject,
     };
     use windows_sys::Win32::System::SystemServices::{
-        JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO, JOB_OBJECT_QUERY, SE_GROUP_INTEGRITY,
+        JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO, JOB_OBJECT_QUERY, PRIVILEGE_SET_ALL_NECESSARY,
+        SE_GROUP_INTEGRITY,
     };
     use windows_sys::Win32::System::Threading::{
-        CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, CreateProcessAsUserW, GetCurrentProcess,
-        GetExitCodeProcess, INFINITE, PROCESS_INFORMATION, ResumeThread, STARTF_USESTDHANDLES,
-        STARTUPINFOW, TerminateProcess, WaitForSingleObject,
+        CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, CreateProcessWithTokenW, GetCurrentProcess,
+        GetExitCodeProcess, INFINITE, OpenProcessToken, PROCESS_INFORMATION, ResumeThread,
+        STARTF_USESTDHANDLES, STARTUPINFOW, TerminateProcess, WaitForSingleObject,
     };
     use windows_sys::Win32::UI::Shell::{LoadUserProfileW, PROFILEINFOW, UnloadUserProfile};
 
@@ -811,6 +933,7 @@ mod platform {
 
     impl RestrictedToken {
         fn new(launch: &Launch) -> Result<Self> {
+            ensure_caller_impersonate_privilege()?;
             let user = env::var("CMUX_BENCH_WINDOWS_USER")
                 .context("CMUX_BENCH_WINDOWS_USER is required")?;
             let password = env::var("CMUX_BENCH_WINDOWS_PASSWORD")
@@ -925,13 +1048,11 @@ mod platform {
             // SAFETY: all strings are NUL-terminated and output storage remains live.
             check(
                 unsafe {
-                    CreateProcessAsUserW(
+                    CreateProcessWithTokenW(
                         self.token.0,
+                        0,
                         application.as_ptr(),
                         command_line.as_mut_ptr(),
-                        null(),
-                        null(),
-                        1,
                         CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT,
                         environment.as_mut_ptr().cast::<c_void>(),
                         current_directory.as_ptr(),
@@ -1019,6 +1140,58 @@ mod platform {
     }
 
     const JOB_COMPLETION_KEY: usize = 0x434d_5558;
+
+    fn ensure_caller_impersonate_privilege() -> Result<()> {
+        let mut token = null_mut();
+        // SAFETY: token points to writable handle storage.
+        check(
+            unsafe {
+                OpenProcessToken(
+                    GetCurrentProcess(),
+                    TOKEN_QUERY | TOKEN_ADJUST_PRIVILEGES,
+                    &mut token,
+                )
+            },
+            "open supervisor process token",
+        )?;
+        let token = OwnedHandle(token);
+        let mut luid = Default::default();
+        // SAFETY: the privilege name is a static NUL-terminated string and luid is writable.
+        check(
+            unsafe { LookupPrivilegeValueW(null(), SE_IMPERSONATE_NAME, &mut luid) },
+            "resolve SeImpersonatePrivilege",
+        )?;
+        let privileges = TOKEN_PRIVILEGES {
+            PrivilegeCount: 1,
+            Privileges: [LUID_AND_ATTRIBUTES { Luid: luid, Attributes: SE_PRIVILEGE_ENABLED }],
+        };
+        // AdjustTokenPrivileges reports an absent privilege through last-error on success.
+        unsafe { SetLastError(ERROR_SUCCESS) };
+        // SAFETY: token is live and privileges describes one initialized entry.
+        check(
+            unsafe { AdjustTokenPrivileges(token.0, 0, &privileges, 0, null_mut(), null_mut()) },
+            "enable SeImpersonatePrivilege",
+        )?;
+        // AdjustTokenPrivileges can succeed while reporting that the privilege was absent.
+        if unsafe { GetLastError() } == ERROR_NOT_ALL_ASSIGNED {
+            bail!("supervisor token does not contain SeImpersonatePrivilege");
+        }
+        let mut required = PRIVILEGE_SET {
+            PrivilegeCount: 1,
+            Control: PRIVILEGE_SET_ALL_NECESSARY,
+            Privilege: [LUID_AND_ATTRIBUTES { Luid: luid, Attributes: SE_PRIVILEGE_ENABLED }],
+        };
+        let mut enabled = 0;
+        // SAFETY: token and required are live, and enabled is writable.
+        check(
+            unsafe { PrivilegeCheck(token.0, &mut required, &mut enabled) },
+            "verify SeImpersonatePrivilege",
+        )?;
+        if enabled == 0 {
+            bail!("supervisor SeImpersonatePrivilege is not enabled");
+        }
+        Ok(())
+    }
 
     fn create_non_breakaway_job(
         prove_private_job: bool,
@@ -1321,6 +1494,10 @@ fn forwarded_args(launch: &Launch) -> Vec<String> {
         launch.fixture_root.to_string_lossy().into_owned(),
         "--target".into(),
         launch.target.to_string_lossy().into_owned(),
+        "--target-sha256".into(),
+        launch.target_sha256.clone(),
+        "--supervisor-sha256".into(),
+        launch.supervisor_sha256.clone(),
     ];
     if launch.prove_private_job {
         values.push("--prove-private-job".into());

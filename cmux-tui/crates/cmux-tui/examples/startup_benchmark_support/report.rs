@@ -295,6 +295,7 @@ struct SandboxPreflightEvidence {
     windows_grandchild_in_job: Option<bool>,
     windows_breakaway_denied: Option<bool>,
     windows_active_process_zero: Option<bool>,
+    windows_caller_se_impersonate_enabled: Option<bool>,
     supervisor_ready: bool,
     timing_records: u64,
     supervisor_sha256: String,
@@ -325,8 +326,6 @@ impl SandboxPreflightEvidence {
                     && self.linux_effective_capabilities_zero == Some(true)
                     && self.linux_sudo_bwrap.is_some()
                     && self.linux_bwrap_version.as_ref().is_some_and(|value| !value.is_empty())
-                    && self.linux_unprivileged_userns_clone.is_some()
-                    && self.linux_max_user_namespaces.is_some()
                     && self.windows_proofs_absent()
             }
             "macos-seatbelt" => {
@@ -345,6 +344,7 @@ impl SandboxPreflightEvidence {
                     && self.windows_grandchild_in_job == Some(true)
                     && self.windows_breakaway_denied == Some(true)
                     && self.windows_active_process_zero == Some(true)
+                    && self.windows_caller_se_impersonate_enabled == Some(true)
             }
             _ => false,
         };
@@ -361,6 +361,7 @@ impl SandboxPreflightEvidence {
             && self.windows_grandchild_in_job.is_none()
             && self.windows_breakaway_denied.is_none()
             && self.windows_active_process_zero.is_none()
+            && self.windows_caller_se_impersonate_enabled.is_none()
     }
 
     fn linux_provenance_absent(&self) -> bool {

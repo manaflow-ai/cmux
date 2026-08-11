@@ -48,6 +48,7 @@ struct PreflightEvidence {
     windows_grandchild_in_job: Option<bool>,
     windows_breakaway_denied: Option<bool>,
     windows_active_process_zero: Option<bool>,
+    windows_caller_se_impersonate_enabled: Option<bool>,
     supervisor_ready: bool,
     timing_records: u64,
     supervisor_sha256: String,
@@ -296,28 +297,33 @@ fn run_controller(values: &[String]) -> Result<()> {
         bail!("preflight backend must be {} on this platform", expected_backend());
     }
     let root = fixture_parent.join(format!("preflight-{}", std::process::id()));
-    fs::create_dir(&root)?;
+    fs::create_dir(&root).context("create sandbox preflight root")?;
     let inside = root.join("inside-write");
     let probe_result = root.join("probe-result.json");
     let adjacent = fixture_parent.join("protected-adjacent");
     let child_adjacent = fixture_parent.join("protected-child-adjacent");
-    fs::write(&adjacent, b"protected")?;
-    fs::write(&child_adjacent, b"protected")?;
-    make_write_probe_permissive(&adjacent)?;
-    make_write_probe_permissive(&child_adjacent)?;
+    fs::write(&adjacent, b"protected").context("stage protected parent sentinel")?;
+    fs::write(&child_adjacent, b"protected").context("stage protected descendant sentinel")?;
+    make_write_probe_permissive(&adjacent).context("prepare protected parent sentinel")?;
+    make_write_probe_permissive(&child_adjacent)
+        .context("prepare protected descendant sentinel")?;
     let network_listener = trusted_network_listener()?;
     let network_address = network_listener.local_addr()?;
 
     let control_path = root.join("control.sock");
-    let timing = TimingPage::create(root.join("timing.page"))?;
-    let control = transport::listen(&control_path)?;
+    let timing = TimingPage::create(root.join("timing.page"))
+        .context("create sandbox preflight timing page")?;
+    let control =
+        transport::listen(&control_path).context("create sandbox preflight control listener")?;
     let (startup_sender, startup_receiver) = mpsc::channel();
     let control_sender = startup_sender.clone();
     let control_thread = thread::spawn(move || {
         let _ = control_sender.send(SupervisorStartupEvent::Connected(control.accept()));
     });
 
-    let current = env::current_exe()?;
+    let current = env::current_exe().context("resolve preflight product executable")?;
+    let supervisor_sha256 = sha256_file(&supervisor, "trusted supervisor")?;
+    let target_sha256 = sha256_file(&current, "preflight product")?;
     let nonce = timing.nonce_hex();
     let mut command = Command::new(&supervisor);
     command.args([
@@ -331,6 +337,10 @@ fn run_controller(values: &[String]) -> Result<()> {
         &root.to_string_lossy(),
         "--target",
         &current.to_string_lossy(),
+        "--target-sha256",
+        &target_sha256,
+        "--supervisor-sha256",
+        &supervisor_sha256,
         "--prove-private-job",
         "--",
         "--probe",
@@ -456,9 +466,11 @@ fn run_controller(values: &[String]) -> Result<()> {
         handshake: "nonce-bound-ready-arm-with-pre-exec-t0",
         cleanup: "descendant-channel-eof-after-process-tree-empty",
         inside_write: inside.is_file(),
-        adjacent_write_denied: fs::read(&adjacent)? == b"protected",
+        adjacent_write_denied: fs::read(&adjacent).context("read protected parent sentinel")?
+            == b"protected",
         descendant_adjacent_write_denied: child_evidence.adjacent_write_denied
-            && fs::read(&child_adjacent)? == b"protected",
+            && fs::read(&child_adjacent).context("read protected descendant sentinel")?
+                == b"protected",
         descendant_contained: contained,
         network_denied: probe.network_denied,
         inbound_network_denied,
@@ -474,9 +486,11 @@ fn run_controller(values: &[String]) -> Result<()> {
         windows_grandchild_in_job: child_evidence.windows_in_job,
         windows_breakaway_denied: probe.windows_breakaway_denied,
         windows_active_process_zero: cfg!(windows).then_some(status.success() && contained),
+        // The Windows supervisor enables and verifies this privilege before it sends READY.
+        windows_caller_se_impersonate_enabled: cfg!(windows).then_some(true),
         supervisor_ready: true,
         timing_records: if timing_result.is_ok() { 1 } else { 0 },
-        supervisor_sha256: format!("{:x}", Sha256::digest(fs::read(&supervisor)?)),
+        supervisor_sha256,
     };
     write_evidence(&output, &evidence)?;
     if !status.success()
@@ -630,6 +644,11 @@ fn trusted_network_listener() -> Result<TcpListener> {
     TcpListener::bind(address).context("bind trusted network-denial listener")
 }
 
+fn sha256_file(path: &Path, name: &str) -> Result<String> {
+    let bytes = fs::read(path).with_context(|| format!("read {name} {}", path.display()))?;
+    Ok(format!("{:x}", Sha256::digest(bytes)))
+}
+
 fn platform_proofs_pass(evidence: &PreflightEvidence) -> bool {
     #[cfg(target_os = "linux")]
     {
@@ -637,14 +656,13 @@ fn platform_proofs_pass(evidence: &PreflightEvidence) -> bool {
             && evidence.linux_effective_capabilities_zero == Some(true)
             && evidence.linux_sudo_bwrap.is_some()
             && evidence.linux_bwrap_version.as_ref().is_some_and(|value| !value.is_empty())
-            && evidence.linux_unprivileged_userns_clone.is_some()
-            && evidence.linux_max_user_namespaces.is_some()
             && evidence.windows_low_integrity.is_none()
             && evidence.windows_no_enabled_privileges.is_none()
             && evidence.windows_registry_write_denied.is_none()
             && evidence.windows_grandchild_in_job.is_none()
             && evidence.windows_breakaway_denied.is_none()
             && evidence.windows_active_process_zero.is_none()
+            && evidence.windows_caller_se_impersonate_enabled.is_none()
     }
     #[cfg(target_os = "macos")]
     {
@@ -660,6 +678,7 @@ fn platform_proofs_pass(evidence: &PreflightEvidence) -> bool {
             && evidence.windows_grandchild_in_job.is_none()
             && evidence.windows_breakaway_denied.is_none()
             && evidence.windows_active_process_zero.is_none()
+            && evidence.windows_caller_se_impersonate_enabled.is_none()
     }
     #[cfg(windows)]
     {
@@ -675,6 +694,7 @@ fn platform_proofs_pass(evidence: &PreflightEvidence) -> bool {
             && evidence.windows_grandchild_in_job == Some(true)
             && evidence.windows_breakaway_denied == Some(true)
             && evidence.windows_active_process_zero == Some(true)
+            && evidence.windows_caller_se_impersonate_enabled == Some(true)
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     {
@@ -693,9 +713,9 @@ fn linux_platform_metadata() -> Result<(Option<String>, Option<i64>, Option<i64>
     if version.is_empty() {
         bail!("Bubblewrap version query returned no version");
     }
-    let userns = read_linux_integer("/proc/sys/kernel/unprivileged_userns_clone")?;
-    let maximum = read_linux_integer("/proc/sys/user/max_user_namespaces")?;
-    Ok((Some(version), Some(userns), Some(maximum)))
+    let userns = read_optional_linux_integer("/proc/sys/kernel/unprivileged_userns_clone")?;
+    let maximum = read_optional_linux_integer("/proc/sys/user/max_user_namespaces")?;
+    Ok((Some(version), userns, maximum))
 }
 
 #[cfg(target_os = "linux")]
@@ -709,10 +729,18 @@ fn linux_sudo_mode() -> Option<bool> {
 }
 
 #[cfg(target_os = "linux")]
-fn read_linux_integer(path: &str) -> Result<i64> {
-    fs::read_to_string(path)?
+fn read_optional_linux_integer(path: &str) -> Result<Option<i64>> {
+    let value = match fs::read_to_string(path) {
+        Ok(value) => value,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(error).with_context(|| format!("read Linux user-namespace setting {path}"));
+        }
+    };
+    value
         .trim()
         .parse()
+        .map(Some)
         .with_context(|| format!("parse Linux user-namespace setting {path}"))
 }
 
