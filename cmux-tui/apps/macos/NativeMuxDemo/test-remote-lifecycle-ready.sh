@@ -28,7 +28,8 @@ source "$READY_HELPER"
 LOG="$TEST_ROOT/launcher.log"
 POLL_REQUEST="$TEST_ROOT/poll-request"
 POLL_RELEASE="$TEST_ROOT/poll-release"
-mkfifo "$POLL_REQUEST" "$POLL_RELEASE"
+STALLED_TRANSFER="$TEST_ROOT/stalled-transfer"
+mkfifo "$POLL_REQUEST" "$POLL_RELEASE" "$STALLED_TRANSFER"
 
 await_poll() {
   IFS= read -r _ <"$POLL_REQUEST"
@@ -71,7 +72,9 @@ CHILD_PID=""
 unset -f sleep
 
 : >"$LOG"
-sleep 1 &
+# A reader blocked on an owner-controlled FIFO stays alive until the test kills
+# it. This models a stalled transfer without depending on elapsed time.
+IFS= read -r _ <"$STALLED_TRANSFER" &
 CHILD_PID=$!
 set +e
 cmux_wait_for_remote_demo_ready "$LOG" "$CHILD_PID" 3 2 0.01

@@ -109,12 +109,10 @@ for run in $(seq 1 "$TOTAL_RUNS"); do
     exit 1
   fi
 
-  for _ in $(seq 1 100); do
-    APP_PID="$(new_app_pid "$APP_PIDS_BEFORE" || true)"
-    [[ -n "$APP_PID" ]] && break
-    sleep 0.1
-  done
-  if [[ -z "$APP_PID" ]]; then
+  PUBLISHED_APP_PID="$(sed -n 's/^NativeMuxDemo PID: \([1-9][0-9]*\)$/\1/p' \
+    "$LAUNCH_LOG" | tail -n 1)"
+  APP_PID="$(new_app_pid "$APP_PIDS_BEFORE" || true)"
+  if [[ -z "$APP_PID" || "$APP_PID" != "$PUBLISHED_APP_PID" ]]; then
     echo "Remote demo run $run did not expose its isolated app process." >&2
     exit 1
   fi
