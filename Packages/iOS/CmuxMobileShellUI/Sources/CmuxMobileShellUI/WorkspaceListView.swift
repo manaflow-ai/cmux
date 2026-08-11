@@ -124,13 +124,23 @@ struct WorkspaceListView: View {
     /// The query is owned by ``WorkspaceListSearchHost`` so authoritative
     /// workspace refreshes cannot recreate the native search presentation.
     var searchText = ""
+    @Environment(\.mobileChildPresentationProvider) private var childPresentationProvider
     @State private var showingShortcutsSettings = false
     @State private var showingSettings = false
     /// Presents the view-options card (sort tiles + filter rows).
     @State var showingViewOptionsPopover = false
     @State private var settingsPairingScannerHandoff = SettingsPairingScannerHandoff()
-    @State private var showingDeviceTree = false
-    @State private var changesSheetTarget: WorkspaceChangesSheetTarget? = nil
+    @State private var showingDeviceTree = {
+        #if DEBUG
+        AutoConnectMigrationUITestConfiguration.currentProcess?.initialModalHost
+            == .workspaceListDeviceTree
+        #else
+        false
+        #endif
+    }()
+    /// Local presenter identity remains separate from the selected changes payload.
+    @State var isWorkspaceChangesPresented = false
+    @State var changesSheetTarget: WorkspaceChangesSheetTarget? = nil
     @State private var macTitlePickerSwitchTask: Task<Void, Never>?
     @State private var macTitlePickerSwitchIsCancellation = false
     @State private var macTitlePickerSwitchGeneration: UInt64 = 0
@@ -153,6 +163,7 @@ struct WorkspaceListView: View {
     @State var workspaceRenameDraft = ""
     /// The workspace whose UIKit context-menu action is presenting the shared
     /// customization sheet.
+    @State var isWorkspaceCustomizationPresented = false
     @State var workspacePendingCustomizationID: MobileWorkspacePreview.ID?
     /// The group whose UIKit context-menu action is presenting the shared
     /// rename alert.
@@ -184,6 +195,43 @@ struct WorkspaceListView: View {
     var filter: MobileWorkspaceListFilter {
         get { filterState.filter }
         nonmutating set { filterState.filter = newValue }
+    }
+
+    /// Uses the root modal owner in the live app and local state in previews.
+    func resolvedPresentation(
+        for child: MobileRootPresentationState.ChildPresentation,
+        fallback: Binding<Bool>
+    ) -> MobileChildSheetPresentation {
+        childPresentationProvider?.presentation(for: child, fallback: fallback)
+            ?? MobileChildSheetPresentation(isPresented: fallback)
+    }
+
+    private var terminalShortcutsPresentation: MobileChildSheetPresentation {
+        resolvedPresentation(
+            for: .workspaceList(.terminalShortcutsSettings),
+            fallback: $showingShortcutsSettings
+        )
+    }
+
+    private var settingsPresentation: MobileChildSheetPresentation {
+        resolvedPresentation(
+            for: .workspaceList(.settings),
+            fallback: $showingSettings
+        )
+    }
+
+    private var deviceTreePresentation: MobileChildSheetPresentation {
+        resolvedPresentation(
+            for: .workspaceList(.deviceTree),
+            fallback: $showingDeviceTree
+        )
+    }
+
+    var viewOptionsPresentation: MobileChildSheetPresentation {
+        resolvedPresentation(
+            for: .workspaceList(.viewOptions),
+            fallback: $showingViewOptionsPopover
+        )
     }
 
     var trimmedQuery: String {
@@ -508,17 +556,21 @@ struct WorkspaceListView: View {
             filter.pruneMachinesForFilterMenu(visibleMacSelection: selection)
         }
         #if os(iOS)
-        .sheet(isPresented: $showingShortcutsSettings) {
+        .sheet(
+            isPresented: terminalShortcutsPresentation.isPresented,
+            onDismiss: terminalShortcutsPresentation.didDismiss
+        ) {
             TerminalShortcutsSettingsView()
         }
-        .sheet(isPresented: $showingSettings, onDismiss: {
+        .sheet(isPresented: settingsPresentation.isPresented, onDismiss: {
+            settingsPresentation.didDismiss()
             settingsPairingScannerHandoff.settingsDidDismiss(startScanner: showPairingScanner)
         }) {
             MobileSettingsView(
                 connectedHostName: host,
                 startPairingScanner: {
                     settingsPairingScannerHandoff.requestScannerAfterDismiss(
-                        isSettingsPresented: $showingSettings
+                        isSettingsPresented: settingsPresentation.isPresented
                     )
                 },
                 signOut: signOut,
@@ -529,7 +581,10 @@ struct WorkspaceListView: View {
         // not nested under Settings), so selecting a workspace dismisses straight
         // back to the workspace shell and reveals the opened workspace rather than
         // leaving a parent sheet covering it.
-        .sheet(isPresented: $showingDeviceTree) {
+        .sheet(
+            isPresented: deviceTreePresentation.isPresented,
+            onDismiss: deviceTreePresentation.didDismiss
+        ) {
             if let store {
                 DeviceTreeView(
                     store: store,
@@ -547,7 +602,13 @@ struct WorkspaceListView: View {
                 renameWorkspace?(workspaceID, trimmed)
             }
         }
-        .sheet(isPresented: workspaceCustomizationIsPresented) {
+        .sheet(
+            isPresented: workspaceCustomizationPresentation.isPresented,
+            onDismiss: {
+                workspacePendingCustomizationID = nil
+                workspaceCustomizationPresentation.didDismiss()
+            }
+        ) {
             if let workspaceID = workspacePendingCustomizationID,
                let workspace = workspaces.first(where: { $0.id == workspaceID }) {
                 WorkspaceCustomizationSheet(workspace: workspace) { initialDraft, submittedDraft in
@@ -563,8 +624,14 @@ struct WorkspaceListView: View {
                 renameWorkspaceGroup?(groupID, newName)
             }
         }
-        .sheet(item: $changesSheetTarget) { target in
-            if let store {
+        .sheet(
+            isPresented: workspaceChangesPresentation.isPresented,
+            onDismiss: {
+                changesSheetTarget = nil
+                workspaceChangesPresentation.didDismiss()
+            }
+        ) {
+            if let target = changesSheetTarget, let store {
                 WorkspaceChangesSheet(
                     store: store,
                     workspaceID: target.workspaceID,
@@ -777,7 +844,7 @@ struct WorkspaceListView: View {
     #if os(iOS)
     var devicesButton: some View {
         Button {
-            showingDeviceTree = true
+            deviceTreePresentation.present()
         } label: {
             Image(systemName: "desktopcomputer")
         }
@@ -877,8 +944,8 @@ struct WorkspaceListView: View {
             unreadIndicatorLeftShift: unreadIndicatorLeftShift,
             selectWorkspace: { id in _ = selectWorkspaceFromList(id) },
             renameWorkspace: capabilities.supportsWorkspaceActions ? renameWorkspace : nil,
-            customizeWorkspace: capabilities.supportsWorkspaceActions
-                && capabilities.supportsWorkspaceMetadata ? customizeWorkspace : nil,
+            requestCustomization: capabilities.supportsWorkspaceActions
+                && capabilities.supportsWorkspaceMetadata ? requestWorkspaceCustomization : nil,
             setPinned: capabilities.supportsWorkspaceActions ? setPinned : nil,
             setUnread: capabilities.supportsReadStateActions ? setUnread : nil,
             groupMoveMenu: capabilities.supportsMoveActions ? {
@@ -908,10 +975,12 @@ struct WorkspaceListView: View {
 
     func openWorkspaceChanges(_ workspace: MobileWorkspacePreview) {
         guard store != nil else { return }
-        changesSheetTarget = WorkspaceChangesSheetTarget(
-            workspaceID: workspace.rpcWorkspaceID.rawValue,
-            workspaceTitle: workspace.name
-        )
+        workspaceChangesPresentation.present {
+            changesSheetTarget = WorkspaceChangesSheetTarget(
+                workspaceID: workspace.rpcWorkspaceID.rawValue,
+                workspaceTitle: workspace.name
+            )
+        }
     }
 
     var settingsMenu: some View {
@@ -919,7 +988,7 @@ struct WorkspaceListView: View {
         // Open the full Settings page (account, terminal shortcuts,
         // notifications, paired Mac) rather than a transient menu.
         Button {
-            showingSettings = true
+            settingsPresentation.present()
         } label: {
             MobileWorkspaceSettingsIcon()
         }
@@ -928,7 +997,7 @@ struct WorkspaceListView: View {
         #else
         Menu {
             Button {
-                showingShortcutsSettings = true
+                terminalShortcutsPresentation.present()
             } label: {
                 Label(
                     L10n.string("mobile.workspaces.terminalShortcuts", defaultValue: "Terminal Shortcuts"),
