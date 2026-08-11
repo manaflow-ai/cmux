@@ -564,10 +564,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             cmux_ssh_auth_recovery_unlock
             return 0
           fi
-          cmux_ssh_auth_reaper_publisher_record=$(/bin/cat -- \
-            "$cmux_ssh_auth_reaper_lock/publisher" 2>/dev/null || true)
           if ! cmux_ssh_auth_parse_recorded_process \
-              "$cmux_ssh_auth_reaper_publisher_record"; then
+              "$cmux_ssh_auth_reaper_lock/publisher"; then
             /bin/rm -f -- "$cmux_ssh_auth_reaper_lock/publisher" \
               "$cmux_ssh_auth_reaper_lock/publisher.new" \
               "$cmux_ssh_auth_reaper_lock/generation" \
@@ -576,6 +574,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             cmux_ssh_auth_recovery_unlock
             return 0
           fi
+          cmux_ssh_auth_reaper_publisher_record=$(/bin/cat -- \
+            "$cmux_ssh_auth_reaper_lock/publisher" 2>/dev/null || true)
           cmux_ssh_auth_reaper_publisher_pid="$CMUX_SSH_AUTH_RECORDED_PID"
           cmux_ssh_auth_reaper_caller_group=$(/usr/bin/env LC_ALL=C LANG=C \
             /bin/ps -o pgid= -p "$cmux_ssh_auth_reaper_publisher_pid" \

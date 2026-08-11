@@ -801,6 +801,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         : > "$CMUX_TEST_FROZEN"
         printf '101 1 11 Thu_Jan_1_00:00:00_1970 T\n' > "$CMUX_TEST_OWNED"
         printf '11\n' > "$CMUX_TEST_GROUPS"
+        printf '101 1 11 T Thu Jan 1 00:00:00 1970\n' > "$CMUX_TEST_INITIAL_SNAPSHOT"
         : > "$CMUX_TEST_SIGNALS"
         cmux_ssh_auth_process_snapshot="$CMUX_TEST_CURRENT_SNAPSHOT"
         cmux_ssh_auth_frozen_processes="$CMUX_TEST_FROZEN"
