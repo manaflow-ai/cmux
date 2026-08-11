@@ -5420,6 +5420,37 @@ fn journal_agent_live_session_events_wait_in_journal_for_pending_rebuild() {
             .append_journal_ingress(&ingress, &validated, "client_live_during_rebuild", key)
             .unwrap();
     }
+    let successor = crate::agent_hook_journal_ingress(
+        "pi",
+        "SessionStart",
+        Some(terminal_id.as_str()),
+        json!({"session_id":"successor-during-rebuild"}),
+    )
+    .unwrap();
+    reopened
+        .append_journal_ingress(
+            &successor,
+            &validated,
+            "client_live_during_rebuild",
+            "journal_agent_live_during_rebuild_successor",
+        )
+        .unwrap();
+    let retired = crate::agent_hook_journal_ingress(
+        "pi",
+        "AgentStart",
+        Some(terminal_id.as_str()),
+        json!({"session_id":"session-during-rebuild"}),
+    )
+    .unwrap();
+    let error = reopened
+        .append_journal_ingress(
+            &retired,
+            &validated,
+            "client_live_during_rebuild",
+            "journal_agent_live_during_rebuild_retired",
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("superseded generation"));
 
     for _ in 0..4 {
         if reopened.continue_agent_projection_rebuild().unwrap() {
@@ -5428,9 +5459,9 @@ fn journal_agent_live_session_events_wait_in_journal_for_pending_rebuild() {
     }
     assert!(!reopened.agent_projection_rebuild_pending().unwrap());
     let agent = reopened.public_projections().unwrap().agents.remove(0);
-    assert_eq!(agent.state, "working");
+    assert_eq!(agent.state, "idle");
     assert_eq!(agent.source, "hook");
-    assert_eq!(agent.source_session.as_deref(), Some("session-during-rebuild"));
+    assert_eq!(agent.source_session.as_deref(), Some("successor-during-rebuild"));
     drop(reopened);
     fs::remove_dir_all(root).unwrap();
 }
