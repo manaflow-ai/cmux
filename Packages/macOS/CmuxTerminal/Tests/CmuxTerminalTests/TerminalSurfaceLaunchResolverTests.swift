@@ -264,6 +264,63 @@ struct TerminalSurfaceLaunchResolverTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func launchResourceWaitersShareOneProviderDeadline() async throws {
+        let state = TerminalSurfaceLaunchResourceProviderState()
+        let clock = LaunchResolverManualClock()
+        let first = Task {
+            await state.value(
+                identifier: UUID(),
+                deadline: .seconds(5),
+                clock: clock
+            )
+        }
+        while await state.pendingWaiterCount < 1 { await Task.yield() }
+        let second = Task {
+            await state.value(
+                identifier: UUID(),
+                deadline: .seconds(5),
+                clock: clock
+            )
+        }
+        while await state.pendingWaiterCount < 2 { await Task.yield() }
+
+        #expect(await state.pendingDeadlineCount == 1)
+        clock.advance(by: .seconds(5))
+        #expect(await first.value == .unavailable)
+        #expect(await second.value == .unavailable)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func defaultShellWaitersShareOneProviderDeadline() async throws {
+        let state = TerminalSurfaceDefaultShellArgumentsState()
+        let clock = LaunchResolverManualClock()
+        let fallback = ["/bin/zsh", "-l"]
+        let first = Task {
+            await state.value(
+                identifier: UUID(),
+                fallback: fallback,
+                deadline: .seconds(5),
+                clock: clock
+            )
+        }
+        while await state.pendingWaiterCount < 1 { await Task.yield() }
+        let second = Task {
+            await state.value(
+                identifier: UUID(),
+                fallback: fallback,
+                deadline: .seconds(5),
+                clock: clock
+            )
+        }
+        while await state.pendingWaiterCount < 2 { await Task.yield() }
+
+        #expect(await state.pendingDeadlineCount == 1)
+        clock.advance(by: .seconds(5))
+        #expect(await first.value == fallback)
+        #expect(await second.value == fallback)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func hungLaunchResourceCheckUsesInjectedDeadlineFallback() async throws {
         let blocker = DispatchSemaphore(value: 0)
         defer { blocker.signal() }
