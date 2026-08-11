@@ -18,7 +18,9 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryFailureDrain:
 
   private let maximumFailureCount: Int
   private let admission: TerminalSurfaceRuntimeOwnershipAdmission
-  private let state = OSAllocatedUnfairLock(initialState: State())
+  // Safety: this lock owns all mutable failure and task state. Failure
+  // callbacks leave the lock before they run on the MainActor.
+  private let state = OSAllocatedUnfairLock(uncheckedState: State())
 
   internal init(
     maximumFailureCount: Int,
@@ -34,7 +36,7 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryFailureDrain:
   ) {
     guard !failures.isEmpty else { return }
     var startGate: TerminalSurfaceRuntimeTeardownStartGate?
-    state.withLock { state in
+    state.withLockUnchecked { state in
       let pendingCount = state.failures.count - state.nextFailureIndex
       precondition(
         pendingCount + failures.count <= maximumFailureCount,
@@ -51,7 +53,7 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryFailureDrain:
   }
 
   deinit {
-    state.withLock { state in
+    state.withLockUnchecked { state in
       state.task?.cancel()
       state.task = nil
     }
@@ -72,7 +74,7 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryFailureDrain:
 
   @MainActor
   private func runScheduledBatch() {
-    let batch = state.withLock { state in
+    let batch = state.withLockUnchecked { state in
       let endIndex = min(
         state.nextFailureIndex + Self.maximumBatchCount,
         state.failures.count
@@ -87,7 +89,7 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryFailureDrain:
     admission.completeStalledCloseRecoveryFailures(batch.count)
 
     var startGate: TerminalSurfaceRuntimeTeardownStartGate?
-    state.withLock { state in
+    state.withLockUnchecked { state in
       state.task = nil
       if state.nextFailureIndex == state.failures.count {
         state.failures.removeAll(keepingCapacity: true)
