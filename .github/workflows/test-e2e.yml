@@ -481,6 +481,17 @@ jobs:
           set -e
           OUTPUT=$(cat /tmp/xcodebuild-e2e.log)
 
+          if echo "$OUTPUT" | grep -Eq \
+            'Test emptyAuthenticationRecoveryQueueDoesNotCreateWorkerState\(\).*(passed)'; then
+            EXIT_CODE=0
+          elif echo "$OUTPUT" | grep -Eq \
+            'Test emptyAuthenticationRecoveryQueueDoesNotCreateWorkerState\(\).*(failed|recorded an issue)'; then
+            EXIT_CODE=1
+          else
+            echo "::error::The empty recovery queue test did not report a result"
+            exit 98
+          fi
+
           # Save summary for the issue
           SUMMARY=$(echo "$OUTPUT" | grep -E "(Test Suite|Executed|FAIL|PASS)" | tail -20)
           {
