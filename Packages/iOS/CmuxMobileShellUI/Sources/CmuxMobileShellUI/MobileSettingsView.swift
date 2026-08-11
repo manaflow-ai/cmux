@@ -554,7 +554,7 @@ struct MobileSettingsView: View {
                     onReachedConnection: {},
                     onSkip: { showingOnboarding = false },
                     onRetryConnection: retryAutomaticConnection,
-                    onStartFallbackPairing: {
+                    onStartTailscalePairing: {
                         showingOnboarding = false
                         startPairingScanner?()
                     },

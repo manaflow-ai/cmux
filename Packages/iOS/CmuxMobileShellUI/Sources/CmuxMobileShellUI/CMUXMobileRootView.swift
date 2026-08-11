@@ -419,8 +419,8 @@ struct CMUXMobileRootView: View {
                 // auto-presents the pairing sheet since there is nothing to list).
                 DisconnectedWorkspaceShellView(
                     hasKnownPairedMac: store.hasKnownPairedMac,
-                    showAddDevice: showAddDevice,
-                    showPairingScanner: showPairingScanner,
+                    showAddDevice: addComputerAction,
+                    showPairingScanner: pairingScannerAction,
                     signOut: signOut,
                     setupHelpHighlight: disconnectedSetupHelpHighlight,
                     store: store,
@@ -442,8 +442,8 @@ struct CMUXMobileRootView: View {
                     store: store,
                     isRestoringStoredMac: isRestoringStoredMac,
                     signOut: signOut,
-                    showAddDevice: showAddDevice,
-                    showPairingScanner: showPairingScanner,
+                    showAddDevice: addComputerAction,
+                    showPairingScanner: pairingScannerAction,
                     showSettings: showSettings,
                     deviceTreePresentation: childSheetPresentation(
                         for: .workspaceDeviceTree
@@ -556,7 +556,7 @@ struct CMUXMobileRootView: View {
     private func settingsSheet(initialFocus: MobileSettingsFocus?) -> some View {
         MobileSettingsView(
             connectedHostName: store.connectedHostName,
-            startPairingScanner: showPairingScanner,
+            startPairingScanner: pairingScannerAction,
             signOut: signOut,
             store: store,
             initialFocus: initialFocus,
@@ -735,7 +735,7 @@ struct CMUXMobileRootView: View {
             onReachedConnection: markOnboardingReadyToConnect,
             onSkip: completeOnboarding,
             onRetryConnection: retryAutomaticConnection,
-            onStartFallbackPairing: showOnboardingPairingScanner,
+            onStartTailscalePairing: showOnboardingPairingScanner,
             onComplete: completeOnboarding
         )
         #else
@@ -758,7 +758,7 @@ struct CMUXMobileRootView: View {
             onReachedConnection: markOnboardingReadyToConnect,
             onSkip: completeOnboarding,
             onRetryConnection: {},
-            onStartFallbackPairing: showOnboardingPairingScanner,
+            onStartTailscalePairing: showOnboardingPairingScanner,
             onComplete: completeOnboarding
         )
         #else
@@ -892,8 +892,30 @@ struct CMUXMobileRootView: View {
         presentAddDevice(.scanner(entry: .onboardingFallback))
     }
 
+    /// Manual host and pairing-code authorization create Tailscale routes, so
+    /// every ordinary Add Computer entrypoint shares this availability gate.
+    private var addComputerAction: (() -> Void)? {
+        guard allowsManualPairing else { return nil }
+        return showAddDevice
+    }
+
+    /// Scanner entrypoints use the same gate as the manual pairing form.
+    private var pairingScannerAction: (() -> Void)? {
+        guard allowsManualPairing else { return nil }
+        return showPairingScanner
+    }
+
+    private var allowsManualPairing: Bool {
+        #if os(iOS)
+        connectionMethodStore?.method == .tailscale
+        #else
+        true
+        #endif
+    }
+
     /// Routes every add-device entrypoint through the platform's root presenter.
     private func presentAddDevice(_ presentation: PairingPresentation) {
+        guard allowsManualPairing else { return }
         #if os(iOS)
         addDeviceSheetDetent = .large
         handleRootPresentation(.presentPairing(presentation))

@@ -5890,6 +5890,7 @@ final class cmuxUITests: XCTestCase {
         let app = launchApp(mockData: true, environment: [
             "CMUX_UITEST_ADD_DEVICE_PORT": String(portText.dropLast()),
         ], launchArguments: [
+            "-dev.cmux.mobile.connectionMethod.v1", "tailscale",
             "-cmux.mobile.taskComposerEnabled", "YES",
         ])
         let pairingForm = app.otherElements["MobileAddDeviceForm"]
@@ -5962,7 +5963,11 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     private func launchAddDeviceApp(environment: [String: String] = [:]) -> XCUIApplication {
-        let app = launchApp(mockData: true, environment: environment)
+        let app = launchApp(
+            mockData: true,
+            environment: environment,
+            launchArguments: ["-dev.cmux.mobile.connectionMethod.v1", "tailscale"]
+        )
         XCTAssertTrue(app.otherElements["MobileAddDeviceForm"].waitForExistence(timeout: 8))
         return app
     }
