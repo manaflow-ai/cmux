@@ -13,6 +13,153 @@ pub(super) struct RestoredPublicProjections {
     pub(super) notification_ledger: VecDeque<ResourceNotification>,
 }
 
+#[derive(Debug)]
+struct PendingTerminalAgentRecord {
+    version: u64,
+    record: TerminalAgentRecord,
+}
+
+#[derive(Debug)]
+struct VersionedTerminalAgentRecord {
+    published: Option<TerminalAgentRecord>,
+    pending: Option<PendingTerminalAgentRecord>,
+}
+
+#[derive(Debug)]
+pub(super) struct TerminalAgentRecords {
+    entries: HashMap<TerminalPublicId, VersionedTerminalAgentRecord>,
+    published_version: u64,
+    next_version: u64,
+}
+
+impl From<HashMap<TerminalPublicId, TerminalAgentRecord>> for TerminalAgentRecords {
+    fn from(records: HashMap<TerminalPublicId, TerminalAgentRecord>) -> Self {
+        Self {
+            entries: records
+                .into_iter()
+                .map(|(terminal_id, record)| {
+                    (
+                        terminal_id,
+                        VersionedTerminalAgentRecord { published: Some(record), pending: None },
+                    )
+                })
+                .collect(),
+            published_version: 0,
+            next_version: 0,
+        }
+    }
+}
+
+impl TerminalAgentRecords {
+    fn visible_record(
+        entry: &VersionedTerminalAgentRecord,
+        published_version: u64,
+    ) -> Option<&TerminalAgentRecord> {
+        entry
+            .pending
+            .as_ref()
+            .filter(|pending| pending.version <= published_version)
+            .map(|pending| &pending.record)
+            .or(entry.published.as_ref())
+    }
+
+    pub(super) fn get(
+        &self,
+        terminal_id: &TerminalPublicId,
+    ) -> Option<&TerminalAgentRecord> {
+        self.entries
+            .get(terminal_id)
+            .and_then(|entry| Self::visible_record(entry, self.published_version))
+    }
+
+    pub(super) fn insert(
+        &mut self,
+        terminal_id: TerminalPublicId,
+        record: TerminalAgentRecord,
+    ) -> Option<TerminalAgentRecord> {
+        let entry = self.entries.entry(terminal_id).or_insert(VersionedTerminalAgentRecord {
+            published: None,
+            pending: None,
+        });
+        let previous = Self::visible_record(entry, self.published_version).cloned();
+        entry.published = Some(record);
+        entry.pending = None;
+        previous
+    }
+
+    pub(super) fn begin_staging(&mut self) -> anyhow::Result<u64> {
+        self.next_version = self
+            .next_version
+            .checked_add(1)
+            .context("agent cache publication version overflow")?;
+        Ok(self.next_version)
+    }
+
+    pub(super) fn stage(
+        &mut self,
+        version: u64,
+        records: Vec<(TerminalPublicId, TerminalAgentRecord)>,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            version > self.published_version && version <= self.next_version,
+            "agent cache staging version {version} is invalid"
+        );
+        for (terminal_id, record) in records {
+            let entry = self.entries.entry(terminal_id).or_insert(VersionedTerminalAgentRecord {
+                published: None,
+                pending: None,
+            });
+            if entry
+                .pending
+                .as_ref()
+                .is_some_and(|pending| pending.version <= self.published_version)
+            {
+                entry.published = entry.pending.take().map(|pending| pending.record);
+            }
+            anyhow::ensure!(
+                entry.pending.as_ref().is_none_or(|pending| pending.version == version),
+                "agent cache has a newer unpublished staging version"
+            );
+            entry.pending = Some(PendingTerminalAgentRecord { version, record });
+        }
+        Ok(())
+    }
+
+    pub(super) fn publish(&mut self, version: u64) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            version > self.published_version && version <= self.next_version,
+            "agent cache publication version {version} is invalid"
+        );
+        self.published_version = version;
+        Ok(())
+    }
+
+    pub(super) fn remove(
+        &mut self,
+        terminal_id: &TerminalPublicId,
+    ) -> Option<TerminalAgentRecord> {
+        self.entries
+            .remove(terminal_id)
+            .and_then(|entry| Self::visible_record(&entry, self.published_version).cloned())
+    }
+
+    pub(super) fn snapshot(&self) -> HashMap<TerminalPublicId, TerminalAgentRecord> {
+        self.entries
+            .iter()
+            .filter_map(|(terminal_id, entry)| {
+                Self::visible_record(entry, self.published_version)
+                    .cloned()
+                    .map(|record| (terminal_id.clone(), record))
+            })
+            .collect()
+    }
+
+    #[cfg(test)]
+    pub(super) fn clear(&mut self) {
+        self.entries.clear();
+    }
+}
+
 pub(super) fn restore_public_projections(
     state: &State,
     projections: RegistryPublicProjections,

@@ -56,6 +56,12 @@ pub(crate) struct AgentProjectionRebuildStep {
     pub(crate) refresh_required: bool,
 }
 
+pub(crate) struct AgentProjectionRebuildChangePage {
+    pub(crate) projections: Vec<RegistryAgentProjection>,
+    pub(crate) last_terminal_id: Option<TerminalPublicId>,
+    pub(crate) complete: bool,
+}
+
 pub(super) fn apply_agent_projection_journal_record(
     transaction: &Transaction<'_>,
     input: AgentProjectionJournalInput<'_>,
@@ -734,6 +740,7 @@ impl WorkspaceRegistry {
         })
     }
 
+    #[cfg(test)]
     pub(crate) fn visit_agent_projection_rebuild_changes<F>(
         &self,
         mut visit: F,
@@ -741,6 +748,16 @@ impl WorkspaceRegistry {
     where
         F: FnMut(RegistryAgentProjection) -> anyhow::Result<()>,
     {
+        for projection in self.agent_projection_rebuild_change_page(None)?.projections {
+            visit(projection)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn agent_projection_rebuild_change_page(
+        &self,
+        after_terminal_id: Option<&TerminalPublicId>,
+    ) -> anyhow::Result<AgentProjectionRebuildChangePage> {
         let mut statement = self.connection.prepare(
             "SELECT projection.terminal_id,
                     projection.result_json,
@@ -751,21 +768,30 @@ impl WorkspaceRegistry {
              JOIN resource_terminals AS terminal
                ON terminal.public_id = projection.terminal_id
              WHERE terminal.deleted_revision IS NULL
-             ORDER BY projection.terminal_id ASC",
+               AND (?1 IS NULL OR projection.terminal_id > ?1)
+             ORDER BY projection.terminal_id ASC
+             LIMIT ?2",
         )?;
-        let mut rows = statement.query([])?;
+        let mut rows = statement.query(params![
+            after_terminal_id.map(TerminalPublicId::as_str),
+            i64::try_from(AGENT_PROJECTION_JOURNAL_REBUILD_PAGE_SIZE)
+                .context("agent projection refresh page exceeds SQLite")?,
+        ])?;
+        let mut projections = Vec::with_capacity(AGENT_PROJECTION_JOURNAL_REBUILD_PAGE_SIZE);
         while let Some(row) = rows.next()? {
             let terminal_id = TerminalPublicId::parse(row.get::<_, String>(0)?)?;
             let result_json = row.get::<_, String>(1)?;
             let committed_revision = row.get::<_, i64>(2)?;
-            visit(public_projection_store::decode_agent_projection(
+            projections.push(public_projection_store::decode_agent_projection(
                 &result_json,
                 &terminal_id,
                 &self.session_id,
                 committed_revision,
-            )?)?;
+            )?);
         }
-        Ok(())
+        let complete = projections.len() < AGENT_PROJECTION_JOURNAL_REBUILD_PAGE_SIZE;
+        let last_terminal_id = projections.last().map(|projection| projection.terminal_id.clone());
+        Ok(AgentProjectionRebuildChangePage { projections, last_terminal_id, complete })
     }
 
     pub(crate) fn clear_agent_projection_rebuild_changes(&self) -> anyhow::Result<()> {
@@ -885,9 +911,8 @@ fn replay_agent_projection_journal_page(
     let projection_sequences = {
         let mut statement = transaction.prepare(
             "SELECT sequence
-             FROM journal_event_index INDEXED BY journal_event_index_by_agent_sequence
-             WHERE kind >= 'agent.' AND kind < 'agent/'
-               AND sequence > ?1 AND sequence <= ?2
+             FROM journal_agent_event_index
+             WHERE sequence > ?1 AND sequence <= ?2
              ORDER BY sequence ASC
              LIMIT ?3",
         )?;

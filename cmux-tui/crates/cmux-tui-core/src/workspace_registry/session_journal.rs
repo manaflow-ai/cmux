@@ -14,6 +14,10 @@ pub(super) const MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES: usize = 16 * 1024 * 102
 pub(super) const MAX_JOURNAL_CONTENT_BYTES: usize = 256 * 1024;
 const MIGRATION_EVENT_ID: &str = "event_session_journal_v9_migration";
 const MIGRATION_EVENT_KIND: &str = "session.journal.migrated";
+const JOURNAL_EVENT_KIND_BACKFILL_CURSOR_KEY: &str =
+    "journal_event_index_kind_backfill_cursor_v1";
+const JOURNAL_EVENT_KIND_BACKFILL_COMPLETE_KEY: &str =
+    "journal_event_index_kind_backfill_complete_v1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -276,6 +280,9 @@ pub(super) fn create_session_journal_schema(transaction: &Transaction<'_>) -> an
              )
            )
          );
+         CREATE TABLE IF NOT EXISTS journal_agent_event_index (
+           sequence INTEGER PRIMARY KEY NOT NULL CHECK(sequence > 0)
+         );
          INSERT OR IGNORE INTO journal_event_index(event_id, sequence, causation_depth)
            SELECT event_id, sequence, causation_depth FROM session_journal;
          CREATE TRIGGER IF NOT EXISTS session_journal_reject_update
@@ -452,13 +459,7 @@ pub(super) fn ensure_journal_event_index_schema(
            WHERE causal_hook_id IS NOT NULL;
          CREATE UNIQUE INDEX IF NOT EXISTS journal_event_index_by_resource_revision
            ON journal_event_index(resource_revision)
-           WHERE resource_revision IS NOT NULL;
-         CREATE INDEX IF NOT EXISTS journal_event_index_by_agent_sequence
-           ON journal_event_index(sequence)
-           WHERE kind >= 'agent.' AND kind < 'agent/';
-         CREATE INDEX IF NOT EXISTS journal_event_index_by_missing_kind_sequence
-           ON journal_event_index(sequence)
-           WHERE kind IS NULL;",
+           WHERE resource_revision IS NOT NULL;",
     )?;
     Ok(())
 }
@@ -468,88 +469,185 @@ pub(super) fn backfill_journal_event_index_kinds_page(
     active_limit: usize,
     allow_archived: bool,
 ) -> anyhow::Result<bool> {
-    let active_updates = transaction.execute(
-        "UPDATE journal_event_index
-         SET kind = (
-           SELECT kind FROM session_journal
-           WHERE session_journal.sequence = journal_event_index.sequence
-         )
-         WHERE kind IS NULL
-           AND sequence IN (
-             SELECT event.sequence
-             FROM journal_event_index event
-                  INDEXED BY journal_event_index_by_missing_kind_sequence
-             JOIN session_journal journal ON journal.sequence = event.sequence
-             WHERE event.kind IS NULL
-             ORDER BY event.sequence ASC
-             LIMIT ?1
-           )",
-        [i64::try_from(active_limit).context("journal kind backfill limit exceeds SQLite")?],
-    )?;
-    // Open repairs only the active SQLite page. Background continuations use
-    // the durable `kind IS NULL` partial index as their cursor and decode at
-    // most one sealed segment per turn.
-    let archived_segment = if allow_archived && active_updates == 0 {
-        transaction
+    anyhow::ensure!(active_limit > 0, "journal kind backfill page is empty");
+    if journal_event_kind_backfill_complete(transaction)? {
+        return Ok(true);
+    }
+    let mut cursor = journal_event_kind_backfill_cursor(transaction)?;
+    let page = {
+        let mut statement = transaction.prepare(
+            "SELECT sequence, kind
+             FROM journal_event_index
+             WHERE sequence > ?1
+             ORDER BY sequence ASC
+             LIMIT ?2",
+        )?;
+        let rows = statement.query_map(
+            params![
+                i64::try_from(cursor).context("journal kind cursor exceeds SQLite")?,
+                i64::try_from(active_limit).context("journal kind backfill limit exceeds SQLite")?,
+            ],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?)),
+        )?;
+        rows.map(|row| {
+            let (sequence, kind) = row?;
+            Ok((u64::try_from(sequence).context("journal sequence is negative")?, kind))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?
+    };
+
+    for (sequence, stored_kind) in page {
+        if let Some(kind) = stored_kind {
+            index_agent_journal_sequence(transaction, sequence, &kind)?;
+            cursor = sequence;
+            continue;
+        }
+        let active_kind = transaction
+            .query_row(
+                "SELECT kind FROM session_journal WHERE sequence = ?1",
+                [i64::try_from(sequence).context("journal sequence exceeds SQLite")?],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        if let Some(kind) = active_kind {
+            transaction.execute(
+                "UPDATE journal_event_index SET kind = ?1
+                 WHERE sequence = ?2 AND kind IS NULL",
+                params![
+                    kind,
+                    i64::try_from(sequence).context("journal sequence exceeds SQLite")?,
+                ],
+            )?;
+            index_agent_journal_sequence(transaction, sequence, &kind)?;
+            cursor = sequence;
+            continue;
+        }
+        if !allow_archived {
+            break;
+        }
+        let segment = transaction
             .query_row(
                 "SELECT segment_id, start_sequence, end_sequence, record_count, codec,
                         content, uncompressed_bytes, sha256
-                 FROM journal_segments segment
-                 WHERE EXISTS (
-                   SELECT 1
-                   FROM journal_event_index event
-                        INDEXED BY journal_event_index_by_missing_kind_sequence
-                   WHERE event.kind IS NULL
-                     AND event.sequence BETWEEN segment.start_sequence AND segment.end_sequence
-                 )
-                 ORDER BY start_sequence ASC
+                 FROM journal_segments
+                 WHERE start_sequence <= ?1 AND end_sequence >= ?1
+                 ORDER BY start_sequence DESC
                  LIMIT 1",
-                [],
+                [i64::try_from(sequence).context("journal sequence exceeds SQLite")?],
                 journal_segment_row,
             )
             .optional()?
-    } else {
-        None
-    };
-    let archived_updates = if let Some(segment) = archived_segment {
+            .with_context(|| {
+                format!("journal event index kind backfill cannot find sequence {sequence}")
+            })?;
         anyhow::ensure!(
             usize::try_from(segment.6)? <= MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES,
             "journal segment {} exceeds the kind backfill byte limit",
             segment.0
         );
         let decoded = decode_journal_segment(segment)?;
-        let mut statement = transaction.prepare(
+        let segment_end = decoded.end_sequence;
+        let mut saw_sequence = false;
+        let mut update = transaction.prepare(
             "UPDATE journal_event_index SET kind = ?1
              WHERE sequence = ?2 AND kind IS NULL",
         )?;
-        let mut updates = 0;
-        // A sealed segment is immutable and already bounded by its verified
-        // uncompressed byte size. Fill it after this one decode so a large
-        // segment cannot be decompressed again for each active-row page.
+        // One immutable segment has a verified byte bound. Decode it once,
+        // populate both indexes, and yield before the next segment.
         for record in decoded.records {
-            updates += statement.execute(params![
+            saw_sequence |= record.sequence == sequence;
+            update.execute(params![
                 record.kind,
                 i64::try_from(record.sequence).context("journal sequence exceeds SQLite")?,
             ])?;
+            index_agent_journal_sequence(transaction, record.sequence, &record.kind)?;
         }
-        updates
-    } else {
-        0
-    };
-    let pending = transaction.query_row(
-        "SELECT EXISTS(
-           SELECT 1
-           FROM journal_event_index INDEXED BY journal_event_index_by_missing_kind_sequence
-           WHERE kind IS NULL
-         )",
-        [],
-        |row| row.get::<_, bool>(0),
+        anyhow::ensure!(saw_sequence, "journal segment omitted sequence {sequence}");
+        cursor = segment_end;
+        store_journal_event_kind_backfill_cursor(transaction, cursor)?;
+        return finish_journal_event_kind_backfill(transaction, cursor);
+    }
+
+    store_journal_event_kind_backfill_cursor(transaction, cursor)?;
+    finish_journal_event_kind_backfill(transaction, cursor)
+}
+
+fn index_agent_journal_sequence(
+    transaction: &Transaction<'_>,
+    sequence: u64,
+    kind: &str,
+) -> anyhow::Result<()> {
+    if kind.starts_with("agent.") {
+        transaction.execute(
+            "INSERT OR IGNORE INTO journal_agent_event_index(sequence) VALUES(?1)",
+            [i64::try_from(sequence).context("journal sequence exceeds SQLite")?],
+        )?;
+    }
+    Ok(())
+}
+
+fn journal_event_kind_backfill_cursor(connection: &Connection) -> anyhow::Result<u64> {
+    connection
+        .query_row(
+            "SELECT value FROM meta WHERE key = ?1",
+            [JOURNAL_EVENT_KIND_BACKFILL_CURSOR_KEY],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+        .map(|value| value.parse::<u64>().context("journal kind backfill cursor is invalid"))
+        .transpose()
+        .map(|cursor| cursor.unwrap_or(0))
+}
+
+fn journal_event_kind_backfill_complete(connection: &Connection) -> anyhow::Result<bool> {
+    Ok(connection
+        .query_row(
+            "SELECT 1 FROM meta WHERE key = ?1",
+            [JOURNAL_EVENT_KIND_BACKFILL_COMPLETE_KEY],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some())
+}
+
+fn store_journal_event_kind_backfill_cursor(
+    transaction: &Transaction<'_>,
+    cursor: u64,
+) -> anyhow::Result<()> {
+    transaction.execute(
+        "INSERT INTO meta(key, value) VALUES(?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![JOURNAL_EVENT_KIND_BACKFILL_CURSOR_KEY, cursor.to_string()],
     )?;
+    Ok(())
+}
+
+fn finish_journal_event_kind_backfill(
+    transaction: &Transaction<'_>,
+    cursor: u64,
+) -> anyhow::Result<bool> {
+    let head = transaction.query_row(
+        "SELECT COALESCE(MAX(sequence), 0) FROM journal_event_index",
+        [],
+        |row| row.get::<_, i64>(0),
+    )?;
+    let head = u64::try_from(head).context("journal event index head is negative")?;
     anyhow::ensure!(
-        !pending || active_updates != 0 || archived_updates != 0 || !allow_archived,
-        "journal event index kind backfill cannot find a journal record"
+        cursor <= head,
+        "journal kind backfill cursor {cursor} is ahead of event index head {head}"
     );
-    Ok(!pending)
+    if cursor < head {
+        return Ok(false);
+    }
+    transaction.execute(
+        "INSERT OR IGNORE INTO meta(key, value) VALUES(?1, '1')",
+        [JOURNAL_EVENT_KIND_BACKFILL_COMPLETE_KEY],
+    )?;
+    transaction.execute(
+        "DELETE FROM meta WHERE key = ?1",
+        [JOURNAL_EVENT_KIND_BACKFILL_CURSOR_KEY],
+    )?;
+    Ok(true)
 }
 
 pub(super) fn migrate_resource_events_to_session_journal(
@@ -976,6 +1074,7 @@ pub(super) fn append_journal_record(
         params![sequence, subjects_json],
     )?;
     let sequence = u64::try_from(sequence).context("journal sequence is negative")?;
+    index_agent_journal_sequence(transaction, sequence, append.kind)?;
     if append.kind.starts_with("agent.") {
         agent_projection_store::note_agent_projection_journal_candidate(transaction, sequence)?;
         agent_projection_store::apply_agent_projection_journal_record(

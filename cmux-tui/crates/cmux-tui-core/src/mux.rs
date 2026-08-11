@@ -7,7 +7,9 @@ mod resource_topology;
 
 pub(crate) use resource_content::ResourceEffectProjection;
 
-use public_projections::{RestoredPublicProjections, restore_public_projections};
+use public_projections::{
+    RestoredPublicProjections, TerminalAgentRecords, restore_public_projections,
+};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::ops::{Deref, DerefMut};
@@ -1085,6 +1087,12 @@ struct TerminalAgentRecord {
     updated_at_ms: u64,
 }
 
+#[derive(Debug, Clone)]
+struct AgentProjectionCacheRefresh {
+    version: u64,
+    after_terminal_id: Option<TerminalPublicId>,
+}
+
 enum AgentReportTarget<'a> {
     Surface(SurfaceId),
     Resource { selectors: &'a crate::ResourceSelectors, terminal_id: &'a TerminalPublicId },
@@ -1935,8 +1943,9 @@ pub struct Mux {
     default_colors: Mutex<DefaultColors>,
     durable_terminal_defaults: AtomicBool,
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
-    agent_records: Mutex<HashMap<TerminalPublicId, TerminalAgentRecord>>,
+    agent_records: Mutex<TerminalAgentRecords>,
     agent_projection_rebuild_running: AtomicBool,
+    agent_projection_cache_refresh: Mutex<Option<AgentProjectionCacheRefresh>>,
     #[cfg(test)]
     agent_projection_refresh_failure: AtomicBool,
     #[cfg(test)]
@@ -2309,8 +2318,9 @@ impl Mux {
             default_colors: Mutex::new(default_colors),
             durable_terminal_defaults: AtomicBool::new(has_terminal_defaults),
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
-            agent_records: Mutex::new(agent_records),
+            agent_records: Mutex::new(agent_records.into()),
             agent_projection_rebuild_running: AtomicBool::new(false),
+            agent_projection_cache_refresh: Mutex::new(None),
             #[cfg(test)]
             agent_projection_refresh_failure: AtomicBool::new(false),
             #[cfg(test)]
@@ -5013,40 +5023,59 @@ impl Mux {
             return;
         }
         let result = (|| -> anyhow::Result<(bool, bool)> {
-            let registry = mux.workspace_registry.lock().unwrap();
-            let step = registry.continue_agent_projection_rebuild_page()?;
+            if mux.agent_projection_cache_refresh.lock().unwrap().is_some() {
+                return mux.continue_agent_projection_cache_refresh();
+            }
+            let step = mux
+                .workspace_registry
+                .lock()
+                .unwrap()
+                .continue_agent_projection_rebuild_page()?;
             if !step.checkpoint_ready {
                 return Ok((false, step.pending));
             }
             if step.refresh_required {
-                // Replay records changed terminals in bounded SQLite pages.
-                // Read their final projections before the cache lock, then
-                // publish the fixed checkpoint atomically while the registry
-                // lock excludes a newer write.
-                let mut projections = Vec::new();
-                registry.visit_agent_projection_rebuild_changes(|projection| {
-                    projections.push(projection);
-                    Ok(())
-                })?;
-                mux.refresh_agent_records_for_projections(projections)?;
-                // Clear only after the cache publication succeeds. A refresh
-                // failure must keep the durable terminal set available for a
-                // later retry or restart.
-                registry.clear_agent_projection_rebuild_changes()?;
+                mux.begin_agent_projection_cache_refresh()?;
+                return mux.continue_agent_projection_cache_refresh();
             }
             Ok((true, step.pending))
         })();
         match result {
             Ok((checkpoint_ready, pending)) => {
-                if !pending {
-                    mux.agent_projection_rebuild_running.store(false, Ordering::Release);
-                }
                 if checkpoint_ready {
                     mux.publish_journal_event();
                 }
                 #[cfg(test)]
                 mux.notify_agent_projection_rebuild_step_for_test();
                 if !pending {
+                    // Release ownership before the final pending check. An
+                    // ingress in either side of this handshake then starts a
+                    // new worker itself or is observed here.
+                    mux.agent_projection_rebuild_running.store(false, Ordering::Release);
+                    if !mux.shutting_down.load(Ordering::Acquire) {
+                        let rebuild_pending = mux
+                            .workspace_registry
+                            .lock()
+                            .unwrap()
+                            .agent_projection_rebuild_pending();
+                        match rebuild_pending {
+                            Ok(true) => {
+                                if let Err(error) = mux.start_agent_projection_rebuild_worker() {
+                                    eprintln!(
+                                        "cmux-tui: restart agent projection rebuild: {error:#}"
+                                    );
+                                    mux.request_daemon_shutdown();
+                                }
+                            }
+                            Ok(false) => {}
+                            Err(error) => {
+                                eprintln!(
+                                    "cmux-tui: check agent projection rebuild: {error:#}"
+                                );
+                                mux.request_daemon_shutdown();
+                            }
+                        }
+                    }
                     return;
                 }
                 let continuation = Arc::downgrade(&mux);
@@ -5163,15 +5192,36 @@ impl Mux {
         Ok(())
     }
 
-    fn refresh_agent_records_for_projections(
-        &self,
-        projections: Vec<crate::workspace_registry::RegistryAgentProjection>,
-    ) -> anyhow::Result<()> {
+    fn begin_agent_projection_cache_refresh(&self) -> anyhow::Result<()> {
+        let version = self.agent_records.lock().unwrap().begin_staging()?;
+        let mut refresh = self.agent_projection_cache_refresh.lock().unwrap();
+        anyhow::ensure!(refresh.is_none(), "agent projection cache refresh is already active");
+        *refresh = Some(AgentProjectionCacheRefresh {
+            version,
+            after_terminal_id: None,
+        });
+        Ok(())
+    }
+
+    fn continue_agent_projection_cache_refresh(&self) -> anyhow::Result<(bool, bool)> {
         #[cfg(test)]
         if self.agent_projection_refresh_failure.swap(false, Ordering::AcqRel) {
             anyhow::bail!("forced agent projection refresh failure");
         }
-        let records = projections
+        let refresh = self
+            .agent_projection_cache_refresh
+            .lock()
+            .unwrap()
+            .clone()
+            .context("agent projection cache refresh is absent")?;
+        // Keep the established registry -> cache lock order for this bounded
+        // page. A newer direct write then either precedes the read or clears
+        // this staged value after the page releases the registry.
+        let registry = self.workspace_registry.lock().unwrap();
+        let page =
+            registry.agent_projection_rebuild_change_page(refresh.after_terminal_id.as_ref())?;
+        let records = page
+            .projections
             .into_iter()
             .map(|projection| {
                 Ok((
@@ -5185,9 +5235,33 @@ impl Mux {
                 ))
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
-        let mut agent_records = self.agent_records.lock().unwrap();
-        agent_records.extend(records);
-        Ok(())
+        self.agent_records.lock().unwrap().stage(refresh.version, records)?;
+        drop(registry);
+        if !page.complete {
+            let last_terminal_id = page
+                .last_terminal_id
+                .context("agent projection refresh page has no cursor")?;
+            let mut state = self.agent_projection_cache_refresh.lock().unwrap();
+            let active = state.as_mut().context("agent projection cache refresh disappeared")?;
+            anyhow::ensure!(
+                active.version == refresh.version,
+                "agent projection cache refresh version changed"
+            );
+            active.after_terminal_id = Some(last_terminal_id);
+            return Ok((false, true));
+        }
+
+        // Every staged entry is hidden until this one version change. This
+        // keeps direct readers from observing a partial fixed checkpoint.
+        self.agent_records.lock().unwrap().publish(refresh.version)?;
+        // Clear only after publication succeeds. A failure keeps the durable
+        // terminal set available for a later process restart.
+        let registry = self.workspace_registry.lock().unwrap();
+        registry.clear_agent_projection_rebuild_changes()?;
+        let rebuild_pending = registry.agent_projection_rebuild_pending()?;
+        drop(registry);
+        *self.agent_projection_cache_refresh.lock().unwrap() = None;
+        Ok((true, rebuild_pending))
     }
 
     pub(crate) fn journal_hook_states(
@@ -8571,7 +8645,7 @@ impl Mux {
         surface: Option<SurfaceId>,
         state: Option<AgentState>,
     ) -> Vec<AgentRecord> {
-        let records = self.agent_records.lock().unwrap().clone();
+        let records = self.agent_records.lock().unwrap().snapshot();
         let state_snapshot = self.state.lock().unwrap();
         let requested_terminal = surface.and_then(|surface| {
             state_snapshot
@@ -21001,6 +21075,45 @@ mod tests {
         mux.shutdown();
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn journal_agent_cache_staging_is_atomic_and_does_not_replace_a_newer_write() {
+        let terminal_id = TerminalPublicId::random().unwrap();
+        let record = |state, updated_at_ms| TerminalAgentRecord {
+            state,
+            source: AgentSource::Hook,
+            session: Some("versioned-session".to_string()),
+            updated_at_ms,
+        };
+        let mut records = TerminalAgentRecords::from(HashMap::from([(
+            terminal_id.clone(),
+            record(AgentState::Working, 1),
+        )]));
+
+        let first_version = records.begin_staging().unwrap();
+        records
+            .stage(
+                first_version,
+                vec![(terminal_id.clone(), record(AgentState::Idle, 2))],
+            )
+            .unwrap();
+        assert_eq!(records.get(&terminal_id).unwrap().state, AgentState::Working);
+        records.publish(first_version).unwrap();
+        assert_eq!(records.get(&terminal_id).unwrap().state, AgentState::Idle);
+
+        let second_version = records.begin_staging().unwrap();
+        records
+            .stage(
+                second_version,
+                vec![(terminal_id.clone(), record(AgentState::Blocked, 3))],
+            )
+            .unwrap();
+        records.insert(terminal_id.clone(), record(AgentState::Working, 4));
+        records.publish(second_version).unwrap();
+        let visible = records.get(&terminal_id).unwrap();
+        assert_eq!(visible.state, AgentState::Working);
+        assert_eq!(visible.updated_at_ms, 4);
     }
 
     #[test]

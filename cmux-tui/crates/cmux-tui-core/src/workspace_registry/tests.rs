@@ -6035,12 +6035,15 @@ fn journal_agent_legacy_upgrade_backfills_archived_agent_event_kinds() {
         .unwrap()
         .execute_batch(
             "UPDATE journal_event_index SET kind = NULL;
+             DELETE FROM journal_agent_event_index;
              DELETE FROM resource_agent_projections;
              DELETE FROM meta
              WHERE key IN (
                'agent_projection_journal_sequence_v1',
                'agent_projection_journal_candidate_sequence_v1',
-               'agent_projection_journal_rebuild_target_sequence_v1'
+               'agent_projection_journal_rebuild_target_sequence_v1',
+               'journal_event_index_kind_backfill_cursor_v1',
+               'journal_event_index_kind_backfill_complete_v1'
              );",
         )
         .unwrap();
@@ -6220,12 +6223,16 @@ fn journal_agent_legacy_upgrade_backfills_large_archived_segment_in_pages() {
              UPDATE journal_event_index
              SET kind = NULL
              WHERE sequence BETWEEN 1 AND 1025;
+             DELETE FROM journal_agent_event_index
+             WHERE sequence BETWEEN 1 AND 1025;
              DELETE FROM resource_agent_projections;
              DELETE FROM meta
              WHERE key IN (
                'agent_projection_journal_sequence_v1',
                'agent_projection_journal_candidate_sequence_v1',
-               'agent_projection_journal_rebuild_target_sequence_v1'
+               'agent_projection_journal_rebuild_target_sequence_v1',
+               'journal_event_index_kind_backfill_cursor_v1',
+               'journal_event_index_kind_backfill_complete_v1'
              );",
         )
         .unwrap();
