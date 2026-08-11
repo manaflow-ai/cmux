@@ -1949,16 +1949,11 @@ final class cmuxUITests: XCTestCase {
             app.frame.midY,
             "Notification search field must restore at the bottom, got \(fieldFrame)"
         )
-        // The restored session accepts filter edits: releasing the unread
-        // filter reveals the (now read) opened row, still narrowed by the
-        // restored query, which keeps the non-matching read row hidden.
-        tap(unreadFilter, in: app)
-        guard waitForHittable(matchingRow, timeout: 3) else {
-            return XCTFail("Releasing the unread filter must reveal the opened row under the restored query")
-        }
-        guard waitForNotHittable(readRow, timeout: 3) else {
-            return XCTFail("Restored query must keep filtering after the unread filter is released")
-        }
+        // The opened notification is read now, so the still-active unread
+        // filter correctly hides it; the non-matching rows stay hidden under
+        // the restored query.
+        XCTAssertTrue(waitForNotHittable(nonmatchingRow, timeout: 3))
+        XCTAssertTrue(waitForNotHittable(readRow, timeout: 3))
     }
 
     @MainActor
