@@ -953,8 +953,7 @@ impl State {
             .map(|screen| screen.id)
             .collect::<HashSet<_>>();
 
-        let mut removed_screen_positions_by_workspace =
-            HashMap::<WorkspaceId, Vec<usize>>::new();
+        let mut removed_screen_positions_by_workspace = HashMap::<WorkspaceId, Vec<usize>>::new();
         for screen in &removed_screens {
             let Some(workspace_id) = self.resource_indexes.screen_workspace.get(screen) else {
                 continue;
@@ -1191,8 +1190,7 @@ impl State {
             .iter()
             .filter_map(|pane| self.resource_indexes.pane_screen.get(pane).copied())
             .collect::<HashSet<_>>();
-        let mut target_screens_by_workspace =
-            HashMap::<WorkspaceId, Vec<(ScreenId, usize)>>::new();
+        let mut target_screens_by_workspace = HashMap::<WorkspaceId, Vec<(ScreenId, usize)>>::new();
         for screen in &target_screens {
             let Some(workspace_id) = self.resource_indexes.screen_workspace.get(screen) else {
                 continue;
@@ -1251,10 +1249,8 @@ impl State {
             let Some(workspace_index) = self.workspace_index(*workspace_id) else {
                 continue;
             };
-            let owned_screens = target_screens_by_workspace
-                .get(workspace_id)
-                .map(Vec::as_slice)
-                .unwrap_or(&[]);
+            let owned_screens =
+                target_screens_by_workspace.get(workspace_id).map(Vec::as_slice).unwrap_or(&[]);
             for (screen_id, position) in owned_screens {
                 if let Some(projected) = projected_screens.get(screen_id) {
                     self.workspaces[workspace_index].screens[*position] = projected.clone();
