@@ -4804,13 +4804,15 @@ impl Mux {
             remaining.min(sqlite_wait_cap),
             admit_commit,
         )?;
-        for event in events {
-            let crate::journal_ingress::JournalIngressEvent::Producer { ingress, .. } = *event
-            else {
-                continue;
-            };
-            self.sync_agent_records_from_journal_ingress(&registry, ingress)?;
-        }
+        let terminal_ids = agent_terminal_ids_from_journal_ingresses(events.iter().filter_map(
+            |event| match *event {
+                crate::journal_ingress::JournalIngressEvent::Producer { ingress, .. } => {
+                    Some(ingress)
+                }
+                _ => None,
+            },
+        ))?;
+        self.sync_agent_records_for_terminals(&registry, terminal_ids)?;
         drop(registry);
         self.publish_journal_event();
         Ok(commits)
@@ -5051,15 +5053,15 @@ impl Mux {
         registry: &WorkspaceRegistry,
         ingress: &crate::JournalIngress,
     ) -> anyhow::Result<()> {
-        if ingress.producer_id != crate::AGENT_HOOK_PRODUCER_ID {
-            return Ok(());
-        }
-        let terminal_ids = ingress
-            .subjects
-            .iter()
-            .filter(|subject| subject.kind == "terminal")
-            .map(|subject| TerminalPublicId::parse(subject.id.clone()))
-            .collect::<Result<HashSet<_>, _>>()?;
+        let terminal_ids = agent_terminal_ids_from_journal_ingresses(std::iter::once(ingress))?;
+        self.sync_agent_records_for_terminals(registry, terminal_ids)
+    }
+
+    fn sync_agent_records_for_terminals(
+        &self,
+        registry: &WorkspaceRegistry,
+        terminal_ids: HashSet<TerminalPublicId>,
+    ) -> anyhow::Result<()> {
         if terminal_ids.is_empty() {
             return Ok(());
         }
@@ -14601,6 +14603,18 @@ impl Mux {
     }
 }
 
+fn agent_terminal_ids_from_journal_ingresses<'a>(
+    ingresses: impl IntoIterator<Item = &'a crate::JournalIngress>,
+) -> anyhow::Result<HashSet<TerminalPublicId>> {
+    ingresses
+        .into_iter()
+        .filter(|ingress| ingress.producer_id == crate::AGENT_HOOK_PRODUCER_ID)
+        .flat_map(|ingress| ingress.subjects.iter())
+        .filter(|subject| subject.kind == "terminal")
+        .map(|subject| TerminalPublicId::parse(subject.id.clone()).map_err(Into::into))
+        .collect()
+}
+
 fn persist_public_topology_result(
     operation: &str,
     result: &mut Value,
@@ -20687,6 +20701,29 @@ mod tests {
             Some(AgentState::Working),
             "journal listeners must not wake before the agent cache contains the commit"
         );
+    }
+
+    #[test]
+    fn journal_agent_batch_cache_refresh_deduplicates_terminal_ids() {
+        let terminal_id = restore_terminal_id(900);
+        let first = crate::agent_hook_journal_ingress(
+            "pi",
+            "agent_start",
+            Some(terminal_id.as_str()),
+            serde_json::json!({"context":{"session_id":"batch-session"}}),
+        )
+        .unwrap();
+        let second = crate::agent_hook_journal_ingress(
+            "pi",
+            "agent_start",
+            Some(terminal_id.as_str()),
+            serde_json::json!({"context":{"session_id":"batch-session"}}),
+        )
+        .unwrap();
+
+        let terminal_ids =
+            agent_terminal_ids_from_journal_ingresses([&first, &second]).unwrap();
+        assert_eq!(terminal_ids, HashSet::from([terminal_id]));
     }
 
     #[test]
