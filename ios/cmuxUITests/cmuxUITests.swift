@@ -3124,8 +3124,9 @@ final class cmuxUITests: XCTestCase {
         let promptText = "Use the visible snapshot selection"
         try typeText(promptText, into: prompt, in: app)
         tap(app.buttons["MobileTaskComposerSubmitButton"], in: app)
+        let receivedRequest = await hostServer.waitForWorkspaceCreateRequest(timeout: 8)
         let request = try XCTUnwrap(
-            await hostServer.waitForWorkspaceCreateRequest(timeout: 8),
+            receivedRequest,
             "The host never received the snapshot-model task"
         )
         XCTAssertEqual(
