@@ -21,6 +21,7 @@ cmux_supervise_remote_demo() {
     "$transfer_timeout" "$startup_timeout" "$exit_timeout" "$@" <<'PERL'
 use strict;
 use warnings;
+use Errno qw(EINTR);
 use Fcntl qw(F_GETFL F_SETFL O_NONBLOCK O_RDWR);
 use IO::Handle;
 use IO::Select;
@@ -73,7 +74,11 @@ if ($child_pid == 0) {
 }
 close($group_ready_writer);
 my $group_ready_byte = "";
-my $group_ready_count = sysread($group_ready, $group_ready_byte, 1);
+my $group_ready_count;
+while (1) {
+    $group_ready_count = sysread($group_ready, $group_ready_byte, 1);
+    last if defined($group_ready_count) || $! != EINTR;
+}
 close($group_ready);
 if (!defined($group_ready_count) || $group_ready_count != 1
     || $group_ready_byte ne "R") {
@@ -106,7 +111,7 @@ sub begin_termination {
     my ($signal_name) = @_;
     return unless defined($child_pid);
     kill($signal_name, -$child_pid);
-    return if $phase eq "reap";
+    return if $phase eq "exit" || $phase eq "reap";
     $phase = "exit";
     $deadline = clock_gettime(CLOCK_MONOTONIC) + $exit_timeout;
 }
