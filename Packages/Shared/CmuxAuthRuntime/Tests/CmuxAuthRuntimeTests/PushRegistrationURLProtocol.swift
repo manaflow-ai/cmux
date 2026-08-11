@@ -171,31 +171,22 @@ final class PushRegistrationURLScript: @unchecked Sendable {
         }
     }
 
-    func waitForRequestCount(
-        _ expectedCount: Int,
-        timeout: Duration = .seconds(1)
-    ) async -> Bool {
-        let updates = requestCountUpdates()
-        return await withTaskGroup(of: Bool.self) { group in
-            group.addTask {
-                for await count in updates {
-                    if count >= expectedCount {
-                        return true
-                    }
-                }
-                return false
-            }
-            group.addTask {
-                try? await Task.sleep(for: timeout)
-                return false
-            }
-            let reachedCount = await group.next() ?? false
-            group.cancelAll()
-            return reachedCount
-        }
+    var requestCountObserverCount: Int {
+        lock.withLock { requestCountContinuations.count }
     }
 
-    private func requestCountUpdates() -> AsyncStream<Int> {
+    func waitForRequestCount(_ expectedCount: Int) async -> Bool {
+        let updates = requestCountUpdates()
+        for await count in updates {
+            guard !Task.isCancelled else { return false }
+            if count >= expectedCount {
+                return true
+            }
+        }
+        return false
+    }
+
+    func requestCountUpdates() -> AsyncStream<Int> {
         let identifier = UUID()
         return AsyncStream { continuation in
             let count = lock.withLock {

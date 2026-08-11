@@ -217,27 +217,51 @@ actor RetryDelayRecorder {
 
     private func wait(
         for state: PushRegistrationBackendState,
-        from service: PushRegistrationService,
-        timeout: Duration = .seconds(1)
+        from service: PushRegistrationService
     ) async -> Bool {
         let snapshots = await service.snapshots()
-        return await withTaskGroup(of: Bool.self) { group in
-            group.addTask {
-                for await snapshot in snapshots {
-                    if snapshot.backendState == state {
-                        return true
-                    }
-                }
-                return false
+        for await snapshot in snapshots {
+            guard !Task.isCancelled else { return false }
+            if snapshot.backendState == state {
+                return true
             }
-            group.addTask {
-                try? await Task.sleep(for: timeout)
-                return false
-            }
-            let reachedState = await group.next() ?? false
-            group.cancelAll()
-            return reachedState
         }
+        return false
+    }
+
+    @Test func stateWaitObservesStatePublishedBeforeSubscription() async {
+        let (service, _) = makeScriptedService()
+        await service.setEnabled(true)
+        await service.deviceTokenRegistrationFailed()
+
+        #expect(await wait(
+            for: .deviceTokenRegistrationFailed,
+            from: service
+        ))
+    }
+
+    @Test func requestCountWaitObservesRequestCapturedBeforeSubscription() async {
+        await PushRegistrationURLProtocol.script.reset([.response(200)])
+        let request = URLRequest(url: URL(string: "https://example.test/register")!)
+        _ = PushRegistrationURLProtocol.script.take(request, body: nil)
+
+        #expect(await PushRegistrationURLProtocol.script.waitForRequestCount(1))
+    }
+
+    @Test func cancellingRequestCountObservationRemovesItsContinuation() async {
+        await PushRegistrationURLProtocol.script.reset([])
+        let updates = PushRegistrationURLProtocol.script.requestCountUpdates()
+        #expect(PushRegistrationURLProtocol.script.requestCountObserverCount == 1)
+
+        let observation = Task {
+            for await _ in updates {
+                guard !Task.isCancelled else { return }
+            }
+        }
+        observation.cancel()
+        await observation.value
+
+        #expect(PushRegistrationURLProtocol.script.requestCountObserverCount == 0)
     }
 
     @Test func disabledByDefault() async {
