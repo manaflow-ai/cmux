@@ -421,6 +421,7 @@ if [[ -z "$APP_PID" ]]; then
   echo "Could not identify the isolated NativeMuxDemo process." >&2
   exit 1
 fi
+echo "NativeMuxDemo PID: $APP_PID"
 
 claimed=0
 for _ in $(seq 1 120); do
