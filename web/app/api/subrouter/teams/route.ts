@@ -26,6 +26,7 @@ export async function GET(request: Request): Promise<Response> {
       const authorized = await authorizedSubrouterTeams(user);
       const scopedTeamId = coderouterOrganizationFromCookieHeader(
         request.headers.get("cookie"),
+        user.id,
       );
       let selectedTeamId: string | null = null;
       let stackSelectedTeamId: string | null = null;

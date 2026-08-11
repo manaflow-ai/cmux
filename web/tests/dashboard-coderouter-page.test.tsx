@@ -36,7 +36,7 @@ mock.module("next/headers", () => ({
       scopedTeamId
         ? {
           cookie: `cmux_coderouter_organization=${
-            encodeURIComponent(scopedTeamId)
+            encodeURIComponent(JSON.stringify(["user-1", scopedTeamId]))
           }`,
         }
         : undefined,
@@ -305,6 +305,34 @@ describe("coderouter dashboard", () => {
   test("normalizes a null Stack selection to the personal organization", async () => {
     authorizationAvailable = true;
     selectedTeamId = null;
+    authorizedTeams = [
+      {
+        teamId: "team-1",
+        teamName: "Team One",
+        use: true,
+        manageAccounts: true,
+        personal: false,
+      },
+      {
+        teamId: "user-1",
+        teamName: "Personal",
+        use: true,
+        manageAccounts: true,
+        personal: true,
+      },
+    ];
+
+    await CoderouterOverviewPage({
+      params: Promise.resolve({ locale: "en" }),
+      searchParams: Promise.resolve({}),
+    });
+
+    expect(metricsTeamIds).toEqual(["user-1"]);
+  });
+
+  test("uses personal when the Stack-selected team is no longer authorized", async () => {
+    authorizationAvailable = true;
+    selectedTeamId = "stale-team";
     authorizedTeams = [
       {
         teamId: "team-1",

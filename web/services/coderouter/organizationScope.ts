@@ -5,6 +5,7 @@ const ORGANIZATION_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
 
 export function coderouterOrganizationFromCookieHeader(
   cookieHeader: string | null,
+  userId: string,
 ): string | null {
   if (!cookieHeader) return null;
   for (const part of cookieHeader.split(";")) {
@@ -13,8 +14,16 @@ export function coderouterOrganizationFromCookieHeader(
     const name = part.slice(0, separator).trim();
     if (name !== CODEROUTER_ORGANIZATION_COOKIE) continue;
     try {
-      const value = decodeURIComponent(part.slice(separator + 1).trim());
-      return validOrganizationId(value) ? value : null;
+      const value: unknown = JSON.parse(
+        decodeURIComponent(part.slice(separator + 1).trim()),
+      );
+      if (
+        !Array.isArray(value) ||
+        value.length !== 2 ||
+        value[0] !== userId ||
+        typeof value[1] !== "string"
+      ) return null;
+      return validOrganizationId(value[1]) ? value[1] : null;
     } catch {
       return null;
     }
@@ -23,22 +32,33 @@ export function coderouterOrganizationFromCookieHeader(
 }
 
 export function persistCoderouterOrganizationScope(
+  userId: string,
   organizationId: string,
 ): void {
-  const cookie = coderouterOrganizationCookie(organizationId);
+  const cookie = coderouterOrganizationCookie(userId, organizationId);
   if (typeof document === "undefined" || !cookie) return;
   document.cookie = cookie;
 }
 
 export function coderouterOrganizationCookie(
+  userId: string,
   organizationId: string,
 ): string | null {
-  if (!validOrganizationId(organizationId)) return null;
+  if (!validOrganizationId(userId) || !validOrganizationId(organizationId)) {
+    return null;
+  }
   return `${
     CODEROUTER_ORGANIZATION_COOKIE
-  }=${encodeURIComponent(organizationId)}; Path=/; Max-Age=${
+  }=${encodeURIComponent(JSON.stringify([userId, organizationId]))}; Path=/; Max-Age=${
     ORGANIZATION_COOKIE_MAX_AGE_SECONDS
   }; SameSite=Lax; Secure`;
+}
+
+export function clearCoderouterOrganizationScope(): void {
+  if (typeof document === "undefined") return;
+  document.cookie = `${
+    CODEROUTER_ORGANIZATION_COOKIE
+  }=; Path=/; Max-Age=0; SameSite=Lax; Secure`;
 }
 
 function validOrganizationId(value: string): boolean {

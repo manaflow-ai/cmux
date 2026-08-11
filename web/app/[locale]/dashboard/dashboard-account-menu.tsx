@@ -13,6 +13,7 @@ import { useState } from "react";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
 import { Link, useRouter } from "@/i18n/navigation";
 import {
+  clearCoderouterOrganizationScope,
   persistCoderouterOrganizationScope,
 } from "@/services/coderouter/organizationScope";
 
@@ -86,6 +87,7 @@ export function DashboardAccountMenu() {
                   setSignOutError(false);
                   try {
                     await user.signOut();
+                    clearCoderouterOrganizationScope();
                     router.replace("/");
                     router.refresh();
                   } catch {
@@ -191,7 +193,7 @@ function DashboardOrganizationSwitcher() {
     if (!organizationId) return;
     // CodeRouter scope is independent of Stack's global selected team. Persist
     // it synchronously, and validate it against fresh permissions on every read.
-    persistCoderouterOrganizationScope(organizationId);
+    persistCoderouterOrganizationScope(user.id, organizationId);
     queryClient.setQueryData<OrganizationCatalog>(
       organizationQueryKey,
       (current) =>

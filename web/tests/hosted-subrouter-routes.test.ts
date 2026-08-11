@@ -538,7 +538,8 @@ describe("hosted Subrouter account routes", () => {
     const organizationsResponse = await organizationsRoute.GET(
       request("/api/coderouter/organizations", {
         headers: {
-          cookie: "cmux_coderouter_organization=team-b",
+          cookie:
+            "cmux_coderouter_organization=%5B%22user-1%22%2C%22team-b%22%5D",
         },
       }),
     );
@@ -570,7 +571,8 @@ describe("hosted Subrouter account routes", () => {
     const unauthorizedScopeResponse = await organizationsRoute.GET(
       request("/api/coderouter/organizations", {
         headers: {
-          cookie: "cmux_coderouter_organization=team-not-authorized",
+          cookie:
+            "cmux_coderouter_organization=%5B%22user-1%22%2C%22team-not-authorized%22%5D",
         },
       }),
     );

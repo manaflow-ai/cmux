@@ -77,15 +77,13 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
     redirect("/");
   }
   const requestHeaders = await headers();
-  const scopedTeamId = coderouterOrganizationFromCookieHeader(
-    requestHeaders.get("cookie"),
-  );
   const tokenStore = {
     headers: { get: (name: string) => requestHeaders.get(name) },
   };
   let authenticated: {
     readonly authorized: Awaited<ReturnType<typeof authorizedSubrouterTeams>>;
     readonly accessToken: string | null;
+    readonly scopedTeamId: string | null;
     readonly selectedTeamId: string | null;
   } | null;
   try {
@@ -111,6 +109,10 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
         return {
           authorized,
           accessToken: authJson?.accessToken ?? null,
+          scopedTeamId: coderouterOrganizationFromCookieHeader(
+            requestHeaders.get("cookie"),
+            user.id,
+          ),
           selectedTeamId: user.selectedTeamId,
         };
       },
@@ -157,7 +159,7 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
   const selectedTeam = selectTeam(
     teams,
     team,
-    scopedTeamId,
+    authenticated.scopedTeamId,
     authenticated.selectedTeamId,
   );
   const [accountState, metrics] = await Promise.all([
@@ -475,10 +477,9 @@ function selectTeam(
   if (selectedTeamId) {
     const selected = teams.find((team) => team.id === selectedTeamId);
     if (selected) return selected;
-  } else {
-    const personal = teams.find((team) => team.personal);
-    if (personal) return personal;
   }
+  const personal = teams.find((team) => team.personal);
+  if (personal) return personal;
   return teams[0];
 }
 
