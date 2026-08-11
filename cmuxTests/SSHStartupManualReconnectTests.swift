@@ -187,6 +187,35 @@ struct SSHStartupManualReconnectTests {
         )
     }
 
+    @Test func reusableStartupWithoutAuthenticationUsesInstalledRecoveryHelper() throws {
+        func decodedScript(from command: String) throws -> String {
+            let prefix = try #require(command.range(of: "cmux_payload="))
+            let lineEnd = try #require(command[prefix.upperBound...].firstIndex(of: "\n"))
+            let encoded = String(command[prefix.upperBound..<lineEnd])
+            let data = try #require(Data(base64Encoded: encoded))
+            return try #require(String(data: data, encoding: .utf8))
+        }
+
+        let cli = CMUXCLI(args: ["/Applications/cmux.app/Contents/Resources/bin/cmux"])
+        let compactCommand = cli.buildReusableSSHStartupCommand(
+            sshCommand: "/usr/bin/ssh example.test",
+            shellFeatures: "",
+            remoteRelayPort: 0
+        )
+        let compactScript = try decodedScript(from: compactCommand)
+        #expect(compactScript.contains("__ssh-auth-recovery"))
+        #expect(!compactScript.contains("cmux_ssh_auth_kernel_process_identity()"))
+
+        let foregroundCommand = cli.buildReusableSSHStartupCommand(
+            sshCommand: "/usr/bin/ssh example.test",
+            shellFeatures: "",
+            remoteRelayPort: 0,
+            oneTimeCommand: ":"
+        )
+        let foregroundScript = try decodedScript(from: foregroundCommand)
+        #expect(foregroundScript.contains("cmux_ssh_auth_kernel_process_identity()"))
+    }
+
     @Test func controlCThroughForegroundAuthenticationPTYExitsWithoutWaitingForInput() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
