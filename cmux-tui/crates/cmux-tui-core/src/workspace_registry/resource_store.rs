@@ -162,7 +162,7 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
          );
          CREATE TABLE IF NOT EXISTS resource_agent_session_generations (
            terminal_id TEXT NOT NULL
-             REFERENCES resource_agent_projections(terminal_id) ON DELETE CASCADE,
+             REFERENCES resource_terminals(public_id) ON DELETE CASCADE,
            provider TEXT NOT NULL,
            source_session TEXT NOT NULL CHECK(length(source_session) > 0),
            generation INTEGER NOT NULL CHECK(generation > 0),
