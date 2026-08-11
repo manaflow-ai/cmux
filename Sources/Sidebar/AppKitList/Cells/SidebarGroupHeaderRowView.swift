@@ -20,7 +20,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     // Direct-draw badge (shared with workspace rows): NSTextField's
     // intrinsic insets shift single digits off the circle's optical center.
     private let unreadBadgeView = SidebarRowUnreadBadgeView()
-    private var unreadBadgeFont: NSFont = .systemFont(ofSize: 10, weight: .semibold)
+    private var unreadBadgeFont: NSFont = .systemFont(ofSize: 10, weight: .medium)
     private let plusButton = SidebarHeaderGlyphButton()
     private let topDropIndicator = NSView()
     private let bottomDropIndicator = NSView()
@@ -185,7 +185,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         if showsBadge {
             unreadBadgeFont = .systemFont(
                 ofSize: GlobalFontMagnification.scaledSize(metrics.unreadFontSize, percent: percent),
-                weight: .semibold
+                weight: .medium
             )
             unreadBadgeView.configure(
                 count: model.anchorUnreadCount,
@@ -385,11 +385,12 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
         var badgeSize = NSSize.zero
         if !unreadBadgeView.isHidden {
-            let textSize = NSString(string: "\(model.anchorUnreadCount)")
-                .size(withAttributes: [.font: unreadBadgeFont])
-            badgeSize = NSSize(
-                width: ceil(textSize.width) + metrics.unreadHorizontalPadding * 2,
-                height: ceil(textSize.height) + metrics.unreadVerticalPadding * 2
+            badgeSize = unreadBadgeView.fittingSize(
+                horizontalPadding: metrics.unreadHorizontalPadding,
+                minimumHeight: GlobalFontMagnification.scaledSize(
+                    14 * model.fontScale,
+                    percent: model.globalFontMagnificationPercent
+                )
             )
         }
 
