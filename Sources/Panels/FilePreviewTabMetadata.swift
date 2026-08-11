@@ -11,37 +11,23 @@ nonisolated struct FilePreviewTabMetadata: Equatable, Sendable {
 }
 
 extension FilePreviewPanel {
-    /// Creates a latest-value stream owned and emitted by this panel.
-    func makeTabMetadataUpdates() -> AsyncStream<FilePreviewTabMetadata> {
-        let observationID = UUID()
-        let (stream, continuation) = AsyncStream<FilePreviewTabMetadata>.makeStream(
-            bufferingPolicy: .bufferingNewest(1)
-        )
-        tabMetadataContinuations[observationID] = continuation
-        continuation.onTermination = { @Sendable [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.tabMetadataContinuations.removeValue(forKey: observationID)
-            }
-        }
-        continuation.yield(currentTabMetadata)
-        return stream
+    /// Replaces the current container binding and immediately projects current state.
+    func bindTabMetadata(to host: any FilePreviewTabMetadataHost) {
+        tabMetadataHost = host
+        host.applyFilePreviewTabMetadata(currentTabMetadata, panelId: id)
     }
 
-    /// Emits the consolidated tab snapshot after panel-owned metadata changes.
+    /// Clears the current container binding during transfer or teardown.
+    func unbindTabMetadata() {
+        tabMetadataHost = nil
+    }
+
+    /// Projects the consolidated snapshot through the panel's single active host.
     func publishTabMetadataUpdate() {
-        let metadata = currentTabMetadata
-        for continuation in tabMetadataContinuations.values {
-            continuation.yield(metadata)
-        }
-    }
-
-    /// Finishes every tab metadata stream when the panel closes.
-    func finishTabMetadataUpdates() {
-        let continuations = Array(tabMetadataContinuations.values)
-        tabMetadataContinuations.removeAll()
-        for continuation in continuations {
-            continuation.finish()
-        }
+        tabMetadataHost?.applyFilePreviewTabMetadata(
+            currentTabMetadata,
+            panelId: id
+        )
     }
 
     /// Returns one consistent snapshot of the panel's tab-facing state.

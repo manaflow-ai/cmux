@@ -232,7 +232,7 @@ extension DockSplitStore {
         appLinkHandoffCoordinator.cancel(sourcePanelID: panelId)
         panelCancellables[panelId]?.cancel()
         panelCancellables.removeValue(forKey: panelId)
-        filePreviewMetadataObservationTasks.removeValue(forKey: panelId)?.cancel()
+        (panel as? FilePreviewPanel)?.unbindTabMetadata()
         removeSurfaceMapping(forSurfaceId: tabId)
         panels.removeValue(forKey: panelId)
 
@@ -332,7 +332,7 @@ extension DockSplitStore {
         atIndex index: Int? = nil,
         focus: Bool = true
     ) -> UUID? {
-        guard bonsplitController.allPaneIds.contains(paneId), panels[detached.panelId] == nil else { return nil }
+        guard containsPane(paneId.id), panels[detached.panelId] == nil else { return nil }
         let panel = detached.panel
         prepareDetachedPanelForDockAttachment(panel)
 
@@ -416,7 +416,7 @@ extension DockSplitStore {
         insertFirst: Bool,
         focus: Bool = true
     ) -> UUID? {
-        guard bonsplitController.allPaneIds.contains(paneId), panels[detached.panelId] == nil else {
+        guard containsPane(paneId.id), panels[detached.panelId] == nil else {
             return nil
         }
         let panel = detached.panel

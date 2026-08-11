@@ -997,9 +997,8 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     var fileChangeWatcher: FileWatcher?
     var fileChangeTask: Task<Void, Never>?
     var fileChangeReloadTask: Task<Void, Never>?
-    /// Active tab metadata consumers owned by the current panel container.
-    var tabMetadataContinuations:
-        [UUID: AsyncStream<FilePreviewTabMetadata>.Continuation] = [:]
+    /// The one container currently projecting this panel's tab metadata.
+    weak var tabMetadataHost: (any FilePreviewTabMetadataHost)?
     var lastObservedFileState: FilePreviewFileState?
     var isClosed = false
     weak var textView: NSTextView?
@@ -1066,7 +1065,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     func close() {
         isClosed = true
-        finishTabMetadataUpdates()
+        unbindTabMetadata()
         stopWatchingForFileChanges()
         textLoadCoordinator.cancel()
         modeLoadCoordinator.cancel()

@@ -14,7 +14,7 @@ import WebKit
 
 @MainActor
 @Observable
-final class DockSplitStore: BonsplitDelegate {
+final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     private struct PanelSurfaceMapping {
         var primarySurfaceId: TabID
         var surfaceIds: Set<TabID>
@@ -22,6 +22,8 @@ final class DockSplitStore: BonsplitDelegate {
 
     let workspaceId: UUID
     let bonsplitController: BonsplitController
+    /// Pane ownership updated synchronously from Bonsplit lifecycle callbacks.
+    @ObservationIgnored var ownedPaneIds: Set<UUID> = []
 
     /// Which Dock this store backs: `.workspace` (per-workspace, seeded from the
     /// project `.cmux/dock.json`) or `.global` (a per-window Dock seeded from
@@ -57,8 +59,6 @@ final class DockSplitStore: BonsplitDelegate {
     @ObservationIgnored private var activeTerminalFontSizeChangeInheritanceContext:
         TerminalFontSizeChangeInheritanceContext?
     var panelCancellables: [UUID: AnyCancellable] = [:]
-    /// Async file-preview metadata observations keyed by their owned panel.
-    @ObservationIgnored var filePreviewMetadataObservationTasks: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored var detachedSurfaceTransfersByPanelId: [UUID: Workspace.DetachedSurfaceTransfer] = [:]
     /// Live agent runtime owned by Dock panels. The matching transfer snapshot
     /// is kept in sync so the state survives Dock-to-workspace moves.
@@ -319,12 +319,9 @@ final class DockSplitStore: BonsplitDelegate {
         for tabId in bonsplitController.allTabIds {
             _ = bonsplitController.closeTab(tabId)
         }
+        ownedPaneIds = Set(bonsplitController.allPaneIds.map(\.id))
         focusHistoryNavigation.attach(host: self)
         Self.liveStoresTable.add(self)
-    }
-
-    deinit {
-        filePreviewMetadataObservationTasks.values.forEach { $0.cancel() }
     }
 
     var focusHistoryIncludesPanesAndTabs: Bool {
@@ -407,11 +404,7 @@ final class DockSplitStore: BonsplitDelegate {
 
     func paneId(forPanelId panelId: UUID) -> PaneID? {
         guard let tabId = surfaceId(forPanelId: panelId) else { return nil }
-        for paneId in bonsplitController.allPaneIds
-        where bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == tabId }) {
-            return paneId
-        }
-        return nil
+        return bonsplitController.paneId(containing: tabId)
     }
 
     // MARK: - Lifecycle
@@ -999,38 +992,7 @@ final class DockSplitStore: BonsplitDelegate {
             }
             panelCancellables[panel.id] = cancellable
         } else if let filePreview = panel as? FilePreviewPanel {
-            let updates = filePreview.makeTabMetadataUpdates()
-            let observationTask = Task { @MainActor [weak self, weak filePreview] in
-                for await update in updates {
-                    guard !Task.isCancelled else { break }
-                    guard let self, let filePreview else { break }
-                    guard let tabId = self.surfaceId(forPanelId: filePreview.id),
-                          let existing = self.bonsplitController.tab(tabId) else {
-                        continue
-                    }
-                    let icon = RenderableSystemSymbol.resolvedSurfaceTabIcon(
-                        update.displayIcon
-                    )
-                    let titleUpdate: String? =
-                        existing.hasCustomTitle || existing.title == update.title
-                        ? nil
-                        : update.title
-                    let iconUpdate: String?? = existing.icon == icon ? nil : .some(icon)
-                    let dirtyUpdate: Bool? =
-                        existing.isDirty == update.isDirty ? nil : update.isDirty
-                    guard titleUpdate != nil || iconUpdate != nil || dirtyUpdate != nil else {
-                        continue
-                    }
-                    self.bonsplitController.updateTab(
-                        tabId,
-                        title: titleUpdate,
-                        icon: iconUpdate,
-                        isDirty: dirtyUpdate
-                    )
-                }
-            }
-            filePreviewMetadataObservationTasks.removeValue(forKey: filePreview.id)?.cancel()
-            filePreviewMetadataObservationTasks[filePreview.id] = observationTask
+            filePreview.bindTabMetadata(to: self)
         } else if tracksTerminalTitle, let terminal = panel as? TerminalPanel {
             let cancellable = terminal.$title
                 .removeDuplicates()
@@ -1050,6 +1012,20 @@ final class DockSplitStore: BonsplitDelegate {
                 }
             panelCancellables[panel.id] = cancellable
         }
+    }
+
+    /// Resolves the Dock tab currently owned by a file-preview panel.
+    func filePreviewTabId(forPanelId panelId: UUID) -> TabID? {
+        surfaceId(forPanelId: panelId)
+    }
+
+    /// Preserves a Dock custom title while accepting panel-owned metadata.
+    func filePreviewTabTitlePresentation(
+        for metadata: FilePreviewTabMetadata,
+        panelId _: UUID,
+        existingTab: Bonsplit.Tab
+    ) -> (title: String?, hasCustomTitle: Bool?) {
+        (existingTab.hasCustomTitle ? nil : metadata.title, nil)
     }
 
     // MARK: - BonsplitDelegate
