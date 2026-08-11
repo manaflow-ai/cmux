@@ -45,8 +45,10 @@ struct WorkspaceDetailView: View {
     let signOut: (@MainActor @Sendable () -> Void)?
     @Environment(BrowserSurfaceStore.self) var browserStore
     @Environment(BrowserStreamStore.self) var browserStreamStore
+    @Environment(MobileSimulatorStreamStore.self) var simulatorStreamStore
     @Environment(MobileDisplaySettings.self) private var displaySettings
     @Environment(ToastCenter.self) private var toasts
+    @Environment(\.mobileChildPresentationProvider) private var childPresentationProvider
     /// Drives the destructive close-workspace confirmation dialog.
     @State var isConfirmingClose = false
     #if canImport(UIKit)
@@ -55,7 +57,14 @@ struct WorkspaceDetailView: View {
     @State private var feedbackEmail = ""
     @State private var isSubmittingFeedback = false
     @State private var feedbackErrorMessage: String?
-    @State private var isTextSheetPresented = false
+    @State private var isTextSheetPresented = {
+        #if DEBUG
+        AutoConnectMigrationUITestConfiguration.currentProcess?.initialModalHost
+            == .workspaceDetailTerminalText
+        #else
+        false
+        #endif
+    }()
     /// Drives the rename-workspace dialog launched from the picker menu, and its
     /// editable text (seeded with the current name when presented).
     @State var isRenamePresented = false
@@ -87,6 +96,8 @@ struct WorkspaceDetailView: View {
     @State var chatConversationStores: [String: ChatConversationStore] = [:]
     /// Per-session composer drafts, surviving toggles back to the terminal.
     @State var chatDrafts: [String: String] = [:]
+    /// Local presenter identity remains separate from the artifact popover payload.
+    @State var isTerminalArtifactFilesPresented = false
     @State var terminalArtifactFilesContext: TerminalArtifactContext?
     @State var selectedTerminalArtifact: TerminalArtifactSelection?
     @State var terminalArtifactThumbnailCache = ChatArtifactThumbnailCache()
@@ -105,7 +116,47 @@ struct WorkspaceDetailView: View {
     var activeBrowserStream: BrowserStreamSurfaceState? {
         browserStreamStore.activeState(in: workspace.rpcWorkspaceID.rawValue)
     }
+    var activeSimulatorStream: MobileSimulatorStreamSurfaceState? {
+        simulatorStreamStore.activeState(in: workspace.rpcWorkspaceID.rawValue)
+    }
     #if os(iOS)
+    /// Uses the root modal owner in the live app and local state in previews.
+    func resolvedPresentation(
+        for child: MobileRootPresentationState.ChildPresentation,
+        fallback: Binding<Bool>
+    ) -> MobileChildSheetPresentation {
+        childPresentationProvider?.presentation(for: child, fallback: fallback)
+            ?? MobileChildSheetPresentation(isPresented: fallback)
+    }
+
+    private var feedbackPresentation: MobileChildSheetPresentation {
+        resolvedPresentation(
+            for: .workspaceDetail(.feedbackComposer),
+            fallback: $isFeedbackComposerPresented
+        )
+    }
+
+    private var textSheetPresentation: MobileChildSheetPresentation {
+        resolvedPresentation(
+            for: .workspaceDetail(.terminalText),
+            fallback: $isTextSheetPresented
+        )
+    }
+
+    var workspaceChangesPresentation: MobileChildSheetPresentation {
+        resolvedPresentation(
+            for: .workspaceDetail(.workspaceChanges),
+            fallback: $isWorkspaceChangesSheetPresented
+        )
+    }
+
+    private var customizationPresentation: MobileChildSheetPresentation {
+        resolvedPresentation(
+            for: .workspaceDetail(.customization),
+            fallback: $isCustomizationPresented
+        )
+    }
+
     var terminalFilesChipEnabled: Bool {
         displaySettings.terminalFilesChipEnabled
     }
@@ -120,7 +171,8 @@ struct WorkspaceDetailView: View {
             isChatMode: isChatMode,
             hasChosenChatSession: chosenChatSession != nil,
             hasActiveBrowser: activeBrowser != nil,
-            hasActiveBrowserStream: activeBrowserStream != nil
+            hasActiveBrowserStream: activeBrowserStream != nil,
+            hasActiveSimulatorStream: activeSimulatorStream != nil
         )
     }
     #endif
@@ -136,7 +188,9 @@ struct WorkspaceDetailView: View {
             .task(id: chatRefreshKey) { await refreshChatSessions() }
             .task(id: workspace.rpcWorkspaceID.rawValue) {
                 await store.refreshMobileBrowserPanels(workspaceID: workspace.rpcWorkspaceID.rawValue)
+                syncSimulatorStreamPanels()
             }
+            .onChange(of: workspace.simulators) { _, _ in syncSimulatorStreamPanels() }
             .task(id: chatConversationWarmKey) { await runWarmChatConversation() }
             .onAppear { refreshWorkspaceChangesHint() }
             .onChange(of: workspaceChangesHintEligibilityKey) { _, _ in
@@ -157,13 +211,25 @@ struct WorkspaceDetailView: View {
                 isPresented: $isConfirmingClose,
                 confirm: confirmCloseWorkspaceFromMenu
             )
-            .sheet(isPresented: $isFeedbackComposerPresented) {
+            .sheet(
+                isPresented: feedbackPresentation.isPresented,
+                onDismiss: feedbackPresentation.didDismiss
+            ) {
                 feedbackComposer
             }
-            .sheet(isPresented: $isTextSheetPresented) {
+            .sheet(
+                isPresented: textSheetPresentation.isPresented,
+                onDismiss: {
+                    textSheetSurfaceID = nil
+                    textSheetPresentation.didDismiss()
+                }
+            ) {
                 TerminalTextSheetView(surfaceID: textSheetSurfaceID)
             }
-            .sheet(isPresented: $isWorkspaceChangesSheetPresented) {
+            .sheet(
+                isPresented: workspaceChangesPresentation.isPresented,
+                onDismiss: workspaceChangesPresentation.didDismiss
+            ) {
                 WorkspaceChangesSheet(
                     store: store,
                     workspaceID: workspace.rpcWorkspaceID.rawValue,
@@ -177,7 +243,10 @@ struct WorkspaceDetailView: View {
                 text: $renameText,
                 onSave: commitRenameFromDialog
             )
-            .sheet(isPresented: $isCustomizationPresented) {
+            .sheet(
+                isPresented: customizationPresentation.isPresented,
+                onDismiss: customizationPresentation.didDismiss
+            ) {
                 WorkspaceCustomizationSheet(workspace: workspace) { initialDraft, submittedDraft in
                     await customizeWorkspace?(workspace.id, initialDraft, submittedDraft)
                         ?? .failure()
@@ -312,6 +381,8 @@ struct WorkspaceDetailView: View {
             return .browser(title: browser.title ?? workspace.name)
         } else if let browser = activeBrowserStream {
             return .browser(title: browser.title ?? workspace.name)
+        } else if let simulator = activeSimulatorStream {
+            return .browser(title: simulator.selectedDeviceName ?? simulator.title)
         } else {
             return .standard(title: workspace.name, subtitle: selectedToolbarSubtitle)
         }
@@ -617,7 +688,10 @@ struct WorkspaceDetailView: View {
                 isChatMode: isChatMode,
                 browserStreamRows: browserStreamStore.panels(in: workspace.rpcWorkspaceID.rawValue).map(BrowserStreamPickerRow.init),
                 supportsBrowserStream: store.supportsBrowserStream,
-                activeBrowserStreamPanelID: activeBrowserStream?.id
+                activeBrowserStreamPanelID: activeBrowserStream?.id,
+                simulatorStreamRows: simulatorStreamStore.panels(in: workspace.rpcWorkspaceID.rawValue).map(SimulatorStreamPickerRow.init),
+                supportsSimulatorStream: store.supportsSimulatorStream,
+                activeSimulatorStreamPanelID: activeSimulatorStream?.id
             ),
             actions: TerminalPickerMenuActions(
                 selectTerminal: selectTerminalFromPicker,
@@ -625,6 +699,7 @@ struct WorkspaceDetailView: View {
                 createTerminal: createTerminalFromToolbar,
                 openBrowser: openBrowserFromToolbar,
                 selectBrowserStream: { selectBrowserStreamFromToolbar($0) },
+                selectSimulatorStream: selectSimulatorStreamFromToolbar,
                 openTextSheet: openTextSheetFromMenu,
                 copyDebugLogs: {
                     #if DEBUG
@@ -658,21 +733,23 @@ struct WorkspaceDetailView: View {
     /// Opens the "View as Text" sheet: the terminal's content as selectable
     /// plain text, because the render surface itself has no copy affordance.
     private func openTextSheetFromMenu() {
-        textSheetSurfaceID = selectedTerminal?.id.rawValue
-        isTextSheetPresented = true
+        textSheetPresentation.present {
+            textSheetSurfaceID = selectedTerminal?.id.rawValue
+        }
     }
 
     private func openFeedbackComposerFromMenu() {
-        feedbackText = ""
-        feedbackErrorMessage = nil
-        // A prior submission may still be in flight if the user dismissed the
-        // sheet mid-send (Cancel stays enabled); reset so the reopened composer
-        // does not render Send permanently disabled until that task times out.
-        isSubmittingFeedback = false
-        // Prefill the reply-to address with the signed-in email on the email
-        // path; the privileged agent path never reads it.
-        feedbackEmail = store.signedInUserEmail ?? ""
-        isFeedbackComposerPresented = true
+        feedbackPresentation.present {
+            feedbackText = ""
+            feedbackErrorMessage = nil
+            // A prior submission may still be in flight if the user dismissed the
+            // sheet mid-send (Cancel stays enabled); reset so the reopened composer
+            // does not render Send permanently disabled until that task times out.
+            isSubmittingFeedback = false
+            // Prefill the reply-to address with the signed-in email on the email
+            // path; the privileged agent path never reads it.
+            feedbackEmail = store.signedInUserEmail ?? ""
+        }
     }
 
     /// Whether the current submission will go straight to the agent (privileged
@@ -724,7 +801,7 @@ struct WorkspaceDetailView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(L10n.string("mobile.feedback.cancel", defaultValue: "Cancel")) {
-                        isFeedbackComposerPresented = false
+                        feedbackPresentation.dismiss()
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
@@ -787,7 +864,7 @@ struct WorkspaceDetailView: View {
             isSubmittingFeedback = false
             switch outcome {
             case .sentToAgent, .emailed:
-                isFeedbackComposerPresented = false
+                feedbackPresentation.dismiss()
                 if toasts.isEnabled {
                     // The toast supplies the success haptic; presenting after
                     // the composer dismisses keeps it the single confirmation.
@@ -842,8 +919,9 @@ struct WorkspaceDetailView: View {
     }
 
     private func presentCustomizationFromMenu() {
-        dismissTerminalKeyboardForChrome()
-        isCustomizationPresented = true
+        customizationPresentation.present {
+            dismissTerminalKeyboardForChrome()
+        }
     }
 
     /// Commit the rename dialog: forward the trimmed name to the Mac, which echoes
@@ -864,6 +942,7 @@ struct WorkspaceDetailView: View {
         // shows the new terminal instead of staying on the browser.
         browserStore.closeBrowser(for: workspace.id.rawValue)
         stopActiveBrowserStream()
+        stopActiveSimulatorStream()
         createTerminal()
     }
 
@@ -898,6 +977,7 @@ struct WorkspaceDetailView: View {
     private func openLocalBrowserFallback() {
         browserStore.openBrowser(for: workspace.id.rawValue)
         stopActiveBrowserStream()
+        stopActiveSimulatorStream()
     }
 
     private func selectBrowserStreamFromToolbar(_ panelID: String, dismissKeyboard: Bool = true) {
@@ -906,6 +986,7 @@ struct WorkspaceDetailView: View {
         }
         browserCreateRequest = nil
         browserStore.closeBrowser(for: workspace.id.rawValue)
+        stopActiveSimulatorStream()
         if let previous = activeBrowserStream, previous.id != panelID {
             Task { await store.stopMobileBrowserStream(panelID: previous.id) }
         }
@@ -913,10 +994,53 @@ struct WorkspaceDetailView: View {
         Task { await store.startMobileBrowserStream(panelID: panelID) }
     }
 
+    private func selectSimulatorStreamFromToolbar(_ panelID: String) {
+        dismissTerminalKeyboardForChrome()
+        browserStore.closeBrowser(for: workspace.id.rawValue)
+        stopActiveBrowserStream()
+        let workspaceID = workspace.rpcWorkspaceID.rawValue
+        let previousPanelID: String? = activeSimulatorStream.flatMap {
+            $0.id == panelID ? nil : $0.id
+        }
+        // Settle the previous panel's local state before activating the new
+        // one, so switching A -> B leaves A idle instead of frozen on a stale
+        // `.streaming`/`.starting` status.
+        if let previousPanelID {
+            simulatorStreamStore.deactivate(panelID: previousPanelID, in: workspaceID)
+        }
+        _ = simulatorStreamStore.activate(panelID: panelID, in: workspaceID)
+        // One task, stop awaited before start: two independent tasks have no
+        // ordering guarantee, and the reversed order would tear down the new
+        // stream (or churn host sessions) right after it started.
+        Task {
+            if let previousPanelID {
+                await store.stopMobileSimulatorStream(
+                    panelID: previousPanelID,
+                    workspaceID: workspaceID
+                )
+            }
+            await store.startMobileSimulatorStream(
+                panelID: panelID,
+                workspaceID: workspaceID
+            )
+        }
+    }
+
     private func stopActiveBrowserStream() {
         guard let stream = activeBrowserStream else { return }
         browserStreamStore.deactivate(in: workspace.rpcWorkspaceID.rawValue)
         Task { await store.stopMobileBrowserStream(panelID: stream.id) }
+    }
+
+    private func stopActiveSimulatorStream() {
+        guard let stream = activeSimulatorStream else { return }
+        simulatorStreamStore.deactivate(in: workspace.rpcWorkspaceID.rawValue)
+        Task {
+            await store.stopMobileSimulatorStream(
+                panelID: stream.id,
+                workspaceID: workspace.rpcWorkspaceID.rawValue
+            )
+        }
     }
 
     private func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {
@@ -926,6 +1050,7 @@ struct WorkspaceDetailView: View {
         // terminal. Closing the browser is enough to flip the detail view back.
         browserStore.closeBrowser(for: workspace.id.rawValue)
         stopActiveBrowserStream()
+        stopActiveSimulatorStream()
         // Switching from the picker is chrome, not a typing intent, so the
         // newly-selected surface must not grab the keyboard on attach. The
         // store suppresses the target's autofocus (and is a no-op when it is
@@ -940,5 +1065,12 @@ struct WorkspaceDetailView: View {
         // it; then sweep any other responder across the scene.
         GhosttySurfaceView.resignActiveInput()
         UIApplication.shared.dismissMobileKeyboard()
+    }
+
+    private func syncSimulatorStreamPanels() {
+        simulatorStreamStore.replaceSimulatorPanels(
+            in: workspace.rpcWorkspaceID.rawValue,
+            with: workspace.simulators
+        )
     }
 }

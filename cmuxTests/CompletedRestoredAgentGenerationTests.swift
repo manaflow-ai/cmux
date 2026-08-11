@@ -112,7 +112,8 @@ struct CompletedRestoredAgentGenerationTests {
             panelId: panelId,
             snapshot: snapshot,
             resumeState: .completedAgentExit,
-            completedGeneration: transferredGeneration
+            completedGeneration: transferredGeneration,
+            resumeWorkingDirectory: nil
         )
         let replacementIdentity = AgentPIDProcessIdentity(
             pid: 654,

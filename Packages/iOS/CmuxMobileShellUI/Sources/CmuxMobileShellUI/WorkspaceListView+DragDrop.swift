@@ -18,6 +18,9 @@ extension WorkspaceListView {
             && trimmedQuery.isEmpty
             && filter.readState == .all
             && filter.machines.isEmpty
+            // The recency order is derived from timestamps, so a drag has no
+            // spatial position to send to the Mac.
+            && !appliesRecencySort
             && reorderableWorkspaces.hasSingleKnownWindow
             && (rendersGroupedSections || !filteredWorkspaces.contains(where: \.isPinned))
     }
@@ -28,10 +31,6 @@ extension WorkspaceListView {
 
     var filteredWorkspaceOrderKey: [WorkspaceListStableOrderKey] {
         filteredWorkspaces.map { WorkspaceListStableOrderKey(workspace: $0) }
-    }
-
-    var groupedWorkspaceOrderKey: [WorkspaceListStableOrderKey] {
-        groupedListItems.map { WorkspaceListStableOrderKey(item: $0) }
     }
 
     var canCreateWorkspaceInGroups: Bool {

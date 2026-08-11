@@ -123,6 +123,8 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.switchRightSidebarToDock`
 - `shortcuts.bindings.nextSidebarTab`
 - `shortcuts.bindings.prevSidebarTab`
+- `shortcuts.bindings.nextSidebarTabInGroup`
+- `shortcuts.bindings.prevSidebarTabInGroup`
 
 ## Browser
 

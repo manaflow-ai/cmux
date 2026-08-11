@@ -15,13 +15,20 @@ type DashboardNavGroup = {
   }>;
 };
 
-export function DashboardShell({ children }: { children: React.ReactNode }) {
+export function DashboardShell({
+  children,
+  vaultEnabled,
+}: {
+  children: React.ReactNode;
+  vaultEnabled: boolean;
+}) {
   const t = useTranslations("dashboard.nav");
   const common = useTranslations("common");
   const pathname = usePathname();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const groups: DashboardNavGroup[] = [
-    {
+  const groups: DashboardNavGroup[] = [];
+  if (vaultEnabled) {
+    groups.push({
       label: t("vaultGroup"),
       items: [
         {
@@ -35,7 +42,9 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           active: pathname.startsWith("/dashboard/vault/sessions"),
         },
       ],
-    },
+    });
+  }
+  groups.push(
     {
       label: t("coderouterGroup"),
       items: [
@@ -66,7 +75,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         },
       ],
     },
-  ];
+  );
 
   return (
     <div className="min-h-screen bg-background text-sm text-foreground sm:grid sm:grid-cols-[13rem_minmax(0,1fr)]">
@@ -79,7 +88,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             {t("brand")}
           </Link>
         </div>
-        <DashboardNav groups={groups} className="flex-1 overflow-y-auto px-2 py-3 pb-20" />
+        <DashboardNav groups={groups} className="flex-1 overflow-y-auto px-2 py-3 pb-28" />
       </aside>
 
       <div className="min-w-0">
@@ -111,7 +120,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             groups={groups}
             hidden={!mobileNavOpen}
             onNavigate={() => setMobileNavOpen(false)}
-            className="max-h-[calc(100vh-2.75rem)] overflow-y-auto border-t border-border px-2 py-3 sm:hidden"
+            className="max-h-[calc(100vh-6rem)] overflow-y-auto border-t border-border px-2 py-3 sm:hidden"
           />
         </header>
         <main className="min-w-0">{children}</main>

@@ -14,7 +14,7 @@ import WebKit
 
 @MainActor
 @Suite struct BrowserPanelViewIdentityTests {
-    @Test func externalPortalGeometrySyncDoesNotDriveSwiftUILayout() {
+    @Test func externalPortalGeometrySyncDoesNotDriveSwiftUILayout() async throws {
         let referenceView = LayoutCountingBrowserReferenceView(rootView: EmptyView())
         referenceView.frame = NSRect(x: 0, y: 0, width: 640, height: 480)
         let window = NSWindow(
@@ -36,20 +36,30 @@ import WebKit
             window.close()
         }
 
+        await waitForNextMainActorTurn()
+        await waitForNextMainActorTurn()
         referenceView.layoutSubtreeIfNeeded()
         referenceView.layoutPassCount = 0
         referenceView.needsLayout = true
+        anchor.frame = NSRect(x: 60, y: 50, width: 360, height: 260)
+        let expectedFrameInWindow = anchor.convert(anchor.bounds, to: nil)
 
-        portal.synchronizeAllEntriesFromExternalGeometryChange()
+        NotificationCenter.default.post(name: NSWindow.didResizeNotification, object: window)
+        await waitForNextMainActorTurn()
+        await waitForNextMainActorTurn()
 
         #expect(
             referenceView.layoutPassCount == 0,
             "The browser portal must consume settled geometry without synchronously laying out SwiftUI's hosting view."
         )
         #expect(referenceView.needsLayout)
+        let snapshot = try #require(
+            portal.debugSnapshot(forWebViewId: ObjectIdentifier(webView))
+        )
+        #expect(snapshot.frameInWindow == expectedFrameInWindow)
     }
 
-    @Test func portalPresentationRefreshDoesNotDriveSwiftUILayout() {
+    @Test func portalPresentationRefreshDoesNotDriveSwiftUILayout() async {
         let referenceView = LayoutCountingBrowserReferenceView(rootView: EmptyView())
         referenceView.frame = NSRect(x: 0, y: 0, width: 640, height: 480)
         let window = NSWindow(
@@ -62,7 +72,10 @@ import WebKit
 
         let anchor = NSView(frame: NSRect(x: 40, y: 30, width: 320, height: 240))
         referenceView.addSubview(anchor)
-        let webView = WKWebView(frame: anchor.bounds)
+        let webView = LayoutCountingBrowserWebView(
+            frame: anchor.bounds,
+            configuration: WKWebViewConfiguration()
+        )
         let portal = WindowBrowserPortal(window: window)
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
 
@@ -71,12 +84,18 @@ import WebKit
             window.close()
         }
 
+        await waitForNextMainActorTurn()
+        await waitForNextMainActorTurn()
         referenceView.layoutSubtreeIfNeeded()
         referenceView.layoutPassCount = 0
         referenceView.needsLayout = true
+        webView.layoutPassCount = 0
 
         portal.forceRefreshWebView(withId: ObjectIdentifier(webView), reason: "test")
+        await waitForNextMainActorTurn()
+        await waitForNextMainActorTurn()
 
+        #expect(webView.layoutPassCount > 0, "The deferred refresh must still flush the portal-owned WebKit subtree.")
         #expect(
             referenceView.layoutPassCount == 0,
             "A portal presentation refresh must not synchronously lay out SwiftUI's hosting view."
@@ -102,8 +121,8 @@ import WebKit
         host.layoutSubtreeIfNeeded()
         host.layoutPassCount = 0
 
-        let anchor = NSView(frame: .zero)
-        WebViewRepresentable.installPortalAnchorView(anchor, in: host)
+        let anchor = BrowserPortalAnchorView(frame: .zero)
+        anchor.install(in: host)
 
         #expect(anchor.superview === host)
         #expect(
@@ -117,7 +136,7 @@ import WebKit
         #expect(anchor.frame == host.bounds)
     }
 
-    @Test func portalAnchorReinstallationPublishesResizedHostGeometryBeforeLayout() throws {
+    @Test func portalAnchorReinstallationDefersResizedGeometryToAppKit() throws {
         let host = LayoutCountingBrowserHostView(
             frame: NSRect(x: 0, y: 0, width: 480, height: 320)
         )
@@ -131,8 +150,8 @@ import WebKit
         window.makeKeyAndOrderFront(nil)
         defer { window.orderOut(nil) }
 
-        let anchor = NSView(frame: .zero)
-        WebViewRepresentable.installPortalAnchorView(anchor, in: host)
+        let anchor = BrowserPortalAnchorView(frame: .zero)
+        anchor.install(in: host)
         host.layoutSubtreeIfNeeded()
         #expect(anchor.frame == host.bounds)
 
@@ -140,16 +159,21 @@ import WebKit
         host.setFrameSize(NSSize(width: 720, height: 480))
         #expect(anchor.frame != host.bounds)
 
-        WebViewRepresentable.installPortalAnchorView(anchor, in: host)
+        anchor.install(in: host)
 
         #expect(
             host.layoutPassCount == 0,
             "Refreshing browser portal geometry must not synchronously lay out the SwiftUI-owned host."
         )
         #expect(
-            anchor.frame == host.bounds,
-            "Portal synchronization must see the resized host geometry before AppKit's deferred constraint pass."
+            anchor.frame != host.bounds,
+            "Reinstalling an already constrained anchor must leave geometry resolution to AppKit's deferred layout pass."
         )
+        #expect(host.needsLayout)
+
+        host.layoutSubtreeIfNeeded()
+        #expect(host.layoutPassCount == 1)
+        #expect(anchor.frame == host.bounds)
     }
 
     @Test func replacingBrowserPanelClearsUncommittedOmnibarDraft() throws {
@@ -218,6 +242,14 @@ import WebKit
         window.displayIfNeeded()
         window.contentView?.layoutSubtreeIfNeeded()
     }
+
+    private func waitForNextMainActorTurn() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async {
+                continuation.resume()
+            }
+        }
+    }
 }
 
 @MainActor
@@ -227,6 +259,16 @@ private final class LayoutCountingBrowserReferenceView: NSHostingView<EmptyView>
     override func layout() {
         layoutPassCount += 1
         super.layout()
+    }
+}
+
+@MainActor
+private final class LayoutCountingBrowserWebView: WKWebView {
+    var layoutPassCount = 0
+
+    override func layoutSubtreeIfNeeded() {
+        layoutPassCount += 1
+        super.layoutSubtreeIfNeeded()
     }
 }
 

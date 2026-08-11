@@ -35,7 +35,9 @@ extension TerminalController {
         let focus = v2FocusAllowed(requested: inputs.requestedFocus)
         let kind: DockSurfaceKind = (panelType == .browser) ? .browser : .terminal
         if focus {
-            focusAndRevealWindowDock(for: dock, fallback: tabManager)
+            // Creation is authoritative; revealing its secondary focus request
+            // is best-effort when the Dock host is still mounting.
+            _ = focusAndRevealWindowDock(for: dock, fallback: tabManager)
         }
         let newPanelId = dock.newSplit(
             kind: kind,
@@ -49,6 +51,7 @@ extension TerminalController {
             tmuxStartCommand: kind == .terminal ? inputs.tmuxStartCommand : nil,
             initialDividerPosition: initialDividerPosition,
             preferredProfileID: preferredProfileID,
+            preloadInitialNavigationInBackground: kind == .browser,
             focus: focus
         )
         guard let newPanelId else {

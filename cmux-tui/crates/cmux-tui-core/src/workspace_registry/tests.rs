@@ -1,4 +1,6 @@
 use super::*;
+use crate::resource::FrontendProjectionPublicId;
+use std::sync::Arc;
 
 const TERMINAL_ONE: &str = "00000000000040008000000000000001";
 const TERMINAL_TWO: &str = "00000000000040008000000000000002";
@@ -20,15 +22,16 @@ fn workspace(id: u64, key: &str, name: &str) -> RegistryWorkspace {
 }
 
 fn seed_workspace(registry: &mut WorkspaceRegistry, key: &str) {
+    let revision = registry.snapshot().unwrap().revision;
     registry
         .commit(
             &WorkspaceMutation::new(format!("create-{key}"), "test").unwrap(),
             &json!({"op":"create","key":key}),
             None,
-            Some(registry.snapshot().unwrap().revision),
+            Some(revision),
             "workspace-added",
             key,
-            &[workspace(1, key, "Workspace")],
+            &[workspace(revision + 1, key, "Workspace")],
             &json!({"key":key}),
         )
         .unwrap();
@@ -569,6 +572,7 @@ fn terminal_host_reset_holds_structured_live_marker_lock() {
         workspace_key: String::new(),
         supports_set_defaults: true,
         supports_clear_history: true,
+        supports_terminate_ack: false,
     };
     let record_path = record.record_path(&root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);
@@ -661,6 +665,7 @@ fn terminal_host_reset_checks_legacy_live_marker_as_orphan() {
         workspace_key: String::new(),
         supports_set_defaults: false,
         supports_clear_history: false,
+        supports_terminate_ack: false,
     };
     let record_path = record.record_path(&root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);
@@ -767,6 +772,7 @@ fn reset_accepts_dead_v2_terminal_host_without_creating_live_marker() {
         workspace_key: String::new(),
         supports_set_defaults: true,
         supports_clear_history: true,
+        supports_terminate_ack: false,
     };
     let record_path = record.record_path(&host_root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);
@@ -1010,7 +1016,9 @@ fn reset_session_guard_coordinator_busy_fails_without_waiting_forever() {
     let root = temp_root("session-guard-coordinator-busy");
     fs::create_dir_all(&root).unwrap();
     let lock_dir = prepare_session_guard_dir(&root).unwrap();
-    let _held = SessionLease::acquire(&session_guard_coordinator_path(&lock_dir)).unwrap();
+    let _held =
+        SessionLease::acquire_coordinator_blocking(&session_guard_coordinator_path(&lock_dir))
+            .unwrap();
     let started = std::time::Instant::now();
 
     let error = match acquire_existing_session_reset_guard(&root, "blocked-by-coordinator") {
@@ -1020,6 +1028,33 @@ fn reset_session_guard_coordinator_busy_fails_without_waiting_forever() {
 
     assert!(started.elapsed() < std::time::Duration::from_secs(1));
     assert!(format!("{error:#}").contains("workspace session coordinator is busy"));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn session_guard_coordinator_owner_publishes_lock_availability() {
+    let root = temp_root("session-guard-coordinator-publication");
+    fs::create_dir_all(&root).unwrap();
+    let lock_dir = prepare_session_guard_dir(&root).unwrap();
+    let coordinator_path = session_guard_coordinator_path(&lock_dir);
+    let held = SessionLease::acquire_coordinator_blocking(&coordinator_path).unwrap();
+    let waiter = SessionCoordinatorWaiter::register(&coordinator_path).unwrap();
+
+    drop(held);
+    assert!(
+        waiter
+            .wait_until(std::time::Instant::now() + std::time::Duration::from_secs(2))
+            .expect("wait for coordinator availability"),
+        "coordinator owner did not publish lock availability"
+    );
+    drop(waiter);
+    let acquired = SessionLease::acquire_coordinator_until(
+        &coordinator_path,
+        std::time::Instant::now() + std::time::Duration::from_secs(2),
+    )
+    .expect("waiter did not acquire the published coordinator lock");
+    drop(acquired);
+
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -1048,6 +1083,92 @@ fn workspace_commit_publishes_one_normalized_resource_event() {
             .unwrap(),
         1
     );
+}
+
+#[test]
+fn resource_event_replay_pages_a_far_behind_cursor() {
+    const EVENT_COUNT: usize = 1_025;
+    const EXPECTED_PAGE_SIZE: usize = 1_024;
+
+    let mut registry = WorkspaceRegistry::in_memory("bounded-resource-replay").unwrap();
+    for index in 0..EVENT_COUNT {
+        seed_workspace(&mut registry, &format!("bounded-resource-replay-{index}"));
+    }
+
+    let page = registry.resource_events_after(0).unwrap();
+    assert_eq!(page.head_revision, u64::try_from(EVENT_COUNT).unwrap());
+    assert_eq!(page.batches.len(), EXPECTED_PAGE_SIZE);
+    assert_eq!(page.batches.last().unwrap().revision, u64::try_from(EXPECTED_PAGE_SIZE).unwrap());
+}
+
+#[test]
+fn resource_event_replay_reads_checkpointed_sealed_segments() {
+    let root = temp_root("sealed-resource-replay");
+    let mut registry = WorkspaceRegistry::open(&root, "sealed-resource-replay").unwrap();
+    let database = registry.session_journal_database_path().unwrap();
+    seed_workspace(&mut registry, "sealed-resource-replay-event");
+    let through = registry.session_journal_after(0, 32).unwrap().head_sequence;
+    registry
+        .create_journal_checkpoint(
+            through,
+            1,
+            &json!({
+                "session_snapshot":{"cursor":{"revision":"1"}},
+                "journal_extensions":{"producers":[],"hooks":[]},
+            }),
+            &[],
+            "client_test",
+            "sealed_resource_checkpoint",
+        )
+        .unwrap();
+    let plan = match registry
+        .begin_journal_segment_seal(through, "client_test", "sealed_resource_segment")
+        .unwrap()
+    {
+        JournalSegmentSealStart::Prepare(plan) => plan,
+        JournalSegmentSealStart::Replay(_) => panic!("first segment seal unexpectedly replayed"),
+    };
+    let reader = SessionJournalReader::open(&database).unwrap();
+    let prepared = plan.prepare(&reader).unwrap();
+    registry
+        .commit_journal_segment_seal(prepared, "client_test", "sealed_resource_segment")
+        .unwrap()
+        .expect("segment boundary remained stable");
+
+    drop(reader);
+    drop(registry);
+    let legacy = Connection::open(&database).unwrap();
+    legacy
+        .execute_batch(
+            "PRAGMA foreign_keys=OFF;
+             CREATE TABLE legacy_journal_event_index (
+               event_id TEXT PRIMARY KEY NOT NULL,
+               sequence INTEGER UNIQUE NOT NULL CHECK(sequence > 0),
+               causation_depth INTEGER NOT NULL CHECK(causation_depth >= 0),
+               causation_id TEXT,
+               causal_hook_id TEXT
+             );
+             INSERT INTO legacy_journal_event_index
+               SELECT event_id, sequence, causation_depth, causation_id, causal_hook_id
+               FROM journal_event_index;
+             DROP TABLE journal_event_index;
+             ALTER TABLE legacy_journal_event_index RENAME TO journal_event_index;
+             DELETE FROM meta WHERE key = 'journal_event_index_resource_v1';
+             PRAGMA foreign_keys=ON;",
+        )
+        .unwrap();
+    drop(legacy);
+
+    let registry = WorkspaceRegistry::open(&root, "sealed-resource-replay").unwrap();
+
+    let page = registry.resource_events_after(0).unwrap();
+    assert_eq!(page.head_revision, 1);
+    assert_eq!(page.batches.len(), 1);
+    assert_eq!(page.batches[0].previous_revision, 0);
+    assert_eq!(page.batches[0].revision, 1);
+
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
 }
 
 fn terminal(id: &str, workspace_key: &str) -> RegistryTerminal {
@@ -1113,7 +1234,7 @@ fn machine_identity_is_state_root_global_and_survives_restart() {
 #[test]
 fn concurrent_first_open_converges_on_one_machine_identity() {
     let root = temp_root("machine-race");
-    let barrier = std::sync::Arc::new(std::sync::Barrier::new(12));
+    let barrier = Arc::new(std::sync::Barrier::new(12));
     let threads = (0..12)
         .map(|index| {
             let root = root.clone();
@@ -1548,10 +1669,27 @@ fn resource_patch_commits_terminal_and_topology_in_one_revision() {
     assert_eq!(
         registry
             .connection
-            .query_row("SELECT COUNT(*) FROM resource_events", [], |row| row.get::<_, i64>(0))
+            .query_row("SELECT COUNT(*) FROM session_journal", [], |row| row.get::<_, i64>(0))
             .unwrap(),
         1
     );
+    let journal = registry.session_journal_after(0, 1).unwrap();
+    assert_eq!(journal.records[0].kind, "workspace.create");
+    for (kind, id) in [
+        ("workspace", workspace(1, "one", "One").public_id.to_string()),
+        ("screen", screen_id(1).to_string()),
+        ("pane", pane_id(1).to_string()),
+        ("tab", tab_id(1).to_string()),
+        ("terminal", terminal_resource(TERMINAL_ONE).to_string()),
+    ] {
+        assert!(
+            journal.records[0]
+                .subjects
+                .iter()
+                .any(|subject| subject.kind == kind && subject.id == id),
+            "missing {kind} journal subject {id}"
+        );
+    }
     assert_eq!(
         registry
             .connection
@@ -1715,7 +1853,7 @@ fn resource_tab_detach_rejects_browser_content() {
 }
 
 #[test]
-fn resource_tab_close_tombstones_terminal_content_without_an_explicit_terminal_change() {
+fn resource_tab_close_preserves_terminal_content_without_an_explicit_terminal_change() {
     let mut registry = WorkspaceRegistry::in_memory("terminal-tab-close").unwrap();
     commit_terminal_topology(&mut registry, "create-terminal-tab-close");
 
@@ -1745,7 +1883,10 @@ fn resource_tab_close_tombstones_terminal_content_without_an_explicit_terminal_c
         .unwrap();
 
     assert!(registry.resource_topology_snapshot().unwrap().tabs.is_empty());
-    assert_eq!(registry.terminal_resource_id(TERMINAL_ONE).unwrap(), None);
+    assert_eq!(
+        registry.terminal_resource_id(TERMINAL_ONE).unwrap(),
+        Some(terminal_resource(TERMINAL_ONE)),
+    );
     let transaction = registry.connection.unchecked_transaction().unwrap();
     validate_resource_invariants(&transaction).unwrap();
     transaction.commit().unwrap();
@@ -2329,7 +2470,7 @@ fn resource_patch_failure_rolls_back_every_projection_and_log() {
         "resource_tabs",
         "resource_terminals",
         "resource_mutations",
-        "resource_events",
+        "session_journal",
     ] {
         let count = registry
             .connection
@@ -2939,7 +3080,35 @@ fn thousand_workspace_rename_has_bounded_writes_and_time() {
         .unwrap();
     let elapsed = started.elapsed();
     let changed_rows = registry.connection.total_changes() - changes_before;
-    assert!(changed_rows <= 8, "rename changed {changed_rows} rows");
+    // The fixed write budget includes one append-only journal row and its
+    // session and workspace subject-index rows. It must not grow with the
+    // number of workspaces in the registry.
+    assert!(changed_rows <= 10, "rename changed {changed_rows} rows");
+    let latest_sequence = registry
+        .connection
+        .query_row("SELECT MAX(sequence) FROM session_journal", [], |row| row.get::<_, i64>(0))
+        .unwrap();
+    let indexed_subjects = registry
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM journal_subject_index WHERE sequence = ?1",
+            [latest_sequence],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap();
+    assert_eq!(indexed_subjects, 2);
+    let expected_subjects = registry
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM journal_subject_index
+             WHERE sequence = ?1
+               AND ((kind = 'session' AND id = ?2)
+                 OR (kind = 'workspace' AND id = ?3))",
+            params![latest_sequence, registry.session_id().as_str(), target.public_id.as_str()],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap();
+    assert_eq!(expected_subjects, 2);
     assert!(elapsed < std::time::Duration::from_secs(1), "targeted rename took {elapsed:?}");
     assert_eq!(
         registry
@@ -4058,12 +4227,152 @@ fn current_schema_normalizes_legacy_single_view_resource_tabs() {
 }
 
 #[test]
+fn current_schema_rejects_semantically_different_browser_view_predicate() {
+    let root = temp_root("current-schema-wrong-browser-predicate");
+    let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    let browser = browser_id(1);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        commit_terminal_topology(&mut registry, "wrong-browser-predicate-terminal");
+        commit_browser_topology(
+            &mut registry,
+            "wrong-browser-predicate-browser",
+            RegistryBrowser::recreate(browser.clone(), "https://cmux.dev".into(), 80, 24),
+        );
+    }
+    let malformed = Connection::open(&database).unwrap();
+    malformed
+        .execute_batch(
+            "DROP INDEX live_resource_browser_view;
+             CREATE UNIQUE INDEX live_resource_browser_view
+               ON resource_tabs(content_id)
+               WHERE content_kind = 'browser' AND deleted_revision IS NULL
+                 AND name IS NOT NULL;",
+        )
+        .unwrap();
+    let second_tab = tab_id(3);
+    malformed
+        .execute(
+            "INSERT INTO resource_identities(
+               public_id, kind, created_revision, updated_revision, deleted_revision
+             ) VALUES(?1, 'tab', 3, 3, NULL)",
+            [second_tab.as_str()],
+        )
+        .unwrap();
+    malformed
+        .execute(
+            "INSERT INTO resource_tabs(
+               public_id, pane_id, position, content_kind, content_id, name,
+               created_revision, updated_revision, deleted_revision
+             ) VALUES(?1, ?2, 1, 'browser', ?3, NULL, 3, 3, NULL)",
+            params![second_tab.as_str(), pane_id(2).as_str(), browser.as_str()],
+        )
+        .unwrap();
+    drop(malformed);
+
+    let error = WorkspaceRegistry::open(&root, "session").unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("workspace registry contains multiple live views for one browser"),
+        "unexpected normalization error: {error:#}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn current_schema_canonicalizes_equivalent_formatted_browser_view_predicate_once() {
+    let root = temp_root("current-schema-formatted-browser-predicate");
+    let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    {
+        let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        drop(registry);
+    }
+    let formatted = Connection::open(&database).unwrap();
+    formatted
+        .execute_batch(
+            "DROP INDEX live_resource_browser_view;
+             CREATE UNIQUE INDEX live_resource_browser_view
+               ON resource_tabs(content_id)
+               WHERE (deleted_revision IS NULL)
+                 AND (content_kind = 'browser');",
+        )
+        .unwrap();
+    let definition_before = formatted
+        .query_row(
+            "SELECT sql FROM sqlite_master
+             WHERE type = 'index' AND name = 'live_resource_browser_view'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap();
+    let schema_version_before =
+        formatted.query_row("PRAGMA schema_version", [], |row| row.get::<_, i64>(0)).unwrap();
+    drop(formatted);
+
+    let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
+    let canonical_definition = reopened
+        .connection
+        .query_row(
+            "SELECT sql FROM sqlite_master
+             WHERE type = 'index' AND name = 'live_resource_browser_view'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap();
+    let schema_version_after_normalization = reopened
+        .connection
+        .query_row("PRAGMA schema_version", [], |row| row.get::<_, i64>(0))
+        .unwrap();
+    assert_ne!(canonical_definition, definition_before);
+    assert_eq!(
+        canonical_definition.split_whitespace().collect::<Vec<_>>().join(" "),
+        "CREATE UNIQUE INDEX live_resource_browser_view ON resource_tabs(content_id) WHERE content_kind = 'browser' AND deleted_revision IS NULL"
+    );
+    assert!(schema_version_after_normalization > schema_version_before);
+    drop(reopened);
+
+    let reopened_again = WorkspaceRegistry::open(&root, "session").unwrap();
+    let definition_after_second_open = reopened_again
+        .connection
+        .query_row(
+            "SELECT sql FROM sqlite_master
+             WHERE type = 'index' AND name = 'live_resource_browser_view'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap();
+    let schema_version_after_second_open = reopened_again
+        .connection
+        .query_row("PRAGMA schema_version", [], |row| row.get::<_, i64>(0))
+        .unwrap();
+    assert_eq!(definition_after_second_open, canonical_definition);
+    assert_eq!(schema_version_after_second_open, schema_version_after_normalization);
+    drop(reopened_again);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn multiview_normalization_requires_browser_view_index() {
+    let registry = WorkspaceRegistry::in_memory("missing-browser-view-index").unwrap();
+    registry.connection.execute("DROP INDEX live_resource_browser_view", []).unwrap();
+
+    assert!(resource_tabs_needs_multiview_normalization(&registry.connection).unwrap());
+}
+
+#[test]
 fn schema_eight_rejects_multiple_live_views_for_one_browser() {
     let root = temp_root("schema-eight-duplicate-browser-views");
     let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    let browser = browser_id(1);
     {
         let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
         commit_terminal_topology(&mut registry, "duplicate-browser-seed");
+        commit_browser_topology(
+            &mut registry,
+            "duplicate-browser-view-seed",
+            RegistryBrowser::recreate(browser.clone(), "https://cmux.dev".into(), 80, 24),
+        );
     }
     let legacy = Connection::open(&database).unwrap();
     legacy
@@ -4071,16 +4380,15 @@ fn schema_eight_rejects_multiple_live_views_for_one_browser() {
             "PRAGMA foreign_keys=OFF;
              DROP INDEX live_resource_browser_view;
              CREATE INDEX live_resource_browser_view ON resource_tabs(content_id);
-             UPDATE resource_tabs SET content_kind = 'browser';
              UPDATE meta SET value = '8' WHERE key = 'schema_version';",
         )
         .unwrap();
-    let second_tab = tab_id(2);
+    let second_tab = tab_id(3);
     legacy
         .execute(
             "INSERT INTO resource_identities(
                public_id, kind, created_revision, updated_revision, deleted_revision
-             ) VALUES(?1, 'tab', 1, 1, NULL)",
+             ) VALUES(?1, 'tab', 2, 2, NULL)",
             [second_tab.as_str()],
         )
         .unwrap();
@@ -4089,12 +4397,8 @@ fn schema_eight_rejects_multiple_live_views_for_one_browser() {
             "INSERT INTO resource_tabs(
                public_id, pane_id, position, content_kind, content_id, name,
                created_revision, updated_revision, deleted_revision
-             ) VALUES(?1, ?2, 1, 'browser', ?3, NULL, 1, 1, NULL)",
-            params![
-                second_tab.as_str(),
-                pane_id(1).as_str(),
-                terminal_resource(TERMINAL_ONE).as_str()
-            ],
+             ) VALUES(?1, ?2, 1, 'browser', ?3, NULL, 2, 2, NULL)",
+            params![second_tab.as_str(), pane_id(2).as_str(), browser.as_str()],
         )
         .unwrap();
     drop(legacy);
@@ -4133,6 +4437,696 @@ fn schema_eight_rejects_both_terminal_storage_tables() {
         ),
         "unexpected migration error: {error:#}"
     );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn schema_nine_multiview_converges_with_the_session_journal() {
+    let root = temp_root("schema-nine-multiview-journal");
+    let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        commit_terminal_topology(&mut registry, "schema-nine-seed");
+    }
+
+    let legacy = Connection::open(&database).unwrap();
+    let event = legacy
+        .query_row(
+            "SELECT resource_revision, previous_resource_revision,
+                    json_extract(producer_json, '$.id'), correlation_id,
+                    json_extract(payload_json, '$.changes')
+             FROM session_journal WHERE resource_revision IS NOT NULL",
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            },
+        )
+        .unwrap();
+    legacy
+        .execute_batch(
+            "PRAGMA foreign_keys=OFF;
+             DROP TABLE journal_hook_deliveries;
+             DROP TABLE journal_hooks;
+             DROP TABLE journal_ingress_receipts;
+             DROP TABLE journal_operation_receipts;
+             DROP TABLE journal_producers;
+             DROP TABLE journal_checkpoints;
+             DROP TABLE journal_content_blobs;
+             DROP TABLE journal_segments;
+             DROP TABLE journal_event_index;
+             DROP TABLE session_journal;
+             CREATE TABLE resource_events (
+               revision INTEGER PRIMARY KEY NOT NULL,
+               previous_revision INTEGER NOT NULL,
+               origin TEXT NOT NULL,
+               idempotency_key TEXT NOT NULL,
+               deltas_json TEXT NOT NULL
+             );
+             UPDATE meta SET value = '9' WHERE key = 'schema_version';
+             PRAGMA foreign_keys=ON;",
+        )
+        .unwrap();
+    legacy
+        .execute(
+            "INSERT INTO resource_events(
+               revision, previous_revision, origin, idempotency_key, deltas_json
+             ) VALUES(?1, ?2, ?3, ?4, ?5)",
+            params![event.0, event.1, event.2, event.3, event.4],
+        )
+        .unwrap();
+    drop(legacy);
+
+    let migrated = WorkspaceRegistry::open(&root, "session").unwrap();
+    assert_eq!(
+        required_meta(&migrated.connection, "schema_version").unwrap(),
+        SCHEMA_VERSION.to_string()
+    );
+    let page = migrated.session_journal_after(0, 10).unwrap();
+    assert_eq!(page.records.len(), 2);
+    assert_eq!(page.records[0].kind, "session.journal.migrated");
+    assert_eq!(page.records[1].resource_revision, Some(1));
+    let resource_events = migrated
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master
+             WHERE type = 'table' AND name = 'resource_events'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap();
+    assert_eq!(resource_events, 0);
+    drop(migrated);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn schema_ten_journal_converges_with_terminal_multiview() {
+    let root = temp_root("schema-ten-journal-multiview");
+    let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        commit_terminal_topology(&mut registry, "schema-ten-seed");
+    }
+
+    let legacy = Connection::open(&database).unwrap();
+    legacy
+        .execute_batch(
+            "PRAGMA foreign_keys=OFF;
+             BEGIN IMMEDIATE;
+             DROP INDEX IF EXISTS live_resource_tab_position;
+             DROP INDEX IF EXISTS live_resource_browser_view;
+             CREATE TABLE resource_tabs_single_view (
+               public_id TEXT PRIMARY KEY NOT NULL REFERENCES resource_identities(public_id),
+               pane_id TEXT NOT NULL REFERENCES resource_panes(public_id)
+                 DEFERRABLE INITIALLY DEFERRED,
+               position INTEGER,
+               content_kind TEXT NOT NULL CHECK(content_kind IN ('terminal','browser')),
+               content_id TEXT UNIQUE NOT NULL REFERENCES resource_identities(public_id)
+                 DEFERRABLE INITIALLY DEFERRED,
+               name TEXT,
+               created_revision INTEGER NOT NULL,
+               updated_revision INTEGER NOT NULL,
+               deleted_revision INTEGER,
+               CHECK (
+                 (deleted_revision IS NULL AND position IS NOT NULL) OR
+                 (deleted_revision IS NOT NULL AND position IS NULL)
+               )
+             );
+             INSERT INTO resource_tabs_single_view(
+               public_id, pane_id, position, content_kind, content_id, name,
+               created_revision, updated_revision, deleted_revision
+             )
+             SELECT public_id, pane_id, position, content_kind, content_id, name,
+                    created_revision, updated_revision, deleted_revision
+             FROM resource_tabs;
+             DROP TABLE resource_tabs;
+             ALTER TABLE resource_tabs_single_view RENAME TO resource_tabs;
+             CREATE UNIQUE INDEX live_resource_tab_position
+               ON resource_tabs(pane_id, position) WHERE deleted_revision IS NULL;
+             UPDATE meta SET value = '10' WHERE key = 'schema_version';
+             COMMIT;
+             PRAGMA foreign_keys=ON;",
+        )
+        .unwrap();
+    drop(legacy);
+
+    let migrated = WorkspaceRegistry::open(&root, "session").unwrap();
+    assert_eq!(
+        required_meta(&migrated.connection, "schema_version").unwrap(),
+        SCHEMA_VERSION.to_string()
+    );
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let second_tab = tab_id(2);
+    migrated
+        .connection
+        .execute(
+            "INSERT INTO resource_identities(
+               public_id, kind, created_revision, updated_revision, deleted_revision
+             ) VALUES(?1, 'tab', 2, 2, NULL)",
+            [second_tab.as_str()],
+        )
+        .unwrap();
+    migrated
+        .connection
+        .execute(
+            "INSERT INTO resource_tabs(
+               public_id, pane_id, position, content_kind, content_id, name,
+               created_revision, updated_revision, deleted_revision
+             ) VALUES(?1, ?2, 1, 'terminal', ?3, 'second view', 2, 2, NULL)",
+            params![second_tab.as_str(), pane_id(1).as_str(), terminal_id.as_str()],
+        )
+        .unwrap();
+    let live_views = migrated
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM resource_tabs
+             WHERE content_id = ?1 AND deleted_revision IS NULL",
+            [terminal_id.as_str()],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap();
+    assert_eq!(live_views, 2);
+    assert!(!migrated.session_journal_after(0, 10).unwrap().records.is_empty());
+    drop(migrated);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn schema_thirteen_wraps_legacy_resource_api_frontend_projections() {
+    let root = temp_root("schema-thirteen-frontend-projection");
+    let projection_id =
+        FrontendProjectionPublicId::parse(format!("projection_{:032x}", 13)).unwrap();
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        registry
+            .put_frontend_projection(
+                &WorkspaceMutation::new("legacy-projection", "resource-api").unwrap(),
+                "resource-api",
+                "session",
+                projection_id.as_str(),
+                1,
+                Some(0),
+                &json!({"selected_workspace":"alpha"}),
+            )
+            .unwrap();
+        registry
+            .connection
+            .execute("UPDATE meta SET value = '13' WHERE key = 'schema_version'", [])
+            .unwrap();
+    }
+
+    let migrated = WorkspaceRegistry::open(&root, "session").unwrap();
+    assert_eq!(required_meta(&migrated.connection, "schema_version").unwrap(), "14");
+    let projections = migrated.public_projections().unwrap().frontend_projections;
+    assert_eq!(projections.len(), 1);
+    assert_eq!(projections[0].schema_version, 2);
+    assert_eq!(projections[0].projection["frontend_id"], "legacy-resource-api");
+    assert_eq!(projections[0].projection["window_id"], projection_id.as_str());
+    assert_eq!(projections[0].projection["generation"], "legacy-schema-13");
+    assert_eq!(projections[0].projection["projection"], json!({"selected_workspace":"alpha"}));
+    drop(migrated);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn terminal_journal_subject_expands_to_every_live_view_path() {
+    let mut registry = WorkspaceRegistry::in_memory("journal-multiview-subjects").unwrap();
+    commit_terminal_topology(&mut registry, "journal-multiview-seed");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let first_tab = tab_id(1);
+    let second_tab = tab_id(2);
+    registry
+        .commit_resource_patch(
+            &WorkspaceMutation::new("journal-multiview-second-view", "test").unwrap(),
+            "terminal.project",
+            &json!({"terminal_id":terminal_id,"pane_id":pane_id(1)}),
+            None,
+            Some(1),
+            &ResourcePatch {
+                changes: vec![
+                    ResourceChange::UpsertPane(RegistryPane {
+                        public_id: pane_id(1),
+                        screen_id: screen_id(1),
+                        name: Some("Shell".into()),
+                        active_tab: Some(second_tab.clone()),
+                        creation_ordinal: 1,
+                    }),
+                    ResourceChange::UpsertTab(RegistryTab {
+                        public_id: second_tab.clone(),
+                        pane_id: pane_id(1),
+                        position: 1,
+                        content_id: ContentPublicId::Terminal(terminal_id.clone()),
+                        name: Some("second view".into()),
+                        browser_url: None,
+                        terminal_id: Some(TERMINAL_ONE.into()),
+                    }),
+                    ResourceChange::SetTabOrder {
+                        pane_id: pane_id(1),
+                        tab_ids: vec![first_tab.clone(), second_tab.clone()],
+                    },
+                ],
+            },
+            &json!({"terminal_id":terminal_id,"tab_id":second_tab}),
+            &json!([{"kind":"upsert","resource":"terminal","id":terminal_id}]),
+        )
+        .unwrap();
+
+    let record = registry
+        .session_journal_after(0, 10)
+        .unwrap()
+        .records
+        .into_iter()
+        .find(|record| record.kind == "terminal.project")
+        .unwrap();
+    let pane = pane_id(1);
+    let screen = screen_id(1);
+    let workspace_id = workspace(1, "one", "One").public_id;
+    for (kind, id) in [
+        ("terminal", terminal_id.as_str()),
+        ("tab", first_tab.as_str()),
+        ("tab", second_tab.as_str()),
+        ("pane", pane.as_str()),
+        ("screen", screen.as_str()),
+        ("workspace", workspace_id.as_str()),
+    ] {
+        assert!(
+            record.subjects.iter().any(|subject| subject.kind == kind && subject.id == id),
+            "missing {kind}:{id} from {:#?}",
+            record.subjects
+        );
+    }
+}
+
+#[test]
+fn terminal_journal_persists_exact_output_and_geometry_in_order() {
+    let mut registry = WorkspaceRegistry::in_memory("journal-terminal-content").unwrap();
+    commit_terminal_topology(&mut registry, "journal-terminal-content-seed");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let journal_terminal_id = Arc::new(terminal_id.clone());
+    let output = b"prompt> \x1b[31merror\x1b[0m\r\n\0binary";
+
+    let events = [
+        crate::journal_ingress::JournalIngressEvent::TerminalOutput {
+            terminal_id: journal_terminal_id.clone(),
+            generation: "incarnation-one".into(),
+            occurred_at_ms: 42,
+            bytes: output.to_vec(),
+        },
+        crate::journal_ingress::JournalIngressEvent::TerminalResize {
+            terminal_id: journal_terminal_id.clone(),
+            generation: "incarnation-one".into(),
+            occurred_at_ms: 43,
+            cols: 120,
+            rows: 40,
+            cell_width: 9,
+            cell_height: 18,
+        },
+        crate::journal_ingress::JournalIngressEvent::TerminalOutputGap {
+            terminal_id: journal_terminal_id,
+            generation: "incarnation-one".into(),
+            occurred_at_ms: 44,
+            reason: "detach_fence_failed",
+        },
+    ];
+    let appended =
+        registry.append_journal_ingress_events(&events.iter().collect::<Vec<_>>()).unwrap();
+    assert_eq!(appended.len(), 3);
+
+    let records = registry
+        .session_journal_after(0, 32)
+        .unwrap()
+        .records
+        .into_iter()
+        .filter(|record| {
+            matches!(
+                record.kind.as_str(),
+                "terminal.output" | "terminal.resized" | "terminal.output.gap"
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(records.len(), 3);
+    let output_record = &records[0];
+    assert_eq!(output_record.kind, "terminal.output");
+    assert_eq!(output_record.replay, JournalReplayPolicy::Required);
+    assert_eq!(output_record.sensitivity, JournalSensitivity::Sensitive);
+    assert_eq!(output_record.terminal_output.as_deref(), Some(output.as_slice()));
+    assert!(output_record.payload.get("data").is_none());
+    assert_eq!(output_record.payload["byte_count"], output.len().to_string());
+    assert_eq!(output_record.payload["stream_offset_start"], "0");
+    assert_eq!(output_record.payload["stream_offset_end"], output.len().to_string());
+    assert_eq!(output_record.payload["encoding"], "raw");
+    assert_eq!(output_record.payload["sha256"].as_str().unwrap().len(), 64);
+    assert_eq!(output_record.authority.as_ref().unwrap().generation, "incarnation-one");
+
+    let resize_record = &records[1];
+    assert_eq!(resize_record.kind, "terminal.resized");
+    assert!(resize_record.terminal_output.is_none());
+    assert_eq!(resize_record.payload["cols"], 120);
+    assert_eq!(resize_record.payload["rows"], 40);
+    assert_eq!(resize_record.payload["cell_width"], 9);
+    assert_eq!(resize_record.payload["cell_height"], 18);
+
+    let gap_record = &records[2];
+    assert_eq!(gap_record.kind, "terminal.output.gap");
+    assert_eq!(gap_record.replay, JournalReplayPolicy::Required);
+    assert!(gap_record.terminal_output.is_none());
+    assert_eq!(gap_record.payload["format"], "cmux.terminal-output-gap.v1");
+    assert_eq!(gap_record.payload["reason"], "detach_fence_failed");
+
+    let pane = pane_id(1);
+    let screen = screen_id(1);
+    let workspace_id = workspace(1, "one", "One").public_id;
+    for record in &records {
+        for (kind, id) in [
+            ("terminal", terminal_id.as_str()),
+            ("tab", tab_id(1).as_str()),
+            ("pane", pane.as_str()),
+            ("screen", screen.as_str()),
+            ("workspace", workspace_id.as_str()),
+        ] {
+            assert!(
+                record.subjects.iter().any(|subject| subject.kind == kind && subject.id == id),
+                "missing {kind}:{id} from {} subjects: {:#?}",
+                record.kind,
+                record.subjects
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore = "manual release-mode journal writer throughput probe"]
+fn terminal_journal_writer_throughput_probe() {
+    const BATCH_SIZE: usize = 1_024;
+    const BATCHES: usize = 16;
+    const CHUNK_BYTES: usize = 4 * 1_024;
+
+    let mut registry = WorkspaceRegistry::in_memory("journal-terminal-throughput").unwrap();
+    commit_terminal_topology(&mut registry, "journal-terminal-throughput-seed");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let journal_terminal_id = Arc::new(terminal_id.clone());
+    let mut chunk = vec![b'x'; CHUNK_BYTES];
+    chunk[CHUNK_BYTES - 17..].copy_from_slice(b"terminal-output\r\n");
+    let started = std::time::Instant::now();
+    for batch in 0..BATCHES {
+        let events = (0..BATCH_SIZE)
+            .map(|index| crate::journal_ingress::JournalIngressEvent::TerminalOutput {
+                terminal_id: journal_terminal_id.clone(),
+                generation: "throughput-generation".into(),
+                occurred_at_ms: u64::try_from(batch * BATCH_SIZE + index).unwrap(),
+                bytes: chunk.clone(),
+            })
+            .collect::<Vec<_>>();
+        let references = events.iter().collect::<Vec<_>>();
+        assert_eq!(registry.append_journal_ingress_events(&references).unwrap().len(), BATCH_SIZE);
+    }
+    let elapsed = started.elapsed();
+    let event_count = BATCH_SIZE * BATCHES;
+    let byte_count = event_count * CHUNK_BYTES;
+    let events_per_second = event_count as f64 / elapsed.as_secs_f64();
+    let mebibytes_per_second = byte_count as f64 / (1024.0 * 1024.0) / elapsed.as_secs_f64();
+    eprintln!(
+        "terminal journal writer: {event_count} records / {} MiB in {elapsed:?}, \
+         {events_per_second:.0} records/s, {mebibytes_per_second:.1} MiB/s",
+        byte_count / (1024 * 1024)
+    );
+    assert!(events_per_second >= 5_000.0, "journal writer regressed: {events_per_second:.0}/s");
+    assert!(
+        mebibytes_per_second >= 20.0,
+        "journal writer regressed: {mebibytes_per_second:.1} MiB/s"
+    );
+    let stored_offset = registry
+        .connection
+        .query_row(
+            "SELECT next_offset FROM journal_terminal_streams
+             WHERE terminal_id = ?1 AND generation = ?2",
+            params![terminal_id.as_str(), "throughput-generation"],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap();
+    assert_eq!(usize::try_from(stored_offset).unwrap(), byte_count);
+}
+
+#[test]
+fn terminal_output_survives_immutable_segment_round_trip() {
+    let root = temp_root("journal-terminal-segment");
+    let mut registry = WorkspaceRegistry::open(&root, "journal-terminal-segment").unwrap();
+    commit_terminal_topology(&mut registry, "journal-terminal-segment-seed");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let output = b"segment output \x1b[32mready\x1b[0m\r\n\0";
+    let events = [crate::journal_ingress::JournalIngressEvent::TerminalOutput {
+        terminal_id: Arc::new(terminal_id),
+        generation: "segment-incarnation".into(),
+        occurred_at_ms: 42,
+        bytes: output.to_vec(),
+    }];
+    registry.append_journal_ingress_events(&events.iter().collect::<Vec<_>>()).unwrap();
+    let through = registry.session_journal_after(0, 32).unwrap().head_sequence;
+    registry
+        .create_journal_checkpoint(
+            through,
+            1,
+            &json!({
+                "session_snapshot":{"cursor":{"revision":"1"}},
+                "journal_extensions":{"producers":[],"hooks":[]},
+            }),
+            &[],
+            "client_test",
+            "terminal_segment_checkpoint",
+        )
+        .unwrap();
+
+    let plan = match registry
+        .begin_journal_segment_seal(through, "client_test", "terminal_segment_seal")
+        .unwrap()
+    {
+        JournalSegmentSealStart::Prepare(plan) => plan,
+        JournalSegmentSealStart::Replay(_) => panic!("first segment seal unexpectedly replayed"),
+    };
+    let reader = SessionJournalReader::open(
+        &registry.session_journal_database_path().expect("persistent registry has a path"),
+    )
+    .unwrap();
+    let prepared = plan.prepare(&reader).unwrap();
+    let commit = registry
+        .commit_journal_segment_seal(prepared, "client_test", "terminal_segment_seal")
+        .unwrap()
+        .expect("segment boundary remained stable");
+    assert_eq!(commit.through_sequence, through);
+
+    let record = registry
+        .session_journal_after(0, 32)
+        .unwrap()
+        .records
+        .into_iter()
+        .find(|record| record.kind == "terminal.output")
+        .unwrap();
+    assert_eq!(record.terminal_output.as_deref(), Some(output.as_slice()));
+    assert_eq!(record.payload["encoding"], "raw");
+    assert!(record.payload.get("data").is_none());
+
+    drop(reader);
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
+fn receipt_test_producer() -> JournalProducerManifest {
+    JournalProducerManifest {
+        producer_id: "receipt_test".into(),
+        namespace: "plugin.receipt_test".into(),
+        manifest_version: 1,
+        max_sensitivity: JournalSensitivity::Metadata,
+        permissions: vec!["journal.append.plugin.receipt_test".into()],
+        events: vec![JournalEventSchema {
+            kind: "plugin.receipt_test.event".into(),
+            schema_version: 1,
+            class: JournalClass::Observation,
+            replay: JournalReplayPolicy::Advisory,
+            sensitivity: JournalSensitivity::Metadata,
+            payload_schema: json!({"type":"object","additionalProperties":true}),
+        }],
+    }
+}
+
+#[test]
+fn journal_producers_reject_plaintext_secret_schemas() {
+    let mut registry = WorkspaceRegistry::in_memory("journal-secret-schema").unwrap();
+    let mut manifest = receipt_test_producer();
+    manifest.max_sensitivity = JournalSensitivity::Secret;
+    let error = registry
+        .put_journal_producer(&manifest, "client_secret", "install_secret_producer")
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("encrypted retention"), "{error}");
+
+    manifest.max_sensitivity = JournalSensitivity::Sensitive;
+    manifest.events[0].sensitivity = JournalSensitivity::Secret;
+    let error = registry
+        .put_journal_producer(&manifest, "client_secret", "install_secret_event")
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("encrypted retention"), "{error}");
+}
+
+#[test]
+fn journal_commit_time_is_local_and_independent_of_producer_time() {
+    let mut registry = WorkspaceRegistry::in_memory("journal-independent-commit-time").unwrap();
+    let manifest = receipt_test_producer();
+    registry.put_journal_producer(&manifest, "client_time", "install_time_producer").unwrap();
+    let ingress = JournalIngress {
+        producer_id: manifest.producer_id,
+        manifest_version: manifest.manifest_version,
+        kind: manifest.events[0].kind.clone(),
+        schema_version: manifest.events[0].schema_version,
+        occurred_at_ms: Some(crate::resource::WireDecimal::new(1)),
+        subjects: Vec::new(),
+        sensitivity: None,
+        payload: json!({"message":"historical occurrence"}),
+        causation_id: None,
+        correlation_id: None,
+    };
+    let validated = crate::journal_kernel::ValidatedJournalIngress {
+        class: JournalClass::Observation,
+        replay: JournalReplayPolicy::Advisory,
+        sensitivity: JournalSensitivity::Metadata,
+    };
+    let before = unix_epoch_ms().unwrap();
+    let commit = registry
+        .append_journal_ingress(&ingress, &validated, "client_time", "historical_event")
+        .unwrap();
+    let after = unix_epoch_ms().unwrap();
+    let record = registry
+        .session_journal_after(commit.sequence - 1, 1)
+        .unwrap()
+        .records
+        .into_iter()
+        .next()
+        .unwrap();
+    assert_eq!(record.occurred_at_ms, 1);
+    assert!(
+        (before..=after).contains(&record.committed_at_ms),
+        "commit time {} was not sampled locally in {before}..={after}",
+        record.committed_at_ms,
+    );
+}
+
+#[test]
+fn journal_idempotency_keys_are_scoped_to_the_calling_origin() {
+    let mut registry = WorkspaceRegistry::in_memory("journal-origin-receipts").unwrap();
+    let manifest = receipt_test_producer();
+    let first =
+        registry.put_journal_producer(&manifest, "client_origin_one", "shared_key").unwrap();
+    let second =
+        registry.put_journal_producer(&manifest, "client_origin_two", "shared_key").unwrap();
+    let replay =
+        registry.put_journal_producer(&manifest, "client_origin_one", "shared_key").unwrap();
+    assert!(!first.replayed);
+    assert!(!second.replayed);
+    assert!(second.sequence > first.sequence);
+    assert!(replay.replayed);
+    assert_eq!(replay.sequence, first.sequence);
+
+    let ingress = JournalIngress {
+        producer_id: manifest.producer_id.clone(),
+        manifest_version: manifest.manifest_version,
+        kind: manifest.events[0].kind.clone(),
+        schema_version: 1,
+        occurred_at_ms: None,
+        subjects: Vec::new(),
+        sensitivity: None,
+        payload: json!({"message":"same payload"}),
+        causation_id: None,
+        correlation_id: None,
+    };
+    let validated = crate::journal_kernel::ValidatedJournalIngress {
+        class: JournalClass::Observation,
+        replay: JournalReplayPolicy::Advisory,
+        sensitivity: JournalSensitivity::Metadata,
+    };
+    let first = registry
+        .append_journal_ingress(&ingress, &validated, "client_origin_one", "shared_ingress_key")
+        .unwrap();
+    let second = registry
+        .append_journal_ingress(&ingress, &validated, "client_origin_two", "shared_ingress_key")
+        .unwrap();
+    assert!(!first.replayed);
+    assert!(!second.replayed);
+    assert!(second.sequence > first.sequence);
+}
+
+#[test]
+fn schema_eleven_receipts_gain_origin_scope_without_losing_replays() {
+    let root = temp_root("schema-eleven-journal-receipts");
+    let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    let manifest = receipt_test_producer();
+    let first = {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        registry.put_journal_producer(&manifest, "client_legacy", "legacy_shared_key").unwrap()
+    };
+    let legacy = Connection::open(&database).unwrap();
+    legacy
+        .execute_batch(
+            "PRAGMA foreign_keys=OFF;
+             ALTER TABLE journal_operation_receipts RENAME TO journal_operation_receipts_current;
+             CREATE TABLE journal_operation_receipts (
+               operation TEXT NOT NULL,
+               idempotency_key TEXT NOT NULL,
+               fingerprint BLOB NOT NULL CHECK(length(fingerprint) = 32),
+               result_json TEXT NOT NULL CHECK(json_valid(result_json)),
+               journal_sequence INTEGER NOT NULL UNIQUE,
+               PRIMARY KEY(operation, idempotency_key)
+             );
+             INSERT INTO journal_operation_receipts(
+               operation, idempotency_key, fingerprint, result_json, journal_sequence
+             )
+             SELECT operation, idempotency_key, fingerprint, result_json, journal_sequence
+             FROM journal_operation_receipts_current;
+             DROP TABLE journal_operation_receipts_current;
+             ALTER TABLE journal_ingress_receipts RENAME TO journal_ingress_receipts_current;
+             CREATE TABLE journal_ingress_receipts (
+               producer_id TEXT NOT NULL,
+               idempotency_key TEXT NOT NULL,
+               fingerprint BLOB NOT NULL CHECK(length(fingerprint) = 32),
+               event_id TEXT NOT NULL UNIQUE,
+               journal_sequence INTEGER NOT NULL UNIQUE,
+               result_json TEXT NOT NULL CHECK(json_valid(result_json)),
+               PRIMARY KEY(producer_id, idempotency_key),
+               FOREIGN KEY(producer_id) REFERENCES journal_producers(producer_id)
+             );
+             INSERT INTO journal_ingress_receipts(
+               producer_id, idempotency_key, fingerprint, event_id,
+               journal_sequence, result_json
+             )
+             SELECT producer_id, idempotency_key, fingerprint, event_id,
+                    journal_sequence, result_json
+             FROM journal_ingress_receipts_current;
+             DROP TABLE journal_ingress_receipts_current;
+             UPDATE meta SET value = '11' WHERE key = 'schema_version';
+             PRAGMA foreign_keys=ON;",
+        )
+        .unwrap();
+    drop(legacy);
+
+    let mut migrated = WorkspaceRegistry::open(&root, "session").unwrap();
+    let replay =
+        migrated.put_journal_producer(&manifest, "client_legacy", "legacy_shared_key").unwrap();
+    let other_origin =
+        migrated.put_journal_producer(&manifest, "client_new", "legacy_shared_key").unwrap();
+    assert!(replay.replayed);
+    assert_eq!(replay.sequence, first.sequence);
+    assert!(!other_origin.replayed);
+    assert!(other_origin.sequence > first.sequence);
+    assert_eq!(
+        required_meta(&migrated.connection, "schema_version").unwrap(),
+        SCHEMA_VERSION.to_string()
+    );
+    drop(migrated);
     fs::remove_dir_all(root).unwrap();
 }
 

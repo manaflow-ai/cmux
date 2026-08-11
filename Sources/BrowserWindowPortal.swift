@@ -226,7 +226,7 @@ final class WindowBrowserHostView: NSView {
     private var cachedSidebarDividerX: CGFloat?
     private var sidebarDividerMissCount = 0
     private var cachedSplitDividerRegions: [DividerRegion]?
-    private var cachedSplitDividerRootSubviewIds: [ObjectIdentifier]?
+    private weak var cachedSplitDividerRootView: NSView?
     private let splitDividerCacheInvalidator = PortalSplitDividerCacheInvalidator()
     private var splitDividerResizeObserver: NSObjectProtocol?
     private var trackingArea: NSTrackingArea?
@@ -1034,15 +1034,23 @@ final class WindowBrowserHostView: NSView {
         return (pageFrame, inspectorFrame)
     }
     private func splitDividerRegions() -> [DividerRegion] {
-        guard let rootView = dividerSearchRootView() else { cachedSplitDividerRegions = []; cachedSplitDividerRootSubviewIds = nil; return [] }
-        let rootSubviewIds = rootView.subviews.map { ObjectIdentifier($0) }
-        if let regions = cachedSplitDividerRegions, cachedSplitDividerRootSubviewIds == rootSubviewIds, PortalSplitDividerRegion.allLive(regions) { return regions }
+        guard let rootView = dividerSearchRootView() else {
+            invalidateSplitDividerRegionCache()
+            return []
+        }
+        if let regions = cachedSplitDividerRegions,
+           cachedSplitDividerRootView === rootView,
+           splitDividerCacheInvalidator.isHierarchyCurrent(for: rootView),
+           PortalSplitDividerRegion.allLive(regions) {
+            return regions
+        }
         let collected = PortalSplitDividerRegion.collect(in: rootView, hostView: self)
         cachedSplitDividerRegions = collected.regions
-        cachedSplitDividerRootSubviewIds = rootSubviewIds
+        cachedSplitDividerRootView = rootView
         splitDividerCacheInvalidator.observe(
+            rootView: rootView,
             geometryViews: collected.geometryObservedViews,
-            structureViews: collected.structureObservedViews
+            hierarchyNodes: collected.hierarchyNodes
         ) { [weak self] in
             guard let self else { return }
             self.invalidateSplitDividerRegionCache()
@@ -1053,7 +1061,7 @@ final class WindowBrowserHostView: NSView {
 
     private func invalidateSplitDividerRegionCache() {
         cachedSplitDividerRegions = nil
-        cachedSplitDividerRootSubviewIds = nil
+        cachedSplitDividerRootView = nil
         splitDividerCacheInvalidator.invalidate()
     }
 
@@ -1610,7 +1618,6 @@ final class WindowBrowserSlotView: NSView {
             !presentationView.translatesAutoresizingMaskIntoConstraints
         guard needsFrameHosting else {
             needsLayout = true
-            layoutSubtreeIfNeeded()
             return
         }
 
@@ -1627,7 +1634,6 @@ final class WindowBrowserSlotView: NSView {
             presentationView.autoresizingMask = [.width, .height]
         }
         needsLayout = true
-        layoutSubtreeIfNeeded()
     }
 
     func effectivePaneTopChromeHeight() -> CGFloat {
@@ -1753,6 +1759,18 @@ final class WindowBrowserSlotView: NSView {
             overlayContainer.addSubview(dropZoneOverlayView, positioned: .above, relativeTo: nil)
         }
 
+        var previousPriority = Int.min
+        var needsReordering = false
+        for subview in subviews {
+            let priority = interactionLayerPriority(of: subview)
+            if priority < previousPriority {
+                needsReordering = true
+                break
+            }
+            previousPriority = priority
+        }
+        guard needsReordering else { return }
+
         let context = Unmanaged.passUnretained(self).toOpaque()
         sortSubviews({ lhs, rhs, context in
             guard let context else { return .orderedSame }
@@ -1829,9 +1847,14 @@ final class WindowBrowserPortal: NSObject {
         var transientRecoveryRetriesRemaining: Int
     }
 
+    private enum HostedWebViewRefreshCompletionAction: Hashable {
+        case reapplyHostedInspectorDivider
+    }
+
     @MainActor
     private final class PendingHostedWebViewRefresh {
         var generation: UInt64 = 0
+        var completionActions: Set<HostedWebViewRefreshCompletionAction> = []
         let asyncScheduler = MainActorDeferredActionScheduler()
         let delayedScheduler = MainActorDeferredActionScheduler()
     }
@@ -2001,7 +2024,7 @@ final class WindowBrowserPortal: NSObject {
         }
     }
 
-    func synchronizeAllEntriesFromExternalGeometryChange() {
+    private func synchronizeAllEntriesFromExternalGeometryChange() {
         guard ensureInstalled() else { return }
         // The reference hierarchy belongs to SwiftUI/AppKit. Consume its settled
         // geometry snapshots here; forcing its layout can re-enter NSHostingView.
@@ -2433,14 +2456,15 @@ final class WindowBrowserPortal: NSObject {
         }
     }
 
+    @discardableResult
     private func runHostedWebViewUpdatePass(
         _ webView: WKWebView,
         in containerView: WindowBrowserSlotView,
         reason: String,
         phase: String,
         mode: HostedWebViewUpdateMode
-    ) {
-        guard !containerView.isHidden else { return }
+    ) -> Bool {
+        guard !containerView.isHidden else { return false }
         guard !containerView.isHostedInspectorDividerDragActive else {
 #if DEBUG
             cmuxDebugLog(
@@ -2449,14 +2473,14 @@ final class WindowBrowserPortal: NSObject {
                 "drag=1"
             )
 #endif
-            return
+            return false
         }
 
         let hostedWebKitSubviews = hostedWebKitSubviews(
             in: containerView,
             primaryWebView: webView
         )
-        guard !hostedWebKitSubviews.isEmpty else { return }
+        guard !hostedWebKitSubviews.isEmpty else { return false }
 
         containerView.needsLayout = true
         containerView.needsDisplay = true
@@ -2488,7 +2512,7 @@ final class WindowBrowserPortal: NSObject {
                 "phase=\(phase) frame=\(browserPortalDebugFrame(containerView.frame))"
             )
 #endif
-            return
+            return true
         case .refreshPresentation:
             break
         }
@@ -2522,6 +2546,25 @@ final class WindowBrowserPortal: NSObject {
             "phase=\(phase) frame=\(browserPortalDebugFrame(containerView.frame))"
         )
 #endif
+        return true
+    }
+
+    private func completeHostedWebViewRefreshPass(
+        for webViewId: ObjectIdentifier,
+        generation: UInt64,
+        in containerView: WindowBrowserSlotView,
+        phase: String
+    ) {
+        guard let pending = pendingHostedWebViewRefreshes[webViewId],
+              pending.generation == generation else { return }
+        let completionActions = pending.completionActions
+        pending.completionActions.removeAll()
+        if completionActions.contains(.reapplyHostedInspectorDivider) {
+            _ = hostView.reapplyHostedInspectorDividerIfNeeded(
+                in: containerView,
+                reason: "portal.refresh.\(phase)"
+            )
+        }
     }
 
     private func cancelPendingHostedWebViewRefreshes(
@@ -2553,7 +2596,8 @@ final class WindowBrowserPortal: NSObject {
     private func refreshHostedWebViewPresentation(
         _ webView: WKWebView,
         in containerView: WindowBrowserSlotView,
-        reason: String
+        reason: String,
+        completionActions: Set<HostedWebViewRefreshCompletionAction> = []
     ) {
         guard !containerView.isHidden else { return }
         let webViewId = ObjectIdentifier(webView)
@@ -2563,34 +2607,27 @@ final class WindowBrowserPortal: NSObject {
         // the main thread while browser panes are moving between hosts.
         cancelPendingHostedWebViewRefreshes(for: webViewId, keepGeneration: true)
         let pending = pendingHostedWebViewRefreshes[webViewId] ?? PendingHostedWebViewRefresh()
+        pending.completionActions.formUnion(completionActions)
         nextHostedWebViewRefreshGeneration &+= 1
         let generation = nextHostedWebViewRefreshGeneration
         pending.generation = generation
         pendingHostedWebViewRefreshes[webViewId] = pending
 
-        runHostedWebViewUpdatePass(
-            webView,
-            in: containerView,
-            reason: reason,
-            phase: "immediate",
-            mode: .refreshPresentation
-        )
-
-        // AppKit layout/display calls above can synchronously re-enter this
-        // method. Let the newer generation keep its follow-up passes instead of
-        // replacing them with stale closures from this frame.
-        guard pendingHostedWebViewRefreshes[webViewId] === pending,
-              pending.generation == generation else { return }
-
         pending.asyncScheduler.schedule { [weak self, weak webView, weak containerView] in
             guard let self, let webView, let containerView else { return }
             guard self.pendingHostedWebViewRefreshes[webViewId]?.generation == generation else { return }
-            self.runHostedWebViewUpdatePass(
+            guard self.runHostedWebViewUpdatePass(
                 webView,
                 in: containerView,
                 reason: reason,
                 phase: "async",
                 mode: .refreshPresentation
+            ) else { return }
+            self.completeHostedWebViewRefreshPass(
+                for: webViewId,
+                generation: generation,
+                in: containerView,
+                phase: "async"
             )
         }
 
@@ -2600,12 +2637,18 @@ final class WindowBrowserPortal: NSObject {
             guard let self else { return }
             guard let webView, let containerView else { return }
             guard self.pendingHostedWebViewRefreshes[webViewId]?.generation == generation else { return }
-            self.runHostedWebViewUpdatePass(
+            guard self.runHostedWebViewUpdatePass(
                 webView,
                 in: containerView,
                 reason: reason,
                 phase: "delayed",
                 mode: .refreshPresentation
+            ) else { return }
+            self.completeHostedWebViewRefreshPass(
+                for: webViewId,
+                generation: generation,
+                in: containerView,
+                phase: "delayed"
             )
         }
     }
@@ -3073,7 +3116,6 @@ final class WindowBrowserPortal: NSObject {
             }
             containerView.pinHostedWebView(webView)
             webView.needsLayout = true
-            webView.layoutSubtreeIfNeeded()
         } else {
             containerView.pinHostedWebView(webView)
         }
@@ -3105,13 +3147,12 @@ final class WindowBrowserPortal: NSObject {
         pruneDeadEntries()
     }
 
-    func synchronizeWebViewForAnchor(_ anchorView: NSView) {
+    @discardableResult
+    func synchronizeWebViewForAnchor(_ anchorView: NSView) -> Bool {
         pruneDeadEntries()
         let anchorId = ObjectIdentifier(anchorView)
-        let primaryWebViewId = webViewByAnchorId[anchorId]
-        if let primaryWebViewId {
-            synchronizeWebView(withId: primaryWebViewId, source: "anchorPrimary")
-        }
+        guard let primaryWebViewId = webViewByAnchorId[anchorId] else { return false }
+        synchronizeWebView(withId: primaryWebViewId, source: "anchorPrimary")
 
         // During rapid geometry changes (e.g. divider drag), syncing every web view
         // on every frame is expensive and causes stuttering.  Each panel's
@@ -3119,6 +3160,7 @@ final class WindowBrowserPortal: NSObject {
         // will sync themselves.  Defer the all-sync to coalesce with the next
         // run-loop turn instead.
         scheduleDeferredFullSynchronizeAll()
+        return true
     }
 
     private func scheduleDeferredFullSynchronizeAll() {
@@ -3683,8 +3725,6 @@ final class WindowBrowserPortal: NSObject {
         let presentationUpdateKind = HostedWebViewPresentationUpdateKind.resolve(
             reasons: refreshReasons
         )
-        let shouldReapplyHostedInspectorPostRefresh =
-            presentationUpdateKind == .refresh && requiresRenderingStateReattach
         if !shouldHide, containerOwnsWebView, presentationUpdateKind != .none {
             if presentationUpdateKind == .refresh &&
                 hostedInspectorAdjustedDuringSync &&
@@ -3712,18 +3752,22 @@ final class WindowBrowserPortal: NSObject {
                     refreshHostedWebViewPresentation(
                         webView,
                         in: containerView,
-                        reason: refreshReason
+                        reason: refreshReason,
+                        completionActions: requiresRenderingStateReattach
+                            ? [.reapplyHostedInspectorDivider]
+                            : []
                     )
                 }
             }
         }
-        if containerOwnsWebView,
-           (!hostedInspectorAdjustedDuringSync || shouldReapplyHostedInspectorPostRefresh) {
-            // Keep the existing post-sync pass for cases where the inspector candidate
-            // appears only after WebKit settles. Re-run it after rendering-state reattach
-            // refreshes as well, because WebKit's enter/unhide relayout can overwrite the
-            // preferred divider position we already clamped during portal.sync.
-            _ = hostView.reapplyHostedInspectorDividerIfNeeded(in: containerView, reason: "portal.sync.postRefresh")
+        if containerOwnsWebView, !hostedInspectorAdjustedDuringSync {
+            // Keep the fallback pass for cases where the first candidate lookup did
+            // not adjust anything. Rendering-state refreshes restore the divider in
+            // their ordered completion phase, after WebKit's enter/unhide relayout.
+            _ = hostView.reapplyHostedInspectorDividerIfNeeded(
+                in: containerView,
+                reason: "portal.sync.fallback"
+            )
         }
 #if DEBUG
         cmuxDebugLog(
@@ -3951,6 +3995,14 @@ enum BrowserWindowPortalRegistry {
         guard let window = anchorView.window else { return }
         let portal = portal(for: window)
         portal.synchronizeWebViewForAnchor(anchorView)
+    }
+
+    /// Synchronizes an existing anchor binding without creating an empty window portal.
+    @discardableResult
+    static func synchronizeIfBoundForAnchor(_ anchorView: NSView) -> Bool {
+        guard let window = anchorView.window,
+              let portal = portalsByWindowId[ObjectIdentifier(window)] else { return false }
+        return portal.synchronizeWebViewForAnchor(anchorView)
     }
 
     static func scheduleExternalGeometrySynchronize(for window: NSWindow) {

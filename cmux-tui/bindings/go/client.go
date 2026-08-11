@@ -128,7 +128,7 @@ type streamRoute struct {
 	openDispatched   bool
 	openAcknowledged bool
 	cleanupStarted   bool
-	cancelItem       func(json.RawMessage) error
+	cancelItem       func(streamEnvelope) error
 	cancelSignal     chan struct{}
 	cancelEnd        *streamEnvelope
 	cancelErr        error
@@ -1304,7 +1304,7 @@ func (r *streamRoute) beginStreamCleanup() bool {
 }
 
 func (r *streamRoute) beginExplicitCancel(
-	validateItem func(json.RawMessage) error,
+	validateItem func(streamEnvelope) error,
 ) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -1390,7 +1390,7 @@ func (r *streamRoute) deliver(message streamMessage) bool {
 		if r.cancelEnd != nil {
 			var err error
 			if message.envelope.Type == "stream_item" {
-				err = r.cancelItem(message.envelope.Item)
+				err = r.cancelItem(message.envelope)
 			}
 			if err == nil {
 				err = &ProtocolError{
@@ -1406,7 +1406,7 @@ func (r *streamRoute) deliver(message streamMessage) bool {
 		}
 		switch message.envelope.Type {
 		case "stream_item":
-			if err := r.cancelItem(message.envelope.Item); err != nil {
+			if err := r.cancelItem(message.envelope); err != nil {
 				r.cancelErr = err
 				r.accepting = false
 				r.terminated = true

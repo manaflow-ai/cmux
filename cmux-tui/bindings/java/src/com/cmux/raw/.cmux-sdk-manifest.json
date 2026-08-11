@@ -1,6 +1,11 @@
 {
   "files": [
     {
+      "path": "AgentChangedEvent.java",
+      "sha256": "541d7a39ee461d670c8827a7dc33d61a67f35fc3c4a62194cd5f44db5b2ff837",
+      "size": 5113
+    },
+    {
       "path": "AgentRecord.java",
       "sha256": "eef00432f4ddccf77ea227a7a744562bb05d4d529c03e789caaf21bb4a8969be",
       "size": 4707
@@ -139,6 +144,26 @@
       "path": "BrowserNavigateRequest.java",
       "sha256": "71f25720bd792d1f0c6efa5d3b34dae1b210bbb27391d99725186d0b0a4cf73f",
       "size": 2686
+    },
+    {
+      "path": "BrowserProviderAuthentication.java",
+      "sha256": "960cdc007f18909987f57c620c7026a6344044b65c981451f653c1113e1e0113",
+      "size": 965
+    },
+    {
+      "path": "BrowserProviderSnapshot.java",
+      "sha256": "41370fb4c153461cf06148bb280bb7a1b1fc9ee406cfa7b2c9abc3eb490a1f55",
+      "size": 6364
+    },
+    {
+      "path": "BrowserProviderTarget.java",
+      "sha256": "92223fa716b5b079729e7e229d4011f7813d46ab75fce3cf667e73572d0bcc5f",
+      "size": 2678
+    },
+    {
+      "path": "BrowserProviderUnregisterResult.java",
+      "sha256": "1c3c59d06ed6da8628dac232ace00a0010ce7887fa584bf99b5ff0dbf5dd9fcf",
+      "size": 2058
     },
     {
       "path": "BrowserReloadRequest.java",
@@ -282,8 +307,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "499159ad148b3260dd8649754fc699df23edf75957c51849106729d5f68264be",
-      "size": 23391
+      "sha256": "e98e5346be0295d401b8e64bf6fbb0fb63ab887bbbc24ffc00077789da098950",
+      "size": 24550
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -312,8 +337,8 @@
     },
     {
       "path": "CreateSurfaceWithReceiptRequest.java",
-      "sha256": "f36044cd30f7420b8b3ed854389ad34a6d80f8a0c174bc29fbffe459e5f71a4d",
-      "size": 10332
+      "sha256": "21b7225cb4e96ad1bb84069800aecd24f594e42878733a381d15c3d5adba53e3",
+      "size": 11138
     },
     {
       "path": "CreateTerminalRequest.java",
@@ -392,8 +417,8 @@
     },
     {
       "path": "Events.java",
-      "sha256": "ea4d3a5388d173e2a5a132e6e44deda398f091f867c4aec4481c8719cdde80af",
-      "size": 8859
+      "sha256": "71c5c3389dd353275d2820e385d869a46006b00fdc41064cb6b6ddc4754b2e8e",
+      "size": 9039
     },
     {
       "path": "ExportLayoutRequest.java",
@@ -431,6 +456,31 @@
       "size": 4641
     },
     {
+      "path": "FrontendFocusTarget.java",
+      "sha256": "a3b3f06559645e967dfac2160207be7b61b36d48f5d63028c54c825d934bdaf7",
+      "size": 1033
+    },
+    {
+      "path": "FrontendJournalEvent.java",
+      "sha256": "7aedd12937e31a202dd4c857be11cf84ed13ce6cff2d3d0a66253d7be4ad7d32",
+      "size": 773
+    },
+    {
+      "path": "FrontendJournalEventFocus.java",
+      "sha256": "34bee4295d467a7b452f23d748cfbd8081b4207fb4ce5efbe8e58fbf83f74b21",
+      "size": 8163
+    },
+    {
+      "path": "FrontendJournalEventResize.java",
+      "sha256": "9f3017c47b09bd68e80e4938002c19e5146e2c25f9694d814a8413fc7c30a79f",
+      "size": 6758
+    },
+    {
+      "path": "FrontendJournalEventViewport.java",
+      "sha256": "02a38bb0aa4ab38ce91bb450bb3104887e8cb390a9e8c50d6eac84609c47da06",
+      "size": 6849
+    },
+    {
       "path": "FrontendProjection.java",
       "sha256": "354e5556dbdb9a9c9cec08e3fdeb5c90545ca08bc1939ea80be88ec06c983632",
       "size": 6598
@@ -442,8 +492,13 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "a7f68c6414447ec676e46baafcd73bfdbc0122185cc64f824658c2a146944cf2",
-      "size": 22704
+      "sha256": "47e934ddfb7b255f04724f133ad5a33f6ac46f842ecd1ea0f5acd5b6c3c585c4",
+      "size": 23735
+    },
+    {
+      "path": "GetBrowserProviderRequest.java",
+      "sha256": "24d77078eb5243b6944911fbadabe0622f74fb678e8056724732f9bbcbb74a01",
+      "size": 1418
     },
     {
       "path": "GetCellPixelsRequest.java",
@@ -487,8 +542,8 @@
     },
     {
       "path": "IdentifyResult.java",
-      "sha256": "c15df399314639229bf9e16b856613e1690f0a6e1b1f94450696c30d6e3be3ec",
-      "size": 10038
+      "sha256": "01d12a8f161f06e624efd559b338cb7fccafe511aef96e0cc091b35098566702",
+      "size": 10786
     },
     {
       "path": "IdsRequest.java",
@@ -504,6 +559,16 @@
       "path": "IdsResult.java",
       "sha256": "e7d564deb5069396421c91febce6d1ac41475c2440efc3f21e58926241f6f625",
       "size": 1873
+    },
+    {
+      "path": "JournalFrontendEventRequest.java",
+      "sha256": "38857e31920f4e6dd39606fbcd82b859a61c55d44de60c28dd871e54490b74af",
+      "size": 2119
+    },
+    {
+      "path": "JournalFrontendEventResult.java",
+      "sha256": "afb152fb35f7b7b7a7a87e335798db9567117381eb9ce326fc106f971ed61094",
+      "size": 1593
     },
     {
       "path": "KittyGraphicsState.java",
@@ -762,8 +827,8 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "457298b3a6661f0eae6f288a02b8bebac4c559a7dca0b41637122efd2f021fcd",
-      "size": 3967
+      "sha256": "1320a02c8e43614efb8ca0954a2968da4601de63798c871940c789176fc4b866",
+      "size": 4038
     },
     {
       "path": "ProtocolEvent.java",
@@ -804,6 +869,11 @@
       "path": "ReadScrollbackResult.java",
       "sha256": "a0cb7c51adc7de08e1e8ad0fd4f42be2ecc8e6afbe738205af9253a190a6c5b5",
       "size": 3892
+    },
+    {
+      "path": "RegisterBrowserProviderRequest.java",
+      "sha256": "acdfe2e16a16349f153a428278887b28b40c62fe52c5094ed366ff76963a80b1",
+      "size": 5504
     },
     {
       "path": "ReleaseAttachedViewSizeRequest.java",
@@ -1301,6 +1371,11 @@
       "size": 991
     },
     {
+      "path": "UnregisterBrowserProviderRequest.java",
+      "sha256": "ef2c71814ec5e334bf2a0476f08c287456ed2ca1de320f3864a15b64199bf6fb",
+      "size": 1481
+    },
+    {
       "path": "ViewAttachmentOutcome.java",
       "sha256": "85d28a1a2fc077c11ec292cc7f387e8794aa3dc22e141da7c760722f3c8e7170",
       "size": 963
@@ -1382,8 +1457,8 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "5299d9228d2d800423d244630722c8606297370f5962458962b88af542fd5cc1",
+  "ir_sha256": "0f28922d64be59160110a6e7bf5a7656132ce163e82792c474c29c26a1bee529",
   "language": "java",
-  "mux_protocol": 11,
+  "mux_protocol": 12,
   "schema_version": 2
 }
