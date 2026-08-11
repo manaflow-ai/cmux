@@ -3573,6 +3573,50 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(result.status == 0, "Shell failed: \(result.standardError)")
     }
 
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func recoveryQueueDeduplicatesAndCapsPendingGroups(shellPath: String) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-bounded-queue-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_test_group="$TMPDIR/cmux-ssh-auth-group.duplicate"
+        cmux_ssh_auth_recovery_enqueue "$cmux_test_group" || exit 99
+        cmux_ssh_auth_recovery_enqueue "$cmux_test_group" || exit 98
+        cmux_test_index=1
+        while [ "$cmux_test_index" -lt 64 ]; do
+          cmux_ssh_auth_recovery_enqueue \
+            "$TMPDIR/cmux-ssh-auth-group.unique-$cmux_test_index" || exit 97
+          cmux_test_index=$((cmux_test_index + 1))
+        done
+        if cmux_ssh_auth_recovery_enqueue \
+          "$TMPDIR/cmux-ssh-auth-group.overflow"; then exit 96; fi
+        /bin/cat \
+          "$TMPDIR/cmux-ssh-auth-recovery.$(/usr/bin/id -u)"/queue.[0-9]* \
+          > "$CMUX_TEST_ENTRIES" || exit 95
+        test "$(/usr/bin/wc -l < "$CMUX_TEST_ENTRIES" | /usr/bin/tr -d '[:space:]')" \
+          -eq 64 || exit 94
+        test "$(/usr/bin/sort -u "$CMUX_TEST_ENTRIES" | /usr/bin/wc -l | /usr/bin/tr -d '[:space:]')" \
+          -eq 64 || exit 93
+        test "$(/usr/bin/grep -Fxc "$cmux_test_group" "$CMUX_TEST_ENTRIES")" \
+          -eq 1 || exit 92
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_TEST_ENTRIES": root.appendingPathComponent("entries").path,
+                "TMPDIR": root.path,
+            ],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
     @Test func recoveryLockRemainsHeldUntilDescriptorCloses() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory

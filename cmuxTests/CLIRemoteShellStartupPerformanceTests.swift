@@ -106,6 +106,22 @@ struct CLIRemoteShellStartupPerformanceTests {
             !FileManager.default.fileExists(atPath: recoveryRoot.path),
             "An empty recovery queue must not create worker state"
         )
+
+        try FileManager.default.createDirectory(at: recoveryRoot, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: recoveryRoot.path)
+        let unrelatedEntry = recoveryRoot.appendingPathComponent("queue.not-an-index")
+        try "not queued work\n".write(to: unrelatedEntry, atomically: true, encoding: .utf8)
+        let unrelatedResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["__ssh-auth-recovery"],
+            environment: environment,
+            timeout: 5
+        )
+        let remainingEntries = try FileManager.default.contentsOfDirectory(atPath: recoveryRoot.path)
+
+        #expect(!unrelatedResult.timedOut)
+        #expect(unrelatedResult.status == 0)
+        #expect(remainingEntries == [unrelatedEntry.lastPathComponent])
     }
 
     private struct FakeRemoteShellRoot {
