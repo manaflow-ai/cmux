@@ -5412,8 +5412,8 @@ impl SessionLease {
                 continue;
             }
 
-            // The file lock remains authoritative when the owner crashes
-            // before it publishes the registered stream signal.
+            // The file lock remains authoritative when the owner crashes or
+            // its best-effort UDP notification is lost.
             match FileExt::try_lock(&file) {
                 Ok(()) => return Ok(Self::coordinator(file, path)),
                 Err(fs4::TryLockError::WouldBlock) => return session_coordinator_busy(path),
@@ -5451,7 +5451,7 @@ fn session_coordinator_busy(path: &Path) -> anyhow::Result<SessionLease> {
 }
 
 struct SessionCoordinatorWaiter {
-    listener: std::net::TcpListener,
+    socket: std::net::UdpSocket,
     registration_path: PathBuf,
     token: String,
 }
@@ -5462,8 +5462,8 @@ impl SessionCoordinatorWaiter {
 
         let waiter_dir = session_guard_coordinator_waiter_dir(coordinator_path);
         prepare_session_coordinator_waiter_dir(&waiter_dir)?;
-        let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))?;
-        let address = listener.local_addr()?;
+        let socket = std::net::UdpSocket::bind((std::net::Ipv4Addr::LOCALHOST, 0))?;
+        let address = socket.local_addr()?;
 
         loop {
             let sequence =
@@ -5499,75 +5499,37 @@ impl SessionCoordinatorWaiter {
                 }
                 return Err(error.into());
             }
-            return Ok(Self { listener, registration_path, token });
+            return Ok(Self { socket, registration_path, token });
         }
     }
 
     fn wait_until(&self, deadline: std::time::Instant) -> std::io::Result<bool> {
-        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
-        if remaining.is_zero() {
-            return Ok(false);
-        }
-
-        let listener = self.listener.try_clone()?;
-        let cancel_address = self.listener.local_addr()?;
-        let token = self.token.clone();
-        let (result_sender, result_receiver) = std::sync::mpsc::sync_channel(1);
-        let worker = std::thread::Builder::new()
-            .name("cmux-session-coordinator-waiter".to_string())
-            .spawn(move || {
-                let result = wait_for_session_coordinator_publication(listener, &token, deadline);
-                let _ = result_sender.send(result);
-            })?;
-
-        let result = match result_receiver.recv_timeout(remaining) {
-            Ok(result) => result,
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                // Wake the blocking accept so the deadline path also reaps
-                // its worker. An empty local stream cannot match the token.
-                let _ = std::net::TcpStream::connect(cancel_address);
-                Ok(false)
+        let mut message = [0_u8; 128];
+        loop {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() {
+                return Ok(false);
             }
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                Err(std::io::Error::other("session coordinator waiter stopped without a result"))
+            self.socket.set_read_timeout(Some(remaining))?;
+            match self.socket.recv_from(&mut message) {
+                Ok((length, sender))
+                    if sender.ip().is_loopback()
+                        && message.get(..length) == Some(self.token.as_bytes()) =>
+                {
+                    return Ok(true);
+                }
+                Ok(_) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    return Ok(false);
+                }
+                Err(error) => return Err(error),
             }
-        };
-        worker.join().map_err(|_| std::io::Error::other("session coordinator waiter panicked"))?;
-        result
-    }
-}
-
-fn wait_for_session_coordinator_publication(
-    listener: std::net::TcpListener,
-    token: &str,
-    deadline: std::time::Instant,
-) -> std::io::Result<bool> {
-    loop {
-        let (mut stream, sender) = listener.accept()?;
-        if !sender.ip().is_loopback() {
-            continue;
-        }
-        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
-        if remaining.is_zero() {
-            return Ok(false);
-        }
-        stream.set_read_timeout(Some(remaining))?;
-        let mut message = vec![0_u8; token.len()];
-        match stream.read_exact(&mut message) {
-            Ok(()) if message == token.as_bytes() => return Ok(true),
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    std::io::ErrorKind::UnexpectedEof
-                        | std::io::ErrorKind::WouldBlock
-                        | std::io::ErrorKind::TimedOut
-                ) => {}
-            Err(error) => return Err(error),
-        }
-        if std::time::Instant::now() >= deadline {
-            return Ok(false);
         }
     }
 }
@@ -5614,6 +5576,9 @@ fn publish_session_coordinator_available(waiter_dir: &Path) {
     let Ok(entries) = fs::read_dir(waiter_dir) else {
         return;
     };
+    let Ok(socket) = std::net::UdpSocket::bind((std::net::Ipv4Addr::LOCALHOST, 0)) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         let Ok(metadata) = fs::symlink_metadata(&path) else {
@@ -5648,14 +5613,7 @@ fn publish_session_coordinator_available(waiter_dir: &Path) {
                 && token.len() <= 128
                 && token.bytes().all(|byte| byte.is_ascii_hexdigit() || byte == b'-')
             {
-                let _ = std::net::TcpStream::connect_timeout(
-                    &address,
-                    SESSION_GUARD_COORDINATOR_TIMEOUT,
-                )
-                .and_then(|mut stream| {
-                    stream.set_write_timeout(Some(SESSION_GUARD_COORDINATOR_TIMEOUT))?;
-                    stream.write_all(token.as_bytes())
-                });
+                let _ = socket.send_to(token.as_bytes(), address);
             }
         }
         let _ = fs::remove_file(path);
