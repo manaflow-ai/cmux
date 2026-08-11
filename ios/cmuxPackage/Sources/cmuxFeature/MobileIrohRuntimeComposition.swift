@@ -269,8 +269,7 @@ public final class MobileIrohRuntimeComposition:
             "CMUX_IROH_DISABLE_RELAY_CREDENTIAL_REFRESH"
         ] != "1"
         #else
-        let transportVerificationMode =
-            CmxIrohPathPreference.stored(in: defaults).transportVerificationMode
+        let transportVerificationMode = CmxIrohTransportVerificationMode.automatic
         let automaticRelayCredentialRefreshEnabled = true
         #endif
         let installState = CmxIrohUserDefaultsInstallStateStore(defaults: defaults)
