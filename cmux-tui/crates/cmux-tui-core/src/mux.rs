@@ -5620,6 +5620,31 @@ impl Mux {
         Ok(result)
     }
 
+    /// A hosted reader can lose and restore its admin stream before its
+    /// runtime enters the topology. Keep that pending lifecycle authoritative;
+    /// registered runtimes still use the strict surface identity checks below.
+    fn pending_terminal_host_callback_matches(
+        state: &State,
+        surface_registered: bool,
+        terminal: &RegistryTerminal,
+        identity: &TerminalHostIdentity,
+    ) -> bool {
+        !surface_registered
+            && !state.terminal_catalog.values().any(|candidate| {
+                candidate
+                    .terminal_host_identity()
+                    .is_some_and(|current| current.terminal_id == identity.terminal_id)
+            })
+            && matches!(
+                terminal.lifecycle,
+                TerminalLifecycle::Launching | TerminalLifecycle::Adopting
+            )
+            && terminal
+                .incarnation
+                .as_deref()
+                .is_none_or(|incarnation| incarnation == identity.incarnation.as_str())
+    }
+
     /// A broken admin stream is not evidence that the per-terminal process
     /// died. The surface keeps its tab and reconnects the same incarnation;
     /// this callback only exposes the transient lifecycle to frontends.
@@ -5632,20 +5657,30 @@ impl Mux {
             return false;
         }
         let mut registry = self.workspace_registry.lock().unwrap();
-        let state = self.state.lock().unwrap();
-        let identity_matches = state
-            .surfaces
-            .get(&surface_id)
-            .or_else(|| state.terminal_runtime_by_id(surface_id))
-            .and_then(|surface| surface.terminal_host_identity())
-            .is_some_and(|current| current == *identity);
-        drop(state);
-        if !identity_matches {
-            return false;
-        }
         let Ok(Some(terminal)) = registry.terminal_record(&identity.terminal_id) else {
             return false;
         };
+        let state = self.state.lock().unwrap();
+        let surface = state
+            .surfaces
+            .get(&surface_id)
+            .or_else(|| state.terminal_runtime_by_id(surface_id));
+        let identity_matches = surface
+            .and_then(|surface| surface.terminal_host_identity())
+            .is_some_and(|current| current == *identity);
+        let topology_pending = Self::pending_terminal_host_callback_matches(
+            &state,
+            surface.is_some(),
+            &terminal,
+            identity,
+        );
+        drop(state);
+        if topology_pending {
+            return true;
+        }
+        if !identity_matches {
+            return false;
+        }
         if terminal.incarnation.as_deref() != Some(identity.incarnation.as_str())
             || matches!(
                 terminal.lifecycle,
@@ -5690,6 +5725,9 @@ impl Mux {
             return false;
         }
         let mut registry = self.workspace_registry.lock().unwrap();
+        let Ok(Some(terminal)) = registry.terminal_record(&identity.terminal_id) else {
+            return false;
+        };
         let state = self.state.lock().unwrap();
         let surface = state
             .surfaces
@@ -5700,13 +5738,19 @@ impl Mux {
             .as_ref()
             .and_then(|surface| surface.terminal_host_identity())
             .is_some_and(|current| current == *identity);
+        let topology_pending = Self::pending_terminal_host_callback_matches(
+            &state,
+            surface.is_some(),
+            &terminal,
+            identity,
+        );
         drop(state);
+        if topology_pending {
+            return true;
+        }
         if !identity_matches {
             return false;
         }
-        let Ok(Some(terminal)) = registry.terminal_record(&identity.terminal_id) else {
-            return false;
-        };
         if terminal.incarnation.as_deref() != Some(identity.incarnation.as_str())
             || matches!(
                 terminal.lifecycle,
