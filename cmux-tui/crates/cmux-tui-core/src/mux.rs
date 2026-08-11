@@ -15384,6 +15384,7 @@ fn remove_terminal_catalogs_and_targets_from_state(
     terminal_ids: &[TerminalPublicId],
     targets: &[SurfaceId],
     rebuild_resource_indexes: bool,
+    stamp_focus: bool,
 ) -> (Option<Arc<Surface>>, Vec<Arc<Surface>>, bool) {
     let previous_active = state.active_pane();
     let mut runtime: Option<Arc<Surface>> = None;
@@ -15404,7 +15405,9 @@ fn remove_terminal_catalogs_and_targets_from_state(
                 Mux::rebuild_split_screen_index_only(state);
             }
         }
-        stamp_changed_active_pane(mux, state, previous_active);
+        if stamp_focus {
+            stamp_changed_active_pane(mux, state, previous_active);
+        }
         return (None, removed, split_index_dirty);
     }
 
@@ -15433,7 +15436,9 @@ fn remove_terminal_catalogs_and_targets_from_state(
             }
         }
     }
-    stamp_changed_active_pane(mux, state, previous_active);
+    if stamp_focus {
+        stamp_changed_active_pane(mux, state, previous_active);
+    }
     (runtime, removed, split_index_dirty)
 }
 
@@ -22345,6 +22350,7 @@ mod tests {
                 &mut state,
                 &terminal_ids,
                 &[source.id],
+                true,
                 true,
             );
         }

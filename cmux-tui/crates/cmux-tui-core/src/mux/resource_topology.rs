@@ -465,11 +465,20 @@ fn active_selection_after_terminal_scope(
     affected_workspaces: &HashSet<WorkspaceId>,
 ) -> ActiveTreeSelection {
     let live_selection = active_tree_selection(live);
-    if live_selection.workspace.is_some_and(|workspace| affected_workspaces.contains(&workspace)) {
+    if terminal_scope_contains_active_workspace(live, affected_workspaces) {
         active_tree_selection(projected)
     } else {
         live_selection
     }
+}
+
+fn terminal_scope_contains_active_workspace(
+    live: &State,
+    affected_workspaces: &HashSet<WorkspaceId>,
+) -> bool {
+    live.workspaces
+        .get(live.active_workspace)
+        .is_some_and(|workspace| affected_workspaces.contains(&workspace.id))
 }
 
 impl Mux {
@@ -3010,6 +3019,7 @@ impl Mux {
                 &cleanup_public_ids,
                 &targets,
                 true,
+                true,
             );
             let empty_revision = state.workspaces.is_empty().then_some(state.workspace_revision);
             drop(state);
@@ -3302,6 +3312,7 @@ impl Mux {
             .collect::<HashSet<_>>();
         let catalog_public_ids = terminal_indexes.catalog_public_ids.clone();
         let target_surfaces = targets.iter().copied().collect::<HashSet<_>>();
+        let stamp_focus = terminal_scope_contains_active_workspace(state, &workspace_ids);
         let (mut projected, topology_discovery_steps) =
             state.clone_terminal_scope(&workspace_ids, &catalog_public_ids, &target_surfaces);
         #[cfg(not(test))]
@@ -3313,6 +3324,7 @@ impl Mux {
             &cleanup_public_ids,
             &targets,
             false,
+            stamp_focus,
         );
         resource_content::ensure_split_public_ids(&mut projected)?;
         if let Some(runtime) = runtime.as_ref() {
@@ -3840,6 +3852,7 @@ impl Mux {
         let mut closed_terminal_public_ids = terminal_public_ids.clone();
         closed_terminal_public_ids.sort_by(|left, right| left.as_str().cmp(right.as_str()));
         let target_surfaces = surface_ids.iter().copied().collect::<HashSet<_>>();
+        let stamp_focus = terminal_scope_contains_active_workspace(state, &workspace_ids);
         let mut state_projection = if !terminal_public_ids.is_empty() {
             ResourceCloseState::Terminal {
                 state: state
@@ -3865,6 +3878,7 @@ impl Mux {
                     &terminal_public_ids,
                     &surface_ids,
                     false,
+                    stamp_focus,
                 );
             resource_content::ensure_split_public_ids(projected)?;
             anyhow::ensure!(
