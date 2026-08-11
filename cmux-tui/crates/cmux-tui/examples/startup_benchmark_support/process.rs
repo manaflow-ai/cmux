@@ -2064,7 +2064,7 @@ fn json_cli(
         })?;
         return Ok(value);
     }
-    let error = serde_json::from_slice(&captured.stderr).with_context(|| {
+    let error: Value = serde_json::from_slice(&captured.stderr).with_context(|| {
         format!(
             "socket RPC {:?} returned an invalid structured error with {}: {}",
             args,
