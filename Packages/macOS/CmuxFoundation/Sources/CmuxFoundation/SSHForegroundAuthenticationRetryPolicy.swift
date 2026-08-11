@@ -1893,6 +1893,159 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_cleanup_complete=1
         )
 
+        cmux_ssh_auth_force_unpublished_process_tree() (
+          cmux_ssh_auth_direct_root_pid="$1"
+          cmux_ssh_auth_direct_root_parent="$2"
+          cmux_ssh_auth_direct_root_group="$3"
+          cmux_ssh_auth_direct_root_started="$4"
+          case "$cmux_ssh_auth_direct_root_pid:$cmux_ssh_auth_direct_root_parent:$cmux_ssh_auth_direct_root_group:$cmux_ssh_auth_direct_root_started" in
+            *[!A-Za-z0-9_:]*|:*|*:) exit 1 ;;
+          esac
+
+          cmux_ssh_auth_direct_started_millis="$(cmux_ssh_auth_now_millis)" || exit 1
+          case "$cmux_ssh_auth_direct_started_millis" in ''|*[!0-9]*) exit 1 ;; esac
+          cmux_ssh_auth_direct_deadline_millis=$((cmux_ssh_auth_direct_started_millis + 2000))
+          if cmux_ssh_auth_direct_root_identity=$(cmux_ssh_auth_identity \
+            "$cmux_ssh_auth_direct_root_pid" \
+            "$cmux_ssh_auth_direct_deadline_millis"); then
+            :
+          else
+            case "$?" in 124) exit 124 ;; *) exit 1 ;; esac
+          fi
+          if [ "$cmux_ssh_auth_direct_root_identity" != \
+            "$cmux_ssh_auth_direct_root_parent|$cmux_ssh_auth_direct_root_group|$cmux_ssh_auth_direct_root_started" ]; then
+            exit 1
+          fi
+
+          # State creation can fail while cleanup still owns a live unpublished
+          # tree. Capture a bounded descendant closure in memory. Even when the
+          # capture limit is reached, kill every stable identity already found,
+          # root-first, so a captured parent cannot continue to spawn children.
+          cmux_ssh_auth_direct_records="$cmux_ssh_auth_direct_root_pid|$cmux_ssh_auth_direct_root_group|$cmux_ssh_auth_direct_root_started"
+          cmux_ssh_auth_direct_frontier="$cmux_ssh_auth_direct_root_pid"
+          cmux_ssh_auth_direct_count=1
+          cmux_ssh_auth_direct_depth=0
+          cmux_ssh_auth_direct_capture_status=0
+          while [ -n "$cmux_ssh_auth_direct_frontier" ]; do
+            if [ "$cmux_ssh_auth_direct_depth" -ge 32 ]; then
+              cmux_ssh_auth_direct_capture_status=1
+              break
+            fi
+            if cmux_ssh_auth_direct_now=$(cmux_ssh_auth_now_millis); then
+              case "$cmux_ssh_auth_direct_now" in
+                ''|*[!0-9]*) cmux_ssh_auth_direct_capture_status=1 ;;
+              esac
+            else
+              cmux_ssh_auth_direct_capture_status=1
+            fi
+            if [ "$cmux_ssh_auth_direct_capture_status" != 0 ]; then break; fi
+            if [ "$cmux_ssh_auth_direct_now" -ge \
+              "$cmux_ssh_auth_direct_deadline_millis" ]; then
+              cmux_ssh_auth_direct_capture_status=124
+              break
+            fi
+            cmux_ssh_auth_direct_next_frontier=
+            for cmux_ssh_auth_direct_parent in $cmux_ssh_auth_direct_frontier; do
+              cmux_ssh_auth_direct_pgrep_status=0
+              cmux_ssh_auth_direct_children=$(/usr/bin/pgrep -P \
+                "$cmux_ssh_auth_direct_parent" 2>/dev/null) || \
+                cmux_ssh_auth_direct_pgrep_status=$?
+              case "$cmux_ssh_auth_direct_pgrep_status" in
+                0|1) ;;
+                *)
+                  cmux_ssh_auth_direct_capture_status=1
+                  break
+                  ;;
+              esac
+              for cmux_ssh_auth_direct_pid in $cmux_ssh_auth_direct_children; do
+                case "$cmux_ssh_auth_direct_pid" in ''|0|*[!0-9]*) continue ;; esac
+                if [ "$cmux_ssh_auth_direct_count" -ge 128 ]; then
+                  cmux_ssh_auth_direct_capture_status=1
+                  break
+                fi
+                if cmux_ssh_auth_direct_identity=$(cmux_ssh_auth_identity \
+                  "$cmux_ssh_auth_direct_pid" \
+                  "$cmux_ssh_auth_direct_deadline_millis"); then
+                  :
+                else
+                  case "$?" in
+                    124) cmux_ssh_auth_direct_capture_status=124; break ;;
+                    *) continue ;;
+                  esac
+                fi
+                cmux_ssh_auth_direct_parent_observed=${cmux_ssh_auth_direct_identity%%|*}
+                cmux_ssh_auth_direct_remainder=${cmux_ssh_auth_direct_identity#*|}
+                cmux_ssh_auth_direct_group=${cmux_ssh_auth_direct_remainder%%|*}
+                cmux_ssh_auth_direct_started=${cmux_ssh_auth_direct_remainder#*|}
+                case "$cmux_ssh_auth_direct_parent_observed:$cmux_ssh_auth_direct_group:$cmux_ssh_auth_direct_started" in
+                  *[!A-Za-z0-9_:]*|:*|*:)
+                    cmux_ssh_auth_direct_capture_status=1
+                    break
+                    ;;
+                esac
+                if [ "$cmux_ssh_auth_direct_parent_observed" != \
+                  "$cmux_ssh_auth_direct_parent" ]; then continue; fi
+                cmux_ssh_auth_direct_records="$cmux_ssh_auth_direct_records
+$cmux_ssh_auth_direct_pid|$cmux_ssh_auth_direct_group|$cmux_ssh_auth_direct_started"
+                cmux_ssh_auth_direct_next_frontier="$cmux_ssh_auth_direct_next_frontier $cmux_ssh_auth_direct_pid"
+                cmux_ssh_auth_direct_count=$((cmux_ssh_auth_direct_count + 1))
+              done
+              if [ "$cmux_ssh_auth_direct_capture_status" != 0 ]; then break; fi
+            done
+            if [ "$cmux_ssh_auth_direct_capture_status" != 0 ]; then break; fi
+            cmux_ssh_auth_direct_frontier="$cmux_ssh_auth_direct_next_frontier"
+            cmux_ssh_auth_direct_depth=$((cmux_ssh_auth_direct_depth + 1))
+          done
+
+          cmux_ssh_auth_direct_kill_status=0
+          printf '%s\n' "$cmux_ssh_auth_direct_records" | (
+            cmux_ssh_auth_direct_record_status=0
+            while IFS='|' read -r cmux_ssh_auth_direct_pid \
+              cmux_ssh_auth_direct_group cmux_ssh_auth_direct_started \
+              cmux_ssh_auth_direct_extra; do
+              case "$cmux_ssh_auth_direct_pid:$cmux_ssh_auth_direct_group:$cmux_ssh_auth_direct_started" in
+                *[!A-Za-z0-9_:]*|:*|*:)
+                  cmux_ssh_auth_direct_record_status=1
+                  continue
+                  ;;
+              esac
+              if [ -n "$cmux_ssh_auth_direct_extra" ]; then
+                cmux_ssh_auth_direct_record_status=1
+                continue
+              fi
+              if cmux_ssh_auth_direct_current=$(cmux_ssh_auth_stable_identity \
+                "$cmux_ssh_auth_direct_pid" \
+                "$cmux_ssh_auth_direct_deadline_millis"); then
+                :
+              else
+                case "$?" in 124) exit 124 ;; *) continue ;; esac
+              fi
+              if [ "$cmux_ssh_auth_direct_current" != \
+                "$cmux_ssh_auth_direct_group|$cmux_ssh_auth_direct_started" ]; then
+                continue
+              fi
+              if ! kill -KILL "$cmux_ssh_auth_direct_pid" >/dev/null 2>&1; then
+                if cmux_ssh_auth_direct_after=$(cmux_ssh_auth_stable_identity \
+                  "$cmux_ssh_auth_direct_pid" \
+                  "$cmux_ssh_auth_direct_deadline_millis"); then
+                  if [ "$cmux_ssh_auth_direct_after" = \
+                    "$cmux_ssh_auth_direct_group|$cmux_ssh_auth_direct_started" ]; then
+                    cmux_ssh_auth_direct_record_status=1
+                  fi
+                else
+                  case "$?" in 124) exit 124 ;; *) : ;; esac
+                fi
+              fi
+            done
+            exit "$cmux_ssh_auth_direct_record_status"
+          ) || cmux_ssh_auth_direct_kill_status=$?
+
+          if [ "$cmux_ssh_auth_direct_capture_status" = 124 ] || \
+            [ "$cmux_ssh_auth_direct_kill_status" = 124 ]; then exit 124; fi
+          if [ "$cmux_ssh_auth_direct_capture_status" != 0 ] || \
+            [ "$cmux_ssh_auth_direct_kill_status" != 0 ]; then exit 1; fi
+        )
+
         cmux_ssh_terminate_unpublished_auth_process_tree() (
           cmux_ssh_auth_tree_root_pid="$1"
           cmux_ssh_auth_tree_root_parent="$2"
@@ -2061,6 +2214,10 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                   "$CMUX_SSH_AUTH_GROUP_DIR" >/dev/null 2>&1 || true
                 cmux_ssh_schedule_failed_auth_group_recovery
                 cmux_ssh_auth_durable_cleanup_pending=1
+              else
+                cmux_ssh_auth_force_unpublished_process_tree \
+                  "$cmux_ssh_auth_root_pid" "$cmux_ssh_auth_observed_parent" \
+                  "$cmux_ssh_auth_root_group" "$cmux_ssh_auth_root_started" || true
               fi
             fi
           else
