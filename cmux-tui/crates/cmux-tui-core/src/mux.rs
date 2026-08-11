@@ -341,6 +341,34 @@ pub(crate) struct KittyImageBudgetReservation {
     committed: bool,
 }
 
+#[cfg(unix)]
+pub(crate) struct PendingTerminalHostBinding {
+    mux: Weak<Mux>,
+    surface_id: SurfaceId,
+    identity: TerminalHostIdentity,
+}
+
+#[cfg(unix)]
+impl Drop for PendingTerminalHostBinding {
+    fn drop(&mut self) {
+        let Some(mux) = self.mux.upgrade() else { return };
+        let mut pending = mux.pending_terminal_hosts.lock().unwrap();
+        if pending.get(&self.surface_id) == Some(&self.identity) {
+            pending.remove(&self.surface_id);
+        }
+    }
+}
+
+#[cfg(unix)]
+struct PendingTerminalHostRelease<'a>(&'a Surface);
+
+#[cfg(unix)]
+impl Drop for PendingTerminalHostRelease<'_> {
+    fn drop(&mut self) {
+        self.0.release_pending_terminal_host_binding();
+    }
+}
+
 impl KittyImageBudgetReservation {
     pub(crate) fn initial_limits(&self) -> KittyGraphicsLimits {
         self.initial_limits
@@ -1910,6 +1938,8 @@ pub struct Mux {
         Mutex<Option<TerminalSpawnAfterCellPixelSnapshotHook>>,
     #[cfg(test)]
     terminal_create_after_terminal_reservation: Mutex<Option<TerminalReservationHook>>,
+    #[cfg(unix)]
+    pending_terminal_hosts: Mutex<HashMap<SurfaceId, TerminalHostIdentity>>,
     reserved_in_process_terminals: Mutex<HashMap<SurfaceId, TerminalHostIdentity>>,
     #[cfg(test)]
     viewport_split_after_spawn: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
@@ -2262,6 +2292,8 @@ impl Mux {
             terminal_spawn_after_cell_pixel_snapshot: Mutex::new(None),
             #[cfg(test)]
             terminal_create_after_terminal_reservation: Mutex::new(None),
+            #[cfg(unix)]
+            pending_terminal_hosts: Mutex::new(HashMap::new()),
             reserved_in_process_terminals: Mutex::new(HashMap::new()),
             #[cfg(test)]
             viewport_split_after_spawn: Mutex::new(None),
@@ -2851,6 +2883,7 @@ impl Mux {
         incarnation: &str,
         surface: Arc<Surface>,
     ) -> anyhow::Result<()> {
+        let _pending_host_release = PendingTerminalHostRelease(surface.as_ref());
         if surface.is_dead() {
             self.persist_terminal_exit(
                 terminal_id,
@@ -5620,16 +5653,59 @@ impl Mux {
         Ok(result)
     }
 
+    #[cfg(unix)]
+    pub(crate) fn register_pending_terminal_host(
+        self: &Arc<Self>,
+        surface_id: SurfaceId,
+        identity: TerminalHostIdentity,
+    ) -> anyhow::Result<PendingTerminalHostBinding> {
+        let registry = self.workspace_registry.lock().unwrap();
+        let terminal = registry
+            .terminal_record(&identity.terminal_id)?
+            .ok_or_else(|| anyhow::anyhow!("pending terminal host is not registered"))?;
+        match terminal.lifecycle {
+            TerminalLifecycle::Launching => anyhow::ensure!(
+                terminal.incarnation.is_none(),
+                "launching terminal has an unexpected durable incarnation"
+            ),
+            TerminalLifecycle::Adopting => anyhow::ensure!(
+                terminal.incarnation.as_deref() == Some(identity.incarnation.as_str()),
+                "adopting terminal does not match the pending host incarnation"
+            ),
+            _ => anyhow::bail!("terminal is not awaiting host topology publication"),
+        }
+        drop(registry);
+
+        let mut pending = self.pending_terminal_hosts.lock().unwrap();
+        anyhow::ensure!(
+            !pending.contains_key(&surface_id),
+            "surface already has a pending terminal host"
+        );
+        pending.insert(surface_id, identity.clone());
+        Ok(PendingTerminalHostBinding {
+            mux: Arc::downgrade(self),
+            surface_id,
+            identity,
+        })
+    }
+
     /// A hosted reader can lose and restore its admin stream before its
-    /// runtime enters the topology. Keep that pending lifecycle authoritative;
-    /// registered runtimes still use the strict surface identity checks below.
+    /// runtime enters the topology. Accept only the exact surface and host
+    /// incarnation that the launch or adoption path stored before the reader
+    /// started. Registered runtimes still use the strict state checks below.
     fn pending_terminal_host_callback_matches(
+        &self,
         state: &State,
+        surface_id: SurfaceId,
         surface_registered: bool,
         terminal: &RegistryTerminal,
         identity: &TerminalHostIdentity,
     ) -> bool {
+        let expected = self.pending_terminal_hosts.lock().unwrap().get(&surface_id).cloned();
+        let Some(expected) = expected else { return false };
         !surface_registered
+            && expected == *identity
+            && terminal.terminal_id == expected.terminal_id
             && !state.terminal_catalog.values().any(|candidate| {
                 candidate
                     .terminal_host_identity()
@@ -5639,10 +5715,13 @@ impl Mux {
                 terminal.lifecycle,
                 TerminalLifecycle::Launching | TerminalLifecycle::Adopting
             )
-            && terminal
-                .incarnation
-                .as_deref()
-                .is_none_or(|incarnation| incarnation == identity.incarnation.as_str())
+            && match terminal.lifecycle {
+                TerminalLifecycle::Launching => terminal.incarnation.is_none(),
+                TerminalLifecycle::Adopting => {
+                    terminal.incarnation.as_deref() == Some(expected.incarnation.as_str())
+                }
+                _ => false,
+            }
     }
 
     /// A broken admin stream is not evidence that the per-terminal process
@@ -5666,8 +5745,9 @@ impl Mux {
         let identity_matches = surface
             .and_then(|surface| surface.terminal_host_identity())
             .is_some_and(|current| current == *identity);
-        let topology_pending = Self::pending_terminal_host_callback_matches(
+        let topology_pending = self.pending_terminal_host_callback_matches(
             &state,
+            surface_id,
             surface.is_some(),
             &terminal,
             identity,
@@ -5736,8 +5816,9 @@ impl Mux {
             .as_ref()
             .and_then(|surface| surface.terminal_host_identity())
             .is_some_and(|current| current == *identity);
-        let topology_pending = Self::pending_terminal_host_callback_matches(
+        let topology_pending = self.pending_terminal_host_callback_matches(
             &state,
+            surface_id,
             surface.is_some(),
             &terminal,
             identity,
@@ -6075,6 +6156,7 @@ impl Mux {
                     return Err(error);
                 }
             };
+            let _pending_host_release = PendingTerminalHostRelease(surface.as_ref());
             let identity = surface
                 .terminal_host_identity()
                 .ok_or_else(|| anyhow::anyhow!("reserved terminal did not return host identity"))?;
@@ -24859,6 +24941,8 @@ mod tests {
             )
             .unwrap();
         }
+        let _pending =
+            mux.register_pending_terminal_host(PENDING_SURFACE, identity.clone()).unwrap();
 
         assert!(mux.terminal_host_connection_lost(PENDING_SURFACE, &identity));
         assert!(mux.terminal_host_reconnected(
@@ -24902,6 +24986,160 @@ mod tests {
                 .lifecycle,
             TerminalLifecycle::Adopting
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pending_topology_rejects_callback_for_wrong_surface() {
+        const TERMINAL: &str = "00000000000040008000000000000013";
+        const INCARNATION: &str = "10000000000040008000000000000013";
+        const PENDING_SURFACE: SurfaceId = 4243;
+        let mux = test_mux();
+        let workspace = mux
+            .create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000001113".into()), None)
+            .unwrap();
+        let identity =
+            TerminalHostIdentity { terminal_id: TERMINAL.into(), incarnation: INCARNATION.into() };
+        {
+            let mut registry = mux.workspace_registry.lock().unwrap();
+            commit_terminal_transition(
+                &mut registry,
+                "terminal-reserved",
+                "reserve-terminal",
+                &RegistryTerminal {
+                    terminal_id: TERMINAL.into(),
+                    workspace_key: workspace.key,
+                    incarnation: None,
+                    lifecycle: TerminalLifecycle::Launching,
+                    launch_spec: serde_json::json!({}),
+                    exit: None,
+                },
+            )
+            .unwrap();
+        }
+        let _pending =
+            mux.register_pending_terminal_host(PENDING_SURFACE, identity.clone()).unwrap();
+
+        assert!(!mux.terminal_host_connection_lost(PENDING_SURFACE + 1, &identity));
+        assert!(!mux.terminal_host_reconnected(
+            PENDING_SURFACE + 1,
+            &identity,
+            KittyGraphicsLimits::disabled(),
+        ));
+        assert!(mux.terminal_host_connection_lost(PENDING_SURFACE, &identity));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pending_topology_rejects_callback_from_old_incarnation() {
+        const TERMINAL: &str = "00000000000040008000000000000014";
+        const INCARNATION: &str = "10000000000040008000000000000014";
+        const OLD_INCARNATION: &str = "10000000000040008000000000000004";
+        const PENDING_SURFACE: SurfaceId = 4244;
+        let mux = test_mux();
+        let workspace = mux
+            .create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000001114".into()), None)
+            .unwrap();
+        let identity =
+            TerminalHostIdentity { terminal_id: TERMINAL.into(), incarnation: INCARNATION.into() };
+        let old_identity = TerminalHostIdentity {
+            terminal_id: TERMINAL.into(),
+            incarnation: OLD_INCARNATION.into(),
+        };
+        {
+            let mut registry = mux.workspace_registry.lock().unwrap();
+            commit_terminal_transition(
+                &mut registry,
+                "terminal-reserved",
+                "reserve-terminal",
+                &RegistryTerminal {
+                    terminal_id: TERMINAL.into(),
+                    workspace_key: workspace.key,
+                    incarnation: None,
+                    lifecycle: TerminalLifecycle::Launching,
+                    launch_spec: serde_json::json!({}),
+                    exit: None,
+                },
+            )
+            .unwrap();
+        }
+        let pending =
+            mux.register_pending_terminal_host(PENDING_SURFACE, identity.clone()).unwrap();
+
+        assert!(!mux.terminal_host_connection_lost(PENDING_SURFACE, &old_identity));
+        assert!(!mux.terminal_host_reconnected(
+            PENDING_SURFACE,
+            &old_identity,
+            KittyGraphicsLimits::disabled(),
+        ));
+        assert!(mux.terminal_host_connection_lost(PENDING_SURFACE, &identity));
+        drop(pending);
+        assert!(!mux.terminal_host_connection_lost(PENDING_SURFACE, &identity));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pending_topology_rejects_multiple_different_callbacks() {
+        const TERMINAL: &str = "00000000000040008000000000000015";
+        const INCARNATION: &str = "10000000000040008000000000000015";
+        const PENDING_SURFACE: SurfaceId = 4245;
+        let mux = test_mux();
+        let workspace = mux
+            .create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000001115".into()), None)
+            .unwrap();
+        let identity =
+            TerminalHostIdentity { terminal_id: TERMINAL.into(), incarnation: INCARNATION.into() };
+        {
+            let mut registry = mux.workspace_registry.lock().unwrap();
+            commit_terminal_transition(
+                &mut registry,
+                "terminal-reserved",
+                "reserve-terminal",
+                &RegistryTerminal {
+                    terminal_id: TERMINAL.into(),
+                    workspace_key: workspace.key,
+                    incarnation: None,
+                    lifecycle: TerminalLifecycle::Launching,
+                    launch_spec: serde_json::json!({}),
+                    exit: None,
+                },
+            )
+            .unwrap();
+        }
+        let _pending =
+            mux.register_pending_terminal_host(PENDING_SURFACE, identity.clone()).unwrap();
+        let callbacks = [
+            (
+                PENDING_SURFACE,
+                TerminalHostIdentity {
+                    terminal_id: TERMINAL.into(),
+                    incarnation: "10000000000040008000000000000005".into(),
+                },
+            ),
+            (
+                PENDING_SURFACE,
+                TerminalHostIdentity {
+                    terminal_id: "00000000000040008000000000000005".into(),
+                    incarnation: INCARNATION.into(),
+                },
+            ),
+            (PENDING_SURFACE + 1, identity.clone()),
+        ];
+
+        for (surface_id, callback) in callbacks {
+            assert!(!mux.terminal_host_connection_lost(surface_id, &callback));
+            assert!(!mux.terminal_host_reconnected(
+                surface_id,
+                &callback,
+                KittyGraphicsLimits::disabled(),
+            ));
+        }
+        assert!(mux.terminal_host_connection_lost(PENDING_SURFACE, &identity));
+        assert!(mux.terminal_host_reconnected(
+            PENDING_SURFACE,
+            &identity,
+            KittyGraphicsLimits::disabled(),
+        ));
     }
 
     #[test]
