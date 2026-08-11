@@ -1,4 +1,5 @@
 import Darwin
+import Dispatch
 import Foundation
 import Testing
 
@@ -259,14 +260,11 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         )
         let command = """
         \(policy.processTreeTerminationShellFunction())
+        \(lifecycleEventShellFunctions)
         ( \(classifiedAuthentication) ) &
         cmux_test_auth_root=$!
         trap '/bin/kill -KILL "$cmux_test_auth_root" >/dev/null 2>&1 || true' EXIT
-        cmux_test_ready_attempt=0
-        while [ ! -s "$CMUX_TEST_LEAF_PID" ] && [ "$cmux_test_ready_attempt" -lt 300 ]; do
-          /bin/sleep 0.01
-          cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
-        done
+        cmux_test_wait_path nonempty "$CMUX_TEST_LEAF_PID" 3000 || exit 98
         test -s "$CMUX_TEST_LEAF_PID" || exit 98
         cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$"
         wait "$cmux_test_auth_root" 2>/dev/null || true
@@ -294,13 +292,10 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         ))
         defer { Darwin.kill(leafPID, SIGKILL) }
-        let exitDeadline = Date.now.addingTimeInterval(1)
-        while Darwin.kill(leafPID, 0) == 0, Date.now < exitDeadline {
-            Thread.sleep(forTimeInterval: 0.01)
-        }
+        let leafExited = waitForPIDExit(leafPID, timeout: 1)
 
         #expect(process.terminationStatus == 0)
-        #expect(Darwin.kill(leafPID, 0) != 0)
+        #expect(leafExited)
     }
 
     @Test func cleanupFailureDoesNotLeaveStoppedAuthenticationProcesses() throws {
@@ -336,6 +331,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #!/bin/sh
         printf '%s\n' "$$" > "$CMUX_TEST_CLEANUP_WORKER_PID" || exit 99
         \(policy.processTreeTerminationShellFunction())
+        \(lifecycleEventShellFunctions)
         cmux_ssh_auth_take_process_snapshot() {
           if [ "$(/bin/cat "$CMUX_TEST_SNAPSHOT_PERMISSION")" != 1 ]; then return 1; fi
           cmux_ssh_auth_take_process_snapshot_until \
@@ -344,11 +340,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         ( \(classifiedAuthentication) ) &
         cmux_test_auth_root=$!
         trap '/bin/kill -KILL "$cmux_test_auth_root" >/dev/null 2>&1 || true' EXIT
-        cmux_test_ready_attempt=0
-        while [ ! -s "$CMUX_TEST_LEAF_PID" ] && [ "$cmux_test_ready_attempt" -lt 300 ]; do
-          /bin/sleep 0.01
-          cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
-        done
+        cmux_test_wait_path nonempty "$CMUX_TEST_LEAF_PID" 3000 || exit 98
         test -s "$CMUX_TEST_LEAF_PID" || exit 98
         cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$"
         wait "$cmux_test_auth_root" 2>/dev/null || true
@@ -365,6 +357,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: cleanupWorkerScript.path)
 
         let command = """
+        \(lifecycleEventShellFunctions)
         /bin/zsh "$CMUX_TEST_CLEANUP_WORKER"
         cmux_test_cleanup_worker_status=$?
         if [ "$cmux_test_cleanup_worker_status" -ne 0 ]; then
@@ -376,14 +369,9 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         printf '%s\n' 1 > "$CMUX_TEST_SNAPSHOT_PERMISSION" || exit 93
         cmux_test_leaf_pid=$(/bin/cat "$CMUX_TEST_LEAF_PID") || exit 92
         cmux_test_reaper_pid=$(/bin/cat "$CMUX_TEST_REAPER_PID") || exit 91
-        cmux_test_reaper_attempt=0
-        while { /bin/kill -0 "$cmux_test_leaf_pid" >/dev/null 2>&1 || \
-          [ -d "$CMUX_SSH_AUTH_GROUP_DIR" ] || \
-          /bin/kill -0 "$cmux_test_reaper_pid" >/dev/null 2>&1; } && \
-          [ "$cmux_test_reaper_attempt" -lt 600 ]; do
-          /bin/sleep 0.01
-          cmux_test_reaper_attempt=$((cmux_test_reaper_attempt + 1))
-        done
+        cmux_test_wait_pid_exit "$cmux_test_reaper_pid" 6000 || exit 88
+        cmux_test_wait_pid_exit "$cmux_test_leaf_pid" 1000 || exit 90
+        cmux_test_wait_path absent "$CMUX_SSH_AUTH_GROUP_DIR" 1000 || exit 89
         /usr/bin/env LC_ALL=C LANG=C /bin/ps -o pid=,ppid=,pgid=,state=,lstart= \
           -p "$(/bin/cat "$CMUX_TEST_LEAF_PID")" > "$CMUX_TEST_OBSERVED_PROCESS" 2>/dev/null || true
         /bin/kill -0 "$cmux_test_leaf_pid" >/dev/null 2>&1 && exit 90
@@ -419,10 +407,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         ))
         defer { Darwin.kill(leafPID, SIGKILL) }
-        let exitDeadline = Date.now.addingTimeInterval(1)
-        while Darwin.kill(leafPID, 0) == 0, Date.now < exitDeadline {
-            Thread.sleep(forTimeInterval: 0.01)
-        }
+        let leafExited = waitForPIDExit(leafPID, timeout: 1)
 
         #expect(
             process.terminationStatus == 0,
@@ -464,6 +449,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         )
         let command = """
         \(policy.processTreeTerminationShellFunction())
+        \(lifecycleEventShellFunctions)
         cmux_ssh_auth_now_millis() {
           cmux_test_now=$(/bin/cat "$CMUX_TEST_CLOCK_FILE") || return 1
           cmux_test_now=$((cmux_test_now + 150))
@@ -481,11 +467,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         ( \(classifiedAuthentication) ) &
         cmux_test_auth_root=$!
         trap '/bin/kill -KILL "$cmux_test_auth_root" >/dev/null 2>&1 || true' EXIT
-        cmux_test_ready_attempt=0
-        while [ ! -s "$CMUX_TEST_LEAF_PID" ] && [ "$cmux_test_ready_attempt" -lt 300 ]; do
-          /bin/sleep 0.01
-          cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
-        done
+        cmux_test_wait_path nonempty "$CMUX_TEST_LEAF_PID" 3000 || exit 98
         test -s "$CMUX_TEST_LEAF_PID" || exit 98
         cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$"
         wait "$cmux_test_auth_root" 2>/dev/null || true
@@ -529,7 +511,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
 
         #expect(process.terminationStatus == 0)
         #expect(fileManager.fileExists(atPath: deadlineExpiredMarker.path))
-        #expect(Darwin.kill(leafPID, 0) != 0)
+        #expect(leafExited)
         #expect(processState.isEmpty, "Deadline fallback left a process behind: \(processState)")
         let remainingGroupState = (
             try? fileManager.contentsOfDirectory(atPath: groupDirectory.path).sorted()
@@ -2020,13 +2002,10 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
 
         let command = """
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        \(lifecycleEventShellFunctions)
         ( trap ': > "$CMUX_TEST_TERM_HANDLER_MARKER"; /usr/bin/nohup /bin/sh "$CMUX_TEST_REPLACEMENT_SCRIPT" </dev/null >/dev/null 2>&1 & exit 143' TERM; : > "$CMUX_TEST_READY_MARKER"; while :; do /bin/sleep 30; done ) &
         cmux_test_auth_root=$!
-        cmux_test_ready_attempt=0
-        while [ ! -f "$CMUX_TEST_READY_MARKER" ] && [ "$cmux_test_ready_attempt" -lt 300 ]; do
-          /bin/sleep 0.01
-          cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
-        done
+        cmux_test_wait_path exists "$CMUX_TEST_READY_MARKER" 3000 || exit 98
         test -f "$CMUX_TEST_READY_MARKER" || exit 98
         cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$"
         wait "$cmux_test_auth_root" 2>/dev/null || true
@@ -2088,27 +2067,21 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let policy = SSHForegroundAuthenticationRetryPolicy()
         let classifiedAuthentication = policy.classifyingTransientFailure(
             in: """
+            \(lifecycleEventShellFunctions)
             /usr/bin/nohup /bin/sh "$CMUX_TEST_LEAF_SCRIPT" </dev/null >/dev/null 2>&1 &
-            cmux_test_leaf_attempt=0
-            while [ ! -s "$CMUX_TEST_LEAF_PID" ] && [ "$cmux_test_leaf_attempt" -lt 300 ]; do
-              /bin/sleep 0.01
-              cmux_test_leaf_attempt=$((cmux_test_leaf_attempt + 1))
-            done
+            cmux_test_wait_path nonempty "$CMUX_TEST_LEAF_PID" 3000 || exit 95
             test -s "$CMUX_TEST_LEAF_PID" || exit 95
             : > "$CMUX_TEST_READY_MARKER"
-            while [ ! -f "$CMUX_TEST_RELEASE_MARKER" ]; do /bin/sleep 0.01; done
+            cmux_test_wait_path exists "$CMUX_TEST_RELEASE_MARKER" 3000 || exit 94
             """
         )
         let command = """
         \(policy.processTreeTerminationShellFunction())
+        \(lifecycleEventShellFunctions)
         ( \(classifiedAuthentication) ) &
         cmux_test_auth_root=$!
-        cmux_test_ready_attempt=0
-        while { [ ! -f "$CMUX_TEST_READY_MARKER" ] || [ ! -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" ]; } && \
-          [ "$cmux_test_ready_attempt" -lt 300 ]; do
-          /bin/sleep 0.01
-          cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
-        done
+        cmux_test_wait_path exists "$CMUX_TEST_READY_MARKER" 3000 || exit 98
+        cmux_test_wait_path nonempty "$CMUX_SSH_AUTH_GROUP_DIR/identity" 3000 || exit 97
         test -f "$CMUX_TEST_READY_MARKER" || exit 98
         test -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" || exit 97
         /bin/cp "$CMUX_SSH_AUTH_GROUP_DIR/identity" "$CMUX_TEST_GROUP_RECORD" || exit 96
@@ -2142,14 +2115,11 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         ))
         defer { Darwin.kill(leafPID, SIGKILL) }
-        let exitDeadline = Date.now.addingTimeInterval(1)
-        while Darwin.kill(leafPID, 0) == 0, Date.now < exitDeadline {
-            Thread.sleep(forTimeInterval: 0.01)
-        }
+        let leafExited = waitForPIDExit(leafPID, timeout: 1)
         let groupID = try #require(processGroupID(in: groupRecord))
         defer { Darwin.kill(-groupID, SIGKILL) }
         #expect(process.terminationStatus == 0)
-        #expect(Darwin.kill(leafPID, 0) != 0)
+        #expect(leafExited)
         #expect(Darwin.kill(-groupID, 0) != 0)
         #expect(!fileManager.fileExists(atPath: groupFile.path))
         #expect(!fileManager.fileExists(atPath: groupDirectory.path))
@@ -2172,18 +2142,15 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
 
         let command = """
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        \(lifecycleEventShellFunctions)
         cmux_ssh_terminate_owned_auth_group() {
           printf x >> "$CMUX_TEST_REAPER_CALLS"
           return 1
         }
         cmux_ssh_launch_owned_auth_group_reaper "$CMUX_SSH_AUTH_GROUP_DIR"
         cmux_test_reaper_pid=$!
-        ( /bin/sleep 5; /bin/kill -KILL "$cmux_test_reaper_pid" 2>/dev/null || true ) &
-        cmux_test_watchdog_pid=$!
         wait "$cmux_test_reaper_pid"
         cmux_test_reaper_status=$?
-        /bin/kill -KILL "$cmux_test_watchdog_pid" 2>/dev/null || true
-        wait "$cmux_test_watchdog_pid" 2>/dev/null || true
         test "$cmux_test_reaper_status" -eq 0 || exit 95
         test "$(/usr/bin/wc -c < "$CMUX_TEST_REAPER_CALLS" | /usr/bin/tr -d '[:space:]')" -eq 3 || exit 94
         test -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" || exit 93
@@ -2242,16 +2209,10 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_test_reaper_pid=$(/bin/cat "$CMUX_TEST_REAPER_PID") || exit 94
         cmux_test_initial_parent=$(/bin/cat "$CMUX_TEST_REAPER_PARENT") || exit 93
         trap '/bin/kill -KILL "$cmux_test_reaper_pid" >/dev/null 2>&1 || true' EXIT
-        cmux_test_reparent_attempt=0
-        while [ "$cmux_test_reparent_attempt" -lt 100 ]; do
-          cmux_test_current_identity=$(cmux_ssh_auth_identity "$cmux_test_reaper_pid")
-          cmux_test_current_parent=${cmux_test_current_identity%%|*}
-          if [ -n "$cmux_test_current_identity" ] && \
-            [ "$cmux_test_current_parent" != "$cmux_test_initial_parent" ]; then break; fi
-          /bin/sleep 0.01
-          cmux_test_reparent_attempt=$((cmux_test_reparent_attempt + 1))
-        done
-        test "$cmux_test_reparent_attempt" -lt 100 || exit 92
+        cmux_test_current_identity=$(cmux_ssh_auth_identity "$cmux_test_reaper_pid")
+        cmux_test_current_parent=${cmux_test_current_identity%%|*}
+        test -n "$cmux_test_current_identity" || exit 92
+        test "$cmux_test_current_parent" != "$cmux_test_initial_parent" || exit 92
         /bin/kill -0 "$cmux_test_reaper_pid" 2>/dev/null || exit 91
         if cmux_ssh_auth_reclaim_stale_reaper_lock \
           "$CMUX_SSH_AUTH_GROUP_DIR/reaper.lock"; then exit 90; fi
@@ -2294,8 +2255,9 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
 
         let command = """
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        \(lifecycleEventShellFunctions)
         cmux_ssh_terminate_owned_auth_group() {
-          while [ ! -e "$CMUX_TEST_RELEASE" ]; do /bin/sleep 0.01; done
+          cmux_test_wait_path exists "$CMUX_TEST_RELEASE" 5000 || return 1
           /bin/rm -f -- "$CMUX_SSH_AUTH_GROUP_DIR/identity"
         }
         cmux_test_launch() {
@@ -2317,12 +2279,11 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         for cmux_test_group in "$CMUX_TEST_GROUP_ROOT"/group.*; do
           cmux_test_result="$CMUX_TEST_RESULT_ROOT/$cmux_test_index"
           cmux_test_launch "$cmux_test_group" "$cmux_test_result"
-          cmux_test_result_attempt=0
-          while [ ! -s "$cmux_test_result" ] && \
-            [ "$cmux_test_result_attempt" -lt 500 ]; do
-            /bin/sleep 0.01
-            cmux_test_result_attempt=$((cmux_test_result_attempt + 1))
-          done
+          cmux_test_wait_path nonempty "$cmux_test_result" 5000 || {
+            : > "$CMUX_TEST_RELEASE"
+            wait
+            exit 99
+          }
           if [ ! -s "$cmux_test_result" ]; then
             : > "$CMUX_TEST_RELEASE"
             wait
@@ -2377,16 +2338,12 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
 
         let command = """
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        \(lifecycleEventShellFunctions)
         cmux_ssh_auth_identity() {
           if [ "$1" = "$$" ] && \
             /bin/mkdir "$CMUX_TEST_FIRST_IDENTITY_GATE" 2>/dev/null; then
             : > "$CMUX_TEST_FIRST_READY"
-            cmux_test_release_attempt=0
-            while [ ! -e "$CMUX_TEST_RELEASE_FIRST" ] && \
-              [ "$cmux_test_release_attempt" -lt 500 ]; do
-              /bin/sleep 0.01
-              cmux_test_release_attempt=$((cmux_test_release_attempt + 1))
-            done
+            cmux_test_wait_path exists "$CMUX_TEST_RELEASE_FIRST" 5000 || return 1
             test -e "$CMUX_TEST_RELEASE_FIRST" || return 1
           fi
           printf '1|1|Thu_Jan_1_00:00:00_1970\n'
@@ -2404,21 +2361,11 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         }
         cmux_test_launch "$CMUX_TEST_FIRST_RESULT" &
         cmux_test_first_launcher=$!
-        cmux_test_ready_attempt=0
-        while [ ! -e "$CMUX_TEST_FIRST_READY" ] && \
-          [ "$cmux_test_ready_attempt" -lt 500 ]; do
-          /bin/sleep 0.01
-          cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
-        done
+        cmux_test_wait_path exists "$CMUX_TEST_FIRST_READY" 5000 || exit 99
         test -e "$CMUX_TEST_FIRST_READY" || exit 99
         cmux_test_launch "$CMUX_TEST_SECOND_RESULT" &
         cmux_test_second_launcher=$!
-        cmux_test_second_attempt=0
-        while [ ! -s "$CMUX_TEST_SECOND_RESULT" ] && \
-          [ "$cmux_test_second_attempt" -lt 500 ]; do
-          /bin/sleep 0.01
-          cmux_test_second_attempt=$((cmux_test_second_attempt + 1))
-        done
+        cmux_test_wait_path nonempty "$CMUX_TEST_SECOND_RESULT" 5000 || exit 98
         test -s "$CMUX_TEST_SECOND_RESULT" || exit 98
         : > "$CMUX_TEST_RELEASE_FIRST"
         wait "$cmux_test_first_launcher" || exit 97
@@ -2471,6 +2418,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             .processTreeTerminationShellFunction()
         let firstLauncher = """
         \(policyFunctions)
+        \(lifecycleEventShellFunctions)
         cmux_ssh_auth_stable_identity() {
           cmux_test_stable_identity=$(/usr/bin/env LC_ALL=C LANG=C \\
             /bin/ps -o pgid= -o state= -o lstart= -p "$1" 2>/dev/null | \\
@@ -2510,14 +2458,10 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
 
         let command = """
         \(policyFunctions)
+        \(lifecycleEventShellFunctions)
         "$CMUX_TEST_SHELL" "$CMUX_TEST_FIRST_LAUNCHER" &
         cmux_test_first_launcher=$!
-        cmux_test_ready_attempt=0
-        while [ ! -s "$CMUX_TEST_FIRST_REAPER_PID" ] && \\
-          [ "$cmux_test_ready_attempt" -lt 500 ]; do
-          /bin/sleep 0.01
-          cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
-        done
+        cmux_test_wait_path nonempty "$CMUX_TEST_FIRST_REAPER_PID" 5000 || exit 99
         test -s "$CMUX_TEST_FIRST_REAPER_PID" || exit 99
         /bin/kill -KILL "$cmux_test_first_launcher" 2>/dev/null || exit 98
         wait "$cmux_test_first_launcher" 2>/dev/null || true
@@ -2525,31 +2469,16 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           "$CMUX_SSH_AUTH_GROUP_DIR/reaper.lock" || exit 97
         cmux_ssh_terminate_owned_auth_group() {
           : > "$CMUX_TEST_REPLACEMENT_READY"
-          cmux_test_release_attempt=0
-          while [ ! -e "$CMUX_TEST_REPLACEMENT_RELEASE" ] && \\
-            [ "$cmux_test_release_attempt" -lt 500 ]; do
-            /bin/sleep 0.01
-            cmux_test_release_attempt=$((cmux_test_release_attempt + 1))
-          done
+          cmux_test_wait_path exists "$CMUX_TEST_REPLACEMENT_RELEASE" 5000 || return 1
           test -e "$CMUX_TEST_REPLACEMENT_RELEASE" || return 1
           /bin/rm -f -- "$CMUX_SSH_AUTH_GROUP_DIR/identity"
         }
         cmux_ssh_launch_owned_auth_group_reaper "$CMUX_SSH_AUTH_GROUP_DIR"
         test "${CMUX_SSH_AUTH_REAPER_LAUNCHED:-0}" = 1 || exit 96
         cmux_test_replacement_reaper=$!
-        cmux_test_replacement_attempt=0
-        while [ ! -e "$CMUX_TEST_REPLACEMENT_READY" ] && \\
-          [ "$cmux_test_replacement_attempt" -lt 500 ]; do
-          /bin/sleep 0.01
-          cmux_test_replacement_attempt=$((cmux_test_replacement_attempt + 1))
-        done
+        cmux_test_wait_path exists "$CMUX_TEST_REPLACEMENT_READY" 5000 || exit 95
         test -e "$CMUX_TEST_REPLACEMENT_READY" || exit 95
-        cmux_test_orphan_attempt=0
-        while [ ! -e "$CMUX_TEST_FIRST_REAPER_RAN" ] && \\
-          [ "$cmux_test_orphan_attempt" -lt 100 ]; do
-          /bin/sleep 0.01
-          cmux_test_orphan_attempt=$((cmux_test_orphan_attempt + 1))
-        done
+        test ! -e "$CMUX_TEST_FIRST_REAPER_RAN" || exit 93
         : > "$CMUX_TEST_REPLACEMENT_RELEASE"
         wait "$cmux_test_replacement_reaper" || exit 94
         test ! -e "$CMUX_TEST_FIRST_REAPER_RAN" || exit 93
@@ -2699,6 +2628,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         )
         let command = """
         \(policy.processTreeTerminationShellFunction())
+        \(lifecycleEventShellFunctions)
         cmux_test_cleanup_auth_group() { \(cleanupBody) }
         cmux_test_attempt=0
         while [ "$cmux_test_attempt" -lt 20 ]; do
@@ -2709,17 +2639,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           test ! -d "$cmux_test_group" || exit 98
           cmux_test_attempt=$((cmux_test_attempt + 1))
         done
-        cmux_test_drain_deadline=$(($(cmux_ssh_auth_now_millis) + 5000))
-        while :; do
-          cmux_test_queue_present=0
-          for cmux_test_segment in "$TMPDIR/cmux-ssh-auth-recovery"/queue.[0-9]*; do
-            if [ -e "$cmux_test_segment" ]; then cmux_test_queue_present=1; fi
-          done
-          if [ "$cmux_test_queue_present" -eq 0 ]; then break; fi
-          cmux_test_drain_now=$(cmux_ssh_auth_now_millis) || exit 97
-          [ "$cmux_test_drain_now" -lt "$cmux_test_drain_deadline" ] || exit 96
-          /bin/sleep 0.01
-        done
+        cmux_test_wait_path glob-absent \
+          "$TMPDIR/cmux-ssh-auth-recovery/queue.[0-9]*" 5000 || exit 96
         """
 
         let result = try runShellCommand(command, environment: ["TMPDIR": root.path])
@@ -2807,6 +2728,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
 
         let command = """
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        \(lifecycleEventShellFunctions)
         cmux_ssh_terminate_owned_auth_group() {
           printf x >> "$CMUX_TEST_REAPER_CALLS"
           if [ -e "$CMUX_TEST_ALLOW_CLEANUP" ]; then
@@ -2822,12 +2744,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         export CMUX_SSH_AUTH_GROUP_DIR
         cmux_ssh_auth_recovery_enqueue "$TMPDIR/cmux-ssh-auth-group.test" || exit 95
         cmux_ssh_resume_failed_auth_group_reapers || exit 94
-        cmux_test_recovery_attempt=0
-        while [ -d "$TMPDIR/cmux-ssh-auth-group.test" ] && \
-          [ "$cmux_test_recovery_attempt" -lt 500 ]; do
-          /bin/sleep 0.01
-          cmux_test_recovery_attempt=$((cmux_test_recovery_attempt + 1))
-        done
+        cmux_test_wait_path absent "$TMPDIR/cmux-ssh-auth-group.test" 5000 || exit 92
         test ! -d "$TMPDIR/cmux-ssh-auth-group.test" || exit 92
         test "$(/usr/bin/wc -c < "$CMUX_TEST_REAPER_CALLS" | /usr/bin/tr -d '[:space:]')" -eq 4 || exit 91
         """
@@ -2940,6 +2857,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
 
         let command = """
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        \(lifecycleEventShellFunctions)
         /bin/sleep 30 &
         cmux_test_suspended_publisher=$!
         /bin/sleep 30 &
@@ -2969,23 +2887,17 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           > "$CMUX_TEST_ACTIVE_GROUP/cleanup.owner" || exit 92
         : > "$CMUX_TEST_ACTIVE_GROUP/cancel" || exit 91
         : > "$CMUX_TEST_OWNERLESS_GROUP/cancel" || exit 90
-        /bin/kill -STOP "$cmux_test_suspended_publisher" \
+        cmux_test_stop_pids 1000 "$cmux_test_suspended_publisher" \
           "$cmux_test_abandoned_publisher" "$cmux_test_active_publisher" \
           "$cmux_test_ownerless_publisher" || exit 89
-        cmux_test_stop_attempt=0
-        while [ "$cmux_test_stop_attempt" -lt 100 ]; do
-          if [ "$(cmux_ssh_auth_stopped_identity "$cmux_test_suspended_publisher")" = \
-            "$cmux_test_suspended_identity" ] && \
-            [ "$(cmux_ssh_auth_stopped_identity "$cmux_test_abandoned_publisher")" = \
-            "$cmux_test_abandoned_identity" ] && \
-            [ "$(cmux_ssh_auth_stopped_identity "$cmux_test_active_publisher")" = \
-            "$cmux_test_active_identity" ] && \
-            [ "$(cmux_ssh_auth_stopped_identity "$cmux_test_ownerless_publisher")" = \
-            "$cmux_test_ownerless_identity" ]; then break; fi
-          /bin/sleep 0.01
-          cmux_test_stop_attempt=$((cmux_test_stop_attempt + 1))
-        done
-        test "$cmux_test_stop_attempt" -lt 100 || exit 89
+        [ "$(cmux_ssh_auth_stopped_identity "$cmux_test_suspended_publisher")" = \
+          "$cmux_test_suspended_identity" ] || exit 89
+        [ "$(cmux_ssh_auth_stopped_identity "$cmux_test_abandoned_publisher")" = \
+          "$cmux_test_abandoned_identity" ] || exit 89
+        [ "$(cmux_ssh_auth_stopped_identity "$cmux_test_active_publisher")" = \
+          "$cmux_test_active_identity" ] || exit 89
+        [ "$(cmux_ssh_auth_stopped_identity "$cmux_test_ownerless_publisher")" = \
+          "$cmux_test_ownerless_identity" ] || exit 89
         cmux_ssh_terminate_owned_auth_group() {
           /usr/bin/basename "$CMUX_SSH_AUTH_GROUP_DIR" >> "$CMUX_TEST_RECOVERY_CALLS"
           /bin/rm -f -- "$CMUX_SSH_AUTH_GROUP_DIR/identity" \
@@ -3230,34 +3142,20 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
 
         let command = """
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        \(lifecycleEventShellFunctions)
         cmux_ssh_resume_failed_auth_group_reapers() {
           : > "$CMUX_TEST_RECOVERY_STARTED"
-          cmux_test_worker_deadline=$(($(cmux_ssh_auth_now_millis) + 2000))
-          while [ ! -e "$CMUX_TEST_RECOVERY_RELEASE" ]; do
-            cmux_test_worker_now=$(cmux_ssh_auth_now_millis) || return 90
-            [ "$cmux_test_worker_now" -lt "$cmux_test_worker_deadline" ] || return 90
-            /bin/sleep 0.01
-          done
+          cmux_test_wait_path exists "$CMUX_TEST_RECOVERY_RELEASE" 2000 || return 90
           : > "$CMUX_TEST_RECOVERY_DONE"
         }
         cmux_ssh_schedule_failed_auth_group_recovery || exit 99
         : > "$CMUX_TEST_STARTUP_CONTINUED"
         test -e "$CMUX_TEST_STARTUP_CONTINUED" || exit 98
 
-        cmux_test_started_deadline=$(($(cmux_ssh_auth_now_millis) + 1000))
-        while [ ! -e "$CMUX_TEST_RECOVERY_STARTED" ]; do
-          cmux_test_started_now=$(cmux_ssh_auth_now_millis) || exit 97
-          [ "$cmux_test_started_now" -lt "$cmux_test_started_deadline" ] || exit 96
-          /bin/sleep 0.01
-        done
+        cmux_test_wait_path exists "$CMUX_TEST_RECOVERY_STARTED" 1000 || exit 96
         : > "$CMUX_TEST_RECOVERY_RELEASE"
 
-        cmux_test_done_deadline=$(($(cmux_ssh_auth_now_millis) + 1000))
-        while [ ! -e "$CMUX_TEST_RECOVERY_DONE" ]; do
-          cmux_test_done_now=$(cmux_ssh_auth_now_millis) || exit 95
-          [ "$cmux_test_done_now" -lt "$cmux_test_done_deadline" ] || exit 94
-          /bin/sleep 0.01
-        done
+        cmux_test_wait_path exists "$CMUX_TEST_RECOVERY_DONE" 1000 || exit 94
         """
 
         let result = try runShellCommand(
@@ -3299,48 +3197,25 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
 
         let command = """
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        \(lifecycleEventShellFunctions)
         cmux_ssh_resume_failed_auth_group_reapers() {
           printf 'started\\n' >> "$CMUX_TEST_RECOVERY_STARTED"
-          cmux_test_worker_deadline=$(($(cmux_ssh_auth_now_millis) + 3000))
-          while [ ! -e "$CMUX_TEST_RECOVERY_RELEASE" ]; do
-            cmux_test_worker_now=$(cmux_ssh_auth_now_millis) || return 90
-            [ "$cmux_test_worker_now" -lt "$cmux_test_worker_deadline" ] || return 90
-            /bin/sleep 0.01
-          done
+          cmux_test_wait_path exists "$CMUX_TEST_RECOVERY_RELEASE" 3000 || return 90
           printf 'done\\n' >> "$CMUX_TEST_RECOVERY_DONE"
         }
         cmux_ssh_schedule_failed_auth_group_recovery || exit 99
         cmux_ssh_schedule_failed_auth_group_recovery || exit 98
 
-        cmux_test_started_deadline=$(($(cmux_ssh_auth_now_millis) + 1000))
-        while :; do
-          cmux_test_started_count=$(/usr/bin/awk 'END { print NR + 0 }' \
-            "$CMUX_TEST_RECOVERY_STARTED" 2>/dev/null || printf '0\\n')
-          [ "$cmux_test_started_count" -ge 1 ] && break
-          cmux_test_started_now=$(cmux_ssh_auth_now_millis) || exit 97
-          [ "$cmux_test_started_now" -lt "$cmux_test_started_deadline" ] || exit 96
-          /bin/sleep 0.01
-        done
-
-        cmux_test_settle_deadline=$(($(cmux_ssh_auth_now_millis) + 500))
-        while :; do
-          cmux_test_settle_now=$(cmux_ssh_auth_now_millis) || exit 95
-          [ "$cmux_test_settle_now" -lt "$cmux_test_settle_deadline" ] || break
-          /bin/sleep 0.01
-        done
+        cmux_test_wait_path lines "$CMUX_TEST_RECOVERY_STARTED" 1000 1 || exit 96
         cmux_test_started_count=$(/usr/bin/awk 'END { print NR + 0 }' \
           "$CMUX_TEST_RECOVERY_STARTED" 2>/dev/null || printf '0\\n')
         : > "$CMUX_TEST_RECOVERY_RELEASE"
 
-        cmux_test_done_deadline=$(($(cmux_ssh_auth_now_millis) + 1000))
-        while :; do
-          cmux_test_done_count=$(/usr/bin/awk 'END { print NR + 0 }' \
-            "$CMUX_TEST_RECOVERY_DONE" 2>/dev/null || printf '0\\n')
-          [ "$cmux_test_done_count" -ge "$cmux_test_started_count" ] && break
-          cmux_test_done_now=$(cmux_ssh_auth_now_millis) || exit 94
-          [ "$cmux_test_done_now" -lt "$cmux_test_done_deadline" ] || exit 93
-          /bin/sleep 0.01
-        done
+        cmux_test_wait_path lines "$CMUX_TEST_RECOVERY_DONE" 1000 \
+          "$cmux_test_started_count" || exit 93
+        cmux_test_wait_path absent "$TMPDIR/cmux-ssh-auth-recovery/sweep.lock" 1000 || exit 92
+        cmux_test_started_count=$(/usr/bin/awk 'END { print NR + 0 }' \
+          "$CMUX_TEST_RECOVERY_STARTED" 2>/dev/null || printf '0\\n')
         [ "$cmux_test_started_count" -eq 1 ] || exit 92
         """
 
@@ -3371,6 +3246,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
 
         let command = """
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        \(lifecycleEventShellFunctions)
         cmux_ssh_resume_failed_auth_group_reapers() {
           cmux_test_started_count=$(/usr/bin/awk 'END { print NR + 0 }' \
             "$CMUX_TEST_RECOVERY_STARTED" 2>/dev/null || printf '0\n')
@@ -3388,22 +3264,10 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         : > "$CMUX_TEST_QUEUE_WORK"
         cmux_ssh_schedule_failed_auth_group_recovery || exit 99
 
-        cmux_test_started_deadline=$(($(cmux_ssh_auth_now_millis) + 8000))
-        while :; do
-          cmux_test_started_count=$(/usr/bin/awk 'END { print NR + 0 }' \
-            "$CMUX_TEST_RECOVERY_STARTED" 2>/dev/null || printf '0\n')
-          [ "$cmux_test_started_count" -ge 3 ] && break
-          cmux_test_started_now=$(cmux_ssh_auth_now_millis) || exit 98
-          [ "$cmux_test_started_now" -lt "$cmux_test_started_deadline" ] || exit 97
-          /bin/sleep 0.01
-        done
-
-        cmux_test_release_deadline=$(($(cmux_ssh_auth_now_millis) + 2000))
-        while [ -d "$TMPDIR/cmux-ssh-auth-recovery/sweep.lock" ]; do
-          cmux_test_release_now=$(cmux_ssh_auth_now_millis) || exit 96
-          [ "$cmux_test_release_now" -lt "$cmux_test_release_deadline" ] || exit 95
-          /bin/sleep 0.01
-        done
+        cmux_test_wait_path lines "$CMUX_TEST_RECOVERY_STARTED" 8000 3 || exit 97
+        cmux_test_started_count=$(/usr/bin/awk 'END { print NR + 0 }' \
+          "$CMUX_TEST_RECOVERY_STARTED" 2>/dev/null || printf '0\n')
+        cmux_test_wait_path absent "$TMPDIR/cmux-ssh-auth-recovery/sweep.lock" 2000 || exit 95
         [ "$cmux_test_started_count" -eq 3 ] || exit 94
         cmux_test_expected_backoff=$(/usr/bin/printf '1|1\n2|2\n3|4\n')
         [ "$(/bin/cat "$CMUX_TEST_RECOVERY_STARTED")" = \
@@ -3436,6 +3300,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
 
         let command = """
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        \(lifecycleEventShellFunctions)
         cmux_ssh_resume_failed_auth_group_reapers() {
           : > "$CMUX_TEST_RECOVERY_STARTED"
         }
@@ -3448,18 +3313,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         }
         cmux_ssh_schedule_failed_auth_group_recovery || exit 99
 
-        cmux_test_started_deadline=$(($(cmux_ssh_auth_now_millis) + 2000))
-        while [ ! -e "$CMUX_TEST_RECOVERY_STARTED" ]; do
-          cmux_test_started_now=$(cmux_ssh_auth_now_millis) || exit 98
-          [ "$cmux_test_started_now" -lt "$cmux_test_started_deadline" ] || exit 97
-          /bin/sleep 0.01
-        done
-        cmux_test_release_deadline=$(($(cmux_ssh_auth_now_millis) + 2000))
-        while [ -d "$TMPDIR/cmux-ssh-auth-recovery/sweep.lock" ]; do
-          cmux_test_release_now=$(cmux_ssh_auth_now_millis) || exit 96
-          [ "$cmux_test_release_now" -lt "$cmux_test_release_deadline" ] || exit 95
-          /bin/sleep 0.01
-        done
+        cmux_test_wait_path exists "$CMUX_TEST_RECOVERY_STARTED" 2000 || exit 97
+        cmux_test_wait_path absent "$TMPDIR/cmux-ssh-auth-recovery/sweep.lock" 2000 || exit 95
         """
 
         let result = try runShellCommand(
@@ -3532,6 +3387,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
 
         let command = """
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        \(lifecycleEventShellFunctions)
         cmux_ssh_terminate_owned_auth_group() {
           /bin/rm -f -- "$CMUX_SSH_AUTH_GROUP_DIR/identity"
         }
@@ -3539,12 +3395,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         export CMUX_SSH_AUTH_GROUP_DIR
         cmux_ssh_auth_recovery_enqueue "$TMPDIR/cmux-ssh-auth-group.test" || exit 98
         cmux_ssh_resume_failed_auth_group_reapers
-        cmux_test_recovery_attempt=0
-        while [ -d "$TMPDIR/cmux-ssh-auth-group.test" ] && \
-          [ "$cmux_test_recovery_attempt" -lt 300 ]; do
-          /bin/sleep 0.01
-          cmux_test_recovery_attempt=$((cmux_test_recovery_attempt + 1))
-        done
+        cmux_test_wait_path absent "$TMPDIR/cmux-ssh-auth-group.test" 3000 || exit 97
         test ! -d "$TMPDIR/cmux-ssh-auth-group.test"
         """
 
@@ -3575,14 +3426,11 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         )
         let command = """
         \(policy.processTreeTerminationShellFunction())
+        \(lifecycleEventShellFunctions)
         ( \(classifiedAuthentication) ) &
         cmux_test_auth_root=$!
-        cmux_test_ready_attempt=0
-        while { [ ! -f "$CMUX_TEST_READY_MARKER" ] || [ ! -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" ]; } && \
-          [ "$cmux_test_ready_attempt" -lt 300 ]; do
-          /bin/sleep 0.01
-          cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
-        done
+        cmux_test_wait_path exists "$CMUX_TEST_READY_MARKER" 3000 || exit 98
+        cmux_test_wait_path nonempty "$CMUX_SSH_AUTH_GROUP_DIR/identity" 3000 || exit 97
         test -f "$CMUX_TEST_READY_MARKER" || exit 98
         test -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" || exit 97
         /bin/cp "$CMUX_SSH_AUTH_GROUP_DIR/identity" "$CMUX_TEST_GROUP_RECORD" || exit 96
@@ -3637,14 +3485,10 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         )
         let command = """
         \(policy.processTreeTerminationShellFunction())
+        \(lifecycleEventShellFunctions)
         cmux_ssh_terminate_owned_auth_group &
         cmux_test_cleanup_pid=$!
-        cmux_test_cancel_attempt=0
-        while [ ! -f "$CMUX_SSH_AUTH_GROUP_DIR/cancel" ] && \
-          [ "$cmux_test_cancel_attempt" -lt 300 ]; do
-          /bin/sleep 0.01
-          cmux_test_cancel_attempt=$((cmux_test_cancel_attempt + 1))
-        done
+        cmux_test_wait_path exists "$CMUX_SSH_AUTH_GROUP_DIR/cancel" 3000 || exit 98
         test -f "$CMUX_SSH_AUTH_GROUP_DIR/cancel" || exit 98
         test -s "$CMUX_SSH_AUTH_GROUP_DIR/cleanup.owner" || exit 95
         test -s "$CMUX_SSH_AUTH_GROUP_DIR/cleanup.lock/owner" || exit 94
@@ -3697,15 +3541,10 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         )
         let command = """
         \(policy.processTreeTerminationShellFunction())
+        \(lifecycleEventShellFunctions)
         ( \(classifiedAuthentication) ) &
         cmux_test_auth_root=$!
-        cmux_test_publish_attempt=0
-        while { [ ! -s "$CMUX_SSH_AUTH_GROUP_DIR/publisher.new" ] || \
-          [ -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" ]; } && \
-          [ "$cmux_test_publish_attempt" -lt 300 ]; do
-          /bin/sleep 0.01
-          cmux_test_publish_attempt=$((cmux_test_publish_attempt + 1))
-        done
+        cmux_test_wait_path nonempty "$CMUX_SSH_AUTH_GROUP_DIR/publisher.new" 3000 || exit 99
         test -s "$CMUX_SSH_AUTH_GROUP_DIR/publisher.new" || exit 99
         test ! -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" || exit 98
         /usr/bin/env LC_ALL=C LANG=C /bin/ps -axo pid=,ppid=,state= \
@@ -3754,13 +3593,10 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
                 Darwin.kill(pid, SIGKILL)
             }
         }
-        let exitDeadline = Date.now.addingTimeInterval(1)
-        while pids.contains(where: { Darwin.kill($0, 0) == 0 }), Date.now < exitDeadline {
-            Thread.sleep(forTimeInterval: 0.01)
-        }
+        let allProcessesExited = waitForPIDsToExit(pids, timeout: 1)
 
         #expect(result.status == 0, "Shell failed: \(result.standardError)")
-        #expect(pids.allSatisfy { Darwin.kill($0, 0) != 0 })
+        #expect(allProcessesExited)
     }
 
     @Test func killedPublisherCannotStrandUnpublishedAnchor() throws {
@@ -3785,14 +3621,10 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             in: "while :; do /bin/sleep 30; done"
         )
         let command = """
+        \(lifecycleEventShellFunctions)
         ( \(classifiedAuthentication) ) &
         cmux_test_auth_root=$!
-        cmux_test_publish_attempt=0
-        while [ ! -s "$CMUX_SSH_AUTH_GROUP_DIR/publisher.new" ] && \\
-          [ "$cmux_test_publish_attempt" -lt 300 ]; do
-          /bin/sleep 0.01
-          cmux_test_publish_attempt=$((cmux_test_publish_attempt + 1))
-        done
+        cmux_test_wait_path nonempty "$CMUX_SSH_AUTH_GROUP_DIR/publisher.new" 3000 || exit 99
         test -s "$CMUX_SSH_AUTH_GROUP_DIR/publisher.new" || exit 99
         test ! -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" || exit 98
         /bin/cp "$CMUX_SSH_AUTH_GROUP_DIR/publisher.new" \\
@@ -3803,12 +3635,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           "$CMUX_TEST_GROUP_RECORD")
         test "$cmux_test_publisher" = "$cmux_test_group" || exit 96
         /bin/kill -KILL "$cmux_test_publisher" 2>/dev/null || exit 95
-        cmux_test_group_attempt=0
-        while /bin/kill -0 -- "-$cmux_test_group" 2>/dev/null && \\
-          [ "$cmux_test_group_attempt" -lt 300 ]; do
-          /bin/sleep 0.01
-          cmux_test_group_attempt=$((cmux_test_group_attempt + 1))
-        done
+        cmux_test_wait_pid_exit "$cmux_test_publisher" 3000 || exit 94
         /bin/kill -KILL "$cmux_test_auth_root" 2>/dev/null || true
         wait "$cmux_test_auth_root" 2>/dev/null || true
         if /bin/kill -0 -- "-$cmux_test_group" 2>/dev/null; then exit 94; fi
@@ -3874,16 +3701,12 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             in: ": > \"$CMUX_TEST_READY_MARKER\"; while :; do /bin/sleep 30; done"
         )
         let command = """
+        \(lifecycleEventShellFunctions)
         ( \(classifiedAuthentication) ) &
         cmux_test_auth_root=$!
-        cmux_test_publish_attempt=0
-        while { [ ! -f "$CMUX_TEST_READY_MARKER" ] || \
-          [ ! -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" ] || \
-          [ ! -s "$CMUX_SSH_AUTH_GROUP_DIR/publisher" ]; } && \
-          [ "$cmux_test_publish_attempt" -lt 300 ]; do
-          /bin/sleep 0.01
-          cmux_test_publish_attempt=$((cmux_test_publish_attempt + 1))
-        done
+        cmux_test_wait_path exists "$CMUX_TEST_READY_MARKER" 3000 || exit 99
+        cmux_test_wait_path nonempty "$CMUX_SSH_AUTH_GROUP_DIR/identity" 3000 || exit 98
+        cmux_test_wait_path nonempty "$CMUX_SSH_AUTH_GROUP_DIR/publisher" 3000 || exit 97
         test -f "$CMUX_TEST_READY_MARKER" || exit 99
         test -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" || exit 98
         test -s "$CMUX_SSH_AUTH_GROUP_DIR/publisher" || exit 97
@@ -3893,12 +3716,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_test_group=$(/usr/bin/awk -F '|' '{ print $2 }' \
           "$CMUX_TEST_GROUP_RECORD")
         /bin/kill -KILL "$cmux_test_publisher" 2>/dev/null || exit 95
-        cmux_test_group_attempt=0
-        while /bin/kill -0 -- "-$cmux_test_group" 2>/dev/null && \
-          [ "$cmux_test_group_attempt" -lt 300 ]; do
-          /bin/sleep 0.01
-          cmux_test_group_attempt=$((cmux_test_group_attempt + 1))
-        done
+        cmux_test_wait_pid_exit "$cmux_test_publisher" 3000 || exit 94
         /bin/kill -KILL "$cmux_test_auth_root" 2>/dev/null || true
         wait "$cmux_test_auth_root" 2>/dev/null || true
         if /bin/kill -0 -- "-$cmux_test_group" 2>/dev/null; then exit 94; fi
@@ -4080,14 +3898,11 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
 
         let command = """
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        \(lifecycleEventShellFunctions)
         ( trap '' HUP INT TERM; : > "$CMUX_TEST_READY_MARKER"; while :; do /bin/sleep 30; done ) &
         cmux_test_auth_root=$!
         trap '/bin/kill -KILL "$cmux_test_auth_root" >/dev/null 2>&1 || true' EXIT
-        cmux_test_ready_attempt=0
-        while [ ! -f "$CMUX_TEST_READY_MARKER" ] && [ "$cmux_test_ready_attempt" -lt 300 ]; do
-          /bin/sleep 0.01
-          cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
-        done
+        cmux_test_wait_path exists "$CMUX_TEST_READY_MARKER" 3000 || exit 98
         test -f "$CMUX_TEST_READY_MARKER" || exit 98
         cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" 1
         /bin/kill -0 "$cmux_test_auth_root" >/dev/null 2>&1 || exit 97
@@ -4158,6 +3973,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
 
         let command = """
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        \(lifecycleEventShellFunctions)
         cmux_test_real_identity() {
           cmux_test_kernel_record=$(cmux_ssh_auth_kernel_process_identity "$1") || return 1
           cmux_test_parent=${cmux_test_kernel_record%%|*}
@@ -4179,12 +3995,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_run_cleanup_transactions() {
           if /bin/mkdir "$CMUX_TEST_TRANSACTION_GUARD" 2>/dev/null; then
             : > "$CMUX_TEST_FIRST_READY"
-            cmux_test_release_attempt=0
-            while [ ! -e "$CMUX_TEST_RELEASE_FIRST" ] && \
-              [ "$cmux_test_release_attempt" -lt 300 ]; do
-              /bin/sleep 0.01
-              cmux_test_release_attempt=$((cmux_test_release_attempt + 1))
-            done
+            cmux_test_wait_path exists "$CMUX_TEST_RELEASE_FIRST" 3000 || return 90
             /bin/rmdir "$CMUX_TEST_TRANSACTION_GUARD" 2>/dev/null || true
             return 0
           fi
@@ -4195,11 +4006,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           > "$CMUX_SSH_AUTH_GROUP_DIR/identity"
         cmux_ssh_terminate_owned_auth_group 999999 &
         cmux_test_first_cleanup=$!
-        cmux_test_ready_attempt=0
-        while [ ! -e "$CMUX_TEST_FIRST_READY" ] && [ "$cmux_test_ready_attempt" -lt 300 ]; do
-          /bin/sleep 0.01
-          cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
-        done
+        cmux_test_wait_path exists "$CMUX_TEST_FIRST_READY" 3000 || exit 98
         test -e "$CMUX_TEST_FIRST_READY" || exit 98
         cmux_ssh_terminate_owned_auth_group 999999 &
         cmux_test_second_cleanup=$!
@@ -4308,11 +4115,11 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     func validatedFrozenProcessesReachKillCommitPoint(shellPath: String) throws {
         let command = """
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        \(lifecycleEventShellFunctions)
         ( trap '' HUP INT TERM; while :; do /bin/sleep 30; done ) &
         cmux_test_victim_pid=$!
         trap '/bin/kill -KILL "$cmux_test_victim_pid" >/dev/null 2>&1 || true; wait "$cmux_test_victim_pid" 2>/dev/null || true' EXIT
-        /bin/kill -STOP "$cmux_test_victim_pid" || exit 97
-        /bin/sleep 0.01
+        cmux_test_stop_pids 1000 "$cmux_test_victim_pid" || exit 97
         /usr/bin/env LC_ALL=C LANG=C /bin/ps \
           -o pid=,ppid=,pgid=,state=,lstart= -p "$cmux_test_victim_pid" \
           > "$CMUX_TEST_SNAPSHOT" || exit 96
@@ -4404,13 +4211,11 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         )
         let command = """
         \(policy.processTreeTerminationShellFunction())
+        \(lifecycleEventShellFunctions)
         ( \(classifiedAuthentication) ) &
         cmux_test_auth_root=$!
-        cmux_test_ready_attempt=0
-        while [ ! -f "$CMUX_TEST_READY_MARKER" ] && [ "$cmux_test_ready_attempt" -lt 300 ]; do
-          /bin/sleep 0.01
-          cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
-        done
+        cmux_test_wait_path exists "$CMUX_TEST_READY_MARKER" 3000 || exit 98
+        cmux_test_wait_path nonempty "$CMUX_SSH_AUTH_GROUP_DIR/identity" 3000 || exit 95
         test -f "$CMUX_TEST_READY_MARKER" || exit 98
         test -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" || exit 95
         /bin/cp "$CMUX_SSH_AUTH_GROUP_DIR/identity" \
@@ -4452,14 +4257,12 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let processIDs = try String(contentsOf: pidLog, encoding: .utf8)
             .split(separator: "\n")
             .compactMap { Int32($0) }
-        let exitDeadline = Date.now.addingTimeInterval(1)
-        while processIDs.contains(where: { Darwin.kill($0, 0) == 0 }), Date.now < exitDeadline {
-            Thread.sleep(forTimeInterval: 0.01)
-        }
+        let allProcessesExited = waitForPIDsToExit(processIDs, timeout: 1)
         let groupID = try #require(processGroupID(in: groupRecord))
 
         #expect(process.terminationStatus == 0)
         #expect(processIDs.count == 25)
+        #expect(allProcessesExited)
         #expect(
             elapsed < 3,
             "Foreground authentication cleanup took \(elapsed) seconds instead of one bounded deadline"
@@ -4505,22 +4308,14 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         )
         let command = """
         \(policy.processTreeTerminationShellFunction())
+        \(lifecycleEventShellFunctions)
         ( \(classifiedAuthentication) ) &
         cmux_test_auth_root=$!
         trap '/bin/kill -KILL "$cmux_test_auth_root" >/dev/null 2>&1 || true' EXIT
-        cmux_test_ready_attempt=0
-        while [ ! -f "$CMUX_TEST_READY_MARKER" ] && [ "$cmux_test_ready_attempt" -lt 300 ]; do
-          /bin/sleep 0.01
-          cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
-        done
+        cmux_test_wait_path exists "$CMUX_TEST_READY_MARKER" 3000 || exit 98
         test -f "$CMUX_TEST_READY_MARKER" || exit 98
         cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$"
         wait "$cmux_test_auth_root" 2>/dev/null || true
-        cmux_test_replacement_attempt=0
-        while [ ! -s "$CMUX_TEST_REPLACEMENT_PID" ] && [ "$cmux_test_replacement_attempt" -lt 100 ]; do
-          /bin/sleep 0.01
-          cmux_test_replacement_attempt=$((cmux_test_replacement_attempt + 1))
-        done
         test ! -s "$CMUX_TEST_REPLACEMENT_PID"
         trap - EXIT
         """
@@ -4576,13 +4371,10 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         test -t 0 || exit 96
         cmux_test_terminal_mode_before=$(/bin/stty -g) || exit 97
         \(policy.processTreeTerminationShellFunction())
+        \(lifecycleEventShellFunctions)
         ( \(classifiedAuthentication) ) &
         cmux_test_auth_root=$!
-        cmux_test_ready_attempt=0
-        while [ ! -f "$CMUX_TEST_READY_MARKER" ] && [ "$cmux_test_ready_attempt" -lt 300 ]; do
-          /bin/sleep 0.01
-          cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
-        done
+        cmux_test_wait_path exists "$CMUX_TEST_READY_MARKER" 3000 || exit 98
         test -f "$CMUX_TEST_READY_MARKER" || exit 98
         cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$"
         wait "$cmux_test_auth_root" 2>/dev/null || true
@@ -4614,7 +4406,9 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let temporaryDirectory = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-auth-policy-bounds-\(UUID().uuidString)", isDirectory: true)
         let readyFile = temporaryDirectory.appendingPathComponent("producer-ready")
+        let releaseFile = temporaryDirectory.appendingPathComponent("producer-release")
         try fileManager.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        try #require(Darwin.mkfifo(releaseFile.path, 0o600) == 0)
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -4626,7 +4420,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
                 printf 'Network is unreachable' >&2
                 /usr/bin/head -c 4096 /dev/zero | /usr/bin/tr '\\000' x >&2
                 : > "$CMUX_TEST_READY_FILE"
-                /bin/sleep 3
+                read cmux_test_release < "$CMUX_TEST_RELEASE_FILE"
                 exit 255
                 """
             ),
@@ -4634,6 +4428,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         var environment = ProcessInfo.processInfo.environment
         environment["TMPDIR"] = temporaryDirectory.path
         environment["CMUX_TEST_READY_FILE"] = readyFile.path
+        environment["CMUX_TEST_RELEASE_FILE"] = releaseFile.path
         process.environment = environment
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
@@ -4647,11 +4442,13 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             try? fileManager.removeItem(at: temporaryDirectory)
         }
 
-        let deadline = Date.now.addingTimeInterval(10)
-        while !fileManager.fileExists(atPath: readyFile.path), process.isRunning, Date.now < deadline {
-            Thread.sleep(forTimeInterval: 0.01)
+        let becameReady = waitForFileSystemState(
+            observing: [temporaryDirectory],
+            timeout: 10
+        ) {
+            fileManager.fileExists(atPath: readyFile.path) || !process.isRunning
         }
-        #expect(fileManager.fileExists(atPath: readyFile.path))
+        #expect(becameReady && fileManager.fileExists(atPath: readyFile.path))
 
         let temporaryEntries = try fileManager.contentsOfDirectory(
             at: temporaryDirectory,
@@ -4685,23 +4482,23 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             largestDiagnosticFile <= 64,
             "Foreground authentication must not retain unbounded remote-controlled stderr"
         )
-        let classificationDeadline = Date.now.addingTimeInterval(5)
-        var classifiedWhileRunning = false
         var lastClassifications: [String] = []
-        while process.isRunning, Date.now < classificationDeadline {
+        let classifiedWhileRunning = waitForFileSystemState(
+            observing: diagnosticFiles,
+            timeout: 5
+        ) {
             lastClassifications = diagnosticFiles.compactMap {
                 try? String(contentsOf: $0, encoding: .utf8)
             }
-            if lastClassifications.contains("transient\n") {
-                classifiedWhileRunning = true
-                break
-            }
-            Thread.sleep(forTimeInterval: 0.01)
+            return lastClassifications.contains("transient\n") || !process.isRunning
         }
         #expect(
-            classifiedWhileRunning,
+            classifiedWhileRunning && lastClassifications.contains("transient\n"),
             "A newline-free stderr stream must be classified incrementally with bounded records; observed \(lastClassifications)"
         )
+        let releaseHandle = try FileHandle(forWritingTo: releaseFile)
+        try releaseHandle.write(contentsOf: Data([0x0A]))
+        try releaseHandle.close()
         try waitForExit(process, stderrCapture: stderrCapture)
         #expect(process.terminationStatus == 254)
     }
@@ -4811,17 +4608,157 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         try? FileManager.default.removeItem(at: capture.url)
     }
 
+    /// Shell fixtures block on kqueue owner events. Each timeout is only a
+    /// failure deadline and never advances the lifecycle under test.
+    private var lifecycleEventShellFunctions: String {
+        #"""
+        cmux_test_wait_path() {
+          cmux_test_wait_mode="$1"
+          cmux_test_wait_path="$2"
+          cmux_test_wait_timeout_millis="$3"
+          cmux_test_wait_expected="${4:-}"
+          /usr/bin/python3 - "$cmux_test_wait_mode" "$cmux_test_wait_path" \
+            "$cmux_test_wait_timeout_millis" "$cmux_test_wait_expected" <<'CMUX_TEST_WAIT_PY'
+        import glob
+        import os
+        import select
+        import sys
+        import time
+
+        mode, path, timeout_millis, expected = sys.argv[1:]
+
+        def condition():
+            if mode == "exists":
+                return os.path.exists(path)
+            if mode == "nonempty":
+                try:
+                    return os.path.getsize(path) > 0
+                except OSError:
+                    return False
+            if mode == "absent":
+                return not os.path.exists(path)
+            if mode == "lines":
+                try:
+                    with open(path, encoding="utf-8", errors="replace") as handle:
+                        return sum(1 for _ in handle) >= int(expected)
+                except OSError:
+                    return False
+            if mode == "glob-absent":
+                return not glob.glob(path)
+            raise ValueError(f"unsupported lifecycle condition: {mode}")
+
+        if condition():
+            raise SystemExit(0)
+        watch_path = os.path.dirname(path) or "."
+        descriptor = os.open(watch_path, os.O_RDONLY)
+        queue = select.kqueue()
+        changes = select.KQ_NOTE_WRITE | select.KQ_NOTE_DELETE | select.KQ_NOTE_RENAME
+        changes |= select.KQ_NOTE_EXTEND | select.KQ_NOTE_ATTRIB | select.KQ_NOTE_LINK
+        event = select.kevent(
+            descriptor,
+            filter=select.KQ_FILTER_VNODE,
+            flags=select.KQ_EV_ADD | select.KQ_EV_ENABLE | select.KQ_EV_CLEAR,
+            fflags=changes,
+        )
+        queue.control([event], 0, 0)
+        try:
+            if condition():
+                raise SystemExit(0)
+            deadline = time.monotonic() + int(timeout_millis) / 1000
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise SystemExit(1)
+                queue.control(None, 1, remaining)
+                if condition():
+                    raise SystemExit(0)
+        finally:
+            queue.close()
+            os.close(descriptor)
+        CMUX_TEST_WAIT_PY
+        }
+
+        cmux_test_wait_pid_exit() {
+          /usr/bin/python3 - "$1" "$2" <<'CMUX_TEST_PID_WAIT_PY'
+        import os
+        import select
+        import sys
+
+        pid = int(sys.argv[1])
+        timeout = int(sys.argv[2]) / 1000
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            raise SystemExit(0)
+
+        queue = select.kqueue()
+        event = select.kevent(
+            pid,
+            filter=select.KQ_FILTER_PROC,
+            flags=select.KQ_EV_ADD | select.KQ_EV_ENABLE | select.KQ_EV_ONESHOT,
+            fflags=select.KQ_NOTE_EXIT,
+        )
+        try:
+            try:
+                queue.control([event], 0, 0)
+            except ProcessLookupError:
+                raise SystemExit(0)
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                raise SystemExit(0)
+            raise SystemExit(0 if queue.control(None, 1, timeout) else 1)
+        finally:
+            queue.close()
+        CMUX_TEST_PID_WAIT_PY
+        }
+
+        cmux_test_stop_pids() {
+          cmux_test_stop_timeout_millis="$1"
+          shift
+          /usr/bin/python3 - "$cmux_test_stop_timeout_millis" "$@" <<'CMUX_TEST_STOP_PY'
+        import os
+        import select
+        import signal
+        import sys
+        import time
+
+        timeout_millis, *pid_arguments = sys.argv[1:]
+        pending = {int(argument) for argument in pid_arguments}
+        queue = select.kqueue()
+        events = [
+            select.kevent(
+                pid,
+                filter=select.KQ_FILTER_PROC,
+                flags=select.KQ_EV_ADD | select.KQ_EV_ENABLE | select.KQ_EV_CLEAR,
+                fflags=select.KQ_NOTE_SIGNAL,
+            )
+            for pid in pending
+        ]
+        try:
+            queue.control(events, 0, 0)
+            for pid in pending:
+                os.kill(pid, signal.SIGSTOP)
+            deadline = time.monotonic() + int(timeout_millis) / 1000
+            while pending:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise SystemExit(1)
+                for event in queue.control(None, len(pending), remaining):
+                    pending.discard(event.ident)
+        finally:
+            queue.close()
+        CMUX_TEST_STOP_PY
+        }
+        """#
+    }
+
     private func waitForExit(
         _ process: Process,
         stderrCapture: (url: URL, handle: FileHandle),
         timeout: TimeInterval = 10
     ) throws {
-        let deadline = Date.now.addingTimeInterval(timeout)
-        while process.isRunning, Date.now < deadline {
-            Thread.sleep(forTimeInterval: 0.01)
-        }
-
-        let timedOut = process.isRunning
+        let timedOut = !waitForProcessExit(process, timeout: timeout)
         if timedOut {
             terminateIfRunning(process)
         }
@@ -4837,16 +4774,79 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         guard process.isRunning else { return }
         process.terminate()
 
-        var deadline = Date.now.addingTimeInterval(1)
-        while process.isRunning, Date.now < deadline {
-            Thread.sleep(forTimeInterval: 0.01)
-        }
-        if process.isRunning {
+        if !waitForProcessExit(process, timeout: 1) {
             Darwin.kill(process.processIdentifier, SIGKILL)
-            deadline = Date.now.addingTimeInterval(1)
-            while process.isRunning, Date.now < deadline {
-                Thread.sleep(forTimeInterval: 0.01)
-            }
+            _ = waitForProcessExit(process, timeout: 1)
         }
+    }
+
+    private func waitForProcessExit(_ process: Process, timeout: TimeInterval) -> Bool {
+        guard process.isRunning else { return true }
+        let exited = DispatchSemaphore(value: 0)
+        let previousHandler = process.terminationHandler
+        process.terminationHandler = { completedProcess in
+            previousHandler?(completedProcess)
+            exited.signal()
+        }
+        defer { process.terminationHandler = previousHandler }
+        guard process.isRunning else { return true }
+        return exited.wait(timeout: .now() + timeout) == .success || !process.isRunning
+    }
+
+    private func waitForPIDExit(_ pid: Int32, timeout: TimeInterval) -> Bool {
+        waitForPIDExit(pid, deadline: .now() + timeout)
+    }
+
+    private func waitForPIDsToExit(_ pids: [Int32], timeout: TimeInterval) -> Bool {
+        let deadline = DispatchTime.now() + timeout
+        return pids.allSatisfy { waitForPIDExit($0, deadline: deadline) }
+    }
+
+    private func waitForPIDExit(_ pid: Int32, deadline: DispatchTime) -> Bool {
+        guard Darwin.kill(pid, 0) == 0 else { return true }
+        let exited = DispatchSemaphore(value: 0)
+        let source = DispatchSource.makeProcessSource(
+            identifier: pid,
+            eventMask: .exit,
+            queue: DispatchQueue.global(qos: .userInitiated)
+        )
+        source.setEventHandler { exited.signal() }
+        source.activate()
+        defer { source.cancel() }
+        guard Darwin.kill(pid, 0) == 0 else { return true }
+        return exited.wait(timeout: deadline) == .success || Darwin.kill(pid, 0) != 0
+    }
+
+    /// File publication has no callback API. This kqueue-backed adapter observes
+    /// the owner's vnode transition and uses the timeout only as a failure bound.
+    private func waitForFileSystemState(
+        observing urls: [URL],
+        timeout: TimeInterval,
+        predicate: () -> Bool
+    ) -> Bool {
+        if predicate() { return true }
+        let changed = DispatchSemaphore(value: 0)
+        var sources: [any DispatchSourceFileSystemObject] = []
+        for url in urls {
+            let descriptor = Darwin.open(url.path, O_EVTONLY)
+            guard descriptor >= 0 else { continue }
+            let source = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: descriptor,
+                eventMask: [.attrib, .delete, .extend, .link, .rename, .write],
+                queue: DispatchQueue.global(qos: .userInitiated)
+            )
+            source.setEventHandler { changed.signal() }
+            source.setCancelHandler { Darwin.close(descriptor) }
+            source.activate()
+            sources.append(source)
+        }
+        defer { sources.forEach { $0.cancel() } }
+
+        if predicate() { return true }
+        let deadline = DispatchTime.now() + timeout
+        while changed.wait(timeout: deadline) == .success {
+            if predicate() { return true }
+        }
+        return predicate()
     }
 }
