@@ -32,6 +32,7 @@ public struct SSHTerminalExitPromptInputFilter: Sendable {
 
     private var state = State.ground
     private var csiBody = [UInt8]()
+    private var suppressPairedLineFeed = false
 
     /// Creates an input filter at a prompt boundary.
     public init() {}
@@ -51,6 +52,14 @@ public struct SSHTerminalExitPromptInputFilter: Sendable {
     }
 
     private mutating func consume(_ byte: UInt8) -> Bool {
+        if byte == Self.lineFeed, suppressPairedLineFeed {
+            suppressPairedLineFeed = false
+            return false
+        }
+        if byte != Self.lineFeed {
+            suppressPairedLineFeed = false
+        }
+
         if byte == Self.carriageReturn || byte == Self.lineFeed {
             switch state {
             case .ground:
@@ -59,8 +68,12 @@ public struct SSHTerminalExitPromptInputFilter: Sendable {
                  .controlString, .controlStringEscape:
                 csiBody.removeAll(keepingCapacity: true)
                 state = .ground
-            case .bracketedPaste, .bracketedPasteEscape, .bracketedPasteCSI:
+                suppressPairedLineFeed = byte == Self.carriageReturn
+            case .bracketedPaste:
                 break
+            case .bracketedPasteEscape, .bracketedPasteCSI:
+                csiBody.removeAll(keepingCapacity: true)
+                state = .bracketedPaste
             }
             return false
         }
