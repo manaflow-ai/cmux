@@ -71,9 +71,11 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         ])
 
         #expect(result.status == 7, "Shell failed: \(result.stderr)")
+        let actualLog = try String(contentsOf: logURL, encoding: .utf8)
         #expect(
-            try String(contentsOf: logURL, encoding: .utf8) ==
-                "schedule:empty\ncreate\nschedule:\(groupPath)\n"
+            actualLog ==
+                "schedule:empty\ncreate\nschedule:\(groupPath)\nschedule:empty\n",
+            "Unexpected recovery schedule: \(actualLog.debugDescription)"
         )
     }
 
