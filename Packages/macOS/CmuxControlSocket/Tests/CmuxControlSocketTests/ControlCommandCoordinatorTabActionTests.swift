@@ -158,7 +158,7 @@ struct ControlCommandCoordinatorTabActionTests {
         #expect(payload["swift_projection_installed"] == .bool(false))
     }
 
-    @Test func backendMutationStatusRejectsUnknownRequest() throws {
+    @Test func backendMutationStatusMarksUnknownCommitStateAsUnsafeToRetry() throws {
         let requestID = UUID()
         let context = FakeTabActionControlCommandContext()
         context.backendMutationStatus = .unknown
@@ -170,11 +170,14 @@ struct ControlCommandCoordinatorTabActionTests {
             params: ["request_id": .string(requestID.uuidString)]
         ))
 
-        guard case .err(let code, _, let data) = result else {
-            Issue.record("expected backend mutation not-found error")
+        guard case .ok(.object(let payload)) = result else {
+            Issue.record("expected indeterminate backend mutation status")
             return
         }
-        #expect(code == "not_found")
-        #expect(data == .object(["request_id": .string(requestID.uuidString)]))
+        #expect(payload["request_id"] == .string(requestID.uuidString))
+        #expect(payload["status"] == .string("indeterminate"))
+        #expect(payload["finished"] == .bool(false))
+        #expect(payload["committed"] == .null)
+        #expect(payload["retry_safe"] == .bool(false))
     }
 }
