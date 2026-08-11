@@ -2505,8 +2505,11 @@ mod tests {
             stream
                 .write_all(&vec![b'x'; MAX_CONTROL_FRAME_BYTES + 1])
                 .expect("write oversized frame");
-            stream.write_all(b"\n").expect("finish oversized frame");
-            stream.flush().expect("flush oversized frame");
+            // The client can close as soon as it reads byte MAX + 1. A
+            // broken pipe while the fake server finishes the invalid frame
+            // is therefore the expected rejection, not a server failure.
+            let _ = stream.write_all(b"\n");
+            let _ = stream.flush();
         });
 
         let (provider, _) = ProviderClient::connect_authenticated(
