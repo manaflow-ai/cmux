@@ -21005,6 +21005,35 @@ mod tests {
     }
 
     #[test]
+    fn journal_agent_active_cache_refresh_blocks_live_publication() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+        mux.begin_agent_projection_cache_refresh().unwrap();
+        let resource_epoch = mux.resource_event_epoch();
+        let ingress = crate::agent_hook_journal_ingress(
+            "pi",
+            "agent_start",
+            Some(terminal_id.as_str()),
+            serde_json::json!({"context":{"session_id":"cache-refresh-live-session"}}),
+        )
+        .unwrap();
+
+        mux.append_journal_ingress(
+            &ingress,
+            "journal-agent-active-cache-refresh",
+            "journal-agent-active-cache-refresh-start",
+        )
+        .unwrap();
+
+        assert_eq!(mux.resource_event_epoch(), resource_epoch);
+        assert!(mux.list_agents(Some(surface.id), None).is_empty());
+        assert_eq!(mux.continue_agent_projection_cache_refresh().unwrap(), (true, false));
+        assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Working);
+        mux.shutdown();
+    }
+
+    #[test]
     fn journal_agent_refresh_failure_still_publishes_the_durable_commit() {
         let root = std::env::temp_dir()
             .join(format!("cmux-agent-refresh-failure-{}", WorkspacePublicId::random().unwrap()));

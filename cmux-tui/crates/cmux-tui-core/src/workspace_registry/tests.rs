@@ -5766,6 +5766,103 @@ fn journal_agent_projection_rebuild_keeps_live_terminal_projection_visible() {
 }
 
 #[test]
+fn journal_agent_startup_hides_partial_projection_checkpoint() {
+    const UNKNOWN_EVENT_COUNT: usize = 1_024;
+
+    let root = temp_root("journal-agent-startup-partial-checkpoint");
+    let session = "journal-agent-startup-partial-checkpoint";
+    let database = root.join(session_storage_component(session)).join(WORKSPACE_REGISTRY_FILE);
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, session).unwrap();
+        commit_terminal_topology(&mut registry, "journal-agent-startup-partial-topology");
+        let ingress = crate::agent_hook_journal_ingress(
+            "pi",
+            "AgentStart",
+            Some(terminal_id.as_str()),
+            json!({"session_id":"startup-partial-session"}),
+        )
+        .unwrap();
+        let validated = crate::journal_kernel::ValidatedJournalIngress {
+            class: JournalClass::Observation,
+            replay: JournalReplayPolicy::Advisory,
+            sensitivity: JournalSensitivity::Sensitive,
+        };
+        registry
+            .append_journal_ingress(
+                &ingress,
+                &validated,
+                "client_startup_partial",
+                "journal_agent_startup_partial_start",
+            )
+            .unwrap();
+        let producer = JournalProducer { kind: "test".into(), id: "startup-partial".into() };
+        let payload = json!({});
+        let transaction = registry.connection.unchecked_transaction().unwrap();
+        for index in 0..UNKNOWN_EVENT_COUNT {
+            session_journal::append_journal_record(
+                &transaction,
+                &session_journal::JournalAppend {
+                    event_id: &format!("event_agent_startup_partial_{index:04}"),
+                    schema_version: 1,
+                    kind: "agent.unknown",
+                    class: JournalClass::Observation,
+                    replay: JournalReplayPolicy::Advisory,
+                    occurred_at_ms: index as u64,
+                    producer: &producer,
+                    authority: None,
+                    causation_id: None,
+                    correlation_id: None,
+                    causation_depth: 0,
+                    subjects: &[],
+                    sensitivity: JournalSensitivity::Metadata,
+                    payload: &payload,
+                    content: None,
+                    resource_revision: None,
+                    previous_resource_revision: None,
+                },
+            )
+            .unwrap();
+        }
+        transaction.commit().unwrap();
+    }
+
+    Connection::open(&database)
+        .unwrap()
+        .execute_batch(
+            "DELETE FROM resource_agent_projections;
+             DELETE FROM resource_agent_projection_rebuild_changes;
+             DELETE FROM meta
+             WHERE key IN (
+               'agent_projection_journal_sequence_v1',
+               'agent_projection_journal_candidate_sequence_v1',
+               'agent_projection_journal_rebuild_target_sequence_v1'
+             );",
+        )
+        .unwrap();
+
+    let reopened = WorkspaceRegistry::open(&root, session).unwrap();
+    assert!(reopened.agent_projection_rebuild_pending().unwrap());
+    assert!(
+        reopened.public_projections().unwrap().agents.is_empty(),
+        "startup exposed a projection before its fixed checkpoint was ready"
+    );
+    let mut complete = false;
+    for _ in 0..3 {
+        if reopened.continue_agent_projection_rebuild().unwrap() {
+            complete = true;
+            break;
+        }
+    }
+    assert!(complete, "startup projection checkpoint did not complete in bounded turns");
+    let agent = reopened.public_projections().unwrap().agents.remove(0);
+    assert_eq!(agent.state, "working");
+    assert_eq!(agent.source_session.as_deref(), Some("startup-partial-session"));
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn journal_agent_legacy_upgrade_without_candidate_replays_hook_events() {
     let root = temp_root("journal-agent-upgrade-without-candidate");
     let session = "journal-agent-upgrade-without-candidate";
