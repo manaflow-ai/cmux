@@ -414,11 +414,20 @@ extension ControlCommandCoordinator {
                 typeRawValue: typeRawValue,
                 operation: .splitWindow
             )
-        case .submittedToBackend(let requestID, let windowID, let workspaceID, let typeRawValue):
+        case .submittedToBackend(
+            let requestID,
+            let windowID,
+            let workspaceID,
+            let paneID,
+            let surfaceID,
+            let typeRawValue
+        ):
             return backendSubmittedCreationResult(
                 requestID: requestID,
                 windowID: windowID,
                 workspaceID: workspaceID,
+                paneID: paneID,
+                surfaceID: surfaceID,
                 typeRawValue: typeRawValue
             )
         case .created(let windowID, let workspaceID, let paneID, let surfaceID, let typeRawValue):
@@ -603,11 +612,20 @@ extension ControlCommandCoordinator {
                 typeRawValue: typeRawValue,
                 operation: .newWindow
             )
-        case .submittedToBackend(let requestID, let windowID, let workspaceID, let typeRawValue):
+        case .submittedToBackend(
+            let requestID,
+            let windowID,
+            let workspaceID,
+            let paneID,
+            let surfaceID,
+            let typeRawValue
+        ):
             return backendSubmittedCreationResult(
                 requestID: requestID,
                 windowID: windowID,
                 workspaceID: workspaceID,
+                paneID: paneID,
+                surfaceID: surfaceID,
                 typeRawValue: typeRawValue
             )
         case .createdDock(let windowID, let workspaceID, let dockPaneID, let dockSurfaceID, let typeRawValue):

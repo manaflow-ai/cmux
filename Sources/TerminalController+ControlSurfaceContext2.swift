@@ -186,10 +186,15 @@ extension TerminalController {
                     typeRawValue: panelType.rawValue
                 )
             case .submittedToBackend(let submission):
+                guard let surfaceID = submission.surfaceID else {
+                    return .createFailed
+                }
                 return .submittedToBackend(
                     requestID: submission.requestID,
                     windowID: v2ResolveWindowId(tabManager: tabManager),
                     workspaceID: ws.id,
+                    paneID: nil,
+                    surfaceID: surfaceID,
                     typeRawValue: panelType.rawValue
                 )
             case .failed:
@@ -436,10 +441,15 @@ extension TerminalController {
                     typeRawValue: panelType.rawValue
                 )
             case .submittedToBackend(let submission):
+                guard let surfaceID = submission.surfaceID else {
+                    return .createFailed
+                }
                 return .submittedToBackend(
                     requestID: submission.requestID,
                     windowID: v2ResolveWindowId(tabManager: tabManager),
                     workspaceID: ws.id,
+                    paneID: paneId.id,
+                    surfaceID: surfaceID,
                     typeRawValue: panelType.rawValue
                 )
             case .failed:

@@ -11,6 +11,8 @@ extension ControlCommandCoordinator {
         requestID: UUID,
         windowID: UUID?,
         workspaceID: UUID,
+        paneID: UUID?,
+        surfaceID: UUID,
         typeRawValue: String
     ) -> ControlCallResult {
         .ok(.object([
@@ -25,10 +27,10 @@ extension ControlCommandCoordinator {
             "window_ref": ref(.window, windowID),
             "workspace_id": .string(workspaceID.uuidString),
             "workspace_ref": ref(.workspace, workspaceID),
-            "pane_id": .null,
-            "pane_ref": .null,
-            "surface_id": .null,
-            "surface_ref": .null,
+            "pane_id": orNull(paneID?.uuidString),
+            "pane_ref": ref(.pane, paneID),
+            "surface_id": .string(surfaceID.uuidString),
+            "surface_ref": ref(.surface, surfaceID),
             "type": .string(typeRawValue),
         ]))
     }
