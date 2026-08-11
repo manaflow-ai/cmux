@@ -448,9 +448,13 @@ final class cmuxUITests: XCTestCase {
     /// explicit compatibility approval. That approval must remain reachable
     /// without restoring any manual Add Computer controls.
     @MainActor
-    func testAutomaticAttachVersionApprovalDoesNotExposeManualPairing() throws {
+    func testAutomaticAttachVersionApprovalDoesNotExposeManualPairing() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
         let attachURL = try attachURL(
-            port: UInt16(CmxMobileDefaults.defaultHostPort),
+            port: port,
             macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion + 1
         )
         let app = launchApp(
@@ -473,6 +477,20 @@ final class cmuxUITests: XCTestCase {
         XCTAssertFalse(app.otherElements["MobileAddDeviceForm"].exists)
         XCTAssertFalse(app.buttons["MobileScanQRCodeButton"].exists)
         XCTAssertFalse(app.buttons["MobilePairButton"].exists)
+
+        tap(app.buttons["MobilePairingVersionWarningContinueButton"], in: app)
+        XCTAssertTrue(
+            app.staticTexts["MobilePairingVersionWarning"].waitForNonExistence(timeout: 20)
+        )
+        waitForWorkspaceShell(in: app)
+
+        let devices = app.buttons["MobileWorkspaceDevicesButton"]
+        XCTAssertTrue(devices.waitForExistence(timeout: 8))
+        tap(devices, in: app)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileDeviceTree"].waitForExistence(timeout: 4)
+        )
+        XCTAssertFalse(app.buttons["MobileComputersAddButton"].exists)
     }
 
     @MainActor
