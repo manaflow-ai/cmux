@@ -6,6 +6,8 @@ import UIKit
 
 /// Shared horizontal strip of staged New Task attachments.
 struct TaskComposerAttachmentStrip: View {
+    @State private var previewedAttachment: TaskComposerAttachment?
+
     let attachments: [TaskComposerAttachment]
     let isDisabled: Bool
     let remove: (UUID) -> Void
@@ -14,37 +16,53 @@ struct TaskComposerAttachmentStrip: View {
         ScrollView(.horizontal) {
             HStack(spacing: 10) {
                 ForEach(attachments) { attachment in
-                    chip(for: attachment)
-                        .accessibilityElement(children: .combine)
-                        .accessibilityLabel(attachment.displayName)
-                        .accessibilityAction(
-                            named: L10n.string(
-                                "mobile.taskComposer.attachments.remove",
-                                defaultValue: "Remove Attachment"
-                            )
-                        ) {
-                            remove(attachment.id)
-                        }
+                    TaskComposerAttachmentChip(
+                        attachment: attachment,
+                        isRemoveDisabled: isDisabled,
+                        preview: { previewedAttachment = attachment },
+                        remove: { remove(attachment.id) }
+                    )
                 }
             }
             .padding(.horizontal, 2)
         }
         .scrollIndicators(.hidden)
+        .sheet(item: $previewedAttachment) { attachment in
+            TaskComposerAttachmentPreview(attachment: attachment)
+        }
     }
+}
 
-    @ViewBuilder
-    private func chip(for attachment: TaskComposerAttachment) -> some View {
+/// One stable, independently accessible attachment row item. The primary
+/// action previews the staged bytes; removal remains a separate edge action.
+private struct TaskComposerAttachmentChip: View {
+    let attachment: TaskComposerAttachment
+    let isRemoveDisabled: Bool
+    let preview: () -> Void
+    let remove: () -> Void
+
+    var body: some View {
         ZStack(alignment: .topTrailing) {
-            switch attachment.kind {
-            case .image:
-                imageChip(attachment)
-            case .file:
-                fileChip(attachment)
+            Button(action: preview) {
+                TaskComposerAttachmentChipContent(attachment: attachment)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(attachment.displayName)
+            .accessibilityHint(L10n.string(
+                "mobile.taskComposer.attachments.preview",
+                defaultValue: "Preview Attachment"
+            ))
+            .accessibilityIdentifier(
+                "MobileTaskComposerAttachmentPreview-\(attachment.id.uuidString)"
+            )
+            .accessibilityAction(named: L10n.string(
+                "mobile.taskComposer.attachments.remove",
+                defaultValue: "Remove Attachment"
+            )) {
+                remove()
             }
 
-            Button {
-                remove(attachment.id)
-            } label: {
+            Button(action: remove) {
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: 18, weight: .semibold))
                     .symbolRenderingMode(.palette)
@@ -52,7 +70,7 @@ struct TaskComposerAttachmentStrip: View {
                     .frame(width: 22, height: 22)
             }
             .buttonStyle(.plain)
-            .disabled(isDisabled)
+            .disabled(isRemoveDisabled)
             .accessibilityLabel(L10n.string(
                 "mobile.taskComposer.attachments.remove",
                 defaultValue: "Remove Attachment"
@@ -62,9 +80,25 @@ struct TaskComposerAttachmentStrip: View {
         .padding(.top, 5)
         .padding(.trailing, 5)
     }
+}
 
-    private func imageChip(_ attachment: TaskComposerAttachment) -> some View {
-        Group {
+/// Narrow rendering boundary for one staged attachment's visual content.
+private struct TaskComposerAttachmentChipContent: View {
+    let attachment: TaskComposerAttachment
+
+    var body: some View {
+        ZStack {
+            switch attachment.kind {
+            case .image:
+                imageContent
+            case .file:
+                fileContent
+            }
+        }
+    }
+
+    private var imageContent: some View {
+        ZStack {
             if let thumbnailData = attachment.thumbnailData,
                let image = UIImage(data: thumbnailData) {
                 Image(uiImage: image)
@@ -81,7 +115,7 @@ struct TaskComposerAttachmentStrip: View {
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
-    private func fileChip(_ attachment: TaskComposerAttachment) -> some View {
+    private var fileContent: some View {
         HStack(spacing: 7) {
             Image(systemName: "doc")
                 .foregroundStyle(.secondary)

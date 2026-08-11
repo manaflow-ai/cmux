@@ -10325,6 +10325,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "写真ライブラリ" } }
       }
     },
+    "mobile.taskComposer.attachments.preview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Preview Attachment" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "添付ファイルをプレビュー" } }
+      }
+    },
     "mobile.taskComposer.attachments.remove": {
       "extractionState": "manual",
       "localizations": {
