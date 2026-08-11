@@ -10105,8 +10105,7 @@ impl Mux {
         crate::process_session::require_stable_process_signaling_until(deadline)
             .context("preflight process control for daemon exit")?;
         let _coordinator = self.lock_shutdown_coordinator_until(deadline)?;
-        self.browser_runtime
-            .stop_with_fence(|| self.shutting_down.store(true, Ordering::Release));
+        self.browser_runtime.stop_with_fence(|| self.shutting_down.store(true, Ordering::Release));
         self.journal_kernel.wake_waiters();
         let hook_deadline = deadline.min(Instant::now() + crate::journal_hooks::SHUTDOWN_WAIT);
         if !self.journal_hook_runtime.shutdown_until(hook_deadline) {
@@ -10339,8 +10338,7 @@ impl Mux {
             .context("preflight process control for server shutdown")?;
         let _coordinator = self.lock_shutdown_coordinator_until(deadline)?;
         let cleanup_lifecycle = self.shutdown_cleanup_lifecycle.begin();
-        self.browser_runtime
-            .stop_with_fence(|| self.shutting_down.store(true, Ordering::Release));
+        self.browser_runtime.stop_with_fence(|| self.shutting_down.store(true, Ordering::Release));
         #[cfg(unix)]
         self.request_terminal_adoption_stop();
         if !self.surface_creations.stop_and_wait_until(deadline) {
@@ -10686,8 +10684,7 @@ impl Mux {
     /// and remain available for the replacement daemon to adopt.
     pub fn request_daemon_shutdown(&self) {
         self.shutdown_cleanup_lifecycle.schedule();
-        self.browser_runtime
-            .stop_with_fence(|| self.shutting_down.store(true, Ordering::Release));
+        self.browser_runtime.stop_with_fence(|| self.shutting_down.store(true, Ordering::Release));
         self.surface_creations.stop();
         self.async_surface_creations.stop();
         self.daemon_shutdown_requested.store(true, Ordering::Release);
