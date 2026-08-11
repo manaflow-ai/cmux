@@ -981,6 +981,28 @@ mod tests {
     }
 
     #[test]
+    fn managed_ssh_hardening_values_keep_their_option_markers() {
+        let options = managed_ssh_options("buildbox", None, None, None, "main", "cmux-tui")
+            .unwrap();
+
+        assert_eq!(
+            options.ssh_args,
+            [
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "StrictHostKeyChecking=yes",
+                "-o",
+                "ForwardAgent=no",
+                "-o",
+                "ForwardX11=no",
+                "-o",
+                "ClearAllForwardings=yes",
+            ]
+        );
+    }
+
+    #[test]
     fn client_catalog_machine_rename_is_session_local() {
         let machine = MachineConfig {
             id: "mini".into(),
