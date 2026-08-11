@@ -25,12 +25,12 @@ fn rejectPublicDecl(
     }
 }
 
-pub fn main(init: std.process.Init) !void {
+pub fn main() !void {
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
     defer _ = debug_allocator.deinit();
     const allocator = debug_allocator.allocator();
 
-    var client = try cmux.Client.connect(allocator, .{ .io = init.io });
+    var client = try cmux.Client.connect(allocator, .{});
     defer client.deinit();
 
     var machines = try client.machines();

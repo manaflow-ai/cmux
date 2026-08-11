@@ -1,6 +1,6 @@
 # Zig session supervisor
 
-This Zig 0.16.0 consumer uses only the public `cmux_tui` resource API and the
+This Zig 0.15.2 consumer uses only the public `cmux_tui` resource API and the
 Zig standard library. It discovers one machine and session by exact name,
 rejects ambiguous user-named workspaces, creates a missing workspace, runs an
 exact argv command, waits for its durable terminal exit, reads one bounded
@@ -23,7 +23,7 @@ zig build -Doptimize=Debug
 zig build -Doptimize=ReleaseSafe
 ```
 
-`zig version` should print `0.16.0`. The deterministic Unix socket tests cover
+`zig version` should print `0.15.2`. The deterministic Unix socket tests cover
 not-applied workspace recovery, committed run recovery, exact argv encoding,
 typed exit status, event cancellation, inherited stream timeouts, duplicate
 workspace names, pending-to-exited polling, opaque IDs, and allocator cleanup.

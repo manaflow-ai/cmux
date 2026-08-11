@@ -2,9 +2,7 @@
 
 Requirements:
 
-- Target Zig 0.16.0 and use only the standard library at runtime.
-- Require caller-provided `std.Io` at client construction and retain it for
-  transport, clocks, and synchronization.
+- Target Zig 0.15.2 and use only the standard library at runtime.
 - Require an allocator for owned clients, decoded values, streams, and provider state.
 - Give every owned result an explicit `deinit`.
 - Preserve exact integer widths, missing/null states, and unknown event JSON.

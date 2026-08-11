@@ -51,10 +51,10 @@ fn putString(
     name: []const u8,
     value: []const u8,
 ) !void {
-    try object.put(allocator, name, try duplicateString(allocator, value));
+    try object.put(name, try duplicateString(allocator, value));
 }
 
-fn options(io: std.Io, request: Value) cmux.Options {
+fn options(request: Value) cmux.Options {
     const frame_limit = std.math.cast(
         usize,
         uintField(request, "max_frame_bytes", 16 * 1024 * 1024),
@@ -68,7 +68,6 @@ fn options(io: std.Io, request: Value) cmux.Options {
         uintField(request, "timeout_ms", 1000),
     ) orelse 1000;
     return .{
-        .io = io,
         .socket_path = stringField(request, "socket_path", ""),
         .timeout_ms = @max(timeout, 1),
         .limits = .{
@@ -83,89 +82,87 @@ fn options(io: std.Io, request: Value) cmux.Options {
 fn metadata(allocator: Allocator) !Value {
     var command_values = Array.init(allocator);
     for (cmux.protocol.commands) |item| {
-        var command = try Object.init(allocator, &.{}, &.{});
+        var command = Object.init(allocator);
         try putString(&command, allocator, "name", item.name);
         try putString(&command, allocator, "authority", item.authority);
         if (item.stream) |stream_kind| {
             try putString(&command, allocator, "stream", stream_kind);
         } else {
-            try command.put(allocator, "stream", .null);
+            try command.put("stream", .null);
         }
         try command_values.append(.{ .object = command });
     }
 
     var event_values = Array.init(allocator);
     for (cmux.protocol.events) |item| {
-        var event = try Object.init(allocator, &.{}, &.{});
+        var event = Object.init(allocator);
         try putString(&event, allocator, "name", item.name);
         var streams = Array.init(allocator);
         for (item.streams) |stream_kind| {
             try streams.append(try duplicateString(allocator, stream_kind));
         }
-        try event.put(allocator, "streams", .{ .array = streams });
+        try event.put("streams", .{ .array = streams });
         try event_values.append(.{ .object = event });
     }
 
-    var result = try Object.init(allocator, &.{}, &.{});
-    try result.put(allocator, "commands", .{ .array = command_values });
-    try result.put(allocator, "events", .{ .array = event_values });
+    var result = Object.init(allocator);
+    try result.put("commands", .{ .array = command_values });
+    try result.put("events", .{ .array = event_values });
     return .{ .object = result };
 }
 
-fn identify(allocator: Allocator, io: std.Io, request: Value) !Value {
-    var client = try cmux.Client.connect(allocator, options(io, request));
+fn identify(allocator: Allocator, request: Value) !Value {
+    var client = try cmux.Client.connect(allocator, options(request));
     defer client.deinit();
     var identity = try cmux.protocol.identify(&client, .{});
     defer identity.deinit();
 
-    var result = try Object.init(allocator, &.{}, &.{});
+    var result = Object.init(allocator);
     try putString(&result, allocator, "app", identity.value.app);
-    try result.put(allocator, "protocol", .{ .integer = identity.value.protocol });
+    try result.put("protocol", .{ .integer = identity.value.protocol });
     try result.put(
-        allocator,
         "workspace_revision",
         try decimalString(allocator, identity.value.workspace_revision),
     );
     try result.put(
-        allocator,
         "terminal_revision",
         try decimalString(allocator, identity.value.terminal_revision),
     );
     return .{ .object = result };
 }
 
-fn nullableLiteral(allocator: Allocator, io: std.Io, request: Value) !Value {
-    var client = try cmux.Client.connect(allocator, options(io, request));
+fn nullableLiteral(allocator: Allocator, request: Value) !Value {
+    var client = try cmux.Client.connect(allocator, options(request));
     defer client.deinit();
     var placement = try cmux.protocol.createTerminal(&client, .{
         .key = .{ .value = "workspace-key" },
     });
     defer placement.deinit();
 
-    var result = try Object.init(allocator, &.{}, &.{});
+    var result = Object.init(allocator);
     switch (placement.value.lifecycle) {
         .value => |lifecycle| {
             try putString(&result, allocator, "lifecycle", lifecycle);
         },
-        .null_value => try result.put(allocator, "lifecycle", .null),
+        .null_value => try result.put("lifecycle", .null),
     }
     return .{ .object = result };
 }
 
-fn optionalNonNullResponse(allocator: Allocator, io: std.Io, request: Value) !Value {
-    var client = try cmux.Client.connect(allocator, options(io, request));
+fn optionalNonNullResponse(allocator: Allocator, request: Value) !Value {
+    var client = try cmux.Client.connect(allocator, options(request));
     defer client.deinit();
     var identity = try cmux.protocol.identify(&client, .{});
     defer identity.deinit();
 
-    var result = try Object.init(allocator, &.{}, &.{});
-    try result.put(allocator, "present", .{
+    var result = Object.init(allocator);
+    try result.put("present", .{
         .bool = identity.value.capabilities != null,
     });
     return .{ .object = result };
 }
 
-fn optionalNullableRequest(allocator: Allocator, io: std.Io, request: Value) !Value {
+fn optionalNullableRequest(allocator: Allocator, request: Value) !Value {
     const presence = stringField(request, "presence", "");
     var info: cmux.protocol.SetClientInfoRequest = .{};
     if (std.mem.eql(u8, presence, "null")) {
@@ -175,12 +172,12 @@ fn optionalNullableRequest(allocator: Allocator, io: std.Io, request: Value) !Va
     } else if (!std.mem.eql(u8, presence, "omitted")) {
         return error.UnknownPresence;
     }
-    var client = try cmux.Client.connect(allocator, options(io, request));
+    var client = try cmux.Client.connect(allocator, options(request));
     defer client.deinit();
     var updated = try cmux.protocol.setClientInfo(&client, info);
     defer updated.deinit();
 
-    var result = try Object.init(allocator, &.{}, &.{});
+    var result = Object.init(allocator);
     try putString(&result, allocator, "presence", presence);
     return .{ .object = result };
 }
@@ -232,13 +229,12 @@ fn eventValue(
     allocator: Allocator,
     event: cmux.protocol.Event,
 ) !Value {
-    var result = try Object.init(allocator, &.{}, &.{});
+    var result = Object.init(allocator);
     switch (event) {
         .unknown => |unknown| {
             try putString(&result, allocator, "event", unknown.name);
-            try result.put(allocator, "unknown", .{ .bool = true });
+            try result.put("unknown", .{ .bool = true });
             try result.put(
-                allocator,
                 "raw",
                 try cmux.wire.cloneValue(allocator, unknown.raw),
             );
@@ -246,7 +242,6 @@ fn eventValue(
         .output => |output| {
             try putString(&result, allocator, "event", output.event);
             try result.put(
-                allocator,
                 "surface",
                 try decimalString(allocator, output.surface),
             );
@@ -255,7 +250,6 @@ fn eventValue(
         .detached => |detached| {
             try putString(&result, allocator, "event", detached.event);
             try result.put(
-                allocator,
                 "surface",
                 try decimalString(allocator, detached.surface),
             );
@@ -263,7 +257,6 @@ fn eventValue(
         .browser_state => |state| {
             try putString(&result, allocator, "event", state.event);
             try result.put(
-                allocator,
                 "surface",
                 try decimalString(allocator, state.surface),
             );
@@ -277,7 +270,6 @@ fn eventValue(
             }
             if (overflow.surface) |surface| {
                 try result.put(
-                    allocator,
                     "surface",
                     try decimalString(allocator, surface),
                 );
@@ -295,8 +287,8 @@ fn eventValue(
     return .{ .object = result };
 }
 
-fn stream(allocator: Allocator, io: std.Io, request: Value) !Value {
-    var client = try cmux.Client.connect(allocator, options(io, request));
+fn stream(allocator: Allocator, request: Value) !Value {
+    var client = try cmux.Client.connect(allocator, options(request));
     defer client.deinit();
     var events = Array.init(allocator);
     var source = try openStream(&client, request);
@@ -314,14 +306,14 @@ fn stream(allocator: Allocator, io: std.Io, request: Value) !Value {
         try events.append(try eventValue(allocator, decoded.value));
         if (terminal) break;
     }
-    var result = try Object.init(allocator, &.{}, &.{});
-    try result.put(allocator, "events", .{ .array = events });
-    try result.put(allocator, "terminal", .{ .bool = terminal });
+    var result = Object.init(allocator);
+    try result.put("events", .{ .array = events });
+    try result.put("terminal", .{ .bool = terminal });
     return .{ .object = result };
 }
 
-fn requiredNullableEvent(allocator: Allocator, io: std.Io, request: Value) !Value {
-    var client = try cmux.Client.connect(allocator, options(io, request));
+fn requiredNullableEvent(allocator: Allocator, request: Value) !Value {
+    var client = try cmux.Client.connect(allocator, options(request));
     defer client.deinit();
     var source = try openStream(&client, request);
     defer source.deinit();
@@ -329,10 +321,10 @@ fn requiredNullableEvent(allocator: Allocator, io: std.Io, request: Value) !Valu
         return error.ExpectedClientChanged;
     defer decoded.deinit();
 
-    var result = try Object.init(allocator, &.{}, &.{});
+    var result = Object.init(allocator);
     switch (decoded.value) {
         .client_changed => |changed| switch (changed.name) {
-            .null_value => try result.put(allocator, "name", .null),
+            .null_value => try result.put("name", .null),
             .value => |name| try putString(&result, allocator, "name", name),
         },
         else => return error.ExpectedClientChanged,
@@ -340,8 +332,8 @@ fn requiredNullableEvent(allocator: Allocator, io: std.Io, request: Value) !Valu
     return .{ .object = result };
 }
 
-fn optionalNonNullEvent(allocator: Allocator, io: std.Io, request: Value) !Value {
-    var client = try cmux.Client.connect(allocator, options(io, request));
+fn optionalNonNullEvent(allocator: Allocator, request: Value) !Value {
+    var client = try cmux.Client.connect(allocator, options(request));
     defer client.deinit();
     var source = try openStream(&client, request);
     defer source.deinit();
@@ -349,9 +341,9 @@ fn optionalNonNullEvent(allocator: Allocator, io: std.Io, request: Value) !Value
         return error.ExpectedOutput;
     defer decoded.deinit();
 
-    var result = try Object.init(allocator, &.{}, &.{});
+    var result = Object.init(allocator);
     switch (decoded.value) {
-        .output => |output| try result.put(allocator, "present", .{
+        .output => |output| try result.put("present", .{
             .bool = output.colors != null,
         }),
         else => return error.ExpectedOutput,
@@ -360,9 +352,8 @@ fn optionalNonNullEvent(allocator: Allocator, io: std.Io, request: Value) !Value
 }
 
 const PendingRead = struct {
-    io: std.Io,
     stream: *cmux.Stream,
-    done: std.Io.Event = .unset,
+    done: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
 
     fn run(self: *PendingRead) void {
         if (cmux.protocol.nextEvent(
@@ -374,14 +365,14 @@ const PendingRead = struct {
                 event.deinit();
             }
         } else |_| {}
-        self.done.set(self.io);
+        self.done.store(true, .release);
     }
 };
 
-fn closePendingStream(allocator: Allocator, io: std.Io, request: Value) !Value {
+fn closePendingStream(allocator: Allocator, request: Value) !Value {
     const client = try allocator.create(cmux.Client);
     errdefer allocator.destroy(client);
-    client.* = try cmux.Client.connect(allocator, options(io, request));
+    client.* = try cmux.Client.connect(allocator, options(request));
     errdefer client.deinit();
 
     const source = try allocator.create(cmux.Stream);
@@ -391,26 +382,18 @@ fn closePendingStream(allocator: Allocator, io: std.Io, request: Value) !Value {
 
     const pending = try allocator.create(PendingRead);
     errdefer allocator.destroy(pending);
-    pending.* = .{ .io = io, .stream = source };
+    pending.* = .{ .stream = source };
     const reader = try std.Thread.spawn(.{}, PendingRead.run, .{pending});
 
-    const close_delay: std.Io.Clock.Duration = .{
-        .raw = .fromMilliseconds(@intCast(uintField(request, "close_after_ms", 50))),
-        .clock = .awake,
-    };
-    try close_delay.sleep(io);
+    std.Thread.sleep(uintField(request, "close_after_ms", 50) * std.time.ns_per_ms);
     source.close();
-    const timeout: std.Io.Timeout = .{ .duration = .{
-        .raw = .fromMilliseconds(@intCast(uintField(request, "deadline_ms", 1000))),
-        .clock = .awake,
-    } };
-    const unblocked = blk: {
-        pending.done.waitTimeout(io, timeout) catch |failure| switch (failure) {
-            error.Timeout => break :blk false,
-            error.Canceled => return failure,
-        };
-        break :blk true;
-    };
+    const deadline = std.time.nanoTimestamp() +
+        @as(i128, @intCast(uintField(request, "deadline_ms", 1000))) *
+            std.time.ns_per_ms;
+    while (!pending.done.load(.acquire) and std.time.nanoTimestamp() < deadline) {
+        std.Thread.sleep(std.time.ns_per_ms);
+    }
+    const unblocked = pending.done.load(.acquire);
     if (unblocked) {
         reader.join();
         source.deinit();
@@ -423,14 +406,14 @@ fn closePendingStream(allocator: Allocator, io: std.Io, request: Value) !Value {
         reader.detach();
     }
 
-    var result = try Object.init(allocator, &.{}, &.{});
-    try result.put(allocator, "unblocked", .{ .bool = unblocked });
+    var result = Object.init(allocator);
+    try result.put("unblocked", .{ .bool = unblocked });
     return .{ .object = result };
 }
 
-fn authority(allocator: Allocator, io: std.Io, request: Value) !Value {
+fn authority(allocator: Allocator, request: Value) !Value {
     const name = stringField(request, "authority", "");
-    var client_options = options(io, request);
+    var client_options = options(request);
     if (std.mem.eql(u8, name, "provider-authority")) {
         client_options.authority_policy = .provider_authority;
     }
@@ -460,21 +443,21 @@ fn authority(allocator: Allocator, io: std.Io, request: Value) !Value {
         break :blk "mark-workspaces-provider-managed";
     } else return error.UnknownAuthority;
 
-    var value = try Object.init(allocator, &.{}, &.{});
+    var value = Object.init(allocator);
     try putString(&value, allocator, "command", command);
     return .{ .object = value };
 }
 
-fn authorityDenied(allocator: Allocator, io: std.Io, request: Value) !Value {
-    var client = try cmux.Client.connect(allocator, options(io, request));
+fn authorityDenied(allocator: Allocator, request: Value) !Value {
+    var client = try cmux.Client.connect(allocator, options(request));
     defer client.deinit();
     var result = cmux.protocol.markWorkspacesProviderManaged(
         &client,
         .{ .authority = "conformance-authority" },
     ) catch |failure| {
         if (failure != error.ProviderAuthorityDenied) return failure;
-        var value = try Object.init(allocator, &.{}, &.{});
-        try value.put(allocator, "denied", .{ .bool = true });
+        var value = Object.init(allocator);
+        try value.put("denied", .{ .bool = true });
         return .{ .object = value };
     };
     result.deinit();
@@ -523,14 +506,14 @@ fn hasWorkspace(tree: cmux.protocol.Tree, workspace: u64) bool {
     return false;
 }
 
-fn realFlow(allocator: Allocator, io: std.Io, request: Value) !Value {
-    var client = try cmux.Client.connect(allocator, options(io, request));
+fn realFlow(allocator: Allocator, request: Value) !Value {
+    var client = try cmux.Client.connect(allocator, options(request));
     defer client.deinit();
     var identity = try cmux.protocol.identify(&client, .{});
     defer identity.deinit();
 
     // A streaming Zig client owns its connection, so mutations use a second client.
-    var event_client = try cmux.Client.connect(allocator, options(io, request));
+    var event_client = try cmux.Client.connect(allocator, options(request));
     defer event_client.deinit();
     var source = try cmux.protocol.subscribe(&event_client, .{
         .tree_events = .{ .value = .deltas },
@@ -628,53 +611,53 @@ fn realFlow(allocator: Allocator, io: std.Io, request: Value) !Value {
         added_index.? < renamed_index.? and
         renamed_index.? < closed_index.?;
 
-    var result = try Object.init(allocator, &.{}, &.{});
-    try result.put(allocator, "identified", .{ .bool = identity.value.protocol == 10 });
-    try result.put(allocator, "workspace_created", .{ .bool = workspace > 0 });
-    try result.put(allocator, "terminal_created", .{ .bool = context.terminal_created });
-    try result.put(allocator, "marker_sent", .{ .bool = true });
-    try result.put(allocator, "wait_matched", .{ .bool = waited.value.matched });
-    try result.put(allocator, "read_contains_marker", .{
+    var result = Object.init(allocator);
+    try result.put("identified", .{ .bool = identity.value.protocol == 10 });
+    try result.put("workspace_created", .{ .bool = workspace > 0 });
+    try result.put("terminal_created", .{ .bool = context.terminal_created });
+    try result.put("marker_sent", .{ .bool = true });
+    try result.put("wait_matched", .{ .bool = waited.value.matched });
+    try result.put("read_contains_marker", .{
         .bool = std.mem.indexOf(u8, screen.value.text, marker) != null,
     });
-    try result.put(allocator, "stream_ordered", .{ .bool = stream_ordered });
-    try result.put(allocator, "renamed", .{ .bool = renamed });
-    try result.put(allocator, "closed", .{
+    try result.put("stream_ordered", .{ .bool = stream_ordered });
+    try result.put("renamed", .{ .bool = renamed });
+    try result.put("closed", .{
         .bool = closed_result.value.workspace == workspace,
     });
-    try result.put(allocator, "disappeared", .{ .bool = disappeared });
-    try result.put(allocator, "observed_events", .{ .array = observed });
+    try result.put("disappeared", .{ .bool = disappeared });
+    try result.put("observed_events", .{ .array = observed });
     return .{ .object = result };
 }
 
-fn dispatch(allocator: Allocator, io: std.Io, request: Value) !Value {
+fn dispatch(allocator: Allocator, request: Value) !Value {
     const operation = stringField(request, "op", "");
     if (std.mem.eql(u8, operation, "metadata")) return metadata(allocator);
-    if (std.mem.eql(u8, operation, "identify")) return identify(allocator, io, request);
+    if (std.mem.eql(u8, operation, "identify")) return identify(allocator, request);
     if (std.mem.eql(u8, operation, "nullable-literal")) {
-        return nullableLiteral(allocator, io, request);
+        return nullableLiteral(allocator, request);
     }
     if (std.mem.eql(u8, operation, "optional-non-null-response")) {
-        return optionalNonNullResponse(allocator, io, request);
+        return optionalNonNullResponse(allocator, request);
     }
     if (std.mem.eql(u8, operation, "optional-nullable-request")) {
-        return optionalNullableRequest(allocator, io, request);
+        return optionalNullableRequest(allocator, request);
     }
-    if (std.mem.eql(u8, operation, "stream")) return stream(allocator, io, request);
+    if (std.mem.eql(u8, operation, "stream")) return stream(allocator, request);
     if (std.mem.eql(u8, operation, "required-nullable-event")) {
-        return requiredNullableEvent(allocator, io, request);
+        return requiredNullableEvent(allocator, request);
     }
     if (std.mem.eql(u8, operation, "optional-non-null-event")) {
-        return optionalNonNullEvent(allocator, io, request);
+        return optionalNonNullEvent(allocator, request);
     }
     if (std.mem.eql(u8, operation, "close-pending-stream")) {
-        return closePendingStream(allocator, io, request);
+        return closePendingStream(allocator, request);
     }
-    if (std.mem.eql(u8, operation, "authority")) return authority(allocator, io, request);
+    if (std.mem.eql(u8, operation, "authority")) return authority(allocator, request);
     if (std.mem.eql(u8, operation, "authority-denied")) {
-        return authorityDenied(allocator, io, request);
+        return authorityDenied(allocator, request);
     }
-    if (std.mem.eql(u8, operation, "real-flow")) return realFlow(allocator, io, request);
+    if (std.mem.eql(u8, operation, "real-flow")) return realFlow(allocator, request);
     return error.UnknownOperation;
 }
 
@@ -701,26 +684,14 @@ fn classify(failure: anyerror) []const u8 {
     return "transport";
 }
 
-fn writeResponse(allocator: Allocator, io: std.Io, response: Value) !void {
-    const encoded = try cmux.wire.stringifyAlloc(allocator, response);
-    defer allocator.free(encoded);
-    var stdout_buffer: [4096]u8 = undefined;
-    var stdout = std.Io.File.stdout().writerStreaming(io, &stdout_buffer);
-    try stdout.interface.writeAll(encoded);
-    try stdout.interface.writeAll("\n");
-    try stdout.end();
-}
-
-pub fn main(init: std.process.Init) !void {
+pub fn main() !void {
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
     defer _ = debug_allocator.deinit();
     const allocator = debug_allocator.allocator();
 
-    var stdin_buffer: [4096]u8 = undefined;
-    var stdin = std.Io.File.stdin().readerStreaming(init.io, &stdin_buffer);
-    const input = try stdin.interface.allocRemaining(
+    const input = try std.fs.File.stdin().readToEndAlloc(
         allocator,
-        .limited(1024 * 1024),
+        1024 * 1024,
     );
     defer allocator.free(input);
     var request = try cmux.wire.parse(allocator, std.mem.trim(u8, input, " \r\n"), .{
@@ -731,22 +702,21 @@ pub fn main(init: std.process.Init) !void {
     var output_arena = std.heap.ArenaAllocator.init(allocator);
     defer output_arena.deinit();
     const output_allocator = output_arena.allocator();
-    var response = try Object.init(output_allocator, &.{}, &.{});
-    try response.put(output_allocator, "contract_version", .{ .integer = 1 });
+    var response = Object.init(output_allocator);
+    try response.put("contract_version", .{ .integer = 1 });
     const object = try requestObject(request.value);
     if (object.get("id")) |id| {
         try response.put(
-            output_allocator,
             "id",
             try cmux.wire.cloneValue(output_allocator, id),
         );
     } else {
-        try response.put(output_allocator, "id", .null);
+        try response.put("id", .null);
     }
 
-    const value = dispatch(output_allocator, init.io, request.value) catch |failure| {
-        try response.put(output_allocator, "ok", .{ .bool = false });
-        var error_value = try Object.init(output_allocator, &.{}, &.{});
+    const value = dispatch(output_allocator, request.value) catch |failure| {
+        try response.put("ok", .{ .bool = false });
+        var error_value = Object.init(output_allocator);
         try putString(
             &error_value,
             output_allocator,
@@ -759,11 +729,23 @@ pub fn main(init: std.process.Init) !void {
             "message",
             @errorName(failure),
         );
-        try response.put(output_allocator, "error", .{ .object = error_value });
-        try writeResponse(allocator, init.io, .{ .object = response });
+        try response.put("error", .{ .object = error_value });
+        const encoded_failure = try cmux.wire.stringifyAlloc(
+            allocator,
+            .{ .object = response },
+        );
+        defer allocator.free(encoded_failure);
+        try std.fs.File.stdout().writeAll(encoded_failure);
+        try std.fs.File.stdout().writeAll("\n");
         return;
     };
-    try response.put(output_allocator, "ok", .{ .bool = true });
-    try response.put(output_allocator, "value", value);
-    try writeResponse(allocator, init.io, .{ .object = response });
+    try response.put("ok", .{ .bool = true });
+    try response.put("value", value);
+    const encoded = try cmux.wire.stringifyAlloc(
+        allocator,
+        .{ .object = response },
+    );
+    defer allocator.free(encoded);
+    try std.fs.File.stdout().writeAll(encoded);
+    try std.fs.File.stdout().writeAll("\n");
 }

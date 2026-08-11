@@ -63,9 +63,6 @@ pub const OwnedRemoteError = struct {
 };
 
 pub const Options = struct {
-    /// The client copies this value and uses it for transport work and
-    /// synchronization.
-    io: std.Io,
     socket_path: ?[]const u8 = null,
     session: []const u8 = "main",
     /// Bounds socket establishment and each later transport read or write.
@@ -86,15 +83,14 @@ const NegotiationResult = struct {
 
 pub const Client = struct {
     allocator: std.mem.Allocator,
-    io: std.Io,
     connection: Connection,
     timeout_ms: ?u32,
     limits: Limits,
     authority_policy: AuthorityPolicy,
     next_id: u64 = 1,
     inbound: std.ArrayList(u8) = .empty,
-    call_mutex: std.Io.Mutex = .init,
-    close_mutex: std.Io.Mutex = .init,
+    call_mutex: std.Thread.Mutex = .{},
+    close_mutex: std.Thread.Mutex = .{},
     closed: bool = false,
     streaming: bool = false,
     last_remote_error: ?[]u8 = null,
@@ -109,7 +105,6 @@ pub const Client = struct {
     ) Client {
         return .{
             .allocator = allocator,
-            .io = options.io,
             .connection = connection,
             .timeout_ms = options.timeout_ms,
             .limits = options.limits,
@@ -129,7 +124,6 @@ pub const Client = struct {
         errdefer allocator.free(path);
         var connection = try transport.connectUnixWithTimeout(
             allocator,
-            options.io,
             path,
             options.timeout_ms,
         );
@@ -140,8 +134,8 @@ pub const Client = struct {
     }
 
     pub fn close(self: *Client) void {
-        self.close_mutex.lockUncancelable(self.io);
-        defer self.close_mutex.unlock(self.io);
+        self.close_mutex.lock();
+        defer self.close_mutex.unlock();
         if (self.closed) return;
         self.closed = true;
         self.connection.close();
@@ -165,7 +159,6 @@ pub const Client = struct {
         const path = self.reconnect_socket_path orelse
             return error.StreamClientUnavailable;
         return connect(self.allocator, .{
-            .io = self.io,
             .socket_path = path,
             .timeout_ms = self.timeout_ms,
             .limits = self.limits,
@@ -182,8 +175,8 @@ pub const Client = struct {
     /// Transfers the latest remote error to the caller. The caller must call
     /// `deinit` on the returned value.
     pub fn takeRemoteError(self: *Client) ?OwnedRemoteError {
-        self.call_mutex.lockUncancelable(self.io);
-        defer self.call_mutex.unlock(self.io);
+        self.call_mutex.lock();
+        defer self.call_mutex.unlock();
         const message = self.last_remote_error orelse return null;
         self.last_remote_error = null;
         return .{
@@ -217,17 +210,12 @@ pub const Client = struct {
             else => return error.RequestMustBeObject,
         };
         try object.put(
-            allocator,
             "id",
             .{ .number_string = try std.fmt.allocPrint(allocator, "{d}", .{id}) },
         );
-        try object.put(
-            allocator,
-            "cmd",
-            .{ .string = try allocator.dupe(u8, command) },
-        );
+        try object.put("cmd", .{ .string = try allocator.dupe(u8, command) });
         if (object.count() > 0) {
-            try object.reIndex(allocator);
+            try object.reIndex();
         }
         _ = self;
         return .{ .object = object };
@@ -349,8 +337,8 @@ pub const Client = struct {
         comptime requirements: CommandRequirements,
         request: anytype,
     ) !wire.Decoded(Result) {
-        self.call_mutex.lockUncancelable(self.io);
-        defer self.call_mutex.unlock(self.io);
+        self.call_mutex.lock();
+        defer self.call_mutex.unlock();
         self.clearRemoteError();
         try self.requireAuthority(
             requirements.name,
@@ -391,8 +379,8 @@ pub const Client = struct {
         command: UncheckedCommand,
         request: anytype,
     ) !wire.Decoded(Result) {
-        self.call_mutex.lockUncancelable(self.io);
-        defer self.call_mutex.unlock(self.io);
+        self.call_mutex.lock();
+        defer self.call_mutex.unlock();
         self.clearRemoteError();
         return self.callUncheckedLocked(
             Result,
@@ -435,8 +423,8 @@ pub const Client = struct {
         request: anytype,
         terminal_event: ?[]const u8,
     ) !Stream {
-        self.call_mutex.lockUncancelable(self.io);
-        defer self.call_mutex.unlock(self.io);
+        self.call_mutex.lock();
+        defer self.call_mutex.unlock();
         self.clearRemoteError();
         try self.requireAuthority(
             requirements.name,
@@ -461,8 +449,8 @@ pub const Client = struct {
         request: anytype,
         terminal_event: ?[]const u8,
     ) !Stream {
-        self.call_mutex.lockUncancelable(self.io);
-        defer self.call_mutex.unlock(self.io);
+        self.call_mutex.lock();
+        defer self.call_mutex.unlock();
         self.clearRemoteError();
         return self.openStreamUncheckedLocked(
             command.name,
@@ -518,8 +506,8 @@ pub const Client = struct {
 
     /// Performs the lazy identify handshake without sending another command.
     pub fn negotiate(self: *Client) !void {
-        self.call_mutex.lockUncancelable(self.io);
-        defer self.call_mutex.unlock(self.io);
+        self.call_mutex.lock();
+        defer self.call_mutex.unlock();
         self.clearRemoteError();
         try self.ensureNegotiatedLocked();
     }
@@ -805,15 +793,14 @@ const TimeoutConnection = struct {
 
 const BlockingConnection = struct {
     allocator: std.mem.Allocator,
-    io: std.Io,
-    mutex: std.Io.Mutex = .init,
-    condition: std.Io.Condition = .init,
+    mutex: std.Thread.Mutex = .{},
+    condition: std.Thread.Condition = .{},
     entered: bool = false,
     closed: bool = false,
 
     fn create() !*BlockingConnection {
         const state = try std.testing.allocator.create(BlockingConnection);
-        state.* = .{ .allocator = std.testing.allocator, .io = std.testing.io };
+        state.* = .{ .allocator = std.testing.allocator };
         return state;
     }
 
@@ -824,11 +811,11 @@ const BlockingConnection = struct {
     ) !usize {
         _ = buffer;
         _ = timeout_ms;
-        self.mutex.lockUncancelable(self.io);
-        defer self.mutex.unlock(self.io);
+        self.mutex.lock();
+        defer self.mutex.unlock();
         self.entered = true;
-        self.condition.broadcast(self.io);
-        while (!self.closed) self.condition.waitUncancelable(self.io, &self.mutex);
+        self.condition.broadcast();
+        while (!self.closed) self.condition.wait(&self.mutex);
         return error.ConnectionClosed;
     }
 
@@ -843,16 +830,16 @@ const BlockingConnection = struct {
     }
 
     pub fn close(self: *BlockingConnection) void {
-        self.mutex.lockUncancelable(self.io);
-        defer self.mutex.unlock(self.io);
+        self.mutex.lock();
+        defer self.mutex.unlock();
         self.closed = true;
-        self.condition.broadcast(self.io);
+        self.condition.broadcast();
     }
 
     pub fn waitUntilReading(self: *BlockingConnection) void {
-        self.mutex.lockUncancelable(self.io);
-        defer self.mutex.unlock(self.io);
-        while (!self.entered) self.condition.waitUncancelable(self.io, &self.mutex);
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        while (!self.entered) self.condition.wait(&self.mutex);
     }
 
     pub fn deinit(self: *BlockingConnection) void {
@@ -862,33 +849,6 @@ const BlockingConnection = struct {
     }
 };
 
-fn testDuration(nanoseconds: u64) std.Io.Clock.Duration {
-    return .{
-        .raw = .fromNanoseconds(@intCast(nanoseconds)),
-        .clock = .awake,
-    };
-}
-
-fn testTimeout(nanoseconds: u64) std.Io.Timeout {
-    return .{ .duration = testDuration(nanoseconds) };
-}
-
-fn testSleep(nanoseconds: u64) void {
-    testDuration(nanoseconds).sleep(std.testing.io) catch unreachable;
-}
-
-fn testNow() std.Io.Clock.Timestamp {
-    return .now(std.testing.io, .awake);
-}
-
-fn testElapsed(start: std.Io.Clock.Timestamp) u64 {
-    return @intCast(start.durationTo(testNow()).raw.toNanoseconds());
-}
-
-fn testWait(event: *std.Io.Event, nanoseconds: u64) !void {
-    return event.waitTimeout(std.testing.io, testTimeout(nanoseconds));
-}
-
 test "partial frames and exact typed response" {
     const state = try ScriptedConnection.create(
         "{\"id\":1,\"ok\":true,\"data\":{\"value\":18446744073709551615}}\n",
@@ -897,9 +857,7 @@ test "partial frames and exact typed response" {
     var client = Client.init(
         std.testing.allocator,
         Connection.from(state),
-        .{
-            .io = std.testing.io,
-        },
+        .{},
     );
     defer client.deinit();
     const Result = struct { value: u64 };
@@ -923,9 +881,7 @@ test "pre-ack events preserve order and overflow terminates stream" {
     var client = Client.init(
         std.testing.allocator,
         Connection.from(state),
-        .{
-            .io = std.testing.io,
-        },
+        .{},
     );
     defer client.deinit();
     var stream = try client.openStreamUnchecked(
@@ -953,7 +909,7 @@ test "oversized unterminated frame is rejected" {
     var client = Client.init(
         std.testing.allocator,
         Connection.from(state),
-        .{ .io = std.testing.io, .limits = .{ .max_frame_bytes = 4 } },
+        .{ .limits = .{ .max_frame_bytes = 4 } },
     );
     defer client.deinit();
     try std.testing.expectError(
@@ -971,7 +927,7 @@ test "transport timeout is surfaced" {
     var client = Client.init(
         std.testing.allocator,
         Connection.from(state),
-        .{ .io = std.testing.io, .timeout_ms = 1 },
+        .{ .timeout_ms = 1 },
     );
     defer client.deinit();
     try std.testing.expectError(
@@ -1000,7 +956,6 @@ test "raw Client connect bounds a stalled Unix socket" {
     defer server.deinit();
     var blocker = try transport.connectUnixWithTimeout(
         std.testing.allocator,
-        std.testing.io,
         path,
         1_000,
     );
@@ -1025,7 +980,7 @@ test "raw Client connect bounds a stalled Unix socket" {
         .poll_fd_override = pipe_fds[1],
         .fail_ready_poll = true,
     };
-    hook.continue_wait.set(std.testing.io);
+    hook.continue_wait.set();
     transport_hook_test.connect_hook = &hook;
     defer transport_hook_test.connect_hook = null;
 
@@ -1036,17 +991,19 @@ test "raw Client connect bounds a stalled Unix socket" {
         elapsed_ns: u64 = 0,
 
         fn run(self: *@This()) void {
-            const start = testNow();
+            var timer = std.time.Timer.start() catch |failure| {
+                self.failure = failure;
+                return;
+            };
             self.client = Client.connect(std.testing.allocator, .{
-                .io = std.testing.io,
                 .socket_path = self.path,
                 .timeout_ms = 20,
             }) catch |failure| {
                 self.failure = failure;
-                self.elapsed_ns = testElapsed(start);
+                self.elapsed_ns = timer.read();
                 return;
             };
-            self.elapsed_ns = testElapsed(start);
+            self.elapsed_ns = timer.read();
         }
     };
     const Helpers = struct {
@@ -1065,8 +1022,8 @@ test "raw Client connect bounds a stalled Unix socket" {
     var poll_released = false;
     defer if (!poll_released) Helpers.drain(pipe_fds[0]);
 
-    try testWait(&hook.entered_poll, std.time.ns_per_s);
-    testSleep(100 * std.time.ns_per_ms);
+    try hook.entered_poll.timedWait(std.time.ns_per_s);
+    std.Thread.sleep(100 * std.time.ns_per_ms);
     Helpers.drain(pipe_fds[0]);
     poll_released = true;
     thread.join();
@@ -1088,9 +1045,7 @@ test "remote command errors preserve server text" {
     var client = Client.init(
         std.testing.allocator,
         Connection.from(state),
-        .{
-            .io = std.testing.io,
-        },
+        .{},
     );
     defer client.deinit();
     try std.testing.expectError(
@@ -1115,9 +1070,7 @@ test "takeRemoteError transfers ownership exactly once" {
     var client = Client.init(
         std.testing.allocator,
         Connection.from(state),
-        .{
-            .io = std.testing.io,
-        },
+        .{},
     );
     defer client.deinit();
     try std.testing.expectError(
@@ -1149,9 +1102,7 @@ test "a new call clears stale remote text" {
     var client = Client.init(
         std.testing.allocator,
         Connection.from(state),
-        .{
-            .io = std.testing.io,
-        },
+        .{},
     );
     defer client.deinit();
     try std.testing.expectError(
@@ -1178,7 +1129,7 @@ test "request size is bounded before transport write" {
     var client = Client.init(
         std.testing.allocator,
         Connection.from(state),
-        .{ .io = std.testing.io, .limits = .{ .max_request_bytes = 8 } },
+        .{ .limits = .{ .max_request_bytes = 8 } },
     );
     defer client.deinit();
     try std.testing.expectError(
@@ -1197,9 +1148,7 @@ test "framing write failure closes the raw client and preserves the error" {
     var client = Client.init(
         std.testing.allocator,
         Connection.from(state),
-        .{
-            .io = std.testing.io,
-        },
+        .{},
     );
     defer client.deinit();
 
@@ -1233,7 +1182,7 @@ test "close unblocks a pending read" {
     var client = Client.init(
         std.testing.allocator,
         Connection.from(state),
-        .{ .io = std.testing.io, .timeout_ms = null },
+        .{ .timeout_ms = null },
     );
     defer client.deinit();
     const Context = struct {
@@ -1268,7 +1217,7 @@ test "pre-ack event bound closes the stream connection" {
     var client = Client.init(
         std.testing.allocator,
         Connection.from(state),
-        .{ .io = std.testing.io, .limits = .{ .max_pre_ack_events = 0 } },
+        .{ .limits = .{ .max_pre_ack_events = 0 } },
     );
     defer client.deinit();
     try std.testing.expectError(

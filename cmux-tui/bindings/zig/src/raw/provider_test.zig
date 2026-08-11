@@ -401,7 +401,7 @@ test "ProviderClient drives the complete lifecycle over a Unix socket" {
         std.testing.allocator,
         .{
             .authority = authority,
-            .client = .{ .io = std.testing.io, .socket_path = path },
+            .client = .{ .socket_path = path },
         },
     );
     defer provider_client.deinit();
@@ -468,7 +468,7 @@ test "two-phase initialize transfers an authority error" {
         std.testing.allocator,
         .{
             .authority = "wrong-secret",
-            .client = .{ .io = std.testing.io, .socket_path = path },
+            .client = .{ .socket_path = path },
         },
     );
     errdefer provider_client.deinit();
@@ -522,7 +522,7 @@ test "local revision guard sends no provider mutation" {
         std.testing.allocator,
         .{
             .authority = authority,
-            .client = .{ .io = std.testing.io, .socket_path = path },
+            .client = .{ .socket_path = path },
         },
     );
     defer provider_client.deinit();
@@ -560,7 +560,7 @@ test "wire revision gap preserves the retained snapshot" {
         std.testing.allocator,
         .{
             .authority = authority,
-            .client = .{ .io = std.testing.io, .socket_path = path },
+            .client = .{ .socket_path = path },
         },
     );
     defer provider_client.deinit();
@@ -603,7 +603,7 @@ test "owned Client wrapper and ProviderClient deinit are leak free" {
     const allocator = observing_allocator.allocator();
     const base_client = try client_module.Client.connect(
         allocator,
-        .{ .io = std.testing.io, .socket_path = path },
+        .{ .socket_path = path },
     );
     const thread = try std.Thread.spawn(.{}, FakeServer.threadMain, .{fake});
     var provider_client = try provider.ProviderClient.fromOwnedClient(
@@ -632,7 +632,7 @@ fn expectInitializeError(scenario: Scenario, expected: anyerror) !void {
         std.testing.allocator,
         .{
             .authority = authority,
-            .client = .{ .io = std.testing.io, .socket_path = path },
+            .client = .{ .socket_path = path },
         },
     );
     errdefer provider_client.deinit();

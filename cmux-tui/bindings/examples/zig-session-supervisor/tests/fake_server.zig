@@ -344,11 +344,7 @@ const FakeServer = struct {
             .{ .stream_id = stream_id },
         );
         if (delay_ms > 0) {
-            const duration: std.Io.Clock.Duration = .{
-                .raw = .fromMilliseconds(@intCast(delay_ms)),
-                .clock = .awake,
-            };
-            try duration.sleep(std.testing.io);
+            std.Thread.sleep(delay_ms * std.time.ns_per_ms);
         }
         try self.send(
             stream,
@@ -656,7 +652,6 @@ const Fixture = struct {
         timeout_ms: u32,
     ) !supervisor_api.SessionSupervisor {
         return supervisor_api.SessionSupervisor.connect(allocator, .{
-            .io = std.testing.io,
             .socket_path = self.path,
             .machine_name = "local",
             .session_name = "main",

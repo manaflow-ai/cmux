@@ -34,9 +34,9 @@ fn integerField(value: Value, name: []const u8) !i64 {
 }
 
 test "integer fields accept numbers preserved by the lossless parser" {
-    var object = try Object.init(std.testing.allocator, &.{}, &.{});
-    defer object.deinit(std.testing.allocator);
-    try object.put(std.testing.allocator, "value", .{ .number_string = "17" });
+    var object = Object.init(std.testing.allocator);
+    defer object.deinit();
+    try object.put("value", .{ .number_string = "17" });
 
     try std.testing.expectEqual(
         @as(i64, 17),
@@ -74,7 +74,7 @@ fn putString(
     name: []const u8,
     value: []const u8,
 ) !void {
-    try object.put(allocator, name, .{ .string = try allocator.dupe(u8, value) });
+    try object.put(name, .{ .string = try allocator.dupe(u8, value) });
 }
 
 fn decimal(allocator: Allocator, value: u64) !Value {
@@ -101,11 +101,10 @@ fn cloneValue(allocator: Allocator, value: Value) !Value {
             break :blk .{ .array = result };
         },
         .object => |source| blk: {
-            var result = try Object.init(allocator, &.{}, &.{});
+            var result = Object.init(allocator);
             var iterator = source.iterator();
             while (iterator.next()) |entry| {
                 try result.put(
-                    allocator,
                     try allocator.dupe(u8, entry.key_ptr.*),
                     try cloneValue(allocator, entry.value_ptr.*),
                 );
@@ -151,9 +150,8 @@ fn mutationOptions(request: Value) !cmux.MutationOptions {
     )).expecting(revision);
 }
 
-fn clientOptions(io: std.Io, request: Value) cmux.Options {
+fn clientOptions(request: Value) cmux.Options {
     return .{
-        .io = io,
         .socket_path = optionalStringField(request, "socket_path"),
         .timeout_ms = 15_000,
     };
@@ -165,10 +163,9 @@ fn ping(
 ) !Value {
     var result = try scoped_session.ping();
     defer result.deinit();
-    var output = try Object.init(allocator, &.{}, &.{});
-    try output.put(allocator, "alive", .{ .bool = result.value.alive });
+    var output = Object.init(allocator);
+    try output.put("alive", .{ .bool = result.value.alive });
     try output.put(
-        allocator,
         "cursor",
         try cursorValue(allocator, result.value.cursor),
     );
@@ -179,7 +176,7 @@ fn mutationValue(
     allocator: Allocator,
     result: *const cmux.WorkspaceMutationResult,
 ) !Value {
-    var output = try Object.init(allocator, &.{}, &.{});
+    var output = Object.init(allocator);
     try putString(
         &output,
         allocator,
@@ -198,8 +195,8 @@ fn mutationValue(
         "generation",
         result.generation,
     );
-    try output.put(allocator, "revision", try decimal(allocator, result.revision));
-    try output.put(allocator, "replayed", .{ .bool = result.replayed });
+    try output.put("revision", try decimal(allocator, result.revision));
+    try output.put("replayed", .{ .bool = result.replayed });
     return .{ .object = output };
 }
 
@@ -207,7 +204,7 @@ fn resourceErrorDetailsValue(
     allocator: Allocator,
     details: cmux.ResourceErrorDetails,
 ) !Value {
-    var output = try Object.init(allocator, &.{}, &.{});
+    var output = Object.init(allocator);
     switch (details) {
         .mutation_indeterminate => |value| {
             try putString(
@@ -231,12 +228,10 @@ fn resourceErrorDetailsValue(
         },
         .revision_conflict => |value| {
             try output.put(
-                allocator,
                 "expected",
                 try decimal(allocator, value.expected),
             );
             try output.put(
-                allocator,
                 "actual",
                 try decimal(allocator, value.actual),
             );
@@ -299,7 +294,7 @@ fn resourceErrorDetailsValue(
                     ),
                 });
             }
-            try output.put(allocator, "candidates", .{ .array = candidates });
+            try output.put("candidates", .{ .array = candidates });
         },
         .unknown => |value| return cloneValue(allocator, value.raw),
         .malformed => |value| return cloneValue(allocator, value.raw),
@@ -320,9 +315,9 @@ fn mutationReplay(
     defer first.deinit();
     var second = try scoped_workspace.rename(name, options);
     defer second.deinit();
-    var output = try Object.init(allocator, &.{}, &.{});
-    try output.put(allocator, "first", try mutationValue(allocator, &first));
-    try output.put(allocator, "second", try mutationValue(allocator, &second));
+    var output = Object.init(allocator);
+    try output.put("first", try mutationValue(allocator, &first));
+    try output.put("second", try mutationValue(allocator, &second));
     return .{ .object = output };
 }
 
@@ -340,15 +335,14 @@ fn mutationError(
         if (failure != error.RemoteError) return failure;
         const remote = client.lastResourceError() orelse
             return error.MissingResourceError;
-        var output = try Object.init(allocator, &.{}, &.{});
+        var output = Object.init(allocator);
         try putString(&output, allocator, "code", remote.code);
         try putString(&output, allocator, "message", remote.message);
         try output.put(
-            allocator,
             "details",
             try resourceErrorDetailsValue(allocator, remote.details),
         );
-        try output.put(allocator, "retryable", .{ .bool = remote.retryable });
+        try output.put("retryable", .{ .bool = remote.retryable });
         return .{ .object = output };
     };
     unexpected.deinit();
@@ -359,15 +353,14 @@ fn resourceErrorValue(
     allocator: Allocator,
     remote: *const cmux.ResourceError,
 ) !Value {
-    var output = try Object.init(allocator, &.{}, &.{});
+    var output = Object.init(allocator);
     try putString(&output, allocator, "code", remote.code);
     try putString(&output, allocator, "message", remote.message);
     try output.put(
-        allocator,
         "details",
         try resourceErrorDetailsValue(allocator, remote.details),
     );
-    try output.put(allocator, "retryable", .{ .bool = remote.retryable });
+    try output.put("retryable", .{ .bool = remote.retryable });
     return .{ .object = output };
 }
 
@@ -376,9 +369,9 @@ fn cursorValue(
     cursor: ?cmux.Cursor,
 ) !Value {
     const value = cursor orelse return .null;
-    var output = try Object.init(allocator, &.{}, &.{});
+    var output = Object.init(allocator);
     try putString(&output, allocator, "generation", value.generation);
-    try output.put(allocator, "revision", try decimal(allocator, value.revision));
+    try output.put("revision", try decimal(allocator, value.revision));
     return .{ .object = output };
 }
 
@@ -423,7 +416,7 @@ fn createdTerminalPathValue(
     allocator: Allocator,
     path: cmux.CreatedTerminalPath,
 ) !Value {
-    var output = try Object.init(allocator, &.{}, &.{});
+    var output = Object.init(allocator);
     try putString(&output, allocator, "kind", "terminal");
     try putTerminalPathFields(&output, allocator, path);
     return .{ .object = output };
@@ -433,7 +426,7 @@ fn createdPathValue(
     allocator: Allocator,
     path: cmux.CreatedPath,
 ) !Value {
-    var output = try Object.init(allocator, &.{}, &.{});
+    var output = Object.init(allocator);
     switch (path) {
         .workspace => |value| {
             try putString(&output, allocator, "kind", "workspace");
@@ -489,7 +482,7 @@ fn creationResolutionValue(
     allocator: Allocator,
     resolution: *const cmux.CreationResolution,
 ) !Value {
-    var output = try Object.init(allocator, &.{}, &.{});
+    var output = Object.init(allocator);
     try putString(
         &output,
         allocator,
@@ -521,7 +514,6 @@ fn creationResolutionValue(
     }
     if (resolution.created_path) |path| {
         try output.put(
-            allocator,
             "created_path",
             try createdPathValue(allocator, path),
         );
@@ -530,7 +522,7 @@ fn creationResolutionValue(
         try putString(&output, allocator, "generation", generation);
     }
     if (resolution.revision) |revision| {
-        try output.put(allocator, "revision", try decimal(allocator, revision));
+        try output.put("revision", try decimal(allocator, revision));
     }
     return .{ .object = output };
 }
@@ -539,21 +531,19 @@ fn exitOutcomeValue(
     allocator: Allocator,
     outcome: cmux.TerminalExitOutcome,
 ) !Value {
-    var output = try Object.init(allocator, &.{}, &.{});
+    var output = Object.init(allocator);
     switch (outcome) {
         .exit => |code| {
             try putString(&output, allocator, "kind", "exit");
-            try output.put(allocator, "code", .{ .integer = code });
+            try output.put("code", .{ .integer = code });
         },
         .signal => |value| {
             try putString(&output, allocator, "kind", "signal");
             try output.put(
-                allocator,
                 "signal",
                 .{ .integer = value.signal },
             );
             try output.put(
-                allocator,
                 "core_dumped",
                 .{ .bool = value.core_dumped },
             );
@@ -570,7 +560,7 @@ fn terminalWaitExitValue(
     allocator: Allocator,
     result: cmux.TerminalWaitExitResult,
 ) !Value {
-    var output = try Object.init(allocator, &.{}, &.{});
+    var output = Object.init(allocator);
     switch (result) {
         .pending => |value| {
             try putString(&output, allocator, "state", "pending");
@@ -587,7 +577,6 @@ fn terminalWaitExitValue(
                 value.lifecycle.wireName(),
             );
             try output.put(
-                allocator,
                 "revision",
                 try decimal(allocator, value.revision),
             );
@@ -602,17 +591,14 @@ fn terminalWaitExitValue(
             );
             try putString(&output, allocator, "lifecycle", "exited");
             try output.put(
-                allocator,
                 "outcome",
                 try exitOutcomeValue(allocator, value.outcome),
             );
             try output.put(
-                allocator,
                 "exited_at",
                 try decimal(allocator, value.exited_at),
             );
             try output.put(
-                allocator,
                 "revision",
                 try decimal(allocator, value.revision),
             );
@@ -702,9 +688,9 @@ fn streamUnknown(
     };
     if ((try stream.next()) != null) return error.UnexpectedSecondItem;
     const terminal = stream.end() orelse return error.MissingStreamEnd;
-    var output = try Object.init(allocator, &.{}, &.{});
-    try output.put(allocator, "sequence", try decimal(allocator, item.sequence));
-    try output.put(allocator, "cursor", try cursorValue(allocator, item.cursor));
+    var output = Object.init(allocator);
+    try output.put("sequence", try decimal(allocator, item.sequence));
+    try output.put("cursor", try cursorValue(allocator, item.cursor));
     try putString(
         &output,
         allocator,
@@ -712,7 +698,6 @@ fn streamUnknown(
         unknown.discriminator,
     );
     try output.put(
-        allocator,
         "raw",
         try cloneValue(allocator, unknown.raw_object),
     );
@@ -740,7 +725,7 @@ fn streamCancel(
         items_after_cancel += 1;
     }
     const terminal = stream.end() orelse return error.MissingStreamEnd;
-    var output = try Object.init(allocator, &.{}, &.{});
+    var output = Object.init(allocator);
     try putString(
         &output,
         allocator,
@@ -748,11 +733,10 @@ fn streamCancel(
         endName(terminal.reason),
     );
     try output.put(
-        allocator,
         "items_after_cancel",
         .{ .integer = items_after_cancel },
     );
-    try output.put(allocator, "cancel_calls", .{ .integer = 2 });
+    try output.put("cancel_calls", .{ .integer = 2 });
     return .{ .object = output };
 }
 
@@ -786,11 +770,10 @@ fn streamOverflow(
 
     const control = try ping(allocator, scoped_session);
     const control_object = try asObject(control);
-    var output = try Object.init(allocator, &.{}, &.{});
+    var output = Object.init(allocator);
     try putString(&output, allocator, "first_end", first_end);
     try putString(&output, allocator, "second_kind", second_kind);
     try output.put(
-        allocator,
         "control_alive",
         try cloneValue(
             allocator,
@@ -825,15 +808,15 @@ fn redaction(allocator: Allocator) !Value {
         "{f}",
         .{grant},
     );
-    var output = try Object.init(allocator, &.{}, &.{});
-    try output.put(allocator, "specifier_redacted", .{
+    var output = Object.init(allocator);
+    try output.put("specifier_redacted", .{
         .bool = std.mem.indexOf(
             u8,
             specifier_rendered,
             specifier_text,
         ) == null,
     });
-    try output.put(allocator, "renderer_token_redacted", .{
+    try output.put("renderer_token_redacted", .{
         .bool = std.mem.indexOf(
             u8,
             grant_rendered,
@@ -1054,13 +1037,13 @@ fn liveFlow(
         workspace_id,
     );
 
-    var output = try Object.init(allocator, &.{}, &.{});
-    try output.put(allocator, "pinged", .{ .bool = pinged });
-    try output.put(allocator, "created", .{ .bool = true });
-    try output.put(allocator, "renamed", .{ .bool = renamed_ok });
-    try output.put(allocator, "listed", .{ .bool = listed });
-    try output.put(allocator, "closed", .{ .bool = true });
-    try output.put(allocator, "disappeared", .{ .bool = disappeared });
+    var output = Object.init(allocator);
+    try output.put("pinged", .{ .bool = pinged });
+    try output.put("created", .{ .bool = true });
+    try output.put("renamed", .{ .bool = renamed_ok });
+    try output.put("listed", .{ .bool = listed });
+    try output.put("closed", .{ .bool = true });
+    try output.put("disappeared", .{ .bool = disappeared });
     return .{ .object = output };
 }
 
@@ -1178,7 +1161,7 @@ fn liveCreationExit(
         return error.UnexpectedExitCode;
     }
 
-    var output = try Object.init(allocator, &.{}, &.{});
+    var output = Object.init(allocator);
     try putString(
         &output,
         allocator,
@@ -1186,7 +1169,6 @@ fn liveCreationExit(
         correlation_key,
     );
     try output.put(
-        allocator,
         "created_path",
         try createdTerminalPathValue(allocator, created_path),
     );
@@ -1222,7 +1204,6 @@ fn liveCreationExit(
         creation_generation,
     );
     try output.put(
-        allocator,
         "creation_revision",
         try decimal(allocator, creation_revision),
     );
@@ -1235,14 +1216,12 @@ fn liveCreationExit(
     );
     try putString(&output, allocator, "exit_lifecycle", "exited");
     try putString(&output, allocator, "exit_kind", "exit");
-    try output.put(allocator, "exit_code", .{ .integer = exit_code });
+    try output.put("exit_code", .{ .integer = exit_code });
     try output.put(
-        allocator,
         "exited_at",
         try decimal(allocator, exited.exited_at),
     );
     try output.put(
-        allocator,
         "exit_revision",
         try decimal(allocator, exited.revision),
     );
@@ -1322,7 +1301,7 @@ fn liveExitRestart(
         return error.DurableExitRevisionMismatch;
     }
 
-    var output = try Object.init(allocator, &.{}, &.{});
+    var output = Object.init(allocator);
     try putString(
         &output,
         allocator,
@@ -1330,7 +1309,6 @@ fn liveExitRestart(
         resolution.value.correlation_key,
     );
     try output.put(
-        allocator,
         "created_path",
         try createdTerminalPathValue(allocator, resolved_path),
     );
@@ -1353,7 +1331,6 @@ fn liveExitRestart(
         generation,
     );
     try output.put(
-        allocator,
         "creation_revision",
         try decimal(allocator, revision),
     );
@@ -1366,14 +1343,12 @@ fn liveExitRestart(
     );
     try putString(&output, allocator, "exit_lifecycle", "exited");
     try putString(&output, allocator, "exit_kind", "exit");
-    try output.put(allocator, "exit_code", .{ .integer = exit_code });
+    try output.put("exit_code", .{ .integer = exit_code });
     try output.put(
-        allocator,
         "exited_at",
         try decimal(allocator, exited.exited_at),
     );
     try output.put(
-        allocator,
         "exit_revision",
         try decimal(allocator, exited.revision),
     );
@@ -1497,8 +1472,8 @@ fn liveSetup(
                 duplicate_name,
             );
 
-        var output = try Object.init(allocator, &.{}, &.{});
-        try output.put(allocator, "pinged", .{ .bool = pinged });
+        var output = Object.init(allocator);
+        try output.put("pinged", .{ .bool = pinged });
         try putString(
             &output,
             allocator,
@@ -1506,12 +1481,10 @@ fn liveSetup(
             stable_id.slice(),
         );
         try output.put(
-            allocator,
             "stable_renamed",
             .{ .bool = stable_renamed },
         );
         try output.put(
-            allocator,
             "duplicate_ids",
             try workspaceIdArray(
                 allocator,
@@ -1526,12 +1499,10 @@ fn liveSetup(
             ambiguity_code,
         );
         try output.put(
-            allocator,
             "ambiguity_preserved_all_candidates",
             .{ .bool = preserved_candidates },
         );
         try output.put(
-            allocator,
             "no_mutation",
             .{ .bool = no_mutation },
         );
@@ -1636,24 +1607,22 @@ fn liveRestart(
         !containsWorkspace(remaining.items, duplicate_ids[0]) and
         !containsWorkspace(remaining.items, duplicate_ids[1]);
 
-    var output = try Object.init(allocator, &.{}, &.{});
-    try output.put(allocator, "same_ids", .{ .bool = same_ids });
+    var output = Object.init(allocator);
+    try output.put("same_ids", .{ .bool = same_ids });
     try output.put(
-        allocator,
         "stable_name_preserved",
         .{ .bool = stable_name_preserved },
     );
     try output.put(
-        allocator,
         "duplicates_preserved",
         .{ .bool = duplicates_preserved },
     );
-    try output.put(allocator, "closed", .{ .bool = true });
-    try output.put(allocator, "disappeared", .{ .bool = disappeared });
+    try output.put("closed", .{ .bool = true });
+    try output.put("disappeared", .{ .bool = disappeared });
     return .{ .object = output };
 }
 
-fn dispatch(allocator: Allocator, io: std.Io, request: Value) !Value {
+fn dispatch(allocator: Allocator, request: Value) !Value {
     const operation = try stringField(request, "op");
     if (std.mem.eql(u8, operation, "redaction")) {
         return redaction(allocator);
@@ -1661,7 +1630,7 @@ fn dispatch(allocator: Allocator, io: std.Io, request: Value) !Value {
 
     var client = try cmux.Client.connect(
         allocator,
-        clientOptions(io, request),
+        clientOptions(request),
     );
     defer client.deinit();
     if (std.mem.eql(u8, operation, "live-setup")) {
@@ -1727,30 +1696,25 @@ fn dispatch(allocator: Allocator, io: std.Io, request: Value) !Value {
     return error.UnknownOperation;
 }
 
-fn writeResponse(allocator: Allocator, io: std.Io, response: Value) !void {
+fn writeResponse(allocator: Allocator, response: Value) !void {
     const encoded = try std.json.Stringify.valueAlloc(
         allocator,
         response,
         .{},
     );
     defer allocator.free(encoded);
-    var stdout_buffer: [4096]u8 = undefined;
-    var stdout = std.Io.File.stdout().writerStreaming(io, &stdout_buffer);
-    try stdout.interface.writeAll(encoded);
-    try stdout.interface.writeAll("\n");
-    try stdout.end();
+    try std.fs.File.stdout().writeAll(encoded);
+    try std.fs.File.stdout().writeAll("\n");
 }
 
-pub fn main(init: std.process.Init) !void {
+pub fn main() !void {
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
     defer _ = debug_allocator.deinit();
     const allocator = debug_allocator.allocator();
 
-    var stdin_buffer: [4096]u8 = undefined;
-    var stdin = std.Io.File.stdin().readerStreaming(init.io, &stdin_buffer);
-    const input = try stdin.interface.allocRemaining(
+    const input = try std.fs.File.stdin().readToEndAlloc(
         allocator,
-        .limited(1024 * 1024),
+        1024 * 1024,
     );
     defer allocator.free(input);
     var parsed = try std.json.parseFromSlice(
@@ -1768,20 +1732,19 @@ pub fn main(init: std.process.Init) !void {
     var output_arena = std.heap.ArenaAllocator.init(allocator);
     defer output_arena.deinit();
     const output = output_arena.allocator();
-    var response = try Object.init(output, &.{}, &.{});
-    try response.put(output, "contract_version", .{ .integer = 2 });
+    var response = Object.init(output);
+    try response.put("contract_version", .{ .integer = 2 });
     const request_object = try asObject(parsed.value);
     try response.put(
-        output,
         "id",
         if (request_object.get("id")) |id|
             try cloneValue(output, id)
         else
             .null,
     );
-    const value = dispatch(output, init.io, parsed.value) catch |failure| {
-        try response.put(output, "ok", .{ .bool = false });
-        var encoded_error = try Object.init(output, &.{}, &.{});
+    const value = dispatch(output, parsed.value) catch |failure| {
+        try response.put("ok", .{ .bool = false });
+        var encoded_error = Object.init(output);
         try putString(&encoded_error, output, "kind", "adapter");
         try putString(
             &encoded_error,
@@ -1789,11 +1752,11 @@ pub fn main(init: std.process.Init) !void {
             "message",
             @errorName(failure),
         );
-        try response.put(output, "error", .{ .object = encoded_error });
-        try writeResponse(allocator, init.io, .{ .object = response });
+        try response.put("error", .{ .object = encoded_error });
+        try writeResponse(allocator, .{ .object = response });
         return;
     };
-    try response.put(output, "ok", .{ .bool = true });
-    try response.put(output, "value", value);
-    try writeResponse(allocator, init.io, .{ .object = response });
+    try response.put("ok", .{ .bool = true });
+    try response.put("value", value);
+    try writeResponse(allocator, .{ .object = response });
 }

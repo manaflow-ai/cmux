@@ -35,7 +35,7 @@ Use `--fake-only` while changing an adapter. `--no-build` reuses binaries in
 `conformance/.build`. `--no-codegen-check` is only for diagnosing stale
 generated SDK output.
 
-Set `CMUX_ZIG` when the supported Zig 0.16.0 executable is not named `zig`.
+Set `CMUX_ZIG` when the supported Zig 0.15.2 executable is not named `zig`.
 On macOS, a standalone Zig distribution may also need `DEVELOPER_DIR` and
 `SDKROOT`.
 

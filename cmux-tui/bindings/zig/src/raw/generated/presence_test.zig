@@ -9,13 +9,9 @@ fn expectExplicitNullRejected(
     comptime T: type,
     field_name: []const u8,
 ) !void {
-    var object = try wire.Object.init(
-        std.testing.allocator,
-        &.{},
-        &.{},
-    );
-    defer object.deinit(std.testing.allocator);
-    try object.put(std.testing.allocator, field_name, .null);
+    var object = wire.Object.init(std.testing.allocator);
+    defer object.deinit();
+    try object.put(field_name, .null);
     try std.testing.expectError(
         error.UnexpectedNull,
         wire.decode(T, std.testing.allocator, .{ .object = object }),

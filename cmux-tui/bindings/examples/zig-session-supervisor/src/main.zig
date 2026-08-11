@@ -1,22 +1,13 @@
 const std = @import("std");
 const supervisor_api = @import("session_supervisor");
 
-pub fn main(init: std.process.Init) !void {
+pub fn main() !void {
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
     defer _ = debug_allocator.deinit();
     const allocator = debug_allocator.allocator();
 
-    var args_iterator = try std.process.Args.Iterator.initAllocator(
-        init.minimal.args,
-        allocator,
-    );
-    defer args_iterator.deinit();
-    var args_list: std.ArrayList([]const u8) = .empty;
-    defer args_list.deinit(allocator);
-    while (args_iterator.next()) |argument| {
-        try args_list.append(allocator, argument);
-    }
-    const args = args_list.items;
+    const args = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, args);
     if (args.len < 8 or !std.mem.eql(u8, args[6], "--")) {
         return usage();
     }
@@ -49,7 +40,6 @@ pub fn main(init: std.process.Init) !void {
     var supervisor = try supervisor_api.SessionSupervisor.connect(
         allocator,
         .{
-            .io = init.io,
             .socket_path = args[1],
             .machine_name = args[2],
             .session_name = args[3],
