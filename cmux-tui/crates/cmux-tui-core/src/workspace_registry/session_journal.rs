@@ -513,11 +513,6 @@ pub(super) fn backfill_journal_event_index_kinds_page(
     };
     let archived_updates = if let Some(segment) = archived_segment {
         anyhow::ensure!(
-            usize::try_from(segment.3)? <= active_limit,
-            "journal segment {} exceeds the kind backfill record limit",
-            segment.0
-        );
-        anyhow::ensure!(
             usize::try_from(segment.6)? <= MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES,
             "journal segment {} exceeds the kind backfill byte limit",
             segment.0
@@ -529,6 +524,9 @@ pub(super) fn backfill_journal_event_index_kinds_page(
         )?;
         let mut updates = 0;
         for record in decoded.records {
+            if updates >= active_limit {
+                break;
+            }
             updates += statement.execute(params![
                 record.kind,
                 i64::try_from(record.sequence).context("journal sequence exceeds SQLite")?,

@@ -68,9 +68,12 @@ pub(super) fn apply_agent_projection_journal_record(
         }
         return Ok(());
     }
-    // The append and candidate are already durable. Leave projection work for
-    // ordered replay instead of rejecting a live event during a bounded rebuild.
-    if !rebuilding_generation_history && agent_projection_rebuild_active(transaction)? {
+    // Pre-journal migration still uses the stored projections as its baseline,
+    // so live events must update them before a later page snapshots that terminal.
+    // Once journal replay has a target, leave new work for that ordered replay.
+    if !rebuilding_generation_history
+        && agent_projection_journal_rebuild_target(transaction)?.is_some()
+    {
         return Ok(());
     }
     let current = stored_projection(transaction, &next.terminal_id)?;
