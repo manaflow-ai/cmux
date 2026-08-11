@@ -226,9 +226,7 @@ fn report_failure(direction: &str, error: &io::Error) {
 
 #[cfg(test)]
 fn report_test_write_timeout() {
-    if let Ok(signal) = WRITE_TIMEOUT_SIGNAL
-        .get_or_init(|| std::sync::Mutex::new(None))
-        .lock()
+    if let Ok(signal) = WRITE_TIMEOUT_SIGNAL.get_or_init(|| std::sync::Mutex::new(None)).lock()
         && let Some(signal) = signal.as_ref()
     {
         let _ = signal.try_send(());
@@ -237,10 +235,8 @@ fn report_test_write_timeout() {
 
 #[cfg(test)]
 fn install_test_write_timeout_signal(signal: std::sync::mpsc::SyncSender<()>) {
-    *WRITE_TIMEOUT_SIGNAL
-        .get_or_init(|| std::sync::Mutex::new(None))
-        .lock()
-        .unwrap() = Some(signal);
+    *WRITE_TIMEOUT_SIGNAL.get_or_init(|| std::sync::Mutex::new(None)).lock().unwrap() =
+        Some(signal);
 }
 
 #[cfg(test)]

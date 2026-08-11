@@ -2466,9 +2466,8 @@ mod tests {
             connection_id: id(connection_id),
             machine_id,
         };
-        let connector: MachineConnectFn = Arc::new(|_| {
-            anyhow::bail!("test connection must be served from the ready cache")
-        });
+        let connector: MachineConnectFn =
+            Arc::new(|_| anyhow::bail!("test connection must be served from the ready cache"));
         runtime.connections.register(key, connector);
         runtime.connection_registry.lock().unwrap().insert(key, open.clone());
         let lease = close_on_drop.then(|| {

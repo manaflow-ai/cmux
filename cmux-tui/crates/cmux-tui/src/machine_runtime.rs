@@ -451,17 +451,13 @@ impl MachineConnectCancellation {
     pub(crate) fn wait_until_cancelled(&self) {
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         while !self.is_cancelled() {
-            state = self
-                .changed
-                .wait(state)
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            state = self.changed.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner);
         }
     }
 }
 
-pub(crate) type MachineConnectFn = Arc<
-    dyn Fn(Arc<MachineConnectCancellation>) -> anyhow::Result<MachineConnection> + Send + Sync,
->;
+pub(crate) type MachineConnectFn =
+    Arc<dyn Fn(Arc<MachineConnectCancellation>) -> anyhow::Result<MachineConnection> + Send + Sync>;
 
 #[derive(Clone)]
 pub(crate) struct MachineConnectionHub {
@@ -657,12 +653,12 @@ impl MachineConnectionHub {
         connector: MachineConnectFn,
     ) -> std::io::Result<()> {
         let hub = self.clone();
-        std::thread::Builder::new()
-            .name(format!("machine-connect-{}", key.0))
-            .spawn(move || {
+        std::thread::Builder::new().name(format!("machine-connect-{}", key.0)).spawn(
+            move || {
                 let result = connector(Arc::clone(&attempt.cancellation));
                 hub.finish_attempt(key, attempt, result);
-            })?;
+            },
+        )?;
         Ok(())
     }
 
@@ -674,11 +670,7 @@ impl MachineConnectionHub {
     ) {
         let Ok(mut slots) = self.inner.slots.lock() else { return };
         let Some(slot) = slots.get_mut(&key) else { return };
-        if slot
-            .active_attempt
-            .as_ref()
-            .is_none_or(|active| active.id != attempt.id)
-        {
+        if slot.active_attempt.as_ref().is_none_or(|active| active.id != attempt.id) {
             return;
         }
         slot.active_attempt = None;
@@ -845,14 +837,17 @@ fn connect_target(
         MachineTargetConfig::Ssh { host, user, port, identity_file, session, binary } => {
             #[cfg(any(unix, windows))]
             {
-                let connected = crate::remote_cli::connect_managed_ssh(managed_ssh_options(
-                    host,
-                    user.as_deref(),
-                    *port,
-                    identity_file.as_deref(),
-                    session,
-                    binary,
-                )?, cancellation)?;
+                let connected = crate::remote_cli::connect_managed_ssh(
+                    managed_ssh_options(
+                        host,
+                        user.as_deref(),
+                        *port,
+                        identity_file.as_deref(),
+                        session,
+                        binary,
+                    )?,
+                    cancellation,
+                )?;
                 Ok(MachineConnection {
                     session: connected.session,
                     _lease: Some(Box::new(connected.lease)),

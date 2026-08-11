@@ -136,16 +136,11 @@ pub(crate) fn connect_managed_ssh(
     let _ = timeout_control.set_read_timeout(None);
     let _ = timeout_control.set_write_timeout(None);
     match connected {
-        Ok(remote) => Ok(ManagedSshConnection {
-            session: crate::session::Session::Remote(remote),
-            lease,
-        }),
+        Ok(remote) => {
+            Ok(ManagedSshConnection { session: crate::session::Session::Remote(remote), lease })
+        }
         Err(error) => {
-            let diagnostic = lease
-                .diagnostic
-                .lock()
-                .map(|value| value.clone())
-                .unwrap_or_default();
+            let diagnostic = lease.diagnostic.lock().map(|value| value.clone()).unwrap_or_default();
             if diagnostic.is_empty() {
                 Err(error).context("Windows SSH transport did not become ready")
             } else {
@@ -224,13 +219,15 @@ fn parse_windows_ssh_flags(args: &[String]) -> anyhow::Result<WindowsSshFlags> {
                 index += 1;
             }
             "--no-install" => index += 1,
-            "--session" | "--remote-binary" | "--remote-state-dir" | "--ssh-arg"
-            | "--connect-timeout-seconds" | "--state-dir" => {
+            "--session"
+            | "--remote-binary"
+            | "--remote-state-dir"
+            | "--ssh-arg"
+            | "--connect-timeout-seconds"
+            | "--state-dir" => {
                 let option = args[index].as_str();
-                let value = args
-                    .get(index + 1)
-                    .ok_or_else(|| anyhow!("{option} needs a value"))?
-                    .clone();
+                let value =
+                    args.get(index + 1).ok_or_else(|| anyhow!("{option} needs a value"))?.clone();
                 match option {
                     "--session" => session = value,
                     "--remote-binary" => remote_binary = value,
@@ -307,9 +304,8 @@ fn start_managed_ssh_bridge(
             let cancellation = Arc::clone(&worker_cancellation);
             let processes = Arc::clone(&worker_processes);
             let diagnostic = Arc::clone(&worker_diagnostic);
-            let _ = std::thread::Builder::new()
-                .name("windows-ssh-connection".into())
-                .spawn(move || {
+            let _ = std::thread::Builder::new().name("windows-ssh-connection".into()).spawn(
+                move || {
                     if let Err(error) = proxy_local_connection_over_ssh(
                         local,
                         &options,
@@ -320,7 +316,8 @@ fn start_managed_ssh_bridge(
                     {
                         *value = error.to_string();
                     }
-                });
+                },
+            );
         }
         let _ = std::fs::remove_file(&worker_path);
     })?;
@@ -360,9 +357,8 @@ fn proxy_local_connection_over_ssh(
     let upload_shutdown = local.try_clone_box()?;
     let saw_shutdown = Arc::new(AtomicBool::new(false));
     let upload_saw_shutdown = Arc::clone(&saw_shutdown);
-    let upload_thread = std::thread::Builder::new()
-        .name("windows-ssh-upload".into())
-        .spawn(move || {
+    let upload_thread =
+        std::thread::Builder::new().name("windows-ssh-upload".into()).spawn(move || {
             let mut buffer = [0_u8; 8 * 1024];
             let mut tail = Vec::new();
             loop {
@@ -373,8 +369,7 @@ fn proxy_local_connection_over_ssh(
                     Err(_) => break,
                 };
                 tail.extend_from_slice(&buffer[..size]);
-                if tail.windows(b"shutdown-daemon".len()).any(|bytes| bytes == b"shutdown-daemon")
-                {
+                if tail.windows(b"shutdown-daemon".len()).any(|bytes| bytes == b"shutdown-daemon") {
                     upload_saw_shutdown.store(true, Ordering::Release);
                 }
                 if tail.len() > 64 {
@@ -390,9 +385,8 @@ fn proxy_local_connection_over_ssh(
 
     let connection_diagnostic = Arc::new(Mutex::new(Vec::<u8>::new()));
     let stderr_bytes = Arc::clone(&connection_diagnostic);
-    let stderr_thread = std::thread::Builder::new()
-        .name("windows-ssh-stderr".into())
-        .spawn(move || {
+    let stderr_thread =
+        std::thread::Builder::new().name("windows-ssh-stderr".into()).spawn(move || {
             let mut buffer = [0_u8; 1024];
             while let Ok(size) = ssh_stderr.read(&mut buffer) {
                 if size == 0 {
@@ -439,17 +433,14 @@ fn parse_ssh_destination(destination: &str) -> anyhow::Result<(String, Option<u1
         !destination.starts_with('-') && !destination.chars().any(char::is_whitespace),
         "SSH destination is invalid"
     );
-    let url = url::Url::parse(&format!("ssh://{destination}"))
-        .context("SSH destination is invalid")?;
+    let url =
+        url::Url::parse(&format!("ssh://{destination}")).context("SSH destination is invalid")?;
     anyhow::ensure!(url.password().is_none(), "SSH destination cannot contain a password");
     anyhow::ensure!(matches!(url.path(), "" | "/"), "SSH destination cannot contain a path");
     let host = url.host_str().context("SSH destination must contain a host")?;
     let host = if host.contains(':') { format!("[{host}]") } else { host.to_owned() };
-    let destination = if url.username().is_empty() {
-        host
-    } else {
-        format!("{}@{host}", url.username())
-    };
+    let destination =
+        if url.username().is_empty() { host } else { format!("{}@{host}", url.username()) };
     Ok((destination, url.port()))
 }
 
@@ -466,10 +457,8 @@ fn validate_remote_component(value: &str, label: &str) -> anyhow::Result<()> {
 
 fn windows_remote_relay_command(options: &ManagedSshOptions) -> anyhow::Result<String> {
     validate_managed_ssh_options(options)?;
-    let mut command = format!(
-        "{} remote-relay --stdio --session {}",
-        options.remote_binary, options.session
-    );
+    let mut command =
+        format!("{} remote-relay --stdio --session {}", options.remote_binary, options.session);
     if let Some(state_dir) = &options.remote_state_dir {
         command.push_str(" --state-dir ");
         command.push_str(state_dir);

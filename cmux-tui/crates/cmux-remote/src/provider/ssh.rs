@@ -623,8 +623,7 @@ mod tests {
             binary: r"%LOCALAPPDATA%\cmux\bin\cmux-tui.exe".into(),
             shell: SshRemoteShell::WindowsCmd,
         };
-        let target_b =
-            SshRemoteTarget { binary: "remote-b".into(), shell: SshRemoteShell::Posix };
+        let target_b = SshRemoteTarget { binary: "remote-b".into(), shell: SshRemoteShell::Posix };
         let ready = Arc::new(std::sync::Barrier::new(2));
         std::thread::scope(|scope| {
             for (config, target) in [(&config_a, &target_a), (&config_b, &target_b)] {

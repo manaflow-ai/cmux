@@ -48,7 +48,8 @@ fn wait_for_mux_owner(owner: &mut Child, socket: &Path) {
             panic!("remote owner did not publish its mux socket within 15s: {stderr}");
         }
         let remaining = deadline.saturating_duration_since(Instant::now());
-        if let Some(status) = owner.wait_timeout(remaining.min(Duration::from_millis(20))).unwrap() {
+        if let Some(status) = owner.wait_timeout(remaining.min(Duration::from_millis(20))).unwrap()
+        {
             let mut stderr = String::new();
             owner.stderr.take().unwrap().read_to_string(&mut stderr).unwrap();
             panic!("remote owner exited before publishing its mux socket ({status}): {stderr}");

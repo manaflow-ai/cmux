@@ -832,9 +832,8 @@ fn scp_binary_for(ssh_binary: &str) -> PathBuf {
 }
 
 fn scp_remote_path(destination: &str, remote_filename: &str) -> String {
-    let (prefix, host) = destination
-        .rsplit_once('@')
-        .map_or(("", destination), |(user, host)| (user, host));
+    let (prefix, host) =
+        destination.rsplit_once('@').map_or(("", destination), |(user, host)| (user, host));
     let host = if host.contains(':') && !host.starts_with('[') {
         format!("[{host}]")
     } else {
