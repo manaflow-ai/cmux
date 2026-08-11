@@ -26,9 +26,8 @@ esac
 case "$RUNNER_NAME" in
   *[!A-Za-z0-9_-]*) fail "resolved runner name is malformed" ;;
 esac
-case "${WARPBUILD_RUNNER_SET_ID:-}" in
-  ''|*[!A-Za-z0-9_-]*) fail "WarpBuild provider identity is unavailable" ;;
-esac
+[ -n "${WARPBUILD_RUNNER_VERIFICATION_TOKEN:-}" ] \
+  || fail "WarpBuild provider identity is unavailable"
 
 # WarpBuild Cloud allocates a fresh VM for every job and destroys it when the
 # workflow completes. That process/filesystem boundary makes strict v3 receipt
