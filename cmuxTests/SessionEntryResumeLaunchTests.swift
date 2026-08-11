@@ -148,7 +148,8 @@ struct SessionEntryResumeLaunchTests {
         let workspace = Workspace(
             workingDirectory: launch.workingDirectory,
             initialTerminalInput: launch.initialInput,
-            initialTerminalStartupRestoreAgent: snapshot
+            initialTerminalStartupRestoreAgent: snapshot,
+            terminalClientComposition: .embedded()
         )
         defer { workspace.teardownAllPanels() }
         let panelID = try #require(workspace.focusedPanelId)
@@ -224,7 +225,8 @@ struct SessionEntryResumeLaunchTests {
             workingDirectory: launch.workingDirectory,
             initialTerminalInput: launch.initialInput,
             initialTerminalStartupRestoreAgent: restorableAgent,
-            agentSessionAutoResumeDefaults: defaults
+            agentSessionAutoResumeDefaults: defaults,
+            terminalClientComposition: .embedded()
         )
         defer { source.teardownAllPanels() }
         let sourcePanelID = try #require(source.focusedPanelId)
@@ -240,7 +242,10 @@ struct SessionEntryResumeLaunchTests {
 
         let encoded = try JSONEncoder().encode(persisted)
         let decoded = try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: encoded)
-        let restored = Workspace(agentSessionAutoResumeDefaults: defaults)
+        let restored = Workspace(
+            agentSessionAutoResumeDefaults: defaults,
+            terminalClientComposition: .embedded()
+        )
         defer { restored.teardownAllPanels() }
         let restoredPanelIDs = restored.restoreSessionSnapshot(decoded)
         let restoredPanelID = try #require(restoredPanelIDs[sourcePanelID])
