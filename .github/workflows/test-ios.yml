@@ -475,7 +475,9 @@ jobs:
           if [ "$CAPTURE_EVIDENCE" = "true" ]; then
             # The temporary hosted runner must draw the software keyboard so the
             # recording and XCUI geometry checks exercise the reported iOS 27 path.
+            pkill -x Simulator >/dev/null 2>&1 || true
             defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false
+            test "$(defaults read com.apple.iphonesimulator ConnectHardwareKeyboard)" = "0"
           fi
           for attempt in 1 2; do
             LOG_PATH="$IOS_DERIVED_DATA/logs/attempt-${attempt}.log"
@@ -484,6 +486,25 @@ jobs:
             xcrun simctl erase "$SIMULATOR_ID"
             xcrun simctl boot "$SIMULATOR_ID" >/dev/null 2>&1 || true
             xcrun simctl bootstatus "$SIMULATOR_ID" -b
+            if [ "$CAPTURE_EVIDENCE" = "true" ]; then
+              # A headless CoreSimulator boot does not load Simulator.app's host
+              # keyboard preference. Launch the GUI against this isolated UDID so
+              # ConnectHardwareKeyboard=false takes effect before XCTest starts.
+              open -a Simulator --args -CurrentDeviceUDID "$SIMULATOR_ID"
+              for _ in {1..50}; do
+                pgrep -x Simulator >/dev/null 2>&1 && break
+                sleep 0.2
+              done
+              pgrep -x Simulator >/dev/null
+              SIMULATOR_READY_SCREENSHOT="$IOS_DERIVED_DATA/simulator-ready-${attempt}.png"
+              for _ in {1..50}; do
+                if xcrun simctl io "$SIMULATOR_ID" screenshot "$SIMULATOR_READY_SCREENSHOT" >/dev/null 2>&1; then
+                  break
+                fi
+                sleep 0.2
+              done
+              test -s "$SIMULATOR_READY_SCREENSHOT"
+            fi
             ATTEMPT_ARGS=("${XCODEBUILD_ARGS[@]}")
             if [ "$CAPTURE_EVIDENCE" = "true" ]; then
               EVIDENCE_ATTEMPT="$IOS_EVIDENCE/attempt-${attempt}"
